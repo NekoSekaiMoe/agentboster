@@ -1,20 +1,36 @@
-/** Maximum steps in a single stream (prevents infinite loops). */
 export const DEFAULT_MAIN_MAX_STEPS = 30;
 
-/** Default context token limit. */
 export const DEFAULT_CONTEXT_LIMIT = 128_000;
 
-/** Number of recent rounds to keep in the sliding window. */
 export const DEFAULT_SLIDING_WINDOW_ROUNDS = 5;
 
-/** Token usage threshold for triggering compression (relative to context_limit). */
 export const DEFAULT_THRESHOLD_TO_SUMMARY = 0.8;
+
+export const COMPACTION_BUFFER = 20_000;
+
+export const MIN_PRESERVE_RECENT_TOKENS = 2_000;
+
+export const MAX_PRESERVE_RECENT_TOKENS = 8_000;
+
+export const DEFAULT_TAIL_TURNS = 2;
 
 export const DEFAULT_SYSTEM_PROMPT = `You are a helpful AI assistant. Answer concisely and accurately.`;
 
-export const DEFAULT_SUMMARY_PROMPT = `You are a conversation summarizer. Given the conversation below, produce a concise summary that captures all important context, decisions, and open questions. The summary will be used as long-term memory for future turns. Output ONLY the summary text, no preamble.`;
+export const DEFAULT_SUMMARY_PROMPT = `You are an anchored context summarization assistant.
 
-/** Workflow run statuses considered resumable. */
+Summarize the conversation history below. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.
+
+If the prompt includes a <previous-summary> block, treat it as the current anchored summary. Update it with the new history by preserving still-true details, removing stale details, and merging in new facts.
+
+Output a concise summary that captures:
+- Key decisions and their rationale
+- Important code changes or file modifications
+- Unresolved questions or pending tasks
+- User preferences and constraints
+- Critical context needed to continue the work
+
+Use terse bullets. Preserve exact file paths, commands, error strings, and identifiers when known. Do not mention that you are summarizing.`;
+
 export const ACTIVE_RUN_STATUSES = new Set([
   'pending',
   'running',

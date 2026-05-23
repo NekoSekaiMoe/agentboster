@@ -177,6 +177,7 @@ export const COMMANDS = [
   'help',
   'status',
   'new',
+  'init',
   'approve',
   'reject',
   'session',

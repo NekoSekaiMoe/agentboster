@@ -11,11 +11,7 @@ import type { ChatSource, UserMessagePart } from '@/types/workflow';
 import { DurableAgent } from '@workflow/ai/agent';
 import type { ModelMessage, StepResult, ToolSet } from 'ai';
 import { getWorkflowMetadata } from 'workflow';
-import {
-  DEFAULT_CONTEXT_LIMIT,
-  DEFAULT_MAIN_MAX_STEPS,
-  DEFAULT_THRESHOLD_TO_SUMMARY,
-} from './config';
+import { DEFAULT_MAIN_MAX_STEPS, DEFAULT_THRESHOLD_TO_SUMMARY } from './config';
 import { instructionHookBuilder } from './hooks';
 import {
   createWritable,
@@ -32,13 +28,18 @@ import {
 } from './steps/persist';
 import { createModelResolver } from './steps/resolve-model';
 import { buildAgentTools } from './tools';
+import { getTokenUsageTotal } from './types';
 import {
   MAIN_AGENT_NAME,
   getMainAgentModelId,
   getMainAgentTemperature,
 } from './utils/agent-config';
 import { estimatePromptTokens } from './utils/estimateTokens';
-import { shouldCompress } from './utils/shouldCompress';
+import {
+  resolveModelContextLimit,
+  resolveModelMaxOutputTokens,
+} from './utils/model-context';
+import { evaluateCompactionNeed } from './utils/shouldCompress';
 
 const logger = createLogger('workflow.agent');
 
@@ -183,8 +184,16 @@ export async function chatWorkflow(
     allowDelegation: true,
     writable,
   });
-  const contextLimit = config.models?.context_limit ?? DEFAULT_CONTEXT_LIMIT;
-  const outputLimit = config.models?.max_output_tokens;
+  const autoContextLimit = resolveModelContextLimit(
+    modelId,
+    config.models?.context_limit,
+  );
+  const contextLimit = autoContextLimit;
+  const configuredOutputLimit = config.models?.max_output_tokens;
+  const outputLimit = resolveModelMaxOutputTokens(
+    modelId,
+    configuredOutputLimit,
+  );
   const maxSteps = Math.max(
     1,
     config.autonomy?.max_steps ?? DEFAULT_MAIN_MAX_STEPS,
@@ -296,20 +305,38 @@ export async function chatWorkflow(
 
         let nextMessages = messages;
         const shouldForceCompact = mappedInstructions.forceCompact;
-        if (
-          shouldCompress(
-            totalTokensUsed,
-            contextLimit,
-            DEFAULT_THRESHOLD_TO_SUMMARY,
-            shouldForceCompact,
-          )
-        ) {
+
+        const compactionDecision = evaluateCompactionNeed({
+          totalTokensUsed,
+          contextLimit,
+          maxOutputTokens: outputLimit,
+          threshold: DEFAULT_THRESHOLD_TO_SUMMARY,
+          force: shouldForceCompact,
+        });
+
+        if (compactionDecision.shouldCompress) {
+          logger.info('compaction:triggered', {
+            sessionId,
+            reason: compactionDecision.isOverflow ? 'overflow' : 'threshold',
+            totalTokens: compactionDecision.totalTokens,
+            contextLimit: compactionDecision.contextLimit,
+            usageRatio: compactionDecision.usageRatio.toFixed(2),
+          });
+
           const compressed = await compactAndPersistSummaryStep({
             sessionId,
             config,
+            useTurnBasedSelection: true,
           });
           nextMessages = compressed.compressedMessages;
           totalTokensUsed = estimatePromptTokens(nextMessages);
+
+          if (compactionDecision.isOverflow) {
+            logger.info('compaction:overflow_recovered', {
+              sessionId,
+              tokensAfterCompression: totalTokensUsed,
+            });
+          }
         }
 
         if (mappedInstructions.promptMessages.length > 0) {
@@ -349,7 +376,12 @@ export async function chatWorkflow(
             ...buildStepDebugLog(step),
           });
           pendingPersistedInstructions = [];
-          totalTokensUsed += usage.totalTokens ?? 0;
+          const actualTokens = getTokenUsageTotal(usage);
+          if (actualTokens > 0) {
+            totalTokensUsed = actualTokens;
+          } else {
+            totalTokensUsed += estimatePromptTokens([{ content: step.text }]);
+          }
         } finally {
           stepStartedAt.delete(step.stepNumber);
         }

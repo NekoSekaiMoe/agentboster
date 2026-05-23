@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  BookOpen,
   Hash,
   Play,
   Search,
@@ -36,6 +37,11 @@ const COMMAND_METADATA: Record<
     description: 'Force context compaction',
     hint: '/compact',
     icon: Hash,
+  },
+  init: {
+    description: 'Generate or update AGENTS.md for this repository',
+    hint: '/init',
+    icon: BookOpen,
   },
   help: {
     description: 'Show slash command help',

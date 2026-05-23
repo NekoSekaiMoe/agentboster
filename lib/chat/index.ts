@@ -34,6 +34,7 @@ import {
   parseChatInputEnvelope,
 } from '@/types/workflow';
 import { normalizeUserMessageParts } from './attachment-processing';
+import { INIT_AGENTS_MD_MARKER, INIT_AGENTS_MD_PROMPT } from './init-prompt';
 import { serializeUserMessage } from './message-utils';
 import { deriveSessionTitle } from './session-title';
 
@@ -101,6 +102,7 @@ const COMMAND_HELP_TEXT = [
   '/help - Show slash command help',
   '/status - Show the current session status',
   '/new - Create and switch to a new session',
+  '/init - Generate or update AGENTS.md for this repository',
   '/session - Show the current bound session',
   '/session <session-id> - Switch to an existing session',
   '/stop - Stop the active workflow run',
@@ -541,6 +543,13 @@ async function executeCommand(input: {
         runId: null,
       };
     }
+    case 'init': {
+      return {
+        sessionId: currentSessionId,
+        text: '__INIT_AGENTS_MD__',
+        runId: session?.workflowRunId ?? null,
+      };
+    }
     case 'compact': {
       if (!session) {
         return {
@@ -721,6 +730,14 @@ export async function chatMain(
       source: envelope.source,
     });
 
+    if (command.text === INIT_AGENTS_MD_MARKER) {
+      return runInitAgentsMdWorkflow({
+        sessionId: command.sessionId,
+        source: envelope.source,
+        currentSession,
+      });
+    }
+
     return {
       kind: 'command',
       result: {
@@ -816,6 +833,48 @@ export async function chatMain(
     initialMessages,
     config,
     source: envelope.source,
+  });
+
+  return {
+    kind: 'message',
+    result: {
+      sessionId: session.id,
+      runId,
+      readable,
+    },
+  };
+}
+
+async function runInitAgentsMdWorkflow(input: {
+  sessionId: string;
+  source: ChatSource;
+  currentSession: SessionRecord;
+}): Promise<DispatchChatInputResult> {
+  const session = await ensureMessageSession({
+    sessionId: input.currentSession?.id ?? input.sessionId,
+    source: input.source,
+  });
+
+  const initUiMessageId = generateUUID();
+  await upsertUserMessage(
+    serializeUserMessage({
+      sessionId: session.id,
+      uiMessageId: initUiMessageId,
+      text: INIT_AGENTS_MD_PROMPT,
+      source: input.source,
+    }),
+  );
+
+  const config = await getConfig();
+  const initialMessages = await buildInitialContextMessages(session.id, {
+    modelId: config.models?.model ?? null,
+  });
+
+  const { runId, readable } = await startWorkflow({
+    sessionId: session.id,
+    initialMessages,
+    config,
+    source: input.source,
   });
 
   return {

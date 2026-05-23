@@ -1,8 +1,6 @@
 export function estimateTextTokens(text: string): number {
   const trimmed = text.trim();
-  if (!trimmed) {
-    return 0;
-  }
+  if (!trimmed) return 0;
   return Math.ceil(trimmed.length / 4);
 }
 
@@ -35,7 +33,24 @@ export function estimatePromptMessageTokens(
     ) {
       return total + estimateTextTokens(part.text);
     }
-
     return total;
   }, 0);
+}
+
+export function estimateMessageTokensFromUsage(
+  usage:
+    | { totalTokens?: number; inputTokens?: number; outputTokens?: number }
+    | unknown,
+): number {
+  if (!usage || typeof usage !== 'object') return 0;
+  const u = usage as {
+    totalTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  };
+  if (typeof u.totalTokens === 'number' && u.totalTokens > 0)
+    return u.totalTokens;
+  const input = typeof u.inputTokens === 'number' ? u.inputTokens : 0;
+  const output = typeof u.outputTokens === 'number' ? u.outputTokens : 0;
+  return input + output;
 }

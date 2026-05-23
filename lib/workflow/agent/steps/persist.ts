@@ -261,6 +261,7 @@ export async function initializeRunSessionStep(input: {
 export async function compactAndPersistSummaryStep(input: {
   sessionId: string;
   config: AppConfig;
+  useTurnBasedSelection?: boolean;
 }): Promise<CompressResult> {
   'use step';
 
@@ -269,6 +270,8 @@ export async function compactAndPersistSummaryStep(input: {
     sessionId: input.sessionId,
     config: input.config,
     slidingWindowRounds: 3,
+    previousSummary: current?.content,
+    useTurnBasedSelection: input.useTurnBasedSelection ?? true,
   });
 
   if (compressed.summaryText.length === 0) {

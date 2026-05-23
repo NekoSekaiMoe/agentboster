@@ -12,6 +12,7 @@ import {
   createSummaryModelMessage,
 } from '../context';
 import type { CompressResult } from '../types';
+import { estimatePromptTokens } from '../utils/estimateTokens';
 
 function formatConversation(messages: ModelMessage[]): string {
   return messages
@@ -31,21 +32,121 @@ function formatConversation(messages: ModelMessage[]): string {
     .join('\n\n');
 }
 
+interface Turn {
+  start: number;
+  end: number;
+}
+
+function identifyTurns(messages: ModelMessage[]): Turn[] {
+  const turns: Turn[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role !== 'user') continue;
+    turns.push({ start: i, end: messages.length });
+  }
+  for (let i = 0; i < turns.length - 1; i++) {
+    turns[i].end = turns[i + 1].start;
+  }
+  return turns;
+}
+
 function keepSlidingWindow(
   messages: ModelMessage[],
   rounds: number,
 ): ModelMessage[] {
-  return messages
-    .filter(
-      (message) => message.role === 'user' || message.role === 'assistant',
-    )
-    .slice(Math.max(0, messages.length - rounds));
+  if (rounds <= 0) return [];
+  if (messages.length === 0) return [];
+
+  const turns = identifyTurns(messages);
+  if (turns.length === 0) return messages.slice(-rounds * 2);
+
+  const recentTurns = turns.slice(-rounds);
+  if (recentTurns.length === 0) return [];
+
+  const startIdx = recentTurns[0].start;
+  return messages.slice(startIdx);
+}
+
+function selectHeadTail(
+  messages: ModelMessage[],
+  contextLimit: number,
+  maxOutputTokens: number,
+): { head: ModelMessage[]; tail: ModelMessage[] } {
+  if (messages.length === 0) return { head: [], tail: [] };
+
+  const usableBudget = Math.max(
+    2_000,
+    Math.min(8_000, Math.floor((contextLimit - maxOutputTokens) * 0.25)),
+  );
+
+  const turns = identifyTurns(messages);
+  if (turns.length <= 2) {
+    return { head: [], tail: messages };
+  }
+
+  const tailTurns = turns.slice(-2);
+  const tailStartIdx = tailTurns[0].start;
+  let tailTokens = 0;
+  for (let i = tailStartIdx; i < messages.length; i++) {
+    tailTokens += estimatePromptTokens([messages[i]]);
+  }
+
+  if (tailTokens <= usableBudget) {
+    return {
+      head: messages.slice(0, tailStartIdx),
+      tail: messages.slice(tailStartIdx),
+    };
+  }
+
+  const halfBudget = Math.floor(usableBudget / 2);
+  let accumulated = 0;
+  let splitIdx = tailStartIdx;
+  for (let i = tailStartIdx; i < messages.length; i++) {
+    accumulated += estimatePromptTokens([messages[i]]);
+    if (accumulated > halfBudget) {
+      splitIdx = i;
+      break;
+    }
+  }
+
+  return {
+    head: messages.slice(0, splitIdx),
+    tail: messages.slice(splitIdx),
+  };
+}
+
+function buildSummaryPrompt(
+  headMessages: ModelMessage[],
+  previousSummary?: string,
+): string {
+  const context = formatConversation(headMessages);
+
+  if (previousSummary) {
+    return `${DEFAULT_SUMMARY_PROMPT}
+
+<previous-summary>
+${previousSummary}
+</previous-summary>
+
+Update the anchored summary above using the conversation history below. Preserve still-true details, remove stale details, and merge in new facts. Output ONLY the updated summary.
+
+<conversation-history>
+${context}
+</conversation-history>`;
+  }
+
+  return `${DEFAULT_SUMMARY_PROMPT}
+
+<conversation-history>
+${context}
+</conversation-history>`;
 }
 
 export async function generateCompressedContext(input: {
   sessionId: string;
   config: AppConfig;
   slidingWindowRounds?: number;
+  previousSummary?: string;
+  useTurnBasedSelection?: boolean;
 }): Promise<CompressResult> {
   'use step';
 
@@ -66,22 +167,40 @@ export async function generateCompressedContext(input: {
     };
   }
 
+  const maxOutput = input.config.models?.max_output_tokens ?? 1024;
+  const contextLimit = input.config.models?.context_limit ?? 128_000;
+
+  let headMessages: ModelMessage[];
+  let tailMessages: ModelMessage[];
+
+  if (input.useTurnBasedSelection) {
+    const selection = selectHeadTail(modelMessages, contextLimit, maxOutput);
+    headMessages = selection.head;
+    tailMessages = selection.tail;
+  } else {
+    headMessages = modelMessages;
+    tailMessages = keepSlidingWindow(modelMessages, rounds);
+  }
+
+  if (headMessages.length === 0) {
+    return {
+      summaryText: '',
+      compressedMessages: modelMessagesToPrompt(modelMessages),
+    };
+  }
+
+  const summaryPrompt = buildSummaryPrompt(headMessages, input.previousSummary);
+
   const result = await generateText({
     model: resolveLanguageModel(modelId, input.config),
-    prompt: `${DEFAULT_SUMMARY_PROMPT}
-    
-${formatConversation(modelMessages)}`,
-    maxOutputTokens: Math.min(
-      input.config.models?.max_output_tokens ?? 1024,
-      1024,
-    ),
+    prompt: summaryPrompt,
+    maxOutputTokens: Math.min(maxOutput, 1024),
   });
 
   const summaryText = result.text.trim();
-  const recentMessages = keepSlidingWindow(modelMessages, rounds);
   const compressedMessages: LanguageModelV3Prompt = modelMessagesToPrompt([
     createSummaryModelMessage(summaryText),
-    ...recentMessages,
+    ...tailMessages,
   ]);
 
   return {
@@ -89,3 +208,5 @@ ${formatConversation(modelMessages)}`,
     compressedMessages,
   };
 }
+
+export { keepSlidingWindow, identifyTurns, selectHeadTail };
