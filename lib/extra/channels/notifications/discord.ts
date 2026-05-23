@@ -1,6 +1,7 @@
 import { createLogger } from '@/lib/utils/logger';
 import type { NotificationChannel } from '../notification-channel';
 import type {
+  DecisionNotification,
   NotificationPayload,
   NotificationSendResult,
 } from '../notification-types';
@@ -28,14 +29,7 @@ export class DiscordNotificationChannel implements NotificationChannel {
     payload: NotificationPayload,
   ): Promise<NotificationSendResult> {
     try {
-      const { embed, components } = this.renderPayload(payload);
-
-      const body: Record<string, unknown> = { embeds: [embed] };
-
-      // For decision notifications, add action row with buttons
-      if (payload.type === 'decision' && components.length > 0) {
-        body.components = components;
-      }
+      const body = this.buildBody(payload);
 
       const response = await fetch(
         `https://discord.com/api/v10/channels/${targetChatId}/messages`,
@@ -85,26 +79,34 @@ export class DiscordNotificationChannel implements NotificationChannel {
     return null;
   }
 
-  private renderPayload(payload: NotificationPayload): {
-    embed: Record<string, unknown>;
-    components: Array<Record<string, unknown>>;
-  } {
+  private buildBody(payload: NotificationPayload): Record<string, unknown> {
     if (payload.type === 'decision') {
       return {
-        embed: {
-          title: `⚠️ ${payload.title}`,
-          description: payload.body,
-          color: 0xffa500, // orange
-          fields: [
-            { name: '过期时间', value: payload.expiresAt, inline: true },
-          ],
-          timestamp: new Date().toISOString(),
-        },
-        components: [this.buildDecisionActionRow(payload)],
+        embeds: [
+          {
+            title: `⚠️ ${payload.title}`,
+            description: [
+              `任务：${payload.body}`,
+              `命令：\`${payload.command}\``,
+              `风险评分：${payload.score.toFixed(1)}/1.0`,
+              `原因：${payload.reason}`,
+              ``,
+              `请选择：`,
+            ].join('\n'),
+            color: 0xffa500,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+        components: this.buildDecisionComponents(payload),
       };
     }
 
-    // Completion notification
+    if (payload.type === 'l2_time_input') {
+      return {
+        content: payload.promptMessage,
+      };
+    }
+
     const color =
       payload.status === 'completed'
         ? 0x00ff00
@@ -143,43 +145,60 @@ export class DiscordNotificationChannel implements NotificationChannel {
     }
 
     return {
-      embed: {
-        title: `${this.statusEmoji(payload.status)} ${payload.title}`,
-        description: payload.summary,
-        color,
-        fields: fields.length > 0 ? fields : undefined,
-        timestamp: new Date().toISOString(),
+      embeds: [
+        {
+          title: `${this.statusEmoji(payload.status)} ${payload.title}`,
+          description: payload.summary,
+          color,
+          fields: fields.length > 0 ? fields : undefined,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+  }
+
+  private buildDecisionComponents(
+    payload: DecisionNotification,
+  ): Array<Record<string, unknown>> {
+    const taskId = payload.taskId;
+    const decisionId = payload.decisionId;
+
+    return [
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 1, // primary (blue)
+            label: 'pass once',
+            custom_id: `l2:pass_once:${taskId}:${decisionId}`,
+          },
+          {
+            type: 2,
+            style: 1, // primary (blue)
+            label: 'pass until...',
+            custom_id: `l2:pass_until:${taskId}:${decisionId}`,
+          },
+        ],
       },
-      components: [],
-    };
-  }
-
-  private buildDecisionActionRow(
-    payload: NotificationPayload,
-  ): Record<string, unknown> {
-    const buttons = payload.options.map((option) => ({
-      type: 2, // button
-      style: option === 'reject' ? 4 : 1, // red for reject, blue for others
-      label: this.optionLabel(option),
-      custom_id: option,
-    }));
-
-    return {
-      type: 1, // action row
-      components: buttons.slice(0, 5), // Discord limits 5 buttons per row
-    };
-  }
-
-  private optionLabel(option: string): string {
-    const labels: Record<string, string> = {
-      once: '仅此次',
-      '10min': '10分钟',
-      '1hour': '1小时',
-      '1day': '今天',
-      always: '会话内',
-      reject: '拒绝',
-    };
-    return labels[option] || option;
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 4, // danger (red)
+            label: 'reject once',
+            custom_id: `l2:reject_once:${taskId}:${decisionId}`,
+          },
+          {
+            type: 2,
+            style: 4, // danger (red)
+            label: 'reject until...',
+            custom_id: `l2:reject_until:${taskId}:${decisionId}`,
+          },
+        ],
+      },
+    ];
   }
 
   private statusEmoji(status: string): string {

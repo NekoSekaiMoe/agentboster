@@ -1,6 +1,7 @@
 import { createLogger } from '@/lib/utils/logger';
 import type { NotificationChannel } from '../notification-channel';
 import type {
+  DecisionNotification,
   NotificationPayload,
   NotificationSendResult,
 } from '../notification-types';
@@ -96,7 +97,7 @@ export class SlackNotificationChannel implements NotificationChannel {
   private renderPayload(payload: NotificationPayload): SlackRenderResult {
     if (payload.type === 'decision') {
       return {
-        text: `⚠️ ${payload.title}: ${payload.body}`,
+        text: `⚠️ ${payload.title}: ${payload.command}`,
         blocks: [
           {
             type: 'header',
@@ -104,26 +105,36 @@ export class SlackNotificationChannel implements NotificationChannel {
           },
           {
             type: 'section',
-            text: { type: 'mrkdwn', text: payload.body },
-          },
-          {
-            type: 'section',
-            text: { type: 'mrkdwn', text: `*过期时间:* ${payload.expiresAt}` },
+            text: {
+              type: 'mrkdwn',
+              text: [
+                `任务：${payload.body}`,
+                `命令：\`${payload.command}\``,
+                `风险评分：${payload.score.toFixed(1)}/1.0`,
+                `原因：${payload.reason}`,
+              ].join('\n'),
+            },
           },
           {
             type: 'actions',
-            elements: payload.options.map((option) => ({
-              type: 'button',
-              text: { type: 'plain_text', text: this.optionLabel(option) },
-              action_id: option,
-              style: option === 'reject' ? 'danger' : undefined,
-            })),
+            elements: this.buildDecisionActions(payload),
           },
         ],
       };
     }
 
-    // Completion notification
+    if (payload.type === 'l2_time_input') {
+      return {
+        text: payload.promptMessage,
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: payload.promptMessage },
+          },
+        ],
+      };
+    }
+
     const emoji = this.statusEmoji(payload.status);
     const fields: Array<Record<string, unknown>> = [];
 
@@ -171,16 +182,38 @@ export class SlackNotificationChannel implements NotificationChannel {
     };
   }
 
-  private optionLabel(option: string): string {
-    const labels: Record<string, string> = {
-      once: '仅此次',
-      '10min': '10分钟',
-      '1hour': '1小时',
-      '1day': '今天',
-      always: '会话内',
-      reject: '拒绝',
-    };
-    return labels[option] || option;
+  private buildDecisionActions(
+    payload: DecisionNotification,
+  ): Array<Record<string, unknown>> {
+    const taskId = payload.taskId;
+    const decisionId = payload.decisionId;
+
+    return [
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: '✅ pass once' },
+        action_id: `l2:pass_once:${taskId}:${decisionId}`,
+        style: 'primary',
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: '⏱ pass until...' },
+        action_id: `l2:pass_until:${taskId}:${decisionId}`,
+        style: 'primary',
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: '❌ reject once' },
+        action_id: `l2:reject_once:${taskId}:${decisionId}`,
+        style: 'danger',
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: '🔕 reject until...' },
+        action_id: `l2:reject_until:${taskId}:${decisionId}`,
+        style: 'danger',
+      },
+    ];
   }
 
   private statusEmoji(status: string): string {

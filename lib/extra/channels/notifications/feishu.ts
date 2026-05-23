@@ -1,6 +1,7 @@
 import { createLogger } from '@/lib/utils/logger';
 import type { NotificationChannel } from '../notification-channel';
 import type {
+  DecisionNotification,
   NotificationPayload,
   NotificationSendResult,
 } from '../notification-types';
@@ -54,7 +55,7 @@ export class FeishuNotificationChannel implements NotificationChannel {
     }
 
     this.accessToken = data.tenant_access_token;
-    this.tokenExpiresAt = Date.now() + 2 * 60 * 60 * 1000; // 2 hours
+    this.tokenExpiresAt = Date.now() + 2 * 60 * 60 * 1000;
     return this.accessToken;
   }
 
@@ -119,16 +120,16 @@ export class FeishuNotificationChannel implements NotificationChannel {
       const event = b.event as Record<string, unknown>;
       if (event.type === 'message' && typeof event.text === 'string') {
         const text = event.text.trim();
-        // Check if text matches a decision option
-        const validOptions = [
-          'once',
-          '10min',
-          '1hour',
-          '1day',
+        const validPrefixes = [
+          'l2:pass_once',
+          'l2:pass_until',
+          'l2:reject_once',
+          'l2:reject_until',
           'always',
-          'reject',
         ];
-        if (validOptions.includes(text)) return text;
+        for (const prefix of validPrefixes) {
+          if (text.startsWith(prefix)) return text;
+        }
       }
     }
     return null;
@@ -136,6 +137,9 @@ export class FeishuNotificationChannel implements NotificationChannel {
 
   private renderPayload(payload: NotificationPayload): Record<string, unknown> {
     if (payload.type === 'decision') {
+      const taskId = payload.taskId;
+      const decisionId = payload.decisionId;
+
       return {
         header: {
           title: { tag: 'plain_text', content: `⚠️ ${payload.title}` },
@@ -144,32 +148,70 @@ export class FeishuNotificationChannel implements NotificationChannel {
         elements: [
           {
             tag: 'div',
-            text: { tag: 'lark_md', content: payload.body },
-          },
-          {
-            tag: 'div',
             text: {
               tag: 'lark_md',
-              content: `**过期时间:** ${payload.expiresAt}`,
+              content: [
+                `任务：${payload.body}`,
+                `命令：${payload.command}`,
+                `风险评分：${payload.score.toFixed(1)}/1.0`,
+                `原因：${payload.reason}`,
+              ].join('\n'),
             },
           },
+          { tag: 'hr' },
           {
-            tag: 'hr',
+            tag: 'action',
+            actions: [
+              {
+                tag: 'button',
+                text: { tag: 'lark_md', content: '✅ pass once' },
+                type: 'default',
+                value: { action: `l2:pass_once:${taskId}:${decisionId}` },
+              },
+              {
+                tag: 'button',
+                text: { tag: 'lark_md', content: '⏱ pass until...' },
+                type: 'default',
+                value: { action: `l2:pass_until:${taskId}:${decisionId}` },
+              },
+            ],
           },
           {
             tag: 'action',
-            actions: payload.options.map((option) => ({
-              tag: 'button',
-              text: { tag: 'lark_md', content: this.optionLabel(option) },
-              type: option === 'reject' ? 'danger' : 'default',
-              value: { action: option },
-            })),
+            actions: [
+              {
+                tag: 'button',
+                text: { tag: 'lark_md', content: '❌ reject once' },
+                type: 'danger',
+                value: { action: `l2:reject_once:${taskId}:${decisionId}` },
+              },
+              {
+                tag: 'button',
+                text: { tag: 'lark_md', content: '🔕 reject until...' },
+                type: 'danger',
+                value: { action: `l2:reject_until:${taskId}:${decisionId}` },
+              },
+            ],
           },
         ],
       };
     }
 
-    // Completion notification
+    if (payload.type === 'l2_time_input') {
+      return {
+        header: {
+          title: { tag: 'plain_text', content: '⏱ 请输入时间' },
+          template: 'orange',
+        },
+        elements: [
+          {
+            tag: 'div',
+            text: { tag: 'lark_md', content: payload.promptMessage },
+          },
+        ],
+      };
+    }
+
     const color =
       payload.status === 'completed'
         ? 'green'
@@ -216,18 +258,6 @@ export class FeishuNotificationChannel implements NotificationChannel {
       },
       elements,
     };
-  }
-
-  private optionLabel(option: string): string {
-    const labels: Record<string, string> = {
-      once: '✅ 仅此次',
-      '10min': '⏱️ 10分钟',
-      '1hour': '🕐 1小时',
-      '1day': '📅 今天',
-      always: '♾️ 会话内',
-      reject: '❌ 拒绝',
-    };
-    return labels[option] || option;
   }
 
   private statusEmoji(status: string): string {

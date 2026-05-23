@@ -2,7 +2,7 @@ import type { AdapterName } from '@/types/config';
 
 // ─── Notification Types ──────────────────────────────────────────────
 
-export type NotificationType = 'decision' | 'completion';
+export type NotificationType = 'decision' | 'completion' | 'l2_time_input';
 
 export type NotificationStatus =
   | 'pending'
@@ -12,6 +12,19 @@ export type NotificationStatus =
   | 'fallback'
   | 'expired';
 
+// ─── L2 Authorization ────────────────────────────────────────────────
+
+export type L2Action = 'pass_once' | 'pass_until' | 'reject_once' | 'reject_until';
+
+export interface L2DecisionContext {
+  action: L2Action;
+  taskId: string;
+  decisionId: string;
+  awaitingTimeInput: boolean;
+  expiresAt?: string;
+  createdAt: string;
+}
+
 // ─── Decision Notification (L2 authorization) ────────────────────────
 
 export interface DecisionNotification {
@@ -20,8 +33,23 @@ export interface DecisionNotification {
   decisionId: string;
   title: string;
   body: string;
-  options: string[];
-  expiresAt: string; // ISO 8601
+  command: string;
+  score: number;
+  reason: string;
+  options: L2Action[];
+  expiresAt: string;
+}
+
+// ─── L2 Time Input Notification ──────────────────────────────────────
+
+export interface L2TimeInputNotification {
+  type: 'l2_time_input';
+  taskId: string;
+  decisionId: string;
+  action: 'pass_until' | 'reject_until';
+  title: string;
+  command: string;
+  promptMessage: string;
 }
 
 // ─── Completion Notification ─────────────────────────────────────────
@@ -42,7 +70,18 @@ export interface CompletionNotification {
   channelFallback: AdapterName[];
 }
 
-export type NotificationPayload = DecisionNotification | CompletionNotification;
+export type NotificationPayload = DecisionNotification | CompletionNotification | L2TimeInputNotification;
+
+// ─── L2 Confirm Request ──────────────────────────────────────────────
+
+export interface L2ConfirmRequest {
+  taskId: string;
+  decisionId: string;
+  action: L2Action;
+  timeInput?: string;
+  chatId: string;
+  userId?: string;
+}
 
 // ─── Notification Record (for DB persistence) ───────────────────────
 

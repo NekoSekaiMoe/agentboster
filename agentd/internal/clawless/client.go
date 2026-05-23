@@ -261,6 +261,15 @@ func (c *Client) LLMProxyRequest(ctx context.Context, req *LLMProxyRequest) ([]b
 	return io.ReadAll(resp.Body)
 }
 
+// CreateNotification creates a notification via the ClawLess API.
+func (c *Client) CreateNotification(ctx context.Context, notification *Notification) error {
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/notifications", notification)
+	if err != nil {
+		return err
+	}
+	return c.decodeResponse(resp, nil)
+}
+
 // HealthCheck verifies the ClawLess API is reachable.
 func (c *Client) HealthCheck(ctx context.Context) error {
 	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/health", nil)

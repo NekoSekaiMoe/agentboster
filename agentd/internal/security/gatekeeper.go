@@ -151,8 +151,14 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 			"task_id", task.ID, "score", l1Result.Score, "reason", l1Result.Reason)
 
 		// Check L2 cache
-		if entry, ok := g.l2.Check(task.Command); ok {
-			slog.Info("Gatekeeper: L2 cache hit", "task_id", task.ID, "window", entry.Window)
+		if entry, hit, rejected := g.l2.Check(task.Command); hit {
+			if rejected {
+				slog.Info("Gatekeeper: L2 cache reject", "task_id", task.ID, "pattern", entry.Pattern)
+				result.Decision = DecisionBlocked
+				result.Reason = "L2: rejected by cache"
+				return result, logs
+			}
+			slog.Info("Gatekeeper: L2 cache hit", "task_id", task.ID, "pattern", entry.Pattern)
 			result.Decision = DecisionAllowed
 			result.Reason = "L2: cached authorization"
 			return result, logs
@@ -167,7 +173,7 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 			"command":  task.Command,
 			"score":    l1Result.Score,
 			"reason":   l1Result.Reason,
-			"message":  l2_auth.FormatNotificationMessage(task.ID, task.Command, l1Result.Score, l1Result.Reason),
+			"message":  l2_auth.FormatNotificationMessage(task.Command, l1Result.Score, l1Result.Reason),
 		})
 
 		return result, logs

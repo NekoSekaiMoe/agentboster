@@ -11,14 +11,12 @@
 - 用户可以通过前端切换会话，IM 上通过 `/session <id>` 或 `/session new` 切换。
 - 会话之间完全隔离。Session A 里授权的 `always` 不会影响 Session B——即使两个会话是同一个用户、同一个 Agent。
 
-### TTL 的四个时间窗口
+### TTL 的自定义时间窗口
 
 | 选项 | 含义 | 生效范围 |
 |------|------|---------|
 | **once** | 仅此次操作 | 单次命令 |
-| **10min** | 10 分钟内同类操作自动放行 | 当前 Session 内，Agent Daemon 内存缓存，TTL 10 分钟 |
-| **1hour** | 1 小时内自动放行 | 当前 Session 内，TTL 1 小时 |
-| **1day** | 今天内自动放行 | 当前 Session 内，TTL 到当天 23:59:59 |
+| **custom time** | 仅此次操作并在自定义时间内都遵循本次选择 | 范围时间内 |
 | **always** | 本次会话内自动放行 | **仅当前 Session**，Session 结束（用户关闭/切换/删除）自动失效 |
 
 ### TTL 的隔离机制
@@ -29,7 +27,7 @@
 	    ├── TTL 缓存：Session 1 内存中，Docker 命令自动放行
 		
 		用户 A，Session 2（部署 payment-service）
-		    ├── L2 授权：1hour → 修改 docker-compose.yml
+		    ├── L2 授权：自定义时间(如一小时) → 修改 docker-compose.yml
 			    ├── TTL 缓存：Session 2 内存中，docker-compose 操作 1 小时内放行
 				    └── Session 1 的 always 授权**不影响** Session 2
 					```

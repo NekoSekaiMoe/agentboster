@@ -1,6 +1,8 @@
 import { createLogger } from '@/lib/utils/logger';
 import type { NotificationChannel } from '../notification-channel';
 import type {
+  DecisionNotification,
+  L2Action,
   NotificationPayload,
   NotificationSendResult,
 } from '../notification-types';
@@ -28,15 +30,12 @@ export class TelegramNotificationChannel implements NotificationChannel {
     payload: NotificationPayload,
   ): Promise<NotificationSendResult> {
     try {
-      const text = this.renderPayload(payload);
-
       const body: Record<string, unknown> = {
         chat_id: targetChatId,
-        text,
+        text: this.renderText(payload),
         parse_mode: 'Markdown',
       };
 
-      // For decision notifications, add inline keyboard
       if (payload.type === 'decision') {
         body.reply_markup = {
           inline_keyboard: this.buildDecisionKeyboard(payload),
@@ -84,31 +83,35 @@ export class TelegramNotificationChannel implements NotificationChannel {
   }
 
   parseDecisionReply(body: unknown): string | null {
-    // Handle callback_query from inline keyboard
     if (!body || typeof body !== 'object') return null;
     const b = body as Record<string, unknown>;
     if ('callback_query' in b) {
       const cq = b.callback_query as Record<string, unknown>;
       if ('data' in cq && typeof cq.data === 'string') {
-        return cq.data; // returns the option like "once", "10min", etc.
+        return cq.data;
       }
     }
     return null;
   }
 
-  private renderPayload(payload: NotificationPayload): string {
+  private renderText(payload: NotificationPayload): string {
     if (payload.type === 'decision') {
       return [
         `⚠️ *${this.escape(payload.title)}*`,
         ``,
-        `\`${payload.body}\``,
+        `任务：${this.escape(payload.body)}`,
+        `命令：\`${this.escape(payload.command)}\``,
+        `风险评分：${payload.score.toFixed(1)}/1.0`,
+        `原因：${this.escape(payload.reason)}`,
         ``,
-        `风险评分: ${payload.options.length > 0 ? '需要确认' : ''}`,
-        `过期时间: ${payload.expiresAt}`,
+        `请选择：`,
       ].join('\n');
     }
 
-    // Completion notification
+    if (payload.type === 'l2_time_input') {
+      return payload.promptMessage;
+    }
+
     const statusEmoji =
       payload.status === 'completed'
         ? '✅'
@@ -122,7 +125,7 @@ export class TelegramNotificationChannel implements NotificationChannel {
     ];
 
     if (payload.details) {
-      lines.push(``);
+      lines.push('');
       if (payload.details.subAgents)
         lines.push(`子 Agent: ${payload.details.subAgents}`);
       if (payload.details.filesChanged)
@@ -139,33 +142,21 @@ export class TelegramNotificationChannel implements NotificationChannel {
   }
 
   private buildDecisionKeyboard(
-    payload: NotificationPayload,
+    payload: DecisionNotification,
   ): Array<Array<{ text: string; callback_data: string }>> {
-    const options = payload.options;
-    const keyboard: Array<Array<{ text: string; callback_data: string }>> = [];
+    const taskId = payload.taskId;
+    const decisionId = payload.decisionId;
 
-    // Split into rows of 3
-    for (let i = 0; i < options.length; i += 3) {
-      const row = options.slice(i, i + 3).map((opt) => ({
-        text: this.optionLabel(opt),
-        callback_data: opt,
-      }));
-      keyboard.push(row);
-    }
-
-    return keyboard;
-  }
-
-  private optionLabel(option: string): string {
-    const labels: Record<string, string> = {
-      once: '✅ 仅此次',
-      '10min': '⏱️ 10分钟',
-      '1hour': '🕐 1小时',
-      '1day': '📅 今天',
-      always: '♾️ 会话内',
-      reject: '❌ 拒绝',
-    };
-    return labels[option] || option;
+    return [
+      [
+        { text: '✅ pass once', callback_data: `l2:pass_once:${taskId}:${decisionId}` },
+        { text: '⏱ pass until...', callback_data: `l2:pass_until:${taskId}:${decisionId}` },
+      ],
+      [
+        { text: '❌ reject once', callback_data: `l2:reject_once:${taskId}:${decisionId}` },
+        { text: '🔕 reject until...', callback_data: `l2:reject_until:${taskId}:${decisionId}` },
+      ],
+    ];
   }
 
   private escape(text: string): string {

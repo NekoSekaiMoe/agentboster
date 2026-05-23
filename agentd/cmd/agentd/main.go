@@ -87,7 +87,7 @@ func main() {
 	l0Engine := l0_rules.NewEngine()
 	l1Scorer := l1_scorer.NewL1Scorer(&cfg.Security)
 	l2Manager := l2_auth.NewL2AuthManager(nil, "default")
-	l2CleanupStop := l2Manager.StartCleanup(1 * time.Minute)
+	l2CleanupStop := l2Manager.StartCleanupWithInterval(1 * time.Minute)
 	defer l2CleanupStop()
 
 	bus := eventbus.New()

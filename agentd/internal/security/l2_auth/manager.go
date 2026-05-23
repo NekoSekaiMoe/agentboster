@@ -4,49 +4,55 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
 )
 
-// Window represents an authorization time window.
-type Window string
-
 const (
-	WindowOnce    Window = "once"
-	Window10Min   Window = "10min"
-	Window1Hour   Window = "1hour"
-	Window1Day    Window = "1day"
-	WindowAlways  Window = "always" // session-scoped
+	ActionPass   = "pass"
+	ActionReject = "reject"
+
+	// farFuture is used for "always" (session-scoped) entries.
+	farFuture = 365 * 24 * time.Hour
+
+	// cleanupInterval is the default interval for the cleanup worker.
+	cleanupInterval = 30 * time.Second
 )
+
+var durationRe = regexp.MustCompile(`^(always|\d{8})$`)
 
 // L2AuthEntry represents a cached authorization decision.
 type L2AuthEntry struct {
-	TaskID    string
-	Command   string
-	Window    Window
-	ExpiresAt time.Time
-	SessionID string
+	SessionID  string
+	Pattern    string
+	Action     string
+	ExpiresAt  time.Time
+	CreatedAt  time.Time
 }
 
-// L2AuthManager manages L2 interactive authorization (replicating Manboster TTL + escalation).
+// L2AuthManager manages L2 interactive authorization.
 type L2AuthManager struct {
-	mu         sync.RWMutex
-	entries    map[string]*L2AuthEntry // key = command pattern
-	clawless   *clawless.Client
-	agentID    string
-	sessionID  string
-	escalation time.Duration // timeout before escalating
+	mu            sync.RWMutex
+	entries       map[string]*L2AuthEntry // key = session_id + ":" + command_pattern
+	clawless      *clawless.Client
+	agentID       string
+	sessionID     string
+	escalation    time.Duration
+	decisionIDs   map[string]bool // dedup for duplicate decision callbacks
 }
 
 // NewL2AuthManager creates a new L2 auth manager.
 func NewL2AuthManager(client *clawless.Client, agentID string) *L2AuthManager {
 	return &L2AuthManager{
-		entries:    make(map[string]*L2AuthEntry),
-		clawless:   client,
-		agentID:    agentID,
-		escalation: 5 * time.Minute,
+		entries:     make(map[string]*L2AuthEntry),
+		clawless:    client,
+		agentID:     agentID,
+		escalation:  5 * time.Minute,
+		decisionIDs: make(map[string]bool),
 	}
 }
 
@@ -64,22 +70,33 @@ func (m *L2AuthManager) SetSession(sessionID string) {
 	m.sessionID = sessionID
 }
 
-// Check verifies if a command is authorized (cache hit).
-func (m *L2AuthManager) Check(command string) (*L2AuthEntry, bool) {
+// Check verifies if a command matches a cached authorization entry.
+//
+// Returns:
+//   - entry: the matched cache entry (nil if no hit)
+//   - hit:   true if a valid (non-expired) cache entry was found
+//   - rejected: true if the cache hit has Action="reject" (caller should silently reject)
+func (m *L2AuthManager) Check(pattern string) (*L2AuthEntry, bool, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	entry, ok := m.entries[command]
+	key := m.sessionID + ":" + pattern
+	entry, ok := m.entries[key]
 	if !ok {
-		return nil, false
+		return nil, false, false
 	}
 
 	if time.Now().After(entry.ExpiresAt) {
-		return nil, false
+		return nil, false, false
 	}
 
-	slog.Info("L2 auth cache hit", "command", command, "window", entry.Window, "expires", entry.ExpiresAt)
-	return entry, true
+	slog.Info("L2 auth cache hit",
+		"pattern", pattern,
+		"action", entry.Action,
+		"expires", entry.ExpiresAt,
+	)
+
+	return entry, true, entry.Action == ActionReject
 }
 
 // RequestAuthorization creates an authorization request and notifies the user via ClawLess.
@@ -91,57 +108,155 @@ func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless
 		"reason", reason,
 	)
 
-	// Notify user via ClawLess API (Phase 3: send message to user)
-	// For now, we log and return — the dispatcher will handle the notification
+	m.mu.RLock()
+	client := m.clawless
+	m.mu.RUnlock()
+
+	if client == nil {
+		slog.Error("L2 authorization: ClawLess client not configured")
+		return fmt.Errorf("clawless client not configured")
+	}
+
+	notification := clawless.Notification{
+		AgentID:  m.agentID,
+		TaskID:   task.ID,
+		Type:     "l2_auth_required",
+		Title:    "⚠️ 高风险操作需要您的授权",
+		Message:  FormatNotificationMessage(task.Command, score, reason),
+		Metadata: map[string]any{
+			"command": task.Command,
+			"score":   score,
+			"reason":  reason,
+		},
+	}
+
+	if err := client.CreateNotification(ctx, &notification); err != nil {
+		slog.Error("L2 authorization: failed to create notification",
+			"task_id", task.ID,
+			"error", err,
+		)
+		return fmt.Errorf("create notification: %w", err)
+	}
+
 	return nil
 }
 
-// Authorize records an authorization decision.
-func (m *L2AuthManager) Authorize(command string, window Window) error {
+// Authorize records a pass authorization decision for the given pattern and duration.
+//
+// Duration values:
+//   - "once" → don't write to cache (just return)
+//   - "always" → write cache with far-future expiry
+//   - "hhddmmyy" → parse and write cache with computed TTL
+func (m *L2AuthManager) Authorize(pattern string, duration string) error {
+	if duration == "once" {
+		slog.Info("L2 authorize once (no cache write)", "pattern", pattern)
+		return nil
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	var expiresAt time.Time
+	if duration == "always" {
+		expiresAt = time.Now().Add(farFuture)
+	} else {
+		ttl, err := ParseDuration(duration)
+		if err != nil {
+			return err
+		}
+		expiresAt = time.Now().Add(ttl)
+	}
+
+	key := m.sessionID + ":" + pattern
 	entry := &L2AuthEntry{
-		Command:   command,
-		Window:    window,
 		SessionID: m.sessionID,
+		Pattern:   pattern,
+		Action:    ActionPass,
+		ExpiresAt: expiresAt,
+		CreatedAt: time.Now(),
 	}
+	m.entries[key] = entry
 
-	switch window {
-	case WindowOnce:
-		entry.ExpiresAt = time.Now() // Only valid for immediate use
-	case Window10Min:
-		entry.ExpiresAt = time.Now().Add(10 * time.Minute)
-	case Window1Hour:
-		entry.ExpiresAt = time.Now().Add(1 * time.Hour)
-	case Window1Day:
-		entry.ExpiresAt = time.Now().Add(24 * time.Hour)
-	case WindowAlways:
-		// Session-scoped: set far future, cleared on session end
-		entry.ExpiresAt = time.Now().Add(365 * 24 * time.Hour)
-	default:
-		entry.ExpiresAt = time.Now().Add(10 * time.Minute)
-	}
-
-	m.entries[command] = entry
-	slog.Info("L2 authorized", "command", command, "window", window, "expires", entry.ExpiresAt)
+	slog.Info("L2 authorized",
+		"pattern", pattern,
+		"action", ActionPass,
+		"expires", expiresAt,
+	)
 	return nil
 }
 
-// Revoke removes an authorization entry.
-func (m *L2AuthManager) Revoke(command string) {
+// Reject records a reject authorization decision for the given pattern and duration.
+//
+// Duration values:
+//   - "once" → don't write to cache (just return)
+//   - "always" → write cache with far-future expiry
+//   - "hhddmmyy" → parse and write cache with computed TTL
+func (m *L2AuthManager) Reject(pattern string, duration string) error {
+	if duration == "once" {
+		slog.Info("L2 reject once (no cache write)", "pattern", pattern)
+		return nil
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.entries, command)
+
+	var expiresAt time.Time
+	if duration == "always" {
+		expiresAt = time.Now().Add(farFuture)
+	} else {
+		ttl, err := ParseDuration(duration)
+		if err != nil {
+			return err
+		}
+		expiresAt = time.Now().Add(ttl)
+	}
+
+	key := m.sessionID + ":" + pattern
+	entry := &L2AuthEntry{
+		SessionID: m.sessionID,
+		Pattern:   pattern,
+		Action:    ActionReject,
+		ExpiresAt: expiresAt,
+		CreatedAt: time.Now(),
+	}
+	m.entries[key] = entry
+
+	slog.Info("L2 rejected",
+		"pattern", pattern,
+		"action", ActionReject,
+		"expires", expiresAt,
+	)
+	return nil
 }
 
-// ClearSession removes all session-scoped entries.
+// MarkDecisionProcessed marks a decision ID as processed for dedup.
+// Returns true if this is the first time seeing this decision ID.
+func (m *L2AuthManager) MarkDecisionProcessed(decisionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.decisionIDs[decisionID] {
+		return false // already processed
+	}
+	m.decisionIDs[decisionID] = true
+	return true
+}
+
+// Revoke removes an authorization entry by pattern.
+func (m *L2AuthManager) Revoke(pattern string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := m.sessionID + ":" + pattern
+	delete(m.entries, key)
+}
+
+// ClearSession removes all entries for the given session.
 func (m *L2AuthManager) ClearSession(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for cmd, entry := range m.entries {
-		if entry.SessionID == sessionID || entry.Window == WindowAlways {
-			delete(m.entries, cmd)
+	for key, entry := range m.entries {
+		if entry.SessionID == sessionID {
+			delete(m.entries, key)
 		}
 	}
 	slog.Info("L2 session cleared", "session_id", sessionID)
@@ -152,15 +267,20 @@ func (m *L2AuthManager) ExpireStale() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
-	for cmd, entry := range m.entries {
+	for key, entry := range m.entries {
 		if now.After(entry.ExpiresAt) {
-			delete(m.entries, cmd)
+			delete(m.entries, key)
 		}
 	}
 }
 
-// StartCleanup starts a background goroutine to clean expired entries.
-func (m *L2AuthManager) StartCleanup(interval time.Duration) (stop func()) {
+// StartCleanup starts a background goroutine to clean expired entries every 30 seconds.
+func (m *L2AuthManager) StartCleanup() (stop func()) {
+	return m.StartCleanupWithInterval(cleanupInterval)
+}
+
+// StartCleanupWithInterval starts a background goroutine to clean expired entries.
+func (m *L2AuthManager) StartCleanupWithInterval(interval time.Duration) (stop func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -182,22 +302,38 @@ func (m *L2AuthManager) EscalationTimeout() time.Duration {
 	return m.escalation
 }
 
-// FormatNotificationMessage formats the L2 authorization notification.
-func FormatNotificationMessage(taskID, command string, score float64, reason string) string {
+// FormatNotificationMessage formats the L2 authorization notification per the design doc.
+func FormatNotificationMessage(command string, score float64, reason string) string {
 	return fmt.Sprintf(
 		"⚠️ 高风险操作需要您的授权\n\n"+
-			"任务 ID: %s\n"+
-			"命令: %s\n"+
-			"风险评分: %.2f/1.0\n"+
-			"原因: %s\n\n"+
-			"请选择授权时间窗口：\n"+
-			"- once: 仅此次\n"+
-			"- 10min: 10 分钟内同类操作自动放行\n"+
-			"- 1hour: 1 小时内\n"+
-			"- 1day: 今天内\n"+
-			"- always: 本次会话内\n"+
-			"- reject: 拒绝执行\n\n"+
-			"回复对应选项即可。",
-		taskID, command, score, reason,
+			"任务：%s\n"+
+			"命令：%s\n"+
+			"风险评分：%.1f/1.0\n"+
+			"原因：%s\n\n"+
+			"请选择：",
+		command, command, score, reason,
 	)
+}
+
+// ParseDuration parses the hhddmmyy format and returns a time.Duration.
+//
+// The format is: hh (hours) dd (days) mm (months) yy (years), each 2 digits.
+// For "always", returns 0 and always=true.
+// Returns an error for invalid formats.
+func ParseDuration(input string) (time.Duration, error) {
+	if !durationRe.MatchString(input) {
+		return 0, fmt.Errorf("invalid duration format %q: expected hhddmmyy or always", input)
+	}
+
+	hh, _ := strconv.Atoi(input[0:2])
+	dd, _ := strconv.Atoi(input[2:4])
+	mm, _ := strconv.Atoi(input[4:6])
+	yy, _ := strconv.Atoi(input[6:8])
+
+	d := time.Duration(hh)*time.Hour +
+		time.Duration(dd)*24*time.Hour +
+		time.Duration(mm)*30*24*time.Hour +
+		time.Duration(yy)*365*24*time.Hour
+
+	return d, nil
 }

@@ -125,6 +125,16 @@ type HealthResponse struct {
 	Uptime    string    `json:"uptime"`
 }
 
+// Notification represents a notification to be sent to the user via ClawLess.
+type Notification struct {
+	AgentID  string         `json:"agent_id"`
+	TaskID   string         `json:"task_id"`
+	Type     string         `json:"type"`
+	Title    string         `json:"title"`
+	Message  string         `json:"message"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
 // APIResponse is a generic API response wrapper.
 type APIResponse[T any] struct {
 	Success bool   `json:"success"`
