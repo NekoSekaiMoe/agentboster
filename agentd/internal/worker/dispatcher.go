@@ -1,12 +1,15 @@
 package worker
 
 import (
+	"context"
 	"log/slog"
+	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/eventbus"
 	"github.com/clawless/agentd/internal/sandbox"
-	"github.com/clawless/agentd/internal/security/l0_rules"
+	"github.com/clawless/agentd/internal/security"
+
 )
 
 // Dispatcher routes events from the bus to the appropriate worker pools.
@@ -17,16 +20,16 @@ type Dispatcher struct {
 	sandboxPool *Pool
 	memoryPool  *Pool
 	cleanupPool *Pool
-	l0Engine   *l0_rules.Engine
-	sbManager  *sandbox.Manager
-	clawless   *clawless.Client
+	gatekeeper  *security.Gatekeeper
+	sbManager   *sandbox.Manager
+	clawless    *clawless.Client
 }
 
 // NewDispatcher creates a dispatcher with all worker pools and dependencies.
 func NewDispatcher(
 	bus *eventbus.Bus,
 	numWorkers int,
-	l0Engine *l0_rules.Engine,
+	gk *security.Gatekeeper,
 	sbManager *sandbox.Manager,
 	clawlessClient *clawless.Client,
 ) *Dispatcher {
@@ -37,9 +40,9 @@ func NewDispatcher(
 		sandboxPool: NewPool("sandbox", numWorkers),
 		memoryPool:  NewPool("memory", 2),
 		cleanupPool: NewPool("cleanup", 1),
-		l0Engine:   l0Engine,
-		sbManager:  sbManager,
-		clawless:   clawlessClient,
+		gatekeeper:  gk,
+		sbManager:   sbManager,
+		clawless:    clawlessClient,
 	}
 	d.registerRoutes()
 	return d
@@ -64,7 +67,7 @@ func (d *Dispatcher) Stop() {
 }
 
 func (d *Dispatcher) registerRoutes() {
-	// Task created → L0 review
+	// Task created → Gatekeeper (L0→L1→L2)
 	d.bus.Subscribe(eventbus.EventTaskCreated, func(e eventbus.Event) {
 		d.reviewPool.Submit(func() {
 			d.handleTaskCreated(e)
@@ -111,9 +114,21 @@ func (d *Dispatcher) registerRoutes() {
 			d.handleL2Auth(e)
 		})
 	})
+
+	// L2 auth approved → re-approve task
+	d.bus.Subscribe(eventbus.EventL2AuthApproved, func(e eventbus.Event) {
+		d.reviewPool.Submit(func() {
+			d.handleL2AuthApproved(e)
+		})
+	})
+
+	// L2 auth rejected → reject task
+	d.bus.Subscribe(eventbus.EventL2AuthRejected, func(e eventbus.Event) {
+		d.bus.Publish(eventbus.EventTaskRejected, e.Payload)
+	})
 }
 
-// handleTaskCreated runs L0 check, then approves or rejects.
+// handleTaskCreated runs the full Gatekeeper audit (L0→L1→L2).
 func (d *Dispatcher) handleTaskCreated(e eventbus.Event) {
 	task, ok := e.Payload.(*clawless.Task)
 	if !ok {
@@ -121,40 +136,33 @@ func (d *Dispatcher) handleTaskCreated(e eventbus.Event) {
 		return
 	}
 
-	slog.Info("dispatch: task created, running L0 review", "task_id", task.ID)
+	slog.Info("dispatch: task created, running Gatekeeper audit", "task_id", task.ID)
 
-	// L0 security check
-	result, err := d.l0Engine.Check(task.Command, "")
-	if err != nil {
-		slog.Error("L0 check error", "task_id", task.ID, "error", err)
-		d.bus.Publish(eventbus.EventTaskFailed, task)
-		return
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	result, logs := d.gatekeeper.Audit(ctx, task, "")
+
+	// Write review logs
+	if len(logs) > 0 {
+		if err := d.clawless.WriteReviewLogs(ctx, logs); err != nil {
+			slog.Error("failed to write review logs", "task_id", task.ID, "error", err)
+		}
 	}
 
-	if result != nil && result.Blocked {
-		slog.Warn("L0 blocked task",
-			"task_id", task.ID,
-			"rule_id", result.Rule.ID,
-			"reason", result.Reason,
-		)
-		d.bus.Publish(eventbus.EventSecurityAlert, map[string]any{
-			"task_id":  task.ID,
-			"level":    "L0",
-			"decision": "blocked",
-			"reason":   result.Reason,
-			"command":  task.Command,
-		})
+	switch result.Decision {
+	case security.DecisionAllowed:
+		slog.Info("Gatekeeper: allowed", "task_id", task.ID, "reason", result.Reason)
+		d.bus.Publish(eventbus.EventTaskApproved, task)
+
+	case security.DecisionBlocked:
+		slog.Warn("Gatekeeper: blocked", "task_id", task.ID, "reason", result.Reason)
 		d.bus.Publish(eventbus.EventTaskRejected, task)
-		return
-	}
 
-	if result != nil {
-		slog.Info("L0 warn, proceeding", "task_id", task.ID, "rule_id", result.Rule.ID)
+	case security.DecisionPendingConfirm:
+		slog.Warn("Gatekeeper: pending L2 confirmation", "task_id", task.ID, "reason", result.Reason)
+		// Task is held — L2 auth handler will re-approve or reject
 	}
-
-	// L0 passed → approve
-	slog.Info("L0 check passed", "task_id", task.ID)
-	d.bus.Publish(eventbus.EventTaskApproved, task)
 }
 
 // handleTaskApproved creates sandbox and executes the command.
@@ -167,10 +175,8 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 
 	slog.Info("dispatch: task approved, executing in sandbox", "task_id", task.ID)
 
-	// Auto-select sandbox type
 	sbType := sandbox.SelectSandbox(task, nil)
 
-	// Create sandbox
 	sbSpec := sandbox.SandboxSpec{
 		Type:    sbType,
 		AgentID: task.AgentID,
@@ -182,10 +188,8 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 		return
 	}
 
-	// Publish sandbox created event
 	d.bus.Publish(eventbus.EventSandboxCreated, sb)
 
-	// Execute command
 	result, err := d.sbManager.Exec(sb.ID, task.Command, task.Env, task.Timeout)
 	if err != nil {
 		slog.Error("sandbox exec failed", "task_id", task.ID, "sandbox_id", sb.ID, "error", err)
@@ -200,13 +204,11 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 		"duration", result.Duration,
 	)
 
-	// Store result
 	task.Result = result.Stdout
 	if result.ExitCode != 0 {
 		task.Result += "\n[stderr]\n" + result.Stderr
 	}
 
-	// Destroy non-persistent sandbox
 	if !sb.Persistent {
 		if err := d.sbManager.DestroySandbox(sb.ID); err != nil {
 			slog.Warn("sandbox destroy failed", "sandbox_id", sb.ID, "error", err)
@@ -221,6 +223,17 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 	}
 }
 
+// handleL2AuthApproved re-approves a task after L2 authorization.
+func (d *Dispatcher) handleL2AuthApproved(e eventbus.Event) {
+	task, ok := e.Payload.(*clawless.Task)
+	if !ok {
+		slog.Error("dispatch: invalid task payload for L2 auth approved")
+		return
+	}
+	slog.Info("L2 auth approved, re-approving task", "task_id", task.ID)
+	d.bus.Publish(eventbus.EventTaskApproved, task)
+}
+
 func (d *Dispatcher) handleTaskCompleted(e eventbus.Event) {
 	slog.Info("dispatch: task completed, extracting memory", "type", e.Type)
 	// Phase 5: memory extraction
@@ -232,10 +245,12 @@ func (d *Dispatcher) handleSandboxEvent(e eventbus.Event) {
 
 func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
 	slog.Warn("dispatch: security alert", "type", e.Type)
-	// Phase 3: L1/L2 handling
 }
 
 func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 	slog.Info("dispatch: L2 auth required", "type", e.Type)
-	// Phase 3: L2 authorization
+	// The L2 auth notification is already sent by the Gatekeeper.
+	// This handler can be used for escalation if L2 times out.
 }
+
+

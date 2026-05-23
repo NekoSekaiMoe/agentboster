@@ -3,6 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,23 +13,19 @@ import (
 
 // SandboxProvider is the interface for sandbox implementations.
 type SandboxProvider interface {
-	// Create creates a new sandbox.
 	Create(spec SandboxSpec) (*Sandbox, error)
-	// Exec executes a command inside the sandbox.
 	Exec(sandboxID string, cmd string, env map[string]string, timeout int) (*ExecResult, error)
-	// Destroy destroys the sandbox.
 	Destroy(sandboxID string) error
-	// Status returns the current sandbox status.
 	Status(sandboxID string) (*Sandbox, error)
 }
 
 // SandboxSpec defines how to create a sandbox.
 type SandboxSpec struct {
-	Type        string            // tmpfs, chroot, docker
+	Type        string
 	AgentID     string
 	Persistent  bool
-	Image       string            // Docker image
-	RootFSPath  string            // chroot root filesystem path
+	Image       string
+	RootFSPath  string
 	Mounts      []Mount
 	Environment map[string]string
 	WorkDir     string
@@ -45,8 +42,8 @@ type Mount struct {
 type Sandbox struct {
 	ID         string
 	Type       string
-	Path       string // local path or container ID
-	Status     string // creating, ready, destroyed
+	Path       string
+	Status     string
 	Persistent bool
 	CreatedAt  time.Time
 }
@@ -67,7 +64,7 @@ type Manager struct {
 	config    *config.Config
 }
 
-// NewManager creates a new sandbox manager.
+// NewManager creates a new sandbox manager with all built-in providers.
 func NewManager(cfg *config.Config) *Manager {
 	m := &Manager{
 		providers: make(map[string]SandboxProvider),
@@ -75,10 +72,10 @@ func NewManager(cfg *config.Config) *Manager {
 		config:    cfg,
 	}
 
-	// Register built-in providers
+	// Register all built-in providers
 	m.providers["tmpfs"] = NewTmpfsProvider(cfg.Sandbox.TmpfsSize, cfg.Sandbox.ChrootBase)
-	// Phase 4: m.providers["chroot"] = NewChrootProvider(cfg.Sandbox.ChrootBase)
-	// Phase 4: m.providers["docker"] = NewDockerProvider(cfg.Sandbox.DockerSocket)
+	m.providers["chroot"] = NewChrootProvider(cfg.Sandbox.ChrootBase)
+	m.providers["docker"] = NewDockerProvider(cfg.Sandbox.DockerSocket)
 
 	return m
 }
@@ -192,24 +189,35 @@ func (m *Manager) ListSandboxes() []*Sandbox {
 	return result
 }
 
-// SelectSandbox chooses the appropriate sandbox type for a task (replicating tasks.md 5.3).
+// SelectSandbox chooses the appropriate sandbox type for a task.
+// Selection priority:
+//  1. User explicit setting (task.SandboxType)
+//  2. High-risk commands → Docker (strong isolation)
+//  3. Persistence-needed commands → chroot (persistent filesystem)
+//  4. Agent default config
+//  5. Fallback → tmpfs (lightweight, non-persistent)
 func SelectSandbox(task *clawless.Task, agentCfg *clawless.AgentConfig) string {
-	// User explicit setting
+	// 1. User explicit setting
 	if task.SandboxType != "" && task.SandboxType != "auto" {
 		return task.SandboxType
 	}
 
-	// Auto-select based on command risk and persistence needs
+	// 2. High-risk commands → Docker (strongest isolation)
 	if isHighRisk(task.Command) {
 		return "docker"
 	}
+
+	// 3. Commands needing persistent environment → chroot
 	if needsPersistence(task.Command) {
 		return "chroot"
 	}
-	// Fall back to agent default
-	if agentCfg.DefaultSandbox != "" {
+
+	// 4. Agent default config
+	if agentCfg != nil && agentCfg.DefaultSandbox != "" {
 		return agentCfg.DefaultSandbox
 	}
+
+	// 5. Default: tmpfs (lightweight, non-persistent, fastest)
 	return "tmpfs"
 }
 
@@ -246,15 +254,5 @@ func needsPersistence(command string) bool {
 }
 
 func containsPattern(s, pattern string) bool {
-	// Simple substring match — L0 engine handles precise matching
-	return len(s) > 0 && len(pattern) > 0 && contains(s, pattern)
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return len(s) > 0 && len(pattern) > 0 && strings.Contains(s, pattern)
 }

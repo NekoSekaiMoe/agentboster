@@ -76,7 +76,8 @@
   "license": "MIT",
   "name": "clawless",
   "private": true,
-  "scripts": {
+    "scripts": {
+    "push": "python3 push.py",
     "build": "next build",
     "check": "tsc --noEmit && biome check . --write",
     "db:ensure-vector": "yarn run scripts/ensure-vector-extension.ts",
