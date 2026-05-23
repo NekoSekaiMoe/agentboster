@@ -1,9 +1,12 @@
 package worker
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/clawless/agentd/internal/agent"
@@ -197,14 +200,64 @@ func (d *Dispatcher) handleTaskCompleted(e eventbus.Event) {
 		return
 	}
 
-	slog.Info("dispatch: task completed, extracting memory", "task_id", task.ID)
+	slog.Info("dispatch: task completed, extracting memory and sending notification", "task_id", task.ID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	// Extract memory
 	if err := d.agentManager.ExtractMemory(ctx, task); err != nil {
 		slog.Warn("memory extraction failed", "task_id", task.ID, "error", err)
 	}
+
+	// Send completion notification via ClawLess API
+	d.sendCompletionNotification(ctx, task)
+}
+
+func (d *Dispatcher) sendCompletionNotification(ctx context.Context, task *clawless.Task) {
+	// Determine status from task
+	status := "completed"
+	if task.Status == "failed" {
+		status = "failed"
+	} else if task.Status == "cancelled" {
+		status = "cancelled"
+	}
+
+	notification := map[string]any{
+		"type":    "completion",
+		"task_id": task.ID,
+		"status":  status,
+	"title":   fmt.Sprintf("Task %s", status),
+		"summary": truncateStr(task.Result, 500),
+	}
+
+	// POST to ClawLess notification API
+	clawlessURL := d.clawless.BaseURL
+	if clawlessURL == "" {
+		return
+	}
+
+	notifCtx, notifCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer notifCancel()
+
+	body, _ := json.Marshal(notification)
+	req, err := http.NewRequestWithContext(notifCtx, http.MethodPost,
+		fmt.Sprintf("%s/api/agentd/v1/notifications/send", clawlessURL),
+		bytes.NewReader(body))
+	if err != nil {
+		slog.Warn("failed to create notification request", "task_id", task.ID, "error", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.clawless.HTTPClient.Do(req)
+	if err != nil {
+		slog.Warn("notification send failed", "task_id", task.ID, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	slog.Info("completion notification sent", "task_id", task.ID, "status", resp.StatusCode)
 }
 
 func (d *Dispatcher) handleL2AuthApproved(e eventbus.Event) {
@@ -215,6 +268,13 @@ func (d *Dispatcher) handleL2AuthApproved(e eventbus.Event) {
 	}
 	slog.Info("L2 auth approved, re-approving task", "task_id", task.ID)
 	d.bus.Publish(eventbus.EventTaskApproved, task)
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 func (d *Dispatcher) handleSandboxEvent(e eventbus.Event) {

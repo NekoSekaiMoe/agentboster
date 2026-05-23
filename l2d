@@ -1,0 +1,366 @@
+# AgentClaw L2 交互授权按钮设计文档
+
+> 本文档指导 LLM 在 Agent Daemon 和 ClawLess 前端实现 L2 时间窗口授权的四个按钮及其完整交互流程。
+
+---
+
+## 1. 概述
+
+AgentClaw 的 L2 交互授权使用四个按钮，对称管理放行和拒绝，支持用户自定义时间窗口或输入 `always` 绑定当前会话。按钮在 Web UI 和 Telegram/Discord/Slack/飞书四个 IM 上统一可用。
+
+---
+
+## 2. 四个按钮
+
+### 2.1 按钮定义
+
+| 按钮 | 内部标识 | 含义 | 后续行为 |
+|------|---------|------|---------|
+| **pass once** | `pass_once` | 仅此次放行 | 同类操作下次再问 |
+| **pass until...** | `pass_until` | 放行到指定时间 | 用户输入 `hhddmmyy` 或 `always`，到期前同类操作自动放行 |
+| **reject once** | `reject_once` | 拒绝此次操作 | 任务继续（如果有替代方案）或终止 |
+| **reject until...** | `reject_until` | 拒绝并沉默到指定时间 | 用户输入 `hhddmmyy` 或 `always`，到期前同类操作自动拒绝且不弹窗 |
+
+### 2.2 按钮布局
+
+**Web UI（内联决策卡片）**：
+```
+[pass once]  [pass until...]
+[reject once]  [reject until...]
+```
+
+**Telegram（Inline Keyboard）**：
+```json
+{
+  "inline_keyboard": [
+      [
+            {"text": "pass once", "callback_data": "l2:pass_once:{task_id}:{decision_id}"},
+	          {"text": "pass until...", "callback_data": "l2:pass_until:{task_id}:{decision_id}"}
+		      
+],
+    [
+          {"text": "reject once", "callback_data": "l2:reject_once:{task_id}:{decision_id}"},
+	        {"text": "reject until...", "callback_data": "l2:reject_until:{task_id}:{decision_id}"}
+		    
+]
+  
+]
+
+}
+```
+
+**Discord（Button Row）**、**Slack（Block Actions）**、**飞书（Card 按钮）** 参照 Telegram 的布局，两行各两个按钮，`callback_data` 格式统一为 `l2:{action}:{task_id}:{decision_id}`。
+
+---
+
+## 3. 自定义时间输入
+
+### 3.1 触发
+
+用户点击 `pass until...` 或 `reject until...` 后，Bot 不立即执行，而是提示用户输入时间。Web UI 弹出一个输入框，IM 上 Bot 回复一条消息。
+
+### 3.2 提示消息模板
+
+```
+⏱️ 请回复时间
+
+格式：hhddmmyy（时-日-月-年，不足两位补零）
+或输入 always = 本次会话有效
+
+示例：
+01000000 = 1小时
+02300000 = 2小时30分
+00010000 = 1天
+00000100 = 1月
+always  = 本次会话内有效
+```
+
+### 3.3 时间格式规则
+
+`hhddmmyy` 每个字段占两位，从左到右：
+
+| 字段 | 范围 | 说明 |
+|------|------|------|
+| `hh` | 00-99 | 小时数 |
+| `dd` | 00-99 | 天数 |
+| `mm` | 00-12 | 月数 |
+| `yy` | 00-99 | 年数 |
+
+计算规则：`TTL = 当前时间 + hh小时 + dd天 + mm月 + yy年`
+
+### 3.4 合法输入示例
+
+| 用户输入 | 解析结果 | TTL |
+|------|------|------|
+| `01000000` | 1小时0天0月0年 | 当前时间 + 1小时 |
+| `02300000` | 2小时30天？不对，0230 = 02小时30分，即2.5小时 | 当前时间 + 2.5小时 |
+| `00010000` | 0小时1天0月0年 | 当前时间 + 1天 |
+| `00000100` | 0小时0天1月0年 | 当前时间 + 1月 |
+| `00000001` | 0小时0天0月1年 | 当前时间 + 1年 |
+| `12000000` | 12小时 | 当前时间 + 12小时 |
+| `always` | 特殊值 | Session 结束时间 |
+
+注意：`hh` 字段只存小时数。如果需要分钟精度，用户输入 `02300000` 表示 2小时30分（即 2.5小时），Agent Daemon 解析时识别 `hh` 后是否带小数。**简化方案：`hh` 只支持整数小时，最小粒度 1 小时。用户输入 `00010000` = 1天，不支持 `1.5天`。如需更细粒度，组合使用：`12000000` = 12小时。**
+
+### 3.5 非法输入处理
+
+| 用户输入 | Bot 回复 |
+|------|------|
+| `1h` | ⚠️ 格式错误。请输入 8 位数字（hhddmmyy）或 always。`01000000`=1小时，`00010000`=1天 |
+| `30min` | 同上 |
+| `tomorrow` | 同上 |
+| `abc` | 同上 |
+| `0100` | ⚠️ 长度不足。请输入 8 位数字（hhddmmyy）或 always |
+| 空 / 超时 | 超时未输入，视为放弃。任务继续保持 L2 等待状态 |
+
+Agent Daemon 用正则验证：`^(always|\d{8})$`。不匹配的一律返回格式错误提示。不调 LLM 解析，纯规则引擎。
+
+### 3.6 超时处理
+
+用户点击 `pass until...` 或 `reject until...` 后，Bot 等待 3 分钟。3 分钟内未收到时间输入，Bot 回复：
+
+```
+⏰ 时间输入超时。任务仍等待您的授权。
+
+请重新点击按钮或直接回复 once/always：
+[pass once] [always]
+[reject once] [reject always]
+```
+
+超时后退化为简化按钮（只有 once 和 always），不再让用户输入自定义时间。
+
+---
+
+## 4. 完整交互流程
+
+### 4.1 主流程
+
+```
+1. Agent Daemon L1 返回高风险（score ≥ 0.7）
+2. Agent Daemon 通过 ClawLess API 创建决策请求
+3. ClawLess 向用户的首选 IM 渠道发送决策消息（含四个按钮 + 命令详情 + 风险评分）
+4. 用户点击按钮：
+   ├── pass once → 步骤 5
+      ├── pass until... → 步骤 6
+         ├── reject once → 步骤 7
+	    └── reject until... → 步骤 8
+	    5. Agent Daemon 执行命令。L2 授权缓存不更新。流程结束。
+	    6. Bot 提示输入时间 → 用户输入 → Agent Daemon 缓存授权（TTL = 指定时间），执行命令。流程结束。
+	    7. Agent Daemon 不执行命令。任务继续或终止。L2 授权缓存不更新。流程结束。
+	    8. Bot 提示输入时间 → 用户输入 → Agent Daemon 缓存拒绝（TTL = 指定时间），不执行命令。期间同类操作自动拒绝不弹窗。流程结束。
+	    ```
+
+### 4.2 授权缓存管理
+
+**Agent Daemon 内存缓存结构**：
+
+```
+L2AuthCache {
+    entries: map[string]*L2AuthEntry
+        // key = session_id + command_pattern
+	
+}
+
+L2AuthEntry {
+    SessionID  string
+        Pattern    string    // 命令模式，如 "docker*", "rm*"
+	    Action     string    // "pass" 或 "reject"
+	        ExpiresAt  time.Time // 过期时间
+		    CreatedAt  time.Time
+		    
+}
+```
+
+**缓存规则**：
+- `pass once` 和 `reject once`：不写入缓存。只影响当前这次操作。
+- `pass until {time}`：写入缓存，`Action=pass, ExpiresAt=当前时间+用户指定时间`。到期前同类命令自动放行，不触发 L2。
+- `reject until {time}`：写入缓存，`Action=reject, ExpiresAt=当前时间+用户指定时间`。到期前同类命令自动拒绝，**不弹窗、不通知用户**，Agent Daemon 返回 `"rejected by L2 cache"`。
+- `always`：写入缓存，`ExpiresAt=Session结束时间`。
+
+**CleanupWorker 清理**：
+- 每 30 秒扫描 `L2AuthCache`，删除 `ExpiresAt < now()` 的条目。
+- Session 关闭时（用户通过 Web/IM 关闭或超时），删除该 Session 的所有 `L2AuthEntry`。
+
+### 4.3 通知多渠道同步
+
+```
+1. 首选 IM 发送决策消息
+2. 用户 3 分钟内未响应（未点击任何按钮）
+   → 切换到备用 IM 1，重新发送决策消息
+   3. 备用 IM 1 3 分钟内未响应
+      → 切换到备用 IM 2
+      4. 全部 IM 未响应
+         → 任务挂起（status = waiting_user）
+	    → 用户下次在任何 IM 上发消息即视为"上线"
+	       → Agent Daemon 重新推送待处理决策列表
+	       ```
+
+用户点击按钮的回复通过 Webhook 回调 ClawLess API `/api/agentd/v1/l2-confirm`，Agent Daemon 处理。如果用户在多个 IM 上重复点击，Agent Daemon 用 `decision_id` 做幂等去重（第一次处理，后续返回"已处理"）。
+
+---
+
+## 5. 消息模板
+
+### 5.1 初始决策消息
+
+```
+⚠️ 高风险操作需要您的授权
+
+任务：{task_description}
+命令：{command}
+风险评分：{score}/1.0
+原因：{reason}
+
+请选择：
+```
+
+下方附四个按钮。
+
+### 5.2 用户选择 pass once 后
+
+```
+✅ 已放行：{command}
+
+任务继续执行。
+```
+
+### 5.3 用户选择 reject once 后
+
+```
+❌ 已拒绝：{command}
+
+任务将继续（如有替代方案）或终止。
+```
+
+### 5.4 用户输入自定义时间后
+
+```
+✅ 已放行至 {expires_at}：{command}
+
+在此之前同类操作将自动放行，不再询问。
+```
+
+或：
+
+```
+🔕 已拒绝至 {expires_at}：{command}
+
+在此之前同类操作将自动拒绝，不再通知。
+```
+
+### 5.5 用户输入 always 后
+
+```
+✅ 已放行（本次会话有效）：{command}
+
+当前会话结束前同类操作将自动放行。
+```
+
+或：
+
+```
+🔕 已拒绝（本次会话有效）：{command}
+
+当前会话结束前同类操作将自动拒绝，不再通知。
+```
+
+### 5.6 授权过期提醒（可选）
+
+```
+⏰ 授权已过期
+
+您之前对 {command_pattern} 的 {pass/reject} 授权已于 {expires_at} 过期。
+如有新的同类操作，将重新询问。
+```
+
+---
+
+## 6. 各平台实现要点
+
+### 6.1 Web UI
+
+- 决策卡片组件：`lib/extra/security/l2_auth/DecisionCard.tsx`
+- 四个按钮使用 `<Button>` 组件
+- 点击 `pass until...` 或 `reject until...` → 弹出 `<TimeInput>` 组件（输入框 + 格式提示 + always 按钮）
+- 输入验证在前端完成（正则 `^(always|\d{8})$`），减少无效请求
+- 通过 `POST /api/agentd/v1/l2-confirm` 提交
+
+### 6.2 Telegram
+
+- 使用 Inline Keyboard Markup
+- 两个按钮用 `callback_data`，包含 `task_id` 和 `decision_id`
+- 点击 `pass_until` 或 `reject_until` → Bot 回复格式提示消息 → 用户回复文本 → Bot 解析 → 确认 → 调 API
+- 如果用户在等待时间输入时又点击了其他按钮，以最新按钮为准，旧等待取消
+
+### 6.3 Discord
+
+- 使用 Message Components（Buttons）
+- `custom_id` 格式同 `callback_data`
+- 点击后通过 Interaction 回调处理
+
+### 6.4 Slack
+
+- 使用 Block Kit 的 `actions` 块 + `button` 元素
+- `action_id` 格式同 `callback_data`
+- 通过 Slack Events API 或 Socket Mode 接收用户点击
+
+### 6.5 飞书
+
+- 使用 Card 消息的 `button` 组件
+- 回调走飞书事件订阅
+- 格式同 Telegram 的 `callback_data`
+
+---
+
+## 7. 与 L1/L0 的联动
+
+```
+L0 规则引擎
+    ├── 命中 block → 直接拒绝，不进入 L1/L2，通知用户
+        └── 未命中 → 进入 L1
+
+L1 Flash 模型打分
+    ├── 低风险 (<0.3) → 静默放行，不通知用户
+        ├── 中风险 (0.3-0.7) → 放行，通知用户（非阻塞）
+	    └── 高风险 (≥0.7) → 进入 L2
+
+L2 交互授权
+    ├── 检查 L2AuthCache
+        │   ├── 命中 pass → 放行
+	    │   ├── 命中 reject → 拒绝（静默）
+	        │   └── 未命中 → 弹出四个按钮
+		    └── 用户回复 → 更新 L2AuthCache → 执行/拒绝
+		    ```
+
+L0 直接拦截的不进入 L2 流程，所以不会弹按钮。L1 中风险不弹按钮，只发一条通知消息（无按钮）。只有 L1 高风险且 L2 缓存未命中时，才弹出四个按钮。
+
+---
+
+## 8. 实现步骤
+
+1. **Agent Daemon 端**：
+   - 实现 `L2AuthManager` 结构体和缓存
+      - 实现时间格式解析（正则验证 + TTL 计算）
+         - 实现 `/api/agentd/v1/l2-confirm` HTTP 端点（接收四个动作 + 可选自定义时间）
+	    - 实现 CleanupWorker 的过期扫描逻辑
+	       - 实现 `Gatekeeper` 中 L1→L2 的联动
+
+2. **ClawLess 端**：
+   - 实现 `lib/extra/security/l2_auth/` 下的决策卡片组件和 API 路由
+      - 实现四个 IM Channel 类的按钮消息发送和回复解析
+         - 实现通知多渠道切换和决策去重
+
+3. **测试**：
+
+模拟 L2 触发 → 用户点击 pass once → 命令执行
+
+模拟 pass until 自定义时间 → 缓存命中 → 同类命令自动放行
+
+模拟 reject until 自定义时间 → 缓存命中 → 同类命令自动拒绝且不弹窗
+
+模拟 always → Session 关闭 → 缓存自动清除
+
+模拟超时 → 退化按钮 → 多渠道切换
+
+9. 总结
+四个按钮（pass once / pass until / reject once / reject until）通过对称设计和自定义时间输入，实现了 L2 交互授权的完整闭环。按钮在 Web UI 和四个 IM 上统一布局为两行各两个，自定义时间接受 hhddmmyy 格式或 always 特殊值。Agent Daemon 的 L2AuthCache 管理授权生命周期，CleanupWorker 自动清理过期授权，确保安全性和用户体验的平衡。

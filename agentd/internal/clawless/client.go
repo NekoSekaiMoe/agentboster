@@ -17,9 +17,9 @@ import (
 
 // Client is the HTTP client for communicating with the ClawLess API.
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+	BaseURL    string
+	APIKey     string
+	HTTPClient *http.Client
 	mu         sync.RWMutex
 }
 
@@ -28,14 +28,14 @@ func NewClient(baseURL, apiKey string, tlsCfg *tls.Config) *Client {
 	transport := &http.Transport{
 		TLSClientConfig: tlsCfg,
 	}
-	return &Client{
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		httpClient: &http.Client{
-			Transport: transport,
-			Timeout:   30 * time.Second,
-		},
-	}
+ 	return &Client{
+ 		BaseURL: baseURL,
+ 		APIKey:  apiKey,
+ 		HTTPClient: &http.Client{
+ 			Transport: transport,
+ 			Timeout:   30 * time.Second,
+ 		},
+ 	}
 }
 
 // NewClientFromConfig creates a client from the app config.
@@ -73,17 +73,17 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 		bodyReader = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
+ 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		req.Header.Set("X-API-Key", c.apiKey)
-	}
+ 	if c.APIKey != "" {
+ 		req.Header.Set("X-API-Key", c.APIKey)
+ 	}
 
-	return c.httpClient.Do(req)
+ 	return c.HTTPClient.Do(req)
 }
 
 func (c *Client) decodeResponse(resp *http.Response, dest any) error {
@@ -271,6 +271,6 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check failed: %d", resp.StatusCode)
 	}
-	slog.Info("ClawLess API health check OK", "url", c.baseURL)
+ 	slog.Info("ClawLess API health check OK", "url", c.BaseURL)
 	return nil
 }

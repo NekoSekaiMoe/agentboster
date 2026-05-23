@@ -14,3 +14,8 @@ export {
   agentSandboxes,
   agentMemories,
 } from './agentd';
+export {
+  notifications,
+  notificationPreferences,
+  channelHealth,
+} from './notification';
