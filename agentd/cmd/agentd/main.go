@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clawless/agentd/internal/agent"
 	"github.com/clawless/agentd/internal/cache"
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/config"
@@ -35,7 +36,7 @@ import (
 )
 
 var (
-	version   = "0.4.0"
+	version   = "0.5.0"
 	buildTime = "unknown"
 )
 
@@ -72,24 +73,17 @@ func main() {
 		"listen", cfg.Server.Listen,
 	)
 
-	// === Initialize Security Components ===
-
-	// L0: Rules engine
+	// === Security ===
 	l0Engine := l0_rules.NewEngine()
-
-	// L1: Scorer
 	l1Scorer := l1_scorer.NewL1Scorer(&cfg.Security)
-
-	// L2: Auth manager
-	l2Manager := l2_auth.NewL2AuthManager(nil, "default") // clawless client set later
+	l2Manager := l2_auth.NewL2AuthManager(nil, "default")
 	l2CleanupStop := l2Manager.StartCleanup(1 * time.Minute)
 	defer l2CleanupStop()
 
-	// Gatekeeper: L0 → L1 → L2 pipeline
 	bus := eventbus.New()
 	gk := security.NewGatekeeper(l0Engine, l1Scorer, l2Manager, bus, "default")
 
-	// === Initialize ClawLess API client ===
+	// === ClawLess Client ===
 	clawlessClient, err := clawless.NewClientFromConfig(
 		cfg.ClawLess.BaseURL,
 		cfg.Server.ClawLessAPIKey,
@@ -101,24 +95,25 @@ func main() {
 		slog.Warn("ClawLess client mTLS not configured, using plain HTTP", "error", err)
 		clawlessClient = clawless.NewClient(cfg.ClawLess.BaseURL, cfg.Server.ClawLessAPIKey, nil)
 	}
-
-	// Set clawless client on L2 manager
 	l2Manager.SetClawlessClient(clawlessClient)
 
-	// === Initialize L0 rules hot-reload ===
+	// === L0 hot-reload ===
 	l0Loader := l0_rules.NewLoader(l0Engine, clawlessClient, "default", 5*time.Minute)
 	l0Loader.Start()
 	defer l0Loader.Stop()
 
-	// === Initialize sandbox manager ===
+	// === Sandbox ===
 	sbManager := sandbox.NewManager(cfg)
 
-	// === Initialize dispatcher ===
-	dispatcher := worker.NewDispatcher(bus, config.NumCPU(), gk, sbManager, clawlessClient)
+	// === Agent Manager ===
+	agentMgr := agent.NewManager(sbManager, clawlessClient, l1Scorer, cfg)
+
+	// === Dispatcher ===
+	dispatcher := worker.NewDispatcher(bus, config.NumCPU(), gk, sbManager, clawlessClient, agentMgr)
 	dispatcher.Start()
 	defer dispatcher.Stop()
 
-	// === Initialize cache ===
+	// === Cache ===
 	cacheMgr := cache.NewManager(cfg.Cache.Path, cfg.Cache.SessionMaxSize)
 	if err := cacheMgr.Init(); err != nil {
 		slog.Warn("cache init failed", "error", err)
@@ -126,7 +121,7 @@ func main() {
 	cacheMgr.StartPeriodicSync(cfg.Cache.SyncInterval)
 	defer cacheMgr.StopPeriodicSync()
 
-	// === Setup HTTP server ===
+	// === HTTP Server ===
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -183,27 +178,21 @@ func generateCerts(dir string) error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("create cert dir: %w", err)
 	}
-
 	caKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
 		return fmt.Errorf("generate CA key: %w", err)
 	}
-
 	caTemplate := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{Organization: []string{"AgentD"}, CommonName: "AgentD CA"},
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(10 * 365 * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		IsCA:         true,
-		MaxPathLen:   1,
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{Organization: []string{"AgentD"}, CommonName: "AgentD CA"},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		IsCA:                  true,
+		MaxPathLen:            1,
 		BasicConstraintsValid: true,
 	}
-
-	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
-	if err != nil {
-		return fmt.Errorf("create CA cert: %w", err)
-	}
+	caDER, _ := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
 	caKeyDER, _ := x509.MarshalECPrivateKey(caKey)
 	writePEM(dir, "ca-cert.pem", "CERTIFICATE", caDER)
 	writePEM(dir, "ca-key.pem", "EC PRIVATE KEY", caKeyDER)

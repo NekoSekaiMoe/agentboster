@@ -21,6 +21,7 @@ type Task struct {
 	SessionID   string            `json:"session_id"`
 	Command     string            `json:"command"`
 	SandboxType string            `json:"sandbox_type"`
+	SandboxID   string            `json:"sandbox_id"`
 	Env         map[string]string `json:"env"`
 	Timeout     int               `json:"timeout"`
 	Status      TaskStatus        `json:"status"`
