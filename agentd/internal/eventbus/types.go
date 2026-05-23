@@ -1,0 +1,47 @@
+package eventbus
+
+import "time"
+
+// EventType represents the type of event.
+type EventType string
+
+const (
+	// Task lifecycle
+	EventTaskCreated   EventType = "task.created"
+	EventTaskReviewed  EventType = "task.reviewed"
+	EventTaskApproved  EventType = "task.approved"
+	EventTaskRejected  EventType = "task.rejected"
+	EventTaskRunning   EventType = "task.running"
+	EventTaskCompleted EventType = "task.completed"
+	EventTaskFailed    EventType = "task.failed"
+	EventTaskCancelled EventType = "task.cancelled"
+
+	// Sandbox lifecycle
+	EventSandboxCreated   EventType = "sandbox.created"
+	EventSandboxReady     EventType = "sandbox.ready"
+	EventSandboxDestroyed EventType = "sandbox.destroyed"
+
+	// Security
+	EventSecurityReview EventType = "security.review"
+	EventSecurityAlert  EventType = "security.alert"
+	EventL2AuthRequired EventType = "l2.auth_required"
+	EventL2AuthApproved EventType = "l2.auth_approved"
+	EventL2AuthRejected EventType = "l2.auth_rejected"
+
+	// Memory
+	EventMemoryExtracted EventType = "memory.extracted"
+
+	// System
+	EventSystemHealthCheck EventType = "system.health_check"
+	EventConfigReloaded    EventType = "config.reloaded"
+)
+
+// Event represents a domain event.
+type Event struct {
+	Type      EventType
+	Payload   any
+	Timestamp time.Time
+}
+
+// Handler is a function that handles an event.
+type Handler func(event Event)
