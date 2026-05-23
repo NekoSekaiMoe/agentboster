@@ -1,5 +1,3 @@
-import type { AppConfig } from '@/types/config';
-
 export const configSections = [
   {
     key: 'models',
@@ -31,9 +29,15 @@ export const configSections = [
     title: 'MCP',
     description: 'Manage MCP remote servers and authentication headers.',
   },
+  {
+    key: 'agentd',
+    title: 'Agent Daemon',
+    description:
+      'Manage remote Agent Daemon connections, certificates, and sandbox settings.',
+  },
 ] as const satisfies ReadonlyArray<{
   description: string;
-  key: keyof AppConfig;
+  key: string;
   title: string;
 }>;
 

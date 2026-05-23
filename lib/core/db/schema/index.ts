@@ -7,3 +7,10 @@ export {
   sessionMemories,
 } from './memory';
 export { scheduledTasks } from './scheduled';
+export {
+  agentTasks,
+  agentReviewLogs,
+  agentL0Rules,
+  agentSandboxes,
+  agentMemories,
+} from './agentd';

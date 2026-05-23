@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package l0_rules
 
 // DefaultPresets returns the built-in L0 rules (dangerous commands + path blocks).

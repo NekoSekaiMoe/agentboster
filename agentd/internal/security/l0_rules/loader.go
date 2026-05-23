@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package l0_rules
 
 import (

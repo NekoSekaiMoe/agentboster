@@ -1,6 +1,7 @@
 'use client';
 
 import type { ConfigSectionKey } from '@/components/config/config-sections';
+import { AgentDConfigPage } from './agentd-config';
 import { AgentsForm } from './forms/agents-form';
 import { AutonomyForm } from './forms/autonomy-form';
 import { ChannelsForm } from './forms/channels-form';
@@ -26,6 +27,8 @@ export function ConfigSectionForm({
       return <ToolsForm />;
     case 'mcp':
       return <McpForm />;
+    case 'agentd':
+      return <AgentDConfigPage />;
     default:
       return null;
   }

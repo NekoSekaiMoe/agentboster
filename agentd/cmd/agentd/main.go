@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package main
 
 import (
@@ -17,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -41,6 +45,12 @@ var (
 )
 
 func main() {
+	// Runtime OS check — hard fail on non-Linux
+	if runtime.GOOS != "linux" {
+		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon requires Linux. Current OS: %s\n", runtime.GOOS)
+		os.Exit(1)
+	}
+
 	var (
 		configPath = flag.String("config", "", "Path to agentd.toml config file")
 		genCerts   = flag.Bool("gen-certs", false, "Generate mTLS certificates and exit")
