@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gin-gonic/gin v1.12.0
+	github.com/google/uuid v1.6.0
 	github.com/spf13/viper v1.21.0
 )
 
