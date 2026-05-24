@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { db } from './index';
 import {
   channelHealth,
@@ -176,28 +176,35 @@ export async function recordChannelSuccess(channel: string) {
 }
 
 export async function recordChannelFailure(channel: string, error: string) {
-  const existing = await getChannelHealth(channel);
-  const failures = (existing?.consecutiveFailures ?? 0) + 1;
-  const healthy = failures < 3; // threshold = 3
-
   const [h] = await db
     .insert(channelHealth)
     .values({
       channel,
-      consecutiveFailures: failures,
-      healthy,
+      consecutiveFailures: 1,
+      healthy: true, // will be corrected below if needed
       lastError: error,
       lastFailureAt: new Date(),
     })
     .onConflictDoUpdate({
       target: channelHealth.channel,
       set: {
-        consecutiveFailures: failures,
-        healthy,
+        consecutiveFailures: sql`${channelHealth.consecutiveFailures} + 1`,
         lastError: error,
         lastFailureAt: new Date(),
       },
     })
     .returning();
+
+  // Update healthy flag based on final failure count
+  if (h) {
+    const healthy = h.consecutiveFailures < 3;
+    if (h.healthy !== healthy) {
+      await db
+        .update(channelHealth)
+        .set({ healthy })
+        .where(eq(channelHealth.channel, channel));
+    }
+  }
+
   return h;
 }

@@ -32,14 +32,12 @@ type L0Result struct {
 type Engine struct {
 	mu             sync.RWMutex
 	rules          []L0Rule
-	compiledRegexp map[string]*regexp.Regexp
+	compiledRegexp sync.Map // map[string]*regexp.Regexp — concurrent-safe cache
 }
 
 // NewEngine creates a new L0 rules engine with default presets.
 func NewEngine() *Engine {
-	e := &Engine{
-		compiledRegexp: make(map[string]*regexp.Regexp),
-	}
+	e := &Engine{}
 	e.rules = DefaultPresets()
 	return e
 }
@@ -120,21 +118,16 @@ func (e *Engine) matchPattern(pattern, target string) (bool, error) {
 		}
 	}
 
-	// Step 2: Regex matching
-	e.mu.RLock()
-	re, ok := e.compiledRegexp[pattern]
-	e.mu.RUnlock()
-
-	if !ok {
-		var err error
-		re, err = regexp.Compile(pattern)
-		if err != nil {
-			return false, fmt.Errorf("invalid regex pattern %q: %w", pattern, err)
-		}
-		e.mu.Lock()
-		e.compiledRegexp[pattern] = re
-		e.mu.Unlock()
+	// Step 2: Regex matching (using sync.Map to avoid deadlock with Check's RLock)
+	if cached, ok := e.compiledRegexp.Load(pattern); ok {
+		return cached.(*regexp.Regexp).MatchString(target), nil
 	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return false, fmt.Errorf("invalid regex pattern %q: %w", pattern, err)
+	}
+	e.compiledRegexp.Store(pattern, re)
 
 	return re.MatchString(target), nil
 }
@@ -155,7 +148,7 @@ func (e *Engine) Reload(rules []L0Rule) error {
 	}
 
 	e.rules = rules
-	e.compiledRegexp = make(map[string]*regexp.Regexp) // clear cache
+	e.compiledRegexp = sync.Map{} // clear cache
 	slog.Info("L0 rules reloaded", "count", len(rules))
 	return nil
 }

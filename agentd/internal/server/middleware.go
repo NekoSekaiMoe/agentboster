@@ -28,7 +28,11 @@ func MTLSMiddleware() gin.HandlerFunc {
 func APIKeyMiddleware(expectedKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if expectedKey == "" {
-			c.Next()
+			slog.Warn("API key not configured — rejecting request (set clawless_api_key to allow access)", "remote", c.RemoteIP())
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"error":   "API key not configured on server",
+			})
 			return
 		}
 		key := c.GetHeader("X-API-Key")

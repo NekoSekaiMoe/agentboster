@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 
 	"github.com/clawless/agentd/internal/sandbox"
 )
+
+// safeShellArg matches characters that are safe to pass as shell arguments.
+var safeShellArg = regexp.MustCompile(`^[a-zA-Z0-9_./:@=+,-]+$`)
 
 func registerGitClone(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
 	registry.Register(ToolDefinition{
@@ -31,19 +35,26 @@ func registerGitClone(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agent
 			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
 		}
 
+		if !safeShellArg.MatchString(params.URL) {
+			return &ToolResult{Success: false, Error: "invalid characters in git URL"}, nil
+		}
+
 		sandboxID := ctx.SandboxID
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
 
-		cmd := fmt.Sprintf("git clone")
+		cmd := "git clone"
 		if params.Depth > 0 {
 			cmd += fmt.Sprintf(" --depth %d", params.Depth)
 		}
 		if params.Branch != "" {
+			if !safeShellArg.MatchString(params.Branch) {
+				return &ToolResult{Success: false, Error: "invalid characters in branch name"}, nil
+			}
 			cmd += fmt.Sprintf(" --branch %s", params.Branch)
 		}
-		cmd += fmt.Sprintf(" %s repo", params.URL)
+		cmd += fmt.Sprintf(" %q repo", params.URL)
 
 		result, err := sbMgr.Exec(sandboxID, cmd, nil, 120)
 		if err != nil {
@@ -72,12 +83,16 @@ func registerGitDiff(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentC
 			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
 		}
 
+		if !safeShellArg.MatchString(params.Path) {
+			return &ToolResult{Success: false, Error: "invalid characters in path"}, nil
+		}
+
 		sandboxID := ctx.SandboxID
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
 
-		cmd := fmt.Sprintf("cd %s && git diff", params.Path)
+		cmd := fmt.Sprintf("cd %q && git diff", params.Path)
 		result, err := sbMgr.Exec(sandboxID, cmd, nil, 30)
 		if err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("git diff error: %v", err)}, nil
@@ -105,12 +120,16 @@ func registerGitStatus(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agen
 			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
 		}
 
+		if !safeShellArg.MatchString(params.Path) {
+			return &ToolResult{Success: false, Error: "invalid characters in path"}, nil
+		}
+
 		sandboxID := ctx.SandboxID
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
 
-		cmd := fmt.Sprintf("cd %s && git status", params.Path)
+		cmd := fmt.Sprintf("cd %q && git status", params.Path)
 		result, err := sbMgr.Exec(sandboxID, cmd, nil, 15)
 		if err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("git status error: %v", err)}, nil

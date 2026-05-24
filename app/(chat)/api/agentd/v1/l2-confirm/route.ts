@@ -1,8 +1,7 @@
 import { updateTaskStatus } from '@/lib/core/db/agentd';
-import { createLogger } from '@/lib/utils/logger';
-import { getNotificationManager } from '@/lib/extra/channels/notification-manager';
 import { getKV } from '@/lib/core/kv';
-import type { L2Action } from '@/lib/extra/channels/notification-types';
+import { getNotificationManager } from '@/lib/extra/channels/notification-manager';
+import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.l2-confirm');
 
@@ -29,7 +28,11 @@ export async function POST(request: Request) {
     // Decision dedup — ignore duplicate clicks from multiple IM channels
     const alreadyProcessed = await mgr.isDecisionProcessed(decisionId);
     if (alreadyProcessed) {
-      logger.info('L2 decision already processed (dedup)', { taskId, decisionId, action });
+      logger.info('L2 decision already processed (dedup)', {
+        taskId,
+        decisionId,
+        action,
+      });
       return Response.json({
         success: true,
         data: { taskId, decision: action, message: 'Already processed.' },
@@ -85,7 +88,7 @@ export async function POST(request: Request) {
       if (!timeInput) {
         // First click — send time input prompt
         const ctx = mgr.getL2Context(decisionId);
-        const command = ctx?.taskId ? 'unknown' : 'unknown';
+        const command = ctx?.taskId ? ctx.taskId : 'unknown';
 
         // Get user's preferred channel from notification preferences
         const prefs = userId
@@ -136,10 +139,10 @@ export async function POST(request: Request) {
         expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
         windowLabel = '本次会话内';
       } else {
-        const hh = parseInt(timeInput.slice(0, 2), 10);
-        const dd = parseInt(timeInput.slice(2, 4), 10);
-        const mm = parseInt(timeInput.slice(4, 6), 10);
-        const yy = parseInt(timeInput.slice(6, 8), 10);
+        const hh = Number.parseInt(timeInput.slice(0, 2), 10);
+        const dd = Number.parseInt(timeInput.slice(2, 4), 10);
+        const mm = Number.parseInt(timeInput.slice(4, 6), 10);
+        const yy = Number.parseInt(timeInput.slice(6, 8), 10);
 
         const ttlMs =
           hh * 60 * 60 * 1000 +
@@ -213,7 +216,12 @@ export async function POST(request: Request) {
   }
 }
 
-function formatWindowLabel(hh: number, dd: number, mm: number, yy: number): string {
+function formatWindowLabel(
+  hh: number,
+  dd: number,
+  mm: number,
+  yy: number,
+): string {
   const parts: string[] = [];
   if (yy > 0) parts.push(`${yy}年`);
   if (mm > 0) parts.push(`${mm}月`);

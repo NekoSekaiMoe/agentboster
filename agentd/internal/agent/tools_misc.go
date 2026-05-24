@@ -39,6 +39,13 @@ func registerSandboxInstall(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 			manager = "apt" // default
 		}
 
+		// Validate all package names to prevent command injection
+		for _, pkg := range params.Packages {
+			if !safeShellArg.MatchString(pkg) {
+				return &ToolResult{Success: false, Error: fmt.Sprintf("invalid characters in package name: %q", pkg)}, nil
+			}
+		}
+
 		var cmd string
 		switch manager {
 		case "apt":

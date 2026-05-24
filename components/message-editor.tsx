@@ -298,14 +298,20 @@ export function MessageEditor({
             });
 
             setMode('view');
-            regenerate({
-              messageId,
-              body: {
-                input: {
-                  parts: updatedParts,
+            try {
+              await regenerate({
+                messageId,
+                body: {
+                  input: {
+                    parts: updatedParts,
+                  },
                 },
-              },
-            });
+              });
+            } catch {
+              toast.error('Failed to regenerate response');
+            } finally {
+              setIsSubmitting(false);
+            }
           }}
         >
           {isSubmitting ? 'Sending...' : 'Send'}

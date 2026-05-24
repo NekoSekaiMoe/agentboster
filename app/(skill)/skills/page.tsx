@@ -320,8 +320,12 @@ export default function SkillsPage() {
   async function viewFile(skillName: string, filePath: string) {
     setLoadingFile(filePath);
     try {
+      const encodedPath = filePath
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
       const data = await ofetch<{ content: string }>(
-        `/api/skills/${encodeURIComponent(skillName)}/files/${filePath}`,
+        `/api/skills/${encodeURIComponent(skillName)}/files/${encodedPath}`,
       );
       setSelectedFileContent(data.content);
       setSelectedFilePath(filePath);
@@ -338,8 +342,12 @@ export default function SkillsPage() {
       return;
     setSavingFile(true);
     try {
+      const encodedPath = selectedFilePath
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
       const result = await ofetch<{ skill?: SkillDetail }>(
-        `/api/skills/${encodeURIComponent(selectedSkill.name)}/files/${selectedFilePath}`,
+        `/api/skills/${encodeURIComponent(selectedSkill.name)}/files/${encodedPath}`,
         {
           method: 'PUT',
           body: { content: editingFileContent },

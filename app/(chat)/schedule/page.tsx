@@ -215,25 +215,35 @@ export default function SchedulePage() {
 
     setSavingMap((prev) => ({ ...prev, [task.id]: true }));
     try {
+      let body: Record<string, unknown>;
+      if (draft.type === 'delay') {
+        const runDate = new Date(draft.runAt);
+        if (Number.isNaN(runDate.getTime())) {
+          toast.error('Invalid run date');
+          setSavingMap((prev) => ({ ...prev, [task.id]: false }));
+          return;
+        }
+        body = {
+          type: 'delay',
+          title: draft.title.trim() || null,
+          prompt: draft.prompt.trim(),
+          active: draft.active,
+          runAt: runDate.toISOString(),
+        };
+      } else {
+        body = {
+          type: 'daily',
+          title: draft.title.trim() || null,
+          prompt: draft.prompt.trim(),
+          active: draft.active,
+          dailyTime: draft.dailyTime,
+          timezone: draft.timezone.trim() || 'Asia/Shanghai',
+        };
+      }
+
       await ofetch(`/api/schedules/${encodeURIComponent(task.id)}`, {
         method: 'PUT',
-        body:
-          draft.type === 'delay'
-            ? {
-                type: 'delay',
-                title: draft.title.trim() || null,
-                prompt: draft.prompt.trim(),
-                active: draft.active,
-                runAt: new Date(draft.runAt).toISOString(),
-              }
-            : {
-                type: 'daily',
-                title: draft.title.trim() || null,
-                prompt: draft.prompt.trim(),
-                active: draft.active,
-                dailyTime: draft.dailyTime,
-                timezone: draft.timezone.trim() || 'Asia/Shanghai',
-              },
+        body,
       });
       toast.success('Task updated');
       await loadTasks();

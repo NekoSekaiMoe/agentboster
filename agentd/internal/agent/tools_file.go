@@ -39,7 +39,10 @@ func registerRead(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
 
-		fullPath := filepath.Join(sbPath, params.Path)
+		fullPath, err := safePath(sbPath, params.Path)
+		if err != nil {
+			return &ToolResult{Success: false, Error: err.Error()}, nil
+		}
 		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("read file: %v", err)}, nil
@@ -93,7 +96,10 @@ func registerWrite(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCon
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
 
-		fullPath := filepath.Join(sbPath, params.Path)
+		fullPath, err := safePath(sbPath, params.Path)
+		if err != nil {
+			return &ToolResult{Success: false, Error: err.Error()}, nil
+		}
 		dir := filepath.Dir(fullPath)
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("create dir: %v", err)}, nil
@@ -134,7 +140,10 @@ func registerEdit(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
 
-		fullPath := filepath.Join(sbPath, params.Path)
+		fullPath, err := safePath(sbPath, params.Path)
+		if err != nil {
+			return &ToolResult{Success: false, Error: err.Error()}, nil
+		}
 		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("read file: %v", err)}, nil
@@ -177,7 +186,10 @@ func registerLs(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContex
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
 
-		fullPath := filepath.Join(sbPath, params.Path)
+		fullPath, err := safePath(sbPath, params.Path)
+		if err != nil {
+			return &ToolResult{Success: false, Error: err.Error()}, nil
+		}
 		entries, err := os.ReadDir(fullPath)
 		if err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("list dir: %v", err)}, nil
@@ -258,7 +270,12 @@ func registerGlob(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
 
-		matches, err := filepath.Glob(filepath.Join(sbPath, params.Path, params.Pattern))
+		basePath, err := safePath(sbPath, params.Path)
+		if err != nil {
+			return &ToolResult{Success: false, Error: err.Error()}, nil
+		}
+
+		matches, err := filepath.Glob(filepath.Join(basePath, params.Pattern))
 		if err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("glob error: %v", err)}, nil
 		}
@@ -320,4 +337,14 @@ func getSandboxWorkspace(sbMgr *sandbox.Manager, sandboxID string) (string, erro
 		return "", fmt.Errorf("sandbox not found: %v", err)
 	}
 	return sb.Path + "/workspace", nil
+}
+
+// safePath joins a user-supplied relative path with the sandbox workspace and
+// validates that the resolved path does not escape the workspace boundary.
+func safePath(workspace, userPath string) (string, error) {
+	clean := filepath.Clean(filepath.Join(workspace, userPath))
+	if !strings.HasPrefix(clean, filepath.Clean(workspace)+string(os.PathSeparator)) && clean != filepath.Clean(workspace) {
+		return "", fmt.Errorf("path traversal denied: %q escapes workspace", userPath)
+	}
+	return clean, nil
 }

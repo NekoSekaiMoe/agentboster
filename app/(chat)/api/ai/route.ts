@@ -81,7 +81,21 @@ async function validateRequestMessages(
 }
 
 export async function POST(request: Request) {
-  const body = requestSchema.parse(await request.json());
+  let body: z.infer<typeof requestSchema>;
+  try {
+    body = requestSchema.parse(await request.json());
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return Response.json(
+        { success: false, error: 'Invalid request', details: error.issues },
+        { status: 400 },
+      );
+    }
+    return Response.json(
+      { success: false, error: 'Invalid request body' },
+      { status: 400 },
+    );
+  }
   const messages = await validateRequestMessages(body.messages);
   const input = getInputPayload(body, messages);
 

@@ -437,7 +437,8 @@ export function AgentDConfigPage() {
             <CardTitle>Session Settings</CardTitle>
           </div>
           <CardDescription>
-            Configure session lifecycle, TTL isolation, and L2 authorization cache.
+            Configure session lifecycle, TTL isolation, and L2 authorization
+            cache.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -449,18 +450,20 @@ export function AgentDConfigPage() {
                 min={1}
                 max={200}
                 value={config.session.max_count}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const parsed = Number.parseInt(e.target.value, 10);
                   setConfig((c) => ({
                     ...c,
                     session: {
                       ...c.session,
-                      max_count: Number.parseInt(e.target.value, 10) || 50,
+                      max_count: Number.isNaN(parsed) ? 50 : parsed,
                     },
-                  }))
-                }
+                  }));
+                }}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Max sessions to retain (default: 50). Oldest archived when exceeded.
+                Max sessions to retain (default: 50). Oldest archived when
+                exceeded.
               </p>
             </div>
             <div>
@@ -497,8 +500,15 @@ export function AgentDConfigPage() {
             </div>
           </div>
           <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-3 space-y-1">
-            <p><strong>Session Isolation:</strong> Each session has independent L2 authorization cache. Session A's "always" authorization does not affect Session B.</p>
-            <p><strong>TTL Expiry:</strong> CleanupWorker scans every 30s. Expired L2 authorizations are logged to review_logs.</p>
+            <p>
+              <strong>Session Isolation:</strong> Each session has independent
+              L2 authorization cache. Session A's "always" authorization does
+              not affect Session B.
+            </p>
+            <p>
+              <strong>TTL Expiry:</strong> CleanupWorker scans every 30s.
+              Expired L2 authorizations are logged to review_logs.
+            </p>
           </div>
         </CardContent>
       </Card>

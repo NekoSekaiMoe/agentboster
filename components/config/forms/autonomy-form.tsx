@@ -64,12 +64,13 @@ export function AutonomyForm() {
               min="0"
               type="number"
               value={autonomy.max_steps}
-              onChange={(event) =>
+              onChange={(event) => {
+                const parsed = Number(event.target.value);
                 updateValue({
                   ...autonomy,
-                  max_steps: Number(event.target.value),
-                })
-              }
+                  max_steps: Number.isNaN(parsed) ? 0 : parsed,
+                });
+              }}
             />
           </Field>
         </CardContent>

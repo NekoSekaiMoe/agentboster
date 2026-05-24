@@ -1,4 +1,4 @@
-import { getSession } from '@/lib/core/db/chat';
+import { deleteSession, getSession, updateSession } from '@/lib/core/db/chat';
 
 export async function GET(
   _request: Request,
@@ -21,8 +21,7 @@ export async function PUT(
 ) {
   const { id } = await params;
   const body = await request.json();
-  // Session update logic — update summary, key_facts, etc.
-  const session = await getSession(id);
+  const session = await updateSession(id, body);
   if (!session) {
     return Response.json(
       { success: false, error: 'Session not found' },
@@ -37,6 +36,12 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  // Session deletion handled by existing sessions route
+  const session = await deleteSession(id);
+  if (!session) {
+    return Response.json(
+      { success: false, error: 'Session not found' },
+      { status: 404 },
+    );
+  }
   return Response.json({ success: true });
 }

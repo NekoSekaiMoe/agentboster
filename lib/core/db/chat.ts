@@ -195,46 +195,29 @@ export async function upsertPersistedMessage(input: SerializedMessageForDB) {
     throw new Error('uiMessageId is required for persisted message upsert.');
   }
 
-  const [existing] = await db
-    .select()
-    .from(schema.messages)
-    .where(
-      and(
-        eq(schema.messages.sessionId, input.sessionId),
-        eq(schema.messages.uiMessageId, uiMessageId),
-      ),
-    )
-    .limit(1);
-
-  if (!existing) {
-    const [created] = await db
-      .insert(schema.messages)
-      .values({
-        sessionId: input.sessionId,
-        role: input.role,
-        uiMessageId,
-        visibleInChat: input.visibleInChat ?? true,
-        stepNumber: input.stepNumber ?? null,
-        payload: input.payload as Record<string, unknown>,
-        createdAt: input.createdAt ?? new Date(),
-      })
-      .returning();
-
-    return created ? toPersistedMessageRecord(created) : null;
-  }
-
-  const [updated] = await db
-    .update(schema.messages)
-    .set({
+  const [row] = await db
+    .insert(schema.messages)
+    .values({
+      sessionId: input.sessionId,
       role: input.role,
-      payload: input.payload as Record<string, unknown>,
+      uiMessageId,
       visibleInChat: input.visibleInChat ?? true,
       stepNumber: input.stepNumber ?? null,
+      payload: input.payload as Record<string, unknown>,
+      createdAt: input.createdAt ?? new Date(),
     })
-    .where(eq(schema.messages.id, existing.id))
+    .onConflictDoUpdate({
+      target: [schema.messages.sessionId, schema.messages.uiMessageId],
+      set: {
+        role: input.role,
+        payload: input.payload as Record<string, unknown>,
+        visibleInChat: input.visibleInChat ?? true,
+        stepNumber: input.stepNumber ?? null,
+      },
+    })
     .returning();
 
-  return updated ? toPersistedMessageRecord(updated) : null;
+  return row ? toPersistedMessageRecord(row) : null;
 }
 
 export async function getSessionMessages(

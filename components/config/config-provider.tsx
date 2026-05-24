@@ -177,7 +177,14 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const parsed = appConfigSchema.parse(draft);
+    let parsed: AppConfig;
+    try {
+      parsed = appConfigSchema.parse(draft);
+    } catch {
+      toast.error('Configuration validation failed');
+      return;
+    }
+
     setIsSaving(true);
 
     try {

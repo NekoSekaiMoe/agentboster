@@ -28,34 +28,36 @@ export async function saveSessionSummaryRow(
   sessionId: string,
   summaryText: string,
 ) {
-  await db
-    .update(schema.sessionMemories)
-    .set({ isCurrent: false })
-    .where(
-      and(
-        eq(schema.sessionMemories.sessionId, sessionId),
-        eq(schema.sessionMemories.isCurrent, true),
-      ),
-    );
+  const [row] = await db.transaction(async (tx) => {
+    await tx
+      .update(schema.sessionMemories)
+      .set({ isCurrent: false })
+      .where(
+        and(
+          eq(schema.sessionMemories.sessionId, sessionId),
+          eq(schema.sessionMemories.isCurrent, true),
+        ),
+      );
 
-  const [latest] = await db
-    .select({
-      maxVersion: sql<number>`coalesce(max(${schema.sessionMemories.summaryVersion}), 0)`,
-    })
-    .from(schema.sessionMemories)
-    .where(eq(schema.sessionMemories.sessionId, sessionId));
+    const [latest] = await tx
+      .select({
+        maxVersion: sql<number>`coalesce(max(${schema.sessionMemories.summaryVersion}), 0)`,
+      })
+      .from(schema.sessionMemories)
+      .where(eq(schema.sessionMemories.sessionId, sessionId));
 
-  const nextVersion = (latest?.maxVersion ?? 0) + 1;
+    const nextVersion = (latest?.maxVersion ?? 0) + 1;
 
-  const [row] = await db
-    .insert(schema.sessionMemories)
-    .values({
-      sessionId,
-      content: summaryText,
-      summaryVersion: nextVersion,
-      isCurrent: true,
-    })
-    .returning();
+    return tx
+      .insert(schema.sessionMemories)
+      .values({
+        sessionId,
+        content: summaryText,
+        summaryVersion: nextVersion,
+        isCurrent: true,
+      })
+      .returning();
+  });
 
   return row;
 }
