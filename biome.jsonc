@@ -10,7 +10,7 @@
   },
   "files": {
     "ignore": [
-      "**/bun.lock",
+      "**/yarn.lock",
       "node_modules",
       ".next",
       "public",

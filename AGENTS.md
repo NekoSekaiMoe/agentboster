@@ -66,7 +66,7 @@ go build -o agentd ./cmd/agentd/
 - **Linting**: Biome (not ESLint/Prettier). Config: `biome.jsonc`. Run `yarn check` before committing.
 - **DB**: Neon Postgres via Drizzle ORM. Schema in `lib/core/db/schema/`. Migrations output to `lib/core/db/migrations/`.
 - **Auth**: Cookie-based. Requires `AUTH_SECRET`, `USERNAME`, `PASSWORD` env vars. Middleware in `middleware.ts` protects all routes except `/login`, `/api/auth/login`, `/.well-known/workflow/*`, and public assets (`.*` file extensions).
-- **Bot webhooks**: Auth secret is embedded in the callback URL path (`/api/bot/{AUTH_SECRET}/{adapter}/callback`). CI uses Bun (`bun tsc --noEmit && bun biome check`).
+- **Bot webhooks**: Auth secret is embedded in the callback URL path (`/api/bot/{AUTH_SECRET}/{adapter}/callback`). CI uses Yarn (`yarn check`).
 
 ## Key Env Vars
 
@@ -107,4 +107,4 @@ Schema source: `lib/core/db/schema/`. Export barrel: `lib/core/db/schema/index.t
 - `middleware.ts` matcher excludes `_next/static`, `_next/image`, `favicon.ico`, and `.well-known/workflow/` — workflow callbacks bypass auth.
 - The `useImport` style is turned off in Biome (`useImportType: "off"`). Don't auto-fix imports to `import type`.
 - `noExplicitAny` is `"warn"` (not error) in Biome config.
-- CI uses **Bun** (not Node/Yarn) to run checks: `bun tsc --noEmit && bun biome check`.
+- CI uses **Yarn** (not Bun) to run checks: `yarn check`.
