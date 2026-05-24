@@ -29,6 +29,7 @@ import (
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/config"
 	"github.com/clawless/agentd/internal/eventbus"
+	"github.com/clawless/agentd/internal/persistence"
 	"github.com/clawless/agentd/internal/sandbox"
 	"github.com/clawless/agentd/internal/security"
 	"github.com/clawless/agentd/internal/security/l0_rules"
@@ -127,11 +128,41 @@ func main() {
 	agentMgr := agent.NewManager(sbManager, clawlessClient, l1Scorer, cfg)
 	agentMgr.SetBus(bus)
 	agentMgr.SetDecisionQueue(decisionQueue)
+	agentMgr.SetGatekeeper(gk)
 
 	// === Dispatcher ===
-	dispatcher := worker.NewDispatcher(bus, config.NumCPU(), gk, sbManager, clawlessClient, agentMgr)
+	workerSizes := worker.PoolSizes{
+		Review:  cfg.Worker.ReviewPoolSize,
+		Sandbox: cfg.Worker.SandboxPoolSize,
+		Task:    cfg.Worker.TaskPoolSize,
+		Memory:  cfg.Worker.MemoryPoolSize,
+		Cleanup: cfg.Worker.CleanupPoolSize,
+	}
+	dispatcher := worker.NewDispatcher(bus, workerSizes, gk, sbManager, clawlessClient, agentMgr)
 	dispatcher.Start()
 	defer dispatcher.Stop()
+
+	// === Persistence ===
+	basePath := cfg.Cache.Path
+	if basePath == "" {
+		basePath = "/tmp/agentd"
+	}
+
+	pendingL2Store, err := persistence.NewPendingL2Store(persistence.PendingL2Path(basePath))
+	if err != nil {
+		slog.Warn("pending L2 store init failed", "error", err)
+	} else if err := pendingL2Store.Restore(); err != nil {
+		slog.Warn("pending L2 store restore failed", "error", err)
+	}
+	l2Manager.SetPendingL2Store(pendingL2Store)
+
+	bgTaskStore, err := persistence.NewBackgroundTaskStore(persistence.BackgroundTaskPath(basePath))
+	if err != nil {
+		slog.Warn("background task store init failed", "error", err)
+	} else if err := bgTaskStore.Restore(); err != nil {
+		slog.Warn("background task store restore failed", "error", err)
+	}
+	agentMgr.SetBGTaskStore(bgTaskStore)
 
 	// === Cache ===
 	cacheMgr := cache.NewManager(cfg.Cache.Path, cfg.Cache.SessionMaxSize)

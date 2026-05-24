@@ -10,7 +10,9 @@ import (
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/config"
 	"github.com/clawless/agentd/internal/eventbus"
+	"github.com/clawless/agentd/internal/persistence"
 	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/clawless/agentd/internal/security"
 	"github.com/clawless/agentd/internal/security/l1_scorer"
 	"github.com/clawless/agentd/internal/security/l2_auth"
 	"github.com/clawless/agentd/internal/session"
@@ -30,6 +32,8 @@ type Manager struct {
 	sessionStore    *session.Store
 	bus             *eventbus.Bus
 	questionSvc     *QuestionService
+	bgTaskStore     *persistence.BackgroundTaskStore
+	gatekeeper      *security.Gatekeeper
 }
 
 // NewManager creates a new agent manager.
@@ -84,6 +88,21 @@ func (m *Manager) GetQuestionService() *QuestionService {
 	return m.questionSvc
 }
 
+// SetGatekeeper sets the gatekeeper for output validation.
+func (m *Manager) SetGatekeeper(gk *security.Gatekeeper) {
+	m.gatekeeper = gk
+}
+
+// SetBGTaskStore sets the background task store.
+func (m *Manager) SetBGTaskStore(store *persistence.BackgroundTaskStore) {
+	m.bgTaskStore = store
+}
+
+// GetBGTaskStore returns the background task store.
+func (m *Manager) GetBGTaskStore() *persistence.BackgroundTaskStore {
+	return m.bgTaskStore
+}
+
 // GetSessionStore returns the session store.
 func (m *Manager) GetSessionStore() *session.Store {
 	return m.sessionStore
@@ -121,6 +140,7 @@ func (m *Manager) CreateSession(sessionID, agentID string) (*AgentContext, error
 		},
 		RecentToolCalls: make([]ToolCallRecord, 0),
 		QuestionService: m.questionSvc,
+		BGTaskStore:     m.bgTaskStore,
 	}
 
 	m.sessions[sessionID] = ctx
@@ -170,10 +190,11 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 			})
 		}
 
-		// Ensure question service is wired for loaded sessions
+		// Ensure question service and bgTaskStore are wired for loaded sessions
 		if ctx.QuestionService == nil {
 			ctx.QuestionService = m.questionSvc
 		}
+		ctx.BGTaskStore = m.bgTaskStore
 
 		slog.Info("session switched (loaded from store)",
 			"old", currentSessionID, "new", newSessionID)
@@ -201,6 +222,7 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 		SandboxState:   SandboxInfo{Type: sb.Type, Path: sb.Path},
 		RecentToolCalls: make([]ToolCallRecord, 0),
 		QuestionService: m.questionSvc,
+		BGTaskStore:     m.bgTaskStore,
 	}
 
 	m.sessions[newSessionID] = ctx
@@ -376,6 +398,7 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 		m.llmModel,
 		m.llmAPIKey,
 		m.l1Scorer,
+		m.gatekeeper,
 	)
 
 	return loop.Run(ctx, userMessage)
@@ -455,6 +478,7 @@ func dataToAgentContext(data *session.SessionData) *AgentContext {
 		SandboxState:    SandboxInfo(data.SandboxState),
 		SessionSummary:  data.SessionSummary,
 		RecentToolCalls: convertToolRecordsFromSession(data.RecentToolCalls),
+		BGTaskStore:     nil, // restored sessions get store via SwitchSession
 	}
 }
 

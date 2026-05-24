@@ -11,6 +11,7 @@ import (
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/eventbus"
+	"github.com/clawless/agentd/internal/persistence"
 )
 
 const (
@@ -47,6 +48,16 @@ type L2AuthManager struct {
 	decisionIDs    map[string]bool // dedup for duplicate decision callbacks
 	decisionQueue  *DecisionQueue
 	pendingTasks   map[string]*clawless.Task // task_id -> task, for resuming after L2
+	pendingL2Store PendingL2StoreInterface   // persistent store for pending L2 states
+}
+
+// PendingL2StoreInterface abstracts the pending L2 store for testability.
+type PendingL2StoreInterface interface {
+	Save(state *persistence.PendingL2State) error
+	Remove(taskID string) error
+	Load(taskID string) (*persistence.PendingL2State, bool)
+	ListAll() []*persistence.PendingL2State
+	Count() int
 }
 
 // NewL2AuthManager creates a new L2 auth manager.
@@ -66,6 +77,20 @@ func (m *L2AuthManager) SetDecisionQueue(dq *DecisionQueue) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.decisionQueue = dq
+}
+
+// SetPendingL2Store sets the persistent store for pending L2 states.
+func (m *L2AuthManager) SetPendingL2Store(store PendingL2StoreInterface) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingL2Store = store
+}
+
+// GetPendingL2Store returns the persistent store.
+func (m *L2AuthManager) GetPendingL2Store() PendingL2StoreInterface {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.pendingL2Store
 }
 
 // GetDecisionQueue returns the decision queue.
@@ -171,7 +196,25 @@ func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless
 	// Store the task for resuming after L2
 	m.mu.Lock()
 	m.pendingTasks[task.ID] = task
+	pendingStore := m.pendingL2Store
 	m.mu.Unlock()
+
+	// Persist pending L2 state to disk
+	if pendingStore != nil {
+		if err := pendingStore.Save(&persistence.PendingL2State{
+			TaskID:      task.ID,
+			SessionID:   task.SessionID,
+			AgentID:     m.agentID,
+			Command:     task.Command,
+			Score:       score,
+			Reason:      reason,
+			Level:       level,
+			DecisionID:  fmt.Sprintf("l2_%s_%d", task.ID, time.Now().Unix()),
+			RequestedAt: time.Now(),
+		}); err != nil {
+			slog.Warn("failed to persist pending L2 state", "task_id", task.ID, "error", err)
+		}
+	}
 
 	if dq != nil {
 		decision := &Decision{

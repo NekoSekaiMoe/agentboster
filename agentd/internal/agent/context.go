@@ -3,6 +3,8 @@ package agent
 import (
 	"fmt"
 	"time"
+
+	"github.com/clawless/agentd/internal/persistence"
 )
 
 // AgentContext holds the runtime context for an agent session.
@@ -25,6 +27,24 @@ type AgentContext struct {
 	SandboxState    SandboxInfo
 	SessionSummary  string
 	RecentToolCalls []ToolCallRecord
+
+	// Persistence stores (injected by Manager)
+	BGTaskStore *persistence.BackgroundTaskStore
+
+	// TaskState tracks execution state across compaction boundaries
+	TaskState TaskState
+}
+
+// TaskState holds execution state that survives context compaction.
+type TaskState struct {
+	SandboxType      string            `json:"sandbox_type"`
+	SandboxID        string            `json:"sandbox_id"`
+	L2AuthRecords    []string          `json:"l2_auth_records"`
+	SubAgentProgress map[string]string `json:"sub_agent_progress"`
+	KeyDecisions     []string          `json:"key_decisions"`
+	LastToolSummary  string            `json:"last_tool_summary"`
+	CompactedAt      string            `json:"compacted_at,omitempty"`
+	CompactionCount  int               `json:"compaction_count"`
 }
 
 // SandboxInfo describes the current sandbox for LLM context injection.

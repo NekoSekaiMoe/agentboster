@@ -32,6 +32,7 @@ type L0Result struct {
 type Engine struct {
 	mu             sync.RWMutex
 	rules          []L0Rule
+	outputRules    []L0Rule // rules for validating LLM output content
 	compiledRegexp sync.Map // map[string]*regexp.Regexp — concurrent-safe cache
 }
 
@@ -39,6 +40,7 @@ type Engine struct {
 func NewEngine() *Engine {
 	e := &Engine{}
 	e.rules = DefaultPresets()
+	e.outputRules = DefaultOutputRules()
 	return e
 }
 
@@ -155,4 +157,37 @@ func (e *Engine) Rules() []L0Rule {
 	result := make([]L0Rule, len(e.rules))
 	copy(result, e.rules)
 	return result
+}
+
+// CheckOutput validates LLM output content against output safety rules.
+// Detects system prompt leaks, credential exposure, and injection patterns.
+func (e *Engine) CheckOutput(output string) *L0Result {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	for _, rule := range e.outputRules {
+		matched, err := e.matchPattern(rule.Pattern, output)
+		if err != nil {
+			slog.Warn("L0 output rule match error", "rule_id", rule.ID, "error", err)
+			continue
+		}
+		if matched {
+			slog.Warn("L0 output blocked", "rule_id", rule.ID)
+			return &L0Result{
+				Blocked: true,
+				Rule:    rule,
+				Reason:  fmt.Sprintf("L0 output rule matched: %s (pattern: %s)", rule.ID, rule.Pattern),
+			}
+		}
+	}
+	return nil
+}
+
+// ReloadOutputRules replaces the output safety rules.
+func (e *Engine) ReloadOutputRules(rules []L0Rule) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.outputRules = rules
+	e.compiledRegexp = sync.Map{} // clear cache
+	slog.Info("L0 output rules reloaded", "count", len(rules))
 }

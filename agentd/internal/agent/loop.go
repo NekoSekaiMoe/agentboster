@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
+	"github.com/clawless/agentd/internal/security"
 	"github.com/clawless/agentd/internal/security/l1_scorer"
 )
 
@@ -25,6 +26,9 @@ type ToolCall struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
+// compactionThreshold is the number of messages before we trigger compaction.
+const compactionThreshold = 50
+
 // AgentLoop implements the think→act→observe reasoning loop.
 type AgentLoop struct {
 	registry      *ToolRegistry
@@ -34,6 +38,7 @@ type AgentLoop struct {
 	llmModel      string
 	llmAPIKey     string
 	l1Scorer      *l1_scorer.L1Scorer
+	gatekeeper    *security.Gatekeeper
 	messages      []Message
 	stepCount     int
 	maxSteps      int
@@ -46,6 +51,7 @@ func NewAgentLoop(
 	clawlessClient *clawless.Client,
 	llmEndpoint, llmModel, llmAPIKey string,
 	l1Scorer *l1_scorer.L1Scorer,
+	gatekeeper *security.Gatekeeper,
 ) *AgentLoop {
 	return &AgentLoop{
 		registry:    registry,
@@ -55,6 +61,7 @@ func NewAgentLoop(
 		llmModel:    llmModel,
 		llmAPIKey:   llmAPIKey,
 		l1Scorer:    l1Scorer,
+		gatekeeper:  gatekeeper,
 		messages:    make([]Message, 0),
 		maxSteps:    agentCtx.MaxSteps,
 	}
@@ -68,6 +75,13 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 		l.stepCount++
 		slog.Info("Agent Loop: step", "step", l.stepCount, "session", l.agentCtx.SessionID)
 
+		// Compact context if message count exceeds threshold
+		if len(l.messages) >= compactionThreshold {
+			if err := l.compactContext(ctx); err != nil {
+				slog.Warn("compaction failed, continuing", "error", err)
+			}
+		}
+
 		// Build context-injected system prompt
 		systemPrompt := l.buildSystemPrompt()
 
@@ -75,6 +89,25 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 		llmResp, err := l.callLLM(ctx, systemPrompt, l.messages)
 		if err != nil {
 			return "", fmt.Errorf("LLM call failed at step %d: %w", l.stepCount, err)
+		}
+
+		// Security validation: check LLM output for injection/leak patterns
+		if llmResp.Content != "" && l.gatekeeper != nil {
+			auditResult, auditLogs := l.gatekeeper.AuditOutput(ctx, llmResp.Content, l.agentCtx.SessionSummary)
+			if len(auditLogs) > 0 {
+				if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
+					slog.Warn("failed to write output audit logs", "error", err)
+				}
+			}
+			if auditResult.Decision == "blocked" {
+				slog.Warn("LLM output blocked by security audit", "reason", auditResult.Reason)
+				// Inject a safe replacement message
+				l.messages = append(l.messages, Message{
+					Role:    "assistant",
+					Content: "抱歉，我的输出被安全审查拦截。原因：" + auditResult.Reason + "。请重新表述您的请求。",
+				})
+				return l.messages[len(l.messages)-1].Content, nil
+			}
 		}
 
 		// Add assistant message
@@ -208,4 +241,144 @@ func (l *AgentLoop) buildSystemPrompt() string {
 // GetMessages returns the conversation history.
 func (l *AgentLoop) GetMessages() []Message {
 	return l.messages
+}
+
+// compactContext summarizes older messages and preserves task state.
+// Keeps system prompt + last 10 messages + compaction summary.
+func (l *AgentLoop) compactContext(ctx context.Context) error {
+	slog.Info("compacting context", "messages", len(l.messages), "session", l.agentCtx.SessionID)
+
+	// 1. Save current task state before compaction
+	l.saveTaskState()
+
+	// 2. Generate summary of older messages via LLM
+	summary, err := l.generateCompactionSummary(ctx)
+	if err != nil {
+		return fmt.Errorf("generate compaction summary: %w", err)
+	}
+
+	// 3. Keep system prompt (first message) + last 10 messages
+	keepCount := 10
+	if len(l.messages) <= keepCount+1 {
+		return nil // nothing to compact
+	}
+
+	// Find system message
+	sysIdx := -1
+	for i, msg := range l.messages {
+		if msg.Role == "system" {
+			sysIdx = i
+			break
+		}
+	}
+
+	// Build compacted message list
+	compacted := make([]Message, 0, keepCount+2)
+	if sysIdx >= 0 {
+		compacted = append(compacted, l.messages[sysIdx])
+	}
+
+	// Add compaction summary as system message
+	summaryMsg := Message{
+		Role:    "system",
+		Content: fmt.Sprintf("## 上下文压缩摘要\n%s\n\n（之前的对话已压缩。上方是关键摘要，下方是最近的对话记录。）", summary),
+	}
+	compacted = append(compacted, summaryMsg)
+
+	// Keep last N messages
+	start := len(l.messages) - keepCount
+	if start < 0 {
+		start = 0
+	}
+	// Skip system message if it's in the tail
+	for i := start; i < len(l.messages); i++ {
+		if l.messages[i].Role != "system" {
+			compacted = append(compacted, l.messages[i])
+		}
+	}
+
+	l.messages = compacted
+	l.agentCtx.TaskState.CompactionCount++
+	l.agentCtx.TaskState.CompactedAt = time.Now().UTC().Format(time.RFC3339)
+
+	// Persist compaction summary to session store
+	l.agentCtx.SessionSummary = summary
+
+	slog.Info("compaction complete", "before", len(l.messages)+keepCount+1, "after", len(l.messages))
+	return nil
+}
+
+// saveTaskState captures current execution state before compaction.
+func (l *AgentLoop) saveTaskState() {
+	l.agentCtx.TaskState.SandboxType = l.agentCtx.SandboxType
+	l.agentCtx.TaskState.SandboxID = l.agentCtx.SandboxID
+
+	// Extract key decisions from recent tool calls
+	if len(l.agentCtx.RecentToolCalls) > 0 {
+		lastTool := l.agentCtx.RecentToolCalls[len(l.agentCtx.RecentToolCalls)-1]
+		l.agentCtx.TaskState.LastToolSummary = fmt.Sprintf("%s(%s) → %s",
+			lastTool.Tool, truncate(lastTool.Args, 100), truncate(lastTool.Result, 200))
+	}
+
+	// Collect key decisions (simplified: last 3 tool call results)
+	decisions := make([]string, 0, 3)
+	for i := len(l.agentCtx.RecentToolCalls) - 1; i >= 0 && len(decisions) < 3; i-- {
+		tc := l.agentCtx.RecentToolCalls[i]
+		if tc.Success {
+			decisions = append(decisions, fmt.Sprintf("%s: %s", tc.Tool, truncate(tc.Result, 150)))
+		}
+	}
+	l.agentCtx.TaskState.KeyDecisions = decisions
+}
+
+// generateCompactionSummary asks the LLM to summarize the conversation.
+func (l *AgentLoop) generateCompactionSummary(ctx context.Context) (string, error) {
+	// Build a compact representation of the conversation
+	var sb strings.Builder
+	sb.WriteString("请用中文总结以下对话的关键信息，包括：\n")
+	sb.WriteString("1. 正在执行的任务目标\n")
+	sb.WriteString("2. 已完成的关键步骤\n")
+	sb.WriteString("3. 当前状态（沙箱、文件、进程）\n")
+	sb.WriteString("4. 下一步计划\n")
+	sb.WriteString("5. 任何重要的决策或发现\n\n")
+
+	// Include all messages except the last few (which will be kept)
+	limit := len(l.messages) - 10
+	if limit > 0 {
+		sb.WriteString("--- 对话历史 ---\n")
+		for i := 0; i < limit && i < len(l.messages); i++ {
+			msg := l.messages[i]
+			if msg.Role == "system" {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("[%s] %s\n\n", msg.Role, truncate(msg.Content, 500)))
+		}
+	}
+
+	summaryReq := Message{
+		Role:    "user",
+		Content: sb.String(),
+	}
+
+	// Temporarily replace messages with just system + summary request
+	origMessages := l.messages
+	summaryMessages := []Message{}
+	// Keep system message
+	for _, m := range origMessages {
+		if m.Role == "system" {
+			summaryMessages = append(summaryMessages, m)
+			break
+		}
+	}
+	summaryMessages = append(summaryMessages, summaryReq)
+
+	l.messages = summaryMessages
+	resp, err := l.callLLM(ctx, l.buildSystemPrompt(), l.messages)
+	l.messages = origMessages // restore
+
+	if err != nil {
+		return "", err
+	}
+
+	return resp.Content, nil
 }

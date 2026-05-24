@@ -5,6 +5,7 @@ import {
   agentMemories,
   agentReviewLogs,
   agentSandboxes,
+  agentTaskOutputs,
   agentTasks,
 } from './schema';
 
@@ -240,6 +241,26 @@ export async function writeMemories(
 
 export async function deleteMemory(id: string) {
   await db.delete(agentMemories).where(eq(agentMemories.id, id));
+}
+
+// === Task Outputs (Streaming) ===
+
+export async function upsertAgentTaskOutput(data: {
+  taskID: string;
+  sessionID: string;
+  output: string;
+  streamPosition: number;
+}) {
+  const [record] = await db
+    .insert(agentTaskOutputs)
+    .values({
+      taskId: data.taskID,
+      sessionId: data.sessionID,
+      output: data.output,
+      streamPosition: data.streamPosition,
+    })
+    .returning();
+  return record;
 }
 
 // === Agent Config ===

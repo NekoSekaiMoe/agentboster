@@ -157,6 +157,7 @@ export async function getMCPTools(
     sessionId?: string;
     agentName?: string;
   },
+  appConfig?: import('@/types/config').AppConfig,
 ): Promise<ToolSet> {
   if (!config || Object.keys(config).length === 0) {
     return {};
@@ -164,6 +165,15 @@ export async function getMCPTools(
 
   const toolDescriptors = await listMCPToolDescriptors(config, baseName);
   const allTools: ToolSet = {};
+
+  const secCtx = appConfig
+    ? {
+        sessionId: context?.sessionId ?? '',
+        runId: context?.sessionId ?? '',
+        agentName: context?.agentName ?? '',
+        appConfig,
+      }
+    : undefined;
 
   for (const descriptor of toolDescriptors) {
     allTools[descriptor.key] = withToolExecutionLogger(
@@ -196,6 +206,7 @@ export async function getMCPTools(
         sessionId: context?.sessionId,
         agentName: context?.agentName,
       },
+      secCtx,
     );
   }
 

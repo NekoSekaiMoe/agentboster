@@ -88,6 +88,17 @@ export const agentSandboxes = pgTable('agent_sandboxes', {
     .notNull(),
 });
 
+export const agentTaskOutputs = pgTable('agent_task_outputs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  taskId: text('task_id').notNull(),
+  sessionId: uuid('session_id'),
+  output: text('output').notNull(),
+  streamPosition: integer('stream_position').default(0).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 export const agentMemories = pgTable('agent_memories', {
   id: uuid('id').defaultRandom().primaryKey(),
   agentId: text('agent_id').notNull(),

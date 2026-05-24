@@ -9,6 +9,7 @@ export {
 export { scheduledTasks } from './scheduled';
 export {
   agentTasks,
+  agentTaskOutputs,
   agentReviewLogs,
   agentL0Rules,
   agentSandboxes,

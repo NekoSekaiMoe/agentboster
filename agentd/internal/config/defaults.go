@@ -1,7 +1,5 @@
 package config
 
-import "runtime"
-
 // DefaultAgentdTOML returns the default agentd.toml content.
 func DefaultAgentdTOML() string {
 	return `# Agent Daemon Configuration
@@ -76,10 +74,17 @@ sync_interval = "30s"
 max_count = 50
 timeout = "30m"
 store_path = "/tmp/agentd/sessions"
+
+[worker]
+# review_pool_size 默认 NumCPU * 4（IO/系统调用密集型）
+# sandbox_pool_size 默认 NumCPU * 2（IO 密集型）
+# task_pool_size 默认 NumCPU
+# memory_pool_size 默认 2
+# cleanup_pool_size 默认 1
+review_pool_size = 0   # 0 = 使用默认值 (NumCPU * 4)
+sandbox_pool_size = 0  # 0 = 使用默认值 (NumCPU * 2)
+task_pool_size = 0     # 0 = 使用默认值 (NumCPU)
 `
 }
 
-// NumCPU returns the number of CPUs for worker pool sizing.
-func NumCPU() int {
-	return runtime.NumCPU()
-}
+

@@ -30,10 +30,19 @@ type Dispatcher struct {
 	agentManager *agent.Manager
 }
 
+// PoolSizes holds the worker pool size configuration.
+type PoolSizes struct {
+	Review  int
+	Sandbox int
+	Task    int
+	Memory  int
+	Cleanup int
+}
+
 // NewDispatcher creates a dispatcher with all worker pools and dependencies.
 func NewDispatcher(
 	bus *eventbus.Bus,
-	numWorkers int,
+	sizes PoolSizes,
 	gk *security.Gatekeeper,
 	sbManager *sandbox.Manager,
 	clawlessClient *clawless.Client,
@@ -41,11 +50,11 @@ func NewDispatcher(
 ) *Dispatcher {
 	d := &Dispatcher{
 		bus:          bus,
-		taskPool:     NewPool("task", numWorkers),
-		reviewPool:   NewPool("review", numWorkers),
-		sandboxPool:  NewPool("sandbox", numWorkers),
-		memoryPool:   NewPool("memory", 2),
-		cleanupPool:  NewPool("cleanup", 1),
+		taskPool:     NewPool("task", sizes.Task),
+		reviewPool:   NewPool("review", sizes.Review),
+		sandboxPool:  NewPool("sandbox", sizes.Sandbox),
+		memoryPool:   NewPool("memory", sizes.Memory),
+		cleanupPool:  NewPool("cleanup", sizes.Cleanup),
 		gatekeeper:   gk,
 		sbManager:    sbManager,
 		clawless:     clawlessClient,

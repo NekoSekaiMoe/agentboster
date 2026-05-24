@@ -230,6 +230,39 @@ func parseScoreResponse(text string) (*L1Result, error) {
 	return &result, nil
 }
 
+// ScoreOutput evaluates LLM output content for safety risks.
+// Detects prompt leaks, credential exposure, and anomalous output patterns.
+func (s *L1Scorer) ScoreOutput(ctx context.Context, output, sessionSummary string) (*L1Result, error) {
+	prompt := buildOutputPrompt(output, sessionSummary)
+
+	var result *L1Result
+	var err error
+
+	switch s.provider {
+	case "local_ollama":
+		result, err = s.scoreOllama(ctx, prompt)
+	case "remote", "clawless_proxy":
+		result, err = s.scoreRemote(ctx, prompt)
+	default:
+		slog.Warn("L1 output scorer: unknown provider, defaulting to safe", "provider", s.provider)
+		return &L1Result{Score: 0, Level: "low", Reason: "no L1 provider configured"}, nil
+	}
+
+	if err != nil {
+		slog.Error("L1 output scoring failed", "error", err)
+		return &L1Result{Score: 0.3, Level: "medium", Reason: fmt.Sprintf("L1 output scoring error: %v", err)}, nil
+	}
+
+	return result, nil
+}
+
+func buildOutputPrompt(output, sessionSummary string) string {
+	prompt := SafetyOutputScorerPrompt
+	prompt = strings.ReplaceAll(prompt, "{{output}}", output)
+	prompt = strings.ReplaceAll(prompt, "{{context_summary}}", sessionSummary)
+	return prompt
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

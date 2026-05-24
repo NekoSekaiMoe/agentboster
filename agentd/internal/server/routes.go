@@ -596,6 +596,7 @@ func (s *Server) resumeTask(taskID string) {
 		return
 	}
 	s.l2Mgr.RemovePendingTask(taskID)
+	s.removePendingL2(taskID)
 	s.bus.Publish(eventbus.EventTaskApproved, task)
 }
 
@@ -606,7 +607,16 @@ func (s *Server) cancelTask(taskID string) {
 		return
 	}
 	s.l2Mgr.RemovePendingTask(taskID)
+	s.removePendingL2(taskID)
 	s.bus.Publish(eventbus.EventTaskRejected, task)
+}
+
+func (s *Server) removePendingL2(taskID string) {
+	if store := s.l2Mgr.GetPendingL2Store(); store != nil {
+		if err := store.Remove(taskID); err != nil {
+			slog.Warn("failed to remove pending L2 state", "task_id", taskID, "error", err)
+		}
+	}
 }
 
 // ── Session Runtime Control ──────────────────────────────────────────

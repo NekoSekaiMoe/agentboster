@@ -41,5 +41,57 @@ func DefaultPresets() []L0Rule {
 		{ID: "net-nmap", Pattern: "nmap\\s", Type: "network", Action: "block", Scope: "global"},
 		{ID: "net-masscan", Pattern: "masscan", Type: "network", Action: "block", Scope: "global"},
 		{ID: "net-hydra", Pattern: "hydra", Type: "network", Action: "block", Scope: "global"},
+ 	}
+}
+
+// DefaultOutputRules returns built-in rules for validating LLM output content.
+// These detect system prompt leaks, credential exposure, and injection patterns.
+func DefaultOutputRules() []L0Rule {
+	return []L0Rule{
+		// === System prompt leak detection ===
+		{
+			ID:     "out-system-prompt-leak",
+			Pattern: `(?i)(your\s+system\s+prompt|you\s+are\s+(AgentClaw|ClawLess)|##\s*安全规则|##\s*Safe|##\s*能力|##\s*沙箱选择策略)`,
+			Type:   "command",
+			Action: "block",
+			Scope:  "global",
+		},
+		{
+			ID:     "out-instruction-leak",
+			Pattern: `(?i)(ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|rules?|prompts?)|you\s+are\s+now\s+|DAN\s+mode|jailbreak|忽略.*之前的.*指令)`,
+			Type:   "command",
+			Action: "block",
+			Scope:  "global",
+		},
+		// === Credential exposure detection ===
+		{
+			ID:     "out-api-key-leak",
+			Pattern: `(?i)(api[_-]?key\s*[:=]\s*["']?[a-zA-Z0-9_\-]{16,}|Bearer\s+[a-zA-Z0-9_\-\.]{20,})`,
+			Type:   "command",
+			Action: "block",
+			Scope:  "global",
+		},
+		{
+			ID:     "out-password-leak",
+			Pattern: `(?i)(password\s*[:=]\s*["']?[^\s"']{8,}|passwd\s*[:=]\s*["']?[^\s"']{8,})`,
+			Type:   "command",
+			Action: "block",
+			Scope:  "global",
+		},
+		{
+			ID:     "out-private-key-leak",
+			Pattern: `-----BEGIN\s+(RSA|EC|DSA|OPENSSH)\s+PRIVATE\s+KEY-----`,
+			Type:   "command",
+			Action: "block",
+			Scope:  "global",
+		},
+		// === Internal path leak detection ===
+		{
+			ID:     "out-internal-path-leak",
+			Pattern: `(?i)(/etc/shadow|/etc/passwd|/etc/ssh/ssh_host|/proc/self/environ|/root/\.ssh/)`,
+			Type:   "command",
+			Action: "block",
+			Scope:  "global",
+		},
 	}
 }

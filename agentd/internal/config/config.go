@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -19,6 +20,7 @@ type Config struct {
 	Sandbox  SandboxConfig  `mapstructure:"sandbox"`
 	Cache    CacheConfig    `mapstructure:"cache"`
 	Session  SessionConfig  `mapstructure:"session"`
+	Worker   WorkerConfig   `mapstructure:"worker"`
 }
 
 type ServerConfig struct {
@@ -81,9 +83,17 @@ type CacheConfig struct {
 }
 
 type SessionConfig struct {
-	MaxCount      int           `mapstructure:"max_count"`
-	Timeout       time.Duration `mapstructure:"timeout"`
-	StorePath     string        `mapstructure:"store_path"`
+	MaxCount  int           `mapstructure:"max_count"`
+	Timeout   time.Duration `mapstructure:"timeout"`
+	StorePath string        `mapstructure:"store_path"`
+}
+
+type WorkerConfig struct {
+	ReviewPoolSize  int `mapstructure:"review_pool_size"`
+	SandboxPoolSize int `mapstructure:"sandbox_pool_size"`
+	TaskPoolSize    int `mapstructure:"task_pool_size"`
+	MemoryPoolSize  int `mapstructure:"memory_pool_size"`
+	CleanupPoolSize int `mapstructure:"cleanup_pool_size"`
 }
 
 var defaults = Config{
@@ -143,6 +153,13 @@ var defaults = Config{
 		Timeout:   30 * time.Minute,
 		StorePath: "/tmp/agentd/sessions",
 	},
+	Worker: WorkerConfig{
+		ReviewPoolSize:  runtime.NumCPU() * 4,
+		SandboxPoolSize: runtime.NumCPU() * 2,
+		TaskPoolSize:    runtime.NumCPU(),
+		MemoryPoolSize:  2,
+		CleanupPoolSize: 1,
+	},
 }
 
 // Load reads configuration from file and environment variables.
@@ -197,6 +214,13 @@ func Load(path string) (*Config, error) {
 		"max_count":  defaults.Session.MaxCount,
 		"timeout":    defaults.Session.Timeout.String(),
 		"store_path": defaults.Session.StorePath,
+	})
+	v.SetDefault("worker", map[string]any{
+		"review_pool_size":  defaults.Worker.ReviewPoolSize,
+		"sandbox_pool_size": defaults.Worker.SandboxPoolSize,
+		"task_pool_size":    defaults.Worker.TaskPoolSize,
+		"memory_pool_size":  defaults.Worker.MemoryPoolSize,
+		"cleanup_pool_size": defaults.Worker.CleanupPoolSize,
 	})
 
 	v.SetConfigType("toml")

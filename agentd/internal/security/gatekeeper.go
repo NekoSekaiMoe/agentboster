@@ -192,6 +192,65 @@ func l1Action(r *l1_scorer.L1Result) string {
 	}
 }
 
+// AuditOutput validates LLM output content through the security pipeline.
+// L0 checks for known leak patterns, L1 scores for anomalous output.
+func (g *Gatekeeper) AuditOutput(ctx context.Context, output string, sessionSummary string) (*ReviewResult, []clawless.ReviewLog) {
+	result := &ReviewResult{
+		Command: output,
+	}
+	logs := make([]clawless.ReviewLog, 0, 2)
+
+	// === L0 Output Check ===
+	l0Result := g.l0.CheckOutput(output)
+	if l0Result != nil && l0Result.Blocked {
+		result.Decision = DecisionBlocked
+		result.Reason = "L0 output block: " + l0Result.Reason
+		result.L0Result = l0Result
+		logs = append(logs, result.ReviewLog("L0-output", 1.0, "blocked", l0Result.Reason))
+
+		g.bus.Publish(eventbus.EventSecurityAlert, map[string]any{
+			"level":    "L0-output",
+			"decision": "blocked",
+			"reason":   l0Result.Reason,
+			"rule_id":  l0Result.Rule.ID,
+		})
+		return result, logs
+	}
+
+	// === L1 Output Score ===
+	l1Result, err := g.l1.ScoreOutput(ctx, output, sessionSummary)
+	if err != nil {
+		slog.Error("L1 output scoring error", "error", err)
+		logs = append(logs, result.ReviewLog("L1-output", 0.3, "allowed", "L1 output scoring error"))
+		result.Decision = DecisionAllowed
+		result.Reason = "L1 output scoring error, defaulting to allow"
+		return result, logs
+	}
+
+	result.L1Result = l1Result
+	logs = append(logs, result.ReviewLog("L1-output", l1ScoreToFloat(l1Result), l1Action(l1Result), l1Result.Reason))
+
+	switch {
+	case l1Result.Level == "high" || l1Result.Level == "critical":
+		result.Decision = DecisionBlocked
+		result.Reason = "L1 output risk: " + l1Result.Reason
+		g.bus.Publish(eventbus.EventSecurityAlert, map[string]any{
+			"level":    "L1-output",
+			"score":    l1Result.Score,
+			"decision": "blocked",
+			"reason":   l1Result.Reason,
+		})
+	case l1Result.Level == "medium":
+		result.Decision = DecisionAllowed
+		result.Reason = "L1 output medium risk, allowing with warning: " + l1Result.Reason
+	default:
+		result.Decision = DecisionAllowed
+		result.Reason = "output safe"
+	}
+
+	return result, logs
+}
+
 // requestL2Auth handles the L2 authorization flow for high/critical risk commands.
 func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *l1_scorer.L1Result, result *ReviewResult, logs []clawless.ReviewLog) *ReviewResult {
 	// Check L2 cache

@@ -67,10 +67,15 @@ export async function buildAgentTools(
     Object.assign(tools, registeredTools);
   }
 
-  const mcpTools = await getMCPTools(config.mcp, 'MCP', {
-    sessionId,
-    agentName,
-  });
+  const mcpTools = await getMCPTools(
+    config.mcp,
+    'MCP',
+    {
+      sessionId,
+      agentName,
+    },
+    config,
+  );
   return {
     ...tools,
     ...mcpTools,

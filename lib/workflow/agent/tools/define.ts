@@ -7,6 +7,14 @@ import type {
 } from '@/types/config/tools';
 import type { WorkflowUIMessageChunk } from '@/types/workflow';
 import type { Tool, ToolSet } from 'ai';
+import { hookRegistry } from '../hooks';
+import type {
+  AfterToolCallPayload,
+  BeforeToolCallPayload,
+  HookContext,
+} from '../hooks';
+import { getSecurityEngine } from '../security';
+import type { SecurityCheckRequest } from '../security';
 
 type MaybePromise<T> = T | Promise<T>;
 type FactoryResult = Record<string, Tool | null> | null;
@@ -114,9 +122,17 @@ function getErrorCause(error: unknown): string | undefined {
   return undefined;
 }
 
+export interface ToolSecurityContext {
+  sessionId: string;
+  runId: string;
+  agentName: string;
+  appConfig: AppConfig;
+}
+
 export function withToolExecutionLogger(
   tool: ToolSet[string],
   context: ToolExecutionLogContext,
+  securityContext?: ToolSecurityContext,
 ): ToolSet[string] {
   const execute = tool.execute;
   if (!execute) {
@@ -136,6 +152,54 @@ export function withToolExecutionLogger(
         toolCallId,
       });
 
+      // Security check (L0 rules engine)
+      if (securityContext) {
+        const engine = getSecurityEngine();
+        const checkRequest: SecurityCheckRequest = {
+          toolName: `${context.toolId}.${context.toolName}`,
+          toolId: context.toolId,
+          input: input as Record<string, unknown>,
+          context: {
+            sessionId: securityContext.sessionId,
+            runId: securityContext.runId,
+            agentName: securityContext.agentName,
+            autonomyLevel:
+              securityContext.appConfig.autonomy?.level ?? 'supervised',
+            appConfig: securityContext.appConfig,
+          },
+        };
+        const secResult = engine.check(checkRequest, securityContext.appConfig);
+        if (secResult.decision === 'block') {
+          logger.warn('tool:blocked_by_security', {
+            toolId: context.toolId,
+            toolName: context.toolName,
+            ruleId: secResult.ruleId,
+            reason: secResult.reason,
+          });
+          throw new Error(`Security blocked: ${secResult.reason}`);
+        }
+      }
+
+      // beforeToolCall hook
+      if (securityContext) {
+        const hookCtx: HookContext = {
+          sessionId: securityContext.sessionId,
+          runId: securityContext.runId,
+          agentName: securityContext.agentName,
+          appConfig: securityContext.appConfig,
+        };
+        const beforePayload: BeforeToolCallPayload = {
+          toolName: `${context.toolId}.${context.toolName}`,
+          toolId: context.toolId,
+          input: input as Record<string, unknown>,
+        };
+        await hookRegistry.executeBefore(
+          'beforeToolCall',
+          beforePayload,
+          hookCtx,
+        );
+      }
+
       try {
         const result = await execute(input, options);
 
@@ -146,6 +210,28 @@ export function withToolExecutionLogger(
           elapsedMs: Date.now() - startedAt,
           resultShape: getResultShape(result),
         });
+
+        // afterToolCall hook
+        if (securityContext) {
+          const hookCtx: HookContext = {
+            sessionId: securityContext.sessionId,
+            runId: securityContext.runId,
+            agentName: securityContext.agentName,
+            appConfig: securityContext.appConfig,
+          };
+          const afterPayload: AfterToolCallPayload = {
+            toolName: `${context.toolId}.${context.toolName}`,
+            toolId: context.toolId,
+            input: input as Record<string, unknown>,
+            result,
+            elapsedMs: Date.now() - startedAt,
+          };
+          await hookRegistry.executeAfter(
+            'afterToolCall',
+            afterPayload,
+            hookCtx,
+          );
+        }
 
         return result;
       } catch (error) {
@@ -158,6 +244,29 @@ export function withToolExecutionLogger(
           error: getErrorMessage(error),
           errorCause: getErrorCause(error),
         });
+
+        // onError hook
+        if (securityContext) {
+          const hookCtx: HookContext = {
+            sessionId: securityContext.sessionId,
+            runId: securityContext.runId,
+            agentName: securityContext.agentName,
+            appConfig: securityContext.appConfig,
+          };
+          await hookRegistry.executeAfter(
+            'onError',
+            {
+              error: error instanceof Error ? error : new Error(String(error)),
+              phase: 'tool',
+              context: {
+                toolId: context.toolId,
+                toolName: context.toolName,
+              },
+            },
+            hookCtx,
+          );
+        }
+
         throw error;
       }
     },
@@ -268,17 +377,28 @@ export function defineBuildInTool(config: {
         return null;
       }
 
+      const secCtx: ToolSecurityContext = {
+        sessionId: context.sessionId,
+        runId: context.runId,
+        agentName: context.agentName,
+        appConfig,
+      };
+
       const tools = Object.entries(created).reduce<ToolSet>(
         (allTools, entry) => {
           const [toolName, tool] = entry;
           if (tool) {
-            allTools[toolName] = withToolExecutionLogger(tool, {
-              provider: 'builtin',
-              toolId: id,
-              toolName,
-              sessionId: context.sessionId,
-              agentName: context.agentName,
-            });
+            allTools[toolName] = withToolExecutionLogger(
+              tool,
+              {
+                provider: 'builtin',
+                toolId: id,
+                toolName,
+                sessionId: context.sessionId,
+                agentName: context.agentName,
+              },
+              secCtx,
+            );
           }
 
           return allTools;
