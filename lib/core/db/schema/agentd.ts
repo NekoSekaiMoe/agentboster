@@ -18,11 +18,24 @@ export const agentTasks = pgTable('agent_tasks', {
   env: jsonb('env').$type<Record<string, string>>(),
   timeout: integer('timeout').default(300),
   status: text('status', {
-    enum: ['pending', 'reviewing', 'running', 'completed', 'failed', 'cancelled'],
-  }).default('pending').notNull(),
+    enum: [
+      'pending',
+      'reviewing',
+      'running',
+      'completed',
+      'failed',
+      'cancelled',
+    ],
+  })
+    .default('pending')
+    .notNull(),
   result: text('result'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const agentReviewLogs = pgTable('agent_review_logs', {
@@ -31,9 +44,13 @@ export const agentReviewLogs = pgTable('agent_review_logs', {
   command: text('command').notNull(),
   level: text('level', { enum: ['L0', 'L1', 'L2'] }).notNull(),
   score: integer('score'),
-  decision: text('decision', { enum: ['allowed', 'blocked', 'pending_confirm'] }).notNull(),
+  decision: text('decision', {
+    enum: ['allowed', 'blocked', 'pending_confirm'],
+  }).notNull(),
   reason: text('reason'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const agentL0Rules = pgTable('agent_l0_rules', {
@@ -42,10 +59,16 @@ export const agentL0Rules = pgTable('agent_l0_rules', {
   pattern: text('pattern').notNull(),
   type: text('type', { enum: ['command', 'path', 'network'] }).notNull(),
   action: text('action', { enum: ['block', 'warn'] }).notNull(),
-  scope: text('scope', { enum: ['workspace', 'global'] }).default('global').notNull(),
+  scope: text('scope', { enum: ['workspace', 'global'] })
+    .default('global')
+    .notNull(),
   enabled: boolean('enabled').default(true).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const agentSandboxes = pgTable('agent_sandboxes', {
@@ -53,10 +76,16 @@ export const agentSandboxes = pgTable('agent_sandboxes', {
   agentId: text('agent_id').notNull(),
   type: text('type', { enum: ['tmpfs', 'chroot', 'docker'] }).notNull(),
   path: text('path'),
-  status: text('status', { enum: ['creating', 'ready', 'destroyed'] }).default('creating').notNull(),
+  status: text('status', { enum: ['creating', 'ready', 'destroyed'] })
+    .default('creating')
+    .notNull(),
   persistent: boolean('persistent').default(false).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
 export const agentMemories = pgTable('agent_memories', {
@@ -66,5 +95,7 @@ export const agentMemories = pgTable('agent_memories', {
   value: text('value').notNull(),
   source: text('source'),
   accessCount: integer('access_count').default(0).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });

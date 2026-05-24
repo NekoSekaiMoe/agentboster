@@ -14,7 +14,11 @@ export type NotificationStatus =
 
 // ─── L2 Authorization ────────────────────────────────────────────────
 
-export type L2Action = 'pass_once' | 'pass_until' | 'reject_once' | 'reject_until';
+export type L2Action =
+  | 'pass_once'
+  | 'pass_until'
+  | 'reject_once'
+  | 'reject_until';
 
 export interface L2DecisionContext {
   action: L2Action;
@@ -70,7 +74,10 @@ export interface CompletionNotification {
   channelFallback: AdapterName[];
 }
 
-export type NotificationPayload = DecisionNotification | CompletionNotification | L2TimeInputNotification;
+export type NotificationPayload =
+  | DecisionNotification
+  | CompletionNotification
+  | L2TimeInputNotification;
 
 // ─── L2 Confirm Request ──────────────────────────────────────────────
 

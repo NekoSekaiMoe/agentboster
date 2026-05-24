@@ -2,7 +2,6 @@ import { createLogger } from '@/lib/utils/logger';
 import type { NotificationChannel } from '../notification-channel';
 import type {
   DecisionNotification,
-  L2Action,
   NotificationPayload,
   NotificationSendResult,
 } from '../notification-types';
@@ -149,12 +148,24 @@ export class TelegramNotificationChannel implements NotificationChannel {
 
     return [
       [
-        { text: '✅ pass once', callback_data: `l2:pass_once:${taskId}:${decisionId}` },
-        { text: '⏱ pass until...', callback_data: `l2:pass_until:${taskId}:${decisionId}` },
+        {
+          text: '✅ pass once',
+          callback_data: `l2:pass_once:${taskId}:${decisionId}`,
+        },
+        {
+          text: '⏱ pass until...',
+          callback_data: `l2:pass_until:${taskId}:${decisionId}`,
+        },
       ],
       [
-        { text: '❌ reject once', callback_data: `l2:reject_once:${taskId}:${decisionId}` },
-        { text: '🔕 reject until...', callback_data: `l2:reject_until:${taskId}:${decisionId}` },
+        {
+          text: '❌ reject once',
+          callback_data: `l2:reject_once:${taskId}:${decisionId}`,
+        },
+        {
+          text: '🔕 reject until...',
+          callback_data: `l2:reject_until:${taskId}:${decisionId}`,
+        },
       ],
     ];
   }

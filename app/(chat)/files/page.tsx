@@ -22,6 +22,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type FileRecord = {
   id: string;
@@ -242,9 +243,32 @@ export default function FilesPage() {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center rounded-lg border border-dashed p-8 text-muted-foreground">
-              <Loader2 className="mr-2 size-5 animate-spin" />
-              Loading files...
+            <div className="grid gap-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
+                <Card key={`skeleton-${i}`}>
+                  <CardContent className="flex flex-col gap-3 pt-4 md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-2 min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="size-4" />
+                        <Skeleton className="h-4 w-48" />
+                      </div>
+                      <Skeleton className="h-3 w-64" />
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-3 w-24" />
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="h-3 w-28" />
+                      </div>
+                      <Skeleton className="h-3 w-40" />
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Skeleton className="h-8 w-24" />
+                      <Skeleton className="h-8 w-28" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           ) : items.length === 0 ? (
             <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">

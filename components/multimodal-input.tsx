@@ -1,12 +1,12 @@
 'use client';
 
 import type { ChatRequestOptions, CreateUIMessage } from 'ai';
-import cx from 'classnames';
 import type React from 'react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 
+import { cn } from '@/lib/utils';
 import type { UserMessagePart, WorkflowUIMessage } from '@/types/workflow';
 import {
   AttachmentButton,
@@ -277,6 +277,7 @@ function PureMultimodalInput({
         type="file"
         ref={fileInputRef}
         multiple
+        aria-label="Attach files"
         className="fixed -top-4 -left-4 size-0.5 opacity-0 pointer-events-none"
         tabIndex={-1}
         onChange={(event) => {
@@ -290,7 +291,7 @@ function PureMultimodalInput({
       <div
         role="group"
         aria-label="Message composer"
-        className={cx(
+        className={cn(
           'relative flex flex-col gap-3 rounded-2xl border bg-muted px-3 py-3 transition-colors dark:border-zinc-700',
           {
             'border-primary/60 bg-primary/5': isDragActive,

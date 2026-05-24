@@ -21,7 +21,7 @@ const l2AuthorizationWindowSchema = z.enum([
   'session',
 ]);
 
-const sandboxTypeSchema = z.enum(['tmpfs', 'docker', 'lxc', 'chroot']);
+const sandboxTypeSchema = z.enum(['tmpfs', 'docker', 'chroot']);
 
 const dbProviderTypeSchema = z.enum(['vercel-postgres', 'mongodb']);
 
@@ -53,11 +53,6 @@ export const agentClawConfigSchema = z.object({
     docker: z
       .object({
         socketPath: z.string().default('/var/run/docker.sock'),
-      })
-      .optional(),
-    lxc: z
-      .object({
-        template: z.string().default('ubuntu'),
       })
       .optional(),
     chroot: z

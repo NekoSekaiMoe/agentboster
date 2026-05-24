@@ -29,7 +29,6 @@ export interface AgentClawConfig {
   sandbox: {
     defaultType: SandboxType;
     docker?: { socketPath: string };
-    lxc?: { template: string };
     chroot?: { basePath: string };
     tmpfs?: { maxSize: string };
   };
@@ -71,7 +70,6 @@ export const DEFAULT_AGENT_CLAW_CONFIG: AgentClawConfig = {
   sandbox: {
     defaultType: 'tmpfs',
     docker: { socketPath: '/var/run/docker.sock' },
-    lxc: { template: 'ubuntu' },
     chroot: { basePath: '/var/sandbox/chroot' },
     tmpfs: { maxSize: '512M' },
   },

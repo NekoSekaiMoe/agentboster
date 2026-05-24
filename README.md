@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-	<img alt="Bun" src="https://img.shields.io/badge/bun-%E2%9C%93-000000?logo=bun" />
+	<img alt="Node.js" src="https://img.shields.io/badge/node.js-%E2%9C%93-339933?logo=node.js" />
 	<img alt="Go" src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go" />
 	<img alt="License" src="https://img.shields.io/badge/license-MIT-yellow" />
 	<img alt="Version" src="https://img.shields.io/badge/version-0.1.0-blue" />
@@ -109,7 +109,7 @@ AgentBoster 拥有你对 AI Agent 的核心需求：Chat、Skills、Memory (with
 | 存储 | Vercel Blob |
 | 工作流 | Vercel Workflow DevKit |
 | 沙箱 | Vercel Sandbox |
-| 工具 | Biome (lint/format), Bun (runtime) |
+| 工具 | Biome (lint/format), Node.js (runtime) |
 
 ### Agent Daemon
 | 类别 | 技术 |
@@ -235,12 +235,12 @@ chroot rootfs 支持 6 种来源（按优先级）：用户指定路径 → 用�
 ```bash
 cd your-agentboster
 
-bun install
-bun vercel pull   # 拉取环境变量
-bun dev           # 启动开发服务器
+yarn install
+yarn vercel pull   # 拉取环境变量
+yarn dev           # 启动开发服务器
 ```
 
-如果遇到 database schema 错误，运行 `bun run postbuild` 执行数据库迁移。
+如果遇到 database schema 错误，运行 `yarn postbuild` 执行数据库迁移。
 
 Agent Daemon 开发：
 

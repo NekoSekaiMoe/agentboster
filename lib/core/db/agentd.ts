@@ -1,12 +1,12 @@
+import { and, desc, eq, like } from 'drizzle-orm';
 import { db } from './index';
 import {
-  agentTasks,
-  agentReviewLogs,
   agentL0Rules,
-  agentSandboxes,
   agentMemories,
+  agentReviewLogs,
+  agentSandboxes,
+  agentTasks,
 } from './schema';
-import { eq, desc, and, like } from 'drizzle-orm';
 
 // === Tasks ===
 
@@ -20,34 +20,50 @@ export async function createTask(data: {
   env?: Record<string, string>;
   timeout?: number;
 }) {
-  const [task] = await db.insert(agentTasks).values({
-    agentId: data.agentId,
-    sessionId: data.sessionId ?? null,
-    command: data.command,
-    sandboxType: data.sandboxType ?? 'auto',
-    sandboxId: data.sandboxId ?? null,
-    env: data.env ?? null,
-    timeout: data.timeout ?? 300,
-    status: 'pending',
-  }).returning();
+  const [task] = await db
+    .insert(agentTasks)
+    .values({
+      agentId: data.agentId,
+      sessionId: data.sessionId ?? null,
+      command: data.command,
+      sandboxType: data.sandboxType ?? 'auto',
+      sandboxId: data.sandboxId ?? null,
+      env: data.env ?? null,
+      timeout: data.timeout ?? 300,
+      status: 'pending',
+    })
+    .returning();
   return task;
 }
 
 export async function getTask(id: string) {
-  const [task] = await db.select().from(agentTasks).where(eq(agentTasks.id, id));
+  const [task] = await db
+    .select()
+    .from(agentTasks)
+    .where(eq(agentTasks.id, id));
   return task ?? null;
 }
 
-export async function updateTaskStatus(id: string, status: string, result?: string) {
-  const [task] = await db.update(agentTasks)
-    .set({ status: status as typeof agentTasks.status.enumValues[number], result: result ?? null })
+export async function updateTaskStatus(
+  id: string,
+  status: string,
+  result?: string,
+) {
+  const [task] = await db
+    .update(agentTasks)
+    .set({
+      status: status as (typeof agentTasks.status.enumValues)[number],
+      result: result ?? null,
+    })
     .where(eq(agentTasks.id, id))
     .returning();
   return task;
 }
 
 export async function listTasks(agentId: string, limit = 50) {
-  return db.select().from(agentTasks)
+  return db
+    .select()
+    .from(agentTasks)
     .where(eq(agentTasks.agentId, agentId))
     .orderBy(desc(agentTasks.createdAt))
     .limit(limit);
@@ -55,26 +71,35 @@ export async function listTasks(agentId: string, limit = 50) {
 
 // === Review Logs ===
 
-export async function writeReviewLogs(logs: Array<{
-  taskId: string;
-  command: string;
-  level: string;
-  score?: number;
-  decision: string;
-  reason?: string;
-}>) {
-  return db.insert(agentReviewLogs).values(logs.map(log => ({
-    taskId: log.taskId,
-    command: log.command,
-    level: log.level as 'L0' | 'L1' | 'L2',
-    score: log.score ?? null,
-    decision: log.decision as 'allowed' | 'blocked' | 'pending_confirm',
-    reason: log.reason ?? null,
-  }))).returning();
+export async function writeReviewLogs(
+  logs: Array<{
+    taskId: string;
+    command: string;
+    level: string;
+    score?: number;
+    decision: string;
+    reason?: string;
+  }>,
+) {
+  return db
+    .insert(agentReviewLogs)
+    .values(
+      logs.map((log) => ({
+        taskId: log.taskId,
+        command: log.command,
+        level: log.level as 'L0' | 'L1' | 'L2',
+        score: log.score ?? null,
+        decision: log.decision as 'allowed' | 'blocked' | 'pending_confirm',
+        reason: log.reason ?? null,
+      })),
+    )
+    .returning();
 }
 
 export async function getReviewLogs(taskId: string) {
-  return db.select().from(agentReviewLogs)
+  return db
+    .select()
+    .from(agentReviewLogs)
     .where(eq(agentReviewLogs.taskId, taskId))
     .orderBy(desc(agentReviewLogs.createdAt));
 }
@@ -82,11 +107,12 @@ export async function getReviewLogs(taskId: string) {
 // === L0 Rules ===
 
 export async function getL0Rules(agentId: string) {
-  return db.select().from(agentL0Rules)
-    .where(and(
-      eq(agentL0Rules.enabled, true),
-      eq(agentL0Rules.agentId, agentId),
-    ));
+  return db
+    .select()
+    .from(agentL0Rules)
+    .where(
+      and(eq(agentL0Rules.enabled, true), eq(agentL0Rules.agentId, agentId)),
+    );
 }
 
 export async function listL0Rules() {
@@ -100,18 +126,22 @@ export async function createL0Rule(data: {
   action: string;
   scope?: string;
 }) {
-  const [rule] = await db.insert(agentL0Rules).values({
-    agentId: data.agentId ?? 'global',
-    pattern: data.pattern,
-    type: data.type as 'command' | 'path' | 'network',
-    action: data.action as 'block' | 'warn',
-    scope: (data.scope ?? 'global') as 'workspace' | 'global',
-  }).returning();
+  const [rule] = await db
+    .insert(agentL0Rules)
+    .values({
+      agentId: data.agentId ?? 'global',
+      pattern: data.pattern,
+      type: data.type as 'command' | 'path' | 'network',
+      action: data.action as 'block' | 'warn',
+      scope: (data.scope ?? 'global') as 'workspace' | 'global',
+    })
+    .returning();
   return rule;
 }
 
 export async function updateL0Rule(id: string, data: Record<string, unknown>) {
-  const [rule] = await db.update(agentL0Rules)
+  const [rule] = await db
+    .update(agentL0Rules)
     .set(data)
     .where(eq(agentL0Rules.id, id))
     .returning();
@@ -130,18 +160,22 @@ export async function registerSandbox(data: {
   path?: string;
   persistent?: boolean;
 }) {
-  const [sb] = await db.insert(agentSandboxes).values({
-    agentId: data.agentId,
-    type: data.type as 'tmpfs' | 'chroot' | 'docker',
-    path: data.path ?? null,
-    status: 'creating',
-    persistent: data.persistent ?? false,
-  }).returning();
+  const [sb] = await db
+    .insert(agentSandboxes)
+    .values({
+      agentId: data.agentId,
+      type: data.type as 'tmpfs' | 'chroot' | 'docker',
+      path: data.path ?? null,
+      status: 'creating',
+      persistent: data.persistent ?? false,
+    })
+    .returning();
   return sb;
 }
 
 export async function updateSandboxStatus(id: string, status: string) {
-  const [sb] = await db.update(agentSandboxes)
+  const [sb] = await db
+    .update(agentSandboxes)
     .set({ status: status as 'creating' | 'ready' | 'destroyed' })
     .where(eq(agentSandboxes.id, id))
     .returning();
@@ -149,21 +183,32 @@ export async function updateSandboxStatus(id: string, status: string) {
 }
 
 export async function getSandbox(id: string) {
-  const [sb] = await db.select().from(agentSandboxes).where(eq(agentSandboxes.id, id));
+  const [sb] = await db
+    .select()
+    .from(agentSandboxes)
+    .where(eq(agentSandboxes.id, id));
   return sb ?? null;
 }
 
 // === Memories ===
 
-export async function getMemories(agentId: string, keywords: string[] = [], limit = 10) {
-  let query = db.select().from(agentMemories)
+export async function getMemories(
+  agentId: string,
+  keywords: string[] = [],
+  limit = 10,
+) {
+  let query = db
+    .select()
+    .from(agentMemories)
     .where(eq(agentMemories.agentId, agentId))
     .orderBy(desc(agentMemories.createdAt))
     .limit(limit);
 
   if (keywords.length > 0) {
-    const conditions = keywords.map(k => like(agentMemories.key, `%${k}%`));
-    query = db.select().from(agentMemories)
+    const conditions = keywords.map((k) => like(agentMemories.key, `%${k}%`));
+    query = db
+      .select()
+      .from(agentMemories)
       .where(and(eq(agentMemories.agentId, agentId), ...conditions))
       .orderBy(desc(agentMemories.createdAt))
       .limit(limit);
@@ -172,18 +217,25 @@ export async function getMemories(agentId: string, keywords: string[] = [], limi
   return query;
 }
 
-export async function writeMemories(memories: Array<{
-  agentId: string;
-  key: string;
-  value: string;
-  source?: string;
-}>) {
-  return db.insert(agentMemories).values(memories.map(m => ({
-    agentId: m.agentId,
-    key: m.key,
-    value: m.value,
-    source: m.source ?? null,
-  }))).returning();
+export async function writeMemories(
+  memories: Array<{
+    agentId: string;
+    key: string;
+    value: string;
+    source?: string;
+  }>,
+) {
+  return db
+    .insert(agentMemories)
+    .values(
+      memories.map((m) => ({
+        agentId: m.agentId,
+        key: m.key,
+        value: m.value,
+        source: m.source ?? null,
+      })),
+    )
+    .returning();
 }
 
 export async function deleteMemory(id: string) {
@@ -196,7 +248,7 @@ export async function getAgentConfig(agentId: string) {
   const rules = await getL0Rules(agentId);
   return {
     agentId,
-    l0Rules: rules.map(r => ({
+    l0Rules: rules.map((r) => ({
       id: r.id,
       pattern: r.pattern,
       type: r.type,

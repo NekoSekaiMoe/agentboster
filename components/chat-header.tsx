@@ -1,15 +1,20 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { memo, useCallback, useState } from 'react';
 import { ofetch } from 'ofetch';
+import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import { PlusIcon, SquareIcon, Loader2 } from './icons';
+import { Loader2, PlusIcon, SquareIcon } from './icons';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
-type SessionStatus = 'idle' | 'running' | 'waiting_user' | 'completed' | 'aborted';
+type SessionStatus =
+  | 'idle'
+  | 'running'
+  | 'waiting_user'
+  | 'completed'
+  | 'aborted';
 
 type ChatHeaderSession = {
   title: string | null;
@@ -42,7 +47,9 @@ function PureChatHeader({
     if (!chatId) return;
     setAborting(true);
     try {
-      await ofetch(`/api/agentd/v1/sessions/${chatId}/abort`, { method: 'POST' });
+      await ofetch(`/api/agentd/v1/sessions/${chatId}/abort`, {
+        method: 'POST',
+      });
       toast.success('Session aborted');
       onAbort?.();
     } catch {
@@ -60,11 +67,13 @@ function PureChatHeader({
           valueClassName: 'text-foreground',
         },
         ...(session.externalThreadId
-          ? [{
-              label: 'External Thread',
-              value: session.externalThreadId,
-              valueClassName: 'break-all font-mono text-foreground',
-            }]
+          ? [
+              {
+                label: 'External Thread',
+                value: session.externalThreadId,
+                valueClassName: 'break-all font-mono text-foreground',
+              },
+            ]
           : []),
       ]
     : [];

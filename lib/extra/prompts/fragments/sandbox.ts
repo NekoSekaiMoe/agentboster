@@ -4,13 +4,12 @@ export function buildSandboxSection(): string {
 ### Available Sandbox Types
 - **tmpfs**: Lightweight, in-memory filesystem. Fast, no persistence. Ideal for one-shot tasks.
 - **chroot**: Isolated filesystem with persistence. Good for development environments.
-- **lxc**: Lightweight container with full OS isolation. Good for medium-risk tasks.
 - **docker**: Full container isolation with image-based environments. Best for high-risk or untrusted code.
 
 ### Automatic Selection
 Choose sandbox type based on task characteristics:
 - **Lightweight/one-time tasks** → tmpfs
-- **Persistent development environment** → chroot or lxc
+- **Persistent development environment** → chroot
 - **High-risk or untrusted code** → docker
 - **Network-facing services** → docker
 

@@ -1,11 +1,11 @@
-import { memo, useCallback } from 'react';
 import { ofetch } from 'ofetch';
+import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useCopyToClipboard } from 'usehooks-ts';
 
+import { Button } from '@/components/ui/button';
 import type { WorkflowUIMessage } from '@/types/workflow';
 import { CopyIcon, RefreshCwIcon } from './icons';
-import { Button } from '@/components/ui/button';
 import {
   Tooltip,
   TooltipContent,
@@ -65,7 +65,11 @@ export function PureMessageActions({
         {textContent.trim() && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button className="py-1 px-2 h-fit text-muted-foreground" variant="outline" onClick={handleCopy}>
+              <Button
+                className="py-1 px-2 h-fit text-muted-foreground"
+                variant="outline"
+                onClick={handleCopy}
+              >
                 <CopyIcon />
               </Button>
             </TooltipTrigger>
@@ -76,7 +80,11 @@ export function PureMessageActions({
         {isUser && chatId && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button className="py-1 px-2 h-fit text-muted-foreground" variant="outline" onClick={handleRevert}>
+              <Button
+                className="py-1 px-2 h-fit text-muted-foreground"
+                variant="outline"
+                onClick={handleRevert}
+              >
                 <RefreshCwIcon />
               </Button>
             </TooltipTrigger>

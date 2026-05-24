@@ -1,82 +1,265 @@
-# ClawLess
+# AgentBoster (WIP)
 
 <p align="center">
-	<img src="./app/icon.png" alt="clawless" width="160" />
+	<img src="./app/icon.png" alt="agentboster" width="160" />
 </p>
 
 <p align="center">
 	<a href="./README.md">中文: README</a>
 </p>
 
-ClawLess is a free AI agent deployed on Vercel — a lightweight alternative to OpenClaw and Manus.
+<p align="center">
+	<img alt="Node.js" src="https://img.shields.io/badge/node.js-%E2%9C%93-339933?logo=node.js" />
+	<img alt="Go" src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go" />
+	<img alt="License" src="https://img.shields.io/badge/license-MIT-yellow" />
+	<img alt="Version" src="https://img.shields.io/badge/version-0.1.0-blue" />
+</p>
 
-> **It's simple, free, open-source, and easy to deploy to Vercel.**
+> [!NOTE]
+>
+> Until version 1.0 is released, I suggest you treat this as a preview. We cannot guarantee backwards compatibility at this stage.
+>
+> 在版本号没有达到 1.0 之前，我建议你可以把本项目当作一个尝鲜，我们不保证向前的兼容性。
 
-You don't need a Mac Mini, a VPS, or any dedicated hosting — all you need is **a free Vercel account** and **an AI API key**.
+![AgentBoster](.docs/public/images/preview.png)
 
-ClawLess provides the core features you'd expect from OpenClaw: Chat, Skills, Memory (with RAG search), Channels, Bash tools (running in the sandbox), and Cron jobs. It also includes features inspired by Manus, such as Files, MCP, and Sub-Agents.
+AgentBoster is a **Serverless AI Agent platform** consisting of two parts:
 
-We consider ClawLess a lightweight agent. It's not the best place to run complex workloads, but it's free, easy to deploy, and can connect to your IM platforms.
+- **AgentBoster Web** — A Next.js-based frontend Dashboard deployed on Vercel, providing a chat UI, configuration management, and Bot adapters
+- **Agent Daemon** — A Go-based Linux daemon running on the user's Linux server, providing sandbox execution, security review, and task scheduling. The Daemon does not interact with IM or send notifications; all IM notifications are handled by AgentBoster Web
 
-We recommend using lightweight or free models to try ClawLess — for example, `stepfun-3.5-flash` is a great choice.
+AgentBoster covers the core features you need from an AI Agent: Chat, Skills, Memory (with RAG), Multi-Channel Bot, Sandbox execution, Workflow — and it's **Serverless**.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Vercel (Serverless)                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐  │
+│  │  Next.js Web  │  │  API Routes  │  │  Workflow (Cron)  │  │
+│  │  Dashboard    │  │  /api/*      │  │  DevKit           │  │
+│  └──────┬───────┘  └──────┬───────┘  └───────────────────┘  │
+│         │                  │                                  │
+│         │    mTLS + API Key │                                  │
+│         ▼                  ▼                                  │
+│  ┌──────────────────────────────────────────────────────────┐│
+│  │              AgentBoster API Gateway                        ││
+│  └──────────────────────────┬───────────────────────────────┘│
+└─────────────────────────────┼─────────────────────────────────┘
+                              │ mTLS
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   User's Linux Server                        │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │                   Agent Daemon (Go)                      │ │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │ │
+│  │  │ LLM Loop │ │ Sandbox  │ │ Security │ │ Session   │  │ │
+│  │  │ Agent    │ │ Manager  │ │ L0/L1/L2 │ │ Manager   │  │ │
+│  │  └──────────┘ └──────────┘ └──────────┘ └───────────┘  │ │
+│  │                                                         │ │
+│  │  ┌───────────────────────────────────────────────────┐  │ │
+│  │  │              Sandbox Providers                     │  │ │
+│  │  │  tmpfs  │  chroot  │  Docker                      │  │ │
+│  │  └───────────────────────────────────────────────────┘  │ │
+│  │                                                         │ │
+│  │  ┌───────────────────────────────────────────────────┐  │ │
+│  │  │              IM Channels                           │  │ │
+│  │  │  Telegram  │  Discord  │  Slack  │  Feishu        │  │ │
+│  │  └───────────────────────────────────────────────────┘  │ │
+│  └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Features
+
+### AgentBoster Web (Next.js)
+- **Chat** — Multi-session chat with streaming responses, message history, session search/pin
+- **Skills** — Skill management with dynamic loading
+- **Memory** — RAG vector search memory
+- **Config** — Provider, Channel, and Agent configuration
+- **Sandbox** — Sandbox management and monitoring
+- **Multi-Channel Bot** — Slack, Teams, Google Chat, and Telegram adapters
+
+### Agent Daemon (Go)
+- **LLM Agent Loop** — Tool calling, multi-step reasoning, Sub-agents
+- **20+ MVP Tools** — File read/write, Shell execution, Git, Web search/scrape, Sub-agents, and more
+- **Three-Layer Security** — L0 rule filtering → L1 AI scoring → L2 user authorization
+- **Unified Decision Queue** — L2 security authorization + LLM questions + conflict resolution + task branching, with serial/concurrent hybrid scheduling
+- **Three Sandboxes** — tmpfs (AI-dynamic sizing), chroot (persistent), Docker (strong isolation)
+- **Webhook Callbacks** — Notifies AgentBoster Web via HTTP callbacks when tasks complete or user decisions are needed; the Web side handles IM notifications
+- **Session Management** — Session persistence, LRU eviction, archiving, and abort control
+
+---
+
+## Tech Stack
+
+### AgentBoster Web
+| Category | Technology |
+|----------|------------|
+| Framework | Next.js 15.5.9 (App Router, RSC) |
+| UI | React 19, Tailwind CSS 3, shadcn/ui, Framer Motion |
+| AI | Vercel AI SDK 6 (Anthropic, Google, OpenAI) |
+| Chat | Chat SDK (Slack, Teams, GChat, Telegram) |
+| Database | Drizzle ORM + Neon Postgres |
+| Cache | Upstash Redis |
+| Storage | Vercel Blob |
+| Workflow | Vercel Workflow DevKit |
+| Sandbox | Vercel Sandbox |
+| Tools | Biome (lint/format), Node.js (runtime) |
+
+### Agent Daemon
+| Category | Technology |
+|----------|------------|
+| Language | Go 1.26.2 (Linux-only) |
+| HTTP | Gin |
+| Config | Viper (TOML) |
+| Events | Custom Event Bus |
+| Communication | mTLS + API Key |
+
+---
 
 ## Deploy
+
+### AgentBoster Web → Vercel
 
 You don't need to download the project locally or own a VPS. You only need:
 
 - A Vercel account (the free tier is sufficient)
-- An API key compatible with OpenAI/Anthropic/Gemini (if you don't have one, you can get one for free from OpenRouter)
-- Click the deploy button to deploy to Vercel
+- An API key compatible with OpenAI/Anthropic/Gemini
+- Click the deploy button below
 
-If you plan to spend on Vercel or OpenRouter, we recommend setting a spending limit.
+<p align="center">
+	<a href=https://vercel.com/new/clone?repository-url=https://github.com/Niapya/agentboster&stores=[{"type":"blob"},{"type":"integration","productSlug":"upstash-kv","integrationSlug":"upstash"},{"type":"integration","protocol":"storage","productSlug":"neon","integrationSlug":"neon"}]&env=AUTH_SECRET,USERNAME,PASSWORD&envDescription=Do_not_disclose_them_and_keep_them_safe.&project-name=agentboster&repository-name=agentboster&redirect-url=https://niapya.github.io/agentboster target="_blank">
+		<img src="https://vercel.com/button" alt="Deploy with Vercel" width="120" />
+	</a>
+</p>
 
-If you want to update, simply sync your fork with the upstream repository; this will trigger Vercel to redeploy your site.
+### Agent Daemon → Linux Server
+
+On your Linux server:
+
+```bash
+# Clone the repository
+git clone https://github.com/Niapya/agentboster.git
+cd agentboster/agentd
+
+# Build (requires Go 1.26+)
+go build -o agentd ./cmd/agentd/
+
+# Generate default config on first run
+./agentd -config agentd.toml
+
+# Edit the configuration
+vim agentd.toml
+
+# Start
+./agentd
+```
+
+---
 
 ## Quick Start
 
-During deployment, you must add the following environment variables: `AUTH_SECRET` (for encryption), and `USERNAME` and `PASSWORD` (for login). These three environment variables are important—do not expose them.
+### 1. Configure Environment Variables
 
-After deployment you should have a public link. Bookmark that link, open it in your browser, log in with your username and password, and go to the "Config" page to configure the agent.
+Deployment requires three environment variables: `AUTH_SECRET`, `USERNAME`, and `PASSWORD`. **Do not expose them.**
 
-In Config, add a Provider with your own API key. In most cases this will be an "OpenAI Compatible" provider.
+### 2. Log In and Configure
 
-After adding your API key, set the `Default Model` and `Embedding Model` which will be used for chat and memory.
+Open the deployment link → Log in → Go to "Config" → Add a Provider (OpenAI Compatible) → Set `Default Model` and `Embedding Model`.
 
-After configuring these settings, your agent should be able to chat via the web UI. Try clicking the first card in "Chat" to configure and customize your agent.
+### 3. Configure Agent Daemon
 
-If you want to connect to your IM, go to the "Channel" section to configure IM-related settings and set up a whitelist. After configuring, connect your IM webhook to ClawLess.
+In `agentd.toml`:
 
-ClawLess can use Vercel Sandbox to execute commands, but the sandbox is not permanent. Free Vercel accounts have limited sandbox time, so ClawLess is not suitable for long-running or complex tasks.
+```toml
+[server]
+listen = ":18732"
+agentboster_api_key = "your-api-key"
 
-By default we do not enable browsing/search/weather features. If you need them, add the appropriate MCP.
+[agentboster]
+base_url = "https://your-agentboster.vercel.app"
+client_cert_path = "/path/to/client.crt"
+client_key_path = "/path/to/client.key"
+ca_path = "/path/to/ca.crt"
+
+[sandbox]
+default = "tmpfs"
+chroot_base = "/var/lib/agentd/chroots"
+docker_socket = "unix:///var/run/docker.sock"
+allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "golang:1.22", "node:20", "python:3.12"]
+```
+
+### 4. Connect IM
+
+Go to Channel configuration → Set up IM Bot Token → Configure Webhook → Set up whitelist.
+
+### 5. Start Chatting
+
+Chat with the Agent via Web Chat or IM.
+
+---
+
+## Sandbox
+
+| Type | Isolation Level | Persistence | Sizing Strategy | Use Case |
+|------|----------------|-------------|-----------------|----------|
+| **tmpfs** | Low (in-memory directory) | Optional | AI-dynamic evaluation + Daemon memory probing | Lightweight temporary tasks |
+| **chroot** | Medium (filesystem isolation) | Always persistent | Multiple rootfs sources (URL/local/preset) | Development tasks requiring persistent filesystem |
+| **Docker** | High (full container isolation) | Optional | Image whitelist + resource limits | High-risk commands, tasks requiring strong isolation |
+
+tmpfs size is evaluated by AI (light tasks 15-50MB, medium tasks 50-200MB, heavy tasks 200-500MB). The Daemon probes available space in three tiers: zram → physical memory → swap, then determines the final allocation. Auto-scaling occurs when space runs low during execution (upper limit = min(current × 3, available memory × 60%)).
+
+chroot rootfs supports 6 sources (by priority): user-specified path → user-specified URL → presets → local preset → default URL download → copy host binaries. Downloaded rootfs files are automatically cached, with background cleanup of expired files (default 30 days).
+
+---
+
+## Security
+
+- **L0** — Predefined rules that directly reject dangerous commands (`rm -rf /`, `chmod 777`, etc.)
+- **L1** — LLM scoring that assesses command risk levels (low/medium/high)
+- **L2** — High-risk commands require user confirmation via Web UI or IM buttons (pass_once/pass_until/reject_once/reject_until)
+- **Decision Queue** — Unified decision queue for L2 authorization + LLM questions + conflict resolution + task branching
+- **Prompt Injection Defense** — Built-in injection defense rules in System Prompt
+- **Docker Whitelist** — Only whitelisted images are allowed
+- **mTLS** — Bidirectional TLS authentication between AgentBoster Web ↔ Agent Daemon. The Daemon does not store any IM tokens and is unaware of the user's IM platform
+
+---
 
 ## Development
 
-Running this project locally or on your own VPS is not supported — ClawLess is designed as a lightweight alternative running on Vercel. If you want to develop or test the project, fork and deploy it on Vercel, then pull the environment and run locally.
-
 ```bash
-cd your-clawless
+cd your-agentboster
 
-bun install
-
-# Pull Vercel environment variables to local, including AUTH_SECRET, USERNAME, PASSWORD, and keys for KV, DB, Blob and Sandbox.
-bun vercel pull
-
-bun dev
+yarn install
+yarn vercel pull   # Pull environment variables
+yarn dev           # Start the development server
 ```
 
-If you encounter database schema errors, try running the `postbuild` script to apply database migrations.
+If you encounter database schema errors, run `yarn postbuild` to apply database migrations.
 
-The project uses Next.js and relies on Upstash (Redis KV) and Neon (Postgres with the `Vector` extension) for data storage. File storage uses Vercel Blob and code execution uses Vercel Sandbox. Agents are built with Vercel Workflow and the Vercel AI SDK. IM integration is done via webhooks and the Vercel Chat SDK.
+Agent Daemon development:
+
+```bash
+cd agentd
+go build -o agentd ./cmd/agentd/
+./agentd -config agentd.toml
+```
+
+---
 
 ## Others
 
 I'm currently looking for work — feel free to contact me if you're interested.
 
-If you have ideas or find issues, please open a Pull Request or create an Issue. Contributions are welcome.
+If you have ideas or find issues, please open a Pull Request or create an Issue. Contributions are welcome in any form.
 
-Some people call this a toy project — you can think of it that way, and proudly use Codex and Copilot for "vibe coding".
+The frontend UI is based on [ClawLess](https://github.com/Niapya/clawless). Thanks to the ClawLess project for providing the Dashboard foundation and inspiration.
 
-Thanks to OpenClaw and Manus for inspiration, to Vercel as the deployment platform, and to all the open source projects used here — and thank you.
+Thanks to OpenClaw and Manus for inspiration, to Vercel as the deployment platform, to all the open source projects used here — and to **you**.
 
 This project is licensed under the MIT License.

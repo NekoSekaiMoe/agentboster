@@ -17,6 +17,8 @@ import {
   upsertSessionListItem,
 } from '@/lib/chat/session-events';
 import { deriveSessionTitle } from '@/lib/chat/session-title';
+import { usePendingDecisions } from '@/lib/chat/use-pending-decisions';
+import { useStreamRecovery } from '@/lib/chat/use-stream-recovery';
 import { generateUUID } from '@/lib/utils';
 import {
   type WorkflowStatusData,
@@ -126,8 +128,11 @@ export function Chat({
   const [input, setInput] = useState('');
   const [composerFocusKey, setComposerFocusKey] = useState(0);
   const [sessionState, setSessionState] = useState(session);
-  const [tokenUsage, setTokenUsage] = useState<{ input: number; output: number; total: number } | null>(null);
-  const [pendingDecisions, setPendingDecisions] = useState<any[]>([]);
+  const [tokenUsage, setTokenUsage] = useState<{
+    input: number;
+    output: number;
+    total: number;
+  } | null>(null);
   const [latestRuntimeEvent, setLatestRuntimeEvent] =
     useState<WorkflowStatusData | null>(null);
   const [bootstrapStatusRunId, setBootstrapStatusRunId] = useState<
@@ -136,6 +141,8 @@ export function Chat({
   const lastWorkflowEventKeyRef = useRef<string | null>(null);
   const [shouldResumeStream, setShouldResumeStream] = useState(false);
   const [runtimePollingResumeKey, setRuntimePollingResumeKey] = useState(0);
+
+  const { pendingDecisions, handleDecisionResolved } = usePendingDecisions(id);
 
   useEffect(() => {
     activeRunIdRef.current = activeRunId;
@@ -299,12 +306,20 @@ export function Chat({
       }
 
       // Extract token usage from token-usage and step-finish events
-      if (dataPart.data.type === 'token-usage' || dataPart.data.type === 'step-finish') {
+      if (
+        dataPart.data.type === 'token-usage' ||
+        dataPart.data.type === 'step-finish'
+      ) {
         const d = dataPart.data as any;
         const usage = d.usage ?? d;
         const extractNum = (v: unknown): number => {
           if (typeof v === 'number' && Number.isFinite(v)) return v;
-          if (v && typeof v === 'object' && typeof (v as any).total === 'number') return (v as any).total;
+          if (
+            v &&
+            typeof v === 'object' &&
+            typeof (v as any).total === 'number'
+          )
+            return (v as any).total;
           return 0;
         };
         setTokenUsage({
@@ -635,48 +650,12 @@ export function Chat({
     void requestResumeStream();
   }, [activeRunId, isLoading, requestResumeStream, shouldResumeStream]);
 
-  useEffect(() => {
-    if (!activeRunId || !error || isLoading) {
-      return;
-    }
-
-    const message = error.message.toLowerCase();
-    if (!message.includes('fetch') && !message.includes('network')) {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      void requestResumeStream();
-    }, 1500);
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [activeRunId, error, isLoading, requestResumeStream]);
-
-  useEffect(() => {
-    if (!activeRunId || isLoading) {
-      return;
-    }
-
-    const reconnect = () => {
-      if (document.visibilityState === 'visible') {
-        void requestResumeStream();
-      }
-    };
-
-    const reconnectOnOnline = () => {
-      void requestResumeStream();
-    };
-
-    window.addEventListener('online', reconnectOnOnline);
-    document.addEventListener('visibilitychange', reconnect);
-
-    return () => {
-      window.removeEventListener('online', reconnectOnOnline);
-      document.removeEventListener('visibilitychange', reconnect);
-    };
-  }, [activeRunId, isLoading, requestResumeStream]);
+  useStreamRecovery({
+    activeRunId,
+    isLoading,
+    error,
+    requestResumeStream,
+  });
 
   const handlePromptSelect = useCallback((prompt: string) => {
     setInput(prompt);
@@ -684,48 +663,42 @@ export function Chat({
   }, []);
 
   const handleAbort = useCallback(() => {
-    setSessionState((prev => prev ? { ...prev, status: 'aborted' as const } : prev));
+    setSessionState((prev) =>
+      prev ? { ...prev, status: 'aborted' as const } : prev,
+    );
   }, []);
 
-  const handleRevert = useCallback(async (messageId: string) => {
-    if (!id) return;
-    try {
-      await ofetch(`/api/sessions/${id}/revert`, {
-        method: 'POST',
-        body: { message_id: messageId },
-      });
-      toast.success('Reverted to this message');
-    } catch {
-      toast.error('Failed to revert');
-    }
-  }, [id]);
-
-  // Poll pending decisions from the daemon
-  useEffect(() => {
-    if (!id) return;
-    const pollDecisions = async () => {
+  const handleRevert = useCallback(
+    async (messageId: string) => {
+      if (!id) return;
       try {
-        const resp = await ofetch<{ success: boolean; data: any[] }>(
-          '/api/agentd/v1/decisions',
-        );
-        if (resp.success) {
-          setPendingDecisions(resp.data.filter((d: any) => d.status === 'sent' || d.status === 'pending'));
-        }
+        await ofetch(`/api/sessions/${id}/revert`, {
+          method: 'POST',
+          body: { message_id: messageId },
+        });
+        toast.success('Reverted to this message');
       } catch {
-        // silent fail
+        toast.error('Failed to revert');
       }
-    };
-    pollDecisions();
-    const interval = setInterval(pollDecisions, 3000);
-    return () => clearInterval(interval);
-  }, [id]);
-
-  const handleDecisionResolved = useCallback((decisionId: string, _action: string) => {
-    setPendingDecisions((prev) => prev.filter((d) => d.decision_id !== decisionId));
-  }, []);
+    },
+    [id],
+  );
 
   const isRuntimePanelEnabled =
     Boolean(session) || initialMessages.length > 0 || Boolean(activeRunId);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Cmd/Ctrl+K → focus input
+      if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+        event.preventDefault();
+        setComposerFocusKey((current) => current + 1);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Build session state with token usage for header
   const headerSession = sessionState

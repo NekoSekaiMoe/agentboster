@@ -1,10 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
-
-import type { ConfigSectionKey } from '@/components/config/config-sections';
 import { useConfigDraft } from '@/hooks/use-config-draft';
 import type { AppConfig } from '@/types/config';
+import { useMemo } from 'react';
 
 export function useConfigSection<K extends keyof AppConfig>(sectionKey: K) {
   const config = useConfigDraft();

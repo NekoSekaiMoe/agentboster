@@ -2,9 +2,7 @@ import { getNotificationPreferences } from '@/lib/core/db/notification';
 import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';
 import { getNotificationManager } from './notification-manager';
-import type {
-  NotificationPayload,
-} from './notification-types';
+import type { NotificationPayload } from './notification-types';
 
 const logger = createLogger('notification.send');
 

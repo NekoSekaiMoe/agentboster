@@ -23,7 +23,9 @@ function runCommand(command: string, args: string[] = []) {
         return;
       }
 
-      reject(new Error(`${command} ${args.join(' ')} exited with code ${code}`));
+      reject(
+        new Error(`${command} ${args.join(' ')} exited with code ${code}`),
+      );
     });
   });
 }

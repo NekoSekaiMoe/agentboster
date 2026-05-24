@@ -1,4 +1,4 @@
-export type SandboxType = 'tmpfs' | 'docker' | 'lxc' | 'chroot';
+export type SandboxType = 'tmpfs' | 'docker' | 'chroot';
 
 export interface SandboxConfig {
   type: SandboxType;

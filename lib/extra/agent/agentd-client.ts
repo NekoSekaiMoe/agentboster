@@ -91,7 +91,11 @@ async function agentdRequest<T>(
     );
   }
 
-  const json = (await response.json()) as { success: boolean; data: T; error?: string };
+  const json = (await response.json()) as {
+    success: boolean;
+    data: T;
+    error?: string;
+  };
   if (!json.success) {
     throw new Error(`AgentDaemon error: ${json.error ?? 'unknown'}`);
   }
@@ -144,7 +148,11 @@ export async function resolveDecision(
     user_id?: string;
   },
 ): Promise<void> {
-  await agentdRequest('POST', `/api/v1/decisions/${decisionId}/resolve`, payload);
+  await agentdRequest(
+    'POST',
+    `/api/v1/decisions/${decisionId}/resolve`,
+    payload,
+  );
 }
 
 /** Reject (dismiss) a question decision. */

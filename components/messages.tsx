@@ -1,11 +1,13 @@
 import type { ChatRequestOptions } from 'ai';
 import equal from 'fast-deep-equal';
-import { memo } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowUp } from 'lucide-react';
+import { memo, useCallback, useEffect, useState } from 'react';
 
 import type { WorkflowUIMessage } from '@/types/workflow';
+import { DecisionCard } from './decision-card';
 import { PreviewMessage, ThinkingMessage } from './message';
 import { Overview } from './overview';
-import { DecisionCard } from './decision-card';
 import { useScrollToBottom } from './use-scroll-to-bottom';
 
 interface PendingDecision {
@@ -110,45 +112,87 @@ function PureMessages({
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>(lastMessage, shouldShowThinking);
 
+  const [showScrollToTop, setShowScrollToTop] = useState(false);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      setShowScrollToTop(container.scrollTop > 300);
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [messagesContainerRef]);
+
+  const scrollToTop = useCallback(() => {
+    messagesContainerRef.current?.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
+  }, [messagesContainerRef]);
+
   return (
-    <div
-      ref={messagesContainerRef}
-      className="flex flex-1 min-w-0 flex-col gap-6 overflow-y-scroll overflow-x-hidden pt-4"
-    >
-      {messages.length === 0 && <Overview onPromptSelect={onPromptSelect} />}
-
-      {messages.map((message, index) => (
-        <PreviewMessage
-          key={message.id}
-          chatId={chatId}
-          message={message}
-          isLoading={isLoading && messages.length - 1 === index}
-          onToolApproval={onToolApproval}
-          onRevert={onRevert}
-          setMessages={setMessages}
-          regenerate={regenerate}
-        />
-      ))}
-
-      {shouldShowThinking ? <ThinkingMessage /> : null}
-
-      {/* Inline pending decisions (L2 auth + ask_question) */}
-      {pendingDecisions?.filter(d => d.status === 'sent' || d.status === 'pending').map((decision) => (
-        <div key={decision.decision_id} className="px-4">
-          <DecisionCard
-            decision={decision}
-            chatId={chatId}
-            onResolved={(decisionId, action) => {
-              onDecisionResolved?.(decisionId, action);
-            }}
-          />
-        </div>
-      ))}
-
+    <div className="relative flex-1 min-w-0">
       <div
-        ref={messagesEndRef}
-        className="shrink-0 min-w-[24px] min-h-[24px]"
-      />
+        ref={messagesContainerRef}
+        className="flex h-full flex-col gap-6 overflow-y-scroll overflow-x-hidden pt-4"
+      >
+        {messages.length === 0 && <Overview onPromptSelect={onPromptSelect} />}
+
+        {messages.map((message, index) => (
+          <PreviewMessage
+            key={message.id}
+            chatId={chatId}
+            message={message}
+            isLoading={isLoading && messages.length - 1 === index}
+            onToolApproval={onToolApproval}
+            onRevert={onRevert}
+            setMessages={setMessages}
+            regenerate={regenerate}
+          />
+        ))}
+
+        {shouldShowThinking ? <ThinkingMessage /> : null}
+
+        {/* Inline pending decisions (L2 auth + ask_question) */}
+        {pendingDecisions
+          ?.filter((d) => d.status === 'sent' || d.status === 'pending')
+          .map((decision) => (
+            <div key={decision.decision_id} className="px-4">
+              <DecisionCard
+                decision={decision}
+                chatId={chatId}
+                onResolved={(decisionId, action) => {
+                  onDecisionResolved?.(decisionId, action);
+                }}
+              />
+            </div>
+          ))}
+
+        <div
+          ref={messagesEndRef}
+          className="shrink-0 min-w-[24px] min-h-[24px]"
+        />
+      </div>
+
+      <AnimatePresence>
+        {showScrollToTop && (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.2 }}
+            onClick={scrollToTop}
+            className="absolute bottom-4 right-4 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            aria-label="Scroll to top"
+          >
+            <ArrowUp className="size-5" />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -159,7 +203,8 @@ export const Messages = memo(PureMessages, (prevProps, nextProps) => {
   if (prevProps.isLoading && nextProps.isLoading) return false;
   if (prevProps.messages.length !== nextProps.messages.length) return false;
   if (!equal(prevProps.messages, nextProps.messages)) return false;
-  if (prevProps.pendingDecisions?.length !== nextProps.pendingDecisions?.length) return false;
+  if (prevProps.pendingDecisions?.length !== nextProps.pendingDecisions?.length)
+    return false;
 
   return true;
 });

@@ -5,9 +5,20 @@ import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 
 type Scope = 'builtin' | 'long_term' | 'session';
@@ -131,8 +142,26 @@ function BuiltinPanel() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      <div className="space-y-4">
+        <Card>
+          <CardHeader className="space-y-3">
+            <Skeleton className="h-4 w-full" />
+          </CardHeader>
+        </Card>
+        {BUILTIN_KEYS.map((key) => (
+          <Card key={key}>
+            <CardHeader className="pb-2">
+              <Skeleton className="h-4 w-24" />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-24 w-full" />
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-8 w-16" />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     );
   }
@@ -195,6 +224,7 @@ function LongTermPanel() {
   const [creating, setCreating] = useState(false);
   const [newContent, setNewContent] = useState('');
   const [deletingMap, setDeletingMap] = useState<Record<string, boolean>>({});
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const loadMemories = useCallback(async () => {
     setLoading(true);
@@ -291,8 +321,19 @@ function LongTermPanel() {
       </Card>
 
       {loading ? (
-        <div className="flex items-center justify-center p-8">
-          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
+            <Card key={`skeleton-${i}`}>
+              <CardContent className="pt-4 space-y-2">
+                <Skeleton className="h-16 w-full" />
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-3 w-32" />
+                  <Skeleton className="h-8 w-20" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       ) : memories.length === 0 ? (
         <div className="text-sm text-muted-foreground p-6 border border-dashed rounded-lg text-center">
@@ -313,7 +354,7 @@ function LongTermPanel() {
                     size="sm"
                     className="text-destructive"
                     disabled={deletingMap[item.id]}
-                    onClick={() => remove(item.id)}
+                    onClick={() => setPendingDeleteId(item.id)}
                   >
                     {deletingMap[item.id] ? (
                       <Loader2 className="size-4 animate-spin" />
@@ -328,6 +369,36 @@ function LongTermPanel() {
           ))}
         </div>
       )}
+
+      <AlertDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Memory</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this memory? This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDeleteId) {
+                  remove(pendingDeleteId);
+                  setPendingDeleteId(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -87,7 +87,7 @@ export class SandboxManager implements ISandboxManager {
   }): SandboxType {
     if (task.riskLevel === 'high') return 'docker';
     if (task.persist) return 'chroot';
-    if (task.riskLevel === 'medium') return 'lxc';
+    if (task.riskLevel === 'medium') return 'chroot';
     return this.defaultType;
   }
 
@@ -96,7 +96,6 @@ export class SandboxManager implements ISandboxManager {
       case 'tmpfs':
         return new TmpfsSandboxProvider();
       case 'docker':
-      case 'lxc':
       case 'chroot':
         throw new Error(
           `Sandbox provider "${type}" is not yet implemented. Use "tmpfs" for now.`,

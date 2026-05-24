@@ -2,7 +2,6 @@ import { createLogger } from '@/lib/utils/logger';
 import type { AdapterName } from '@/types/config';
 import type { NotificationChannel } from '../notification-channel';
 import type {
-  DecisionNotification,
   NotificationPayload,
   NotificationSendResult,
 } from '../notification-types';

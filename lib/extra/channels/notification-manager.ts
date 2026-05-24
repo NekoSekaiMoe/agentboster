@@ -132,7 +132,9 @@ class NotificationManager {
 
   async markUserOnline(userId: string): Promise<void> {
     if (!this.kv) return;
-    await this.kv.set(`user:online:${userId}`, Date.now().toString(), { ex: 86400 });
+    await this.kv.set(`user:online:${userId}`, Date.now().toString(), {
+      ex: 86400,
+    });
   }
 
   async isUserOnline(userId: string): Promise<boolean> {
@@ -200,14 +202,16 @@ class NotificationManager {
       ...fallbackChannels.filter((c) => c !== preferredChannel),
     ];
 
-    let sentChannels: string[] = [];
+    const sentChannels: string[] = [];
 
     for (const channelType of channelOrder) {
       const health = this.channelHealth.get(channelType);
       const isLastChannel =
         channelType === channelOrder[channelOrder.length - 1];
       if (health && !health.healthy && !isLastChannel) {
-        logger.info('skipping unhealthy channel for L2', { channel: channelType });
+        logger.info('skipping unhealthy channel for L2', {
+          channel: channelType,
+        });
         continue;
       }
 
@@ -226,7 +230,15 @@ class NotificationManager {
         }
 
         // Set up escalation timer for this decision
-        this.setupEscalationTimer(decisionId, taskId, payload, channelOrder, sentChannels, targetChatId, targetUserId);
+        this.setupEscalationTimer(
+          decisionId,
+          taskId,
+          payload,
+          channelOrder,
+          sentChannels,
+          targetChatId,
+          targetUserId,
+        );
 
         return result;
       }
@@ -241,7 +253,8 @@ class NotificationManager {
 
     return {
       success: false,
-      channel: (channelOrder[channelOrder.length - 1] ?? 'slack') as AdapterName,
+      channel: (channelOrder[channelOrder.length - 1] ??
+        'slack') as AdapterName,
       error: 'All notification channels failed for L2 decision',
     };
   }
@@ -293,13 +306,25 @@ class NotificationManager {
           alreadySentChannels.push(channelType);
 
           // Set final 5-minute suspend timer
-          this.setupSuspendTimer(decisionId, taskId, alreadySentChannels, targetChatId, targetUserId);
+          this.setupSuspendTimer(
+            decisionId,
+            taskId,
+            alreadySentChannels,
+            targetChatId,
+            targetUserId,
+          );
           return;
         }
       }
 
       // All channels exhausted — set suspend timer
-      this.setupSuspendTimer(decisionId, taskId, alreadySentChannels, targetChatId, targetUserId);
+      this.setupSuspendTimer(
+        decisionId,
+        taskId,
+        alreadySentChannels,
+        targetChatId,
+        targetUserId,
+      );
     }, L2_TIMEOUT_MS);
 
     this.escalationTimers.set(decisionId, timer);
@@ -326,11 +351,9 @@ class NotificationManager {
 
       // Mark decision as timed out in KV
       if (this.kv) {
-        await this.kv.set(
-          `l2:decision:${decisionId}:status`,
-          'timeout',
-          { ex: 3600 },
-        );
+        await this.kv.set(`l2:decision:${decisionId}:status`, 'timeout', {
+          ex: 3600,
+        });
       }
 
       // Send timeout notification to all channels that received the original
@@ -409,7 +432,8 @@ class NotificationManager {
     channel: string;
     targetChatId: string;
   }): Promise<NotificationSendResult> {
-    const { taskId, decisionId, action, command, channel, targetChatId } = params;
+    const { taskId, decisionId, action, command, channel, targetChatId } =
+      params;
 
     const ctx = this.l2Contexts.get(decisionId);
     if (ctx) {
@@ -446,7 +470,11 @@ class NotificationManager {
 
     const ch = this.channels.get(channel);
     if (!ch) {
-      return { success: false, channel: channel as AdapterName, error: 'Channel not registered' };
+      return {
+        success: false,
+        channel: channel as AdapterName,
+        error: 'Channel not registered',
+      };
     }
 
     return this.sendWithRetry(ch, targetChatId, payload);
@@ -550,7 +578,11 @@ class NotificationManager {
       }
     }
 
-    return { success: false, channel: channel.type as AdapterName, error: lastError };
+    return {
+      success: false,
+      channel: channel.type as AdapterName,
+      error: lastError,
+    };
   }
 }
 

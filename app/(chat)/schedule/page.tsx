@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import {
   AlarmClock,
@@ -328,9 +329,90 @@ export default function SchedulePage() {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
-            </div>
+            <>
+              <div className="grid gap-4 md:grid-cols-4">
+                <Card className="border-border/70">
+                  <CardHeader className="pb-3">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-8 w-16" />
+                  </CardHeader>
+                  <CardContent>
+                    <Skeleton className="h-3 w-32" />
+                  </CardContent>
+                </Card>
+                <Card className="border-border/70">
+                  <CardHeader className="pb-3">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-8 w-16" />
+                  </CardHeader>
+                  <CardContent>
+                    <Skeleton className="h-3 w-32" />
+                  </CardContent>
+                </Card>
+                <Card className="border-border/70">
+                  <CardHeader className="pb-3">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-8 w-16" />
+                  </CardHeader>
+                  <CardContent>
+                    <Skeleton className="h-3 w-32" />
+                  </CardContent>
+                </Card>
+                <Card className="border-border/70">
+                  <CardHeader className="pb-3">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-8 w-16" />
+                  </CardHeader>
+                  <CardContent>
+                    <Skeleton className="h-3 w-32" />
+                  </CardContent>
+                </Card>
+              </div>
+              <div className="grid gap-4 xl:grid-cols-2">
+                <Card>
+                  <CardHeader className="gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="size-4" />
+                          <Skeleton className="h-5 w-40" />
+                          <Skeleton className="h-5 w-16" />
+                        </div>
+                        <Skeleton className="h-3 w-48" />
+                      </div>
+                      <Skeleton className="size-6" />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                    </div>
+                  </CardHeader>
+                </Card>
+                <Card>
+                  <CardHeader className="gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="size-4" />
+                          <Skeleton className="h-5 w-40" />
+                          <Skeleton className="h-5 w-16" />
+                        </div>
+                        <Skeleton className="h-3 w-48" />
+                      </div>
+                      <Skeleton className="size-6" />
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                      <Skeleton className="h-12 w-full" />
+                    </div>
+                  </CardHeader>
+                </Card>
+              </div>
+            </>
           ) : tasks.length === 0 ? (
             <Card className="border-dashed">
               <CardHeader>

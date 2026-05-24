@@ -5,6 +5,16 @@ import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -14,6 +24,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 
 interface SkillMeta {
@@ -90,6 +101,9 @@ export default function SkillsPage() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const importPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [pendingDeleteSkill, setPendingDeleteSkill] = useState<string | null>(
+    null,
+  );
 
   const isAnyLoading = loading || loadingDetail || !!loadingFile || importing;
 
@@ -675,8 +689,27 @@ export default function SkillsPage() {
 
         {viewMode === 'list' &&
           (loading ? (
-            <div className="flex items-center justify-center p-8">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
+                <Card key={`skeleton-${i}`}>
+                  <CardContent className="pt-4 flex items-start justify-between gap-4">
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-3 w-64" />
+                      <div className="flex flex-wrap gap-2">
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-3 w-24" />
+                        <Skeleton className="h-3 w-20" />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Skeleton className="size-8" />
+                      <Skeleton className="size-8" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           ) : (
             <div className="space-y-3">
@@ -754,7 +787,7 @@ export default function SkillsPage() {
                         disabled={deleting === skill.name}
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteSkill(skill.name);
+                          setPendingDeleteSkill(skill.name);
                         }}
                       >
                         {deleting === skill.name ? (
@@ -770,6 +803,38 @@ export default function SkillsPage() {
             </div>
           ))}
       </div>
+
+      <AlertDialog
+        open={pendingDeleteSkill !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDeleteSkill(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete skill?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete "{pendingDeleteSkill}" and all its
+              files. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDeleteSkill) {
+                  void deleteSkill(pendingDeleteSkill);
+                  setPendingDeleteSkill(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -12,23 +12,23 @@ const quickPrompts: QuickPrompt[] = [
   {
     title: 'Clawless Startup',
     description: 'Customize your own ClawLess.',
-    prompt: '',
+    prompt: '帮我配置 ClawLess 的基本设置，包括模型选择和工具权限。',
   },
   {
     title: 'Daily Tasks',
     description: 'Great for recurring routines on a fixed schedule.',
-    prompt: '',
+    prompt: '创建一个每日任务，每天早上 9 点提醒我查看邮件和日程。',
   },
   {
     title: 'One-time Reminder',
     description:
       'Plan important personal tasks in advance so you do not forget.',
-    prompt: '',
+    prompt: '设置一个一次性提醒，明天下午 3 点提醒我参加会议。',
   },
   {
-    title: '',
-    description: '',
-    prompt: '',
+    title: 'Code Review',
+    description: 'Get help reviewing your code and finding improvements.',
+    prompt: '帮我审查当前项目的代码质量，找出可以优化的地方。',
   },
 ];
 
