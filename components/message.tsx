@@ -1824,6 +1824,7 @@ const PurePreviewMessage = ({
   message,
   isLoading,
   onToolApproval,
+  onRevert,
   setMessages,
   regenerate,
 }: {
@@ -1836,6 +1837,7 @@ const PurePreviewMessage = ({
     action: 'approve' | 'reject';
     comment?: string;
   }) => Promise<void>;
+  onRevert?: (messageId: string) => void;
   setMessages: (
     messages:
       | WorkflowUIMessage[]
@@ -1935,6 +1937,7 @@ const PurePreviewMessage = ({
               chatId={chatId}
               message={message}
               isLoading={isLoading}
+              onRevert={onRevert}
             />
           </div>
         </div>

@@ -73,6 +73,11 @@ const COMMAND_METADATA: Record<
     hint: '/reject <toolCallId> [note]',
     icon: ThumbsDown,
   },
+  decisions: {
+    description: 'List pending decisions (L2 auth + questions)',
+    hint: '/decisions',
+    icon: Search,
+  },
 };
 
 export const SLASH_COMMANDS: SlashCommandDefinition[] = COMMANDS.map(

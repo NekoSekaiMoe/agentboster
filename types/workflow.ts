@@ -183,6 +183,7 @@ export const COMMANDS = [
   'session',
   'stop',
   'compact',
+  'decisions',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];

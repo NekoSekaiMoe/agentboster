@@ -5,7 +5,29 @@ import { memo } from 'react';
 import type { WorkflowUIMessage } from '@/types/workflow';
 import { PreviewMessage, ThinkingMessage } from './message';
 import { Overview } from './overview';
+import { DecisionCard } from './decision-card';
 import { useScrollToBottom } from './use-scroll-to-bottom';
+
+interface PendingDecision {
+  decision_id: string;
+  type: 'l2_auth' | 'question';
+  task_id: string;
+  session_id: string;
+  command?: string;
+  score?: number;
+  reason?: string;
+  question?: string;
+  prompts?: Array<{
+    question: string;
+    header?: string;
+    options?: string[];
+    multiple?: boolean;
+  }>;
+  options?: string[];
+  status: string;
+  created_at: string;
+  timeout_at: string;
+}
 
 function hasRenderableAssistantParts(message: WorkflowUIMessage): boolean {
   return message.parts.some((part) => {
@@ -46,6 +68,7 @@ interface MessagesProps {
   chatId: string;
   isLoading: boolean;
   messages: Array<WorkflowUIMessage>;
+  pendingDecisions?: PendingDecision[];
   onPromptSelect?: (prompt: string) => void;
   onToolApproval?: (input: {
     toolCallId: string;
@@ -53,6 +76,8 @@ interface MessagesProps {
     action: 'approve' | 'reject';
     comment?: string;
   }) => Promise<void>;
+  onRevert?: (messageId: string) => void;
+  onDecisionResolved?: (decisionId: string, action: string) => void;
   setMessages: (
     messages:
       | WorkflowUIMessage[]
@@ -67,8 +92,11 @@ function PureMessages({
   chatId,
   isLoading,
   messages,
+  pendingDecisions,
   onPromptSelect,
   onToolApproval,
+  onRevert,
+  onDecisionResolved,
   setMessages,
   regenerate,
 }: MessagesProps) {
@@ -96,12 +124,26 @@ function PureMessages({
           message={message}
           isLoading={isLoading && messages.length - 1 === index}
           onToolApproval={onToolApproval}
+          onRevert={onRevert}
           setMessages={setMessages}
           regenerate={regenerate}
         />
       ))}
 
       {shouldShowThinking ? <ThinkingMessage /> : null}
+
+      {/* Inline pending decisions (L2 auth + ask_question) */}
+      {pendingDecisions?.filter(d => d.status === 'sent' || d.status === 'pending').map((decision) => (
+        <div key={decision.decision_id} className="px-4">
+          <DecisionCard
+            decision={decision}
+            chatId={chatId}
+            onResolved={(decisionId, action) => {
+              onDecisionResolved?.(decisionId, action);
+            }}
+          />
+        </div>
+      ))}
 
       <div
         ref={messagesEndRef}
@@ -117,6 +159,7 @@ export const Messages = memo(PureMessages, (prevProps, nextProps) => {
   if (prevProps.isLoading && nextProps.isLoading) return false;
   if (prevProps.messages.length !== nextProps.messages.length) return false;
   if (!equal(prevProps.messages, nextProps.messages)) return false;
+  if (prevProps.pendingDecisions?.length !== nextProps.pendingDecisions?.length) return false;
 
   return true;
 });

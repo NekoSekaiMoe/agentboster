@@ -8,6 +8,7 @@ import {
 } from 'ai';
 import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { ChatHeader } from '@/components/chat-header';
 import { SessionRuntimePanel } from '@/components/session-runtime-panel';
@@ -125,6 +126,8 @@ export function Chat({
   const [input, setInput] = useState('');
   const [composerFocusKey, setComposerFocusKey] = useState(0);
   const [sessionState, setSessionState] = useState(session);
+  const [tokenUsage, setTokenUsage] = useState<{ input: number; output: number; total: number } | null>(null);
+  const [pendingDecisions, setPendingDecisions] = useState<any[]>([]);
   const [latestRuntimeEvent, setLatestRuntimeEvent] =
     useState<WorkflowStatusData | null>(null);
   const [bootstrapStatusRunId, setBootstrapStatusRunId] = useState<
@@ -664,19 +667,69 @@ export function Chat({
     setComposerFocusKey((current) => current + 1);
   }, []);
 
+  const handleAbort = useCallback(() => {
+    setSessionState((prev => prev ? { ...prev, status: 'aborted' as const } : prev));
+  }, []);
+
+  const handleRevert = useCallback(async (messageId: string) => {
+    if (!id) return;
+    try {
+      await ofetch(`/api/sessions/${id}/revert`, {
+        method: 'POST',
+        body: { message_id: messageId },
+      });
+      // Reload messages after revert
+      router.refresh();
+    } catch {
+      toast.error('Failed to revert');
+    }
+  }, [id, router]);
+
+  // Poll pending decisions from the daemon
+  useEffect(() => {
+    if (!id) return;
+    const pollDecisions = async () => {
+      try {
+        const resp = await ofetch<{ success: boolean; data: any[] }>(
+          '/api/agentd/v1/decisions',
+        );
+        if (resp.success) {
+          setPendingDecisions(resp.data.filter((d: any) => d.status === 'sent' || d.status === 'pending'));
+        }
+      } catch {
+        // silent fail
+      }
+    };
+    pollDecisions();
+    const interval = setInterval(pollDecisions, 3000);
+    return () => clearInterval(interval);
+  }, [id]);
+
+  const handleDecisionResolved = useCallback((decisionId: string, _action: string) => {
+    setPendingDecisions((prev) => prev.filter((d) => d.decision_id !== decisionId));
+  }, []);
+
   const isRuntimePanelEnabled =
     Boolean(session) || initialMessages.length > 0 || Boolean(activeRunId);
 
+  // Build session state with token usage for header
+  const headerSession = sessionState
+    ? { ...sessionState, tokenUsage: tokenUsage ?? undefined }
+    : null;
+
   return (
     <div className="flex h-dvh min-w-0 flex-col overflow-x-hidden bg-background">
-      <ChatHeader session={sessionState} />
+      <ChatHeader session={headerSession} chatId={id} onAbort={handleAbort} />
 
       <Messages
         chatId={id}
         isLoading={isLoading}
         messages={messages}
+        pendingDecisions={pendingDecisions}
         onPromptSelect={handlePromptSelect}
         onToolApproval={submitToolApproval}
+        onRevert={handleRevert}
+        onDecisionResolved={handleDecisionResolved}
         setMessages={setMessages}
         regenerate={regenerate}
       />

@@ -14,6 +14,7 @@ import {
   Moon,
   Plus,
   Puzzle,
+  Search,
   Settings,
   Sun,
   Trash2,
@@ -23,7 +24,7 @@ import { useTheme } from 'next-themes';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ofetch } from 'ofetch';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import {
   Sidebar,
   SidebarContent,
@@ -76,11 +78,15 @@ type ThemeMode = 'light' | 'dark' | 'system';
 const docsUrl = 'https://niapya.github.io/clawless';
 const siteUrl = 'https://github.com/niapya/clawless';
 
+type SessionStatus = 'idle' | 'running' | 'waiting_user' | 'completed' | 'aborted';
+
 interface SessionItem {
   id: string;
   title: string | null;
   channel: string;
   createdAt: string;
+  status?: SessionStatus;
+  pinned?: boolean;
 }
 
 export function AppSidebar() {
@@ -93,17 +99,15 @@ export function AppSidebar() {
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
-  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
-    null,
-  );
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
     try {
-      const data = await ofetch<{ sessions?: SessionItem[] }>(
-        '/api/sessions?limit=30',
-      );
+      const data = await ofetch<{ sessions?: SessionItem[] }>('/api/sessions?limit=30');
       setSessions(data.sessions ?? []);
     } catch {
       // silent fail for sidebar
@@ -112,104 +116,134 @@ export function AppSidebar() {
     }
   }, []);
 
+  // Poll session statuses when on chat page
+  const pollStatuses = useCallback(async () => {
+    if (!isChatPage) return;
+    try {
+      const data = await ofetch<{ data: Array<{ session_id: string; status: SessionStatus }> }>(
+        '/api/agentd/v1/sessions/status',
+      );
+      const statusMap = new Map(data.data.map(s => [s.session_id, s.status]));
+      setSessions(prev => prev.map(s => ({
+        ...s,
+        status: statusMap.get(s.id) ?? s.status,
+      })));
+    } catch {
+      // silent fail
+    }
+  }, [isChatPage]);
+
   useEffect(() => {
     if (!chatPagePath) {
       setSessions([]);
       setLoadingSessions(false);
       return;
     }
-
     void loadSessions();
   }, [chatPagePath, loadSessions]);
 
+  // Poll statuses every 5s while on chat page
   useEffect(() => {
-    if (!isChatPage) {
-      return;
-    }
+    if (!isChatPage) return;
+    const interval = setInterval(pollStatuses, 5000);
+    return () => clearInterval(interval);
+  }, [isChatPage, pollStatuses]);
 
-    const handleSessionsInvalidated = () => {
-      void loadSessions();
-    };
+  useEffect(() => {
+    if (!isChatPage) return;
+
+    const handleSessionsInvalidated = () => { void loadSessions(); };
     const handleSessionUpserted = (event: Event) => {
       const detail = (event as CustomEvent<SessionListItemEventDetail>).detail;
-      if (!detail) {
-        return;
-      }
-
+      if (!detail) return;
       setSessions((current) => {
-        const next = [
-          detail,
-          ...current.filter((session) => session.id !== detail.id),
-        ];
-
+        const next = [detail, ...current.filter((s) => s.id !== detail.id)];
         return next.slice(0, 30);
       });
     };
 
-    window.addEventListener(
-      SESSION_LIST_INVALIDATED_EVENT,
-      handleSessionsInvalidated,
-    );
+    window.addEventListener(SESSION_LIST_INVALIDATED_EVENT, handleSessionsInvalidated);
     window.addEventListener(SESSION_LIST_UPSERTED_EVENT, handleSessionUpserted);
-
     return () => {
-      window.removeEventListener(
-        SESSION_LIST_INVALIDATED_EVENT,
-        handleSessionsInvalidated,
-      );
-      window.removeEventListener(
-        SESSION_LIST_UPSERTED_EVENT,
-        handleSessionUpserted,
-      );
+      window.removeEventListener(SESSION_LIST_INVALIDATED_EVENT, handleSessionsInvalidated);
+      window.removeEventListener(SESSION_LIST_UPSERTED_EVENT, handleSessionUpserted);
     };
   }, [isChatPage, loadSessions]);
 
+  // Filtered + sorted sessions: pinned first, then by search
+  const filteredSessions = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    let filtered = sessions;
+    if (query) {
+      filtered = sessions.filter(s =>
+        (s.title ?? 'Untitled').toLowerCase().includes(query) ||
+        s.id.toLowerCase().includes(query),
+      );
+    }
+    // Pinned first, then by createdAt desc
+    return [...filtered].sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [sessions, searchQuery]);
+
+  const pinnedSessions = filteredSessions.filter(s => s.pinned);
+  const recentSessions = filteredSessions.filter(s => !s.pinned);
+
   const handleDeleteSession = useCallback(
-    async (session: SessionItem) => {
-      setDeletingSessionId(session.id);
-
+    async (sessionItem: SessionItem) => {
+      setDeletingSessionId(sessionItem.id);
       try {
-        const response = await ofetch.raw<{ error?: string }>(
-          `/api/sessions/${session.id}`,
-          {
-            method: 'DELETE',
-          },
-        );
+        const response = await ofetch.raw<{ error?: string }>(`/api/sessions/${sessionItem.id}`, { method: 'DELETE' });
         const payload = response._data ?? {};
-
-        if (!response.ok) {
-          throw new Error(payload.error ?? 'Failed to delete session.');
-        }
-
-        setSessions((current) =>
-          current.filter((item) => item.id !== session.id),
-        );
+        if (!response.ok) throw new Error(payload.error ?? 'Failed to delete session.');
+        setSessions((current) => current.filter((item) => item.id !== sessionItem.id));
         invalidateSessionList();
-
-        if (pathname === `/chat/${session.id}`) {
+        if (pathname === `/chat/${sessionItem.id}`) {
           setOpenMobile(false);
           router.push('/');
           router.refresh();
         }
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : 'Failed to delete session.',
-        );
+        toast.error(error instanceof Error ? error.message : 'Failed to delete session.');
       } finally {
-        setDeletingSessionId((current) =>
-          current === session.id ? null : current,
-        );
+        setDeletingSessionId((current) => (current === sessionItem.id ? null : current));
       }
     },
     [pathname, router, setOpenMobile],
   );
 
+  const handleTogglePin = useCallback(async (sessionItem: SessionItem) => {
+    const newPinned = !sessionItem.pinned;
+    // Optimistic update
+    setSessions(prev => prev.map(s => s.id === sessionItem.id ? { ...s, pinned: newPinned } : s));
+    try {
+      await ofetch(`/api/sessions/${sessionItem.id}`, {
+        method: 'PUT',
+        body: { pinned: newPinned },
+      });
+    } catch {
+      // Revert on failure
+      setSessions(prev => prev.map(s => s.id === sessionItem.id ? { ...s, pinned: sessionItem.pinned } : s));
+      toast.error('Failed to pin session');
+    }
+  }, []);
+
+  const handleAbortSession = useCallback(async (sessionItem: SessionItem) => {
+    try {
+      await ofetch(`/api/agentd/v1/sessions/${sessionItem.id}/abort`, { method: 'POST' });
+      setSessions(prev => prev.map(s => s.id === sessionItem.id ? { ...s, status: 'aborted' as const } : s));
+      toast.success('Session aborted');
+    } catch {
+      toast.error('Failed to abort');
+    }
+  }, []);
+
   const handleLogout = useCallback(async () => {
     setLoggingOut(true);
     try {
-      await ofetch('/api/auth/logout', {
-        method: 'POST',
-      });
+      await ofetch('/api/auth/logout', { method: 'POST' });
       setOpenMobile(false);
       router.push('/login');
       router.refresh();
@@ -220,16 +254,76 @@ export function AppSidebar() {
     }
   }, [router, setOpenMobile]);
 
+  // Status indicator component
+  const StatusDot = ({ status }: { status?: SessionStatus }) => {
+    if (!status || status === 'idle') return null;
+    if (status === 'running') return <Loader2 className="size-3 animate-spin text-amber-500 shrink-0" />;
+    if (status === 'waiting_user') return <span className="size-2 rounded-full bg-amber-500 animate-pulse shrink-0" />;
+    if (status === 'completed') return <span className="size-2 rounded-full bg-green-500 shrink-0" />;
+    if (status === 'aborted') return <span className="size-2 rounded-full bg-muted-foreground shrink-0" />;
+    return null;
+  };
+
+  // Render a single session item
+  const renderSessionItem = (sessionItem: SessionItem) => (
+    <SidebarMenuItem key={sessionItem.id}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuAction showOnHover aria-label="Session actions" disabled={deletingSessionId === sessionItem.id}>
+            {deletingSessionId === sessionItem.id ? (
+              <Loader2 className="animate-spin size-4" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+          </SidebarMenuAction>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="right" align="start" className="w-56">
+          <DropdownMenuLabel className="text-xs">Session Actions</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => handleTogglePin(sessionItem)}>
+            {sessionItem.pinned ? '📌 Unpin' : '📌 Pin'}
+          </DropdownMenuItem>
+          {(sessionItem.status === 'running' || sessionItem.status === 'waiting_user') && (
+            <DropdownMenuItem onSelect={() => handleAbortSession(sessionItem)} className="text-amber-600">
+              ⏹ Abort
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:text-destructive"
+            disabled={deletingSessionId === sessionItem.id}
+            onSelect={() => { void handleDeleteSession(sessionItem); }}
+          >
+            <Trash2 className="size-4" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <SidebarMenuButton
+        asChild
+        isActive={pathname === `/chat/${sessionItem.id}`}
+      >
+        <Link
+          href={`/chat/${sessionItem.id}`}
+          onClick={() => setOpenMobile(false)}
+          title={sessionItem.title ?? 'Untitled'}
+          className="flex items-center gap-2"
+        >
+          <StatusDot status={sessionItem.status} />
+          <MessageSquare className="size-4 shrink-0" />
+          <span className="truncate flex-1">{sessionItem.title ?? 'Untitled'}</span>
+          {sessionItem.pinned && <span className="text-xs">📌</span>}
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
       <SidebarHeader>
         <SidebarMenu>
           <div className="flex flex-row justify-between items-center">
-            <Link
-              href="/"
-              onClick={() => setOpenMobile(false)}
-              className="flex flex-row gap-1 items-center"
-            >
+            <Link href="/" onClick={() => setOpenMobile(false)} className="flex flex-row gap-1 items-center">
               <Logo width={24} height={24} />
               <span className="text-lg font-semibold hover:bg-muted rounded-md cursor-pointer">
                 ClawLess
@@ -237,16 +331,8 @@ export function AppSidebar() {
             </Link>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  className="p-2 h-fit"
-                  onClick={() => {
-                    setOpenMobile(false);
-                    router.push('/');
-                    router.refresh();
-                  }}
-                >
+                <Button variant="ghost" type="button" className="p-2 h-fit"
+                  onClick={() => { setOpenMobile(false); router.push('/'); router.refresh(); }}>
                   <Plus className="size-4" />
                 </Button>
               </TooltipTrigger>
@@ -263,14 +349,8 @@ export function AppSidebar() {
             <SidebarMenu>
               {navItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={
-                      item.href === '/'
-                        ? pathname === '/' || pathname.startsWith('/chat')
-                        : pathname.startsWith(item.href)
-                    }
-                  >
+                  <SidebarMenuButton asChild
+                    isActive={item.href === '/' ? pathname === '/' || pathname.startsWith('/chat') : pathname.startsWith(item.href)}>
                     <Link href={item.href} onClick={() => setOpenMobile(false)}>
                       <item.icon className="size-4" />
                       <span>{item.label}</span>
@@ -289,74 +369,43 @@ export function AppSidebar() {
             <SidebarGroup>
               <SidebarGroupLabel>Recent Sessions</SidebarGroupLabel>
               <SidebarGroupContent>
+                {/* Search */}
+                <div className="px-2 pb-2">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                    <Input
+                      ref={searchInputRef}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search sessions..."
+                      className="h-7 pl-7 text-xs"
+                    />
+                  </div>
+                </div>
+
                 {loadingSessions ? (
                   <div className="flex items-center justify-center py-4">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                   </div>
-                ) : sessions.length === 0 ? (
+                ) : filteredSessions.length === 0 ? (
                   <p className="text-xs text-muted-foreground px-2 py-2">
-                    No sessions yet
+                    {searchQuery ? 'No matching sessions' : 'No sessions yet'}
                   </p>
                 ) : (
                   <SidebarMenu>
-                    {sessions.map((session) => (
-                      <SidebarMenuItem key={session.id}>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <SidebarMenuAction
-                              showOnHover
-                              aria-label={`Delete ${session.title ?? 'Untitled'}`}
-                              disabled={deletingSessionId === session.id}
-                            >
-                              {deletingSessionId === session.id ? (
-                                <Loader2 className="animate-spin" />
-                              ) : (
-                                <Trash2 className="size-4" />
-                              )}
-                            </SidebarMenuAction>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            side="right"
-                            align="start"
-                            className="w-56"
-                          >
-                            <DropdownMenuLabel className="text-xs leading-5 text-muted-foreground">
-                              Delete this session and all of its messages?
-                            </DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              disabled={deletingSessionId === session.id}
-                              onSelect={() => {
-                                void handleDeleteSession(session);
-                              }}
-                            >
-                              {deletingSessionId === session.id ? (
-                                <Loader2 className="animate-spin" />
-                              ) : (
-                                <Trash2 className="size-4" />
-                              )}
-                              Confirm Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                        <SidebarMenuButton
-                          asChild
-                          isActive={pathname === `/chat/${session.id}`}
-                        >
-                          <Link
-                            href={`/chat/${session.id}`}
-                            onClick={() => setOpenMobile(false)}
-                            title={session.title ?? 'Untitled'}
-                          >
-                            <MessageSquare className="size-4 shrink-0" />
-                            <span className="truncate">
-                              {session.title ?? 'Untitled'}
-                            </span>
-                          </Link>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    ))}
+                    {/* Pinned section */}
+                    {pinnedSessions.length > 0 && (
+                      <>
+                        {pinnedSessions.map(renderSessionItem)}
+                        {recentSessions.length > 0 && (
+                          <div className="px-2 py-1">
+                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Recent</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {/* Recent sessions */}
+                    {recentSessions.map(renderSessionItem)}
                   </SidebarMenu>
                 )}
               </SidebarGroupContent>
@@ -377,48 +426,25 @@ export function AppSidebar() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" side="top" className="w-56">
             <DropdownMenuLabel>Appearance</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={theme}
-              onValueChange={(value) => setTheme(value as ThemeMode)}
-            >
-              <DropdownMenuRadioItem value="light">
-                <Sun className="size-4 mx-2" />
-                Light
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="dark">
-                <Moon className="size-4 mx-2" />
-                Dark
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="system">
-                <Monitor className="size-4 mx-2" />
-                System
-              </DropdownMenuRadioItem>
+            <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as ThemeMode)}>
+              <DropdownMenuRadioItem value="light"><Sun className="size-4 mx-2" />Light</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="dark"><Moon className="size-4 mx-2" />Dark</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="system"><Monitor className="size-4 mx-2" />System</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <a href={docsUrl} target="_blank" rel="noreferrer">
-                <BookOpen className="size-4" />
-                Official Docs
-              </a>
+              <a href={docsUrl} target="_blank" rel="noreferrer"><BookOpen className="size-4" />Official Docs</a>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <a href={siteUrl} target="_blank" rel="noreferrer">
-                <Globe className="size-4" />
-                Official Website
-              </a>
+              <a href={siteUrl} target="_blank" rel="noreferrer"><Globe className="size-4" />Official Website</a>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={loggingOut}
-              onSelect={() => void handleLogout()}
-            >
+            <DropdownMenuItem disabled={loggingOut} onSelect={() => void handleLogout()}>
               <LogOut className="size-4" />
               {loggingOut ? 'Signing out...' : 'Sign out'}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
-              Version {packageJson.version}
-            </DropdownMenuLabel>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">Version {packageJson.version}</DropdownMenuLabel>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarFooter>
