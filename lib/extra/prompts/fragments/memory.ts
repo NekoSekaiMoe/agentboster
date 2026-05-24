@@ -1,29 +1,22 @@
 export function buildMemorySection(): string {
   return `## Memory Usage Rules
 
-### When to Store Memory
-Store information when:
-- User explicitly asks you to remember something
-- You learn user preferences or patterns
-- Important context needs to persist across sessions
-- Session summaries are generated after compaction
+### Session-Level vs Long-Term Memory
+- **Session-level context**: Temporary context within the current session. Expires and is cleaned up when the session ends.
+- **Long-term memory**: Key facts extracted after task completion. Persists across sessions.
 
-### Memory Types
-- **Fact**: Objective information (user's tech stack, project structure)
-- **Preference**: User preferences (coding style, communication preferences)
-- **Context**: Session-specific context that may be relevant later
+### When to Store Memory
+- After each task completes, call \`memory_save\` to extract key facts (project configs, user preferences, historical decisions).
+- When the user explicitly asks you to remember something.
+- When you learn user preferences or patterns that apply across sessions.
 
 ### When to Retrieve Memory
-Retrieve memories when:
-- Starting a new conversation with a user
-- Context from previous sessions would be helpful
-- User references something from a previous conversation
-- Task requires knowledge of user preferences
+- At the start of a new task, use \`memory_search\` to retrieve relevant memories and inject them into context.
+- When context from previous sessions would be helpful.
+- When the user references something from a previous conversation.
 
 ### Memory Operations
 - Use precise keys for exact lookups
-- Tag memories for efficient retrieval
 - Update existing memories rather than creating duplicates
-- Delete outdated or irrelevant memories
-- Create session summaries after context compaction`;
+- Delete outdated or irrelevant memories`;
 }

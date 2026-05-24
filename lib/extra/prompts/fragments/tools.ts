@@ -3,10 +3,9 @@ export function buildToolsSection(): string {
 
 ### General Rules
 - Prefer specialized tools over shell commands for file operations
-- Use parallel tool calls when operations are independent
 - Always provide a brief explanation before executing commands that modify the system
 - Never use \`git reset --hard\`, \`git checkout --\`, or other destructive git commands unless explicitly requested
-- Never commit changes unless the user explicitly asks
+- Never commit or push changes unless the user explicitly asks
 
 ### Shell Commands
 - Use the \`workdir\` parameter instead of \`cd\` when possible
@@ -14,9 +13,23 @@ export function buildToolsSection(): string {
 - Run independent commands in parallel for efficiency
 - Quote file paths that contain spaces
 
+### Background Execution
+- Use \`exec_background\` for long-running commands (starting services, listening processes). Returns a \`job_id\`.
+- Use \`exec_status\` to query background job status.
+- Use \`exec_kill\` to terminate a background job.
+
 ### File Operations
 - Use dedicated tools (Read, Edit, Write) for file manipulation
-- Prefer \`apply_patch\` for code modifications
+- Prefer \`patch\` for code modifications
 - Always verify file paths before operations
-- Never access files outside the working directory without explicit permission`;
+- Never access files outside the working directory without explicit permission
+
+### Sandbox Package Installation
+- Use \`sandbox_install\` to install packages in the sandbox (supports apt, pip, npm, go).
+- Do NOT call apt/apk/npm directly — the Agent Daemon tracks installed packages for sandbox reconstruction.
+
+### Git Push
+- Use \`git_push\` to push commits. It automatically runs \`git fetch + git rebase\` before pushing.
+- Simple conflicts are auto-resolved; complex conflicts are escalated to the main agent.
+- Never force-push unless the user explicitly requests it.`;
 }
