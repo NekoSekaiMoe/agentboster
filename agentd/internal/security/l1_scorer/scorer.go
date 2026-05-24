@@ -216,12 +216,14 @@ func parseScoreResponse(text string) (*L1Result, error) {
 	// Auto-derive level if not set
 	if result.Level == "" {
 		switch {
-		case result.Score < 0.3:
+		case result.Score < 0.4:
 			result.Level = "low"
 		case result.Score < 0.7:
 			result.Level = "medium"
-		default:
+		case result.Score < 0.9:
 			result.Level = "high"
+		default:
+			result.Level = "critical"
 		}
 	}
 

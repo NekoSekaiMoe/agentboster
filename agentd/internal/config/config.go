@@ -47,9 +47,10 @@ type SecurityConfig struct {
 	L1Model     string `mapstructure:"l1_model"`
 	L1APIKey    string `mapstructure:"l1_api_key"`
 	L1Threshold struct {
-		Low    float64 `mapstructure:"low"`
-		Medium float64 `mapstructure:"medium"`
-		High   float64 `mapstructure:"high"`
+		Low      float64 `mapstructure:"low"`
+		Medium   float64 `mapstructure:"medium"`
+		High     float64 `mapstructure:"high"`
+		Critical float64 `mapstructure:"critical"`
 	} `mapstructure:"l1_threshold"`
 }
 
@@ -168,9 +169,10 @@ func Load(path string) (*Config, error) {
 		"l1_model":    defaults.Security.L1Model,
 		"l1_api_key":  defaults.Security.L1APIKey,
 		"l1_threshold": map[string]any{
-			"low":    0.3,
-			"medium": 0.7,
-			"high":   0.9,
+			"low":      0.4,
+			"medium":   0.7,
+			"high":     0.9,
+			"critical": 0.9,
 		},
 	})
 	v.SetDefault("sandbox", map[string]any{

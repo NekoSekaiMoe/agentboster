@@ -17,7 +17,7 @@ type L0Rule struct {
 	ID      string `json:"id" toml:"id"`
 	Pattern string `json:"pattern" toml:"pattern"`
 	Type    string `json:"type" toml:"type"`     // "command", "path", "network"
-	Action  string `json:"action" toml:"action"` // "block", "warn"
+	Action  string `json:"action" toml:"action"` // "block"
 	Scope   string `json:"scope" toml:"scope"`   // "workspace", "global"
 }
 
@@ -43,12 +43,10 @@ func NewEngine() *Engine {
 }
 
 // Check evaluates a command against all L0 rules.
-// Returns the first matching result (block takes priority over warn).
+// L0 only blocks — no warn escalation. Anything not blocked passes to L1.
 func (e *Engine) Check(command, workDir string) (*L0Result, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-
-	var warnResult *L0Result
 
 	for _, rule := range e.rules {
 		matched, err := e.matchRule(rule, command, workDir)
@@ -60,26 +58,14 @@ func (e *Engine) Check(command, workDir string) (*L0Result, error) {
 			continue
 		}
 
-		result := &L0Result{
-			Blocked: rule.Action == "block",
-			Rule:    rule,
-			Reason:  fmt.Sprintf("L0 rule matched: %s (pattern: %s, type: %s)", rule.ID, rule.Pattern, rule.Type),
-		}
-
 		if rule.Action == "block" {
 			slog.Warn("L0 blocked", "rule_id", rule.ID, "command", command)
-			return result, nil
+			return &L0Result{
+				Blocked: true,
+				Rule:    rule,
+				Reason:  fmt.Sprintf("L0 rule matched: %s (pattern: %s, type: %s)", rule.ID, rule.Pattern, rule.Type),
+			}, nil
 		}
-
-		// warn — continue checking, but remember the first warn
-		if warnResult == nil {
-			warnResult = result
-		}
-	}
-
-	if warnResult != nil {
-		slog.Info("L0 warn", "rule_id", warnResult.Rule.ID, "command", command)
-		return warnResult, nil
 	}
 
 	return nil, nil

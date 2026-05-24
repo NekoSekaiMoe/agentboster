@@ -33,9 +33,10 @@ l1_model = "tinyllama:latest"
 l1_api_key = ""
 
 [security.l1_threshold]
-low = 0.3
+low = 0.4
 medium = 0.7
 high = 0.9
+critical = 0.9
 
 [sandbox]
 default = "tmpfs"

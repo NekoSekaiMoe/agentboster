@@ -150,33 +150,14 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 		slog.Warn("Gatekeeper: L1 high risk, requiring L2 auth",
 			"task_id", task.ID, "score", l1Result.Score, "reason", l1Result.Reason)
 
-		// Check L2 cache
-		if entry, hit, rejected := g.l2.Check(task.Command); hit {
-			if rejected {
-				slog.Info("Gatekeeper: L2 cache reject", "task_id", task.ID, "pattern", entry.Pattern)
-				result.Decision = DecisionBlocked
-				result.Reason = "L2: rejected by cache"
-				return result, logs
-			}
-			slog.Info("Gatekeeper: L2 cache hit", "task_id", task.ID, "pattern", entry.Pattern)
-			result.Decision = DecisionAllowed
-			result.Reason = "L2: cached authorization"
-			return result, logs
-		}
+		return g.requestL2Auth(task, l1Result, result, logs), logs
 
-		// Request L2 authorization
-		result.Decision = DecisionPendingConfirm
-		result.Reason = "L2: awaiting user authorization"
+	case l1Result.Level == "critical":
+		// Critical risk → L2 high-severity interactive authorization
+		slog.Warn("Gatekeeper: L1 critical risk, requiring L2 auth",
+			"task_id", task.ID, "score", l1Result.Score, "reason", l1Result.Reason)
 
-		g.bus.Publish(eventbus.EventL2AuthRequired, map[string]any{
-			"task_id":  task.ID,
-			"command":  task.Command,
-			"score":    l1Result.Score,
-			"reason":   l1Result.Reason,
-			"message":  l2_auth.FormatNotificationMessage(task.Command, l1Result.Score, l1Result.Reason),
-		})
-
-		return result, logs
+		return g.requestL2Auth(task, l1Result, result, logs), logs
 
 	default:
 		// Unknown level → treat as medium
@@ -204,7 +185,41 @@ func l1Action(r *l1_scorer.L1Result) string {
 		return "allowed_with_warning"
 	case "high":
 		return "pending_l2"
+	case "critical":
+		return "pending_l2_critical"
 	default:
 		return "allowed"
 	}
+}
+
+// requestL2Auth handles the L2 authorization flow for high/critical risk commands.
+func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *l1_scorer.L1Result, result *ReviewResult, logs []clawless.ReviewLog) *ReviewResult {
+	// Check L2 cache
+	if entry, hit, rejected := g.l2.Check(task.Command); hit {
+		if rejected {
+			slog.Info("Gatekeeper: L2 cache reject", "task_id", task.ID, "pattern", entry.Pattern)
+			result.Decision = DecisionBlocked
+			result.Reason = "L2: rejected by cache"
+			return result
+		}
+		slog.Info("Gatekeeper: L2 cache hit", "task_id", task.ID, "pattern", entry.Pattern)
+		result.Decision = DecisionAllowed
+		result.Reason = "L2: cached authorization"
+		return result
+	}
+
+	// Request L2 authorization
+	result.Decision = DecisionPendingConfirm
+	result.Reason = "L2: awaiting user authorization"
+
+	g.bus.Publish(eventbus.EventL2AuthRequired, map[string]any{
+		"task_id":  task.ID,
+		"command":  task.Command,
+		"score":    l1Result.Score,
+		"reason":   l1Result.Reason,
+		"level":    l1Result.Level,
+		"message":  l2_auth.FormatNotificationMessage(task.Command, l1Result.Score, l1Result.Reason, l1Result.Level),
+	})
+
+	return result
 }

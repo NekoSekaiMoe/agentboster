@@ -149,7 +149,7 @@ func (m *L2AuthManager) Check(pattern string) (*L2AuthEntry, bool, bool) {
 
 // RequestAuthorization creates an L2 authorization request, enqueues it in the
 // decision queue, and notifies the user via ClawLess.
-func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless.Task, score float64, reason string) error {
+func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless.Task, score float64, reason, level string) error {
 	slog.Warn("L2 authorization required",
 		"task_id", task.ID,
 		"command", task.Command,
@@ -186,16 +186,21 @@ func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless
 		dq.Enqueue(decision)
 	}
 
+	title := "⚠️ 高风险操作需要您的授权"
+	if level == "critical" {
+		title = "🚨 高危操作需要您的授权"
+	}
 	notification := clawless.Notification{
 		AgentID:  m.agentID,
 		TaskID:   task.ID,
 		Type:     "l2_auth_required",
-		Title:    "⚠️ 高风险操作需要您的授权",
-		Message:  FormatNotificationMessage(task.Command, score, reason),
+		Title:    title,
+		Message:  FormatNotificationMessage(task.Command, score, reason, level),
 		Metadata: map[string]any{
 			"command": task.Command,
 			"score":   score,
 			"reason":  reason,
+			"level":   level,
 		},
 	}
 
@@ -444,15 +449,23 @@ func (m *L2AuthManager) EscalationTimeout() time.Duration {
 }
 
 // FormatNotificationMessage formats the L2 authorization notification per the design doc.
-func FormatNotificationMessage(command string, score float64, reason string) string {
+func FormatNotificationMessage(command string, score float64, reason string, level string) string {
+	icon := "⚠️"
+	if level == "critical" {
+		icon = "🚨"
+	}
 	return fmt.Sprintf(
-		"⚠️ 高风险操作需要您的授权\n\n"+
-			"任务：%s\n"+
+		"%s 高风险操作需要您的授权\n\n"+
 			"命令：%s\n"+
 			"风险评分：%.1f/1.0\n"+
+			"风险等级：%s\n"+
 			"原因：%s\n\n"+
-			"请选择：",
-		command, command, score, reason,
+			"请选择授权时间窗口：\n"+
+			"- pass_once: 仅此次\n"+
+			"- pass_until: 指定时间前 (格式 hhddmmyy)\n"+
+			"- reject_once: 仅此次拒绝\n"+
+			"- reject_until: 指定时间前拒绝 (格式 hhddmmyy)",
+		icon, command, score, level, reason,
 	)
 }
 

@@ -33,10 +33,11 @@ func RegisterAllTools(
 	registerWebFetch(registry)
 	registerWebSearch(registry)
 
-	// === Git (3) ===
+	// === Git (4) ===
 	registerGitClone(registry, sbManager, agentCtx)
 	registerGitDiff(registry, sbManager, agentCtx)
 	registerGitStatus(registry, sbManager, agentCtx)
+	registerGitPush(registry, sbManager, agentCtx)
 
 	// === Memory (2) ===
 	registerMemorySearch(registry, clawlessClient, agentCtx)

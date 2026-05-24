@@ -24,9 +24,9 @@ func DefaultPresets() []L0Rule {
 		{ID: "cmd-reboot", Pattern: "reboot", Type: "command", Action: "block", Scope: "global"},
 		{ID: "cmd-killall", Pattern: "killall", Type: "command", Action: "block", Scope: "global"},
 		{ID: "cmd-pkill", Pattern: "pkill", Type: "command", Action: "block", Scope: "global"},
-		{ID: "cmd-nc-listen", Pattern: "nc\\s+-l", Type: "command", Action: "warn", Scope: "global"},
-		{ID: "cmd-ncat-listen", Pattern: "ncat\\s+-l", Type: "command", Action: "warn", Scope: "global"},
-		{ID: "cmd-python-http", Pattern: "python\\s+-m\\s+http\\.server", Type: "command", Action: "warn", Scope: "global"},
+		{ID: "cmd-nc-listen", Pattern: "nc\\s+-l", Type: "command", Action: "block", Scope: "global"},
+		{ID: "cmd-ncat-listen", Pattern: "ncat\\s+-l", Type: "command", Action: "block", Scope: "global"},
+		{ID: "cmd-python-http", Pattern: "python\\s+-m\\s+http\\.server", Type: "command", Action: "block", Scope: "global"},
 
 		// === Path blacklist (block) ===
 		{ID: "path-etc-shadow", Pattern: "/etc/shadow", Type: "path", Action: "block", Scope: "global"},
@@ -37,7 +37,7 @@ func DefaultPresets() []L0Rule {
 		{ID: "path-root-ssh", Pattern: "/root/.ssh/", Type: "path", Action: "block", Scope: "global"},
 		{ID: "path-home-ssh", Pattern: "~/.ssh/", Type: "path", Action: "block", Scope: "global"},
 
-		// === Network blacklist (warn) ===
+		// === Network blacklist (block) ===
 		{ID: "net-nmap", Pattern: "nmap\\s", Type: "network", Action: "block", Scope: "global"},
 		{ID: "net-masscan", Pattern: "masscan", Type: "network", Action: "block", Scope: "global"},
 		{ID: "net-hydra", Pattern: "hydra", Type: "network", Action: "block", Scope: "global"},
