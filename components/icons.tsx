@@ -1103,7 +1103,100 @@ export const ImageIcon = ({ size = 16 }: { size?: number }) => {
   );
 };
 
-export const FullscreenIcon = ({ size = 16 }: { size?: number }) => (
+export const Loader2 = ({
+  size = 16,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) => {
+  return (
+    <svg
+      height={size}
+      strokeLinejoin="round"
+      viewBox="0 0 16 16"
+      width={size}
+      style={{ color: 'currentcolor' }}
+      className={className}
+    >
+      <path
+        d="M8 1V3M8 13V15M1 8H3M13 8H15M3.05 3.05L4.46 4.46M11.54 11.54L12.95 12.95M3.05 12.95L4.46 11.54M11.54 4.46L12.95 3.05"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+};
+
+export const SquareIcon = ({
+  size = 16,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) => (
+  <svg
+    height={size}
+    strokeLinejoin="round"
+    viewBox="0 0 16 16"
+    width={size}
+    style={{ color: 'currentcolor' }}
+    className={className}
+  >
+    <rect
+      x="2"
+      y="2"
+      width="12"
+      height="12"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      fill="currentColor"
+    />
+  </svg>
+);
+
+export const RefreshCwIcon = ({
+  size = 16,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) => (
+  <svg
+    height={size}
+    strokeLinejoin="round"
+    viewBox="0 0 16 16"
+    width={size}
+    style={{ color: 'currentcolor' }}
+    className={className}
+  >
+    <path
+      d="M1 4V8H5M15 12V8H11"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+    <path
+      d="M13.51 6A6 6 0 0 0 3.17 4.17L1 6M15 10L12.83 11.83A6 6 0 0 1 2.49 10"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      fill="none"
+    />
+  </svg>
+);
+
+export const FullscreenIcon = ({
+  size = 16,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) => (
   <svg
     height={size}
     strokeLinejoin="round"

@@ -10,6 +10,7 @@ import { buildInToolConfigSchema } from './tools';
 /**
  * Full application configuration schema.
  */
+export * from './channels';
 export const appConfigSchema = z.object({
   /** AI models and provider settings. */
   models: aiConfigSchema.optional(),

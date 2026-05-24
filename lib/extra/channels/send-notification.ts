@@ -107,6 +107,8 @@ export async function reactivatePendingDecisions(params: {
 
   if (pendingDecisions.length === 0) return;
 
+  if (source.type !== 'im') return;
+
   const prefs = await getNotificationPreferences(userId);
   const preferredChannel = prefs?.preferredChannel ?? source.adapter;
   const fallbackChannels = prefs?.fallbackChannels?.length

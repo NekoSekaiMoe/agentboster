@@ -1,4 +1,5 @@
 import { createLogger } from '@/lib/utils/logger';
+import type { AdapterName } from '@/types/config';
 import type { NotificationChannel } from '../notification-channel';
 import type {
   DecisionNotification,
@@ -15,7 +16,7 @@ interface FeishuConfig {
 }
 
 export class FeishuNotificationChannel implements NotificationChannel {
-  readonly type = 'feishu';
+  readonly type: AdapterName = 'feishu' as AdapterName;
   private config: FeishuConfig;
   private accessToken: string | null = null;
   private tokenExpiresAt = 0;

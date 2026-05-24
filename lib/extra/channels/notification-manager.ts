@@ -1,5 +1,6 @@
 import { getKV } from '@/lib/core/kv';
 import { createLogger } from '@/lib/utils/logger';
+import type { AdapterName } from '@/types/config';
 import type { NotificationChannel } from './notification-channel';
 import type {
   ChannelHealth,
@@ -56,7 +57,7 @@ class NotificationManager {
     const healthy = consecutiveFailures < FAILURE_THRESHOLD;
 
     this.channelHealth.set(type, {
-      channel: type,
+      channel: type as AdapterName,
       consecutiveFailures,
       lastError: error,
       lastSuccessAt: success
@@ -91,7 +92,7 @@ class NotificationManager {
   async markSent(taskId: string, type: string, channel: string): Promise<void> {
     if (!this.kv) return;
     const key = this.dedupKey(taskId, type, channel);
-    await this.kv.set(key, '1', DEDUP_TTL);
+    await this.kv.set(key, '1', { ex: DEDUP_TTL });
   }
 
   // ── L2 Decision Context Management ─────────────────────────────────
@@ -124,19 +125,19 @@ class NotificationManager {
   async markDecisionProcessed(decisionId: string): Promise<void> {
     if (!this.kv) return;
     const key = `l2:decision:${decisionId}`;
-    await this.kv.set(key, '1', 3600);
+    await this.kv.set(key, '1', { ex: 3600 });
   }
 
   // ── User Online Detection ───────────────────────────────────────────
 
   async markUserOnline(userId: string): Promise<void> {
     if (!this.kv) return;
-    await this.kv.set(`user:online:${userId}`, Date.now().toString(), 86400);
+    await this.kv.set(`user:online:${userId}`, Date.now().toString(), { ex: 86400 });
   }
 
   async isUserOnline(userId: string): Promise<boolean> {
     if (!this.kv) return true; // assume online if no KV
-    const lastSeen = await this.kv.get(`user:online:${userId}`);
+    const lastSeen = await this.kv.get<string>(`user:online:${userId}`);
     if (!lastSeen) return false;
     const lastMs = Number.parseInt(lastSeen, 10);
     // Consider online if seen within last 5 minutes
@@ -240,7 +241,7 @@ class NotificationManager {
 
     return {
       success: false,
-      channel: channelOrder[channelOrder.length - 1],
+      channel: (channelOrder[channelOrder.length - 1] ?? 'slack') as AdapterName,
       error: 'All notification channels failed for L2 decision',
     };
   }
@@ -328,7 +329,7 @@ class NotificationManager {
         await this.kv.set(
           `l2:decision:${decisionId}:status`,
           'timeout',
-          3600,
+          { ex: 3600 },
         );
       }
 
@@ -445,7 +446,7 @@ class NotificationManager {
 
     const ch = this.channels.get(channel);
     if (!ch) {
-      return { success: false, channel, error: 'Channel not registered' };
+      return { success: false, channel: channel as AdapterName, error: 'Channel not registered' };
     }
 
     return this.sendWithRetry(ch, targetChatId, payload);
@@ -491,7 +492,7 @@ class NotificationManager {
           type: notificationType,
           channel: channelType,
         });
-        return { success: true, channel: channelType };
+        return { success: true, channel: channelType as AdapterName };
       }
 
       const channel = this.channels.get(channelType);
@@ -515,7 +516,7 @@ class NotificationManager {
 
     return {
       success: false,
-      channel: channelOrder[channelOrder.length - 1],
+      channel: channelOrder[channelOrder.length - 1] as AdapterName,
       error: 'All notification channels failed',
     };
   }
@@ -549,7 +550,7 @@ class NotificationManager {
       }
     }
 
-    return { success: false, channel: channel.type, error: lastError };
+    return { success: false, channel: channel.type as AdapterName, error: lastError };
   }
 }
 

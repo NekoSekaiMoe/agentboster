@@ -16,3 +16,4 @@ export const redis = new Redis({
  */
 export const redisState = createRedisState();
 export const { get, set, del, expire } = redis;
+export const getKV = () => redis;

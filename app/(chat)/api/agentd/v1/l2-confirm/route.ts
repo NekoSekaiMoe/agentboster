@@ -164,7 +164,7 @@ export async function POST(request: Request) {
           expiresAt: expiresAt.toISOString(),
           decidedAt: new Date().toISOString(),
         }),
-        Math.floor((expiresAt.getTime() - Date.now()) / 1000),
+        { ex: Math.floor((expiresAt.getTime() - Date.now()) / 1000) },
       );
 
       await mgr.markDecisionProcessed(decisionId);

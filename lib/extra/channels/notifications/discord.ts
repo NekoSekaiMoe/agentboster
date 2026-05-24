@@ -1,4 +1,5 @@
 import { createLogger } from '@/lib/utils/logger';
+import type { AdapterName } from '@/types/config';
 import type { NotificationChannel } from '../notification-channel';
 import type {
   DecisionNotification,
@@ -13,7 +14,7 @@ interface DiscordConfig {
 }
 
 export class DiscordNotificationChannel implements NotificationChannel {
-  readonly type = 'discord';
+  readonly type: AdapterName = 'discord' as AdapterName;
   private config: DiscordConfig;
 
   constructor(config: DiscordConfig) {

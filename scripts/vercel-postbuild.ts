@@ -8,11 +8,12 @@ function isVercelProductionBuild() {
   );
 }
 
-function runScript(scriptName: string) {
+function runCommand(command: string, args: string[] = []) {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn('bun', ['run', scriptName], {
+    const child = spawn(command, args, {
       env: process.env,
       stdio: 'inherit',
+      shell: true,
     });
 
     child.on('error', reject);
@@ -22,24 +23,31 @@ function runScript(scriptName: string) {
         return;
       }
 
-      reject(new Error(`bun run ${scriptName} exited with code ${code}`));
+      reject(new Error(`${command} ${args.join(' ')} exited with code ${code}`));
     });
   });
 }
 
-if (!isVercelProductionBuild()) {
-  console.log('[postbuild] skipping database push outside Vercel production');
-  process.exit(0);
+async function main() {
+  if (!isVercelProductionBuild()) {
+    console.log('[postbuild] skipping database push outside Vercel production');
+    process.exit(0);
+  }
+
+  if (!process.env.DATABASE_URL) {
+    throw new Error('[postbuild] DATABASE_URL is required in production');
+  }
+
+  console.log('[postbuild] ensuring pgvector extension');
+  await runCommand('npx', ['tsx', 'scripts/ensure-vector-extension.ts']);
+
+  console.log('[postbuild] pushing Drizzle schema');
+  await runCommand('npx', ['drizzle-kit', 'push']);
+
+  console.log('[postbuild] database schema is up to date');
 }
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('[postbuild] DATABASE_URL is required in production');
-}
-
-console.log('[postbuild] ensuring pgvector extension');
-await runScript('db:ensure-vector');
-
-console.log('[postbuild] pushing Drizzle schema');
-await runScript('db:push');
-
-console.log('[postbuild] database schema is up to date');
+main().catch((error) => {
+  console.error('[postbuild] failed:', error);
+  process.exit(1);
+});

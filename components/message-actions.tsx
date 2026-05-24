@@ -98,16 +98,3 @@ export const MessageActions = memo(
     return true;
   },
 );
-}
-
-export const MessageActions = memo(
-  PureMessageActions,
-  (prevProps, nextProps) => {
-    if (prevProps.isLoading !== nextProps.isLoading) return false;
-    if (prevProps.message.id !== nextProps.message.id) return false;
-    if (prevProps.message.role !== nextProps.message.role) return false;
-    if (prevProps.message.parts !== nextProps.message.parts) return false;
-
-    return true;
-  },
-);

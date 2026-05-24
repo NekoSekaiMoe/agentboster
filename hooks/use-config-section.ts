@@ -6,7 +6,7 @@ import type { ConfigSectionKey } from '@/components/config/config-sections';
 import { useConfigDraft } from '@/hooks/use-config-draft';
 import type { AppConfig } from '@/types/config';
 
-export function useConfigSection<K extends ConfigSectionKey>(sectionKey: K) {
+export function useConfigSection<K extends keyof AppConfig>(sectionKey: K) {
   const config = useConfigDraft();
 
   const issues = useMemo(
@@ -21,7 +21,7 @@ export function useConfigSection<K extends ConfigSectionKey>(sectionKey: K) {
   return {
     ...config,
     issues,
-    value: config.draft[sectionKey] as AppConfig[K] | undefined,
+    value: config.draft[sectionKey] as AppConfig[K],
     updateValue: (value: AppConfig[K]) =>
       config.updateSection(sectionKey, value),
   };

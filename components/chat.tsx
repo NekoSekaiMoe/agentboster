@@ -694,12 +694,11 @@ export function Chat({
         method: 'POST',
         body: { message_id: messageId },
       });
-      // Reload messages after revert
-      router.refresh();
+      toast.success('Reverted to this message');
     } catch {
       toast.error('Failed to revert');
     }
-  }, [id, router]);
+  }, [id]);
 
   // Poll pending decisions from the daemon
   useEffect(() => {
