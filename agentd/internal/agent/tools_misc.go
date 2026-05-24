@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 
-	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/sandbox"
 )
 
@@ -64,37 +62,6 @@ func registerSandboxInstall(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 	})
 }
 
-func registerNotifyUser(registry *ToolRegistry, client *clawless.Client, ctx *AgentContext) {
-	registry.Register(ToolDefinition{
-		Name:        "notify_user",
-		Description: "Send a notification message to the user. Use this to report progress, ask for input, or escalate issues.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"message": map[string]any{"type": "string", "description": "Message to send to the user"},
-				"level":   map[string]any{"type": "string", "description": "Notification level: info, warning, error. Default: info", "default": "info"},
-			},
-			"required": []string{"message"},
-		},
-	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
-		var params struct {
-			Message string `json:"message"`
-			Level   string `json:"level"`
-		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
-		}
-
-		slog.Info("notify_user", "level", params.Level, "message", params.Message)
-
-		// In Phase 5, this would send via ClawLess API to the user's chat platform
-		// For now, log and return success
-		return &ToolResult{
-			Success: true,
-			Data:    fmt.Sprintf("Notification sent [%s]: %s", params.Level, params.Message),
-		}, nil
-	})
-}
 
 func registerAskQuestion(registry *ToolRegistry, ctx *AgentContext) {
 	registry.Register(ToolDefinition{

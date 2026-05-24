@@ -162,7 +162,6 @@ type Askable interface {
 	ListPending() []*l2_auth.Decision
 	GetByDecisionID(id string) (*l2_auth.Decision, error)
 	Count(status string) int
-	AddChannel(decisionID, channel string)
 	GetPendingTaskIDs() map[string]bool
 	HasPendingDecision(taskID string) bool
 }

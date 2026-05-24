@@ -45,8 +45,6 @@ func RegisterAllTools(
 	// === Sandbox install (1) ===
 	registerSandboxInstall(registry, sbManager, agentCtx)
 
-	// === Notify user (1) ===
-	registerNotifyUser(registry, clawlessClient, agentCtx)
 
 	// === Ask question (1) ===
 	registerAskQuestion(registry, agentCtx)

@@ -64,7 +64,6 @@ type Decision struct {
 	Conflict    *ConflictData  `json:"conflict,omitempty"`
 	Branch      *BranchData    `json:"branch,omitempty"`
 	Status      string         `json:"status"`
-	Channels    []string       `json:"channels"`
 	CreatedAt   time.Time      `json:"created_at"`
 	TimeoutAt   time.Time      `json:"timeout_at"`
 	ResolvedAt  time.Time      `json:"resolved_at,omitempty"`
@@ -98,8 +97,6 @@ type Prompt struct {
 // Clone returns a copy of the decision.
 func (d *Decision) Clone() *Decision {
 	clone := *d
-	clone.Channels = make([]string, len(d.Channels))
-	copy(clone.Channels, d.Channels)
 	clone.Options = make([]string, len(d.Options))
 	copy(clone.Options, d.Options)
 	clone.Prompts = make([]Prompt, len(d.Prompts))
@@ -455,22 +452,6 @@ func (dq *DecisionQueue) Count(status string) int {
 	return n
 }
 
-// AddChannel records that a notification was sent via the given channel.
-func (dq *DecisionQueue) AddChannel(decisionID, channel string) {
-	dq.mu.Lock()
-	defer dq.mu.Unlock()
-
-	d, ok := dq.decisions[decisionID]
-	if !ok {
-		return
-	}
-	for _, c := range d.Channels {
-		if c == channel {
-			return
-		}
-	}
-	d.Channels = append(d.Channels, channel)
-}
 
 // GetPendingTaskIDs returns the set of task IDs that have sent decisions.
 func (dq *DecisionQueue) GetPendingTaskIDs() map[string]bool {

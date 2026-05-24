@@ -26,7 +26,7 @@
 AgentBoster 是一个 **Serverless AI Agent 平台**，由两部分组成：
 
 - **AgentBoster Web** — 基于 Next.js 的前端 Dashboard，部署在 Vercel 上，提供聊天界面、配置管理、Bot 适配器
-- **Agent Daemon** — 基于 Go 的 Linux 守护进程，运行在用户的 Linux 服务器上，提供沙箱执行、安全审查、IM 通知
+- **Agent Daemon** — 基于 Go 的 Linux 守护进程，运行在用户的 Linux 服务器上，提供沙箱执行、安全审查、任务调度。Daemon 不接触 IM，不发送通知；所有 IM 通知由 AgentBoster Web 处理
 
 AgentBoster 拥有你对 AI Agent 的核心需求：Chat、Skills、Memory (with RAG)、Multi-Channel Bot、Sandbox 执行、Workflow，而且是 **Serverless 的**。
 
@@ -90,7 +90,7 @@ AgentBoster 拥有你对 AI Agent 的核心需求：Chat、Skills、Memory (with
 - **三层安全防护** — L0 规则过滤 → L1 AI 评分 → L2 用户授权
 - **统一决策队列** — L2 安全授权 + LLM 提问 + 冲突解决 + 任务分支，串行/并发混合调度
 - **三种沙箱** — tmpfs（AI 动态评估大小）、chroot（持久化）、Docker（强隔离）
-- **IM 通知** — Telegram/Discord/Slack/飞书，多渠道自动故障切换
+- **Webhook 回调** — 任务完成或需要用户决策时，通过 HTTP 回调通知 AgentBoster Web，由 Web 端负责 IM 通知
 - **Session 管理** — 会话持久化、LRU 淘汰、归档、abort 控制
 
 ---
@@ -226,7 +226,7 @@ chroot rootfs 支持 6 种来源（按优先级）：用户指定路径 → 用�
 - **Decision Queue** — 统一决策队列，L2 授权 + LLM 提问 + 冲突解决 + 任务分支
 - **Prompt Injection Defense** — System Prompt 内置注入防御规则
 - **Docker 白名单** — 只允许白名单中的镜像
-- **mTLS** — AgentBoster Web ↔ Agent Daemon 双向 TLS 认证
+- **mTLS** — AgentBoster Web ↔ Agent Daemon 双向 TLS 认证。Daemon 不存储任何 IM Token，不知道用户使用的 IM 平台
 
 ---
 
