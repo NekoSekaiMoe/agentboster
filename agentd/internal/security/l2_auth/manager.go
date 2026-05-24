@@ -147,7 +147,7 @@ func (m *L2AuthManager) Check(pattern string) (*L2AuthEntry, bool, bool) {
 	return entry, true, entry.Action == ActionReject
 }
 
-// RequestAuthorization creates an authorization request, enqueues it in the
+// RequestAuthorization creates an L2 authorization request, enqueues it in the
 // decision queue, and notifies the user via ClawLess.
 func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless.Task, score float64, reason string) error {
 	slog.Warn("L2 authorization required",
@@ -175,11 +175,13 @@ func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless
 
 	if dq != nil {
 		decision := &Decision{
+			Type:      DecisionTypeL2Auth,
 			TaskID:    task.ID,
 			SessionID: task.SessionID,
 			Command:   task.Command,
 			Score:     score,
 			Reason:    reason,
+			Options:   []string{"pass_once", "pass_until", "reject_once", "reject_until"},
 		}
 		dq.Enqueue(decision)
 	}
