@@ -15,7 +15,9 @@ type AgentContext struct {
 	Model           string
 	MaxSteps        int
 	SystemPrompt    string
-	
+	StartTime       time.Time
+	LastAccessTime  time.Time
+
 	// Injected context for each turn
 	SandboxState    SandboxInfo
 	SessionSummary  string

@@ -56,6 +56,11 @@ interface AgentDConfig {
     tmpfs_size: string;
     docker_socket: string;
   };
+  session: {
+    max_count: number;
+    timeout: string;
+    store_path: string;
+  };
 }
 
 const defaultConfig: AgentDConfig = {
@@ -77,6 +82,11 @@ const defaultConfig: AgentDConfig = {
     chroot_base: '/var/lib/agentd/chroots',
     tmpfs_size: '512m',
     docker_socket: 'unix:///var/run/docker.sock',
+  },
+  session: {
+    max_count: 50,
+    timeout: '30m',
+    store_path: '/tmp/agentd/sessions',
   },
 };
 
@@ -415,6 +425,80 @@ export function AgentDConfigPage() {
                 placeholder="unix:///var/run/docker.sock"
               />
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Session Settings */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Activity className="h-5 w-5" />
+            <CardTitle>Session Settings</CardTitle>
+          </div>
+          <CardDescription>
+            Configure session lifecycle, TTL isolation, and L2 authorization cache.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label>Max Session Count</Label>
+              <Input
+                type="number"
+                min={1}
+                max={200}
+                value={config.session.max_count}
+                onChange={(e) =>
+                  setConfig((c) => ({
+                    ...c,
+                    session: {
+                      ...c.session,
+                      max_count: Number.parseInt(e.target.value, 10) || 50,
+                    },
+                  }))
+                }
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Max sessions to retain (default: 50). Oldest archived when exceeded.
+              </p>
+            </div>
+            <div>
+              <Label>Session Timeout</Label>
+              <Input
+                value={config.session.timeout}
+                onChange={(e) =>
+                  setConfig((c) => ({
+                    ...c,
+                    session: { ...c.session, timeout: e.target.value },
+                  }))
+                }
+                placeholder="30m"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Idle timeout (e.g. 30m, 1h). Expired sessions auto-cleaned.
+              </p>
+            </div>
+            <div>
+              <Label>Session Store Path</Label>
+              <Input
+                value={config.session.store_path}
+                onChange={(e) =>
+                  setConfig((c) => ({
+                    ...c,
+                    session: { ...c.session, store_path: e.target.value },
+                  }))
+                }
+                placeholder="/tmp/agentd/sessions"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Directory for session persistence on disk.
+              </p>
+            </div>
+          </div>
+          <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-3 space-y-1">
+            <p><strong>Session Isolation:</strong> Each session has independent L2 authorization cache. Session A's "always" authorization does not affect Session B.</p>
+            <p><strong>TTL Expiry:</strong> CleanupWorker scans every 30s. Expired L2 authorizations are logged to review_logs.</p>
           </div>
         </CardContent>
       </Card>

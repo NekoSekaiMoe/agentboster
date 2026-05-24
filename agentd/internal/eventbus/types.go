@@ -31,6 +31,12 @@ const (
 	// Memory
 	EventMemoryExtracted EventType = "memory.extracted"
 
+	// Session lifecycle
+	EventSessionCreated  EventType = "session.created"
+	EventSessionSwitched EventType = "session.switched"
+	EventSessionClosed   EventType = "session.closed"
+	EventSessionArchived EventType = "session.archived"
+
 	// System
 	EventSystemHealthCheck EventType = "system.health_check"
 	EventConfigReloaded    EventType = "config.reloaded"

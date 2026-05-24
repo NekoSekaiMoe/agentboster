@@ -101,6 +101,12 @@ func (d *Dispatcher) registerRoutes() {
 	d.bus.Subscribe(eventbus.EventL2AuthRejected, func(e eventbus.Event) {
 		d.bus.Publish(eventbus.EventTaskRejected, e.Payload)
 	})
+	d.bus.Subscribe(eventbus.EventSessionClosed, func(e eventbus.Event) {
+		d.cleanupPool.Submit(func() { d.handleSessionClosed(e) })
+	})
+	d.bus.Subscribe(eventbus.EventSessionArchived, func(e eventbus.Event) {
+		d.cleanupPool.Submit(func() { d.handleSessionArchived(e) })
+	})
 }
 
 func (d *Dispatcher) handleTaskCreated(e eventbus.Event) {
@@ -287,4 +293,12 @@ func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
 
 func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 	slog.Info("dispatch: L2 auth required", "type", e.Type)
+}
+
+func (d *Dispatcher) handleSessionClosed(e eventbus.Event) {
+	slog.Info("dispatch: session closed", "type", e.Type)
+}
+
+func (d *Dispatcher) handleSessionArchived(e eventbus.Event) {
+	slog.Info("dispatch: session archived", "type", e.Type)
 }

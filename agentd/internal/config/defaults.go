@@ -47,7 +47,12 @@ docker_socket = "unix:///var/run/docker.sock"
 path = "/tmp/agentd"
 session_max_size = 104857600  # 100MB
 sync_interval = "30s"
-retry_max_attempts = 5
+ retry_max_attempts = 5
+
+[session]
+max_count = 50
+timeout = "30m"
+store_path = "/tmp/agentd/sessions"
 `
 }
 

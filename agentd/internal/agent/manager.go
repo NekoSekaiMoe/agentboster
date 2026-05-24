@@ -5,24 +5,29 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/config"
+	"github.com/clawless/agentd/internal/eventbus"
 	"github.com/clawless/agentd/internal/sandbox"
 	"github.com/clawless/agentd/internal/security/l1_scorer"
+	"github.com/clawless/agentd/internal/session"
 )
 
 // Manager manages agent sessions and their loops.
 type Manager struct {
-	mu            sync.RWMutex
-	sessions      map[string]*AgentContext
-	sbManager     *sandbox.Manager
-	clawless      *clawless.Client
-	l1Scorer      *l1_scorer.L1Scorer
-	llmEndpoint   string
-	llmModel      string
-	llmAPIKey     string
+	mu              sync.RWMutex
+	sessions        map[string]*AgentContext
+	sbManager       *sandbox.Manager
+	clawless        *clawless.Client
+	l1Scorer        *l1_scorer.L1Scorer
+	llmEndpoint     string
+	llmModel        string
+	llmAPIKey       string
 	memoryExtractor *MemoryExtractor
+	sessionStore    *session.Store
+	bus             *eventbus.Bus
 }
 
 // NewManager creates a new agent manager.
@@ -32,17 +37,34 @@ func NewManager(
 	l1Scorer *l1_scorer.L1Scorer,
 	cfg *config.Config,
 ) *Manager {
+	store, err := session.NewStore(cfg.Session.StorePath, cfg.Session.MaxCount, cfg.Session.Timeout)
+	if err != nil {
+		slog.Warn("session store init failed, using in-memory only", "error", err)
+		store, _ = session.NewStore("/tmp/agentd/sessions", 50, 30*time.Minute)
+	}
+
 	m := &Manager{
-		sessions:    make(map[string]*AgentContext),
-		sbManager:   sbManager,
-		clawless:    clawlessClient,
-		l1Scorer:    l1Scorer,
-		llmEndpoint: cfg.Security.L1Endpoint,
-		llmModel:    cfg.Security.L1Model,
-		llmAPIKey:   cfg.Security.L1APIKey,
+		sessions:     make(map[string]*AgentContext),
+		sbManager:    sbManager,
+		clawless:     clawlessClient,
+		l1Scorer:     l1Scorer,
+		llmEndpoint:  cfg.Security.L1Endpoint,
+		llmModel:     cfg.Security.L1Model,
+		llmAPIKey:    cfg.Security.L1APIKey,
+		sessionStore: store,
 	}
 	m.memoryExtractor = NewMemoryExtractor(clawlessClient, "default", cfg.Security.L1Endpoint, cfg.Security.L1Model)
 	return m
+}
+
+// SetBus sets the event bus for publishing session events.
+func (m *Manager) SetBus(bus *eventbus.Bus) {
+	m.bus = bus
+}
+
+// GetSessionStore returns the session store.
+func (m *Manager) GetSessionStore() *session.Store {
+	return m.sessionStore
 }
 
 // CreateSession creates a new agent session with a sandbox.
@@ -51,7 +73,7 @@ func (m *Manager) CreateSession(sessionID, agentID string) (*AgentContext, error
 	defer m.mu.Unlock()
 
 	// Create sandbox for this session
-	sbType := "tmpfs" // default for agent sessions
+	sbType := "tmpfs"
 	sbSpec := sandbox.SandboxSpec{
 		Type:    sbType,
 		AgentID: agentID,
@@ -61,6 +83,7 @@ func (m *Manager) CreateSession(sessionID, agentID string) (*AgentContext, error
 		return nil, fmt.Errorf("create sandbox for session: %w", err)
 	}
 
+	now := time.Now()
 	ctx := &AgentContext{
 		SessionID:      sessionID,
 		AgentID:        agentID,
@@ -68,6 +91,8 @@ func (m *Manager) CreateSession(sessionID, agentID string) (*AgentContext, error
 		SandboxType:    sb.Type,
 		SandboxPath:    sb.Path,
 		MaxSteps:       30,
+		StartTime:      now,
+		LastAccessTime: now,
 		SandboxState: SandboxInfo{
 			Type: sb.Type,
 			Path: sb.Path,
@@ -76,8 +101,137 @@ func (m *Manager) CreateSession(sessionID, agentID string) (*AgentContext, error
 	}
 
 	m.sessions[sessionID] = ctx
+
+	// Persist to session store
+	if err := m.sessionStore.Put(sessionID, agentContextToData(ctx)); err != nil {
+		slog.Warn("failed to persist session", "session_id", sessionID, "error", err)
+	}
+
+	// Publish session created event
+	if m.bus != nil {
+		m.bus.Publish(eventbus.EventSessionCreated, map[string]any{
+			"session_id": sessionID,
+			"agent_id":   agentID,
+			"sandbox_id": sb.ID,
+		})
+	}
+
 	slog.Info("agent session created", "session_id", sessionID, "sandbox_id", sb.ID)
 	return ctx, nil
+}
+
+// SwitchSession saves the current session context and loads a new one.
+// If the session doesn't exist, creates a new one.
+func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) (*AgentContext, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Save current session context to store
+	if currentCtx, ok := m.sessions[currentSessionID]; ok {
+		currentCtx.LastAccessTime = time.Now()
+		if err := m.sessionStore.Put(currentSessionID, agentContextToData(currentCtx)); err != nil {
+			slog.Warn("failed to save session on switch", "session_id", currentSessionID, "error", err)
+		}
+	}
+
+	// Try to load new session from store
+	if data, err := m.sessionStore.Load(newSessionID); err == nil {
+		ctx := dataToAgentContext(data)
+		m.sessions[newSessionID] = ctx
+
+		if m.bus != nil {
+			m.bus.Publish(eventbus.EventSessionSwitched, map[string]any{
+				"old_session_id": currentSessionID,
+				"new_session_id": newSessionID,
+				"agent_id":       agentID,
+			})
+		}
+
+		slog.Info("session switched (loaded from store)",
+			"old", currentSessionID, "new", newSessionID)
+		return ctx, nil
+	}
+
+	// Session doesn't exist — create new
+	sbType := "tmpfs"
+	sbSpec := sandbox.SandboxSpec{Type: sbType, AgentID: agentID}
+	sb, err := m.sbManager.CreateSandbox(sbSpec)
+	if err != nil {
+		return nil, fmt.Errorf("create sandbox for new session: %w", err)
+	}
+
+	now := time.Now()
+	ctx := &AgentContext{
+		SessionID:      newSessionID,
+		AgentID:        agentID,
+		SandboxID:      sb.ID,
+		SandboxType:    sb.Type,
+		SandboxPath:    sb.Path,
+		MaxSteps:       30,
+		StartTime:      now,
+		LastAccessTime: now,
+		SandboxState:   SandboxInfo{Type: sb.Type, Path: sb.Path},
+		RecentToolCalls: make([]ToolCallRecord, 0),
+	}
+
+	m.sessions[newSessionID] = ctx
+
+	if err := m.sessionStore.Put(newSessionID, agentContextToData(ctx)); err != nil {
+		slog.Warn("failed to persist new session", "session_id", newSessionID, "error", err)
+	}
+
+	if m.bus != nil {
+		m.bus.Publish(eventbus.EventSessionCreated, map[string]any{
+			"session_id": newSessionID,
+			"agent_id":   agentID,
+			"sandbox_id": sb.ID,
+		})
+		m.bus.Publish(eventbus.EventSessionSwitched, map[string]any{
+			"old_session_id": currentSessionID,
+			"new_session_id": newSessionID,
+			"agent_id":       agentID,
+		})
+	}
+
+	slog.Info("session switched (new)", "old", currentSessionID, "new", newSessionID)
+	return ctx, nil
+}
+
+// CloseSession saves and removes a session from memory (but keeps on disk).
+func (m *Manager) CloseSession(sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ctx, ok := m.sessions[sessionID]
+	if !ok {
+		return nil
+	}
+
+	ctx.LastAccessTime = time.Now()
+
+	// Save to store
+	if err := m.sessionStore.Put(sessionID, agentContextToData(ctx)); err != nil {
+		slog.Warn("failed to save session on close", "session_id", sessionID, "error", err)
+	}
+
+	// Destroy sandbox
+	if ctx.SandboxID != "" {
+		if err := m.sbManager.DestroySandbox(ctx.SandboxID); err != nil {
+			slog.Warn("failed to destroy sandbox on session close",
+				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
+		}
+	}
+
+	delete(m.sessions, sessionID)
+
+	if m.bus != nil {
+		m.bus.Publish(eventbus.EventSessionClosed, map[string]any{
+			"session_id": sessionID,
+		})
+	}
+
+	slog.Info("session closed", "session_id", sessionID)
+	return nil
 }
 
 // GetSession returns an existing agent session.
@@ -121,14 +275,15 @@ func (m *Manager) ExtractMemory(ctx context.Context, task *clawless.Task) error 
 	return m.memoryExtractor.Extract(ctx, task)
 }
 
-// DestroySession cleans up a session and its sandbox.
+// DestroySession permanently deletes a session (memory + disk).
 func (m *Manager) DestroySession(sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	agentCtx, ok := m.sessions[sessionID]
 	if !ok {
-		return nil
+		// Still try to delete from store
+		return m.sessionStore.Delete(sessionID)
 	}
 
 	if agentCtx.SandboxID != "" {
@@ -138,8 +293,86 @@ func (m *Manager) DestroySession(sessionID string) error {
 	}
 
 	delete(m.sessions, sessionID)
+
+	// Delete from disk
+	if err := m.sessionStore.Delete(sessionID); err != nil {
+		slog.Warn("failed to delete session from store", "session_id", sessionID, "error", err)
+	}
+
+	if m.bus != nil {
+		m.bus.Publish(eventbus.EventSessionArchived, map[string]any{
+			"session_id": sessionID,
+		})
+	}
+
 	slog.Info("agent session destroyed", "session_id", sessionID)
 	return nil
+}
+
+// ── Session Data Conversion ─────────────────────────────────────────
+
+func agentContextToData(ctx *AgentContext) *session.SessionData {
+	return &session.SessionData{
+		SessionID:       ctx.SessionID,
+		AgentID:         ctx.AgentID,
+		SandboxID:       ctx.SandboxID,
+		SandboxType:     ctx.SandboxType,
+		SandboxPath:     ctx.SandboxPath,
+		Model:           ctx.Model,
+		MaxSteps:        ctx.MaxSteps,
+		SystemPrompt:    ctx.SystemPrompt,
+		StartTime:       ctx.StartTime,
+		LastAccessTime:  ctx.LastAccessTime,
+		SandboxState:    session.SandboxData(ctx.SandboxState),
+		SessionSummary:  ctx.SessionSummary,
+		RecentToolCalls: convertToolRecords(ctx.RecentToolCalls),
+	}
+}
+
+func dataToAgentContext(data *session.SessionData) *AgentContext {
+	return &AgentContext{
+		SessionID:       data.SessionID,
+		AgentID:         data.AgentID,
+		SandboxID:       data.SandboxID,
+		SandboxType:     data.SandboxType,
+		SandboxPath:     data.SandboxPath,
+		Model:           data.Model,
+		MaxSteps:        data.MaxSteps,
+		SystemPrompt:    data.SystemPrompt,
+		StartTime:       data.StartTime,
+		LastAccessTime:  data.LastAccessTime,
+		SandboxState:    SandboxInfo(data.SandboxState),
+		SessionSummary:  data.SessionSummary,
+		RecentToolCalls: convertToolRecordsFromSession(data.RecentToolCalls),
+	}
+}
+
+func convertToolRecords(records []ToolCallRecord) []session.ToolRecord {
+	result := make([]session.ToolRecord, len(records))
+	for i, r := range records {
+		result[i] = session.ToolRecord{
+			Tool:    r.Tool,
+			Args:    r.Args,
+			Result:  r.Result,
+			Success: r.Success,
+			Time:    r.Time,
+		}
+	}
+	return result
+}
+
+func convertToolRecordsFromSession(records []session.ToolRecord) []ToolCallRecord {
+	result := make([]ToolCallRecord, len(records))
+	for i, r := range records {
+		result[i] = ToolCallRecord{
+			Tool:    r.Tool,
+			Args:    r.Args,
+			Result:  r.Result,
+			Success: r.Success,
+			Time:    r.Time,
+		}
+	}
+	return result
 }
 
 // buildDefaultSystemPrompt generates the default AgentClaw system prompt.

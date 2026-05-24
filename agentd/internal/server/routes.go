@@ -5,22 +5,26 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/clawless/agentd/internal/agent"
 	"github.com/clawless/agentd/internal/cache"
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/config"
 	"github.com/clawless/agentd/internal/eventbus"
+	"github.com/clawless/agentd/internal/security/l2_auth"
 	"github.com/clawless/agentd/internal/worker"
 	"github.com/gin-gonic/gin"
 )
 
 // Server holds all dependencies for HTTP handlers.
 type Server struct {
-	cfg        *config.Config
-	bus        *eventbus.Bus
-	dispatcher *worker.Dispatcher
-	clawless   *clawless.Client
-	cache      *cache.Manager
-	startTime  time.Time
+	cfg         *config.Config
+	bus         *eventbus.Bus
+	dispatcher  *worker.Dispatcher
+	clawless    *clawless.Client
+	cache       *cache.Manager
+	agentMgr    *agent.Manager
+	l2Mgr       *l2_auth.L2AuthManager
+	startTime   time.Time
 }
 
 // NewServer creates a new HTTP server with all dependencies.
@@ -30,6 +34,8 @@ func NewServer(
 	dispatcher *worker.Dispatcher,
 	clawlessClient *clawless.Client,
 	cacheManager *cache.Manager,
+	agentMgr *agent.Manager,
+	l2Mgr *l2_auth.L2AuthManager,
 ) *Server {
 	return &Server{
 		cfg:        cfg,
@@ -37,6 +43,8 @@ func NewServer(
 		dispatcher: dispatcher,
 		clawless:   clawlessClient,
 		cache:      cacheManager,
+		agentMgr:   agentMgr,
+		l2Mgr:      l2Mgr,
 		startTime:  time.Now(),
 	}
 }
@@ -85,6 +93,15 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 
 		// LLM proxy
 		v1.POST("/llm-proxy", s.handleLLMProxy)
+
+		// Session management
+		v1.GET("/sessions", s.handleListSessions)
+		v1.POST("/sessions/switch", s.handleSwitchSession)
+		v1.POST("/sessions/close", s.handleCloseSession)
+		v1.DELETE("/sessions/:id", s.handleDestroySession)
+
+		// L2 authorization confirm (called by ClawLess when user clicks a button)
+		v1.POST("/l2-confirm", s.handleL2Confirm)
 	}
 }
 
@@ -306,4 +323,145 @@ func (s *Server) handleLLMProxy(c *gin.Context) {
 	}
 
 	c.Data(http.StatusOK, "application/json", data)
+}
+
+// ── Session Management ──────────────────────────────────────────────
+
+func (s *Server) handleListSessions(c *gin.Context) {
+	store := s.agentMgr.GetSessionStore()
+	sessions := store.List(5)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": sessions})
+}
+
+func (s *Server) handleSwitchSession(c *gin.Context) {
+	var body struct {
+		CurrentSessionID string `json:"current_session_id"`
+		NewSessionID     string `json:"new_session_id"`
+		AgentID          string `json:"agent_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	ctx, err := s.agentMgr.SwitchSession(body.CurrentSessionID, body.NewSessionID, body.AgentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	s.l2Mgr.SetSession(body.NewSessionID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"session_id": ctx.SessionID,
+			"agent_id":   ctx.AgentID,
+		},
+	})
+}
+
+func (s *Server) handleCloseSession(c *gin.Context) {
+	var body struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	if err := s.agentMgr.CloseSession(body.SessionID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (s *Server) handleDestroySession(c *gin.Context) {
+	sessionID := c.Param("id")
+
+	if err := s.agentMgr.DestroySession(sessionID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// ── L2 Authorization Confirm ────────────────────────────────────────
+
+func (s *Server) handleL2Confirm(c *gin.Context) {
+	var body struct {
+		TaskID     string `json:"task_id"`
+		DecisionID string `json:"decision_id"`
+		Action     string `json:"action"` // pass_once | pass_until | reject_once | reject_until
+		Pattern    string `json:"pattern"`
+		Duration   string `json:"duration"` // once | always | hhddmmyy
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	if !s.l2Mgr.MarkDecisionProcessed(body.DecisionID) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    gin.H{"message": "Already processed"},
+		})
+		return
+	}
+
+	switch body.Action {
+	case "pass_once":
+		// Don't write cache, just allow this once
+		slog.Info("L2 pass_once", "task_id", body.TaskID, "pattern", body.Pattern)
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    gin.H{"message": "✅ 已放行。任务继续执行。"},
+		})
+
+	case "reject_once":
+		slog.Info("L2 reject_once", "task_id", body.TaskID, "pattern", body.Pattern)
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    gin.H{"message": "❌ 已拒绝。任务已取消。"},
+		})
+
+	case "pass_until":
+		duration := body.Duration
+		if duration == "" {
+			duration = "always"
+		}
+		if err := s.l2Mgr.Authorize(body.Pattern, duration); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+		slog.Info("L2 pass_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    gin.H{"message": "✅ 已放行至指定时间。"},
+		})
+
+	case "reject_until":
+		duration := body.Duration
+		if duration == "" {
+			duration = "always"
+		}
+		if err := s.l2Mgr.Reject(body.Pattern, duration); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+		slog.Info("L2 reject_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    gin.H{"message": "🔕 已拒绝至指定时间。"},
+		})
+
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Unknown action: " + body.Action,
+		})
+	}
 }

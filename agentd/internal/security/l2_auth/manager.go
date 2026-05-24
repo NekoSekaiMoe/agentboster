@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
+	"github.com/clawless/agentd/internal/eventbus"
 )
 
 const (
@@ -36,13 +37,14 @@ type L2AuthEntry struct {
 
 // L2AuthManager manages L2 interactive authorization.
 type L2AuthManager struct {
-	mu            sync.RWMutex
-	entries       map[string]*L2AuthEntry // key = session_id + ":" + command_pattern
-	clawless      *clawless.Client
-	agentID       string
-	sessionID     string
-	escalation    time.Duration
-	decisionIDs   map[string]bool // dedup for duplicate decision callbacks
+	mu          sync.RWMutex
+	entries     map[string]*L2AuthEntry // key = session_id + ":" + command_pattern
+	clawless    *clawless.Client
+	bus         *eventbus.Bus
+	agentID     string
+	sessionID   string
+	escalation  time.Duration
+	decisionIDs map[string]bool // dedup for duplicate decision callbacks
 }
 
 // NewL2AuthManager creates a new L2 auth manager.
@@ -54,6 +56,13 @@ func NewL2AuthManager(client *clawless.Client, agentID string) *L2AuthManager {
 		escalation:  5 * time.Minute,
 		decisionIDs: make(map[string]bool),
 	}
+}
+
+// SetBus sets the event bus for publishing session-related events.
+func (m *L2AuthManager) SetBus(bus *eventbus.Bus) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bus = bus
 }
 
 // SetClawlessClient sets the ClawLess API client.
@@ -236,7 +245,7 @@ func (m *L2AuthManager) MarkDecisionProcessed(decisionID string) bool {
 	defer m.mu.Unlock()
 
 	if m.decisionIDs[decisionID] {
-		return false // already processed
+		return false
 	}
 	m.decisionIDs[decisionID] = true
 	return true
@@ -262,15 +271,69 @@ func (m *L2AuthManager) ClearSession(sessionID string) {
 	slog.Info("L2 session cleared", "session_id", sessionID)
 }
 
-// ExpireStale removes expired entries.
-func (m *L2AuthManager) ExpireStale() {
+// ExpireStale removes expired entries and writes review logs for each.
+// Returns the list of expired entries for further processing (e.g., session archive).
+func (m *L2AuthManager) ExpireStale() []ExpiredEntry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	now := time.Now()
+	expired := make([]ExpiredEntry, 0)
+
 	for key, entry := range m.entries {
 		if now.After(entry.ExpiresAt) {
+			expired = append(expired, ExpiredEntry{
+				SessionID: entry.SessionID,
+				Pattern:   entry.Pattern,
+				Action:    entry.Action,
+				ExpiresAt: entry.ExpiresAt,
+			})
 			delete(m.entries, key)
 		}
+	}
+
+	if len(expired) > 0 {
+		slog.Info("L2 auth entries expired", "count", len(expired))
+	}
+
+	return expired
+}
+
+// ExpiredEntry holds information about an expired authorization.
+type ExpiredEntry struct {
+	SessionID string
+	Pattern   string
+	Action    string
+	ExpiresAt time.Time
+}
+
+// WriteExpiredReviewLogs writes review logs for expired L2 authorizations via ClawLess API.
+func (m *L2AuthManager) WriteExpiredReviewLogs(ctx context.Context, entries []ExpiredEntry) {
+	m.mu.RLock()
+	client := m.clawless
+	m.mu.RUnlock()
+
+	if client == nil || len(entries) == 0 {
+		return
+	}
+
+	logs := make([]clawless.ReviewLog, 0, len(entries))
+	for _, e := range entries {
+		logs = append(logs, clawless.ReviewLog{
+			TaskID:   e.SessionID,
+			Command:  e.Pattern,
+			Level:    "L2",
+			Score:    0,
+			Decision: "expired",
+			Reason: fmt.Sprintf(
+				"L2 授权已过期：session_id=%s, pattern=%s, action=%s, expired_at=%s",
+				e.SessionID, e.Pattern, e.Action, e.ExpiresAt.Format(time.RFC3339),
+			),
+		})
+	}
+
+	if err := client.WriteReviewLogs(ctx, logs); err != nil {
+		slog.Error("failed to write L2 expiry review logs", "error", err, "count", len(logs))
 	}
 }
 
@@ -288,7 +351,10 @@ func (m *L2AuthManager) StartCleanupWithInterval(interval time.Duration) (stop f
 		for {
 			select {
 			case <-ticker.C:
-				m.ExpireStale()
+				expired := m.ExpireStale()
+				if len(expired) > 0 {
+					m.WriteExpiredReviewLogs(ctx, expired)
+				}
 			case <-ctx.Done():
 				return
 			}
@@ -318,7 +384,6 @@ func FormatNotificationMessage(command string, score float64, reason string) str
 // ParseDuration parses the hhddmmyy format and returns a time.Duration.
 //
 // The format is: hh (hours) dd (days) mm (months) yy (years), each 2 digits.
-// For "always", returns 0 and always=true.
 // Returns an error for invalid formats.
 func ParseDuration(input string) (time.Duration, error) {
 	if !durationRe.MatchString(input) {

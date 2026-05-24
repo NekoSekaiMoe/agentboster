@@ -18,6 +18,7 @@ type Config struct {
 	Security SecurityConfig `mapstructure:"security"`
 	Sandbox  SandboxConfig  `mapstructure:"sandbox"`
 	Cache    CacheConfig    `mapstructure:"cache"`
+	Session  SessionConfig  `mapstructure:"session"`
 }
 
 type ServerConfig struct {
@@ -60,10 +61,16 @@ type SandboxConfig struct {
 }
 
 type CacheConfig struct {
-	Path            string        `mapstructure:"path"`
-	SessionMaxSize  int64         `mapstructure:"session_max_size"`
-	SyncInterval    time.Duration `mapstructure:"sync_interval"`
-	RetryMaxAttempts int          `mapstructure:"retry_max_attempts"`
+	Path             string        `mapstructure:"path"`
+	SessionMaxSize   int64         `mapstructure:"session_max_size"`
+	SyncInterval     time.Duration `mapstructure:"sync_interval"`
+	RetryMaxAttempts int           `mapstructure:"retry_max_attempts"`
+}
+
+type SessionConfig struct {
+	MaxCount      int           `mapstructure:"max_count"`
+	Timeout       time.Duration `mapstructure:"timeout"`
+	StorePath     string        `mapstructure:"store_path"`
 }
 
 var defaults = Config{
@@ -92,10 +99,15 @@ var defaults = Config{
 		DockerSocket: "unix:///var/run/docker.sock",
 	},
 	Cache: CacheConfig{
-		Path:            "/tmp/agentd",
-		SessionMaxSize:  104857600, // 100MB
-		SyncInterval:    30 * time.Second,
+		Path:             "/tmp/agentd",
+		SessionMaxSize:   104857600, // 100MB
+		SyncInterval:     30 * time.Second,
 		RetryMaxAttempts: 5,
+	},
+	Session: SessionConfig{
+		MaxCount:  50,
+		Timeout:   30 * time.Minute,
+		StorePath: "/tmp/agentd/sessions",
 	},
 }
 
@@ -135,10 +147,15 @@ func Load(path string) (*Config, error) {
 		"docker_socket": defaults.Sandbox.DockerSocket,
 	})
 	v.SetDefault("cache", map[string]any{
-		"path":              defaults.Cache.Path,
-		"session_max_size":  defaults.Cache.SessionMaxSize,
-		"sync_interval":     defaults.Cache.SyncInterval.String(),
+		"path":               defaults.Cache.Path,
+		"session_max_size":   defaults.Cache.SessionMaxSize,
+		"sync_interval":      defaults.Cache.SyncInterval.String(),
 		"retry_max_attempts": defaults.Cache.RetryMaxAttempts,
+	})
+	v.SetDefault("session", map[string]any{
+		"max_count":  defaults.Session.MaxCount,
+		"timeout":    defaults.Session.Timeout.String(),
+		"store_path": defaults.Session.StorePath,
 	})
 
 	v.SetConfigType("toml")

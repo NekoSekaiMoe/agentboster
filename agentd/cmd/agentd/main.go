@@ -86,11 +86,13 @@ func main() {
 	// === Security ===
 	l0Engine := l0_rules.NewEngine()
 	l1Scorer := l1_scorer.NewL1Scorer(&cfg.Security)
+	bus := eventbus.New()
+
 	l2Manager := l2_auth.NewL2AuthManager(nil, "default")
-	l2CleanupStop := l2Manager.StartCleanupWithInterval(1 * time.Minute)
+	l2Manager.SetBus(bus)
+	l2CleanupStop := l2Manager.StartCleanupWithInterval(30 * time.Second)
 	defer l2CleanupStop()
 
-	bus := eventbus.New()
 	gk := security.NewGatekeeper(l0Engine, l1Scorer, l2Manager, bus, "default")
 
 	// === ClawLess Client ===
@@ -117,6 +119,7 @@ func main() {
 
 	// === Agent Manager ===
 	agentMgr := agent.NewManager(sbManager, clawlessClient, l1Scorer, cfg)
+	agentMgr.SetBus(bus)
 
 	// === Dispatcher ===
 	dispatcher := worker.NewDispatcher(bus, config.NumCPU(), gk, sbManager, clawlessClient, agentMgr)
@@ -136,7 +139,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	srv := server.NewServer(cfg, bus, dispatcher, clawlessClient, cacheMgr)
+	srv := server.NewServer(cfg, bus, dispatcher, clawlessClient, cacheMgr, agentMgr, l2Manager)
 	srv.RegisterRoutes(r)
 
 	var tlsConfig *tls.Config
