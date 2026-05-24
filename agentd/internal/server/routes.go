@@ -102,6 +102,14 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 
 		// L2 authorization confirm (called by ClawLess when user clicks a button)
 		v1.POST("/l2-confirm", s.handleL2Confirm)
+
+		// Decision queue query (for /decisions command)
+		v1.GET("/decisions", s.handleListDecisions)
+
+		// Question API (for ask_question tool)
+		v1.GET("/questions", s.handleListQuestions)
+		v1.POST("/questions/:id/reply", s.handleQuestionReply)
+		v1.POST("/questions/:id/reject", s.handleQuestionReject)
 	}
 }
 
@@ -395,7 +403,7 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 	var body struct {
 		TaskID     string `json:"task_id"`
 		DecisionID string `json:"decision_id"`
-		Action     string `json:"action"` // pass_once | pass_until | reject_once | reject_until
+		Action     string `json:"action"`  // pass_once | pass_until | reject_once | reject_until
 		Pattern    string `json:"pattern"`
 		Duration   string `json:"duration"` // once | always | hhddmmyy
 	}
@@ -404,6 +412,7 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 		return
 	}
 
+	// Dedup: ignore duplicate clicks from multiple IM channels
 	if !s.l2Mgr.MarkDecisionProcessed(body.DecisionID) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
@@ -412,10 +421,15 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 		return
 	}
 
+	dq := s.l2Mgr.GetDecisionQueue()
+
 	switch body.Action {
 	case "pass_once":
-		// Don't write cache, just allow this once
 		slog.Info("L2 pass_once", "task_id", body.TaskID, "pattern", body.Pattern)
+		if dq != nil {
+			dq.Resolve(body.DecisionID, "allow", "user")
+		}
+		s.resumeTask(body.TaskID)
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    gin.H{"message": "✅ 已放行。任务继续执行。"},
@@ -423,6 +437,10 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 
 	case "reject_once":
 		slog.Info("L2 reject_once", "task_id", body.TaskID, "pattern", body.Pattern)
+		if dq != nil {
+			dq.Deny(body.DecisionID, "user")
+		}
+		s.cancelTask(body.TaskID)
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    gin.H{"message": "❌ 已拒绝。任务已取消。"},
@@ -438,6 +456,10 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 			return
 		}
 		slog.Info("L2 pass_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
+		if dq != nil {
+			dq.Resolve(body.DecisionID, "allow", "user")
+		}
+		s.resumeTask(body.TaskID)
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    gin.H{"message": "✅ 已放行至指定时间。"},
@@ -453,6 +475,10 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 			return
 		}
 		slog.Info("L2 reject_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
+		if dq != nil {
+			dq.Deny(body.DecisionID, "user")
+		}
+		s.cancelTask(body.TaskID)
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    gin.H{"message": "🔕 已拒绝至指定时间。"},
@@ -464,4 +490,92 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 			"error":   "Unknown action: " + body.Action,
 		})
 	}
+}
+
+// ── Decision Queue Query ─────────────────────────────────────────────
+
+func (s *Server) handleListDecisions(c *gin.Context) {
+	dq := s.l2Mgr.GetDecisionQueue()
+	if dq == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": []any{}})
+		return
+	}
+	decisions := dq.ListPending()
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": decisions})
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+func (s *Server) resumeTask(taskID string) {
+	task, ok := s.l2Mgr.GetPendingTask(taskID)
+	if !ok {
+		slog.Warn("resumeTask: task not found in pending map", "task_id", taskID)
+		return
+	}
+	s.l2Mgr.RemovePendingTask(taskID)
+	s.bus.Publish(eventbus.EventTaskApproved, task)
+}
+
+func (s *Server) cancelTask(taskID string) {
+	task, ok := s.l2Mgr.GetPendingTask(taskID)
+	if !ok {
+		slog.Warn("cancelTask: task not found in pending map", "task_id", taskID)
+		return
+	}
+	s.l2Mgr.RemovePendingTask(taskID)
+	s.bus.Publish(eventbus.EventTaskRejected, task)
+}
+
+// ── Question API (for ask_question tool) ─────────────────────────────
+
+func (s *Server) handleListQuestions(c *gin.Context) {
+	svc := s.agentMgr.GetQuestionService()
+	if svc == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": []any{}})
+		return
+	}
+	questions := svc.ListPending()
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": questions})
+}
+
+func (s *Server) handleQuestionReply(c *gin.Context) {
+	questionID := c.Param("id")
+
+	var body struct {
+		Answers [][]string `json:"answers"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	svc := s.agentMgr.GetQuestionService()
+	if svc == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "question service not available"})
+		return
+	}
+
+	if err := svc.Reply(questionID, body.Answers); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (s *Server) handleQuestionReject(c *gin.Context) {
+	questionID := c.Param("id")
+
+	svc := s.agentMgr.GetQuestionService()
+	if svc == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "question service not available"})
+		return
+	}
+
+	if err := svc.Reject(questionID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }

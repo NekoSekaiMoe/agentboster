@@ -37,6 +37,10 @@ const (
 	EventSessionClosed   EventType = "session.closed"
 	EventSessionArchived EventType = "session.archived"
 
+	// Decision queue
+	EventDecisionTimeout EventType = "decision.timeout"
+	EventUserOnline      EventType = "user.online"
+
 	// System
 	EventSystemHealthCheck EventType = "system.health_check"
 	EventConfigReloaded    EventType = "config.reloaded"

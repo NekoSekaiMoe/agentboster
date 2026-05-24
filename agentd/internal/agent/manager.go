@@ -28,6 +28,7 @@ type Manager struct {
 	memoryExtractor *MemoryExtractor
 	sessionStore    *session.Store
 	bus             *eventbus.Bus
+	questionSvc     *QuestionService
 }
 
 // NewManager creates a new agent manager.
@@ -57,9 +58,25 @@ func NewManager(
 	return m
 }
 
-// SetBus sets the event bus for publishing session events.
+// QuestionService returns the question service for the given session.
+func (m *Manager) QuestionService(sessionID string) *QuestionService {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if ctx, ok := m.sessions[sessionID]; ok {
+		return ctx.QuestionService
+	}
+	return nil
+}
+
+// SetBus sets the event bus and creates the shared question service.
 func (m *Manager) SetBus(bus *eventbus.Bus) {
 	m.bus = bus
+	m.questionSvc = NewQuestionService(bus, m.clawless)
+}
+
+// QuestionService returns the shared question service.
+func (m *Manager) GetQuestionService() *QuestionService {
+	return m.questionSvc
 }
 
 // GetSessionStore returns the session store.
@@ -98,6 +115,7 @@ func (m *Manager) CreateSession(sessionID, agentID string) (*AgentContext, error
 			Path: sb.Path,
 		},
 		RecentToolCalls: make([]ToolCallRecord, 0),
+		QuestionService: m.questionSvc,
 	}
 
 	m.sessions[sessionID] = ctx
@@ -147,6 +165,11 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 			})
 		}
 
+		// Ensure question service is wired for loaded sessions
+		if ctx.QuestionService == nil {
+			ctx.QuestionService = m.questionSvc
+		}
+
 		slog.Info("session switched (loaded from store)",
 			"old", currentSessionID, "new", newSessionID)
 		return ctx, nil
@@ -172,6 +195,7 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 		LastAccessTime: now,
 		SandboxState:   SandboxInfo{Type: sb.Type, Path: sb.Path},
 		RecentToolCalls: make([]ToolCallRecord, 0),
+		QuestionService: m.questionSvc,
 	}
 
 	m.sessions[newSessionID] = ctx
@@ -191,6 +215,11 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 			"new_session_id": newSessionID,
 			"agent_id":       agentID,
 		})
+	}
+
+	// Ensure question service is wired for loaded sessions
+	if ctx.QuestionService == nil {
+		ctx.QuestionService = m.questionSvc
 	}
 
 	slog.Info("session switched (new)", "old", currentSessionID, "new", newSessionID)

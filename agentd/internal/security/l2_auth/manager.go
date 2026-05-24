@@ -37,25 +37,64 @@ type L2AuthEntry struct {
 
 // L2AuthManager manages L2 interactive authorization.
 type L2AuthManager struct {
-	mu          sync.RWMutex
-	entries     map[string]*L2AuthEntry // key = session_id + ":" + command_pattern
-	clawless    *clawless.Client
-	bus         *eventbus.Bus
-	agentID     string
-	sessionID   string
-	escalation  time.Duration
-	decisionIDs map[string]bool // dedup for duplicate decision callbacks
+	mu             sync.RWMutex
+	entries        map[string]*L2AuthEntry // key = session_id + ":" + command_pattern
+	clawless       *clawless.Client
+	bus            *eventbus.Bus
+	agentID        string
+	sessionID      string
+	escalation     time.Duration
+	decisionIDs    map[string]bool // dedup for duplicate decision callbacks
+	decisionQueue  *DecisionQueue
+	pendingTasks   map[string]*clawless.Task // task_id -> task, for resuming after L2
 }
 
 // NewL2AuthManager creates a new L2 auth manager.
 func NewL2AuthManager(client *clawless.Client, agentID string) *L2AuthManager {
 	return &L2AuthManager{
-		entries:     make(map[string]*L2AuthEntry),
-		clawless:    client,
-		agentID:     agentID,
-		escalation:  5 * time.Minute,
-		decisionIDs: make(map[string]bool),
+		entries:       make(map[string]*L2AuthEntry),
+		clawless:      client,
+		agentID:       agentID,
+		escalation:    5 * time.Minute,
+		decisionIDs:   make(map[string]bool),
+		pendingTasks:  make(map[string]*clawless.Task),
 	}
+}
+
+// SetDecisionQueue sets the decision queue (must be called after creation).
+func (m *L2AuthManager) SetDecisionQueue(dq *DecisionQueue) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.decisionQueue = dq
+}
+
+// GetDecisionQueue returns the decision queue.
+func (m *L2AuthManager) GetDecisionQueue() *DecisionQueue {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.decisionQueue
+}
+
+// GetPendingDecisions returns all pending/sent decisions.
+func (m *L2AuthManager) GetPendingDecisions() []*Decision {
+	m.mu.RLock()
+	dq := m.decisionQueue
+	m.mu.RUnlock()
+	if dq == nil {
+		return nil
+	}
+	return dq.ListPending()
+}
+
+// GetSentDecisions returns all currently sent (awaiting response) decisions.
+func (m *L2AuthManager) GetSentDecisions() []*Decision {
+	m.mu.RLock()
+	dq := m.decisionQueue
+	m.mu.RUnlock()
+	if dq == nil {
+		return nil
+	}
+	return dq.GetSent()
 }
 
 // SetBus sets the event bus for publishing session-related events.
@@ -108,7 +147,8 @@ func (m *L2AuthManager) Check(pattern string) (*L2AuthEntry, bool, bool) {
 	return entry, true, entry.Action == ActionReject
 }
 
-// RequestAuthorization creates an authorization request and notifies the user via ClawLess.
+// RequestAuthorization creates an authorization request, enqueues it in the
+// decision queue, and notifies the user via ClawLess.
 func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless.Task, score float64, reason string) error {
 	slog.Warn("L2 authorization required",
 		"task_id", task.ID,
@@ -117,13 +157,31 @@ func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless
 		"reason", reason,
 	)
 
-	m.mu.RLock()
+	m.mu.Lock()
 	client := m.clawless
-	m.mu.RUnlock()
+	dq := m.decisionQueue
+	m.sessionID = task.SessionID
+	m.mu.Unlock()
 
 	if client == nil {
 		slog.Error("L2 authorization: ClawLess client not configured")
 		return fmt.Errorf("clawless client not configured")
+	}
+
+	// Store the task for resuming after L2
+	m.mu.Lock()
+	m.pendingTasks[task.ID] = task
+	m.mu.Unlock()
+
+	if dq != nil {
+		decision := &Decision{
+			TaskID:    task.ID,
+			SessionID: task.SessionID,
+			Command:   task.Command,
+			Score:     score,
+			Reason:    reason,
+		}
+		dq.Enqueue(decision)
 	}
 
 	notification := clawless.Notification{
@@ -148,6 +206,21 @@ func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless
 	}
 
 	return nil
+}
+
+// GetPendingTask returns the task associated with a pending L2 decision.
+func (m *L2AuthManager) GetPendingTask(taskID string) (*clawless.Task, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	t, ok := m.pendingTasks[taskID]
+	return t, ok
+}
+
+// RemovePendingTask removes a task from the pending map.
+func (m *L2AuthManager) RemovePendingTask(taskID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.pendingTasks, taskID)
 }
 
 // Authorize records a pass authorization decision for the given pattern and duration.

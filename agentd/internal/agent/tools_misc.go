@@ -96,6 +96,131 @@ func registerNotifyUser(registry *ToolRegistry, client *clawless.Client, ctx *Ag
 	})
 }
 
+func registerAskQuestion(registry *ToolRegistry, ctx *AgentContext) {
+	registry.Register(ToolDefinition{
+		Name:        "ask_question",
+		Description: `Ask the user a question during execution. Use this to:
+1. Gather user preferences or requirements
+2. Clarify ambiguous instructions
+3. Get decisions on implementation choices
+4. Offer choices to the user about what direction to take.
+
+Supports multiple questions in one call, each with options. The user's answers are returned as arrays of labels.`,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"questions": map[string]any{
+					"type":        "array",
+					"description": "Questions to ask (1-4 questions per call)",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"question": map[string]any{
+								"type":        "string",
+								"description": "Complete question to ask the user",
+							},
+							"header": map[string]any{
+								"type":        "string",
+								"description": "Very short label for the question (max 30 chars)",
+							},
+							"options": map[string]any{
+								"type":        "array",
+								"description": "Available choices (2-4 options recommended)",
+								"items": map[string]any{
+									"type": "object",
+									"properties": map[string]any{
+										"label":       map[string]any{"type": "string", "description": "Display text (1-5 words, concise)"},
+										"description": map[string]any{"type": "string", "description": "Explanation of choice"},
+									},
+									"required": []string{"label"},
+								},
+							},
+							"multiple": map[string]any{
+								"type":        "boolean",
+								"description": "Allow selecting multiple choices. Default: false",
+								"default":     false,
+							},
+						},
+						"required": []string{"question", "options"},
+					},
+				},
+			},
+			"required": []string{"questions"},
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		var params struct {
+			Questions []struct {
+				Question string `json:"question"`
+				Header   string `json:"header"`
+				Options  []struct {
+					Label       string `json:"label"`
+					Description string `json:"description"`
+				} `json:"options"`
+				Multiple bool `json:"multiple"`
+			} `json:"questions"`
+		}
+		if err := json.Unmarshal(args, &params); err != nil {
+			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		}
+
+		if len(params.Questions) == 0 {
+			return &ToolResult{Success: false, Error: "no questions provided"}, nil
+		}
+
+		// Get the question service from the agent context
+		svc := ctx.QuestionService
+		if svc == nil {
+			return &ToolResult{Success: false, Error: "question service not available"}, nil
+		}
+
+		// Convert to QuestionPrompt
+		prompts := make([]QuestionPrompt, len(params.Questions))
+		for i, q := range params.Questions {
+			opts := make([]QuestionOption, len(q.Options))
+			for j, o := range q.Options {
+				opts[j] = QuestionOption{Label: o.Label, Description: o.Description}
+			}
+			prompts[i] = QuestionPrompt{
+				Question: q.Question,
+				Header:   q.Header,
+				Options:  opts,
+				Multiple: q.Multiple,
+				Custom:   true,
+			}
+		}
+
+		// Ask and wait for response
+		answers, err := svc.Ask(toolCtx, ctx.SessionID, prompts)
+		if err != nil {
+			return &ToolResult{Success: false, Error: fmt.Sprintf("question failed: %v", err)}, nil
+		}
+
+		// Format answers
+		result := "User answered:\n"
+		for i, prompt := range params.Questions {
+			if i < len(answers) {
+				result += fmt.Sprintf("- %s: %s\n", prompt.Question, formatAnswers(answers[i]))
+			}
+		}
+
+		return &ToolResult{Success: true, Data: result}, nil
+	})
+}
+
+func formatAnswers(answers []string) string {
+	if len(answers) == 0 {
+		return "(no answer)"
+	}
+	result := ""
+	for i, a := range answers {
+		if i > 0 {
+			result += ", "
+		}
+		result += a
+	}
+	return result
+}
+
 func joinPackages(pkgs []string) string {
 	result := ""
 	for i, p := range pkgs {

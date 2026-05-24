@@ -18,6 +18,9 @@ type AgentContext struct {
 	StartTime       time.Time
 	LastAccessTime  time.Time
 
+	// Question service for LLM-initiated questions
+	QuestionService *QuestionService
+
 	// Injected context for each turn
 	SandboxState    SandboxInfo
 	SessionSummary  string

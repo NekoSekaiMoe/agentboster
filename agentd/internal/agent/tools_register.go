@@ -47,4 +47,7 @@ func RegisterAllTools(
 
 	// === Notify user (1) ===
 	registerNotifyUser(registry, clawlessClient, agentCtx)
+
+	// === Ask question (1) ===
+	registerAskQuestion(registry, agentCtx)
 }

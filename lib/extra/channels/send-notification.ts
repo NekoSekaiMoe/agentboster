@@ -3,7 +3,6 @@ import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';
 import { getNotificationManager } from './notification-manager';
 import type {
-  L2Action,
   NotificationPayload,
 } from './notification-types';
 
@@ -35,7 +34,6 @@ export async function sendNotification(params: {
 
   const mgr = getNotificationManager();
 
-  // Use L2-specific send for decision notifications
   if (payload.type === 'decision') {
     const result = await mgr.sendL2Decision({
       taskId: payload.taskId,
@@ -87,4 +85,47 @@ export async function sendNotification(params: {
     channel: result.channel,
     error: result.error,
   };
+}
+
+/**
+ * Reactivate pending decisions when a user comes back online.
+ * Called when the bot detects a user message on any IM channel.
+ */
+export async function reactivatePendingDecisions(params: {
+  userId: string;
+  source: ChatSource;
+  pendingDecisions: Array<{
+    decisionId: string;
+    taskId: string;
+    command: string;
+    score: number;
+    reason: string;
+    sessionID?: string;
+  }>;
+}): Promise<void> {
+  const { userId, source, pendingDecisions } = params;
+
+  if (pendingDecisions.length === 0) return;
+
+  const prefs = await getNotificationPreferences(userId);
+  const preferredChannel = prefs?.preferredChannel ?? source.adapter;
+  const fallbackChannels = prefs?.fallbackChannels?.length
+    ? prefs.fallbackChannels
+    : [source.adapter];
+
+  const mgr = getNotificationManager();
+  await mgr.markUserOnline(userId);
+
+  await mgr.reactivatePendingDecisions(
+    pendingDecisions,
+    preferredChannel,
+    fallbackChannels,
+    source.threadId,
+    userId,
+  );
+
+  logger.info('Reactivated pending decisions', {
+    userId,
+    count: pendingDecisions.length,
+  });
 }

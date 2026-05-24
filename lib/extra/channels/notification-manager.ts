@@ -3,7 +3,6 @@ import { createLogger } from '@/lib/utils/logger';
 import type { NotificationChannel } from './notification-channel';
 import type {
   ChannelHealth,
-  L2Action,
   L2DecisionContext,
   NotificationPayload,
   NotificationSendResult,
@@ -14,13 +13,15 @@ const logger = createLogger('notification-manager');
 const RETRY_DELAYS = [1000, 2000, 4000, 8000, 16000];
 const FAILURE_THRESHOLD = 3;
 const DEDUP_TTL = 300;
-const L2_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes for L2 response
+const L2_TIMEOUT_MS = 3 * 60 * 1000;
+const ESCALATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 class NotificationManager {
   private channels = new Map<string, NotificationChannel>();
   private channelHealth = new Map<string, ChannelHealth>();
   private kv: ReturnType<typeof getKV> | null = null;
-  private l2Contexts = new Map<string, L2DecisionContext>(); // key = decisionId
+  private l2Contexts = new Map<string, L2DecisionContext>();
+  private escalationTimers = new Map<string, NodeJS.Timeout>();
 
   constructor() {
     this.kv = getKV();
@@ -105,9 +106,14 @@ class NotificationManager {
 
   removeL2Context(decisionId: string): void {
     this.l2Contexts.delete(decisionId);
+    // Clear any escalation timer
+    const timer = this.escalationTimers.get(decisionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.escalationTimers.delete(decisionId);
+    }
   }
 
-  // Check if a decision has been processed (dedup across IM channels)
   async isDecisionProcessed(decisionId: string): Promise<boolean> {
     if (!this.kv) return false;
     const key = `l2:decision:${decisionId}`;
@@ -118,10 +124,26 @@ class NotificationManager {
   async markDecisionProcessed(decisionId: string): Promise<void> {
     if (!this.kv) return;
     const key = `l2:decision:${decisionId}`;
-    await this.kv.set(key, '1', 3600); // 1 hour TTL
+    await this.kv.set(key, '1', 3600);
   }
 
-  // ── L2 Decision Send with Multi-Channel Fallback ───────────────────
+  // ── User Online Detection ───────────────────────────────────────────
+
+  async markUserOnline(userId: string): Promise<void> {
+    if (!this.kv) return;
+    await this.kv.set(`user:online:${userId}`, Date.now().toString(), 86400);
+  }
+
+  async isUserOnline(userId: string): Promise<boolean> {
+    if (!this.kv) return true; // assume online if no KV
+    const lastSeen = await this.kv.get(`user:online:${userId}`);
+    if (!lastSeen) return false;
+    const lastMs = Number.parseInt(lastSeen, 10);
+    // Consider online if seen within last 5 minutes
+    return Date.now() - lastMs < 5 * 60 * 1000;
+  }
+
+  // ── L2 Decision Send with Multi-Channel Fallback + Timeout ──────────
 
   async sendL2Decision(params: {
     taskId: string;
@@ -147,9 +169,9 @@ class NotificationManager {
       preferredChannel,
       fallbackChannels,
       targetChatId,
+      targetUserId,
     } = params;
 
-    // Store L2 context for this decision
     this.setL2Context(decisionId, {
       action: 'pass_once',
       taskId,
@@ -177,6 +199,8 @@ class NotificationManager {
       ...fallbackChannels.filter((c) => c !== preferredChannel),
     ];
 
+    let sentChannels: string[] = [];
+
     for (const channelType of channelOrder) {
       const health = this.channelHealth.get(channelType);
       const isLastChannel =
@@ -193,6 +217,16 @@ class NotificationManager {
 
       if (result.success) {
         this.updateHealth(channelType, true);
+        sentChannels.push(channelType);
+
+        // If user is online on this channel, no need to escalate
+        if (targetUserId) {
+          await this.markUserOnline(targetUserId);
+        }
+
+        // Set up escalation timer for this decision
+        this.setupEscalationTimer(decisionId, taskId, payload, channelOrder, sentChannels, targetChatId, targetUserId);
+
         return result;
       }
 
@@ -211,6 +245,159 @@ class NotificationManager {
     };
   }
 
+  // ── Escalation Timer: 3min → fallback IM, 5min → suspend ───────────
+
+  private setupEscalationTimer(
+    decisionId: string,
+    taskId: string,
+    payload: NotificationPayload,
+    channelOrder: string[],
+    alreadySentChannels: string[],
+    targetChatId: string,
+    targetUserId?: string,
+  ): void {
+    // Clear existing timer
+    const existing = this.escalationTimers.get(decisionId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(async () => {
+      // Check if decision was already resolved
+      const processed = await this.isDecisionProcessed(decisionId);
+      if (processed) return;
+
+      logger.warn('L2 decision escalation: no response after 3min', {
+        decisionId,
+        taskId,
+        sentChannels: alreadySentChannels,
+      });
+
+      // Try remaining channels not yet tried
+      const remainingChannels = channelOrder.filter(
+        (c) => !alreadySentChannels.includes(c),
+      );
+
+      for (const channelType of remainingChannels) {
+        const channel = this.channels.get(channelType);
+        if (!channel) continue;
+
+        const health = this.channelHealth.get(channelType);
+        if (health && !health.healthy) continue;
+
+        const result = await this.sendWithRetry(channel, targetChatId, payload);
+        if (result.success) {
+          logger.info('L2 decision escalated to fallback channel', {
+            decisionId,
+            channel: channelType,
+          });
+          alreadySentChannels.push(channelType);
+
+          // Set final 5-minute suspend timer
+          this.setupSuspendTimer(decisionId, taskId, alreadySentChannels, targetChatId, targetUserId);
+          return;
+        }
+      }
+
+      // All channels exhausted — set suspend timer
+      this.setupSuspendTimer(decisionId, taskId, alreadySentChannels, targetChatId, targetUserId);
+    }, L2_TIMEOUT_MS);
+
+    this.escalationTimers.set(decisionId, timer);
+  }
+
+  private setupSuspendTimer(
+    decisionId: string,
+    taskId: string,
+    sentChannels: string[],
+    targetChatId: string,
+    targetUserId?: string,
+  ): void {
+    const remainingMs = ESCALATION_TIMEOUT_MS - L2_TIMEOUT_MS;
+
+    const timer = setTimeout(async () => {
+      const processed = await this.isDecisionProcessed(decisionId);
+      if (processed) return;
+
+      logger.warn('L2 decision suspended: no response after 5min', {
+        decisionId,
+        taskId,
+        sentChannels,
+      });
+
+      // Mark decision as timed out in KV
+      if (this.kv) {
+        await this.kv.set(
+          `l2:decision:${decisionId}:status`,
+          'timeout',
+          3600,
+        );
+      }
+
+      // Send timeout notification to all channels that received the original
+      const timeoutPayload: NotificationPayload = {
+        type: 'decision',
+        taskId,
+        decisionId,
+        title: '⏰ 决策已超时',
+        body: '任务已暂停，等待您重新上线后处理。',
+        command: '',
+        score: 0,
+        reason: 'timeout',
+        options: [],
+        expiresAt: new Date(0).toISOString(),
+      };
+
+      for (const channelType of sentChannels) {
+        const channel = this.channels.get(channelType);
+        if (channel) {
+          await channel.send(targetChatId, timeoutPayload).catch(() => {});
+        }
+      }
+    }, remainingMs);
+
+    this.escalationTimers.set(`${decisionId}:suspend`, timer);
+  }
+
+  // ── Reactivate Pending Decisions (user came online) ─────────────────
+
+  async reactivatePendingDecisions(
+    pendingDecisions: Array<{
+      decisionId: string;
+      taskId: string;
+      command: string;
+      score: number;
+      reason: string;
+      sessionID?: string;
+    }>,
+    preferredChannel: string,
+    fallbackChannels: string[],
+    targetChatId: string,
+    targetUserId?: string,
+  ): Promise<void> {
+    for (const d of pendingDecisions) {
+      const processed = await this.isDecisionProcessed(d.decisionId);
+      if (processed) continue;
+
+      logger.info('Reactivating pending decision', {
+        decisionId: d.decisionId,
+        taskId: d.taskId,
+      });
+
+      await this.sendL2Decision({
+        taskId: d.taskId,
+        decisionId: d.decisionId,
+        title: '⚠️ 高风险操作需要您的授权（重新发送）',
+        body: d.command,
+        command: d.command,
+        score: d.score,
+        reason: d.reason,
+        preferredChannel,
+        fallbackChannels,
+        targetChatId,
+        targetUserId,
+      });
+    }
+  }
+
   // ── L2 Time Input Prompt ───────────────────────────────────────────
 
   async sendL2TimeInputPrompt(params: {
@@ -223,7 +410,6 @@ class NotificationManager {
   }): Promise<NotificationSendResult> {
     const { taskId, decisionId, action, command, channel, targetChatId } = params;
 
-    // Update context to awaiting time input
     const ctx = this.l2Contexts.get(decisionId);
     if (ctx) {
       ctx.awaitingTimeInput = true;

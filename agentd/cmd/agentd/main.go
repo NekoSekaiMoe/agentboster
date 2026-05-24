@@ -90,6 +90,12 @@ func main() {
 
 	l2Manager := l2_auth.NewL2AuthManager(nil, "default")
 	l2Manager.SetBus(bus)
+
+	// Decision queue for serializing L2 authorization requests
+	decisionQueue := l2_auth.NewDecisionQueue(bus)
+	l2Manager.SetDecisionQueue(decisionQueue)
+	defer decisionQueue.Stop()
+
 	l2CleanupStop := l2Manager.StartCleanupWithInterval(30 * time.Second)
 	defer l2CleanupStop()
 
