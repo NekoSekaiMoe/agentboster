@@ -107,6 +107,10 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		v1.GET("/decisions", s.handleListDecisions)
 		v1.POST("/decisions/:id/resolve", s.handleDecisionResolve)
 		v1.POST("/decisions/:id/reject", s.handleDecisionReject)
+
+		// Session runtime control
+		v1.GET("/sessions/status", s.handleSessionStatus)
+		v1.POST("/sessions/:id/abort", s.handleAbortSession)
 	}
 }
 
@@ -506,21 +510,61 @@ func (s *Server) handleDecisionResolve(c *gin.Context) {
 
 	var body struct {
 		Answers [][]string `json:"answers"`
+		Reply   string      `json:"reply"` // "once" | "always" | "reject"
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
 
-	svc := s.agentMgr.GetQuestionService()
-	if svc == nil {
+	dq := s.l2Mgr.GetDecisionQueue()
+	if dq == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "service not available"})
 		return
 	}
 
-	if err := svc.Reply(decisionID, body.Answers); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
-		return
+	// Determine action from reply type or answers
+	action := body.Reply
+	if action == "" {
+		if len(body.Answers) > 0 && len(body.Answers[0]) > 0 {
+			action = body.Answers[0][0]
+		} else {
+			action = "once"
+		}
+	}
+
+	switch action {
+	case "reject":
+		if err := dq.Deny(decisionID, "user"); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+	case "always":
+		// Resolve and cache the authorization for future similar decisions
+		if err := dq.Resolve(decisionID, "allow", "user"); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+		// Also record in L2 auth cache for the pattern
+		d, _ := dq.GetByDecisionID(decisionID)
+		if d != nil && d.Command != "" {
+			s.l2Mgr.Authorize(d.Command, "always")
+		}
+	default: // "once" or any answer
+		if len(body.Answers) > 0 {
+			svc := s.agentMgr.GetQuestionService()
+			if svc != nil {
+				if err := svc.Reply(decisionID, body.Answers); err != nil {
+					c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+					return
+				}
+			}
+		} else {
+			if err := dq.Resolve(decisionID, action, "user"); err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+				return
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -563,4 +607,35 @@ func (s *Server) cancelTask(taskID string) {
 	}
 	s.l2Mgr.RemovePendingTask(taskID)
 	s.bus.Publish(eventbus.EventTaskRejected, task)
+}
+
+// ── Session Runtime Control ──────────────────────────────────────────
+
+func (s *Server) handleSessionStatus(c *gin.Context) {
+	sessionID := c.Query("session_id")
+
+	if sessionID != "" {
+		status, ok := s.agentMgr.GetSessionStatus(sessionID)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "session not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": status})
+		return
+	}
+
+	statuses := s.agentMgr.GetAllSessionStatuses()
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": statuses})
+}
+
+func (s *Server) handleAbortSession(c *gin.Context) {
+	sessionID := c.Param("id")
+
+	ok := s.agentMgr.AbortSession(sessionID)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "session not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }

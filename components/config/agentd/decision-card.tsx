@@ -122,16 +122,25 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
       if (timedOut) { toast.error('决策已超时，Agent 已暂停'); return; }
       setLoading(true);
       try {
-        const resp = await ofetch('/api/agentd/v1/l2-confirm', {
+        // Map action to reply semantics
+        let reply = "once";
+        if (action === "pass_until" || action === "reject_until") {
+          reply = "always";
+        } else if (action.startsWith("reject")) {
+          reply = "reject";
+        }
+
+        const resp = await ofetch('/api/agentd/v1/decisions/' + decision.decision_id + '/resolve', {
           method: 'POST',
-          body: { task_id: decision.task_id, decision_id: decision.decision_id, action, timeInput, chat_id: chatId, user_id: userId },
+          body: {
+            reply,
+            answers: [[action]],
+            time_input: timeInput,
+            chat_id: chatId,
+            user_id: userId,
+          },
         });
         if (resp.success) {
-          if (resp.data?.awaitingTimeInput) {
-            setAwaitingTimeInput(true);
-            setPendingAction(action);
-            return;
-          }
           setResolved(true);
           setResultMessage(resp.data?.message || 'Done');
           onResolved?.(decision.decision_id, action);

@@ -276,6 +276,83 @@ func (m *Manager) GetSession(sessionID string) (*AgentContext, bool) {
 	return ctx, ok
 }
 
+// AbortSession cancels a running session by its task ID.
+// Returns true if the session was found and aborted.
+func (m *Manager) AbortSession(sessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ctx, ok := m.sessions[sessionID]
+	if !ok {
+		return false
+	}
+
+	// Destroy sandbox to stop any running processes
+	if ctx.SandboxID != "" {
+		if err := m.sbManager.DestroySandbox(ctx.SandboxID); err != nil {
+			slog.Warn("failed to destroy sandbox on abort",
+				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
+		}
+	}
+
+	delete(m.sessions, sessionID)
+
+	if m.bus != nil {
+		m.bus.Publish(eventbus.EventTaskCancelled, map[string]any{
+			"session_id": sessionID,
+		})
+	}
+
+	slog.Info("session aborted", "session_id", sessionID)
+	return true
+}
+
+// SessionStatus holds the runtime status of a session.
+type SessionStatus struct {
+	SessionID  string `json:"session_id"`
+	AgentID    string `json:"agent_id"`
+	Status     string `json:"status"` // idle, running, waiting_user, completed, aborted
+	SandboxID  string `json:"sandbox_id,omitempty"`
+	HasPending bool   `json:"has_pending_decision"`
+}
+
+// GetSessionStatus returns the status of a single session.
+func (m *Manager) GetSessionStatus(sessionID string) (*SessionStatus, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	ctx, ok := m.sessions[sessionID]
+	if !ok {
+		return nil, false
+	}
+
+	status := &SessionStatus{
+		SessionID: ctx.SessionID,
+		AgentID:   ctx.AgentID,
+		SandboxID: ctx.SandboxID,
+		Status:    "running",
+	}
+
+	return status, true
+}
+
+// GetAllSessionStatuses returns the status of all active sessions.
+func (m *Manager) GetAllSessionStatuses() []SessionStatus {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]SessionStatus, 0, len(m.sessions))
+	for _, ctx := range m.sessions {
+		result = append(result, SessionStatus{
+			SessionID: ctx.SessionID,
+			AgentID:   ctx.AgentID,
+			SandboxID: ctx.SandboxID,
+			Status:    "running",
+		})
+	}
+	return result
+}
+
 // RunAgent executes the agent loop for a session with the given user message.
 func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (string, error) {
 	agentCtx, ok := m.GetSession(sessionID)
