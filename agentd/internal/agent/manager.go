@@ -12,6 +12,7 @@ import (
 	"github.com/clawless/agentd/internal/eventbus"
 	"github.com/clawless/agentd/internal/sandbox"
 	"github.com/clawless/agentd/internal/security/l1_scorer"
+	"github.com/clawless/agentd/internal/security/l2_auth"
 	"github.com/clawless/agentd/internal/session"
 )
 
@@ -68,13 +69,17 @@ func (m *Manager) QuestionService(sessionID string) *QuestionService {
 	return nil
 }
 
-// SetBus sets the event bus and creates the shared question service.
+// SetBus sets the event bus.
 func (m *Manager) SetBus(bus *eventbus.Bus) {
 	m.bus = bus
-	m.questionSvc = NewQuestionService(bus, m.clawless)
 }
 
-// QuestionService returns the shared question service.
+// SetDecisionQueue sets the decision queue and creates the question service.
+func (m *Manager) SetDecisionQueue(dq *l2_auth.DecisionQueue) {
+	m.questionSvc = NewQuestionService(dq, m.bus, m.clawless)
+}
+
+// GetQuestionService returns the shared question service.
 func (m *Manager) GetQuestionService() *QuestionService {
 	return m.questionSvc
 }

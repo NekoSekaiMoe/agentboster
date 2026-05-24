@@ -126,6 +126,7 @@ func main() {
 	// === Agent Manager ===
 	agentMgr := agent.NewManager(sbManager, clawlessClient, l1Scorer, cfg)
 	agentMgr.SetBus(bus)
+	agentMgr.SetDecisionQueue(decisionQueue)
 
 	// === Dispatcher ===
 	dispatcher := worker.NewDispatcher(bus, config.NumCPU(), gk, sbManager, clawlessClient, agentMgr)

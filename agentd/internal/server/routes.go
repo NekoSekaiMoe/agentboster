@@ -103,13 +103,10 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		// L2 authorization confirm (called by ClawLess when user clicks a button)
 		v1.POST("/l2-confirm", s.handleL2Confirm)
 
-		// Decision queue query (for /decisions command)
+		// Decision/question queue (unified)
 		v1.GET("/decisions", s.handleListDecisions)
-
-		// Question API (for ask_question tool)
-		v1.GET("/questions", s.handleListQuestions)
-		v1.POST("/questions/:id/reply", s.handleQuestionReply)
-		v1.POST("/questions/:id/reject", s.handleQuestionReject)
+		v1.POST("/decisions/:id/resolve", s.handleDecisionResolve)
+		v1.POST("/decisions/:id/reject", s.handleDecisionReject)
 	}
 }
 
@@ -492,7 +489,7 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 	}
 }
 
-// ── Decision Queue Query ─────────────────────────────────────────────
+// ── Unified Decision/Question Queue ──────────────────────────────────
 
 func (s *Server) handleListDecisions(c *gin.Context) {
 	dq := s.l2Mgr.GetDecisionQueue()
@@ -502,6 +499,48 @@ func (s *Server) handleListDecisions(c *gin.Context) {
 	}
 	decisions := dq.ListPending()
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": decisions})
+}
+
+func (s *Server) handleDecisionResolve(c *gin.Context) {
+	decisionID := c.Param("id")
+
+	var body struct {
+		Answers [][]string `json:"answers"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	svc := s.agentMgr.GetQuestionService()
+	if svc == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "service not available"})
+		return
+	}
+
+	if err := svc.Reply(decisionID, body.Answers); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (s *Server) handleDecisionReject(c *gin.Context) {
+	decisionID := c.Param("id")
+
+	svc := s.agentMgr.GetQuestionService()
+	if svc == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "service not available"})
+		return
+	}
+
+	if err := svc.Reject(decisionID); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -524,58 +563,4 @@ func (s *Server) cancelTask(taskID string) {
 	}
 	s.l2Mgr.RemovePendingTask(taskID)
 	s.bus.Publish(eventbus.EventTaskRejected, task)
-}
-
-// ── Question API (for ask_question tool) ─────────────────────────────
-
-func (s *Server) handleListQuestions(c *gin.Context) {
-	svc := s.agentMgr.GetQuestionService()
-	if svc == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": []any{}})
-		return
-	}
-	questions := svc.ListPending()
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": questions})
-}
-
-func (s *Server) handleQuestionReply(c *gin.Context) {
-	questionID := c.Param("id")
-
-	var body struct {
-		Answers [][]string `json:"answers"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	svc := s.agentMgr.GetQuestionService()
-	if svc == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "question service not available"})
-		return
-	}
-
-	if err := svc.Reply(questionID, body.Answers); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-func (s *Server) handleQuestionReject(c *gin.Context) {
-	questionID := c.Param("id")
-
-	svc := s.agentMgr.GetQuestionService()
-	if svc == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "question service not available"})
-		return
-	}
-
-	if err := svc.Reject(questionID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true})
 }

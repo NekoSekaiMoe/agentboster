@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
-	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/eventbus"
+	"github.com/clawless/agentd/internal/security/l2_auth"
 )
 
 // QuestionOption represents a single choice in a question.
@@ -26,99 +25,72 @@ type QuestionPrompt struct {
 	Custom    bool             `json:"custom"`
 }
 
-// QuestionRequest is a full question request (may contain multiple prompts).
-type QuestionRequest struct {
-	ID        string           `json:"id"`
-	SessionID string           `json:"session_id"`
-	Prompts   []QuestionPrompt `json:"prompts"`
-	Answers   [][]string       `json:"answers,omitempty"`
-	Status    string           `json:"status"`
-	CreatedAt time.Time        `json:"created_at"`
-	ResolvedAt time.Time       `json:"resolved_at,omitempty"`
-	Channel   string           `json:"channel,omitempty"`
-}
-
-const (
-	QuestionStatusPending  = "pending"
-	QuestionStatusSent     = "sent"
-	QuestionStatusAnswered = "answered"
-	QuestionStatusRejected = "rejected"
-	QuestionStatusTimeout  = "timeout"
-)
-
-const (
-	QuestionTimeout = 3 * time.Minute
-)
-
-// pendingEntry holds a question awaiting user response.
-type pendingEntry struct {
-	request  QuestionRequest
-	resolve  chan [][]string
-	reject   chan struct{}
-}
-
-// QuestionService manages LLM-initiated questions to the user.
+// Question is a convenience wrapper around DecisionQueue for LLM-initiated questions.
+// It translates QuestionPrompt → Decision and delegates to DecisionQueue.Ask().
 type QuestionService struct {
-	mu        sync.RWMutex
-	pending   map[string]*pendingEntry
-	bus       *eventbus.Bus
-	clawless  *clawless.Client
-	nextID    int64
+	queue    *l2_auth.DecisionQueue
+	bus      *eventbus.Bus
+	clawless *clawless.Client
 }
 
-// NewQuestionService creates a new question service.
-func NewQuestionService(bus *eventbus.Bus, client *clawless.Client) *QuestionService {
+// NewQuestionService creates a new question service backed by the decision queue.
+func NewQuestionService(queue *l2_auth.DecisionQueue, bus *eventbus.Bus, client *clawless.Client) *QuestionService {
 	return &QuestionService{
-		pending:  make(map[string]*pendingEntry),
+		queue:    queue,
 		bus:      bus,
 		clawless: client,
-		nextID:   1,
 	}
 }
 
-// Ask publishes a question to the user and waits for the response.
-// Returns the answers (one per prompt) or an error if rejected/timed out.
+// Ask publishes a question to the user and blocks until they respond.
 func (qs *QuestionService) Ask(ctx context.Context, sessionID string, prompts []QuestionPrompt) ([][]string, error) {
-	qs.mu.Lock()
-	id := fmt.Sprintf("que_%d", qs.nextID)
-	qs.nextID++
-
-	entry := &pendingEntry{
-		request: QuestionRequest{
-			ID:        id,
-			SessionID: sessionID,
-			Prompts:   prompts,
-			Status:    QuestionStatusSent,
-			CreatedAt: time.Now(),
-		},
-		resolve: make(chan [][]string, 1),
-		reject:  make(chan struct{}, 1),
+	// Build prompts for the decision
+	dqPrompts := make([]l2_auth.Prompt, len(prompts))
+	for i, p := range prompts {
+		opts := make([]string, len(p.Options))
+		for j, o := range p.Options {
+			opts[j] = o.Label
+		}
+		dqPrompts[i] = l2_auth.Prompt{
+			Question: p.Question,
+			Header:   p.Header,
+			Options:  opts,
+			Multiple: p.Multiple,
+		}
 	}
-	qs.pending[id] = entry
-	qs.mu.Unlock()
 
-	slog.Info("question asked", "id", id, "session_id", sessionID, "prompts", len(prompts))
+	// Use the first prompt's question as the main question
+	question := ""
+	if len(prompts) > 0 {
+		question = prompts[0].Question
+	}
 
-	// Publish event via EventBus
+	decision := &l2_auth.Decision{
+		Type:      l2_auth.DecisionTypeQuestion,
+		SessionID: sessionID,
+		Question:  question,
+		Prompts:   dqPrompts,
+	}
+
+	slog.Info("question asked", "session_id", sessionID, "prompts", len(prompts))
+
+	// Publish event so the frontend can display the question
 	if qs.bus != nil {
-		qs.bus.Publish(eventbus.EventL2AuthRequired, map[string]any{
-			"type":       "question",
-			"question_id": id,
+		qs.bus.Publish("question.asked", map[string]any{
 			"session_id": sessionID,
 			"prompts":    prompts,
 		})
 	}
 
-	// Also notify via Clawless API
+	// Notify via Clawless API
 	if qs.clawless != nil {
 		notification := clawless.Notification{
 			Type:    "question",
 			Title:   "Agent 向您提问",
 			Message: formatQuestionMessage(prompts),
 			Metadata: map[string]any{
-				"question_id": id,
-				"session_id":  sessionID,
-				"prompts":     prompts,
+				"session_id": sessionID,
+				"prompts":    prompts,
 			},
 		}
 		if err := qs.clawless.CreateNotification(ctx, &notification); err != nil {
@@ -126,89 +98,38 @@ func (qs *QuestionService) Ask(ctx context.Context, sessionID string, prompts []
 		}
 	}
 
-	// Wait for response or timeout
-	select {
-	case answers := <-entry.resolve:
-		qs.mu.Lock()
-		entry.request.Status = QuestionStatusAnswered
-		entry.request.Answers = answers
-		entry.request.ResolvedAt = time.Now()
-		delete(qs.pending, id)
-		qs.mu.Unlock()
-		return answers, nil
-
-	case <-entry.reject:
-		qs.mu.Lock()
-		entry.request.Status = QuestionStatusRejected
-		delete(qs.pending, id)
-		qs.mu.Unlock()
-		return nil, fmt.Errorf("question rejected by user")
-
-	case <-time.After(QuestionTimeout):
-		qs.mu.Lock()
-		entry.request.Status = QuestionStatusTimeout
-		delete(qs.pending, id)
-		qs.mu.Unlock()
-		return nil, fmt.Errorf("question timed out after %v", QuestionTimeout)
-
-	case <-ctx.Done():
-		qs.mu.Lock()
-		delete(qs.pending, id)
-		qs.mu.Unlock()
-		return nil, ctx.Err()
+	// Block via DecisionQueue
+	answers, err := qs.queue.Ask(ctx, decision)
+	if err != nil {
+		return nil, err
 	}
+
+	slog.Info("question answered", "session_id", sessionID)
+	return answers, nil
 }
 
 // Reply resolves a pending question with user answers.
-func (qs *QuestionService) Reply(questionID string, answers [][]string) error {
-	qs.mu.Lock()
-	entry, ok := qs.pending[questionID]
-	qs.mu.Unlock()
-
-	if !ok {
-		return fmt.Errorf("question %s not found or already resolved", questionID)
-	}
-
-	entry.resolve <- answers
-	return nil
+func (qs *QuestionService) Reply(decisionID string, answers [][]string) error {
+	return qs.queue.ResolveWithAnswers(decisionID, answers)
 }
 
 // Reject dismisses a pending question.
-func (qs *QuestionService) Reject(questionID string) error {
-	qs.mu.Lock()
-	entry, ok := qs.pending[questionID]
-	qs.mu.Unlock()
-
-	if !ok {
-		return fmt.Errorf("question %s not found or already resolved", questionID)
-	}
-
-	entry.reject <- struct{}{}
-	return nil
+func (qs *QuestionService) Reject(decisionID string) error {
+	return qs.queue.Reject(decisionID)
 }
 
-// ListPending returns all pending questions.
-func (qs *QuestionService) ListPending() []QuestionRequest {
-	qs.mu.RLock()
-	defer qs.mu.RUnlock()
-
-	result := make([]QuestionRequest, 0, len(qs.pending))
-	for _, entry := range qs.pending {
-		result = append(result, entry.request)
-	}
-	return result
+// ListPending returns all pending decisions (both L2 and questions).
+func (qs *QuestionService) ListPending() []*l2_auth.Decision {
+	return qs.queue.ListPending()
 }
 
-// GetQuestion returns a pending question by ID.
-func (qs *QuestionService) GetQuestion(questionID string) (*QuestionRequest, bool) {
-	qs.mu.RLock()
-	defer qs.mu.RUnlock()
-
-	entry, ok := qs.pending[questionID]
-	if !ok {
+// GetQuestion returns a pending decision by ID.
+func (qs *QuestionService) GetQuestion(decisionID string) (*l2_auth.Decision, bool) {
+	d, err := qs.queue.GetByDecisionID(decisionID)
+	if err != nil {
 		return nil, false
 	}
-	return &entry.request, true
+	return d, true
 }
 
 func formatQuestionMessage(prompts []QuestionPrompt) string {
@@ -226,4 +147,22 @@ func formatQuestionMessage(prompts []QuestionPrompt) string {
 		msg += "\n"
 	}
 	return msg
+}
+
+// Ensure DecisionQueue implements the Askable interface.
+var _ Askable = (*l2_auth.DecisionQueue)(nil)
+
+// Askable is the interface for blocking question-ask systems.
+type Askable interface {
+	Ask(ctx context.Context, decision *l2_auth.Decision) ([][]string, error)
+	Resolve(decisionID, action, resolvedBy string) error
+	ResolveWithAnswers(decisionID string, answers [][]string) error
+	Deny(decisionID, resolvedBy string) error
+	Reject(decisionID string) error
+	ListPending() []*l2_auth.Decision
+	GetByDecisionID(id string) (*l2_auth.Decision, error)
+	Count(status string) int
+	AddChannel(decisionID, channel string)
+	GetPendingTaskIDs() map[string]bool
+	HasPendingDecision(taskID string) bool
 }

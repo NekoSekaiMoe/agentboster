@@ -1,6 +1,7 @@
 package l2_auth
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -14,26 +15,50 @@ const (
 	DecisionStatusResolved = "resolved"
 	DecisionStatusExpired  = "expired"
 	DecisionStatusTimeout  = "timeout"
+	DecisionStatusRejected = "rejected"
 
 	DefaultTimeout       = 3 * time.Minute
 	MaxConcurrentPerTask = 3
 )
 
-// Decision represents a single L2 authorization request awaiting user action.
+// DecisionType distinguishes between L2 security authorization and
+// general LLM-initiated questions.
+type DecisionType string
+
+const (
+	DecisionTypeL2Auth   DecisionType = "l2_auth"
+	DecisionTypeQuestion DecisionType = "question"
+)
+
+// Decision represents a single request awaiting user action.
+// It is used for both L2 security authorization and LLM-initiated questions.
 type Decision struct {
-	DecisionID string    `json:"decision_id"`
-	TaskID     string    `json:"task_id"`
-	SessionID  string    `json:"session_id"`
-	Command    string    `json:"command"`
-	Score      float64   `json:"score"`
-	Reason     string    `json:"reason"`
-	Status     string    `json:"status"`
-	Channels   []string  `json:"channels"`
-	CreatedAt  time.Time `json:"created_at"`
-	TimeoutAt  time.Time `json:"timeout_at"`
-	ResolvedAt time.Time `json:"resolved_at,omitempty"`
-	ResolvedBy string    `json:"resolved_by,omitempty"`
-	Action     string    `json:"action,omitempty"`
+	DecisionID string       `json:"decision_id"`
+	Type       DecisionType `json:"type"`
+	TaskID     string       `json:"task_id"`
+	SessionID  string       `json:"session_id"`
+	Command    string       `json:"command,omitempty"`
+	Score      float64      `json:"score,omitempty"`
+	Reason     string       `json:"reason,omitempty"`
+	Question   string       `json:"question,omitempty"`
+	Options    []string     `json:"options,omitempty"`
+	Prompts    []Prompt     `json:"prompts,omitempty"`
+	Status     string       `json:"status"`
+	Channels   []string     `json:"channels"`
+	CreatedAt  time.Time    `json:"created_at"`
+	TimeoutAt  time.Time    `json:"timeout_at"`
+	ResolvedAt time.Time    `json:"resolved_at,omitempty"`
+	ResolvedBy string       `json:"resolved_by,omitempty"`
+	Action     string       `json:"action,omitempty"`
+	Answers    [][]string   `json:"answers,omitempty"`
+}
+
+// Prompt is a single question prompt within a decision.
+type Prompt struct {
+	Question  string   `json:"question"`
+	Header    string   `json:"header,omitempty"`
+	Options   []string `json:"options,omitempty"`
+	Multiple  bool     `json:"multiple,omitempty"`
 }
 
 // Clone returns a copy of the decision.
@@ -41,26 +66,49 @@ func (d *Decision) Clone() *Decision {
 	clone := *d
 	clone.Channels = make([]string, len(d.Channels))
 	copy(clone.Channels, d.Channels)
+	clone.Options = make([]string, len(d.Options))
+	copy(clone.Options, d.Options)
+	clone.Prompts = make([]Prompt, len(d.Prompts))
+	copy(clone.Prompts, d.Prompts)
+	if d.Answers != nil {
+		clone.Answers = make([][]string, len(d.Answers))
+		for i, a := range d.Answers {
+			clone.Answers[i] = make([]string, len(a))
+			copy(clone.Answers[i], a)
+		}
+	}
 	return &clone
 }
 
-// DecisionQueue serializes L2 authorization requests.
-// Decisions from different tasks are serialized; same-task decisions can be concurrent (up to 3).
+// pendingEntry wraps a Decision with channels for blocking wait.
+type pendingEntry struct {
+	decision *Decision
+	resolve  chan [][]string
+	reject   chan struct{}
+}
+
+// DecisionQueue serializes requests awaiting user action.
+// It handles both L2 security authorization and LLM-initiated questions.
+//
+// Decisions from different tasks are serialized; same-task decisions
+// can be concurrent up to MaxConcurrentPerTask.
 type DecisionQueue struct {
 	mu            sync.RWMutex
 	decisions     map[string]*Decision
 	pendingOrder  []string
+	entries       map[string]*pendingEntry // for blocking wait
 	bus           *eventbus.Bus
 	timeout       time.Duration
 	checkInterval time.Duration
 	stopCh        chan struct{}
 }
 
-// NewDecisionQueue creates a new decision queue with a background timeout monitor.
+// NewDecisionQueue creates a new decision queue with background timeout monitor.
 func NewDecisionQueue(bus *eventbus.Bus) *DecisionQueue {
 	dq := &DecisionQueue{
 		decisions:     make(map[string]*Decision),
 		pendingOrder:  make([]string, 0),
+		entries:       make(map[string]*pendingEntry),
 		bus:           bus,
 		timeout:       DefaultTimeout,
 		checkInterval: 5 * time.Second,
@@ -75,22 +123,14 @@ func (dq *DecisionQueue) Stop() {
 	close(dq.stopCh)
 }
 
-// Enqueue adds a decision to the queue. If a serial slot is available it is
-// immediately promoted to "sent" and true is returned.
+// Enqueue adds a decision to the queue without blocking.
+// Returns true if the decision was immediately promoted to "sent".
+// Use this for L2 authorization decisions.
 func (dq *DecisionQueue) Enqueue(decision *Decision) bool {
 	dq.mu.Lock()
 	defer dq.mu.Unlock()
 
-	if decision.DecisionID == "" {
-		decision.DecisionID = fmt.Sprintf("dec_%d", time.Now().UnixNano())
-	}
-	if decision.CreatedAt.IsZero() {
-		decision.CreatedAt = time.Now()
-	}
-	if decision.TimeoutAt.IsZero() {
-		decision.TimeoutAt = decision.CreatedAt.Add(dq.timeout)
-	}
-
+	dq.initDecisionLocked(decision)
 	dq.decisions[decision.DecisionID] = decision.Clone()
 	dq.pendingOrder = append(dq.pendingOrder, decision.DecisionID)
 
@@ -98,23 +138,82 @@ func (dq *DecisionQueue) Enqueue(decision *Decision) bool {
 		dq.promoteLocked(decision.DecisionID)
 		return true
 	}
-
 	return false
 }
 
-// GetByDecisionID looks up a decision by ID (returns a clone).
-func (dq *DecisionQueue) GetByDecisionID(id string) (*Decision, error) {
-	dq.mu.RLock()
-	defer dq.mu.RUnlock()
+// Ask adds a decision to the queue and blocks until the user responds,
+// the context is cancelled, or the timeout expires.
+// Use this for LLM-initiated questions (ask_question tool).
+func (dq *DecisionQueue) Ask(ctx context.Context, decision *Decision) ([][]string, error) {
+	dq.mu.Lock()
 
-	d, ok := dq.decisions[id]
-	if !ok {
-		return nil, fmt.Errorf("decision %s not found", id)
+	dq.initDecisionLocked(decision)
+	dq.decisions[decision.DecisionID] = decision.Clone()
+	dq.pendingOrder = append(dq.pendingOrder, decision.DecisionID)
+
+	entry := &pendingEntry{
+		decision: decision.Clone(),
+		resolve:  make(chan [][]string, 1),
+		reject:   make(chan struct{}, 1),
 	}
-	return d.Clone(), nil
+	dq.entries[decision.DecisionID] = entry
+
+	promoted := dq.canPromoteLocked(decision.TaskID)
+	if promoted {
+		dq.promoteLocked(decision.DecisionID)
+	}
+
+	dq.mu.Unlock()
+
+	// If not immediately promoted, wait until promoted or timeout
+	if !promoted {
+		promoted := dq.waitForPromotion(ctx, decision.DecisionID)
+		if !promoted {
+			return nil, fmt.Errorf("decision %s timed out waiting in queue", decision.DecisionID)
+		}
+	}
+
+	// Wait for user response, cancellation, or timeout
+	select {
+	case answers := <-entry.resolve:
+		dq.mu.Lock()
+		if d, ok := dq.decisions[decision.DecisionID]; ok {
+			d.Status = DecisionStatusResolved
+			d.ResolvedAt = time.Now()
+			d.Answers = answers
+		}
+		dq.advanceQueueLocked()
+		dq.mu.Unlock()
+		return answers, nil
+
+	case <-entry.reject:
+		dq.mu.Lock()
+		if d, ok := dq.decisions[decision.DecisionID]; ok {
+			d.Status = DecisionStatusRejected
+			d.ResolvedAt = time.Now()
+		}
+		dq.advanceQueueLocked()
+		dq.mu.Unlock()
+		return nil, fmt.Errorf("decision %s rejected by user", decision.DecisionID)
+
+	case <-ctx.Done():
+		dq.cleanupEntry(decision.DecisionID)
+		return nil, ctx.Err()
+
+	case <-time.After(dq.timeout):
+		dq.mu.Lock()
+		if d, ok := dq.decisions[decision.DecisionID]; ok {
+			d.Status = DecisionStatusTimeout
+			d.ResolvedAt = time.Now()
+			d.Action = "timeout"
+		}
+		dq.advanceQueueLocked()
+		dq.mu.Unlock()
+		return nil, fmt.Errorf("decision %s timed out after %v", decision.DecisionID, dq.timeout)
+	}
 }
 
-// Resolve marks a decision as resolved and advances the queue.
+// Resolve marks a decision as resolved with the given action.
 func (dq *DecisionQueue) Resolve(decisionID, action, resolvedBy string) error {
 	dq.mu.Lock()
 	defer dq.mu.Unlock()
@@ -130,10 +229,15 @@ func (dq *DecisionQueue) Resolve(decisionID, action, resolvedBy string) error {
 	d.ResolvedBy = resolvedBy
 	d.Action = action
 
-	// Advance queue: promote next eligible decisions
+	// Unblock any waiting Ask() caller
+	if entry, ok := dq.entries[decisionID]; ok {
+		// For L2 decisions, answers are derived from the action
+		entry.resolve <- [][]string{{action}}
+		delete(dq.entries, decisionID)
+	}
+
 	dq.advanceQueueLocked()
 
-	// Publish event
 	if dq.bus != nil {
 		dq.bus.Publish(eventbus.EventL2AuthApproved, map[string]any{
 			"decision_id": decisionID,
@@ -145,7 +249,32 @@ func (dq *DecisionQueue) Resolve(decisionID, action, resolvedBy string) error {
 	return nil
 }
 
-// Deny marks a decision as denied (rejected) and advances the queue.
+// ResolveWithAnswers resolves a decision with explicit answers (for ask_question).
+func (dq *DecisionQueue) ResolveWithAnswers(decisionID string, answers [][]string) error {
+	dq.mu.Lock()
+	defer dq.mu.Unlock()
+
+	d, ok := dq.decisions[decisionID]
+	if !ok {
+		return fmt.Errorf("decision %s not found", decisionID)
+	}
+
+	now := time.Now()
+	d.Status = DecisionStatusResolved
+	d.ResolvedAt = now
+	d.Answers = answers
+	d.Action = "answered"
+
+	if entry, ok := dq.entries[decisionID]; ok {
+		entry.resolve <- answers
+		delete(dq.entries, decisionID)
+	}
+
+	dq.advanceQueueLocked()
+	return nil
+}
+
+// Deny marks a decision as denied.
 func (dq *DecisionQueue) Deny(decisionID, resolvedBy string) error {
 	dq.mu.Lock()
 	defer dq.mu.Unlock()
@@ -161,6 +290,11 @@ func (dq *DecisionQueue) Deny(decisionID, resolvedBy string) error {
 	d.ResolvedBy = resolvedBy
 	d.Action = "deny"
 
+	if entry, ok := dq.entries[decisionID]; ok {
+		entry.resolve <- [][]string{{"deny"}}
+		delete(dq.entries, decisionID)
+	}
+
 	dq.advanceQueueLocked()
 
 	if dq.bus != nil {
@@ -170,6 +304,28 @@ func (dq *DecisionQueue) Deny(decisionID, resolvedBy string) error {
 		})
 	}
 
+	return nil
+}
+
+// Reject dismisses a pending question (user dismissed without answering).
+func (dq *DecisionQueue) Reject(decisionID string) error {
+	dq.mu.Lock()
+	defer dq.mu.Unlock()
+
+	entry, ok := dq.entries[decisionID]
+	if !ok {
+		return fmt.Errorf("decision %s not found", decisionID)
+	}
+
+	entry.reject <- struct{}{}
+	delete(dq.entries, decisionID)
+
+	if d, ok := dq.decisions[decisionID]; ok {
+		d.Status = DecisionStatusRejected
+		d.ResolvedAt = time.Now()
+	}
+
+	dq.advanceQueueLocked()
 	return nil
 }
 
@@ -187,6 +343,7 @@ func (dq *DecisionQueue) Expire(decisionID string) {
 	d.ResolvedAt = time.Now()
 	d.Action = "timeout"
 
+	dq.cleanupEntryLocked(decisionID)
 	dq.advanceQueueLocked()
 }
 
@@ -206,7 +363,7 @@ func (dq *DecisionQueue) ListPending() []*Decision {
 	return result
 }
 
-// GetSent returns all currently "sent" (awaiting user response) decisions.
+// GetSent returns all currently "sent" decisions.
 func (dq *DecisionQueue) GetSent() []*Decision {
 	dq.mu.RLock()
 	defer dq.mu.RUnlock()
@@ -220,7 +377,19 @@ func (dq *DecisionQueue) GetSent() []*Decision {
 	return result
 }
 
-// Count returns the number of decisions matching the given status (empty = all).
+// GetByDecisionID looks up a decision by ID.
+func (dq *DecisionQueue) GetByDecisionID(id string) (*Decision, error) {
+	dq.mu.RLock()
+	defer dq.mu.RUnlock()
+
+	d, ok := dq.decisions[id]
+	if !ok {
+		return nil, fmt.Errorf("decision %s not found", id)
+	}
+	return d.Clone(), nil
+}
+
+// Count returns the number of decisions matching the given status.
 func (dq *DecisionQueue) Count(status string) int {
 	dq.mu.RLock()
 	defer dq.mu.RUnlock()
@@ -246,10 +415,9 @@ func (dq *DecisionQueue) AddChannel(decisionID, channel string) {
 	if !ok {
 		return
 	}
-
 	for _, c := range d.Channels {
 		if c == channel {
-			return // already recorded
+			return
 		}
 	}
 	d.Channels = append(d.Channels, channel)
@@ -284,6 +452,18 @@ func (dq *DecisionQueue) HasPendingDecision(taskID string) bool {
 
 // ── Internal ────────────────────────────────────────────────────────
 
+func (dq *DecisionQueue) initDecisionLocked(d *Decision) {
+	if d.DecisionID == "" {
+		d.DecisionID = fmt.Sprintf("dec_%d", time.Now().UnixNano())
+	}
+	if d.CreatedAt.IsZero() {
+		d.CreatedAt = time.Now()
+	}
+	if d.TimeoutAt.IsZero() {
+		d.TimeoutAt = d.CreatedAt.Add(dq.timeout)
+	}
+}
+
 func (dq *DecisionQueue) canPromoteLocked(taskID string) bool {
 	sentCount := 0
 	taskSentCount := 0
@@ -298,19 +478,13 @@ func (dq *DecisionQueue) canPromoteLocked(taskID string) bool {
 		}
 	}
 
-	// If no decisions are sent at all, we can always promote
 	if sentCount == 0 {
 		return true
 	}
-
-	// Same task: allow concurrent up to MaxConcurrentPerTask
 	if taskSentCount > 0 && taskSentCount < MaxConcurrentPerTask {
 		return true
 	}
-
-	// Different task: only allow if there are no other sent decisions from different tasks
 	if taskSentCount == 0 {
-		// Check if all sent decisions are from the same task
 		for _, d := range dq.decisions {
 			if d.Status == DecisionStatusSent && d.TaskID != taskID {
 				return false
@@ -318,7 +492,6 @@ func (dq *DecisionQueue) canPromoteLocked(taskID string) bool {
 		}
 		return true
 	}
-
 	return false
 }
 
@@ -336,6 +509,46 @@ func (dq *DecisionQueue) advanceQueueLocked() {
 		}
 		if dq.canPromoteLocked(d.TaskID) {
 			dq.promoteLocked(id)
+			// Notify any blocked Ask() caller that this decision was promoted
+			if entry, ok := dq.entries[id]; ok {
+				_ = entry // entry is now promoted, Ask() will proceed
+			}
+		}
+	}
+}
+
+func (dq *DecisionQueue) cleanupEntry(decisionID string) {
+	dq.mu.Lock()
+	defer dq.mu.Unlock()
+	dq.cleanupEntryLocked(decisionID)
+}
+
+func (dq *DecisionQueue) cleanupEntryLocked(decisionID string) {
+	delete(dq.entries, decisionID)
+	if d, ok := dq.decisions[decisionID]; ok {
+		d.Status = DecisionStatusTimeout
+		d.ResolvedAt = time.Now()
+		d.Action = "timeout"
+	}
+}
+
+func (dq *DecisionQueue) waitForPromotion(ctx context.Context, decisionID string) bool {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(dq.timeout):
+			return false
+		case <-ticker.C:
+			dq.mu.RLock()
+			d, ok := dq.decisions[decisionID]
+			dq.mu.RUnlock()
+			if ok && d.Status == DecisionStatusSent {
+				return true
+			}
 		}
 	}
 }
@@ -367,6 +580,12 @@ func (dq *DecisionQueue) checkTimeouts() {
 			d.ResolvedAt = now
 			d.Action = "timeout"
 			expired = append(expired, id)
+
+			// Unblock any waiting Ask() caller
+			if entry, ok := dq.entries[id]; ok {
+				entry.resolve <- [][]string{{"timeout"}}
+				delete(dq.entries, id)
+			}
 		}
 	}
 
