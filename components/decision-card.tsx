@@ -1,7 +1,7 @@
 'use client';
 
 import { ofetch } from 'ofetch';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -19,13 +19,38 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 // ── Types (mirror Go Decision struct) ──
 
-type DecisionType = 'l2_auth' | 'question';
+type DecisionType = 'l2_auth' | 'question' | 'conflict' | 'branch';
 
 interface Prompt {
   question: string;
   header?: string;
   options?: string[];
   multiple?: boolean;
+}
+
+interface ConflictFile {
+  path: string;
+  ours?: string;
+  theirs?: string;
+  current?: string;
+}
+
+interface ConflictData {
+  title?: string;
+  files: ConflictFile[];
+}
+
+interface BranchPlan {
+  label: string;
+  description?: string;
+  details?: string;
+}
+
+interface BranchData {
+  title?: string;
+  plan_a: BranchPlan;
+  plan_b: BranchPlan;
+  allow_custom: boolean;
 }
 
 interface Decision {
@@ -39,6 +64,8 @@ interface Decision {
   question?: string;
   prompts?: Prompt[];
   options?: string[];
+  conflict?: ConflictData;
+  branch?: BranchData;
   status: string;
   created_at: string;
   timeout_at: string;
@@ -50,7 +77,6 @@ interface DecisionCardProps {
   decision: Decision;
   chatId: string;
   userId?: string;
-  /** Callback when decision is resolved */
   onResolved?: (decisionId: string, action: string) => void;
 }
 
@@ -68,8 +94,6 @@ const L2_ACTIONS: Record<string, { label: string; description: string; color: st
 // ── Main component ──
 
 export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionCardProps) {
-  const isL2 = decision.type === 'l2_auth';
-
   // L2 state
   const [awaitingTimeInput, setAwaitingTimeInput] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -82,6 +106,18 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
   const [customAnswers, setCustomAnswers] = useState<string[]>(
     () => (decision.prompts ?? []).map(() => ''),
   );
+
+  // Conflict state: per-file resolution choice
+  const [conflictResolutions, setConflictResolutions] = useState<string[]>(
+    () => (decision.conflict?.files ?? []).map(() => ''),
+  );
+  const [conflictCustom, setConflictCustom] = useState<string[]>(
+    () => (decision.conflict?.files ?? []).map(() => ''),
+  );
+
+  // Branch state
+  const [branchChoice, setBranchChoice] = useState<string>('');
+  const [branchCustom, setBranchCustom] = useState('');
 
   // Common state
   const [loading, setLoading] = useState(false);
@@ -122,7 +158,6 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
       if (timedOut) { toast.error('决策已超时，Agent 已暂停'); return; }
       setLoading(true);
       try {
-        // Map action to reply semantics
         let reply = "once";
         if (action === "pass_until" || action === "reject_until") {
           reply = "always";
@@ -184,6 +219,46 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
     finally { setLoading(false); }
   }, [selectedOptions, customAnswers, decision.decision_id, onResolved, timedOut]);
 
+  const submitConflictResolutions = useCallback(async () => {
+    if (timedOut) { toast.error('冲突解决已超时'); return; }
+    const hasEmpty = conflictResolutions.some((r, i) => !r && !conflictCustom[i]?.trim());
+    if (hasEmpty) { toast.error('请为所有冲突文件选择解决方式'); return; }
+    setLoading(true);
+    try {
+      const answers = conflictResolutions.map((choice, i) => {
+        const custom = conflictCustom[i]?.trim();
+        return custom ? [choice, custom] : [choice];
+      });
+      await ofetch(`/api/agentd/v1/decisions/${decision.decision_id}/resolve`, {
+        method: 'POST',
+        body: { answers },
+      });
+      setResolved(true);
+      setResultMessage('✓ 冲突已解决');
+      onResolved?.(decision.decision_id, 'resolved');
+      toast.success('冲突已解决');
+    } catch { toast.error('提交失败'); }
+    finally { setLoading(false); }
+  }, [conflictResolutions, conflictCustom, decision.decision_id, onResolved, timedOut]);
+
+  const submitBranchChoice = useCallback(async () => {
+    if (timedOut) { toast.error('分支决策已超时'); return; }
+    if (!branchChoice) { toast.error('请选择方案'); return; }
+    setLoading(true);
+    try {
+      const answer = branchChoice === 'custom' ? `custom:${branchCustom}` : branchChoice;
+      await ofetch(`/api/agentd/v1/decisions/${decision.decision_id}/resolve`, {
+        method: 'POST',
+        body: { answers: [[answer]] },
+      });
+      setResolved(true);
+      setResultMessage(`✓ 已选择：${branchChoice === 'custom' ? '自定义方案' : branchChoice}`);
+      onResolved?.(decision.decision_id, branchChoice);
+      toast.success('方案已选择');
+    } catch { toast.error('提交失败'); }
+    finally { setLoading(false); }
+  }, [branchChoice, branchCustom, decision.decision_id, onResolved, timedOut]);
+
   // ── Resolved state ──
 
   if (resolved) {
@@ -202,16 +277,18 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
     return (
       <Card className="border-red-500/40 bg-red-50/30">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base text-red-700">⏰ {isL2 ? '决策' : '问题'}已超时</CardTitle>
+          <CardTitle className="text-base text-red-700">⏰ 决策已超时</CardTitle>
           <CardDescription className="text-xs">
-            {isL2 && <div>命令：<code className="bg-muted px-1 rounded">{decision.command}</code></div>}
-            {!isL2 && decision.question && <div>{decision.question}</div>}
+            {decision.type === 'l2_auth' && decision.command && (
+              <div>命令：<code className="bg-muted px-1 rounded">{decision.command}</code></div>
+            )}
+            {decision.type === 'question' && decision.question && <div>{decision.question}</div>}
+            {decision.type === 'conflict' && <div>冲突文件：{decision.conflict?.files.length ?? 0} 个</div>}
+            {decision.type === 'branch' && <div>任务分支决策</div>}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-red-600">
-            Agent 已暂停。{isL2 ? '任务状态已设为 waiting_user。' : '您可以稍后重新发送指令。'}
-          </p>
+          <p className="text-sm text-red-600">Agent 已暂停。您可以稍后重新发送指令。</p>
         </CardContent>
       </Card>
     );
@@ -219,9 +296,23 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
 
   // ── Card border style ──
 
-  const borderColor = isL2
+  const borderColor = decision.type === 'l2_auth'
     ? (isUrgent ? 'border-red-500/50 bg-red-50/20' : 'border-orange-500/30')
-    : (isUrgent ? 'border-amber-500/50 bg-amber-50/20' : 'border-blue-500/30');
+    : decision.type === 'conflict'
+      ? (isUrgent ? 'border-red-500/50 bg-red-50/20' : 'border-purple-500/30')
+      : decision.type === 'branch'
+        ? (isUrgent ? 'border-amber-500/50 bg-amber-50/20' : 'border-cyan-500/30')
+        : (isUrgent ? 'border-amber-500/50 bg-amber-50/20' : 'border-blue-500/30');
+
+  const titleIcon = decision.type === 'l2_auth' ? '⚠️'
+    : decision.type === 'conflict' ? '🔀'
+    : decision.type === 'branch' ? '🔄'
+    : '💬';
+
+  const titleText = decision.type === 'l2_auth' ? '高风险操作需要您的授权'
+    : decision.type === 'conflict' ? '冲突解决'
+    : decision.type === 'branch' ? '任务分支决策'
+    : 'Agent 向您提问';
 
   // ── Render ──
 
@@ -229,9 +320,7 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
     <Card className={borderColor}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">
-            {isL2 ? '⚠️ 高风险操作需要您的授权' : '💬 Agent 向您提问'}
-          </CardTitle>
+          <CardTitle className="text-base">{titleIcon} {titleText}</CardTitle>
           <span className={`text-xs font-mono px-2 py-0.5 rounded ${
             isUrgent ? 'bg-red-100 text-red-700 animate-pulse' : 'bg-muted text-muted-foreground'
           }`}>
@@ -239,8 +328,7 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
           </span>
         </div>
         <CardDescription className="text-xs space-y-1">
-          {/* L2 context */}
-          {isL2 && decision.command && (
+          {decision.type === 'l2_auth' && decision.command && (
             <>
               <div>任务：{decision.command}</div>
               <div>命令：<code className="bg-muted px-1 rounded">{decision.command}</code></div>
@@ -248,14 +336,22 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
               {decision.reason && <div>原因：{decision.reason}</div>}
             </>
           )}
-          {/* Question context */}
-          {!isL2 && decision.question && <div>{decision.question}</div>}
+          {decision.type === 'question' && decision.question && <div>{decision.question}</div>}
+          {decision.type === 'conflict' && decision.conflict && (
+            <div>{decision.conflict.title ?? `${decision.conflict.files.length} 个文件有冲突`}</div>
+          )}
+          {decision.type === 'branch' && decision.branch && (
+            <div>{decision.branch.title ?? '请选择执行方案'}</div>
+          )}
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {/* ── L2: time input (pass_until / reject_until) ── */}
-        {isL2 && awaitingTimeInput && (
+        {/* ═══════════════════════════════════════════════════════════════
+            L2 AUTH
+            ═══════════════════════════════════════════════════════════════ */}
+
+        {decision.type === 'l2_auth' && awaitingTimeInput && (
           <TimeInputForm
             countdown={countdown}
             timeValue={timeValue}
@@ -268,8 +364,7 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
           />
         )}
 
-        {/* ── L2: 4 action buttons ── */}
-        {isL2 && !awaitingTimeInput && (
+        {decision.type === 'l2_auth' && !awaitingTimeInput && (
           <div className="grid grid-cols-2 gap-2">
             {decision.options?.map((action) => {
               const cfg = L2_ACTIONS[action] || { label: action, description: '', color: 'gray' };
@@ -288,8 +383,11 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
           </div>
         )}
 
-        {/* ── Question: dynamic prompts ── */}
-        {!isL2 && (decision.prompts ?? []).map((prompt, pIdx) => (
+        {/* ═══════════════════════════════════════════════════════════════
+            QUESTION
+            ═══════════════════════════════════════════════════════════════ */}
+
+        {decision.type === 'question' && (decision.prompts ?? []).map((prompt, pIdx) => (
           <div key={pIdx} className="space-y-2">
             <div className="flex items-start gap-2">
               <span className="text-xs text-muted-foreground mt-0.5">{pIdx + 1}.</span>
@@ -352,8 +450,7 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
           </div>
         ))}
 
-        {/* ── Question: submit ── */}
-        {!isL2 && (decision.prompts?.length ?? 0) > 0 && (
+        {decision.type === 'question' && (decision.prompts?.length ?? 0) > 0 && (
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" size="sm" disabled={isDisabled}
               onClick={async () => {
@@ -370,12 +467,145 @@ export function DecisionCard({ decision, chatId, userId, onResolved }: DecisionC
             </Button>
           </div>
         )}
+
+        {/* ═══════════════════════════════════════════════════════════════
+            CONFLICT RESOLUTION
+            ═══════════════════════════════════════════════════════════════ */}
+
+        {decision.type === 'conflict' && decision.conflict && (
+          <div className="space-y-3">
+            {decision.conflict.files.map((file, fIdx) => (
+              <div key={fIdx} className="rounded-md border border-purple-200/50 bg-purple-50/30 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{file.path}</code>
+                </div>
+                {(file.ours || file.theirs) && (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {file.ours && (
+                      <div className="rounded border border-green-200/50 bg-green-50/30 p-2">
+                        <p className="font-medium text-green-700 mb-1">Ours</p>
+                        <pre className="whitespace-pre-wrap text-muted-foreground">{file.ours}</pre>
+                      </div>
+                    )}
+                    {file.theirs && (
+                      <div className="rounded border border-blue-200/50 bg-blue-50/30 p-2">
+                        <p className="font-medium text-blue-700 mb-1">Theirs</p>
+                        <pre className="whitespace-pre-wrap text-muted-foreground">{file.theirs}</pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <RadioGroup
+                  value={conflictResolutions[fIdx] || ''}
+                  onValueChange={(val) => {
+                    setConflictResolutions(prev => {
+                      const next = [...prev]; next[fIdx] = val; return next;
+                    });
+                  }}
+                >
+                  <div className="flex flex-wrap gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <RadioGroupItem value="ours" id={`cf-${fIdx}-ours`} disabled={isDisabled} />
+                      <Label htmlFor={`cf-${fIdx}-ours`} className="text-xs cursor-pointer text-green-700">ours</Label>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <RadioGroupItem value="theirs" id={`cf-${fIdx}-theirs`} disabled={isDisabled} />
+                      <Label htmlFor={`cf-${fIdx}-theirs`} className="text-xs cursor-pointer text-blue-700">theirs</Label>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <RadioGroupItem value="manual" id={`cf-${fIdx}-manual`} disabled={isDisabled} />
+                      <Label htmlFor={`cf-${fIdx}-manual`} className="text-xs cursor-pointer text-amber-700">manual</Label>
+                    </div>
+                  </div>
+                </RadioGroup>
+                {conflictResolutions[fIdx] === 'manual' && (
+                  <Input
+                    value={conflictCustom[fIdx] || ''}
+                    onChange={(e) => {
+                      setConflictCustom(prev => {
+                        const next = [...prev]; next[fIdx] = e.target.value; return next;
+                      });
+                    }}
+                    placeholder="输入手动解决内容..."
+                    className="text-xs" disabled={isDisabled}
+                  />
+                )}
+              </div>
+            ))}
+            <div className="flex justify-end pt-1">
+              <Button size="sm" onClick={submitConflictResolutions} disabled={isDisabled}>
+                提交冲突解决方案
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════
+            TASK BRANCH DECISION
+            ═══════════════════════════════════════════════════════════════ */}
+
+        {decision.type === 'branch' && decision.branch && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Plan A */}
+              <PlanCard
+                label={decision.branch.plan_a.label}
+                description={decision.branch.plan_a.description}
+                details={decision.branch.plan_a.details}
+                selected={branchChoice === 'plan_a'}
+                onSelect={() => setBranchChoice('plan_a')}
+                color="green"
+                disabled={isDisabled}
+                radioId="branch-plan-a"
+              />
+              {/* Plan B */}
+              <PlanCard
+                label={decision.branch.plan_b.label}
+                description={decision.branch.plan_b.description}
+                details={decision.branch.plan_b.details}
+                selected={branchChoice === 'plan_b'}
+                onSelect={() => setBranchChoice('plan_b')}
+                color="blue"
+                disabled={isDisabled}
+                radioId="branch-plan-b"
+              />
+            </div>
+            {decision.branch.allow_custom && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <RadioGroup
+                    value={branchChoice}
+                    onValueChange={setBranchChoice}
+                  >
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="custom" id="branch-custom" disabled={isDisabled} />
+                      <Label htmlFor="branch-custom" className="text-sm cursor-pointer">自定义方案</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+                {branchChoice === 'custom' && (
+                  <Input
+                    value={branchCustom}
+                    onChange={(e) => setBranchCustom(e.target.value)}
+                    placeholder="输入自定义方案..."
+                    className="text-sm" disabled={isDisabled}
+                  />
+                )}
+              </div>
+            )}
+            <div className="flex justify-end pt-1">
+              <Button size="sm" onClick={submitBranchChoice} disabled={isDisabled}>
+                确认选择
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-// ── Shared sub-component: time input form ──
+// ── Sub-component: time input form ──
 
 function TimeInputForm({ countdown, timeValue, onTimeChange, onSubmit, onAlways, on1Hour, on1Day, disabled }: {
   countdown: string; timeValue: string; onTimeChange: (v: string) => void;
@@ -401,6 +631,36 @@ function TimeInputForm({ countdown, timeValue, onTimeChange, onSubmit, onAlways,
         <Button size="sm" variant="outline" className="text-xs" disabled={disabled} onClick={on1Hour}>1小时</Button>
         <Button size="sm" variant="outline" className="text-xs" disabled={disabled} onClick={on1Day}>1天</Button>
       </div>
+    </div>
+  );
+}
+
+// ── Sub-component: branch plan card ──
+
+function PlanCard({ label, description, details, selected, onSelect, color, disabled, radioId }: {
+  label: string; description?: string; details?: string;
+  selected: boolean; onSelect: () => void;
+  color: 'green' | 'blue'; disabled: boolean; radioId: string;
+}) {
+  const borderClass = color === 'green'
+    ? (selected ? 'border-green-500 bg-green-50/30' : 'border-green-200/50 hover:border-green-300')
+    : (selected ? 'border-blue-500 bg-blue-50/30' : 'border-blue-200/50 hover:border-blue-300');
+
+  return (
+    <div
+      className={`rounded-md border p-3 cursor-pointer transition-colors ${borderClass}`}
+      onClick={() => !disabled && onSelect()}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <RadioGroup value={selected ? 'selected' : ''} onValueChange={() => !disabled && onSelect()}>
+          <RadioGroupItem value="selected" id={radioId} disabled={disabled} />
+        </RadioGroup>
+        <Label htmlFor={radioId} className="text-sm font-semibold cursor-pointer">{label}</Label>
+      </div>
+      {description && <p className="text-xs text-muted-foreground ml-6">{description}</p>}
+      {details && (
+        <pre className="text-xs text-muted-foreground mt-2 ml-6 whitespace-pre-wrap">{details}</pre>
+      )}
     </div>
   );
 }

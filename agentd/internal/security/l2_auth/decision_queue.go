@@ -26,31 +26,65 @@ const (
 type DecisionType string
 
 const (
-	DecisionTypeL2Auth   DecisionType = "l2_auth"
-	DecisionTypeQuestion DecisionType = "question"
+	DecisionTypeL2Auth    DecisionType = "l2_auth"
+	DecisionTypeQuestion  DecisionType = "question"
+	DecisionTypeConflict  DecisionType = "conflict"
+	DecisionTypeBranch    DecisionType = "branch"
 )
 
+// ConflictFile represents a single file with a merge conflict.
+type ConflictFile struct {
+	Path    string `json:"path"`
+	Ours    string `json:"ours,omitempty"`
+	Theirs  string `json:"theirs,omitempty"`
+	Current string `json:"current,omitempty"`
+}
+
+// BranchPlan represents one option in a task branch decision.
+type BranchPlan struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Details     string `json:"details,omitempty"`
+}
+
 // Decision represents a single request awaiting user action.
-// It is used for both L2 security authorization and LLM-initiated questions.
+// It is used for L2 security authorization, LLM-initiated questions,
+// conflict resolution, and task branch decisions.
 type Decision struct {
-	DecisionID string       `json:"decision_id"`
-	Type       DecisionType `json:"type"`
-	TaskID     string       `json:"task_id"`
-	SessionID  string       `json:"session_id"`
-	Command    string       `json:"command,omitempty"`
-	Score      float64      `json:"score,omitempty"`
-	Reason     string       `json:"reason,omitempty"`
-	Question   string       `json:"question,omitempty"`
-	Options    []string     `json:"options,omitempty"`
-	Prompts    []Prompt     `json:"prompts,omitempty"`
-	Status     string       `json:"status"`
-	Channels   []string     `json:"channels"`
-	CreatedAt  time.Time    `json:"created_at"`
-	TimeoutAt  time.Time    `json:"timeout_at"`
-	ResolvedAt time.Time    `json:"resolved_at,omitempty"`
-	ResolvedBy string       `json:"resolved_by,omitempty"`
-	Action     string       `json:"action,omitempty"`
-	Answers    [][]string   `json:"answers,omitempty"`
+	DecisionID  string         `json:"decision_id"`
+	Type        DecisionType   `json:"type"`
+	TaskID      string         `json:"task_id"`
+	SessionID   string         `json:"session_id"`
+	Command     string         `json:"command,omitempty"`
+	Score       float64        `json:"score,omitempty"`
+	Reason      string         `json:"reason,omitempty"`
+	Question    string         `json:"question,omitempty"`
+	Options     []string       `json:"options,omitempty"`
+	Prompts     []Prompt       `json:"prompts,omitempty"`
+	Conflict    *ConflictData  `json:"conflict,omitempty"`
+	Branch      *BranchData    `json:"branch,omitempty"`
+	Status      string         `json:"status"`
+	Channels    []string       `json:"channels"`
+	CreatedAt   time.Time      `json:"created_at"`
+	TimeoutAt   time.Time      `json:"timeout_at"`
+	ResolvedAt  time.Time      `json:"resolved_at,omitempty"`
+	ResolvedBy  string         `json:"resolved_by,omitempty"`
+	Action      string         `json:"action,omitempty"`
+	Answers     [][]string     `json:"answers,omitempty"`
+}
+
+// ConflictData holds conflict resolution context.
+type ConflictData struct {
+	Title  string         `json:"title,omitempty"`
+	Files  []ConflictFile `json:"files"`
+}
+
+// BranchData holds task branch decision context.
+type BranchData struct {
+	Title    string       `json:"title,omitempty"`
+	PlanA    BranchPlan   `json:"plan_a"`
+	PlanB    BranchPlan   `json:"plan_b"`
+	AllowCustom bool     `json:"allow_custom"`
 }
 
 // Prompt is a single question prompt within a decision.
@@ -75,6 +109,21 @@ func (d *Decision) Clone() *Decision {
 		for i, a := range d.Answers {
 			clone.Answers[i] = make([]string, len(a))
 			copy(clone.Answers[i], a)
+		}
+	}
+	if d.Conflict != nil {
+		clone.Conflict = &ConflictData{
+			Title: d.Conflict.Title,
+			Files: make([]ConflictFile, len(d.Conflict.Files)),
+		}
+		copy(clone.Conflict.Files, d.Conflict.Files)
+	}
+	if d.Branch != nil {
+		clone.Branch = &BranchData{
+			Title:       d.Branch.Title,
+			PlanA:       d.Branch.PlanA,
+			PlanB:       d.Branch.PlanB,
+			AllowCustom: d.Branch.AllowCustom,
 		}
 	}
 	return &clone

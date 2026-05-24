@@ -298,6 +298,22 @@ export function Chat({
         return;
       }
 
+      // Extract token usage from token-usage and step-finish events
+      if (dataPart.data.type === 'token-usage' || dataPart.data.type === 'step-finish') {
+        const d = dataPart.data as any;
+        const usage = d.usage ?? d;
+        const extractNum = (v: unknown): number => {
+          if (typeof v === 'number' && Number.isFinite(v)) return v;
+          if (v && typeof v === 'object' && typeof (v as any).total === 'number') return (v as any).total;
+          return 0;
+        };
+        setTokenUsage({
+          input: extractNum(usage.inputTokens),
+          output: extractNum(usage.outputTokens),
+          total: extractNum(usage.totalTokens),
+        });
+      }
+
       const eventKey = JSON.stringify(dataPart.data);
       if (lastWorkflowEventKeyRef.current === eventKey) {
         return;
