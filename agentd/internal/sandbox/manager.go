@@ -24,14 +24,17 @@ type SandboxProvider interface {
 
 // SandboxSpec defines how to create a sandbox.
 type SandboxSpec struct {
-	Type        string
-	AgentID     string
-	Persistent  bool
-	Image       string
-	RootFSPath  string
-	Mounts      []Mount
-	Environment map[string]string
-	WorkDir     string
+	Type           string
+	AgentID        string
+	Persistent     bool
+	Image          string
+	RootFSPath     string
+	RootFSUrl      string
+	InitCommands   []string
+	TmpfsEvalHint  int64 // bytes, AI-evaluated; 0 = use daemon default
+	Mounts         []Mount
+	Environment    map[string]string
+	WorkDir        string
 }
 
 // Mount defines a bind mount.
@@ -76,9 +79,9 @@ func NewManager(cfg *config.Config) *Manager {
 	}
 
 	// Register all built-in providers
-	m.providers["tmpfs"] = NewTmpfsProvider(cfg.Sandbox.TmpfsSize, cfg.Sandbox.ChrootBase)
-	m.providers["chroot"] = NewChrootProvider(cfg.Sandbox.ChrootBase)
-	m.providers["docker"] = NewDockerProvider(cfg.Sandbox.DockerSocket)
+	m.providers["tmpfs"] = NewTmpfsProvider(cfg.Sandbox.ChrootBase)
+	m.providers["chroot"] = NewChrootProvider(cfg.Sandbox.ChrootBase, cfg.Sandbox.RootfsCacheDir, cfg.Sandbox.LocalRootfsPath, cfg.Sandbox.DefaultRootfsURL, cfg.Sandbox.InitCommands, cfg.Sandbox.ChrootPresets, cfg.Sandbox.CacheMaxAgeDays)
+	m.providers["docker"] = NewDockerProvider(cfg.Sandbox.DockerSocket, cfg.Sandbox.AllowedImages)
 
 	return m
 }

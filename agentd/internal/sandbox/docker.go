@@ -18,19 +18,21 @@ import (
 // DockerProvider implements SandboxProvider using Docker containers.
 // Used for high-risk commands requiring strong isolation.
 type DockerProvider struct {
-	mu        sync.RWMutex
-	socket    string // docker socket path
-	sandboxes map[string]*Sandbox
+	mu             sync.RWMutex
+	socket         string   // docker socket path
+	allowedImages  []string // image whitelist
+	sandboxes      map[string]*Sandbox
 }
 
 // NewDockerProvider creates a new Docker sandbox provider.
-func NewDockerProvider(socket string) *DockerProvider {
+func NewDockerProvider(socket string, allowedImages []string) *DockerProvider {
 	if socket == "" {
 		socket = "unix:///var/run/docker.sock"
 	}
 	return &DockerProvider{
-		socket:    socket,
-		sandboxes: make(map[string]*Sandbox),
+		socket:        socket,
+		allowedImages: allowedImages,
+		sandboxes:     make(map[string]*Sandbox),
 	}
 }
 
@@ -43,6 +45,20 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	image := spec.Image
 	if image == "" {
 		image = "ubuntu:22.04"
+	}
+
+	// Validate image against whitelist
+	if len(p.allowedImages) > 0 {
+		allowed := false
+		for _, a := range p.allowedImages {
+			if a == image {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, fmt.Errorf("docker image %q not in allowed list: %v", image, p.allowedImages)
+		}
 	}
 
 	// Build docker run command

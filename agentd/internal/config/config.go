@@ -53,11 +53,23 @@ type SecurityConfig struct {
 	} `mapstructure:"l1_threshold"`
 }
 
+type ChrootPreset struct {
+	Name string `mapstructure:"name"`
+	Path string `mapstructure:"path"`
+}
+
 type SandboxConfig struct {
-	Default     string `mapstructure:"default"`
-	ChrootBase  string `mapstructure:"chroot_base"`
-	TmpfsSize   string `mapstructure:"tmpfs_size"`
-	DockerSocket string `mapstructure:"docker_socket"`
+	Default         string         `mapstructure:"default"`
+	ChrootBase      string         `mapstructure:"chroot_base"`
+	TmpfsSize       string         `mapstructure:"tmpfs_size"`
+	DockerSocket    string         `mapstructure:"docker_socket"`
+	RootfsCacheDir  string         `mapstructure:"rootfs_cache_dir"`
+	LocalRootfsPath string         `mapstructure:"local_rootfs_path"`
+	DefaultRootfsURL string        `mapstructure:"default_rootfs_url"`
+	InitCommands    []string       `mapstructure:"init_commands"`
+	ChrootPresets   []ChrootPreset `mapstructure:"presets"`
+	AllowedImages   []string       `mapstructure:"allowed_images"`
+	CacheMaxAgeDays int            `mapstructure:"cache_max_age_days"`
 }
 
 type CacheConfig struct {
@@ -93,10 +105,31 @@ var defaults = Config{
 		L1Model:    "tinyllama:latest",
 	},
 	Sandbox: SandboxConfig{
-		Default:      "tmpfs",
-		ChrootBase:   "/var/lib/agentd/chroots",
-		TmpfsSize:    "512m",
-		DockerSocket: "unix:///var/run/docker.sock",
+		Default:          "tmpfs",
+		ChrootBase:       "/var/lib/agentd/chroots",
+		TmpfsSize:        "512m",
+		DockerSocket:     "unix:///var/run/docker.sock",
+		RootfsCacheDir:   "/var/lib/agentd/images",
+		LocalRootfsPath:  "/var/lib/agentd/images/alpine-minirootfs.tar.gz",
+		DefaultRootfsURL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.0-x86_64.tar.gz",
+		InitCommands: []string{
+			"apk add --no-cache git curl bash",
+			"mkdir -p /workspace",
+			"echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
+		},
+		ChrootPresets: []ChrootPreset{
+			{Name: "alpine-dev", Path: "/var/lib/agentd/images/alpine-dev-rootfs"},
+			{Name: "ubuntu-22.04", Path: "/var/lib/agentd/images/ubuntu-22.04-rootfs"},
+		},
+		AllowedImages: []string{
+			"ubuntu:22.04",
+			"ubuntu:24.04",
+			"alpine:latest",
+			"golang:1.22",
+			"node:20",
+			"python:3.12",
+		},
+		CacheMaxAgeDays: 30,
 	},
 	Cache: CacheConfig{
 		Path:             "/tmp/agentd",
@@ -141,10 +174,16 @@ func Load(path string) (*Config, error) {
 		},
 	})
 	v.SetDefault("sandbox", map[string]any{
-		"default":       defaults.Sandbox.Default,
-		"chroot_base":   defaults.Sandbox.ChrootBase,
-		"tmpfs_size":    defaults.Sandbox.TmpfsSize,
-		"docker_socket": defaults.Sandbox.DockerSocket,
+		"default":            defaults.Sandbox.Default,
+		"chroot_base":        defaults.Sandbox.ChrootBase,
+		"tmpfs_size":         defaults.Sandbox.TmpfsSize,
+		"docker_socket":      defaults.Sandbox.DockerSocket,
+		"rootfs_cache_dir":   defaults.Sandbox.RootfsCacheDir,
+		"local_rootfs_path":  defaults.Sandbox.LocalRootfsPath,
+		"default_rootfs_url": defaults.Sandbox.DefaultRootfsURL,
+		"init_commands":      defaults.Sandbox.InitCommands,
+		"allowed_images":     defaults.Sandbox.AllowedImages,
+		"cache_max_age_days": defaults.Sandbox.CacheMaxAgeDays,
 	})
 	v.SetDefault("cache", map[string]any{
 		"path":               defaults.Cache.Path,

@@ -42,6 +42,28 @@ default = "tmpfs"
 chroot_base = "/var/lib/agentd/chroots"
 tmpfs_size = "512m"
 docker_socket = "unix:///var/run/docker.sock"
+rootfs_cache_dir = "/var/lib/agentd/images"
+local_rootfs_path = "/var/lib/agentd/images/alpine-minirootfs.tar.gz"
+default_rootfs_url = "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.0-x86_64.tar.gz"
+cache_max_age_days = 30
+
+[sandbox.chroot.init]
+commands = [
+    "apk add --no-cache git curl bash",
+    "mkdir -p /workspace",
+    "echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
+]
+
+[[sandbox.chroot.presets]]
+name = "alpine-dev"
+path = "/var/lib/agentd/images/alpine-dev-rootfs"
+
+[[sandbox.chroot.presets]]
+name = "ubuntu-22.04"
+path = "/var/lib/agentd/images/ubuntu-22.04-rootfs"
+
+[sandbox.docker]
+allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "golang:1.22", "node:20", "python:3.12"]
 
 [cache]
 path = "/tmp/agentd"
