@@ -117,12 +117,16 @@ export const agentdNodes = pgTable('agentd_nodes', {
   port: integer('port').notNull(),
   sandboxes: jsonb('sandboxes').$type<string[]>().notNull(),
   version: text('version').notNull(),
-  status: text('status', { enum: ['online', 'offline'] }).default('online').notNull(),
+  status: text('status', { enum: ['online', 'offline'] })
+    .default('online')
+    .notNull(),
   cpuUsage: integer('cpu_usage'),
   memAvail: integer('mem_avail'),
   diskAvail: integer('disk_avail'),
   activeTasks: integer('active_tasks').default(0),
   activeSandboxes: integer('active_sandboxes').default(0),
   lastHeartbeat: timestamp('last_heartbeat', { withTimezone: true }),
-  registeredAt: timestamp('registered_at', { withTimezone: true }).defaultNow().notNull(),
+  registeredAt: timestamp('registered_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });

@@ -8,14 +8,16 @@ export async function GET() {
 
     const nodes = await db.select().from(agentdNodes);
 
-    const result = nodes.map((n: typeof nodes[0]) => ({
+    const result = nodes.map((n: (typeof nodes)[0]) => ({
       node_id: n.nodeID,
       ip: n.ip,
       port: n.port,
       sandboxes: n.sandboxes,
       version: n.version,
       status:
-        n.status === 'online' && n.lastHeartbeat && n.lastHeartbeat > twoMinutesAgo
+        n.status === 'online' &&
+        n.lastHeartbeat &&
+        n.lastHeartbeat > twoMinutesAgo
           ? 'online'
           : 'offline',
       cpu_usage: n.cpuUsage != null ? n.cpuUsage / 100 : null,

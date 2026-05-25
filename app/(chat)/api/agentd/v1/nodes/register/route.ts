@@ -15,8 +15,6 @@ export async function POST(request: Request) {
       );
     }
 
-
-
     const existing = await db.query.agentdNodes.findFirst({
       where: eq(agentdNodes.nodeID, node_id),
     });

@@ -253,11 +253,7 @@ export function AgentDConfigPage() {
               <Zap className="h-5 w-5" />
               <CardTitle>Cluster Nodes</CardTitle>
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={fetchNodeStatuses}
-            >
+            <Button variant="ghost" size="sm" onClick={fetchNodeStatuses}>
               <RefreshCw className="h-4 w-4 mr-1" />
               Refresh
             </Button>
