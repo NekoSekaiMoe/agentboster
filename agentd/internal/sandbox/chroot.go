@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,19 +82,20 @@ func (p *ChrootProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	// 4. local_rootfs_path from config
 	// 5. download Alpine minirootfs from default URL
 	// 6. fallback: download static busybox binary
+	var failures []string
 	rootfsOK := false
 	if spec.RootFSPath != "" {
 		if err := p.copyRootFS(spec.RootFSPath, rootFS); err == nil {
 			rootfsOK = true
 		} else {
-			slog.Warn("failed to copy rootfs from path", "path", spec.RootFSPath, "error", err)
+			failures = append(failures, fmt.Sprintf("rootfs path %q: %v", spec.RootFSPath, err))
 		}
 	}
 	if !rootfsOK && spec.RootFSUrl != "" {
 		if err := p.downloadAndExtractRootFS(spec.RootFSUrl, rootFS); err == nil {
 			rootfsOK = true
 		} else {
-			slog.Warn("failed to download rootfs from url", "url", spec.RootFSUrl, "error", err)
+			failures = append(failures, fmt.Sprintf("rootfs url %q: %v", spec.RootFSUrl, err))
 		}
 	}
 	if !rootfsOK {
@@ -101,7 +103,7 @@ func (p *ChrootProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 			if err := p.copyRootFS(presetPath, rootFS); err == nil {
 				rootfsOK = true
 			} else {
-				slog.Warn("failed to copy preset rootfs", "preset", spec.AgentID, "error", err)
+				failures = append(failures, fmt.Sprintf("preset %q (path %q): %v", spec.AgentID, presetPath, err))
 			}
 		}
 	}
@@ -110,25 +112,30 @@ func (p *ChrootProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 			if err := p.extractTarGz(p.localPath, rootFS); err == nil {
 				rootfsOK = true
 			} else {
-				slog.Warn("failed to extract local rootfs", "path", p.localPath, "error", err)
+				failures = append(failures, fmt.Sprintf("local rootfs %q: %v", p.localPath, err))
 			}
+		} else {
+			failures = append(failures, fmt.Sprintf("local rootfs %q: not found", p.localPath))
 		}
 	}
 	if !rootfsOK && p.defaultURL != "" {
 		if err := p.downloadAndExtractRootFS(p.defaultURL, rootFS); err == nil {
 			rootfsOK = true
 		} else {
-			slog.Warn("failed to download default Alpine rootfs", "url", p.defaultURL, "error", err)
+			failures = append(failures, fmt.Sprintf("default Alpine rootfs %q: %v", p.defaultURL, err))
 		}
 	}
 	if !rootfsOK {
 		if p.busyboxURL != "" {
 			if err := p.downloadBusybox(rootFS); err != nil {
-				return nil, fmt.Errorf("all rootfs sources exhausted: failed to download busybox: %w", err)
+				failures = append(failures, fmt.Sprintf("busybox %q: %v", p.busyboxURL, err))
+				return nil, fmt.Errorf("all rootfs sources exhausted (%d failures): %s",
+					len(failures), strings.Join(failures, "; "))
 			}
 			slog.Info("using busybox as minimal rootfs fallback", "url", p.busyboxURL)
 		} else {
-			return nil, fmt.Errorf("all rootfs sources exhausted and no busybox URL configured")
+			return nil, fmt.Errorf("all rootfs sources exhausted (%d failures): %s; no busybox URL configured",
+				len(failures), strings.Join(failures, "; "))
 		}
 	}
 
