@@ -43,12 +43,18 @@ export class L2AuthManager implements IL2AuthManager {
     if (resp.authorized && resp.window) {
       const now = Date.now();
       const duration = WINDOW_DURATIONS[resp.window] ?? 0;
+      const expiresAt =
+        pending.expiresAt > 0
+          ? pending.expiresAt
+          : duration === 0
+            ? 0
+            : now + duration;
 
       const entry: AuthorizationEntry = {
         action: pending.action,
         window: resp.window,
         grantedAt: now,
-        expiresAt: duration === 0 ? 0 : now + duration,
+        expiresAt,
       };
 
       const userAuths = this.authorizations.get(pending.userId) ?? [];

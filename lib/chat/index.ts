@@ -34,6 +34,11 @@ import {
   parseChatInputEnvelope,
 } from '@/types/workflow';
 import { normalizeUserMessageParts } from './attachment-processing';
+import { executeConfigCommand } from './commands/config';
+import { executeMemoryCommand } from './commands/memory';
+import { executeModelCommand } from './commands/model';
+import { executePairCommand } from './commands/pair';
+import { checkDuplicate, recordMessage } from './dedup';
 import { INIT_AGENTS_MD_MARKER, INIT_AGENTS_MD_PROMPT } from './init-prompt';
 import { serializeUserMessage } from './message-utils';
 import { deriveSessionTitle } from './session-title';
@@ -109,6 +114,13 @@ const COMMAND_HELP_TEXT = [
   '/compact - Request context compaction',
   '/approve <toolCallId> [note] - Approve a pending tool call',
   '/reject <toolCallId> [note] - Reject a pending tool call',
+  '/model - Show current model config',
+  '/model <provider/model-id> - Switch model',
+  '/config - Show config whitelist',
+  '/config <path> [value] - Get or set a config value',
+  '/memory <query> - Search memories',
+  '/memory builtin | search <q> | add <text>',
+  '/pair <code> - Pair your IM account with a code',
 ].join('\n\n');
 
 function normalizeSource(options?: ChatMainOptions): ChatSource {
@@ -694,6 +706,50 @@ async function executeCommand(input: {
         runId: null,
       };
     }
+    case 'model': {
+      const text = await executeModelCommand(input.args);
+      return {
+        sessionId: currentSessionId,
+        text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'config': {
+      const text = await executeConfigCommand(input.args);
+      return {
+        sessionId: currentSessionId,
+        text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'memory': {
+      const text = await executeMemoryCommand(input.args);
+      return {
+        sessionId: currentSessionId,
+        text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'pair': {
+      const imSource = input.source.type === 'im' ? input.source : null;
+      if (!imSource) {
+        return {
+          sessionId: currentSessionId,
+          text: '/pair is only available in IM channels.',
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+      const text = await executePairCommand(
+        input.args,
+        imSource.adapter,
+        imSource.userId ?? null,
+      );
+      return {
+        sessionId: currentSessionId,
+        text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
     default:
       return {
         sessionId: currentSessionId,
@@ -748,10 +804,29 @@ export async function chatMain(
     };
   }
 
+  if (envelope.kind === 'message' && source.type === 'im') {
+    const dedup = await checkDuplicate(source, envelope.text);
+    if (dedup) {
+      return {
+        kind: 'command',
+        result: {
+          sessionId: dedup.sessionId,
+          text: `Active session: ${dedup.sessionId.slice(0, 8)}…\nSimilar task detected (${(dedup.similarity * 100).toFixed(0)}% match).\nReply 'confirm' to proceed, or /new to start fresh.`,
+          runId: null,
+        },
+      };
+    }
+  }
+
   const session = await ensureMessageSession({
     sessionId: envelope.sessionId,
     source: envelope.source,
   });
+
+  if (envelope.kind === 'message' && source.type === 'im') {
+    await recordMessage(source, envelope.text, session.id);
+  }
+
   const isRegenerate = request.trigger === 'regenerate-message';
 
   if (isRegenerate && session.workflowRunId) {

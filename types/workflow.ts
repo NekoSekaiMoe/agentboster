@@ -184,6 +184,10 @@ export const COMMANDS = [
   'stop',
   'compact',
   'decisions',
+  'model',
+  'config',
+  'memory',
+  'pair',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];

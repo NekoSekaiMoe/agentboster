@@ -24,9 +24,13 @@ export class RemoteScorerProvider implements IScoringProvider {
   readonly name: string;
   readonly type = 'remote' as const;
   private config: RemoteScorerConfig;
+  failurePolicy: 'open' | 'closed';
 
-  constructor(config: RemoteScorerConfig) {
+  constructor(
+    config: RemoteScorerConfig & { failurePolicy?: 'open' | 'closed' },
+  ) {
     this.config = config;
+    this.failurePolicy = config.failurePolicy ?? 'open';
     this.name = `remote:${config.model}`;
   }
 
@@ -110,10 +114,18 @@ export class RemoteScorerProvider implements IScoringProvider {
   }
 
   private fallbackResponse(reasoning: string): ScoreResponse {
+    if (this.failurePolicy === 'closed') {
+      return {
+        level: 'unsafe',
+        score: 100,
+        reasoning: `L1 unavailable, fail-closed: ${reasoning}`,
+        requiresConfirmation: true,
+      };
+    }
     return {
       level: 'inspect',
       score: 50,
-      reasoning,
+      reasoning: `L1 unavailable, fail-open: ${reasoning}`,
       requiresConfirmation: true,
     };
   }

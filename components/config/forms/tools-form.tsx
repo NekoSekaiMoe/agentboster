@@ -24,6 +24,7 @@ import { Field, SectionIssues, ToggleField } from './shared';
 const DEFAULT_TOOL_VALUE: ToolEntryConfig = {
   enabled: true,
   config: {},
+  minUserType: 'user',
 };
 
 function hasText(value: string | undefined): value is string {
@@ -41,6 +42,7 @@ function getToolValue(tools: ToolConfig, toolId: string): ToolEntryConfig {
     enabled: current.enabled ?? true,
     name: current.name,
     config: current.config ?? {},
+    minUserType: current.minUserType ?? 'user',
   };
 }
 

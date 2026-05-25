@@ -15,8 +15,11 @@ export interface RemoteScorerConfig {
   timeout: number;
 }
 
+export type L1FailurePolicy = 'open' | 'closed';
+
 export interface ScorerConfig {
   l1Scorer: LocalScorerConfig | RemoteScorerConfig;
+  l1FailurePolicy?: L1FailurePolicy;
 }
 
 export interface AgentClawConfig {
@@ -24,7 +27,9 @@ export interface AgentClawConfig {
   security: {
     l0RulesPath: string;
     l1Scorer: LocalScorerConfig | RemoteScorerConfig;
+    l1FailurePolicy?: L1FailurePolicy;
     l2Auth: { enabled: boolean; defaultWindow: L2AuthorizationWindow };
+    l2CachePath?: string;
   };
   sandbox: {
     defaultType: SandboxType;
@@ -62,10 +67,12 @@ export const DEFAULT_AGENT_CLAW_CONFIG: AgentClawConfig = {
       model: 'hachimi',
       timeout: 30000,
     },
+    l1FailurePolicy: 'open',
     l2Auth: {
       enabled: true,
       defaultWindow: 'once',
     },
+    l2CachePath: '/tmp/agentd/l2_cache.json',
   },
   sandbox: {
     defaultType: 'tmpfs',

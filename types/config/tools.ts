@@ -1,9 +1,14 @@
 import { z } from 'zod';
 
+export const userTypeEnum = z.enum(['unknown', 'user', 'admin']);
+
+export type UserType = z.infer<typeof userTypeEnum>;
+
 export const toolConfigSchema = z.object({
   name: z.string().min(1).optional(),
   enabled: z.boolean().default(true),
   config: z.record(z.string(), z.string()).default({}),
+  minUserType: userTypeEnum.optional(),
 });
 
 export const buildInToolConfigSchema = z

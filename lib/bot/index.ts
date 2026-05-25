@@ -1,4 +1,5 @@
 import { routeAdapterMessage } from '@/lib/chat/index';
+import { get } from '@/lib/core/kv';
 import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName, ChannelsConfig } from '@/types/config/channels';
 import type { UserMessagePart } from '@/types/workflow';
@@ -125,8 +126,15 @@ export async function getBot(): Promise<Chat> {
     const text = (message.text ?? '').trim();
     if (parts.length === 0) return;
 
+    const userId = message.author?.userId?.trim() ?? '';
+
     if (!isAllowedAdapterAuthor(config?.channels, adapter, message)) {
-      return;
+      const isPairCommand = text.startsWith('/pair ');
+      const isPaired =
+        userId.length > 0 && (await get(`pair:bound:${adapter}:${userId}`));
+      if (!isPairCommand || isPaired) {
+        return;
+      }
     }
 
     await routeAdapterMessage({

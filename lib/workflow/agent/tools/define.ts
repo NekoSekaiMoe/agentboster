@@ -65,6 +65,7 @@ export type BuildInToolFactoryContext = {
 const DEFAULT_TOOL_ENTRY_CONFIG: ToolEntryConfig = {
   enabled: true,
   config: {},
+  minUserType: 'user',
 };
 
 const logger = createLogger('workflow.agent.tools.execute');

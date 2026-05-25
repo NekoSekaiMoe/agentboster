@@ -106,3 +106,6 @@ export function toSkillMeta(detail: SkillDetail): SkillMeta {
     fileCount: detail.files.length,
   };
 }
+
+export { clawhubManifestSchema } from './clawhub';
+export type { ClawHubManifest } from './clawhub';

@@ -5,6 +5,7 @@ import { aiConfigSchema } from './ai';
 import { autonomyConfigSchema } from './autonomy';
 import { channelsConfigSchema } from './channels';
 import { mcpRemotesServersConfigSchema } from './mcp';
+import { sandboxConfigSchema } from './sandbox';
 import { buildInToolConfigSchema } from './tools';
 
 /**
@@ -23,6 +24,9 @@ export const appConfigSchema = z.object({
 
   /** Agent autonomy permissions and limits. */
   autonomy: autonomyConfigSchema.optional(),
+
+  /** Sandbox configuration. */
+  sandbox: sandboxConfigSchema.optional(),
 
   /** Built-in tool configuration. */
   tools: buildInToolConfigSchema.optional(),

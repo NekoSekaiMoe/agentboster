@@ -83,6 +83,15 @@ export class SecurityGatekeeper implements ISecurityGatekeeper {
 
     const l1Result = await this.l1.evaluate(req);
 
+    if (l1Result.level === 'critical') {
+      return {
+        authorized: false,
+        level: 'L1',
+        details: l1Result,
+        notificationSent: true,
+      };
+    }
+
     if (l1Result.level === 'unsafe') {
       return {
         authorized: false,
@@ -101,6 +110,12 @@ export class SecurityGatekeeper implements ISecurityGatekeeper {
       };
     }
 
+    const severity =
+      l1Result.level === 'inspect' && l1Result.score >= 85
+        ? ('critical' as const)
+        : ('high' as const);
+    const ttlMs = severity === 'critical' ? 5 * 60 * 1000 : 15 * 60 * 1000;
+
     const authRequest: L2AuthRequest = {
       id: crypto.randomUUID(),
       action: req.action,
@@ -109,6 +124,8 @@ export class SecurityGatekeeper implements ISecurityGatekeeper {
         score: l1Result.score,
         reasoning: l1Result.reasoning,
       },
+      severity,
+      expiresAt: Date.now() + ttlMs,
       timestamp: Date.now(),
       channelId: req.context.agentId,
       userId: req.context.userId,

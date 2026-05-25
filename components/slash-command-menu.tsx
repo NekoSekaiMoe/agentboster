@@ -2,9 +2,12 @@
 
 import {
   BookOpen,
+  Database,
   Hash,
+  KeyRound,
   Play,
   Search,
+  Settings,
   Square,
   ThumbsDown,
   ThumbsUp,
@@ -77,6 +80,26 @@ const COMMAND_METADATA: Record<
     description: 'List pending decisions (L2 auth + questions)',
     hint: '/decisions',
     icon: Search,
+  },
+  model: {
+    description: 'Show or switch the current model',
+    hint: '/model [provider/model-id]',
+    icon: Hash,
+  },
+  config: {
+    description: 'Show or set config values (whitelist)',
+    hint: '/config <path> [value]',
+    icon: Settings,
+  },
+  memory: {
+    description: 'Search, list, or add memories',
+    hint: '/memory <query|builtin|search|add>',
+    icon: Database,
+  },
+  pair: {
+    description: 'Pair your IM account with a code',
+    hint: '/pair <code>',
+    icon: KeyRound,
   },
 };
 

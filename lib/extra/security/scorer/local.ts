@@ -24,9 +24,13 @@ export class LocalScorerProvider implements IScoringProvider {
   readonly name: string;
   readonly type = 'local' as const;
   private config: LocalScorerConfig;
+  failurePolicy: 'open' | 'closed';
 
-  constructor(config: LocalScorerConfig) {
+  constructor(
+    config: LocalScorerConfig & { failurePolicy?: 'open' | 'closed' },
+  ) {
     this.config = config;
+    this.failurePolicy = config.failurePolicy ?? 'open';
     this.name = `local:${config.model}`;
   }
 
@@ -107,10 +111,18 @@ export class LocalScorerProvider implements IScoringProvider {
   }
 
   private fallbackResponse(reasoning: string): ScoreResponse {
+    if (this.failurePolicy === 'closed') {
+      return {
+        level: 'unsafe',
+        score: 100,
+        reasoning: `L1 unavailable, fail-closed: ${reasoning}`,
+        requiresConfirmation: true,
+      };
+    }
     return {
       level: 'inspect',
       score: 50,
-      reasoning,
+      reasoning: `L1 unavailable, fail-open: ${reasoning}`,
       requiresConfirmation: true,
     };
   }
