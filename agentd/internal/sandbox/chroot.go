@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,24 +23,26 @@ import (
 // ChrootProvider implements SandboxProvider using chroot.
 // Provides a persistent filesystem — files survive across commands.
 type ChrootProvider struct {
-	mu             sync.RWMutex
-	baseDir        string // chroot_base from config
-	cacheDir       string // rootfs_cache_dir
-	localPath      string // local_rootfs_path
-	defaultURL     string // default_rootfs_url
-	initCommands   []string
-	presets        []config.ChrootPreset
-	cacheMaxAge    time.Duration
-	sandboxes      map[string]*Sandbox
+	mu              sync.RWMutex
+	baseDir         string // chroot_base from config
+	cacheDir        string // rootfs_cache_dir
+	localPath       string // local_rootfs_path
+	defaultURL      string // default_rootfs_url
+	busyboxURL      string // default_busybox_url
+	initCommands    []string
+	presets         []config.ChrootPreset
+	cacheMaxAge     time.Duration
+	sandboxes       map[string]*Sandbox
 }
 
 // NewChrootProvider creates a new chroot sandbox provider.
-func NewChrootProvider(baseDir, cacheDir, localPath, defaultURL string, initCommands []string, presets []config.ChrootPreset, cacheMaxAgeDays int) *ChrootProvider {
+func NewChrootProvider(baseDir, cacheDir, localPath, defaultURL, busyboxURL string, initCommands []string, presets []config.ChrootPreset, cacheMaxAgeDays int) *ChrootProvider {
 	p := &ChrootProvider{
 		baseDir:      baseDir,
 		cacheDir:     cacheDir,
 		localPath:    localPath,
 		defaultURL:   defaultURL,
+		busyboxURL:   busyboxURL,
 		initCommands: initCommands,
 		presets:      presets,
 		cacheMaxAge:  time.Duration(cacheMaxAgeDays) * 24 * time.Hour,
@@ -78,42 +79,57 @@ func (p *ChrootProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	// 2. spec.RootFSUrl (user-specified URL)
 	// 3. presets (by matching spec.AgentID or preset name)
 	// 4. local_rootfs_path from config
-	// 5. download from default URL
-	// 6. fallback: copy essential binaries from host
+	// 5. download Alpine minirootfs from default URL
+	// 6. fallback: download static busybox binary
+	rootfsOK := false
 	if spec.RootFSPath != "" {
-		if err := p.copyRootFS(spec.RootFSPath, rootFS); err != nil {
-			slog.Warn("failed to copy rootfs from path, using minimal fs", "path", spec.RootFSPath, "error", err)
-			p.copyEssentialBins(rootFS)
-		}
-	} else if spec.RootFSUrl != "" {
-		if err := p.downloadAndExtractRootFS(spec.RootFSUrl, rootFS); err != nil {
-			slog.Warn("failed to download rootfs, using minimal fs", "url", spec.RootFSUrl, "error", err)
-			p.copyEssentialBins(rootFS)
-		}
-	} else if presetPath := p.findPreset(spec.AgentID); presetPath != "" {
-		if err := p.copyRootFS(presetPath, rootFS); err != nil {
-			slog.Warn("failed to copy preset rootfs, using minimal fs", "preset", spec.AgentID, "error", err)
-			p.copyEssentialBins(rootFS)
-		}
-	} else if p.localPath != "" {
-		if _, err := os.Stat(p.localPath); err == nil {
-			if err := p.extractTarGz(p.localPath, rootFS); err != nil {
-				slog.Warn("failed to extract local rootfs, using minimal fs", "path", p.localPath, "error", err)
-				p.copyEssentialBins(rootFS)
-			}
+		if err := p.copyRootFS(spec.RootFSPath, rootFS); err == nil {
+			rootfsOK = true
 		} else {
-			// Local path not found, try downloading default URL
-			if p.defaultURL != "" {
-				if err := p.downloadAndExtractRootFS(p.defaultURL, rootFS); err != nil {
-					slog.Warn("failed to download default rootfs, using minimal fs", "error", err)
-					p.copyEssentialBins(rootFS)
-				}
+			slog.Warn("failed to copy rootfs from path", "path", spec.RootFSPath, "error", err)
+		}
+	}
+	if !rootfsOK && spec.RootFSUrl != "" {
+		if err := p.downloadAndExtractRootFS(spec.RootFSUrl, rootFS); err == nil {
+			rootfsOK = true
+		} else {
+			slog.Warn("failed to download rootfs from url", "url", spec.RootFSUrl, "error", err)
+		}
+	}
+	if !rootfsOK {
+		if presetPath := p.findPreset(spec.AgentID); presetPath != "" {
+			if err := p.copyRootFS(presetPath, rootFS); err == nil {
+				rootfsOK = true
 			} else {
-				p.copyEssentialBins(rootFS)
+				slog.Warn("failed to copy preset rootfs", "preset", spec.AgentID, "error", err)
 			}
 		}
-	} else {
-		p.copyEssentialBins(rootFS)
+	}
+	if !rootfsOK && p.localPath != "" {
+		if _, err := os.Stat(p.localPath); err == nil {
+			if err := p.extractTarGz(p.localPath, rootFS); err == nil {
+				rootfsOK = true
+			} else {
+				slog.Warn("failed to extract local rootfs", "path", p.localPath, "error", err)
+			}
+		}
+	}
+	if !rootfsOK && p.defaultURL != "" {
+		if err := p.downloadAndExtractRootFS(p.defaultURL, rootFS); err == nil {
+			rootfsOK = true
+		} else {
+			slog.Warn("failed to download default Alpine rootfs", "url", p.defaultURL, "error", err)
+		}
+	}
+	if !rootfsOK {
+		if p.busyboxURL != "" {
+			if err := p.downloadBusybox(rootFS); err != nil {
+				return nil, fmt.Errorf("all rootfs sources exhausted: failed to download busybox: %w", err)
+			}
+			slog.Info("using busybox as minimal rootfs fallback", "url", p.busyboxURL)
+		} else {
+			return nil, fmt.Errorf("all rootfs sources exhausted and no busybox URL configured")
+		}
 	}
 
 	// Create workspace directory
@@ -369,49 +385,63 @@ func (p *ChrootProvider) cleanupCache() {
 	}
 }
 
-// copyEssentialBins copies essential binaries from the host into the chroot.
-func (p *ChrootProvider) copyEssentialBins(rootFS string) {
-	essentialBins := []string{
-		"/bin/bash", "/bin/sh", "/bin/ls", "/bin/cp", "/bin/mv",
-		"/bin/rm", "/bin/mkdir", "/bin/rmdir", "/bin/cat",
-		"/bin/echo", "/bin/grep", "/bin/find", "/bin/chmod",
-		"/bin/chown", "/bin/touch", "/bin/head", "/bin/tail",
-		"/bin/wc", "/bin/sort", "/bin/uniq", "/bin/cut",
-		"/bin/sed", "/bin/awk", "/bin/tar", "/bin/gzip",
-		"/usr/bin/env", "/usr/bin/whoami", "/usr/bin/id",
-		"/usr/bin/git", "/usr/bin/curl", "/usr/bin/wget",
+// busyboxAppletNames lists the core busybox applets needed for basic operation.
+var busyboxAppletNames = []string{
+	"sh", "bash", "ls", "cp", "mv", "rm", "mkdir", "rmdir", "cat",
+	"echo", "grep", "find", "chmod", "chown", "touch", "head", "tail",
+	"wc", "sort", "uniq", "cut", "sed", "awk", "tar", "gzip",
+	"env", "whoami", "id", "ln", "pwd", "sleep", "kill", "ps",
+	"df", "du", "tee", "xargs", "test", "[", "[[",
+}
+
+// downloadBusybox downloads a static busybox binary into the chroot and
+// creates symlinks for all standard applets. This provides a minimal but
+// fully self-contained rootfs with zero host dependencies.
+func (p *ChrootProvider) downloadBusybox(rootFS string) error {
+	binDir := filepath.Join(rootFS, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return fmt.Errorf("create bin dir: %w", err)
 	}
 
-	for _, bin := range essentialBins {
-		if _, err := os.Stat(bin); os.IsNotExist(err) {
+	busyboxDst := filepath.Join(binDir, "busybox")
+
+	// Download busybox binary
+	client := &http.Client{Timeout: 2 * time.Minute}
+	resp, err := client.Get(p.busyboxURL)
+	if err != nil {
+		return fmt.Errorf("download busybox: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download busybox: HTTP %d", resp.StatusCode)
+	}
+
+	f, err := os.OpenFile(busyboxDst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return fmt.Errorf("create busybox file: %w", err)
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		f.Close()
+		os.Remove(busyboxDst)
+		return fmt.Errorf("write busybox: %w", err)
+	}
+	f.Close()
+
+	// Create symlinks: /bin/sh → busybox, /bin/ls → busybox, etc.
+	for _, applet := range busyboxAppletNames {
+		linkPath := filepath.Join(binDir, applet)
+		// Skip if a real binary already exists (e.g. from a partial rootfs)
+		if _, err := os.Lstat(linkPath); err == nil {
 			continue
 		}
-		dst := filepath.Join(rootFS, strings.TrimPrefix(bin, "/"))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			continue
-		}
-		if err := os.Link(bin, dst); err != nil {
-			exec.Command("cp", "-a", bin, dst).Run()
+		if err := os.Symlink("busybox", linkPath); err != nil {
+			slog.Warn("failed to create busybox symlink", "applet", applet, "error", err)
 		}
 	}
 
-	libDirs := []string{"/lib", "/lib64", "/usr/lib", "/usr/lib64"}
-	for _, libDir := range libDirs {
-		srcDir := libDir
-		dstDir := filepath.Join(rootFS, strings.TrimPrefix(libDir, "/"))
-		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
-			continue
-		}
-		os.MkdirAll(dstDir, 0o755)
-		entries, _ := os.ReadDir(srcDir)
-		for _, entry := range entries {
-			if strings.HasSuffix(entry.Name(), ".so") {
-				src := filepath.Join(srcDir, entry.Name())
-				dst := filepath.Join(dstDir, entry.Name())
-				exec.Command("cp", "-a", src, dst).Run()
-			}
-		}
-	}
+	slog.Info("busybox installed", "path", busyboxDst, "applets", len(busyboxAppletNames))
+	return nil
 }
 
 var _ SandboxProvider = (*ChrootProvider)(nil)

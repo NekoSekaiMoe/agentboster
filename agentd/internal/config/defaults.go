@@ -43,7 +43,8 @@ tmpfs_size = "512m"
 docker_socket = "unix:///var/run/docker.sock"
 rootfs_cache_dir = "/var/lib/agentd/images"
 local_rootfs_path = "/var/lib/agentd/images/alpine-minirootfs.tar.gz"
-default_rootfs_url = "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.0-x86_64.tar.gz"
+	default_rootfs_url = "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.0-x86_64.tar.gz"
+	default_busybox_url = "https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox"
 cache_max_age_days = 30
 
 [sandbox.chroot.init]

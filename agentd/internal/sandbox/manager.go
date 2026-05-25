@@ -80,7 +80,7 @@ func NewManager(cfg *config.Config) *Manager {
 
 	// Register all built-in providers
 	m.providers["tmpfs"] = NewTmpfsProvider(cfg.Sandbox.ChrootBase)
-	m.providers["chroot"] = NewChrootProvider(cfg.Sandbox.ChrootBase, cfg.Sandbox.RootfsCacheDir, cfg.Sandbox.LocalRootfsPath, cfg.Sandbox.DefaultRootfsURL, cfg.Sandbox.InitCommands, cfg.Sandbox.ChrootPresets, cfg.Sandbox.CacheMaxAgeDays)
+	m.providers["chroot"] = NewChrootProvider(cfg.Sandbox.ChrootBase, cfg.Sandbox.RootfsCacheDir, cfg.Sandbox.LocalRootfsPath, cfg.Sandbox.DefaultRootfsURL, cfg.Sandbox.DefaultBusyboxURL, cfg.Sandbox.InitCommands, cfg.Sandbox.ChrootPresets, cfg.Sandbox.CacheMaxAgeDays)
 	m.providers["docker"] = NewDockerProvider(cfg.Sandbox.DockerSocket, cfg.Sandbox.AllowedImages)
 
 	return m

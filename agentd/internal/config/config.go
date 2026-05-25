@@ -72,7 +72,8 @@ type SandboxConfig struct {
 	DockerSocket    string         `mapstructure:"docker_socket"`
 	RootfsCacheDir  string         `mapstructure:"rootfs_cache_dir"`
 	LocalRootfsPath string         `mapstructure:"local_rootfs_path"`
-	DefaultRootfsURL string        `mapstructure:"default_rootfs_url"`
+	DefaultRootfsURL  string `mapstructure:"default_rootfs_url"`
+	DefaultBusyboxURL string `mapstructure:"default_busybox_url"`
 	InitCommands    []string       `mapstructure:"init_commands"`
 	ChrootPresets   []ChrootPreset `mapstructure:"presets"`
 	AllowedImages   []string       `mapstructure:"allowed_images"`
@@ -130,6 +131,7 @@ var defaults = Config{
 		RootfsCacheDir:   "/var/lib/agentd/images",
 		LocalRootfsPath:  "/var/lib/agentd/images/alpine-minirootfs.tar.gz",
 		DefaultRootfsURL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.0-x86_64.tar.gz",
+		DefaultBusyboxURL: "https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox",
 		InitCommands: []string{
 			"apk add --no-cache git curl bash",
 			"mkdir -p /workspace",
@@ -209,7 +211,8 @@ func Load(path string) (*Config, error) {
 		"docker_socket":      defaults.Sandbox.DockerSocket,
 		"rootfs_cache_dir":   defaults.Sandbox.RootfsCacheDir,
 		"local_rootfs_path":  defaults.Sandbox.LocalRootfsPath,
-		"default_rootfs_url": defaults.Sandbox.DefaultRootfsURL,
+		"default_rootfs_url":  defaults.Sandbox.DefaultRootfsURL,
+		"default_busybox_url": defaults.Sandbox.DefaultBusyboxURL,
 		"init_commands":      defaults.Sandbox.InitCommands,
 		"allowed_images":     defaults.Sandbox.AllowedImages,
 		"cache_max_age_days": defaults.Sandbox.CacheMaxAgeDays,
