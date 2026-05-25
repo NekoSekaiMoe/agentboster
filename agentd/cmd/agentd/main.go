@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -20,7 +21,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -44,6 +48,57 @@ var (
 	version   = "0.5.0"
 	buildTime = "unknown"
 )
+
+// acquireSingleton ensures only one Agent Daemon instance runs on this machine.
+// It creates a PID file at {cachePath}/agentd.pid containing the PID and start timestamp.
+// If a PID file already exists and the referenced process is still alive, it returns an error.
+// Returns a cleanup function that removes the PID file on shutdown.
+func acquireSingleton(cachePath string) (func(), error) {
+	pidFile := filepath.Join(cachePath, "agentd.pid")
+
+	if err := os.MkdirAll(cachePath, 0o750); err != nil {
+		return nil, fmt.Errorf("create cache dir: %w", err)
+	}
+
+	// Check for existing instance
+	if data, err := os.ReadFile(pidFile); err == nil {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > 0 {
+			if pid, parseErr := strconv.Atoi(lines[0]); parseErr == nil && pid > 0 {
+				if proc, findErr := os.FindProcess(pid); findErr == nil {
+					// Signal 0 checks process existence without sending a real signal
+					err := proc.Signal(syscall.Signal(0))
+					if err == nil {
+						return nil, fmt.Errorf("Agent Daemon already running (PID: %d)", pid)
+					}
+					// EPERM means process exists but belongs to another user — still occupied
+					var errno syscall.Errno
+					if errors.As(err, &errno) && errno == syscall.EPERM {
+						return nil, fmt.Errorf("Agent Daemon already running (PID: %d, different user)", pid)
+					}
+					// Any other error means the process is dead — stale PID file, overwrite
+				}
+			}
+		}
+	}
+
+	// Write our PID
+	pid := os.Getpid()
+	content := fmt.Sprintf("%d\n%d\n", pid, time.Now().Unix())
+	if err := os.WriteFile(pidFile, []byte(content), 0o644); err != nil {
+		return nil, fmt.Errorf("write pid file: %w", err)
+	}
+
+	slog.Info("singleton lock acquired", "pid_file", pidFile, "pid", pid)
+
+	return func() {
+		if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
+			slog.Warn("failed to remove pid file", "path", pidFile, "error", err)
+		} else {
+			slog.Info("singleton lock released", "pid_file", pidFile)
+		}
+	}, nil
+}
 
 func main() {
 	// Runtime OS check — hard fail on non-Linux
@@ -83,6 +138,18 @@ func main() {
 		"build_time", buildTime,
 		"listen", cfg.Server.Listen,
 	)
+
+	// === Singleton Guard ===
+	cachePath := cfg.Cache.Path
+	if cachePath == "" {
+		cachePath = "/tmp/agentd"
+	}
+	releaseSingleton, err := acquireSingleton(cachePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+	defer releaseSingleton()
 
 	// === Security ===
 	l0Engine := l0_rules.NewEngine()
