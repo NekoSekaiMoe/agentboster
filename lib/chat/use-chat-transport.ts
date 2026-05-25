@@ -51,12 +51,14 @@ export function useChatTransport(options: TransportOptions = {}) {
           messageId,
           body,
         }) => {
-          const bodyRecord =
-            typeof body === 'object' && body !== null ? body : {};
-          const bodyInput =
-            typeof (bodyRecord as any).input === 'object' &&
-            (bodyRecord as any).input !== null
-              ? (bodyRecord as any).input
+          const bodyRecord: Record<string, unknown> =
+            typeof body === 'object' && body !== null
+              ? (body as Record<string, unknown>)
+              : {};
+          const rawInput = bodyRecord.input;
+          const bodyInput: Record<string, unknown> | null =
+            typeof rawInput === 'object' && rawInput !== null
+              ? (rawInput as Record<string, unknown>)
               : null;
           const editedParts = Array.isArray(bodyInput?.parts)
             ? (bodyInput.parts as WorkflowUIMessage['parts'])

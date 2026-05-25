@@ -1,4 +1,5 @@
 import { createNotification } from '@/lib/core/db/notification';
+import type { NotificationPayload } from '@/lib/extra/channels/notification-types';
 import { sendNotification } from '@/lib/extra/channels/send-notification';
 import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';
@@ -17,19 +18,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // Build notification payload
-    const payload =
+    const payload: NotificationPayload =
       type === 'completion'
         ? {
-            type: 'completion' as const,
+            type: 'completion',
             taskId: task_id,
-            status: status ?? 'completed',
+            status:
+              (status as 'completed' | 'failed' | 'cancelled') ?? 'completed',
             title: title ?? 'Task Update',
             summary: summary ?? '',
             details: details ?? {},
             channelFallback: ['telegram', 'discord', 'slack', 'feishu'],
           }
-        : body;
+        : (body as NotificationPayload);
 
     // Persist notification record
     const chatSource = source as ChatSource | undefined;
@@ -48,12 +49,10 @@ export async function POST(request: Request) {
           : undefined,
     });
 
-    // Send via notification manager if we have an IM source
     if (chatSource?.type === 'im') {
-      // biome-ignore lint/suspicious/noExplicitAny: NotificationPayload union type
       const result = await sendNotification({
         source: chatSource,
-        payload: payload as any,
+        payload,
         userId: chatSource.userId ?? undefined,
       });
 

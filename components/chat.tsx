@@ -310,16 +310,17 @@ export function Chat({
         dataPart.data.type === 'token-usage' ||
         dataPart.data.type === 'step-finish'
       ) {
-        const d = dataPart.data as any;
-        const usage = d.usage ?? d;
+        const d = dataPart.data;
+        const usage = d.type === 'token-usage' ? d.usage : d;
         const extractNum = (v: unknown): number => {
           if (typeof v === 'number' && Number.isFinite(v)) return v;
           if (
             v &&
             typeof v === 'object' &&
-            typeof (v as any).total === 'number'
+            'total' in v &&
+            typeof (v as { total: unknown }).total === 'number'
           )
-            return (v as any).total;
+            return (v as { total: number }).total;
           return 0;
         };
         setTokenUsage({

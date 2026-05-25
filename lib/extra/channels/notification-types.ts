@@ -71,7 +71,7 @@ export interface CompletionNotification {
     logsUrl?: string;
     error?: string;
   };
-  channelFallback: AdapterName[];
+  channelFallback: string[];
 }
 
 export type NotificationPayload =

@@ -212,7 +212,7 @@ export function DecisionCard({
         }
 
         const resp = await ofetch(
-          '/api/agentd/v1/decisions/' + decision.decision_id + '/resolve',
+          `/api/agentd/v1/decisions/${decision.decision_id}/resolve`,
           {
             method: 'POST',
             body: {
@@ -551,7 +551,10 @@ export function DecisionCard({
 
         {decision.type === 'question' &&
           (decision.prompts ?? []).map((prompt, pIdx) => (
-            <div key={pIdx} className="space-y-2">
+            <div
+              key={`q-${pIdx}-${prompt.question.slice(0, 30)}`}
+              className="space-y-2"
+            >
               <div className="flex items-start gap-2">
                 <span className="text-xs text-muted-foreground mt-0.5">
                   {pIdx + 1}.
@@ -568,7 +571,10 @@ export function DecisionCard({
               <div className="ml-4 space-y-1.5">
                 {prompt.multiple ? (
                   prompt.options?.map((opt, oIdx) => (
-                    <div key={oIdx} className="flex items-center gap-2">
+                    <div
+                      key={`q-${pIdx}-o-${oIdx}-${opt.slice(0, 20)}`}
+                      className="flex items-center gap-2"
+                    >
                       <Checkbox
                         id={`q${pIdx}-o${oIdx}`}
                         checked={selectedOptions[pIdx]?.includes(opt)}
@@ -604,7 +610,10 @@ export function DecisionCard({
                     }}
                   >
                     {prompt.options?.map((opt, oIdx) => (
-                      <div key={oIdx} className="flex items-center gap-2">
+                      <div
+                        key={`q-${pIdx}-radio-${oIdx}-${opt.slice(0, 20)}`}
+                        className="flex items-center gap-2"
+                      >
                         <RadioGroupItem
                           value={opt}
                           id={`q${pIdx}-o${oIdx}`}
@@ -677,7 +686,7 @@ export function DecisionCard({
           <div className="space-y-3">
             {decision.conflict.files.map((file, fIdx) => (
               <div
-                key={fIdx}
+                key={`conflict-${fIdx}-${file.path}`}
                 className="rounded-md border border-purple-200/50 bg-purple-50/30 p-3 space-y-2"
               >
                 <div className="flex items-center gap-2">
@@ -979,8 +988,16 @@ function PlanCard({
 
   return (
     <div
+      role="button"
+      tabIndex={disabled ? -1 : 0}
       className={`rounded-md border p-3 cursor-pointer transition-colors ${borderClass}`}
       onClick={() => !disabled && onSelect()}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && !disabled) {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
     >
       <div className="flex items-center gap-2 mb-1">
         <RadioGroup
