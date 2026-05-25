@@ -1,4 +1,6 @@
 import { getSessionByWorkflowRunId, updateSession } from '@/lib/core/db/chat';
+import { db } from '@/lib/core/db';
+import { agentdNodes } from '@/lib/core/db/schema';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
 import type { AppConfig } from '@/types/config';
 import type {
@@ -8,10 +10,86 @@ import type {
   WorkflowUIMessageChunk,
 } from '@/types/workflow';
 import type { ModelMessage } from 'ai';
+import { and, eq, gte } from 'drizzle-orm';
 import { getRun, start } from 'workflow/api';
 import { ACTIVE_RUN_STATUSES } from './config';
 import { approvalHookBuilder, instructionHookBuilder } from './hooks';
 import { chatWorkflow } from './index';
+
+interface AgentNodeStatus {
+  nodeID: string;
+  ip: string;
+  port: number;
+  sandboxes: string[];
+  cpuUsage: number | null;
+  memAvail: number | null;
+  diskAvail: number | null;
+  activeTasks: number;
+}
+
+export async function selectBestNode(
+  requiredSandbox?: string,
+): Promise<AgentNodeStatus | null> {
+  try {
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+
+    const rows = await db
+      .select()
+      .from(agentdNodes)
+      .where(
+        and(
+          eq(agentdNodes.status, 'online'),
+          gte(agentdNodes.lastHeartbeat, twoMinutesAgo),
+        ),
+      );
+
+    if (rows.length === 0) return null;
+
+    type Row = (typeof rows)[0];
+
+    const filtered: Row[] = requiredSandbox
+      ? rows.filter((n: Row) => {
+          const sbs = n.sandboxes as string[] | null;
+          return sbs ? sbs.includes(requiredSandbox) : false;
+        })
+      : rows;
+
+    if (filtered.length === 0) return null;
+
+    const scored: { node: Row; score: number }[] = [];
+    for (const n of filtered) {
+      const cpu = n.cpuUsage != null ? n.cpuUsage / 100 : 0.5;
+      const mem = n.memAvail != null ? n.memAvail / 100 : 0.5;
+      const disk = n.diskAvail != null ? n.diskAvail / 100 : 0.5;
+
+      if (cpu >= 0.9 || mem <= 0.1 || disk <= 0.1) continue;
+
+      const score = (1 - cpu) * 0.4 + mem * 0.4 + disk * 0.2;
+      scored.push({ node: n, score });
+    }
+
+    if (scored.length === 0) return null;
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (a.node.activeTasks ?? 0) - (b.node.activeTasks ?? 0);
+    });
+
+    const best = scored[0].node;
+    return {
+      nodeID: best.nodeID,
+      ip: best.ip,
+      port: best.port,
+      sandboxes: (best.sandboxes as string[]) || [],
+      cpuUsage: best.cpuUsage,
+      memAvail: best.memAvail,
+      diskAvail: best.diskAvail,
+      activeTasks: best.activeTasks || 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function startWorkflow(input: {
   sessionId: string;

@@ -41,6 +41,9 @@ type ClawLessConfig struct {
 	ClientCertPath string `mapstructure:"client_cert_path"`
 	ClientKeyPath  string `mapstructure:"client_key_path"`
 	CAPath         string `mapstructure:"ca_path"`
+	// Node registration and heartbeat
+	HeartbeatInterval time.Duration `mapstructure:"heartbeat_interval"` // default 30s
+	NodeIDFile        string        `mapstructure:"node_id_file"`        // path to persist node ID
 }
 
 type SecurityConfig struct {
@@ -54,6 +57,7 @@ type SecurityConfig struct {
 		High     float64 `mapstructure:"high"`
 		Critical float64 `mapstructure:"critical"`
 	} `mapstructure:"l1_threshold"`
+	RunAsUser string `mapstructure:"run_as_user"` // unprivileged user to drop to, empty = no drop
 }
 
 type ChrootPreset struct {
@@ -105,15 +109,18 @@ var defaults = Config{
 		ClawLessAPIKey: "",
 	},
 	ClawLess: ClawLessConfig{
-		BaseURL:        "http://localhost:3000",
-		ClientCertPath: "",
-		ClientKeyPath:  "",
-		CAPath:         "",
+		BaseURL:           "http://localhost:3000",
+		ClientCertPath:    "",
+		ClientKeyPath:     "",
+		CAPath:            "",
+		HeartbeatInterval: 30 * time.Second,
+		NodeIDFile:        "/var/run/agentd.node_id",
 	},
 	Security: SecurityConfig{
 		L1Provider: "local_ollama",
 		L1Endpoint: "http://localhost:11434/api/generate",
 		L1Model:    "tinyllama:latest",
+		RunAsUser:  "",
 	},
 	Sandbox: SandboxConfig{
 		Default:          "tmpfs",
@@ -175,10 +182,12 @@ func Load(path string) (*Config, error) {
 		"clawless_api_key": defaults.Server.ClawLessAPIKey,
 	})
 	v.SetDefault("clawless", map[string]any{
-		"base_url":         defaults.ClawLess.BaseURL,
-		"client_cert_path": defaults.ClawLess.ClientCertPath,
-		"client_key_path":  defaults.ClawLess.ClientKeyPath,
-		"ca_path":          defaults.ClawLess.CAPath,
+		"base_url":           defaults.ClawLess.BaseURL,
+		"client_cert_path":   defaults.ClawLess.ClientCertPath,
+		"client_key_path":    defaults.ClawLess.ClientKeyPath,
+		"ca_path":            defaults.ClawLess.CAPath,
+		"heartbeat_interval": defaults.ClawLess.HeartbeatInterval.String(),
+		"node_id_file":       defaults.ClawLess.NodeIDFile,
 	})
 	v.SetDefault("security", map[string]any{
 		"l1_provider": defaults.Security.L1Provider,
@@ -191,6 +200,7 @@ func Load(path string) (*Config, error) {
 			"high":     0.9,
 			"critical": 0.9,
 		},
+		"run_as_user": defaults.Security.RunAsUser,
 	})
 	v.SetDefault("sandbox", map[string]any{
 		"default":            defaults.Sandbox.Default,

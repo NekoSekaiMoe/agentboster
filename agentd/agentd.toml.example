@@ -16,17 +16,24 @@ base_url = "http://localhost:3000"
 client_cert_path = "./certs/client-cert.pem"
 client_key_path = "./certs/client-key.pem"
 ca_path = "./certs/ca-cert.pem"
+# Heartbeat interval in seconds
+heartbeat_interval = 30
 
 [security]
 l1_provider = "local_ollama"
 l1_endpoint = "http://localhost:11434/api/generate"
 l1_model = "tinyllama:latest"
 l1_api_key = ""
+# Unprivileged user to drop to after root setup (empty = stay root)
+run_as_user = ""
 
 [security.l1_threshold]
 low = 0.3
 medium = 0.7
 high = 0.9
+
+[node]
+id_file = "/var/run/agentd.node_id"
 
 [sandbox]
 default = "tmpfs"

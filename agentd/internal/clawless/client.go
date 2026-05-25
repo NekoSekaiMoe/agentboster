@@ -270,6 +270,15 @@ func (c *Client) CreateNotification(ctx context.Context, notification *Notificat
 	return c.decodeResponse(resp, nil)
 }
 
+// PostJSON sends a POST request with JSON body and decodes the JSON response.
+func (c *Client) PostJSON(ctx context.Context, path string, body any, dest any) error {
+	resp, err := c.doRequest(ctx, http.MethodPost, path, body)
+	if err != nil {
+		return err
+	}
+	return c.decodeResponse(resp, dest)
+}
+
 // HealthCheck verifies the ClawLess API is reachable.
 func (c *Client) HealthCheck(ctx context.Context) error {
 	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/health", nil)

@@ -50,39 +50,35 @@ var (
 )
 
 // acquireSingleton ensures only one Agent Daemon instance runs on this machine.
-// It creates a PID file at {cachePath}/agentd.pid containing the PID and start timestamp.
-// If a PID file already exists and the referenced process is still alive, it returns an error.
+// PID file is fixed at /var/run/agentd.pid (not configurable — must be root to write).
+// Format: "{pid}\n{unix_timestamp}\n"
+// If PID file exists and the referenced process is alive, returns an error.
 // Returns a cleanup function that removes the PID file on shutdown.
-func acquireSingleton(cachePath string) (func(), error) {
-	pidFile := filepath.Join(cachePath, "agentd.pid")
+func acquireSingleton() (func(), error) {
+	const pidFile = "/var/run/agentd.pid"
 
-	if err := os.MkdirAll(cachePath, 0o750); err != nil {
-		return nil, fmt.Errorf("create cache dir: %w", err)
+	if err := os.MkdirAll("/var/run", 0o755); err != nil {
+		return nil, fmt.Errorf("create /var/run: %w", err)
 	}
 
-	// Check for existing instance
 	if data, err := os.ReadFile(pidFile); err == nil {
 		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 		if len(lines) > 0 {
 			if pid, parseErr := strconv.Atoi(lines[0]); parseErr == nil && pid > 0 {
 				if proc, findErr := os.FindProcess(pid); findErr == nil {
-					// Signal 0 checks process existence without sending a real signal
 					err := proc.Signal(syscall.Signal(0))
 					if err == nil {
 						return nil, fmt.Errorf("Agent Daemon already running (PID: %d)", pid)
 					}
-					// EPERM means process exists but belongs to another user — still occupied
 					var errno syscall.Errno
 					if errors.As(err, &errno) && errno == syscall.EPERM {
 						return nil, fmt.Errorf("Agent Daemon already running (PID: %d, different user)", pid)
 					}
-					// Any other error means the process is dead — stale PID file, overwrite
 				}
 			}
 		}
 	}
 
-	// Write our PID
 	pid := os.Getpid()
 	content := fmt.Sprintf("%d\n%d\n", pid, time.Now().Unix())
 	if err := os.WriteFile(pidFile, []byte(content), 0o644); err != nil {
@@ -104,6 +100,12 @@ func main() {
 	// Runtime OS check — hard fail on non-Linux
 	if runtime.GOOS != "linux" {
 		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon requires Linux. Current OS: %s\n", runtime.GOOS)
+		os.Exit(1)
+	}
+
+	// Root check — hard fail for non-root
+	if os.Getuid() != 0 {
+		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon must be run as root (current uid: %d)\n", os.Getuid())
 		os.Exit(1)
 	}
 
@@ -140,16 +142,34 @@ func main() {
 	)
 
 	// === Singleton Guard ===
-	cachePath := cfg.Cache.Path
-	if cachePath == "" {
-		cachePath = "/tmp/agentd"
-	}
-	releaseSingleton, err := acquireSingleton(cachePath)
+	releaseSingleton, err := acquireSingleton()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
 		os.Exit(1)
 	}
 	defer releaseSingleton()
+
+	// === Node Identity ===
+	nodeID, err := nodeIdentity(cfg.ClawLess.NodeIDFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+	slog.Info("node identity ready", "node_id", nodeID)
+
+	// === Metrics Collector (root-only, writes to file) ===
+	metricsPath := filepath.Join(cfg.Cache.Path, "metrics.json")
+	if cfg.Cache.Path == "" {
+		metricsPath = "/tmp/agentd/metrics.json"
+	}
+	metricsCollector := startMetricsCollector(nodeID, metricsPath, 10*time.Second)
+	defer metricsCollector.Stop()
+
+	// === Drop Privileges ===
+	if err := dropPrivileges(cfg.Security.RunAsUser); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
 
 	// === Security ===
 	l0Engine := l0_rules.NewEngine()
@@ -182,6 +202,12 @@ func main() {
 		clawlessClient = clawless.NewClient(cfg.ClawLess.BaseURL, cfg.Server.ClawLessAPIKey, nil)
 	}
 	l2Manager.SetClawlessClient(clawlessClient)
+
+	// === Node Registration ===
+	registerNode(clawlessClient, nodeID, cfg)
+
+	// === Heartbeat ===
+	startHeartbeat(clawlessClient, nodeID, cfg.ClawLess.HeartbeatInterval, metricsPath)
 
 	// === L0 hot-reload ===
 	l0Loader := l0_rules.NewLoader(l0Engine, clawlessClient, "default", 5*time.Minute)
@@ -290,6 +316,97 @@ func main() {
 	}
 
 	slog.Info("Agent Daemon stopped")
+}
+
+func registerNode(client *clawless.Client, nodeID string, cfg *config.Config) {
+	reqBody := map[string]any{
+		"node_id":    nodeID,
+		"ip":         getNodeIP(),
+		"port":       getListenPort(cfg.Server.Listen),
+		"sandboxes":  []string{"tmpfs", "chroot", "docker"},
+		"version":    version,
+	}
+
+		go func() {
+		for attempt := 1; attempt <= 5; attempt++ {
+			var resp struct {
+				NodeID   string `json:"node_id"`
+				Interval int    `json:"interval"`
+			}
+			err := client.PostJSON(context.Background(), "/api/agentd/v1/nodes/register", reqBody, &resp)
+			if err == nil {
+				slog.Info("node registered", "node_id", resp.NodeID, "interval", resp.Interval)
+				return
+			}
+			slog.Warn("node register failed", "attempt", attempt, "error", err)
+			time.Sleep(time.Duration(attempt) * 3 * time.Second)
+		}
+		slog.Error("node register failed after 5 attempts")
+	}()
+}
+
+func startHeartbeat(client *clawless.Client, nodeID string, interval time.Duration, metricsPath string) {
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			<-ticker.C
+			metrics, err := readMetrics(metricsPath)
+			if err != nil {
+				slog.Warn("heartbeat: failed to read metrics", "error", err)
+				continue
+			}
+
+			reqBody := map[string]any{
+				"node_id":          nodeID,
+				"cpu_usage":        metrics["cpu_usage"],
+				"mem_avail":        metrics["mem_avail"],
+				"disk_avail":       metrics["disk_avail"],
+				"active_tasks":     0,
+				"active_sandboxes": 0,
+				"timestamp":        time.Now().Unix(),
+			}
+
+			var resp struct {
+				Accepted bool `json:"accepted"`
+			}
+			if err := client.PostJSON(context.Background(), "/api/agentd/v1/nodes/heartbeat", reqBody, &resp); err != nil {
+				slog.Warn("heartbeat failed", "error", err)
+			}
+		}
+	}()
+}
+
+func getNodeIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+			if ipNet.IP.To4() != nil {
+				return ipNet.IP.String()
+			}
+		}
+	}
+	return "127.0.0.1"
+}
+
+func getListenPort(listen string) int {
+	_, portStr, err := net.SplitHostPort(listen)
+	if err != nil {
+		return 18732
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 18732
+	}
+	return port
 }
 
 func generateCerts(dir string) error {

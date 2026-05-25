@@ -14,6 +14,7 @@ export {
   agentL0Rules,
   agentSandboxes,
   agentMemories,
+  agentdNodes,
 } from './agentd';
 export {
   notifications,

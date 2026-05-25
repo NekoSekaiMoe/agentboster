@@ -11,6 +11,7 @@ import {
   Server,
   Shield,
   XCircle,
+  Zap,
 } from 'lucide-react';
 import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useState } from 'react';
@@ -61,6 +62,22 @@ interface AgentDConfig {
     timeout: string;
     store_path: string;
   };
+}
+
+interface NodeStatusItem {
+  node_id: string;
+  ip: string;
+  port: number;
+  sandboxes: string[];
+  version: string;
+  status: string;
+  cpu_usage: number | null;
+  mem_avail: number | null;
+  disk_avail: number | null;
+  active_tasks: number;
+  active_sandboxes: number;
+  last_heartbeat: string | null;
+  registered_at: string | null;
 }
 
 const defaultConfig: AgentDConfig = {
@@ -125,6 +142,26 @@ export function AgentDConfigPage() {
       toast.error('Failed to save configuration');
     }
   }, [config, daemonAddress]);
+
+  const [nodeStatuses, setNodeStatuses] = useState<NodeStatusItem[]>([]);
+
+  const fetchNodeStatuses = useCallback(async () => {
+    try {
+      const res = await ofetch<{ nodes: NodeStatusItem[] }>(
+        '/api/agentd/v1/nodes/status',
+        { timeout: 10000 },
+      );
+      setNodeStatuses(res.nodes || []);
+    } catch {
+      setNodeStatuses([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNodeStatuses();
+    const interval = setInterval(fetchNodeStatuses, 30000);
+    return () => clearInterval(interval);
+  }, [fetchNodeStatuses]);
 
   const handleRegenerateCerts = useCallback(async () => {
     try {
@@ -203,6 +240,115 @@ export function AgentDConfigPage() {
                 <span className="text-muted-foreground">Last Check:</span>
                 <span className="font-mono text-xs">{status.timestamp}</span>
               </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Node Status Panel */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className="h-5 w-5" />
+              <CardTitle>Cluster Nodes</CardTitle>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={fetchNodeStatuses}
+            >
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Refresh
+            </Button>
+          </div>
+          <CardDescription>
+            Agent Daemon nodes registered in this cluster. Tasks are
+            automatically scheduled to the optimal node.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {nodeStatuses.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No nodes registered yet. Start an Agent Daemon to register a node.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {nodeStatuses.map((node) => {
+                const isOnline = node.status === 'online';
+                return (
+                  <div
+                    key={node.node_id}
+                    className="rounded-lg border p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={isOnline ? 'default' : 'destructive'}
+                          className="gap-1 text-xs"
+                        >
+                          {isOnline ? (
+                            <CheckCircle2 className="h-3 w-3" />
+                          ) : (
+                            <XCircle className="h-3 w-3" />
+                          )}
+                          {isOnline ? 'Online' : 'Offline'}
+                        </Badge>
+                        <span className="text-sm font-mono font-medium">
+                          {node.node_id}
+                        </span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {node.ip}:{node.port}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="flex items-center gap-1">
+                        <Cpu className="h-3 w-3 text-muted-foreground" />
+                        <span>CPU:</span>
+                        <span className="font-medium">
+                          {node.cpu_usage != null
+                            ? `${(node.cpu_usage * 100).toFixed(0)}%`
+                            : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Activity className="h-3 w-3 text-muted-foreground" />
+                        <span>Mem:</span>
+                        <span className="font-medium">
+                          {node.mem_avail != null
+                            ? `${(node.mem_avail * 100).toFixed(0)}%`
+                            : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <HardDrive className="h-3 w-3 text-muted-foreground" />
+                        <span>Disk:</span>
+                        <span className="font-medium">
+                          {node.disk_avail != null
+                            ? `${(node.disk_avail * 100).toFixed(0)}%`
+                            : 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <div className="flex gap-2">
+                        {node.sandboxes.map((s) => (
+                          <Badge key={s} variant="outline" className="text-xs">
+                            {s}
+                          </Badge>
+                        ))}
+                      </div>
+                      <span>
+                        {node.active_tasks} tasks ·{' '}
+                        {node.last_heartbeat
+                          ? `${Math.round((Date.now() - new Date(node.last_heartbeat).getTime()) / 1000)}s ago`
+                          : 'never'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
