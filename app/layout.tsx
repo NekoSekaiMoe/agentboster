@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import { Toaster } from 'sonner';
 
 import { ThemeProvider } from '@/components/theme-provider';
+import { MobileNavWrapper } from '@/components/mobile-nav-wrapper';
 import { getAppBaseUrl } from '@/lib/bot/webhook';
 
 import './globals.css';
@@ -81,7 +82,11 @@ export const metadata: Metadata = {
 };
 
 export const viewport = {
-  maximumScale: 1, // Disable auto-zoom on mobile Safari
+  viewportFit: 'cover',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: 'hsl(0 0% 100%)' },
+    { media: '(prefers-color-scheme: dark)', color: 'hsl(240deg 10% 3.92%)' },
+  ],
 };
 
 const LIGHT_THEME_COLOR = 'hsl(0 0% 100%)';
@@ -125,7 +130,7 @@ export default async function RootLayout({
           }}
         />
       </head>
-      <body className="antialiased">
+      <body className="antialiased overscroll-none">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -134,6 +139,7 @@ export default async function RootLayout({
         >
           <Toaster position="top-center" />
           {children}
+          <MobileNavWrapper />
         </ThemeProvider>
 
         {/* For Vercel */}

@@ -67,9 +67,9 @@ export default function MemoryPage() {
   const [activeScope, setActiveScope] = useState<Scope>('builtin');
 
   return (
-    <div className="flex flex-col min-w-0 h-dvh bg-background">
+    <div className="flex flex-col min-w-0 h-dvh bg-background pb-16 md:pb-0">
       <header className="flex sticky top-0 bg-background py-3 items-center px-4 border-b">
-        <h1 className="text-lg font-semibold">Memory</h1>
+         <h1 className="text-base md:text-lg font-semibold">Memory</h1>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">

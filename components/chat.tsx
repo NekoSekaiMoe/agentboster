@@ -692,7 +692,7 @@ export function Chat({
     : null;
 
   return (
-    <div className="flex h-dvh min-w-0 flex-col overflow-x-hidden bg-background">
+    <div className="flex h-dvh min-w-0 flex-col overflow-x-hidden bg-background pb-14 md:pb-0">
       <ChatHeader session={headerSession} chatId={id} onAbort={handleAbort} />
 
       <Messages
@@ -708,7 +708,7 @@ export function Chat({
         regenerate={regenerate}
       />
 
-      <form className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl">
+      <form className="flex mx-auto px-4 bg-background pb-4 md:pb-6 gap-2 w-full md:max-w-3xl [&_textarea]:max-h-[calc(75dvh-env(safe-area-inset-bottom))]">
         <MultimodalInput
           chatId={id}
           focusTrigger={composerFocusKey}

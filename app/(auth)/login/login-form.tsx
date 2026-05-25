@@ -49,7 +49,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
   };
 
   return (
-    <Card className="w-full max-w-sm border-border/60 shadow-sm">
+    <Card className="w-full max-w-sm mx-4 border-border/60 shadow-sm">
       <CardHeader>
         <CardTitle>Sign in</CardTitle>
         <CardDescription>

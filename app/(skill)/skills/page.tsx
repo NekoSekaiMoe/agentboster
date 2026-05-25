@@ -338,7 +338,7 @@ export default function SkillsPage() {
   }
 
   return (
-    <div className="flex flex-col min-w-0 h-dvh bg-background">
+    <div className="flex flex-col min-w-0 h-dvh bg-background pb-16 md:pb-0">
       {/* Top progress bar — shown during any async operation */}
       {isAnyLoading && (
         <div className="fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-primary/10 pointer-events-none">
@@ -350,7 +350,7 @@ export default function SkillsPage() {
       )}
 
       <header className="flex sticky top-0 bg-background py-3 items-center px-4 border-b gap-2">
-        <h1 className="text-lg font-semibold">Skills</h1>
+        <h1 className="text-base md:text-lg font-semibold">Skills</h1>
         <div className="ml-auto flex gap-2">
           <Button
             size="sm"

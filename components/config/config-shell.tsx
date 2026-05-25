@@ -35,13 +35,13 @@ export function ConfigShell({
     runtimeHealth?.checks.filter((check) => check.status !== 'ready') ?? [];
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background">
-      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
+    <div className="flex min-h-dvh flex-col bg-background pb-16 md:pb-0">
+      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur pt-[env(safe-area-inset-top)]">
         <div className="flex flex-col gap-4 px-4 py-4 lg:px-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-1">
               <div>
-                <h1 className="text-2xl font-semibold tracking-tight">
+                 <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
                   {sectionMeta.title}
                 </h1>
                 <p className="text-sm text-muted-foreground">
@@ -82,7 +82,7 @@ export function ConfigShell({
             </div>
           </div>
 
-          <nav className="flex gap-2 overflow-x-auto pb-1">
+          <nav className="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory scroll-px-4">
             {configSections.map((item) => {
               const href = `/config/${item.key}`;
               const isActive = pathname === href;

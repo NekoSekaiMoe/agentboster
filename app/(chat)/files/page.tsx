@@ -130,11 +130,11 @@ export default function FilesPage() {
   );
 
   return (
-    <div className="flex min-w-0 h-dvh flex-col bg-background">
+    <div className="flex min-w-0 h-dvh flex-col bg-background pb-16 md:pb-0">
       <header className="sticky top-0 z-10 border-b bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-lg font-semibold">Files</h1>
+             <h1 className="text-base md:text-lg font-semibold">Files</h1>
             <p className="text-sm text-muted-foreground">
               Browse sandbox exports and jump back to the related session.
             </p>
