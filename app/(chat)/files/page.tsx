@@ -9,8 +9,10 @@ import {
   Search,
 } from 'lucide-react';
 import Link from 'next/link';
-import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
+import { listFilesAction } from '@/app/(files)/actions';
+import type { FileRecord, FilesListResponse } from '@/app/(files)/actions';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -23,29 +25,6 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-
-type FileRecord = {
-  id: string;
-  sessionId: string;
-  runId: string | null;
-  sandboxId: string | null;
-  sourcePath: string;
-  fileName: string;
-  mimeType: string;
-  size: number;
-  blobPath: string;
-  blobUrl: string;
-  metadata: Record<string, unknown> | null;
-  createdAt: string;
-  sessionTitle: string | null;
-  sessionChannel: string;
-};
-
-type FilesListResponse = {
-  files: FileRecord[];
-  hasMore: boolean;
-  nextBefore: string | null;
-};
 
 function formatBytes(size: number): string {
   if (!Number.isFinite(size) || size <= 0) {
@@ -81,26 +60,6 @@ function shortSessionId(value: string): string {
   return `${value.slice(0, 8)}...${value.slice(-4)}`;
 }
 
-function buildListUrl(input: {
-  before?: string | null;
-  sessionId?: string | null;
-}) {
-  const params = new URLSearchParams({
-    limit: '30',
-    sort: 'desc',
-  });
-
-  if (input.before) {
-    params.set('before', input.before);
-  }
-
-  if (input.sessionId) {
-    params.set('sessionId', input.sessionId);
-  }
-
-  return `/api/files?${params.toString()}`;
-}
-
 export default function FilesPage() {
   const [items, setItems] = useState<FileRecord[]>([]);
   const [sessionFilterInput, setSessionFilterInput] = useState('');
@@ -114,9 +73,11 @@ export default function FilesPage() {
   const loadFirstPage = useCallback(async () => {
     setRefreshing(true);
     try {
-      const response = await ofetch<FilesListResponse>(
-        buildListUrl({ sessionId: sessionFilter }),
-      );
+      const response = await listFilesAction({
+        sessionId: sessionFilter,
+        limit: 30,
+        sort: 'desc',
+      });
       setItems(response.files ?? []);
       setHasMore(Boolean(response.hasMore));
       setNextBefore(response.nextBefore ?? null);
@@ -135,12 +96,12 @@ export default function FilesPage() {
 
     setLoadingMore(true);
     try {
-      const response = await ofetch<FilesListResponse>(
-        buildListUrl({
-          sessionId: sessionFilter,
-          before: nextBefore,
-        }),
-      );
+      const response = await listFilesAction({
+        sessionId: sessionFilter,
+        before: nextBefore,
+        limit: 30,
+        sort: 'desc',
+      });
       const incoming = response.files ?? [];
       setItems((current) => {
         const seen = new Set(current.map((item) => item.id));
@@ -298,7 +259,7 @@ export default function FilesPage() {
                       <div className="text-xs text-muted-foreground">
                         {item.sessionTitle
                           ? `Session title: ${item.sessionTitle}`
-                          : `Channel: ${item.sessionChannel}`}
+                          : `Channel: ${item.sessionChannel ?? 'unknown'}`}
                       </div>
                     </div>
 

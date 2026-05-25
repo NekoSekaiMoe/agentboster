@@ -1,8 +1,16 @@
 'use client';
 
 import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
-import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useState } from 'react';
+
+import {
+  createLongTermMemoryAction,
+  deleteLongTermMemoryAction,
+  listBuiltinMemorySectionsAction,
+  listLongTermMemoriesAction,
+  listSessionSummariesAction,
+  updateBuiltinMemorySectionAction,
+} from '@/app/(memory)/actions';
 import { toast } from 'sonner';
 
 import {
@@ -102,7 +110,7 @@ function BuiltinPanel() {
   const loadBuiltin = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await ofetch<BuiltinMemoryResponse>('/api/memory/builtin');
+      const data = await listBuiltinMemorySectionsAction();
       const map: Record<string, BuiltinMemory> = {};
       for (const m of data.sections ?? []) {
         map[m.key] = m;
@@ -127,9 +135,9 @@ function BuiltinPanel() {
   async function saveKey(key: string) {
     setSavingKey(key);
     try {
-      await ofetch('/api/memory/builtin', {
-        method: 'PUT',
-        body: { key, content: drafts[key] ?? '' },
+      await updateBuiltinMemorySectionAction({
+        key,
+        content: drafts[key] ?? '',
       });
       toast.success(`${key} saved`);
       await loadBuiltin();
@@ -229,9 +237,10 @@ function LongTermPanel() {
   const loadMemories = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await ofetch<LongTermMemoryListResponse>(
-        '/api/memory/long-term?page=1&pageSize=100',
-      );
+      const data = await listLongTermMemoriesAction({
+        page: 1,
+        pageSize: 100,
+      });
       setMemories(data.items ?? []);
     } catch {
       toast.error('Failed to load long-term memories');
@@ -249,12 +258,7 @@ function LongTermPanel() {
     if (!content) return;
     setCreating(true);
     try {
-      const result = await ofetch<{
-        indexing?: { mode?: string };
-      }>('/api/memory/long-term', {
-        method: 'POST',
-        body: { content },
-      });
+      const result = await createLongTermMemoryAction({ content });
       setNewContent('');
       toast.success(
         result.indexing?.mode === 'embedded'
@@ -273,9 +277,7 @@ function LongTermPanel() {
     if (deletingMap[id]) return;
     setDeletingMap((prev) => ({ ...prev, [id]: true }));
     try {
-      await ofetch(`/api/memory/long-term/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
+      await deleteLongTermMemoryAction(id);
       setMemories((prev) => prev.filter((m) => m.id !== id));
       toast.success('Memory deleted');
     } catch {
@@ -418,10 +420,7 @@ function SessionPanel() {
     }
     setLoading(true);
     try {
-      const params = new URLSearchParams({ sessionId: sid });
-      const data = await ofetch<{
-        summaries?: SessionSummary[];
-      }>(`/api/memory/session?${params.toString()}`);
+      const data = await listSessionSummariesAction({ sessionId: sid });
       setSummaries(data.summaries ?? []);
     } catch {
       toast.error('Failed to load session summaries');

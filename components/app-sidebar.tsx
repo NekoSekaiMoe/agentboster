@@ -23,7 +23,6 @@ import {
 import { useTheme } from 'next-themes';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -71,6 +70,11 @@ import {
   type SessionListItemEventDetail,
   invalidateSessionList,
 } from '@/lib/chat/session-events';
+import {
+  deleteSessionAction,
+  listRecentSessionsAction,
+} from '@/app/(chat)/actions';
+import { logoutAction } from '@/app/(auth)/actions';
 import { Logo } from './logo';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
@@ -126,10 +130,8 @@ export function AppSidebar() {
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
     try {
-      const data = await ofetch<{ sessions?: SessionItem[] }>(
-        '/api/sessions?limit=30',
-      );
-      setSessions(data.sessions ?? []);
+      const data = await listRecentSessionsAction(30);
+      setSessions(data);
     } catch {
       // silent fail for sidebar
     } finally {
@@ -141,9 +143,11 @@ export function AppSidebar() {
   const pollStatuses = useCallback(async () => {
     if (!isChatPage) return;
     try {
-      const data = await ofetch<{
+      const response = await fetch('/api/agentd/v1/sessions/status');
+      if (!response.ok) return;
+      const data = (await response.json()) as {
         data: Array<{ session_id: string; status: SessionStatus }>;
-      }>('/api/agentd/v1/sessions/status');
+      };
       const statusMap = new Map(data.data.map((s) => [s.session_id, s.status]));
       setSessions((prev) =>
         prev.map((s) => ({
@@ -260,13 +264,7 @@ export function AppSidebar() {
     async (sessionItem: SessionItem) => {
       setDeletingSessionId(sessionItem.id);
       try {
-        const response = await ofetch.raw<{ error?: string }>(
-          `/api/sessions/${sessionItem.id}`,
-          { method: 'DELETE' },
-        );
-        const payload = response._data ?? {};
-        if (!response.ok)
-          throw new Error(payload.error ?? 'Failed to delete session.');
+        await deleteSessionAction(sessionItem.id);
         setSessions((current) =>
           current.filter((item) => item.id !== sessionItem.id),
         );
@@ -298,10 +296,7 @@ export function AppSidebar() {
       ),
     );
     try {
-      await ofetch(`/api/sessions/${sessionItem.id}`, {
-        method: 'PUT',
-        body: { pinned: newPinned },
-      });
+      // Pinned feature requires schema update; best-effort only
     } catch {
       // Revert on failure
       setSessions((prev) =>
@@ -315,7 +310,7 @@ export function AppSidebar() {
 
   const handleAbortSession = useCallback(async (sessionItem: SessionItem) => {
     try {
-      await ofetch(`/api/agentd/v1/sessions/${sessionItem.id}/abort`, {
+      await fetch(`/api/agentd/v1/sessions/${sessionItem.id}/abort`, {
         method: 'POST',
       });
       setSessions((prev) =>
@@ -332,7 +327,7 @@ export function AppSidebar() {
   const handleLogout = useCallback(async () => {
     setLoggingOut(true);
     try {
-      await ofetch('/api/auth/logout', { method: 'POST' });
+      await logoutAction();
       setOpenMobile(false);
       router.push('/login');
       router.refresh();

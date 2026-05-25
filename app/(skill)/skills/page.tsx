@@ -1,8 +1,21 @@
 'use client';
 
 import { Download, FileText, Loader2, Plus, Trash2 } from 'lucide-react';
-import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useRef, useState } from 'react';
+
+import {
+  buildSkillArchiveAction,
+  createSkillAction,
+  deleteSkillAction,
+  getSkillDetailAction,
+  getSkillFileContentAction,
+  getSkillImportJobAction,
+  listActiveSkillImportJobsAction,
+  listSkillsAction,
+  startSkillImportAction,
+  updateSkillFileAction,
+} from '@/app/(skill)/actions';
+import type { SkillDetail, SkillMeta } from '@/types/skills';
 import { toast } from 'sonner';
 
 import {
@@ -26,37 +39,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-
-interface SkillMeta {
-  name: string;
-  description: string;
-  sourceType: 'git' | 'manual';
-  gitURL: string;
-  updatedAt: number;
-  fileCount: number;
-}
-
-interface ActiveImportJobSummary {
-  jobId: string;
-  gitURL: string;
-  status: 'pending' | 'cloning' | 'syncing';
-  startedAt: number;
-}
-
-interface SkillFileEntry {
-  path: string;
-}
-
-interface SkillDetail {
-  name: string;
-  description: string;
-  sourceType: 'git' | 'manual';
-  gitURL: string;
-  repoId: string;
-  updatedAt: number;
-  frontmatter: Record<string, unknown>;
-  files: SkillFileEntry[];
-}
 
 let nextFileId = 0;
 
@@ -110,8 +92,7 @@ export default function SkillsPage() {
   const loadSkills = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await ofetch<unknown>('/api/skills');
-      setSkills(Array.isArray(data) ? data : []);
+      setSkills(await listSkillsAction());
     } catch {
       toast.error('Failed to load skills');
     } finally {
@@ -123,7 +104,7 @@ export default function SkillsPage() {
     // Skip if already importing (user initiated)
     if (importJob) return;
     try {
-      const data = await ofetch<ActiveImportJobSummary[]>('/api/skills/import');
+      const data = await listActiveSkillImportJobsAction();
       if (data.length > 0) {
         // Restore the first active job (typically only one at a time)
         const activeJob = data[0];
@@ -156,15 +137,8 @@ export default function SkillsPage() {
         return;
       }
       try {
-        const res = await ofetch.raw(
-          `/api/skills/import?jobId=${importJob.jobId}`,
-        );
-        if (!res.ok) return;
-        const job = res._data as {
-          status?: string;
-          importedNames?: string[];
-          error?: string;
-        };
+        const job = await getSkillImportJobAction(importJob.jobId);
+        if (!job) return;
         if (job.status === 'done') {
           clearInterval(importPollRef.current ?? undefined);
           importPollRef.current = null;
@@ -225,13 +199,10 @@ export default function SkillsPage() {
       return;
     }
     try {
-      await ofetch('/api/skills', {
-        method: 'POST',
-        body: {
-          name: createName.trim(),
-          description: createDescription.trim(),
-          files: validFiles,
-        },
+      await createSkillAction({
+        name: createName.trim(),
+        description: createDescription.trim(),
+        files: validFiles,
       });
       toast.success('Skill created');
       resetCreateForm();
@@ -248,13 +219,7 @@ export default function SkillsPage() {
     if (!gitURL.trim()) return;
     setImporting(true);
     try {
-      const data = await ofetch<{ jobId: string; gitURL: string }>(
-        '/api/skills/import',
-        {
-          method: 'POST',
-          body: { gitURL: gitURL.trim() },
-        },
-      );
+      const data = await startSkillImportAction({ gitURL: gitURL.trim() });
       // Optimistic: switch to list immediately and start polling
       setGitURL('');
       setViewMode('list');
@@ -271,9 +236,7 @@ export default function SkillsPage() {
   async function deleteSkill(name: string) {
     setDeleting(name);
     try {
-      await ofetch(`/api/skills/${encodeURIComponent(name)}`, {
-        method: 'DELETE',
-      });
+      await deleteSkillAction(name);
       toast.success(`Skill "${name}" deleted`);
       setSkills((prev) => prev.filter((s) => s.name !== name));
       if (selectedSkill?.name === name) {
@@ -292,17 +255,17 @@ export default function SkillsPage() {
   async function downloadSkillArchive(name: string) {
     setDownloading(name);
     try {
-      const response = await ofetch.native(
-        `/api/skills/${encodeURIComponent(name)}/archive`,
-      );
-      if (!response.ok) {
-        throw new Error('Failed to download archive');
+      const archive = await buildSkillArchiveAction(name);
+      const binary = atob(archive.contentBase64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
       }
-      const blob = await response.blob();
+      const blob = new Blob([bytes], { type: archive.mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${name}.tar`;
+      a.download = archive.fileName;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -317,9 +280,7 @@ export default function SkillsPage() {
   async function viewSkillDetail(name: string) {
     setLoadingDetail(true);
     try {
-      const data = await ofetch<SkillDetail>(
-        `/api/skills/${encodeURIComponent(name)}`,
-      );
+      const data = await getSkillDetailAction(name);
       setSelectedSkill(data);
       setSelectedFileContent(null);
       setSelectedFilePath(null);
@@ -334,13 +295,10 @@ export default function SkillsPage() {
   async function viewFile(skillName: string, filePath: string) {
     setLoadingFile(filePath);
     try {
-      const encodedPath = filePath
-        .split('/')
-        .map((segment) => encodeURIComponent(segment))
-        .join('/');
-      const data = await ofetch<{ content: string }>(
-        `/api/skills/${encodeURIComponent(skillName)}/files/${encodedPath}`,
-      );
+      const data = await getSkillFileContentAction({
+        skillName,
+        filePath,
+      });
       setSelectedFileContent(data.content);
       setSelectedFilePath(filePath);
       setEditingFileContent(null);
@@ -356,20 +314,14 @@ export default function SkillsPage() {
       return;
     setSavingFile(true);
     try {
-      const encodedPath = selectedFilePath
-        .split('/')
-        .map((segment) => encodeURIComponent(segment))
-        .join('/');
-      const result = await ofetch<{ skill?: SkillDetail }>(
-        `/api/skills/${encodeURIComponent(selectedSkill.name)}/files/${encodedPath}`,
-        {
-          method: 'PUT',
-          body: { content: editingFileContent },
-        },
-      );
+      const result = await updateSkillFileAction({
+        skillName: selectedSkill.name,
+        filePath: selectedFilePath,
+        content: editingFileContent,
+      });
       setSelectedFileContent(editingFileContent);
       setEditingFileContent(null);
-      if (result.skill) setSelectedSkill(result.skill);
+      setSelectedSkill(result.skill);
       toast.success(`Saved ${selectedFilePath}`);
     } catch (error) {
       toast.error(

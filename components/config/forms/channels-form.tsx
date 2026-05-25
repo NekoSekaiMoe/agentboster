@@ -1,8 +1,9 @@
 'use client';
 
 import { AlertCircle, Copy } from 'lucide-react';
-import { ofetch } from 'ofetch';
 import { useEffect, useState } from 'react';
+
+import { loadWebhookConfigAction } from '@/app/(config)/actions';
 import { toast } from 'sonner';
 import { useCopyToClipboard } from 'usehooks-ts';
 
@@ -97,7 +98,7 @@ export function ChannelsForm() {
   useEffect(() => {
     let isMounted = true;
 
-    void ofetch<WebhookConfigResponse>('/api/config/webhooks')
+    loadWebhookConfigAction()
       .then((payload) => {
         if (isMounted) {
           setWebhookConfig(payload);

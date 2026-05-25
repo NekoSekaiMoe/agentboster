@@ -1,6 +1,5 @@
 'use client';
 
-import { ofetch } from 'ofetch';
 import {
   createContext,
   startTransition,
@@ -16,7 +15,7 @@ import {
   type ConfigValidationIssue,
   useConfigValidation,
 } from '@/hooks/use-config-validation';
-import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { loadConfigAction, saveConfigAction } from '@/app/(config)/actions';
 import type { RuntimeHealthSnapshot } from '@/lib/utils/runtime-health';
 import type { AppConfig } from '@/types/config';
 import { appConfigSchema } from '@/types/config';
@@ -58,27 +57,6 @@ function cloneDraft(value: ConfigDraft): ConfigDraft {
   return structuredClone(value);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function extractConfigLoadResponse(payload: unknown): ConfigLoadResponse {
-  if (!isRecord(payload) || !('config' in payload)) {
-    const config = appConfigSchema.parse(payload);
-    return {
-      config,
-      runtimeHealth: null,
-    };
-  }
-
-  return {
-    config: appConfigSchema.parse(payload.config),
-    runtimeHealth: isRecord(payload.runtimeHealth)
-      ? (payload.runtimeHealth as RuntimeHealthSnapshot)
-      : null,
-  };
-}
-
 export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [draft, setDraft] = useState<ConfigDraft>({});
   const [jsonText, setJsonText] = useState('{}');
@@ -92,16 +70,19 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [revision, setRevision] = useState(0);
 
   const validation = useConfigValidation(draft, 250);
-  const debouncedRevision = useDebouncedValue(revision, 900);
+  const [debouncedRevision, setDebouncedRevision] = useState(revision);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedRevision(revision), 900);
+    return () => window.clearTimeout(timer);
+  }, [revision]);
   const saveReminderVisible = isDirty && debouncedRevision === revision;
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
 
     try {
-      const payload = await ofetch<unknown>('/api/config');
       const { config, runtimeHealth: nextRuntimeHealth } =
-        extractConfigLoadResponse(payload);
+        await loadConfigAction();
 
       startTransition(() => {
         setDraft(config);
@@ -188,11 +169,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     setIsSaving(true);
 
     try {
-      const savedPayload = await ofetch<unknown>('/api/config/update', {
-        method: 'PUT',
-        body: parsed,
-      });
-      const saved = appConfigSchema.parse(savedPayload);
+      const saved = await saveConfigAction(parsed);
 
       startTransition(() => {
         setDraft(saved);

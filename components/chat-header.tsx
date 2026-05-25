@@ -1,7 +1,6 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ofetch } from 'ofetch';
 import { memo, useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -47,7 +46,7 @@ function PureChatHeader({
     if (!chatId) return;
     setAborting(true);
     try {
-      await ofetch(`/api/agentd/v1/sessions/${chatId}/abort`, {
+      await fetch(`/api/agentd/v1/sessions/${chatId}/abort`, {
         method: 'POST',
       });
       toast.success('Session aborted');

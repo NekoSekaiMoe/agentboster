@@ -39,7 +39,6 @@ import {
   Save,
   Trash2,
 } from 'lucide-react';
-import { ofetch } from 'ofetch';
 import {
   type ReactNode,
   useCallback,
@@ -48,6 +47,12 @@ import {
   useState,
 } from 'react';
 import { toast } from 'sonner';
+
+import {
+  deleteScheduleTaskAction,
+  listScheduleTasksAction,
+  updateScheduleTaskAction,
+} from '@/app/(schedule)/actions';
 
 type TaskType = 'delay' | 'daily';
 type DisplayStatus = 'scheduled' | 'archived';
@@ -146,7 +151,7 @@ export default function SchedulePage() {
   const loadTasks = useCallback(async () => {
     setRefreshing(true);
     try {
-      const data = await ofetch<{ tasks?: ScheduleTask[] }>('/api/schedules');
+      const data = await listScheduleTasksAction();
       const nextTasks = data.tasks ?? [];
       setTasks(nextTasks);
       setDrafts(
@@ -242,9 +247,9 @@ export default function SchedulePage() {
         };
       }
 
-      await ofetch(`/api/schedules/${encodeURIComponent(task.id)}`, {
-        method: 'PUT',
-        body,
+      await updateScheduleTaskAction({
+        id: task.id,
+        task: body as Parameters<typeof updateScheduleTaskAction>[0]['task'],
       });
       toast.success('Task updated');
       await loadTasks();
@@ -260,9 +265,7 @@ export default function SchedulePage() {
   async function deleteTask(id: string) {
     setDeletingMap((prev) => ({ ...prev, [id]: true }));
     try {
-      await ofetch(`/api/schedules/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
+      await deleteScheduleTaskAction(id);
       setTasks((prev) => prev.filter((task) => task.id !== id));
       setDrafts((prev) => {
         const next = { ...prev };

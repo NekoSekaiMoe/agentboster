@@ -6,6 +6,10 @@ import {
   type CreateUIMessage,
   DefaultChatTransport,
 } from 'ai';
+import {
+  controlSessionRuntimeAction,
+  updateSessionTitleAction,
+} from '@/app/(chat)/actions';
 import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -508,13 +512,7 @@ export function Chat({
       });
 
       try {
-        await ofetch('/api/sessions/update', {
-          method: 'PATCH',
-          body: {
-            id,
-            title,
-          },
-        });
+        await updateSessionTitleAction({ id, title });
         invalidateSessionList();
       } catch (error) {
         console.warn('[chat] update session title failed:', error);
@@ -585,12 +583,10 @@ export function Chat({
     stop();
 
     try {
-      await ofetch(`/api/sessions/${id}/runtime/control`, {
-        method: 'POST',
-        body: {
-          target: 'workflow',
-          action: 'cancel',
-        },
+      await controlSessionRuntimeAction({
+        sessionId: id,
+        target: 'workflow',
+        action: 'cancel',
       });
 
       activeRunIdRef.current = null;
@@ -602,24 +598,13 @@ export function Chat({
 
   const submitToolApproval = useCallback(
     async (input: ToolApprovalInput) => {
-      const response = await ofetch.raw<{ error?: string }>(
-        `/api/sessions/${id}/runtime/control`,
-        {
-          method: 'POST',
-          body: {
-            target: 'approval',
-            action: input.action,
-            toolCallId: input.toolCallId,
-            comment: input.comment,
-          },
-          ignoreResponseError: true,
-        },
-      );
-
-      if (!response.ok) {
-        const payload = response._data ?? {};
-        throw new Error(payload.error ?? 'Failed to submit approval.');
-      }
+      await controlSessionRuntimeAction({
+        sessionId: id,
+        target: 'approval',
+        action: input.action,
+        toolCallId: input.toolCallId,
+        comment: input.comment,
+      });
 
       setRuntimePollingResumeKey((current) => current + 1);
       setShouldResumeStream(true);

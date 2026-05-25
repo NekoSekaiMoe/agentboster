@@ -1,7 +1,8 @@
 'use client';
 
-import { ofetch } from 'ofetch';
 import { useEffect, useMemo, useState } from 'react';
+
+import { loadToolCatalogAction } from '@/app/(config)/actions';
 
 import {
   Card,
@@ -72,9 +73,7 @@ export function ToolsForm() {
 
     const loadCatalog = async () => {
       try {
-        const response = await ofetch<ToolCatalogResponse>(
-          '/api/config/tools/catalog',
-        );
+        const response = await loadToolCatalogAction();
 
         if (!isActive) {
           return;

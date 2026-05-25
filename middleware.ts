@@ -13,10 +13,6 @@ function isLoginPath(pathname: string): boolean {
     return true;
   }
 
-  if (pathname === '/api/auth/login') {
-    return true;
-  }
-
   return false;
 }
 

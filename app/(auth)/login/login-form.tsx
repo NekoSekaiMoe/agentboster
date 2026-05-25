@@ -1,7 +1,7 @@
 'use client';
 
+import { loginAction } from '@/app/(auth)/actions';
 import { useRouter } from 'next/navigation';
-import { ofetch } from 'ofetch';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -28,23 +28,18 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
     setError(null);
 
     try {
-      const target = `/api/auth/login?redirectTo=${encodeURIComponent(redirectTo)}`;
-      const response = await ofetch.raw<{
-        error?: string;
-        redirectTo?: string;
-      }>(target, {
-        method: 'POST',
-        body: { username, password },
-        ignoreResponseError: true,
+      const result = await loginAction({
+        username,
+        password,
+        redirectTo,
       });
 
-      const data = response._data ?? {};
-      if (!response.ok) {
-        setError(data.error ?? 'Login failed.');
+      if (!result.ok) {
+        setError(result.error ?? 'Login failed.');
         return;
       }
 
-      router.replace(data.redirectTo ?? '/');
+      router.replace(result.redirectTo ?? '/');
       router.refresh();
     } catch {
       setError('Network error. Please try again.');

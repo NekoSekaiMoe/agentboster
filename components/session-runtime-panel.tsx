@@ -2,8 +2,12 @@
 
 import { motion } from 'framer-motion';
 import { Loader2, RefreshCw, Square, XCircle } from 'lucide-react';
-import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
+import {
+  controlSessionRuntimeAction,
+  getSessionRuntimeAction,
+} from '@/app/(chat)/actions';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -119,14 +123,8 @@ export function SessionRuntimePanel({
 
     setLoading(true);
     try {
-      const response = await ofetch.raw<SessionRuntimeResponse>(
-        `/api/sessions/${chatId}/runtime`,
-        {
-          cache: 'no-store',
-          ignoreResponseError: true,
-        },
-      );
-      if (response.status === 404) {
+      const nextRuntime = await getSessionRuntimeAction(chatId);
+      if (!nextRuntime) {
         applyRuntime({
           sessionId: chatId,
           environment: null,
@@ -165,10 +163,6 @@ export function SessionRuntimePanel({
         });
         return;
       }
-      if (!response.ok) {
-        throw new Error('Failed to load runtime.');
-      }
-      const nextRuntime = response._data as SessionRuntimeResponse;
       applyRuntime(nextRuntime);
     } catch (error) {
       toast.error(
@@ -257,21 +251,14 @@ export function SessionRuntimePanel({
         if (target === 'workflow' && onWorkflowCancel) {
           await onWorkflowCancel();
         } else {
-          const response = await ofetch.raw<{
-            error?: string;
-            runtime?: SessionRuntimeResponse;
-          }>(`/api/sessions/${chatId}/runtime/control`, {
-            method: 'POST',
-            body: { target, action },
+          const payload = await controlSessionRuntimeAction({
+            sessionId: chatId,
+            target,
+            action,
           });
 
-          const payload = response._data ?? {};
-          if (!response.ok) {
-            throw new Error(payload.error ?? 'Control action failed.');
-          }
-
           if (payload.runtime) {
-            applyRuntime(payload.runtime as SessionRuntimeResponse);
+            applyRuntime(payload.runtime);
           } else {
             await fetchRuntime();
           }

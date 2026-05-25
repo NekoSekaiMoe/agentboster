@@ -1,8 +1,7 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { appConfigSchema } from '@/types/config';
 
 export interface ConfigValidationIssue {
@@ -19,7 +18,12 @@ export function useConfigValidation(
   value: unknown,
   delay = 250,
 ): ConfigValidationResult {
-  const debouncedValue = useDebouncedValue(value, delay);
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
 
   return useMemo(() => {
     const result = appConfigSchema.safeParse(debouncedValue);

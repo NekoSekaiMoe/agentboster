@@ -3,9 +3,9 @@ import { type RefObject, useEffect, useRef } from 'react';
 export function useScrollToBottom<T extends HTMLElement>(
   trackedItem: unknown,
   secondarySignal: unknown = null,
-): [RefObject<T>, RefObject<T>] {
-  const containerRef = useRef<T>(null);
-  const endRef = useRef<T>(null);
+): [RefObject<T | null>, RefObject<T | null>] {
+  const containerRef = useRef<T | null>(null);
+  const endRef = useRef<T | null>(null);
   const isPinnedToBottomRef = useRef(true);
   const hasMountedRef = useRef(false);
   const previousTrackedItemRef = useRef<unknown>(null);

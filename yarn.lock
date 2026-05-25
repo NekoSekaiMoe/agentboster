@@ -657,20 +657,10 @@
   dependencies:
     "@marijn/find-cluster-break" "^1.0.0"
 
-"@codemirror/view@6.41.0":
+"@codemirror/view@6.41.0", "@codemirror/view@^6.23.0", "@codemirror/view@^6.35.0":
   version "6.41.0"
   resolved "https://registry.npmmirror.com/@codemirror/view/-/view-6.41.0.tgz#482cbcb5f8f90131908e5f9c0e2f4681e0684db0"
   integrity sha512-6H/qadXsVuDY219Yljhohglve8xf4B8xJkVOEWfA5uiYKiTFppjqsvsfR5iPA0RbvRBoOyTZpbLIxe9+0UR8xA==
-  dependencies:
-    "@codemirror/state" "^6.6.0"
-    crelt "^1.0.6"
-    style-mod "^4.1.0"
-    w3c-keyname "^2.2.4"
-
-"@codemirror/view@^6.23.0", "@codemirror/view@^6.35.0":
-  version "6.43.0"
-  resolved "https://registry.npmmirror.com/@codemirror/view/-/view-6.43.0.tgz#a577da65f1d5d8f7cbf08e14849284c12f38365a"
-  integrity sha512-V7ZCLQO3Jus9hzh2jVCCPW3mO4IBMr43O37PqSUYautJSnnJF41YlgLw21x0fLJTYvJ+Vkm6Gp+qKGH9pltgXA==
   dependencies:
     "@codemirror/state" "^6.6.0"
     crelt "^1.0.6"
@@ -2832,10 +2822,10 @@
   resolved "https://registry.npmmirror.com/@swc/counter/-/counter-0.1.3.tgz#cc7463bd02949611c6329596fccd2b0ec782b0e9"
   integrity sha512-e2BR4lsJkkRlKZ/qCHPw9ZaSxc0MVUd7gtbtaB7aMvHeJVYe8sOB8DBZkP2DtISHGSku9sCK6T6cnY0CtXrOCQ==
 
-"@swc/helpers@0.5.15":
-  version "0.5.15"
-  resolved "https://registry.npmmirror.com/@swc/helpers/-/helpers-0.5.15.tgz#79efab344c5819ecf83a43f3f9f811fc84b516d7"
-  integrity sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g==
+"@swc/helpers@0.5.15", "@swc/helpers@0.5.17":
+  version "0.5.17"
+  resolved "https://registry.npmmirror.com/@swc/helpers/-/helpers-0.5.17.tgz#5a7be95ac0f0bf186e7e6e890e7a6f6cda6ce971"
+  integrity sha512-5IKx/Y13RsYd+sauPb2x+U/xZikHjolzfuDgTAl/Tdf3Q8rslRvC19NKDLgAJQ6wsqADk10ntlv08nPFw/gO/A==
   dependencies:
     tslib "^2.8.0"
 
@@ -4338,7 +4328,7 @@ cjs-module-lexer@1.2.3:
   resolved "https://registry.npmmirror.com/cjs-module-lexer/-/cjs-module-lexer-1.2.3.tgz#6c370ab19f8a3394e318fe682686ec0ac684d107"
   integrity sha512-0TNiGstbQmCFwt4akjjBg5pLRTSyj/PkWQ1ZoO2zntmg9yLqSRxwEa4iCfQLGjqhiqBfOJa7W/E8wfGrTDmlZQ==
 
-class-variance-authority@^0.7.0:
+class-variance-authority@^0.7.1:
   version "0.7.1"
   resolved "https://registry.npmmirror.com/class-variance-authority/-/class-variance-authority-0.7.1.tgz#4008a798a0e4553a781a57ac5177c9fb5d043787"
   integrity sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==
@@ -5582,7 +5572,7 @@ forwarded@0.2.0:
   resolved "https://registry.npmmirror.com/forwarded/-/forwarded-0.2.0.tgz#2269936428aad4c15c7ebe9779a84bf0b2a81811"
   integrity sha512-buRG0fpBtRHSTCOASe6hD258tEubFoRLb4ZNA6NxMVHNw2gOcwHo9wyablzMzOA5z9xA9L1KNjk/Nt6MT9aYow==
 
-framer-motion@^11.3.19:
+framer-motion@^11.18.2:
   version "11.18.2"
   resolved "https://registry.npmmirror.com/framer-motion/-/framer-motion-11.18.2.tgz#0c6bd05677f4cfd3b3bdead4eb5ecdd5ed245718"
   integrity sha512-5F5Och7wrvtLVElIpclDT0CBzMVg3dL22B64aZwHtsIY8RB4mXICLrkajK4G9R+ieSAGcgrLeae2SeUTg2pr6w==
@@ -6239,7 +6229,7 @@ isexe@^3.1.1:
   resolved "https://registry.npmmirror.com/isexe/-/isexe-3.1.5.tgz#42e368f68d5e10dadfee4fda7b550bc2d8892dc9"
   integrity sha512-6B3tLtFqtQS4ekarvLVMZ+X+VlvQekbe4taUkf/rhVO3d/h0M2rfARm/pXLcPEsjjMsFgrFgSrhQIxcSVrBz8w==
 
-isomorphic-git@^1.37.4:
+isomorphic-git@^1.37.5:
   version "1.38.1"
   resolved "https://registry.npmmirror.com/isomorphic-git/-/isomorphic-git-1.38.1.tgz#c8eb586ea06fefc483a39c072679124217665618"
   integrity sha512-Vd2u5qDLa04fA/h5nUMU5UuffPXqg+3D3bJIV3n7Sno2qS3XMinUXRvNHrGPVy2kkC1ad5SPCC3WcpXjn0L9oQ==
@@ -6555,10 +6545,10 @@ lru-memoizer@^2.2.0:
     lodash.clonedeep "^4.5.0"
     lru-cache "6.0.0"
 
-lucide-react@^0.446.0:
-  version "0.446.0"
-  resolved "https://registry.npmmirror.com/lucide-react/-/lucide-react-0.446.0.tgz#b92bd0229ad79a11fff84d47f9351797fc0b904e"
-  integrity sha512-BU7gy8MfBMqvEdDPH79VhOXSEgyG8TSPOKWaExWGCQVqnGH7wGgDngPbofu+KdtVjPQBWbEmnfMTq90CTiiDRg==
+lucide-react@^1.8.0:
+  version "1.16.0"
+  resolved "https://registry.npmmirror.com/lucide-react/-/lucide-react-1.16.0.tgz#8c19a757982ed28e28afd0da9a950d3152e4b7e5"
+  integrity sha512-dYwyPzb4MEKpGUmNYk3WKWPnMrHs3FKM+q94kAnJrcDIqqn1hq2xY8scaS2ovsOCM5D51ey2gaRG3PBb1vgoYQ==
 
 luxon@^3.4.0, luxon@~3.7.0:
   version "3.7.2"
@@ -8080,17 +8070,17 @@ rc9@^3.0.0, rc9@^3.0.1:
     defu "^6.1.6"
     destr "^2.0.5"
 
-react-dom@^19.0.0:
+react-dom@^19.2.6:
   version "19.2.6"
   resolved "https://registry.npmmirror.com/react-dom/-/react-dom-19.2.6.tgz#44a81b0bcca22da814c00847d09d01c8615529b7"
   integrity sha512-0prMI+hvBbPjsWnxDLxlCGyM8PN6UuWjEUCYmZhO67xIV9Xasa/r/vDnq+Xyq4Lo27g8QSbO5YzARu0D1Sps3g==
   dependencies:
     scheduler "^0.27.0"
 
-react-markdown@^9.0.1:
-  version "9.1.0"
-  resolved "https://registry.npmmirror.com/react-markdown/-/react-markdown-9.1.0.tgz#606bd74c6af131ba382a7c1282ff506708ed2e26"
-  integrity sha512-xaijuJB0kzGiUdG7nc2MOMDUDBWPyGAjZtUrow9XxUeua8IqeP+VlIfAZ3bphpcLTnSZXz6z9jcVC/TCwbfgdw==
+react-markdown@^10.1.0:
+  version "10.1.0"
+  resolved "https://registry.npmmirror.com/react-markdown/-/react-markdown-10.1.0.tgz#e22bc20faddbc07605c15284255653c0f3bad5ca"
+  integrity sha512-qKxVopLT/TyA6BX3Ue5NwabOsAzm0Q7kAPwq6L+wWDwisYs7R8vZ0nRXqq6rkueboxpkjvLGU9fWifiX/ZZFxQ==
   dependencies:
     "@types/hast" "^3.0.0"
     "@types/mdast" "^4.0.0"
@@ -8131,7 +8121,7 @@ react-style-singleton@^2.2.2, react-style-singleton@^2.2.3:
     get-nonce "^1.0.0"
     tslib "^2.0.0"
 
-react@^19.0.0:
+react@^19.2.6:
   version "19.2.6"
   resolved "https://registry.npmmirror.com/react/-/react-19.2.6.tgz#3dadb8e12b2a7934c1d5317973e5dce1301f9a4d"
   integrity sha512-sfWGGfavi0xr8Pg0sVsyHMAOziVYKgPLNrS7ig+ivMNb3wbCBw3KxtflsGBAwD3gYQlE/AEZsTLgToRrSCjb0Q==
@@ -8696,10 +8686,10 @@ socks@^2.8.3:
     ip-address "^10.1.1"
     smart-buffer "^4.2.0"
 
-sonner@^1.7.4:
-  version "1.7.4"
-  resolved "https://registry.npmmirror.com/sonner/-/sonner-1.7.4.tgz#4c39820db86623800a17115c8970796aa862133a"
-  integrity sha512-DIS8z4PfJRbIyfVFDVnK9rO3eYDtse4Omcm6bt0oEr5/jtLgysmjuBl1frJ9E/EQZrFmKx2A8m/s5s9CRXIzhw==
+sonner@^2.0.7:
+  version "2.0.7"
+  resolved "https://registry.npmmirror.com/sonner/-/sonner-2.0.7.tgz#810c1487a67ec3370126e0f400dfb9edddc3e4f6"
+  integrity sha512-W6ZN4p58k8aDKA4XPcx2hpIQXBRAgyiWVkYhT7CvK6D3iAu7xjvVyhQHg2/iaKJZ1XVJ4r7XuwGL+WGEK37i9w==
 
 source-map-js@^1.0.2, source-map-js@^1.2.1:
   version "1.2.1"
@@ -8951,12 +8941,7 @@ tagged-tag@^1.0.0:
   resolved "https://registry.npmmirror.com/tagged-tag/-/tagged-tag-1.0.0.tgz#a0b5917c2864cba54841495abfa3f6b13edcf4d6"
   integrity sha512-yEFYrVhod+hdNyx7g5Bnkkb0G6si8HJurOoOEgC8B/O0uXLHlaey/65KRv6cuWBNhBgHKAROVpc7QyYqE5gFng==
 
-tailwind-merge@^2.6.1:
-  version "2.6.1"
-  resolved "https://registry.npmmirror.com/tailwind-merge/-/tailwind-merge-2.6.1.tgz#a9d58240f664d21c33c379a092d9a273f833443b"
-  integrity sha512-Oo6tHdpZsGpkKG88HJ8RR1rg/RdnEkQEfMoEk2x1XRI3F1AxeU+ijRXpiVUF4UbLfcxxRGw6TbUINKYdWVsQTQ==
-
-tailwind-merge@^3.0.1:
+tailwind-merge@^3.0.1, tailwind-merge@^3.5.0:
   version "3.6.0"
   resolved "https://registry.npmmirror.com/tailwind-merge/-/tailwind-merge-3.6.0.tgz#88d83242d1dd7bc847223f73dcf210dd1f2ee11c"
   integrity sha512-uxL7qAVQriqRQPAyK3pj66VqskWqoZ37PW94jwOTwNfq/z9oyu1V+eqrZqtR2+fCiXdYOZe/Modt8GtvqNzu+w==

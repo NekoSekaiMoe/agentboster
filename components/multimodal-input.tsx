@@ -26,14 +26,14 @@ import { Textarea } from './ui/textarea';
 
 type ComposerMessage = { text: string } | CreateUIMessage<WorkflowUIMessage>;
 
-const adjustHeight = (ref: React.RefObject<HTMLTextAreaElement>) => {
+const adjustHeight = (ref: React.RefObject<HTMLTextAreaElement | null>) => {
   if (ref.current) {
     ref.current.style.height = 'auto';
     ref.current.style.height = `${ref.current.scrollHeight + 2}px`;
   }
 };
 
-const resetHeight = (ref: React.RefObject<HTMLTextAreaElement>) => {
+const resetHeight = (ref: React.RefObject<HTMLTextAreaElement | null>) => {
   if (ref.current) {
     ref.current.style.height = 'auto';
     ref.current.style.height = '98px';
