@@ -6,6 +6,7 @@
     "@ai-sdk/openai": "^3.0.65",
     "@ai-sdk/openai-compatible": "^2.0.48",
     "@ai-sdk/react": "^3.0.193",
+    "@chat-adapter/discord": "^4.29.0",
     "@chat-adapter/gchat": "^4.29.0",
     "@chat-adapter/slack": "^4.29.0",
     "@chat-adapter/state-redis": "^4.29.0",

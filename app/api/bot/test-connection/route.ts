@@ -132,10 +132,8 @@ export async function POST(request: NextRequest) {
       }
 
       case 'teams': {
-        // Teams: verify credentials exist (no simple test API without Azure auth flow)
         const appId = (adapterConfig as Record<string, string>).app_id;
-        const appPassword = (adapterConfig as Record<string, string>)
-          .app_password;
+        const appPassword = (adapterConfig as Record<string, string>).app_password;
         if (appId && appPassword) {
           testResult = {
             ok: true,
@@ -145,6 +143,95 @@ export async function POST(request: NextRequest) {
           testResult = {
             ok: false,
             error: 'app_id and app_password are both required',
+          };
+        }
+        break;
+      }
+
+      case 'discord': {
+        // Discord: call /api/v10/users/@me to verify bot token
+        try {
+          const token = (adapterConfig as Record<string, string>).bot_token;
+          if (!token) {
+            testResult = { ok: false, error: 'bot_token is missing' };
+            break;
+          }
+          const resp = await fetch('https://discord.com/api/v10/users/@me', {
+            headers: { Authorization: `Bot ${token}` },
+          });
+          const data = await resp.json();
+          if (data.username) {
+            testResult = {
+              ok: true,
+              detail: `Connected as ${data.username}#${data.discriminator || '0'}`,
+            };
+          } else {
+            testResult = {
+              ok: false,
+              error: data.message || 'Discord API returned an error',
+            };
+          }
+        } catch (e) {
+          testResult = {
+            ok: false,
+            error: e instanceof Error ? e.message : 'Network error',
+          };
+        }
+        break;
+      }
+
+      case 'feishu': {
+        // Feishu: call tenant_access_token to verify app credentials
+        try {
+          const appId = (adapterConfig as Record<string, string>).app_id;
+          const appSecret = (adapterConfig as Record<string, string>).app_secret;
+          if (!appId || !appSecret) {
+            testResult = { ok: false, error: 'app_id and app_secret are both required' };
+            break;
+          }
+          const domain = (adapterConfig as Record<string, string>).domain || 'feishu';
+          const base = domain === 'lark'
+            ? 'https://open.larksuite.com'
+            : 'https://open.feishu.cn';
+          const resp = await fetch(`${base}/open-apis/auth/v3/tenant_access_token/internal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+          });
+          const data = await resp.json();
+          if (data.code === 0) {
+            testResult = {
+              ok: true,
+              detail: `Tenant access token obtained (app_id: ${appId.substring(0, 8)}...)`,
+            };
+          } else {
+            testResult = {
+              ok: false,
+              error: data.msg || 'Feishu API returned an error',
+            };
+          }
+        } catch (e) {
+          testResult = {
+            ok: false,
+            error: e instanceof Error ? e.message : 'Network error',
+          };
+        }
+        break;
+      }
+
+      case 'qq': {
+        // QQ: verify appid/secret exist (no simple test API without WebSocket)
+        const appid = (adapterConfig as Record<string, string>).appid;
+        const secret = (adapterConfig as Record<string, string>).secret;
+        if (appid && secret) {
+          testResult = {
+            ok: true,
+            detail: `App ID ${appid} configured (QQ Bot requires WebSocket for full connection test)`,
+          };
+        } else {
+          testResult = {
+            ok: false,
+            error: 'appid and secret are both required',
           };
         }
         break;

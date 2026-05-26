@@ -21,7 +21,10 @@ import type { AppConfig } from '@/types/config';
 import type {
   AdapterName,
   ChannelsConfig,
+  DiscordAdapterConfig,
+  FeishuAdapterConfig,
   GChatAdapterConfig,
+  QQAdapterConfig,
   SlackAdapterConfig,
   TeamsAdapterConfig,
   TelegramAdapterConfig,
@@ -105,7 +108,10 @@ export function ChannelsForm() {
     fields: string[];
     key: AdapterName;
     value:
+      | DiscordAdapterConfig
+      | FeishuAdapterConfig
       | GChatAdapterConfig
+      | QQAdapterConfig
       | SlackAdapterConfig
       | TeamsAdapterConfig
       | TelegramAdapterConfig
@@ -116,6 +122,12 @@ export function ChannelsForm() {
       description: CHANNEL_PRESETS.telegram.description,
       value: channels.telegram,
       fields: ['bot_token', 'secret_token', 'bot_username', 'api_base_url'],
+    },
+    {
+      key: 'discord',
+      description: CHANNEL_PRESETS.discord.description,
+      value: channels.discord,
+      fields: ['bot_token', 'application_id', 'public_key'],
     },
     {
       key: 'slack',
@@ -140,6 +152,18 @@ export function ChannelsForm() {
       description: CHANNEL_PRESETS.teams.description,
       value: channels.teams,
       fields: ['app_id', 'app_password'],
+    },
+    {
+      key: 'feishu',
+      description: CHANNEL_PRESETS.feishu.description,
+      value: channels.feishu,
+      fields: ['app_id', 'app_secret', 'encrypt_key', 'verification_token', 'domain'],
+    },
+    {
+      key: 'qq',
+      description: CHANNEL_PRESETS.qq.description,
+      value: channels.qq,
+      fields: ['appid', 'secret', 'sandbox', 'intents'],
     },
   ];
 

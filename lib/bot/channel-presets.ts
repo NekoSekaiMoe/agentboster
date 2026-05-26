@@ -149,6 +149,138 @@ export const CHANNEL_PRESETS: Record<string, ChannelPreset> = {
       },
     }),
   },
+
+  discord: {
+    label: 'Discord',
+    description: 'Discord Bot Token + Application ID for slash commands and interactions',
+    fields: [
+      {
+        key: 'bot_token',
+        label: 'Bot Token',
+        placeholder: 'MTE...',
+        required: true,
+        help: 'Discord Developer Portal → Bot → Reset Token',
+      },
+      {
+        key: 'application_id',
+        label: 'Application ID',
+        placeholder: '123456789012345678',
+        required: false,
+        help: 'Discord Developer Portal → General Information → Application ID',
+      },
+      {
+        key: 'public_key',
+        label: 'Public Key',
+        placeholder: '...',
+        required: false,
+        help: 'For interaction signature verification (optional)',
+      },
+    ],
+    apply: (values) => ({
+      discord: {
+        enabled: true,
+        bot_token: values.bot_token || undefined,
+        application_id: values.application_id || undefined,
+        public_key: values.public_key || undefined,
+      },
+    }),
+  },
+
+  feishu: {
+    label: 'Feishu / Lark',
+    description: 'Feishu Open Platform app credentials. Supports both feishu.cn and larksuite.com domains.',
+    fields: [
+      {
+        key: 'app_id',
+        label: 'App ID',
+        placeholder: 'cli_xxxxx',
+        required: true,
+        help: 'Feishu Open Platform → Credentials & Basic Info',
+      },
+      {
+        key: 'app_secret',
+        label: 'App Secret',
+        placeholder: '...',
+        required: true,
+        help: 'Feishu Open Platform → Credentials & Basic Info',
+      },
+      {
+        key: 'encrypt_key',
+        label: 'Encrypt Key',
+        placeholder: '...',
+        required: false,
+        help: 'Optional. For event encryption. Feishu Open Platform → Event Encryption',
+      },
+      {
+        key: 'verification_token',
+        label: 'Verification Token',
+        placeholder: '...',
+        required: false,
+        help: 'Optional. For event signature verification',
+      },
+      {
+        key: 'domain',
+        label: 'Domain',
+        placeholder: 'feishu or lark',
+        required: false,
+        help: 'feishu = feishu.cn (China), lark = larksuite.com (International)',
+      },
+    ],
+    apply: (values) => ({
+      feishu: {
+        enabled: true,
+        app_id: values.app_id || undefined,
+        app_secret: values.app_secret || undefined,
+        encrypt_key: values.encrypt_key || undefined,
+        verification_token: values.verification_token || undefined,
+        domain: (values.domain as 'feishu' | 'lark') || undefined,
+      },
+    }),
+  },
+
+  qq: {
+    label: 'QQ Official Bot',
+    description: 'QQ Official Bot API credentials from q.qq.com',
+    fields: [
+      {
+        key: 'appid',
+        label: 'App ID',
+        placeholder: '102xxxxxx',
+        required: true,
+        help: 'QQ Open Platform → App Management → App ID',
+      },
+      {
+        key: 'secret',
+        label: 'App Secret',
+        placeholder: '...',
+        required: true,
+        help: 'QQ Open Platform → App Management → App Secret',
+      },
+      {
+        key: 'sandbox',
+        label: 'Sandbox Mode',
+        placeholder: 'true or false',
+        required: false,
+        help: 'Enable sandbox environment for testing',
+      },
+      {
+        key: 'intents',
+        label: 'Intents',
+        placeholder: 'GROUP_AND_C2C_EVENT,GUILD_MESSAGES,...',
+        required: false,
+        help: 'Comma-separated list of intents to subscribe. Common: GROUP_AND_C2C_EVENT, GUILD_MESSAGES, DIRECT_MESSAGE',
+      },
+    ],
+    apply: (values) => ({
+      qq: {
+        enabled: true,
+        appid: values.appid || undefined,
+        secret: values.secret || undefined,
+        sandbox: values.sandbox === 'true' || undefined,
+        intents: values.intents || undefined,
+      },
+    }),
+  },
 };
 
 export const PRESET_LIST = Object.entries(CHANNEL_PRESETS).map(
