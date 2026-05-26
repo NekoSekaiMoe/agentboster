@@ -1,7 +1,7 @@
 export * from './db';
 export * from './auth';
-export { parseAgentClawConfig, agentClawConfigSchema } from './config';
-export type { AgentClawConfig } from './config';
+export { parseAgentBosterConfig, agentBosterConfigSchema } from './config';
+export type { AgentBosterConfig } from './config';
 export * from './security';
 export * from './sandbox';
 export * from './agent/parallel';

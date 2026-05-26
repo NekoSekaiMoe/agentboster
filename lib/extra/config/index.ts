@@ -1,5 +1,5 @@
 export type {
-  AgentClawConfig,
+  AgentBosterConfig,
   LocalScorerConfig,
   RemoteScorerConfig,
   ScorerConfig,
@@ -8,8 +8,8 @@ export type { PollerConfig } from '../cron/types';
 export type { DaemonConfig } from '../agent/daemon/types';
 export type { SandboxType } from '../sandbox/types';
 export type { ChannelType } from '../channels/types';
-export { DEFAULT_AGENT_CLAW_CONFIG } from './types';
+export { DEFAULT_AGENT_BOSTER_CONFIG } from './types';
 export {
-  agentClawConfigSchema,
-  parseAgentClawConfig,
+  agentBosterConfigSchema,
+  parseAgentBosterConfig,
 } from './schema';

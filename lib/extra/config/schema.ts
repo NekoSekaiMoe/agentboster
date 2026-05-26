@@ -31,7 +31,7 @@ const defaultLocalScorer = {
   timeout: 30000,
 };
 
-export const agentClawConfigSchema = z.object({
+export const agentBosterConfigSchema = z.object({
   server: z.object({
     host: z.string().default('0.0.0.0'),
     port: z.number().default(3001),
@@ -128,8 +128,8 @@ export const agentClawConfigSchema = z.object({
   }),
 });
 
-export type AgentClawConfig = z.infer<typeof agentClawConfigSchema>;
+export type AgentBosterConfig = z.infer<typeof agentBosterConfigSchema>;
 
-export function parseAgentClawConfig(input: unknown): AgentClawConfig {
-  return agentClawConfigSchema.parse(input);
+export function parseAgentBosterConfig(input: unknown): AgentBosterConfig {
+  return agentBosterConfigSchema.parse(input);
 }

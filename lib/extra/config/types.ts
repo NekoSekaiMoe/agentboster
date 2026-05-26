@@ -22,7 +22,7 @@ export interface ScorerConfig {
   l1FailurePolicy?: L1FailurePolicy;
 }
 
-export interface AgentClawConfig {
+export interface AgentBosterConfig {
   server: { host: string; port: number };
   security: {
     l0RulesPath: string;
@@ -55,7 +55,7 @@ import type { DaemonConfig } from '../agent/daemon/types';
 import type { PollerConfig } from '../cron/types';
 export type { PollerConfig, DaemonConfig };
 
-export const DEFAULT_AGENT_CLAW_CONFIG: AgentClawConfig = {
+export const DEFAULT_AGENT_BOSTER_CONFIG: AgentBosterConfig = {
   server: {
     host: '0.0.0.0',
     port: 3001,

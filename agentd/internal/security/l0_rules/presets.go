@@ -51,7 +51,7 @@ func DefaultOutputRules() []L0Rule {
 		// === System prompt leak detection ===
 		{
 			ID:     "out-system-prompt-leak",
-			Pattern: `(?i)(your\s+system\s+prompt|you\s+are\s+(AgentClaw|ClawLess)|##\s*安全规则|##\s*Safe|##\s*能力|##\s*沙箱选择策略)`,
+			Pattern: `(?i)(your\s+system\s+prompt|you\s+are\s+(AgentBoster|ClawLess)|##\s*安全规则|##\s*Safe|##\s*能力|##\s*沙箱选择策略)`,
 			Type:   "command",
 			Action: "block",
 			Scope:  "global",

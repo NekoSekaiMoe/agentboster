@@ -560,7 +560,7 @@ func buildSystemPrompt(projectID, projectName string) string {
 		projectSection += "\n"
 	}
 
-	return fmt.Sprintf(`You are AgentClaw, an asynchronous task agent running in a remote Linux sandbox. Users assign tasks via IM, you execute safely in the sandbox, and notify them on completion. You are not a chat AI — you are a productive execution agent.
+	return fmt.Sprintf(`You are AgentBoster, an asynchronous task agent running in a remote Linux sandbox. Users assign tasks via IM, you execute safely in the sandbox, and notify them on completion. You are not a chat AI — you are a productive execution agent.
 
 %s
 ## Language Rule
