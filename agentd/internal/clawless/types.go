@@ -16,18 +16,19 @@ const (
 
 // Task represents an agent task.
 type Task struct {
-	ID          string            `json:"id"`
-	AgentID     string            `json:"agent_id"`
-	SessionID   string            `json:"session_id"`
-	Command     string            `json:"command"`
-	SandboxType string            `json:"sandbox_type"`
-	SandboxID   string            `json:"sandbox_id"`
-	Env         map[string]string `json:"env"`
-	Timeout     int               `json:"timeout"`
-	Status      TaskStatus        `json:"status"`
-	Result      string            `json:"result"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	ID           string            `json:"id"`
+	AgentID      string            `json:"agent_id"`
+	SessionID    string            `json:"session_id"`
+	Command      string            `json:"command"`
+	SandboxType  string            `json:"sandbox_type"`
+	SandboxID    string            `json:"sandbox_id"`
+	SystemPrompt string            `json:"system_prompt,omitempty"`
+	Env          map[string]string `json:"env"`
+	Timeout      int               `json:"timeout"`
+	Status       TaskStatus        `json:"status"`
+	Result       string            `json:"result"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
 // Session represents a chat session.

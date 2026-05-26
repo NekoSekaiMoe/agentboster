@@ -2,6 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { getPreset } from './presets';
 
 type ProviderConfig = {
   provider?: string;
@@ -9,6 +10,7 @@ type ProviderConfig = {
   api_key?: string;
   base_url?: string;
   headers?: Record<string, string>;
+  preset?: string;
 };
 
 export function getProvider({
@@ -17,7 +19,22 @@ export function getProvider({
   api_key,
   base_url,
   headers,
+  preset: presetKey,
 }: ProviderConfig) {
+  // Apply preset defaults if a preset key is specified
+  if (presetKey) {
+    const preset = getPreset(presetKey);
+    if (preset) {
+      return getProvider({
+        provider,
+        format: preset.format as ProviderConfig['format'],
+        api_key,
+        base_url: preset.base_url,
+        headers,
+      });
+    }
+  }
+
   switch (type) {
     case 'openaicompatible': {
       return createOpenAICompatible({

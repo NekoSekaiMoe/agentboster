@@ -309,38 +309,79 @@ func (l *AgentLoop) compactContext(ctx context.Context) error {
 }
 
 // saveTaskState captures current execution state before compaction.
+// Enhanced to identify key decision points: requirement changes, retry-after-failure,
+// and technical approach selections — not just recent tool results.
 func (l *AgentLoop) saveTaskState() {
 	l.agentCtx.TaskState.SandboxType = l.agentCtx.SandboxType
 	l.agentCtx.TaskState.SandboxID = l.agentCtx.SandboxID
 
-	// Extract key decisions from recent tool calls
-	if len(l.agentCtx.RecentToolCalls) > 0 {
-		lastTool := l.agentCtx.RecentToolCalls[len(l.agentCtx.RecentToolCalls)-1]
-		l.agentCtx.TaskState.LastToolSummary = fmt.Sprintf("%s(%s) → %s",
-			lastTool.Tool, truncate(lastTool.Args, 100), truncate(lastTool.Result, 200))
-	}
+	// Extract key decisions from recent tool calls with decision-point detection
+	decisions := make([]string, 0, 5)
+	var lastToolSummary string
 
-	// Collect key decisions (simplified: last 3 tool call results)
-	decisions := make([]string, 0, 3)
-	for i := len(l.agentCtx.RecentToolCalls) - 1; i >= 0 && len(decisions) < 3; i-- {
+	for i := len(l.agentCtx.RecentToolCalls) - 1; i >= 0; i-- {
 		tc := l.agentCtx.RecentToolCalls[i]
-		if tc.Success {
-			decisions = append(decisions, fmt.Sprintf("%s: %s", tc.Tool, truncate(tc.Result, 150)))
+
+		if lastToolSummary == "" {
+			lastToolSummary = fmt.Sprintf("%s(%s) → %s",
+				tc.Tool, truncate(tc.Args, 100), truncate(tc.Result, 200))
+		}
+
+		if len(decisions) >= 5 {
+			break
+		}
+
+		// Detect failure-then-retry pattern (key decision point)
+		if !tc.Success && i > 0 {
+			prevTool := l.agentCtx.RecentToolCalls[i-1]
+			if prevTool.Tool == tc.Tool {
+				decisions = append(decisions,
+					fmt.Sprintf("[RETRY] %s failed then retried: %s",
+						tc.Tool, truncate(tc.Result, 100)))
+				continue
+			}
+		}
+
+		// Detect file modification decisions
+		if tc.Success && (tc.Tool == "write" || tc.Tool == "edit" || tc.Tool == "patch") {
+			decisions = append(decisions,
+				fmt.Sprintf("[FILE] %s: %s", tc.Tool, truncate(tc.Args, 120)))
+			continue
+		}
+
+		// Detect git operations (commit decisions)
+		if tc.Success && (tc.Tool == "git_commit" || tc.Tool == "git_push") {
+			decisions = append(decisions,
+				fmt.Sprintf("[GIT] %s: %s", tc.Tool, truncate(tc.Result, 100)))
+			continue
+		}
+
+		// Include other successful tool results
+		if tc.Success && len(decisions) < 3 {
+			decisions = append(decisions,
+				fmt.Sprintf("%s: %s", tc.Tool, truncate(tc.Result, 150)))
 		}
 	}
+
+	l.agentCtx.TaskState.LastToolSummary = lastToolSummary
 	l.agentCtx.TaskState.KeyDecisions = decisions
 }
 
 // generateCompactionSummary asks the LLM to summarize the conversation.
+// Enhanced to explicitly preserve key decision points.
 func (l *AgentLoop) generateCompactionSummary(ctx context.Context) (string, error) {
-	// Build a compact representation of the conversation
 	var sb strings.Builder
-	sb.WriteString("请用中文总结以下对话的关键信息，包括：\n")
+	sb.WriteString("请用中文总结以下对话的关键信息。\n\n")
+	sb.WriteString("必须保留的关键决策点：\n")
+	sb.WriteString("- 用户中途修改需求的节点\n")
+	sb.WriteString("- Agent 选择的技术方案及原因\n")
+	sb.WriteString("- 失败后重试并更换策略的转折点\n")
+	sb.WriteString("- 关键的文件路径、命令、错误信息\n\n")
+	sb.WriteString("同时总结：\n")
 	sb.WriteString("1. 正在执行的任务目标\n")
 	sb.WriteString("2. 已完成的关键步骤\n")
 	sb.WriteString("3. 当前状态（沙箱、文件、进程）\n")
-	sb.WriteString("4. 下一步计划\n")
-	sb.WriteString("5. 任何重要的决策或发现\n\n")
+	sb.WriteString("4. 下一步计划\n\n")
 
 	// Include all messages except the last few (which will be kept)
 	limit := len(l.messages) - 10

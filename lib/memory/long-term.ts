@@ -175,9 +175,28 @@ export async function getLongTermMemory(id: string) {
 export async function listLongTermMemories(input?: {
   page?: number;
   pageSize?: number;
+  search?: string;
 }) {
   const page = Math.max(1, input?.page ?? 1);
   const pageSize = Math.max(1, Math.min(input?.pageSize ?? 50, 100));
+
+  // If search query provided, use hybrid search
+  if (input?.search) {
+    const results = await searchLongTermMemories({
+      query: input.search,
+      minConfidence: 0.2,
+      page,
+      pageSize,
+    });
+    // Convert HybridSearchRow[] to match the return shape of listLongTermMemoryRows
+    return results.map((r: HybridSearchRow) => ({
+      id: r.id,
+      userId: '',
+      content: r.content,
+      createdAt: r.createdAt ?? new Date(),
+      updatedAt: r.updatedAt ?? new Date(),
+    }));
+  }
 
   return listLongTermMemoryRows({
     limit: pageSize,

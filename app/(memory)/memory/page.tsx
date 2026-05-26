@@ -233,13 +233,16 @@ function LongTermPanel() {
   const [newContent, setNewContent] = useState('');
   const [deletingMap, setDeletingMap] = useState<Record<string, boolean>>({});
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
 
-  const loadMemories = useCallback(async () => {
+  const loadMemories = useCallback(async (search?: string) => {
     setLoading(true);
     try {
       const data = await listLongTermMemoriesAction({
         page: 1,
         pageSize: 100,
+        search: search || undefined,
       });
       setMemories(data.items ?? []);
     } catch {
@@ -248,6 +251,15 @@ function LongTermPanel() {
       setLoading(false);
     }
   }, []);
+
+  const handleSearch = useCallback(async () => {
+    setSearching(true);
+    try {
+      await loadMemories(searchQuery);
+    } finally {
+      setSearching(false);
+    }
+  }, [searchQuery, loadMemories]);
 
   useEffect(() => {
     loadMemories();
@@ -289,6 +301,31 @@ function LongTermPanel() {
 
   return (
     <div className="space-y-4">
+      {/* Search bar */}
+      <div className="flex gap-2">
+        <Input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search memories..."
+          className="flex-1"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSearch();
+          }}
+        />
+        <Button onClick={handleSearch} disabled={searching || loading} variant="outline" size="sm">
+          {searching ? <Loader2 className="size-4 animate-spin" /> : 'Search'}
+        </Button>
+        {searchQuery && (
+          <Button
+            onClick={() => { setSearchQuery(''); loadMemories(); }}
+            variant="ghost"
+            size="sm"
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Add Long-term Memory</CardTitle>

@@ -71,6 +71,7 @@ export async function updateBuiltinMemorySectionAction(input: unknown) {
 export async function listLongTermMemoriesAction(input?: {
   page?: number;
   pageSize?: number;
+  search?: string;
 }) {
   await requireAuth();
 
@@ -83,7 +84,10 @@ export async function listLongTermMemoriesAction(input?: {
     throw new Error(parsed.error.issues[0]?.message ?? 'Validation failed');
   }
 
-  const items = await listLongTermMemories(parsed.data);
+  const items = await listLongTermMemories({
+    ...parsed.data,
+    search: input?.search?.trim() || undefined,
+  });
 
   return {
     items: items.map((item) => ({

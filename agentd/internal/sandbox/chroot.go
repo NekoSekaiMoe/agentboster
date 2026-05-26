@@ -21,12 +21,23 @@ import (
 	"github.com/google/uuid"
 )
 
+// Snapshot represents a chroot workspace snapshot.
+type Snapshot struct {
+	ID        string    `json:"id"`
+	SandboxID string    `json:"sandbox_id"`
+	Name      string    `json:"name"`
+	Path      string    `json:"path"`       // path to the tar.gz on disk
+	Size      int64     `json:"size"`       // bytes
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // ChrootProvider implements SandboxProvider using chroot.
 // Provides a persistent filesystem — files survive across commands.
 type ChrootProvider struct {
 	mu              sync.RWMutex
 	baseDir         string // chroot_base from config
 	cacheDir        string // rootfs_cache_dir
+	snapshotDir     string // snapshot storage directory
 	localPath       string // local_rootfs_path
 	defaultURL      string // default_rootfs_url
 	busyboxURL      string // default_busybox_url
@@ -34,13 +45,16 @@ type ChrootProvider struct {
 	presets         []config.ChrootPreset
 	cacheMaxAge     time.Duration
 	sandboxes       map[string]*Sandbox
+	snapshots       map[string]*Snapshot // keyed by snapshot ID
 }
 
 // NewChrootProvider creates a new chroot sandbox provider.
 func NewChrootProvider(baseDir, cacheDir, localPath, defaultURL, busyboxURL string, initCommands []string, presets []config.ChrootPreset, cacheMaxAgeDays int) *ChrootProvider {
+	snapshotDir := filepath.Join(baseDir, "snapshots")
 	p := &ChrootProvider{
 		baseDir:      baseDir,
 		cacheDir:     cacheDir,
+		snapshotDir:  snapshotDir,
 		localPath:    localPath,
 		defaultURL:   defaultURL,
 		busyboxURL:   busyboxURL,
@@ -48,9 +62,11 @@ func NewChrootProvider(baseDir, cacheDir, localPath, defaultURL, busyboxURL stri
 		presets:      presets,
 		cacheMaxAge:  time.Duration(cacheMaxAgeDays) * 24 * time.Hour,
 		sandboxes:    make(map[string]*Sandbox),
+		snapshots:    make(map[string]*Snapshot),
 	}
-	// Ensure cache dir exists
+	// Ensure dirs exist
 	os.MkdirAll(cacheDir, 0o750)
+	os.MkdirAll(snapshotDir, 0o750)
 	// Start background cache cleanup
 	go p.periodicCacheCleanup()
 	return p
@@ -448,6 +464,153 @@ func (p *ChrootProvider) downloadBusybox(rootFS string) error {
 	}
 
 	slog.Info("busybox installed", "path", busyboxDst, "applets", len(busyboxAppletNames))
+	return nil
+}
+
+// ── Snapshot management ─────────────────────────────────────────────
+
+// Snapshot creates a tar.gz snapshot of the chroot workspace directory.
+// The snapshot is stored on disk at snapshotDir and metadata is kept in memory.
+func (p *ChrootProvider) Snapshot(sandboxID, name string) (*Snapshot, error) {
+	p.mu.RLock()
+	sb, ok := p.sandboxes[sandboxID]
+	p.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("sandbox %q not found", sandboxID)
+	}
+
+	workspacePath := filepath.Join(sb.Path, "workspace")
+	if _, err := os.Stat(workspacePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("workspace directory does not exist: %s", workspacePath)
+	}
+
+	id := uuid.New().String()[:8]
+	snapshotPath := filepath.Join(p.snapshotDir, fmt.Sprintf("%s-%s.tar.gz", sandboxID, id))
+
+	// Create tar.gz of the workspace directory
+	cmd := exec.Command("tar", "-czf", snapshotPath, "-C", workspacePath, ".")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		os.Remove(snapshotPath)
+		return nil, fmt.Errorf("create snapshot archive: %w (output: %s)", err, string(output))
+	}
+
+	// Get file size
+	info, err := os.Stat(snapshotPath)
+	if err != nil {
+		os.Remove(snapshotPath)
+		return nil, fmt.Errorf("stat snapshot: %w", err)
+	}
+
+	snap := &Snapshot{
+		ID:        id,
+		SandboxID: sandboxID,
+		Name:      name,
+		Path:      snapshotPath,
+		Size:      info.Size(),
+		CreatedAt: time.Now(),
+	}
+
+	p.mu.Lock()
+	p.snapshots[id] = snap
+	p.mu.Unlock()
+
+	slog.Info("snapshot created",
+		"snapshot_id", id, "sandbox_id", sandboxID,
+		"name", name, "size", info.Size(), "path", snapshotPath,
+	)
+	return snap, nil
+}
+
+// RestoreSnapshot restores a chroot workspace from a previously created snapshot.
+// The current workspace is backed up before restoration.
+func (p *ChrootProvider) RestoreSnapshot(snapshotID string) error {
+	p.mu.Lock()
+	snap, ok := p.snapshots[snapshotID]
+	if !ok {
+		p.mu.Unlock()
+		return fmt.Errorf("snapshot %q not found", snapshotID)
+	}
+	sb, ok := p.sandboxes[snap.SandboxID]
+	p.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("sandbox %q not found for snapshot", snap.SandboxID)
+	}
+
+	if _, err := os.Stat(snap.Path); os.IsNotExist(err) {
+		return fmt.Errorf("snapshot archive does not exist: %s", snap.Path)
+	}
+
+	workspacePath := filepath.Join(sb.Path, "workspace")
+
+	// Backup current workspace before restoring
+	backupPath := filepath.Join(p.snapshotDir, fmt.Sprintf("%s-restore-backup-%s.tar.gz", snap.SandboxID, uuid.New().String()[:6]))
+	backupCmd := exec.Command("tar", "-czf", backupPath, "-C", workspacePath, ".")
+	if output, err := backupCmd.CombinedOutput(); err != nil {
+		slog.Warn("workspace backup before restore failed", "error", err, "output", string(output))
+	}
+
+	// Clear current workspace (preserve the directory itself)
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return fmt.Errorf("read workspace: %w", err)
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(workspacePath, entry.Name())); err != nil {
+			slog.Warn("failed to remove workspace entry during restore", "entry", entry.Name(), "error", err)
+		}
+	}
+
+	// Extract snapshot into workspace
+	cmd := exec.Command("tar", "-xzf", snap.Path, "-C", workspacePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Try to restore from backup
+		if _, statErr := os.Stat(backupPath); statErr == nil {
+			restoreCmd := exec.Command("tar", "-xzf", backupPath, "-C", workspacePath)
+			if restoreOut, restoreErr := restoreCmd.CombinedOutput(); restoreErr != nil {
+				slog.Error("restore from backup also failed", "error", restoreErr, "output", string(restoreOut))
+			}
+		}
+		return fmt.Errorf("restore snapshot: %w (output: %s)", err, string(output))
+	}
+
+	slog.Info("snapshot restored",
+		"snapshot_id", snapshotID, "sandbox_id", snap.SandboxID,
+		"workspace", workspacePath, "backup", backupPath,
+	)
+	return nil
+}
+
+// ListSnapshots returns all snapshots, optionally filtered by sandbox ID.
+func (p *ChrootProvider) ListSnapshots(sandboxID string) []*Snapshot {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	result := make([]*Snapshot, 0)
+	for _, snap := range p.snapshots {
+		if sandboxID == "" || snap.SandboxID == sandboxID {
+			result = append(result, snap)
+		}
+	}
+	return result
+}
+
+// DeleteSnapshot removes a snapshot from disk and memory.
+func (p *ChrootProvider) DeleteSnapshot(snapshotID string) error {
+	p.mu.Lock()
+	snap, ok := p.snapshots[snapshotID]
+	if !ok {
+		p.mu.Unlock()
+		return fmt.Errorf("snapshot %q not found", snapshotID)
+	}
+	delete(p.snapshots, snapshotID)
+	p.mu.Unlock()
+
+	if err := os.Remove(snap.Path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove snapshot archive: %w", err)
+	}
+
+	slog.Info("snapshot deleted", "snapshot_id", snapshotID)
 	return nil
 }
 

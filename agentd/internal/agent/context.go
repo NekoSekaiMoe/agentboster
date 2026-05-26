@@ -41,10 +41,20 @@ type TaskState struct {
 	SandboxID        string            `json:"sandbox_id"`
 	L2AuthRecords    []string          `json:"l2_auth_records"`
 	SubAgentProgress map[string]string `json:"sub_agent_progress"`
+	SubAgentSummaries []SubAgentSummary `json:"sub_agent_summaries"`
 	KeyDecisions     []string          `json:"key_decisions"`
 	LastToolSummary  string            `json:"last_tool_summary"`
 	CompactedAt      string            `json:"compacted_at,omitempty"`
 	CompactionCount  int               `json:"compaction_count"`
+}
+
+// SubAgentSummary stores a summarized result from a completed sub-agent.
+type SubAgentSummary struct {
+	ID        string `json:"id"`
+	Task      string `json:"task"`
+	Summary   string `json:"summary"`
+	Success   bool   `json:"success"`
+	CreatedAt string `json:"created_at"`
 }
 
 // SandboxInfo describes the current sandbox for LLM context injection.

@@ -43,8 +43,9 @@ Summarize the conversation history below. The newest turns may be kept verbatim 
 If the prompt includes a <previous-summary> block, treat it as the current anchored summary. Update it with the new history by preserving still-true details, removing stale details, and merging in new facts.
 
 Output a concise summary that captures:
-- Key decisions and their rationale
-- Important code changes or file modifications
+- Key decision points: requirement changes, chosen approaches, retry-after-failure turning points
+- Important code changes or file modifications (preserve exact file paths)
+- Errors encountered and their solutions
 - Unresolved questions or pending tasks
 - User preferences and constraints
 - Critical context needed to continue the work

@@ -25,9 +25,9 @@ func RegisterAllTools(
 	registerGlob(registry, sbManager, agentCtx)
 	registerPatch(registry, sbManager, agentCtx)
 
-	// === Sub-agent (2) ===
-	registerSubagent(registry, clawlessClient, agentCtx)
-	registerSubagentResult(registry, agentCtx)
+  // === Sub-agent (2) ===
+  registerSubagent(registry, clawlessClient, agentCtx)
+  registerSubagentResult(registry, clawlessClient, agentCtx)
 
 	// === Web (2) ===
 	registerWebFetch(registry)
@@ -47,6 +47,9 @@ func RegisterAllTools(
 	registerSandboxInstall(registry, sbManager, agentCtx)
 
 
-	// === Ask question (1) ===
-	registerAskQuestion(registry, agentCtx)
+  // === Ask question (1) ===
+  registerAskQuestion(registry, agentCtx)
+
+  // === Sandbox snapshot (1) ===
+  registerSandboxSnapshot(registry, sbManager, agentCtx)
 }

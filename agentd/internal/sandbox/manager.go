@@ -195,6 +195,57 @@ func (m *Manager) ListSandboxes() []*Sandbox {
 	return result
 }
 
+// Snapshot creates a snapshot of a chroot sandbox workspace.
+func (m *Manager) Snapshot(sandboxID, name string) (*Snapshot, error) {
+	m.mu.RLock()
+	sb, ok := m.sandboxes[sandboxID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("sandbox %q not found", sandboxID)
+	}
+	if sb.Type != "chroot" {
+		return nil, fmt.Errorf("snapshots are only supported for chroot sandboxes, got %q", sb.Type)
+	}
+	provider, ok := m.providers["chroot"].(*ChrootProvider)
+	if !ok {
+		return nil, fmt.Errorf("chroot provider not available")
+	}
+	return provider.Snapshot(sandboxID, name)
+}
+
+// RestoreSnapshot restores a chroot sandbox workspace from a snapshot.
+func (m *Manager) RestoreSnapshot(snapshotID string) error {
+	m.mu.RLock()
+	provider, ok := m.providers["chroot"].(*ChrootProvider)
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("chroot provider not available")
+	}
+	return provider.RestoreSnapshot(snapshotID)
+}
+
+// ListSnapshots returns all snapshots for a sandbox.
+func (m *Manager) ListSnapshots(sandboxID string) []*Snapshot {
+	m.mu.RLock()
+	provider, ok := m.providers["chroot"].(*ChrootProvider)
+	m.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	return provider.ListSnapshots(sandboxID)
+}
+
+// DeleteSnapshot deletes a snapshot.
+func (m *Manager) DeleteSnapshot(snapshotID string) error {
+	m.mu.RLock()
+	provider, ok := m.providers["chroot"].(*ChrootProvider)
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("chroot provider not available")
+	}
+	return provider.DeleteSnapshot(snapshotID)
+}
+
 // SelectSandbox chooses the appropriate sandbox type for a task.
 // Selection priority:
 //  1. User explicit setting (task.SandboxType)

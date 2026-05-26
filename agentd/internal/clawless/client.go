@@ -170,6 +170,19 @@ func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
 	return c.decodeResponse(resp, nil)
 }
 
+// ListMemories retrieves all memories for an agent.
+func (c *Client) ListMemories(ctx context.Context, agentID string) ([]Memory, error) {
+	return c.GetMemories(ctx, agentID, nil, 1000)
+}
+
+// UpdateMemory updates an existing memory's value.
+func (c *Client) UpdateMemory(ctx context.Context, memoryID, newValue string) error {
+	_, err := c.doRequest(ctx, http.MethodPut, fmt.Sprintf("/api/agentd/v1/memories/%s", memoryID), map[string]string{
+		"value": newValue,
+	})
+	return err
+}
+
 // GetMemories searches agent memories.
 func (c *Client) GetMemories(ctx context.Context, agentID string, keywords []string, limit int) ([]Memory, error) {
 	body := map[string]any{
