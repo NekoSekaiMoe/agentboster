@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, Copy } from 'lucide-react';
+import { AlertCircle, Check, Copy, Loader2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { loadWebhookConfigAction } from '@/app/(config)/actions';
@@ -35,6 +35,7 @@ import {
   compactStringList,
   createStringListEntries,
 } from './shared';
+import { CHANNEL_PRESETS } from '@/lib/bot/channel-presets';
 
 type WebhookConfigResponse = {
   authSecretConfigured: boolean;
@@ -51,6 +52,53 @@ export function ChannelsForm() {
     'loading' | 'ready' | 'error'
   >('loading');
   const [_, copyToClipboard] = useCopyToClipboard();
+  const [testStates, setTestStates] = useState<
+    Record<string, 'idle' | 'testing' | 'ok' | 'error'>
+  >({});
+  const [testResults, setTestResults] = useState<
+    Record<string, { detail?: string; error?: string }>
+  >({});
+
+  async function testConnection(adapter: string) {
+    setTestStates((prev) => ({ ...prev, [adapter]: 'testing' }));
+    setTestResults((prev) => {
+      const next = { ...prev };
+      delete next[adapter];
+      return next;
+    });
+    try {
+      const resp = await fetch('/api/bot/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adapter }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        setTestStates((prev) => ({ ...prev, [adapter]: 'ok' }));
+        setTestResults((prev) => ({
+          ...prev,
+          [adapter]: { detail: data.detail },
+        }));
+        toast.success(`${adapter}: Connected`);
+      } else {
+        setTestStates((prev) => ({ ...prev, [adapter]: 'error' }));
+        setTestResults((prev) => ({
+          ...prev,
+          [adapter]: { error: data.error },
+        }));
+        toast.error(`${adapter}: ${data.error || 'Connection failed'}`);
+      }
+    } catch (err) {
+      setTestStates((prev) => ({ ...prev, [adapter]: 'error' }));
+      setTestResults((prev) => ({
+        ...prev,
+        [adapter]: {
+          error: err instanceof Error ? err.message : 'Network error',
+        },
+      }));
+      toast.error(`${adapter}: Network error`);
+    }
+  }
 
   const adapters: Array<{
     description: string;
@@ -64,8 +112,14 @@ export function ChannelsForm() {
       | undefined;
   }> = [
     {
+      key: 'telegram',
+      description: CHANNEL_PRESETS.telegram.description,
+      value: channels.telegram,
+      fields: ['bot_token', 'secret_token', 'bot_username', 'api_base_url'],
+    },
+    {
       key: 'slack',
-      description: 'Single workspace token or multi-workspace OAuth setup.',
+      description: CHANNEL_PRESETS.slack.description,
       value: channels.slack,
       fields: [
         'bot_token',
@@ -76,22 +130,16 @@ export function ChannelsForm() {
       ],
     },
     {
-      key: 'teams',
-      description: 'Azure Bot registration credentials.',
-      value: channels.teams,
-      fields: ['app_id', 'app_password'],
-    },
-    {
       key: 'gchat',
-      description: 'Google Chat project and service account credentials.',
+      description: CHANNEL_PRESETS.gchat.description,
       value: channels.gchat,
       fields: ['project_id', 'credentials_json'],
     },
     {
-      key: 'telegram',
-      description: 'Telegram bot token and webhook secret.',
-      value: channels.telegram,
-      fields: ['bot_token', 'secret_token', 'bot_username', 'api_base_url'],
+      key: 'teams',
+      description: CHANNEL_PRESETS.teams.description,
+      value: channels.teams,
+      fields: ['app_id', 'app_password'],
     },
   ];
 
@@ -151,22 +199,32 @@ export function ChannelsForm() {
               />
 
               <div className="grid gap-4 md:grid-cols-2">
-                {adapter.fields.map((field) => (
-                  <Field key={field} label={field}>
-                    <Input
-                      value={String(adapterValue[field] ?? '')}
-                      onChange={(event) =>
-                        updateValue({
-                          ...channels,
-                          [adapter.key]: {
-                            ...adapterValue,
-                            [field]: event.target.value || undefined,
-                          },
-                        } as AppConfig['channels'])
-                      }
-                    />
-                  </Field>
-                ))}
+                {adapter.fields.map((field) => {
+                  const preset = CHANNEL_PRESETS[adapter.key];
+                  const fieldInfo = preset?.fields.find((f) => f.key === field);
+                  return (
+                    <Field key={field} label={fieldInfo?.label || field}>
+                      <Input
+                        value={String(adapterValue[field] ?? '')}
+                        placeholder={fieldInfo?.placeholder || ''}
+                        onChange={(event) =>
+                          updateValue({
+                            ...channels,
+                            [adapter.key]: {
+                              ...adapterValue,
+                              [field]: event.target.value || undefined,
+                            },
+                          } as AppConfig['channels'])
+                        }
+                      />
+                      {fieldInfo?.help && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {fieldInfo.help}
+                        </p>
+                      )}
+                    </Field>
+                  );
+                })}
               </div>
 
               {/* Allowed whitelist */}
@@ -222,7 +280,7 @@ export function ChannelsForm() {
                       <div className="break-all rounded-lg border bg-muted/40 px-3 py-2 font-mono text-xs">
                         {webhookConfig.urls[adapter.key]}
                       </div>
-                      <div className="flex justify-end">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
                           size="sm"
                           type="button"
@@ -239,9 +297,41 @@ export function ChannelsForm() {
                           }}
                         >
                           <Copy className="mr-2 size-4" />
-                          Copy webhook URL
+                          Copy URL
+                        </Button>
+                        <Button
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          disabled={testStates[adapter.key] === 'testing'}
+                          onClick={() => testConnection(adapter.key)}
+                        >
+                          {testStates[adapter.key] === 'testing' ? (
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                          ) : testStates[adapter.key] === 'ok' ? (
+                            <Check className="mr-2 size-4 text-green-600" />
+                          ) : testStates[adapter.key] === 'error' ? (
+                            <X className="mr-2 size-4 text-red-600" />
+                          ) : null}
+                          {testStates[adapter.key] === 'testing'
+                            ? 'Testing...'
+                            : testStates[adapter.key] === 'ok'
+                              ? 'Connected'
+                              : testStates[adapter.key] === 'error'
+                                ? 'Retry'
+                                : 'Test connection'}
                         </Button>
                       </div>
+                      {testResults[adapter.key]?.detail && (
+                        <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+                          ✓ {testResults[adapter.key].detail}
+                        </div>
+                      )}
+                      {testResults[adapter.key]?.error && (
+                        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                          ✗ {testResults[adapter.key].error}
+                        </div>
+                      )}
                     </div>
                   ) : webhookConfigStatus === 'loading' ? (
                     <div className="rounded-lg border px-3 py-2 text-sm text-muted-foreground">
