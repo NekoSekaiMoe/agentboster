@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -298,82 +299,7 @@ func (m *Manager) GetSession(sessionID string) (*AgentContext, bool) {
 	return ctx, ok
 }
 
-// AbortSession cancels a running session by its task ID.
-// Returns true if the session was found and aborted.
-func (m *Manager) AbortSession(sessionID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
-	ctx, ok := m.sessions[sessionID]
-	if !ok {
-		return false
-	}
-
-	// Destroy sandbox to stop any running processes
-	if ctx.SandboxID != "" {
-		if err := m.sbManager.DestroySandbox(ctx.SandboxID); err != nil {
-			slog.Warn("failed to destroy sandbox on abort",
-				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
-		}
-	}
-
-	delete(m.sessions, sessionID)
-
-	if m.bus != nil {
-		m.bus.Publish(eventbus.EventTaskCancelled, map[string]any{
-			"session_id": sessionID,
-		})
-	}
-
-	slog.Info("session aborted", "session_id", sessionID)
-	return true
-}
-
-// SessionStatus holds the runtime status of a session.
-type SessionStatus struct {
-	SessionID  string `json:"session_id"`
-	AgentID    string `json:"agent_id"`
-	Status     string `json:"status"` // idle, running, waiting_user, completed, aborted
-	SandboxID  string `json:"sandbox_id,omitempty"`
-	HasPending bool   `json:"has_pending_decision"`
-}
-
-// GetSessionStatus returns the status of a single session.
-func (m *Manager) GetSessionStatus(sessionID string) (*SessionStatus, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	ctx, ok := m.sessions[sessionID]
-	if !ok {
-		return nil, false
-	}
-
-	status := &SessionStatus{
-		SessionID: ctx.SessionID,
-		AgentID:   ctx.AgentID,
-		SandboxID: ctx.SandboxID,
-		Status:    "running",
-	}
-
-	return status, true
-}
-
-// GetAllSessionStatuses returns the status of all active sessions.
-func (m *Manager) GetAllSessionStatuses() []SessionStatus {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]SessionStatus, 0, len(m.sessions))
-	for _, ctx := range m.sessions {
-		result = append(result, SessionStatus{
-			SessionID: ctx.SessionID,
-			AgentID:   ctx.AgentID,
-			SandboxID: ctx.SandboxID,
-			Status:    "running",
-		})
-	}
-	return result
-}
 
 // RunAgent executes the agent loop for a session with the given user message.
 func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (string, error) {
@@ -407,6 +333,115 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 // ExtractMemory extracts memories from a completed task.
 func (m *Manager) ExtractMemory(ctx context.Context, task *clawless.Task) error {
 	return m.memoryExtractor.Extract(ctx, task)
+}
+
+// ── Synchronous Tool Execution ──────────────────────────────────────
+
+// ToolExecRequest is a synchronous tool execution request from the web app.
+type ToolExecRequest struct {
+	SessionID string         `json:"session_id"`
+	ToolName  string         `json:"tool_name"`
+	ToolInput map[string]any `json:"tool_input"`
+}
+
+// ToolExecResponse is the result of a synchronous tool execution.
+type ToolExecResponse struct {
+	Success bool   `json:"success"`
+	Data    string `json:"data,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// ExecuteTool executes a single tool synchronously in the agent's sandbox.
+// This is the primary execution path when Agent Daemon is online.
+func (m *Manager) ExecuteTool(ctx context.Context, sessionID, toolName string, toolInput map[string]any) (*ToolExecResponse, error) {
+	// Get or create session
+	m.mu.RLock()
+	agentCtx, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !ok {
+		// Create session on-the-fly
+		var err error
+		agentCtx, err = m.CreateSession(sessionID, "default")
+		if err != nil {
+			return nil, fmt.Errorf("create session for tool exec: %w", err)
+		}
+	}
+
+	// Build system prompt and tool registry (reuse same setup as RunAgent)
+	agentCtx.SystemPrompt = buildDefaultSystemPrompt()
+	registry := NewToolRegistry()
+	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
+
+	// Execute the tool directly
+	result, err := registry.Execute(ctx, toolName, mustMarshalJSON(toolInput))
+	if err != nil {
+		return &ToolExecResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	return &ToolExecResponse{
+		Success: true,
+		Data:    result.Data,
+	}, nil
+}
+
+// GetSessionStatus returns the status of a session.
+func (m *Manager) GetSessionStatus(sessionID string) (map[string]any, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	ctx, ok := m.sessions[sessionID]
+	if !ok {
+		// Try loading from store
+		if data, err := m.sessionStore.Load(sessionID); err == nil {
+			ctx = dataToAgentContext(data)
+		} else {
+			return nil, false
+		}
+	}
+	return map[string]any{
+		"session_id":    ctx.SessionID,
+		"sandbox_id":    ctx.SandboxID,
+		"sandbox_type":  ctx.SandboxType,
+		"sandbox_path":  ctx.SandboxPath,
+		"compaction_count": ctx.TaskState.CompactionCount,
+	}, true
+}
+
+// GetAllSessionStatuses returns all active session statuses.
+func (m *Manager) GetAllSessionStatuses() []map[string]any {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]map[string]any, 0, len(m.sessions))
+	for id, ctx := range m.sessions {
+		result = append(result, map[string]any{
+			"session_id":       id,
+			"sandbox_id":       ctx.SandboxID,
+			"sandbox_type":     ctx.SandboxType,
+			"compaction_count": ctx.TaskState.CompactionCount,
+		})
+	}
+	return result
+}
+
+// AbortSession aborts a running session.
+func (m *Manager) AbortSession(sessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.sessions[sessionID]; !ok {
+		return false
+	}
+	// Remove from active sessions
+	delete(m.sessions, sessionID)
+	slog.Info("session aborted", "session_id", sessionID)
+	return true
+}
+
+func mustMarshalJSON(v map[string]any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }
 
 // DestroySession permanently deletes a session (memory + disk).

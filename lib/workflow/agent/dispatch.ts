@@ -15,8 +15,9 @@ import { getRun, start } from 'workflow/api';
 import { ACTIVE_RUN_STATUSES } from './config';
 import { approvalHookBuilder, instructionHookBuilder } from './hooks';
 import { chatWorkflow } from './index';
+import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
 
-interface AgentNodeStatus {
+export interface AgentNodeStatus {
   nodeID: string;
   ip: string;
   port: number;
@@ -27,6 +28,14 @@ interface AgentNodeStatus {
   activeTasks: number;
 }
 
+/**
+ * selectBestNode finds the best Agent Daemon node based on:
+ * 1. Online status (heartbeat within 2 minutes)
+ * 2. Required sandbox type availability
+ * 3. Resource score: CPU (40%) + memory (40%) + disk (20%)
+ * 4. Active tasks (tiebreaker)
+ * Returns null if no node is available → caller should fall back to Vercel Sandbox.
+ */
 export async function selectBestNode(
   requiredSandbox?: string,
 ): Promise<AgentNodeStatus | null> {
@@ -62,6 +71,7 @@ export async function selectBestNode(
       const mem = n.memAvail != null ? n.memAvail / 100 : 0.5;
       const disk = n.diskAvail != null ? n.diskAvail / 100 : 0.5;
 
+      // Skip overloaded nodes
       if (cpu >= 0.9 || mem <= 0.1 || disk <= 0.1) continue;
 
       const score = (1 - cpu) * 0.4 + mem * 0.4 + disk * 0.2;
@@ -88,6 +98,24 @@ export async function selectBestNode(
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * isAgentdAvailable checks if any Agent Daemon node is online and healthy.
+ * Used by tools to decide whether to route through Agent Daemon or fall back to Vercel Sandbox.
+ */
+export async function isAgentdAvailable(): Promise<boolean> {
+  try {
+    // First check: is there an online node in DB?
+    const node = await selectBestNode();
+    if (!node) return false;
+
+    // Second check: is the daemon actually responding?
+    const healthy = await checkAgentdHealth();
+    return healthy;
+  } catch {
+    return false;
   }
 }
 

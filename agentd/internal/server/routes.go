@@ -111,6 +111,22 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		// Session runtime control
 		v1.GET("/sessions/status", s.handleSessionStatus)
 		v1.POST("/sessions/:id/abort", s.handleAbortSession)
+
+		// Synchronous tool execution (called by ClawLess web when agentd is primary)
+		v1.POST("/tools/exec", s.handleToolExec)
+		v1.POST("/tools/read", s.handleToolRead)
+		v1.POST("/tools/write", s.handleToolWrite)
+		v1.POST("/tools/edit", s.handleToolEdit)
+		v1.POST("/tools/ls", s.handleToolLs)
+		v1.POST("/tools/grep", s.handleToolGrep)
+		v1.POST("/tools/glob", s.handleToolGlob)
+		v1.POST("/tools/patch", s.handleToolPatch)
+		v1.POST("/tools/git", s.handleToolGit)
+		v1.POST("/tools/web-fetch", s.handleToolWebFetch)
+		v1.POST("/tools/web-search", s.handleToolWebSearch)
+		v1.POST("/tools/memory-search", s.handleToolMemorySearch)
+		v1.POST("/tools/memory-save", s.handleToolMemorySave)
+		v1.POST("/tools/sandbox-install", s.handleToolSandboxInstall)
 	}
 }
 
@@ -649,3 +665,33 @@ func (s *Server) handleAbortSession(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
+
+// ── Synchronous Tool Execution ──────────────────────────────────────
+
+func (s *Server) handleToolExec(c *gin.Context) {
+	var req agent.ToolExecRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	result, err := s.agentMgr.ExecuteTool(c.Request.Context(), req.SessionID, req.ToolName, req.ToolInput)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (s *Server) handleToolRead(c *gin.Context)       { s.handleToolExec(c) }
+func (s *Server) handleToolWrite(c *gin.Context)      { s.handleToolExec(c) }
+func (s *Server) handleToolEdit(c *gin.Context)       { s.handleToolExec(c) }
+func (s *Server) handleToolLs(c *gin.Context)         { s.handleToolExec(c) }
+func (s *Server) handleToolGrep(c *gin.Context)       { s.handleToolExec(c) }
+func (s *Server) handleToolGlob(c *gin.Context)       { s.handleToolExec(c) }
+func (s *Server) handleToolPatch(c *gin.Context)      { s.handleToolExec(c) }
+func (s *Server) handleToolGit(c *gin.Context)        { s.handleToolExec(c) }
+func (s *Server) handleToolWebFetch(c *gin.Context)   { s.handleToolExec(c) }
+func (s *Server) handleToolWebSearch(c *gin.Context)  { s.handleToolExec(c) }
+func (s *Server) handleToolMemorySearch(c *gin.Context) { s.handleToolExec(c) }
+func (s *Server) handleToolMemorySave(c *gin.Context) { s.handleToolExec(c) }
+func (s *Server) handleToolSandboxInstall(c *gin.Context) { s.handleToolExec(c) }

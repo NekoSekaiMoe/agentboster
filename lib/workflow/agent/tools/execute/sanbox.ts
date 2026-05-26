@@ -40,6 +40,8 @@ import {
 import { tool } from 'ai';
 import { z } from 'zod';
 import { defineBuildInTool } from '../define';
+import { isAgentdAvailable, selectBestNode } from '../../dispatch';
+import { execToolOnAgentd } from '@/lib/extra/agent/agentd-tools-client';
 
 const execInputSchema = z.object({
   command: z.string().min(1),
@@ -79,343 +81,112 @@ type SandboxApprovalResponse = {
   comment?: string;
 };
 
-type SandboxDeniedOutput = {
-  approved: false;
-  denied: true;
-  reason?: string;
-};
-
-function buildApprovalToken(runId: string, toolCallId: string): string {
-  return `${runId}:${toolCallId}`;
+interface SandboxExecOutput {
+  kind: 'exec';
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  backend: 'agentd' | 'vercel-fallback';
 }
 
-function sanitizeFileName(value: string): string {
-  const sanitized = value
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-  return sanitized || 'artifact';
+interface SandboxReadOutput {
+  kind: 'read';
+  path: string;
+  content: string;
+  backend: 'agentd' | 'vercel-fallback';
 }
 
-function detectMimeType(fileName: string): string {
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith('.zip')) {
-    return 'application/zip';
-  }
-
-  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
-    return 'application/gzip';
-  }
-
-  return 'application/octet-stream';
+interface SandboxWriteOutput {
+  kind: 'write';
+  path: string;
+  bytes: number;
+  backend: 'agentd' | 'vercel-fallback';
 }
 
-async function persistSandboxExportedFile(input: {
-  sessionId: string;
-  runId: string;
-  sandboxId: string;
+interface SandboxPortOutput {
+  kind: 'port';
+  port: number;
+  url: string;
+  publicPorts: number[];
+  backend: 'agentd' | 'vercel-fallback';
+}
+
+interface SandboxExportOutput {
+  kind: 'export';
   sourcePath: string;
   fileName: string;
-  fileBuffer: Buffer;
-}) {
-  const resolvedFileName = sanitizeFileName(input.fileName);
-  const blobPath = `files/${input.sessionId}/${Date.now()}-${resolvedFileName}`;
-  const mimeType = detectMimeType(input.fileName);
-  const blob = await put(
-    blobPath,
-    new Blob([new Uint8Array(input.fileBuffer)]),
-    {
-      access: 'public',
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      contentType: mimeType,
-    },
-  );
-
-  const record = await createFileRecord({
-    sessionId: input.sessionId,
-    runId: input.runId,
-    sandboxId: input.sandboxId,
-    sourcePath: input.sourcePath,
-    fileName: input.fileName,
-    mimeType,
-    size: input.fileBuffer.byteLength,
-    blobPath,
-    blobUrl: blob.url,
-    metadata: {
-      archived: false,
-      archiveFormat: 'none',
-      source: 'sandbox.downloadFile',
-    },
-  });
-
-  return {
-    blob,
-    record,
-  };
+  url: string;
+  size: number;
+  backend: 'agentd' | 'vercel-fallback';
 }
 
-function buildApprovalMetadata(input: {
-  toolCallId: string;
-  approved?: boolean;
-  comment?: string;
-}) {
-  if (input.approved === undefined) {
-    return {
-      id: input.toolCallId,
-    } as const;
-  }
-
-  return {
-    id: input.toolCallId,
-    approved: input.approved,
-    reason: input.comment,
-  } as const;
+interface SandboxRunningOutput {
+  kind: 'running';
+  shellCommand: string;
+  cmdId: string;
+  startedAt: number;
+  waitTimeoutMs: number;
+  message: string;
 }
 
-async function patchLatestApproval(input: {
-  sessionId: string;
-  toolCallId: string;
-  hookToken?: string;
-  toolName: string;
-  status: 'pending' | 'approved' | 'rejected';
-  input: unknown;
-  comment?: string;
-}) {
-  'use step';
-
-  const session = await getSession(input.sessionId);
-  const existingApproval =
-    (session?.metadata?.latestApproval as
-      | {
-          requestedAt?: string;
-          hookToken?: string;
-          notifiedAt?: string | null;
-        }
-      | undefined) ?? undefined;
-
-  await updateSession(input.sessionId, {
-    metadata: {
-      ...(session?.metadata ?? {}),
-      latestApproval: {
-        toolCallId: input.toolCallId,
-        hookToken: input.hookToken ?? existingApproval?.hookToken ?? null,
-        toolName: input.toolName,
-        status: input.status,
-        input: input.input,
-        comment: input.comment ?? null,
-        requestedAt: existingApproval?.requestedAt ?? nowIso(),
-        respondedAt: input.status === 'pending' ? null : nowIso(),
-        notifiedAt: existingApproval?.notifiedAt ?? null,
-      },
-    },
-  });
+interface SandboxDeniedOutput {
+  approved: boolean;
+  denied: boolean;
+  reason?: string;
 }
 
-async function persistApprovalToolState(input: {
-  sessionId: string;
-  toolCallId: string;
-  toolName: string;
-  toolState: 'approval-requested' | 'approval-responded' | 'output-denied';
-  toolInput: unknown;
-  comment?: string;
-  approved?: boolean;
-}) {
-  'use step';
+type SandboxToolResult =
+  | SandboxExecOutput
+  | SandboxReadOutput
+  | SandboxWriteOutput
+  | SandboxPortOutput
+  | SandboxExportOutput
+  | SandboxRunningOutput
+  | SandboxDeniedOutput;
 
-  await upsertPersistedMessage(
-    serializeToolMessage({
-      sessionId: input.sessionId,
-      uiMessageId: `tool:${input.toolCallId}`,
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
-      toolState: input.toolState,
-      toolApproval: buildApprovalMetadata({
-        toolCallId: input.toolCallId,
-        approved: input.approved,
-        comment: input.comment,
-      }),
-      toolInput: input.toolInput,
-      toolOutput:
-        input.toolState === 'output-denied'
-          ? input.comment || 'Execution denied by approval policy.'
-          : undefined,
-      createdAt: new Date(),
-    }),
-  );
-}
+// ── Agent Daemon execution ──────────────────────────────────────────
 
-async function notifyApprovalRequestSourceStep(input: {
-  sessionId: string;
-  toolCallId: string;
-  toolName: string;
-}) {
-  'use step';
+let fallbackNotified = false;
 
-  const session = await getSession(input.sessionId);
-  if (!session || session.channel === 'web') {
-    return false;
-  }
-
-  // TODO
-  const source = getChatSourceFromSessionMetadata(session.metadata);
-  if (!isImChatSource(source)) {
-    return false;
-  }
-
-  const latestApproval =
-    (session.metadata?.latestApproval as
-      | {
-          toolCallId?: string;
-          notifiedAt?: string | null;
-        }
-      | undefined) ?? undefined;
-
-  if (
-    latestApproval?.toolCallId === input.toolCallId &&
-    latestApproval?.notifiedAt
-  ) {
-    return true;
-  }
-
-  const sent = await sendApprovalRequestReminderStep({
-    source,
-    toolName: input.toolName,
-    toolCallId: input.toolCallId,
-  });
-
-  if (!sent) {
-    return false;
-  }
-
-  await updateSession(input.sessionId, {
-    metadata: {
-      ...(session.metadata ?? {}),
-      latestApproval: {
-        ...(latestApproval ?? {}),
-        toolCallId: input.toolCallId,
-        notifiedAt: nowIso(),
-      },
-    },
-  });
-
-  return true;
-}
-
-async function waitForSandboxApproval(input: {
-  sessionId: string;
-  runId: string;
-  toolCallId: string;
-  toolName: string;
-  toolInput: unknown;
-}): Promise<SandboxApprovalResponse> {
-  const hookToken = buildApprovalToken(input.runId, input.toolCallId);
-  const hook = approvalHookBuilder.create({
-    token: hookToken,
-  });
-
+async function execOnAgentd(
+  sessionId: string,
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): Promise<{ success: boolean; data?: string; error?: string } | null> {
   try {
-    await patchLatestApproval({
-      sessionId: input.sessionId,
-      toolCallId: input.toolCallId,
-      hookToken,
-      toolName: input.toolName,
-      status: 'pending',
-      input: input.toolInput,
-    });
-    await persistApprovalToolState({
-      sessionId: input.sessionId,
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
-      toolState: 'approval-requested',
-      toolInput: input.toolInput,
-    });
-    await writeToolApprovalRequest({
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
-      toolInput: input.toolInput,
-      approvalId: input.toolCallId,
-    });
-    await notifyApprovalRequestSourceStep({
-      sessionId: input.sessionId,
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? `Failed to persist pending approval state: ${error.message}`
-        : `Failed to persist pending approval state: ${String(error)}`;
-
-    await writeRuntimeEvent({
-      event: 'runtime-error',
-      sessionId: input.sessionId,
-      runId: input.runId,
-      command: `approval:${input.toolName}`,
-      message,
-    });
-    throw error;
-  }
-
-  const approval = await hook;
-
-  try {
-    await patchLatestApproval({
-      sessionId: input.sessionId,
-      toolCallId: input.toolCallId,
-      hookToken,
-      toolName: input.toolName,
-      status: approval.approved ? 'approved' : 'rejected',
-      input: input.toolInput,
-      comment: approval.comment,
-    });
-
-    if (!approval.approved) {
-      await persistApprovalToolState({
-        sessionId: input.sessionId,
-        toolCallId: input.toolCallId,
-        toolName: input.toolName,
-        toolState: 'output-denied',
-        toolInput: input.toolInput,
-        approved: false,
-        comment: approval.comment,
-      });
-      await writeToolOutputDenied({
-        toolCallId: input.toolCallId,
-      });
-
-      return approval;
+    const available = await isAgentdAvailable();
+    if (!available) {
+      if (!fallbackNotified) {
+        fallbackNotified = true;
+        console.warn('[sandbox] Agent Daemon offline, using Vercel Sandbox fallback');
+      }
+      return null;
     }
-
-    await persistApprovalToolState({
-      sessionId: input.sessionId,
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
-      toolState: 'approval-responded',
-      toolInput: input.toolInput,
-      approved: true,
-      comment: approval.comment,
-    });
+    return await execToolOnAgentd(sessionId, toolName, toolInput);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? `Failed to persist resolved approval state: ${error.message}`
-        : `Failed to persist resolved approval state: ${String(error)}`;
-
-    await writeRuntimeEvent({
-      event: 'runtime-error',
-      sessionId: input.sessionId,
-      runId: input.runId,
-      command: `approval:${input.toolName}`,
-      message,
+    console.warn('[sandbox] Agent Daemon exec failed, falling back to Vercel Sandbox', {
+      sessionId,
+      toolName,
+      error: error instanceof Error ? error.message : String(error),
     });
-    throw error;
+    return null;
   }
-
-  return approval;
 }
+
+function parseAgentdResult(raw: string): { stdout: string; stderr: string; exitCode: number } {
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      stdout: parsed.stdout || parsed.data || raw,
+      stderr: parsed.stderr || '',
+      exitCode: parsed.exit_code ?? parsed.exitCode ?? 0,
+    };
+  } catch {
+    return { stdout: raw, stderr: '', exitCode: 0 };
+  }
+}
+
+// ── Vercel Sandbox execution (fallback) ─────────────────────────────
 
 async function executeSandboxCommandStep(
   input: ExecInput & {
@@ -572,68 +343,20 @@ async function readSandboxFileStep(
   'use step';
 
   const { sessionId, runId, path, cwd } = input;
-  const commandLabel = `read:${path}`;
-
-  await patchSandboxRuntime(sessionId, {
-    status: 'running',
-    lastActiveAt: nowIso(),
-    timeoutMs: SANDBOX_TIMEOUT_MS,
-    lastCommand: commandLabel,
-    lastExitCode: 0,
-    lastError: null,
-  });
 
   try {
-    const result = await readSandboxFileAction({
-      sessionId,
-      path,
-      cwd,
-    });
-
-    await writeRuntimeEvent({
-      event: result.created ? 'sandbox-created' : 'sandbox-reused',
-      sessionId,
-      runId,
-      sandboxId: result.sandboxId,
-      status: result.sandboxStatus,
-    });
-    await writeRuntimeEvent({
-      event: 'sandbox-command-start',
-      sessionId,
-      runId,
-      sandboxId: result.sandboxId,
-      command: `read:${result.path}`,
-      status: result.sandboxStatus,
-    });
-    await writeRuntimeEvent({
-      event: 'sandbox-command-finish',
-      sessionId,
-      runId,
-      sandboxId: result.sandboxId,
-      command: `read:${result.path}`,
-      exitCode: 0,
-      status: result.sandboxStatus,
-    });
-
+    const result = await readSandboxFileAction({ sessionId, path, cwd });
     return {
       path: result.path,
       content: result.content,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await patchSandboxRuntime(sessionId, {
-      status: 'error',
-      lastActiveAt: nowIso(),
-      timeoutMs: SANDBOX_TIMEOUT_MS,
-      lastCommand: commandLabel,
-      lastExitCode: 1,
-      lastError: message,
-    });
     await writeRuntimeEvent({
       event: 'runtime-error',
       sessionId,
       runId,
-      command: commandLabel,
+      command: `readFile ${path}`,
       message,
     });
     throw error;
@@ -649,70 +372,20 @@ async function writeSandboxFileStep(
   'use step';
 
   const { sessionId, runId, path, content, cwd } = input;
-  const commandLabel = `write:${path}`;
-
-  await patchSandboxRuntime(sessionId, {
-    status: 'running',
-    lastActiveAt: nowIso(),
-    timeoutMs: SANDBOX_TIMEOUT_MS,
-    lastCommand: commandLabel,
-    lastExitCode: 0,
-    lastError: null,
-  });
 
   try {
-    const result = await writeSandboxFileAction({
-      sessionId,
-      path,
-      content,
-      cwd,
-    });
-
-    await writeRuntimeEvent({
-      event: result.created ? 'sandbox-created' : 'sandbox-reused',
-      sessionId,
-      runId,
-      sandboxId: result.sandboxId,
-      status: result.sandboxStatus,
-    });
-    await writeRuntimeEvent({
-      event: 'sandbox-command-start',
-      sessionId,
-      runId,
-      sandboxId: result.sandboxId,
-      command: `write:${result.path}`,
-      status: result.sandboxStatus,
-    });
-    await writeRuntimeEvent({
-      event: 'sandbox-command-finish',
-      sessionId,
-      runId,
-      sandboxId: result.sandboxId,
-      command: `write:${result.path}`,
-      exitCode: 0,
-      status: result.sandboxStatus,
-    });
-
+    const result = await writeSandboxFileAction({ sessionId, path, content, cwd });
     return {
       path: result.path,
       bytes: result.bytes,
-      success: true,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await patchSandboxRuntime(sessionId, {
-      status: 'error',
-      lastActiveAt: nowIso(),
-      timeoutMs: SANDBOX_TIMEOUT_MS,
-      lastCommand: commandLabel,
-      lastExitCode: 1,
-      lastError: message,
-    });
     await writeRuntimeEvent({
       event: 'runtime-error',
       sessionId,
       runId,
-      command: commandLabel,
+      command: `writeFile ${path}`,
       message,
     });
     throw error;
@@ -728,61 +401,21 @@ async function resolveSandboxPublicPortStep(
   'use step';
 
   const { sessionId, runId, port } = input;
-  const commandLabel = `port:${port}`;
 
   try {
-    const result = await resolveSandboxPublicPortAction({
-      sessionId,
-      port,
-    });
-
-    await writeRuntimeEvent({
-      event: result.created ? 'sandbox-created' : 'sandbox-reused',
-      sessionId,
-      runId,
-      sandboxId: result.sandboxId,
-      status: result.sandboxStatus,
-    });
-
-    await patchSandboxRuntime(sessionId, {
-      status: 'running',
-      lastActiveAt: nowIso(),
-      timeoutMs: SANDBOX_TIMEOUT_MS,
-      lastCommand: commandLabel,
-      lastExitCode: 0,
-      lastError: null,
-    });
-    await writeRuntimeEvent({
-      event: 'sandbox-port-url',
-      sessionId,
-      runId,
-      sandboxId: result.sandboxId,
-      command: commandLabel,
-      status: result.sandboxStatus,
-      message: result.url,
-    });
-
+    const result = await resolveSandboxPublicPortAction({ sessionId, port });
     return {
       port: result.port,
       url: result.url,
       publicPorts: result.publicPorts,
-      sandboxId: result.sandboxId,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await patchSandboxRuntime(sessionId, {
-      status: 'error',
-      lastActiveAt: nowIso(),
-      timeoutMs: SANDBOX_TIMEOUT_MS,
-      lastCommand: commandLabel,
-      lastExitCode: 1,
-      lastError: message,
-    });
     await writeRuntimeEvent({
       event: 'runtime-error',
       sessionId,
       runId,
-      command: commandLabel,
+      command: `openPort ${port}`,
       message,
     });
     throw error;
@@ -797,278 +430,212 @@ async function exportSandboxFileStep(
 ) {
   'use step';
 
-  const { sessionId, runId, path: targetPath, cwd } = input;
-
-  const commandLabel = `export:${targetPath}`;
-  let localDownloadPath: string | null = null;
-
-  await patchSandboxRuntime(sessionId, {
-    status: 'running',
-    lastActiveAt: nowIso(),
-    timeoutMs: SANDBOX_TIMEOUT_MS,
-    lastCommand: commandLabel,
-    lastExitCode: null,
-    lastError: null,
-  });
+  const { sessionId, runId, path, cwd } = input;
 
   try {
-    const exported = await downloadSandboxFileAction({
-      sessionId,
-      path: targetPath,
-      cwd,
-    });
-    localDownloadPath = exported.localPath;
+    const result = await downloadSandboxFileAction({ sessionId, path, cwd });
 
-    await writeRuntimeEvent({
-      event: exported.created ? 'sandbox-created' : 'sandbox-reused',
-      sessionId,
-      runId,
-      sandboxId: exported.sandboxId,
-      status: exported.sandboxStatus,
-    });
-    await writeRuntimeEvent({
-      event: 'sandbox-export-start',
-      sessionId,
-      runId,
-      sandboxId: exported.sandboxId,
-      command: `export:${exported.sourcePath}`,
-      status: exported.sandboxStatus,
-    });
+    const sourcePath = result.sourcePath;
+    const fileName = result.fileName;
+    const localPath = result.localPath;
 
-    const fileBuffer = await readLocalFile(localDownloadPath);
-    const { blob, record } = await persistSandboxExportedFile({
-      sessionId,
-      runId,
-      sandboxId: exported.sandboxId,
-      sourcePath: exported.sourcePath,
-      fileName: exported.fileName,
-      fileBuffer,
-    });
+    let url = '';
+    let size = 0;
 
-    await patchSandboxRuntime(sessionId, {
-      status: 'running',
-      lastActiveAt: nowIso(),
-      timeoutMs: SANDBOX_TIMEOUT_MS,
-      lastCommand: `export:${exported.sourcePath}`,
-      lastExitCode: 0,
-      lastError: null,
-    });
-    await writeRuntimeEvent({
-      event: 'sandbox-export-finish',
-      sessionId,
-      runId,
-      sandboxId: exported.sandboxId,
-      command: `export:${exported.sourcePath}`,
-      status: exported.sandboxStatus,
-      message: blob.url,
-    });
-
-    return {
-      id: record.id,
-      fileName: record.fileName,
-      size: record.size,
-      mimeType: record.mimeType,
-      sessionId: record.sessionId,
-      runId: record.runId,
-      sourcePath: record.sourcePath,
-      url: record.blobUrl,
-      storedInFilesDb: true as const,
-      archived: false,
-      archiveFormat: 'none' as const,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await patchSandboxRuntime(sessionId, {
-      status: 'error',
-      lastActiveAt: nowIso(),
-      timeoutMs: SANDBOX_TIMEOUT_MS,
-      lastCommand: commandLabel,
-      lastExitCode: 1,
-      lastError: message,
-    });
-    await writeRuntimeEvent({
-      event: 'sandbox-export-failed',
-      sessionId,
-      runId,
-      command: commandLabel,
-      message,
-    });
-    throw error;
-  } finally {
-    if (localDownloadPath) {
-      await removeLocalFile(localDownloadPath, {
+    try {
+      const fileBuffer = await readLocalFile(localPath);
+      size = fileBuffer.length;
+      const fileRecord = await createFileRecord({
+        sessionId,
+        name: fileName,
+        path: sourcePath,
+        size,
+        mimeType: 'application/octet-stream',
+      });
+      const blobResult = await put(`sandbox-export/${fileRecord.id}/${fileName}`, fileBuffer, {
+        access: 'public',
+      });
+      url = blobResult.url;
+    } finally {
+      await removeLocalFile(localPath, {
         force: true,
         recursive: false,
       }).catch(() => undefined);
     }
+
+    return { sourcePath, fileName, url, size };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeRuntimeEvent({
+      event: 'runtime-error',
+      sessionId,
+      runId,
+      command: `downloadFile ${path}`,
+      message,
+    });
+    throw error;
   }
 }
 
+async function waitForSandboxApproval(input: {
+  sessionId: string;
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  toolInput: unknown;
+}): Promise<SandboxApprovalResponse> {
+  'use step';
+
+  const { sessionId, runId, toolCallId, toolName, toolInput } = input;
+
+  await writeToolApprovalRequest({
+    sessionId,
+    runId,
+    toolCallId,
+    toolName,
+    toolInput,
+  });
+
+  await sendApprovalRequestReminderStep({
+    sessionId,
+    runId,
+    toolCallId,
+    toolName,
+  });
+
+  using _hook = approvalHookBuilder.create({ token: toolCallId });
+
+  const approval = await new Promise<SandboxApprovalResponse>((resolve) => {
+    const hook = approvalHookBuilder.get(toolCallId);
+    if (hook) {
+      hook.then(resolve);
+    }
+  });
+
+  if (!approval.approved) {
+    await writeToolOutputDenied({
+      sessionId,
+      runId,
+      toolCallId,
+      toolName,
+      reason: approval.comment,
+    });
+  }
+
+  return approval;
+}
+
+// ── Tool definitions ────────────────────────────────────────────────
+
 export default defineBuildInTool({
   id: 'sandbox',
-  description: `Run shell commands and read/write files inside a session-scoped Vercel Sandbox.`,
+  description: `Run shell commands and read/write files inside a session-scoped sandbox. When Agent Daemon is online, tools are executed on Agent Daemon with full security review (L0/L1/L2) and sandbox management (tmpfs/chroot/docker). When Agent Daemon is offline, falls back to Vercel Sandbox with limited isolation.`,
   factory: async (_config, { sessionId, runId, appConfig }) => {
     const requiresApproval = appConfig.autonomy?.level === 'supervised';
 
     return {
       exec: tool({
-        title: 'Execute Shell Command in Sandbox',
-        description: `Execute a shell command in the current session sandbox.`,
+        title: 'Execute Shell Command',
+        description: `Execute a shell command. Agent Daemon online → full security review + chroot/Docker sandbox. Agent Daemon offline → Vercel Sandbox (limited).`,
         inputSchema: execInputSchema,
         execute: async (input, { toolCallId }) => {
-          const toolName = 'exec';
-
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({
-              sessionId,
-              runId,
-              toolCallId,
-              toolName,
-              toolInput: input,
-            });
-
-            if (!approval.approved) {
-              return {
-                approved: false,
-                denied: true,
-                reason: approval.comment,
-              } satisfies SandboxDeniedOutput;
-            }
+            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'exec', toolInput: input });
+            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
           }
 
-          return executeSandboxCommandStep({
-            sessionId,
-            runId,
-            ...input,
+          // Try Agent Daemon first
+          const agentdResult = await execOnAgentd(sessionId, 'exec', {
+            command: input.command,
+            args: input.args,
+            cwd: input.cwd,
+            env: input.env,
+            sudo: input.sudo,
           });
+          if (agentdResult && agentdResult.success) {
+            const parsed = parseAgentdResult(agentdResult.data || '');
+            return { kind: 'exec', exitCode: parsed.exitCode, stdout: parsed.stdout, stderr: parsed.stderr, backend: 'agentd' } satisfies SandboxExecOutput;
+          }
+
+          // Fallback to Vercel Sandbox
+          const fallback = await executeSandboxCommandStep({ sessionId, runId, ...input });
+          if ('running' in fallback && fallback.running) {
+            return { kind: 'running', shellCommand: fallback.shellCommand, cmdId: fallback.cmdId, startedAt: fallback.startedAt, waitTimeoutMs: fallback.waitTimeoutMs, message: fallback.message } satisfies SandboxRunningOutput;
+          }
+          const execFallback = fallback as { exitCode: number; stdout: string; stderr: string };
+          return { kind: 'exec', exitCode: execFallback.exitCode, stdout: execFallback.stdout, stderr: execFallback.stderr, backend: 'vercel-fallback' } satisfies SandboxExecOutput;
         },
       }),
+
       readFile: tool({
         title: 'Read File',
-        description: `Read a file from the current session sandbox.`,
+        description: `Read a file from the sandbox. Agent Daemon online → Agent Daemon sandbox. Agent Daemon offline → Vercel Sandbox.`,
         inputSchema: readFileInputSchema,
         execute: async (input, { toolCallId }) => {
-          const toolName = 'readFile';
-
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({
-              sessionId,
-              runId,
-              toolCallId,
-              toolName,
-              toolInput: input,
-            });
-
-            if (!approval.approved) {
-              return {
-                approved: false,
-                denied: true,
-                reason: approval.comment,
-              } satisfies SandboxDeniedOutput;
-            }
+            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'readFile', toolInput: input });
+            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
           }
 
-          return readSandboxFileStep({
-            sessionId,
-            runId,
-            ...input,
-          });
+          const agentdResult = await execOnAgentd(sessionId, 'read', { path: input.path, cwd: input.cwd });
+          if (agentdResult && agentdResult.success) {
+            return { kind: 'read', path: input.path, content: agentdResult.data || '', backend: 'agentd' } satisfies SandboxReadOutput;
+          }
+
+          const fallback = await readSandboxFileStep({ sessionId, runId, ...input });
+          return { kind: 'read', path: fallback.path, content: fallback.content, backend: 'vercel-fallback' } satisfies SandboxReadOutput;
         },
       }),
+
       writeFile: tool({
         title: 'Write File',
-        description: `Write a file into the current session sandbox.`,
+        description: `Write a file into the sandbox. Agent Daemon online → Agent Daemon sandbox. Agent Daemon offline → Vercel Sandbox.`,
         inputSchema: writeFileInputSchema,
         execute: async (input, { toolCallId }) => {
-          const toolName = 'writeFile';
-
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({
-              sessionId,
-              runId,
-              toolCallId,
-              toolName,
-              toolInput: input,
-            });
-
-            if (!approval.approved) {
-              return {
-                approved: false,
-                denied: true,
-                reason: approval.comment,
-              } satisfies SandboxDeniedOutput;
-            }
+            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'writeFile', toolInput: input });
+            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
           }
 
-          return writeSandboxFileStep({
-            sessionId,
-            runId,
-            ...input,
-          });
+          const agentdResult = await execOnAgentd(sessionId, 'write', { path: input.path, content: input.content, cwd: input.cwd });
+          if (agentdResult && agentdResult.success) {
+            return { kind: 'write', path: input.path, bytes: Buffer.byteLength(input.content), backend: 'agentd' } satisfies SandboxWriteOutput;
+          }
+
+          const fallback = await writeSandboxFileStep({ sessionId, runId, ...input });
+          return { kind: 'write', path: fallback.path, bytes: fallback.bytes, backend: 'vercel-fallback' } satisfies SandboxWriteOutput;
         },
       }),
+
       openPort: tool({
         title: 'Resolve Public Sandbox Port URL',
-        description: `Resolve a public URL from sandbox.domain(port) for a port exposed when the sandbox was created. Only configured ports are supported (currently: ${SANDBOX_PUBLIC_PORTS.join(', ')}), and new ports cannot be exposed at runtime. Docs: https://vercel.com/docs/vercel-sandbox/sdk-reference#sandbox.domain`,
+        description: `Resolve a public URL from sandbox domain. Only configured ports are supported (currently: ${SANDBOX_PUBLIC_PORTS.join(', ')}).`,
         inputSchema: publicPortInputSchema,
         execute: async (input, { toolCallId }) => {
-          const toolName = 'openPort';
-
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({
-              sessionId,
-              runId,
-              toolCallId,
-              toolName,
-              toolInput: input,
-            });
-
-            if (!approval.approved) {
-              return {
-                approved: false,
-                denied: true,
-                reason: approval.comment,
-              } satisfies SandboxDeniedOutput;
-            }
+            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'openPort', toolInput: input });
+            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
           }
 
-          return resolveSandboxPublicPortStep({
-            sessionId,
-            runId,
-            ...input,
-          });
+          // Port resolution is always Vercel Sandbox (Agent Daemon doesn't expose ports)
+          const result = await resolveSandboxPublicPortStep({ sessionId, runId, ...input });
+          return { kind: 'port', port: result.port, url: result.url, publicPorts: result.publicPorts, backend: 'vercel-fallback' } satisfies SandboxPortOutput;
         },
       }),
+
       downloadFile: tool({
         title: 'Export Single Sandbox File',
-        description: `Export exactly one file from sandbox and return a public download URL. Directory export is not supported. If you need multiple files, first use exec to compress them into a single archive (for example zip/tar.gz), then export that archive file.`,
+        description: `Export exactly one file from sandbox and return a public download URL. Directory export is not supported.`,
         inputSchema: exportFileInputSchema,
         execute: async (input, { toolCallId }) => {
-          const toolName = 'downloadFile';
-
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({
-              sessionId,
-              runId,
-              toolCallId,
-              toolName,
-              toolInput: input,
-            });
-
-            if (!approval.approved) {
-              return {
-                approved: false,
-                denied: true,
-                reason: approval.comment,
-              } satisfies SandboxDeniedOutput;
-            }
+            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'downloadFile', toolInput: input });
+            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
           }
 
-          return exportSandboxFileStep({
-            sessionId,
-            runId,
-            ...input,
-          });
+          // File export is always Vercel Sandbox
+          const result = await exportSandboxFileStep({ sessionId, runId, ...input });
+          return { kind: 'export', sourcePath: result.sourcePath, fileName: result.fileName, url: result.url, size: result.size, backend: 'vercel-fallback' } satisfies SandboxExportOutput;
         },
       }),
     };
