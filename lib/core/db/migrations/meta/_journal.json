@@ -15,6 +15,13 @@
       "when": 1779813046748,
       "tag": "0001_lucky_betty_brant",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779817800704,
+      "tag": "0002_eminent_richard_fisk",
+      "breakpoints": true
     }
   ]
 }

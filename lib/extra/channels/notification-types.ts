@@ -70,6 +70,13 @@ export interface CompletionNotification {
     commits?: number;
     logsUrl?: string;
     error?: string;
+    downloadUrl?: string;
+    downloadFiles?: string[];
+    gitCommitHash?: string;
+    gitCommitMessage?: string;
+    gitCompareUrl?: string;
+    insertions?: number;
+    deletions?: number;
   };
   channelFallback: string[];
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -96,6 +97,60 @@ func (c *Client) decodeResponse(resp *http.Response, dest any) error {
 		return json.NewDecoder(resp.Body).Decode(dest)
 	}
 	return nil
+}
+
+// UploadFile uploads a file to ClawLess Blob storage via the API.
+func (c *Client) UploadFile(ctx context.Context, taskID, fileName string, content []byte, expiresIn time.Duration) (*UploadResult, error) {
+	body := map[string]any{
+		"task_id":    taskID,
+		"file_name":  fileName,
+		"content":    base64.StdEncoding.EncodeToString(content),
+		"expires_in": int(expiresIn.Seconds()),
+	}
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/blob/upload", body)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp APIResponse[UploadResult]
+	if err := c.decodeResponse(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	return &apiResp.Data, nil
+}
+
+// CreateWorkspace creates a new workspace.
+func (c *Client) CreateWorkspace(ctx context.Context, ws *Workspace) error {
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/workspaces", ws)
+	if err != nil {
+		return err
+	}
+	return c.decodeResponse(resp, nil)
+}
+
+// GetWorkspaceByProjectID fetches a workspace by its project ID.
+func (c *Client) GetWorkspaceByProjectID(ctx context.Context, projectID string) (*Workspace, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/workspaces?project_id="+projectID, nil)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp APIResponse[Workspace]
+	if err := c.decodeResponse(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	return &apiResp.Data, nil
+}
+
+// ListWorkspaces lists all workspaces for an agent.
+func (c *Client) ListWorkspaces(ctx context.Context, agentID string) ([]Workspace, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/workspaces?agent_id="+agentID, nil)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp APIResponse[[]Workspace]
+	if err := c.decodeResponse(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	return apiResp.Data, nil
 }
 
 // GetTask fetches a task by ID.

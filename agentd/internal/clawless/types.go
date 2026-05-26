@@ -177,6 +177,37 @@ type TaskSummaryUpdate struct {
 	KnownIssues  []string   `json:"known_issues,omitempty"`
 }
 
+// Workspace represents a project-level organization unit.
+type Workspace struct {
+	ID          string    `json:"id"`
+	ProjectID   string    `json:"project_id"`
+	AgentID     string    `json:"agent_id"`
+	Name        string    `json:"name"`
+	SandboxID   string    `json:"sandbox_id"`
+	SandboxType string    `json:"sandbox_type"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// UploadResult is the response from a file upload.
+type UploadResult struct {
+	URL       string    `json:"url"`
+	BlobPath  string    `json:"blob_path"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Size      int64     `json:"size"`
+}
+
+// GitInfo holds git operation results for the completion notification.
+type GitInfo struct {
+	CommitHash    string `json:"commit_hash"`
+	CommitMessage string `json:"commit_message"`
+	CompareURL    string `json:"compare_url"`
+	FilesChanged  int    `json:"files_changed"`
+	Insertions    int    `json:"insertions"`
+	Deletions     int    `json:"deletions"`
+}
+
 // APIResponse is a generic API response wrapper.
 type APIResponse[T any] struct {
 	Success bool   `json:"success"`

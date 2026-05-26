@@ -26,6 +26,8 @@ type SessionData struct {
 	SandboxState    SandboxData    `json:"sandbox_state"`
 	SessionSummary  string         `json:"session_summary"`
 	RecentToolCalls []ToolRecord   `json:"recent_tool_calls"`
+	WorkspaceID     string         `json:"workspace_id"`
+	ProjectID       string         `json:"project_id"`
 }
 
 type SandboxData struct {

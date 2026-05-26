@@ -37,7 +37,7 @@ func RegisterAllTools(
 	registerGitClone(registry, sbManager, agentCtx)
 	registerGitDiff(registry, sbManager, agentCtx)
 	registerGitStatus(registry, sbManager, agentCtx)
-	registerGitPush(registry, sbManager, agentCtx)
+	registerGitPush(registry, sbManager, clawlessClient, agentCtx)
 
 	// === Memory (2) ===
 	registerMemorySearch(registry, clawlessClient, agentCtx)
@@ -46,6 +46,9 @@ func RegisterAllTools(
 	// === Task Summary (2) ===
 	registerTaskSummary(registry, clawlessClient, agentCtx)
 	registerTaskProgress(registry, clawlessClient, agentCtx)
+
+	// === File Delivery (1) ===
+	registerDeliverFiles(registry, sbManager, clawlessClient, agentCtx)
 
 	// === Sandbox install (1) ===
 	registerSandboxInstall(registry, sbManager, agentCtx)

@@ -8,6 +8,7 @@ import {
   agentTaskOutputs,
   agentTasks,
   taskSummaries,
+  workspaces,
 } from './schema';
 import type { Decision } from './schema';
 
@@ -350,4 +351,72 @@ export async function listActiveTaskSummaries(agentId: string): Promise<TaskSumm
     .from(taskSummaries)
     .where(and(eq(taskSummaries.agentId, agentId), eq(taskSummaries.status, 'active')))
     .orderBy(desc(taskSummaries.lastUpdated));
+}
+
+// === Workspaces ===
+
+export interface WorkspaceRecord {
+  id: string;
+  projectId: string;
+  agentId: string;
+  name: string | null;
+  sandboxId: string;
+  sandboxType: string;
+  status: 'active' | 'archived';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export async function createWorkspace(data: {
+  projectId: string;
+  agentId: string;
+  name?: string;
+  sandboxId: string;
+  sandboxType: string;
+}): Promise<WorkspaceRecord> {
+  const [row] = await db
+    .insert(workspaces)
+    .values({
+      projectId: data.projectId,
+      agentId: data.agentId,
+      name: data.name ?? null,
+      sandboxId: data.sandboxId,
+      sandboxType: data.sandboxType,
+      status: 'active',
+    })
+    .returning();
+  return row;
+}
+
+export async function getWorkspace(id: string): Promise<WorkspaceRecord | null> {
+  const [row] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.id, id));
+  return row ?? null;
+}
+
+export async function getWorkspaceByProjectId(projectId: string): Promise<WorkspaceRecord | null> {
+  const [row] = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.projectId, projectId));
+  return row ?? null;
+}
+
+export async function listWorkspaces(agentId: string): Promise<WorkspaceRecord[]> {
+  return db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.agentId, agentId))
+    .orderBy(desc(workspaces.updatedAt));
+}
+
+export async function archiveWorkspace(id: string): Promise<WorkspaceRecord | null> {
+  const [row] = await db
+    .update(workspaces)
+    .set({ status: 'archived', updatedAt: new Date() })
+    .where(eq(workspaces.id, id))
+    .returning();
+  return row ?? null;
 }

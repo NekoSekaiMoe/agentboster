@@ -16,6 +16,7 @@ export {
   agentMemories,
   agentdNodes,
   taskSummaries,
+  workspaces,
 } from './agentd';
 export type { Decision } from './agentd';
 export {

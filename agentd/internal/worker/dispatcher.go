@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -197,12 +198,11 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 		return
 	}
 
-	// Set sandbox info
+	// Set sandbox info — always use chroot for workspace persistence
 	agentCtx.SandboxID = task.SandboxID
 	if agentCtx.SandboxID == "" {
-		// Create a sandbox for the agent
 		sbSpec := sandbox.SandboxSpec{
-			Type:    sandbox.SelectSandbox(task, nil),
+			Type:    "chroot",
 			AgentID: task.AgentID,
 		}
 		sb, err := d.sbManager.CreateSandbox(sbSpec)
@@ -215,6 +215,16 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 		agentCtx.SandboxType = sb.Type
 		agentCtx.SandboxPath = sb.Path
 		task.SandboxID = sb.ID
+	}
+
+	// Create workspace for this task (project-level organization unit)
+	ws, err := d.createWorkspace(task, agentCtx.SandboxID)
+	if err != nil {
+		slog.Warn("workspace creation failed, continuing without workspace", "task_id", task.ID, "error", err)
+	} else {
+		agentCtx.WorkspaceID = ws.ID
+		agentCtx.ProjectID = ws.ProjectID
+		slog.Info("workspace created", "task_id", task.ID, "project_id", ws.ProjectID)
 	}
 
 	d.bus.Publish(eventbus.EventSandboxCreated, &sandbox.Sandbox{
@@ -236,6 +246,32 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 	task.Result = result
 	slog.Info("agent loop completed", "task_id", task.ID)
 	d.bus.Publish(eventbus.EventTaskCompleted, task)
+}
+
+// createWorkspace creates a workspace for the task via ClawLess API.
+func (d *Dispatcher) createWorkspace(task *clawless.Task, sandboxID string) (*clawless.Workspace, error) {
+	projectID := generateProjectID()
+	ws := &clawless.Workspace{
+		ProjectID:   projectID,
+		AgentID:     task.AgentID,
+		SandboxID:   sandboxID,
+		SandboxType: "chroot",
+		Status:      "active",
+	}
+	if err := d.clawless.CreateWorkspace(context.Background(), ws); err != nil {
+		return nil, err
+	}
+	return ws, nil
+}
+
+// generateProjectID generates a short project identifier like "proj-abc123".
+func generateProjectID() string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 6)
+	for i := range b {
+		b[i] = charset[rand.Intn(len(charset))]
+	}
+	return "proj-" + string(b)
 }
 
 func (d *Dispatcher) handleTaskCompleted(e eventbus.Event) {
@@ -308,7 +344,6 @@ func strPtr(s string) *string {
 }
 
 func (d *Dispatcher) sendCompletionNotification(ctx context.Context, task *clawless.Task) {
-	// Determine status from task
 	status := "completed"
 	if task.Status == "failed" {
 		status = "failed"
@@ -316,12 +351,31 @@ func (d *Dispatcher) sendCompletionNotification(ctx context.Context, task *clawl
 		status = "cancelled"
 	}
 
+	details := map[string]any{}
+
+	// Collect delivery info from agent context
+	if agentCtx, ok := d.agentManager.GetSession(task.SessionID); ok {
+		if agentCtx.DeliveryURL != "" {
+			details["download_url"] = agentCtx.DeliveryURL
+			details["download_files"] = agentCtx.DeliveryFiles
+		}
+		if agentCtx.GitInfo != nil {
+			details["git_commit_hash"] = agentCtx.GitInfo.CommitHash
+			details["git_commit_message"] = agentCtx.GitInfo.CommitMessage
+			details["git_compare_url"] = agentCtx.GitInfo.CompareURL
+			details["files_changed"] = agentCtx.GitInfo.FilesChanged
+			details["insertions"] = agentCtx.GitInfo.Insertions
+			details["deletions"] = agentCtx.GitInfo.Deletions
+		}
+	}
+
 	notification := map[string]any{
 		"type":    "completion",
 		"task_id": task.ID,
 		"status":  status,
-	"title":   fmt.Sprintf("Task %s", status),
+		"title":   fmt.Sprintf("Task %s", status),
 		"summary": truncateStr(task.Result, 500),
+		"details": details,
 	}
 
 	// POST to ClawLess notification API

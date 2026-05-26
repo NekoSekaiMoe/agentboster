@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/persistence"
 )
 
@@ -33,6 +34,18 @@ type AgentContext struct {
 
 	// TaskState tracks execution state across compaction boundaries
 	TaskState TaskState
+
+	// Delivery info for completion notification (set by deliver_files tool)
+	DeliveryURL   string
+	DeliveryFiles []string
+	DeliverySize  int64
+
+	// Git info for completion notification (set by git_push tool)
+	GitInfo *clawless.GitInfo
+
+	// Current project context
+	ProjectID   string
+	WorkspaceID string
 }
 
 // TaskState holds execution state that survives context compaction.

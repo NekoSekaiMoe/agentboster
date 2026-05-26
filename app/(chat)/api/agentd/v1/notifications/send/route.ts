@@ -28,7 +28,7 @@ export async function POST(request: Request) {
             title: title ?? 'Task Update',
             summary: summary ?? '',
             details: details ?? {},
-            channelFallback: ['telegram', 'discord', 'slack', 'feishu'],
+            channelFallback: body.channel_fallback ?? ['telegram', 'discord', 'slack', 'feishu'],
           }
         : (body as NotificationPayload);
 

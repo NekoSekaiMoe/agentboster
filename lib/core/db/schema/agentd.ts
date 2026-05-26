@@ -118,11 +118,32 @@ export interface Decision {
   alternatives: string[];
 }
 
+export const workspaces = pgTable('workspaces', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: text('project_id').notNull().unique(),
+  agentId: text('agent_id').notNull(),
+  name: text('name'),
+  sandboxId: text('sandbox_id').notNull(),
+  sandboxType: text('sandbox_type').notNull(),
+  status: text('status', {
+    enum: ['active', 'archived'],
+  })
+    .default('active')
+    .notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 export const taskSummaries = pgTable('task_summaries', {
   id: uuid('id').defaultRandom().primaryKey(),
   taskId: uuid('task_id').notNull().unique(),
   agentId: text('agent_id').notNull(),
   sessionId: uuid('session_id'),
+  workspaceId: uuid('workspace_id'),
   status: text('status', {
     enum: ['active', 'paused', 'completed'],
   })
