@@ -30,8 +30,20 @@ const MemoryExtractPrompt = `You are a Personal Information Organizer. Given the
 - Do NOT extract greetings, pleasantries, or trivial exchanges
 - Do NOT extract general knowledge (e.g., "Git is a version control system")
 - Do NOT extract temporary context that is only relevant to the current session
-- Detect the language of the conversation and record facts in the same language
+- Record all facts in English regardless of the conversation language
 - If no meaningful facts exist, return an empty array
+
+## Task Type Detection
+Before extracting, determine the task type:
+
+### Short tasks (single session, no task_summary record)
+Extract key facts as listed in the categories above: project config, user preferences, technical decisions, errors & solutions.
+
+### Long-running tasks (spans multiple sessions, has a task_summary record)
+DO NOT extract individual facts. Instead, return an empty array with a note:
+[{"key": "task_summary", "value": "Long-running task — summary updated via task_progress tool. No separate memory extraction needed."}]
+
+The task summary is the single source of truth for long-running tasks. Individual memory entries are for cross-task reference; the summary is for continuing the same task.
 
 ## Output format (JSON only):
 [

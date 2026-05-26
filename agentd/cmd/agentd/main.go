@@ -153,7 +153,7 @@ func main() {
 		Task: cfg.Worker.TaskPoolSize, Memory: cfg.Worker.MemoryPoolSize,
 		Cleanup: cfg.Worker.CleanupPoolSize,
 	}
-	dispatcher := worker.NewDispatcher(bus, workerSizes, gk, sbManager, clawlessClient, agentMgr)
+	dispatcher := worker.NewDispatcher(bus, workerSizes, gk, sbManager, clawlessClient, agentMgr, cfg.TaskSummary.TidyInterval)
 	dispatcher.Start()
 	defer dispatcher.Stop()
 

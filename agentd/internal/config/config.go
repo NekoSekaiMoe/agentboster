@@ -14,13 +14,20 @@ import (
 
 // Config holds the full agentd configuration.
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	ClawLess ClawLessConfig `mapstructure:"clawless"`
-	Security SecurityConfig `mapstructure:"security"`
-	Sandbox  SandboxConfig  `mapstructure:"sandbox"`
-	Cache    CacheConfig    `mapstructure:"cache"`
-	Session  SessionConfig  `mapstructure:"session"`
-	Worker   WorkerConfig   `mapstructure:"worker"`
+	Server       ServerConfig       `mapstructure:"server"`
+	ClawLess     ClawLessConfig     `mapstructure:"clawless"`
+	Security     SecurityConfig     `mapstructure:"security"`
+	Sandbox      SandboxConfig      `mapstructure:"sandbox"`
+	Cache        CacheConfig        `mapstructure:"cache"`
+	Session      SessionConfig      `mapstructure:"session"`
+	Worker       WorkerConfig       `mapstructure:"worker"`
+	TaskSummary  TaskSummaryConfig  `mapstructure:"task_summary"`
+}
+
+type TaskSummaryConfig struct {
+	AutoUpdate   bool          `mapstructure:"auto_update"`
+	TidyInterval time.Duration `mapstructure:"tidy_interval"`
+	MaxDecisions int           `mapstructure:"max_decisions"`
 }
 
 type ServerConfig struct {
@@ -169,6 +176,11 @@ var defaults = Config{
 		MemoryPoolSize:  2,
 		CleanupPoolSize: 1,
 	},
+	TaskSummary: TaskSummaryConfig{
+		AutoUpdate:   true,
+		TidyInterval: 168 * time.Hour, // 1 week
+		MaxDecisions: 50,
+	},
 }
 
 // Load reads configuration from file and environment variables.
@@ -234,6 +246,11 @@ func Load(path string) (*Config, error) {
 		"task_pool_size":    defaults.Worker.TaskPoolSize,
 		"memory_pool_size":  defaults.Worker.MemoryPoolSize,
 		"cleanup_pool_size": defaults.Worker.CleanupPoolSize,
+	})
+	v.SetDefault("task_summary", map[string]any{
+		"auto_update":   defaults.TaskSummary.AutoUpdate,
+		"tidy_interval": defaults.TaskSummary.TidyInterval.String(),
+		"max_decisions": defaults.TaskSummary.MaxDecisions,
 	})
 
 	v.SetConfigType("toml")

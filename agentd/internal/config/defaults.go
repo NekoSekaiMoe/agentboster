@@ -85,6 +85,11 @@ store_path = "/tmp/agentd/sessions"
 review_pool_size = 0   # 0 = 使用默认值 (NumCPU * 4)
 sandbox_pool_size = 0  # 0 = 使用默认值 (NumCPU * 2)
 task_pool_size = 0     # 0 = 使用默认值 (NumCPU)
+
+[task_summary]
+auto_update = true
+tidy_interval = "168h"
+max_decisions = 50
 `
 }
 

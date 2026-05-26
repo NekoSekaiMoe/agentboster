@@ -7,7 +7,9 @@ import {
   agentSandboxes,
   agentTaskOutputs,
   agentTasks,
+  taskSummaries,
 } from './schema';
+import type { Decision } from './schema';
 
 // === Tasks ===
 
@@ -277,4 +279,79 @@ export async function getAgentConfig(agentId: string) {
       scope: r.scope,
     })),
   };
+}
+
+// === Task Summaries ===
+
+export interface TaskSummaryRecord {
+  id: string;
+  taskId: string;
+  agentId: string;
+  sessionId: string | null;
+  status: 'active' | 'paused' | 'completed';
+  progress: string | null;
+  decisions: Decision[] | null;
+  pending: string[] | null;
+  knownIssues: string[] | null;
+  lastUpdated: Date;
+  createdAt: Date;
+}
+
+export async function getTaskSummary(taskId: string): Promise<TaskSummaryRecord | null> {
+  const [row] = await db
+    .select()
+    .from(taskSummaries)
+    .where(eq(taskSummaries.taskId, taskId));
+  return row ?? null;
+}
+
+export async function upsertTaskSummary(data: {
+  taskId: string;
+  agentId: string;
+  sessionId?: string;
+  status?: 'active' | 'paused' | 'completed';
+  progress?: string;
+  decisions?: Decision[];
+  pending?: string[];
+  knownIssues?: string[];
+}): Promise<TaskSummaryRecord> {
+  const existing = await getTaskSummary(data.taskId);
+  if (existing) {
+    const [updated] = await db
+      .update(taskSummaries)
+      .set({
+        ...(data.status !== undefined && { status: data.status }),
+        ...(data.progress !== undefined && { progress: data.progress }),
+        ...(data.decisions !== undefined && { decisions: data.decisions }),
+        ...(data.pending !== undefined && { pending: data.pending }),
+        ...(data.knownIssues !== undefined && { knownIssues: data.knownIssues }),
+        lastUpdated: new Date(),
+      })
+      .where(eq(taskSummaries.taskId, data.taskId))
+      .returning();
+    return updated;
+  }
+
+  const [created] = await db
+    .insert(taskSummaries)
+    .values({
+      taskId: data.taskId,
+      agentId: data.agentId,
+      sessionId: data.sessionId ?? null,
+      status: data.status ?? 'active',
+      progress: data.progress ?? null,
+      decisions: data.decisions ?? null,
+      pending: data.pending ?? null,
+      knownIssues: data.knownIssues ?? null,
+    })
+    .returning();
+  return created;
+}
+
+export async function listActiveTaskSummaries(agentId: string): Promise<TaskSummaryRecord[]> {
+  return db
+    .select()
+    .from(taskSummaries)
+    .where(and(eq(taskSummaries.agentId, agentId), eq(taskSummaries.status, 'active')))
+    .orderBy(desc(taskSummaries.lastUpdated));
 }

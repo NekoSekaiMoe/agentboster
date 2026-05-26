@@ -136,6 +136,47 @@ type Notification struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
+// Decision represents a recorded decision in a task summary.
+type Decision struct {
+	Timestamp    time.Time `json:"timestamp"`
+	Description  string    `json:"description"`
+	Reason       string    `json:"reason"`
+	Alternatives []string  `json:"alternatives"`
+}
+
+// TaskSummary represents a long-running task's running state.
+type TaskSummary struct {
+	ID           string     `json:"id"`
+	TaskID       string     `json:"task_id"`
+	AgentID      string     `json:"agent_id"`
+	SessionID    string     `json:"session_id"`
+	Status       string     `json:"status"`
+	Progress     string     `json:"progress"`
+	Decisions    []Decision `json:"decisions"`
+	Pending      []string   `json:"pending"`
+	KnownIssues  []string   `json:"known_issues"`
+	LastUpdated  time.Time  `json:"last_updated"`
+	CreatedAt    time.Time  `json:"created_at"`
+}
+
+// TaskTidyReport holds suggestions from a tidy scan.
+type TaskTidyReport struct {
+	TaskID          string   `json:"task_id"`
+	Suggestions     []string `json:"suggestions"`
+	MergeIDs        []string `json:"merge_ids,omitempty"`
+	DeleteIDs       []string `json:"delete_ids,omitempty"`
+	ResolvedPending []string `json:"resolved_pending,omitempty"`
+	ResolvedIssues  []string `json:"resolved_issues,omitempty"`
+}
+
+// TaskSummaryUpdate is the request body for updating a task summary.
+type TaskSummaryUpdate struct {
+	Progress     *string    `json:"progress,omitempty"`
+	Decisions    []Decision `json:"decisions,omitempty"`
+	Pending      []string   `json:"pending,omitempty"`
+	KnownIssues  []string   `json:"known_issues,omitempty"`
+}
+
 // APIResponse is a generic API response wrapper.
 type APIResponse[T any] struct {
 	Success bool   `json:"success"`

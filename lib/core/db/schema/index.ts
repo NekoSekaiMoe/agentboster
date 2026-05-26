@@ -15,7 +15,9 @@ export {
   agentSandboxes,
   agentMemories,
   agentdNodes,
+  taskSummaries,
 } from './agentd';
+export type { Decision } from './agentd';
 export {
   notifications,
   notificationPreferences,

@@ -111,6 +111,35 @@ export const agentMemories = pgTable('agent_memories', {
     .notNull(),
 });
 
+export interface Decision {
+  timestamp: string;
+  description: string;
+  reason: string;
+  alternatives: string[];
+}
+
+export const taskSummaries = pgTable('task_summaries', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  taskId: uuid('task_id').notNull().unique(),
+  agentId: text('agent_id').notNull(),
+  sessionId: uuid('session_id'),
+  status: text('status', {
+    enum: ['active', 'paused', 'completed'],
+  })
+    .default('active')
+    .notNull(),
+  progress: text('progress'),
+  decisions: jsonb('decisions').$type<Decision[]>(),
+  pending: jsonb('pending').$type<string[]>(),
+  knownIssues: jsonb('known_issues').$type<string[]>(),
+  lastUpdated: timestamp('last_updated', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 export const agentdNodes = pgTable('agentd_nodes', {
   nodeID: text('node_id').primaryKey(),
   ip: text('ip').notNull(),

@@ -292,6 +292,45 @@ func (c *Client) PostJSON(ctx context.Context, path string, body any, dest any) 
 	return c.decodeResponse(resp, dest)
 }
 
+// ListActiveTaskSummaries fetches all active task summaries for an agent.
+func (c *Client) ListActiveTaskSummaries(ctx context.Context, agentID string) ([]TaskSummary, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/task-summaries?agent_id="+agentID, nil)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp APIResponse[[]TaskSummary]
+	if err := c.decodeResponse(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	return apiResp.Data, nil
+}
+
+// GetTaskSummary fetches the summary for a task.
+func (c *Client) GetTaskSummary(ctx context.Context, taskID string) (*TaskSummary, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/tasks/"+taskID+"/summary", nil)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp APIResponse[TaskSummary]
+	if err := c.decodeResponse(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	return &apiResp.Data, nil
+}
+
+// UpdateTaskSummary updates fields on a task summary.
+func (c *Client) UpdateTaskSummary(ctx context.Context, taskID string, update TaskSummaryUpdate) (*TaskSummary, error) {
+	resp, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID+"/summary", update)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp APIResponse[TaskSummary]
+	if err := c.decodeResponse(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	return &apiResp.Data, nil
+}
+
 // HealthCheck verifies the ClawLess API is reachable.
 func (c *Client) HealthCheck(ctx context.Context) error {
 	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/health", nil)

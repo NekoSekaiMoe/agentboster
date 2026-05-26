@@ -44,6 +44,9 @@ const (
 	// System
 	EventSystemHealthCheck EventType = "system.health_check"
 	EventConfigReloaded    EventType = "config.reloaded"
+
+	// Task summary
+	EventTaskTidyTick EventType = "task_summary.tidy_tick"
 )
 
 // Event represents a domain event.

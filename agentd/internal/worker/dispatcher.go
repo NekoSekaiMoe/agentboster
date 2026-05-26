@@ -14,6 +14,7 @@ import (
 	"github.com/clawless/agentd/internal/eventbus"
 	"github.com/clawless/agentd/internal/sandbox"
 	"github.com/clawless/agentd/internal/security"
+	"github.com/clawless/agentd/internal/worker/workers"
 )
 
 // Dispatcher routes events from the bus to the appropriate worker pools.
@@ -28,6 +29,8 @@ type Dispatcher struct {
 	sbManager    *sandbox.Manager
 	clawless     *clawless.Client
 	agentManager *agent.Manager
+	tidyInterval time.Duration
+	tidyStop     chan struct{}
 }
 
 // PoolSizes holds the worker pool size configuration.
@@ -47,6 +50,7 @@ func NewDispatcher(
 	sbManager *sandbox.Manager,
 	clawlessClient *clawless.Client,
 	agentManager *agent.Manager,
+	tidyInterval time.Duration,
 ) *Dispatcher {
 	d := &Dispatcher{
 		bus:          bus,
@@ -59,27 +63,50 @@ func NewDispatcher(
 		sbManager:    sbManager,
 		clawless:     clawlessClient,
 		agentManager: agentManager,
+		tidyInterval: tidyInterval,
+		tidyStop:     make(chan struct{}),
 	}
 	d.registerRoutes()
 	return d
 }
 
-// Start launches all worker pools.
+// Start launches all worker pools and the tidy ticker.
 func (d *Dispatcher) Start() {
 	d.taskPool.Start()
 	d.reviewPool.Start()
 	d.sandboxPool.Start()
 	d.memoryPool.Start()
 	d.cleanupPool.Start()
+	d.startTidyTicker()
 }
 
-// Stop gracefully shuts down all pools.
+// Stop gracefully shuts down all pools and the tidy ticker.
 func (d *Dispatcher) Stop() {
+	close(d.tidyStop)
 	d.taskPool.Stop()
 	d.reviewPool.Stop()
 	d.sandboxPool.Stop()
 	d.memoryPool.Stop()
 	d.cleanupPool.Stop()
+}
+
+func (d *Dispatcher) startTidyTicker() {
+	if d.tidyInterval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(d.tidyInterval)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				d.bus.Publish(eventbus.EventTaskTidyTick, []string{})
+			case <-d.tidyStop:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
+	slog.Info("tidy ticker started", "interval", d.tidyInterval)
 }
 
 func (d *Dispatcher) registerRoutes() {
@@ -115,6 +142,9 @@ func (d *Dispatcher) registerRoutes() {
 	})
 	d.bus.Subscribe(eventbus.EventSessionArchived, func(e eventbus.Event) {
 		d.cleanupPool.Submit(func() { d.handleSessionArchived(e) })
+	})
+	d.bus.Subscribe(eventbus.EventTaskTidyTick, func(e eventbus.Event) {
+		d.memoryPool.Submit(func() { d.handleTaskTidyTick(e) })
 	})
 }
 
@@ -215,18 +245,64 @@ func (d *Dispatcher) handleTaskCompleted(e eventbus.Event) {
 		return
 	}
 
-	slog.Info("dispatch: task completed, extracting memory and sending notification", "task_id", task.ID)
+	slog.Info("dispatch: task completed", "task_id", task.ID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Extract memory
-	if err := d.agentManager.ExtractMemory(ctx, task); err != nil {
-		slog.Warn("memory extraction failed", "task_id", task.ID, "error", err)
+	// Check if this is a long-running task (has a task summary)
+	summary, err := d.clawless.GetTaskSummary(ctx, task.ID)
+	if err != nil {
+		slog.Info("dispatch: no task summary found, treating as short task", "task_id", task.ID)
+	}
+
+	if summary != nil {
+		// Long-running task: update the summary with final progress
+		slog.Info("dispatch: long-running task detected, updating summary", "task_id", task.ID)
+		_, _ = d.clawless.UpdateTaskSummary(ctx, task.ID, clawless.TaskSummaryUpdate{
+			Progress: strPtr(fmt.Sprintf("Completed: %s", truncateStr(task.Result, 200))),
+		})
+	} else {
+		// Short task: extract memory as before
+		slog.Info("dispatch: extracting memory for short task", "task_id", task.ID)
+		if err := d.agentManager.ExtractMemory(ctx, task); err != nil {
+			slog.Warn("memory extraction failed", "task_id", task.ID, "error", err)
+		}
 	}
 
 	// Send completion notification via ClawLess API
 	d.sendCompletionNotification(ctx, task)
+}
+
+func (d *Dispatcher) handleTaskTidyTick(e eventbus.Event) {
+	slog.Info("dispatch: task tidy tick")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	summaries, err := d.clawless.ListActiveTaskSummaries(ctx, "default")
+	if err != nil {
+		slog.Warn("task tidy: failed to list active summaries", "error", err)
+		return
+	}
+
+	if len(summaries) == 0 {
+		slog.Info("task tidy: no active summaries to scan")
+		return
+	}
+
+	taskIDs := make([]string, len(summaries))
+	for i, s := range summaries {
+		taskIDs[i] = s.TaskID
+	}
+
+	if err := workers.RunTaskTidy(ctx, d.clawless, d.agentManager, taskIDs); err != nil {
+		slog.Warn("task tidy failed", "error", err)
+	}
+}
+
+func strPtr(s string) *string {
+	return &s
 }
 
 func (d *Dispatcher) sendCompletionNotification(ctx context.Context, task *clawless.Task) {

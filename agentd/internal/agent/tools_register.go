@@ -43,6 +43,10 @@ func RegisterAllTools(
 	registerMemorySearch(registry, clawlessClient, agentCtx)
 	registerMemorySave(registry, clawlessClient, agentCtx)
 
+	// === Task Summary (2) ===
+	registerTaskSummary(registry, clawlessClient, agentCtx)
+	registerTaskProgress(registry, clawlessClient, agentCtx)
+
 	// === Sandbox install (1) ===
 	registerSandboxInstall(registry, sbManager, agentCtx)
 
