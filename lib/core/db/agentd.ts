@@ -315,24 +315,7 @@ export async function upsertTaskSummary(data: {
   pending?: string[];
   knownIssues?: string[];
 }): Promise<TaskSummaryRecord> {
-  const existing = await getTaskSummary(data.taskId);
-  if (existing) {
-    const [updated] = await db
-      .update(taskSummaries)
-      .set({
-        ...(data.status !== undefined && { status: data.status }),
-        ...(data.progress !== undefined && { progress: data.progress }),
-        ...(data.decisions !== undefined && { decisions: data.decisions }),
-        ...(data.pending !== undefined && { pending: data.pending }),
-        ...(data.knownIssues !== undefined && { knownIssues: data.knownIssues }),
-        lastUpdated: new Date(),
-      })
-      .where(eq(taskSummaries.taskId, data.taskId))
-      .returning();
-    return updated;
-  }
-
-  const [created] = await db
+  const [record] = await db
     .insert(taskSummaries)
     .values({
       taskId: data.taskId,
@@ -344,8 +327,21 @@ export async function upsertTaskSummary(data: {
       pending: data.pending ?? null,
       knownIssues: data.knownIssues ?? null,
     })
+    .onConflictDoUpdate({
+      target: taskSummaries.taskId,
+      set: {
+        ...(data.agentId !== undefined && { agentId: data.agentId }),
+        ...(data.sessionId !== undefined && { sessionId: data.sessionId }),
+        ...(data.status !== undefined && { status: data.status }),
+        ...(data.progress !== undefined && { progress: data.progress }),
+        ...(data.decisions !== undefined && { decisions: data.decisions }),
+        ...(data.pending !== undefined && { pending: data.pending }),
+        ...(data.knownIssues !== undefined && { knownIssues: data.knownIssues }),
+        lastUpdated: new Date(),
+      },
+    })
     .returning();
-  return created;
+  return record;
 }
 
 export async function listActiveTaskSummaries(agentId: string): Promise<TaskSummaryRecord[]> {

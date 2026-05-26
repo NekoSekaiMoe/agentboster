@@ -259,9 +259,11 @@ func (d *Dispatcher) handleTaskCompleted(e eventbus.Event) {
 	if summary != nil {
 		// Long-running task: update the summary with final progress
 		slog.Info("dispatch: long-running task detected, updating summary", "task_id", task.ID)
-		_, _ = d.clawless.UpdateTaskSummary(ctx, task.ID, clawless.TaskSummaryUpdate{
+		if _, err := d.clawless.UpdateTaskSummary(ctx, task.ID, clawless.TaskSummaryUpdate{
 			Progress: strPtr(fmt.Sprintf("Completed: %s", truncateStr(task.Result, 200))),
-		})
+		}); err != nil {
+			slog.Error("dispatch: failed to update task summary", "task_id", task.ID, "error", err)
+		}
 	} else {
 		// Short task: extract memory as before
 		slog.Info("dispatch: extracting memory for short task", "task_id", task.ID)
