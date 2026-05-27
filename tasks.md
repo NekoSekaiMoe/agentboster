@@ -184,3 +184,21 @@ TaskSummary {
 																														### 总结
 																														
 																														长程记忆系统的核心是 `task_summaries` 一张表。Agent 每次任务开始时加载摘要，执行中更新进度和决策，结束时 LLM 更新完整摘要。不需要语义检索，不需要 embedding，不需要 pgvector。任务摘要是长程工作的唯一记忆，精确、结构化、可直接注入上下文。
+
+除了上面四点，AgentClaw 还可以从 LobeHub 借鉴这些：
+
+**5. Pages 的共同撰写思路 → Agent 和用户在任务中协作**
+
+LobeHub 的 Pages 让多个 Agent 和用户在同一页面上共同撰写和润色内容。AgentClaw 可以借鉴这个思路用于长程任务的**阶段性审核**——Agent 在 chroot 里完成一个阶段的代码重构后，在 Web UI 上生成一份"变更报告"，展示改了什么文件、为什么改、测试结果。用户在报告上直接批注"这个函数需要加错误处理"，Agent 读批注继续改。不是 Agent 干完活用户只能看结果，而是用户在过程中可以介入指导。这比当前"Agent 干完通知用户"多了协作深度。
+
+**6. Workspace 的团队共享思路 → 未来多用户的 Agent 协作空间**
+
+LobeHub 的 Workspace 是团队和 Agent 协作的共享空间。AgentClaw 当前是单用户，但未来扩展多用户时，可以借鉴这个思路——一个 Workspace 可以授权给多个用户查看和操作。owner 创建项目后，授权 operator 或 viewer 加入 Workspace，team 成员可以在 Web UI 上查看项目进度、审阅 Agent 的变更报告、参与 L2 授权决策。这不影响 Agent 的执行隔离（Agent 仍然 1:1），但项目的可见性和决策权可以共享。
+
+**7. Agent Groups 的组装思路 → 长程任务的专用子 Agent 池**
+
+LobeHub 的 Agent Groups 为任务自动组装合适的 Agent 组合。AgentClaw 的长程任务可以借鉴这个思路——用户创建一个长程项目时，可以预设一组专用子 Agent（代码审查 Agent、测试 Agent、文档 Agent），主 Agent 在任务中自动调用这些专用子 Agent。不是每次子任务都创建通用子 Agent，而是有一套预设的、各司其职的子 Agent 池。这比当前"主 Agent 动态拆分任务"更结构化，子 Agent 的角色和权限可以预设。
+
+**8. 持续学习的用户理解 → AgentClaw 的偏好学习**
+
+LobeHub 的 Agent 会从用户的工作方式中学习，调整行为在恰当时刻采取行动。AgentClaw 可以借鉴这个思路用于**L2 授权的智能建议**——Agent 记录用户每次 L2 确认的选择模式（用户对 `git_push` 总是选 `pass once`，对 `rm -rf` 总是选 `reject once`），下次同类操作弹出 L2 确认时，Agent 在通知里附带建议："根据你的历史选择，建议选 pass once"。用户仍然决策，但 Agent 提供更精准的建议。这和 AgentClaw 的"AI 建议，人决策"一致——AI 从用户的决策历史中学习用户的偏好，但不替用户决策。

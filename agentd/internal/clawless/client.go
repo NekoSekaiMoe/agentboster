@@ -29,14 +29,14 @@ func NewClient(baseURL, apiKey string, tlsCfg *tls.Config) *Client {
 	transport := &http.Transport{
 		TLSClientConfig: tlsCfg,
 	}
- 	return &Client{
- 		BaseURL: baseURL,
- 		APIKey:  apiKey,
- 		HTTPClient: &http.Client{
- 			Transport: transport,
- 			Timeout:   30 * time.Second,
- 		},
- 	}
+	return &Client{
+		BaseURL: baseURL,
+		APIKey:  apiKey,
+		HTTPClient: &http.Client{
+			Transport: transport,
+			Timeout:   30 * time.Second,
+		},
+	}
 }
 
 // NewClientFromConfig creates a client from the app config.
@@ -74,17 +74,17 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 		bodyReader = bytes.NewReader(data)
 	}
 
- 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
- 	if c.APIKey != "" {
- 		req.Header.Set("X-API-Key", c.APIKey)
- 	}
+	if c.APIKey != "" {
+		req.Header.Set("X-API-Key", c.APIKey)
+	}
 
- 	return c.HTTPClient.Do(req)
+	return c.HTTPClient.Do(req)
 }
 
 func (c *Client) decodeResponse(resp *http.Response, dest any) error {
@@ -386,6 +386,29 @@ func (c *Client) UpdateTaskSummary(ctx context.Context, taskID string, update Ta
 	return &apiResp.Data, nil
 }
 
+// TidyTaskSummary asks ClawLess to generate tidy suggestions for a summary.
+func (c *Client) TidyTaskSummary(ctx context.Context, taskID string) (*TaskTidyReport, error) {
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/tasks/"+taskID+"/summary/tidy", nil)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp APIResponse[TaskTidyReport]
+	if err := c.decodeResponse(resp, &apiResp); err != nil {
+		return nil, err
+	}
+	return &apiResp.Data, nil
+}
+
+// ApplyTaskSummaryTidy applies user-approved tidy suggestions.
+func (c *Client) ApplyTaskSummaryTidy(ctx context.Context, taskID string, req TaskTidyApplyRequest) error {
+	resp, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID+"/summary/tidy/apply", req)
+	if err != nil {
+		return err
+	}
+	var apiResp APIResponse[map[string]any]
+	return c.decodeResponse(resp, &apiResp)
+}
+
 // HealthCheck verifies the ClawLess API is reachable.
 func (c *Client) HealthCheck(ctx context.Context) error {
 	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/health", nil)
@@ -396,6 +419,6 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check failed: %d", resp.StatusCode)
 	}
- 	slog.Info("ClawLess API health check OK", "url", c.BaseURL)
+	slog.Info("ClawLess API health check OK", "url", c.BaseURL)
 	return nil
 }

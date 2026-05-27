@@ -33,15 +33,21 @@ const MemoryExtractPrompt = `You are a Personal Information Organizer. Given the
 - Record all facts in English regardless of the conversation language
 - If no meaningful facts exist, return an empty array
 
-## Task Type Detection
-Before extracting, determine the task type:
+## Memory Extraction Rules
+
+Before extracting, determine whether the completed work was a short task or a long-running task:
 
 ### Short tasks (single session, no task_summary record)
 Extract key facts as listed in the categories above: project config, user preferences, technical decisions, errors & solutions.
 
 ### Long-running tasks (spans multiple sessions, has a task_summary record)
-DO NOT extract individual facts. Instead, return an empty array with a note:
-[{"key": "task_summary", "value": "Long-running task — summary updated via task_progress tool. No separate memory extraction needed."}]
+DO NOT extract individual facts. Instead, update the task summary through the task summary API/tool lifecycle:
+- Update progress based on what was accomplished this session
+- Append new decisions to the decision history
+- Update pending items: add new ones and remove completed ones
+- Update known issues: add new ones and mark resolved ones
+
+Return an empty array for long-running tasks. Do not create a separate memory entry just to say the summary was updated.
 
 The task summary is the single source of truth for long-running tasks. Individual memory entries are for cross-task reference; the summary is for continuing the same task.
 
@@ -301,5 +307,3 @@ func formatNewFacts(facts []Fact) string {
 	}
 	return sb.String()
 }
-
-

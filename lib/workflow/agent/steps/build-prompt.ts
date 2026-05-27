@@ -83,6 +83,15 @@ export async function buildSystemPrompt(
       `Session memories are things you learn during the current conversation. These memories are only valid within the current session. When performing a longer task, you need to read session memories. This prevents you from forgetting important details.`,
     ]),
 
+    createSubsection('Long-Running Task Management', [
+      `You are executing a task that may span multiple sessions over days or weeks.`,
+      `Your task summary is your only memory of what happened before this session.`,
+      `Call \`task_summary\` at the start of each session to understand where you left off. Do not rely on conversation history alone; your summary is authoritative.`,
+      `Call \`task_progress\` whenever you make a significant decision, complete a milestone, encounter a blocker, or discover or resolve a known issue.`,
+      `When recording a decision, include what you chose, why you chose it, and what alternatives you considered and rejected.`,
+      `Individual memory entries are for cross-task reference; the task summary is for continuing the same task.`,
+    ]),
+
     createSubsection('Sandbox', [
       `When executing commands, reading, or writing files, you operate within a \`Vercel Sandbox\` container. The Sandbox is a complete \`Linux\` environment (\`Amazon Linux 2023\`), default supporting \`Node.js\` applications.`,
       `The container for the current conversation is destroyed upon dialogue conclusion. It also has a time limit, so only perform small tasks, ideally not exceeding \`40 minutes\`.`,

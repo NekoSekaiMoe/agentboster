@@ -10,16 +10,17 @@ import (
 
 // AgentContext holds the runtime context for an agent session.
 type AgentContext struct {
-	SessionID       string
-	AgentID         string
-	SandboxID       string
-	SandboxType     string
-	SandboxPath     string
-	Model           string
-	MaxSteps        int
-	SystemPrompt    string
-	StartTime       time.Time
-	LastAccessTime  time.Time
+	SessionID      string
+	TaskID         string
+	AgentID        string
+	SandboxID      string
+	SandboxType    string
+	SandboxPath    string
+	Model          string
+	MaxSteps       int
+	SystemPrompt   string
+	StartTime      time.Time
+	LastAccessTime time.Time
 
 	// Question service for LLM-initiated questions
 	QuestionService *QuestionService
@@ -50,15 +51,15 @@ type AgentContext struct {
 
 // TaskState holds execution state that survives context compaction.
 type TaskState struct {
-	SandboxType      string            `json:"sandbox_type"`
-	SandboxID        string            `json:"sandbox_id"`
-	L2AuthRecords    []string          `json:"l2_auth_records"`
-	SubAgentProgress map[string]string `json:"sub_agent_progress"`
+	SandboxType       string            `json:"sandbox_type"`
+	SandboxID         string            `json:"sandbox_id"`
+	L2AuthRecords     []string          `json:"l2_auth_records"`
+	SubAgentProgress  map[string]string `json:"sub_agent_progress"`
 	SubAgentSummaries []SubAgentSummary `json:"sub_agent_summaries"`
-	KeyDecisions     []string          `json:"key_decisions"`
-	LastToolSummary  string            `json:"last_tool_summary"`
-	CompactedAt      string            `json:"compacted_at,omitempty"`
-	CompactionCount  int               `json:"compaction_count"`
+	KeyDecisions      []string          `json:"key_decisions"`
+	LastToolSummary   string            `json:"last_tool_summary"`
+	CompactedAt       string            `json:"compacted_at,omitempty"`
+	CompactionCount   int               `json:"compaction_count"`
 }
 
 // SubAgentSummary stores a summarized result from a completed sub-agent.
@@ -79,10 +80,10 @@ type SandboxInfo struct {
 
 // ToolCallRecord tracks a recent tool call for LLM context.
 type ToolCallRecord struct {
-	Tool    string `json:"tool"`
-	Args    string `json:"args"`
-	Result  string `json:"result"`
-	Success bool   `json:"success"`
+	Tool    string    `json:"tool"`
+	Args    string    `json:"args"`
+	Result  string    `json:"result"`
+	Success bool      `json:"success"`
 	Time    time.Time `json:"time"`
 }
 
@@ -115,5 +116,3 @@ func formatRecentToolCalls(records []ToolCallRecord) string {
 	}
 	return result
 }
-
-

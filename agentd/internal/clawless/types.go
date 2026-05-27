@@ -6,12 +6,12 @@ import "time"
 type TaskStatus string
 
 const (
-	TaskPending    TaskStatus = "pending"
-	TaskReviewing  TaskStatus = "reviewing"
-	TaskRunning    TaskStatus = "running"
-	TaskCompleted  TaskStatus = "completed"
-	TaskFailed     TaskStatus = "failed"
-	TaskCancelled  TaskStatus = "cancelled"
+	TaskPending   TaskStatus = "pending"
+	TaskReviewing TaskStatus = "reviewing"
+	TaskRunning   TaskStatus = "running"
+	TaskCompleted TaskStatus = "completed"
+	TaskFailed    TaskStatus = "failed"
+	TaskCancelled TaskStatus = "cancelled"
 )
 
 // Task represents an agent task.
@@ -33,13 +33,13 @@ type Task struct {
 
 // Session represents a chat session.
 type Session struct {
-	ID        string       `json:"id"`
-	AgentID   string       `json:"agent_id"`
-	Messages  []Message    `json:"messages"`
-	Summary   string       `json:"summary"`
-	KeyFacts  []KeyFact    `json:"key_facts"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	ID        string    `json:"id"`
+	AgentID   string    `json:"agent_id"`
+	Messages  []Message `json:"messages"`
+	Summary   string    `json:"summary"`
+	KeyFacts  []KeyFact `json:"key_facts"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Message represents a chat message.
@@ -79,16 +79,16 @@ type Memory struct {
 
 // AgentConfig represents agent configuration from ClawLess.
 type AgentConfig struct {
-	AgentID            string   `json:"agent_id"`
-	DefaultSandbox     string   `json:"default_sandbox"`
-	AvailableSandboxes []string `json:"available_sandboxes"`
-	L1Provider         string   `json:"l1_provider"`
-	L1Model            string   `json:"l1_model"`
-	L1Endpoint         string   `json:"l1_endpoint"`
-	MaxParallelSubAgents int     `json:"max_parallel_sub_agents"`
-	AllowedPaths       []string `json:"allowed_paths"`
-	BlockedPaths       []string `json:"blocked_paths"`
-	MemoryEnabled      bool     `json:"memory_enabled"`
+	AgentID              string   `json:"agent_id"`
+	DefaultSandbox       string   `json:"default_sandbox"`
+	AvailableSandboxes   []string `json:"available_sandboxes"`
+	L1Provider           string   `json:"l1_provider"`
+	L1Model              string   `json:"l1_model"`
+	L1Endpoint           string   `json:"l1_endpoint"`
+	MaxParallelSubAgents int      `json:"max_parallel_sub_agents"`
+	AllowedPaths         []string `json:"allowed_paths"`
+	BlockedPaths         []string `json:"blocked_paths"`
+	MemoryEnabled        bool     `json:"memory_enabled"`
 }
 
 // SandboxMeta represents sandbox metadata.
@@ -138,6 +138,7 @@ type Notification struct {
 
 // Decision represents a recorded decision in a task summary.
 type Decision struct {
+	ID           string    `json:"id,omitempty"`
 	Timestamp    time.Time `json:"timestamp"`
 	Description  string    `json:"description"`
 	Reason       string    `json:"reason"`
@@ -146,35 +147,55 @@ type Decision struct {
 
 // TaskSummary represents a long-running task's running state.
 type TaskSummary struct {
-	ID           string     `json:"id"`
-	TaskID       string     `json:"task_id"`
-	AgentID      string     `json:"agent_id"`
-	SessionID    string     `json:"session_id"`
-	Status       string     `json:"status"`
-	Progress     string     `json:"progress"`
-	Decisions    []Decision `json:"decisions"`
-	Pending      []string   `json:"pending"`
-	KnownIssues  []string   `json:"known_issues"`
-	LastUpdated  time.Time  `json:"last_updated"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID          string     `json:"id"`
+	TaskID      string     `json:"task_id"`
+	AgentID     string     `json:"agent_id"`
+	SessionID   string     `json:"session_id"`
+	Status      string     `json:"status"`
+	Progress    string     `json:"progress"`
+	Decisions   []Decision `json:"decisions"`
+	Pending     []string   `json:"pending"`
+	KnownIssues []string   `json:"known_issues"`
+	LastUpdated time.Time  `json:"last_updated"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // TaskTidyReport holds suggestions from a tidy scan.
 type TaskTidyReport struct {
-	TaskID          string   `json:"task_id"`
-	Suggestions     []string `json:"suggestions"`
-	MergeIDs        []string `json:"merge_ids,omitempty"`
-	DeleteIDs       []string `json:"delete_ids,omitempty"`
-	ResolvedPending []string `json:"resolved_pending,omitempty"`
-	ResolvedIssues  []string `json:"resolved_issues,omitempty"`
+	TaskID             string           `json:"task_id"`
+	SummaryLastUpdated time.Time        `json:"summary_last_updated"`
+	Suggestions        []string         `json:"suggestions"`
+	MergeIDs           []string         `json:"merge_ids,omitempty"`
+	DeleteIDs          []string         `json:"delete_ids,omitempty"`
+	UpdateIDs          []DecisionUpdate `json:"update_ids,omitempty"`
+	ResolvedPending    []string         `json:"resolved_pending,omitempty"`
+	ResolvedIssues     []string         `json:"resolved_issues,omitempty"`
+}
+
+// DecisionUpdate represents an explicit decision edit from tidy apply.
+type DecisionUpdate struct {
+	ID           string   `json:"id"`
+	Description  string   `json:"description,omitempty"`
+	Reason       string   `json:"reason,omitempty"`
+	Alternatives []string `json:"alternatives,omitempty"`
+}
+
+// TaskTidyApplyRequest applies user-approved tidy suggestions.
+type TaskTidyApplyRequest struct {
+	SummaryLastUpdated time.Time        `json:"summary_last_updated"`
+	MergeIDs           []string         `json:"merge_ids,omitempty"`
+	DeleteIDs          []string         `json:"delete_ids,omitempty"`
+	UpdateIDs          []DecisionUpdate `json:"update_ids,omitempty"`
+	ResolvedPending    []string         `json:"resolved_pending,omitempty"`
+	ResolvedIssues     []string         `json:"resolved_issues,omitempty"`
 }
 
 // TaskSummaryUpdate is the request body for updating a task summary.
 type TaskSummaryUpdate struct {
-	Progress     *string    `json:"progress,omitempty"`
-	Decisions    []Decision `json:"decisions,omitempty"`
-	Pending      []string   `json:"pending,omitempty"`
-	KnownIssues  []string   `json:"known_issues,omitempty"`
+	Progress    *string    `json:"progress,omitempty"`
+	Decisions   []Decision `json:"decisions,omitempty"`
+	Pending     []string   `json:"pending,omitempty"`
+	KnownIssues []string   `json:"known_issues,omitempty"`
 }
 
 // Workspace represents a project-level organization unit.

@@ -5,10 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
 )
+
+func taskSummaryID(ctx *AgentContext) string {
+	if strings.TrimSpace(ctx.TaskID) != "" {
+		return ctx.TaskID
+	}
+	return ctx.SessionID
+}
 
 func registerTaskSummary(registry *ToolRegistry, client *clawless.Client, ctx *AgentContext) {
 	registry.Register(ToolDefinition{
@@ -19,7 +27,8 @@ func registerTaskSummary(registry *ToolRegistry, client *clawless.Client, ctx *A
 			"properties": map[string]any{},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
-		summary, err := client.GetTaskSummary(toolCtx, ctx.SessionID)
+		taskID := taskSummaryID(ctx)
+		summary, err := client.GetTaskSummary(toolCtx, taskID)
 		if err != nil {
 			slog.Warn("task_summary: failed to fetch", "error", err)
 			return &ToolResult{Success: true, Data: "(no task summary found — this may be a new or short-term task)"}, nil
@@ -94,8 +103,10 @@ func registerTaskProgress(registry *ToolRegistry, client *clawless.Client, ctx *
 			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
 		}
 
+		taskID := taskSummaryID(ctx)
+
 		// Fetch existing summary to merge fields
-		existing, err := client.GetTaskSummary(toolCtx, ctx.SessionID)
+		existing, err := client.GetTaskSummary(toolCtx, taskID)
 		if err != nil {
 			slog.Warn("task_progress: failed to fetch existing summary, creating new", "error", err)
 		}
@@ -114,6 +125,7 @@ func registerTaskProgress(registry *ToolRegistry, client *clawless.Client, ctx *
 		}
 		if params.Decision != nil {
 			decisions = append(decisions, clawless.Decision{
+				ID:           fmt.Sprintf("dec_%d", time.Now().UnixNano()),
 				Timestamp:    time.Now(),
 				Description:  params.Decision.Description,
 				Reason:       params.Decision.Reason,
@@ -170,7 +182,7 @@ func registerTaskProgress(registry *ToolRegistry, client *clawless.Client, ctx *
 		}
 		update.KnownIssues = knownIssues
 
-		summary, err := client.UpdateTaskSummary(toolCtx, ctx.SessionID, update)
+		summary, err := client.UpdateTaskSummary(toolCtx, taskID, update)
 		if err != nil {
 			slog.Warn("task_progress: failed to update", "error", err)
 			return &ToolResult{Success: false, Error: fmt.Sprintf("update task summary: %v", err)}, nil

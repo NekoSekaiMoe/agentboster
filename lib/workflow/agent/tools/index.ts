@@ -15,12 +15,14 @@ import memoryTool from './memories/local';
 import localSkillTool from './skills/local';
 import scheduleTool from './tasks/schedule';
 import subAgentTool from './tasks/sub-agent';
+import taskSummaryTool from './tasks/summary';
 
 const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   sandboxTool,
   memoryTool,
   localSkillTool,
   scheduleTool,
+  taskSummaryTool,
   subAgentTool,
 ];
 

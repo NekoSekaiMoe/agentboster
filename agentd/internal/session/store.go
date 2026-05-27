@@ -13,21 +13,22 @@ import (
 
 // SessionData is the serializable form of an agent session context.
 type SessionData struct {
-	SessionID       string         `json:"session_id"`
-	AgentID         string         `json:"agent_id"`
-	SandboxID       string         `json:"sandbox_id"`
-	SandboxType     string         `json:"sandbox_type"`
-	SandboxPath     string         `json:"sandbox_path"`
-	Model           string         `json:"model"`
-	MaxSteps        int            `json:"max_steps"`
-	SystemPrompt    string         `json:"system_prompt"`
-	StartTime       time.Time      `json:"start_time"`
-	LastAccessTime  time.Time      `json:"last_access_time"`
-	SandboxState    SandboxData    `json:"sandbox_state"`
-	SessionSummary  string         `json:"session_summary"`
-	RecentToolCalls []ToolRecord   `json:"recent_tool_calls"`
-	WorkspaceID     string         `json:"workspace_id"`
-	ProjectID       string         `json:"project_id"`
+	SessionID       string       `json:"session_id"`
+	TaskID          string       `json:"task_id"`
+	AgentID         string       `json:"agent_id"`
+	SandboxID       string       `json:"sandbox_id"`
+	SandboxType     string       `json:"sandbox_type"`
+	SandboxPath     string       `json:"sandbox_path"`
+	Model           string       `json:"model"`
+	MaxSteps        int          `json:"max_steps"`
+	SystemPrompt    string       `json:"system_prompt"`
+	StartTime       time.Time    `json:"start_time"`
+	LastAccessTime  time.Time    `json:"last_access_time"`
+	SandboxState    SandboxData  `json:"sandbox_state"`
+	SessionSummary  string       `json:"session_summary"`
+	RecentToolCalls []ToolRecord `json:"recent_tool_calls"`
+	WorkspaceID     string       `json:"workspace_id"`
+	ProjectID       string       `json:"project_id"`
 }
 
 type SandboxData struct {

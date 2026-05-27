@@ -112,6 +112,7 @@ export const agentMemories = pgTable('agent_memories', {
 });
 
 export interface Decision {
+  id?: string;
   timestamp: string;
   description: string;
   reason: string;

@@ -212,15 +212,15 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 
 	now := time.Now()
 	ctx := &AgentContext{
-		SessionID:      newSessionID,
-		AgentID:        agentID,
-		SandboxID:      sb.ID,
-		SandboxType:    sb.Type,
-		SandboxPath:    sb.Path,
-		MaxSteps:       30,
-		StartTime:      now,
-		LastAccessTime: now,
-		SandboxState:   SandboxInfo{Type: sb.Type, Path: sb.Path},
+		SessionID:       newSessionID,
+		AgentID:         agentID,
+		SandboxID:       sb.ID,
+		SandboxType:     sb.Type,
+		SandboxPath:     sb.Path,
+		MaxSteps:        30,
+		StartTime:       now,
+		LastAccessTime:  now,
+		SandboxState:    SandboxInfo{Type: sb.Type, Path: sb.Path},
 		RecentToolCalls: make([]ToolCallRecord, 0),
 		QuestionService: m.questionSvc,
 		BGTaskStore:     m.bgTaskStore,
@@ -298,8 +298,6 @@ func (m *Manager) GetSession(sessionID string) (*AgentContext, bool) {
 	ctx, ok := m.sessions[sessionID]
 	return ctx, ok
 }
-
-
 
 // RunAgent executes the agent loop for a session with the given user message.
 func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (string, error) {
@@ -402,10 +400,10 @@ func (m *Manager) GetSessionStatus(sessionID string) (map[string]any, bool) {
 		}
 	}
 	return map[string]any{
-		"session_id":    ctx.SessionID,
-		"sandbox_id":    ctx.SandboxID,
-		"sandbox_type":  ctx.SandboxType,
-		"sandbox_path":  ctx.SandboxPath,
+		"session_id":       ctx.SessionID,
+		"sandbox_id":       ctx.SandboxID,
+		"sandbox_type":     ctx.SandboxType,
+		"sandbox_path":     ctx.SandboxPath,
 		"compaction_count": ctx.TaskState.CompactionCount,
 	}, true
 }
@@ -483,6 +481,7 @@ func (m *Manager) DestroySession(sessionID string) error {
 func agentContextToData(ctx *AgentContext) *session.SessionData {
 	return &session.SessionData{
 		SessionID:       ctx.SessionID,
+		TaskID:          ctx.TaskID,
 		AgentID:         ctx.AgentID,
 		SandboxID:       ctx.SandboxID,
 		SandboxType:     ctx.SandboxType,
@@ -503,6 +502,7 @@ func agentContextToData(ctx *AgentContext) *session.SessionData {
 func dataToAgentContext(data *session.SessionData) *AgentContext {
 	return &AgentContext{
 		SessionID:       data.SessionID,
+		TaskID:          data.TaskID,
 		AgentID:         data.AgentID,
 		SandboxID:       data.SandboxID,
 		SandboxType:     data.SandboxType,

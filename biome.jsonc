@@ -14,6 +14,7 @@
       "node_modules",
       ".next",
       "public",
+      "ref",
       ".vercel",
       "app/.well-known"
     ],

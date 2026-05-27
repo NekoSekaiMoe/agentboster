@@ -197,6 +197,7 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 		d.bus.Publish(eventbus.EventTaskFailed, task)
 		return
 	}
+	agentCtx.TaskID = task.ID
 
 	// Set sandbox info — always use chroot for workspace persistence
 	agentCtx.SandboxID = task.SandboxID
@@ -291,27 +292,8 @@ func (d *Dispatcher) handleTaskCompleted(e eventbus.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// Check if this is a long-running task (has a task summary)
-	summary, err := d.clawless.GetTaskSummary(ctx, task.ID)
-	if err != nil {
-		slog.Info("dispatch: no task summary found, treating as short task", "task_id", task.ID)
-	}
-
-	if summary != nil {
-		// Long-running task: update the summary with final progress
-		slog.Info("dispatch: long-running task detected, updating summary", "task_id", task.ID)
-		if _, err := d.clawless.UpdateTaskSummary(ctx, task.ID, clawless.TaskSummaryUpdate{
-			Progress: strPtr(fmt.Sprintf("Completed: %s", truncateStr(task.Result, 200))),
-		}); err != nil {
-			slog.Error("dispatch: failed to update task summary", "task_id", task.ID, "error", err)
-		}
-	} else {
-		// Short task: extract memory as before
-		slog.Info("dispatch: extracting memory for short task", "task_id", task.ID)
-		if err := d.agentManager.ExtractMemory(ctx, task); err != nil {
-			slog.Warn("memory extraction failed", "task_id", task.ID, "error", err)
-		}
-	}
+	memoryWorker := workers.NewMemoryWorker(d.clawless, d.agentManager)
+	memoryWorker.Handle(ctx, task)
 
 	// Send completion notification via ClawLess API
 	d.sendCompletionNotification(ctx, task)
@@ -342,10 +324,6 @@ func (d *Dispatcher) handleTaskTidyTick(e eventbus.Event) {
 	if err := workers.RunTaskTidy(ctx, d.clawless, d.agentManager, taskIDs); err != nil {
 		slog.Warn("task tidy failed", "error", err)
 	}
-}
-
-func strPtr(s string) *string {
-	return &s
 }
 
 func (d *Dispatcher) sendCompletionNotification(ctx context.Context, task *clawless.Task) {
