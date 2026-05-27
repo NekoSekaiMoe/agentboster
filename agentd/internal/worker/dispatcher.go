@@ -12,9 +12,11 @@ import (
 
 	"github.com/clawless/agentd/internal/agent"
 	"github.com/clawless/agentd/internal/clawless"
+	"github.com/clawless/agentd/internal/config"
 	"github.com/clawless/agentd/internal/eventbus"
 	"github.com/clawless/agentd/internal/sandbox"
 	"github.com/clawless/agentd/internal/security"
+	"github.com/clawless/agentd/internal/security/l2_auth"
 	"github.com/clawless/agentd/internal/worker/workers"
 )
 
@@ -30,40 +32,34 @@ type Dispatcher struct {
 	sbManager    *sandbox.Manager
 	clawless     *clawless.Client
 	agentManager *agent.Manager
+	l2Mgr        *l2_auth.L2AuthManager
 	tidyInterval time.Duration
 	tidyStop     chan struct{}
-}
-
-// PoolSizes holds the worker pool size configuration.
-type PoolSizes struct {
-	Review  int
-	Sandbox int
-	Task    int
-	Memory  int
-	Cleanup int
 }
 
 // NewDispatcher creates a dispatcher with all worker pools and dependencies.
 func NewDispatcher(
 	bus *eventbus.Bus,
-	sizes PoolSizes,
+	poolCfg config.WorkerPoolConfig,
 	gk *security.Gatekeeper,
 	sbManager *sandbox.Manager,
 	clawlessClient *clawless.Client,
 	agentManager *agent.Manager,
+	l2Mgr *l2_auth.L2AuthManager,
 	tidyInterval time.Duration,
 ) *Dispatcher {
 	d := &Dispatcher{
 		bus:          bus,
-		taskPool:     NewPool("task", sizes.Task),
-		reviewPool:   NewPool("review", sizes.Review),
-		sandboxPool:  NewPool("sandbox", sizes.Sandbox),
-		memoryPool:   NewPool("memory", sizes.Memory),
-		cleanupPool:  NewPool("cleanup", sizes.Cleanup),
+		taskPool:     NewPool("task", poolCfg),
+		reviewPool:   NewPool("review", poolCfg),
+		sandboxPool:  NewPool("sandbox", poolCfg),
+		memoryPool:   NewPool("memory", poolCfg),
+		cleanupPool:  NewPool("cleanup", poolCfg),
 		gatekeeper:   gk,
 		sbManager:    sbManager,
 		clawless:     clawlessClient,
 		agentManager: agentManager,
+		l2Mgr:        l2Mgr,
 		tidyInterval: tidyInterval,
 		tidyStop:     make(chan struct{}),
 	}
@@ -71,13 +67,8 @@ func NewDispatcher(
 	return d
 }
 
-// Start launches all worker pools and the tidy ticker.
+// Start launches the tidy ticker (pools auto-start in NewPool).
 func (d *Dispatcher) Start() {
-	d.taskPool.Start()
-	d.reviewPool.Start()
-	d.sandboxPool.Start()
-	d.memoryPool.Start()
-	d.cleanupPool.Start()
 	d.startTidyTicker()
 }
 
@@ -89,6 +80,17 @@ func (d *Dispatcher) Stop() {
 	d.sandboxPool.Stop()
 	d.memoryPool.Stop()
 	d.cleanupPool.Stop()
+}
+
+// Metrics returns aggregated metrics from all worker pools.
+func (d *Dispatcher) Metrics() map[string]any {
+	return map[string]any{
+		"task":    d.taskPool.Metrics(),
+		"review":  d.reviewPool.Metrics(),
+		"sandbox": d.sandboxPool.Metrics(),
+		"memory":  d.memoryPool.Metrics(),
+		"cleanup": d.cleanupPool.Metrics(),
+	}
 }
 
 func (d *Dispatcher) startTidyTicker() {
@@ -129,11 +131,8 @@ func (d *Dispatcher) registerRoutes() {
 	d.bus.Subscribe(eventbus.EventSecurityAlert, func(e eventbus.Event) {
 		d.reviewPool.Submit(func() { d.handleSecurityAlert(e) })
 	})
-	d.bus.Subscribe(eventbus.EventL2AuthRequired, func(e eventbus.Event) {
-		d.reviewPool.Submit(func() { d.handleL2Auth(e) })
-	})
 	d.bus.Subscribe(eventbus.EventL2AuthApproved, func(e eventbus.Event) {
-		d.reviewPool.Submit(func() { d.handleL2AuthApproved(e) })
+		d.reviewPool.Submit(func() { d.handleL2Auth(e) })
 	})
 	d.bus.Subscribe(eventbus.EventL2AuthRejected, func(e eventbus.Event) {
 		d.bus.Publish(eventbus.EventTaskRejected, e.Payload)
@@ -199,11 +198,12 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 	}
 	agentCtx.TaskID = task.ID
 
-	// Set sandbox info — always use chroot for workspace persistence
+	// Set sandbox info — use SelectSandbox for auto-selection
 	agentCtx.SandboxID = task.SandboxID
 	if agentCtx.SandboxID == "" {
+		sbType := sandbox.SelectSandbox(task, nil)
 		sbSpec := sandbox.SandboxSpec{
-			Type:    "chroot",
+			Type:    sbType,
 			AgentID: task.AgentID,
 		}
 		sb, err := d.sbManager.CreateSandbox(sbSpec)
@@ -254,11 +254,12 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 // createWorkspace creates a workspace for the task via ClawLess API.
 func (d *Dispatcher) createWorkspace(ctx context.Context, task *clawless.Task, sandboxID string) (*clawless.Workspace, error) {
 	projectID := generateProjectID()
+	sbType := sandbox.SelectSandbox(task, nil)
 	ws := &clawless.Workspace{
 		ProjectID:   projectID,
 		AgentID:     task.AgentID,
 		SandboxID:   sandboxID,
-		SandboxType: "chroot",
+		SandboxType: sbType,
 		Status:      "active",
 	}
 	if err := d.clawless.CreateWorkspace(ctx, ws); err != nil {
@@ -381,16 +382,6 @@ func (d *Dispatcher) sendCompletionNotification(ctx context.Context, task *clawl
 	slog.Info("completion notification sent", "task_id", task.ID, "status", resp.StatusCode)
 }
 
-func (d *Dispatcher) handleL2AuthApproved(e eventbus.Event) {
-	task, ok := e.Payload.(*clawless.Task)
-	if !ok {
-		slog.Error("dispatch: invalid task payload for L2 auth approved")
-		return
-	}
-	slog.Info("L2 auth approved, re-approving task", "task_id", task.ID)
-	d.bus.Publish(eventbus.EventTaskApproved, task)
-}
-
 func truncateStr(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -399,21 +390,219 @@ func truncateStr(s string, n int) string {
 }
 
 func (d *Dispatcher) handleSandboxEvent(e eventbus.Event) {
-	slog.Info("dispatch: sandbox event", "type", e.Type)
+	sb, ok := e.Payload.(*sandbox.Sandbox)
+	if !ok {
+		slog.Error("dispatch: invalid sandbox event payload", "type", e.Type)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	switch e.Type {
+	case eventbus.EventSandboxCreated:
+		meta := &clawless.SandboxMeta{
+			ID:         sb.ID,
+			Type:       sb.Type,
+			Path:       sb.Path,
+			Status:     "running",
+			Persistent: sb.Persistent,
+		}
+		if err := d.clawless.RegisterSandbox(ctx, meta); err != nil {
+			slog.Warn("failed to sync sandbox creation to ClawLess", "sandbox_id", sb.ID, "error", err)
+		} else {
+			slog.Info("sandbox synced to ClawLess", "sandbox_id", sb.ID, "type", sb.Type)
+		}
+	case eventbus.EventSandboxDestroyed:
+		if err := d.clawless.UpdateSandboxStatus(ctx, sb.ID, "destroyed"); err != nil {
+			slog.Warn("failed to sync sandbox destruction to ClawLess", "sandbox_id", sb.ID, "error", err)
+		} else {
+			slog.Info("sandbox destruction synced", "sandbox_id", sb.ID)
+		}
+	default:
+		slog.Debug("unhandled sandbox event type", "type", e.Type)
+	}
 }
 
 func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
-	slog.Warn("dispatch: security alert", "type", e.Type)
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		slog.Error("dispatch: invalid security alert payload", "type", e.Type)
+		return
+	}
+
+	level, _ := payload["level"].(string)
+	reason, _ := payload["reason"].(string)
+	taskID, _ := payload["task_id"].(string)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Write review log for audit trail
+	decision, _ := payload["decision"].(string)
+	log := clawless.ReviewLog{
+		TaskID:   taskID,
+		Command:  fmt.Sprintf("%v", payload["command"]),
+		Level:    level,
+		Score:    1.0,
+		Decision: decision,
+		Reason:   reason,
+	}
+	if err := d.clawless.WriteReviewLogs(ctx, []clawless.ReviewLog{log}); err != nil {
+		slog.Warn("failed to write security alert review log", "task_id", taskID, "error", err)
+	}
+
+	// Send urgent notification for high-frequency L0 blocks or consecutive L1 high scores
+	title := "Security Alert"
+	if level == "L0" {
+		title = "L0 Rule Violation"
+	} else if level == "L1" {
+		title = "L1 High Risk Detected"
+	}
+	notification := &clawless.Notification{
+		TaskID:  taskID,
+		Type:    "security_alert",
+		Title:   title,
+		Message: reason,
+		Metadata: payload,
+	}
+	if err := d.clawless.CreateNotification(ctx, notification); err != nil {
+		slog.Warn("failed to send security notification", "task_id", taskID, "error", err)
+	} else {
+		slog.Warn("security alert processed", "level", level, "task_id", taskID)
+	}
 }
 
 func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
-	slog.Info("dispatch: L2 auth required", "type", e.Type)
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		slog.Error("dispatch: invalid L2 auth payload", "type", e.Type)
+		return
+	}
+
+	taskID, _ := payload["task_id"].(string)
+	command, _ := payload["command"].(string)
+	action, _ := payload["action"].(string)
+	duration, _ := payload["duration"].(string)
+
+	if taskID == "" || command == "" {
+		slog.Warn("L2 auth event missing required fields", "task_id", taskID)
+		return
+	}
+
+	slog.Info("L2 auth completed, updating cache and writing logs",
+		"task_id", taskID, "command", command, "action", action, "duration", duration)
+
+	// Update L2AuthCache
+	if action == "pass" {
+		if err := d.l2Mgr.Authorize(command, duration); err != nil {
+			slog.Error("failed to update L2AuthCache", "task_id", taskID, "error", err)
+		}
+	} else if action == "reject" {
+		if err := d.l2Mgr.Reject(command, duration); err != nil {
+			slog.Error("failed to update L2AuthCache", "task_id", taskID, "error", err)
+		}
+	}
+
+	// Write review log via ClawLess API
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	decision := "approved"
+	if action == "reject" {
+		decision = "rejected"
+	}
+
+	log := clawless.ReviewLog{
+		TaskID:   taskID,
+		Level:    "L2",
+		Score:    0,
+		Decision: decision,
+		Reason:   fmt.Sprintf("User %s: duration=%s", action, duration),
+		Command:  command,
+	}
+	if err := d.clawless.WriteReviewLogs(ctx, []clawless.ReviewLog{log}); err != nil {
+		slog.Error("failed to write L2 auth review log", "task_id", taskID, "error", err)
+	} else {
+		slog.Info("L2 auth review log written", "task_id", taskID, "decision", decision)
+	}
+
+	// Resume or cancel task
+	if action == "pass" {
+		task, ok := d.l2Mgr.GetPendingTask(taskID)
+		if ok {
+			d.l2Mgr.RemovePendingTask(taskID)
+			if store := d.l2Mgr.GetPendingL2Store(); store != nil {
+				store.Remove(taskID)
+			}
+			d.bus.Publish(eventbus.EventTaskApproved, task)
+		}
+	} else if action == "reject" {
+		task, ok := d.l2Mgr.GetPendingTask(taskID)
+		if ok {
+			d.l2Mgr.RemovePendingTask(taskID)
+			if store := d.l2Mgr.GetPendingL2Store(); store != nil {
+				store.Remove(taskID)
+			}
+			d.bus.Publish(eventbus.EventTaskRejected, task)
+		}
+	}
 }
 
 func (d *Dispatcher) handleSessionClosed(e eventbus.Event) {
-	slog.Info("dispatch: session closed", "type", e.Type)
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		slog.Error("dispatch: invalid session closed payload", "type", e.Type)
+		return
+	}
+
+	sessionID, _ := payload["session_id"].(string)
+	if sessionID == "" {
+		slog.Warn("session closed event missing session_id")
+		return
+	}
+
+	// Clean up session from store
+	if err := d.agentManager.GetSessionStore().Delete(sessionID); err != nil {
+		slog.Warn("failed to delete session from store", "session_id", sessionID, "error", err)
+	}
+
+	// Release sandbox if exclusive to this session
+	if ctx, ok := d.agentManager.GetSession(sessionID); ok && ctx.SandboxID != "" {
+		if err := d.sbManager.DestroySandbox(ctx.SandboxID); err != nil {
+			slog.Warn("failed to release sandbox on session close",
+				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
+		} else {
+			slog.Info("sandbox released on session close", "session_id", sessionID, "sandbox_id", ctx.SandboxID)
+		}
+	}
+
+	slog.Info("session closed cleanup complete", "session_id", sessionID)
 }
 
 func (d *Dispatcher) handleSessionArchived(e eventbus.Event) {
-	slog.Info("dispatch: session archived", "type", e.Type)
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		slog.Error("dispatch: invalid session archived payload", "type", e.Type)
+		return
+	}
+
+	sessionID, _ := payload["session_id"].(string)
+	if sessionID == "" {
+		slog.Warn("session archived event missing session_id")
+		return
+	}
+
+	// Keep session JSON but mark as archived (handled by session store if needed)
+	// Release sandbox resources
+	if ctx, ok := d.agentManager.GetSession(sessionID); ok && ctx.SandboxID != "" {
+		if err := d.sbManager.DestroySandbox(ctx.SandboxID); err != nil {
+			slog.Warn("failed to release sandbox on session archive",
+				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
+		} else {
+			slog.Info("sandbox released on session archive", "session_id", sessionID, "sandbox_id", ctx.SandboxID)
+		}
+	}
+
+	slog.Info("session archived cleanup complete", "session_id", sessionID)
 }

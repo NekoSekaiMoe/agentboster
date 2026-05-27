@@ -77,6 +77,16 @@ task_pool_size = 0
 memory_pool_size = 2
 cleanup_pool_size = 1
 
+[worker_pool]
+# Dynamic worker pool sizing (from Asika)
+# Workers auto-scale based on channel utilization
+min_workers = 2
+max_workers = 0           # 0 = CPU cores × 4
+scale_up_pct = 75         # scale up when utilization ≥ 75%
+scale_down_pct = 25       # scale down when utilization ≤ 25%
+cooldown_secs = 30        # minimum seconds between scale events
+stats_interval = "30s"    # how often to check utilization
+
 [task_summary]
 auto_update = true
 tidy_interval = "168h"

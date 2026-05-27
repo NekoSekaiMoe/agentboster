@@ -70,8 +70,8 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 				},
 				"sandbox_type": map[string]any{
 					"type":        "string",
-					"description": "Sandbox type (tmpfs/chroot/docker). Default: tmpfs",
-					"default":     "tmpfs",
+					"description": "Sandbox type (docker/docker-strict/lxc). Default: auto (SelectSandbox picks based on task risk and persistence needs)",
+					"default":     "auto",
 				},
 				"file_boundaries": map[string]any{
 					"type":        "array",
@@ -98,7 +98,7 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 			return toolErr, nil
 		}
 		if params.SandboxType == "" {
-			params.SandboxType = "tmpfs"
+			params.SandboxType = "auto"
 		}
 
 		// Build isolated system prompt — no conversation history injected

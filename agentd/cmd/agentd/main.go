@@ -165,12 +165,7 @@ func main() {
 	agentMgr.SetDecisionQueue(decisionQueue)
 	agentMgr.SetGatekeeper(gk)
 
-	workerSizes := worker.PoolSizes{
-		Review: cfg.Worker.ReviewPoolSize, Sandbox: cfg.Worker.SandboxPoolSize,
-		Task: cfg.Worker.TaskPoolSize, Memory: cfg.Worker.MemoryPoolSize,
-		Cleanup: cfg.Worker.CleanupPoolSize,
-	}
-	dispatcher := worker.NewDispatcher(bus, workerSizes, gk, sbManager, clawlessClient, agentMgr, cfg.TaskSummary.TidyInterval)
+	dispatcher := worker.NewDispatcher(bus, cfg.WorkerPool, gk, sbManager, clawlessClient, agentMgr, l2Manager, cfg.TaskSummary.TidyInterval)
 	dispatcher.Start()
 	defer dispatcher.Stop()
 

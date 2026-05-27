@@ -65,7 +65,7 @@ func (e *Engine) Check(command, workDir string) (*L0Result, error) {
 			return &L0Result{
 				Blocked: true,
 				Rule:    rule,
-				Reason:  fmt.Sprintf("L0 rule matched: %s (pattern: %s, type: %s)", rule.ID, rule.Pattern, rule.Type),
+				Reason:  formatOSError(rule, command),
 			}, nil
 		}
 	}
@@ -176,11 +176,27 @@ func (e *Engine) CheckOutput(output string) *L0Result {
 			return &L0Result{
 				Blocked: true,
 				Rule:    rule,
-				Reason:  fmt.Sprintf("L0 output rule matched: %s (pattern: %s)", rule.ID, rule.Pattern),
+				Reason:  formatOSError(rule, output),
 			}
 		}
 	}
 	return nil
+}
+
+// formatOSError returns an OS-level error message that mimics shell behavior,
+// preserving the sandbox abstraction. The LLM sees "sh: rm: Operation not permitted"
+// instead of "L0 rule matched: cmd-rm-rf-root".
+func formatOSError(rule L0Rule, command string) string {
+	firstToken := command
+	if idx := strings.IndexAny(command, " \t\n"); idx > 0 {
+		firstToken = command[:idx]
+	}
+	switch rule.Type {
+	case "path":
+		return fmt.Sprintf("sh: %s: Permission denied", firstToken)
+	default:
+		return fmt.Sprintf("sh: %s: Operation not permitted", firstToken)
+	}
 }
 
 // ReloadOutputRules replaces the output safety rules.

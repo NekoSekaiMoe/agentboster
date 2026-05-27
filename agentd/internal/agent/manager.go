@@ -113,7 +113,7 @@ func (m *Manager) CreateSession(sessionID, agentID string) (*AgentContext, error
 	defer m.mu.Unlock()
 
 	// Create sandbox for this session
-	sbType := "tmpfs"
+	sbType := "docker"
 	sbSpec := sandbox.SandboxSpec{
 		Type:    sbType,
 		AgentID: agentID,
@@ -201,7 +201,7 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 	}
 
 	// Session doesn't exist — create new
-	sbType := "tmpfs"
+	sbType := "docker"
 	sbSpec := sandbox.SandboxSpec{Type: sbType, AgentID: agentID}
 	sb, err := m.sbManager.CreateSandbox(sbSpec)
 	if err != nil {
@@ -564,14 +564,14 @@ func buildSystemPrompt(projectID, projectName string) string {
 - Execute commands: Run shell commands in the sandbox
 - File operations: Read and write files inside the sandbox
 - Parallel sub-agents: Decompose complex tasks into sub-tasks and delegate to multiple sub-agents. Before using the subagent tool, infer file boundaries for each sub-agent. If two sub-agents might modify the same file, run them sequentially instead. Out-of-bounds operations are blocked by L0.
-- Persistent environments: chroot sandboxes retain project dependencies across sessions
+- Persistent environments: LXC containers retain project dependencies across sessions
 
 ## Sandbox Selection Strategy
-- One-shot scripts or tests → tmpfs (temporary, destroyed after task completion)
-- Long-term project development → chroot (persistent filesystem)
-- Untrusted external code → Docker (strong isolation, whitelisted images only)
+- One-shot scripts or tests → docker (lightweight alpine:edge, --rm, low resource, destroyed after task)
+- Long-term project development → lxc (persistent filesystem, survives restart, cgroup CPU/memory limits)
+- Untrusted external code → docker-strict (strong isolation: --network none, --cap-drop ALL, --read-only, whitelisted images only)
 
-tmpfs size is dynamically estimated by you based on task type (light: 15-50MB, medium: 50-200MB, heavy: 200-500MB); auto-expand if insufficient. Docker only allows whitelisted images (e.g., alpine:latest, ubuntu:22.04).
+docker light uses configurable CPU/memory limits (default 0.25 CPU, 256MB). docker-strict only allows whitelisted images (e.g., ubuntu:22.04, alpine:latest, golang:1.22).
 
 ## User Control
 The user is the sole gatekeeper. L1 scoring is risk assessment only — it cannot make decisions on behalf of the user. High-risk operations require user confirmation. L1 is a general-purpose flash model, not a dedicated gatekeeper. There is no "handled by L1" option — decision authority always rests with the user.

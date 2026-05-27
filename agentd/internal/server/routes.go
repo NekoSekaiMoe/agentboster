@@ -58,6 +58,9 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 	// Health check (no auth required)
 	r.GET("/health", s.handleHealth)
 
+	// Metrics endpoint (no auth required for monitoring)
+	r.GET("/metrics", s.handleMetrics)
+
 	// v1 API group (mTLS + API key protected)
 	v1 := r.Group("/api/v1")
 	v1.Use(MTLSMiddleware())
@@ -140,6 +143,15 @@ func (s *Server) handleHealth(c *gin.Context) {
 			"version":   "0.1.0",
 			"uptime":    time.Since(s.startTime).String(),
 		},
+	})
+}
+
+// handleMetrics returns worker pool metrics.
+func (s *Server) handleMetrics(c *gin.Context) {
+	metrics := s.dispatcher.Metrics()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    metrics,
 	})
 }
 
@@ -438,15 +450,15 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 		return
 	}
 
-	dq := s.l2Mgr.GetDecisionQueue()
-
 	switch body.Action {
 	case "pass_once":
 		slog.Info("L2 pass_once", "task_id", body.TaskID, "pattern", body.Pattern)
-		if dq != nil {
-			dq.Resolve(body.DecisionID, "allow", "user")
-		}
-		s.resumeTask(body.TaskID)
+		s.bus.Publish(eventbus.EventL2AuthApproved, map[string]any{
+			"task_id":  body.TaskID,
+			"command":  body.Pattern,
+			"action":   "pass",
+			"duration": "once",
+		})
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    gin.H{"message": "✅ 已放行。任务继续执行。"},
@@ -454,10 +466,12 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 
 	case "reject_once":
 		slog.Info("L2 reject_once", "task_id", body.TaskID, "pattern", body.Pattern)
-		if dq != nil {
-			dq.Deny(body.DecisionID, "user")
-		}
-		s.cancelTask(body.TaskID)
+		s.bus.Publish(eventbus.EventL2AuthRejected, map[string]any{
+			"task_id":  body.TaskID,
+			"command":  body.Pattern,
+			"action":   "reject",
+			"duration": "once",
+		})
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    gin.H{"message": "❌ 已拒绝。任务已取消。"},
@@ -468,15 +482,13 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 		if duration == "" {
 			duration = "always"
 		}
-		if err := s.l2Mgr.Authorize(body.Pattern, duration); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-			return
-		}
 		slog.Info("L2 pass_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
-		if dq != nil {
-			dq.Resolve(body.DecisionID, "allow", "user")
-		}
-		s.resumeTask(body.TaskID)
+		s.bus.Publish(eventbus.EventL2AuthApproved, map[string]any{
+			"task_id":  body.TaskID,
+			"command":  body.Pattern,
+			"action":   "pass",
+			"duration": duration,
+		})
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    gin.H{"message": "✅ 已放行至指定时间。"},
@@ -487,15 +499,13 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 		if duration == "" {
 			duration = "always"
 		}
-		if err := s.l2Mgr.Reject(body.Pattern, duration); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-			return
-		}
 		slog.Info("L2 reject_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
-		if dq != nil {
-			dq.Deny(body.DecisionID, "user")
-		}
-		s.cancelTask(body.TaskID)
+		s.bus.Publish(eventbus.EventL2AuthRejected, map[string]any{
+			"task_id":  body.TaskID,
+			"command":  body.Pattern,
+			"action":   "reject",
+			"duration": duration,
+		})
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"data":    gin.H{"message": "🔕 已拒绝至指定时间。"},
@@ -604,36 +614,6 @@ func (s *Server) handleDecisionReject(c *gin.Context) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-func (s *Server) resumeTask(taskID string) {
-	task, ok := s.l2Mgr.GetPendingTask(taskID)
-	if !ok {
-		slog.Warn("resumeTask: task not found in pending map", "task_id", taskID)
-		return
-	}
-	s.l2Mgr.RemovePendingTask(taskID)
-	s.removePendingL2(taskID)
-	s.bus.Publish(eventbus.EventTaskApproved, task)
-}
-
-func (s *Server) cancelTask(taskID string) {
-	task, ok := s.l2Mgr.GetPendingTask(taskID)
-	if !ok {
-		slog.Warn("cancelTask: task not found in pending map", "task_id", taskID)
-		return
-	}
-	s.l2Mgr.RemovePendingTask(taskID)
-	s.removePendingL2(taskID)
-	s.bus.Publish(eventbus.EventTaskRejected, task)
-}
-
-func (s *Server) removePendingL2(taskID string) {
-	if store := s.l2Mgr.GetPendingL2Store(); store != nil {
-		if err := store.Remove(taskID); err != nil {
-			slog.Warn("failed to remove pending L2 state", "task_id", taskID, "error", err)
-		}
-	}
-}
 
 // ── Session Runtime Control ──────────────────────────────────────────
 

@@ -55,6 +55,3 @@ type Event struct {
 	Payload   any
 	Timestamp time.Time
 }
-
-// Handler is a function that handles an event.
-type Handler func(event Event)

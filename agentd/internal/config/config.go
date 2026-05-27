@@ -24,6 +24,7 @@ type Config struct {
 	Cache       CacheConfig       `mapstructure:"cache"`
 	Session     SessionConfig     `mapstructure:"session"`
 	Worker      WorkerConfig      `mapstructure:"worker"`
+	WorkerPool  WorkerPoolConfig  `mapstructure:"worker_pool"`
 	TaskSummary TaskSummaryConfig `mapstructure:"task_summary"`
 }
 
@@ -99,6 +100,16 @@ type WorkerConfig struct {
 	TaskPoolSize    int `mapstructure:"task_pool_size"`
 	MemoryPoolSize  int `mapstructure:"memory_pool_size" default:"2"`
 	CleanupPoolSize int `mapstructure:"cleanup_pool_size" default:"1"`
+}
+
+// WorkerPoolConfig controls the dynamic worker pool sizing (from Asika).
+type WorkerPoolConfig struct {
+	MinWorkers    int    `mapstructure:"min_workers" default:"2"`
+	MaxWorkers    int    `mapstructure:"max_workers" default:"0"` // 0 = auto (CPU * 4)
+	ScaleUpPct    int    `mapstructure:"scale_up_pct" default:"75"`
+	ScaleDownPct  int    `mapstructure:"scale_down_pct" default:"25"`
+	CooldownSecs  int    `mapstructure:"cooldown_secs" default:"30"`
+	StatsInterval string `mapstructure:"stats_interval" default:"30s"`
 }
 
 // registerDefaults reads `default` struct tags and registers them with Viper.
@@ -181,6 +192,21 @@ func (c *Config) Validate() {
 	}
 	if c.Worker.CleanupPoolSize <= 0 {
 		c.Worker.CleanupPoolSize = 1
+	}
+	if c.WorkerPool.MinWorkers <= 0 {
+		c.WorkerPool.MinWorkers = 2
+	}
+	if c.WorkerPool.MaxWorkers <= 0 {
+		c.WorkerPool.MaxWorkers = runtime.NumCPU() * 4
+	}
+	if c.WorkerPool.ScaleUpPct <= 0 {
+		c.WorkerPool.ScaleUpPct = 75
+	}
+	if c.WorkerPool.ScaleDownPct < 0 {
+		c.WorkerPool.ScaleDownPct = 25
+	}
+	if c.WorkerPool.CooldownSecs <= 0 {
+		c.WorkerPool.CooldownSecs = 30
 	}
 	if c.Cache.SessionMaxSize <= 0 {
 		c.Cache.SessionMaxSize = 104857600
