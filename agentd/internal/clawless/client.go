@@ -64,7 +64,7 @@ func NewClientFromConfig(clawLessURL, apiKey, clientCertPath, clientKeyPath, caP
 	return NewClient(clawLessURL, apiKey, tlsCfg), nil
 }
 
-func (c *Client) doRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
+func (c *Client) doRequest(ctx context.Context, method, path string, body any) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -84,19 +84,22 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 		req.Header.Set("X-API-Key", c.APIKey)
 	}
 
-	return c.HTTPClient.Do(req)
-}
-
-func (c *Client) decodeResponse(resp *http.Response, dest any) error {
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
+
+	data, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("read response: %w", readErr)
+	}
+
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(data))
 	}
-	if dest != nil {
-		return json.NewDecoder(resp.Body).Decode(dest)
-	}
-	return nil
+
+	return data, nil
 }
 
 // UploadFile uploads a file to ClawLess Blob storage via the API.
@@ -107,12 +110,12 @@ func (c *Client) UploadFile(ctx context.Context, taskID, fileName string, conten
 		"content":    base64.StdEncoding.EncodeToString(content),
 		"expires_in": int(expiresIn.Seconds()),
 	}
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/blob/upload", body)
+	data, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/blob/upload", body)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[UploadResult]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return &apiResp.Data, nil
@@ -120,21 +123,18 @@ func (c *Client) UploadFile(ctx context.Context, taskID, fileName string, conten
 
 // CreateWorkspace creates a new workspace.
 func (c *Client) CreateWorkspace(ctx context.Context, ws *Workspace) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/workspaces", ws)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/workspaces", ws)
+	return err
 }
 
 // GetWorkspaceByProjectID fetches a workspace by its project ID.
 func (c *Client) GetWorkspaceByProjectID(ctx context.Context, projectID string) (*Workspace, error) {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/workspaces?project_id="+projectID, nil)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/workspaces?project_id="+projectID, nil)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[Workspace]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return &apiResp.Data, nil
@@ -142,12 +142,12 @@ func (c *Client) GetWorkspaceByProjectID(ctx context.Context, projectID string) 
 
 // ListWorkspaces lists all workspaces for an agent.
 func (c *Client) ListWorkspaces(ctx context.Context, agentID string) ([]Workspace, error) {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/workspaces?agent_id="+agentID, nil)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/workspaces?agent_id="+agentID, nil)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[[]Workspace]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return apiResp.Data, nil
@@ -155,12 +155,12 @@ func (c *Client) ListWorkspaces(ctx context.Context, agentID string) ([]Workspac
 
 // GetTask fetches a task by ID.
 func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error) {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/tasks/"+taskID, nil)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/tasks/"+taskID, nil)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[Task]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return &apiResp.Data, nil
@@ -169,30 +169,24 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error) {
 // UpdateTaskStatus updates the status of a task.
 func (c *Client) UpdateTaskStatus(ctx context.Context, taskID string, status TaskStatus) error {
 	body := map[string]string{"status": string(status)}
-	resp, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID, body)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID, body)
+	return err
 }
 
 // CreateTask creates a new task.
 func (c *Client) CreateTask(ctx context.Context, task *Task) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/tasks", task)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/tasks", task)
+	return err
 }
 
 // GetSession fetches a session by ID.
 func (c *Client) GetSession(ctx context.Context, sessionID string) (*Session, error) {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/sessions/"+sessionID, nil)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/sessions/"+sessionID, nil)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[Session]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return &apiResp.Data, nil
@@ -200,29 +194,20 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*Session, er
 
 // UpdateSession updates a session.
 func (c *Client) UpdateSession(ctx context.Context, session *Session) error {
-	resp, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/sessions/"+session.ID, session)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/sessions/"+session.ID, session)
+	return err
 }
 
 // DeleteSession deletes a session.
 func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
-	resp, err := c.doRequest(ctx, http.MethodDelete, "/api/agentd/v1/sessions/"+sessionID, nil)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodDelete, "/api/agentd/v1/sessions/"+sessionID, nil)
+	return err
 }
 
 // WriteReviewLogs writes security review logs.
 func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/review-logs", logs)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/review-logs", logs)
+	return err
 }
 
 // ListMemories retrieves all memories for an agent.
@@ -245,12 +230,12 @@ func (c *Client) GetMemories(ctx context.Context, agentID string, keywords []str
 		"keywords": keywords,
 		"limit":    limit,
 	}
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/memories", body)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/memories", body)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[[]Memory]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return apiResp.Data, nil
@@ -258,30 +243,24 @@ func (c *Client) GetMemories(ctx context.Context, agentID string, keywords []str
 
 // WriteMemories writes agent memories.
 func (c *Client) WriteMemories(ctx context.Context, memories []Memory) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/memories", memories)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/memories", memories)
+	return err
 }
 
 // DeleteMemory deletes a memory by ID.
 func (c *Client) DeleteMemory(ctx context.Context, memoryID string) error {
-	resp, err := c.doRequest(ctx, http.MethodDelete, "/api/agentd/v1/memories/"+memoryID, nil)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodDelete, "/api/agentd/v1/memories/"+memoryID, nil)
+	return err
 }
 
 // GetAgentConfig fetches agent configuration.
 func (c *Client) GetAgentConfig(ctx context.Context, agentID string) (*AgentConfig, error) {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/agent-config/"+agentID, nil)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/agent-config/"+agentID, nil)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[AgentConfig]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return &apiResp.Data, nil
@@ -289,12 +268,12 @@ func (c *Client) GetAgentConfig(ctx context.Context, agentID string) (*AgentConf
 
 // GetL0Rules fetches L0 rules for an agent.
 func (c *Client) GetL0Rules(ctx context.Context, agentID string) ([]L0Rule, error) {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/l0-rules/"+agentID, nil)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/l0-rules/"+agentID, nil)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[[]L0Rule]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return apiResp.Data, nil
@@ -302,59 +281,48 @@ func (c *Client) GetL0Rules(ctx context.Context, agentID string) ([]L0Rule, erro
 
 // RegisterSandbox registers a sandbox with ClawLess.
 func (c *Client) RegisterSandbox(ctx context.Context, sandbox *SandboxMeta) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/sandboxes", sandbox)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/sandboxes", sandbox)
+	return err
 }
 
 // UpdateSandboxStatus updates sandbox status.
 func (c *Client) UpdateSandboxStatus(ctx context.Context, sandboxID, status string) error {
 	body := map[string]string{"status": status}
-	resp, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/sandboxes/"+sandboxID, body)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/sandboxes/"+sandboxID, body)
+	return err
 }
 
 // LLMProxyRequest sends a request through the ClawLess LLM proxy.
 func (c *Client) LLMProxyRequest(ctx context.Context, req *LLMProxyRequest) ([]byte, error) {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/llm-proxy", req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/llm-proxy", req)
 }
 
 // CreateNotification creates a notification via the ClawLess API.
 func (c *Client) CreateNotification(ctx context.Context, notification *Notification) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/notifications", notification)
-	if err != nil {
-		return err
-	}
-	return c.decodeResponse(resp, nil)
+	_, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/notifications", notification)
+	return err
 }
 
 // PostJSON sends a POST request with JSON body and decodes the JSON response.
 func (c *Client) PostJSON(ctx context.Context, path string, body any, dest any) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, path, body)
+	data, err := c.doRequest(ctx, http.MethodPost, path, body)
 	if err != nil {
 		return err
 	}
-	return c.decodeResponse(resp, dest)
+	if dest != nil {
+		return json.Unmarshal(data, dest)
+	}
+	return nil
 }
 
 // GetTaskSummary fetches the summary for a task.
 func (c *Client) GetTaskSummary(ctx context.Context, taskID string) (*TaskSummary, error) {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/tasks/"+taskID+"/summary", nil)
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/tasks/"+taskID+"/summary", nil)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[TaskSummary]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return &apiResp.Data, nil
@@ -362,12 +330,12 @@ func (c *Client) GetTaskSummary(ctx context.Context, taskID string) (*TaskSummar
 
 // UpdateTaskProgress forwards task_progress tool input to ClawLess for merging.
 func (c *Client) UpdateTaskProgress(ctx context.Context, taskID string, input json.RawMessage) (*TaskSummary, error) {
-	resp, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID+"/summary/progress", input)
+	data, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID+"/summary/progress", input)
 	if err != nil {
 		return nil, err
 	}
 	var apiResp APIResponse[TaskSummary]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
+	if err := json.Unmarshal(data, &apiResp); err != nil {
 		return nil, err
 	}
 	return &apiResp.Data, nil
@@ -375,35 +343,31 @@ func (c *Client) UpdateTaskProgress(ctx context.Context, taskID string, input js
 
 // ExtractTaskMemory lets ClawLess handle post-task memory/summary lifecycle.
 func (c *Client) ExtractTaskMemory(ctx context.Context, taskID string, req TaskMemoryRequest) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/tasks/"+taskID+"/memory", req)
+	data, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/tasks/"+taskID+"/memory", req)
 	if err != nil {
 		return err
 	}
 	var apiResp APIResponse[map[string]any]
-	return c.decodeResponse(resp, &apiResp)
+	return json.Unmarshal(data, &apiResp)
 }
 
 // RunTaskSummaryTidy triggers ClawLess-owned task summary tidy scanning.
 func (c *Client) RunTaskSummaryTidy(ctx context.Context) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/task-summaries/tidy/run", map[string]any{
+	data, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/task-summaries/tidy/run", map[string]any{
 		"agent_id": "default",
 	})
 	if err != nil {
 		return err
 	}
 	var apiResp APIResponse[map[string]any]
-	return c.decodeResponse(resp, &apiResp)
+	return json.Unmarshal(data, &apiResp)
 }
 
 // HealthCheck verifies the ClawLess API is reachable.
 func (c *Client) HealthCheck(ctx context.Context) error {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/health", nil)
+	_, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/health", nil)
 	if err != nil {
 		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check failed: %d", resp.StatusCode)
 	}
 	slog.Info("ClawLess API health check OK", "url", c.BaseURL)
 	return nil
