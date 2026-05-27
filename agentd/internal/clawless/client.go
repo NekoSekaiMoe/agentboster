@@ -373,9 +373,9 @@ func (c *Client) GetTaskSummary(ctx context.Context, taskID string) (*TaskSummar
 	return &apiResp.Data, nil
 }
 
-// UpdateTaskSummary updates fields on a task summary.
-func (c *Client) UpdateTaskSummary(ctx context.Context, taskID string, update TaskSummaryUpdate) (*TaskSummary, error) {
-	resp, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID+"/summary", update)
+// UpdateTaskProgress forwards task_progress tool input to ClawLess for merging.
+func (c *Client) UpdateTaskProgress(ctx context.Context, taskID string, input json.RawMessage) (*TaskSummary, error) {
+	resp, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID+"/summary/progress", input)
 	if err != nil {
 		return nil, err
 	}
@@ -384,6 +384,16 @@ func (c *Client) UpdateTaskSummary(ctx context.Context, taskID string, update Ta
 		return nil, err
 	}
 	return &apiResp.Data, nil
+}
+
+// FinalizeTask lets ClawLess handle post-task memory/summary lifecycle.
+func (c *Client) FinalizeTask(ctx context.Context, taskID string, req TaskFinalizeRequest) error {
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/tasks/"+taskID+"/finalize", req)
+	if err != nil {
+		return err
+	}
+	var apiResp APIResponse[map[string]any]
+	return c.decodeResponse(resp, &apiResp)
 }
 
 // TidyTaskSummary asks ClawLess to generate tidy suggestions for a summary.
@@ -397,16 +407,6 @@ func (c *Client) TidyTaskSummary(ctx context.Context, taskID string) (*TaskTidyR
 		return nil, err
 	}
 	return &apiResp.Data, nil
-}
-
-// ApplyTaskSummaryTidy applies user-approved tidy suggestions.
-func (c *Client) ApplyTaskSummaryTidy(ctx context.Context, taskID string, req TaskTidyApplyRequest) error {
-	resp, err := c.doRequest(ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID+"/summary/tidy/apply", req)
-	if err != nil {
-		return err
-	}
-	var apiResp APIResponse[map[string]any]
-	return c.decodeResponse(resp, &apiResp)
 }
 
 // HealthCheck verifies the ClawLess API is reachable.

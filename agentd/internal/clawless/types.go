@@ -167,35 +167,17 @@ type TaskTidyReport struct {
 	Suggestions        []string         `json:"suggestions"`
 	MergeIDs           []string         `json:"merge_ids,omitempty"`
 	DeleteIDs          []string         `json:"delete_ids,omitempty"`
-	UpdateIDs          []DecisionUpdate `json:"update_ids,omitempty"`
+	UpdateIDs          []map[string]any `json:"update_ids,omitempty"`
 	ResolvedPending    []string         `json:"resolved_pending,omitempty"`
 	ResolvedIssues     []string         `json:"resolved_issues,omitempty"`
 }
 
-// DecisionUpdate represents an explicit decision edit from tidy apply.
-type DecisionUpdate struct {
-	ID           string   `json:"id"`
-	Description  string   `json:"description,omitempty"`
-	Reason       string   `json:"reason,omitempty"`
-	Alternatives []string `json:"alternatives,omitempty"`
-}
-
-// TaskTidyApplyRequest applies user-approved tidy suggestions.
-type TaskTidyApplyRequest struct {
-	SummaryLastUpdated time.Time        `json:"summary_last_updated"`
-	MergeIDs           []string         `json:"merge_ids,omitempty"`
-	DeleteIDs          []string         `json:"delete_ids,omitempty"`
-	UpdateIDs          []DecisionUpdate `json:"update_ids,omitempty"`
-	ResolvedPending    []string         `json:"resolved_pending,omitempty"`
-	ResolvedIssues     []string         `json:"resolved_issues,omitempty"`
-}
-
-// TaskSummaryUpdate is the request body for updating a task summary.
-type TaskSummaryUpdate struct {
-	Progress    *string    `json:"progress,omitempty"`
-	Decisions   []Decision `json:"decisions,omitempty"`
-	Pending     []string   `json:"pending,omitempty"`
-	KnownIssues []string   `json:"known_issues,omitempty"`
+// TaskFinalizeRequest tells ClawLess that task execution has ended.
+type TaskFinalizeRequest struct {
+	Status    string `json:"status"`
+	Result    string `json:"result"`
+	SessionID string `json:"session_id,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
 }
 
 // Workspace represents a project-level organization unit.

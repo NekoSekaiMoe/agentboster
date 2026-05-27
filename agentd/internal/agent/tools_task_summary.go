@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
 )
@@ -87,102 +86,12 @@ func registerTaskProgress(registry *ToolRegistry, client *clawless.Client, ctx *
 			},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
-		var params struct {
-			Progress          *string  `json:"progress"`
-			PendingAdd        []string `json:"pending_add"`
-			PendingDone       []string `json:"pending_done"`
-			KnownIssueAdd     []string `json:"known_issue_add"`
-			KnownIssueResolve []string `json:"known_issue_resolve"`
-			Decision          *struct {
-				Description  string   `json:"description"`
-				Reason       string   `json:"reason"`
-				Alternatives []string `json:"alternatives"`
-			} `json:"decision"`
-		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if !json.Valid(args) {
+			return &ToolResult{Success: false, Error: "parse args: invalid JSON"}, nil
 		}
 
 		taskID := taskSummaryID(ctx)
-
-		// Fetch existing summary to merge fields
-		existing, err := client.GetTaskSummary(toolCtx, taskID)
-		if err != nil {
-			slog.Warn("task_progress: failed to fetch existing summary, creating new", "error", err)
-		}
-
-		update := clawless.TaskSummaryUpdate{}
-
-		// Progress
-		if params.Progress != nil {
-			update.Progress = params.Progress
-		}
-
-		// Decisions: append new decision to existing list
-		var decisions []clawless.Decision
-		if existing != nil {
-			decisions = existing.Decisions
-		}
-		if params.Decision != nil {
-			decisions = append(decisions, clawless.Decision{
-				ID:           fmt.Sprintf("dec_%d", time.Now().UnixNano()),
-				Timestamp:    time.Now(),
-				Description:  params.Decision.Description,
-				Reason:       params.Decision.Reason,
-				Alternatives: params.Decision.Alternatives,
-			})
-		}
-		if len(decisions) > 0 {
-			update.Decisions = decisions
-		}
-
-		// Pending: merge — add new ones, remove done ones
-		var pending []string
-		if existing != nil {
-			pending = existing.Pending
-		}
-		for _, item := range params.PendingAdd {
-			pending = append(pending, item)
-		}
-		if len(params.PendingDone) > 0 {
-			doneSet := make(map[string]bool)
-			for _, d := range params.PendingDone {
-				doneSet[d] = true
-			}
-			filtered := make([]string, 0, len(pending))
-			for _, p := range pending {
-				if !doneSet[p] {
-					filtered = append(filtered, p)
-				}
-			}
-			pending = filtered
-		}
-		update.Pending = pending
-
-		// Known issues: merge — add new ones, remove resolved ones
-		var knownIssues []string
-		if existing != nil {
-			knownIssues = existing.KnownIssues
-		}
-		for _, item := range params.KnownIssueAdd {
-			knownIssues = append(knownIssues, item)
-		}
-		if len(params.KnownIssueResolve) > 0 {
-			resolvedSet := make(map[string]bool)
-			for _, r := range params.KnownIssueResolve {
-				resolvedSet[r] = true
-			}
-			filtered := make([]string, 0, len(knownIssues))
-			for _, ki := range knownIssues {
-				if !resolvedSet[ki] {
-					filtered = append(filtered, ki)
-				}
-			}
-			knownIssues = filtered
-		}
-		update.KnownIssues = knownIssues
-
-		summary, err := client.UpdateTaskSummary(toolCtx, taskID, update)
+		summary, err := client.UpdateTaskProgress(toolCtx, taskID, args)
 		if err != nil {
 			slog.Warn("task_progress: failed to update", "error", err)
 			return &ToolResult{Success: false, Error: fmt.Sprintf("update task summary: %v", err)}, nil

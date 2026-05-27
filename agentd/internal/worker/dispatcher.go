@@ -292,8 +292,14 @@ func (d *Dispatcher) handleTaskCompleted(e eventbus.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	memoryWorker := workers.NewMemoryWorker(d.clawless, d.agentManager)
-	memoryWorker.Handle(ctx, task)
+	if err := d.clawless.FinalizeTask(ctx, task.ID, clawless.TaskFinalizeRequest{
+		Status:    string(task.Status),
+		Result:    task.Result,
+		SessionID: task.SessionID,
+		AgentID:   task.AgentID,
+	}); err != nil {
+		slog.Warn("task finalize failed", "task_id", task.ID, "error", err)
+	}
 
 	// Send completion notification via ClawLess API
 	d.sendCompletionNotification(ctx, task)
