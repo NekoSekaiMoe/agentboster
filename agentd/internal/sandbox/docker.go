@@ -89,8 +89,11 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		args = append(args, "-v", mountStr)
 	}
 
+	// Create workspace directory structure inside the container
+	workspaceInitCmd := "mkdir -p /workspace/skills /workspace/downloads/photos /workspace/downloads/videos /workspace/downloads/documents /workspace/media /workspace/sessions /workspace/memory /workspace/outputs /workspace/projects /workspace/bin /workspace/.local/bin"
+
 	// Keep container running
-	args = append(args, image, "tail", "-f", "/dev/null")
+	args = append(args, image, "sh", "-c", workspaceInitCmd+" && tail -f /dev/null")
 
 	cmd := exec.Command("docker", args...)
 	output, err := cmd.CombinedOutput()

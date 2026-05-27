@@ -9,6 +9,22 @@ export const SANDBOX_WORKSPACE_DIR = '/vercel/sandbox/workspace';
 export const SANDBOX_MAX_OUTPUT_LENGTH = 30_000;
 export const SANDBOX_PUBLIC_PORTS = [3000, 4173, 5173] as const;
 
+export const SANDBOX_DIRS = {
+  skills: '/workspace/skills',
+  downloads: '/workspace/downloads',
+  photos: '/workspace/downloads/photos',
+  videos: '/workspace/downloads/videos',
+  documents: '/workspace/downloads/documents',
+  media: '/workspace/media',
+  sessions: '/workspace/sessions',
+  memory: '/workspace/memory',
+  outputs: '/workspace/outputs',
+  projects: '/workspace/projects',
+  bin: '/workspace/bin',
+  local: '/workspace/.local',
+  localBin: '/workspace/.local/bin',
+} as const;
+
 export type WorkflowRuntimePhase =
   | 'idle'
   | 'running'

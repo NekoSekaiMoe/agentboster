@@ -56,8 +56,11 @@ func (p *TmpfsProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		slog.Warn("tmpfs mount failed, using regular directory", "error", err, "dir", baseDir)
 	}
 
-	for _, subdir := range []string{"workspace", "tmp", "home"} {
+	for _, subdir := range []string{"tmp", "home"} {
 		os.MkdirAll(filepath.Join(baseDir, subdir), 0o750)
+	}
+	if err := InitWorkspaceLayout(baseDir); err != nil {
+		return nil, fmt.Errorf("init workspace layout: %w", err)
 	}
 
 	sb := &Sandbox{

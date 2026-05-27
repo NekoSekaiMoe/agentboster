@@ -7,6 +7,11 @@ export {
 export type { SessionSandboxRuntime } from './manager';
 
 export {
+  SANDBOX_DIRS,
+  SANDBOX_WORKSPACE_DIR,
+} from './runtime';
+
+export {
   downloadSandboxFileAction,
   readSandboxFileAction,
   resolveSandboxPublicPortAction,

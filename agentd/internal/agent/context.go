@@ -56,6 +56,7 @@ type TaskState struct {
 	L2AuthRecords     []string          `json:"l2_auth_records"`
 	SubAgentProgress  map[string]string `json:"sub_agent_progress"`
 	SubAgentSummaries []SubAgentSummary `json:"sub_agent_summaries"`
+	SubAgentStates    map[string]string `json:"sub_agent_states"` // subagent ID → state file path
 	KeyDecisions      []string          `json:"key_decisions"`
 	LastToolSummary   string            `json:"last_tool_summary"`
 	CompactedAt       string            `json:"compacted_at,omitempty"`

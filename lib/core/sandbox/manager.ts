@@ -3,6 +3,7 @@ import { withKvLock } from '@/lib/core/kv/lock';
 import { createLogger } from '@/lib/utils/logger';
 import { Sandbox } from '@vercel/sandbox';
 import {
+  SANDBOX_DIRS,
   SANDBOX_PUBLIC_PORTS,
   SANDBOX_TIMEOUT_MS,
   SANDBOX_WORKSPACE_DIR,
@@ -145,14 +146,30 @@ function hasAllConfiguredPublicPorts(ports: number[]): boolean {
 }
 
 async function ensureWorkspace(sandbox: Sandbox): Promise<void> {
-  try {
-    await sandbox.mkDir(SANDBOX_WORKSPACE_DIR);
-  } catch (error) {
-    if (isSandboxDirectoryAlreadyExistsError(error)) {
-      return;
-    }
+  const dirs = [
+    SANDBOX_WORKSPACE_DIR,
+    SANDBOX_DIRS.skills,
+    SANDBOX_DIRS.photos,
+    SANDBOX_DIRS.videos,
+    SANDBOX_DIRS.documents,
+    SANDBOX_DIRS.media,
+    SANDBOX_DIRS.sessions,
+    SANDBOX_DIRS.memory,
+    SANDBOX_DIRS.outputs,
+    SANDBOX_DIRS.projects,
+    SANDBOX_DIRS.bin,
+    SANDBOX_DIRS.localBin,
+  ];
 
-    throw error;
+  for (const dir of dirs) {
+    try {
+      await sandbox.mkDir(dir);
+    } catch (error) {
+      if (isSandboxDirectoryAlreadyExistsError(error)) {
+        continue;
+      }
+      throw error;
+    }
   }
 }
 

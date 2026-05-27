@@ -58,4 +58,13 @@ func RegisterAllTools(
 
 	// === Sandbox snapshot (1) ===
 	registerSandboxSnapshot(registry, sbManager, agentCtx)
+
+	// === Sandbox skills (1) ===
+	registerSandboxSkills(registry, sbManager, agentCtx)
+
+	// === Sandbox media (1) ===
+	registerSandboxMedia(registry, sbManager, agentCtx)
+
+	// === CodeAct (1) ===
+	registerCodeAct(registry, sbManager, clawlessClient, agentCtx)
 }

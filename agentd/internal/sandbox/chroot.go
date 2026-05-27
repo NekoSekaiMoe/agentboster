@@ -155,9 +155,10 @@ func (p *ChrootProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		}
 	}
 
-	// Create workspace directory
-	workspacePath := filepath.Join(rootFS, "workspace")
-	os.MkdirAll(workspacePath, 0o750)
+	// Create standardized workspace directory layout
+	if err := InitWorkspaceLayout(rootFS); err != nil {
+		return nil, fmt.Errorf("init workspace layout: %w", err)
+	}
 
 	// Run init commands inside the chroot
 	if len(spec.InitCommands) > 0 {

@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
+	"github.com/clawless/agentd/internal/sandbox"
 )
 
 // subagentRegistry tracks running sub-agents.
@@ -75,6 +78,10 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 					"items":       map[string]any{"type": "string"},
 					"description": "File path patterns this sub-agent is allowed to modify (glob syntax). Boundaries are enforced by L0.",
 				},
+				"resume_from": map[string]any{
+					"type":        "string",
+					"description": "Sub-agent ID to resume from a previous crashed session. Loads state from workspace/sessions/subagent_{id}.json.",
+				},
 			},
 			"required": []string{"task"},
 		},
@@ -85,6 +92,7 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 			ExpectedOutput string   `json:"expected_output"`
 			SandboxType    string   `json:"sandbox_type"`
 			FileBoundaries []string `json:"file_boundaries"`
+			ResumeFrom     string   `json:"resume_from"`
 		}
 		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
 			return toolErr, nil
@@ -96,6 +104,12 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 		// Build isolated system prompt — no conversation history injected
 		sysPrompt := strings.ReplaceAll(SubagentSystemPrompt, "{{task}}", params.Task)
 		sysPrompt = strings.ReplaceAll(sysPrompt, "{{context}}", params.Context)
+
+		// Handle resume from state
+		var resumeState *SubagentResumeState
+		if params.ResumeFrom != "" {
+			resumeState = loadSubagentResumeState(ctx.SandboxPath, params.ResumeFrom)
+		}
 
 		subTask := &clawless.Task{
 			AgentID:      ctx.AgentID,
@@ -109,9 +123,23 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 		subagentRegistry.agents[subTask.ID] = subTask
 		subagentRegistry.mu.Unlock()
 
+		// Save initial state for crash recovery
+		statePath := saveSubagentState(ctx.SandboxPath, subTask.ID, params.Task, params.Context, ctx.SessionID, ctx.SandboxID, ctx.SandboxType)
+
+		// Track state file in TaskState for persistence across compaction
+		if ctx.TaskState.SubAgentStates == nil {
+			ctx.TaskState.SubAgentStates = make(map[string]string)
+		}
+		ctx.TaskState.SubAgentStates[subTask.ID] = statePath
+
 		boundaryInfo := "none"
 		if len(params.FileBoundaries) > 0 {
 			boundaryInfo = fmt.Sprintf("%v", params.FileBoundaries)
+		}
+
+		resumeInfo := ""
+		if resumeState != nil {
+			resumeInfo = fmt.Sprintf("\nResumed from: %s (step %d)", params.ResumeFrom, resumeState.Step)
 		}
 
 		slog.Info("subagent created",
@@ -119,13 +147,15 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 			"task", params.Task,
 			"file_boundaries", boundaryInfo,
 			"isolated", true,
+			"state_path", statePath,
+			"resumed", resumeState != nil,
 		)
 
 		return &ToolResult{
 			Success: true,
 			Data: fmt.Sprintf(
-				"Sub-agent created (isolated context).\nID: %s\nTask: %s\nSandbox: %s\nFile boundaries: %s\nUse subagent_result to check the result.",
-				subTask.ID, params.Task, params.SandboxType, boundaryInfo,
+				"Sub-agent created (isolated context).\nID: %s\nTask: %s\nSandbox: %s\nFile boundaries: %s\nState: %s%s\nUse subagent_result to check the result.\nTo resume after crash: subagent(resume_from=%s, task=<original task>)",
+				subTask.ID, params.Task, params.SandboxType, boundaryInfo, statePath, resumeInfo, subTask.ID,
 			),
 		}, nil
 	})
@@ -177,15 +207,36 @@ func registerSubagentResult(registry *ToolRegistry, client *clawless.Client, ctx
 				CreatedAt: time.Now().UTC().Format(time.RFC3339),
 			})
 
+			// Update state file to completed
+			statePath := ""
+			if ctx.SandboxPath != "" {
+				updateSubagentState(ctx.SandboxPath, params.SubagentID, 0, "completed")
+				statePath = filepath.Join(ctx.SandboxPath, "workspace", "sessions", fmt.Sprintf("subagent_%s.json", params.SubagentID))
+			}
+
+			stateInfo := ""
+			if statePath != "" {
+				stateInfo = fmt.Sprintf("\nState saved: %s", statePath)
+			}
+
 			return &ToolResult{
 				Success: true,
-				Data:    fmt.Sprintf("Sub-agent %s completed.\nSummary:\n%s", params.SubagentID, output),
+				Data:    fmt.Sprintf("Sub-agent %s completed.\nSummary:\n%s%s", params.SubagentID, output, stateInfo),
 			}, nil
+		}
+
+		// Check if sub-agent crashed — state file may still exist
+		stateInfo := ""
+		if ctx.SandboxPath != "" {
+			resumeState := loadSubagentResumeState(ctx.SandboxPath, params.SubagentID)
+			if resumeState != nil && resumeState.Status == "running" {
+				stateInfo = fmt.Sprintf("\n\n⚠ Sub-agent appears to have crashed (state: running but no result).\nTo resume: subagent(resume_from=%s, task=%q)", params.SubagentID, task.Command)
+			}
 		}
 
 		return &ToolResult{
 			Success: true,
-			Data:    fmt.Sprintf("Sub-agent %s is still running. Status: %s", params.SubagentID, task.Status),
+			Data:    fmt.Sprintf("Sub-agent %s is still running. Status: %s%s", params.SubagentID, task.Status, stateInfo),
 		}, nil
 	})
 }
@@ -235,3 +286,98 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "..."
 }
+
+// SubagentResumeState holds minimal state for resuming a crashed sub-agent.
+type SubagentResumeState struct {
+	ID              string `json:"id"`
+	Task            string `json:"task"`
+	Context         string `json:"context"`
+	ParentSessionID string `json:"parent_session_id"`
+	SandboxID       string `json:"sandbox_id"`
+	SandboxType     string `json:"sandbox_type"`
+	Step            int    `json:"step"`
+	Status          string `json:"status"`
+}
+
+// saveSubagentState saves sub-agent state to workspace/sessions/subagent_{id}.json.
+func saveSubagentState(sandboxPath, subagentID, task, context, parentSessionID, sandboxID, sandboxType string) string {
+	if sandboxPath == "" {
+		return ""
+	}
+
+	sessionsDir := filepath.Join(sandboxPath, "workspace", "sessions")
+	os.MkdirAll(sessionsDir, 0o755)
+
+	state := SubagentResumeState{
+		ID:              subagentID,
+		Task:            task,
+		Context:         context,
+		ParentSessionID: parentSessionID,
+		SandboxID:       sandboxID,
+		SandboxType:     sandboxType,
+		Step:            0,
+		Status:          "running",
+	}
+
+	path := filepath.Join(sessionsDir, fmt.Sprintf("subagent_%s.json", subagentID))
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		slog.Warn("failed to marshal subagent state", "error", err)
+		return ""
+	}
+
+	if err := os.WriteFile(path, data, 0o640); err != nil {
+		slog.Warn("failed to save subagent state", "error", err)
+		return ""
+	}
+
+	return path
+}
+
+// loadSubagentResumeState loads a sub-agent's resume state from disk.
+func loadSubagentResumeState(sandboxPath, subagentID string) *SubagentResumeState {
+	if sandboxPath == "" || subagentID == "" {
+		return nil
+	}
+
+	path := filepath.Join(sandboxPath, "workspace", "sessions", fmt.Sprintf("subagent_%s.json", subagentID))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		slog.Warn("failed to load subagent state", "subagent_id", subagentID, "error", err)
+		return nil
+	}
+
+	var state SubagentResumeState
+	if err := json.Unmarshal(data, &state); err != nil {
+		slog.Warn("failed to unmarshal subagent state", "subagent_id", subagentID, "error", err)
+		return nil
+	}
+
+	return &state
+}
+
+// updateSubagentState updates the step and status of a sub-agent state file.
+func updateSubagentState(sandboxPath, subagentID string, step int, status string) {
+	if sandboxPath == "" || subagentID == "" {
+		return
+	}
+
+	path := filepath.Join(sandboxPath, "workspace", "sessions", fmt.Sprintf("subagent_%s.json", subagentID))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+
+	var state SubagentResumeState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return
+	}
+
+	state.Step = step
+	state.Status = status
+
+	data, _ = json.MarshalIndent(state, "", "  ")
+	os.WriteFile(path, data, 0o640)
+}
+
+var _ = sandbox.DiscoverSkills // ensure sandbox import is used
