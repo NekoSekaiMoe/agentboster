@@ -106,11 +106,6 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		// L2 authorization confirm (called by ClawLess when user clicks a button)
 		v1.POST("/l2-confirm", s.handleL2Confirm)
 
-		// Decision/question queue (unified)
-		v1.GET("/decisions", s.handleListDecisions)
-		v1.POST("/decisions/:id/resolve", s.handleDecisionResolve)
-		v1.POST("/decisions/:id/reject", s.handleDecisionReject)
-
 		// Session runtime control
 		v1.GET("/sessions/status", s.handleSessionStatus)
 		v1.POST("/sessions/:id/abort", s.handleAbortSession)
@@ -441,15 +436,6 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 		return
 	}
 
-	// Dedup: ignore duplicate clicks from multiple IM channels
-	if !s.l2Mgr.MarkDecisionProcessed(body.DecisionID) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    gin.H{"message": "Already processed"},
-		})
-		return
-	}
-
 	switch body.Action {
 	case "pass_once":
 		slog.Info("L2 pass_once", "task_id", body.TaskID, "pattern", body.Pattern)
@@ -517,100 +503,6 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 			"error":   "Unknown action: " + body.Action,
 		})
 	}
-}
-
-// ── Unified Decision/Question Queue ──────────────────────────────────
-
-func (s *Server) handleListDecisions(c *gin.Context) {
-	dq := s.l2Mgr.GetDecisionQueue()
-	if dq == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": []any{}})
-		return
-	}
-	decisions := dq.ListPending()
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": decisions})
-}
-
-func (s *Server) handleDecisionResolve(c *gin.Context) {
-	decisionID := c.Param("id")
-
-	var body struct {
-		Answers [][]string `json:"answers"`
-		Reply   string      `json:"reply"` // "once" | "always" | "reject"
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	dq := s.l2Mgr.GetDecisionQueue()
-	if dq == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "service not available"})
-		return
-	}
-
-	// Determine action from reply type or answers
-	action := body.Reply
-	if action == "" {
-		if len(body.Answers) > 0 && len(body.Answers[0]) > 0 {
-			action = body.Answers[0][0]
-		} else {
-			action = "once"
-		}
-	}
-
-	switch action {
-	case "reject":
-		if err := dq.Deny(decisionID, "user"); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
-			return
-		}
-	case "always":
-		// Resolve and cache the authorization for future similar decisions
-		if err := dq.Resolve(decisionID, "allow", "user"); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
-			return
-		}
-		// Also record in L2 auth cache for the pattern
-		d, _ := dq.GetByDecisionID(decisionID)
-		if d != nil && d.Command != "" {
-			s.l2Mgr.Authorize(d.Command, "always")
-		}
-	default: // "once" or any answer
-		if len(body.Answers) > 0 {
-			svc := s.agentMgr.GetQuestionService()
-			if svc != nil {
-				if err := svc.Reply(decisionID, body.Answers); err != nil {
-					c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
-					return
-				}
-			}
-		} else {
-			if err := dq.Resolve(decisionID, action, "user"); err != nil {
-				c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
-				return
-			}
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-func (s *Server) handleDecisionReject(c *gin.Context) {
-	decisionID := c.Param("id")
-
-	svc := s.agentMgr.GetQuestionService()
-	if svc == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "service not available"})
-		return
-	}
-
-	if err := svc.Reject(decisionID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

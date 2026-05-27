@@ -11,7 +11,6 @@ import (
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/eventbus"
-	"github.com/clawless/agentd/internal/persistence"
 )
 
 const (
@@ -29,97 +28,33 @@ var durationRe = regexp.MustCompile(`^(always|\d{8})$`)
 
 // L2AuthEntry represents a cached authorization decision.
 type L2AuthEntry struct {
-	SessionID  string
-	Pattern    string
-	Action     string
-	ExpiresAt  time.Time
-	CreatedAt  time.Time
+	SessionID string
+	Pattern   string
+	Action    string
+	ExpiresAt time.Time
+	CreatedAt time.Time
 }
 
-// L2AuthManager manages L2 interactive authorization.
+// L2AuthManager manages L2 cache (local fast path).
+// DecisionQueue, pending tasks, and persistence moved to clawless web layer.
 type L2AuthManager struct {
-	mu             sync.RWMutex
-	entries        map[string]*L2AuthEntry // key = session_id + ":" + command_pattern
-	clawless       *clawless.Client
-	bus            *eventbus.Bus
-	agentID        string
-	sessionID      string
-	escalation     time.Duration
-	decisionIDs    map[string]bool // dedup for duplicate decision callbacks
-	decisionQueue  *DecisionQueue
-	pendingTasks   map[string]*clawless.Task // task_id -> task, for resuming after L2
-	pendingL2Store PendingL2StoreInterface   // persistent store for pending L2 states
+	mu         sync.RWMutex
+	entries    map[string]*L2AuthEntry // key = session_id + ":" + command_pattern
+	clawless   *clawless.Client
+	bus        *eventbus.Bus
+	agentID    string
+	sessionID  string
+	escalation time.Duration
 }
 
-// PendingL2StoreInterface abstracts the pending L2 store for testability.
-type PendingL2StoreInterface interface {
-	Save(state *persistence.PendingL2State) error
-	Remove(taskID string) error
-	Load(taskID string) (*persistence.PendingL2State, bool)
-	ListAll() []*persistence.PendingL2State
-	Count() int
-}
-
-// NewL2AuthManager creates a new L2 auth manager.
+// NewL2AuthManager creates a new L2 auth manager (cache only).
 func NewL2AuthManager(client *clawless.Client, agentID string) *L2AuthManager {
 	return &L2AuthManager{
-		entries:       make(map[string]*L2AuthEntry),
-		clawless:      client,
-		agentID:       agentID,
-		escalation:    5 * time.Minute,
-		decisionIDs:   make(map[string]bool),
-		pendingTasks:  make(map[string]*clawless.Task),
+		entries:    make(map[string]*L2AuthEntry),
+		clawless:   client,
+		agentID:    agentID,
+		escalation: 5 * time.Minute,
 	}
-}
-
-// SetDecisionQueue sets the decision queue (must be called after creation).
-func (m *L2AuthManager) SetDecisionQueue(dq *DecisionQueue) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.decisionQueue = dq
-}
-
-// SetPendingL2Store sets the persistent store for pending L2 states.
-func (m *L2AuthManager) SetPendingL2Store(store PendingL2StoreInterface) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.pendingL2Store = store
-}
-
-// GetPendingL2Store returns the persistent store.
-func (m *L2AuthManager) GetPendingL2Store() PendingL2StoreInterface {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.pendingL2Store
-}
-
-// GetDecisionQueue returns the decision queue.
-func (m *L2AuthManager) GetDecisionQueue() *DecisionQueue {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.decisionQueue
-}
-
-// GetPendingDecisions returns all pending/sent decisions.
-func (m *L2AuthManager) GetPendingDecisions() []*Decision {
-	m.mu.RLock()
-	dq := m.decisionQueue
-	m.mu.RUnlock()
-	if dq == nil {
-		return nil
-	}
-	return dq.ListPending()
-}
-
-// GetSentDecisions returns all currently sent (awaiting response) decisions.
-func (m *L2AuthManager) GetSentDecisions() []*Decision {
-	m.mu.RLock()
-	dq := m.decisionQueue
-	m.mu.RUnlock()
-	if dq == nil {
-		return nil
-	}
-	return dq.GetSent()
 }
 
 // SetBus sets the event bus for publishing session-related events.
@@ -170,107 +105,6 @@ func (m *L2AuthManager) Check(pattern string) (*L2AuthEntry, bool, bool) {
 	)
 
 	return entry, true, entry.Action == ActionReject
-}
-
-// RequestAuthorization creates an L2 authorization request, enqueues it in the
-// decision queue, and notifies the user via ClawLess.
-func (m *L2AuthManager) RequestAuthorization(ctx context.Context, task *clawless.Task, score float64, reason, level string) error {
-	slog.Warn("L2 authorization required",
-		"task_id", task.ID,
-		"command", task.Command,
-		"score", score,
-		"reason", reason,
-	)
-
-	m.mu.Lock()
-	client := m.clawless
-	dq := m.decisionQueue
-	m.sessionID = task.SessionID
-	m.mu.Unlock()
-
-	if client == nil {
-		slog.Error("L2 authorization: ClawLess client not configured")
-		return fmt.Errorf("clawless client not configured")
-	}
-
-	// Store the task for resuming after L2
-	m.mu.Lock()
-	m.pendingTasks[task.ID] = task
-	pendingStore := m.pendingL2Store
-	m.mu.Unlock()
-
-	// Persist pending L2 state to disk
-	if pendingStore != nil {
-		if err := pendingStore.Save(&persistence.PendingL2State{
-			TaskID:      task.ID,
-			SessionID:   task.SessionID,
-			AgentID:     m.agentID,
-			Command:     task.Command,
-			Score:       score,
-			Reason:      reason,
-			Level:       level,
-			DecisionID:  fmt.Sprintf("l2_%s_%d", task.ID, time.Now().Unix()),
-			RequestedAt: time.Now(),
-		}); err != nil {
-			slog.Warn("failed to persist pending L2 state", "task_id", task.ID, "error", err)
-		}
-	}
-
-	if dq != nil {
-		decision := &Decision{
-			Type:      DecisionTypeL2Auth,
-			TaskID:    task.ID,
-			SessionID: task.SessionID,
-			Command:   task.Command,
-			Score:     score,
-			Reason:    reason,
-			Options:   []string{"pass_once", "pass_until", "reject_once", "reject_until"},
-		}
-		dq.Enqueue(decision)
-	}
-
-	title := "⚠️ 高风险操作需要您的授权"
-	if level == "critical" {
-		title = "🚨 高危操作需要您的授权"
-	}
-	notification := clawless.Notification{
-		AgentID:  m.agentID,
-		TaskID:   task.ID,
-		Type:     "l2_auth_required",
-		Title:    title,
-		Message:  FormatNotificationMessage(task.Command, score, reason, level),
-		Metadata: map[string]any{
-			"command": task.Command,
-			"score":   score,
-			"reason":  reason,
-			"level":   level,
-		},
-	}
-
-	if err := client.CreateNotification(ctx, &notification); err != nil {
-		slog.Error("L2 authorization: failed to create notification",
-			"task_id", task.ID,
-			"error", err,
-		)
-		return fmt.Errorf("create notification: %w", err)
-	}
-
-	return nil
-}
-
-// GetPendingTask returns the task associated with a pending L2 decision.
-func (m *L2AuthManager) GetPendingTask(taskID string) (*clawless.Task, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	t, ok := m.pendingTasks[taskID]
-	return t, ok
-}
-
-// RemovePendingTask removes a task from the pending map.
-func (m *L2AuthManager) RemovePendingTask(taskID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.pendingTasks, taskID)
 }
 
 // Authorize records a pass authorization decision for the given pattern and duration.
@@ -359,19 +193,6 @@ func (m *L2AuthManager) Reject(pattern string, duration string) error {
 		"expires", expiresAt,
 	)
 	return nil
-}
-
-// MarkDecisionProcessed marks a decision ID as processed for dedup.
-// Returns true if this is the first time seeing this decision ID.
-func (m *L2AuthManager) MarkDecisionProcessed(decisionID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.decisionIDs[decisionID] {
-		return false
-	}
-	m.decisionIDs[decisionID] = true
-	return true
 }
 
 // Revoke removes an authorization entry by pattern.

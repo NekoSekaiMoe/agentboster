@@ -14,8 +14,6 @@ import (
 	"github.com/clawless/agentd/internal/persistence"
 	"github.com/clawless/agentd/internal/sandbox"
 	"github.com/clawless/agentd/internal/security"
-	"github.com/clawless/agentd/internal/security/l1_scorer"
-	"github.com/clawless/agentd/internal/security/l2_auth"
 	"github.com/clawless/agentd/internal/session"
 )
 
@@ -25,7 +23,7 @@ type Manager struct {
 	sessions     map[string]*AgentContext
 	sbManager    *sandbox.Manager
 	clawless     *clawless.Client
-	l1Scorer     *l1_scorer.L1Scorer
+	l1Scorer     clawless.L1Scorer
 	llmEndpoint  string
 	llmModel     string
 	llmAPIKey    string
@@ -40,7 +38,7 @@ type Manager struct {
 func NewManager(
 	sbManager *sandbox.Manager,
 	clawlessClient *clawless.Client,
-	l1Scorer *l1_scorer.L1Scorer,
+	l1Scorer clawless.L1Scorer,
 	cfg *config.Config,
 ) *Manager {
 	store, err := session.NewStore(cfg.Session.StorePath, cfg.Session.MaxCount, cfg.Session.Timeout)
@@ -75,11 +73,7 @@ func (m *Manager) QuestionService(sessionID string) *QuestionService {
 // SetBus sets the event bus.
 func (m *Manager) SetBus(bus *eventbus.Bus) {
 	m.bus = bus
-}
-
-// SetDecisionQueue sets the decision queue and creates the question service.
-func (m *Manager) SetDecisionQueue(dq *l2_auth.DecisionQueue) {
-	m.questionSvc = NewQuestionService(dq, m.bus, m.clawless)
+	m.questionSvc = NewQuestionService(bus, m.clawless)
 }
 
 // GetQuestionService returns the shared question service.

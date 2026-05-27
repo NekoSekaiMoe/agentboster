@@ -30,7 +30,6 @@ import (
 	"github.com/clawless/agentd/internal/sandbox"
 	"github.com/clawless/agentd/internal/security"
 	"github.com/clawless/agentd/internal/security/l0_rules"
-	"github.com/clawless/agentd/internal/security/l1_scorer"
 	"github.com/clawless/agentd/internal/security/l2_auth"
 	"github.com/clawless/agentd/internal/server"
 	"github.com/clawless/agentd/internal/worker"
@@ -109,20 +108,20 @@ func main() {
 	}
 
 	l0Engine := l0_rules.NewEngine()
-	l1Scorer := l1_scorer.NewL1Scorer(&cfg.Security)
+	l1Client := clawless.NewL1Client(
+		cfg.ClawLess.BaseURL,
+		cfg.Security.L1Model,
+		cfg.Server.ClawLessAPIKey,
+	)
 	bus := eventbus.New()
 
 	l2Manager := l2_auth.NewL2AuthManager(nil, "default")
 	l2Manager.SetBus(bus)
 
-	decisionQueue := l2_auth.NewDecisionQueue(bus)
-	l2Manager.SetDecisionQueue(decisionQueue)
-	defer decisionQueue.Stop()
-
 	l2CleanupStop := l2Manager.StartCleanupWithInterval(30 * time.Second)
 	defer l2CleanupStop()
 
-	gk := security.NewGatekeeper(l0Engine, l1Scorer, l2Manager, bus, "default")
+	gk := security.NewGatekeeper(l0Engine, l1Client, l2Manager, bus, "default")
 
 	clawlessClient, err := clawless.NewClientFromConfig(
 		cfg.ClawLess.BaseURL, cfg.Server.ClawLessAPIKey,
@@ -160,9 +159,8 @@ func main() {
 		slog.Info("LXC available for persistent containers")
 	}
 
-	agentMgr := agent.NewManager(sbManager, clawlessClient, l1Scorer, cfg)
+	agentMgr := agent.NewManager(sbManager, clawlessClient, l1Client, cfg)
 	agentMgr.SetBus(bus)
-	agentMgr.SetDecisionQueue(decisionQueue)
 	agentMgr.SetGatekeeper(gk)
 
 	dispatcher := worker.NewDispatcher(bus, cfg.WorkerPool, gk, sbManager, clawlessClient, agentMgr, l2Manager, cfg.TaskSummary.TidyInterval)
@@ -173,14 +171,6 @@ func main() {
 	if basePath == "" {
 		basePath = "/tmp/agentd"
 	}
-
-	pendingL2Store, err := persistence.NewPendingL2Store(persistence.PendingL2Path(basePath))
-	if err != nil {
-		slog.Warn("pending L2 store init failed", "error", err)
-	} else if err := pendingL2Store.Restore(); err != nil {
-		slog.Warn("pending L2 store restore failed", "error", err)
-	}
-	l2Manager.SetPendingL2Store(pendingL2Store)
 
 	bgTaskStore, err := persistence.NewBackgroundTaskStore(persistence.BackgroundTaskPath(basePath))
 	if err != nil {

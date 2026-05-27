@@ -7,7 +7,6 @@ import (
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/eventbus"
 	"github.com/clawless/agentd/internal/security/l0_rules"
-	"github.com/clawless/agentd/internal/security/l1_scorer"
 	"github.com/clawless/agentd/internal/security/l2_auth"
 )
 
@@ -24,7 +23,7 @@ const (
 type ReviewResult struct {
 	Decision  ReviewDecision
 	L0Result  *l0_rules.L0Result
-	L1Result  *l1_scorer.L1Result
+	L1Result  *clawless.L1Result
 	TaskID    string
 	Command   string
 	Reason    string
@@ -45,7 +44,7 @@ func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason s
 // Gatekeeper orchestrates the three-tier security review (replicating Manboster Zero Trust).
 type Gatekeeper struct {
 	l0       *l0_rules.Engine
-	l1       *l1_scorer.L1Scorer
+	l1       clawless.L1Scorer
 	l2       *l2_auth.L2AuthManager
 	bus      *eventbus.Bus
 	agentID  string
@@ -54,7 +53,7 @@ type Gatekeeper struct {
 // NewGatekeeper creates a new Gatekeeper with all three tiers.
 func NewGatekeeper(
 	l0 *l0_rules.Engine,
-	l1 *l1_scorer.L1Scorer,
+	l1 clawless.L1Scorer,
 	l2 *l2_auth.L2AuthManager,
 	bus *eventbus.Bus,
 	agentID string,
@@ -114,7 +113,7 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 		slog.Error("L1 scoring error", "task_id", task.ID, "error", err)
 		logs = append(logs, result.ReviewLog("L1", 0.3, "allowed", "L1 scoring error: "+err.Error()))
 		// L1 error → fail open with medium score
-		l1Result = &l1_scorer.L1Result{Score: 0.3, Level: "medium", Reason: "scoring error, defaulting to medium risk"}
+		l1Result = &clawless.L1Result{Score: 0.3, Level: "medium", Reason: "scoring error, defaulting to medium risk"}
 	}
 
 	result.L1Result = l1Result
@@ -167,14 +166,14 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 	}
 }
 
-func l1ScoreToFloat(r *l1_scorer.L1Result) float64 {
+func l1ScoreToFloat(r *clawless.L1Result) float64 {
 	if r == nil {
 		return 0
 	}
 	return r.Score
 }
 
-func l1Action(r *l1_scorer.L1Result) string {
+func l1Action(r *clawless.L1Result) string {
 	if r == nil {
 		return "allowed"
 	}
@@ -252,7 +251,7 @@ func (g *Gatekeeper) AuditOutput(ctx context.Context, output string, sessionSumm
 }
 
 // requestL2Auth handles the L2 authorization flow for high/critical risk commands.
-func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *l1_scorer.L1Result, result *ReviewResult, logs []clawless.ReviewLog) *ReviewResult {
+func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *clawless.L1Result, result *ReviewResult, logs []clawless.ReviewLog) *ReviewResult {
 	// Check L2 cache
 	if entry, hit, rejected := g.l2.Check(task.Command); hit {
 		if rejected {

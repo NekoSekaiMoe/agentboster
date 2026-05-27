@@ -527,26 +527,41 @@ func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 		slog.Info("L2 auth review log written", "task_id", taskID, "decision", decision)
 	}
 
-	// Resume or cancel task
+	// Resume or cancel task - task data comes from clawless webhook payload
 	if action == "pass" {
-		task, ok := d.l2Mgr.GetPendingTask(taskID)
-		if ok {
-			d.l2Mgr.RemovePendingTask(taskID)
-			if store := d.l2Mgr.GetPendingL2Store(); store != nil {
-				store.Remove(taskID)
+		taskData, hasTask := payload["task"].(map[string]any)
+		if hasTask {
+			task := &clawless.Task{
+				ID:        taskID,
+				AgentID:   getString(taskData, "agent_id"),
+				SessionID: getString(taskData, "session_id"),
+				Command:   getString(taskData, "command"),
 			}
 			d.bus.Publish(eventbus.EventTaskApproved, task)
+		} else {
+			slog.Warn("L2 auth approved but no task data in payload", "task_id", taskID)
 		}
 	} else if action == "reject" {
-		task, ok := d.l2Mgr.GetPendingTask(taskID)
-		if ok {
-			d.l2Mgr.RemovePendingTask(taskID)
-			if store := d.l2Mgr.GetPendingL2Store(); store != nil {
-				store.Remove(taskID)
+		taskData, hasTask := payload["task"].(map[string]any)
+		if hasTask {
+			task := &clawless.Task{
+				ID:        taskID,
+				AgentID:   getString(taskData, "agent_id"),
+				SessionID: getString(taskData, "session_id"),
+				Command:   getString(taskData, "command"),
 			}
 			d.bus.Publish(eventbus.EventTaskRejected, task)
+		} else {
+			slog.Warn("L2 auth rejected but no task data in payload", "task_id", taskID)
 		}
 	}
+}
+
+func getString(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
 }
 
 func (d *Dispatcher) handleSessionClosed(e eventbus.Event) {

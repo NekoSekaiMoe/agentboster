@@ -162,21 +162,13 @@ Supports multiple questions in one call, each with options. The user's answers a
 			}
 		}
 
-		// Ask and wait for response
-		answers, err := svc.Ask(toolCtx, ctx.SessionID, prompts)
+		// Ask (fire-and-forget, answer comes via clawless callback)
+		err := svc.Ask(toolCtx, ctx.SessionID, prompts)
 		if err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("question failed: %v", err)}, nil
 		}
 
-		// Format answers
-		result := "User answered:\n"
-		for i, prompt := range params.Questions {
-			if i < len(answers) {
-				result += fmt.Sprintf("- %s: %s\n", prompt.Question, formatAnswers(answers[i]))
-			}
-		}
-
-		return &ToolResult{Success: true, Data: result}, nil
+		return &ToolResult{Success: true, Data: "Question sent to user. Answer will be delivered via callback."}, nil
 	})
 }
 

@@ -10,7 +10,6 @@ import (
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/security"
-	"github.com/clawless/agentd/internal/security/l1_scorer"
 )
 
 // Message represents a chat message.
@@ -37,7 +36,7 @@ type AgentLoop struct {
 	llmEndpoint   string
 	llmModel      string
 	llmAPIKey     string
-	l1Scorer      *l1_scorer.L1Scorer
+	l1Scorer      clawless.L1Scorer
 	gatekeeper    *security.Gatekeeper
 	messages      []Message
 	stepCount     int
@@ -50,7 +49,7 @@ func NewAgentLoop(
 	agentCtx *AgentContext,
 	clawlessClient *clawless.Client,
 	llmEndpoint, llmModel, llmAPIKey string,
-	l1Scorer *l1_scorer.L1Scorer,
+	l1Scorer clawless.L1Scorer,
 	gatekeeper *security.Gatekeeper,
 ) *AgentLoop {
 	return &AgentLoop{
