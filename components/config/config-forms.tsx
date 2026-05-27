@@ -2,6 +2,8 @@
 
 import type { ConfigSectionKey } from '@/components/config/config-sections';
 import { AgentDConfigPage } from './agentd-config';
+import { AuditLogsForm } from './forms/audit-logs-form';
+import { MonitoringForm } from './forms/monitoring-form';
 import { AgentsForm } from './forms/agents-form';
 import { AutonomyForm } from './forms/autonomy-form';
 import { ChannelsForm } from './forms/channels-form';
@@ -29,6 +31,10 @@ export function ConfigSectionForm({
       return <McpForm />;
     case 'agentd':
       return <AgentDConfigPage />;
+    case 'monitoring':
+      return <MonitoringForm />;
+    case 'audit-logs':
+      return <AuditLogsForm />;
     default:
       return null;
   }

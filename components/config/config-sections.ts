@@ -35,6 +35,16 @@ export const configSections = [
     description:
       'Manage remote Agent Daemon connections, certificates, and sandbox settings.',
   },
+  {
+    key: 'monitoring',
+    title: 'Monitoring',
+    description: 'View Agent Daemon status, node health, and sandbox usage.',
+  },
+  {
+    key: 'audit-logs',
+    title: 'Audit Logs',
+    description: 'Review security audit logs and export data.',
+  },
 ] as const satisfies ReadonlyArray<{
   description: string;
   key: string;

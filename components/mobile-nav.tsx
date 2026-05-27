@@ -1,12 +1,15 @@
 'use client';
 
 import {
+  Bell,
   Brain,
   Clock3,
   FolderArchive,
+  History,
   MessageSquare,
   Puzzle,
   Settings,
+  Shield,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -17,7 +20,9 @@ const navItems = [
   { label: 'Memory', icon: Brain, href: '/memory', match: (p: string) => p.startsWith('/memory') },
   { label: 'Schedule', icon: Clock3, href: '/schedule', match: (p: string) => p.startsWith('/schedule') },
   { label: 'Skills', icon: Puzzle, href: '/skills', match: (p: string) => p.startsWith('/skills') },
-  { label: 'Config', icon: Settings, href: '/config', match: (p: string) => p.startsWith('/config') },
+  { label: 'Tasks', icon: History, href: '/config/tasks', match: (p: string) => p.startsWith('/config/tasks') },
+  { label: 'Alerts', icon: Bell, href: '/config/notifications', match: (p: string) => p.startsWith('/config/notifications') },
+  { label: 'Config', icon: Settings, href: '/config', match: (p: string) => p.startsWith('/config') && !p.startsWith('/config/tasks') && !p.startsWith('/config/notifications') && !p.startsWith('/config/l2') },
 ];
 
 export function MobileNav() {

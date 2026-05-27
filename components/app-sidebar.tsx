@@ -2,11 +2,13 @@
 
 import packageJson from '@/package.json';
 import {
+  Bell,
   BookOpen,
   Brain,
   Clock3,
   FolderArchive,
   Globe,
+  History,
   Loader2,
   LogOut,
   MessageSquare,
@@ -16,6 +18,7 @@ import {
   Puzzle,
   Search,
   Settings,
+  Shield,
   Sun,
   Trash2,
   Wrench,
@@ -84,6 +87,8 @@ const navItems = [
   { label: 'Memory', icon: Brain, href: '/memory' },
   { label: 'Schedule', icon: Clock3, href: '/schedule' },
   { label: 'Skills', icon: Puzzle, href: '/skills' },
+  { label: 'Tasks', icon: History, href: '/config/tasks' },
+  { label: 'Notifications', icon: Bell, href: '/config/notifications' },
   { label: 'Config', icon: Settings, href: '/config' },
 ];
 
