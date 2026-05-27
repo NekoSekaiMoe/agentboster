@@ -46,8 +46,8 @@ func registerDeliverFiles(registry *ToolRegistry, sbMgr *sandbox.Manager, client
 			Format  string   `json:"format"`
 			Message string   `json:"message"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 		if len(params.Paths) == 0 {
 			return &ToolResult{Success: false, Error: "paths cannot be empty"}, nil

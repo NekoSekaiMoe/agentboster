@@ -14,9 +14,9 @@ import (
 
 // subagentRegistry tracks running sub-agents.
 var subagentRegistry = struct {
-	mu       sync.RWMutex
-	agents   map[string]*clawless.Task
-	results  map[string]string
+	mu        sync.RWMutex
+	agents    map[string]*clawless.Task
+	results   map[string]string
 	summaries map[string]string
 }{
 	agents:    make(map[string]*clawless.Task),
@@ -86,8 +86,8 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 			SandboxType    string   `json:"sandbox_type"`
 			FileBoundaries []string `json:"file_boundaries"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 		if params.SandboxType == "" {
 			params.SandboxType = "tmpfs"
@@ -98,10 +98,10 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 		sysPrompt = strings.ReplaceAll(sysPrompt, "{{context}}", params.Context)
 
 		subTask := &clawless.Task{
-			AgentID:     ctx.AgentID,
-			SessionID:   ctx.SessionID,
-			Command:     params.Task,
-			SandboxType: params.SandboxType,
+			AgentID:      ctx.AgentID,
+			SessionID:    ctx.SessionID,
+			Command:      params.Task,
+			SandboxType:  params.SandboxType,
 			SystemPrompt: sysPrompt,
 		}
 
@@ -147,8 +147,8 @@ func registerSubagentResult(registry *ToolRegistry, client *clawless.Client, ctx
 		var params struct {
 			SubagentID string `json:"subagent_id"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		subagentRegistry.mu.RLock()

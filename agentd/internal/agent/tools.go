@@ -26,7 +26,7 @@ type ToolHandler func(ctx context.Context, args json.RawMessage) (*ToolResult, e
 // ToolRegistry holds all registered tools.
 type ToolRegistry struct {
 	tools map[string]struct {
-		def    ToolDefinition
+		def     ToolDefinition
 		handler ToolHandler
 	}
 }
@@ -35,8 +35,8 @@ type ToolRegistry struct {
 func NewToolRegistry() *ToolRegistry {
 	return &ToolRegistry{
 		tools: make(map[string]struct {
-			def      ToolDefinition
-			handler  ToolHandler
+			def     ToolDefinition
+			handler ToolHandler
 		}),
 	}
 }
@@ -44,8 +44,8 @@ func NewToolRegistry() *ToolRegistry {
 // Register adds a tool to the registry.
 func (r *ToolRegistry) Register(def ToolDefinition, handler ToolHandler) {
 	r.tools[def.Name] = struct {
-		def      ToolDefinition
-		handler  ToolHandler
+		def     ToolDefinition
+		handler ToolHandler
 	}{def: def, handler: handler}
 }
 
@@ -74,4 +74,24 @@ func (r *ToolRegistry) Execute(ctx context.Context, name string, args json.RawMe
 		return &ToolResult{Success: false, Error: fmt.Sprintf("unknown tool: %s", name)}, nil
 	}
 	return handler(ctx, args)
+}
+
+// parseArgs is a generic helper that unmarshals tool arguments.
+// Returns the parsed struct, or a ToolResult error if parsing fails.
+func parseArgs[T any](args json.RawMessage) (T, *ToolResult) {
+	var zero T
+	var params T
+	if err := json.Unmarshal(args, &params); err != nil {
+		return zero, &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}
+	}
+	return params, nil
+}
+
+// unmarshalToolArgs is a convenience wrapper that unmarshals into dest and returns
+// a ToolResult error on failure. Use when the struct is defined locally in the handler.
+func unmarshalToolArgs(args json.RawMessage, dest any) *ToolResult {
+	if err := json.Unmarshal(args, dest); err != nil {
+		return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}
+	}
+	return nil
 }

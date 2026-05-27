@@ -21,9 +21,9 @@ func registerExec(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"command":      map[string]any{"type": "string", "description": "Shell command to execute"},
-				"timeout":      map[string]any{"type": "integer", "description": "Timeout in seconds (default 60)", "default": 60},
-				"working_dir":  map[string]any{"type": "string", "description": "Working directory (relative to sandbox workspace)", "default": "."},
+				"command":     map[string]any{"type": "string", "description": "Shell command to execute"},
+				"timeout":     map[string]any{"type": "integer", "description": "Timeout in seconds (default 60)", "default": 60},
+				"working_dir": map[string]any{"type": "string", "description": "Working directory (relative to sandbox workspace)", "default": "."},
 			},
 			"required": []string{"command"},
 		},
@@ -33,8 +33,8 @@ func registerExec(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			Timeout    int    `json:"timeout"`
 			WorkingDir string `json:"working_dir"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 		if params.Timeout <= 0 {
 			params.Timeout = 60
@@ -76,8 +76,8 @@ func registerExecBackground(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 		var params struct {
 			Command string `json:"command"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sandboxID := ctx.SandboxID
@@ -145,8 +145,8 @@ func registerExecBackground(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 		var params struct {
 			TaskID string `json:"task_id"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sandboxID := ctx.SandboxID
@@ -209,8 +209,8 @@ func registerExecBackground(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 		var params struct {
 			TaskID string `json:"task_id"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sandboxID := ctx.SandboxID

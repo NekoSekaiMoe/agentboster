@@ -26,8 +26,8 @@ func registerMemorySearch(registry *ToolRegistry, client *clawless.Client, ctx *
 			Query string `json:"query"`
 			Limit int    `json:"limit"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 		if params.Limit <= 0 {
 			params.Limit = 5
@@ -68,8 +68,8 @@ func registerMemorySave(registry *ToolRegistry, client *clawless.Client, ctx *Ag
 			Key   string `json:"key"`
 			Value string `json:"value"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		memory := clawless.Memory{

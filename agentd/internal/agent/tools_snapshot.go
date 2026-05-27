@@ -41,8 +41,8 @@ func registerSandboxSnapshot(registry *ToolRegistry, sbManager *sandbox.Manager,
 			Name       string `json:"name"`
 			SnapshotID string `json:"snapshot_id"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sandboxID := agentCtx.SandboxID

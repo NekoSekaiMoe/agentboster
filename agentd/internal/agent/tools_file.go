@@ -18,9 +18,9 @@ func registerRead(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"path":        map[string]any{"type": "string", "description": "File path (relative to workspace)"},
-				"offset":      map[string]any{"type": "integer", "description": "Line offset to start reading", "default": 0},
-				"limit":       map[string]any{"type": "integer", "description": "Number of lines to read", "default": 0},
+				"path":   map[string]any{"type": "string", "description": "File path (relative to workspace)"},
+				"offset": map[string]any{"type": "integer", "description": "Line offset to start reading", "default": 0},
+				"limit":  map[string]any{"type": "integer", "description": "Number of lines to read", "default": 0},
 			},
 			"required": []string{"path"},
 		},
@@ -30,8 +30,8 @@ func registerRead(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			Offset int    `json:"offset"`
 			Limit  int    `json:"limit"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
@@ -87,8 +87,8 @@ func registerWrite(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCon
 			Path    string `json:"path"`
 			Content string `json:"content"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
@@ -131,8 +131,8 @@ func registerEdit(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			OldText string `json:"oldText"`
 			NewText string `json:"newText"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
@@ -177,8 +177,8 @@ func registerLs(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContex
 		var params struct {
 			Path string `json:"path"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
@@ -225,8 +225,8 @@ func registerGrep(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			Pattern string `json:"pattern"`
 			Path    string `json:"path"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sandboxID := ctx.SandboxID
@@ -261,8 +261,8 @@ func registerGlob(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			Pattern string `json:"pattern"`
 			Path    string `json:"path"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
@@ -307,8 +307,8 @@ func registerPatch(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCon
 			Path  string `json:"path"`
 			Patch string `json:"patch"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sandboxID := ctx.SandboxID

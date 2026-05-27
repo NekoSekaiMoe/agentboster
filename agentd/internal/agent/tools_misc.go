@@ -25,8 +25,8 @@ func registerSandboxInstall(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 			Packages []string `json:"packages"`
 			Manager  string   `json:"manager"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		sandboxID := ctx.SandboxID
@@ -69,10 +69,9 @@ func registerSandboxInstall(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 	})
 }
 
-
 func registerAskQuestion(registry *ToolRegistry, ctx *AgentContext) {
 	registry.Register(ToolDefinition{
-		Name:        "ask_question",
+		Name: "ask_question",
 		Description: `Ask the user a question during execution. Use this to:
 1. Gather user preferences or requirements
 2. Clarify ambiguous instructions
@@ -133,8 +132,8 @@ Supports multiple questions in one call, each with options. The user's answers a
 				Multiple bool `json:"multiple"`
 			} `json:"questions"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		if len(params.Questions) == 0 {

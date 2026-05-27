@@ -22,9 +22,9 @@ func registerGitClone(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agent
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"url":      map[string]any{"type": "string", "description": "Git repository URL"},
-				"branch":   map[string]any{"type": "string", "description": "Branch to checkout (optional)"},
-				"depth":    map[string]any{"type": "integer", "description": "Shallow clone depth (optional)"},
+				"url":    map[string]any{"type": "string", "description": "Git repository URL"},
+				"branch": map[string]any{"type": "string", "description": "Branch to checkout (optional)"},
+				"depth":  map[string]any{"type": "integer", "description": "Shallow clone depth (optional)"},
 			},
 			"required": []string{"url"},
 		},
@@ -34,8 +34,8 @@ func registerGitClone(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agent
 			Branch string `json:"branch"`
 			Depth  int    `json:"depth"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		if !safeShellArg.MatchString(params.URL) {
@@ -82,8 +82,8 @@ func registerGitDiff(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentC
 		var params struct {
 			Path string `json:"path"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		if !safeShellArg.MatchString(params.Path) {
@@ -119,8 +119,8 @@ func registerGitStatus(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agen
 		var params struct {
 			Path string `json:"path"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		if !safeShellArg.MatchString(params.Path) {
@@ -194,8 +194,8 @@ func registerGitPush(registry *ToolRegistry, sbMgr *sandbox.Manager, client *cla
 			CommitMessage string `json:"commit_message"`
 			Force         bool   `json:"force"`
 		}
-		if err := json.Unmarshal(args, &params); err != nil {
-			return &ToolResult{Success: false, Error: fmt.Sprintf("parse args: %v", err)}, nil
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
 		}
 
 		if !safeShellArg.MatchString(params.Path) {

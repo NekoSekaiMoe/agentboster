@@ -5,7 +5,10 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -14,57 +17,53 @@ import (
 
 // Config holds the full agentd configuration.
 type Config struct {
-	Server       ServerConfig       `mapstructure:"server"`
-	ClawLess     ClawLessConfig     `mapstructure:"clawless"`
-	Security     SecurityConfig     `mapstructure:"security"`
-	Sandbox      SandboxConfig      `mapstructure:"sandbox"`
-	Cache        CacheConfig        `mapstructure:"cache"`
-	Session      SessionConfig      `mapstructure:"session"`
-	Worker       WorkerConfig       `mapstructure:"worker"`
-	TaskSummary  TaskSummaryConfig  `mapstructure:"task_summary"`
+	Server      ServerConfig      `mapstructure:"server"`
+	ClawLess    ClawLessConfig    `mapstructure:"clawless"`
+	Security    SecurityConfig    `mapstructure:"security"`
+	Sandbox     SandboxConfig     `mapstructure:"sandbox"`
+	Cache       CacheConfig       `mapstructure:"cache"`
+	Session     SessionConfig     `mapstructure:"session"`
+	Worker      WorkerConfig      `mapstructure:"worker"`
+	TaskSummary TaskSummaryConfig `mapstructure:"task_summary"`
 }
 
 type TaskSummaryConfig struct {
-	AutoUpdate   bool          `mapstructure:"auto_update"`
-	TidyInterval time.Duration `mapstructure:"tidy_interval"`
-	MaxDecisions int           `mapstructure:"max_decisions"`
+	AutoUpdate   bool          `mapstructure:"auto_update" default:"true"`
+	TidyInterval time.Duration `mapstructure:"tidy_interval" default:"168h"`
+	MaxDecisions int           `mapstructure:"max_decisions" default:"50"`
 }
 
 type ServerConfig struct {
-	Listen      string `mapstructure:"listen"`
-	TLSCertPath string `mapstructure:"tls_cert_path"`
-	TLSKeyPath  string `mapstructure:"tls_key_path"`
-	CAPath      string `mapstructure:"ca_path"`
-	// WebUI dual auth (legacy, mTLS is primary)
-	WebUIUsername string `mapstructure:"webui_username"`
-	WebUIPassword string `mapstructure:"webui_password"`
-	// API key for ClawLess → Daemon calls
+	Listen        string `mapstructure:"listen" default:":18732"`
+	TLSCertPath   string `mapstructure:"tls_cert_path"`
+	TLSKeyPath    string `mapstructure:"tls_key_path"`
+	CAPath        string `mapstructure:"ca_path"`
+	WebUIUsername  string `mapstructure:"webui_username"`
+	WebUIPassword  string `mapstructure:"webui_password"`
 	ClawLessAPIKey string `mapstructure:"clawless_api_key"`
 }
 
 type ClawLessConfig struct {
-	BaseURL string `mapstructure:"base_url"`
-	// mTLS client cert for Daemon → ClawLess calls
-	ClientCertPath string `mapstructure:"client_cert_path"`
-	ClientKeyPath  string `mapstructure:"client_key_path"`
-	CAPath         string `mapstructure:"ca_path"`
-	// Node registration and heartbeat
-	HeartbeatInterval time.Duration `mapstructure:"heartbeat_interval"` // default 30s
-	NodeIDFile        string        `mapstructure:"node_id_file"`        // path to persist node ID
+	BaseURL           string        `mapstructure:"base_url" default:"http://localhost:3000"`
+	ClientCertPath    string        `mapstructure:"client_cert_path"`
+	ClientKeyPath     string        `mapstructure:"client_key_path"`
+	CAPath            string        `mapstructure:"ca_path"`
+	HeartbeatInterval time.Duration `mapstructure:"heartbeat_interval" default:"30s"`
+	NodeIDFile        string        `mapstructure:"node_id_file" default:"/var/run/agentd.node_id"`
 }
 
 type SecurityConfig struct {
-	L1Provider  string `mapstructure:"l1_provider"` // local_ollama, remote
-	L1Endpoint  string `mapstructure:"l1_endpoint"`
-	L1Model     string `mapstructure:"l1_model"`
+	L1Provider  string `mapstructure:"l1_provider" default:"local_ollama"`
+	L1Endpoint  string `mapstructure:"l1_endpoint" default:"http://localhost:11434/api/generate"`
+	L1Model     string `mapstructure:"l1_model" default:"tinyllama:latest"`
 	L1APIKey    string `mapstructure:"l1_api_key"`
 	L1Threshold struct {
-		Low      float64 `mapstructure:"low"`
-		Medium   float64 `mapstructure:"medium"`
-		High     float64 `mapstructure:"high"`
-		Critical float64 `mapstructure:"critical"`
+		Low      float64 `mapstructure:"low" default:"0.4"`
+		Medium   float64 `mapstructure:"medium" default:"0.7"`
+		High     float64 `mapstructure:"high" default:"0.9"`
+		Critical float64 `mapstructure:"critical" default:"0.9"`
 	} `mapstructure:"l1_threshold"`
-	RunAsUser string `mapstructure:"run_as_user"` // unprivileged user to drop to, empty = no drop
+	RunAsUser string `mapstructure:"run_as_user"`
 }
 
 type ChrootPreset struct {
@@ -73,185 +72,143 @@ type ChrootPreset struct {
 }
 
 type SandboxConfig struct {
-	Default         string         `mapstructure:"default"`
-	ChrootBase      string         `mapstructure:"chroot_base"`
-	TmpfsSize       string         `mapstructure:"tmpfs_size"`
-	DockerSocket    string         `mapstructure:"docker_socket"`
-	RootfsCacheDir  string         `mapstructure:"rootfs_cache_dir"`
-	LocalRootfsPath string         `mapstructure:"local_rootfs_path"`
-	DefaultRootfsURL  string `mapstructure:"default_rootfs_url"`
-	DefaultBusyboxURL string `mapstructure:"default_busybox_url"`
-	InitCommands    []string       `mapstructure:"init_commands"`
-	ChrootPresets   []ChrootPreset `mapstructure:"presets"`
-	AllowedImages   []string       `mapstructure:"allowed_images"`
-	CacheMaxAgeDays int            `mapstructure:"cache_max_age_days"`
+	Default           string         `mapstructure:"default" default:"tmpfs"`
+	ChrootBase        string         `mapstructure:"chroot_base" default:"/var/lib/agentd/chroots"`
+	TmpfsSize         string         `mapstructure:"tmpfs_size" default:"512m"`
+	DockerSocket      string         `mapstructure:"docker_socket" default:"unix:///var/run/docker.sock"`
+	RootfsCacheDir    string         `mapstructure:"rootfs_cache_dir" default:"/var/lib/agentd/images"`
+	LocalRootfsPath   string         `mapstructure:"local_rootfs_path" default:"/var/lib/agentd/images/alpine-minirootfs.tar.gz"`
+	DefaultRootfsURL  string         `mapstructure:"default_rootfs_url" default:"https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.0-x86_64.tar.gz"`
+	DefaultBusyboxURL string         `mapstructure:"default_busybox_url" default:"https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox"`
+	InitCommands      []string       `mapstructure:"init_commands"`
+	ChrootPresets     []ChrootPreset `mapstructure:"presets"`
+	AllowedImages     []string       `mapstructure:"allowed_images"`
+	CacheMaxAgeDays   int            `mapstructure:"cache_max_age_days" default:"30"`
 }
 
 type CacheConfig struct {
-	Path             string        `mapstructure:"path"`
-	SessionMaxSize   int64         `mapstructure:"session_max_size"`
-	SyncInterval     time.Duration `mapstructure:"sync_interval"`
-	RetryMaxAttempts int           `mapstructure:"retry_max_attempts"`
+	Path             string        `mapstructure:"path" default:"/tmp/agentd"`
+	SessionMaxSize   int64         `mapstructure:"session_max_size" default:"104857600"`
+	SyncInterval     time.Duration `mapstructure:"sync_interval" default:"30s"`
+	RetryMaxAttempts int           `mapstructure:"retry_max_attempts" default:"5"`
 }
 
 type SessionConfig struct {
-	MaxCount  int           `mapstructure:"max_count"`
-	Timeout   time.Duration `mapstructure:"timeout"`
-	StorePath string        `mapstructure:"store_path"`
+	MaxCount  int           `mapstructure:"max_count" default:"50"`
+	Timeout   time.Duration `mapstructure:"timeout" default:"30m"`
+	StorePath string        `mapstructure:"store_path" default:"/tmp/agentd/sessions"`
 }
 
 type WorkerConfig struct {
 	ReviewPoolSize  int `mapstructure:"review_pool_size"`
 	SandboxPoolSize int `mapstructure:"sandbox_pool_size"`
 	TaskPoolSize    int `mapstructure:"task_pool_size"`
-	MemoryPoolSize  int `mapstructure:"memory_pool_size"`
-	CleanupPoolSize int `mapstructure:"cleanup_pool_size"`
+	MemoryPoolSize  int `mapstructure:"memory_pool_size" default:"2"`
+	CleanupPoolSize int `mapstructure:"cleanup_pool_size" default:"1"`
 }
 
-var defaults = Config{
-	Server: ServerConfig{
-		Listen:        ":18732",
-		TLSCertPath:   "",
-		TLSKeyPath:    "",
-		CAPath:        "",
-		ClawLessAPIKey: "",
-	},
-	ClawLess: ClawLessConfig{
-		BaseURL:           "http://localhost:3000",
-		ClientCertPath:    "",
-		ClientKeyPath:     "",
-		CAPath:            "",
-		HeartbeatInterval: 30 * time.Second,
-		NodeIDFile:        "/var/run/agentd.node_id",
-	},
-	Security: SecurityConfig{
-		L1Provider: "local_ollama",
-		L1Endpoint: "http://localhost:11434/api/generate",
-		L1Model:    "tinyllama:latest",
-		RunAsUser:  "",
-	},
-	Sandbox: SandboxConfig{
-		Default:          "tmpfs",
-		ChrootBase:       "/var/lib/agentd/chroots",
-		TmpfsSize:        "512m",
-		DockerSocket:     "unix:///var/run/docker.sock",
-		RootfsCacheDir:   "/var/lib/agentd/images",
-		LocalRootfsPath:  "/var/lib/agentd/images/alpine-minirootfs.tar.gz",
-		DefaultRootfsURL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.0-x86_64.tar.gz",
-		DefaultBusyboxURL: "https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox",
-		InitCommands: []string{
-			"apk add --no-cache git curl bash",
-			"mkdir -p /workspace",
-			"echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
-		},
-		ChrootPresets: []ChrootPreset{
-			{Name: "alpine-dev", Path: "/var/lib/agentd/images/alpine-dev-rootfs"},
-			{Name: "ubuntu-22.04", Path: "/var/lib/agentd/images/ubuntu-22.04-rootfs"},
-		},
-		AllowedImages: []string{
-			"ubuntu:22.04",
-			"ubuntu:24.04",
-			"alpine:latest",
-			"golang:1.22",
-			"node:20",
-			"python:3.12",
-		},
-		CacheMaxAgeDays: 30,
-	},
-	Cache: CacheConfig{
-		Path:             "/tmp/agentd",
-		SessionMaxSize:   104857600, // 100MB
-		SyncInterval:     30 * time.Second,
-		RetryMaxAttempts: 5,
-	},
-	Session: SessionConfig{
-		MaxCount:  50,
-		Timeout:   30 * time.Minute,
-		StorePath: "/tmp/agentd/sessions",
-	},
-	Worker: WorkerConfig{
-		ReviewPoolSize:  runtime.NumCPU() * 4,
-		SandboxPoolSize: runtime.NumCPU() * 2,
-		TaskPoolSize:    runtime.NumCPU(),
-		MemoryPoolSize:  2,
-		CleanupPoolSize: 1,
-	},
-	TaskSummary: TaskSummaryConfig{
-		AutoUpdate:   true,
-		TidyInterval: 168 * time.Hour, // 1 week
-		MaxDecisions: 50,
-	},
+// registerDefaults reads `default` struct tags and registers them with Viper.
+// Handles string, bool, int, float64, and time.Duration fields.
+func registerDefaults(v *viper.Viper, prefix string, cfg any) {
+	rv := reflect.ValueOf(cfg)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	rt := rv.Type()
+
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		key := field.Tag.Get("mapstructure")
+		if key == "" {
+			continue
+		}
+		fullKey := key
+		if prefix != "" {
+			fullKey = prefix + "." + key
+		}
+
+		fv := rv.Field(i)
+		switch fv.Kind() {
+		case reflect.Struct:
+			registerDefaults(v, fullKey, fv.Addr().Interface())
+		default:
+			tag := field.Tag.Get("default")
+			if tag == "" {
+				continue
+			}
+			switch fv.Kind() {
+			case reflect.String:
+				v.SetDefault(fullKey, tag)
+			case reflect.Bool:
+				v.SetDefault(fullKey, tag == "true")
+			case reflect.Int, reflect.Int64:
+				if fv.Kind() == reflect.Int64 && field.Type == reflect.TypeOf(time.Duration(0)) {
+					d, _ := time.ParseDuration(tag)
+					v.SetDefault(fullKey, d)
+				} else {
+					n, _ := strconv.Atoi(tag)
+					v.SetDefault(fullKey, n)
+				}
+			case reflect.Float64:
+				f, _ := strconv.ParseFloat(tag, 64)
+				v.SetDefault(fullKey, f)
+			}
+		}
+	}
+}
+
+// sandboxExtras registers slice/map defaults that cannot be expressed as struct tags.
+func sandboxExtras(v *viper.Viper) {
+	v.SetDefault("sandbox.init_commands", []string{
+		"apk add --no-cache git curl bash",
+		"mkdir -p /workspace",
+		"echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
+	})
+	v.SetDefault("sandbox.presets", []map[string]any{
+		{"name": "alpine-dev", "path": "/var/lib/agentd/images/alpine-dev-rootfs"},
+		{"name": "ubuntu-22.04", "path": "/var/lib/agentd/images/ubuntu-22.04-rootfs"},
+	})
+	v.SetDefault("sandbox.allowed_images", []string{
+		"ubuntu:22.04", "ubuntu:24.04", "alpine:latest",
+		"golang:1.22", "node:20", "python:3.12",
+	})
+}
+
+// Validate applies runtime-computed defaults and validates ranges.
+// Call after Load() returns a Config.
+func (c *Config) Validate() {
+	if c.Worker.ReviewPoolSize <= 0 {
+		c.Worker.ReviewPoolSize = runtime.NumCPU() * 4
+	}
+	if c.Worker.SandboxPoolSize <= 0 {
+		c.Worker.SandboxPoolSize = runtime.NumCPU() * 2
+	}
+	if c.Worker.TaskPoolSize <= 0 {
+		c.Worker.TaskPoolSize = runtime.NumCPU()
+	}
+	if c.Worker.MemoryPoolSize <= 0 {
+		c.Worker.MemoryPoolSize = 2
+	}
+	if c.Worker.CleanupPoolSize <= 0 {
+		c.Worker.CleanupPoolSize = 1
+	}
+	if c.Sandbox.CacheMaxAgeDays <= 0 {
+		c.Sandbox.CacheMaxAgeDays = 30
+	}
+	if c.Cache.SessionMaxSize <= 0 {
+		c.Cache.SessionMaxSize = 104857600
+	}
+	if c.Cache.RetryMaxAttempts <= 0 {
+		c.Cache.RetryMaxAttempts = 5
+	}
 }
 
 // Load reads configuration from file and environment variables.
 func Load(path string) (*Config, error) {
 	v := viper.New()
 
-	// Apply defaults
-	v.SetDefault("server", map[string]any{
-		"listen":          defaults.Server.Listen,
-		"tls_cert_path":   defaults.Server.TLSCertPath,
-		"tls_key_path":    defaults.Server.TLSKeyPath,
-		"ca_path":         defaults.Server.CAPath,
-		"clawless_api_key": defaults.Server.ClawLessAPIKey,
-	})
-	v.SetDefault("clawless", map[string]any{
-		"base_url":           defaults.ClawLess.BaseURL,
-		"client_cert_path":   defaults.ClawLess.ClientCertPath,
-		"client_key_path":    defaults.ClawLess.ClientKeyPath,
-		"ca_path":            defaults.ClawLess.CAPath,
-		"heartbeat_interval": defaults.ClawLess.HeartbeatInterval.String(),
-		"node_id_file":       defaults.ClawLess.NodeIDFile,
-	})
-	v.SetDefault("security", map[string]any{
-		"l1_provider": defaults.Security.L1Provider,
-		"l1_endpoint": defaults.Security.L1Endpoint,
-		"l1_model":    defaults.Security.L1Model,
-		"l1_api_key":  defaults.Security.L1APIKey,
-		"l1_threshold": map[string]any{
-			"low":      0.4,
-			"medium":   0.7,
-			"high":     0.9,
-			"critical": 0.9,
-		},
-		"run_as_user": defaults.Security.RunAsUser,
-	})
-	v.SetDefault("sandbox", map[string]any{
-		"default":            defaults.Sandbox.Default,
-		"chroot_base":        defaults.Sandbox.ChrootBase,
-		"tmpfs_size":         defaults.Sandbox.TmpfsSize,
-		"docker_socket":      defaults.Sandbox.DockerSocket,
-		"rootfs_cache_dir":   defaults.Sandbox.RootfsCacheDir,
-		"local_rootfs_path":  defaults.Sandbox.LocalRootfsPath,
-		"default_rootfs_url":  defaults.Sandbox.DefaultRootfsURL,
-		"default_busybox_url": defaults.Sandbox.DefaultBusyboxURL,
-		"init_commands":      defaults.Sandbox.InitCommands,
-		"allowed_images":     defaults.Sandbox.AllowedImages,
-		"cache_max_age_days": defaults.Sandbox.CacheMaxAgeDays,
-	})
-	v.SetDefault("cache", map[string]any{
-		"path":               defaults.Cache.Path,
-		"session_max_size":   defaults.Cache.SessionMaxSize,
-		"sync_interval":      defaults.Cache.SyncInterval.String(),
-		"retry_max_attempts": defaults.Cache.RetryMaxAttempts,
-	})
-	v.SetDefault("session", map[string]any{
-		"max_count":  defaults.Session.MaxCount,
-		"timeout":    defaults.Session.Timeout.String(),
-		"store_path": defaults.Session.StorePath,
-	})
-	v.SetDefault("worker", map[string]any{
-		"review_pool_size":  defaults.Worker.ReviewPoolSize,
-		"sandbox_pool_size": defaults.Worker.SandboxPoolSize,
-		"task_pool_size":    defaults.Worker.TaskPoolSize,
-		"memory_pool_size":  defaults.Worker.MemoryPoolSize,
-		"cleanup_pool_size": defaults.Worker.CleanupPoolSize,
-	})
-	v.SetDefault("task_summary", map[string]any{
-		"auto_update":   defaults.TaskSummary.AutoUpdate,
-		"tidy_interval": defaults.TaskSummary.TidyInterval.String(),
-		"max_decisions": defaults.TaskSummary.MaxDecisions,
-	})
+	registerDefaults(v, "", Config{})
+	sandboxExtras(v)
 
 	v.SetConfigType("toml")
 	if path != "" {
@@ -279,6 +236,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
+	cfg.Validate()
 	return &cfg, nil
 }
 
@@ -317,4 +275,80 @@ func LoadServerTLS(cfg *Config) (*tls.Config, error) {
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 		MinVersion:   tls.VersionTLS12,
 	}, nil
+}
+
+// DefaultAgentdTOML returns the default agentd.toml content.
+func DefaultAgentdTOML() string {
+	var b strings.Builder
+	writeSection(&b, "", Config{})
+	sandboxExtrasTOML(&b)
+	return b.String()
+}
+
+func writeSection(b *strings.Builder, prefix string, cfg any) {
+	rv := reflect.ValueOf(cfg)
+	rt := rv.Type()
+
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		key := field.Tag.Get("mapstructure")
+		if key == "" {
+			continue
+		}
+
+		fv := rv.Field(i)
+		if fv.Kind() == reflect.Struct && field.Type != reflect.TypeOf(time.Duration(0)) {
+			subPrefix := key
+			if prefix != "" {
+				subPrefix = prefix + "." + key
+			}
+			b.WriteString(fmt.Sprintf("\n[%s]\n", subPrefix))
+			writeSection(b, subPrefix, fv.Interface())
+			continue
+		}
+
+		tag := field.Tag.Get("default")
+		if tag == "" && fv.Kind() == reflect.String {
+			tag = `""`
+		} else if tag == "" {
+			continue
+		}
+
+		switch fv.Kind() {
+		case reflect.String:
+			b.WriteString(fmt.Sprintf("%s = %q\n", key, tag))
+		case reflect.Bool:
+			b.WriteString(fmt.Sprintf("%s = %s\n", key, tag))
+		case reflect.Int, reflect.Int64:
+			if field.Type == reflect.TypeOf(time.Duration(0)) {
+				b.WriteString(fmt.Sprintf("%s = %q\n", key, tag))
+			} else {
+				b.WriteString(fmt.Sprintf("%s = %s\n", key, tag))
+			}
+		case reflect.Float64:
+			b.WriteString(fmt.Sprintf("%s = %s\n", key, tag))
+		}
+	}
+}
+
+func sandboxExtrasTOML(b *strings.Builder) {
+	b.WriteString(`
+[sandbox.chroot.init]
+commands = [
+    "apk add --no-cache git curl bash",
+    "mkdir -p /workspace",
+    "echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
+]
+
+[[sandbox.chroot.presets]]
+name = "alpine-dev"
+path = "/var/lib/agentd/images/alpine-dev-rootfs"
+
+[[sandbox.chroot.presets]]
+name = "ubuntu-22.04"
+path = "/var/lib/agentd/images/ubuntu-22.04-rootfs"
+
+[sandbox.docker]
+allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "golang:1.22", "node:20", "python:3.12"]
+`)
 }
