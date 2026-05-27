@@ -45,6 +45,11 @@ export const configSections = [
     title: 'Audit Logs',
     description: 'Review security audit logs and export data.',
   },
+  {
+    key: 'appearance',
+    title: 'Appearance',
+    description: 'Customize navigation style and display preferences.',
+  },
 ] as const satisfies ReadonlyArray<{
   description: string;
   key: string;
