@@ -24,17 +24,20 @@ type SandboxProvider interface {
 
 // SandboxSpec defines how to create a sandbox.
 type SandboxSpec struct {
-	Type           string
-	AgentID        string
-	Persistent     bool
-	Image          string
-	RootFSPath     string
-	RootFSUrl      string
-	InitCommands   []string
-	TmpfsEvalHint  int64 // bytes, AI-evaluated; 0 = use daemon default
-	Mounts         []Mount
-	Environment    map[string]string
-	WorkDir        string
+	Type          string
+	AgentID       string
+	Persistent    bool              // true = LXC persistent container
+	Distro        string            // LXC distro (default: alpine)
+	Release       string            // LXC release (default: 3.21)
+	InitCommands  []string          // LXC init commands after first boot
+	CPULimit      float64           // CPU cores limit (Docker: 0.25, LXC: 1.0)
+	MemoryLimit   int64             // Memory limit in bytes (Docker: 256MB, LXC: 512MB)
+	Image         string            // Docker image
+	Mounts        []Mount
+	Environment   map[string]string
+	WorkDir       string
+	SecurityLevel string // "light" (default) or "strict" (Docker only)
+	UserSpecified bool   // true if user explicitly specified sandbox type
 }
 
 // Mount defines a bind mount.
@@ -78,10 +81,29 @@ func NewManager(cfg *config.Config) *Manager {
 		config:    cfg,
 	}
 
-	// Register all built-in providers
-	m.providers["tmpfs"] = NewTmpfsProvider(cfg.Sandbox.ChrootBase)
-	m.providers["chroot"] = NewChrootProvider(cfg.Sandbox.ChrootBase, cfg.Sandbox.RootfsCacheDir, cfg.Sandbox.LocalRootfsPath, cfg.Sandbox.DefaultRootfsURL, cfg.Sandbox.DefaultBusyboxURL, cfg.Sandbox.InitCommands, cfg.Sandbox.ChrootPresets, cfg.Sandbox.CacheMaxAgeDays)
-	m.providers["docker"] = NewDockerProvider(cfg.Sandbox.DockerSocket, cfg.Sandbox.AllowedImages)
+	// Register built-in providers:
+	// "docker" — light tasks (alpine:edge, --rm, low resource)
+	m.providers["docker"] = NewDockerLightProvider(
+		cfg.Sandbox.DockerSocket,
+		cfg.Sandbox.DockerImage,
+		cfg.Sandbox.DockerDefaultCPU,
+		cfg.Sandbox.DockerDefaultMem,
+	)
+
+	// "docker-strict" — high-risk/untrusted code (no network, read-only, cap-drop ALL)
+	m.providers["docker-strict"] = NewDockerProvider(
+		cfg.Sandbox.DockerSocket,
+		cfg.Sandbox.AllowedImages,
+		cfg.Sandbox.DockerStrictCPU,
+		cfg.Sandbox.DockerStrictMem,
+	)
+
+	// "lxc" — persistent containers
+	m.providers["lxc"] = NewLXCPersistentProvider(
+		cfg.Sandbox.LXCRootfsBase,
+		cfg.Sandbox.LXCDistro,
+		cfg.Sandbox.LXCRelease,
+	)
 
 	return m
 }
@@ -195,78 +217,27 @@ func (m *Manager) ListSandboxes() []*Sandbox {
 	return result
 }
 
-// Snapshot creates a snapshot of a chroot sandbox workspace.
-func (m *Manager) Snapshot(sandboxID, name string) (*Snapshot, error) {
-	m.mu.RLock()
-	sb, ok := m.sandboxes[sandboxID]
-	m.mu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("sandbox %q not found", sandboxID)
-	}
-	if sb.Type != "chroot" {
-		return nil, fmt.Errorf("snapshots are only supported for chroot sandboxes, got %q", sb.Type)
-	}
-	provider, ok := m.providers["chroot"].(*ChrootProvider)
-	if !ok {
-		return nil, fmt.Errorf("chroot provider not available")
-	}
-	return provider.Snapshot(sandboxID, name)
-}
-
-// RestoreSnapshot restores a chroot sandbox workspace from a snapshot.
-func (m *Manager) RestoreSnapshot(snapshotID string) error {
-	m.mu.RLock()
-	provider, ok := m.providers["chroot"].(*ChrootProvider)
-	m.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("chroot provider not available")
-	}
-	return provider.RestoreSnapshot(snapshotID)
-}
-
-// ListSnapshots returns all snapshots for a sandbox.
-func (m *Manager) ListSnapshots(sandboxID string) []*Snapshot {
-	m.mu.RLock()
-	provider, ok := m.providers["chroot"].(*ChrootProvider)
-	m.mu.RUnlock()
-	if !ok {
-		return nil
-	}
-	return provider.ListSnapshots(sandboxID)
-}
-
-// DeleteSnapshot deletes a snapshot.
-func (m *Manager) DeleteSnapshot(snapshotID string) error {
-	m.mu.RLock()
-	provider, ok := m.providers["chroot"].(*ChrootProvider)
-	m.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("chroot provider not available")
-	}
-	return provider.DeleteSnapshot(snapshotID)
-}
-
 // SelectSandbox chooses the appropriate sandbox type for a task.
 // Selection priority:
 //  1. User explicit setting (task.SandboxType)
-//  2. High-risk commands → Docker (strong isolation)
-//  3. Persistence-needed commands → chroot (persistent filesystem)
+//  2. High-risk commands → docker-strict (strong isolation)
+//  3. Persistence-needed commands → LXC (persistent filesystem)
 //  4. Agent default config
-//  5. Fallback → tmpfs (lightweight, non-persistent)
+//  5. Fallback → docker (lightweight, non-persistent)
 func SelectSandbox(task *clawless.Task, agentCfg *clawless.AgentConfig) string {
 	// 1. User explicit setting
 	if task.SandboxType != "" && task.SandboxType != "auto" {
 		return task.SandboxType
 	}
 
-	// 2. High-risk commands → Docker (strongest isolation)
+	// 2. High-risk commands → docker-strict (strongest isolation)
 	if isHighRisk(task.Command) {
-		return "docker"
+		return "docker-strict"
 	}
 
-	// 3. Commands needing persistent environment → chroot
+	// 3. Commands needing persistent environment → LXC
 	if needsPersistence(task.Command) {
-		return "chroot"
+		return "lxc"
 	}
 
 	// 4. Agent default config
@@ -274,8 +245,8 @@ func SelectSandbox(task *clawless.Task, agentCfg *clawless.AgentConfig) string {
 		return agentCfg.DefaultSandbox
 	}
 
-	// 5. Default: tmpfs (lightweight, non-persistent, fastest)
-	return "tmpfs"
+	// 5. Default: docker light (lightweight, non-persistent)
+	return "docker"
 }
 
 // isHighRisk returns true if the command is considered high-risk.

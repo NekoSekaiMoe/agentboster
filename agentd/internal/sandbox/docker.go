@@ -16,22 +16,32 @@ import (
 )
 
 // DockerProvider implements SandboxProvider using Docker containers.
-// Used for high-risk commands requiring strong isolation.
+// Used for high-risk commands requiring strong isolation (strict mode).
 type DockerProvider struct {
 	mu             sync.RWMutex
 	socket         string   // docker socket path
 	allowedImages  []string // image whitelist
+	defaultCPU     float64
+	defaultMem     string
 	sandboxes      map[string]*Sandbox
 }
 
-// NewDockerProvider creates a new Docker sandbox provider.
-func NewDockerProvider(socket string, allowedImages []string) *DockerProvider {
+// NewDockerProvider creates a new strict Docker sandbox provider.
+func NewDockerProvider(socket string, allowedImages []string, defaultCPU float64, defaultMem string) *DockerProvider {
 	if socket == "" {
 		socket = "unix:///var/run/docker.sock"
+	}
+	if defaultCPU <= 0 {
+		defaultCPU = 1.0
+	}
+	if defaultMem == "" {
+		defaultMem = "512m"
 	}
 	return &DockerProvider{
 		socket:        socket,
 		allowedImages: allowedImages,
+		defaultCPU:    defaultCPU,
+		defaultMem:    defaultMem,
 		sandboxes:     make(map[string]*Sandbox),
 	}
 }
@@ -61,13 +71,22 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		}
 	}
 
+	cpu := spec.CPULimit
+	if cpu <= 0 {
+		cpu = p.defaultCPU
+	}
+	mem := p.defaultMem
+	if spec.MemoryLimit > 0 {
+		mem = fmt.Sprintf("%dm", spec.MemoryLimit/(1024*1024))
+	}
+
 	// Build docker run command
 	args := []string{
 		"run", "-d",
 		"--name", containerName,
 		"--network", "none",              // No network by default (strong isolation)
-		"--memory", "512m",               // Memory limit
-		"--cpus", "1.0",                  // CPU limit
+		"--memory", mem,                  // Memory limit
+		"--cpus", fmt.Sprintf("%.2f", cpu), // CPU limit
 		"--pids-limit", "128",            // Process limit
 		"--security-opt", "no-new-privileges",
 		"--cap-drop", "ALL",              // Drop all capabilities

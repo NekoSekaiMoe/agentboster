@@ -66,24 +66,18 @@ type SecurityConfig struct {
 	RunAsUser string `mapstructure:"run_as_user"`
 }
 
-type ChrootPreset struct {
-	Name string `mapstructure:"name"`
-	Path string `mapstructure:"path"`
-}
-
 type SandboxConfig struct {
-	Default           string         `mapstructure:"default" default:"tmpfs"`
-	ChrootBase        string         `mapstructure:"chroot_base" default:"/var/lib/agentd/chroots"`
-	TmpfsSize         string         `mapstructure:"tmpfs_size" default:"512m"`
-	DockerSocket      string         `mapstructure:"docker_socket" default:"unix:///var/run/docker.sock"`
-	RootfsCacheDir    string         `mapstructure:"rootfs_cache_dir" default:"/var/lib/agentd/images"`
-	LocalRootfsPath   string         `mapstructure:"local_rootfs_path" default:"/var/lib/agentd/images/alpine-minirootfs.tar.gz"`
-	DefaultRootfsURL  string         `mapstructure:"default_rootfs_url" default:"https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/alpine-minirootfs-3.21.0-x86_64.tar.gz"`
-	DefaultBusyboxURL string         `mapstructure:"default_busybox_url" default:"https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox"`
-	InitCommands      []string       `mapstructure:"init_commands"`
-	ChrootPresets     []ChrootPreset `mapstructure:"presets"`
-	AllowedImages     []string       `mapstructure:"allowed_images"`
-	CacheMaxAgeDays   int            `mapstructure:"cache_max_age_days" default:"30"`
+	Default           string   `mapstructure:"default" default:"docker"`
+	DockerSocket      string   `mapstructure:"docker_socket" default:"unix:///var/run/docker.sock"`
+	DockerImage       string   `mapstructure:"docker_image" default:"alpine:edge"`
+	DockerDefaultCPU  float64  `mapstructure:"docker_default_cpu" default:"0.25"`
+	DockerDefaultMem  string   `mapstructure:"docker_default_memory" default:"256m"`
+	DockerStrictCPU   float64  `mapstructure:"docker_strict_cpu" default:"1.0"`
+	DockerStrictMem   string   `mapstructure:"docker_strict_memory" default:"512m"`
+	LXCDistro         string   `mapstructure:"lxc_default_distro" default:"alpine"`
+	LXCRelease        string   `mapstructure:"lxc_default_release" default:"3.21"`
+	LXCRootfsBase     string   `mapstructure:"lxc_rootfs_base" default:"/var/lib/agentd/lxc"`
+	AllowedImages     []string `mapstructure:"allowed_images"`
 }
 
 type CacheConfig struct {
@@ -159,18 +153,14 @@ func registerDefaults(v *viper.Viper, prefix string, cfg any) {
 
 // sandboxExtras registers slice/map defaults that cannot be expressed as struct tags.
 func sandboxExtras(v *viper.Viper) {
+	v.SetDefault("sandbox.allowed_images", []string{
+		"ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "alpine:edge",
+		"golang:1.22", "node:20", "python:3.12",
+	})
 	v.SetDefault("sandbox.init_commands", []string{
 		"apk add --no-cache git curl bash",
 		"mkdir -p /workspace",
 		"echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
-	})
-	v.SetDefault("sandbox.presets", []map[string]any{
-		{"name": "alpine-dev", "path": "/var/lib/agentd/images/alpine-dev-rootfs"},
-		{"name": "ubuntu-22.04", "path": "/var/lib/agentd/images/ubuntu-22.04-rootfs"},
-	})
-	v.SetDefault("sandbox.allowed_images", []string{
-		"ubuntu:22.04", "ubuntu:24.04", "alpine:latest",
-		"golang:1.22", "node:20", "python:3.12",
 	})
 }
 
@@ -191,9 +181,6 @@ func (c *Config) Validate() {
 	}
 	if c.Worker.CleanupPoolSize <= 0 {
 		c.Worker.CleanupPoolSize = 1
-	}
-	if c.Sandbox.CacheMaxAgeDays <= 0 {
-		c.Sandbox.CacheMaxAgeDays = 30
 	}
 	if c.Cache.SessionMaxSize <= 0 {
 		c.Cache.SessionMaxSize = 104857600
@@ -333,22 +320,14 @@ func writeSection(b *strings.Builder, prefix string, cfg any) {
 
 func sandboxExtrasTOML(b *strings.Builder) {
 	b.WriteString(`
-[sandbox.chroot.init]
-commands = [
+[sandbox.docker]
+allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "alpine:edge", "golang:1.22", "node:20", "python:3.12"]
+
+[sandbox.lxc]
+init_commands = [
     "apk add --no-cache git curl bash",
     "mkdir -p /workspace",
     "echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
 ]
-
-[[sandbox.chroot.presets]]
-name = "alpine-dev"
-path = "/var/lib/agentd/images/alpine-dev-rootfs"
-
-[[sandbox.chroot.presets]]
-name = "ubuntu-22.04"
-path = "/var/lib/agentd/images/ubuntu-22.04-rootfs"
-
-[sandbox.docker]
-allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "golang:1.22", "node:20", "python:3.12"]
 `)
 }

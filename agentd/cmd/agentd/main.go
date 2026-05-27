@@ -143,6 +143,23 @@ func main() {
 
 	sbManager := sandbox.NewManager(cfg)
 
+	// Docker availability check and image pre-pull
+	if err := sandbox.CheckDockerAvailable(cfg.Sandbox.DockerSocket); err != nil {
+		slog.Warn("Docker not available, docker sandboxes will not work", "error", err)
+	} else {
+		slog.Info("Docker available, pre-pulling light image", "image", cfg.Sandbox.DockerImage)
+		if err := sandbox.PrePullDockerImage(cfg.Sandbox.DockerImage); err != nil {
+			slog.Warn("Docker image pre-pull failed (will pull on demand)", "image", cfg.Sandbox.DockerImage, "error", err)
+		}
+	}
+
+	// LXC availability check
+	if err := sandbox.CheckLXCAvailable(); err != nil {
+		slog.Warn("LXC not available, only Docker sandboxes will work", "error", err)
+	} else {
+		slog.Info("LXC available for persistent containers")
+	}
+
 	agentMgr := agent.NewManager(sbManager, clawlessClient, l1Scorer, cfg)
 	agentMgr.SetBus(bus)
 	agentMgr.SetDecisionQueue(decisionQueue)

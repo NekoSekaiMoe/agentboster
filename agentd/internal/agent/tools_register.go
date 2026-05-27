@@ -56,9 +56,6 @@ func RegisterAllTools(
 	// === Ask question (1) ===
 	registerAskQuestion(registry, agentCtx)
 
-	// === Sandbox snapshot (1) ===
-	registerSandboxSnapshot(registry, sbManager, agentCtx)
-
 	// === Sandbox skills (1) ===
 	registerSandboxSkills(registry, sbManager, agentCtx)
 
