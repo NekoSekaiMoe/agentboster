@@ -292,13 +292,14 @@ func (d *Dispatcher) handleTaskCompleted(e eventbus.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if err := d.clawless.FinalizeTask(ctx, task.ID, clawless.TaskFinalizeRequest{
+	if err := d.clawless.ExtractTaskMemory(ctx, task.ID, clawless.TaskMemoryRequest{
 		Status:    string(task.Status),
 		Result:    task.Result,
 		SessionID: task.SessionID,
 		AgentID:   task.AgentID,
+		Command:   task.Command,
 	}); err != nil {
-		slog.Warn("task finalize failed", "task_id", task.ID, "error", err)
+		slog.Warn("task memory extraction failed", "task_id", task.ID, "error", err)
 	}
 
 	// Send completion notification via ClawLess API
@@ -311,23 +312,7 @@ func (d *Dispatcher) handleTaskTidyTick(e eventbus.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	summaries, err := d.clawless.ListActiveTaskSummaries(ctx, "default")
-	if err != nil {
-		slog.Warn("task tidy: failed to list active summaries", "error", err)
-		return
-	}
-
-	if len(summaries) == 0 {
-		slog.Info("task tidy: no active summaries to scan")
-		return
-	}
-
-	taskIDs := make([]string, len(summaries))
-	for i, s := range summaries {
-		taskIDs[i] = s.TaskID
-	}
-
-	if err := workers.RunTaskTidy(ctx, d.clawless, d.agentManager, taskIDs); err != nil {
+	if err := workers.RunTaskTidy(ctx, d.clawless); err != nil {
 		slog.Warn("task tidy failed", "error", err)
 	}
 }

@@ -2,7 +2,11 @@ import type { AdapterName } from '@/types/config';
 
 // ─── Notification Types ──────────────────────────────────────────────
 
-export type NotificationType = 'decision' | 'completion' | 'l2_time_input';
+export type NotificationType =
+  | 'decision'
+  | 'completion'
+  | 'tidy_report'
+  | 'l2_time_input';
 
 export type NotificationStatus =
   | 'pending'
@@ -81,10 +85,30 @@ export interface CompletionNotification {
   channelFallback: string[];
 }
 
+// ─── Task Summary Tidy Report ────────────────────────────────────────
+
+export interface TidyReportNotification {
+  type: 'tidy_report';
+  taskId: string;
+  title: string;
+  summary: string;
+  summaryLastUpdated: string;
+  suggestions: string[];
+  mergeIds?: string[];
+  deleteIds?: string[];
+  updateIds?: Array<Record<string, unknown>>;
+  resolvedPending?: string[];
+  resolvedIssues?: string[];
+}
+
 export type NotificationPayload =
   | DecisionNotification
   | CompletionNotification
   | L2TimeInputNotification;
+
+export type StoredNotificationPayload =
+  | NotificationPayload
+  | TidyReportNotification;
 
 // ─── L2 Confirm Request ──────────────────────────────────────────────
 
@@ -104,7 +128,7 @@ export interface NotificationRecord {
   taskId: string;
   decisionId?: string;
   notificationType: NotificationType;
-  payload: NotificationPayload;
+  payload: StoredNotificationPayload;
   status: NotificationStatus;
   channel: AdapterName;
   targetChatId: string;

@@ -11,7 +11,7 @@ import {
 export async function createNotification(data: {
   taskId: string;
   decisionId?: string;
-  notificationType: 'decision' | 'completion';
+  notificationType: 'decision' | 'completion' | 'tidy_report';
   payload: Record<string, unknown>;
   channel: string;
   targetChatId: string;
@@ -68,7 +68,10 @@ export async function findPendingNotifications(taskId: string, type: string) {
     .where(
       and(
         eq(notifications.taskId, taskId),
-        eq(notifications.notificationType, type as 'decision' | 'completion'),
+        eq(
+          notifications.notificationType,
+          type as 'decision' | 'completion' | 'tidy_report',
+        ),
         eq(notifications.status, 'pending'),
       ),
     );
@@ -85,7 +88,10 @@ export async function findNotificationByDedupKey(
     .where(
       and(
         eq(notifications.taskId, taskId),
-        eq(notifications.notificationType, type as 'decision' | 'completion'),
+        eq(
+          notifications.notificationType,
+          type as 'decision' | 'completion' | 'tidy_report',
+        ),
         eq(notifications.channel, channel),
       ),
     )

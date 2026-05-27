@@ -21,20 +21,19 @@ import (
 
 // Manager manages agent sessions and their loops.
 type Manager struct {
-	mu              sync.RWMutex
-	sessions        map[string]*AgentContext
-	sbManager       *sandbox.Manager
-	clawless        *clawless.Client
-	l1Scorer        *l1_scorer.L1Scorer
-	llmEndpoint     string
-	llmModel        string
-	llmAPIKey       string
-	memoryExtractor *MemoryExtractor
-	sessionStore    *session.Store
-	bus             *eventbus.Bus
-	questionSvc     *QuestionService
-	bgTaskStore     *persistence.BackgroundTaskStore
-	gatekeeper      *security.Gatekeeper
+	mu           sync.RWMutex
+	sessions     map[string]*AgentContext
+	sbManager    *sandbox.Manager
+	clawless     *clawless.Client
+	l1Scorer     *l1_scorer.L1Scorer
+	llmEndpoint  string
+	llmModel     string
+	llmAPIKey    string
+	sessionStore *session.Store
+	bus          *eventbus.Bus
+	questionSvc  *QuestionService
+	bgTaskStore  *persistence.BackgroundTaskStore
+	gatekeeper   *security.Gatekeeper
 }
 
 // NewManager creates a new agent manager.
@@ -60,7 +59,6 @@ func NewManager(
 		llmAPIKey:    cfg.Security.L1APIKey,
 		sessionStore: store,
 	}
-	m.memoryExtractor = NewMemoryExtractor(clawlessClient, "default", cfg.Security.L1Endpoint, cfg.Security.L1Model)
 	return m
 }
 
@@ -326,11 +324,6 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 	)
 
 	return loop.Run(ctx, userMessage)
-}
-
-// ExtractMemory extracts memories from a completed task.
-func (m *Manager) ExtractMemory(ctx context.Context, task *clawless.Task) error {
-	return m.memoryExtractor.Extract(ctx, task)
 }
 
 // ── Synchronous Tool Execution ──────────────────────────────────────

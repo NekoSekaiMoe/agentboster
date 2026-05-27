@@ -13,7 +13,7 @@ export const notifications = pgTable('notifications', {
   taskId: text('task_id').notNull(),
   decisionId: text('decision_id'),
   notificationType: text('notification_type', {
-    enum: ['decision', 'completion'],
+    enum: ['decision', 'completion', 'tidy_report'],
   }).notNull(),
   payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
   status: text('status', {

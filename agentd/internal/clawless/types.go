@@ -160,24 +160,13 @@ type TaskSummary struct {
 	CreatedAt   time.Time  `json:"created_at"`
 }
 
-// TaskTidyReport holds suggestions from a tidy scan.
-type TaskTidyReport struct {
-	TaskID             string           `json:"task_id"`
-	SummaryLastUpdated time.Time        `json:"summary_last_updated"`
-	Suggestions        []string         `json:"suggestions"`
-	MergeIDs           []string         `json:"merge_ids,omitempty"`
-	DeleteIDs          []string         `json:"delete_ids,omitempty"`
-	UpdateIDs          []map[string]any `json:"update_ids,omitempty"`
-	ResolvedPending    []string         `json:"resolved_pending,omitempty"`
-	ResolvedIssues     []string         `json:"resolved_issues,omitempty"`
-}
-
-// TaskFinalizeRequest tells ClawLess that task execution has ended.
-type TaskFinalizeRequest struct {
+// TaskMemoryRequest asks ClawLess to handle post-task memory extraction.
+type TaskMemoryRequest struct {
 	Status    string `json:"status"`
 	Result    string `json:"result"`
 	SessionID string `json:"session_id,omitempty"`
 	AgentID   string `json:"agent_id,omitempty"`
+	Command   string `json:"command,omitempty"`
 }
 
 // Workspace represents a project-level organization unit.

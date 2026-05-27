@@ -1,7 +1,7 @@
 import { extractTaskMemory } from '@/lib/extra/task-memory';
 import { createLogger } from '@/lib/utils/logger';
 
-const logger = createLogger('api.agentd.tasks.finalize');
+const logger = createLogger('api.agentd.tasks.memory');
 
 function taskStatus(value: unknown) {
   return value === 'completed' || value === 'failed' || value === 'cancelled'
@@ -15,6 +15,7 @@ export async function POST(
 ) {
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
+
   const result = await extractTaskMemory({
     taskId: id,
     agentId: typeof body.agent_id === 'string' ? body.agent_id : 'default',
@@ -25,6 +26,6 @@ export async function POST(
     status: taskStatus(body.status),
   });
 
-  logger.info('task finalized', { taskId: id, mode: result.mode });
+  logger.info('task memory processed', { taskId: id, mode: result.mode });
   return Response.json({ success: true, data: result });
 }

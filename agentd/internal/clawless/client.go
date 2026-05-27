@@ -347,19 +347,6 @@ func (c *Client) PostJSON(ctx context.Context, path string, body any, dest any) 
 	return c.decodeResponse(resp, dest)
 }
 
-// ListActiveTaskSummaries fetches all active task summaries for an agent.
-func (c *Client) ListActiveTaskSummaries(ctx context.Context, agentID string) ([]TaskSummary, error) {
-	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/task-summaries?agent_id="+agentID, nil)
-	if err != nil {
-		return nil, err
-	}
-	var apiResp APIResponse[[]TaskSummary]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
-		return nil, err
-	}
-	return apiResp.Data, nil
-}
-
 // GetTaskSummary fetches the summary for a task.
 func (c *Client) GetTaskSummary(ctx context.Context, taskID string) (*TaskSummary, error) {
 	resp, err := c.doRequest(ctx, http.MethodGet, "/api/agentd/v1/tasks/"+taskID+"/summary", nil)
@@ -386,9 +373,9 @@ func (c *Client) UpdateTaskProgress(ctx context.Context, taskID string, input js
 	return &apiResp.Data, nil
 }
 
-// FinalizeTask lets ClawLess handle post-task memory/summary lifecycle.
-func (c *Client) FinalizeTask(ctx context.Context, taskID string, req TaskFinalizeRequest) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/tasks/"+taskID+"/finalize", req)
+// ExtractTaskMemory lets ClawLess handle post-task memory/summary lifecycle.
+func (c *Client) ExtractTaskMemory(ctx context.Context, taskID string, req TaskMemoryRequest) error {
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/tasks/"+taskID+"/memory", req)
 	if err != nil {
 		return err
 	}
@@ -396,17 +383,16 @@ func (c *Client) FinalizeTask(ctx context.Context, taskID string, req TaskFinali
 	return c.decodeResponse(resp, &apiResp)
 }
 
-// TidyTaskSummary asks ClawLess to generate tidy suggestions for a summary.
-func (c *Client) TidyTaskSummary(ctx context.Context, taskID string) (*TaskTidyReport, error) {
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/tasks/"+taskID+"/summary/tidy", nil)
+// RunTaskSummaryTidy triggers ClawLess-owned task summary tidy scanning.
+func (c *Client) RunTaskSummaryTidy(ctx context.Context) error {
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/agentd/v1/task-summaries/tidy/run", map[string]any{
+		"agent_id": "default",
+	})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var apiResp APIResponse[TaskTidyReport]
-	if err := c.decodeResponse(resp, &apiResp); err != nil {
-		return nil, err
-	}
-	return &apiResp.Data, nil
+	var apiResp APIResponse[map[string]any]
+	return c.decodeResponse(resp, &apiResp)
 }
 
 // HealthCheck verifies the ClawLess API is reachable.
