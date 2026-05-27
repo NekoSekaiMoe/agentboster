@@ -3,10 +3,10 @@ package worker
 import (
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"time"
 
@@ -218,7 +218,9 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 	}
 
 	// Create workspace for this task (project-level organization unit)
-	ws, err := d.createWorkspace(task, agentCtx.SandboxID)
+	wsCtx, wsCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ws, err := d.createWorkspace(wsCtx, task, agentCtx.SandboxID)
+	wsCancel()
 	if err != nil {
 		slog.Warn("workspace creation failed, continuing without workspace", "task_id", task.ID, "error", err)
 	} else {
@@ -249,7 +251,7 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 }
 
 // createWorkspace creates a workspace for the task via ClawLess API.
-func (d *Dispatcher) createWorkspace(task *clawless.Task, sandboxID string) (*clawless.Workspace, error) {
+func (d *Dispatcher) createWorkspace(ctx context.Context, task *clawless.Task, sandboxID string) (*clawless.Workspace, error) {
 	projectID := generateProjectID()
 	ws := &clawless.Workspace{
 		ProjectID:   projectID,
@@ -258,7 +260,7 @@ func (d *Dispatcher) createWorkspace(task *clawless.Task, sandboxID string) (*cl
 		SandboxType: "chroot",
 		Status:      "active",
 	}
-	if err := d.clawless.CreateWorkspace(context.Background(), ws); err != nil {
+	if err := d.clawless.CreateWorkspace(ctx, ws); err != nil {
 		return nil, err
 	}
 	return ws, nil
@@ -268,8 +270,11 @@ func (d *Dispatcher) createWorkspace(task *clawless.Task, sandboxID string) (*cl
 func generateProjectID() string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, 6)
+	if _, err := crand.Read(b); err != nil {
+		panic(fmt.Sprintf("failed to generate random bytes: %v", err))
+	}
 	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))]
+		b[i] = charset[b[i]%byte(len(charset))]
 	}
 	return "proj-" + string(b)
 }

@@ -381,7 +381,12 @@ func collectGitInfo(ctx context.Context, sbMgr *sandbox.Manager, sandboxID, repo
 	// Get commit hash
 	hashResult, _ := sbMgr.Exec(sandboxID, fmt.Sprintf("cd %q && git rev-parse HEAD", repoPath), nil, 5)
 	if hashResult != nil && hashResult.ExitCode == 0 {
-		info.CommitHash = strings.TrimSpace(hashResult.Stdout)[:7]
+		hash := strings.TrimSpace(hashResult.Stdout)
+		if len(hash) >= 7 {
+			info.CommitHash = hash[:7]
+		} else {
+			info.CommitHash = hash
+		}
 	}
 
 	// Get remote URL
