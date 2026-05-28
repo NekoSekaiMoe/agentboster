@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 
 import { AppSidebar } from '@/components/app-sidebar';
+import { MobileDrawerBridge } from '@/components/mobile-drawer-bridge';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 export default async function SkillsLayout({
@@ -14,6 +15,7 @@ export default async function SkillsLayout({
   return (
     <SidebarProvider defaultOpen={!isCollapsed}>
       <AppSidebar />
+      <MobileDrawerBridge />
       <SidebarInset>{children}</SidebarInset>
     </SidebarProvider>
   );

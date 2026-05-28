@@ -22,7 +22,7 @@ import { cn } from '@/lib/utils';
 const SIDEBAR_COOKIE_NAME = 'sidebar:state';
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = '16rem';
-const SIDEBAR_WIDTH_MOBILE = '18rem';
+const SIDEBAR_WIDTH_MOBILE = '25rem'; // 400px, matching opencode
 const SIDEBAR_WIDTH_ICON = '3rem';
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
 
@@ -219,12 +219,7 @@ const Sidebar = React.forwardRef<
             <SheetContent
               data-sidebar="sidebar"
               data-mobile="true"
-              className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
-              style={
-                {
-                  '--sidebar-width': SIDEBAR_WIDTH_MOBILE,
-                } as React.CSSProperties
-              }
+              className="p-0 text-sidebar-foreground [&>button]:hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
               side={side}
             >
               <div className="flex h-full w-full flex-col">{children}</div>
