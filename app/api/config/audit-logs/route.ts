@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/core/db';
-import { agentReviewLogs } from '@/lib/core/db/schema';
-import { desc, eq, ilike, and } from 'drizzle-orm';
+import { agentReviewLogs, agentTasks } from '@/lib/core/db/schema';
+import { desc, eq, ilike, and, gte, lte, type SQL } from 'drizzle-orm';
 
 export async function GET(request: Request) {
   try {
@@ -9,8 +9,12 @@ export async function GET(request: Request) {
     const level = searchParams.get('level');
     const decision = searchParams.get('decision');
     const search = searchParams.get('search');
+    const taskId = searchParams.get('taskId');
+    const agentId = searchParams.get('agentId');
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
 
-    const conditions = [];
+    const conditions: SQL[] = [];
     if (level) {
       conditions.push(eq(agentReviewLogs.level, level as 'L0' | 'L1' | 'L2'));
     }
@@ -21,6 +25,18 @@ export async function GET(request: Request) {
     }
     if (search) {
       conditions.push(ilike(agentReviewLogs.command, `%${search}%`));
+    }
+    if (taskId) {
+      conditions.push(eq(agentReviewLogs.taskId, taskId));
+    }
+    if (agentId) {
+      conditions.push(eq(agentTasks.agentId, agentId));
+    }
+    if (from) {
+      conditions.push(gte(agentReviewLogs.createdAt, new Date(from)));
+    }
+    if (to) {
+      conditions.push(lte(agentReviewLogs.createdAt, new Date(to)));
     }
 
     const logs = await db
@@ -33,8 +49,11 @@ export async function GET(request: Request) {
         decision: agentReviewLogs.decision,
         reason: agentReviewLogs.reason,
         createdAt: agentReviewLogs.createdAt,
+        agentId: agentTasks.agentId,
+        sessionId: agentTasks.sessionId,
       })
       .from(agentReviewLogs)
+      .leftJoin(agentTasks, eq(agentReviewLogs.taskId, agentTasks.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(agentReviewLogs.createdAt))
       .limit(1000);
