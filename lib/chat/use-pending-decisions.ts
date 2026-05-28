@@ -1,5 +1,6 @@
 'use client';
 
+import { isAgentdEnabled } from '@/app/(chat)/actions';
 import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -28,9 +29,14 @@ export function usePendingDecisions(chatId: string) {
   const [pendingDecisions, setPendingDecisions] = useState<PendingDecision[]>(
     [],
   );
+  const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
-    if (!chatId) return;
+    isAgentdEnabled().then(setEnabled);
+  }, []);
+
+  useEffect(() => {
+    if (!chatId || !enabled) return;
 
     const pollDecisions = async () => {
       try {
@@ -53,7 +59,7 @@ export function usePendingDecisions(chatId: string) {
     pollDecisions();
     const interval = setInterval(pollDecisions, 3000);
     return () => clearInterval(interval);
-  }, [chatId]);
+  }, [chatId, enabled]);
 
   const handleDecisionResolved = useCallback(
     (decisionId: string, _action: string) => {

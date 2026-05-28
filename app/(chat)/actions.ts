@@ -15,6 +15,7 @@ import {
   type SessionRuntimeResponse,
   getSessionRuntime,
 } from '@/lib/core/sandbox/session-runtime';
+import { getConfig } from '@/lib/core/kv/config';
 import { createLogger } from '@/lib/utils/logger';
 import { resumeToolApproval } from '@/lib/workflow/agent/dispatch';
 import { cookies } from 'next/headers';
@@ -317,4 +318,9 @@ export async function controlSessionRuntimeAction(input: {
     ok: true,
     runtime: await getSessionRuntime(id),
   };
+}
+
+export async function isAgentdEnabled(): Promise<boolean> {
+  const config = await getConfig();
+  return config.agentd?.enabled ?? false;
 }

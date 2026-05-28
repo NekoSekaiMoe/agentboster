@@ -7,6 +7,7 @@ import {
   FolderTree,
   HardDrive,
   Key,
+  Power,
   RefreshCw,
   Server,
   Shield,
@@ -17,6 +18,7 @@ import { ofetch } from 'ofetch';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfigContext } from '@/components/config/config-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +28,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -108,6 +111,9 @@ const defaultConfig: AgentDConfig = {
 };
 
 export function AgentDConfigPage() {
+  const { draft, updateSection } = useConfigContext();
+  const agentdEnabled = draft.agentd?.enabled ?? false;
+
   const [status, setStatus] = useState<AgentDStatus | null>(null);
   const [config, setConfig] = useState<AgentDConfig>(defaultConfig);
   const [loading, setLoading] = useState(false);
@@ -176,6 +182,36 @@ export function AgentDConfigPage() {
 
   return (
     <div className="space-y-6">
+      {/* Enable/Disable Toggle */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Power className="h-5 w-5" />
+              <CardTitle>Agent Daemon</CardTitle>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="agentd-enabled" className="text-sm">
+                {agentdEnabled ? 'Enabled' : 'Disabled'}
+              </Label>
+              <Checkbox
+                id="agentd-enabled"
+                checked={agentdEnabled}
+                onCheckedChange={(checked) => {
+                  updateSection('agentd', { enabled: Boolean(checked) });
+                }}
+              />
+            </div>
+          </div>
+          <CardDescription>
+            Enable the Agent Daemon to run sandboxed tasks on remote servers.
+            When disabled, all agent polling is stopped.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+
+      {agentdEnabled && (
+        <>
       {/* Connection Status */}
       <Card>
         <CardHeader>
@@ -662,6 +698,8 @@ export function AgentDConfigPage() {
         </Button>
         <Button onClick={handleSave}>Save Configuration</Button>
       </div>
+        </>
+      )}
     </div>
   );
 }

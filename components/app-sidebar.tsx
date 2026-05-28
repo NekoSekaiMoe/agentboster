@@ -31,6 +31,7 @@ import { toast } from 'sonner';
 import { logoutAction } from '@/app/(auth)/actions';
 import {
   deleteSessionAction,
+  isAgentdEnabled,
   listRecentSessionsAction,
 } from '@/app/(chat)/actions';
 import {
@@ -130,6 +131,11 @@ export function AppSidebar() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [agentdEnabled, setAgentdEnabled] = useState(false);
+
+  useEffect(() => {
+    isAgentdEnabled().then(setAgentdEnabled);
+  }, []);
 
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
@@ -145,7 +151,7 @@ export function AppSidebar() {
 
   // Poll session statuses when on chat page
   const pollStatuses = useCallback(async () => {
-    if (!isChatPage) return;
+    if (!isChatPage || !agentdEnabled) return;
     try {
       const response = await fetch('/api/agentd/v1/sessions/status');
       if (!response.ok) return;
@@ -162,7 +168,7 @@ export function AppSidebar() {
     } catch {
       // silent fail
     }
-  }, [isChatPage]);
+  }, [isChatPage, agentdEnabled]);
 
   useEffect(() => {
     if (!chatPagePath) {
@@ -175,7 +181,7 @@ export function AppSidebar() {
 
   // Poll statuses periodically while on chat page and tab is visible
   useEffect(() => {
-    if (!isChatPage) return;
+    if (!isChatPage || !agentdEnabled) return;
 
     let interval: ReturnType<typeof setInterval> | null = null;
 
@@ -208,7 +214,7 @@ export function AppSidebar() {
       stopPolling();
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [isChatPage, pollStatuses]);
+  }, [isChatPage, agentdEnabled, pollStatuses]);
 
   useEffect(() => {
     if (!isChatPage) return;

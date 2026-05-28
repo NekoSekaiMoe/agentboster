@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 import { logoutAction } from '@/app/(auth)/actions';
 import {
   deleteSessionAction,
+  isAgentdEnabled,
   listRecentSessionsAction,
 } from '@/app/(chat)/actions';
 import {
@@ -111,6 +112,11 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
   const [loggingOut, setLoggingOut] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [agentdEnabled, setAgentdEnabled] = useState(false);
+
+  useEffect(() => {
+    isAgentdEnabled().then(setAgentdEnabled);
+  }, []);
 
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
@@ -125,7 +131,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
   }, []);
 
   const pollStatuses = useCallback(async () => {
-    if (!isChatPage) return;
+    if (!isChatPage || !agentdEnabled) return;
     try {
       const response = await fetch('/api/agentd/v1/sessions/status');
       if (!response.ok) return;
@@ -142,7 +148,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     } catch {
       // silent fail
     }
-  }, [isChatPage]);
+  }, [isChatPage, agentdEnabled]);
 
   useEffect(() => {
     if (!isChatPage) {
@@ -154,7 +160,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
   }, [isChatPage, loadSessions]);
 
   useEffect(() => {
-    if (!isChatPage) return;
+    if (!isChatPage || !agentdEnabled) return;
 
     let interval: ReturnType<typeof setInterval> | null = null;
 
@@ -187,7 +193,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       stopPolling();
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [isChatPage, pollStatuses]);
+  }, [isChatPage, agentdEnabled, pollStatuses]);
 
   useEffect(() => {
     if (!isChatPage) return;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { agentdConfigSchema } from './agentd';
 import { agentConfigSchema } from './agents';
 import { aiConfigSchema } from './ai';
 import { autonomyConfigSchema } from './autonomy';
@@ -33,6 +34,9 @@ export const appConfigSchema = z.object({
 
   /** MCP remote server configuration. */
   mcp: mcpRemotesServersConfigSchema.optional(),
+
+  /** Agent Daemon configuration. */
+  agentd: agentdConfigSchema.optional(),
 });
 
 /**
