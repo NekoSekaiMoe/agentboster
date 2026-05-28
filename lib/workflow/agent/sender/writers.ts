@@ -111,55 +111,43 @@ export function withWritableScope<T>(
 
 /**
  * Creates a WritableStream wrapper that ensures text-start chunks are sent
- * before text-delta chunks, even during workflow replay.
+ * before text-delta chunks, even when the model provider or workflow replay
+ * sends them out of order.
  *
- * This fixes a common issue where Vercel Workflow's replay mechanism causes
- * text-delta chunks to be written before their corresponding text-start chunks,
- * leading to "Received text-delta for missing text part with ID" errors.
+ * If a text-delta arrives without a preceding text-start, a synthetic
+ * text-start is emitted immediately before the delta.
  */
 function createOrderedWritable(
   inner: WritableStream<WorkflowUIMessageChunk>
 ): WritableStream<WorkflowUIMessageChunk> {
   const startedTextParts = new Set<string>();
-  const pendingTextDeltas = new Map<string, WorkflowUIMessageChunk[]>();
 
   return new WritableStream<WorkflowUIMessageChunk>({
     async write(chunk) {
       if (chunk.type === 'text-start' && chunk.id) {
         startedTextParts.add(chunk.id);
         await writeChunkToWritable(inner, chunk);
-
-        // Flush any pending deltas for this part
-        const pending = pendingTextDeltas.get(chunk.id);
-        if (pending) {
-          for (const delta of pending) {
-            await writeChunkToWritable(inner, delta);
-          }
-          pendingTextDeltas.delete(chunk.id);
-        }
       } else if (chunk.type === 'text-delta' && chunk.id) {
-        if (startedTextParts.has(chunk.id)) {
-          // text-start already sent, write delta immediately
-          await writeChunkToWritable(inner, chunk);
-        } else {
-          // text-start not yet sent, queue this delta
-          if (!pendingTextDeltas.has(chunk.id)) {
-            pendingTextDeltas.set(chunk.id, []);
-          }
-          pendingTextDeltas.get(chunk.id)!.push(chunk);
+        if (!startedTextParts.has(chunk.id)) {
+          // Synthesize a text-start before the delta
+          startedTextParts.add(chunk.id);
+          await writeChunkToWritable(inner, {
+            type: 'text-start',
+            id: chunk.id,
+          });
         }
-      } else if (chunk.type === 'text-end' && chunk.id) {
-        // If we have pending deltas, flush them before the end
-        const pending = pendingTextDeltas.get(chunk.id);
-        if (pending) {
-          for (const delta of pending) {
-            await writeChunkToWritable(inner, delta);
-          }
-          pendingTextDeltas.delete(chunk.id);
+        await writeChunkToWritable(inner, chunk);
+      } else if (chunk.type === 'reasoning-delta' && chunk.id) {
+        // Same protection for reasoning deltas
+        if (!startedTextParts.has(`reasoning:${chunk.id}`)) {
+          startedTextParts.add(`reasoning:${chunk.id}`);
+          await writeChunkToWritable(inner, {
+            type: 'reasoning-start',
+            id: chunk.id,
+          });
         }
         await writeChunkToWritable(inner, chunk);
       } else {
-        // All other chunks pass through unchanged
         await writeChunkToWritable(inner, chunk);
       }
     },
