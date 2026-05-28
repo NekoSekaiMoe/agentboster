@@ -109,11 +109,74 @@ export function withWritableScope<T>(
   return Promise.resolve(callback());
 }
 
+/**
+ * Creates a WritableStream wrapper that ensures text-start chunks are sent
+ * before text-delta chunks, even during workflow replay.
+ *
+ * This fixes a common issue where Vercel Workflow's replay mechanism causes
+ * text-delta chunks to be written before their corresponding text-start chunks,
+ * leading to "Received text-delta for missing text part with ID" errors.
+ */
+function createOrderedWritable(
+  inner: WritableStream<WorkflowUIMessageChunk>
+): WritableStream<WorkflowUIMessageChunk> {
+  const startedTextParts = new Set<string>();
+  const pendingTextDeltas = new Map<string, WorkflowUIMessageChunk[]>();
+
+  return new WritableStream<WorkflowUIMessageChunk>({
+    async write(chunk) {
+      if (chunk.type === 'text-start' && chunk.id) {
+        startedTextParts.add(chunk.id);
+        await writeChunkToWritable(inner, chunk);
+
+        // Flush any pending deltas for this part
+        const pending = pendingTextDeltas.get(chunk.id);
+        if (pending) {
+          for (const delta of pending) {
+            await writeChunkToWritable(inner, delta);
+          }
+          pendingTextDeltas.delete(chunk.id);
+        }
+      } else if (chunk.type === 'text-delta' && chunk.id) {
+        if (startedTextParts.has(chunk.id)) {
+          // text-start already sent, write delta immediately
+          await writeChunkToWritable(inner, chunk);
+        } else {
+          // text-start not yet sent, queue this delta
+          if (!pendingTextDeltas.has(chunk.id)) {
+            pendingTextDeltas.set(chunk.id, []);
+          }
+          pendingTextDeltas.get(chunk.id)!.push(chunk);
+        }
+      } else if (chunk.type === 'text-end' && chunk.id) {
+        // If we have pending deltas, flush them before the end
+        const pending = pendingTextDeltas.get(chunk.id);
+        if (pending) {
+          for (const delta of pending) {
+            await writeChunkToWritable(inner, delta);
+          }
+          pendingTextDeltas.delete(chunk.id);
+        }
+        await writeChunkToWritable(inner, chunk);
+      } else {
+        // All other chunks pass through unchanged
+        await writeChunkToWritable(inner, chunk);
+      }
+    },
+    close() {
+      return Promise.resolve();
+    },
+    abort() {
+      return Promise.resolve();
+    },
+  });
+}
+
 export function createScopedWritable(input: {
   writable: WritableStream<WorkflowUIMessageChunk>;
   agentName: string;
 }): WritableStream<WorkflowUIMessageChunk> {
-  return new WritableStream<WorkflowUIMessageChunk>({
+  const scopedWritable = new WritableStream<WorkflowUIMessageChunk>({
     write(chunk) {
       const scopedChunk = applyWritableScope(chunk, {
         agentName: input.agentName,
@@ -129,10 +192,14 @@ export function createScopedWritable(input: {
       return Promise.resolve();
     },
   });
+
+  // Wrap with ordering guarantees
+  return createOrderedWritable(scopedWritable);
 }
 
 export function createWritable(): WritableStream<WorkflowUIMessageChunk> {
-  return getWritable<WorkflowUIMessageChunk>();
+  const writable = getWritable<WorkflowUIMessageChunk>();
+  return createOrderedWritable(writable);
 }
 
 export async function writeUserMessageMarker(
