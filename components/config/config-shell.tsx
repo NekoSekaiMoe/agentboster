@@ -91,6 +91,7 @@ export function ConfigShell({
                 <Link
                   key={item.key}
                   href={href}
+                  prefetch={false}
                   className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1.5 text-sm transition-colors ${
                     isActive
                       ? 'border-primary bg-primary text-primary-foreground'

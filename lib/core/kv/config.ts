@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { get, set } from '@/lib/core/kv';
 import { createLogger } from '@/lib/utils/logger';
 import { type AppConfig, CONFIG_KEY, appConfigSchema } from '@/types/config';
@@ -6,7 +7,7 @@ import { z } from 'zod';
 const configPatchSchema = appConfigSchema.partial();
 const logger = createLogger('kv.config');
 
-export async function getConfig(): Promise<AppConfig> {
+const _getConfigUncached = async (): Promise<AppConfig> => {
   logger.log('getConfig:start');
   const raw = await get(CONFIG_KEY);
   if (!raw) {
@@ -17,7 +18,9 @@ export async function getConfig(): Promise<AppConfig> {
   const parsed = appConfigSchema.parse(raw);
   logger.log('getConfig:success');
   return parsed;
-}
+};
+
+export const getConfig = cache(_getConfigUncached);
 
 export async function setConfig(input: unknown): Promise<AppConfig> {
   const config = appConfigSchema.parse(input);

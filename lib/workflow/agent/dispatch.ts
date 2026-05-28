@@ -128,12 +128,29 @@ export async function startWorkflow(input: {
   runId: string;
   readable: ReadableStream<WorkflowUIMessageChunk>;
 }> {
-  const run = await start(chatWorkflow, [
-    input.initialMessages,
-    input.source,
-    input.config,
-    input.sessionId,
+  const WORKFLOW_START_TIMEOUT_MS = 30000;
+
+  const startWithTimeout = Promise.race([
+    start(chatWorkflow, [
+      input.initialMessages,
+      input.source,
+      input.config,
+      input.sessionId,
+    ]),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Workflow start timed out after ${WORKFLOW_START_TIMEOUT_MS}ms`
+            )
+          ),
+        WORKFLOW_START_TIMEOUT_MS
+      )
+    ),
   ]);
+
+  const run = await startWithTimeout;
 
   await updateSession(input.sessionId, {
     workflowRunId: run.runId,
