@@ -10,7 +10,7 @@ const CHAT_SDK_ADAPTERS = ['slack', 'teams', 'gchat', 'telegram', 'discord'];
 async function handleChatSdkWebhook(
   adapterName: AdapterName,
   request: NextRequest,
-): Promise<NextResponse> {
+): Promise<Response> {
   try {
     const bot = await getBot();
     const adapterInstance = bot.getAdapter(adapterName);
@@ -22,15 +22,11 @@ async function handleChatSdkWebhook(
       );
     }
 
-    const body = await request.text();
-    const headers = Object.fromEntries(request.headers.entries());
+    const result = await adapterInstance.handleWebhook?.(request);
 
-    const result = await adapterInstance.handleWebhook?.({
-      body,
-      headers,
-      method: request.method,
-    });
-
+    if (result instanceof Response) {
+      return result;
+    }
     return NextResponse.json(result ?? { ok: true });
   } catch (error) {
     console.error(`[bot/webhook] ${adapterName} callback error:`, error);

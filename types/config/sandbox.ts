@@ -13,7 +13,14 @@ export const sandboxConfigSchema = z.object({
     memoryDir: z.string().default('/workspace/memory'),
     outputsDir: z.string().default('/workspace/outputs'),
     mediaRetentionDays: z.number().int().min(1).default(3),
-  }).default({}),
+  }).default(() => ({
+    skillsDir: '/workspace/skills',
+    downloadsDir: '/workspace/downloads',
+    sessionsDir: '/workspace/sessions',
+    memoryDir: '/workspace/memory',
+    outputsDir: '/workspace/outputs',
+    mediaRetentionDays: 3,
+  })),
 });
 
 export type SandboxConfig = z.infer<typeof sandboxConfigSchema>;

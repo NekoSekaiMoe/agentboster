@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { notifications } from '@/lib/db/schema';
+import { db } from '@/lib/core/db';
+import { notifications } from '@/lib/core/db/schema';
 import { desc, eq, and } from 'drizzle-orm';
 
 export async function GET(request: Request) {
@@ -11,7 +11,7 @@ export async function GET(request: Request) {
 
     const conditions = [];
     if (channel) {
-      conditions.push(eq(notifications.channel, channel as 'web' | 'slack' | 'telegram' | 'email'));
+      conditions.push(eq(notifications.channel, channel));
     }
     if (read === 'unread') {
       conditions.push(eq(notifications.status, 'pending'));
@@ -23,10 +23,10 @@ export async function GET(request: Request) {
       .select({
         id: notifications.id,
         type: notifications.notificationType,
-        title: notifications.title,
-        message: notifications.message,
+        payload: notifications.payload,
         channel: notifications.channel,
         status: notifications.status,
+        errorMessage: notifications.errorMessage,
         createdAt: notifications.createdAt,
       })
       .from(notifications)
@@ -34,16 +34,21 @@ export async function GET(request: Request) {
       .orderBy(desc(notifications.createdAt))
       .limit(1000);
 
-    // Transform to expected format
-    const transformed = notifs.map((n) => ({
-      id: n.id,
-      type: n.type === 'info' ? 'info' : n.type === 'warning' ? 'warning' : n.type === 'error' ? 'error' : 'success',
-      title: n.title,
-      message: n.message,
-      channel: n.channel,
-      read: n.status === 'sent',
-      createdAt: n.createdAt,
-    }));
+    const transformed = notifs.map((n) => {
+      const payload = n.payload || {};
+      const title = (payload.title as string) || n.type;
+      const message = (payload.message as string) || n.errorMessage || '';
+
+      return {
+        id: n.id,
+        type: n.type === 'decision' ? 'warning' : n.type === 'completion' ? 'success' : 'info',
+        title,
+        message,
+        channel: n.channel,
+        read: n.status !== 'pending',
+        createdAt: n.createdAt,
+      };
+    });
 
     return NextResponse.json(transformed);
   } catch (error) {

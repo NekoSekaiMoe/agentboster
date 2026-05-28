@@ -445,17 +445,20 @@ async function exportSandboxFileStep(
     try {
       const fileBuffer = await readLocalFile(localPath);
       size = fileBuffer.length;
-      const fileRecord = await createFileRecord({
-        sessionId,
-        name: fileName,
-        path: sourcePath,
-        size,
-        mimeType: 'application/octet-stream',
-      });
-      const blobResult = await put(`sandbox-export/${fileRecord.id}/${fileName}`, fileBuffer, {
+      const blobPath = `sandbox-export/${sessionId}/${fileName}`;
+      const blobResult = await put(blobPath, fileBuffer, {
         access: 'public',
       });
       url = blobResult.url;
+      const fileRecord = await createFileRecord({
+        sessionId,
+        fileName,
+        sourcePath,
+        size,
+        mimeType: 'application/octet-stream',
+        blobPath,
+        blobUrl: url,
+      });
     } finally {
       await removeLocalFile(localPath, {
         force: true,
@@ -489,36 +492,28 @@ async function waitForSandboxApproval(input: {
   const { sessionId, runId, toolCallId, toolName, toolInput } = input;
 
   await writeToolApprovalRequest({
-    sessionId,
-    runId,
     toolCallId,
     toolName,
     toolInput,
   });
 
   await sendApprovalRequestReminderStep({
-    sessionId,
-    runId,
+    source: { type: 'web' },
     toolCallId,
     toolName,
   });
 
-  using _hook = approvalHookBuilder.create({ token: toolCallId });
+  using hook = approvalHookBuilder.create({ token: toolCallId });
 
-  const approval = await new Promise<SandboxApprovalResponse>((resolve) => {
-    const hook = approvalHookBuilder.get(toolCallId);
-    if (hook) {
-      hook.then(resolve);
-    }
-  });
+  let approval: SandboxApprovalResponse = { approved: false };
+  for await (const payload of hook) {
+    approval = payload;
+    break;
+  }
 
   if (!approval.approved) {
     await writeToolOutputDenied({
-      sessionId,
-      runId,
       toolCallId,
-      toolName,
-      reason: approval.comment,
     });
   }
 
@@ -559,7 +554,7 @@ export default defineBuildInTool({
 
           // Fallback to Vercel Sandbox
           const fallback = await executeSandboxCommandStep({ sessionId, runId, ...input });
-          if ('running' in fallback && fallback.running) {
+          if ('cmdId' in fallback && fallback.running) {
             return { kind: 'running', shellCommand: fallback.shellCommand, cmdId: fallback.cmdId, startedAt: fallback.startedAt, waitTimeoutMs: fallback.waitTimeoutMs, message: fallback.message } satisfies SandboxRunningOutput;
           }
           const execFallback = fallback as { exitCode: number; stdout: string; stderr: string };

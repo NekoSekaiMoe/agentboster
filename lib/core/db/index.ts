@@ -2,8 +2,16 @@ import { neon } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-http';
 import * as schema from './schema';
 
-// biome-ignore lint/style/noNonNullAssertion: Database URL is required.
-const sql = neon(process.env.DATABASE_URL!);
+let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
-export const db = drizzle(sql, { schema });
+export const db = new Proxy({} as ReturnType<typeof drizzle<typeof schema>>, {
+  get(_target, prop, receiver) {
+    if (!_db) {
+      const sql = neon(process.env.DATABASE_URL!);
+      _db = drizzle(sql, { schema });
+    }
+    return Reflect.get(_db, prop, receiver);
+  },
+});
+
 export { schema };

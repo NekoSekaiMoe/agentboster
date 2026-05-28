@@ -2,7 +2,7 @@ import type { NextConfig } from 'next';
 import { withWorkflow } from 'workflow/next';
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['@vercel/queue'],
+  serverExternalPackages: ['@vercel/queue', 'zlib-sync'],
   async headers() {
     return [
       {

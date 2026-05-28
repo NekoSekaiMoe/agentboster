@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # AgentBoster — Agent Instructions
 
 ## What This Is
@@ -19,17 +23,27 @@ app/(skill)/         — Skill management
 app/(memory)/        — Memory/RAG management
 app/.well-known/workflow/ — Vercel Workflow DevKit callbacks (bypasses auth middleware)
 
+app/api/             — API routes:
+  /api/auth/         — Login endpoint
+  /api/agentd/v1/    — Daemon callbacks (L1 scoring, L2 decisions)
+  /api/bot/[authSecret]/[adapter]/ — IM webhook endpoints (auth secret in URL path)
+  /api/config/       — Config management, monitoring, audit logs
+  /api/l2-authorizations/ — Security decision queue (pending, history, batch approve/reject)
+  /api/tasks/        — Task history
+  /api/notifications/ — Notification management
+  /api/sandbox/      — Sandbox tools
+  /api/pair/         — Daemon pairing
+
 lib/auth/            — Auth config, session/cookie management (bcryptjs)
 lib/ai/              — AI SDK provider factory (Anthropic, Google, OpenAI, OpenAI-compatible)
 lib/bot/             — Multi-channel bot adapters + webhook routing
 lib/chat/            — Chat transport, streaming, session bootstrap, token usage
-lib/core/db/         — Drizzle ORM schema + Neon Postgres client
-lib/core/kv/         — Upstash Redis (config, skills, import jobs, locks)
-lib/core/blob/       — Vercel Blob (file/skill storage)
-lib/core/sandbox/    — Vercel Sandbox management
+lib/core/            — Infrastructure: db/ (Drizzle+Neon), kv/ (Upstash Redis), blob/ (Vercel Blob), sandbox/ (Vercel Sandbox)
+lib/extra/           — Server-only business logic: agent/ (daemon client, parallel execution, skills), channels/, config/, cron/, memory/, prompts/, sandbox/, security/
 lib/memory/          — Memory: builtin, long-term (RAG chunks), session
-lib/workflow/        — Vercel Workflow DevKit (agent/scheduled)
-lib/extra/           — Server-only internals (channels, config, cron, security, sandbox)
+lib/security/        — Web-side security: L1 LLM scorer, L2 decision queue
+lib/workflow/        — Vercel Workflow DevKit: agent/ (agent workflows), scheduled/ (cron workflows)
+lib/utils/           — Shared utilities: logger, runtime health
 types/               — Shared TypeScript types (config, memory, skills, workflow)
 hooks/               — React hooks for config UI (draft, validation, debounce)
 ```
@@ -57,6 +71,8 @@ cd agentd
 go build -o agentd ./cmd/agentd/
 ./agentd -config agentd.toml
 ```
+
+**Note**: This project does not have a test suite. There are no test commands or test files.
 
 ## Important Conventions
 
@@ -88,6 +104,23 @@ go build -o agentd ./cmd/agentd/
 - Communicates with web via mTLS + API key. No local DB — all persistence through the web API.
 - Three sandbox types: tmpfs (lightweight), chroot (persistent), Docker (strong isolation).
 - Three-tier security: L0 rules → L1 LLM scoring → L2 user authorization.
+
+**Internal packages** (`internal/`):
+- `agent/` — LLM loop, tool definitions (codeact, exec, file, git, web, memory, skills, subagent, media, deliver, task summary), tool registration, context management
+- `worker/` — Task dispatcher, worker pool, writers
+- `sandbox/` — Sandbox providers (docker, docker_light, lxc_persistent), workspace management, media handling, skills loading, availability checking
+- `security/` — Security rules and enforcement
+- `session/` — Session persistence, LRU eviction, archiving
+- `eventbus/` — Internal event bus
+- `server/` — HTTP routes and middleware
+- `clawless/` — Web API client (calls back to AgentBoster Web)
+- `config/` — Configuration loading and validation
+- `certs/` — mTLS certificate management
+- `identity/` — Daemon identity and pairing
+- `lifecycle/` — Startup/shutdown orchestration
+- `metrics/` — Runtime metrics collection
+- `persistence/` — Local state persistence
+- `cache/` — Internal caching
 
 ## Database Schema (Drizzle)
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { notifications } from '@/lib/db/schema';
+import { db } from '@/lib/core/db';
+import { notifications } from '@/lib/core/db/schema';
 import { inArray } from 'drizzle-orm';
 
 export async function POST(request: Request) {

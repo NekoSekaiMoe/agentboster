@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { agentTasks, agentSandboxes } from '@/lib/db/schema';
+import { db } from '@/lib/core/db';
+import { agentTasks, agentSandboxes } from '@/lib/core/db/schema';
 import { count, eq } from 'drizzle-orm';
 
 export async function GET() {
@@ -9,7 +9,7 @@ export async function GET() {
     const activeSandboxesResult = await db
       .select({ count: count() })
       .from(agentSandboxes)
-      .where(eq(agentSandboxes.status, 'active'));
+      .where(eq(agentSandboxes.status, 'ready'));
     const activeSandboxes = activeSandboxesResult[0]?.count || 0;
 
     // Get active tasks count

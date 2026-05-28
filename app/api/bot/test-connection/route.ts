@@ -27,23 +27,26 @@ export async function POST(request: NextRequest) {
 
   try {
     const adapters = createBotAdapters(config.channels);
-    const adapterInstance = adapters[adapter];
-
-    if (!adapterInstance) {
-      return NextResponse.json({
-        ok: false,
-        error: `Adapter ${adapter} could not be initialized. Check your configuration.`,
-      });
-    }
 
     // Try to call a lightweight API method on the adapter
     let testResult: { ok: boolean; detail?: string; error?: string };
+
+    // Feishu and QQ are not Chat SDK adapters, skip adapter instance check
+    if (adapter !== 'feishu' && adapter !== 'qq') {
+      const adapterInstance = adapters[adapter];
+      if (!adapterInstance) {
+        return NextResponse.json({
+          ok: false,
+          error: `Adapter ${adapter} could not be initialized. Check your configuration.`,
+        });
+      }
+    }
 
     switch (adapter) {
       case 'telegram': {
         // Telegram: call getMe to verify bot token
         try {
-          const token = (adapterConfig as Record<string, string>).bot_token;
+          const token = (adapterConfig as unknown as Record<string, string>).bot_token;
           if (!token) {
             testResult = { ok: false, error: 'bot_token is missing' };
             break;
@@ -75,7 +78,7 @@ export async function POST(request: NextRequest) {
       case 'slack': {
         // Slack: call auth.test to verify bot token
         try {
-          const token = (adapterConfig as Record<string, string>).bot_token;
+          const token = (adapterConfig as unknown as Record<string, string>).bot_token;
           if (!token) {
             testResult = { ok: false, error: 'bot_token is missing' };
             break;
@@ -107,7 +110,7 @@ export async function POST(request: NextRequest) {
       case 'gchat': {
         // Google Chat: verify credentials exist
         try {
-          const creds = (adapterConfig as Record<string, string>)
+          const creds = (adapterConfig as unknown as Record<string, string>)
             .credentials_json;
           if (!creds) {
             testResult = { ok: false, error: 'credentials_json is missing' };
@@ -132,8 +135,8 @@ export async function POST(request: NextRequest) {
       }
 
       case 'teams': {
-        const appId = (adapterConfig as Record<string, string>).app_id;
-        const appPassword = (adapterConfig as Record<string, string>).app_password;
+        const appId = (adapterConfig as unknown as Record<string, string>).app_id;
+        const appPassword = (adapterConfig as unknown as Record<string, string>).app_password;
         if (appId && appPassword) {
           testResult = {
             ok: true,
@@ -151,7 +154,7 @@ export async function POST(request: NextRequest) {
       case 'discord': {
         // Discord: call /api/v10/users/@me to verify bot token
         try {
-          const token = (adapterConfig as Record<string, string>).bot_token;
+          const token = (adapterConfig as unknown as Record<string, string>).bot_token;
           if (!token) {
             testResult = { ok: false, error: 'bot_token is missing' };
             break;
@@ -183,13 +186,13 @@ export async function POST(request: NextRequest) {
       case 'feishu': {
         // Feishu: call tenant_access_token to verify app credentials
         try {
-          const appId = (adapterConfig as Record<string, string>).app_id;
-          const appSecret = (adapterConfig as Record<string, string>).app_secret;
+          const appId = (adapterConfig as unknown as Record<string, string>).app_id;
+          const appSecret = (adapterConfig as unknown as Record<string, string>).app_secret;
           if (!appId || !appSecret) {
             testResult = { ok: false, error: 'app_id and app_secret are both required' };
             break;
           }
-          const domain = (adapterConfig as Record<string, string>).domain || 'feishu';
+          const domain = (adapterConfig as unknown as Record<string, string>).domain || 'feishu';
           const base = domain === 'lark'
             ? 'https://open.larksuite.com'
             : 'https://open.feishu.cn';
@@ -221,8 +224,8 @@ export async function POST(request: NextRequest) {
 
       case 'qq': {
         // QQ: verify appid/secret exist (no simple test API without WebSocket)
-        const appid = (adapterConfig as Record<string, string>).appid;
-        const secret = (adapterConfig as Record<string, string>).secret;
+        const appid = (adapterConfig as unknown as Record<string, string>).appid;
+        const secret = (adapterConfig as unknown as Record<string, string>).secret;
         if (appid && secret) {
           testResult = {
             ok: true,

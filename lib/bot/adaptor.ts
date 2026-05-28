@@ -4,8 +4,6 @@ import { createGoogleChatAdapter } from '@chat-adapter/gchat';
 import { createSlackAdapter } from '@chat-adapter/slack';
 import { createTeamsAdapter } from '@chat-adapter/teams';
 import { createTelegramAdapter } from '@chat-adapter/telegram';
-import type { Client as FeishuClient } from '@larksuiteoapi/node-sdk';
-import { Bot as QQBot, ReceiverMode } from 'qq-official-bot';
 
 type BotAdapters = {
   discord?: ReturnType<typeof createDiscordAdapter>;
@@ -13,8 +11,6 @@ type BotAdapters = {
   slack?: ReturnType<typeof createSlackAdapter>;
   teams?: ReturnType<typeof createTeamsAdapter>;
   telegram?: ReturnType<typeof createTelegramAdapter>;
-  feishu?: FeishuClient;
-  qq?: QQBot;
 };
 
 type ExtraAdapters = {

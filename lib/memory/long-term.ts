@@ -190,11 +190,11 @@ export async function listLongTermMemories(input?: {
     });
     // Convert HybridSearchRow[] to match the return shape of listLongTermMemoryRows
     return results.map((r: HybridSearchRow) => ({
-      id: r.id,
+      id: r.memoryId,
       userId: '',
       content: r.content,
-      createdAt: r.createdAt ?? new Date(),
-      updatedAt: r.updatedAt ?? new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     }));
   }
 
