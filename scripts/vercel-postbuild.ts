@@ -13,7 +13,6 @@ function runCommand(command: string, args: string[] = []) {
     const child = spawn(command, args, {
       env: process.env,
       stdio: 'inherit',
-      shell: true,
     });
 
     child.on('error', reject);
