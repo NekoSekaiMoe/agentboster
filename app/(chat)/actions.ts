@@ -2,6 +2,7 @@
 
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import {
+  createSession,
   deleteSession,
   getSession,
   listSessions,
@@ -97,12 +98,12 @@ export async function updateSessionTitleAction(input: {
   }
 
   const nextTitle = input.title?.trim() || null;
-  const session = await updateSession(id, {
-    title: nextTitle,
-  });
+  const existing = await getSession(id);
 
-  if (!session) {
-    throw new Error('Session not found.');
+  if (!existing) {
+    await createSession({ id, title: nextTitle });
+  } else {
+    await updateSession(id, { title: nextTitle });
   }
 
   return {
