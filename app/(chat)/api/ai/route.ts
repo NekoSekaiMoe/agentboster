@@ -96,21 +96,50 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const messages = await validateRequestMessages(body.messages);
+
+  let messages: WorkflowUIMessage[] | undefined;
+  try {
+    messages = await validateRequestMessages(body.messages);
+  } catch (error) {
+    logger.error('post:validate_messages_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return Response.json(
+      { success: false, error: 'Invalid messages format' },
+      { status: 400 },
+    );
+  }
+
   const input = getInputPayload(body, messages);
 
-  const result = await chatMain(
-    {
-      trigger: body.trigger,
+  let result: Awaited<ReturnType<typeof chatMain>>;
+  try {
+    result = await chatMain(
+      {
+        trigger: body.trigger,
+        sessionId: body.id,
+        uiMessageId: body.messageId,
+        input,
+        messages,
+      },
+      {
+        source: { type: 'web' },
+      },
+    );
+  } catch (error) {
+    logger.error('post:chat_main_failed', {
       sessionId: body.id,
-      uiMessageId: body.messageId,
-      input,
-      messages,
-    },
-    {
-      source: { type: 'web' },
-    },
-  );
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return Response.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to process message',
+      },
+      { status: 500 },
+    );
+  }
 
   if (result.kind === 'message') {
     return createUIMessageStreamResponse({

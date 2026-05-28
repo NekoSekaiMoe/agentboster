@@ -93,8 +93,11 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
         setIsDirty(false);
         setRevision(0);
       });
-    } catch {
-      toast.error('Failed to load config');
+    } catch (error) {
+      console.error('[ConfigProvider] Failed to load config:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to load config'
+      );
     } finally {
       setIsLoading(false);
     }

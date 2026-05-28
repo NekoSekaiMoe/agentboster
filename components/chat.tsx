@@ -643,6 +643,16 @@ export function Chat({
     requestResumeStream,
   });
 
+  // Show error toast when chat encounters an error
+  useEffect(() => {
+    if (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to send message';
+      toast.error(`Chat error: ${errorMessage}`);
+      console.error('[chat] error:', error);
+    }
+  }, [error]);
+
   const handlePromptSelect = useCallback((prompt: string) => {
     setInput(prompt);
     setComposerFocusKey((current) => current + 1);
