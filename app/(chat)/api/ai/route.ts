@@ -136,7 +136,15 @@ export async function POST(request: Request) {
   let result: Awaited<ReturnType<typeof chatMain>>;
   try {
     logger.info('post:calling_chatMain');
-    result = await chatMain(
+
+    // 添加 60 秒超时保护
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('chatMain 执行超时（60秒）'));
+      }, 60000);
+    });
+
+    const chatMainPromise = chatMain(
       {
         trigger: body.trigger,
         sessionId: body.id,
@@ -148,6 +156,8 @@ export async function POST(request: Request) {
         source: { type: 'web' },
       },
     );
+
+    result = await Promise.race([chatMainPromise, timeoutPromise]);
     logger.info('post:chat_main_success', { kind: result.kind });
   } catch (error) {
     logger.error('post:chat_main_failed', {

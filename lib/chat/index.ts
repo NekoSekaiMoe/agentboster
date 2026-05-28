@@ -13,6 +13,7 @@ import { getConfig } from '@/lib/core/kv/config';
 import { getSessionRuntime } from '@/lib/core/sandbox/session-runtime';
 import { invalidateCurrentSessionSummary } from '@/lib/memory';
 import { generateUUID } from '@/lib/utils';
+import { createLogger } from '@/lib/utils/logger';
 import { buildInitialContextMessages } from '@/lib/workflow/agent/context';
 import {
   canResumeRun,
@@ -42,6 +43,8 @@ import { checkDuplicate, recordMessage } from './dedup';
 import { INIT_AGENTS_MD_MARKER, INIT_AGENTS_MD_PROMPT } from './init-prompt';
 import { serializeUserMessage } from './message-utils';
 import { deriveSessionTitle } from './session-title';
+
+const chatMainLogger = createLogger('chat.main');
 
 type Trigger = 'submit-message' | 'regenerate-message' | 'route-message';
 
@@ -763,7 +766,10 @@ export async function chatMain(
   request: LegacyChatMainRequest,
   options?: ChatMainOptions,
 ): Promise<DispatchChatInputResult> {
+  chatMainLogger.info('chatMain:start', { sessionId: request.sessionId });
+
   const source = normalizeSource(options);
+  chatMainLogger.info('chatMain:source_normalized', { sourceType: source.type });
 
   const envelope = parseChatInputEnvelope({
     sessionId: request.sessionId,
@@ -772,8 +778,10 @@ export async function chatMain(
     text: request.input.text,
     source,
   });
+  chatMainLogger.info('chatMain:envelope_parsed', { kind: envelope.kind });
 
   if (envelope.kind === 'command') {
+    chatMainLogger.info('chatMain:processing_command', { command: envelope.command });
     const currentSession = await resolveCommandSession({
       sessionId: envelope.sessionId,
       source: envelope.source,
@@ -787,6 +795,7 @@ export async function chatMain(
     });
 
     if (command.text === INIT_AGENTS_MD_MARKER) {
+      chatMainLogger.info('chatMain:init_agents_md_workflow');
       return runInitAgentsMdWorkflow({
         sessionId: command.sessionId,
         source: envelope.source,
@@ -794,6 +803,7 @@ export async function chatMain(
       });
     }
 
+    chatMainLogger.info('chatMain:command_completed');
     return {
       kind: 'command',
       result: {
@@ -805,8 +815,10 @@ export async function chatMain(
   }
 
   if (envelope.kind === 'message' && source.type === 'im') {
+    chatMainLogger.info('chatMain:checking_duplicate');
     const dedup = await checkDuplicate(source, envelope.text);
     if (dedup) {
+      chatMainLogger.info('chatMain:duplicate_detected');
       return {
         kind: 'command',
         result: {
@@ -818,10 +830,12 @@ export async function chatMain(
     }
   }
 
+  chatMainLogger.info('chatMain:ensuring_session');
   const session = await ensureMessageSession({
     sessionId: envelope.sessionId,
     source: envelope.source,
   });
+  chatMainLogger.info('chatMain:session_ready', { sessionId: session.id });
 
   if (envelope.kind === 'message' && source.type === 'im') {
     await recordMessage(source, envelope.text, session.id);
@@ -830,12 +844,14 @@ export async function chatMain(
   const isRegenerate = request.trigger === 'regenerate-message';
 
   if (isRegenerate && session.workflowRunId) {
+    chatMainLogger.info('chatMain:checking_resume', { runId: session.workflowRunId });
     const resumable = await canResumeRun(session.workflowRunId);
     if (resumable) {
       await pauseWorkflow(session.workflowRunId);
     }
   }
 
+  chatMainLogger.info('chatMain:normalizing_input');
   const normalizedInput = await normalizeUserMessageParts({
     sessionId: session.id,
     parts: envelope.parts,
@@ -844,8 +860,10 @@ export async function chatMain(
   const normalizedText = normalizeMessageText(
     envelope.text || normalizedInput.text,
   );
+  chatMainLogger.info('chatMain:input_normalized', { textLength: normalizedText.length });
 
   const nextUiMessageId = envelope.uiMessageId ?? generateUUID();
+  chatMainLogger.info('chatMain:upserting_user_message');
   await upsertUserMessage(
     serializeUserMessage({
       sessionId: session.id,
@@ -856,11 +874,15 @@ export async function chatMain(
       source: envelope.source,
     }),
   );
+  chatMainLogger.info('chatMain:user_message_upserted');
 
+  chatMainLogger.info('chatMain:deleting_old_messages');
   const truncated = await deleteMessagesAfterUiMessageId(
     session.id,
     nextUiMessageId,
   );
+  chatMainLogger.info('chatMain:old_messages_deleted', { truncatedCount: truncated.length });
+
   if (isRegenerate || truncated.length > 0) {
     await invalidateCurrentSessionSummary(session.id);
     await updateSession(session.id, {
@@ -871,6 +893,8 @@ export async function chatMain(
       },
     });
   }
+
+  chatMainLogger.info('chatMain:assigning_session_title');
   await maybeAssignSessionTitle({
     session,
     uiMessageId: nextUiMessageId,
@@ -882,6 +906,7 @@ export async function chatMain(
     session.workflowRunId &&
     (await canResumeRun(session.workflowRunId))
   ) {
+    chatMainLogger.info('chatMain:resuming_workflow', { runId: session.workflowRunId });
     await resumeWithMessage(session.workflowRunId, {
       type: 'user-message',
       message: normalizedText,
@@ -898,17 +923,24 @@ export async function chatMain(
     };
   }
 
+  chatMainLogger.info('chatMain:fetching_config');
   const config = await getConfig();
+  chatMainLogger.info('chatMain:config_fetched');
+
+  chatMainLogger.info('chatMain:building_initial_messages');
   const initialMessages = await buildInitialContextMessages(session.id, {
     modelId: config.models?.model ?? null,
   });
+  chatMainLogger.info('chatMain:initial_messages_built', { messageCount: initialMessages.length });
 
+  chatMainLogger.info('chatMain:starting_workflow');
   const { runId, readable } = await startWorkflow({
     sessionId: session.id,
     initialMessages,
     config,
     source: envelope.source,
   });
+  chatMainLogger.info('chatMain:workflow_started', { runId });
 
   return {
     kind: 'message',
