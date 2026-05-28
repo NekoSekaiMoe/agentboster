@@ -1,4 +1,4 @@
-import type { AdapterName } from '@/types/config/channels';
+import type { AdapterName, ChannelsConfig } from '@/types/config/channels';
 
 const LOCAL_BASE_URL = 'http://127.0.0.1:3000';
 
@@ -86,4 +86,80 @@ export function getWebhookCallbackUrls(
       : null;
   }
   return result;
+}
+
+export type WebhookRegistrationResult = {
+  adapter: AdapterName;
+  ok: boolean;
+  detail?: string;
+  error?: string;
+};
+
+export async function registerTelegramWebhook(
+  token: string,
+  webhookUrl: string,
+  secretToken?: string,
+): Promise<WebhookRegistrationResult> {
+  try {
+    const params = new URLSearchParams({
+      url: webhookUrl,
+      drop_pending_updates: 'true',
+    });
+    if (secretToken) {
+      params.set('secret_token', secretToken);
+    }
+
+    const resp = await fetch(
+      `https://api.telegram.org/bot${token}/setWebhook?${params.toString()}`,
+      { method: 'POST' },
+    );
+    const data = (await resp.json()) as {
+      ok: boolean;
+      description?: string;
+    };
+
+    if (data.ok) {
+      return {
+        adapter: 'telegram',
+        ok: true,
+        detail: `Webhook registered: ${webhookUrl}`,
+      };
+    }
+
+    return {
+      adapter: 'telegram',
+      ok: false,
+      error: data.description || 'Telegram setWebhook failed',
+    };
+  } catch (error) {
+    return {
+      adapter: 'telegram',
+      ok: false,
+      error: error instanceof Error ? error.message : 'Network error',
+    };
+  }
+}
+
+export async function registerChannelWebhooks(
+  channels: ChannelsConfig | undefined,
+): Promise<WebhookRegistrationResult[]> {
+  if (!channels) return [];
+
+  const results: WebhookRegistrationResult[] = [];
+  const secret = getBotAuthSecret();
+  if (!secret) return [];
+
+  const baseUrl = getAppBaseUrl();
+
+  if (channels.telegram?.enabled && channels.telegram.bot_token) {
+    const webhookUrl = `${baseUrl}/api/bot/${secret}/telegram/callback`;
+    const result = await registerTelegramWebhook(
+      channels.telegram.bot_token,
+      webhookUrl,
+      channels.telegram.secret_token || undefined,
+    );
+    results.push(result);
+  }
+
+  return results;
 }

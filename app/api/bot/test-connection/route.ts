@@ -1,5 +1,6 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import { createBotAdapters } from '@/lib/bot/adaptor';
+import { getWebhookCallbackUrl, registerTelegramWebhook } from '@/lib/bot/webhook';
 import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName } from '@/types/config/channels';
 import { cookies } from 'next/headers';
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
 
     switch (adapter) {
       case 'telegram': {
-        // Telegram: call getMe to verify bot token
+        // Telegram: call getMe to verify bot token, then register webhook
         try {
           const token = (adapterConfig as unknown as Record<string, string>)
             .bot_token;
@@ -57,10 +58,34 @@ export async function POST(request: NextRequest) {
           );
           const data = await resp.json();
           if (data.ok) {
-            testResult = {
-              ok: true,
-              detail: `Connected as @${data.result?.username || 'unknown'}`,
-            };
+            // Register webhook after successful token verification
+            const webhookUrl = getWebhookCallbackUrl('telegram');
+            if (webhookUrl) {
+              const secretToken = (
+                adapterConfig as unknown as Record<string, string>
+              ).secret_token;
+              const webhookResult = await registerTelegramWebhook(
+                token,
+                webhookUrl,
+                secretToken || undefined,
+              );
+              if (!webhookResult.ok) {
+                testResult = {
+                  ok: false,
+                  error: `Token verified but webhook registration failed: ${webhookResult.error}`,
+                };
+                break;
+              }
+              testResult = {
+                ok: true,
+                detail: `Connected as @${data.result?.username || 'unknown'}, webhook registered: ${webhookUrl}`,
+              };
+            } else {
+              testResult = {
+                ok: true,
+                detail: `Connected as @${data.result?.username || 'unknown'} (webhook URL not available — check AUTH_SECRET)`,
+              };
+            }
           } else {
             testResult = {
               ok: false,

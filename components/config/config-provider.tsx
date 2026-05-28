@@ -180,8 +180,10 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       });
 
       toast.success('Configuration saved');
-    } catch {
-      toast.error('Failed to save config');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to save config';
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }

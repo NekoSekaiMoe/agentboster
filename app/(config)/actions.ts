@@ -5,6 +5,7 @@ import {
   getAppBaseUrl,
   getBotAuthSecret,
   getWebhookCallbackUrl,
+  registerChannelWebhooks,
 } from '@/lib/bot/webhook';
 import { getConfig, setConfig } from '@/lib/core/kv/config';
 import {
@@ -55,7 +56,19 @@ export async function saveConfigAction(input: unknown): Promise<AppConfig> {
   await requireAuth();
 
   const config = appConfigSchema.parse(input);
-  return setConfig(config);
+  const saved = await setConfig(config);
+
+  // Register webhooks for enabled channels (e.g., Telegram)
+  const webhookResults = await registerChannelWebhooks(config.channels);
+  const failures = webhookResults.filter((r) => !r.ok);
+  if (failures.length > 0) {
+    const errorMessages = failures
+      .map((f) => `${f.adapter}: ${f.error}`)
+      .join('; ');
+    throw new Error(`Webhook registration failed: ${errorMessages}`);
+  }
+
+  return saved;
 }
 
 export async function loadWebhookConfigAction(): Promise<WebhookConfigResponse> {
