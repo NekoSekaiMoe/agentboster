@@ -22,7 +22,7 @@ const navItems = [
   { label: 'Skills', icon: Puzzle, href: '/skills', match: (p: string) => p.startsWith('/skills') },
   { label: 'Tasks', icon: History, href: '/config/tasks', match: (p: string) => p.startsWith('/config/tasks') },
   { label: 'Alerts', icon: Bell, href: '/config/notifications', match: (p: string) => p.startsWith('/config/notifications') },
-  { label: 'Config', icon: Settings, href: '/config', match: (p: string) => p.startsWith('/config') && !p.startsWith('/config/tasks') && !p.startsWith('/config/notifications') && !p.startsWith('/config/l2') },
+  { label: 'Config', icon: Settings, href: '/config', match: (p: string) => p.startsWith('/config') && !p.startsWith('/config/tasks') && !p.startsWith('/config/notifications') },
 ];
 
 export function MobileNav() {
