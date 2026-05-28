@@ -41,6 +41,5 @@ yarn-error.log*
 
 # agent
 !.agents
-.claude/
 artifacts/
 agentd/agentd
