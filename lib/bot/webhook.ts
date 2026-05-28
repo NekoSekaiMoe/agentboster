@@ -44,14 +44,37 @@ export function isValidBotSecret(secret: string): boolean {
 }
 
 export function getAppBaseUrl(): string {
-  if (!isProductionDeployment()) {
-    return LOCAL_BASE_URL;
+  const vercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
+
+  // Production deployment — use production URL
+  if (vercelEnv === 'production') {
+    const vercelUrl =
+      process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim();
+    if (vercelUrl) {
+      return normalizeBaseUrl(`https://${vercelUrl}`);
+    }
   }
 
-  const vercelUrl =
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (vercelUrl) {
-    return normalizeBaseUrl(`https://${vercelUrl}`);
+  // Preview deployment — use branch deployment URL
+  if (vercelEnv === 'preview') {
+    const branchUrl = process.env.VERCEL_BRANCH_URL?.trim();
+    if (branchUrl) {
+      return normalizeBaseUrl(`https://${branchUrl}`);
+    }
+    // Fallback: current deployment URL
+    const deploymentUrl = process.env.VERCEL_URL?.trim();
+    if (deploymentUrl) {
+      return normalizeBaseUrl(`https://${deploymentUrl}`);
+    }
+  }
+
+  // Development or unrecognized environment
+  if (vercelEnv) {
+    // Running on Vercel but not production/preview (e.g. development on Vercel)
+    const deploymentUrl = process.env.VERCEL_URL?.trim();
+    if (deploymentUrl) {
+      return normalizeBaseUrl(`https://${deploymentUrl}`);
+    }
   }
 
   return LOCAL_BASE_URL;
@@ -101,6 +124,19 @@ export async function registerTelegramWebhook(
   secretToken?: string,
 ): Promise<WebhookRegistrationResult> {
   try {
+    const parsed = new URL(webhookUrl);
+    if (
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === 'localhost' ||
+      parsed.protocol === 'http:'
+    ) {
+      return {
+        adapter: 'telegram',
+        ok: false,
+        error: `Webhook URL must be a public HTTPS URL. Got: ${webhookUrl}. Set NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL or deploy to production first.`,
+      };
+    }
+
     const params = new URLSearchParams({
       url: webhookUrl,
       drop_pending_updates: 'true',
