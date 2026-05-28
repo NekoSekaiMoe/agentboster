@@ -3,6 +3,7 @@ import { getSessionByWorkflowRunId, updateSession } from '@/lib/core/db/chat';
 import { agentdNodes } from '@/lib/core/db/schema';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
 import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
+import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type {
   ChatHookPayload,
@@ -128,8 +129,12 @@ export async function startWorkflow(input: {
   runId: string;
   readable: ReadableStream<WorkflowUIMessageChunk>;
 }> {
+  const logger = createLogger('workflow.dispatch');
+  logger.info('startWorkflow:start', { sessionId: input.sessionId });
+
   const WORKFLOW_START_TIMEOUT_MS = 30000;
 
+  logger.info('startWorkflow:calling_sdk_start');
   const startWithTimeout = Promise.race([
     start(chatWorkflow, [
       input.initialMessages,
@@ -150,7 +155,9 @@ export async function startWorkflow(input: {
     ),
   ]);
 
+  logger.info('startWorkflow:awaiting_run');
   const run = await startWithTimeout;
+  logger.info('startWorkflow:run_obtained', { runId: run.runId });
 
   await updateSession(input.sessionId, {
     workflowRunId: run.runId,
@@ -159,6 +166,8 @@ export async function startWorkflow(input: {
       source: input.source,
     },
   });
+  logger.info('startWorkflow:session_updated');
+
   await patchWorkflowRuntime(input.sessionId, {
     phase: 'running',
     lastRunId: run.runId,
@@ -166,6 +175,7 @@ export async function startWorkflow(input: {
     stoppedAt: null,
     lastError: null,
   });
+  logger.info('startWorkflow:runtime_patched');
 
   return {
     runId: run.runId,
