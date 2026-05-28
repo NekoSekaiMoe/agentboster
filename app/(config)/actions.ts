@@ -56,6 +56,24 @@ export async function saveConfigAction(input: unknown): Promise<AppConfig> {
   await requireAuth();
 
   const config = appConfigSchema.parse(input);
+
+  // Auto-generate secret_token for Telegram if enabled but not provided.
+  // This ensures the adapter can validate incoming X-Telegram-Bot-Api-Secret-Token headers.
+  const telegram = config.channels?.telegram;
+  if (
+    telegram?.enabled &&
+    telegram.bot_token &&
+    !telegram.secret_token?.trim()
+  ) {
+    config.channels = {
+      ...config.channels,
+      telegram: {
+        ...telegram,
+        secret_token: crypto.randomUUID(),
+      },
+    };
+  }
+
   const saved = await setConfig(config);
 
   // Register webhooks for enabled channels (e.g., Telegram)

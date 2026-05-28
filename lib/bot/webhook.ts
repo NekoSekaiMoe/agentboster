@@ -140,6 +140,7 @@ export async function registerTelegramWebhook(
     const params = new URLSearchParams({
       url: webhookUrl,
       drop_pending_updates: 'true',
+      allowed_updates: '["message","callback_query"]',
     });
     if (secretToken) {
       params.set('secret_token', secretToken);
