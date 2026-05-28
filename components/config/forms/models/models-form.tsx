@@ -78,6 +78,25 @@ export function ModelsForm() {
     [models.providers],
   );
 
+  // Determine the format of the first configured provider to adapt placeholders/help text.
+  // When the primary provider is OpenAI Compatible, bare model names (no provider prefix) are
+  // accepted because the base URL already implies the provider.
+  const primaryProviderFormat = useMemo(() => {
+    const firstKey = configuredProviderNames[0];
+    if (!firstKey || !models.providers) return null;
+    return models.providers[firstKey]?.format ?? null;
+  }, [configuredProviderNames, models.providers]);
+
+  const acceptsBareModelNames = primaryProviderFormat === 'openaicompatible';
+
+  const defaultModelPlaceholder = acceptsBareModelNames
+    ? 'deepseek-chat or provider/model-id'
+    : 'anthropic/claude-sonnet-4-20250514';
+
+  const embeddingModelPlaceholder = acceptsBareModelNames
+    ? 'text-embedding-3-small or provider/model-id'
+    : 'openai/text-embedding-3-small';
+
   const providerPredictions = useMemo(
     () => listProviderNames(modelsCatalog),
     [modelsCatalog],
@@ -145,7 +164,7 @@ export function ModelsForm() {
         <CardContent className="grid gap-4 md:grid-cols-2">
           <Field label="Default model">
             <SuggestionInput
-              placeholder="openai/gpt-4o-mini"
+              placeholder={defaultModelPlaceholder}
               suggestions={modelPredictions}
               value={models.model ?? ''}
               onChange={(nextModel) => {
@@ -162,10 +181,19 @@ export function ModelsForm() {
                 } as AppConfig['models']);
               }}
             />
+            {acceptsBareModelNames && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Bare model names resolve against your OpenAI Compatible provider. Use{' '}
+                <code className="text-[0.7rem] px-1 py-0.5 rounded bg-muted">
+                  provider/model-id
+                </code>{' '}
+                to target a specific provider.
+              </p>
+            )}
           </Field>
           <Field label="Embedding model">
             <SuggestionInput
-              placeholder="openai/text-embedding-3-small"
+              placeholder={embeddingModelPlaceholder}
               suggestions={embeddingModelPredictions}
               value={models.embedding_model ?? ''}
               onChange={(nextEmbeddingModel) =>

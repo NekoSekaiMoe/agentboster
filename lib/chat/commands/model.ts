@@ -21,7 +21,7 @@ export async function executeModelCommand(args: string): Promise<string> {
 
   const parsed = aiModelConfigSchema.safeParse(trimmed);
   if (!parsed.success) {
-    return 'Invalid model format. Use: /model provider/model-id (e.g. /model anthropic/claude-sonnet-4-20250514)';
+    return 'Invalid model format. Model ID must not be empty.';
   }
 
   const { getConfig } = await import('@/lib/core/kv/config');

@@ -3,37 +3,88 @@ import type { AppConfig } from '@/types/config';
 import { embed } from 'ai';
 import { getEmbeddingModel, getLanguageModel, getProvider } from './providers';
 
-/**
- * parse "provider/model-id" format
- */
-export function parseProviderScopedModelId(modelId: string) {
-  const logger = createLogger('ai.model');
-  const separatorIndex = modelId.indexOf('/');
+type ParsedModelId =
+  | { providerName: string; providerModelId: string }
+  | { providerName: null; providerModelId: string };
 
-  if (separatorIndex <= 0 || separatorIndex === modelId.length - 1) {
-    logger.warn('parse:invalid_model_id', { modelId });
-    throw new Error(
-      `Invalid model ID: "${modelId}". Expected format: "provider/model-id"`,
-    );
+/**
+ * Parse a model ID into provider name and model ID.
+ *
+ * - Scoped: "provider/model-id" -> { providerName: "provider", providerModelId: "model-id" }
+ * - Bare: "model-id" -> { providerName: null, providerModelId: "model-id" }
+ *   (resolved against the first configured provider at the call site)
+ */
+export function parseProviderScopedModelId(modelId: string): ParsedModelId {
+  const trimmed = modelId.trim();
+  if (!trimmed) {
+    throw new Error('Model ID must not be empty');
+  }
+
+  const separatorIndex = trimmed.indexOf('/');
+
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1) {
+    return { providerName: null, providerModelId: trimmed };
   }
 
   return {
-    providerName: modelId.slice(0, separatorIndex),
-    providerModelId: modelId.slice(separatorIndex + 1),
+    providerName: trimmed.slice(0, separatorIndex),
+    providerModelId: trimmed.slice(separatorIndex + 1),
+  };
+}
+
+function resolveProviderEntry(
+  parsed: ParsedModelId,
+  config: AppConfig,
+  modelId: string,
+): { providerName: string; providerModelId: string } {
+  const logger = createLogger('ai.model');
+  const providers = config.models?.providers ?? {};
+  const providerKeys = Object.keys(providers);
+
+  if (parsed.providerName !== null) {
+    if (!providers[parsed.providerName]) {
+      logger.error('resolve:provider_not_found', {
+        modelId,
+        providerName: parsed.providerName,
+        configuredProviders: providerKeys,
+      });
+      throw new Error(`Provider "${parsed.providerName}" not found in configuration`);
+    }
+    return {
+      providerName: parsed.providerName,
+      providerModelId: parsed.providerModelId,
+    };
+  }
+
+  if (providerKeys.length === 0) {
+    throw new Error(
+      `No providers configured. Add a provider in Config > Models, or use the scoped format "provider/${parsed.providerModelId}".`,
+    );
+  }
+
+  const fallbackProvider = providerKeys[0];
+  logger.info('resolve:using_fallback_provider', {
+    modelId,
+    fallbackProvider,
+  });
+
+  return {
+    providerName: fallbackProvider,
+    providerModelId: parsed.providerModelId,
   };
 }
 
 export function resolveLanguageModel(modelId: string, config: AppConfig) {
   const logger = createLogger('ai.model');
-  const { providerName, providerModelId } = parseProviderScopedModelId(modelId);
+  const parsed = parseProviderScopedModelId(modelId);
+  const { providerName, providerModelId } = resolveProviderEntry(
+    parsed,
+    config,
+    modelId,
+  );
 
   const providerConfig = config.models?.providers?.[providerName];
   if (!providerConfig) {
-    logger.error('resolve:provider_not_found', {
-      modelId,
-      providerName,
-      configuredProviders: Object.keys(config.models?.providers ?? {}),
-    });
     throw new Error(`Provider "${providerName}" not found in configuration`);
   }
 
@@ -57,15 +108,15 @@ export function resolveLanguageModel(modelId: string, config: AppConfig) {
 
 export function resolveEmbeddingModel(modelId: string, config: AppConfig) {
   const logger = createLogger('ai.model');
-  const { providerName, providerModelId } = parseProviderScopedModelId(modelId);
+  const parsed = parseProviderScopedModelId(modelId);
+  const { providerName, providerModelId } = resolveProviderEntry(
+    parsed,
+    config,
+    modelId,
+  );
 
   const providerConfig = config.models?.providers?.[providerName];
   if (!providerConfig) {
-    logger.error('resolve:embedding_provider_not_found', {
-      modelId,
-      providerName,
-      configuredProviders: Object.keys(config.models?.providers ?? {}),
-    });
     throw new Error(`Provider "${providerName}" not found in configuration`);
   }
 

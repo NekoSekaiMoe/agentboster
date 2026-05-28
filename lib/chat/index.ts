@@ -115,7 +115,7 @@ const COMMAND_HELP_TEXT = [
   '/approve <toolCallId> [note] - Approve a pending tool call',
   '/reject <toolCallId> [note] - Reject a pending tool call',
   '/model - Show current model config',
-  '/model <provider/model-id> - Switch model',
+  '/model <model-id> - Switch model (use "provider/model-id" or bare model name)',
   '/config - Show config whitelist',
   '/config <path> [value] - Get or set a config value',
   '/memory <query> - Search memories',

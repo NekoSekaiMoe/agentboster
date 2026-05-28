@@ -83,7 +83,7 @@ const COMMAND_METADATA: Record<
   },
   model: {
     description: 'Show or switch the current model',
-    hint: '/model [provider/model-id]',
+    hint: '/model <model-id>',
     icon: Hash,
   },
   config: {

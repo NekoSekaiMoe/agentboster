@@ -24,10 +24,16 @@ export type AIProviderConfig = z.infer<typeof aiProviderConfigSchema>;
 
 /**
  * AI model identifier schema.
+ *
+ * Accepts two formats:
+ * - Scoped: "provider/model-id" (e.g. "anthropic/claude-sonnet-4-20250514", "openai/gpt-4o")
+ * - Bare: "model-id" (e.g. "deepseek-chat", "stepfun-3.5-flash") — resolved against the
+ *   first configured provider at runtime. Preferred for OpenAI Compatible providers whose
+ *   base URL already implies the provider.
  */
 export const aiModelConfigSchema = z
   .string()
-  .regex(/^[^/\s]+\/.+$/, 'Model format must be "provider/model-id"');
+  .min(1, 'Model ID must not be empty');
 
 export type AIModelConfig = z.infer<typeof aiModelConfigSchema>;
 
@@ -41,9 +47,9 @@ export const aiConfigSchema = z.object({
     .min(0, 'Temperature must be >= 0')
     .max(2, 'Temperature must be <= 2')
     .default(0.7),
-  /** Default model ID, format: "provider/model-id". */
+  /** Default model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
   model: aiModelConfigSchema,
-  /** Embedding model ID, format: "provider/model-id". */
+  /** Embedding model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
   embedding_model: aiModelConfigSchema.optional(),
   /** Default context length limit (tokens). */
   context_limit: z
