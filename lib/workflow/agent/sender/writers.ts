@@ -68,6 +68,9 @@ function getWriter() {
   return getWritable<WorkflowUIMessageChunk>().getWriter();
 }
 
+const startedTextParts = new Set<string>();
+const startedReasoningParts = new Set<string>();
+
 function createWorkflowMessageChunk(input: {
   data: WorkflowMessageData;
   id?: string;
@@ -95,6 +98,23 @@ async function writeChunk(chunk: WorkflowUIMessageChunk): Promise<void> {
   await enqueueWrite(async () => {
     const writer = getWriter();
     try {
+      // Ensure text-start before text-delta
+      if (chunk.type === 'text-start' && chunk.id) {
+        startedTextParts.add(chunk.id);
+      } else if (chunk.type === 'text-delta' && chunk.id) {
+        if (!startedTextParts.has(chunk.id)) {
+          startedTextParts.add(chunk.id);
+          await writer.write({ type: 'text-start', id: chunk.id });
+        }
+      } else if (chunk.type === 'reasoning-start' && chunk.id) {
+        startedReasoningParts.add(chunk.id);
+      } else if (chunk.type === 'reasoning-delta' && chunk.id) {
+        if (!startedReasoningParts.has(chunk.id)) {
+          startedReasoningParts.add(chunk.id);
+          await writer.write({ type: 'reasoning-start', id: chunk.id });
+        }
+      }
+
       await writer.write(chunk);
     } finally {
       writer.releaseLock();
@@ -109,85 +129,8 @@ export function withWritableScope<T>(
   return Promise.resolve(callback());
 }
 
-/**
- * Creates a WritableStream wrapper that ensures text-start chunks are sent
- * before text-delta chunks, even when the model provider or workflow replay
- * sends them out of order.
- *
- * If a text-delta arrives without a preceding text-start, a synthetic
- * text-start is emitted immediately before the delta.
- */
-function createOrderedWritable(
-  inner: WritableStream<WorkflowUIMessageChunk>
-): WritableStream<WorkflowUIMessageChunk> {
-  const startedTextParts = new Set<string>();
-
-  return new WritableStream<WorkflowUIMessageChunk>({
-    async write(chunk) {
-      if (chunk.type === 'text-start' && chunk.id) {
-        startedTextParts.add(chunk.id);
-        await writeChunkToWritable(inner, chunk);
-      } else if (chunk.type === 'text-delta' && chunk.id) {
-        if (!startedTextParts.has(chunk.id)) {
-          // Synthesize a text-start before the delta
-          startedTextParts.add(chunk.id);
-          await writeChunkToWritable(inner, {
-            type: 'text-start',
-            id: chunk.id,
-          });
-        }
-        await writeChunkToWritable(inner, chunk);
-      } else if (chunk.type === 'reasoning-delta' && chunk.id) {
-        // Same protection for reasoning deltas
-        if (!startedTextParts.has(`reasoning:${chunk.id}`)) {
-          startedTextParts.add(`reasoning:${chunk.id}`);
-          await writeChunkToWritable(inner, {
-            type: 'reasoning-start',
-            id: chunk.id,
-          });
-        }
-        await writeChunkToWritable(inner, chunk);
-      } else {
-        await writeChunkToWritable(inner, chunk);
-      }
-    },
-    close() {
-      return Promise.resolve();
-    },
-    abort() {
-      return Promise.resolve();
-    },
-  });
-}
-
-export function createScopedWritable(input: {
-  writable: WritableStream<WorkflowUIMessageChunk>;
-  agentName: string;
-}): WritableStream<WorkflowUIMessageChunk> {
-  const scopedWritable = new WritableStream<WorkflowUIMessageChunk>({
-    write(chunk) {
-      const scopedChunk = applyWritableScope(chunk, {
-        agentName: input.agentName,
-      });
-      return enqueueWrite(async () => {
-        await writeChunkToWritable(input.writable, scopedChunk);
-      });
-    },
-    close() {
-      return Promise.resolve();
-    },
-    abort() {
-      return Promise.resolve();
-    },
-  });
-
-  // Wrap with ordering guarantees
-  return createOrderedWritable(scopedWritable);
-}
-
 export function createWritable(): WritableStream<WorkflowUIMessageChunk> {
-  const writable = getWritable<WorkflowUIMessageChunk>();
-  return createOrderedWritable(writable);
+  return getWritable<WorkflowUIMessageChunk>();
 }
 
 export async function writeUserMessageMarker(
