@@ -9,20 +9,62 @@ import {
   MessageSquare,
   Puzzle,
   Settings,
-  Shield,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const navItems = [
-  { label: 'Chat', icon: MessageSquare, href: '/', match: (p: string) => p === '/' || p.startsWith('/chat') },
-  { label: 'Files', icon: FolderArchive, href: '/files', match: (p: string) => p.startsWith('/files') },
-  { label: 'Memory', icon: Brain, href: '/memory', match: (p: string) => p.startsWith('/memory') },
-  { label: 'Schedule', icon: Clock3, href: '/schedule', match: (p: string) => p.startsWith('/schedule') },
-  { label: 'Skills', icon: Puzzle, href: '/skills', match: (p: string) => p.startsWith('/skills') },
-  { label: 'Tasks', icon: History, href: '/config/tasks', match: (p: string) => p.startsWith('/config/tasks') },
-  { label: 'Alerts', icon: Bell, href: '/config/notifications', match: (p: string) => p.startsWith('/config/notifications') },
-  { label: 'Config', icon: Settings, href: '/config', match: (p: string) => p.startsWith('/config') && !p.startsWith('/config/tasks') && !p.startsWith('/config/notifications') },
+  {
+    label: 'Chat',
+    icon: MessageSquare,
+    href: '/',
+    match: (p: string) => p === '/' || p.startsWith('/chat'),
+  },
+  {
+    label: 'Files',
+    icon: FolderArchive,
+    href: '/files',
+    match: (p: string) => p.startsWith('/files'),
+  },
+  {
+    label: 'Memory',
+    icon: Brain,
+    href: '/memory',
+    match: (p: string) => p.startsWith('/memory'),
+  },
+  {
+    label: 'Schedule',
+    icon: Clock3,
+    href: '/schedule',
+    match: (p: string) => p.startsWith('/schedule'),
+  },
+  {
+    label: 'Skills',
+    icon: Puzzle,
+    href: '/skills',
+    match: (p: string) => p.startsWith('/skills'),
+  },
+  {
+    label: 'Tasks',
+    icon: History,
+    href: '/config/tasks',
+    match: (p: string) => p.startsWith('/config/tasks'),
+  },
+  {
+    label: 'Alerts',
+    icon: Bell,
+    href: '/config/notifications',
+    match: (p: string) => p.startsWith('/config/notifications'),
+  },
+  {
+    label: 'Config',
+    icon: Settings,
+    href: '/config',
+    match: (p: string) =>
+      p.startsWith('/config') &&
+      !p.startsWith('/config/tasks') &&
+      !p.startsWith('/config/notifications'),
+  },
 ];
 
 export function MobileNav() {
@@ -39,13 +81,13 @@ export function MobileNav() {
               key={item.href}
               href={item.href}
               className={`flex flex-col items-center gap-0.5 py-2 px-3 min-w-0 ${
-                isActive
-                  ? 'text-primary'
-                  : 'text-muted-foreground'
+                isActive ? 'text-primary' : 'text-muted-foreground'
               }`}
             >
               <Icon className="size-5" />
-              <span className="text-[10px] font-medium truncate">{item.label}</span>
+              <span className="text-[10px] font-medium truncate">
+                {item.label}
+              </span>
             </Link>
           );
         })}

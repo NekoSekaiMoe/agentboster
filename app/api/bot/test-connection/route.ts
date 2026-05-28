@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { readAuthSessionFromCookies } from '@/lib/auth';
-import { cookies } from 'next/headers';
 import { createBotAdapters } from '@/lib/bot/adaptor';
 import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName } from '@/types/config/channels';
+import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
@@ -46,7 +46,8 @@ export async function POST(request: NextRequest) {
       case 'telegram': {
         // Telegram: call getMe to verify bot token
         try {
-          const token = (adapterConfig as unknown as Record<string, string>).bot_token;
+          const token = (adapterConfig as unknown as Record<string, string>)
+            .bot_token;
           if (!token) {
             testResult = { ok: false, error: 'bot_token is missing' };
             break;
@@ -78,7 +79,8 @@ export async function POST(request: NextRequest) {
       case 'slack': {
         // Slack: call auth.test to verify bot token
         try {
-          const token = (adapterConfig as unknown as Record<string, string>).bot_token;
+          const token = (adapterConfig as unknown as Record<string, string>)
+            .bot_token;
           if (!token) {
             testResult = { ok: false, error: 'bot_token is missing' };
             break;
@@ -129,14 +131,19 @@ export async function POST(request: NextRequest) {
             };
           }
         } catch {
-          testResult = { ok: false, error: 'credentials_json is not valid JSON' };
+          testResult = {
+            ok: false,
+            error: 'credentials_json is not valid JSON',
+          };
         }
         break;
       }
 
       case 'teams': {
-        const appId = (adapterConfig as unknown as Record<string, string>).app_id;
-        const appPassword = (adapterConfig as unknown as Record<string, string>).app_password;
+        const appId = (adapterConfig as unknown as Record<string, string>)
+          .app_id;
+        const appPassword = (adapterConfig as unknown as Record<string, string>)
+          .app_password;
         if (appId && appPassword) {
           testResult = {
             ok: true,
@@ -154,7 +161,8 @@ export async function POST(request: NextRequest) {
       case 'discord': {
         // Discord: call /api/v10/users/@me to verify bot token
         try {
-          const token = (adapterConfig as unknown as Record<string, string>).bot_token;
+          const token = (adapterConfig as unknown as Record<string, string>)
+            .bot_token;
           if (!token) {
             testResult = { ok: false, error: 'bot_token is missing' };
             break;
@@ -186,21 +194,32 @@ export async function POST(request: NextRequest) {
       case 'feishu': {
         // Feishu: call tenant_access_token to verify app credentials
         try {
-          const appId = (adapterConfig as unknown as Record<string, string>).app_id;
-          const appSecret = (adapterConfig as unknown as Record<string, string>).app_secret;
+          const appId = (adapterConfig as unknown as Record<string, string>)
+            .app_id;
+          const appSecret = (adapterConfig as unknown as Record<string, string>)
+            .app_secret;
           if (!appId || !appSecret) {
-            testResult = { ok: false, error: 'app_id and app_secret are both required' };
+            testResult = {
+              ok: false,
+              error: 'app_id and app_secret are both required',
+            };
             break;
           }
-          const domain = (adapterConfig as unknown as Record<string, string>).domain || 'feishu';
-          const base = domain === 'lark'
-            ? 'https://open.larksuite.com'
-            : 'https://open.feishu.cn';
-          const resp = await fetch(`${base}/open-apis/auth/v3/tenant_access_token/internal`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-          });
+          const domain =
+            (adapterConfig as unknown as Record<string, string>).domain ||
+            'feishu';
+          const base =
+            domain === 'lark'
+              ? 'https://open.larksuite.com'
+              : 'https://open.feishu.cn';
+          const resp = await fetch(
+            `${base}/open-apis/auth/v3/tenant_access_token/internal`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+            },
+          );
           const data = await resp.json();
           if (data.code === 0) {
             testResult = {
@@ -224,8 +243,10 @@ export async function POST(request: NextRequest) {
 
       case 'qq': {
         // QQ: verify appid/secret exist (no simple test API without WebSocket)
-        const appid = (adapterConfig as unknown as Record<string, string>).appid;
-        const secret = (adapterConfig as unknown as Record<string, string>).secret;
+        const appid = (adapterConfig as unknown as Record<string, string>)
+          .appid;
+        const secret = (adapterConfig as unknown as Record<string, string>)
+          .secret;
         if (appid && secret) {
           testResult = {
             ok: true,

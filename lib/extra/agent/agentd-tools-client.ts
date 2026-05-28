@@ -32,10 +32,16 @@ function getConfig(): AgentdClientConfig {
   return { baseUrl, apiKey };
 }
 
-async function agentdRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function agentdRequest<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
   const config = getConfig();
   const url = `${config.baseUrl}${path}`;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
   if (config.apiKey) {
     headers['X-API-Key'] = config.apiKey;
   }
@@ -46,7 +52,9 @@ async function agentdRequest<T>(method: string, path: string, body?: unknown): P
   const response = await fetch(url, fetchOptions);
   if (!response.ok) {
     const errorBody = await response.text().catch(() => 'unknown');
-    throw new Error(`AgentDaemon request failed: ${method} ${path} → ${response.status}: ${errorBody}`);
+    throw new Error(
+      `AgentDaemon request failed: ${method} ${path} → ${response.status}: ${errorBody}`,
+    );
   }
   return (await response.json()) as T;
 }
@@ -66,7 +74,11 @@ export async function execToolOnAgentd(
     tool_input: toolInput,
   };
   logger.info('Executing tool on Agent Daemon', { sessionId, toolName });
-  const resp = await agentdRequest<AgentdToolExecResponse>('POST', '/api/v1/tools/exec', req);
+  const resp = await agentdRequest<AgentdToolExecResponse>(
+    'POST',
+    '/api/v1/tools/exec',
+    req,
+  );
   if (!resp.success) {
     throw new Error(`AgentDaemon tool exec failed: ${resp.error}`);
   }

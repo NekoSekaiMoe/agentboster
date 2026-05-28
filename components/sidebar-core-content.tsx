@@ -25,7 +25,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import packageJson from '@/package.json';
+import { logoutAction } from '@/app/(auth)/actions';
+import {
+  deleteSessionAction,
+  listRecentSessionsAction,
+} from '@/app/(chat)/actions';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,11 +58,7 @@ import {
   type SessionListItemEventDetail,
   invalidateSessionList,
 } from '@/lib/chat/session-events';
-import {
-  deleteSessionAction,
-  listRecentSessionsAction,
-} from '@/app/(chat)/actions';
-import { logoutAction } from '@/app/(auth)/actions';
+import packageJson from '@/package.json';
 import { Logo } from './logo';
 
 const navItems = [
@@ -103,8 +103,11 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
-  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
-  const [pendingDeleteSession, setPendingDeleteSession] = useState<SessionItem | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
+    null,
+  );
+  const [pendingDeleteSession, setPendingDeleteSession] =
+    useState<SessionItem | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -201,11 +204,20 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       });
     };
 
-    window.addEventListener(SESSION_LIST_INVALIDATED_EVENT, handleSessionsInvalidated);
+    window.addEventListener(
+      SESSION_LIST_INVALIDATED_EVENT,
+      handleSessionsInvalidated,
+    );
     window.addEventListener(SESSION_LIST_UPSERTED_EVENT, handleSessionUpserted);
     return () => {
-      window.removeEventListener(SESSION_LIST_INVALIDATED_EVENT, handleSessionsInvalidated);
-      window.removeEventListener(SESSION_LIST_UPSERTED_EVENT, handleSessionUpserted);
+      window.removeEventListener(
+        SESSION_LIST_INVALIDATED_EVENT,
+        handleSessionsInvalidated,
+      );
+      window.removeEventListener(
+        SESSION_LIST_UPSERTED_EVENT,
+        handleSessionUpserted,
+      );
     };
   }, [isChatPage, loadSessions]);
 
@@ -234,7 +246,9 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       setDeletingSessionId(sessionItem.id);
       try {
         await deleteSessionAction(sessionItem.id);
-        setSessions((current) => current.filter((item) => item.id !== sessionItem.id));
+        setSessions((current) =>
+          current.filter((item) => item.id !== sessionItem.id),
+        );
         invalidateSessionList();
         if (pathname === `/chat/${sessionItem.id}`) {
           onClose();
@@ -242,9 +256,13 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
           router.refresh();
         }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to delete session.');
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to delete session.',
+        );
       } finally {
-        setDeletingSessionId((current) => (current === sessionItem.id ? null : current));
+        setDeletingSessionId((current) =>
+          current === sessionItem.id ? null : current,
+        );
       }
     },
     [pathname, router, onClose],
@@ -253,13 +271,17 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
   const handleTogglePin = useCallback(async (sessionItem: SessionItem) => {
     const newPinned = !sessionItem.pinned;
     setSessions((prev) =>
-      prev.map((s) => (s.id === sessionItem.id ? { ...s, pinned: newPinned } : s)),
+      prev.map((s) =>
+        s.id === sessionItem.id ? { ...s, pinned: newPinned } : s,
+      ),
     );
     try {
       // Pinned feature requires schema update; best-effort only
     } catch {
       setSessions((prev) =>
-        prev.map((s) => (s.id === sessionItem.id ? { ...s, pinned: sessionItem.pinned } : s)),
+        prev.map((s) =>
+          s.id === sessionItem.id ? { ...s, pinned: sessionItem.pinned } : s,
+        ),
       );
       toast.error('Failed to pin session');
     }
@@ -298,13 +320,19 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
   const StatusDot = ({ status }: { status?: SessionStatus }) => {
     if (!status || status === 'idle') return null;
     if (status === 'running')
-      return <Loader2 className="size-3 animate-spin text-amber-500 shrink-0" />;
+      return (
+        <Loader2 className="size-3 animate-spin text-amber-500 shrink-0" />
+      );
     if (status === 'waiting_user')
-      return <span className="size-2 rounded-full bg-amber-500 animate-pulse shrink-0" />;
+      return (
+        <span className="size-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+      );
     if (status === 'completed')
       return <span className="size-2 rounded-full bg-green-500 shrink-0" />;
     if (status === 'aborted')
-      return <span className="size-2 rounded-full bg-muted-foreground shrink-0" />;
+      return (
+        <span className="size-2 rounded-full bg-muted-foreground shrink-0" />
+      );
     return null;
   };
 
@@ -325,12 +353,15 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side="right" align="start" className="w-56">
-          <DropdownMenuLabel className="text-xs">Session Actions</DropdownMenuLabel>
+          <DropdownMenuLabel className="text-xs">
+            Session Actions
+          </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => handleTogglePin(sessionItem)}>
             {sessionItem.pinned ? '📌 Unpin' : '📌 Pin'}
           </DropdownMenuItem>
-          {(sessionItem.status === 'running' || sessionItem.status === 'waiting_user') && (
+          {(sessionItem.status === 'running' ||
+            sessionItem.status === 'waiting_user') && (
             <DropdownMenuItem
               onSelect={() => handleAbortSession(sessionItem)}
               className="text-amber-600"
@@ -364,7 +395,9 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       >
         <StatusDot status={sessionItem.status} />
         <MessageSquare className="size-4 shrink-0" />
-        <span className="truncate flex-1">{sessionItem.title ?? 'Untitled'}</span>
+        <span className="truncate flex-1">
+          {sessionItem.title ?? 'Untitled'}
+        </span>
         {sessionItem.pinned && <span className="text-xs">📌</span>}
       </Link>
     </div>
@@ -374,7 +407,11 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex flex-row justify-between items-center p-4 border-b">
-        <Link href="/" onClick={onClose} className="flex flex-row gap-2 items-center">
+        <Link
+          href="/"
+          onClick={onClose}
+          className="flex flex-row gap-2 items-center"
+        >
           <Logo width={24} height={24} />
           <span className="text-lg font-semibold">ClawLess</span>
         </Link>
@@ -505,7 +542,10 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
               </a>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={loggingOut} onSelect={() => void handleLogout()}>
+            <DropdownMenuItem
+              disabled={loggingOut}
+              onSelect={() => void handleLogout()}
+            >
               <LogOut className="size-4" />
               {loggingOut ? 'Signing out...' : 'Sign out'}
             </DropdownMenuItem>
@@ -530,8 +570,9 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete session?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete "{pendingDeleteSession?.title ?? 'Untitled'}" and all
-              its messages. This action cannot be undone.
+              This will permanently delete "
+              {pendingDeleteSession?.title ?? 'Untitled'}" and all its messages.
+              This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

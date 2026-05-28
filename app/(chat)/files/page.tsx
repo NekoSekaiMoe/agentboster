@@ -12,7 +12,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { listFilesAction } from '@/app/(files)/actions';
-import type { FileRecord, FilesListResponse } from '@/app/(files)/actions';
+import type { FileRecord } from '@/app/(files)/actions';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -134,7 +134,7 @@ export default function FilesPage() {
       <header className="sticky top-0 z-10 border-b bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-             <h1 className="text-base md:text-lg font-semibold">Files</h1>
+            <h1 className="text-base md:text-lg font-semibold">Files</h1>
             <p className="text-sm text-muted-foreground">
               Browse sandbox exports and jump back to the related session.
             </p>

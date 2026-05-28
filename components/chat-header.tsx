@@ -1,9 +1,9 @@
 'use client';
 
+import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
 import { useRouter } from 'next/navigation';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
 
 import { Button } from '@/components/ui/button';
 import { Loader2, PlusIcon, SquareIcon } from './icons';
@@ -42,7 +42,9 @@ function PureChatHeader({
 
   const status = session?.status ?? 'idle';
   const isRunning = status === 'running' || status === 'waiting_user';
-  const [agentdStatus, setAgentdStatus] = useState<'online' | 'offline' | 'checking'>('checking');
+  const [agentdStatus, setAgentdStatus] = useState<
+    'online' | 'offline' | 'checking'
+  >('checking');
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +58,10 @@ function PureChatHeader({
     };
     check();
     const interval = setInterval(check, 30_000);
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   const handleAbort = useCallback(async () => {
@@ -127,13 +132,19 @@ function PureChatHeader({
               )}
               {/* Agent Daemon status */}
               {agentdStatus === 'online' && (
-                <span className="inline-flex items-center gap-1 text-xs text-green-600 shrink-0" title="Agent Daemon online — full security review active">
+                <span
+                  className="inline-flex items-center gap-1 text-xs text-green-600 shrink-0"
+                  title="Agent Daemon online — full security review active"
+                >
                   <span className="size-1.5 rounded-full bg-green-500" />
                   AgentD
                 </span>
               )}
               {agentdStatus === 'offline' && (
-                <span className="inline-flex items-center gap-1 text-xs text-amber-600 shrink-0" title="Agent Daemon offline — using Vercel Sandbox (limited security)">
+                <span
+                  className="inline-flex items-center gap-1 text-xs text-amber-600 shrink-0"
+                  title="Agent Daemon offline — using Vercel Sandbox (limited security)"
+                >
                   <span className="size-1.5 rounded-full bg-amber-500" />
                   Sandbox
                 </span>

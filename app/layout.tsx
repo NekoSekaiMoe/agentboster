@@ -3,8 +3,8 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 import type { Metadata } from 'next';
 import { Toaster } from 'sonner';
 
-import { ThemeProvider } from '@/components/theme-provider';
 import { MobileNavWrapper } from '@/components/mobile-nav-wrapper';
+import { ThemeProvider } from '@/components/theme-provider';
 import { getAppBaseUrl } from '@/lib/bot/webhook';
 
 import './globals.css';

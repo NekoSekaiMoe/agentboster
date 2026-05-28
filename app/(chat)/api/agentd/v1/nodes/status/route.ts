@@ -1,6 +1,6 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
+import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {

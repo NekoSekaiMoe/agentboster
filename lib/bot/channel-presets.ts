@@ -52,7 +52,8 @@ export const CHANNEL_PRESETS: Record<string, ChannelPreset> = {
 
   slack: {
     label: 'Slack',
-    description: 'Slack Bot Token (single workspace) or OAuth (multi-workspace)',
+    description:
+      'Slack Bot Token (single workspace) or OAuth (multi-workspace)',
     fields: [
       {
         key: 'bot_token',
@@ -152,7 +153,8 @@ export const CHANNEL_PRESETS: Record<string, ChannelPreset> = {
 
   discord: {
     label: 'Discord',
-    description: 'Discord Bot Token + Application ID for slash commands and interactions',
+    description:
+      'Discord Bot Token + Application ID for slash commands and interactions',
     fields: [
       {
         key: 'bot_token',
@@ -188,7 +190,8 @@ export const CHANNEL_PRESETS: Record<string, ChannelPreset> = {
 
   feishu: {
     label: 'Feishu / Lark',
-    description: 'Feishu Open Platform app credentials. Supports both feishu.cn and larksuite.com domains.',
+    description:
+      'Feishu Open Platform app credentials. Supports both feishu.cn and larksuite.com domains.',
     fields: [
       {
         key: 'app_id',

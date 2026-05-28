@@ -3,10 +3,10 @@
  * Moved from agentd/internal/security/l1_scorer to clawless web layer
  */
 
-import { generateObject } from 'ai';
-import { z } from 'zod';
 import { resolveLanguageModel } from '@/lib/ai';
 import type { AppConfig } from '@/types/config';
+import { generateObject } from 'ai';
+import { z } from 'zod';
 
 /**
  * Safety scoring prompt for command evaluation in isolated sandbox
@@ -93,7 +93,11 @@ export const SAFETY_OUTPUT_SCORER_PROMPT = `你是一个输出安全评估器。
  * L1 scoring result schema
  */
 export const l1ScoreSchema = z.object({
-  score: z.number().min(0).max(1).describe('风险评分，0.0=完全安全，1.0=极度危险'),
+  score: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe('风险评分，0.0=完全安全，1.0=极度危险'),
   level: z.enum(['low', 'medium', 'high', 'critical']).describe('风险等级'),
   reason: z.string().describe('风险评估原因'),
 });
@@ -127,8 +131,7 @@ export async function scoreCommand(
 ): Promise<L1ScoreResult> {
   const model = resolveLanguageModel(modelId, config);
 
-  const prompt = SAFETY_SCORER_PROMPT
-    .replace('{{command}}', input.command)
+  const prompt = SAFETY_SCORER_PROMPT.replace('{{command}}', input.command)
     .replace('{{work_dir}}', input.workDir || '/workspace')
     .replace('{{context_summary}}', input.contextSummary || '无上下文');
 
@@ -151,9 +154,10 @@ export async function scoreOutput(
 ): Promise<L1ScoreResult> {
   const model = resolveLanguageModel(modelId, config);
 
-  const prompt = SAFETY_OUTPUT_SCORER_PROMPT
-    .replace('{{output}}', input.output)
-    .replace('{{context_summary}}', input.contextSummary || '无上下文');
+  const prompt = SAFETY_OUTPUT_SCORER_PROMPT.replace(
+    '{{output}}',
+    input.output,
+  ).replace('{{context_summary}}', input.contextSummary || '无上下文');
 
   const { object } = await generateObject({
     model,

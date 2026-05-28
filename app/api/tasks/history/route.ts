@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/core/db';
 import { agentTasks } from '@/lib/core/db/schema';
-import { desc, eq, and } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
   try {
@@ -11,7 +11,12 @@ export async function GET(request: Request) {
 
     const conditions = [];
     if (status) {
-      conditions.push(eq(agentTasks.status, status as 'pending' | 'running' | 'completed' | 'failed'));
+      conditions.push(
+        eq(
+          agentTasks.status,
+          status as 'pending' | 'running' | 'completed' | 'failed',
+        ),
+      );
     }
     if (agentId) {
       conditions.push(eq(agentTasks.agentId, agentId));
@@ -37,7 +42,9 @@ export async function GET(request: Request) {
       let duration = null;
       if (task.status === 'completed' && task.completedAt && task.createdAt) {
         duration = Math.floor(
-          (new Date(task.completedAt).getTime() - new Date(task.createdAt).getTime()) / 1000
+          (new Date(task.completedAt).getTime() -
+            new Date(task.createdAt).getTime()) /
+            1000,
         );
       }
       return {
@@ -51,7 +58,7 @@ export async function GET(request: Request) {
     console.error('Failed to fetch tasks:', error);
     return NextResponse.json(
       { error: 'Failed to fetch tasks' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -41,7 +41,7 @@ export function ConfigShell({
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-1">
               <div>
-                 <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
+                <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
                   {sectionMeta.title}
                 </h1>
                 <p className="text-sm text-muted-foreground">

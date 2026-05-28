@@ -1,5 +1,5 @@
-import { put } from '@vercel/blob';
 import { createLogger } from '@/lib/utils/logger';
+import { put } from '@vercel/blob';
 
 const logger = createLogger('api.agentd.blob-upload');
 
@@ -20,7 +20,10 @@ export async function POST(request: Request) {
     const fileBuffer = Buffer.from(content, 'base64');
     if (fileBuffer.length > MAX_FILE_SIZE) {
       return Response.json(
-        { success: false, error: `File size exceeds ${MAX_FILE_SIZE / 1024 / 1024} MB limit` },
+        {
+          success: false,
+          error: `File size exceeds ${MAX_FILE_SIZE / 1024 / 1024} MB limit`,
+        },
         { status: 413 },
       );
     }

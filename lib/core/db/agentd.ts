@@ -298,7 +298,9 @@ export interface TaskSummaryRecord {
   createdAt: Date;
 }
 
-export async function getTaskSummary(taskId: string): Promise<TaskSummaryRecord | null> {
+export async function getTaskSummary(
+  taskId: string,
+): Promise<TaskSummaryRecord | null> {
   const [row] = await db
     .select()
     .from(taskSummaries)
@@ -337,7 +339,9 @@ export async function upsertTaskSummary(data: {
         ...(data.progress !== undefined && { progress: data.progress }),
         ...(data.decisions !== undefined && { decisions: data.decisions }),
         ...(data.pending !== undefined && { pending: data.pending }),
-        ...(data.knownIssues !== undefined && { knownIssues: data.knownIssues }),
+        ...(data.knownIssues !== undefined && {
+          knownIssues: data.knownIssues,
+        }),
         lastUpdated: new Date(),
       },
     })
@@ -345,11 +349,18 @@ export async function upsertTaskSummary(data: {
   return record;
 }
 
-export async function listActiveTaskSummaries(agentId: string): Promise<TaskSummaryRecord[]> {
+export async function listActiveTaskSummaries(
+  agentId: string,
+): Promise<TaskSummaryRecord[]> {
   return db
     .select()
     .from(taskSummaries)
-    .where(and(eq(taskSummaries.agentId, agentId), eq(taskSummaries.status, 'active')))
+    .where(
+      and(
+        eq(taskSummaries.agentId, agentId),
+        eq(taskSummaries.status, 'active'),
+      ),
+    )
     .orderBy(desc(taskSummaries.lastUpdated));
 }
 
@@ -388,15 +399,16 @@ export async function createWorkspace(data: {
   return row;
 }
 
-export async function getWorkspace(id: string): Promise<WorkspaceRecord | null> {
-  const [row] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, id));
+export async function getWorkspace(
+  id: string,
+): Promise<WorkspaceRecord | null> {
+  const [row] = await db.select().from(workspaces).where(eq(workspaces.id, id));
   return row ?? null;
 }
 
-export async function getWorkspaceByProjectId(projectId: string): Promise<WorkspaceRecord | null> {
+export async function getWorkspaceByProjectId(
+  projectId: string,
+): Promise<WorkspaceRecord | null> {
   const [row] = await db
     .select()
     .from(workspaces)
@@ -404,7 +416,9 @@ export async function getWorkspaceByProjectId(projectId: string): Promise<Worksp
   return row ?? null;
 }
 
-export async function listWorkspaces(agentId: string): Promise<WorkspaceRecord[]> {
+export async function listWorkspaces(
+  agentId: string,
+): Promise<WorkspaceRecord[]> {
   return db
     .select()
     .from(workspaces)
@@ -412,7 +426,9 @@ export async function listWorkspaces(agentId: string): Promise<WorkspaceRecord[]
     .orderBy(desc(workspaces.updatedAt));
 }
 
-export async function archiveWorkspace(id: string): Promise<WorkspaceRecord | null> {
+export async function archiveWorkspace(
+  id: string,
+): Promise<WorkspaceRecord | null> {
   const [row] = await db
     .update(workspaces)
     .set({ status: 'archived', updatedAt: new Date() })

@@ -96,7 +96,8 @@ const levelBadgeClass: Record<string, string> = {
 const decisionBadgeClass: Record<string, string> = {
   allowed: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
   blocked: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
-  pending_confirm: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+  pending_confirm:
+    'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
 };
 
 const levelLabels: Record<string, string> = {
@@ -145,7 +146,13 @@ export function AuditLogsForm() {
   };
 
   const hasActiveFilters =
-    filters.level || filters.decision || filters.search || filters.taskId || filters.agentId || filters.from || filters.to;
+    filters.level ||
+    filters.decision ||
+    filters.search ||
+    filters.taskId ||
+    filters.agentId ||
+    filters.from ||
+    filters.to;
 
   return (
     <div className="space-y-6">
@@ -215,7 +222,9 @@ export function AuditLogsForm() {
                     <SelectItem value="all">All Decisions</SelectItem>
                     <SelectItem value="allowed">Allowed</SelectItem>
                     <SelectItem value="blocked">Blocked</SelectItem>
-                    <SelectItem value="pending_confirm">Pending Confirm</SelectItem>
+                    <SelectItem value="pending_confirm">
+                      Pending Confirm
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -243,7 +252,11 @@ export function AuditLogsForm() {
                     onChange={(e) => setCommandSearch(e.target.value)}
                     onKeyDown={handleKeyDown}
                   />
-                  <Button onClick={applyTextFilters} size="icon" variant="outline">
+                  <Button
+                    onClick={applyTextFilters}
+                    size="icon"
+                    variant="outline"
+                  >
                     <Search className="h-4 w-4" />
                   </Button>
                 </div>
@@ -271,7 +284,9 @@ export function AuditLogsForm() {
                   onChange={(e) =>
                     setFilters((prev) => ({
                       ...prev,
-                      from: e.target.value ? new Date(e.target.value).toISOString() : undefined,
+                      from: e.target.value
+                        ? new Date(e.target.value).toISOString()
+                        : undefined,
                     }))
                   }
                 />
@@ -284,7 +299,9 @@ export function AuditLogsForm() {
                   onChange={(e) =>
                     setFilters((prev) => ({
                       ...prev,
-                      to: e.target.value ? new Date(e.target.value).toISOString() : undefined,
+                      to: e.target.value
+                        ? new Date(e.target.value).toISOString()
+                        : undefined,
                     }))
                   }
                 />
@@ -349,7 +366,9 @@ export function AuditLogsForm() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge className={decisionBadgeClass[log.decision] || ''}>
+                        <Badge
+                          className={decisionBadgeClass[log.decision] || ''}
+                        >
                           {log.decision.replace('_', ' ')}
                         </Badge>
                       </TableCell>
@@ -372,7 +391,10 @@ export function AuditLogsForm() {
       </Card>
 
       {/* Detail Dialog */}
-      <Dialog open={!!selectedLog} onOpenChange={(open) => !open && setSelectedLog(null)}>
+      <Dialog
+        open={!!selectedLog}
+        onOpenChange={(open) => !open && setSelectedLog(null)}
+      >
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           {selectedLog && (
             <>
@@ -382,16 +404,29 @@ export function AuditLogsForm() {
                   <Badge className={levelBadgeClass[selectedLog.level] || ''}>
                     {selectedLog.level}
                   </Badge>
-                  <Badge className={decisionBadgeClass[selectedLog.decision] || ''}>
+                  <Badge
+                    className={decisionBadgeClass[selectedLog.decision] || ''}
+                  >
                     {selectedLog.decision.replace('_', ' ')}
                   </Badge>
                 </DialogTitle>
               </DialogHeader>
 
               <div className="space-y-4 pt-2">
-                <DetailRow label="Time" value={new Date(selectedLog.createdAt).toLocaleString()} />
-                <DetailRow label="Level" value={levelLabels[selectedLog.level] || selectedLog.level} />
-                <DetailRow label="Decision" value={decisionLabels[selectedLog.decision] || selectedLog.decision} />
+                <DetailRow
+                  label="Time"
+                  value={new Date(selectedLog.createdAt).toLocaleString()}
+                />
+                <DetailRow
+                  label="Level"
+                  value={levelLabels[selectedLog.level] || selectedLog.level}
+                />
+                <DetailRow
+                  label="Decision"
+                  value={
+                    decisionLabels[selectedLog.decision] || selectedLog.decision
+                  }
+                />
                 {selectedLog.score !== null && (
                   <DetailRow label="Score" value={String(selectedLog.score)} />
                 )}
@@ -400,11 +435,17 @@ export function AuditLogsForm() {
                   <DetailRow label="Agent" value={selectedLog.agentId} mono />
                 )}
                 {selectedLog.sessionId && (
-                  <DetailRow label="Session" value={selectedLog.sessionId} mono />
+                  <DetailRow
+                    label="Session"
+                    value={selectedLog.sessionId}
+                    mono
+                  />
                 )}
 
                 <div>
-                  <Label className="text-xs font-medium text-muted-foreground">Command</Label>
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Command
+                  </Label>
                   <pre className="mt-1 p-3 rounded-md bg-muted font-mono text-xs whitespace-pre-wrap break-all">
                     {selectedLog.command}
                   </pre>
@@ -412,7 +453,9 @@ export function AuditLogsForm() {
 
                 {selectedLog.reason && (
                   <div>
-                    <Label className="text-xs font-medium text-muted-foreground">Reason</Label>
+                    <Label className="text-xs font-medium text-muted-foreground">
+                      Reason
+                    </Label>
                     <p className="mt-1 p-3 rounded-md bg-muted text-sm">
                       {selectedLog.reason}
                     </p>
@@ -427,11 +470,19 @@ export function AuditLogsForm() {
   );
 }
 
-function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function DetailRow({
+  label,
+  value,
+  mono,
+}: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
-      <p className={`mt-0.5 text-sm ${mono ? 'font-mono text-xs' : ''}`}>{value}</p>
+      <Label className="text-xs font-medium text-muted-foreground">
+        {label}
+      </Label>
+      <p className={`mt-0.5 text-sm ${mono ? 'font-mono text-xs' : ''}`}>
+        {value}
+      </p>
     </div>
   );
 }

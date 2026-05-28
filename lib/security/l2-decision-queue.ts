@@ -202,7 +202,9 @@ export class DecisionQueue {
       decision.createdAt = new Date();
     }
     if (!decision.timeoutAt) {
-      decision.timeoutAt = new Date(decision.createdAt.getTime() + this.timeoutMs);
+      decision.timeoutAt = new Date(
+        decision.createdAt.getTime() + this.timeoutMs,
+      );
     }
   }
 
@@ -228,7 +230,10 @@ export class DecisionQueue {
     }
     if (taskSentCount === 0) {
       for (const decision of this.decisions.values()) {
-        if (decision.status === DecisionStatus.SENT && decision.taskId !== taskId) {
+        if (
+          decision.status === DecisionStatus.SENT &&
+          decision.taskId !== taskId
+        ) {
           return false;
         }
       }

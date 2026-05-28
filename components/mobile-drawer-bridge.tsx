@@ -1,6 +1,4 @@
 'use client';
-
-import { X } from 'lucide-react';
 import { useEffect } from 'react';
 
 import { useSidebar } from '@/components/ui/sidebar';

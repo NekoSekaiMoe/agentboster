@@ -48,7 +48,9 @@ function resolveProviderEntry(
         providerName: parsed.providerName,
         configuredProviders: providerKeys,
       });
-      throw new Error(`Provider "${parsed.providerName}" not found in configuration`);
+      throw new Error(
+        `Provider "${parsed.providerName}" not found in configuration`,
+      );
     }
     return {
       providerName: parsed.providerName,

@@ -1,15 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { readAuthSessionFromCookies } from '@/lib/auth';
-import { cookies } from 'next/headers';
 import {
-  runSandboxCommandAction,
   readSandboxFileAction,
+  runSandboxCommandAction,
   writeSandboxFileAction,
-  type RunSandboxCommandActionResult,
-  type ReadSandboxFileActionResult,
-  type WriteSandboxFileActionResult,
 } from '@/lib/core/sandbox/actions';
 import { SANDBOX_WORKSPACE_DIR } from '@/lib/core/sandbox/runtime';
+import { cookies } from 'next/headers';
+import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
@@ -26,7 +23,10 @@ export async function POST(request: NextRequest) {
   };
 
   if (!tool || !sessionId) {
-    return NextResponse.json({ error: 'tool and sessionId are required' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'tool and sessionId are required' },
+      { status: 400 },
+    );
   }
 
   try {
@@ -83,7 +83,10 @@ export async function POST(request: NextRequest) {
         const oldStr = (params?.old_string as string) || '';
         const newStr = (params?.new_string as string) || '';
         if (!content.includes(oldStr)) {
-          return NextResponse.json({ ok: false, error: 'old_string not found in file' });
+          return NextResponse.json({
+            ok: false,
+            error: 'old_string not found in file',
+          });
         }
         const newContent = content.replace(oldStr, newStr);
         const writeResult = await writeSandboxFileAction({
@@ -92,7 +95,10 @@ export async function POST(request: NextRequest) {
           content: newContent,
           cwd: (params?.cwd as string) || undefined,
         });
-        return NextResponse.json({ ok: true, result: { ...writeResult, replaced: true } });
+        return NextResponse.json({
+          ok: true,
+          result: { ...writeResult, replaced: true },
+        });
       }
 
       case 'ls': {
@@ -193,7 +199,9 @@ export async function POST(request: NextRequest) {
       }
 
       case 'memory_search': {
-        const { searchLongTermMemories } = await import('@/lib/memory/long-term');
+        const { searchLongTermMemories } = await import(
+          '@/lib/memory/long-term'
+        );
         const query = (params?.query as string) || '';
         const results = await searchLongTermMemories({
           query,
@@ -224,7 +232,13 @@ export async function POST(request: NextRequest) {
           signal: AbortSignal.timeout(30000),
         });
         const text = await fetchResult.text();
-        return NextResponse.json({ ok: true, result: { status: fetchResult.status, body: text.substring(0, 50000) } });
+        return NextResponse.json({
+          ok: true,
+          result: {
+            status: fetchResult.status,
+            body: text.substring(0, 50000),
+          },
+        });
       }
 
       case 'web_search': {
@@ -238,10 +252,15 @@ export async function POST(request: NextRequest) {
           signal: AbortSignal.timeout(15000),
         });
         const html = await searchResult.text();
-        const results: Array<{ title: string; url: string; snippet: string }> = [];
-        const resultRegex = /<a rel="nofollow" class="result__a" href="([^"]+)">([^<]+)<\/a>.*?<a class="result__snippet"[^>]*>([^<]+)<\/a>/gs;
+        const results: Array<{ title: string; url: string; snippet: string }> =
+          [];
+        const resultRegex =
+          /<a rel="nofollow" class="result__a" href="([^"]+)">([^<]+)<\/a>.*?<a class="result__snippet"[^>]*>([^<]+)<\/a>/gs;
         let match;
-        while ((match = resultRegex.exec(html)) !== null && results.length < 5) {
+        while (
+          (match = resultRegex.exec(html)) !== null &&
+          results.length < 5
+        ) {
           results.push({ url: match[1], title: match[2], snippet: match[3] });
         }
         return NextResponse.json({ ok: true, result: results });
@@ -254,7 +273,8 @@ export async function POST(request: NextRequest) {
         }
         return NextResponse.json({
           ok: false,
-          error: 'subagent is not available in Vercel Sandbox mode. Use the main agent directly.',
+          error:
+            'subagent is not available in Vercel Sandbox mode. Use the main agent directly.',
           unavailable: true,
         });
       }
@@ -270,18 +290,25 @@ export async function POST(request: NextRequest) {
       case 'ask_question': {
         return NextResponse.json({
           ok: false,
-          error: 'ask_question is not available in Vercel Sandbox mode. Please reply directly in the chat.',
+          error:
+            'ask_question is not available in Vercel Sandbox mode. Please reply directly in the chat.',
           unavailable: true,
         });
       }
 
       default:
-        return NextResponse.json({ ok: false, error: `Unknown tool: ${tool}` }, { status: 400 });
+        return NextResponse.json(
+          { ok: false, error: `Unknown tool: ${tool}` },
+          { status: 400 },
+        );
     }
   } catch (error) {
-    return NextResponse.json({
-      ok: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 },
+    );
   }
 }

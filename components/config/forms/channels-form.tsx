@@ -30,6 +30,7 @@ import type {
   TelegramAdapterConfig,
 } from '@/types/config/channels';
 
+import { CHANNEL_PRESETS } from '@/lib/bot/channel-presets';
 import {
   Field,
   SectionIssues,
@@ -38,7 +39,6 @@ import {
   compactStringList,
   createStringListEntries,
 } from './shared';
-import { CHANNEL_PRESETS } from '@/lib/bot/channel-presets';
 
 type WebhookConfigResponse = {
   authSecretConfigured: boolean;
@@ -157,7 +157,13 @@ export function ChannelsForm() {
       key: 'feishu',
       description: CHANNEL_PRESETS.feishu.description,
       value: channels.feishu,
-      fields: ['app_id', 'app_secret', 'encrypt_key', 'verification_token', 'domain'],
+      fields: [
+        'app_id',
+        'app_secret',
+        'encrypt_key',
+        'verification_token',
+        'domain',
+      ],
     },
     {
       key: 'qq',

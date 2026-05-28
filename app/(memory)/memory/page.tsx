@@ -69,7 +69,7 @@ export default function MemoryPage() {
   return (
     <div className="flex flex-col min-w-0 h-dvh bg-background pb-16 md:pb-0">
       <header className="flex sticky top-0 bg-background py-3 items-center px-4 border-b">
-         <h1 className="text-base md:text-lg font-semibold">Memory</h1>
+        <h1 className="text-base md:text-lg font-semibold">Memory</h1>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -312,12 +312,20 @@ function LongTermPanel() {
             if (e.key === 'Enter') handleSearch();
           }}
         />
-        <Button onClick={handleSearch} disabled={searching || loading} variant="outline" size="sm">
+        <Button
+          onClick={handleSearch}
+          disabled={searching || loading}
+          variant="outline"
+          size="sm"
+        >
           {searching ? <Loader2 className="size-4 animate-spin" /> : 'Search'}
         </Button>
         {searchQuery && (
           <Button
-            onClick={() => { setSearchQuery(''); loadMemories(); }}
+            onClick={() => {
+              setSearchQuery('');
+              loadMemories();
+            }}
             variant="ghost"
             size="sm"
           >

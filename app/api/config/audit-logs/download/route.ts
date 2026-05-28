@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/core/db';
 import { agentReviewLogs, agentTasks } from '@/lib/core/db/schema';
-import { desc, eq, ilike, and, gte, lte, type SQL } from 'drizzle-orm';
+import { type SQL, and, desc, eq, gte, ilike, lte } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
   try {
@@ -20,7 +20,10 @@ export async function GET(request: Request) {
     }
     if (decision) {
       conditions.push(
-        eq(agentReviewLogs.decision, decision as 'allowed' | 'blocked' | 'pending_confirm')
+        eq(
+          agentReviewLogs.decision,
+          decision as 'allowed' | 'blocked' | 'pending_confirm',
+        ),
       );
     }
     if (search) {
@@ -57,7 +60,8 @@ export async function GET(request: Request) {
       .orderBy(desc(agentReviewLogs.createdAt))
       .limit(10000);
 
-    const csvHeader = 'Timestamp,Level,Decision,Score,Command,Reason,Task ID,Agent ID';
+    const csvHeader =
+      'Timestamp,Level,Decision,Score,Command,Reason,Task ID,Agent ID';
     const csvRows = logs.map((log) => {
       const timestamp = new Date(log.createdAt).toISOString();
       const command = `"${log.command.replace(/"/g, '""')}"`;
@@ -77,7 +81,7 @@ export async function GET(request: Request) {
     console.error('Failed to download audit logs:', error);
     return NextResponse.json(
       { error: 'Failed to download audit logs' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

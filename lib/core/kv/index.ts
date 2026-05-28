@@ -32,8 +32,12 @@ export const redisState = new Proxy({} as ReturnType<typeof createRedisState>, {
   },
 });
 
-export const get = (...args: Parameters<Redis['get']>) => getRedis().get(...args);
-export const set = (...args: Parameters<Redis['set']>) => getRedis().set(...args);
-export const del = (...args: Parameters<Redis['del']>) => getRedis().del(...args);
-export const expire = (...args: Parameters<Redis['expire']>) => getRedis().expire(...args);
+export const get = (...args: Parameters<Redis['get']>) =>
+  getRedis().get(...args);
+export const set = (...args: Parameters<Redis['set']>) =>
+  getRedis().set(...args);
+export const del = (...args: Parameters<Redis['del']>) =>
+  getRedis().del(...args);
+export const expire = (...args: Parameters<Redis['expire']>) =>
+  getRedis().expire(...args);
 export const getKV = () => getRedis();

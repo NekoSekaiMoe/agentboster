@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { History, Play, XCircle, CheckCircle, Clock } from 'lucide-react';
+import { CheckCircle, Clock, Play, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';

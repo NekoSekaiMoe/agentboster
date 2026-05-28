@@ -1,9 +1,9 @@
 import {
+  archiveWorkspace,
   createWorkspace,
   getWorkspace,
   getWorkspaceByProjectId,
   listWorkspaces,
-  archiveWorkspace,
 } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -18,7 +18,10 @@ export async function GET(request: Request) {
   if (id) {
     const ws = await getWorkspace(id);
     if (!ws) {
-      return Response.json({ success: false, error: 'Workspace not found' }, { status: 404 });
+      return Response.json(
+        { success: false, error: 'Workspace not found' },
+        { status: 404 },
+      );
     }
     return Response.json({ success: true, data: ws });
   }
@@ -26,7 +29,10 @@ export async function GET(request: Request) {
   if (projectId) {
     const ws = await getWorkspaceByProjectId(projectId);
     if (!ws) {
-      return Response.json({ success: false, error: 'Workspace not found' }, { status: 404 });
+      return Response.json(
+        { success: false, error: 'Workspace not found' },
+        { status: 404 },
+      );
     }
     return Response.json({ success: true, data: ws });
   }
@@ -36,7 +42,10 @@ export async function GET(request: Request) {
     return Response.json({ success: true, data: wsList });
   }
 
-  return Response.json({ success: false, error: 'Missing id, project_id, or agent_id' }, { status: 400 });
+  return Response.json(
+    { success: false, error: 'Missing id, project_id, or agent_id' },
+    { status: 400 },
+  );
 }
 
 export async function POST(request: Request) {
@@ -46,7 +55,10 @@ export async function POST(request: Request) {
 
     if (!project_id || !agent_id || !sandbox_id) {
       return Response.json(
-        { success: false, error: 'Missing project_id, agent_id, or sandbox_id' },
+        {
+          success: false,
+          error: 'Missing project_id, agent_id, or sandbox_id',
+        },
         { status: 400 },
       );
     }
@@ -59,7 +71,10 @@ export async function POST(request: Request) {
       sandboxType: sandbox_type ?? 'chroot',
     });
 
-    logger.info('workspace created', { workspaceId: ws.id, projectId: ws.projectId });
+    logger.info('workspace created', {
+      workspaceId: ws.id,
+      projectId: ws.projectId,
+    });
     return Response.json({ success: true, data: ws }, { status: 201 });
   } catch (error) {
     logger.error('workspace creation failed', {
@@ -76,17 +91,26 @@ export async function PUT(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   if (!id) {
-    return Response.json({ success: false, error: 'Missing workspace id' }, { status: 400 });
+    return Response.json(
+      { success: false, error: 'Missing workspace id' },
+      { status: 400 },
+    );
   }
 
   const body = await request.json();
   if (body.action === 'archive') {
     const ws = await archiveWorkspace(id);
     if (!ws) {
-      return Response.json({ success: false, error: 'Workspace not found' }, { status: 404 });
+      return Response.json(
+        { success: false, error: 'Workspace not found' },
+        { status: 404 },
+      );
     }
     return Response.json({ success: true, data: ws });
   }
 
-  return Response.json({ success: false, error: 'Unknown action' }, { status: 400 });
+  return Response.json(
+    { success: false, error: 'Unknown action' },
+    { status: 400 },
+  );
 }

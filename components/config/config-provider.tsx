@@ -11,11 +11,11 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 
+import { loadConfigAction, saveConfigAction } from '@/app/(config)/actions';
 import {
   type ConfigValidationIssue,
   useConfigValidation,
 } from '@/hooks/use-config-validation';
-import { loadConfigAction, saveConfigAction } from '@/app/(config)/actions';
 import type { RuntimeHealthSnapshot } from '@/lib/utils/runtime-health';
 import type { AppConfig } from '@/types/config';
 import { appConfigSchema } from '@/types/config';

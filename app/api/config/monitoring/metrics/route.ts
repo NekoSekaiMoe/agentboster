@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/core/db';
-import { agentTasks, agentSandboxes } from '@/lib/core/db/schema';
+import { agentSandboxes, agentTasks } from '@/lib/core/db/schema';
 import { count, eq } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
@@ -50,7 +50,7 @@ export async function GET() {
     console.error('Failed to fetch metrics:', error);
     return NextResponse.json(
       { error: 'Failed to fetch metrics' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

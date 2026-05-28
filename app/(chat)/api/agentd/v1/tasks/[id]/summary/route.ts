@@ -1,7 +1,4 @@
-import {
-  getTaskSummary,
-  upsertTaskSummary,
-} from '@/lib/core/db/agentd';
+import { getTaskSummary, upsertTaskSummary } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.task-summary');

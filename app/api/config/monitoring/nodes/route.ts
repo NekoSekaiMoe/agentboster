@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
 import { desc } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
@@ -24,7 +24,7 @@ export async function GET() {
     console.error('Failed to fetch nodes:', error);
     return NextResponse.json(
       { error: 'Failed to fetch nodes' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
-import { desc, eq, and } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
   try {
@@ -41,7 +41,12 @@ export async function GET(request: Request) {
 
       return {
         id: n.id,
-        type: n.type === 'decision' ? 'warning' : n.type === 'completion' ? 'success' : 'info',
+        type:
+          n.type === 'decision'
+            ? 'warning'
+            : n.type === 'completion'
+              ? 'success'
+              : 'info',
         title,
         message,
         channel: n.channel,
@@ -55,7 +60,7 @@ export async function GET(request: Request) {
     console.error('Failed to fetch notifications:', error);
     return NextResponse.json(
       { error: 'Failed to fetch notifications' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

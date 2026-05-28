@@ -1,4 +1,4 @@
-import { DecisionQueue, type Decision } from './l2-decision-queue';
+import { type Decision, DecisionQueue } from './l2-decision-queue';
 
 // Singleton instance for the application
 let queue: DecisionQueue | null = null;

@@ -183,7 +183,8 @@ export function ModelsForm() {
             />
             {acceptsBareModelNames && (
               <p className="text-xs text-muted-foreground mt-1">
-                Bare model names resolve against your OpenAI Compatible provider. Use{' '}
+                Bare model names resolve against your OpenAI Compatible
+                provider. Use{' '}
                 <code className="text-[0.7rem] px-1 py-0.5 rounded bg-muted">
                   provider/model-id
                 </code>{' '}

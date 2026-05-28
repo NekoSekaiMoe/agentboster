@@ -18,7 +18,11 @@ export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'Anthropic',
     format: 'anthropic',
     base_url: 'https://api.anthropic.com',
-    default_models: ['claude-sonnet-4-20250514', 'claude-haiku-4-20250514', 'claude-opus-4-20250514'],
+    default_models: [
+      'claude-sonnet-4-20250514',
+      'claude-haiku-4-20250514',
+      'claude-opus-4-20250514',
+    ],
     description: 'Anthropic Claude API',
   },
   deepseek: {
@@ -39,7 +43,11 @@ export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     label: 'OpenRouter',
     format: 'openaicompatible',
     base_url: 'https://openrouter.ai/api/v1',
-    default_models: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'deepseek/deepseek-chat'],
+    default_models: [
+      'anthropic/claude-sonnet-4',
+      'openai/gpt-4o',
+      'deepseek/deepseek-chat',
+    ],
     description: 'OpenRouter multi-model gateway',
   },
   moonshot: {
@@ -65,10 +73,12 @@ export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
   },
 };
 
-export const PRESET_LIST = Object.entries(PROVIDER_PRESETS).map(([key, preset]) => ({
-  value: key,
-  ...preset,
-}));
+export const PRESET_LIST = Object.entries(PROVIDER_PRESETS).map(
+  ([key, preset]) => ({
+    value: key,
+    ...preset,
+  }),
+);
 
 export function getPreset(key: string): ProviderPreset | undefined {
   return PROVIDER_PRESETS[key];
@@ -76,11 +86,27 @@ export function getPreset(key: string): ProviderPreset | undefined {
 
 export function applyPresetToConfig(
   presetKey: string,
-  existingConfig: { format?: string; base_url?: string; api_key?: string; headers?: Record<string, string> },
-): { format: string; base_url: string; api_key?: string; headers?: Record<string, string>; preset: string } {
+  existingConfig: {
+    format?: string;
+    base_url?: string;
+    api_key?: string;
+    headers?: Record<string, string>;
+  },
+): {
+  format: string;
+  base_url: string;
+  api_key?: string;
+  headers?: Record<string, string>;
+  preset: string;
+} {
   const preset = PROVIDER_PRESETS[presetKey];
   if (!preset) {
-    return { ...existingConfig, format: existingConfig.format || 'openaicompatible', base_url: existingConfig.base_url || '', preset: presetKey };
+    return {
+      ...existingConfig,
+      format: existingConfig.format || 'openaicompatible',
+      base_url: existingConfig.base_url || '',
+      preset: presetKey,
+    };
   }
   return {
     format: preset.format,

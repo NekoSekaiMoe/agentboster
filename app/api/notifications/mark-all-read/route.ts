@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
 import { eq } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 
 export async function POST() {
   try {
@@ -15,7 +15,7 @@ export async function POST() {
     console.error('Failed to mark all notifications as read:', error);
     return NextResponse.json(
       { error: 'Failed to mark all notifications as read' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

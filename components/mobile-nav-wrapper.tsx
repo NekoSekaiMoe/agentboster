@@ -2,7 +2,6 @@
 
 import { Menu } from 'lucide-react';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
 
 import { useNavMode } from '@/hooks/use-nav-mode';
 import { MobileNav } from './mobile-nav';
@@ -20,7 +19,9 @@ export function MobileNavWrapper() {
   if (navMode === 'sidebar-drawer') {
     return (
       <button
-        onClick={() => window.dispatchEvent(new CustomEvent('open-mobile-drawer'))}
+        onClick={() =>
+          window.dispatchEvent(new CustomEvent('open-mobile-drawer'))
+        }
         className="fixed top-3 left-3 z-30 p-2 rounded-md bg-background/80 backdrop-blur border shadow-sm hover:bg-muted transition-colors md:hidden"
         aria-label="Open menu"
       >

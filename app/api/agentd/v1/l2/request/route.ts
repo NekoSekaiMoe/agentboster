@@ -3,9 +3,9 @@
  * Called by agentd when L1 high-risk command needs user authorization
  */
 
-import { getDecisionQueue } from '@/lib/security/l2-index';
 import type { Decision } from '@/lib/security/l2-decision-queue';
 import { DecisionStatus, DecisionType } from '@/lib/security/l2-decision-queue';
+import { getDecisionQueue } from '@/lib/security/l2-index';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
 

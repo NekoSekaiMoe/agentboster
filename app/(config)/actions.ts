@@ -12,13 +12,13 @@ import {
   getRuntimeHealthSnapshot,
 } from '@/lib/utils/runtime-health';
 import { getBuildInToolCatalog } from '@/lib/workflow/agent/tools';
-import { cookies } from 'next/headers';
 import { type AppConfig, appConfigSchema } from '@/types/config';
 import { ADAPTER_NAMES, type AdapterName } from '@/types/config/channels';
 import {
   type ToolCatalogResponse,
   toolCatalogResponseSchema,
 } from '@/types/config/tools';
+import { cookies } from 'next/headers';
 
 export type ConfigLoadResponse = {
   config: AppConfig;

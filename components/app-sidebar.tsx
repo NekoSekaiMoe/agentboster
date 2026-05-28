@@ -18,7 +18,6 @@ import {
   Puzzle,
   Search,
   Settings,
-  Shield,
   Sun,
   Trash2,
   Wrench,
@@ -29,6 +28,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { logoutAction } from '@/app/(auth)/actions';
+import {
+  deleteSessionAction,
+  listRecentSessionsAction,
+} from '@/app/(chat)/actions';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,11 +77,6 @@ import {
   type SessionListItemEventDetail,
   invalidateSessionList,
 } from '@/lib/chat/session-events';
-import {
-  deleteSessionAction,
-  listRecentSessionsAction,
-} from '@/app/(chat)/actions';
-import { logoutAction } from '@/app/(auth)/actions';
 import { Logo } from './logo';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 

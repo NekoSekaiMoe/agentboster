@@ -17,7 +17,12 @@ export const aiProviderConfigSchema = z.object({
   api_key: z.string().optional().describe('API key can be configured via env.'),
   base_url: z.url().optional(),
   headers: z.record(z.string(), z.string()).optional(),
-  preset: z.string().optional().describe('Provider preset key (e.g., openai, anthropic, deepseek, ollama). When set, base_url and format are auto-filled.'),
+  preset: z
+    .string()
+    .optional()
+    .describe(
+      'Provider preset key (e.g., openai, anthropic, deepseek, ollama). When set, base_url and format are auto-filled.',
+    ),
 });
 
 export type AIProviderConfig = z.infer<typeof aiProviderConfigSchema>;

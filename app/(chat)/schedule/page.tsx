@@ -286,7 +286,7 @@ export default function SchedulePage() {
       <header className="sticky top-0 z-10 border-b bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-             <h1 className="text-base md:text-lg font-semibold">Schedule</h1>
+            <h1 className="text-base md:text-lg font-semibold">Schedule</h1>
             <p className="text-sm text-muted-foreground">
               View, edit, and archive delayed or daily tasks.
             </p>

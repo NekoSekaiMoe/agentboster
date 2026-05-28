@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { isValidBotSecret } from '@/lib/bot/webhook';
-import { getBot } from '@/lib/bot/index';
 import { createExtraAdapters } from '@/lib/bot/adaptor';
+import { getBot } from '@/lib/bot/index';
+import { isValidBotSecret } from '@/lib/bot/webhook';
 import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName } from '@/types/config/channels';
+import { NextRequest, NextResponse } from 'next/server';
 
 const CHAT_SDK_ADAPTERS = ['slack', 'teams', 'gchat', 'telegram', 'discord'];
 
@@ -70,13 +70,14 @@ async function handleFeishuWebhook(
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('[bot/webhook] feishu callback error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 },
+    );
   }
 }
 
-async function handleQQWebhook(
-  request: NextRequest,
-): Promise<NextResponse> {
+async function handleQQWebhook(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json().catch(() => ({}));
 
@@ -106,7 +107,10 @@ async function handleQQWebhook(
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('[bot/webhook] qq callback error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 },
+    );
   }
 }
 

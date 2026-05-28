@@ -1,7 +1,8 @@
-import { getSessionByWorkflowRunId, updateSession } from '@/lib/core/db/chat';
 import { db } from '@/lib/core/db';
+import { getSessionByWorkflowRunId, updateSession } from '@/lib/core/db/chat';
 import { agentdNodes } from '@/lib/core/db/schema';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
+import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
 import type { AppConfig } from '@/types/config';
 import type {
   ChatHookPayload,
@@ -15,7 +16,6 @@ import { getRun, start } from 'workflow/api';
 import { ACTIVE_RUN_STATUSES } from './config';
 import { approvalHookBuilder, instructionHookBuilder } from './hooks';
 import { chatWorkflow } from './index';
-import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
 
 export interface AgentNodeStatus {
   nodeID: string;

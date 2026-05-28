@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
 import { inArray } from 'drizzle-orm';
+import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json(
         { error: 'ids must be a non-empty array' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     console.error('Failed to mark notifications as read:', error);
     return NextResponse.json(
       { error: 'Failed to mark notifications as read' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

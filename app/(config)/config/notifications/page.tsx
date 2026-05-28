@@ -1,7 +1,7 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bell, Check, MessageSquare, AlertCircle, Info } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, Bell, Check, Info, MessageSquare } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -16,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface Notification {
   id: string;
@@ -253,7 +252,8 @@ export default function NotificationsPage() {
                 <Checkbox
                   checked={
                     notifications.filter((n) => !n.read).length > 0 &&
-                    selected.size === notifications.filter((n) => !n.read).length
+                    selected.size ===
+                      notifications.filter((n) => !n.read).length
                   }
                   onCheckedChange={toggleAll}
                 />
@@ -275,17 +275,24 @@ export default function NotificationsPage() {
                   )}
                   {notification.read && <div className="w-4" />}
 
-                  <div className="flex-shrink-0 mt-1">{getIcon(notification.type)}</div>
+                  <div className="flex-shrink-0 mt-1">
+                    {getIcon(notification.type)}
+                  </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1">
-                        <p className="font-medium text-sm">{notification.title}</p>
+                        <p className="font-medium text-sm">
+                          {notification.title}
+                        </p>
                         <p className="text-sm text-muted-foreground mt-1">
                           {notification.message}
                         </p>
                       </div>
-                      <Badge variant="outline" className="flex items-center gap-1">
+                      <Badge
+                        variant="outline"
+                        className="flex items-center gap-1"
+                      >
                         {getChannelIcon(notification.channel)}
                         {notification.channel}
                       </Badge>

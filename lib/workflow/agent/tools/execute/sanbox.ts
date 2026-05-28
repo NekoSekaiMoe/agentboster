@@ -2,14 +2,7 @@ import {
   readFile as readLocalFile,
   rm as removeLocalFile,
 } from 'node:fs/promises';
-
-import { serializeToolMessage } from '@/lib/chat/message-utils';
 import { put } from '@/lib/core/blob';
-import {
-  getSession,
-  updateSession,
-  upsertPersistedMessage,
-} from '@/lib/core/db/chat';
 import { createFileRecord } from '@/lib/core/db/files';
 import {
   downloadSandboxFileAction,
@@ -26,6 +19,7 @@ import {
   patchSandboxRuntime,
   truncateStreamOutput,
 } from '@/lib/core/sandbox/runtime';
+import { execToolOnAgentd } from '@/lib/extra/agent/agentd-tools-client';
 import { approvalHookBuilder } from '@/lib/workflow/agent/hooks';
 import { sendApprovalRequestReminderStep } from '@/lib/workflow/agent/sender/bots';
 import {
@@ -33,15 +27,10 @@ import {
   writeToolApprovalRequest,
   writeToolOutputDenied,
 } from '@/lib/workflow/agent/sender/writers';
-import {
-  getChatSourceFromSessionMetadata,
-  isImChatSource,
-} from '@/types/workflow';
 import { tool } from 'ai';
 import { z } from 'zod';
+import { isAgentdAvailable } from '../../dispatch';
 import { defineBuildInTool } from '../define';
-import { isAgentdAvailable, selectBestNode } from '../../dispatch';
-import { execToolOnAgentd } from '@/lib/extra/agent/agentd-tools-client';
 
 const execInputSchema = z.object({
   command: z.string().min(1),
@@ -158,22 +147,31 @@ async function execOnAgentd(
     if (!available) {
       if (!fallbackNotified) {
         fallbackNotified = true;
-        console.warn('[sandbox] Agent Daemon offline, using Vercel Sandbox fallback');
+        console.warn(
+          '[sandbox] Agent Daemon offline, using Vercel Sandbox fallback',
+        );
       }
       return null;
     }
     return await execToolOnAgentd(sessionId, toolName, toolInput);
   } catch (error) {
-    console.warn('[sandbox] Agent Daemon exec failed, falling back to Vercel Sandbox', {
-      sessionId,
-      toolName,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.warn(
+      '[sandbox] Agent Daemon exec failed, falling back to Vercel Sandbox',
+      {
+        sessionId,
+        toolName,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
     return null;
   }
 }
 
-function parseAgentdResult(raw: string): { stdout: string; stderr: string; exitCode: number } {
+function parseAgentdResult(raw: string): {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+} {
   try {
     const parsed = JSON.parse(raw);
     return {
@@ -374,7 +372,12 @@ async function writeSandboxFileStep(
   const { sessionId, runId, path, content, cwd } = input;
 
   try {
-    const result = await writeSandboxFileAction({ sessionId, path, content, cwd });
+    const result = await writeSandboxFileAction({
+      sessionId,
+      path,
+      content,
+      cwd,
+    });
     return {
       path: result.path,
       bytes: result.bytes,
@@ -535,8 +538,19 @@ export default defineBuildInTool({
         inputSchema: execInputSchema,
         execute: async (input, { toolCallId }) => {
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'exec', toolInput: input });
-            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
+            const approval = await waitForSandboxApproval({
+              sessionId,
+              runId,
+              toolCallId,
+              toolName: 'exec',
+              toolInput: input,
+            });
+            if (!approval.approved)
+              return {
+                approved: false,
+                denied: true,
+                reason: approval.comment,
+              } satisfies SandboxDeniedOutput;
           }
 
           // Try Agent Daemon first
@@ -549,16 +563,43 @@ export default defineBuildInTool({
           });
           if (agentdResult && agentdResult.success) {
             const parsed = parseAgentdResult(agentdResult.data || '');
-            return { kind: 'exec', exitCode: parsed.exitCode, stdout: parsed.stdout, stderr: parsed.stderr, backend: 'agentd' } satisfies SandboxExecOutput;
+            return {
+              kind: 'exec',
+              exitCode: parsed.exitCode,
+              stdout: parsed.stdout,
+              stderr: parsed.stderr,
+              backend: 'agentd',
+            } satisfies SandboxExecOutput;
           }
 
           // Fallback to Vercel Sandbox
-          const fallback = await executeSandboxCommandStep({ sessionId, runId, ...input });
+          const fallback = await executeSandboxCommandStep({
+            sessionId,
+            runId,
+            ...input,
+          });
           if ('cmdId' in fallback && fallback.running) {
-            return { kind: 'running', shellCommand: fallback.shellCommand, cmdId: fallback.cmdId, startedAt: fallback.startedAt, waitTimeoutMs: fallback.waitTimeoutMs, message: fallback.message } satisfies SandboxRunningOutput;
+            return {
+              kind: 'running',
+              shellCommand: fallback.shellCommand,
+              cmdId: fallback.cmdId,
+              startedAt: fallback.startedAt,
+              waitTimeoutMs: fallback.waitTimeoutMs,
+              message: fallback.message,
+            } satisfies SandboxRunningOutput;
           }
-          const execFallback = fallback as { exitCode: number; stdout: string; stderr: string };
-          return { kind: 'exec', exitCode: execFallback.exitCode, stdout: execFallback.stdout, stderr: execFallback.stderr, backend: 'vercel-fallback' } satisfies SandboxExecOutput;
+          const execFallback = fallback as {
+            exitCode: number;
+            stdout: string;
+            stderr: string;
+          };
+          return {
+            kind: 'exec',
+            exitCode: execFallback.exitCode,
+            stdout: execFallback.stdout,
+            stderr: execFallback.stderr,
+            backend: 'vercel-fallback',
+          } satisfies SandboxExecOutput;
         },
       }),
 
@@ -568,17 +609,45 @@ export default defineBuildInTool({
         inputSchema: readFileInputSchema,
         execute: async (input, { toolCallId }) => {
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'readFile', toolInput: input });
-            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
+            const approval = await waitForSandboxApproval({
+              sessionId,
+              runId,
+              toolCallId,
+              toolName: 'readFile',
+              toolInput: input,
+            });
+            if (!approval.approved)
+              return {
+                approved: false,
+                denied: true,
+                reason: approval.comment,
+              } satisfies SandboxDeniedOutput;
           }
 
-          const agentdResult = await execOnAgentd(sessionId, 'read', { path: input.path, cwd: input.cwd });
+          const agentdResult = await execOnAgentd(sessionId, 'read', {
+            path: input.path,
+            cwd: input.cwd,
+          });
           if (agentdResult && agentdResult.success) {
-            return { kind: 'read', path: input.path, content: agentdResult.data || '', backend: 'agentd' } satisfies SandboxReadOutput;
+            return {
+              kind: 'read',
+              path: input.path,
+              content: agentdResult.data || '',
+              backend: 'agentd',
+            } satisfies SandboxReadOutput;
           }
 
-          const fallback = await readSandboxFileStep({ sessionId, runId, ...input });
-          return { kind: 'read', path: fallback.path, content: fallback.content, backend: 'vercel-fallback' } satisfies SandboxReadOutput;
+          const fallback = await readSandboxFileStep({
+            sessionId,
+            runId,
+            ...input,
+          });
+          return {
+            kind: 'read',
+            path: fallback.path,
+            content: fallback.content,
+            backend: 'vercel-fallback',
+          } satisfies SandboxReadOutput;
         },
       }),
 
@@ -588,17 +657,46 @@ export default defineBuildInTool({
         inputSchema: writeFileInputSchema,
         execute: async (input, { toolCallId }) => {
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'writeFile', toolInput: input });
-            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
+            const approval = await waitForSandboxApproval({
+              sessionId,
+              runId,
+              toolCallId,
+              toolName: 'writeFile',
+              toolInput: input,
+            });
+            if (!approval.approved)
+              return {
+                approved: false,
+                denied: true,
+                reason: approval.comment,
+              } satisfies SandboxDeniedOutput;
           }
 
-          const agentdResult = await execOnAgentd(sessionId, 'write', { path: input.path, content: input.content, cwd: input.cwd });
+          const agentdResult = await execOnAgentd(sessionId, 'write', {
+            path: input.path,
+            content: input.content,
+            cwd: input.cwd,
+          });
           if (agentdResult && agentdResult.success) {
-            return { kind: 'write', path: input.path, bytes: Buffer.byteLength(input.content), backend: 'agentd' } satisfies SandboxWriteOutput;
+            return {
+              kind: 'write',
+              path: input.path,
+              bytes: Buffer.byteLength(input.content),
+              backend: 'agentd',
+            } satisfies SandboxWriteOutput;
           }
 
-          const fallback = await writeSandboxFileStep({ sessionId, runId, ...input });
-          return { kind: 'write', path: fallback.path, bytes: fallback.bytes, backend: 'vercel-fallback' } satisfies SandboxWriteOutput;
+          const fallback = await writeSandboxFileStep({
+            sessionId,
+            runId,
+            ...input,
+          });
+          return {
+            kind: 'write',
+            path: fallback.path,
+            bytes: fallback.bytes,
+            backend: 'vercel-fallback',
+          } satisfies SandboxWriteOutput;
         },
       }),
 
@@ -608,13 +706,34 @@ export default defineBuildInTool({
         inputSchema: publicPortInputSchema,
         execute: async (input, { toolCallId }) => {
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'openPort', toolInput: input });
-            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
+            const approval = await waitForSandboxApproval({
+              sessionId,
+              runId,
+              toolCallId,
+              toolName: 'openPort',
+              toolInput: input,
+            });
+            if (!approval.approved)
+              return {
+                approved: false,
+                denied: true,
+                reason: approval.comment,
+              } satisfies SandboxDeniedOutput;
           }
 
           // Port resolution is always Vercel Sandbox (Agent Daemon doesn't expose ports)
-          const result = await resolveSandboxPublicPortStep({ sessionId, runId, ...input });
-          return { kind: 'port', port: result.port, url: result.url, publicPorts: result.publicPorts, backend: 'vercel-fallback' } satisfies SandboxPortOutput;
+          const result = await resolveSandboxPublicPortStep({
+            sessionId,
+            runId,
+            ...input,
+          });
+          return {
+            kind: 'port',
+            port: result.port,
+            url: result.url,
+            publicPorts: result.publicPorts,
+            backend: 'vercel-fallback',
+          } satisfies SandboxPortOutput;
         },
       }),
 
@@ -624,13 +743,35 @@ export default defineBuildInTool({
         inputSchema: exportFileInputSchema,
         execute: async (input, { toolCallId }) => {
           if (requiresApproval) {
-            const approval = await waitForSandboxApproval({ sessionId, runId, toolCallId, toolName: 'downloadFile', toolInput: input });
-            if (!approval.approved) return { approved: false, denied: true, reason: approval.comment } satisfies SandboxDeniedOutput;
+            const approval = await waitForSandboxApproval({
+              sessionId,
+              runId,
+              toolCallId,
+              toolName: 'downloadFile',
+              toolInput: input,
+            });
+            if (!approval.approved)
+              return {
+                approved: false,
+                denied: true,
+                reason: approval.comment,
+              } satisfies SandboxDeniedOutput;
           }
 
           // File export is always Vercel Sandbox
-          const result = await exportSandboxFileStep({ sessionId, runId, ...input });
-          return { kind: 'export', sourcePath: result.sourcePath, fileName: result.fileName, url: result.url, size: result.size, backend: 'vercel-fallback' } satisfies SandboxExportOutput;
+          const result = await exportSandboxFileStep({
+            sessionId,
+            runId,
+            ...input,
+          });
+          return {
+            kind: 'export',
+            sourcePath: result.sourcePath,
+            fileName: result.fileName,
+            url: result.url,
+            size: result.size,
+            backend: 'vercel-fallback',
+          } satisfies SandboxExportOutput;
         },
       }),
     };

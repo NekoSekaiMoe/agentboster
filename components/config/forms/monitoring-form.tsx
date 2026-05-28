@@ -98,9 +98,7 @@ export function MonitoringForm() {
             <div className="text-2xl font-bold">
               {metrics?.activeSandboxes ?? 0}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Currently running
-            </p>
+            <p className="text-xs text-muted-foreground">Currently running</p>
           </CardContent>
         </Card>
 
@@ -130,9 +128,7 @@ export function MonitoringForm() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Success Rate
-            </CardTitle>
+            <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -142,7 +138,8 @@ export function MonitoringForm() {
                 : '0%'}
             </div>
             <p className="text-xs text-muted-foreground">
-              {metrics?.completedTasks ?? 0} completed, {metrics?.failedTasks ?? 0} failed
+              {metrics?.completedTasks ?? 0} completed,{' '}
+              {metrics?.failedTasks ?? 0} failed
             </p>
           </CardContent>
         </Card>
@@ -166,7 +163,9 @@ export function MonitoringForm() {
                     {node.hostname}
                   </CardTitle>
                   <Badge
-                    variant={node.status === 'online' ? 'default' : 'destructive'}
+                    variant={
+                      node.status === 'online' ? 'default' : 'destructive'
+                    }
                     className="gap-1"
                   >
                     {node.status === 'online' ? (
@@ -181,23 +180,35 @@ export function MonitoringForm() {
                   <div className="flex items-center gap-2 text-xs">
                     <Cpu className="h-3 w-3 text-muted-foreground" />
                     <span className="text-muted-foreground">CPU:</span>
-                    <span className="font-medium">{node.cpuUsage.toFixed(1)}%</span>
+                    <span className="font-medium">
+                      {node.cpuUsage != null
+                        ? `${node.cpuUsage.toFixed(1)}%`
+                        : '—'}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <HardDrive className="h-3 w-3 text-muted-foreground" />
                     <span className="text-muted-foreground">Memory:</span>
                     <span className="font-medium">
-                      {node.memoryUsage.toFixed(1)}%
+                      {node.memoryUsage != null
+                        ? `${node.memoryUsage.toFixed(1)}%`
+                        : '—'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <HardDrive className="h-3 w-3 text-muted-foreground" />
                     <span className="text-muted-foreground">Disk:</span>
-                    <span className="font-medium">{node.diskUsage.toFixed(1)}%</span>
+                    <span className="font-medium">
+                      {node.diskUsage != null
+                        ? `${node.diskUsage.toFixed(1)}%`
+                        : '—'}
+                    </span>
                   </div>
                   <div className="text-xs text-muted-foreground pt-2 border-t">
                     Last heartbeat:{' '}
-                    {new Date(node.lastHeartbeat).toLocaleTimeString()}
+                    {node.lastHeartbeat
+                      ? new Date(node.lastHeartbeat).toLocaleTimeString()
+                      : '—'}
                   </div>
                 </CardContent>
               </Card>

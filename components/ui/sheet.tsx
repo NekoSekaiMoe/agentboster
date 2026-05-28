@@ -30,24 +30,21 @@ const SheetOverlay = React.forwardRef<
 ));
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
-const sheetVariants = cva(
-  'fixed z-50 gap-4 bg-background shadow-lg',
-  {
-    variants: {
-      side: {
-        top: 'inset-x-0 top-0 border-b border-border transition-transform duration-200 ease-out data-[state=closed]:-translate-y-full data-[state=open]:translate-y-0',
-        bottom:
-          'inset-x-0 bottom-0 border-t border-border transition-transform duration-200 ease-out data-[state=closed]:translate-y-full data-[state=open]:translate-y-0',
-        left: 'top-10 bottom-0 left-0 w-full max-w-[400px] overflow-hidden border-r border-border transition-transform duration-200 ease-out data-[state=closed]:-translate-x-full data-[state=open]:translate-x-0',
-        right:
-          'top-10 bottom-0 right-0 w-full max-w-[400px] overflow-hidden border-l border-border transition-transform duration-200 ease-out data-[state=closed]:translate-x-full data-[state=open]:translate-x-0',
-      },
-    },
-    defaultVariants: {
-      side: 'right',
+const sheetVariants = cva('fixed z-50 gap-4 bg-background shadow-lg', {
+  variants: {
+    side: {
+      top: 'inset-x-0 top-0 border-b border-border transition-transform duration-200 ease-out data-[state=closed]:-translate-y-full data-[state=open]:translate-y-0',
+      bottom:
+        'inset-x-0 bottom-0 border-t border-border transition-transform duration-200 ease-out data-[state=closed]:translate-y-full data-[state=open]:translate-y-0',
+      left: 'top-10 bottom-0 left-0 w-full max-w-[400px] overflow-hidden border-r border-border transition-transform duration-200 ease-out data-[state=closed]:-translate-x-full data-[state=open]:translate-x-0',
+      right:
+        'top-10 bottom-0 right-0 w-full max-w-[400px] overflow-hidden border-l border-border transition-transform duration-200 ease-out data-[state=closed]:translate-x-full data-[state=open]:translate-x-0',
     },
   },
-);
+  defaultVariants: {
+    side: 'right',
+  },
+});
 
 interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>,
