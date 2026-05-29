@@ -18,7 +18,10 @@ export async function GET(
   }
 
   const status = await getWorkflowStatus(runId);
-  if (!status || !ACTIVE_RUN_STATUSES.has(status)) {
+  const isActive = status && ACTIVE_RUN_STATUSES.has(status);
+  const isCompleted = status === 'completed';
+
+  if (!isActive && !isCompleted) {
     return new Response(null, { status: 204 });
   }
 
