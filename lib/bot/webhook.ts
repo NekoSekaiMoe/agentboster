@@ -45,36 +45,27 @@ export function isValidBotSecret(secret: string): boolean {
 
 export function getAppBaseUrl(): string {
   const vercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  const branchUrl = process.env.VERCEL_BRANCH_URL?.trim();
+  const productionUrl =
+    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim();
 
-  // Production deployment — use production URL
   if (vercelEnv === 'production') {
-    const vercelUrl =
-      process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim();
-    if (vercelUrl) {
-      return normalizeBaseUrl(`https://${vercelUrl}`);
+    const url = productionUrl ?? vercelUrl;
+    if (url) {
+      return normalizeBaseUrl(`https://${url}`);
     }
   }
 
-  // Preview deployment — use branch deployment URL
   if (vercelEnv === 'preview') {
-    const branchUrl = process.env.VERCEL_BRANCH_URL?.trim();
-    if (branchUrl) {
-      return normalizeBaseUrl(`https://${branchUrl}`);
-    }
-    // Fallback: current deployment URL
-    const deploymentUrl = process.env.VERCEL_URL?.trim();
-    if (deploymentUrl) {
-      return normalizeBaseUrl(`https://${deploymentUrl}`);
+    const url = branchUrl ?? vercelUrl;
+    if (url) {
+      return normalizeBaseUrl(`https://${url}`);
     }
   }
 
-  // Development or unrecognized environment
-  if (vercelEnv) {
-    // Running on Vercel but not production/preview (e.g. development on Vercel)
-    const deploymentUrl = process.env.VERCEL_URL?.trim();
-    if (deploymentUrl) {
-      return normalizeBaseUrl(`https://${deploymentUrl}`);
-    }
+  if (vercelUrl) {
+    return normalizeBaseUrl(`https://${vercelUrl}`);
   }
 
   return LOCAL_BASE_URL;
