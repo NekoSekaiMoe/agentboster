@@ -2,6 +2,7 @@ console.log('[api/ai] Module loading...');
 
 import { chatMain } from '@/lib/chat';
 import { createStaticAssistantStream } from '@/lib/chat/stream';
+import { guardWorkflowChunks } from '@/lib/chat/stream-guard';
 import { createLogger } from '@/lib/utils/logger';
 import { getWorkflowRun } from '@/lib/workflow/agent/dispatch';
 import {
@@ -176,7 +177,7 @@ export async function POST(request: Request) {
 
   if (result.kind === 'message') {
     return createUIMessageStreamResponse({
-      stream: result.result.readable,
+      stream: guardWorkflowChunks(result.result.readable),
       headers: {
         'x-session-id': result.result.sessionId,
         'x-workflow-run-id': result.result.runId,
@@ -191,7 +192,7 @@ export async function POST(request: Request) {
     });
 
     return createUIMessageStreamResponse({
-      stream: getWorkflowRun(result.result.runId).readable,
+      stream: guardWorkflowChunks(getWorkflowRun(result.result.runId).readable),
       headers: {
         'x-session-id': result.result.sessionId,
         'x-workflow-run-id': result.result.runId,

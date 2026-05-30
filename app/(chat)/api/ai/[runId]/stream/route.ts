@@ -1,4 +1,5 @@
 import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
+import { guardWorkflowChunks } from '@/lib/chat/stream-guard';
 import { ACTIVE_RUN_STATUSES } from '@/lib/workflow/agent/config';
 import {
   getWorkflowRun,
@@ -26,7 +27,7 @@ export async function GET(
   }
 
   return createUIMessageStreamResponse({
-    stream: getWorkflowRun(runId).readable,
+    stream: guardWorkflowChunks(getWorkflowRun(runId).readable),
     headers: {
       'x-session-id': session.id,
       'x-workflow-run-id': runId,

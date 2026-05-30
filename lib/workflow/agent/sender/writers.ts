@@ -91,10 +91,30 @@ function createWorkflowStatusChunk(input: {
   };
 }
 
+const startedTextParts = new Set<string>();
+const startedReasoningParts = new Set<string>();
+
 async function writeChunk(chunk: WorkflowUIMessageChunk): Promise<void> {
   await enqueueWrite(async () => {
     const writer = getWriter();
     try {
+      // Ensure text-start before text-delta
+      if (chunk.type === 'text-start' && chunk.id) {
+        startedTextParts.add(chunk.id);
+      } else if (chunk.type === 'text-delta' && chunk.id) {
+        if (!startedTextParts.has(chunk.id)) {
+          startedTextParts.add(chunk.id);
+          await writer.write({ type: 'text-start', id: chunk.id });
+        }
+      } else if (chunk.type === 'reasoning-start' && chunk.id) {
+        startedReasoningParts.add(chunk.id);
+      } else if (chunk.type === 'reasoning-delta' && chunk.id) {
+        if (!startedReasoningParts.has(chunk.id)) {
+          startedReasoningParts.add(chunk.id);
+          await writer.write({ type: 'reasoning-start', id: chunk.id });
+        }
+      }
+
       await writer.write(chunk);
     } finally {
       writer.releaseLock();
@@ -110,41 +130,7 @@ export function withWritableScope<T>(
 }
 
 export function createWritable(): WritableStream<WorkflowUIMessageChunk> {
-  const startedTextParts = new Set<string>();
-  const startedReasoningParts = new Set<string>();
-
-  return new WritableStream<WorkflowUIMessageChunk>({
-    write: async (chunk) => {
-      await enqueueWrite(async () => {
-        const writer = getWriter();
-        try {
-          if (chunk.type === 'text-start' && chunk.id) {
-            startedTextParts.add(chunk.id);
-          } else if (chunk.type === 'text-delta' && chunk.id) {
-            if (!startedTextParts.has(chunk.id)) {
-              startedTextParts.add(chunk.id);
-              await writer.write({ type: 'text-start', id: chunk.id });
-            }
-          } else if (chunk.type === 'text-end' && chunk.id) {
-            startedTextParts.delete(chunk.id);
-          } else if (chunk.type === 'reasoning-start' && chunk.id) {
-            startedReasoningParts.add(chunk.id);
-          } else if (chunk.type === 'reasoning-delta' && chunk.id) {
-            if (!startedReasoningParts.has(chunk.id)) {
-              startedReasoningParts.add(chunk.id);
-              await writer.write({ type: 'reasoning-start', id: chunk.id });
-            }
-          } else if (chunk.type === 'reasoning-end' && chunk.id) {
-            startedReasoningParts.delete(chunk.id);
-          }
-
-          await writer.write(chunk);
-        } finally {
-          writer.releaseLock();
-        }
-      });
-    },
-  });
+  return getWritable<WorkflowUIMessageChunk>();
 }
 
 export async function writeUserMessageMarker(
@@ -285,13 +271,11 @@ export async function writeStepEvent(input: {
 export async function writeStreamClose(): Promise<void> {
   'use step';
 
-  await enqueueWrite(async () => {
-    const writer = getWriter();
-    try {
-      await writer.write({ type: 'finish', finishReason: 'stop' });
-      await writer.close();
-    } finally {
-      writer.releaseLock();
-    }
-  });
+  const writer = getWriter();
+  try {
+    await writer.write({ type: 'finish', finishReason: 'stop' });
+    await writer.close();
+  } finally {
+    writer.releaseLock();
+  }
 }

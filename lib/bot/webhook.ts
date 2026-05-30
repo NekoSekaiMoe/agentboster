@@ -7,7 +7,8 @@ function normalizeBaseUrl(baseUrl: string): string {
 }
 
 export function isProductionDeployment(): boolean {
-  const vercelEnvironment = process.env.NEXT_PUBLIC_VERCEL_ENV;
+  const vercelEnvironment =
+    process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.VERCEL_ENV;
 
   if (vercelEnvironment) {
     return vercelEnvironment === 'production';
@@ -44,11 +45,13 @@ export function isValidBotSecret(secret: string): boolean {
 }
 
 export function getAppBaseUrl(): string {
-  const vercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
+  const vercelEnv =
+    process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.VERCEL_ENV;
   const vercelUrl = process.env.VERCEL_URL?.trim();
   const branchUrl = process.env.VERCEL_BRANCH_URL?.trim();
   const productionUrl =
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim();
+    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim() ??
+    process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
 
   if (vercelEnv === 'production') {
     const url = productionUrl ?? vercelUrl;
