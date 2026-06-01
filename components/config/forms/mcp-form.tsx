@@ -32,6 +32,33 @@ import {
   createKeyValueEntries,
 } from './shared';
 
+const builtinServers = [
+  {
+    name: 'web',
+    description: 'Search the web and fetch URL content.',
+    tools: 'web_search, fetch_url',
+    requirements: 'No required API key for basic fetch/search.',
+  },
+  {
+    name: 'firecrawl',
+    description: 'Scrape and extract web pages with Firecrawl.',
+    tools: 'firecrawl_scrape',
+    requirements: 'Requires FIRECRAWL_API_KEY.',
+  },
+  {
+    name: 'github',
+    description: 'Inspect repositories and manage GitHub issues/PRs.',
+    tools: 'github_get_repository, github_search_issues, github_create_issue, github_update_issue, github_create_pull_request',
+    requirements: 'GITHUB_TOKEN is optional for reads and required for mutations.',
+  },
+  {
+    name: 'context7',
+    description: 'Search project documentation through Context7.',
+    tools: 'context7_search_docs',
+    requirements: 'Uses context7.json bundled with this project.',
+  },
+];
+
 export function McpForm() {
   const { issues, value, updateValue } = useConfigSection('mcp');
   const servers = (value ?? {}) as MCPRemoteServersConfig;
@@ -62,9 +89,39 @@ export function McpForm() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-base">Remote servers</CardTitle>
+          <CardTitle className="text-base">Built-in servers</CardTitle>
           <CardDescription>
-            Configure HTTP or SSE endpoints plus optional request headers.
+            AgentBoster automatically exposes these MCP servers to agents.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2">
+          {builtinServers.map((server) => (
+            <div key={server.name} className="rounded-2xl border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-medium">{server.name}</h3>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                  Enabled
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {server.description}
+              </p>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Tools: {server.tools}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {server.requirements}
+              </p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardHeader>
+          <CardTitle className="text-base">Custom remote servers</CardTitle>
+          <CardDescription>
+            Add extra HTTP or SSE MCP endpoints plus optional request headers.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -1,3 +1,4 @@
+import { getBuiltinMcpServers } from '@/lib/mcp/builtin';
 import { createLogger } from '@/lib/utils/logger';
 import type { MCPRemoteServersConfig } from '@/types/config/mcp';
 import { createMCPClient } from '@ai-sdk/mcp';
@@ -8,6 +9,7 @@ type MCPToolDescriptor = {
   key: string;
   serverName: string;
   toolName: string;
+  builtin?: boolean;
   title?: string | undefined;
   description?: string | undefined;
   inputSchema: Record<string, unknown>;
@@ -106,6 +108,42 @@ export async function listMCPToolDescriptors(
   return descriptors;
 }
 
+async function listBuiltinMCPToolDescriptors(
+  baseName: string,
+): Promise<MCPToolDescriptor[]> {
+  'use step';
+
+  const descriptors: MCPToolDescriptor[] = [];
+  const serverEntries = Object.entries(getBuiltinMcpServers());
+
+  for (const [serverName, serverConfig] of serverEntries) {
+    const client = await createMCPClient({
+      transport: serverConfig.transport,
+      clientName: 'agentboster-builtin-mcp-client',
+    });
+
+    try {
+      const definitions = await client.listTools();
+
+      for (const tool of definitions.tools) {
+        descriptors.push({
+          key: buildMCPToolKey(baseName, `builtin_${serverName}`, tool.name),
+          serverName,
+          toolName: tool.name,
+          builtin: true,
+          title: tool.title ?? tool.annotations?.title,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+        });
+      }
+    } finally {
+      await client.close();
+    }
+  }
+
+  return descriptors;
+}
+
 export async function executeMCPTool(input: {
   config: MCPRemoteServersConfig;
   serverName: string;
@@ -150,6 +188,46 @@ export async function executeMCPTool(input: {
   }
 }
 
+async function executeBuiltinMCPTool(input: {
+  serverName: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}): Promise<unknown> {
+  'use step';
+
+  const serverConfig = getBuiltinMcpServers()[
+    input.serverName as keyof ReturnType<typeof getBuiltinMcpServers>
+  ];
+
+  if (!serverConfig) {
+    throw new Error(`Builtin MCP server "${input.serverName}" not found`);
+  }
+
+  const client = await createMCPClient({
+    transport: serverConfig.transport,
+    clientName: 'agentboster-builtin-mcp-client',
+  });
+
+  try {
+    const definitions = await client.listTools();
+    const tools = client.toolsFromDefinitions(definitions);
+    const tool = tools[input.toolName];
+
+    if (!tool?.execute) {
+      throw new Error(
+        `Builtin MCP tool "${input.toolName}" not found on server "${input.serverName}"`,
+      );
+    }
+
+    return await tool.execute(input.args, {
+      toolCallId: `builtin:${input.serverName}:${input.toolName}`,
+      messages: [],
+    });
+  } finally {
+    await client.close();
+  }
+}
+
 export async function getMCPTools(
   config: MCPRemoteServersConfig | undefined,
   baseName = 'MCP',
@@ -159,11 +237,11 @@ export async function getMCPTools(
   },
   appConfig?: import('@/types/config').AppConfig,
 ): Promise<ToolSet> {
-  if (!config || Object.keys(config).length === 0) {
-    return {};
-  }
-
-  const toolDescriptors = await listMCPToolDescriptors(config, baseName);
+  const [builtinToolDescriptors, remoteToolDescriptors] = await Promise.all([
+    listBuiltinMCPToolDescriptors(baseName),
+    listMCPToolDescriptors(config ?? {}, baseName),
+  ]);
+  const toolDescriptors = [...builtinToolDescriptors, ...remoteToolDescriptors];
   const allTools: ToolSet = {};
 
   const secCtx = appConfig
@@ -184,17 +262,27 @@ export async function getMCPTools(
           `Execute MCP tool "${descriptor.toolName}" from server "${descriptor.serverName}"`,
         inputSchema: createMCPInputSchema(descriptor.inputSchema),
         execute: async (input) => {
+          const args =
+            typeof input === 'object' &&
+            input !== null &&
+            !Array.isArray(input)
+              ? (input as Record<string, unknown>)
+              : {};
+
+          if (descriptor.builtin) {
+            return await executeBuiltinMCPTool({
+              serverName: descriptor.serverName,
+              toolName: descriptor.toolName,
+              args,
+            });
+          }
+
           return await executeMCPTool({
             config,
             serverName: descriptor.serverName,
             toolName: descriptor.toolName,
             toolKey: descriptor.key,
-            args:
-              typeof input === 'object' &&
-              input !== null &&
-              !Array.isArray(input)
-                ? (input as Record<string, unknown>)
-                : {},
+            args,
           });
         },
       }),

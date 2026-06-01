@@ -107,6 +107,15 @@ export async function buildSystemPrompt(
 
       skillsList.join('\n'),
     ]),
+
+    createSubsection('Builtin MCP Tools', [
+      'Use builtin MCP tools for live information, web content, documentation lookup, and repository operations.',
+      'Use `web_search` for current public web search and `fetch_url` for reading URL content.',
+      'Use `firecrawl_scrape` when a page needs cleaner extraction or heavier rendering support. It requires `FIRECRAWL_API_KEY`.',
+      'Use GitHub tools for repository metadata, issue management, and pull request creation. Mutating operations require `GITHUB_TOKEN`.',
+      'Use `context7_search_docs` for project documentation and contextual code guidance.',
+      'When relevant builtin MCP tools are available, do not claim that you cannot access live information or browse the web.',
+    ]),
   ]);
 
   sections.push(summarySection);
