@@ -219,7 +219,7 @@ const Sidebar = React.forwardRef<
             <SheetContent
               data-sidebar="sidebar"
               data-mobile="true"
-              className="p-0 text-sidebar-foreground [&>button]:hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+              className="p-0 text-sidebar-foreground [&>button]:hidden pb-[env(safe-area-inset-bottom)]"
               side={side}
             >
               <div className="flex h-full w-full flex-col">{children}</div>

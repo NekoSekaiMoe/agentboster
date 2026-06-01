@@ -21,7 +21,7 @@ const SheetOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Overlay
     className={cn(
-      'fixed inset-x-0 top-0 bottom-0 z-40 transition-opacity duration-200 data-[state=open]:opacity-100 data-[state=closed]:opacity-0',
+      'fixed inset-0 z-40 bg-black/40 transition-opacity duration-200 data-[state=open]:opacity-100 data-[state=closed]:opacity-0',
       className,
     )}
     {...props}
@@ -36,9 +36,9 @@ const sheetVariants = cva('fixed z-50 gap-4 bg-background shadow-lg', {
       top: 'inset-x-0 top-0 border-b border-border transition-transform duration-200 ease-out data-[state=closed]:-translate-y-full data-[state=open]:translate-y-0',
       bottom:
         'inset-x-0 bottom-0 border-t border-border transition-transform duration-200 ease-out data-[state=closed]:translate-y-full data-[state=open]:translate-y-0',
-      left: 'top-10 bottom-0 left-0 w-full max-w-[400px] overflow-hidden border-r border-border transition-transform duration-200 ease-out data-[state=closed]:-translate-x-full data-[state=open]:translate-x-0',
+      left: 'inset-y-0 left-0 w-full max-w-[400px] overflow-hidden border-r border-border transition-transform duration-200 ease-out data-[state=closed]:-translate-x-full data-[state=open]:translate-x-0',
       right:
-        'top-10 bottom-0 right-0 w-full max-w-[400px] overflow-hidden border-l border-border transition-transform duration-200 ease-out data-[state=closed]:translate-x-full data-[state=open]:translate-x-0',
+        'inset-y-0 right-0 w-full max-w-[400px] overflow-hidden border-l border-border transition-transform duration-200 ease-out data-[state=closed]:translate-x-full data-[state=open]:translate-x-0',
     },
   },
   defaultVariants: {

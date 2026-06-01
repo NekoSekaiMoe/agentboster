@@ -22,7 +22,7 @@ export function MobileNavWrapper() {
         onClick={() =>
           window.dispatchEvent(new CustomEvent('open-mobile-drawer'))
         }
-        className="fixed top-3 left-3 z-30 p-2 rounded-md bg-background/80 backdrop-blur border shadow-sm hover:bg-muted transition-colors md:hidden"
+        className="fixed left-[calc(env(safe-area-inset-left)+0.75rem)] top-[calc(env(safe-area-inset-top)+0.75rem)] z-30 p-2 rounded-md bg-background/80 backdrop-blur border shadow-sm hover:bg-muted transition-colors md:hidden"
         aria-label="Open menu"
       >
         <Menu className="size-5" />
