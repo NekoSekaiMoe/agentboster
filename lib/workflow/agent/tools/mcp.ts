@@ -305,20 +305,25 @@ export async function getMCPTools(
               ? (input as Record<string, unknown>)
               : {};
 
-          if (descriptor.builtin) {
-            return await executeBuiltinMCPTool({
-              serverName: descriptor.serverName,
-              toolName: descriptor.toolName,
-              args,
-            });
-          }
+          const raw =
+            descriptor.builtin
+              ? await executeBuiltinMCPTool({
+                  serverName: descriptor.serverName,
+                  toolName: descriptor.toolName,
+                  args,
+                })
+              : await executeMCPTool({
+                  config: config ?? {},
+                  serverName: descriptor.serverName,
+                  toolName: descriptor.toolName,
+                  toolKey: descriptor.key,
+                  args,
+                });
 
-          return await executeMCPTool({
-            config: config ?? {},
-            serverName: descriptor.serverName,
-            toolName: descriptor.toolName,
-            toolKey: descriptor.key,
-            args,
+          return mcpResultToModelOutput({
+            toolCallId: `${descriptor.serverName}:${descriptor.toolName}`,
+            input,
+            output: raw,
           });
         },
       }),
