@@ -1,7 +1,6 @@
 import { getBuiltinMcpServers } from '@/lib/mcp/builtin';
 import { createLogger } from '@/lib/utils/logger';
 import type { MCPRemoteServersConfig } from '@/types/config/mcp';
-import { createMCPClient } from '@ai-sdk/mcp';
 import { type ToolSet, dynamicTool, jsonSchema } from 'ai';
 import type { ToolResultOutput } from '@ai-sdk/provider-utils';
 import { withToolExecutionLogger } from './define';
@@ -47,6 +46,7 @@ async function listMCPToolDescriptorsForServer(
   serverConfig: MCPRemoteServersConfig[string],
   baseName: string,
 ): Promise<MCPToolDescriptor[]> {
+  const { createMCPClient } = await import('@ai-sdk/mcp');
   const client = await createMCPClient({
     transport: {
       type: serverConfig.type,
@@ -114,6 +114,7 @@ export async function listBuiltinMCPToolDescriptors(
 ): Promise<MCPToolDescriptor[]> {
   'use step';
 
+  const { createMCPClient } = await import('@ai-sdk/mcp');
   const descriptors: MCPToolDescriptor[] = [];
   const serverEntries = Object.entries(getBuiltinMcpServers());
 
@@ -152,11 +153,14 @@ export async function executeMCPTool(input: {
   toolKey?: string;
   args: Record<string, unknown>;
 }): Promise<unknown> {
+  'use step';
+
   const serverConfig = input.config[input.serverName];
   if (!serverConfig) {
     throw new Error(`MCP server "${input.serverName}" not found`);
   }
 
+  const { createMCPClient } = await import('@ai-sdk/mcp');
   const client = await createMCPClient({
     transport: {
       type: serverConfig.type,
@@ -192,6 +196,8 @@ async function executeBuiltinMCPTool(input: {
   toolName: string;
   args: Record<string, unknown>;
 }): Promise<unknown> {
+  'use step';
+
   const serverConfig = getBuiltinMcpServers()[
     input.serverName as keyof ReturnType<typeof getBuiltinMcpServers>
   ];
@@ -200,6 +206,7 @@ async function executeBuiltinMCPTool(input: {
     throw new Error(`Builtin MCP server "${input.serverName}" not found`);
   }
 
+  const { createMCPClient } = await import('@ai-sdk/mcp');
   const client = await createMCPClient({
     transport: serverConfig.transport,
     clientName: 'agentboster-builtin-mcp-client',
