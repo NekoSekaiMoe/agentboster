@@ -1,5 +1,5 @@
 import { routeAdapterMessage } from '@/lib/chat/index';
-import { get } from '@/lib/core/kv';
+import { get, set } from '@/lib/core/kv';
 import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName, ChannelsConfig } from '@/types/config/channels';
 import type { UserMessagePart } from '@/types/workflow';
@@ -149,17 +149,18 @@ export async function getBot(): Promise<Chat> {
     });
   }
 
-  const handledMessages = new Set<string>();
-
   function dedupKey(thread: { id: string }, message: IncomingMessage): string {
-    return `${thread.id}:${message.author?.userId ?? ''}:${message.text ?? ''}`;
+    return `bot:dedup:${thread.id}:${message.author?.userId ?? ''}:${message.text ?? ''}`;
+  }
+
+  async function tryAcquireDedup(key: string): Promise<boolean> {
+    const result = await set(key, '1', { ex: 30, nx: true });
+    return result === 'OK';
   }
 
   bot.onNewMention(async (thread, message) => {
     const key = dedupKey(thread, message as IncomingMessage);
-    if (handledMessages.has(key)) return;
-    handledMessages.add(key);
-    setTimeout(() => handledMessages.delete(key), 30_000);
+    if (!(await tryAcquireDedup(key))) return;
     await (thread as IncomingThread).subscribe();
     await handleIncomingMessage(
       thread as IncomingThread,
@@ -169,9 +170,7 @@ export async function getBot(): Promise<Chat> {
 
   bot.onSubscribedMessage(async (thread, message) => {
     const key = dedupKey(thread, message as IncomingMessage);
-    if (handledMessages.has(key)) return;
-    handledMessages.add(key);
-    setTimeout(() => handledMessages.delete(key), 30_000);
+    if (!(await tryAcquireDedup(key))) return;
     await handleIncomingMessage(
       thread as IncomingThread,
       message as IncomingMessage,

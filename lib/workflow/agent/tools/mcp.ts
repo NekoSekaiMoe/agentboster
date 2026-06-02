@@ -152,8 +152,6 @@ export async function executeMCPTool(input: {
   toolKey?: string;
   args: Record<string, unknown>;
 }): Promise<unknown> {
-  'use step';
-
   const serverConfig = input.config[input.serverName];
   if (!serverConfig) {
     throw new Error(`MCP server "${input.serverName}" not found`);
@@ -194,8 +192,6 @@ async function executeBuiltinMCPTool(input: {
   toolName: string;
   args: Record<string, unknown>;
 }): Promise<unknown> {
-  'use step';
-
   const serverConfig = getBuiltinMcpServers()[
     input.serverName as keyof ReturnType<typeof getBuiltinMcpServers>
   ];
@@ -305,26 +301,19 @@ export async function getMCPTools(
               ? (input as Record<string, unknown>)
               : {};
 
-          const raw =
-            descriptor.builtin
-              ? await executeBuiltinMCPTool({
-                  serverName: descriptor.serverName,
-                  toolName: descriptor.toolName,
-                  args,
-                })
-              : await executeMCPTool({
-                  config: config ?? {},
-                  serverName: descriptor.serverName,
-                  toolName: descriptor.toolName,
-                  toolKey: descriptor.key,
-                  args,
-                });
-
-          return mcpResultToModelOutput({
-            toolCallId: `${descriptor.serverName}:${descriptor.toolName}`,
-            input,
-            output: raw,
-          });
+          return descriptor.builtin
+            ? await executeBuiltinMCPTool({
+                serverName: descriptor.serverName,
+                toolName: descriptor.toolName,
+                args,
+              })
+            : await executeMCPTool({
+                config: config ?? {},
+                serverName: descriptor.serverName,
+                toolName: descriptor.toolName,
+                toolKey: descriptor.key,
+                args,
+              });
         },
       }),
       {

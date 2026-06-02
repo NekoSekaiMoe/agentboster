@@ -36,6 +36,7 @@ async function requestGithub(
       ...(init.body ? { 'content-type': 'application/json' } : {}),
       ...init.headers,
     },
+    signal: AbortSignal.timeout(15_000),
   });
 
   const text = await response.text();

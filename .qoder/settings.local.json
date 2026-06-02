@@ -13,7 +13,13 @@
       "Bash(yarn check 2>&1 | tail -5)",
       "Bash(grep -rn \"subscribe\\\\|onNewMention\\\\|onSubscribedMessage\" node_modules/chat/dist/ 2>/dev/null | head -30)",
       "Bash(grep -n \"onNewMention\\\\|onSubscribedMessage\\\\|subscribe\" node_modules/chat/dist/chat-D9UYaaNO.d.ts 2>/dev/null | head -20)",
-      "Bash(yarn check 2>&1 | tail -10)"
+      "Bash(yarn check 2>&1 | tail -10)",
+      "Bash(grep -rn \"export\" lib/core/kv/index.ts 2>/dev/null | head -10)",
+      "Bash(grep -n \"class DurableAgent\" node_modules/@workflow/ai/dist/*.js 2>/dev/null | head -5)",
+      "Bash(ls node_modules/@workflow/ai/ 2>/dev/null && grep -rn \"DurableAgent\" node_modules/@workflow/ai/ 2>/dev/null | head -10)",
+      "Bash(grep -n \"stream\\\\|tool.*call\\\\|execute\\\\|maxSteps\" node_modules/@workflow/ai/dist/agent/index.js 2>/dev/null | head -20)",
+      "Bash(find node_modules/@workflow/ai/dist -name \"*.js\" | head -10 && cat node_modules/@workflow/ai/package.json | grep -E '\"main\"|\"exports\"' | head -5)",
+      "Bash(cd /home/user/repo/agentboster && yarn check 2>&1 | tail -5)"
     ]
   }
 }

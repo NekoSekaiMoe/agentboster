@@ -217,7 +217,6 @@ export async function streamAdapterSourceReply(
                   messageId = posted.id;
                   lastEditedText = fullText.trim();
                   lastEditTime = Date.now();
-                  clearInterval(typingTimer);
                 } else {
                   await tryEditMessage();
                 }
@@ -241,7 +240,6 @@ export async function streamAdapterSourceReply(
             messageId = posted.id;
             lastEditedText = fullText.trim();
             lastEditTime = Date.now();
-            clearInterval(typingTimer);
           } else {
             await tryEditMessage();
           }

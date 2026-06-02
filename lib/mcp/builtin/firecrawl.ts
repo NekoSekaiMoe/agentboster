@@ -64,6 +64,7 @@ export async function executeBuiltinFirecrawlTool(
         'content-type': 'application/json',
       },
       body: JSON.stringify({ url, formats }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     const text = await response.text();

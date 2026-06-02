@@ -49,6 +49,7 @@ export async function executeBuiltinContext7Tool(
           authorization: `Bearer ${context7.public_key}`,
           accept: 'application/json',
         },
+        signal: AbortSignal.timeout(15_000),
       },
     );
 
