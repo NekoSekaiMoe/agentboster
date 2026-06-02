@@ -10,7 +10,10 @@
       "Bash(grep -n \"dynamic\" node_modules/ai/dist/index.js | head -20)",
       "Bash(grep -n \"executeTool\" node_modules/@ai-sdk/provider-utils/dist/index.js | head -10)",
       "Bash(yarn check 2>&1 | tail -15)",
-      "Bash(yarn check 2>&1 | tail -5)"
+      "Bash(yarn check 2>&1 | tail -5)",
+      "Bash(grep -rn \"subscribe\\\\|onNewMention\\\\|onSubscribedMessage\" node_modules/chat/dist/ 2>/dev/null | head -30)",
+      "Bash(grep -n \"onNewMention\\\\|onSubscribedMessage\\\\|subscribe\" node_modules/chat/dist/chat-D9UYaaNO.d.ts 2>/dev/null | head -20)",
+      "Bash(yarn check 2>&1 | tail -10)"
     ]
   }
 }

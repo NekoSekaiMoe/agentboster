@@ -167,6 +167,37 @@ export async function registerTelegramWebhook(
   }
 }
 
+const TELEGRAM_BOT_COMMANDS = [
+  { command: 'help', description: 'Show available commands' },
+  { command: 'new', description: 'Start a new session' },
+  { command: 'status', description: 'Show current session status' },
+  { command: 'stop', description: 'Stop the active run' },
+  { command: 'compact', description: 'Compact conversation context' },
+  { command: 'model', description: 'Show current model config' },
+];
+
+export async function registerTelegramCommands(
+  token: string,
+): Promise<void> {
+  try {
+    const apiUrl = `https://api.telegram.org/bot${token}/setMyCommands`;
+    const resp = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commands: TELEGRAM_BOT_COMMANDS }),
+    });
+    const data = (await resp.json()) as { ok: boolean; description?: string };
+    if (!data.ok) {
+      console.warn('[registerTelegramCommands] failed:', data.description);
+    }
+  } catch (error) {
+    console.warn(
+      '[registerTelegramCommands] error:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 export async function registerChannelWebhooks(
   channels: ChannelsConfig | undefined,
 ): Promise<WebhookRegistrationResult[]> {
@@ -193,6 +224,9 @@ export async function registerChannelWebhooks(
         channels.telegram.secret_token || undefined,
       );
       results.push(result);
+      if (result.ok) {
+        await registerTelegramCommands(channels.telegram.bot_token);
+      }
     }
   }
 

@@ -160,6 +160,7 @@ export async function getBot(): Promise<Chat> {
     if (handledMessages.has(key)) return;
     handledMessages.add(key);
     setTimeout(() => handledMessages.delete(key), 30_000);
+    await (thread as IncomingThread).subscribe();
     await handleIncomingMessage(
       thread as IncomingThread,
       message as IncomingMessage,
