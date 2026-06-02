@@ -14,16 +14,19 @@ async function handleChatSdkWebhook(
 ): Promise<Response> {
   try {
     const bot = await getBot();
-    const adapterInstance = bot.getAdapter(adapterName);
 
-    if (!adapterInstance) {
+    // Use chat.webhooks[adapterName] instead of bot.getAdapter().handleWebhook()
+    // to ensure Chat.ensureInitialized() runs first (sets adapter.chat reference).
+    // Without this, adapters reject webhooks with "Chat instance not initialized".
+    const webhookHandler = bot.webhooks[adapterName as keyof typeof bot.webhooks];
+    if (!webhookHandler) {
       return NextResponse.json(
         { error: `Adapter ${adapterName} not configured or enabled` },
         { status: 404 },
       );
     }
 
-    const result = await adapterInstance.handleWebhook?.(request, {
+    const result = await webhookHandler(request, {
       waitUntil: (p) => after(() => p),
     });
 
