@@ -410,6 +410,14 @@ async function replyToAdapterCommandResult(
   dispatched: DispatchChatInputResult,
   source: Extract<ChatSource, { type: 'im' }>,
 ): Promise<void> {
+  if (dispatched.kind === 'message') {
+    const text = await readTextFromReadableStream(
+      dispatched.result.readable,
+    );
+    await sendAdapterSourceReply(source, text);
+    return;
+  }
+
   if (dispatched.kind !== 'command') {
     return;
   }

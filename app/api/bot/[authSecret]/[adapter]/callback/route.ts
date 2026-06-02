@@ -3,6 +3,7 @@ import { getBot } from '@/lib/bot/index';
 import { isValidBotSecret } from '@/lib/bot/webhook';
 import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName } from '@/types/config/channels';
+import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 const CHAT_SDK_ADAPTERS = ['slack', 'teams', 'gchat', 'telegram', 'discord'];
@@ -22,7 +23,9 @@ async function handleChatSdkWebhook(
       );
     }
 
-    const result = await adapterInstance.handleWebhook?.(request);
+    const result = await adapterInstance.handleWebhook?.(request, {
+      waitUntil: (p) => after(() => p),
+    });
 
     if (result instanceof Response) {
       return result;
