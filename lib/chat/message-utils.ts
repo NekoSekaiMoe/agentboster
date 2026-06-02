@@ -1,7 +1,6 @@
 import type {
   LanguageModelV3FilePart,
   LanguageModelV3Prompt,
-  LanguageModelV3ReasoningPart,
   LanguageModelV3TextPart,
 } from '@ai-sdk/provider';
 import type { DynamicToolUIPart, ModelMessage } from 'ai';
@@ -862,7 +861,7 @@ function toAssistantPromptContent(
     }
 
     if (part.type === 'reasoning') {
-      content.push(buildReasoningPromptPart(part.text));
+      // Skip on replay: DeepSeek rejects reasoning_content on input with 400.
       continue;
     }
 
@@ -918,13 +917,6 @@ function toToolPromptContent(
 function buildTextPromptPart(text: string): LanguageModelV3TextPart {
   return {
     type: 'text',
-    text,
-  };
-}
-
-function buildReasoningPromptPart(text: string): LanguageModelV3ReasoningPart {
-  return {
-    type: 'reasoning',
     text,
   };
 }
