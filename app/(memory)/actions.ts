@@ -1,9 +1,11 @@
 'use server';
 
 import { readAuthSessionFromCookies } from '@/lib/auth';
+import { db, schema } from '@/lib/core/db';
 import {
   createLongTermMemory,
   deleteLongTermMemory,
+  getBuiltinMemorySection,
   listBuiltinMemorySections,
   listLongTermMemories,
   listSessionSummaries,
@@ -15,6 +17,8 @@ import {
   sessionMemoryQuerySchema,
   updateBuiltinMemorySchema,
 } from '@/types/memory';
+import { SOUL_MEMORY_MAX_LENGTH } from '@/types/memory/builtin';
+import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 
 export type BuiltinMemorySectionRecord = {
@@ -147,4 +151,60 @@ export async function listSessionSummariesAction(input: { sessionId: string }) {
       createdAt: summary.createdAt.toISOString(),
     })) satisfies SessionSummaryRecord[],
   };
+}
+
+export async function getSessionSoulAction(sessionId: string) {
+  await requireAuth();
+
+  const sid = sessionId.trim();
+  if (!sid) {
+    throw new Error('Session ID is required');
+  }
+
+  const [session] = await db
+    .select({ soulContent: schema.sessions.soulContent })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, sid))
+    .limit(1);
+
+  if (session?.soulContent) {
+    return { content: session.soulContent, scope: 'session' as const };
+  }
+
+  const section = await getBuiltinMemorySection('SOUL');
+  return { content: section.content, scope: 'global' as const };
+}
+
+export async function setSessionSoulAction(sessionId: string, content: string) {
+  await requireAuth();
+
+  const sid = sessionId.trim();
+  if (!sid) {
+    throw new Error('Session ID is required');
+  }
+
+  const trimmed = content.slice(0, SOUL_MEMORY_MAX_LENGTH);
+
+  await db
+    .update(schema.sessions)
+    .set({ soulContent: trimmed })
+    .where(eq(schema.sessions.id, sid));
+
+  return { ok: true as const, truncated: content.length > SOUL_MEMORY_MAX_LENGTH };
+}
+
+export async function clearSessionSoulAction(sessionId: string) {
+  await requireAuth();
+
+  const sid = sessionId.trim();
+  if (!sid) {
+    throw new Error('Session ID is required');
+  }
+
+  await db
+    .update(schema.sessions)
+    .set({ soulContent: null })
+    .where(eq(schema.sessions.id, sid));
+
+  return { ok: true as const };
 }

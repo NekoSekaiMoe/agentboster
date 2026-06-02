@@ -3,8 +3,8 @@ import { getAppBaseUrl } from '@/lib/bot/webhook';
 import { generateUUID } from '@/lib/utils';
 import type { Metadata } from 'next';
 
-const APP_NAME = 'ClawLess';
-const CHAT_DESCRIPTION = 'Start a new conversation with ClawLess.';
+const APP_NAME = 'AgentBoster';
+const CHAT_DESCRIPTION = 'Start a new conversation with AgentBoster.';
 const APP_BASE_URL = getAppBaseUrl();
 const APP_ICON_URL = `${APP_BASE_URL}/icon.png`;
 
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
         url: APP_ICON_URL,
         width: 512,
         height: 512,
-        alt: 'ClawLess logo',
+        alt: 'AgentBoster logo',
       },
     ],
   },

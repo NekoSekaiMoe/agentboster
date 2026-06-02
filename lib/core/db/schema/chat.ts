@@ -17,6 +17,7 @@ export const sessions = pgTable('sessions', {
   userId: text('user_id'),
   model: text('model'),
   systemPrompt: text('system_prompt'),
+  soulContent: text('soul_content'),
   status: text('status', {
     enum: ['active', 'completed', 'stopped', 'error'],
   })

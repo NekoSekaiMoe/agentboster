@@ -1,6 +1,6 @@
 /**
  * L2 Decision Queue - Manages pending authorization requests
- * Moved from agentd/internal/security/l2_auth to clawless web layer
+ * Moved from agentd/internal/security/l2_auth to agentboster web layer
  */
 
 import { z } from 'zod';

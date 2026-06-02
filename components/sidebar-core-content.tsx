@@ -73,8 +73,8 @@ const navItems = [
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
-const docsUrl = 'https://niapya.github.io/clawless';
-const siteUrl = 'https://github.com/niapya/clawless';
+const docsUrl = 'https://github.com/niapya/agentboster';
+const siteUrl = 'https://github.com/niapya/agentboster';
 
 type SessionStatus =
   | 'idle'
@@ -419,7 +419,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
           className="flex flex-row gap-2 items-center"
         >
           <Logo width={24} height={24} />
-          <span className="text-lg font-semibold">ClawLess</span>
+          <span className="text-lg font-semibold">AgentBoster</span>
         </Link>
         <Button
           variant="ghost"

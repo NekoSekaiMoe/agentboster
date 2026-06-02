@@ -84,7 +84,7 @@
     "vercel": "latest"
   },
   "license": "MIT",
-  "name": "clawless",
+  "name": "agentboster",
   "private": true,
   "scripts": {
     "push": "python3 push.py",

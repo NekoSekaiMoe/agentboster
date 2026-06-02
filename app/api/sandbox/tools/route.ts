@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ ok: false, error: 'url is required' });
         }
         const fetchResult = await fetch(url, {
-          headers: { 'User-Agent': 'ClawLess/1.0' },
+          headers: { 'User-Agent': 'AgentBoster/1.0' },
           signal: AbortSignal.timeout(30000),
         });
         const text = await fetchResult.text();
@@ -248,7 +248,7 @@ export async function POST(request: NextRequest) {
         }
         const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
         const searchResult = await fetch(searchUrl, {
-          headers: { 'User-Agent': 'ClawLess/1.0' },
+          headers: { 'User-Agent': 'AgentBoster/1.0' },
           signal: AbortSignal.timeout(15000),
         });
         const html = await searchResult.text();

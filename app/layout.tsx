@@ -9,9 +9,9 @@ import { getAppBaseUrl } from '@/lib/bot/webhook';
 
 import './globals.css';
 
-const APP_NAME = 'ClawLess';
+const APP_NAME = 'AgentBoster';
 const APP_DESCRIPTION =
-  'ClawLess is a serverless AI agent platform for chat, skills, memory, channels, files, and workflows.';
+  'AgentBoster is a serverless AI agent platform for chat, skills, memory, channels, files, and workflows.';
 
 const APP_BASE_URL = getAppBaseUrl();
 const APP_ICON_URL = `${APP_BASE_URL}/icon.png`;
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   },
   description: APP_DESCRIPTION,
   keywords: [
-    'ClawLess',
+    'AgentBoster',
     'AI agent',
     'Next.js',
     'Vercel',
@@ -35,9 +35,9 @@ export const metadata: Metadata = {
     'channels',
     'workflow',
   ],
-  authors: [{ name: 'ClawLess Team' }],
-  creator: 'ClawLess Team',
-  publisher: 'ClawLess Team',
+  authors: [{ name: 'AgentBoster Team' }],
+  creator: 'AgentBoster Team',
+  publisher: 'AgentBoster Team',
   category: 'technology',
   icons: {
     icon: APP_ICON_URL,
@@ -56,7 +56,7 @@ export const metadata: Metadata = {
         url: APP_ICON_URL,
         width: 512,
         height: 512,
-        alt: 'ClawLess logo',
+        alt: 'AgentBoster logo',
       },
     ],
   },

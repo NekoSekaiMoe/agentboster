@@ -18,6 +18,8 @@ export const BUILTIN_MEMORY_KEYS = [
 
 export const BUILTIN_MEMORY_MAX_LENGTH = 300;
 
+export const SOUL_MEMORY_MAX_LENGTH = 5000;
+
 export const builtinMemorySectionSchema = z.object({
   key: builtinMemoryKeySchema,
   content: z.string(),
@@ -32,8 +34,8 @@ export const updateBuiltinMemorySchema = z.object({
     .string()
     .min(1, 'Content is required')
     .max(
-      BUILTIN_MEMORY_MAX_LENGTH,
-      `Built-in memory content must be at most ${BUILTIN_MEMORY_MAX_LENGTH} characters`,
+      SOUL_MEMORY_MAX_LENGTH,
+      `Built-in memory content must be at most ${SOUL_MEMORY_MAX_LENGTH} characters`,
     ),
 });
 

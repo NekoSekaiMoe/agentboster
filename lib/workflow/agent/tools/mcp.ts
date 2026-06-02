@@ -108,7 +108,7 @@ export async function listMCPToolDescriptors(
   return descriptors;
 }
 
-async function listBuiltinMCPToolDescriptors(
+export async function listBuiltinMCPToolDescriptors(
   baseName: string,
 ): Promise<MCPToolDescriptor[]> {
   'use step';
@@ -127,7 +127,7 @@ async function listBuiltinMCPToolDescriptors(
 
       for (const tool of definitions.tools) {
         descriptors.push({
-          key: buildMCPToolKey(baseName, `builtin_${serverName}`, tool.name),
+          key: tool.name,
           serverName,
           toolName: tool.name,
           builtin: true,
@@ -278,7 +278,7 @@ export async function getMCPTools(
           }
 
           return await executeMCPTool({
-            config,
+            config: config ?? {},
             serverName: descriptor.serverName,
             toolName: descriptor.toolName,
             toolKey: descriptor.key,

@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
     // pending_l2 table. For now, we scan recent tasks with status
     // 'reviewing' which indicates they are awaiting L2 authorization.
     // The agentd daemon persists pending L2 states locally and sends
-    // notifications via the notification API, so ClawLess can also
+    // notifications via the notification API, so AgentBoster can also
     // derive pending L2 state from recent L2 notifications.
 
     return NextResponse.json({

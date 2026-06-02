@@ -394,7 +394,7 @@ export function AgentDConfigPage() {
             <CardTitle>mTLS Certificates</CardTitle>
           </div>
           <CardDescription>
-            Mutual TLS certificates for secure ClawLess ↔ Daemon communication.
+            Mutual TLS certificates for secure AgentBoster ↔ Daemon communication.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -436,7 +436,7 @@ export function AgentDConfigPage() {
               />
             </div>
             <div>
-              <Label>ClawLess API Key</Label>
+              <Label>API Key</Label>
               <Input
                 type="password"
                 value={config.server.clawless_api_key}
@@ -446,7 +446,7 @@ export function AgentDConfigPage() {
                     server: { ...c.server, clawless_api_key: e.target.value },
                   }))
                 }
-                placeholder="sk-clawless-xxx"
+                placeholder="sk-agentboster-xxx"
               />
             </div>
           </div>
@@ -465,20 +465,20 @@ export function AgentDConfigPage() {
         </CardContent>
       </Card>
 
-      {/* ClawLess Connection */}
+      {/* AgentBoster Connection */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <Shield className="h-5 w-5" />
-            <CardTitle>ClawLess Connection</CardTitle>
+            <CardTitle>AgentBoster Connection</CardTitle>
           </div>
           <CardDescription>
-            How the Daemon connects back to ClawLess.
+            How the Daemon connects back to AgentBoster.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label>ClawLess Base URL</Label>
+            <Label>Base URL</Label>
             <Input
               value={config.clawless.base_url}
               onChange={(e) =>
@@ -487,7 +487,7 @@ export function AgentDConfigPage() {
                   clawless: { ...c.clawless, base_url: e.target.value },
                 }))
               }
-              placeholder="https://your-clawless.vercel.app"
+              placeholder="https://your-agentboster.vercel.app"
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

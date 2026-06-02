@@ -11,7 +11,7 @@ A **serverless AI agent platform** in two parts:
 - **`/` (root)** — Next.js 15 web dashboard (Vercel). App Router, RSC, React 19.
 - **`/agentd/`** — Go 1.26 daemon for sandboxed agent execution on a Linux server.
 
-The app is internally named "ClawLess" (see `app/layout.tsx`, `context7.json`, package name).
+The app is internally named "AgentBoster" (see `app/layout.tsx`, package name).
 
 ## Architecture Map
 

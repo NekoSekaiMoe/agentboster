@@ -10,9 +10,9 @@ export type QuickPrompt = {
 
 const quickPrompts: QuickPrompt[] = [
   {
-    title: 'Clawless Startup',
-    description: 'Customize your own ClawLess.',
-    prompt: '帮我配置 ClawLess 的基本设置，包括模型选择和工具权限。',
+    title: 'AgentBoster Startup',
+    description: 'Customize your own AgentBoster.',
+    prompt: '帮我配置 AgentBoster 的基本设置，包括模型选择和工具权限。',
   },
   {
     title: 'Daily Tasks',

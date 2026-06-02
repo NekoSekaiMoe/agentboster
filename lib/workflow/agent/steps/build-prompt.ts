@@ -1,5 +1,6 @@
+import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import { listSkillMetas } from '@/lib/core/kv/skills';
-import { listBuiltinMemorySections } from '@/lib/memory';
+import { getBuiltinMemorySection, listBuiltinMemorySections } from '@/lib/memory';
 import type { AppConfig } from '@/types/config';
 import { BUILTIN_MEMORY_MAX_LENGTH } from '@/types/memory';
 import { DEFAULT_SYSTEM_PROMPT } from '../config';
@@ -11,6 +12,7 @@ export type BuildSystemPromptOptions = {
   delegation?: {
     parentAgentName: string;
   };
+  sessionId?: string;
 };
 
 function createSection(title: string, lines: string[]) {
@@ -19,6 +21,33 @@ function createSection(title: string, lines: string[]) {
 
 function createSubsection(title: string, lines: string[]) {
   return [`## \`${title}\``, ...lines].join('\n\n');
+}
+
+async function buildMCPSubsection(): Promise<string> {
+  const descriptors = await listBuiltinMCPToolDescriptors('MCP');
+
+  if (descriptors.length === 0) {
+    return createSubsection('Builtin MCP Tools', [
+      'No builtin MCP tools are currently available.',
+    ]);
+  }
+
+  const lines: string[] = [
+    'Use builtin MCP tools for live information, web content, documentation lookup, and repository operations.',
+  ];
+
+  const toolDescriptions: string[] = [];
+  for (const d of descriptors) {
+    const desc = d.description || d.toolName;
+    toolDescriptions.push(`- \`${d.toolName}\`: ${desc}`);
+  }
+  lines.push(...toolDescriptions);
+
+  lines.push(
+    'When relevant builtin MCP tools are available, do not claim that you cannot access live information or browse the web.',
+  );
+
+  return createSubsection('Builtin MCP Tools', lines);
 }
 
 export async function buildSystemPrompt(
@@ -38,6 +67,20 @@ export async function buildSystemPrompt(
 
   const builtinSectionsList = await listBuiltinMemorySections();
   const skills = await listSkillMetas();
+
+  // Check for session-level SOUL override
+  let sessionSoulContent: string | null = null;
+  if (options.sessionId) {
+    try {
+      const sessionSoul = await getBuiltinMemorySection('SOUL');
+      // Session SOUL is stored in the session itself; we check if it differs from global
+      // For now, the SOUL section in builtin memories is the source of truth
+      // Session-level override is handled by the caller passing sessionId
+    } catch {
+      // ignore
+    }
+  }
+
   const builtinMemorySections = builtinSectionsList.map((section) =>
     createSection(section.key.toUpperCase(), [
       section.content.trim().length > 0
@@ -68,6 +111,8 @@ export async function buildSystemPrompt(
   const skillsList = skills.map(
     (skill) => `- \`${skill.name}\`: ${skill.description}`,
   );
+
+  const mcpSubsection = await buildMCPSubsection();
 
   const summarySection = createSection('Tool', [
     createSubsection('Runtime', [
@@ -108,14 +153,7 @@ export async function buildSystemPrompt(
       skillsList.join('\n'),
     ]),
 
-    createSubsection('Builtin MCP Tools', [
-      'Use builtin MCP tools for live information, web content, documentation lookup, and repository operations.',
-      'Use `web_search` for current public web search and `fetch_url` for reading URL content.',
-      'Use `firecrawl_scrape` when a page needs cleaner extraction or heavier rendering support. It requires `FIRECRAWL_API_KEY`.',
-      'Use GitHub tools for repository metadata, issue management, and pull request creation. Mutating operations require `GITHUB_TOKEN`.',
-      'Use `context7_search_docs` for project documentation and contextual code guidance.',
-      'When relevant builtin MCP tools are available, do not claim that you cannot access live information or browse the web.',
-    ]),
+    mcpSubsection,
   ]);
 
   sections.push(summarySection);

@@ -298,8 +298,11 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 		return "", fmt.Errorf("session %s not found", sessionID)
 	}
 
-	// Build system prompt with project context
-	agentCtx.SystemPrompt = buildSystemPrompt(agentCtx.ProjectID, "")
+	// Fetch SOUL content for this session
+	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
+
+	// Build system prompt with project context and SOUL
+	agentCtx.SystemPrompt = buildSystemPrompt(agentCtx.ProjectID, "", agentCtx.SoulContent)
 
 	// Create tool registry with all MVP tools
 	registry := NewToolRegistry()
@@ -353,8 +356,9 @@ func (m *Manager) ExecuteTool(ctx context.Context, sessionID, toolName string, t
 		}
 	}
 
-	// Build system prompt and tool registry (reuse same setup as RunAgent)
-	agentCtx.SystemPrompt = buildDefaultSystemPrompt()
+	// Fetch SOUL and build system prompt
+	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
+	agentCtx.SystemPrompt = buildDefaultSystemPrompt(agentCtx.SoulContent)
 	registry := NewToolRegistry()
 	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
 
@@ -483,6 +487,7 @@ func agentContextToData(ctx *AgentContext) *session.SessionData {
 		RecentToolCalls: convertToolRecords(ctx.RecentToolCalls),
 		WorkspaceID:     ctx.WorkspaceID,
 		ProjectID:       ctx.ProjectID,
+		SoulContent:     ctx.SoulContent,
 	}
 }
 
@@ -505,6 +510,7 @@ func dataToAgentContext(data *session.SessionData) *AgentContext {
 		BGTaskStore:     nil,
 		WorkspaceID:     data.WorkspaceID,
 		ProjectID:       data.ProjectID,
+		SoulContent:     data.SoulContent,
 	}
 }
 
@@ -536,8 +542,32 @@ func convertToolRecordsFromSession(records []session.ToolRecord) []ToolCallRecor
 	return result
 }
 
-// buildSystemPrompt generates the agent system prompt with optional project context.
-func buildSystemPrompt(projectID, projectName string) string {
+// fetchSoulContent fetches SOUL content for a session, trying session-specific first, then global.
+func (m *Manager) fetchSoulContent(ctx context.Context, sessionID string) string {
+	if m.clawless == nil {
+		return ""
+	}
+
+	// Try session-specific SOUL first
+	soul, err := m.clawless.GetSessionSoul(ctx, sessionID)
+	if err == nil && soul.Content != "" {
+		slog.Info("loaded session SOUL", "session_id", sessionID, "scope", soul.Scope)
+		return soul.Content
+	}
+
+	// Fall back to global SOUL
+	soul, err = m.clawless.GetSoulContent(ctx)
+	if err == nil && soul.Content != "" {
+		slog.Info("loaded global SOUL")
+		return soul.Content
+	}
+
+	slog.Warn("no SOUL content available", "session_id", sessionID)
+	return ""
+}
+
+// buildSystemPrompt generates the agent system prompt with optional project context and SOUL.
+func buildSystemPrompt(projectID, projectName, soulContent string) string {
 	projectSection := ""
 	if projectID != "" {
 		projectSection = fmt.Sprintf("\n## Current Project\nProject ID: %s", projectID)
@@ -547,9 +577,14 @@ func buildSystemPrompt(projectID, projectName string) string {
 		projectSection += "\n"
 	}
 
+	soulSection := ""
+	if soulContent != "" {
+		soulSection = fmt.Sprintf("\n## SOUL\n%s\n", soulContent)
+	}
+
 	return fmt.Sprintf(`You are AgentBoster, an asynchronous task agent running in a remote Linux sandbox. Users assign tasks via IM, you execute safely in the sandbox, and notify them on completion. You are not a chat AI — you are a productive execution agent.
 
-%s
+%s%s
 ## Language Rule
 - Respond in the same language the user writes in (Chinese → Chinese, English → English, etc.)
 - Keep all internal reasoning, summaries, memory entries, and task summaries in English regardless of the user's language
@@ -622,6 +657,10 @@ When your task produces deliverable files (reports, build artifacts, modified co
 }
 
 // buildDefaultSystemPrompt generates the default system prompt without project context.
-func buildDefaultSystemPrompt() string {
-	return buildSystemPrompt("", "")
+func buildDefaultSystemPrompt(soulContent ...string) string {
+	soul := ""
+	if len(soulContent) > 0 {
+		soul = soulContent[0]
+	}
+	return buildSystemPrompt("", "", soul)
 }

@@ -1,0 +1,58 @@
+/**
+ * Session-level SOUL.md API
+ * Returns the session-specific SOUL content if set, otherwise falls back to global.
+ * Used by agentd to fetch per-session SOUL overrides.
+ */
+
+import { db, schema } from '@/lib/core/db';
+import { getBuiltinMemorySection } from '@/lib/memory';
+import { createLogger } from '@/lib/utils/logger';
+import { eq } from 'drizzle-orm';
+
+const logger = createLogger('api.soul.session');
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ sessionId: string }> },
+) {
+  try {
+    const { sessionId } = await params;
+
+    const [session] = await db
+      .select({ soulContent: schema.sessions.soulContent })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .limit(1);
+
+    if (session?.soulContent) {
+      return Response.json({
+        success: true,
+        data: {
+          content: session.soulContent,
+          scope: 'session' as const,
+        },
+      });
+    }
+
+    const section = await getBuiltinMemorySection('SOUL');
+    return Response.json({
+      success: true,
+      data: {
+        content: section.content,
+        scope: 'global' as const,
+        updatedAt: section.updatedAt,
+      },
+    });
+  } catch (error) {
+    logger.error('failed to get session soul', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return Response.json(
+      {
+        success: false,
+        error: 'Failed to get session SOUL',
+      },
+      { status: 500 },
+    );
+  }
+}

@@ -94,8 +94,8 @@ const navItems = [
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
-const docsUrl = 'https://niapya.github.io/clawless';
-const siteUrl = 'https://github.com/niapya/clawless';
+const docsUrl = 'https://github.com/niapya/agentboster';
+const siteUrl = 'https://github.com/niapya/agentboster';
 
 type SessionStatus =
   | 'idle'
@@ -449,7 +449,7 @@ export function AppSidebar() {
             >
               <Logo width={24} height={24} />
               <span className="text-lg font-semibold hover:bg-muted rounded-md cursor-pointer">
-                ClawLess
+                AgentBoster
               </span>
             </Link>
             <Tooltip>

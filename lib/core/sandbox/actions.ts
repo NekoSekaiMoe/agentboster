@@ -335,7 +335,7 @@ export async function downloadSandboxFileAction(
     }
 
     const fileName = path.posix.basename(resolvedPath) || 'artifact';
-    const localTempName = `clawless-export-${randomUUID()}-${sanitizeFileName(fileName)}`;
+    const localTempName = `agentboster-export-${randomUUID()}-${sanitizeFileName(fileName)}`;
 
     const localPath = await sandbox.downloadFile(
       { path: resolvedPath },

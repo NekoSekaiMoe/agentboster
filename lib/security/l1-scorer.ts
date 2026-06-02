@@ -1,6 +1,6 @@
 /**
  * L1 Security Scorer - Evaluates command safety using LLM
- * Moved from agentd/internal/security/l1_scorer to clawless web layer
+ * Moved from agentd/internal/security/l1_scorer to agentboster web layer
  */
 
 import { resolveLanguageModel } from '@/lib/ai';

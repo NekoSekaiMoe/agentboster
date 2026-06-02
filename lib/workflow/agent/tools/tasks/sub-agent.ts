@@ -76,6 +76,7 @@ export default defineBuildInTool({
             delegation: {
               parentAgentName: context.agentName,
             },
+            sessionId: context.sessionId,
           });
           const tools = await context.buildNestedTools({
             agentName,

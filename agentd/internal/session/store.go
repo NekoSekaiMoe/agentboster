@@ -29,6 +29,7 @@ type SessionData struct {
 	RecentToolCalls []ToolRecord `json:"recent_tool_calls"`
 	WorkspaceID     string       `json:"workspace_id"`
 	ProjectID       string       `json:"project_id"`
+	SoulContent     string       `json:"soul_content"`
 }
 
 type SandboxData struct {

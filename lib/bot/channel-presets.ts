@@ -28,7 +28,7 @@ export const CHANNEL_PRESETS: Record<string, ChannelPreset> = {
       {
         key: 'bot_username',
         label: 'Bot Username',
-        placeholder: 'my_clawless_bot',
+        placeholder: 'my_agentboster_bot',
         required: false,
         help: 'Without @ prefix. Used for mention detection.',
       },

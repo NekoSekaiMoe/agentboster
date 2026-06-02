@@ -1,14 +1,24 @@
 'use client';
 
-import { Loader2, Plus, Save, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import {
+  Download,
+  Loader2,
+  Plus,
+  Save,
+  Trash2,
+  Upload,
+} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  clearSessionSoulAction,
   createLongTermMemoryAction,
   deleteLongTermMemoryAction,
+  getSessionSoulAction,
   listBuiltinMemorySectionsAction,
   listLongTermMemoriesAction,
   listSessionSummariesAction,
+  setSessionSoulAction,
   updateBuiltinMemorySectionAction,
 } from '@/app/(memory)/actions';
 import { toast } from 'sonner';
@@ -28,8 +38,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { SOUL_MEMORY_MAX_LENGTH } from '@/types/memory/builtin';
 
-type Scope = 'builtin' | 'long_term' | 'session';
+type Scope = 'builtin' | 'long_term' | 'session' | 'soul';
 
 const BUILTIN_KEYS = ['AGENTS', 'SOUL', 'IDENTITY', 'USER'] as const;
 
@@ -55,14 +66,6 @@ interface SessionSummary {
   createdAt: string;
 }
 
-interface BuiltinMemoryResponse {
-  sections?: BuiltinMemory[];
-}
-
-interface LongTermMemoryListResponse {
-  items?: LongTermMemory[];
-}
-
 export default function MemoryPage() {
   const [activeScope, setActiveScope] = useState<Scope>('builtin');
 
@@ -73,28 +76,204 @@ export default function MemoryPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Scope tabs */}
         <div className="flex flex-wrap items-center gap-2">
-          {(['builtin', 'long_term', 'session'] as Scope[]).map((scope) => (
-            <Button
-              key={scope}
-              size="sm"
-              variant={activeScope === scope ? 'default' : 'secondary'}
-              onClick={() => setActiveScope(scope)}
-            >
-              {scope === 'builtin'
-                ? 'Builtin'
-                : scope === 'long_term'
-                  ? 'Long-term'
-                  : 'Session'}
-            </Button>
-          ))}
+          {(['builtin', 'soul', 'long_term', 'session'] as Scope[]).map(
+            (scope) => (
+              <Button
+                key={scope}
+                size="sm"
+                variant={activeScope === scope ? 'default' : 'secondary'}
+                onClick={() => setActiveScope(scope)}
+              >
+                {scope === 'builtin'
+                  ? 'Builtin'
+                  : scope === 'soul'
+                    ? 'SOUL.md'
+                    : scope === 'long_term'
+                      ? 'Long-term'
+                      : 'Session'}
+              </Button>
+            ),
+          )}
         </div>
 
         {activeScope === 'builtin' && <BuiltinPanel />}
+        {activeScope === 'soul' && <SoulPanel />}
         {activeScope === 'long_term' && <LongTermPanel />}
         {activeScope === 'session' && <SessionPanel />}
       </div>
+    </div>
+  );
+}
+
+/* ─── SOUL.md Panel ─────────────────────────────────────────────── */
+
+function SoulPanel() {
+  const [content, setContent] = useState('');
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadSoul = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await listBuiltinMemorySectionsAction();
+      const soul = data.sections?.find((s) => s.key === 'SOUL');
+      setContent(soul?.content ?? '');
+      setUpdatedAt(soul?.updatedAt ?? null);
+    } catch {
+      toast.error('Failed to load SOUL');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSoul();
+  }, [loadSoul]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await updateBuiltinMemorySectionAction({ key: 'SOUL', content });
+      toast.success('SOUL.md saved');
+      await loadSoul();
+    } catch {
+      toast.error('Failed to save SOUL.md');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.md')) {
+      toast.error('Please upload a .md file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      setContent(text);
+      toast.success('SOUL.md file loaded');
+    };
+    reader.readAsText(file);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
+
+  function downloadSoul() {
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'SOUL.md';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardContent className="pt-4 space-y-2">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 space-y-2">
+            <Skeleton className="h-64 w-full" />
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-8 w-20" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="space-y-2">
+          <CardTitle className="text-base">SOUL.md</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            SOUL.md 定义 Agent 的人格、语气和风格。支持上传 .md 文件或直接在下方编辑。
+            内容会注入到系统提示中，影响所有会话的行为表现。
+          </p>
+          <p className="text-xs text-muted-foreground">
+            最大长度：{SOUL_MEMORY_MAX_LENGTH.toLocaleString()} 字符
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".md"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="size-4 mr-1" />
+              上传 .md
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadSoul}
+              disabled={!content}
+            >
+              <Download className="size-4 mr-1" />
+              下载 SOUL.md
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-4 space-y-2">
+          <Textarea
+            rows={16}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="在此编辑 SOUL.md 内容..."
+            className="font-mono text-sm"
+          />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">
+                {content.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()} 字符
+              </span>
+              {updatedAt && (
+                <span className="text-xs text-muted-foreground">
+                  更新于: {new Date(updatedAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+            <Button size="sm" disabled={saving} onClick={save}>
+              {saving ? (
+                <Loader2 className="size-4 animate-spin mr-1" />
+              ) : (
+                <Save className="size-4 mr-1" />
+              )}
+              保存
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -179,8 +358,8 @@ function BuiltinPanel() {
       <Card>
         <CardHeader className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            These built-in memories are used to build system prompts, making
-            your Agent customizable to you.
+            These built-in memories are used to build system prompts, making your
+            Agent customizable to you.
           </p>
         </CardHeader>
       </Card>
@@ -191,12 +370,13 @@ function BuiltinPanel() {
           </CardHeader>
           <CardContent className="space-y-2">
             <Textarea
-              rows={4}
+              rows={key === 'SOUL' ? 8 : 4}
               value={drafts[key] ?? ''}
               onChange={(e) =>
                 setDrafts((prev) => ({ ...prev, [key]: e.target.value }))
               }
               placeholder={`${key} content...`}
+              className={key === 'SOUL' ? 'font-mono text-sm' : undefined}
             />
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">
@@ -301,7 +481,6 @@ function LongTermPanel() {
 
   return (
     <div className="space-y-4">
-      {/* Search bar */}
       <div className="flex gap-2">
         <Input
           value={searchQuery}
@@ -456,6 +635,12 @@ function SessionPanel() {
   const [sessionId, setSessionId] = useState('');
   const [summaries, setSummaries] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [sessionSoul, setSessionSoul] = useState('');
+  const [sessionSoulScope, setSessionSoulScope] = useState<
+    'session' | 'global' | null
+  >(null);
+  const [savingSoul, setSavingSoul] = useState(false);
+  const [loadingSoul, setLoadingSoul] = useState(false);
 
   async function loadSummaries() {
     const sid = sessionId.trim();
@@ -471,6 +656,52 @@ function SessionPanel() {
       toast.error('Failed to load session summaries');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadSessionSoul() {
+    const sid = sessionId.trim();
+    if (!sid) {
+      toast.error('Enter a session ID');
+      return;
+    }
+    setLoadingSoul(true);
+    try {
+      const data = await getSessionSoulAction(sid);
+      setSessionSoul(data.content);
+      setSessionSoulScope(data.scope);
+    } catch {
+      toast.error('Failed to load session SOUL');
+    } finally {
+      setLoadingSoul(false);
+    }
+  }
+
+  async function saveSessionSoul() {
+    const sid = sessionId.trim();
+    if (!sid) return;
+    setSavingSoul(true);
+    try {
+      await setSessionSoulAction(sid, sessionSoul);
+      toast.success('Session SOUL saved');
+      await loadSessionSoul();
+    } catch {
+      toast.error('Failed to save session SOUL');
+    } finally {
+      setSavingSoul(false);
+    }
+  }
+
+  async function clearSessionSoul() {
+    const sid = sessionId.trim();
+    if (!sid) return;
+    try {
+      await clearSessionSoulAction(sid);
+      setSessionSoul('');
+      setSessionSoulScope(null);
+      toast.success('Session SOUL cleared');
+    } catch {
+      toast.error('Failed to clear session SOUL');
     }
   }
 
@@ -498,6 +729,74 @@ function SessionPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {sessionId.trim() && (
+        <Card>
+          <CardHeader className="space-y-2">
+            <CardTitle className="text-base">Session SOUL</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              为此会话设置独立的 SOUL 内容，覆盖全局 SOUL.md。
+              {sessionSoulScope === 'global' && sessionSoul && (
+                <span className="text-amber-500 ml-1">
+                  （当前使用全局 SOUL）
+                </span>
+              )}
+              {sessionSoulScope === 'session' && (
+                <span className="text-green-600 ml-1">（已设置会话级 SOUL）</span>
+              )}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loadingSoul}
+                onClick={loadSessionSoul}
+              >
+                {loadingSoul ? (
+                  <Loader2 className="size-4 animate-spin mr-1" />
+                ) : null}
+                加载 SOUL
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={savingSoul}
+                onClick={saveSessionSoul}
+              >
+                {savingSoul ? (
+                  <Loader2 className="size-4 animate-spin mr-1" />
+                ) : (
+                  <Save className="size-4 mr-1" />
+                )}
+                保存
+              </Button>
+              {sessionSoulScope === 'session' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={clearSessionSoul}
+                >
+                  <Trash2 className="size-4 mr-1" />
+                  清除覆盖
+                </Button>
+              )}
+            </div>
+            <Textarea
+              rows={8}
+              value={sessionSoul}
+              onChange={(e) => setSessionSoul(e.target.value)}
+              placeholder="会话级 SOUL 内容（留空则使用全局 SOUL.md）..."
+              className="font-mono text-sm"
+            />
+            <span className="text-xs text-muted-foreground">
+              {sessionSoul.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()} 字符
+            </span>
+          </CardContent>
+        </Card>
+      )}
 
       {summaries.length === 0 ? (
         <div className="text-sm text-muted-foreground p-6 border border-dashed rounded-lg text-center">

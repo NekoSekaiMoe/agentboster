@@ -47,6 +47,9 @@ type AgentContext struct {
 	// Current project context
 	ProjectID   string
 	WorkspaceID string
+
+	// SOUL content injected into system prompt
+	SoulContent string
 }
 
 // TaskState holds execution state that survives context compaction.

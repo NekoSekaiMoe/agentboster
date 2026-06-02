@@ -279,6 +279,52 @@ func (c *Client) RunTaskSummaryTidy(ctx context.Context) error {
 	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/task-summaries/tidy/run", map[string]any{"agent_id": "default"})
 }
 
+// ── SOUL ─────────────────────────────────────────────────────────────
+
+type SoulResponse struct {
+	Content   string `json:"content"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	Scope     string `json:"scope,omitempty"`
+}
+
+func (c *Client) GetSoulContent(ctx context.Context) (*SoulResponse, error) {
+	data, err := c.doRequest(ctx, http.MethodGet, "/api/soul", nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Success bool          `json:"success"`
+		Data    SoulResponse  `json:"data"`
+		Error   string        `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("get soul: %s", resp.Error)
+	}
+	return &resp.Data, nil
+}
+
+func (c *Client) GetSessionSoul(ctx context.Context, sessionID string) (*SoulResponse, error) {
+	data, err := c.doRequest(ctx, http.MethodGet, fmt.Sprintf("/api/soul/%s", sessionID), nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Success bool          `json:"success"`
+		Data    SoulResponse  `json:"data"`
+		Error   string        `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("get session soul: %s", resp.Error)
+	}
+	return &resp.Data, nil
+}
+
 // ── Health ───────────────────────────────────────────────────────────
 
 func (c *Client) HealthCheck(ctx context.Context) error {

@@ -214,7 +214,7 @@ export function getBuiltinMcpServers() {
         },
       ],
     ),
-  ) as Record<
+  ) as unknown as Record<
     BuiltinServerName,
     BuiltinServerExport
   >;

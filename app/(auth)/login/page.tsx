@@ -14,9 +14,9 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { LoginForm } from './login-form';
 
-const APP_NAME = 'ClawLess';
+const APP_NAME = 'AgentBoster';
 const LOGIN_DESCRIPTION =
-  'Sign in to ClawLess to manage chats, files, memory, skills, channels, and workflows.';
+  'Sign in to AgentBoster to manage chats, files, memory, skills, channels, and workflows.';
 
 const APP_BASE_URL = getAppBaseUrl();
 const APP_ICON_URL = `${APP_BASE_URL}/icon.png`;
@@ -39,7 +39,7 @@ export const metadata: Metadata = {
         url: APP_ICON_URL,
         width: 512,
         height: 512,
-        alt: 'ClawLess logo',
+        alt: 'AgentBoster logo',
       },
     ],
   },
