@@ -162,9 +162,9 @@ export async function GET(
 
   const adapterName = adapter as AdapterName;
 
-  // Chat SDK adapters — delegate to adapter
+  // Chat SDK adapters — GET is not a valid webhook method, return simple health check
   if (CHAT_SDK_ADAPTERS.includes(adapterName)) {
-    return handleChatSdkWebhook(adapterName, request);
+    return NextResponse.json({ ok: true, adapter: adapterName });
   }
 
   // Feishu URL verification
