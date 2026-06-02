@@ -174,19 +174,26 @@ export async function registerChannelWebhooks(
 
   const results: WebhookRegistrationResult[] = [];
   const secret = getBotAuthSecret();
-  if (!secret) return [];
-
   const baseUrl = getAppBaseUrl();
 
   if (channels.telegram?.enabled && channels.telegram.bot_token) {
-    const webhookUrl = `${baseUrl}/api/bot/${secret}/telegram/callback`;
-    console.log('[registerChannelWebhooks] telegram webhookUrl:', webhookUrl);
-    const result = await registerTelegramWebhook(
-      channels.telegram.bot_token,
-      webhookUrl,
-      channels.telegram.secret_token || undefined,
-    );
-    results.push(result);
+    if (!secret) {
+      results.push({
+        adapter: 'telegram',
+        ok: false,
+        error:
+          'AUTH_SECRET is not configured. Set AUTH_SECRET env var to enable webhook registration.',
+      });
+    } else {
+      const webhookUrl = `${baseUrl}/api/bot/${secret}/telegram/callback`;
+      console.log('[registerChannelWebhooks] telegram webhookUrl:', webhookUrl);
+      const result = await registerTelegramWebhook(
+        channels.telegram.bot_token,
+        webhookUrl,
+        channels.telegram.secret_token || undefined,
+      );
+      results.push(result);
+    }
   }
 
   return results;

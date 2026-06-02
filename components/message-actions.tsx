@@ -1,4 +1,3 @@
-import { ofetch } from 'ofetch';
 import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useCopyToClipboard } from 'usehooks-ts';
@@ -39,18 +38,9 @@ export function PureMessageActions({
     toast.success('Copied to clipboard!');
   }, [copyToClipboard, textContent]);
 
-  const handleRevert = useCallback(async () => {
+  const handleRevert = useCallback(() => {
     if (!chatId) return;
-    try {
-      await ofetch(`/api/sessions/${chatId}/revert`, {
-        method: 'POST',
-        body: { message_id: message.id },
-      });
-      onRevert?.(message.id);
-      toast.success('Reverted to this message');
-    } catch {
-      toast.error('Failed to revert');
-    }
+    onRevert?.(message.id);
   }, [chatId, message.id, onRevert]);
 
   if (isLoading && message.role === 'assistant') return null;

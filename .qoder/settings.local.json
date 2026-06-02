@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /home/user/repo/agentboster && yarn check 2>&1 | tail -30)",
+      "Bash(cd /home/user/repo/agentboster && cat node_modules/@ai-sdk/mcp/package.json | grep -E '\"version\"|\"main\"|\"types\"' 2>/dev/null)",
+      "Bash(ls node_modules/ai/dist/*.d.ts 2>/dev/null | head -5)",
+      "Bash(git show 3d79b87 --stat && echo \"---\" && git show e056b43 --stat)",
+      "Bash(grep -n \"Tool\" node_modules/@ai-sdk/provider-utils/dist/index.d.ts | head -20)",
+      "Bash(grep -n \"^type Tool\\\\b\\\\|^interface Tool\\\\b\\\\| Tool<\\\\|ToolExecutionOptions\" node_modules/@ai-sdk/provider-utils/dist/index.d.ts | head -20)",
+      "Bash(grep -n \"dynamic\" node_modules/ai/dist/index.js | head -20)",
+      "Bash(grep -n \"executeTool\" node_modules/@ai-sdk/provider-utils/dist/index.js | head -10)",
+      "Bash(yarn check 2>&1 | tail -15)",
+      "Bash(yarn check 2>&1 | tail -5)"
+    ]
+  }
+}

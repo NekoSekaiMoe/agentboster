@@ -228,6 +228,37 @@ async function executeBuiltinMCPTool(input: {
   }
 }
 
+function mcpResultToModelOutput({
+  output,
+}: {
+  toolCallId: string;
+  input: unknown;
+  output: unknown;
+}): { type: 'content'; value: Array<Record<string, unknown>> } | { type: 'json'; value: unknown } {
+  const result = output as {
+    content?: Array<Record<string, unknown>>;
+  };
+  if (!result?.content || !Array.isArray(result.content)) {
+    return { type: 'json', value: output };
+  }
+  return {
+    type: 'content',
+    value: result.content.map((part) => {
+      if (part.type === 'text' && typeof part.text === 'string') {
+        return { type: 'text', text: part.text };
+      }
+      if (
+        part.type === 'image' &&
+        typeof part.data === 'string' &&
+        typeof part.mimeType === 'string'
+      ) {
+        return { type: 'image-data', data: part.data, mediaType: part.mimeType };
+      }
+      return { type: 'text', text: JSON.stringify(part) };
+    }),
+  };
+}
+
 export async function getMCPTools(
   config: MCPRemoteServersConfig | undefined,
   baseName = 'MCP',
@@ -261,6 +292,7 @@ export async function getMCPTools(
           descriptor.description ??
           `Execute MCP tool "${descriptor.toolName}" from server "${descriptor.serverName}"`,
         inputSchema: createMCPInputSchema(descriptor.inputSchema),
+        toModelOutput: mcpResultToModelOutput,
         execute: async (input) => {
           const args =
             typeof input === 'object' &&

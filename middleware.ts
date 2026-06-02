@@ -31,6 +31,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const isBotRoute = /^\/api\/bot\/[^/]+(?:\/|$)/.test(pathname);
+  if (isBotRoute) {
+    return NextResponse.next();
+  }
+
   const authConfig = getAuthConfigStatus();
   if (!authConfig.isConfigured) {
     if (pathname.startsWith('/api/')) {
@@ -47,11 +52,6 @@ export async function middleware(request: NextRequest) {
 
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
-  }
-
-  const isBotRoute = /^\/api\/bot\/[^/]+(?:\/|$)/.test(pathname);
-  if (isBotRoute) {
-    return NextResponse.next();
   }
 
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
