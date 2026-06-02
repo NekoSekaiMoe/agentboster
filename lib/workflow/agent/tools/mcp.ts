@@ -3,6 +3,7 @@ import { createLogger } from '@/lib/utils/logger';
 import type { MCPRemoteServersConfig } from '@/types/config/mcp';
 import { createMCPClient } from '@ai-sdk/mcp';
 import { type ToolSet, dynamicTool, jsonSchema } from 'ai';
+import type { ToolResultOutput } from '@ai-sdk/provider-utils';
 import { withToolExecutionLogger } from './define';
 
 type MCPToolDescriptor = {
@@ -234,29 +235,32 @@ function mcpResultToModelOutput({
   toolCallId: string;
   input: unknown;
   output: unknown;
-}): { type: 'content'; value: Array<Record<string, unknown>> } | { type: 'json'; value: unknown } {
+}): ToolResultOutput {
   const result = output as {
     content?: Array<Record<string, unknown>>;
   };
   if (!result?.content || !Array.isArray(result.content)) {
-    return { type: 'json', value: output };
+    return {
+      type: 'json',
+      value: output as Parameters<typeof JSON.stringify>[0],
+    } as ToolResultOutput;
   }
   return {
     type: 'content',
     value: result.content.map((part) => {
       if (part.type === 'text' && typeof part.text === 'string') {
-        return { type: 'text', text: part.text };
+        return { type: 'text' as const, text: part.text };
       }
       if (
         part.type === 'image' &&
         typeof part.data === 'string' &&
         typeof part.mimeType === 'string'
       ) {
-        return { type: 'image-data', data: part.data, mediaType: part.mimeType };
+        return { type: 'image-data' as const, data: part.data, mediaType: part.mimeType };
       }
-      return { type: 'text', text: JSON.stringify(part) };
+      return { type: 'text' as const, text: JSON.stringify(part) };
     }),
-  };
+  } as ToolResultOutput;
 }
 
 export async function getMCPTools(
