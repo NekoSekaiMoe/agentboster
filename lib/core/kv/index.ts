@@ -25,7 +25,7 @@ export const redisState = new Proxy({} as ReturnType<typeof createRedisState>, {
   get(_target, prop, receiver) {
     if (!_redisState) {
       _redisState = createRedisState({
-        url: process.env.KV_REST_API_URL!,
+        url: process.env.REDIS_URL!,
       });
     }
     return Reflect.get(_redisState, prop, receiver);
