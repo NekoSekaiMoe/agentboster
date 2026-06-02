@@ -1,4 +1,4 @@
-import { sendAdapterSourceReply } from '@/lib/bot/reply';
+import { sendAdapterSourceReply, streamAdapterSourceReply } from '@/lib/bot/reply';
 import {
   createSession,
   deleteMessagesAfterUiMessageId,
@@ -411,10 +411,7 @@ async function replyToAdapterCommandResult(
   source: Extract<ChatSource, { type: 'im' }>,
 ): Promise<void> {
   if (dispatched.kind === 'message') {
-    const text = await readTextFromReadableStream(
-      dispatched.result.readable,
-    );
-    await sendAdapterSourceReply(source, text);
+    await streamAdapterSourceReply(source, dispatched.result.readable);
     return;
   }
 

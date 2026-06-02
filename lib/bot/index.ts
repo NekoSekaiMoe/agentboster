@@ -149,8 +149,17 @@ export async function getBot(): Promise<Chat> {
     });
   }
 
+  const handledMessages = new Set<string>();
+
+  function dedupKey(thread: { id: string }, message: IncomingMessage): string {
+    return `${thread.id}:${message.author?.userId ?? ''}:${message.text ?? ''}`;
+  }
+
   bot.onNewMention(async (thread, message) => {
-    await thread.subscribe();
+    const key = dedupKey(thread, message as IncomingMessage);
+    if (handledMessages.has(key)) return;
+    handledMessages.add(key);
+    setTimeout(() => handledMessages.delete(key), 30_000);
     await handleIncomingMessage(
       thread as IncomingThread,
       message as IncomingMessage,
@@ -158,6 +167,10 @@ export async function getBot(): Promise<Chat> {
   });
 
   bot.onSubscribedMessage(async (thread, message) => {
+    const key = dedupKey(thread, message as IncomingMessage);
+    if (handledMessages.has(key)) return;
+    handledMessages.add(key);
+    setTimeout(() => handledMessages.delete(key), 30_000);
     await handleIncomingMessage(
       thread as IncomingThread,
       message as IncomingMessage,
