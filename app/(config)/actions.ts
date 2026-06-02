@@ -78,6 +78,7 @@ export async function saveConfigAction(input: unknown): Promise<AppConfig> {
 
   // Register webhooks for enabled channels (e.g., Telegram)
   const webhookResults = await registerChannelWebhooks(config.channels);
+  console.log('[saveConfigAction] webhook results:', webhookResults);
   const failures = webhookResults.filter((r) => !r.ok);
   if (failures.length > 0) {
     const errorMessages = failures

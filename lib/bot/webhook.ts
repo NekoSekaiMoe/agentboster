@@ -53,25 +53,19 @@ export function getAppBaseUrl(): string {
     process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim() ??
     process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
 
-  if (vercelEnv === 'production') {
-    const url = productionUrl ?? vercelUrl;
-    if (url) {
-      return normalizeBaseUrl(`https://${url}`);
-    }
-  }
+  const baseUrl =
+    productionUrl ?? branchUrl ?? vercelUrl ?? LOCAL_BASE_URL;
+  const result = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
 
-  if (vercelEnv === 'preview') {
-    const url = branchUrl ?? vercelUrl;
-    if (url) {
-      return normalizeBaseUrl(`https://${url}`);
-    }
-  }
+  console.log('[getAppBaseUrl]', {
+    vercelEnv,
+    vercelUrl,
+    branchUrl,
+    productionUrl,
+    result: normalizeBaseUrl(result),
+  });
 
-  if (vercelUrl) {
-    return normalizeBaseUrl(`https://${vercelUrl}`);
-  }
-
-  return LOCAL_BASE_URL;
+  return normalizeBaseUrl(result);
 }
 
 export function getWebhookCallbackPath(
@@ -140,14 +134,16 @@ export async function registerTelegramWebhook(
       params.set('secret_token', secretToken);
     }
 
-    const resp = await fetch(
-      `https://api.telegram.org/bot${token}/setWebhook?${params.toString()}`,
-      { method: 'POST' },
-    );
+    const apiUrl = `https://api.telegram.org/bot${token}/setWebhook?${params.toString()}`;
+    console.log('[registerTelegramWebhook] calling:', apiUrl.replace(token, '***'));
+
+    const resp = await fetch(apiUrl, { method: 'POST' });
     const data = (await resp.json()) as {
       ok: boolean;
       description?: string;
     };
+
+    console.log('[registerTelegramWebhook] response:', data);
 
     if (data.ok) {
       return {
@@ -184,6 +180,7 @@ export async function registerChannelWebhooks(
 
   if (channels.telegram?.enabled && channels.telegram.bot_token) {
     const webhookUrl = `${baseUrl}/api/bot/${secret}/telegram/callback`;
+    console.log('[registerChannelWebhooks] telegram webhookUrl:', webhookUrl);
     const result = await registerTelegramWebhook(
       channels.telegram.bot_token,
       webhookUrl,

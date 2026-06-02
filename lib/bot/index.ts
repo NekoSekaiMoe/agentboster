@@ -95,8 +95,9 @@ function isAllowedAdapterAuthor(
 ): boolean {
   const adapterConfig = channels?.[adapter];
   const allowedIds = adapterConfig?.allowed_author_ids ?? [];
+
   if (allowedIds.length === 0) {
-    return false;
+    return true;
   }
 
   const authorUserId = message.author?.userId?.trim() ?? '';
