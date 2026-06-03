@@ -34,46 +34,53 @@ AgentBoster 拥有你对 AI Agent 的核心需求：Chat、Skills、Memory (RAG)
 
 ## 架构
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                       Vercel (Serverless)                        │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
-│  │  Next.js Web  │  │  API Routes  │  │  Vercel Workflow       │ │
-│  │  Dashboard    │  │  /api/*      │  │  DevKit (Agent+Sched)  │ │
-│  └──────┬───────┘  └──────┬───────┘  └────────────────────────┘ │
-│         │                  │                                      │
-│         │                  │                                      │
-│  ┌──────▼──────────────────▼──────────────────────────────────┐ │
-│  │               AgentBoster API Gateway                       │ │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐  │ │
-│  │  │  Chat    │ │  Bot     │ │ Security │ │  Config/Mgmt  │  │ │
-│  │  │  Stream  │ │  Router  │ │ L1/L2   │ │  (Soul, etc)  │  │ │
-│  │  └──────────┘ └──────────┘ └──────────┘ └───────────────┘  │ │
-│  │                                                             │ │
-│  │  ┌──────────────────────────────────────────────────────┐   │ │
-│  │  │              IM Channels (Web-side)                   │   │ │
-│  │  │  Telegram │ Discord │ Slack │ Feishu │ Teams │ QQ   │   │ │
-│  │  └──────────────────────────────────────────────────────┘   │ │
-│  └──────────────────────────────┬──────────────────────────────┘ │
-└─────────────────────────────────┼────────────────────────────────┘
-                                  │ mTLS + API Key
-                                  ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                     User's Linux Server                          │
-│  ┌────────────────────────────────────────────────────────────┐  │
-│  │                   Agent Daemon (Go)                        │  │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐   │  │
-│  │  │ LLM Loop │ │ Sandbox  │ │ Security │ │ Session    │   │  │
-│  │  │ + Tools  │ │ Manager  │ │ L0/L1/L2 │ │ Manager    │   │  │
-│  │  └──────────┘ └──────────┘ └──────────┘ └────────────┘   │  │
-│  │                                                           │  │
-│  │  ┌─────────────────────────────────────────────────────┐  │  │
-│  │  │              Sandbox Providers                      │  │  │
-│  │  │  tmpfs (dynamic) │ chroot (persistent) │ Docker    │  │  │
-│  │  └─────────────────────────────────────────────────────┘  │  │
-│  └────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Vercel["Vercel (Serverless)"]
+        direction TB
+        Web["Next.js Web Dashboard"]
+        API["API Routes /api/*"]
+        Wf["Vercel Workflow DevKit<br/>(Agent + Scheduled)"]
+        subgraph Gateway["AgentBoster API Gateway"]
+            direction TB
+            Chat["Chat Stream"]
+            Bot["Bot Router"]
+            Sec["Security L1/L2"]
+            Cfg["Config/Mgmt<br/>(Soul, etc)"]
+            subgraph IM["IM Channels (Web-side)"]
+                Tg["Telegram"]
+                Dc["Discord"]
+                Sk["Slack"]
+                Fs["Feishu"]
+                Tm["Teams"]
+                Qq["QQ"]
+            end
+        end
+    end
+
+    Web --> Gateway
+    API --> Gateway
+    Wf --> Gateway
+
+    Gateway <-->|"mTLS + API Key"| Daemon
+
+    subgraph Server["User's Linux Server"]
+        Daemon["Agent Daemon (Go)"]
+        subgraph DaemonInner[" "]
+            LLM["LLM Loop + Tools"]
+            Sbx["Sandbox Manager"]
+            SecD["Security L0/L1/L2"]
+            Ses["Session Manager"]
+        end
+        subgraph SP["Sandbox Providers"]
+            Tmp["tmpfs (dynamic)"]
+            Chr["chroot (persistent)"]
+            Dok["Docker"]
+        end
+    end
+
+    Daemon --> LLM & Sbx & SecD & Ses
+    Sbx --> SP
 ```
 
 ---
