@@ -84,7 +84,12 @@ export async function listSkillsAction(): Promise<SkillMeta[]> {
 }
 
 export async function createSkillAction(input: unknown): Promise<SkillDetail> {
-  await requireAuth();
+  const authSession = await requireAuth();
+  const { getUserById } = await import('@/lib/core/db/users');
+  const user = await getUserById(authSession.userId);
+  if (!user || !user.roles.includes('admin')) {
+    throw new Error('Forbidden: admin access required');
+  }
 
   const parsed = manualInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -106,7 +111,12 @@ export async function createSkillAction(input: unknown): Promise<SkillDetail> {
 }
 
 export async function deleteSkillAction(name: string) {
-  await requireAuth();
+  const authSession = await requireAuth();
+  const { getUserById } = await import('@/lib/core/db/users');
+  const user = await getUserById(authSession.userId);
+  if (!user || !user.roles.includes('admin')) {
+    throw new Error('Forbidden: admin access required');
+  }
 
   const trimmed = name.trim();
   if (!trimmed) {
@@ -171,7 +181,12 @@ export async function updateSkillFileAction(input: unknown): Promise<{
   skill: SkillDetail;
   path: string;
 }> {
-  await requireAuth();
+  const authSession = await requireAuth();
+  const { getUserById } = await import('@/lib/core/db/users');
+  const user = await getUserById(authSession.userId);
+  if (!user || !user.roles.includes('admin')) {
+    throw new Error('Forbidden: admin access required');
+  }
 
   const parsed = updateFileInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -218,7 +233,12 @@ export async function startSkillImportAction(input: unknown): Promise<{
   status: 'pending';
   gitURL: string;
 }> {
-  await requireAuth();
+  const authSession = await requireAuth();
+  const { getUserById } = await import('@/lib/core/db/users');
+  const user = await getUserById(authSession.userId);
+  if (!user || !user.roles.includes('admin')) {
+    throw new Error('Forbidden: admin access required');
+  }
 
   const parsed = importInputSchema.safeParse(input);
   if (!parsed.success) {

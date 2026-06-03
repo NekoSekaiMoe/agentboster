@@ -53,7 +53,12 @@ export async function loadConfigAction(): Promise<ConfigLoadResponse> {
 }
 
 export async function saveConfigAction(input: unknown): Promise<AppConfig> {
-  await requireAuth();
+  const authSession = await requireAuth();
+  const { getUserById } = await import('@/lib/core/db/users');
+  const user = await getUserById(authSession.userId);
+  if (!user || !user.roles.includes('admin')) {
+    throw new Error('Forbidden: admin access required');
+  }
 
   const config = appConfigSchema.parse(input);
 

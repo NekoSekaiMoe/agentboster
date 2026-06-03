@@ -71,7 +71,7 @@ export class SecurityGatekeeper implements ISecurityGatekeeper {
     }
 
     if (l0Result.matched && l0Result.action === 'escalate') {
-      if (this.l2.isAuthorized(req.action, 'once')) {
+      if (this.l2.isAuthorized(req.context.userId, req.action, 'once')) {
         return {
           authorized: true,
           level: 'L0',
@@ -131,7 +131,7 @@ export class SecurityGatekeeper implements ISecurityGatekeeper {
       userId: req.context.userId,
     };
 
-    if (this.l2.isAuthorized(req.action, 'once')) {
+    if (this.l2.isAuthorized(req.context.userId, req.action, 'once')) {
       return {
         authorized: true,
         level: 'L2',

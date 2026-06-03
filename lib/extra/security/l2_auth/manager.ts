@@ -63,20 +63,21 @@ export class L2AuthManager implements IL2AuthManager {
     }
   }
 
-  isAuthorized(action: string, window: L2AuthorizationWindow): boolean {
+  isAuthorized(userId: string, action: string, window: L2AuthorizationWindow): boolean {
     const now = Date.now();
 
-    for (const [, entries] of this.authorizations) {
-      for (const entry of entries) {
-        if (entry.action !== action) continue;
+    const entries = this.authorizations.get(userId);
+    if (!entries) return false;
 
-        if (entry.window === 'session') return true;
-        if (entry.window === 'once' && entry.grantedAt > 0) {
-          entry.grantedAt = 0;
-          return true;
-        }
-        if (entry.expiresAt > now) return true;
+    for (const entry of entries) {
+      if (entry.action !== action) continue;
+
+      if (entry.window === 'session') return true;
+      if (entry.window === 'once' && entry.grantedAt > 0) {
+        entry.grantedAt = 0;
+        return true;
       }
+      if (entry.expiresAt > now) return true;
     }
 
     return false;

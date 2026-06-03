@@ -27,6 +27,6 @@ export interface L2AuthResponse {
 export interface IL2AuthManager {
   requestAuthorization(req: L2AuthRequest): Promise<void>;
   handleResponse(resp: L2AuthResponse): Promise<void>;
-  isAuthorized(action: string, window: L2AuthorizationWindow): boolean;
+  isAuthorized(userId: string, action: string, window: L2AuthorizationWindow): boolean;
   revokeSession(userId: string): void;
 }
