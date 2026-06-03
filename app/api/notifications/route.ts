@@ -1,10 +1,17 @@
+import { readAuthSessionFromCookies } from '@/lib/auth';
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
 import { and, desc, eq } from 'drizzle-orm';
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
   try {
+    const cookieStore = await cookies();
+    const session = await readAuthSessionFromCookies(cookieStore);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const { searchParams } = new URL(request.url);
     const channel = searchParams.get('channel');
     const read = searchParams.get('read');

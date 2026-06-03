@@ -57,13 +57,14 @@ export async function createLongTermMemoryRow(
   options?: {
     memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
     importance?: number;
+    userId?: string;
   },
 ) {
   const [row] = await db
     .insert(schema.longTermMemories)
     .values({
       content,
-      userId: 'system',
+      userId: options?.userId ?? 'system',
       memoryType: options?.memoryType ?? 'fact',
       importance: options?.importance ?? 5,
     })
@@ -72,11 +73,19 @@ export async function createLongTermMemoryRow(
   return row;
 }
 
-export async function getLongTermMemoryRow(id: string) {
+export async function getLongTermMemoryRow(
+  id: string,
+  options?: { userId?: string },
+) {
+  const conditions = [eq(schema.longTermMemories.id, id)];
+  if (options?.userId) {
+    conditions.push(eq(schema.longTermMemories.userId, options.userId));
+  }
+
   const [row] = await db
     .select()
     .from(schema.longTermMemories)
-    .where(eq(schema.longTermMemories.id, id))
+    .where(and(...conditions))
     .limit(1);
 
   return row ?? null;
@@ -85,39 +94,71 @@ export async function getLongTermMemoryRow(id: string) {
 export async function listLongTermMemoryRows(options?: {
   limit?: number;
   offset?: number;
+  userId?: string;
 }) {
   const safeLimit = Math.max(1, Math.min(options?.limit ?? 100, 200));
   const safeOffset = Math.max(0, options?.offset ?? 0);
 
+  const conditions: ReturnType<typeof eq>[] = [];
+  if (options?.userId) {
+    conditions.push(eq(schema.longTermMemories.userId, options.userId));
+  }
+
   return db
     .select()
     .from(schema.longTermMemories)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.longTermMemories.updatedAt))
     .limit(safeLimit)
     .offset(safeOffset);
 }
 
-export async function listAllLongTermMemoryRows() {
+export async function listAllLongTermMemoryRows(options?: {
+  userId?: string;
+}) {
+  const conditions: ReturnType<typeof eq>[] = [];
+  if (options?.userId) {
+    conditions.push(eq(schema.longTermMemories.userId, options.userId));
+  }
+
   return db
     .select()
     .from(schema.longTermMemories)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.longTermMemories.updatedAt));
 }
 
-export async function updateLongTermMemoryRow(id: string, content: string) {
+export async function updateLongTermMemoryRow(
+  id: string,
+  content: string,
+  options?: { userId?: string },
+) {
+  const conditions = [eq(schema.longTermMemories.id, id)];
+  if (options?.userId) {
+    conditions.push(eq(schema.longTermMemories.userId, options.userId));
+  }
+
   const [row] = await db
     .update(schema.longTermMemories)
     .set({ content, updatedAt: new Date() })
-    .where(eq(schema.longTermMemories.id, id))
+    .where(and(...conditions))
     .returning();
 
   return row ?? null;
 }
 
-export async function deleteLongTermMemoryRow(id: string) {
+export async function deleteLongTermMemoryRow(
+  id: string,
+  options?: { userId?: string },
+) {
+  const conditions = [eq(schema.longTermMemories.id, id)];
+  if (options?.userId) {
+    conditions.push(eq(schema.longTermMemories.userId, options.userId));
+  }
+
   const [row] = await db
     .delete(schema.longTermMemories)
-    .where(eq(schema.longTermMemories.id, id))
+    .where(and(...conditions))
     .returning();
 
   return row ?? null;
@@ -178,24 +219,43 @@ export async function listLongTermMemoryChunksForMemory(memoryId: string) {
 async function listKeywordCandidateRows(options: {
   searchText: string;
   candidateLimit: number;
+  userId?: string;
 }) {
   const normalizedSearchText = options.searchText.trim();
   const likePattern = `%${escapeLikePattern(normalizedSearchText)}%`;
   const useSubstringFallback = containsCjk(normalizedSearchText);
+  const { userId } = options;
+
+  const userIdCondition = userId
+    ? eq(schema.longTermMemories.userId, userId)
+    : undefined;
+
+  const baseSelect = {
+    chunkId: schema.longTermMemoryChunks.id,
+    memoryId: schema.longTermMemoryChunks.memoryId,
+    content: schema.longTermMemoryChunks.content,
+  };
 
   if (useSubstringFallback) {
     const substringScoreExpr = sql<number>`case when ${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\' then 1 else 0 end`;
 
-    return db
-      .select({
-        chunkId: schema.longTermMemoryChunks.id,
-        memoryId: schema.longTermMemoryChunks.memoryId,
-        content: schema.longTermMemoryChunks.content,
-        keywordScore: substringScoreExpr,
-      })
-      .from(schema.longTermMemoryChunks)
+    let query = db
+      .select({ ...baseSelect, keywordScore: substringScoreExpr })
+      .from(schema.longTermMemoryChunks);
+
+    if (userId) {
+      query = query.innerJoin(
+        schema.longTermMemories,
+        eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
+      );
+    }
+
+    return query
       .where(
-        sql`${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\'`,
+        and(
+          sql`${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\'`,
+          userIdCondition,
+        ),
       )
       .orderBy(
         sql`${substringScoreExpr} DESC`,
@@ -207,15 +267,24 @@ async function listKeywordCandidateRows(options: {
   const tsQueryExpr = sql`websearch_to_tsquery('simple', ${normalizedSearchText})`;
   const keywordScoreExpr = sql<number>`coalesce(ts_rank(${schema.longTermMemoryChunks.tsv}, ${tsQueryExpr}, 32), 0)`;
 
-  const rows = await db
-    .select({
-      chunkId: schema.longTermMemoryChunks.id,
-      memoryId: schema.longTermMemoryChunks.memoryId,
-      content: schema.longTermMemoryChunks.content,
-      keywordScore: keywordScoreExpr,
-    })
-    .from(schema.longTermMemoryChunks)
-    .where(sql`${schema.longTermMemoryChunks.tsv} @@ ${tsQueryExpr}`)
+  let query = db
+    .select({ ...baseSelect, keywordScore: keywordScoreExpr })
+    .from(schema.longTermMemoryChunks);
+
+  if (userId) {
+    query = query.innerJoin(
+      schema.longTermMemories,
+      eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
+    );
+  }
+
+  const rows = await query
+    .where(
+      and(
+        sql`${schema.longTermMemoryChunks.tsv} @@ ${tsQueryExpr}`,
+        userIdCondition,
+      ),
+    )
     .orderBy(sql`${keywordScoreExpr} DESC`)
     .limit(options.candidateLimit);
 
@@ -225,16 +294,23 @@ async function listKeywordCandidateRows(options: {
 
   const substringScoreExpr = sql<number>`case when ${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\' then 1 else 0 end`;
 
-  return db
-    .select({
-      chunkId: schema.longTermMemoryChunks.id,
-      memoryId: schema.longTermMemoryChunks.memoryId,
-      content: schema.longTermMemoryChunks.content,
-      keywordScore: substringScoreExpr,
-    })
-    .from(schema.longTermMemoryChunks)
+  let fallbackQuery = db
+    .select({ ...baseSelect, keywordScore: substringScoreExpr })
+    .from(schema.longTermMemoryChunks);
+
+  if (userId) {
+    fallbackQuery = fallbackQuery.innerJoin(
+      schema.longTermMemories,
+      eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
+    );
+  }
+
+  return fallbackQuery
     .where(
-      sql`${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\'`,
+      and(
+        sql`${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\'`,
+        userIdCondition,
+      ),
     )
     .orderBy(
       sql`${substringScoreExpr} DESC`,
@@ -251,6 +327,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
   minConfidence: number;
   limit: number;
   offset: number;
+  userId?: string;
 }): Promise<HybridSearchRow[]> {
   const {
     queryEmbedding,
@@ -260,6 +337,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
     minConfidence,
     limit,
     offset,
+    userId,
   } = options;
 
   const hasEmbedding = queryEmbedding && queryEmbedding.length > 0;
@@ -294,6 +372,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
     const keywordRows = await listKeywordCandidateRows({
       searchText: normalizedSearchText,
       candidateLimit,
+      userId,
     });
     const mergedRows = mergeHybridSearchCandidates({
       vectorRows: [],
@@ -320,6 +399,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
     const keywordRows = await listKeywordCandidateRows({
       searchText: normalizedSearchText,
       candidateLimit,
+      userId,
     });
     const mergedRows = mergeHybridSearchCandidates({
       vectorRows: [],
@@ -357,6 +437,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
     const keywordRows = await listKeywordCandidateRows({
       searchText: normalizedSearchText,
       candidateLimit,
+      userId,
     });
     const mergedRows = mergeHybridSearchCandidates({
       vectorRows: [],
@@ -403,6 +484,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
           schema.longTermMemoryChunks.embeddingDimensions,
           activeVectorDimensions,
         ),
+        userId ? eq(schema.longTermMemories.userId, userId) : undefined,
       ),
     )
     .orderBy(sql`${vectorScoreExpr} DESC`)
@@ -440,6 +522,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
   const keywordRows = await listKeywordCandidateRows({
     searchText: normalizedSearchText,
     candidateLimit,
+    userId,
   });
 
   logger.info('hybrid_search:keyword_candidates', {

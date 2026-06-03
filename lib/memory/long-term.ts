@@ -136,11 +136,13 @@ export async function createLongTermMemory(input: {
   content: string;
   memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
   importance?: number;
+  userId?: string;
   config?: AppConfig;
 }) {
   const memory = await createLongTermMemoryRow(input.content, {
     memoryType: input.memoryType,
     importance: input.importance,
+    userId: input.userId,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
@@ -170,8 +172,11 @@ export async function updateLongTermMemory(input: {
   return { memory, indexing };
 }
 
-export async function deleteLongTermMemory(id: string) {
-  return deleteLongTermMemoryRow(id);
+export async function deleteLongTermMemory(
+  id: string,
+  options?: { userId?: string },
+) {
+  return deleteLongTermMemoryRow(id, options);
 }
 
 export async function getLongTermMemory(id: string) {
@@ -182,6 +187,7 @@ export async function listLongTermMemories(input?: {
   page?: number;
   pageSize?: number;
   search?: string;
+  userId?: string;
 }) {
   const page = Math.max(1, input?.page ?? 1);
   const pageSize = Math.max(1, Math.min(input?.pageSize ?? 50, 100));
@@ -193,6 +199,7 @@ export async function listLongTermMemories(input?: {
       minConfidence: 0.2,
       page,
       pageSize,
+      userId: input.userId,
     });
     // Convert HybridSearchRow[] to match the return shape of listLongTermMemoryRows
     return results.map((r: HybridSearchRow) => ({
@@ -207,6 +214,7 @@ export async function listLongTermMemories(input?: {
   return listLongTermMemoryRows({
     limit: pageSize,
     offset: (page - 1) * pageSize,
+    userId: input?.userId,
   });
 }
 
@@ -251,6 +259,7 @@ export async function searchLongTermMemories(input: {
   minConfidence: number;
   page?: number;
   pageSize?: number;
+  userId?: string;
   config?: AppConfig;
 }): Promise<HybridSearchRow[]> {
   const config = await getEffectiveConfig(input.config);
@@ -278,6 +287,7 @@ export async function searchLongTermMemories(input: {
       minConfidence: input.minConfidence,
       limit,
       offset,
+      userId: input.userId,
     });
     if (results.length > 0) {
       await updateLastAccessedAt(results.map((r) => r.chunkId));
@@ -304,6 +314,7 @@ export async function searchLongTermMemories(input: {
       queryEmbedding: queryEmbedding.embedding,
       queryEmbeddingModel: queryEmbedding.embeddingModel,
       queryEmbeddingDimensions: queryEmbedding.embeddingDimensions,
+      userId: input.userId,
     });
 
     // Update lastAccessedAt for matched chunks (top-K results only)

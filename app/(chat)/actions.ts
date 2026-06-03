@@ -72,11 +72,12 @@ export async function saveModelId(model: string) {
 }
 
 export async function listRecentSessionsAction(limit = 30) {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const sessions = await listSessions({
     archived: false,
     limit,
+    userId: authSession.userId,
   });
 
   return sessions.map((session) => ({
@@ -91,7 +92,7 @@ export async function updateSessionTitleAction(input: {
   id: string;
   title: string | null;
 }) {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const id = input.id.trim();
   if (!id) {
@@ -99,10 +100,14 @@ export async function updateSessionTitleAction(input: {
   }
 
   const nextTitle = input.title?.trim() || null;
-  const existing = await getSession(id);
+  const existing = await getSession(id, { userId: authSession.userId });
 
   if (!existing) {
-    await createSession({ id, title: nextTitle });
+    await createSession({
+      id,
+      title: nextTitle,
+      userId: authSession.userId,
+    });
   } else {
     await updateSession(id, { title: nextTitle });
   }
@@ -113,14 +118,14 @@ export async function updateSessionTitleAction(input: {
 }
 
 export async function deleteSessionAction(sessionId: string) {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const id = sessionId.trim();
   if (!id) {
     throw new Error('Missing session id');
   }
 
-  const session = await getSession(id);
+  const session = await getSession(id, { userId: authSession.userId });
   if (!session) {
     throw new Error('Session not found.');
   }
@@ -150,11 +155,16 @@ export async function deleteSessionAction(sessionId: string) {
 export async function getSessionRuntimeAction(
   sessionId: string,
 ): Promise<SessionRuntimeResponse | null> {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const id = sessionId.trim();
   if (!id) {
     throw new Error('Missing session id');
+  }
+
+  const session = await getSession(id, { userId: authSession.userId });
+  if (!session) {
+    throw new Error('Session not found.');
   }
 
   return getSessionRuntime(id);
@@ -167,14 +177,14 @@ export async function controlSessionRuntimeAction(input: {
   toolCallId?: string;
   comment?: string;
 }): Promise<{ ok: true; runtime: SessionRuntimeResponse | null }> {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const id = input.sessionId.trim();
   if (!id) {
     throw new Error('Missing session id');
   }
 
-  const session = await getSession(id);
+  const session = await getSession(id, { userId: authSession.userId });
   if (!session) {
     throw new Error('Session not found.');
   }

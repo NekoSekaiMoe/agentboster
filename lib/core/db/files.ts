@@ -40,6 +40,7 @@ export async function createFileRecord(input: {
 
 export type ListFilesOptions = {
   sessionId?: string;
+  userId?: string;
   limit?: number;
   before?: Date;
   sort?: 'asc' | 'desc';
@@ -73,6 +74,10 @@ export async function listFiles(options: ListFilesOptions = {}): Promise<{
 
   if (options.sessionId) {
     filters.push(eq(schema.files.sessionId, options.sessionId));
+  }
+
+  if (options.userId) {
+    filters.push(eq(schema.sessions.userId, options.userId));
   }
 
   if (options.before) {

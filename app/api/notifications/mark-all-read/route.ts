@@ -1,10 +1,17 @@
+import { readAuthSessionFromCookies } from '@/lib/auth';
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
 import { eq } from 'drizzle-orm';
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function POST() {
   try {
+    const cookieStore = await cookies();
+    const session = await readAuthSessionFromCookies(cookieStore);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     await db
       .update(notifications)
       .set({ status: 'sent' })

@@ -77,7 +77,7 @@ export async function listLongTermMemoriesAction(input?: {
   pageSize?: number;
   search?: string;
 }) {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const parsed = longTermMemoryListQuerySchema.safeParse({
     page: input?.page,
@@ -91,6 +91,7 @@ export async function listLongTermMemoriesAction(input?: {
   const items = await listLongTermMemories({
     ...parsed.data,
     search: input?.search?.trim() || undefined,
+    userId: authSession.userId,
   });
 
   return {
@@ -104,25 +105,27 @@ export async function listLongTermMemoriesAction(input?: {
 }
 
 export async function createLongTermMemoryAction(input: unknown) {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const parsed = createLongTermMemorySchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Validation failed');
   }
 
-  return createLongTermMemory(parsed.data);
+  return createLongTermMemory({ ...parsed.data, userId: authSession.userId });
 }
 
 export async function deleteLongTermMemoryAction(id: string) {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const memoryId = id.trim();
   if (!memoryId) {
     throw new Error('Memory id is required');
   }
 
-  const deleted = await deleteLongTermMemory(memoryId);
+  const deleted = await deleteLongTermMemory(memoryId, {
+    userId: authSession.userId,
+  });
   if (!deleted) {
     throw new Error('Memory not found');
   }

@@ -4,10 +4,13 @@
  * Used by agentd to fetch per-session SOUL overrides.
  */
 
+import { readAuthSessionFromCookies } from '@/lib/auth';
 import { db, schema } from '@/lib/core/db';
 import { getBuiltinMemorySection } from '@/lib/memory';
 import { createLogger } from '@/lib/utils/logger';
 import { eq } from 'drizzle-orm';
+import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 
 const logger = createLogger('api.soul.session');
 
@@ -16,6 +19,11 @@ export async function GET(
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
   try {
+    const cookieStore = await cookies();
+    const session = await readAuthSessionFromCookies(cookieStore);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const { sessionId } = await params;
 
     const [session] = await db

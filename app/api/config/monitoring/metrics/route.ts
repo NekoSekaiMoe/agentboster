@@ -1,10 +1,17 @@
+import { readAuthSessionFromCookies } from '@/lib/auth';
 import { db } from '@/lib/core/db';
 import { agentSandboxes, agentTasks } from '@/lib/core/db/schema';
 import { count, eq } from 'drizzle-orm';
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function GET() {
   try {
+    const cookieStore = await cookies();
+    const session = await readAuthSessionFromCookies(cookieStore);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     // Get active sandboxes count
     const activeSandboxesResult = await db
       .select({ count: count() })

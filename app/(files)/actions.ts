@@ -65,10 +65,11 @@ export async function listFilesAction(input?: {
   sessionId?: string | null;
   sort?: 'asc' | 'desc';
 }): Promise<FilesListResponse> {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const result = await listFiles({
     sessionId: input?.sessionId?.trim() || undefined,
+    userId: authSession.userId,
     limit: parseLimit(input?.limit),
     before: parseBefore(input?.before),
     sort: input?.sort === 'asc' ? 'asc' : 'desc',

@@ -60,11 +60,19 @@ export async function createSession(input: {
   return session;
 }
 
-export async function getSession(sessionId: string) {
+export async function getSession(
+  sessionId: string,
+  options?: { userId?: string },
+) {
+  const conditions = [eq(schema.sessions.id, sessionId)];
+  if (options?.userId) {
+    conditions.push(eq(schema.sessions.userId, options.userId));
+  }
+
   const [session] = await db
     .select()
     .from(schema.sessions)
-    .where(eq(schema.sessions.id, sessionId))
+    .where(and(...conditions))
     .limit(1);
 
   return session ?? null;
@@ -114,11 +122,18 @@ export async function listSessions(options?: {
   channel?: string;
   archived?: boolean;
   limit?: number;
+  userId?: string;
 }) {
   const safeLimit = Math.max(1, Math.min(options?.limit ?? 50, 200));
+  const conditions: ReturnType<typeof eq>[] = [];
+  if (options?.userId) {
+    conditions.push(eq(schema.sessions.userId, options.userId));
+  }
+
   const rows = await db
     .select()
     .from(schema.sessions)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.sessions.updatedAt))
     .limit(safeLimit);
 

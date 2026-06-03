@@ -1,8 +1,15 @@
+import { readAuthSessionFromCookies } from '@/lib/auth';
 import { generatePairCode } from '@/lib/chat/commands/pair';
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
+    const cookieStore = await cookies();
+    const session = await readAuthSessionFromCookies(cookieStore);
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const body = await request.json();
     const { adapter } = body;
 

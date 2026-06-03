@@ -1,6 +1,6 @@
 import { db, schema } from '@/lib/core/db';
 import { createLogger } from '@/lib/utils/logger';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 const logger = createLogger('db.scheduled');
 
@@ -45,18 +45,48 @@ export async function createScheduledTask(input: {
   return task;
 }
 
-export async function getScheduledTask(taskId: string) {
+export async function getScheduledTask(
+  taskId: string,
+  options?: { userId?: string },
+) {
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(schema.scheduledTasks.id, taskId),
+  ];
+
+  if (options?.userId) {
+    const userSessionIds = db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, options.userId));
+
+    conditions.push(inArray(schema.scheduledTasks.sessionId, userSessionIds));
+  }
+
   const [task] = await db
     .select()
     .from(schema.scheduledTasks)
-    .where(eq(schema.scheduledTasks.id, taskId))
+    .where(and(...conditions))
     .limit(1);
 
   return task ?? null;
 }
 
-export async function listScheduledTasks() {
-  const tasks = await db.select().from(schema.scheduledTasks);
+export async function listScheduledTasks(options?: { userId?: string }) {
+  const conditions: ReturnType<typeof eq>[] = [];
+
+  if (options?.userId) {
+    const userSessionIds = db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, options.userId));
+
+    conditions.push(inArray(schema.scheduledTasks.sessionId, userSessionIds));
+  }
+
+  const tasks = await db
+    .select()
+    .from(schema.scheduledTasks)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
 
   return tasks.sort((left, right) => {
     if (left.active !== right.active) {
@@ -73,11 +103,27 @@ export async function listScheduledTasks() {
   });
 }
 
-export async function listScheduledTasksBySessionId(sessionId: string) {
+export async function listScheduledTasksBySessionId(
+  sessionId: string,
+  options?: { userId?: string },
+) {
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(schema.scheduledTasks.sessionId, sessionId),
+  ];
+
+  if (options?.userId) {
+    const userSessionIds = db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, options.userId));
+
+    conditions.push(inArray(schema.scheduledTasks.sessionId, userSessionIds));
+  }
+
   return db
     .select()
     .from(schema.scheduledTasks)
-    .where(eq(schema.scheduledTasks.sessionId, sessionId));
+    .where(and(...conditions));
 }
 
 export async function updateScheduledTask(
@@ -96,8 +142,22 @@ export async function updateScheduledTask(
     active?: boolean;
     metadata?: ScheduledTaskMetadata | null;
   },
+  options?: { userId?: string },
 ) {
   logger.log('update:start', { taskId, keys: Object.keys(input) });
+
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(schema.scheduledTasks.id, taskId),
+  ];
+
+  if (options?.userId) {
+    const userSessionIds = db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, options.userId));
+
+    conditions.push(inArray(schema.scheduledTasks.sessionId, userSessionIds));
+  }
 
   await db
     .update(schema.scheduledTasks)
@@ -105,17 +165,33 @@ export async function updateScheduledTask(
       ...input,
       updatedAt: new Date(),
     })
-    .where(eq(schema.scheduledTasks.id, taskId));
+    .where(and(...conditions));
 
   logger.log('update:success', { taskId });
 }
 
-export async function deleteScheduledTask(taskId: string) {
+export async function deleteScheduledTask(
+  taskId: string,
+  options?: { userId?: string },
+) {
   logger.info('delete:start', { taskId });
+
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(schema.scheduledTasks.id, taskId),
+  ];
+
+  if (options?.userId) {
+    const userSessionIds = db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, options.userId));
+
+    conditions.push(inArray(schema.scheduledTasks.sessionId, userSessionIds));
+  }
 
   const [task] = await db
     .delete(schema.scheduledTasks)
-    .where(eq(schema.scheduledTasks.id, taskId))
+    .where(and(...conditions))
     .returning();
 
   logger.info('delete:success', { taskId });

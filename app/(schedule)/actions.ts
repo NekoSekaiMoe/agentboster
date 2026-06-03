@@ -138,9 +138,9 @@ async function cancelScheduleRun(runId: string | null | undefined) {
 }
 
 export async function listScheduleTasksAction() {
-  await requireAuth();
+  const authSession = await requireAuth();
 
-  const tasks = await listScheduledTasks();
+  const tasks = await listScheduledTasks({ userId: authSession.userId });
   return {
     tasks: tasks.map(serializeTask),
   };
@@ -150,14 +150,16 @@ export async function updateScheduleTaskAction(input: {
   id: string;
   task: UpdateScheduleTaskInput;
 }) {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const taskId = input.id.trim();
   if (!taskId) {
     throw new Error('Task id is required');
   }
 
-  const existing = await getScheduledTask(taskId);
+  const existing = await getScheduledTask(taskId, {
+    userId: authSession.userId,
+  });
   if (!existing) {
     throw new Error('Task not found');
   }
@@ -204,43 +206,51 @@ export async function updateScheduleTaskAction(input: {
 
   await cancelScheduleRun(existing.scheduleWorkflowRunId);
 
-  await updateScheduledTask(taskId, {
-    type: normalized.type,
-    title: task.title ?? null,
-    prompt: task.prompt,
-    timezone: normalized.timezone,
-    dailyTime: normalized.dailyTime,
-    nextRunAt: normalized.nextRunAt,
-    active: task.active,
-    metadata: normalized.metadata,
-    scheduleWorkflowRunId: null,
-  });
+  await updateScheduledTask(
+    taskId,
+    {
+      type: normalized.type,
+      title: task.title ?? null,
+      prompt: task.prompt,
+      timezone: normalized.timezone,
+      dailyTime: normalized.dailyTime,
+      nextRunAt: normalized.nextRunAt,
+      active: task.active,
+      metadata: normalized.metadata,
+      scheduleWorkflowRunId: null,
+    },
+    { userId: authSession.userId },
+  );
 
   if (task.active) {
     const run = await start(scheduledTaskWorkflow, [taskId]);
-    await updateScheduledTask(taskId, {
-      scheduleWorkflowRunId: run.runId,
-    });
+    await updateScheduledTask(
+      taskId,
+      {
+        scheduleWorkflowRunId: run.runId,
+      },
+      { userId: authSession.userId },
+    );
   }
 
   return { ok: true as const };
 }
 
 export async function deleteScheduleTaskAction(taskId: string) {
-  await requireAuth();
+  const authSession = await requireAuth();
 
   const id = taskId.trim();
   if (!id) {
     throw new Error('Task id is required');
   }
 
-  const existing = await getScheduledTask(id);
+  const existing = await getScheduledTask(id, { userId: authSession.userId });
   if (!existing) {
     throw new Error('Task not found');
   }
 
   await cancelScheduleRun(existing.scheduleWorkflowRunId);
-  await deleteScheduledTask(id);
+  await deleteScheduledTask(id, { userId: authSession.userId });
 
   return { ok: true as const };
 }
