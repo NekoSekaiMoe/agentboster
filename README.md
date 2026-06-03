@@ -37,40 +37,47 @@ AgentBoster 拥有你对 AI Agent 的核心需求：Chat、Skills、Memory (RAG)
 ```mermaid
 flowchart TB
     subgraph Vercel["Vercel (Serverless)"]
-        direction TB
         Web["Next.js Web Dashboard"]
-        API["API Routes /api/*"]
-        Wf["Vercel Workflow DevKit<br/>(Agent + Scheduled)"]
-        subgraph Gateway["AgentBoster API Gateway"]
-            direction TB
-            Chat["Chat Stream"]
-            Bot["Bot Router"]
-            Sec["Security L1/L2"]
-            Cfg["Config/Mgmt<br/>(Soul, etc)"]
-            subgraph IM["IM Channels (Web-side)"]
-                Tg["Telegram"]
-                Dc["Discord"]
-                Sk["Slack"]
-                Fs["Feishu"]
-                Tm["Teams"]
-                Qq["QQ"]
-            end
+        API["API Routes"]
+        Wf["Vercel Workflow DevKit"]
+        subgraph Gateway["API Gateway"]
+            Chat["Chat / Stream"]
+            BotR["Bot Router"]
+            L1["L1 Scorer"]
+            L2Q["L2 Decision Queue"]
+            CfgMgmt["Config / Soul"]
+            Notif["Notification"]
         end
+        subgraph IM["IM Channels (Web-side)"]
+            Tg["Telegram"]
+            Dc["Discord"]
+            Sk["Slack"]
+            Fs["Feishu"]
+            Tm["Teams"]
+        end
+        KV[("Upstash Redis")]
+        DB[("Neon Postgres")]
+        Blob[("Vercel Blob")]
     end
 
     Web --> Gateway
     API --> Gateway
-    Wf --> Gateway
+    Wf --> Chat
+    BotR --> IM
+    Notif --> IM
 
-    Gateway <-->|"mTLS + API Key"| Daemon
+    Gateway <-->|"mTLS"| DaemonAPI
 
-    subgraph Server["User's Linux Server"]
-        Daemon["Agent Daemon (Go)"]
-        subgraph DaemonInner[" "]
-            LLM["LLM Loop + Tools"]
-            Sbx["Sandbox Manager"]
-            SecD["Security L0/L1/L2"]
-            Ses["Session Manager"]
+    subgraph Linux["User's Linux Server"]
+        subgraph Daemon["Agent Daemon (Go)"]
+            DaemonAPI["HTTP Server (Gin)"]
+            AgentLoop["Agent Loop (CodeAct)"]
+            Tools["Tools: file / exec / git / web /<br/>memory / skills / subagent / ..."]
+            Gate["Security Gatekeeper<br/>L0 → L1 → L2"]
+            SbxMgr["Sandbox Manager"]
+            SesMgr["Session Manager"]
+            Pool["Worker Pool"]
+            Claw["Web API Client"]
         end
         subgraph SP["Sandbox Providers"]
             Tmp["tmpfs (dynamic)"]
@@ -79,8 +86,18 @@ flowchart TB
         end
     end
 
-    Daemon --> LLM & Sbx & SecD & Ses
-    Sbx --> SP
+    DaemonAPI --> AgentLoop
+    DaemonAPI --> Gate
+    DaemonAPI --> SesMgr
+    DaemonAPI --> Pool
+    AgentLoop --> Tools
+    AgentLoop --> Gate
+    Gate --> SbxMgr
+    SbxMgr --> SP
+    AgentLoop --> SesMgr
+    AgentLoop --> Claw
+    Pool -.->|"dispatch"| AgentLoop
+    Claw -.->|"callback"| Gateway
 ```
 
 ---
