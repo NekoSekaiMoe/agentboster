@@ -25,51 +25,107 @@
 
 AgentBoster is a **Serverless AI Agent platform** consisting of two parts:
 
-- **AgentBoster Web** — A Next.js-based frontend Dashboard deployed on Vercel, providing a chat UI, configuration management, and Bot adapters
+- **AgentBoster Web** — A Next.js-based frontend Dashboard deployed on Vercel, providing a chat UI, configuration management, Bot adapters, security review, and Vercel Workflow DevKit-powered persistent agent execution
 - **Agent Daemon** — A Go-based Linux daemon running on the user's Linux server, providing sandbox execution, security review, and task scheduling. The Daemon does not interact with IM or send notifications; all IM notifications are handled by AgentBoster Web
 
-AgentBoster covers the core features you need from an AI Agent: Chat, Skills, Memory (with RAG), Multi-Channel Bot, Sandbox execution, Workflow — and it's **Serverless**.
+AgentBoster covers the core features you need from an AI Agent: Chat, Skills, Memory (RAG), Soul, Multi-Channel Bot (Telegram/Discord/Slack/Feishu/Teams/QQ), MCP, Sandbox execution, Workflow — and it's **Serverless**.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Vercel (Serverless)                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────────┐  │
-│  │  Next.js Web  │  │  API Routes  │  │  Workflow (Cron)  │  │
-│  │  Dashboard    │  │  /api/*      │  │  DevKit           │  │
-│  └──────┬───────┘  └──────┬───────┘  └───────────────────┘  │
-│         │                  │                                  │
-│         │    mTLS + API Key │                                  │
-│         ▼                  ▼                                  │
-│  ┌──────────────────────────────────────────────────────────┐│
-│  │              AgentBoster API Gateway                        ││
-│  └──────────────────────────┬───────────────────────────────┘│
-└─────────────────────────────┼─────────────────────────────────┘
-                              │ mTLS
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   User's Linux Server                        │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │                   Agent Daemon (Go)                      │ │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐  │ │
-│  │  │ LLM Loop │ │ Sandbox  │ │ Security │ │ Session   │  │ │
-│  │  │ Agent    │ │ Manager  │ │ L0/L1/L2 │ │ Manager   │  │ │
-│  │  └──────────┘ └──────────┘ └──────────┘ └───────────┘  │ │
-│  │                                                         │ │
-│  │  ┌───────────────────────────────────────────────────┐  │ │
-│  │  │              Sandbox Providers                     │  │ │
-│  │  │  tmpfs  │  chroot  │  Docker                      │  │ │
-│  │  └───────────────────────────────────────────────────┘  │ │
-│  │                                                         │ │
-│  │  ┌───────────────────────────────────────────────────┐  │ │
-│  │  │              IM Channels                           │  │ │
-│  │  │  Telegram  │  Discord  │  Slack  │  Feishu        │  │ │
-│  │  └───────────────────────────────────────────────────┘  │ │
-│  └─────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                       Vercel (Serverless)                        │
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
+│  │  Next.js Web  │  │  API Routes  │  │  Vercel Workflow       │ │
+│  │  Dashboard    │  │  /api/*      │  │  DevKit (Agent+Sched)  │ │
+│  └──────┬───────┘  └──────┬───────┘  └────────────────────────┘ │
+│         │                  │                                      │
+│         │                  │                                      │
+│  ┌──────▼──────────────────▼──────────────────────────────────┐ │
+│  │               AgentBoster API Gateway                       │ │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────┐  │ │
+│  │  │  Chat    │ │  Bot     │ │ Security │ │  Config/Mgmt  │  │ │
+│  │  │  Stream  │ │  Router  │ │ L1/L2   │ │  (Soul, etc)  │  │ │
+│  │  └──────────┘ └──────────┘ └──────────┘ └───────────────┘  │ │
+│  │                                                             │ │
+│  │  ┌──────────────────────────────────────────────────────┐   │ │
+│  │  │              IM Channels (Web-side)                   │   │ │
+│  │  │  Telegram │ Discord │ Slack │ Feishu │ Teams │ QQ   │   │ │
+│  │  └──────────────────────────────────────────────────────┘   │ │
+│  └──────────────────────────────┬──────────────────────────────┘ │
+└─────────────────────────────────┼────────────────────────────────┘
+                                  │ mTLS + API Key
+                                  ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                     User's Linux Server                          │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │                   Agent Daemon (Go)                        │  │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐   │  │
+│  │  │ LLM Loop │ │ Sandbox  │ │ Security │ │ Session    │   │  │
+│  │  │ + Tools  │ │ Manager  │ │ L0/L1/L2 │ │ Manager    │   │  │
+│  │  └──────────┘ └──────────┘ └──────────┘ └────────────┘   │  │
+│  │                                                           │  │
+│  │  ┌─────────────────────────────────────────────────────┐  │  │
+│  │  │              Sandbox Providers                      │  │  │
+│  │  │  tmpfs (dynamic) │ chroot (persistent) │ Docker    │  │  │
+│  │  └─────────────────────────────────────────────────────┘  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Project Structure
+
+```
+app/                     # Next.js App Router pages & API routes
+├── (auth)/              #   Login
+├── (chat)/              #   Chat UI, files, scheduled tasks
+├── (config)/            #   Config, monitoring, audit logs
+├── (memory)/            #   Memory/RAG management
+├── (schedule)/          #   Schedule management
+├── (skill)/             #   Skill management
+├── api/                 #   Public API routes
+│   ├── api/auth/        #     Login
+│   ├── api/agentd/v1/   #     Daemon callbacks (L1 scoring, L2 decisions)
+│   ├── api/bot/         #     IM webhooks (auth secret in path)
+│   ├── api/config/      #     Config, audit logs, monitoring
+│   ├── api/notifications/#     Notifications
+│   ├── api/sandbox/     #     Sandbox tools
+│   ├── api/pair/        #     Daemon pairing
+│   └── api/soul/        #     Agent persona
+├── .well-known/workflow/ #   Vercel Workflow callbacks (bypasses auth)
+components/              # React components (shadcn/ui)
+lib/                     # Core logic
+├── ai/                  #   AI SDK provider factory
+├── auth/                #   Auth config
+├── bot/                 #   Bot adapters & webhook routing
+├── chat/                #   Chat transport, streaming, slash commands
+├── core/                #   Infrastructure: DB (Drizzle+Neon), KV (Redis), Blob, Sandbox
+├── extra/               #   Server logic: agent, channels, config, cron, memory, prompts, sandbox, security
+├── mcp/                 #   Built-in MCP servers (Context7, Firecrawl, GitHub, Web)
+├── memory/              #   Memory: builtin, RAG long-term, session
+├── security/            #   Security: L1 scorer, L2 decision queue
+├── utils/               #   Utilities
+└── workflow/            #   Vercel Workflow DevKit: Agent + Scheduled
+hooks/                   # React hooks (config draft, validation, mobile)
+types/                   # TypeScript types (config, memory, skills, workflow)
+agentd/                  # Go Daemon (Linux)
+├── cmd/agentd/main.go   #   Entry point
+└── internal/            #   Internal packages
+    ├── agent/           #     LLM loop, tools, context
+    ├── sandbox/         #     Sandbox providers (docker, docker_light, lxc_persistent)
+    ├── security/        #     Security rules & enforcement (L0/L1/L2)
+    ├── session/         #     Session persistence, LRU, archiving
+    ├── worker/          #     Task dispatcher & worker pool
+    ├── server/          #     HTTP routes & middleware
+    ├── clawless/        #     Web API client
+    ├── config/          #     Config loading & validation
+    ├── certs/           #     mTLS certificates
+    └── lifecycle/       #     Startup/shutdown orchestration
 ```
 
 ---
@@ -77,21 +133,29 @@ AgentBoster covers the core features you need from an AI Agent: Chat, Skills, Me
 ## Features
 
 ### AgentBoster Web (Next.js)
-- **Chat** — Multi-session chat with streaming responses, message history, session search/pin
-- **Skills** — Skill management with dynamic loading
-- **Memory** — RAG vector search memory
-- **Config** — Provider, Channel, and Agent configuration
-- **Sandbox** — Sandbox management and monitoring
-- **Multi-Channel Bot** — Slack, Teams, Google Chat, and Telegram adapters
+- **Chat** — Multi-session chat, streaming, message history, search/pin, slash commands
+- **Skills** — Skill management with dynamic loading (ClawHub marketplace)
+- **Memory** — Builtin, RAG vector long-term, session memory
+- **Soul** — Agent persona/identity management, per-session customization
+- **Config** — Provider, Channel, Agent, Tools, MCP, Autonomy
+- **Sandbox** — Vercel Sandbox management & monitoring
+- **Multi-Channel Bot** — Telegram, Discord, Slack, Feishu, Teams, QQ
+- **Multi-Channel Notification** — Unified notification routing to all IM platforms
+- **Workflow** — Vercel Workflow DevKit-powered persistent agent execution
+- **MCP** — Built-in MCP tools (Context7, Firecrawl, GitHub, Web)
+- **Security** — L1 AI scoring, L2 user authorization queue
+- **Audit & Monitoring** — Audit logs, runtime monitoring, Daemon node status
+- **Daemon Pairing** — One-click pair key generation for secure Daemon registration
 
 ### Agent Daemon (Go)
-- **LLM Agent Loop** — Tool calling, multi-step reasoning, Sub-agents
-- **20+ MVP Tools** — File read/write, Shell execution, Git, Web search/scrape, Sub-agents, and more
+- **LLM Agent Loop** — CodeAct mode, tool calling, multi-step reasoning, Sub-agent branching
+- **20+ Tools** — File I/O, Shell execution, Git, Web search/scrape, memory, skills, media, Sub-agent, task summary, etc.
 - **Three-Layer Security** — L0 rule filtering → L1 AI scoring → L2 user authorization
-- **Unified Decision Queue** — L2 security authorization + LLM questions + conflict resolution + task branching, with serial/concurrent hybrid scheduling
+- **Unified Decision Queue** — L2 authorization + LLM questions + conflict resolution + task branching
 - **Three Sandboxes** — tmpfs (AI-dynamic sizing), chroot (persistent), Docker (strong isolation)
-- **Webhook Callbacks** — Notifies AgentBoster Web via HTTP callbacks when tasks complete or user decisions are needed; the Web side handles IM notifications
-- **Session Management** — Session persistence, LRU eviction, archiving, and abort control
+- **Webhook Callbacks** — Notifies AgentBoster Web on task completion or user decision needed
+- **Session Management** — Persistence, LRU eviction, archiving, Sub-agent state tracking, abort control
+- **Worker Pool** — Task dispatch & workers (task, review, sandbox, cleanup, tidy)
 
 ---
 
@@ -100,24 +164,27 @@ AgentBoster covers the core features you need from an AI Agent: Chat, Skills, Me
 ### AgentBoster Web
 | Category | Technology |
 |----------|------------|
-| Framework | Next.js 15.5.9 (App Router, RSC) |
+| Framework | Next.js 15 (App Router, RSC) |
 | UI | React 19, Tailwind CSS 3, shadcn/ui, Framer Motion |
-| AI | Vercel AI SDK 6 (Anthropic, Google, OpenAI) |
-| Chat | Chat SDK (Slack, Teams, GChat, Telegram) |
-| Database | Drizzle ORM + Neon Postgres |
+| State | TanStack React Query |
+| AI | Vercel AI SDK 6 (Anthropic, Google, OpenAI, OpenAI-compatible) |
+| Chat | @chat-sdk (Telegram, Discord, Slack, Feishu, Teams, QQ) |
+| Database | Drizzle ORM + Neon Postgres (pgvector) |
 | Cache | Upstash Redis |
 | Storage | Vercel Blob |
 | Workflow | Vercel Workflow DevKit |
 | Sandbox | Vercel Sandbox |
-| Tools | Biome (lint/format), Node.js (runtime) |
+| MCP | Built-in MCP servers (Context7, Firecrawl, GitHub, Web) |
+| Tools | Biome (lint/format), Yarn, Node.js |
 
 ### Agent Daemon
 | Category | Technology |
 |----------|------------|
-| Language | Go 1.26.2 (Linux-only) |
+| Language | Go 1.26+ (Linux-only) |
 | HTTP | Gin |
 | Config | Viper (TOML) |
 | Events | Custom Event Bus |
+| Worker Pool | Custom Worker Pool |
 | Communication | mTLS + API Key |
 
 ---
@@ -233,22 +300,22 @@ chroot rootfs supports 6 sources (by priority): user-specified path → user-spe
 ## Development
 
 ```bash
-cd your-agentboster
+# Web (Next.js)
+yarn install          # Install dependencies
+yarn dev              # Start dev server (localhost:3000)
+yarn check            # Typecheck + Biome lint/format
+yarn build            # Production build
+yarn db:generate      # Drizzle generate migrations
+yarn db:push          # Drizzle push schema
+yarn db:studio        # Drizzle Studio
 
-yarn install
-yarn vercel pull   # Pull environment variables
-yarn dev           # Start the development server
-```
-
-If you encounter database schema errors, run `yarn postbuild` to apply database migrations.
-
-Agent Daemon development:
-
-```bash
+# Agent Daemon (Go)
 cd agentd
 go build -o agentd ./cmd/agentd/
 ./agentd -config agentd.toml
 ```
+
+Requires `.env.local` (gitignored) with `DATABASE_URL`, `REDIS_URL`, etc. See CLAUDE.md for the full env var list.
 
 ---
 
