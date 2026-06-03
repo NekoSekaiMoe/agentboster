@@ -3,12 +3,12 @@
 import {
   AUTH_COOKIE_NAME,
   AUTH_TTL_SECONDS,
-  getAuthConfigStatus,
   getAuthCookieOptions,
   getExpiredAuthCookieOptions,
-  validateCredentials,
 } from '@/lib/auth';
 import { createAuthToken } from '@/lib/auth/session';
+import { validateCredentials } from '@/lib/auth/credentials';
+import { seedInitialUser, userCount } from '@/lib/core/db/users';
 import { cookies } from 'next/headers';
 
 function normalizeRedirectTo(input: string | null | undefined): string {
@@ -32,15 +32,6 @@ export async function loginAction(input: {
   password: string;
   redirectTo?: string;
 }) {
-  const authConfig = getAuthConfigStatus();
-  if (!authConfig.isConfigured) {
-    return {
-      ok: false as const,
-      error:
-        'Authentication is not configured. Set AUTH_SECRET, USERNAME, and PASSWORD in .env.local or .env, then restart the app.',
-    };
-  }
-
   const username = input.username.trim();
   const password = input.password;
 
@@ -51,15 +42,21 @@ export async function loginAction(input: {
     };
   }
 
-  const isValid = validateCredentials({ username, password });
-  if (!isValid) {
+  // Seed initial user from env vars if no users exist yet
+  const count = await userCount();
+  if (count === 0) {
+    await seedInitialUser();
+  }
+
+  const user = await validateCredentials({ username, password });
+  if (!user) {
     return {
       ok: false as const,
       error: 'Invalid username or password.',
     };
   }
 
-  const token = await createAuthToken(username);
+  const token = await createAuthToken(user.id, user.username);
   const cookieStore = await cookies();
   cookieStore.set(
     AUTH_COOKIE_NAME,

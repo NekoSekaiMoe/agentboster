@@ -3,6 +3,7 @@ import { AUTH_COOKIE_NAME, AUTH_TTL_SECONDS } from '@/lib/auth/constants';
 import type { RequestCookies } from 'next/dist/compiled/@edge-runtime/cookies';
 
 export interface AuthSession {
+  userId: string;
   username: string;
   issuedAt: number;
   expiresAt: number;
@@ -107,6 +108,7 @@ function decodePayload(payload: string): AuthSession | null {
     }
 
     return {
+      userId: typeof parsed.userId === 'string' ? parsed.userId : '',
       username: parsed.username,
       issuedAt: parsed.issuedAt,
       expiresAt: parsed.expiresAt,
@@ -116,11 +118,14 @@ function decodePayload(payload: string): AuthSession | null {
   }
 }
 
-export async function createAuthToken(username: string): Promise<string> {
+export async function createAuthToken(
+  userId: string,
+  username: string,
+): Promise<string> {
   const secret = readAuthSecret();
   const issuedAt = Date.now();
   const expiresAt = issuedAt + AUTH_TTL_SECONDS * 1000;
-  const payload = encodePayload({ username, issuedAt, expiresAt });
+  const payload = encodePayload({ userId, username, issuedAt, expiresAt });
   const signature = await sign(payload, secret);
   return `${payload}.${signature}`;
 }

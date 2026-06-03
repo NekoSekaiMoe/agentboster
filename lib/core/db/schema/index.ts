@@ -1,4 +1,5 @@
 export { messages, sessions } from './chat';
+export { users } from './users';
 export { files } from './files';
 export {
   builtinMemories,

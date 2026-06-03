@@ -3,14 +3,6 @@ const AUTH_REQUIRED_ENV_VARS = [
     displayName: 'AUTH_SECRET',
     aliases: ['AUTH_SECRET'],
   },
-  {
-    displayName: 'USERNAME',
-    aliases: ['USERNAME'],
-  },
-  {
-    displayName: 'PASSWORD',
-    aliases: ['PASSWORD'],
-  },
 ] as const;
 
 const ALPHANUMERIC_CHARACTERS =

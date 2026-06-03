@@ -1,62 +1,35 @@
-import { createApiKey } from './api-keys';
+import {
+  createUser as dbCreateUser,
+  authenticateUser as dbAuthenticateUser,
+  getUserById as dbGetUserById,
+  listUsers as dbListUsers,
+  deleteUser as dbDeleteUser,
+} from '@/lib/core/db/users';
 import { hashPassword, verifyPassword } from './password';
-import type { ApiKey, User } from './types';
+import { createApiKey } from './api-keys';
+import type { ApiKey } from './types';
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/core/db';
+import { users } from '@/lib/core/db/schema';
 
-interface StoredUser extends User {
-  passwordHash: string;
-}
-
-const users = new Map<string, StoredUser>();
 const apiKeyIndex = new Map<string, string>();
 
 export async function createUser(
   username: string,
   password: string,
-): Promise<User> {
-  const existing = Array.from(users.values()).find(
-    (u) => u.username === username,
-  );
-  if (existing) {
-    throw new Error(`User "${username}" already exists.`);
-  }
-
-  const id = crypto.randomUUID();
-  const passwordHash = await hashPassword(password);
-  const user: StoredUser = {
-    id,
-    username,
-    passwordHash,
-    roles: ['user'],
-    apiKeys: [],
-    createdAt: Math.floor(Date.now() / 1000),
-  };
-
-  users.set(id, user);
-  return toPublicUser(user);
+) {
+  return dbCreateUser(username, password);
 }
 
 export async function authenticateUser(
   username: string,
   password: string,
-): Promise<User | null> {
-  const user = Array.from(users.values()).find((u) => u.username === username);
-  if (!user) return null;
-
-  const isValid = await verifyPassword(password, user.passwordHash);
-  if (!isValid) return null;
-
-  return toPublicUser(user);
+) {
+  return dbAuthenticateUser(username, password);
 }
 
-export function getUserById(userId: string): User | null {
-  const user = users.get(userId);
-  return user ? toPublicUser(user) : null;
-}
-
-export function getUserByApiKey(key: string): User | null {
-  const userId = apiKeyIndex.get(key);
-  if (!userId) return null;
-  return getUserById(userId);
+export async function getUserById(userId: string) {
+  return dbGetUserById(userId);
 }
 
 export async function changeUserPassword(
@@ -64,13 +37,27 @@ export async function changeUserPassword(
   oldPassword: string,
   newPassword: string,
 ): Promise<void> {
-  const user = users.get(userId);
-  if (!user) throw new Error('User not found.');
+  const rows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
 
-  const isValid = await verifyPassword(oldPassword, user.passwordHash);
+  if (rows.length === 0) throw new Error('User not found.');
+
+  const isValid = await verifyPassword(oldPassword, rows[0].passwordHash);
   if (!isValid) throw new Error('Invalid current password.');
 
-  user.passwordHash = await hashPassword(newPassword);
+  const passwordHash = await hashPassword(newPassword);
+  await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
+}
+
+export async function listUsers() {
+  return dbListUsers();
+}
+
+export async function deleteUser(userId: string): Promise<boolean> {
+  return dbDeleteUser(userId);
 }
 
 export function addApiKeyToUser(
@@ -79,37 +66,13 @@ export function addApiKeyToUser(
   scopes: string[],
   expiresAt?: number,
 ): ApiKey {
-  const user = users.get(userId);
-  if (!user) throw new Error('User not found.');
-
   const apiKey = createApiKey(name, scopes, expiresAt);
-  user.apiKeys.push(apiKey);
   apiKeyIndex.set(apiKey.key, userId);
   return apiKey;
 }
 
-export function listUsers(): User[] {
-  return Array.from(users.values()).map(toPublicUser);
-}
-
-export function deleteUser(userId: string): boolean {
-  const user = users.get(userId);
-  if (!user) return false;
-
-  for (const apiKey of user.apiKeys) {
-    apiKeyIndex.delete(apiKey.key);
-  }
-  users.delete(userId);
-  return true;
-}
-
-function toPublicUser(user: StoredUser): User {
-  return {
-    id: user.id,
-    username: user.username,
-    passwordHash: undefined,
-    roles: user.roles,
-    apiKeys: user.apiKeys,
-    createdAt: user.createdAt,
-  };
+export function getUserByApiKey(key: string) {
+  const userId = apiKeyIndex.get(key);
+  if (!userId) return null;
+  return null;
 }

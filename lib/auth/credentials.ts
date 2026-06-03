@@ -1,37 +1,22 @@
-import {
-  readConfiguredAuthPassword,
-  readConfiguredAuthUsername,
-} from '@/lib/auth/config';
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/core/db';
+import { users } from '@/lib/core/db/schema';
+import { verifyPassword } from '@/lib/extra/auth/password';
 
-function constantTimeEqual(input: string, expected: string): boolean {
-  if (input.length !== expected.length) {
-    return false;
-  }
-
-  let result = 0;
-  for (let index = 0; index < input.length; index += 1) {
-    result |= input.charCodeAt(index) ^ expected.charCodeAt(index);
-  }
-
-  return result === 0;
-}
-
-export function validateCredentials(params: {
+export async function validateCredentials(params: {
   username: string;
   password: string;
-}): boolean {
-  const expectedUsername = readConfiguredAuthUsername();
-  if (!expectedUsername) {
-    throw new Error('username is required for authentication.');
-  }
+}): Promise<{ id: string; username: string } | null> {
+  const rows = await db
+    .select()
+    .from(users)
+    .where(eq(users.username, params.username))
+    .limit(1);
 
-  const expectedPassword = readConfiguredAuthPassword();
-  if (!expectedPassword) {
-    throw new Error('password is required for authentication.');
-  }
+  if (rows.length === 0) return null;
 
-  return (
-    constantTimeEqual(params.username, expectedUsername) &&
-    constantTimeEqual(params.password, expectedPassword)
-  );
+  const isValid = await verifyPassword(params.password, rows[0].passwordHash);
+  if (!isValid) return null;
+
+  return { id: rows[0].id, username: rows[0].username };
 }

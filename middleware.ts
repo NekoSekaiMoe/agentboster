@@ -42,7 +42,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'Authentication is not configured. Set AUTH_SECRET, USERNAME, and PASSWORD in environment variables, then redeploy the app.',
+            'Authentication is not configured. Set AUTH_SECRET in environment variables, then redeploy the app.',
           missingEnvVars: authConfig.missingEnvVars,
           exampleEnvFile: authConfig.exampleEnvFile,
         },
@@ -62,7 +62,10 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL('/', request.url));
     }
 
-    return NextResponse.next();
+    const response = NextResponse.next();
+    response.headers.set('x-user-id', session.userId);
+    response.headers.set('x-user-name', session.username);
+    return response;
   }
 
   if (pathname.startsWith('/api/')) {
