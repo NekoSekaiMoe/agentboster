@@ -25,10 +25,10 @@
 
 AgentBoster is a **Serverless AI Agent platform** consisting of two parts:
 
-- **AgentBoster Web** — A Next.js-based frontend Dashboard deployed on Vercel, providing a chat UI, configuration management, Bot adapters, security review, and Vercel Workflow DevKit-powered persistent agent execution
-- **Agent Daemon** — A Go-based Linux daemon running on the user's Linux server, providing sandbox execution, security review, and task scheduling. The Daemon does not interact with IM or send notifications; all IM notifications are handled by AgentBoster Web
+- **AgentBoster Web** — A Next.js 15 frontend Dashboard deployed on Vercel, providing chat UI, configuration management, IM Bot adapters, and Vercel Workflow DevKit-powered persistent agent execution
+- **Agent Daemon** — A Go 1.26 Linux daemon running on the user's server, providing sandbox execution, security review, and task scheduling. The Daemon does not interact with IM or send notifications; all IM notifications are handled by AgentBoster Web
 
-AgentBoster covers the core features you need from an AI Agent: Chat, Skills, Memory (RAG), Soul, Multi-Channel Bot (Telegram/Discord/Slack/Feishu/Teams/QQ), MCP, Sandbox execution, Workflow — and it's **Serverless**.
+AgentBoster covers the core features you need from an AI Agent: Chat, Skills, Memory (RAG), Soul, Multi-Channel Bot (Telegram/Discord/Slack/Feishu/Teams), MCP, Sandbox, Workflow — and it's **Serverless**.
 
 ---
 
@@ -37,8 +37,8 @@ AgentBoster covers the core features you need from an AI Agent: Chat, Skills, Me
 ```mermaid
 flowchart TB
     subgraph Vercel["Vercel (Serverless)"]
-        Web["Next.js Web Dashboard"]
-        API["API Routes"]
+        Web["Next.js 15 Dashboard"]
+        API["API Routes (55+)"]
         Wf["Vercel Workflow DevKit"]
         subgraph Gateway["API Gateway"]
             Chat["Chat / Stream"]
@@ -56,7 +56,7 @@ flowchart TB
             Tm["Teams"]
         end
         KV[("Upstash Redis")]
-        DB[("Neon Postgres")]
+        DB[("Neon Postgres + pgvector")]
         Blob[("Vercel Blob")]
     end
 
@@ -66,30 +66,30 @@ flowchart TB
     BotR --> IM
     Notif --> IM
 
-    Gateway <-->|"mTLS"| DaemonAPI
+    Gateway <-->|"mTLS"| DaemonSrv
 
     subgraph Linux["User's Linux Server"]
         subgraph Daemon["Agent Daemon (Go)"]
-            DaemonAPI["HTTP Server (Gin)"]
+            DaemonSrv["HTTP Server (Gin)"]
             AgentLoop["Agent Loop (CodeAct)"]
             Tools["Tools: file / exec / git / web /<br/>memory / skills / subagent / ..."]
-            Gate["Security Gatekeeper<br/>L0 → L1 → L2"]
+            Gate["Security Gatekeeper<br/>L0 Rules → L1 → L2"]
             SbxMgr["Sandbox Manager"]
             SesMgr["Session Manager"]
             Pool["Worker Pool"]
-            Claw["Web API Client"]
+            Claw["Web API Client<br/>(clawless)"]
         end
         subgraph SP["Sandbox Providers"]
-            Tmp["tmpfs (dynamic)"]
-            Chr["chroot (persistent)"]
-            Dok["Docker"]
+            DokL["docker<br/>(lightweight, daily)"]
+            DokS["docker-strict<br/>(high-risk isolation)"]
+            Lxc["lxc<br/>(persistent containers)"]
         end
     end
 
-    DaemonAPI --> AgentLoop
-    DaemonAPI --> Gate
-    DaemonAPI --> SesMgr
-    DaemonAPI --> Pool
+    DaemonSrv --> AgentLoop
+    DaemonSrv --> Gate
+    DaemonSrv --> SesMgr
+    DaemonSrv --> Pool
     AgentLoop --> Tools
     AgentLoop --> Gate
     Gate --> SbxMgr
@@ -107,49 +107,75 @@ flowchart TB
 ```
 app/                     # Next.js App Router pages & API routes
 ├── (auth)/              #   Login
-├── (chat)/              #   Chat UI, files, scheduled tasks
+├── (chat)/              #   Chat, files, schedules
 ├── (config)/            #   Config, monitoring, audit logs
 ├── (memory)/            #   Memory/RAG management
 ├── (schedule)/          #   Schedule management
 ├── (skill)/             #   Skill management
-├── api/                 #   Public API routes
-│   ├── api/auth/        #     Login
-│   ├── api/agentd/v1/   #     Daemon callbacks (L1 scoring, L2 decisions)
-│   ├── api/bot/         #     IM webhooks (auth secret in path)
-│   ├── api/config/      #     Config, audit logs, monitoring
-│   ├── api/notifications/#     Notifications
-│   ├── api/sandbox/     #     Sandbox tools
-│   ├── api/pair/        #     Daemon pairing
-│   └── api/soul/        #     Agent persona
-├── .well-known/workflow/ #   Vercel Workflow callbacks (bypasses auth)
+├── api/                 #   Public API
+│   ├── agentd/v1/       #     Daemon callbacks (L1/L2)
+│   ├── bot/[secret]/    #     IM webhooks
+│   ├── config/          #     Config, audit, monitoring
+│   ├── notifications/   #     Notifications
+│   ├── pair/            #     Daemon pairing
+│   ├── sandbox/         #     Sandbox tools
+│   ├── sessions/        #     Session revert
+│   ├── soul/            #     Agent persona
+│   └── tasks/           #     Task history
+├── (chat)/api/          # Daemon-facing API (35+ endpoints)
+│   ├── agentd/v1/       #     Agent config, blob, health,
+│   │                    #     rules, notifications, sandboxes,
+│   │                    #     sessions, tasks, workspaces, memory
+│   └── ai/              #     AI chat, stream, message, pause, status
+└── .well-known/workflow/#   Workflow DevKit callbacks (no auth)
 components/              # React components (shadcn/ui)
+├── ui/                  #   shadcn/ui primitives (19)
+├── config/              #   Config forms
+└── ...                  #   Chat, messages, sidebar, timelines
 lib/                     # Core logic
-├── ai/                  #   AI SDK provider factory
-├── auth/                #   Auth config
+├── ai/                  #   AI SDK provider factory (Anthropic/Google/OpenAI)
+├── auth/                #   Auth (bcryptjs, cookies)
 ├── bot/                 #   Bot adapters & webhook routing
 ├── chat/                #   Chat transport, streaming, slash commands
 ├── core/                #   Infrastructure: DB (Drizzle+Neon), KV (Redis), Blob, Sandbox
-├── extra/               #   Server logic: agent, channels, config, cron, memory, prompts, sandbox, security
-├── mcp/                 #   Built-in MCP servers (Context7, Firecrawl, GitHub, Web)
+├── extra/               #   Server-side business logic
+│   ├── agent/           #     Daemon client, parallel exec, skills
+│   ├── auth/            #     API keys, JWT, users
+│   ├── channels/        #     TG/Discord/Slack/Feishu adapters
+│   ├── config/          #     Config management
+│   ├── cron/            #     Cron scheduling
+│   ├── memory/          #     Memory management
+│   ├── prompts/         #     System prompt fragments
+│   ├── sandbox/         #     Vercel Sandbox management
+│   └── security/        #     L0/L1/L2 security engine
+├── mcp/                 #   Built-in MCP (Context7, Firecrawl, GitHub, Web)
 ├── memory/              #   Memory: builtin, RAG long-term, session
-├── security/            #   Security: L1 scorer, L2 decision queue
+├── security/            #   Web-side security (L1 scorer, L2 queue)
 ├── utils/               #   Utilities
-└── workflow/            #   Vercel Workflow DevKit: Agent + Scheduled
-hooks/                   # React hooks (config draft, validation, mobile)
-types/                   # TypeScript types (config, memory, skills, workflow)
-agentd/                  # Go Daemon (Linux)
+└── workflow/            #   Vercel Workflow DevKit
+    ├── agent/           #     Agent workflow (hooks/steps/tools/security)
+    └── scheduled/       #     Scheduled workflow
+hooks/                   # React hooks (config draft, validation, mobile, nav)
+types/                   # TypeScript types (config/memory/skills/workflow)
+agentd/                  # Go 1.26 Daemon
 ├── cmd/agentd/main.go   #   Entry point
-└── internal/            #   Internal packages
-    ├── agent/           #     LLM loop, tools, context
-    ├── sandbox/         #     Sandbox providers (docker, docker_light, lxc_persistent)
-    ├── security/        #     Security rules & enforcement (L0/L1/L2)
-    ├── session/         #     Session persistence, LRU, archiving
-    ├── worker/          #     Task dispatcher & worker pool
-    ├── server/          #     HTTP routes & middleware
-    ├── clawless/        #     Web API client
-    ├── config/          #     Config loading & validation
-    ├── certs/           #     mTLS certificates
-    └── lifecycle/       #     Startup/shutdown orchestration
+├── agentd.toml.example  #   Example config
+└── internal/
+    ├── agent/           #   CodeAct loop, tools, context
+    ├── sandbox/         #   Providers: docker / docker-strict / lxc
+    ├── security/        #   L0 rules, L2 auth, OS enforcement
+    ├── session/         #   Session persistence, LRU, archiving
+    ├── worker/          #   Worker pool, dispatcher
+    ├── server/          #   Gin HTTP routes & middleware
+    ├── clawless/        #   Web API client
+    ├── config/          #   Viper config loading
+    ├── certs/           #   mTLS certificates
+    ├── cache/           #   Internal cache
+    ├── eventbus/        #   Internal event bus
+    ├── identity/        #   Daemon identity & pairing
+    ├── lifecycle/       #   Startup/shutdown orchestration
+    ├── metrics/         #   Runtime metrics
+    └── persistence/     #   Local state persistence
 ```
 
 ---
@@ -157,29 +183,31 @@ agentd/                  # Go Daemon (Linux)
 ## Features
 
 ### AgentBoster Web (Next.js)
-- **Chat** — Multi-session chat, streaming, message history, search/pin, slash commands
-- **Skills** — Skill management with dynamic loading (ClawHub marketplace)
-- **Memory** — Builtin, RAG vector long-term, session memory
-- **Soul** — Agent persona/identity management, per-session customization
-- **Config** — Provider, Channel, Agent, Tools, MCP, Autonomy
+- **Chat** — Multi-session, streaming, history, search/pin, slash commands
+- **Skills** — Dynamic loading (ClawHub marketplace)
+- **Memory** — Builtin, RAG vector long-term, session
+- **Soul** — Agent persona/identity, per-session customization
+- **Config** — Provider, Channel, Agent, Tools, MCP, Autonomy, Appearance
 - **Sandbox** — Vercel Sandbox management & monitoring
-- **Multi-Channel Bot** — Telegram, Discord, Slack, Feishu, Teams, QQ
-- **Multi-Channel Notification** — Unified notification routing to all IM platforms
-- **Workflow** — Vercel Workflow DevKit-powered persistent agent execution
-- **MCP** — Built-in MCP tools (Context7, Firecrawl, GitHub, Web)
+- **Multi-Channel Bot** — Telegram, Discord, Slack, Feishu, Teams
+- **Multi-Channel Notification** — Unified notification routing to all IM
+- **Workflow** — Vercel Workflow DevKit persistent agent execution
+- **MCP** — Built-in MCP (Context7, Firecrawl, GitHub, Web)
 - **Security** — L1 AI scoring, L2 user authorization queue
-- **Audit & Monitoring** — Audit logs, runtime monitoring, Daemon node status
-- **Daemon Pairing** — One-click pair key generation for secure Daemon registration
+- **Audit & Monitoring** — Audit logs, runtime metrics, Daemon node status
+- **Daemon Pairing** — One-click pair key for secure Daemon registration
 
 ### Agent Daemon (Go)
-- **LLM Agent Loop** — CodeAct mode, tool calling, multi-step reasoning, Sub-agent branching
-- **20+ Tools** — File I/O, Shell execution, Git, Web search/scrape, memory, skills, media, Sub-agent, task summary, etc.
+- **CodeAct Agent Loop** — Tool calling, multi-step reasoning, Sub-agent branching
+- **18+ Tools** — File I/O, Shell, Git, Web, memory, skills, media, CodeAct, Sub-agent, task summary
 - **Three-Layer Security** — L0 rule filtering → L1 AI scoring → L2 user authorization
-- **Unified Decision Queue** — L2 authorization + LLM questions + conflict resolution + task branching
-- **Three Sandboxes** — tmpfs (AI-dynamic sizing), chroot (persistent), Docker (strong isolation)
-- **Webhook Callbacks** — Notifies AgentBoster Web on task completion or user decision needed
-- **Session Management** — Persistence, LRU eviction, archiving, Sub-agent state tracking, abort control
-- **Worker Pool** — Task dispatch & workers (task, review, sandbox, cleanup, tidy)
+- **Unified Decision Queue** — L2 auth + LLM questions + conflict resolution + task branching
+- **Three Sandbox Types** — docker (lightweight daily), docker-strict (high-risk isolation), lxc (persistent containers)
+- **OS-Level Enforcement** — seccomp, capability drop, network isolation, readonly paths
+- **Worker Pool** — Dynamic auto-scaling (task/review/sandbox/memory/cleanup)
+- **Session Management** — LRU eviction, archiving, Sub-agent state tracking, abort control
+- **Webhook Callbacks** — Notifies Web on task completion or user decision
+- **Daemon Identity** — Node registration, heartbeat, pairing
 
 ---
 
@@ -188,38 +216,40 @@ agentd/                  # Go Daemon (Linux)
 ### AgentBoster Web
 | Category | Technology |
 |----------|------------|
-| Framework | Next.js 15 (App Router, RSC) |
-| UI | React 19, Tailwind CSS 3, shadcn/ui, Framer Motion |
+| Framework | Next.js 15.5 (App Router, RSC) |
+| UI | React 19, Tailwind CSS 3, shadcn/ui, Framer Motion, Lucide |
 | State | TanStack React Query |
-| AI | Vercel AI SDK 6 (Anthropic, Google, OpenAI, OpenAI-compatible) |
-| Chat | @chat-sdk (Telegram, Discord, Slack, Feishu, Teams, QQ) |
+| AI | Vercel AI SDK 6 (Anthropic/Google/OpenAI/OpenAI-compatible) |
+| Chat SDK | @chat-adapter/* v4 (Telegram, Discord, Slack, Feishu, Teams) |
 | Database | Drizzle ORM + Neon Postgres (pgvector) |
 | Cache | Upstash Redis |
 | Storage | Vercel Blob |
-| Workflow | Vercel Workflow DevKit |
+| Workflow | Vercel Workflow DevKit + @workflow/ai |
 | Sandbox | Vercel Sandbox |
-| MCP | Built-in MCP servers (Context7, Firecrawl, GitHub, Web) |
-| Tools | Biome (lint/format), Yarn, Node.js |
+| MCP | @ai-sdk/mcp (Context7, Firecrawl, GitHub, Web) |
+| Tools | Biome, TypeScript 6, Yarn |
 
 ### Agent Daemon
 | Category | Technology |
 |----------|------------|
-| Language | Go 1.26+ (Linux-only) |
-| HTTP | Gin |
-| Config | Viper (TOML) |
+| Language | Go 1.26 (Linux-only) |
+| HTTP | Gin 1.12 |
+| Config | Viper (TOML) + environment |
 | Events | Custom Event Bus |
-| Worker Pool | Custom Worker Pool |
+| Worker Pool | Custom (auto-scaling) |
+| Sandbox | Docker + LXC |
+| Security | seccomp, capability drop, cgroup |
 | Communication | mTLS + API Key |
 
 ---
 
 ## Deploy
 
-### AgentBoster Web → Vercel
+### AgentBuster Web → Vercel
 
-You don't need to download the project locally or own a VPS. You only need:
+You don't need to download locally or own a VPS. You only need:
 
-- A Vercel account (the free tier is sufficient)
+- A Vercel account (free tier)
 - An API key compatible with OpenAI/Anthropic/Gemini
 - Click the deploy button below
 
@@ -231,23 +261,16 @@ You don't need to download the project locally or own a VPS. You only need:
 
 ### Agent Daemon → Linux Server
 
-On your Linux server:
-
 ```bash
-# Clone the repository
 git clone https://github.com/Niapya/agentboster.git
 cd agentboster/agentd
 
-# Build (requires Go 1.26+)
+# Build (Go 1.26+ required)
 go build -o agentd ./cmd/agentd/
 
-# Generate default config on first run
+# Generate default config, edit, then start
 ./agentd -config agentd.toml
-
-# Edit the configuration
 vim agentd.toml
-
-# Start
 ./agentd
 ```
 
@@ -257,11 +280,11 @@ vim agentd.toml
 
 ### 1. Configure Environment Variables
 
-Deployment requires three environment variables: `AUTH_SECRET`, `USERNAME`, and `PASSWORD`. **Do not expose them.**
+Deployment requires `AUTH_SECRET`, `USERNAME`, and `PASSWORD`. **Do not expose them.**
 
 ### 2. Log In and Configure
 
-Open the deployment link → Log in → Go to "Config" → Add a Provider (OpenAI Compatible) → Set `Default Model` and `Embedding Model`.
+Open the deployment → Log in → Go to "Config" → Add a Provider (OpenAI Compatible) → Set `Default Model` and `Embedding Model`.
 
 ### 3. Configure Agent Daemon
 
@@ -270,54 +293,65 @@ In `agentd.toml`:
 ```toml
 [server]
 listen = ":18732"
-agentboster_api_key = "your-api-key"
+tls_cert_path = "./certs/server-cert.pem"
+tls_key_path = "./certs/server-key.pem"
+ca_path = "./certs/ca-cert.pem"
+clawless_api_key = "sk-clawless-xxx"
 
-[agentboster]
+[clawless]
 base_url = "https://your-agentboster.vercel.app"
-client_cert_path = "/path/to/client.crt"
-client_key_path = "/path/to/client.key"
-ca_path = "/path/to/ca.crt"
+client_cert_path = "./certs/client-cert.pem"
+client_key_path = "./certs/client-key.pem"
+ca_path = "./certs/ca-cert.pem"
 
 [sandbox]
-default = "tmpfs"
-chroot_base = "/var/lib/agentd/chroots"
+default = "docker"
 docker_socket = "unix:///var/run/docker.sock"
+docker_image = "alpine:edge"
 allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "golang:1.22", "node:20", "python:3.12"]
+os_enforce = true
+network_isolate = true
 ```
 
 ### 4. Connect IM
 
-Go to Channel configuration → Set up IM Bot Token → Configure Webhook → Set up whitelist.
+Go to Channel config → Set IM Bot Token → Configure Webhook → Set whitelist.
 
 ### 5. Start Chatting
 
-Chat with the Agent via Web Chat or IM.
+Chat via Web UI or IM.
 
 ---
 
 ## Sandbox
 
-| Type | Isolation Level | Persistence | Sizing Strategy | Use Case |
-|------|----------------|-------------|-----------------|----------|
-| **tmpfs** | Low (in-memory directory) | Optional | AI-dynamic evaluation + Daemon memory probing | Lightweight temporary tasks |
-| **chroot** | Medium (filesystem isolation) | Always persistent | Multiple rootfs sources (URL/local/preset) | Development tasks requiring persistent filesystem |
-| **Docker** | High (full container isolation) | Optional | Image whitelist + resource limits | High-risk commands, tasks requiring strong isolation |
+Sandbox type is auto-selected by `SelectSandbox` strategy:
 
-tmpfs size is evaluated by AI (light tasks 15-50MB, medium tasks 50-200MB, heavy tasks 200-500MB). The Daemon probes available space in three tiers: zram → physical memory → swap, then determines the final allocation. Auto-scaling occurs when space runs low during execution (upper limit = min(current × 3, available memory × 60%)).
+| Type | Implementation | Isolation | Persistent | Default Resources | Use Case |
+|------|---------------|-----------|------------|------------------|----------|
+| **docker** | DockerLightProvider | Medium (OS policy + seccomp) | No (`--rm`) | 0.25 CPU / 256MB | Daily tasks, code execution |
+| **docker-strict** | DockerProvider | High (no network, readonly, cap-drop ALL) | No | 1.0 CPU / 512MB | High-risk/untrusted code |
+| **lxc** | LXCPersistentProvider | Medium (cgroup + OS policy) | Yes | 1.0 CPU / 512MB | Long-running tasks, git clone, builds |
 
-chroot rootfs supports 6 sources (by priority): user-specified path → user-specified URL → presets → local preset → default URL download → copy host binaries. Downloaded rootfs files are automatically cached, with background cleanup of expired files (default 30 days).
+Selection priority:
+1. User explicit → 2. High-risk → `docker-strict` → 3. Needs persistence → `lxc` → 4. Agent default → 5. Fallback → `docker`
+
+Docker light uses `alpine:edge`, applies OS enforcement (cap-drop ALL with selective keep, seccomp, no-new-privileges, readonly rootfs, network isolation). Docker strict enforces image whitelist, `--network none`, `--read-only`, `--pids-limit 128`.
+
+LXC uses `lxc-create`/`lxc-start`/`lxc-attach` with init commands, cgroup limits, OS security policies. Supports stop-only (preserve rootfs) and full destroy modes.
 
 ---
 
 ## Security
 
-- **L0** — Predefined rules that directly reject dangerous commands (`rm -rf /`, `chmod 777`, etc.)
-- **L1** — LLM scoring that assesses command risk levels (low/medium/high)
-- **L2** — High-risk commands require user confirmation via Web UI or IM buttons (pass_once/pass_until/reject_once/reject_until)
-- **Decision Queue** — Unified decision queue for L2 authorization + LLM questions + conflict resolution + task branching
-- **Prompt Injection Defense** — Built-in injection defense rules in System Prompt
-- **Docker Whitelist** — Only whitelisted images are allowed
-- **mTLS** — Bidirectional TLS authentication between AgentBoster Web ↔ Agent Daemon. The Daemon does not store any IM tokens and is unaware of the user's IM platform
+- **L0** — Predefined rules rejecting dangerous commands (`rm -rf /`, `mkfs`, `dd if=`, `sudo`, etc.)
+- **L1** — LLM scoring (local_ollama / remote API) with caching, risk levels: low/medium/high/critical
+- **L2** — High-risk commands require user confirmation (pass_once / pass_until / reject_once / reject_until)
+- **Decision Queue** — Unified queue for L2 auth + LLM questions + conflict resolution + task branching
+- **OS Enforcement** — seccomp, capability drops, network isolation, masked/readonly paths
+- **Prompt Injection Defense** — Built-in rules in System Prompt
+- **Docker Whitelist** — strict mode only allows whitelisted images
+- **mTLS** — Bidirectional TLS between Web ↔ Daemon. Daemon stores no IM tokens
 
 ---
 
@@ -339,13 +373,11 @@ go build -o agentd ./cmd/agentd/
 ./agentd -config agentd.toml
 ```
 
-Requires `.env.local` (gitignored) with `DATABASE_URL`, `REDIS_URL`, etc. See CLAUDE.md for the full env var list.
+Requires `.env.local` (gitignored) with `DATABASE_URL`, `REDIS_URL`, etc.
 
 ---
 
 ## Others
-
-I'm currently looking for work — feel free to contact me if you're interested.
 
 If you have ideas or find issues, please open a Pull Request or create an Issue. Contributions are welcome in any form.
 
