@@ -13,6 +13,7 @@ export interface StoredUser {
 export async function createUser(
   username: string,
   password: string,
+  options?: { roles?: string[] },
 ): Promise<StoredUser> {
   const existing = await db
     .select({ id: users.id })
@@ -27,7 +28,7 @@ export async function createUser(
   const passwordHash = await hashPassword(password);
   const result = await db
     .insert(users)
-    .values({ username, passwordHash, roles: ['user'] })
+    .values({ username, passwordHash, roles: options?.roles ?? ['user'] })
     .returning({
       id: users.id,
       username: users.username,
@@ -111,8 +112,8 @@ export async function seedInitialUser(): Promise<void> {
   if (!username || !password) return;
 
   try {
-    await createUser(username, password);
-    console.log(`[auth] Seeded initial user "${username}" from env vars.`);
+    await createUser(username, password, { roles: ['admin'] });
+    console.log(`[auth] Seeded admin user "${username}" from env vars.`);
   } catch (err) {
     console.error('[auth] Failed to seed initial user:', err);
   }

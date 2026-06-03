@@ -26,17 +26,17 @@ export async function GET(
     }
     const { sessionId } = await params;
 
-    const [session] = await db
+    const [sessionRow] = await db
       .select({ soulContent: schema.sessions.soulContent })
       .from(schema.sessions)
       .where(eq(schema.sessions.id, sessionId))
       .limit(1);
 
-    if (session?.soulContent) {
+    if (sessionRow?.soulContent) {
       return Response.json({
         success: true,
         data: {
-          content: session.soulContent,
+          content: sessionRow.soulContent,
           scope: 'session' as const,
         },
       });

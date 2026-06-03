@@ -9,10 +9,8 @@ import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -41,6 +39,7 @@ async function fetchUsers(): Promise<User[]> {
 async function createUser(data: {
   username: string;
   password: string;
+  roles?: string[];
 }): Promise<User> {
   const res = await fetch('/api/auth/users', {
     method: 'POST',
@@ -67,6 +66,7 @@ export default function UsersPage() {
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
@@ -79,6 +79,7 @@ export default function UsersPage() {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setUsername('');
       setPassword('');
+      setIsAdmin(false);
       setOpen(false);
       toast.success('User created');
     },
@@ -130,10 +131,26 @@ export default function UsersPage() {
                   autoComplete="new-password"
                 />
               </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="new-is-admin"
+                  checked={isAdmin}
+                  onCheckedChange={(checked) => setIsAdmin(checked === true)}
+                />
+                <Label htmlFor="new-is-admin" className="text-sm cursor-pointer">
+                  Admin (full access to config and settings)
+                </Label>
+              </div>
             </div>
             <DialogFooter>
               <Button
-                onClick={() => createMutation.mutate({ username, password })}
+                onClick={() =>
+                  createMutation.mutate({
+                    username,
+                    password,
+                    roles: isAdmin ? ['admin', 'user'] : ['user'],
+                  })
+                }
                 disabled={!username || !password || createMutation.isPending}
               >
                 {createMutation.isPending ? 'Creating...' : 'Create'}
@@ -158,22 +175,21 @@ export default function UsersPage() {
   );
 }
 
-function UserCard({
-  user,
-}: {
-  user: User;
-}) {
+function UserCard({ user }: { user: User }) {
   const queryClient = useQueryClient();
   const isAdmin = user.roles.includes('admin');
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/auth/users`, {
+      const res = await fetch('/api/auth/users', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: user.id }),
       });
-      if (!res.ok) throw new Error('Failed to delete user');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to delete user' }));
+        throw new Error(err.error);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -196,7 +212,7 @@ function UserCard({
           <div>
             <p className="font-medium">{user.username}</p>
             <p className="text-xs text-muted-foreground">
-              {isAdmin ? 'Admin' : 'User'} · Created {formatDate(user.createdAt)}
+              Created {formatDate(user.createdAt)}
             </p>
           </div>
         </div>
@@ -205,7 +221,9 @@ function UserCard({
             <span className="text-xs bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded">
               Admin
             </span>
-          ) : null}
+          ) : (
+            <span className="text-xs bg-muted px-2 py-0.5 rounded">User</span>
+          )}
           <Button
             variant="ghost"
             size="icon"

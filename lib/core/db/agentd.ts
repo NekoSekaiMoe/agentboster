@@ -295,6 +295,7 @@ export interface TaskSummaryRecord {
   decisions: Decision[] | null;
   pending: string[] | null;
   knownIssues: string[] | null;
+  version: number;
   lastUpdated: Date;
   createdAt: Date;
 }

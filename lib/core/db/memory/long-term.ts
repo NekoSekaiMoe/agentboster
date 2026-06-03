@@ -239,16 +239,16 @@ async function listKeywordCandidateRows(options: {
   if (useSubstringFallback) {
     const substringScoreExpr = sql<number>`case when ${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\' then 1 else 0 end`;
 
-    let query = db
+    const baseQuery = db
       .select({ ...baseSelect, keywordScore: substringScoreExpr })
       .from(schema.longTermMemoryChunks);
 
-    if (userId) {
-      query = query.innerJoin(
-        schema.longTermMemories,
-        eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
-      );
-    }
+    const query = userId
+      ? baseQuery.innerJoin(
+          schema.longTermMemories,
+          eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
+        )
+      : baseQuery;
 
     return query
       .where(
@@ -267,16 +267,16 @@ async function listKeywordCandidateRows(options: {
   const tsQueryExpr = sql`websearch_to_tsquery('simple', ${normalizedSearchText})`;
   const keywordScoreExpr = sql<number>`coalesce(ts_rank(${schema.longTermMemoryChunks.tsv}, ${tsQueryExpr}, 32), 0)`;
 
-  let query = db
+  const mainQuery = db
     .select({ ...baseSelect, keywordScore: keywordScoreExpr })
     .from(schema.longTermMemoryChunks);
 
-  if (userId) {
-    query = query.innerJoin(
-      schema.longTermMemories,
-      eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
-    );
-  }
+  const query = userId
+    ? mainQuery.innerJoin(
+        schema.longTermMemories,
+        eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
+      )
+    : mainQuery;
 
   const rows = await query
     .where(
@@ -294,16 +294,16 @@ async function listKeywordCandidateRows(options: {
 
   const substringScoreExpr = sql<number>`case when ${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\' then 1 else 0 end`;
 
-  let fallbackQuery = db
+  const fallbackMainQuery = db
     .select({ ...baseSelect, keywordScore: substringScoreExpr })
     .from(schema.longTermMemoryChunks);
 
-  if (userId) {
-    fallbackQuery = fallbackQuery.innerJoin(
-      schema.longTermMemories,
-      eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
-    );
-  }
+  const fallbackQuery = userId
+    ? fallbackMainQuery.innerJoin(
+        schema.longTermMemories,
+        eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
+      )
+    : fallbackMainQuery;
 
   return fallbackQuery
     .where(

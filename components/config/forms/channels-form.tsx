@@ -276,8 +276,8 @@ export function ChannelsForm() {
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  Scheduled workflow broadcasts only send to user IDs in this
-                  list.
+                  Only these user IDs can send messages to the bot. Leave empty
+                  to allow everyone.
                 </p>
               </Field>
 

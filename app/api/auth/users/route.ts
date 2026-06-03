@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const { username, password } = body as { username?: string; password?: string };
+  const { username, password, roles } = body as { username?: string; password?: string; roles?: string[] };
 
   if (!username || !password) {
     return NextResponse.json(
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const user = await createUser(username, password);
+    const user = await createUser(username, password, { roles });
     return NextResponse.json(
       { id: user.id, username: user.username, roles: user.roles },
       { status: 201 },
@@ -75,6 +75,19 @@ export async function DELETE(request: NextRequest) {
 
   if (id === session.userId) {
     return NextResponse.json({ error: 'Cannot delete yourself.' }, { status: 400 });
+  }
+
+  const userToDelete = await getUserById(id);
+  if (!userToDelete) {
+    return NextResponse.json({ error: 'User not found.' }, { status: 404 });
+  }
+
+  const seedUsername = process.env.USERNAME?.trim();
+  if (seedUsername && userToDelete.username === seedUsername) {
+    return NextResponse.json(
+      { error: 'Cannot delete the seed user configured via environment variables.' },
+      { status: 400 },
+    );
   }
 
   const deleted = await deleteUser(id);
