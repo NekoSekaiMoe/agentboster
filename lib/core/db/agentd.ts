@@ -1,4 +1,4 @@
-import { and, desc, eq, like } from 'drizzle-orm';
+import { and, desc, eq, like, sql } from 'drizzle-orm';
 import { db } from './index';
 import {
   agentL0Rules,
@@ -7,6 +7,7 @@ import {
   agentSandboxes,
   agentTaskOutputs,
   agentTasks,
+  archivedTaskSummaries,
   taskSummaries,
   workspaces,
 } from './schema';
@@ -304,7 +305,9 @@ export async function getTaskSummary(
   const [row] = await db
     .select()
     .from(taskSummaries)
-    .where(eq(taskSummaries.taskId, taskId));
+    .where(
+      and(eq(taskSummaries.taskId, taskId), eq(taskSummaries.isCurrent, true)),
+    );
   return row ?? null;
 }
 
@@ -318,6 +321,41 @@ export async function upsertTaskSummary(data: {
   pending?: string[];
   knownIssues?: string[];
 }): Promise<TaskSummaryRecord> {
+  // Check if a current version exists for this task
+  const [existing] = await db
+    .select()
+    .from(taskSummaries)
+    .where(
+      and(eq(taskSummaries.taskId, data.taskId), eq(taskSummaries.isCurrent, true)),
+    );
+
+  if (existing) {
+    // Mark current version as not current
+    await db
+      .update(taskSummaries)
+      .set({ isCurrent: false })
+      .where(eq(taskSummaries.id, existing.id));
+
+    // Insert new version
+    const [record] = await db
+      .insert(taskSummaries)
+      .values({
+        taskId: data.taskId,
+        agentId: data.agentId,
+        sessionId: data.sessionId ?? existing.sessionId ?? null,
+        status: data.status ?? existing.status,
+        progress: data.progress ?? existing.progress,
+        decisions: data.decisions ?? existing.decisions,
+        pending: data.pending ?? existing.pending,
+        knownIssues: data.knownIssues ?? existing.knownIssues,
+        version: existing.version + 1,
+        isCurrent: true,
+      })
+      .returning();
+    return record;
+  }
+
+  // No existing version — insert first version
   const [record] = await db
     .insert(taskSummaries)
     .values({
@@ -329,24 +367,51 @@ export async function upsertTaskSummary(data: {
       decisions: data.decisions ?? null,
       pending: data.pending ?? null,
       knownIssues: data.knownIssues ?? null,
-    })
-    .onConflictDoUpdate({
-      target: taskSummaries.taskId,
-      set: {
-        ...(data.agentId !== undefined && { agentId: data.agentId }),
-        ...(data.sessionId !== undefined && { sessionId: data.sessionId }),
-        ...(data.status !== undefined && { status: data.status }),
-        ...(data.progress !== undefined && { progress: data.progress }),
-        ...(data.decisions !== undefined && { decisions: data.decisions }),
-        ...(data.pending !== undefined && { pending: data.pending }),
-        ...(data.knownIssues !== undefined && {
-          knownIssues: data.knownIssues,
-        }),
-        lastUpdated: new Date(),
-      },
+      version: 1,
+      isCurrent: true,
     })
     .returning();
   return record;
+}
+
+export async function getTaskSummaryHistory(
+  taskId: string,
+): Promise<TaskSummaryRecord[]> {
+  return db
+    .select()
+    .from(taskSummaries)
+    .where(eq(taskSummaries.taskId, taskId))
+    .orderBy(desc(taskSummaries.version));
+}
+
+export async function archiveTaskSummary(taskId: string): Promise<boolean> {
+  const history = await getTaskSummaryHistory(taskId);
+  if (history.length === 0) {
+    return false;
+  }
+
+  // Move all versions to archive
+  await db.insert(archivedTaskSummaries).values(
+    history.map((row) => ({
+      id: row.id,
+      taskId: row.taskId,
+      agentId: row.agentId,
+      sessionId: row.sessionId,
+      status: row.status,
+      progress: row.progress,
+      decisions: row.decisions,
+      pending: row.pending,
+      knownIssues: row.knownIssues,
+      version: row.version,
+      lastUpdated: row.lastUpdated,
+      createdAt: row.createdAt,
+    })),
+  );
+
+  // Delete from active table
+  await db.delete(taskSummaries).where(eq(taskSummaries.taskId, taskId));
+
+  return true;
 }
 
 export async function listActiveTaskSummaries(
@@ -359,6 +424,7 @@ export async function listActiveTaskSummaries(
       and(
         eq(taskSummaries.agentId, agentId),
         eq(taskSummaries.status, 'active'),
+        eq(taskSummaries.isCurrent, true),
       ),
     )
     .orderBy(desc(taskSummaries.lastUpdated));

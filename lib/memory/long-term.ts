@@ -9,6 +9,7 @@ import {
   listAllLongTermMemoryRows,
   listLongTermMemoryRows,
   replaceLongTermMemoryChunks,
+  updateLastAccessedAt,
   updateLongTermMemoryRow,
 } from '@/lib/core/db/memory/long-term';
 import { getConfig } from '@/lib/core/kv/config';
@@ -133,9 +134,14 @@ async function indexLongTermMemoryContent(input: {
 
 export async function createLongTermMemory(input: {
   content: string;
+  memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
+  importance?: number;
   config?: AppConfig;
 }) {
-  const memory = await createLongTermMemoryRow(input.content);
+  const memory = await createLongTermMemoryRow(input.content, {
+    memoryType: input.memoryType,
+    importance: input.importance,
+  });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
     content: memory.content,
@@ -266,13 +272,18 @@ export async function searchLongTermMemories(input: {
     embeddingModel: embeddingModel ?? null,
   });
 
-  const fallbackSearch = () =>
-    hybridSearchLongTermMemoryChunks({
+  const fallbackSearch = async () => {
+    const results = await hybridSearchLongTermMemoryChunks({
       searchText,
       minConfidence: input.minConfidence,
       limit,
       offset,
     });
+    if (results.length > 0) {
+      await updateLastAccessedAt(results.map((r) => r.chunkId));
+    }
+    return results;
+  };
 
   if (!searchText || !embeddingModel) {
     return fallbackSearch();
@@ -285,7 +296,7 @@ export async function searchLongTermMemories(input: {
       config,
     );
 
-    return hybridSearchLongTermMemoryChunks({
+    const results = await hybridSearchLongTermMemoryChunks({
       searchText,
       minConfidence: input.minConfidence,
       limit,
@@ -294,6 +305,13 @@ export async function searchLongTermMemories(input: {
       queryEmbeddingModel: queryEmbedding.embeddingModel,
       queryEmbeddingDimensions: queryEmbedding.embeddingDimensions,
     });
+
+    // Update lastAccessedAt for matched chunks (top-K results only)
+    if (results.length > 0) {
+      await updateLastAccessedAt(results.map((r) => r.chunkId));
+    }
+
+    return results;
   } catch (error) {
     logger.warn('search:embedding_failed', {
       embeddingModel,

@@ -5,7 +5,7 @@ import {
   mergeHybridSearchCandidates,
 } from '@/lib/memory/search';
 import { createLogger } from '@/lib/utils/logger';
-import { and, cosineDistance, desc, eq, sql } from 'drizzle-orm';
+import { and, cosineDistance, desc, eq, inArray, sql } from 'drizzle-orm';
 
 const logger = createLogger('db.memory.long_term');
 
@@ -52,12 +52,20 @@ function escapeLikePattern(value: string) {
     .replaceAll('_', '\\_');
 }
 
-export async function createLongTermMemoryRow(content: string) {
+export async function createLongTermMemoryRow(
+  content: string,
+  options?: {
+    memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
+    importance?: number;
+  },
+) {
   const [row] = await db
     .insert(schema.longTermMemories)
     .values({
       content,
       userId: 'system',
+      memoryType: options?.memoryType ?? 'fact',
+      importance: options?.importance ?? 5,
     })
     .returning();
 
@@ -379,8 +387,14 @@ export async function hybridSearchLongTermMemoryChunks(options: {
       memoryId: schema.longTermMemoryChunks.memoryId,
       content: schema.longTermMemoryChunks.content,
       vectorScore: vectorScoreExpr,
+      importance: schema.longTermMemories.importance,
+      lastAccessedAt: schema.longTermMemoryChunks.lastAccessedAt,
     })
     .from(schema.longTermMemoryChunks)
+    .innerJoin(
+      schema.longTermMemories,
+      eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
+    )
     .where(
       and(
         sql`${schema.longTermMemoryChunks.embedding} IS NOT NULL`,
@@ -458,4 +472,15 @@ export async function hybridSearchLongTermMemoryChunks(options: {
   );
 
   return mergedRows;
+}
+
+export async function updateLastAccessedAt(chunkIds: string[]) {
+  if (chunkIds.length === 0) {
+    return;
+  }
+
+  await db
+    .update(schema.longTermMemoryChunks)
+    .set({ lastAccessedAt: new Date() })
+    .where(inArray(schema.longTermMemoryChunks.id, chunkIds));
 }

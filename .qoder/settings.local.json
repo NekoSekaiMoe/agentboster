@@ -20,7 +20,9 @@
       "Bash(grep -n \"stream\\\\|tool.*call\\\\|execute\\\\|maxSteps\" node_modules/@workflow/ai/dist/agent/index.js 2>/dev/null | head -20)",
       "Bash(find node_modules/@workflow/ai/dist -name \"*.js\" | head -10 && cat node_modules/@workflow/ai/package.json | grep -E '\"main\"|\"exports\"' | head -5)",
       "Bash(cd /home/user/repo/agentboster && yarn check 2>&1 | tail -5)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Bash(tail:*)",
+      "Bash(yarn check 2>&1 | tail -40)"
     ]
   }
 }

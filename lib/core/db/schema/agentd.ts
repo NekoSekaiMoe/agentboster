@@ -1,5 +1,6 @@
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -139,25 +140,57 @@ export const workspaces = pgTable('workspaces', {
     .notNull(),
 });
 
-export const taskSummaries = pgTable('task_summaries', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  taskId: uuid('task_id').notNull().unique(),
+export const taskSummaries = pgTable(
+  'task_summaries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    taskId: uuid('task_id').notNull(),
+    agentId: text('agent_id').notNull(),
+    sessionId: uuid('session_id'),
+    workspaceId: uuid('workspace_id'),
+    status: text('status', {
+      enum: ['active', 'paused', 'completed'],
+    })
+      .default('active')
+      .notNull(),
+    progress: text('progress'),
+    decisions: jsonb('decisions').$type<Decision[]>(),
+    pending: jsonb('pending').$type<string[]>(),
+    knownIssues: jsonb('known_issues').$type<string[]>(),
+    version: integer('version').default(1).notNull(),
+    isCurrent: boolean('is_current').default(true).notNull(),
+    lastUpdated: timestamp('last_updated', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    taskCurrentIdx: index('task_summaries_task_current_idx').on(
+      table.taskId,
+      table.isCurrent,
+    ),
+  }),
+);
+
+export const archivedTaskSummaries = pgTable('archived_task_summaries', {
+  id: uuid('id').primaryKey(),
+  taskId: uuid('task_id').notNull(),
   agentId: text('agent_id').notNull(),
   sessionId: uuid('session_id'),
   workspaceId: uuid('workspace_id'),
   status: text('status', {
     enum: ['active', 'paused', 'completed'],
-  })
-    .default('active')
-    .notNull(),
+  }).notNull(),
   progress: text('progress'),
   decisions: jsonb('decisions').$type<Decision[]>(),
   pending: jsonb('pending').$type<string[]>(),
   knownIssues: jsonb('known_issues').$type<string[]>(),
-  lastUpdated: timestamp('last_updated', { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
+  version: integer('version').notNull(),
+  lastUpdated: timestamp('last_updated', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  archivedAt: timestamp('archived_at', { withTimezone: true })
     .defaultNow()
     .notNull(),
 });

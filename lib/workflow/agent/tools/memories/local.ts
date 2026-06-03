@@ -33,6 +33,10 @@ const writeMemoryInputSchema = z.object({
   key: builtinMemoryKeySchema.optional(),
   content: z.string().min(1),
   memoryId: z.string().uuid().optional(),
+  memoryType: z
+    .enum(['fact', 'preference', 'decision', 'conversation'])
+    .optional(),
+  importance: z.number().int().min(1).max(10).optional(),
 });
 
 const deleteMemoryInputSchema = z.object({
@@ -168,6 +172,8 @@ async function executeWriteMemoryStep(input: {
 
       const created = await createLongTermMemory({
         content: value.content,
+        memoryType: value.memoryType,
+        importance: value.importance,
         config: appConfig,
       });
 

@@ -79,6 +79,12 @@ export const longTermMemories = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     userId: text('user_id').default('system'),
     content: text('content').notNull(),
+    memoryType: text('memory_type', {
+      enum: ['fact', 'preference', 'decision', 'conversation'],
+    })
+      .default('fact')
+      .notNull(),
+    importance: integer('importance').default(5).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -90,6 +96,9 @@ export const longTermMemories = pgTable(
     userUpdatedIdx: index('long_term_memories_user_updated_idx').on(
       table.userId,
       table.updatedAt,
+    ),
+    memoryTypeIdx: index('long_term_memories_memory_type_idx').on(
+      table.memoryType,
     ),
   }),
 );
@@ -109,6 +118,7 @@ export const longTermMemoryChunks = pgTable(
     embeddingModel: text('embedding_model'),
     embeddingDimensions: integer('embedding_dimensions'),
     tsv: tsvector('tsv'),
+    lastAccessedAt: timestamp('last_accessed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),

@@ -15,6 +15,7 @@ export {
   agentSandboxes,
   agentMemories,
   agentdNodes,
+  archivedTaskSummaries,
   taskSummaries,
   workspaces,
 } from './agentd';
