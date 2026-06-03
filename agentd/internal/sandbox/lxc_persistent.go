@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/clawless/agentd/internal/security/os_enforce"
 	"github.com/google/uuid"
 )
 
@@ -100,6 +101,11 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		}
 
 		p.writeCgroupLimits(containerPath, cpu, memMB)
+
+		// Apply OS-level security enforcement
+		if spec.SecurityPolicy != nil {
+			writeSecurityConfig(containerPath, spec.SecurityPolicy)
+		}
 
 		if err := InitWorkspaceLayout(rootfsPath); err != nil {
 			slog.Warn("lxc workspace layout init failed", "error", err)
@@ -322,6 +328,64 @@ func (p *LXCPersistentProvider) writeCgroupLimits(containerPath string, cpu floa
 	fmt.Fprintf(f, "lxc.cgroup.cpu.cfs_quota_us = %d\n", cpuQuota)
 	fmt.Fprintf(f, "lxc.cgroup.cpu.cfs_period_us = 100000\n")
 	fmt.Fprintf(f, "lxc.cgroup.memory.limit_in_bytes = %d\n", memMB*1024*1024)
+}
+
+// writeSecurityConfig writes OS-level security enforcement directives to the LXC container config.
+// This includes capability drops, seccomp profiles, mount restrictions, and network isolation.
+func writeSecurityConfig(containerPath string, policy *os_enforce.OSPolicy) {
+	configFile := filepath.Join(containerPath, "config")
+	f, err := os.OpenFile(configFile, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		slog.Warn("failed to open lxc config for security config", "error", err)
+		return
+	}
+	defer f.Close()
+
+	fmt.Fprintf(f, "\n# Agent security enforcement (os_enforce)\n")
+
+	// === Capability drops ===
+	if len(policy.CapDrop) > 0 {
+		lxcCaps := os_enforce.LXCFormatCaps(policy.CapDrop)
+		fmt.Fprintf(f, "lxc.cap.drop = %s\n", strings.Join(lxcCaps, " "))
+	}
+
+	// === Seccomp profile ===
+	if policy.Seccomp != nil {
+		seccompPath := filepath.Join(containerPath, "seccomp.conf")
+		seccompContent := policy.Seccomp.ToLXCFormat()
+		if err := os.WriteFile(seccompPath, []byte(seccompContent), 0o644); err != nil {
+			slog.Warn("failed to write lxc seccomp profile", "error", err)
+		} else {
+			fmt.Fprintf(f, "lxc.seccomp.profile = %s\n", seccompPath)
+		}
+	}
+
+	// === Mount auto restrictions (read-only proc/sys) ===
+	fmt.Fprintf(f, "lxc.mount.auto = proc:mixed sys:mixed cgroup:mixed\n")
+
+	// === Masked paths (bind /dev/null over sensitive files) ===
+	for _, mp := range policy.MaskedPaths {
+		cleanPath := strings.TrimPrefix(mp, "/")
+		fmt.Fprintf(f, "lxc.mount.entry = /dev/null %s none bind,ro,create=file 0 0\n", cleanPath)
+	}
+
+	// === Read-only paths ===
+	for _, rp := range policy.ReadonlyPaths {
+		cleanPath := strings.TrimPrefix(rp, "/")
+		fmt.Fprintf(f, "lxc.mount.entry = %s %s none bind,ro 0 0\n", rp, cleanPath)
+	}
+
+	// === Network isolation ===
+	if policy.NetworkNone {
+		fmt.Fprintf(f, "lxc.net.0.type = none\n")
+	}
+
+	slog.Info("LXC security config written",
+		"container", containerPath,
+		"cap_drop", len(policy.CapDrop),
+		"masked_paths", len(policy.MaskedPaths),
+		"network_none", policy.NetworkNone,
+	)
 }
 
 var _ SandboxProvider = (*LXCPersistentProvider)(nil)

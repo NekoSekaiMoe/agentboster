@@ -12,6 +12,8 @@ import (
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/config"
+	"github.com/clawless/agentd/internal/security/l0_rules"
+	"github.com/clawless/agentd/internal/security/os_enforce"
 )
 
 // SandboxProvider is the interface for sandbox implementations.
@@ -24,20 +26,21 @@ type SandboxProvider interface {
 
 // SandboxSpec defines how to create a sandbox.
 type SandboxSpec struct {
-	Type          string
-	AgentID       string
-	Persistent    bool              // true = LXC persistent container
-	Distro        string            // LXC distro (default: alpine)
-	Release       string            // LXC release (default: 3.21)
-	InitCommands  []string          // LXC init commands after first boot
-	CPULimit      float64           // CPU cores limit (Docker: 0.25, LXC: 1.0)
-	MemoryLimit   int64             // Memory limit in bytes (Docker: 256MB, LXC: 512MB)
-	Image         string            // Docker image
-	Mounts        []Mount
-	Environment   map[string]string
-	WorkDir       string
-	SecurityLevel string // "light" (default) or "strict" (Docker only)
-	UserSpecified bool   // true if user explicitly specified sandbox type
+	Type           string
+	AgentID        string
+	Persistent     bool              // true = LXC persistent container
+	Distro         string            // LXC distro (default: alpine)
+	Release        string            // LXC release (default: 3.21)
+	InitCommands   []string          // LXC init commands after first boot
+	CPULimit       float64           // CPU cores limit (Docker: 0.25, LXC: 1.0)
+	MemoryLimit    int64             // Memory limit in bytes (Docker: 256MB, LXC: 512MB)
+	Image          string            // Docker image
+	Mounts         []Mount
+	Environment    map[string]string
+	WorkDir        string
+	SecurityLevel  string // "light" (default) or "strict" (Docker only)
+	UserSpecified  bool   // true if user explicitly specified sandbox type
+	SecurityPolicy *os_enforce.OSPolicy // OS-level enforcement (nil = skip)
 }
 
 // Mount defines a bind mount.
@@ -71,14 +74,26 @@ type Manager struct {
 	providers map[string]SandboxProvider
 	sandboxes map[string]*Sandbox
 	config    *config.Config
+	policy    *os_enforce.OSPolicy
 }
 
 // NewManager creates a new sandbox manager with all built-in providers.
-func NewManager(cfg *config.Config) *Manager {
+func NewManager(cfg *config.Config, l0Engine *l0_rules.Engine) *Manager {
 	m := &Manager{
 		providers: make(map[string]SandboxProvider),
 		sandboxes: make(map[string]*Sandbox),
 		config:    cfg,
+	}
+
+	// Generate OS enforcement policy from L0 rules
+	if cfg.Sandbox.OSEnforce && l0Engine != nil {
+		m.policy = os_enforce.FromL0Rules(l0Engine.Rules())
+		m.policy.NetworkNone = cfg.Sandbox.NetworkIsolate
+		slog.Info("OS enforcement enabled",
+			"cap_drop", len(m.policy.CapDrop),
+			"masked_paths", len(m.policy.MaskedPaths),
+			"network_none", m.policy.NetworkNone,
+		)
 	}
 
 	// Register built-in providers:
@@ -128,6 +143,11 @@ func (m *Manager) GetProvider(name string) (SandboxProvider, error) {
 
 // CreateSandbox creates a sandbox with the given spec.
 func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
+	// Inject OS enforcement policy if not already set and not docker-strict
+	if spec.SecurityPolicy == nil && m.policy != nil && spec.Type != "docker-strict" {
+		spec.SecurityPolicy = m.policy
+	}
+
 	provider, err := m.GetProvider(spec.Type)
 	if err != nil {
 		return nil, err

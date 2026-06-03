@@ -79,6 +79,9 @@ type SandboxConfig struct {
 	LXCRelease        string   `mapstructure:"lxc_default_release" default:"3.21"`
 	LXCRootfsBase     string   `mapstructure:"lxc_rootfs_base" default:"/var/lib/agentd/lxc"`
 	AllowedImages     []string `mapstructure:"allowed_images"`
+	OSEnforce         bool     `mapstructure:"os_enforce" default:"true"`
+	SeccompPath       string   `mapstructure:"seccomp_profile_path"`
+	NetworkIsolate    bool     `mapstructure:"network_isolate" default:"true"`
 }
 
 type CacheConfig struct {

@@ -49,6 +49,12 @@ lxc_default_release = "3.21"
 lxc_rootfs_base = "/var/lib/agentd/lxc"
 # Allowed Docker images for strict provider
 allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "alpine:edge", "golang:1.22", "node:20", "python:3.12"]
+# OS-level enforcement: seccomp + capability drops + mount protection
+os_enforce = true
+# Custom seccomp profile path (empty = auto-generate from L0 rules)
+seccomp_profile_path = ""
+# Isolate network namespace by default for docker_light and LXC
+network_isolate = true
 
 [sandbox.lxc]
 # Init commands executed on first LXC container creation

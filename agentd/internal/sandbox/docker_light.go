@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,7 +78,46 @@ func (p *DockerLightProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		"--name", containerName,
 		"--cpus", fmt.Sprintf("%.2f", cpu),
 		"--memory", mem,
-		"--tmpfs", "/workspace/tmp:size=128m",
+	}
+
+	// Apply OS enforcement policy
+	if spec.SecurityPolicy != nil {
+		policy := spec.SecurityPolicy
+
+		// Capabilities: drop ALL, then add back minimum necessary
+		args = append(args, "--cap-drop", "ALL")
+		for _, cap := range policy.CapKeep {
+			args = append(args, "--cap-add", cap)
+		}
+
+		// Prevent privilege escalation
+		args = append(args, "--security-opt", "no-new-privileges")
+
+		// Read-only rootfs with writable tmp directories
+		args = append(args, "--read-only")
+		args = append(args, "--tmpfs", "/tmp:size=128m")
+		args = append(args, "--tmpfs", "/workspace:size=512m")
+
+		// Seccomp profile
+		if policy.Seccomp != nil {
+			seccompJSON, err := policy.Seccomp.ToDockerJSON()
+			if err == nil {
+				seccompDir := "/tmp/agentd"
+				if err := os.MkdirAll(seccompDir, 0o755); err == nil {
+					seccompPath := filepath.Join(seccompDir, "seccomp-docker-light.json")
+					if err := os.WriteFile(seccompPath, seccompJSON, 0o644); err == nil {
+						args = append(args, "--security-opt", "seccomp="+seccompPath)
+					}
+				}
+			}
+		}
+
+		// Network isolation
+		if policy.NetworkNone {
+			args = append(args, "--network", "none")
+		}
+	} else {
+		args = append(args, "--tmpfs", "/workspace/tmp:size=128m")
 	}
 
 	for k, v := range spec.Environment {
@@ -96,6 +137,16 @@ func (p *DockerLightProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		workDir = "/workspace"
 	}
 	args = append(args, "-w", workDir)
+
+	// Mask sensitive paths (bind /dev/null over them)
+	if spec.SecurityPolicy != nil {
+		for _, mp := range spec.SecurityPolicy.MaskedPaths {
+			args = append(args, "-v", "/dev/null:"+mp+":ro")
+		}
+		for _, rp := range spec.SecurityPolicy.ReadonlyPaths {
+			args = append(args, "-v", rp+":"+rp+":ro")
+		}
+	}
 
 	initCmd := "mkdir -p /workspace/skills /workspace/downloads/photos /workspace/downloads/videos /workspace/downloads/documents /workspace/media /workspace/sessions /workspace/memory /workspace/outputs /workspace/projects /workspace/bin /workspace/.local/bin /workspace/tmp && tail -f /dev/null"
 	args = append(args, image, "sh", "-c", initCmd)

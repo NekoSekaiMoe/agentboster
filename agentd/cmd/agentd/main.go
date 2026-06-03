@@ -140,7 +140,7 @@ func main() {
 	l0Loader.Start()
 	defer l0Loader.Stop()
 
-	sbManager := sandbox.NewManager(cfg)
+	sbManager := sandbox.NewManager(cfg, l0Engine)
 
 	// Docker availability check and image pre-pull
 	if err := sandbox.CheckDockerAvailable(cfg.Sandbox.DockerSocket); err != nil {
