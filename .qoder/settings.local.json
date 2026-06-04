@@ -50,7 +50,16 @@
       "Bash(yarn build 2>&1 | tail -40)",
       "Bash(git --no-pager stash && yarn build 2>&1 | tail -10 && git --no-pager stash pop)",
       "Bash(grep -rn \"import\" /home/user/repo/agentboster/lib/core/kv/skills.ts /home/user/repo/agentboster/lib/core/kv/config.ts /home/user/repo/agentboster/lib/core/kv/lock.ts /home/user/repo/agentboster/lib/core/kv/import-jobs.ts 2>&1 | head -30)",
-      "Bash(git --no-pager diff ea33db9^..ea33db9 -- lib/chat/index.ts lib/bot/reply.ts lib/bot/webhook.ts 2>&1 | grep -E \"^\\\\+import|^[\\\\+\\\\-].*from\" | head -30)"
+      "Bash(git --no-pager diff ea33db9^..ea33db9 -- lib/chat/index.ts lib/bot/reply.ts lib/bot/webhook.ts 2>&1 | grep -E \"^\\\\+import|^[\\\\+\\\\-].*from\" | head -30)",
+      "Bash(git --no-pager log --all --oneline --stat 2>&1 | head -60)",
+      "Bash(git --no-pager log --all --oneline --follow -- lib/core/kv/index.ts 2>&1)",
+      "Bash(git --no-pager log --all --oneline -p -- package.json 2>&1 | grep -B1 -A2 \"chat-adapter\\\\|upstash/redis\\\\|^commit \" | head -50)",
+      "Bash(git --no-pager log --all --oneline --follow -- lib/workflow/agent/index.ts 2>&1)",
+      "Bash(git --no-pager log --all --oneline -p -- yarn.lock 2>&1 | grep -B1 -A2 \"@redis/client\\\\|@chat-adapter/state-redis\\\\|^commit \" | head -30)",
+      "Bash(git --no-pager log --all --oneline -p -- lib/mcp/builtin/web.ts 2>&1 | head -30; echo \"===\"; git --no-pager log --all --oneline -p -S \"streamDedupKey\" 2>&1 | head -40)",
+      "Bash(grep -nE \"^import|get|set|del\" /home/user/repo/agentboster/lib/core/kv/skills.ts | head -30)",
+      "Bash(grep -nE \"listSkillMetas|export\" /home/user/repo/agentboster/lib/core/kv/skills.ts | head -20)",
+      "Bash(grep -rnE \"from ['\\\\\"]@/lib/core/kv|redis\\\\.|redisState\" /home/user/repo/agentboster/lib/workflow/ /home/user/repo/agentboster/lib/chat/ 2>&1 | grep -v node_modules | head -20)"
     ]
   }
 }

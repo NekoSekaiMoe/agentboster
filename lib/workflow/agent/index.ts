@@ -5,7 +5,6 @@ import {
   serializeUserMessage,
   toModelMessage,
 } from '@/lib/chat/message-utils';
-import { redis } from '@/lib/core/kv';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { ChatSource, UserMessagePart } from '@/types/workflow';
@@ -268,17 +267,6 @@ export async function chatWorkflow(
     }
   })();
 
-  // Dedup guard: prevent duplicate LLM calls on DevKit step replay.
-  // The DevKit re-executes the workflow function body for each step boundary;
-  // if the function runs again for the same runId, the LLM was already called
-  // and its result is persisted via onStepFinish. Skip the duplicate call.
-  const streamDedupKey = `wf:dedup:stream:${runId}`;
-  const dedupAcquired = await redis.set(streamDedupKey, '1', { ex: 300, nx: true });
-  if (dedupAcquired !== 'OK') {
-    logger.info('agent:replay_skip', { runId, sessionId });
-    return initialMessages;
-  }
-
   logger.info('agent:init', {
     agentName,
     allowDelegation: true,
@@ -426,9 +414,6 @@ export async function chatWorkflow(
 
     return result.messages;
   } catch (error) {
-    // Release dedup lock on error so retries can proceed
-    try { await redis.del(streamDedupKey); } catch { /* ignore */ }
-
     await finalizeRunStep({
       sessionId,
       runId,
