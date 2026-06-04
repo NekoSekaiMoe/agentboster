@@ -256,12 +256,10 @@ export async function POST(request: NextRequest) {
           [];
         const resultRegex =
           /<a rel="nofollow" class="result__a" href="([^"]+)">([^<]+)<\/a>.*?<a class="result__snippet"[^>]*>([^<]+)<\/a>/gs;
-        let match;
-        while (
-          (match = resultRegex.exec(html)) !== null &&
-          results.length < 5
-        ) {
+        let match: RegExpExecArray | null = resultRegex.exec(html);
+        while (match !== null && results.length < 5) {
           results.push({ url: match[1], title: match[2], snippet: match[3] });
+          match = resultRegex.exec(html);
         }
         return NextResponse.json({ ok: true, result: results });
       }

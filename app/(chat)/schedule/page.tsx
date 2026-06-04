@@ -282,12 +282,12 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className="flex min-w-0 h-dvh flex-col bg-background pb-16 md:pb-0">
+    <div className='flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0'>
       <header className="sticky top-0 z-10 border-b bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-base md:text-lg font-semibold">Schedule</h1>
-            <p className="text-sm text-muted-foreground">
+            <h1 className='font-semibold text-base md:text-lg'>Schedule</h1>
+            <p className='text-muted-foreground text-sm'>
               View, edit, and archive delayed or daily tasks.
             </p>
           </div>
@@ -375,7 +375,7 @@ export default function SchedulePage() {
                 <Card>
                   <CardHeader className="gap-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-2 flex-1">
+                      <div className='flex-1 space-y-2'>
                         <div className="flex items-center gap-2">
                           <Skeleton className="size-4" />
                           <Skeleton className="h-5 w-40" />
@@ -396,7 +396,7 @@ export default function SchedulePage() {
                 <Card>
                   <CardHeader className="gap-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-2 flex-1">
+                      <div className='flex-1 space-y-2'>
                         <div className="flex items-center gap-2">
                           <Skeleton className="size-4" />
                           <Skeleton className="h-5 w-40" />
@@ -473,7 +473,7 @@ function SummaryCard(input: { title: string; value: string; hint: string }) {
         <CardTitle className="text-3xl">{input.value}</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-muted-foreground">{input.hint}</p>
+        <p className='text-muted-foreground text-sm'>{input.hint}</p>
       </CardContent>
     </Card>
   );
@@ -498,13 +498,13 @@ function TaskSection(input: {
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="text-base font-semibold">{input.title}</h2>
-        <p className="text-sm text-muted-foreground">{input.description}</p>
+        <h2 className='font-semibold text-base'>{input.title}</h2>
+        <p className='text-muted-foreground text-sm'>{input.description}</p>
       </div>
 
       {input.tasks.length === 0 ? (
         <Card className="border-dashed">
-          <CardContent className="py-6 text-sm text-muted-foreground">
+          <CardContent className='py-6 text-muted-foreground text-sm'>
             {input.emptyText}
           </CardContent>
         </Card>
@@ -590,7 +590,7 @@ function TaskCard(input: {
                 <CardTitle className={archived ? 'text-sm' : 'text-base'}>
                   {draft.title.trim() || 'Untitled Task'}
                 </CardTitle>
-                <span className="rounded-full border px-2 py-0.5 text-xs uppercase tracking-wide text-muted-foreground">
+                <span className='rounded-full border px-2 py-0.5 text-muted-foreground text-xs uppercase tracking-wide'>
                   {draft.type}
                 </span>
                 <span
@@ -619,7 +619,7 @@ function TaskCard(input: {
             </span>
           </div>
 
-          <div className="grid gap-3 text-xs text-muted-foreground sm:grid-cols-2 xl:grid-cols-4">
+          <div className='grid gap-3 text-muted-foreground text-xs sm:grid-cols-2 xl:grid-cols-4'>
             <MetaItem label="Next Run" value={formatDateTime(task.nextRunAt)} />
             <MetaItem
               label="Last Triggered"
@@ -729,7 +729,7 @@ function TaskCard(input: {
           </Field>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-            <p className="text-xs text-muted-foreground">
+            <p className='text-muted-foreground text-xs'>
               Created {formatDateTime(task.createdAt)} · Updated{' '}
               {formatDateTime(task.updatedAt)}
             </p>
@@ -790,7 +790,7 @@ function Field(input: {
 }) {
   return (
     <div className="space-y-2">
-      <span className="text-sm font-medium">{input.label}</span>
+      <span className='font-medium text-sm'>{input.label}</span>
       {input.children}
     </div>
   );
@@ -799,10 +799,10 @@ function Field(input: {
 function MetaItem(input: { label: string; value: string }) {
   return (
     <div className="rounded-md border bg-background/70 px-3 py-2">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+      <p className='text-[11px] text-muted-foreground uppercase tracking-wide'>
         {input.label}
       </p>
-      <p className="mt-1 truncate text-sm text-foreground">{input.value}</p>
+      <p className='mt-1 truncate text-foreground text-sm'>{input.value}</p>
     </div>
   );
 }

@@ -99,17 +99,17 @@ export function McpForm() {
             <div key={server.name} className="rounded-2xl border p-4">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="font-medium">{server.name}</h3>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                <span className='rounded-full bg-primary/10 px-2 py-0.5 text-primary text-xs'>
                   Enabled
                 </span>
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">
+              <p className='mt-2 text-muted-foreground text-sm'>
                 {server.description}
               </p>
-              <p className="mt-3 text-xs text-muted-foreground">
+              <p className='mt-3 text-muted-foreground text-xs'>
                 Tools: {server.tools}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className='mt-1 text-muted-foreground text-xs'>
                 {server.requirements}
               </p>
             </div>

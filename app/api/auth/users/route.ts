@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  let session;
+  let session: NonNullable<Awaited<ReturnType<typeof readAuthSessionFromCookies>>>;
   try {
     session = await requireAdmin();
   } catch {

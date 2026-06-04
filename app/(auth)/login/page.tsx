@@ -89,7 +89,7 @@ export default async function LoginPage({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-950 dark:text-amber-100">
+              <div className='rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-amber-950 text-sm dark:text-amber-100'>
                 <p>
                   Add the missing variables to <code>.env.local</code> or{' '}
                   <code>.env</code>, then restart the app.
@@ -99,7 +99,7 @@ export default async function LoginPage({
                 </p>
               </div>
               <div className="space-y-2">
-                <p className="text-sm font-medium">Example env file</p>
+                <p className='font-medium text-sm'>Example env file</p>
                 <pre className="overflow-x-auto rounded-md bg-zinc-950 p-4 text-sm text-zinc-50">
                   <code>{authConfig.exampleEnvFile}</code>
                 </pre>

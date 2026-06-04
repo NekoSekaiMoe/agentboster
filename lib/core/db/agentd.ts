@@ -1,4 +1,4 @@
-import { and, desc, eq, like, sql } from 'drizzle-orm';
+import { and, desc, eq, like, } from 'drizzle-orm';
 import { db } from './index';
 import {
   agentL0Rules,

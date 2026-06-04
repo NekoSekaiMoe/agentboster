@@ -29,9 +29,9 @@ function stripHtml(html: string): string {
 function parseBingResults(html: string, maxResults: number): string {
   const results: string[] = [];
   const algoRegex = /<li class="b_algo">(.*?)<\/li>/gs;
-  let match: RegExpExecArray | null;
+  let match: RegExpExecArray | null = algoRegex.exec(html);
 
-  while ((match = algoRegex.exec(html)) !== null && results.length < maxResults) {
+  while (match !== null && results.length < maxResults) {
     const block = match[1];
 
     const titleMatch = /<h2><a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a><\/h2>/s.exec(block);
@@ -53,6 +53,7 @@ function parseBingResults(html: string, maxResults: number): string {
           .join('\n'),
       );
     }
+    match = algoRegex.exec(html);
   }
 
   if (results.length === 0) {

@@ -199,9 +199,9 @@ export function SlashCommandMenu({
         className,
       )}
     >
-      <div className="border-b border-border/60 px-3 py-2">
-        <p className="text-xs font-medium text-foreground">Commands</p>
-        <p className="text-xs text-muted-foreground">
+      <div className='border-border/60 border-b px-3 py-2'>
+        <p className='font-medium text-foreground text-xs'>Commands</p>
+        <p className='text-muted-foreground text-xs'>
           Type a slash command, then press Enter or click to insert it.
         </p>
       </div>
@@ -233,14 +233,14 @@ export function SlashCommandMenu({
 
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-3">
-                  <span className="truncate text-sm font-medium">
+                  <span className='truncate font-medium text-sm'>
                     /{item.command}
                   </span>
                   <span className="shrink-0 text-[11px] text-muted-foreground">
                     {item.hint}
                   </span>
                 </span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">
+                <span className='mt-0.5 block text-muted-foreground text-xs'>
                   {item.description}
                 </span>
               </span>

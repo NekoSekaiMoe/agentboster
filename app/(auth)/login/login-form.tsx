@@ -49,7 +49,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
   };
 
   return (
-    <Card className="w-full max-w-sm mx-4 border-border/60 shadow-sm">
+    <Card className='mx-4 w-full max-w-sm border-border/60 shadow-sm'>
       <CardHeader>
         <CardTitle>Sign in</CardTitle>
         <CardDescription>
@@ -79,7 +79,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
               required
             />
           </div>
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error ? <p className='text-destructive text-sm'>{error}</p> : null}
           <Button type="submit" disabled={submitting}>
             {submitting ? 'Signing in...' : 'Sign in'}
           </Button>

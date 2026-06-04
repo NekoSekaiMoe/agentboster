@@ -561,7 +561,7 @@ export default defineBuildInTool({
             env: input.env,
             sudo: input.sudo,
           });
-          if (agentdResult && agentdResult.success) {
+          if (agentdResult?.success) {
             const parsed = parseAgentdResult(agentdResult.data || '');
             return {
               kind: 'exec',
@@ -628,7 +628,7 @@ export default defineBuildInTool({
             path: input.path,
             cwd: input.cwd,
           });
-          if (agentdResult && agentdResult.success) {
+          if (agentdResult?.success) {
             return {
               kind: 'read',
               path: input.path,
@@ -677,7 +677,7 @@ export default defineBuildInTool({
             content: input.content,
             cwd: input.cwd,
           });
-          if (agentdResult && agentdResult.success) {
+          if (agentdResult?.success) {
             return {
               kind: 'write',
               path: input.path,

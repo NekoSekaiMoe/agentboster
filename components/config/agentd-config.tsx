@@ -254,13 +254,13 @@ export function AgentDConfigPage() {
               disabled={loading}
             >
               <RefreshCw
-                className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`}
+                className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`}
               />
               Check
             </Button>
           </div>
           {isOnline && status && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div className='grid grid-cols-2 gap-4 text-sm md:grid-cols-4'>
               <div className="flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-muted-foreground" />
                 <span className="text-muted-foreground">Version:</span>
@@ -271,7 +271,7 @@ export function AgentDConfigPage() {
                 <span className="text-muted-foreground">Uptime:</span>
                 <span className="font-mono">{status.uptime}</span>
               </div>
-              <div className="flex items-center gap-2 col-span-2">
+              <div className='col-span-2 flex items-center gap-2'>
                 <HardDrive className="h-4 w-4 text-muted-foreground" />
                 <span className="text-muted-foreground">Last Check:</span>
                 <span className="font-mono text-xs">{status.timestamp}</span>
@@ -290,7 +290,7 @@ export function AgentDConfigPage() {
               <CardTitle>Cluster Nodes</CardTitle>
             </div>
             <Button variant="ghost" size="sm" onClick={fetchNodeStatuses}>
-              <RefreshCw className="h-4 w-4 mr-1" />
+              <RefreshCw className='mr-1 h-4 w-4' />
               Refresh
             </Button>
           </div>
@@ -301,7 +301,7 @@ export function AgentDConfigPage() {
         </CardHeader>
         <CardContent>
           {nodeStatuses.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
+            <p className='text-muted-foreground text-sm'>
               No nodes registered yet. Start an Agent Daemon to register a node.
             </p>
           ) : (
@@ -311,7 +311,7 @@ export function AgentDConfigPage() {
                 return (
                   <div
                     key={node.node_id}
-                    className="rounded-lg border p-3 space-y-2"
+                    className='space-y-2 rounded-lg border p-3'
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -326,11 +326,11 @@ export function AgentDConfigPage() {
                           )}
                           {isOnline ? 'Online' : 'Offline'}
                         </Badge>
-                        <span className="text-sm font-mono font-medium">
+                        <span className='font-medium font-mono text-sm'>
                           {node.node_id}
                         </span>
                       </div>
-                      <span className="text-xs text-muted-foreground">
+                      <span className='text-muted-foreground text-xs'>
                         {node.ip}:{node.port}
                       </span>
                     </div>
@@ -363,7 +363,7 @@ export function AgentDConfigPage() {
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <div className='flex items-center justify-between text-muted-foreground text-xs'>
                       <div className="flex gap-2">
                         {node.sandboxes.map((s) => (
                           <Badge key={s} variant="outline" className="text-xs">
@@ -398,7 +398,7 @@ export function AgentDConfigPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
             <div>
               <Label>CA Certificate Path</Label>
               <Input
@@ -451,14 +451,14 @@ export function AgentDConfigPage() {
             </div>
           </div>
           <Separator />
-          <div className="flex justify-between items-center">
-            <p className="text-sm text-muted-foreground">
+          <div className='flex items-center justify-between'>
+            <p className='text-muted-foreground text-sm'>
               Use{' '}
-              <code className="bg-muted px-1 rounded">agentd -gen-certs</code>{' '}
+              <code className='rounded bg-muted px-1'>agentd -gen-certs</code>{' '}
               to generate certificates on the daemon server.
             </p>
             <Button variant="outline" size="sm" onClick={handleRegenerateCerts}>
-              <RefreshCw className="h-4 w-4 mr-2" />
+              <RefreshCw className='mr-2 h-4 w-4' />
               Regenerate
             </Button>
           </div>
@@ -490,7 +490,7 @@ export function AgentDConfigPage() {
               placeholder="https://your-agentboster.vercel.app"
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
             <div>
               <Label>Client Certificate Path</Label>
               <Input
@@ -537,10 +537,10 @@ export function AgentDConfigPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
             <div>
               <Label>Default Sandbox</Label>
-              <div className="flex gap-2 mt-1">
+              <div className='mt-1 flex gap-2'>
                 {['tmpfs', 'chroot', 'docker'].map((type) => (
                   <Button
                     key={type}
@@ -559,7 +559,7 @@ export function AgentDConfigPage() {
                   </Button>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className='mt-1 text-muted-foreground text-xs'>
                 tmpfs: lightweight (default) · chroot: persistent · docker:
                 high-risk isolation
               </p>
@@ -620,7 +620,7 @@ export function AgentDConfigPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
             <div>
               <Label>Max Session Count</Label>
               <Input
@@ -639,7 +639,7 @@ export function AgentDConfigPage() {
                   }));
                 }}
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className='mt-1 text-muted-foreground text-xs'>
                 Max sessions to retain (default: 50). Oldest archived when
                 exceeded.
               </p>
@@ -656,7 +656,7 @@ export function AgentDConfigPage() {
                 }
                 placeholder="30m"
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className='mt-1 text-muted-foreground text-xs'>
                 Idle timeout (e.g. 30m, 1h). Expired sessions auto-cleaned.
               </p>
             </div>
@@ -672,12 +672,12 @@ export function AgentDConfigPage() {
                 }
                 placeholder="/tmp/agentd/sessions"
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className='mt-1 text-muted-foreground text-xs'>
                 Directory for session persistence on disk.
               </p>
             </div>
           </div>
-          <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-3 space-y-1">
+          <div className='space-y-1 rounded-md bg-muted/50 p-3 text-muted-foreground text-xs'>
             <p>
               <strong>Session Isolation:</strong> Each session has independent
               L2 authorization cache. Session A's "always" authorization does

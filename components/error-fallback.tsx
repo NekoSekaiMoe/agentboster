@@ -23,17 +23,17 @@ export function ErrorFallback({
         </div>
 
         <div className="space-y-2">
-          <h2 className="text-2xl font-semibold tracking-tight">
+          <h2 className='font-semibold text-2xl tracking-tight'>
             Something went wrong
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className='text-muted-foreground text-sm'>
             An unexpected error occurred. Please try again or contact support if
             the problem persists.
           </p>
         </div>
 
         {error.digest && (
-          <div className="rounded-md bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
+          <div className='rounded-md bg-muted px-3 py-2 font-mono text-muted-foreground text-xs'>
             Error ID: {error.digest}
           </div>
         )}

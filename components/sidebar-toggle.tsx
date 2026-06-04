@@ -19,7 +19,7 @@ export function SidebarToggle() {
           variant="outline"
           size="icon"
           aria-label="Toggle sidebar"
-          className="md:px-2 md:h-fit"
+          className='md:h-fit md:px-2'
         >
           <SidebarLeftIcon size={16} />
         </Button>

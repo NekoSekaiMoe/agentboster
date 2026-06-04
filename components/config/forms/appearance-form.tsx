@@ -15,13 +15,14 @@ export function AppearanceForm() {
           <CardTitle>Navigation Style</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <p className='text-muted-foreground text-sm'>
             Choose how you navigate the app. This preference is stored locally
             on your device.
           </p>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <button
+              type="button"
               onClick={() => setNavMode('bottom-tabs')}
               className={`flex flex-col items-center gap-3 rounded-xl border-2 p-6 transition-colors ${
                 navMode === 'bottom-tabs'
@@ -55,12 +56,13 @@ export function AppearanceForm() {
                 <Smartphone className="size-4" />
                 <span className="font-medium">Bottom Tab Bar</span>
               </div>
-              <span className="text-xs text-muted-foreground text-center">
+              <span className='text-center text-muted-foreground text-xs'>
                 iOS-style tab bar at the bottom. Quick access to all sections.
               </span>
             </button>
 
             <button
+              type="button"
               onClick={() => setNavMode('sidebar-drawer')}
               className={`flex flex-col items-center gap-3 rounded-xl border-2 p-6 transition-colors ${
                 navMode === 'sidebar-drawer'
@@ -69,8 +71,8 @@ export function AppearanceForm() {
               }`}
             >
               <div className="flex h-32 w-full items-start justify-start rounded-lg bg-muted/50 p-2">
-                <div className="flex flex-col gap-1 w-20">
-                  <div className="flex items-center gap-1.5 px-2 py-1.5 rounded bg-primary/20">
+                <div className='flex w-20 flex-col gap-1'>
+                  <div className='flex items-center gap-1.5 rounded bg-primary/20 px-2 py-1.5'>
                     <div className="h-2 w-2 rounded-sm bg-primary" />
                     <span className="text-[8px]">Chat</span>
                   </div>
@@ -78,7 +80,7 @@ export function AppearanceForm() {
                     (label) => (
                       <div
                         key={label}
-                        className="flex items-center gap-1.5 px-2 py-1.5 rounded"
+                        className='flex items-center gap-1.5 rounded px-2 py-1.5'
                       >
                         <div className="h-2 w-2 rounded-sm bg-current opacity-40" />
                         <span className="text-[8px]">{label}</span>
@@ -92,7 +94,7 @@ export function AppearanceForm() {
                 <Monitor className="size-4" />
                 <span className="font-medium">Slide-in Drawer</span>
               </div>
-              <span className="text-xs text-muted-foreground text-center">
+              <span className='text-center text-muted-foreground text-xs'>
                 Hamburger menu that slides in from the left. More screen space
                 for content.
               </span>

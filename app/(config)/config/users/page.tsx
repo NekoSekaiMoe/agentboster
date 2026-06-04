@@ -89,18 +89,18 @@ export default function UsersPage() {
   });
 
   return (
-    <div className="p-6 space-y-6 max-w-2xl">
+    <div className='max-w-2xl space-y-6 p-6'>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className='font-bold text-2xl tracking-tight'>Users</h1>
+          <p className='text-muted-foreground text-sm'>
             Manage user accounts
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>
-              <UserPlus className="size-4 mr-2" />
+              <UserPlus className='mr-2 size-4' />
               Add User
             </Button>
           </DialogTrigger>
@@ -137,7 +137,7 @@ export default function UsersPage() {
                   checked={isAdmin}
                   onCheckedChange={(checked) => setIsAdmin(checked === true)}
                 />
-                <Label htmlFor="new-is-admin" className="text-sm cursor-pointer">
+                <Label htmlFor="new-is-admin" className='cursor-pointer text-sm'>
                   Admin (full access to config and settings)
                 </Label>
               </div>
@@ -161,9 +161,9 @@ export default function UsersPage() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
+        <p className='text-muted-foreground text-sm'>Loading...</p>
       ) : users.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No users found.</p>
+        <p className='text-muted-foreground text-sm'>No users found.</p>
       ) : (
         <div className="space-y-2">
           {users.map((user) => (
@@ -211,18 +211,18 @@ function UserCard({ user }: { user: User }) {
           )}
           <div>
             <p className="font-medium">{user.username}</p>
-            <p className="text-xs text-muted-foreground">
+            <p className='text-muted-foreground text-xs'>
               Created {formatDate(user.createdAt)}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {isAdmin ? (
-            <span className="text-xs bg-amber-500/10 text-amber-600 px-2 py-0.5 rounded">
+            <span className='rounded bg-amber-500/10 px-2 py-0.5 text-amber-600 text-xs'>
               Admin
             </span>
           ) : (
-            <span className="text-xs bg-muted px-2 py-0.5 rounded">User</span>
+            <span className='rounded bg-muted px-2 py-0.5 text-xs'>User</span>
           )}
           <Button
             variant="ghost"

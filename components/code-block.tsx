@@ -28,7 +28,7 @@ export function CodeBlock<T extends boolean>({
     return (
       <code
         className={cn(
-          'text-sm bg-zinc-100 dark:bg-zinc-800 py-0.5 px-1 rounded-md',
+          'rounded-md bg-zinc-100 px-1 py-0.5 text-sm dark:bg-zinc-800',
           className,
         )}
         {...props}
@@ -42,14 +42,14 @@ export function CodeBlock<T extends boolean>({
         {tab === 'code' && (
           <pre
             {...props}
-            className={`text-sm w-full overflow-x-auto dark:bg-zinc-900 p-4 border border-zinc-200 dark:border-zinc-700 rounded-xl dark:text-zinc-50 text-zinc-900`}
+            className={`w-full overflow-x-auto rounded-xl border border-zinc-200 p-4 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50`}
           >
             <code className="whitespace-pre-wrap break-words">{children}</code>
           </pre>
         )}
 
         {tab === 'run' && output && (
-          <div className="text-sm w-full overflow-x-auto bg-zinc-800 dark:bg-zinc-900 p-4 border border-zinc-200 dark:border-zinc-700 border-t-0 rounded-b-xl text-zinc-50">
+          <div className='w-full overflow-x-auto rounded-b-xl border border-zinc-200 border-t-0 bg-zinc-800 p-4 text-sm text-zinc-50 dark:border-zinc-700 dark:bg-zinc-900'>
             <code>{output}</code>
           </div>
         )}

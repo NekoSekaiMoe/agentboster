@@ -285,6 +285,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     );
     try {
       // Pinned feature requires schema update; best-effort only
+      await Promise.resolve();
     } catch {
       setSessions((prev) =>
         prev.map((s) =>
@@ -329,17 +330,17 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     if (!status || status === 'idle') return null;
     if (status === 'running')
       return (
-        <Loader2 className="size-3 animate-spin text-amber-500 shrink-0" />
+        <Loader2 className='size-3 shrink-0 animate-spin text-amber-500' />
       );
     if (status === 'waiting_user')
       return (
-        <span className="size-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+        <span className='size-2 shrink-0 animate-pulse rounded-full bg-amber-500' />
       );
     if (status === 'completed')
-      return <span className="size-2 rounded-full bg-green-500 shrink-0" />;
+      return <span className='size-2 shrink-0 rounded-full bg-green-500' />;
     if (status === 'aborted')
       return (
-        <span className="size-2 rounded-full bg-muted-foreground shrink-0" />
+        <span className='size-2 shrink-0 rounded-full bg-muted-foreground' />
       );
     return null;
   };
@@ -349,12 +350,13 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded hover:bg-muted"
+            type="button"
+            className='-translate-y-1/2 absolute top-1/2 right-2 rounded p-1 opacity-0 hover:bg-muted focus:opacity-100 group-hover:opacity-100'
             aria-label="Session actions"
             disabled={deletingSessionId === sessionItem.id}
           >
             {deletingSessionId === sessionItem.id ? (
-              <Loader2 className="animate-spin size-4" />
+              <Loader2 className='size-4 animate-spin' />
             ) : (
               <Trash2 className="size-4" />
             )}
@@ -395,7 +397,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
         href={`/chat/${sessionItem.id}`}
         onClick={onClose}
         title={sessionItem.title ?? 'Untitled'}
-        className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors ${
+        className={`flex items-center gap-2 rounded-md px-3 py-2 transition-colors ${
           pathname === `/chat/${sessionItem.id}`
             ? 'bg-accent text-accent-foreground'
             : 'hover:bg-muted'
@@ -403,7 +405,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       >
         <StatusDot status={sessionItem.status} />
         <MessageSquare className="size-4 shrink-0" />
-        <span className="truncate flex-1">
+        <span className='flex-1 truncate'>
           {sessionItem.title ?? 'Untitled'}
         </span>
         {sessionItem.pinned && <span className="text-xs">📌</span>}
@@ -412,16 +414,16 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className='flex h-full flex-col'>
       {/* Header */}
-      <div className="flex flex-row justify-between items-center p-4 border-b">
+      <div className='flex flex-row items-center justify-between border-b p-4'>
         <Link
           href="/"
           onClick={onClose}
-          className="flex flex-row gap-2 items-center"
+          className='flex flex-row items-center gap-2'
         >
           <Logo width={24} height={24} />
-          <span className="text-lg font-semibold">AgentBoster</span>
+          <span className='font-semibold text-lg'>AgentBoster</span>
         </Link>
         <Button
           variant="ghost"
@@ -438,8 +440,8 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       </div>
 
       {/* Navigation */}
-      <div className="p-4 space-y-1">
-        <div className="text-xs font-semibold text-muted-foreground px-3 mb-2">
+      <div className='space-y-1 p-4'>
+        <div className='mb-2 px-3 font-semibold text-muted-foreground text-xs'>
           Navigation
         </div>
         {navItems.map((item) => (
@@ -447,7 +449,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
             key={item.href}
             href={item.href}
             onClick={onClose}
-            className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+            className={`flex items-center gap-3 rounded-md px-3 py-2 transition-colors ${
               item.href === '/'
                 ? pathname === '/' || pathname.startsWith('/chat')
                   ? 'bg-accent text-accent-foreground'
@@ -465,12 +467,12 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
 
       {/* Sessions */}
       {isChatPage && (
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          <div className="text-xs font-semibold text-muted-foreground px-3 mb-2">
+        <div className='flex-1 space-y-2 overflow-y-auto p-4'>
+          <div className='mb-2 px-3 font-semibold text-muted-foreground text-xs'>
             Recent Sessions
           </div>
           <div className="relative mb-3">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+            <Search className='-translate-y-1/2 absolute top-1/2 left-2 size-3.5 text-muted-foreground' />
             <Input
               ref={searchInputRef}
               value={searchQuery}
@@ -485,7 +487,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
               <Loader2 className="size-4 animate-spin text-muted-foreground" />
             </div>
           ) : filteredSessions.length === 0 ? (
-            <p className="text-xs text-muted-foreground px-3 py-2">
+            <p className='px-3 py-2 text-muted-foreground text-xs'>
               {searchQuery ? 'No matching sessions' : 'No sessions yet'}
             </p>
           ) : (
@@ -495,7 +497,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
                   {pinnedSessions.map(renderSessionItem)}
                   {recentSessions.length > 0 && (
                     <div className="px-3 py-1">
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
+                      <span className='text-[10px] text-muted-foreground/60 uppercase tracking-wider'>
                         Recent
                       </span>
                     </div>
@@ -509,7 +511,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       )}
 
       {/* Footer */}
-      <div className="p-4 border-t space-y-2">
+      <div className='space-y-2 border-t p-4'>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="w-full justify-start gap-3">
@@ -524,15 +526,15 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
               onValueChange={(value) => setTheme(value as ThemeMode)}
             >
               <DropdownMenuRadioItem value="light">
-                <Sun className="size-4 mx-2" />
+                <Sun className='mx-2 size-4' />
                 Light
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="dark">
-                <Moon className="size-4 mx-2" />
+                <Moon className='mx-2 size-4' />
                 Dark
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="system">
-                <Monitor className="size-4 mx-2" />
+                <Monitor className='mx-2 size-4' />
                 System
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
@@ -558,7 +560,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
               {loggingOut ? 'Signing out...' : 'Sign out'}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
+            <DropdownMenuLabel className='text-muted-foreground text-xs'>
               Version {packageJson.version}
             </DropdownMenuLabel>
           </DropdownMenuContent>

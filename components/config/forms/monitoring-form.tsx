@@ -76,11 +76,11 @@ export function MonitoringForm() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Monitoring</h2>
+        <h2 className='font-bold text-2xl tracking-tight'>Monitoring</h2>
         <p className="text-muted-foreground">
           Real-time status of Agent Daemon and sandbox resources.
         </p>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className='mt-1 text-muted-foreground text-xs'>
           Last updated: {currentTime.toLocaleTimeString()}
         </p>
       </div>
@@ -89,55 +89,55 @@ export function MonitoringForm() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className='font-medium text-sm'>
               Active Sandboxes
             </CardTitle>
             <Box className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className='font-bold text-2xl'>
               {metrics?.activeSandboxes ?? 0}
             </div>
-            <p className="text-xs text-muted-foreground">Currently running</p>
+            <p className='text-muted-foreground text-xs'>Currently running</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Tasks</CardTitle>
+            <CardTitle className='font-medium text-sm'>Active Tasks</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className='font-bold text-2xl'>
               {metrics?.activeTasks ?? 0}
             </div>
-            <p className="text-xs text-muted-foreground">In progress</p>
+            <p className='text-muted-foreground text-xs'>In progress</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
+            <CardTitle className='font-medium text-sm'>Total Tasks</CardTitle>
             <Server className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics?.totalTasks ?? 0}</div>
-            <p className="text-xs text-muted-foreground">All time</p>
+            <div className='font-bold text-2xl'>{metrics?.totalTasks ?? 0}</div>
+            <p className='text-muted-foreground text-xs'>All time</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+            <CardTitle className='font-medium text-sm'>Success Rate</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
+            <div className='font-bold text-2xl'>
               {metrics && metrics.totalTasks > 0
                 ? `${((metrics.completedTasks / metrics.totalTasks) * 100).toFixed(1)}%`
                 : '0%'}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className='text-muted-foreground text-xs'>
               {metrics?.completedTasks ?? 0} completed,{' '}
               {metrics?.failedTasks ?? 0} failed
             </p>
@@ -147,7 +147,7 @@ export function MonitoringForm() {
 
       {/* Node Status */}
       <div>
-        <h3 className="text-lg font-semibold mb-4">Daemon Nodes</h3>
+        <h3 className='mb-4 font-semibold text-lg'>Daemon Nodes</h3>
         {!nodes || nodes.length === 0 ? (
           <Card>
             <CardContent className="flex items-center justify-center p-8 text-muted-foreground">
@@ -159,7 +159,7 @@ export function MonitoringForm() {
             {nodes.map((node) => (
               <Card key={node.id}>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">
+                  <CardTitle className='font-medium text-sm'>
                     {node.hostname}
                   </CardTitle>
                   <Badge
@@ -204,7 +204,7 @@ export function MonitoringForm() {
                         : '—'}
                     </span>
                   </div>
-                  <div className="text-xs text-muted-foreground pt-2 border-t">
+                  <div className='border-t pt-2 text-muted-foreground text-xs'>
                     Last heartbeat:{' '}
                     {node.lastHeartbeat
                       ? new Date(node.lastHeartbeat).toLocaleTimeString()

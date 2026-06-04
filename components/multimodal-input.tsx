@@ -272,13 +272,13 @@ function PureMultimodalInput({
   ]);
 
   return (
-    <div className="relative w-full flex flex-col gap-4">
+    <div className='relative flex w-full flex-col gap-4'>
       <input
         type="file"
         ref={fileInputRef}
         multiple
         aria-label="Attach files"
-        className="fixed -top-4 -left-4 size-0.5 opacity-0 pointer-events-none"
+        className='-top-4 -left-4 pointer-events-none fixed size-0.5 opacity-0'
         tabIndex={-1}
         onChange={(event) => {
           if (event.target.files) {
@@ -332,7 +332,7 @@ function PureMultimodalInput({
           placeholder="Send a message..."
           value={input}
           onChange={handleInput}
-          className="min-h-[24px] max-h-[calc(75dvh)] overflow-hidden resize-none border-0 bg-transparent px-0 pb-10 pt-0 !text-base shadow-none focus-visible:ring-0"
+          className='!text-base max-h-[calc(75dvh)] min-h-[24px] resize-none overflow-hidden border-0 bg-transparent px-0 pt-0 pb-10 shadow-none focus-visible:ring-0'
           rows={2}
           autoFocus
           onClick={(event) => {
@@ -356,11 +356,11 @@ function PureMultimodalInput({
           }}
         />
 
-        <div className="absolute bottom-0 left-0 p-2 w-fit flex flex-row justify-end">
+        <div className='absolute bottom-0 left-0 flex w-fit flex-row justify-end p-2'>
           <AttachmentButton onClick={() => fileInputRef.current?.click()} />
         </div>
 
-        <div className="absolute bottom-0 right-0 p-2 w-fit flex flex-row justify-end gap-2">
+        <div className='absolute right-0 bottom-0 flex w-fit flex-row justify-end gap-2 p-2'>
           <SendButton
             input={input}
             hasAttachments={attachments.length > 0}
@@ -392,7 +392,7 @@ function PureStopButton({
 }) {
   return (
     <Button
-      className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
+      className='h-fit rounded-full border p-1.5 dark:border-zinc-600'
       onClick={(event) => {
         event.preventDefault();
         stop();
@@ -416,7 +416,7 @@ function PureSendButton({
 }) {
   return (
     <Button
-      className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
+      className='h-fit rounded-full border p-1.5 dark:border-zinc-600'
       onClick={(event) => {
         event.preventDefault();
         void submitForm();

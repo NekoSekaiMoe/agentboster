@@ -134,7 +134,7 @@ function formatWorkflowDataTitle(part: WorkflowDataUIPart): string {
 function formatWorkflowDataBody(part: WorkflowDataUIPart): React.ReactNode {
   if (part.data.kind === 'message') {
     return (
-      <div className="text-sm leading-6 text-foreground/80 whitespace-pre-wrap break-words">
+      <div className='whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6'>
         {part.data.message}
       </div>
     );
@@ -160,7 +160,7 @@ function formatWorkflowDataBody(part: WorkflowDataUIPart): React.ReactNode {
       );
     case 'user-message':
       return (
-        <div className="text-sm leading-6 text-foreground/80 whitespace-pre-wrap break-words">
+        <div className='whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6'>
           {part.data.content}
         </div>
       );
@@ -213,10 +213,10 @@ export function WorkflowDataTimeline({
             className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+              <div className='text-[11px] text-muted-foreground uppercase tracking-[0.16em]'>
                 {agentName}:
               </div>
-              <div className="mt-1 text-sm font-semibold leading-5 text-foreground">
+              <div className='mt-1 font-semibold text-foreground text-sm leading-5'>
                 Workflow
               </div>
             </div>
@@ -224,7 +224,7 @@ export function WorkflowDataTimeline({
             <div className="flex shrink-0 items-center gap-2 pl-2">
               <span
                 className={cn(
-                  'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]',
+                  'rounded-full border px-2 py-0.5 font-medium text-[10px] uppercase tracking-[0.16em]',
                   tone.badge,
                 )}
               >
@@ -251,14 +251,14 @@ export function WorkflowDataTimeline({
                 transition={detailsTransition}
                 className="overflow-hidden"
               >
-                <div className="border-t border-border/60 px-4 pb-4 pt-3">
+                <div className='border-border/60 border-t px-4 pt-3 pb-4'>
                   <div className="space-y-3">
                     {parts.map((part, index) => (
                       <div
                         key={`${agentName}-${part.type}-${index}`}
                         className="rounded-xl border border-border/60 bg-muted/10 p-3"
                       >
-                        <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        <div className='text-[11px] text-muted-foreground uppercase tracking-[0.16em]'>
                           {formatWorkflowDataTitle(part)}
                         </div>
                         <div className="mt-2">
@@ -343,10 +343,10 @@ export function WorkflowMessageTimeline({
                   className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold leading-5 text-foreground">
+                    <div className='font-semibold text-foreground text-sm leading-5'>
                       {formatWorkflowEventTitle(part)}
                     </div>
-                    <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <div className='mt-1 text-[11px] text-muted-foreground uppercase tracking-[0.16em]'>
                       Workflow
                     </div>
                   </div>
@@ -354,7 +354,7 @@ export function WorkflowMessageTimeline({
                   <div className="flex shrink-0 items-center gap-2 pl-2">
                     <span
                       className={cn(
-                        'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]',
+                        'rounded-full border px-2 py-0.5 font-medium text-[10px] uppercase tracking-[0.16em]',
                         tone.badge,
                       )}
                     >
@@ -389,9 +389,9 @@ export function WorkflowMessageTimeline({
                       transition={detailsTransition}
                       className="overflow-hidden"
                     >
-                      <div className="border-t border-border/60 px-4 pb-4 pt-3">
+                      <div className='border-border/60 border-t px-4 pt-3 pb-4'>
                         {part.data.type === 'system-event' ? (
-                          <div className="text-sm leading-6 text-foreground/80 whitespace-pre-wrap break-words">
+                          <div className='whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6'>
                             {part.data.message}
                           </div>
                         ) : null}

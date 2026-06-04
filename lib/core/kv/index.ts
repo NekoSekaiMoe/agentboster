@@ -5,9 +5,16 @@ let _redis: Redis | null = null;
 
 function getRedis(): Redis {
   if (!_redis) {
+    const url = process.env.KV_REST_API_URL;
+    const token = process.env.KV_REST_API_TOKEN;
+    if (!url || !token) {
+      throw new Error(
+        'KV_REST_API_URL and KV_REST_API_TOKEN env vars are required',
+      );
+    }
     _redis = new Redis({
-      url: process.env.KV_REST_API_URL!,
-      token: process.env.KV_REST_API_TOKEN!,
+      url,
+      token,
     });
   }
   return _redis;
@@ -24,8 +31,12 @@ let _redisState: ReturnType<typeof createRedisState> | null = null;
 export const redisState = new Proxy({} as ReturnType<typeof createRedisState>, {
   get(_target, prop, receiver) {
     if (!_redisState) {
+      const redisUrl = process.env.REDIS_URL;
+      if (!redisUrl) {
+        throw new Error('REDIS_URL env var is required');
+      }
       _redisState = createRedisState({
-        url: process.env.REDIS_URL!,
+        url: redisUrl,
       });
     }
     return Reflect.get(_redisState, prop, receiver);

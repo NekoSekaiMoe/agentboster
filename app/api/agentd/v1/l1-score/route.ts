@@ -4,7 +4,7 @@
  */
 
 import { getConfig } from '@/lib/core/kv/config';
-import { scoreCommand, scoreOutput } from '@/lib/security/l1-scorer';
+import { type L1ScoreResult, scoreCommand, scoreOutput } from '@/lib/security/l1-scorer';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
 
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
       );
     }
 
-    let result;
+    let result: L1ScoreResult;
     if (parsed.data.type === 'command') {
       result = await scoreCommand(
         {

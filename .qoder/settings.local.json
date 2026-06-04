@@ -22,7 +22,13 @@
       "Bash(cd /home/user/repo/agentboster && yarn check 2>&1 | tail -5)",
       "Bash(git show:*)",
       "Bash(tail:*)",
-      "Bash(yarn check 2>&1 | tail -40)"
+      "Bash(yarn check 2>&1 | tail -40)",
+      "Bash(yarn lint:fix 2>&1 | tail -100)",
+      "Bash(yarn lint:fix 2>&1 | grep -E \"^\\\\./|lint/\" | head -80)",
+      "Bash(find /home/user/repo/agentboster/lib/workflow -type f | head -30)",
+      "Bash(yarn lint:fix 2>&1 | grep -A 15 \"noUnreachable\\\\|noImplicitAnyLet\\\\|noAssignInExpressions\" | head -120)",
+      "Bash(yarn lint:fix 2>&1 | tail -30)",
+      "Bash(grep -A2 '\"check\"' /home/user/repo/agentboster/package.json | head -5)"
     ]
   }
 }

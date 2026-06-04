@@ -134,10 +134,10 @@ function PureMessages({
   }, [messagesContainerRef]);
 
   return (
-    <div className="relative flex-1 min-w-0">
+    <div className='relative min-w-0 flex-1'>
       <div
         ref={messagesContainerRef}
-        className="flex h-full flex-col gap-6 overflow-y-scroll overflow-x-hidden pt-4"
+        className='flex h-full flex-col gap-6 overflow-x-hidden overflow-y-scroll pt-4'
       >
         {messages.length === 0 && <Overview onPromptSelect={onPromptSelect} />}
 
@@ -173,7 +173,7 @@ function PureMessages({
 
         <div
           ref={messagesEndRef}
-          className="shrink-0 min-w-[24px] min-h-[24px]"
+          className='min-h-[24px] min-w-[24px] shrink-0'
         />
       </div>
 
@@ -186,7 +186,7 @@ function PureMessages({
             exit={{ opacity: 0, scale: 0.8 }}
             transition={{ duration: 0.2 }}
             onClick={scrollToTop}
-            className="absolute bottom-4 right-4 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            className='absolute right-4 bottom-4 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2'
             aria-label="Scroll to top"
           >
             <ArrowUp className="size-5" />

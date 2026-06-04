@@ -110,30 +110,30 @@ function PureChatHeader({
         {session ? (
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h1 className="min-w-0 truncate text-sm font-semibold text-foreground">
+              <h1 className='min-w-0 truncate font-semibold text-foreground text-sm'>
                 {session.title ?? 'Untitled Session'}
               </h1>
               {/* Status indicator */}
               {isRunning && (
-                <span className="inline-flex items-center gap-1 text-xs text-amber-600 shrink-0">
+                <span className='inline-flex shrink-0 items-center gap-1 text-amber-600 text-xs'>
                   <Loader2 className="size-3 animate-spin" />
                   {status === 'waiting_user' ? 'Waiting' : 'Running'}
                 </span>
               )}
               {status === 'completed' && (
-                <span className="inline-flex items-center gap-1 text-xs text-green-600 shrink-0">
+                <span className='inline-flex shrink-0 items-center gap-1 text-green-600 text-xs'>
                   ✓ Done
                 </span>
               )}
               {status === 'aborted' && (
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                <span className='inline-flex shrink-0 items-center gap-1 text-muted-foreground text-xs'>
                   ⏹ Aborted
                 </span>
               )}
               {/* Agent Daemon status */}
               {agentdStatus === 'online' && (
                 <span
-                  className="inline-flex items-center gap-1 text-xs text-green-600 shrink-0"
+                  className='inline-flex shrink-0 items-center gap-1 text-green-600 text-xs'
                   title="Agent Daemon online — full security review active"
                 >
                   <span className="size-1.5 rounded-full bg-green-500" />
@@ -142,7 +142,7 @@ function PureChatHeader({
               )}
               {agentdStatus === 'offline' && (
                 <span
-                  className="inline-flex items-center gap-1 text-xs text-amber-600 shrink-0"
+                  className='inline-flex shrink-0 items-center gap-1 text-amber-600 text-xs'
                   title="Agent Daemon offline — using Vercel Sandbox (limited security)"
                 >
                   <span className="size-1.5 rounded-full bg-amber-500" />
@@ -150,7 +150,7 @@ function PureChatHeader({
                 </span>
               )}
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <div className='mt-1 flex flex-wrap items-center gap-2 text-muted-foreground text-xs'>
               {sessionDetails.map(({ label, value, valueClassName }) => (
                 <span
                   key={label}
@@ -163,7 +163,7 @@ function PureChatHeader({
                 </span>
               ))}
               {tokenDisplay && (
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <span className='inline-flex items-center gap-1 text-muted-foreground text-xs'>
                   🪙 {tokenDisplay}
                 </span>
               )}
@@ -173,14 +173,14 @@ function PureChatHeader({
           <div className="min-w-0 flex-1" />
         )}
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className='flex shrink-0 items-center gap-1'>
           {/* Abort button — only when running */}
           {isRunning && chatId && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="outline"
-                  className="shrink-0 px-2 md:h-fit text-red-600 hover:text-red-700 hover:bg-red-50"
+                  className='shrink-0 px-2 text-red-600 hover:bg-red-50 hover:text-red-700 md:h-fit'
                   aria-label="Abort session"
                   onClick={handleAbort}
                   disabled={aborting}

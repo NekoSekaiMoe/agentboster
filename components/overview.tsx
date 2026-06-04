@@ -47,7 +47,7 @@ export const Overview = ({
       transition={{ delay: 0.5 }}
     >
       <div className="mx-auto flex max-w-xl flex-col items-center gap-4 text-center leading-relaxed">
-        <p className="flex items-center size-12 rounded-full border border-muted bg-muted/50 ">
+        <p className='flex size-12 items-center rounded-full border border-muted bg-muted/50 '>
           <Logo />
         </p>
         <p className="text-xl">Hi, How's it going?</p>
@@ -63,10 +63,10 @@ export const Overview = ({
             onClick={() => onPromptSelect?.(item.prompt)}
           >
             <span className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-foreground">
+              <span className='font-medium text-foreground text-sm'>
                 {item.title}
               </span>
-              <span className="text-sm text-muted-foreground">
+              <span className='text-muted-foreground text-sm'>
                 {item.description}
               </span>
             </span>

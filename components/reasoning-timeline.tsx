@@ -94,7 +94,7 @@ export function ReasoningTimeline({
                   className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold leading-5 text-foreground">
+                    <div className='font-semibold text-foreground text-sm leading-5'>
                       Reasoning
                     </div>
                   </div>
@@ -102,7 +102,7 @@ export function ReasoningTimeline({
                   <div className="flex shrink-0 items-center gap-2 pl-2">
                     <span
                       className={cn(
-                        'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em]',
+                        'rounded-full border px-2 py-0.5 font-medium text-[10px] uppercase tracking-[0.16em]',
                         tone.badge,
                       )}
                     >
@@ -137,8 +137,8 @@ export function ReasoningTimeline({
                       transition={detailsTransition}
                       className="overflow-hidden"
                     >
-                      <div className="border-t border-border/60 bg-muted/10 px-4 pb-4 pt-3">
-                        <div className="text-sm leading-6 text-foreground/80 whitespace-pre-wrap break-words">
+                      <div className='border-border/60 border-t bg-muted/10 px-4 pt-3 pb-4'>
+                        <div className='whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6'>
                           {part.text}
                         </div>
                       </div>

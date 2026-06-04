@@ -69,7 +69,7 @@ export async function buildSystemPrompt(
   const skills = await listSkillMetas();
 
   // Check for session-level SOUL override
-  let sessionSoulContent: string | null = null;
+  const sessionSoulContent: string | null = null;
   if (options.sessionId) {
     try {
       const sessionSoul = await getBuiltinMemorySection('SOUL');

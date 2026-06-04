@@ -364,7 +364,7 @@ export function DecisionCard({
     return (
       <Card className="border-green-500/30">
         <CardContent className="pt-4">
-          <p className="text-sm text-green-600">{resultMessage}</p>
+          <p className='text-green-600 text-sm'>{resultMessage}</p>
         </CardContent>
       </Card>
     );
@@ -384,7 +384,7 @@ export function DecisionCard({
             {decision.type === 'l2_auth' && decision.command && (
               <div>
                 命令：
-                <code className="bg-muted px-1 rounded">
+                <code className='rounded bg-muted px-1'>
                   {decision.command}
                 </code>
               </div>
@@ -399,7 +399,7 @@ export function DecisionCard({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-red-600">
+          <p className='text-red-600 text-sm'>
             Agent 已暂停。您可以稍后重新发送指令。
           </p>
         </CardContent>
@@ -456,22 +456,22 @@ export function DecisionCard({
             {titleIcon} {titleText}
           </CardTitle>
           <span
-            className={`flex items-center gap-1 text-xs font-mono px-2 py-0.5 rounded ${
+            className={`flex items-center gap-1 rounded px-2 py-0.5 font-mono text-xs ${
               isUrgent
-                ? 'bg-red-100 text-red-700 animate-pulse'
+                ? 'animate-pulse bg-red-100 text-red-700'
                 : 'bg-muted text-muted-foreground'
             }`}
           >
             <Clock className="size-3" /> {countdown}
           </span>
         </div>
-        <CardDescription className="text-xs space-y-1">
+        <CardDescription className='space-y-1 text-xs'>
           {decision.type === 'l2_auth' && decision.command && (
             <>
               <div>任务：{decision.command}</div>
               <div>
                 命令：
-                <code className="bg-muted px-1 rounded">
+                <code className='rounded bg-muted px-1'>
                   {decision.command}
                 </code>
               </div>
@@ -556,13 +556,13 @@ export function DecisionCard({
               className="space-y-2"
             >
               <div className="flex items-start gap-2">
-                <span className="text-xs text-muted-foreground mt-0.5">
+                <span className='mt-0.5 text-muted-foreground text-xs'>
                   {pIdx + 1}.
                 </span>
                 <div className="flex-1">
-                  <p className="text-sm font-medium">{prompt.question}</p>
+                  <p className='font-medium text-sm'>{prompt.question}</p>
                   {prompt.header && (
-                    <p className="text-xs text-muted-foreground mt-0.5">
+                    <p className='mt-0.5 text-muted-foreground text-xs'>
                       [{prompt.header}]
                     </p>
                   )}
@@ -592,7 +592,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor={`q${pIdx}-o${oIdx}`}
-                        className="text-sm cursor-pointer"
+                        className='cursor-pointer text-sm'
                       >
                         {opt}
                       </Label>
@@ -621,7 +621,7 @@ export function DecisionCard({
                         />
                         <Label
                           htmlFor={`q${pIdx}-o${oIdx}`}
-                          className="text-sm cursor-pointer"
+                          className='cursor-pointer text-sm'
                         >
                           {opt}
                         </Label>
@@ -687,10 +687,10 @@ export function DecisionCard({
             {decision.conflict.files.map((file, fIdx) => (
               <div
                 key={`conflict-${fIdx}-${file.path}`}
-                className="rounded-md border border-purple-200/50 bg-purple-50/30 p-3 space-y-2"
+                className='space-y-2 rounded-md border border-purple-200/50 bg-purple-50/30 p-3'
               >
                 <div className="flex items-center gap-2">
-                  <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">
+                  <code className='rounded bg-muted px-1.5 py-0.5 font-mono text-xs'>
                     {file.path}
                   </code>
                 </div>
@@ -698,7 +698,7 @@ export function DecisionCard({
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {file.ours && (
                       <div className="rounded border border-green-200/50 bg-green-50/30 p-2">
-                        <p className="font-medium text-green-700 mb-1">Ours</p>
+                        <p className='mb-1 font-medium text-green-700'>Ours</p>
                         <pre className="whitespace-pre-wrap text-muted-foreground">
                           {file.ours}
                         </pre>
@@ -706,7 +706,7 @@ export function DecisionCard({
                     )}
                     {file.theirs && (
                       <div className="rounded border border-blue-200/50 bg-blue-50/30 p-2">
-                        <p className="font-medium text-blue-700 mb-1">Theirs</p>
+                        <p className='mb-1 font-medium text-blue-700'>Theirs</p>
                         <pre className="whitespace-pre-wrap text-muted-foreground">
                           {file.theirs}
                         </pre>
@@ -733,7 +733,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor={`cf-${fIdx}-ours`}
-                        className="text-xs cursor-pointer text-green-700"
+                        className='cursor-pointer text-green-700 text-xs'
                       >
                         ours
                       </Label>
@@ -746,7 +746,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor={`cf-${fIdx}-theirs`}
-                        className="text-xs cursor-pointer text-blue-700"
+                        className='cursor-pointer text-blue-700 text-xs'
                       >
                         theirs
                       </Label>
@@ -759,7 +759,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor={`cf-${fIdx}-manual`}
-                        className="text-xs cursor-pointer text-amber-700"
+                        className='cursor-pointer text-amber-700 text-xs'
                       >
                         manual
                       </Label>
@@ -801,7 +801,7 @@ export function DecisionCard({
 
         {decision.type === 'branch' && decision.branch && (
           <div className="space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
               {/* Plan A */}
               <PlanCard
                 label={decision.branch.plan_a.label}
@@ -840,7 +840,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor="branch-custom"
-                        className="text-sm cursor-pointer"
+                        className='cursor-pointer text-sm'
                       >
                         自定义方案
                       </Label>
@@ -898,14 +898,14 @@ function TimeInputForm({
   return (
     <div className="space-y-2 rounded-md border border-orange-300/40 bg-orange-50/50 p-3">
       <div className="flex items-center justify-between">
-        <p className="flex items-center gap-1 text-xs font-medium">
+        <p className='flex items-center gap-1 font-medium text-xs'>
           <Clock className="size-3" /> 请回复时间
         </p>
-        <span className="text-xs font-mono text-muted-foreground">
+        <span className='font-mono text-muted-foreground text-xs'>
           {countdown}
         </span>
       </div>
-      <p className="text-xs text-muted-foreground">
+      <p className='text-muted-foreground text-xs'>
         格式：hhddmmyy（时-日-月-年）或 always
       </p>
       <div className="flex gap-2">
@@ -990,7 +990,7 @@ function PlanCard({
     <div
       role="button"
       tabIndex={disabled ? -1 : 0}
-      className={`rounded-md border p-3 cursor-pointer transition-colors ${borderClass}`}
+      className={`cursor-pointer rounded-md border p-3 transition-colors ${borderClass}`}
       onClick={() => !disabled && onSelect()}
       onKeyDown={(e) => {
         if ((e.key === 'Enter' || e.key === ' ') && !disabled) {
@@ -999,7 +999,7 @@ function PlanCard({
         }
       }}
     >
-      <div className="flex items-center gap-2 mb-1">
+      <div className='mb-1 flex items-center gap-2'>
         <RadioGroup
           value={selected ? 'selected' : ''}
           onValueChange={() => !disabled && onSelect()}
@@ -1008,16 +1008,16 @@ function PlanCard({
         </RadioGroup>
         <Label
           htmlFor={radioId}
-          className="text-sm font-semibold cursor-pointer"
+          className='cursor-pointer font-semibold text-sm'
         >
           {label}
         </Label>
       </div>
       {description && (
-        <p className="text-xs text-muted-foreground ml-6">{description}</p>
+        <p className='ml-6 text-muted-foreground text-xs'>{description}</p>
       )}
       {details && (
-        <pre className="text-xs text-muted-foreground mt-2 ml-6 whitespace-pre-wrap">
+        <pre className='mt-2 ml-6 whitespace-pre-wrap text-muted-foreground text-xs'>
           {details}
         </pre>
       )}

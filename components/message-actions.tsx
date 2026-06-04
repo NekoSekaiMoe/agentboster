@@ -56,7 +56,7 @@ export function PureMessageActions({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                className="py-1 px-2 h-fit text-muted-foreground"
+                className='h-fit px-2 py-1 text-muted-foreground'
                 variant="outline"
                 onClick={handleCopy}
               >
@@ -71,7 +71,7 @@ export function PureMessageActions({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                className="py-1 px-2 h-fit text-muted-foreground"
+                className='h-fit px-2 py-1 text-muted-foreground'
                 variant="outline"
                 onClick={handleRevert}
               >

@@ -1,3 +1,4 @@
+import '@/lib/workflow/polyfills';
 import { assertBotAuthSecret, getAppBaseUrl } from '@/lib/bot/webhook';
 import { getScheduledTask, updateScheduledTask } from '@/lib/core/db/scheduled';
 import { createLogger } from '@/lib/utils/logger';

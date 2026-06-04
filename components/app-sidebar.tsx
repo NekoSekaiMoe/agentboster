@@ -307,6 +307,7 @@ export function AppSidebar() {
     );
     try {
       // Pinned feature requires schema update; best-effort only
+      await Promise.resolve();
     } catch {
       // Revert on failure
       setSessions((prev) =>
@@ -353,17 +354,17 @@ export function AppSidebar() {
     if (!status || status === 'idle') return null;
     if (status === 'running')
       return (
-        <Loader2 className="size-3 animate-spin text-amber-500 shrink-0" />
+        <Loader2 className='size-3 shrink-0 animate-spin text-amber-500' />
       );
     if (status === 'waiting_user')
       return (
-        <span className="size-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+        <span className='size-2 shrink-0 animate-pulse rounded-full bg-amber-500' />
       );
     if (status === 'completed')
-      return <span className="size-2 rounded-full bg-green-500 shrink-0" />;
+      return <span className='size-2 shrink-0 rounded-full bg-green-500' />;
     if (status === 'aborted')
       return (
-        <span className="size-2 rounded-full bg-muted-foreground shrink-0" />
+        <span className='size-2 shrink-0 rounded-full bg-muted-foreground' />
       );
     return null;
   };
@@ -379,7 +380,7 @@ export function AppSidebar() {
             disabled={deletingSessionId === sessionItem.id}
           >
             {deletingSessionId === sessionItem.id ? (
-              <Loader2 className="animate-spin size-4" />
+              <Loader2 className='size-4 animate-spin' />
             ) : (
               <Trash2 className="size-4" />
             )}
@@ -428,7 +429,7 @@ export function AppSidebar() {
         >
           <StatusDot status={sessionItem.status} />
           <MessageSquare className="size-4 shrink-0" />
-          <span className="truncate flex-1">
+          <span className='flex-1 truncate'>
             {sessionItem.title ?? 'Untitled'}
           </span>
           {sessionItem.pinned && <span className="text-xs">📌</span>}
@@ -441,14 +442,14 @@ export function AppSidebar() {
     <Sidebar className="group-data-[side=left]:border-r-0">
       <SidebarHeader>
         <SidebarMenu>
-          <div className="flex flex-row justify-between items-center">
+          <div className='flex flex-row items-center justify-between'>
             <Link
               href="/"
               onClick={() => setOpenMobile(false)}
-              className="flex flex-row gap-1 items-center"
+              className='flex flex-row items-center gap-1'
             >
               <Logo width={24} height={24} />
-              <span className="text-lg font-semibold hover:bg-muted rounded-md cursor-pointer">
+              <span className='cursor-pointer rounded-md font-semibold text-lg hover:bg-muted'>
                 AgentBoster
               </span>
             </Link>
@@ -457,7 +458,7 @@ export function AppSidebar() {
                 <Button
                   variant="ghost"
                   type="button"
-                  className="p-2 h-fit"
+                  className='h-fit p-2'
                   onClick={() => {
                     setOpenMobile(false);
                     router.push('/');
@@ -509,7 +510,7 @@ export function AppSidebar() {
                 {/* Search */}
                 <div className="px-2 pb-2">
                   <div className="relative">
-                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                    <Search className='-translate-y-1/2 absolute top-1/2 left-2 size-3.5 text-muted-foreground' />
                     <Input
                       ref={searchInputRef}
                       value={searchQuery}
@@ -525,7 +526,7 @@ export function AppSidebar() {
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                   </div>
                 ) : filteredSessions.length === 0 ? (
-                  <p className="text-xs text-muted-foreground px-2 py-2">
+                  <p className='px-2 py-2 text-muted-foreground text-xs'>
                     {searchQuery ? 'No matching sessions' : 'No sessions yet'}
                   </p>
                 ) : (
@@ -536,7 +537,7 @@ export function AppSidebar() {
                         {pinnedSessions.map(renderSessionItem)}
                         {recentSessions.length > 0 && (
                           <div className="px-2 py-1">
-                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
+                            <span className='text-[10px] text-muted-foreground/60 uppercase tracking-wider'>
                               Recent
                             </span>
                           </div>
@@ -570,15 +571,15 @@ export function AppSidebar() {
               onValueChange={(value) => setTheme(value as ThemeMode)}
             >
               <DropdownMenuRadioItem value="light">
-                <Sun className="size-4 mx-2" />
+                <Sun className='mx-2 size-4' />
                 Light
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="dark">
-                <Moon className="size-4 mx-2" />
+                <Moon className='mx-2 size-4' />
                 Dark
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="system">
-                <Monitor className="size-4 mx-2" />
+                <Monitor className='mx-2 size-4' />
                 System
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
@@ -604,7 +605,7 @@ export function AppSidebar() {
               {loggingOut ? 'Signing out...' : 'Sign out'}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
+            <DropdownMenuLabel className='text-muted-foreground text-xs'>
               Version {packageJson.version}
             </DropdownMenuLabel>
           </DropdownMenuContent>
