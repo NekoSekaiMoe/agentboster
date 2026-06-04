@@ -55,7 +55,9 @@ export async function executeBuiltinContext7Tool(
 
     const text = await response.text();
     if (!response.ok) {
-      return buildError(`Context7 request failed with status ${response.status}: ${text}`);
+      return buildError(
+        `Context7 request failed with status ${response.status}: ${text}`,
+      );
     }
 
     return {

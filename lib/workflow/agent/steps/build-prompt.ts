@@ -1,6 +1,9 @@
-import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import { listSkillMetas } from '@/lib/core/kv/skills';
-import { getBuiltinMemorySection, listBuiltinMemorySections } from '@/lib/memory';
+import {
+  getBuiltinMemorySection,
+  listBuiltinMemorySections,
+} from '@/lib/memory';
+import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import type { AppConfig } from '@/types/config';
 import { BUILTIN_MEMORY_MAX_LENGTH } from '@/types/memory';
 import { DEFAULT_SYSTEM_PROMPT } from '../config';
@@ -69,7 +72,7 @@ export async function buildSystemPrompt(
   const skills = await listSkillMetas();
 
   // Check for session-level SOUL override
-  let sessionSoulContent: string | null = null;
+  const sessionSoulContent: string | null = null;
   if (options.sessionId) {
     try {
       const sessionSoul = await getBuiltinMemorySection('SOUL');

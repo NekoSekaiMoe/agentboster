@@ -63,7 +63,11 @@ export class L2AuthManager implements IL2AuthManager {
     }
   }
 
-  isAuthorized(userId: string, action: string, window: L2AuthorizationWindow): boolean {
+  isAuthorized(
+    userId: string,
+    action: string,
+    window: L2AuthorizationWindow,
+  ): boolean {
     const now = Date.now();
 
     const entries = this.authorizations.get(userId);

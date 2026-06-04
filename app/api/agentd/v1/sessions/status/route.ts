@@ -2,7 +2,12 @@ import { db, schema } from '@/lib/core/db';
 import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 
-type FrontendStatus = 'idle' | 'running' | 'waiting_user' | 'completed' | 'aborted';
+type FrontendStatus =
+  | 'idle'
+  | 'running'
+  | 'waiting_user'
+  | 'completed'
+  | 'aborted';
 
 function mapStatus(session: {
   status: string;

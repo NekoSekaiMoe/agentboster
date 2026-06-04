@@ -14,7 +14,9 @@ export const builtinMcpServerConfigSchema = z.object({
 });
 
 export type MCPRemoteServerConfig = z.infer<typeof mcpRemoteServerConfigSchema>;
-export type BuiltinMcpServerConfig = z.infer<typeof builtinMcpServerConfigSchema>;
+export type BuiltinMcpServerConfig = z.infer<
+  typeof builtinMcpServerConfigSchema
+>;
 
 /**
  * MCP remote server map configuration schema.

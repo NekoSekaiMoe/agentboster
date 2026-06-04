@@ -31,15 +31,21 @@ function parseBingResults(html: string, maxResults: number): string {
   const algoRegex = /<li class="b_algo">(.*?)<\/li>/gs;
   let match: RegExpExecArray | null;
 
-  while ((match = algoRegex.exec(html)) !== null && results.length < maxResults) {
+  while (
+    (match = algoRegex.exec(html)) !== null &&
+    results.length < maxResults
+  ) {
     const block = match[1];
 
-    const titleMatch = /<h2><a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a><\/h2>/s.exec(block);
+    const titleMatch = /<h2><a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a><\/h2>/s.exec(
+      block,
+    );
     const url = titleMatch?.[1] ?? '';
     const title = titleMatch ? stripHtml(titleMatch[2]) : '';
 
-    const snippetMatch = /<p[^>]*>(.*?)<\/p>/s.exec(block)
-      ?? /<div class="b_caption"[^>]*>.*?<p>(.*?)<\/p>/s.exec(block);
+    const snippetMatch =
+      /<p[^>]*>(.*?)<\/p>/s.exec(block) ??
+      /<div class="b_caption"[^>]*>.*?<p>(.*?)<\/p>/s.exec(block);
     const snippet = snippetMatch ? stripHtml(snippetMatch[1]) : '';
 
     if (title || snippet) {

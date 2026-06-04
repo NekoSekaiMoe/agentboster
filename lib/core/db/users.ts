@@ -1,7 +1,7 @@
-import { eq } from 'drizzle-orm';
-import { hashPassword, verifyPassword } from '@/lib/extra/auth/password';
 import { db } from '@/lib/core/db';
 import { users } from '@/lib/core/db/schema';
+import { hashPassword, verifyPassword } from '@/lib/extra/auth/password';
+import { eq } from 'drizzle-orm';
 
 export interface StoredUser {
   id: string;
@@ -63,9 +63,7 @@ export async function authenticateUser(
   };
 }
 
-export async function getUserById(
-  userId: string,
-): Promise<StoredUser | null> {
+export async function getUserById(userId: string): Promise<StoredUser | null> {
   const rows = await db
     .select()
     .from(users)

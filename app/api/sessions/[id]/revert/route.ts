@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const cookieStore = await cookies();
@@ -21,7 +21,7 @@ export async function POST(
     if (!messageId) {
       return NextResponse.json(
         { error: 'message_id is required' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -31,16 +31,13 @@ export async function POST(
       .where(
         and(
           eq(schema.messages.uiMessageId, messageId),
-          eq(schema.messages.sessionId, sessionId)
-        )
+          eq(schema.messages.sessionId, sessionId),
+        ),
       )
       .limit(1);
 
     if (!message) {
-      return NextResponse.json(
-        { error: 'Message not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Message not found' }, { status: 404 });
     }
 
     await db
@@ -48,8 +45,8 @@ export async function POST(
       .where(
         and(
           eq(schema.messages.sessionId, sessionId),
-          gte(schema.messages.createdAt, message.createdAt)
-        )
+          gte(schema.messages.createdAt, message.createdAt),
+        ),
       );
 
     return NextResponse.json({ success: true });
@@ -57,7 +54,7 @@ export async function POST(
     console.error('Failed to revert session:', error);
     return NextResponse.json(
       { error: 'Failed to revert session' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
