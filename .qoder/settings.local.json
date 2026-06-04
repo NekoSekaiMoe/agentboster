@@ -48,7 +48,9 @@
       "Bash(rm /home/user/repo/agentboster/lib/core/kv/buffer-polyfill.ts && ls /home/user/repo/agentboster/lib/core/kv/)",
       "Bash(yarn check 2>&1 | tail -30)",
       "Bash(yarn build 2>&1 | tail -40)",
-      "Bash(git --no-pager stash && yarn build 2>&1 | tail -10 && git --no-pager stash pop)"
+      "Bash(git --no-pager stash && yarn build 2>&1 | tail -10 && git --no-pager stash pop)",
+      "Bash(grep -rn \"import\" /home/user/repo/agentboster/lib/core/kv/skills.ts /home/user/repo/agentboster/lib/core/kv/config.ts /home/user/repo/agentboster/lib/core/kv/lock.ts /home/user/repo/agentboster/lib/core/kv/import-jobs.ts 2>&1 | head -30)",
+      "Bash(git --no-pager diff ea33db9^..ea33db9 -- lib/chat/index.ts lib/bot/reply.ts lib/bot/webhook.ts 2>&1 | grep -E \"^\\\\+import|^[\\\\+\\\\-].*from\" | head -30)"
     ]
   }
 }

@@ -1,8 +1,16 @@
-import { Redis } from '@upstash/redis';
+type UpstashRedis = typeof import('@upstash/redis');
+type Redis = InstanceType<UpstashRedis['Redis']>;
+
+let _redisModulePromise: Promise<UpstashRedis> | null = null;
+function loadRedisModule(): Promise<UpstashRedis> {
+  if (!_redisModulePromise) {
+    _redisModulePromise = import('@upstash/redis');
+  }
+  return _redisModulePromise;
+}
 
 let _redis: Redis | null = null;
-
-function getRedis(): Redis {
+async function getRedis(): Promise<Redis> {
   if (!_redis) {
     const url = process.env.KV_REST_API_URL;
     const token = process.env.KV_REST_API_TOKEN;
@@ -11,17 +19,22 @@ function getRedis(): Redis {
         'KV_REST_API_URL and KV_REST_API_TOKEN env vars are required',
       );
     }
-    _redis = new Redis({
-      url,
-      token,
-    });
+    const mod = await loadRedisModule();
+    _redis = new mod.Redis({ url, token });
   }
   return _redis;
 }
 
 export const redis = new Proxy({} as Redis, {
-  get(_target, prop, receiver) {
-    return Reflect.get(getRedis(), prop, receiver);
+  get(_target, prop, _receiver) {
+    return async (...args: unknown[]) => {
+      const instance = await getRedis();
+      const value = Reflect.get(instance, prop);
+      if (typeof value === 'function') {
+        return (value as (...a: unknown[]) => unknown).apply(instance, args);
+      }
+      return value;
+    };
   },
 });
 
@@ -55,12 +68,12 @@ export const redisState = new Proxy({} as RedisState, {
   },
 });
 
-export const get = (...args: Parameters<Redis['get']>) =>
-  getRedis().get(...args);
-export const set = (...args: Parameters<Redis['set']>) =>
-  getRedis().set(...args);
-export const del = (...args: Parameters<Redis['del']>) =>
-  getRedis().del(...args);
-export const expire = (...args: Parameters<Redis['expire']>) =>
-  getRedis().expire(...args);
-export const getKV = () => getRedis();
+export const get = async (...args: Parameters<Redis['get']>) =>
+  (await getRedis()).get(...args);
+export const set = async (...args: Parameters<Redis['set']>) =>
+  (await getRedis()).set(...args);
+export const del = async (...args: Parameters<Redis['del']>) =>
+  (await getRedis()).del(...args);
+export const expire = async (...args: Parameters<Redis['expire']>) =>
+  (await getRedis()).expire(...args);
+export const getKV = (): Redis => redis;
