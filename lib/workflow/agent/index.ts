@@ -1,4 +1,3 @@
-import '@/lib/workflow/polyfills';
 import {
   type SerializedMessageForDB,
   modelMessagesToPrompt,

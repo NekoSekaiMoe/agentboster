@@ -28,7 +28,12 @@
       "Bash(find /home/user/repo/agentboster/lib/workflow -type f | head -30)",
       "Bash(yarn lint:fix 2>&1 | grep -A 15 \"noUnreachable\\\\|noImplicitAnyLet\\\\|noAssignInExpressions\" | head -120)",
       "Bash(yarn lint:fix 2>&1 | tail -30)",
-      "Bash(grep -A2 '\"check\"' /home/user/repo/agentboster/package.json | head -5)"
+      "Bash(grep -A2 '\"check\"' /home/user/repo/agentboster/package.json | head -5)",
+      "Bash(ls /home/user/repo/agentboster/node_modules/@upstash/redis/dist/ 2>/dev/null | head -5; echo \"---\"; ls /home/user/repo/agentboster/node_modules/@redis/client/dist/lib/RESP/ 2>/dev/null | head)",
+      "Bash(ls /home/user/repo/agentboster/node_modules/@upstash/redis/ 2>/dev/null; echo \"---\"; grep -E '\"redis\"|\"@redis\"' /home/user/repo/agentboster/node_modules/@upstash/redis/package.json 2>/dev/null; echo \"---\"; grep -E '\"redis\"|\"@redis\"' /home/user/repo/agentboster/node_modules/@chat-adapter/state-redis/package.json 2>/dev/null)",
+      "Bash(cat /home/user/repo/agentboster/next.config.* 2>/dev/null | head -60)",
+      "Bash(rm /home/user/repo/agentboster/lib/workflow/polyfills.ts && ls /home/user/repo/agentboster/lib/workflow/ | head)",
+      "Bash(yarn check 2>&1 | tail -5 && yarn lint:fix 2>&1 | tail -5)"
     ]
   }
 }

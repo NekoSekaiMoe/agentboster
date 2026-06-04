@@ -1,3 +1,4 @@
+import './buffer-polyfill';
 import { createRedisState } from '@chat-adapter/state-redis';
 import { Redis } from '@upstash/redis';
 
