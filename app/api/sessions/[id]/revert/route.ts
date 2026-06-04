@@ -30,7 +30,7 @@ export async function POST(
       .from(schema.messages)
       .where(
         and(
-          eq(schema.messages.id, messageId),
+          eq(schema.messages.uiMessageId, messageId),
           eq(schema.messages.sessionId, sessionId)
         )
       )
