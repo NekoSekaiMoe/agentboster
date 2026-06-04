@@ -9,13 +9,13 @@ import {
   updateSession,
 } from '@/lib/core/db/chat';
 import { listScheduledTasksBySessionId } from '@/lib/core/db/scheduled';
-import { getConfig } from '@/lib/core/kv/config';
 import { stopSessionSandbox } from '@/lib/core/sandbox';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
 import {
   type SessionRuntimeResponse,
   getSessionRuntime,
 } from '@/lib/core/sandbox/session-runtime';
+import { getConfig } from '@/lib/core/kv/config';
 import { createLogger } from '@/lib/utils/logger';
 import { resumeToolApproval } from '@/lib/workflow/agent/dispatch';
 import { cookies } from 'next/headers';

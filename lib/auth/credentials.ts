@@ -1,7 +1,7 @@
+import { eq } from 'drizzle-orm';
 import { db } from '@/lib/core/db';
 import { users } from '@/lib/core/db/schema';
 import { verifyPassword } from '@/lib/extra/auth/password';
-import { eq } from 'drizzle-orm';
 
 export async function validateCredentials(params: {
   username: string;

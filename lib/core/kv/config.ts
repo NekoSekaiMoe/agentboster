@@ -1,7 +1,7 @@
+import { cache } from 'react';
 import { get, set } from '@/lib/core/kv';
 import { createLogger } from '@/lib/utils/logger';
 import { type AppConfig, CONFIG_KEY, appConfigSchema } from '@/types/config';
-import { cache } from 'react';
 import { z } from 'zod';
 
 const configPatchSchema = appConfigSchema.partial();

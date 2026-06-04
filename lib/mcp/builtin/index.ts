@@ -1,17 +1,14 @@
 import { type JSONRPCMessage, type MCPTransport } from '@ai-sdk/mcp';
 
 import { builtinContext7Tools, executeBuiltinContext7Tool } from './context7';
-import {
-  builtinFirecrawlTools,
-  executeBuiltinFirecrawlTool,
-} from './firecrawl';
+import { builtinFirecrawlTools, executeBuiltinFirecrawlTool } from './firecrawl';
 import { builtinGithubTools, executeBuiltinGithubTool } from './github';
+import { builtinWebTools, executeBuiltinWebTool } from './web';
 import type {
   BuiltinMcpServerContext,
   BuiltinMcpToolDefinition,
   BuiltinMcpToolResult,
 } from './types';
-import { builtinWebTools, executeBuiltinWebTool } from './web';
 
 type BuiltinServerName = 'web' | 'firecrawl' | 'github' | 'context7';
 
@@ -207,19 +204,20 @@ export function createBuiltinMcpTransport(serverName: BuiltinServerName) {
 
 export function getBuiltinMcpServers() {
   return Object.fromEntries(
-    (
-      Object.entries(builtinServers) as Array<
-        [BuiltinServerName, BuiltinServerDefinition]
-      >
-    ).map(([serverName, server]) => [
-      serverName,
-      {
-        transport: createBuiltinMcpTransport(serverName),
-        title: server.serverInfo.title,
-        instructions: server.instructions,
-      },
-    ]),
-  ) as unknown as Record<BuiltinServerName, BuiltinServerExport>;
+    (Object.entries(builtinServers) as Array<[BuiltinServerName, BuiltinServerDefinition]>).map(
+      ([serverName, server]) => [
+        serverName,
+        {
+          transport: createBuiltinMcpTransport(serverName),
+          title: server.serverInfo.title,
+          instructions: server.instructions,
+        },
+      ],
+    ),
+  ) as unknown as Record<
+    BuiltinServerName,
+    BuiltinServerExport
+  >;
 }
 
 export type { BuiltinServerName };

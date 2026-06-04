@@ -99,10 +99,7 @@ export async function POST(request: Request) {
   try {
     logger.info('post:parse_body');
     body = requestSchema.parse(await request.json());
-    logger.info('post:body_parsed', {
-      sessionId: body.id,
-      trigger: body.trigger,
-    });
+    logger.info('post:body_parsed', { sessionId: body.id, trigger: body.trigger });
   } catch (error) {
     logger.error('post:parse_failed', {
       error: error instanceof Error ? error.message : String(error),
@@ -172,8 +169,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         success: false,
-        error:
-          error instanceof Error ? error.message : 'Failed to process message',
+        error: error instanceof Error ? error.message : 'Failed to process message',
       },
       { status: 500 },
     );

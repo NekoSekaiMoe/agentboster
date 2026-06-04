@@ -147,11 +147,11 @@ export async function startWorkflow(input: {
         () =>
           reject(
             new Error(
-              `Workflow start timed out after ${WORKFLOW_START_TIMEOUT_MS}ms`,
-            ),
+              `Workflow start timed out after ${WORKFLOW_START_TIMEOUT_MS}ms`
+            )
           ),
-        WORKFLOW_START_TIMEOUT_MS,
-      ),
+        WORKFLOW_START_TIMEOUT_MS
+      )
     ),
   ]);
 

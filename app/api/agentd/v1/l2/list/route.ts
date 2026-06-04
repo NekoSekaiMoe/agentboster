@@ -3,11 +3,11 @@
  * Returns all pending L2 decisions for the web UI
  */
 
-import { db } from '@/lib/core/db';
-import { sessions } from '@/lib/core/db/schema';
+import { inArray } from 'drizzle-orm';
 import { getDecisionQueue } from '@/lib/security/l2-index';
 import { createLogger } from '@/lib/utils/logger';
-import { inArray } from 'drizzle-orm';
+import { db } from '@/lib/core/db';
+import { sessions } from '@/lib/core/db/schema';
 
 const logger = createLogger('api.agentd.l2.list');
 

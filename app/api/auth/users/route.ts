@@ -1,10 +1,5 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
-import {
-  createUser,
-  deleteUser,
-  getUserById,
-  listUsers,
-} from '@/lib/core/db/users';
+import { createUser, getUserById, listUsers, deleteUser } from '@/lib/core/db/users';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -30,12 +25,7 @@ export async function GET() {
 
   const users = await listUsers();
   return NextResponse.json(
-    users.map((u) => ({
-      id: u.id,
-      username: u.username,
-      roles: u.roles,
-      createdAt: u.createdAt,
-    })),
+    users.map((u) => ({ id: u.id, username: u.username, roles: u.roles, createdAt: u.createdAt })),
   );
 }
 
@@ -47,11 +37,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const { username, password, roles } = body as {
-    username?: string;
-    password?: string;
-    roles?: string[];
-  };
+  const { username, password, roles } = body as { username?: string; password?: string; roles?: string[] };
 
   if (!username || !password) {
     return NextResponse.json(
@@ -67,8 +53,7 @@ export async function POST(request: NextRequest) {
       { status: 201 },
     );
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : 'Failed to create user';
+    const message = err instanceof Error ? err.message : 'Failed to create user';
     return NextResponse.json({ error: message }, { status: 409 });
   }
 }
@@ -85,17 +70,11 @@ export async function DELETE(request: NextRequest) {
   const { id } = body as { id?: string };
 
   if (!id) {
-    return NextResponse.json(
-      { error: 'User ID is required.' },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: 'User ID is required.' }, { status: 400 });
   }
 
   if (id === session.userId) {
-    return NextResponse.json(
-      { error: 'Cannot delete yourself.' },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: 'Cannot delete yourself.' }, { status: 400 });
   }
 
   const userToDelete = await getUserById(id);
@@ -106,10 +85,7 @@ export async function DELETE(request: NextRequest) {
   const seedUsername = process.env.USERNAME?.trim();
   if (seedUsername && userToDelete.username === seedUsername) {
     return NextResponse.json(
-      {
-        error:
-          'Cannot delete the seed user configured via environment variables.',
-      },
+      { error: 'Cannot delete the seed user configured via environment variables.' },
       { status: 400 },
     );
   }

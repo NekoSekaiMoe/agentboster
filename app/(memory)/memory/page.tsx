@@ -1,6 +1,13 @@
 'use client';
 
-import { Download, Loader2, Plus, Save, Trash2, Upload } from 'lucide-react';
+import {
+  Download,
+  Loader2,
+  Plus,
+  Save,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -199,8 +206,7 @@ function SoulPanel() {
         <CardHeader className="space-y-2">
           <CardTitle className="text-base">SOUL.md</CardTitle>
           <p className="text-sm text-muted-foreground">
-            SOUL.md 定义 Agent 的人格、语气和风格。支持上传 .md
-            文件或直接在下方编辑。
+            SOUL.md 定义 Agent 的人格、语气和风格。支持上传 .md 文件或直接在下方编辑。
             内容会注入到系统提示中，影响所有会话的行为表现。
           </p>
           <p className="text-xs text-muted-foreground">
@@ -249,8 +255,7 @@ function SoulPanel() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground">
-                {content.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()}{' '}
-                字符
+                {content.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()} 字符
               </span>
               {updatedAt && (
                 <span className="text-xs text-muted-foreground">
@@ -353,8 +358,8 @@ function BuiltinPanel() {
       <Card>
         <CardHeader className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            These built-in memories are used to build system prompts, making
-            your Agent customizable to you.
+            These built-in memories are used to build system prompts, making your
+            Agent customizable to you.
           </p>
         </CardHeader>
       </Card>
@@ -737,9 +742,7 @@ function SessionPanel() {
                 </span>
               )}
               {sessionSoulScope === 'session' && (
-                <span className="text-green-600 ml-1">
-                  （已设置会话级 SOUL）
-                </span>
+                <span className="text-green-600 ml-1">（已设置会话级 SOUL）</span>
               )}
             </p>
           </CardHeader>
@@ -789,8 +792,7 @@ function SessionPanel() {
               className="font-mono text-sm"
             />
             <span className="text-xs text-muted-foreground">
-              {sessionSoul.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()}{' '}
-              字符
+              {sessionSoul.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()} 字符
             </span>
           </CardContent>
         </Card>

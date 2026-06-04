@@ -53,9 +53,7 @@ export async function executeBuiltinFirecrawlTool(
   }
 
   const formats = Array.isArray(input.formats)
-    ? input.formats.filter(
-        (value): value is string => typeof value === 'string',
-      )
+    ? input.formats.filter((value): value is string => typeof value === 'string')
     : ['markdown'];
 
   try {
@@ -71,9 +69,7 @@ export async function executeBuiltinFirecrawlTool(
 
     const text = await response.text();
     if (!response.ok) {
-      return buildError(
-        `Firecrawl failed with status ${response.status}: ${text}`,
-      );
+      return buildError(`Firecrawl failed with status ${response.status}: ${text}`);
     }
 
     return {

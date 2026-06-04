@@ -48,10 +48,8 @@ const builtinServers = [
   {
     name: 'github',
     description: 'Inspect repositories and manage GitHub issues/PRs.',
-    tools:
-      'github_get_repository, github_search_issues, github_create_issue, github_update_issue, github_create_pull_request',
-    requirements:
-      'GITHUB_TOKEN is optional for reads and required for mutations.',
+    tools: 'github_get_repository, github_search_issues, github_create_issue, github_update_issue, github_create_pull_request',
+    requirements: 'GITHUB_TOKEN is optional for reads and required for mutations.',
   },
   {
     name: 'context7',

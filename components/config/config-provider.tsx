@@ -96,7 +96,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('[ConfigProvider] Failed to load config:', error);
       toast.error(
-        error instanceof Error ? error.message : 'Failed to load config',
+        error instanceof Error ? error.message : 'Failed to load config'
       );
     } finally {
       setIsLoading(false);

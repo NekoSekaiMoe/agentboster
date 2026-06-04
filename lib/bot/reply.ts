@@ -174,13 +174,10 @@ export async function streamAdapterSourceReply(
       const lengthDelta = trimmed.length - lastEditedText.length;
       const timeDelta = now - lastEditTime;
 
-      if (lengthDelta < EDIT_MIN_DELTA && timeDelta < EDIT_MAX_INTERVAL_MS)
-        return;
+      if (lengthDelta < EDIT_MIN_DELTA && timeDelta < EDIT_MAX_INTERVAL_MS) return;
 
       try {
-        await adapter.editMessage(source.threadId, messageId, {
-          markdown: trimmed,
-        });
+        await adapter.editMessage(source.threadId, messageId, { markdown: trimmed });
         lastEditedText = trimmed;
         lastEditTime = now;
       } catch {
@@ -270,9 +267,7 @@ export async function streamAdapterSourceReply(
       const finalText = fullText.trim();
       if (messageId && finalText && finalText !== lastEditedText) {
         try {
-          await adapter.editMessage(source.threadId, messageId, {
-            markdown: finalText,
-          });
+          await adapter.editMessage(source.threadId, messageId, { markdown: finalText });
         } catch {
           // ignore
         }

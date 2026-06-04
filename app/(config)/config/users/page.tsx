@@ -6,7 +6,10 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+} from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
@@ -44,9 +47,7 @@ async function createUser(data: {
     body: JSON.stringify(data),
   });
   if (!res.ok) {
-    const err = await res
-      .json()
-      .catch(() => ({ error: 'Failed to create user' }));
+    const err = await res.json().catch(() => ({ error: 'Failed to create user' }));
     throw new Error(err.error);
   }
   return res.json();
@@ -92,7 +93,9 @@ export default function UsersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-          <p className="text-sm text-muted-foreground">Manage user accounts</p>
+          <p className="text-sm text-muted-foreground">
+            Manage user accounts
+          </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
@@ -104,7 +107,9 @@ export default function UsersPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create User</DialogTitle>
-              <DialogDescription>Add a new user account</DialogDescription>
+              <DialogDescription>
+                Add a new user account
+              </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
@@ -132,10 +137,7 @@ export default function UsersPage() {
                   checked={isAdmin}
                   onCheckedChange={(checked) => setIsAdmin(checked === true)}
                 />
-                <Label
-                  htmlFor="new-is-admin"
-                  className="text-sm cursor-pointer"
-                >
+                <Label htmlFor="new-is-admin" className="text-sm cursor-pointer">
                   Admin (full access to config and settings)
                 </Label>
               </div>
@@ -185,9 +187,7 @@ function UserCard({ user }: { user: User }) {
         body: JSON.stringify({ id: user.id }),
       });
       if (!res.ok) {
-        const err = await res
-          .json()
-          .catch(() => ({ error: 'Failed to delete user' }));
+        const err = await res.json().catch(() => ({ error: 'Failed to delete user' }));
         throw new Error(err.error);
       }
     },

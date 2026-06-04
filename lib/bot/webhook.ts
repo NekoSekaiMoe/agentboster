@@ -53,7 +53,8 @@ export function getAppBaseUrl(): string {
     process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim() ??
     process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
 
-  const baseUrl = productionUrl ?? branchUrl ?? vercelUrl ?? LOCAL_BASE_URL;
+  const baseUrl =
+    productionUrl ?? branchUrl ?? vercelUrl ?? LOCAL_BASE_URL;
   const result = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
 
   console.log('[getAppBaseUrl]', {
@@ -134,10 +135,7 @@ export async function registerTelegramWebhook(
     }
 
     const apiUrl = `https://api.telegram.org/bot${token}/setWebhook?${params.toString()}`;
-    console.log(
-      '[registerTelegramWebhook] calling:',
-      apiUrl.replace(token, '***'),
-    );
+    console.log('[registerTelegramWebhook] calling:', apiUrl.replace(token, '***'));
 
     const resp = await fetch(apiUrl, { method: 'POST' });
     const data = (await resp.json()) as {
@@ -178,7 +176,9 @@ const TELEGRAM_BOT_COMMANDS = [
   { command: 'model', description: 'Show current model config' },
 ];
 
-export async function registerTelegramCommands(token: string): Promise<void> {
+export async function registerTelegramCommands(
+  token: string,
+): Promise<void> {
   try {
     const apiUrl = `https://api.telegram.org/bot${token}/setMyCommands`;
     const resp = await fetch(apiUrl, {

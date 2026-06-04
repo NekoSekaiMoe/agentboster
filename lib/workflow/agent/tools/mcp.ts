@@ -1,8 +1,8 @@
 import { getBuiltinMcpServers } from '@/lib/mcp/builtin';
 import { createLogger } from '@/lib/utils/logger';
 import type { MCPRemoteServersConfig } from '@/types/config/mcp';
-import type { ToolResultOutput } from '@ai-sdk/provider-utils';
 import { type ToolSet, dynamicTool, jsonSchema } from 'ai';
+import type { ToolResultOutput } from '@ai-sdk/provider-utils';
 import { withToolExecutionLogger } from './define';
 
 type MCPToolDescriptor = {
@@ -198,10 +198,9 @@ async function executeBuiltinMCPTool(input: {
 }): Promise<unknown> {
   'use step';
 
-  const serverConfig =
-    getBuiltinMcpServers()[
-      input.serverName as keyof ReturnType<typeof getBuiltinMcpServers>
-    ];
+  const serverConfig = getBuiltinMcpServers()[
+    input.serverName as keyof ReturnType<typeof getBuiltinMcpServers>
+  ];
 
   if (!serverConfig) {
     throw new Error(`Builtin MCP server "${input.serverName}" not found`);
@@ -260,11 +259,7 @@ function mcpResultToModelOutput({
         typeof part.data === 'string' &&
         typeof part.mimeType === 'string'
       ) {
-        return {
-          type: 'image-data' as const,
-          data: part.data,
-          mediaType: part.mimeType,
-        };
+        return { type: 'image-data' as const, data: part.data, mediaType: part.mimeType };
       }
       return { type: 'text' as const, text: JSON.stringify(part) };
     }),
@@ -307,7 +302,9 @@ export async function getMCPTools(
         toModelOutput: mcpResultToModelOutput,
         execute: async (input) => {
           const args =
-            typeof input === 'object' && input !== null && !Array.isArray(input)
+            typeof input === 'object' &&
+            input !== null &&
+            !Array.isArray(input)
               ? (input as Record<string, unknown>)
               : {};
 

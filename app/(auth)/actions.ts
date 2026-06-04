@@ -6,8 +6,8 @@ import {
   getAuthCookieOptions,
   getExpiredAuthCookieOptions,
 } from '@/lib/auth';
-import { validateCredentials } from '@/lib/auth/credentials';
 import { createAuthToken } from '@/lib/auth/session';
+import { validateCredentials } from '@/lib/auth/credentials';
 import { seedInitialUser, userCount } from '@/lib/core/db/users';
 import { cookies } from 'next/headers';
 

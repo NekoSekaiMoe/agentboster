@@ -18,8 +18,7 @@ async function handleChatSdkWebhook(
     // Use chat.webhooks[adapterName] instead of bot.getAdapter().handleWebhook()
     // to ensure Chat.ensureInitialized() runs first (sets adapter.chat reference).
     // Without this, adapters reject webhooks with "Chat instance not initialized".
-    const webhookHandler =
-      bot.webhooks[adapterName as keyof typeof bot.webhooks];
+    const webhookHandler = bot.webhooks[adapterName as keyof typeof bot.webhooks];
     if (!webhookHandler) {
       return NextResponse.json(
         { error: `Adapter ${adapterName} not configured or enabled` },
