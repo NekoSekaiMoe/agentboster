@@ -229,8 +229,15 @@ export async function persistStepDeltaAndUsageStep(input: {
     messageIds: savedMessageIds,
   });
 
+  // Note: For IM sources, the message is already sent via streamAdapterSourceReply
+  // in lib/chat/index.ts:replyToAdapterCommandResult. Sending again here would
+  // create duplicate messages. Only send for non-IM sources (e.g., 'scheduled').
   const source = session?.metadata?.source as ChatSource | undefined;
-  if (input.step.text.trim().length > 0 && source) {
+  if (
+    input.step.text.trim().length > 0 &&
+    source &&
+    source.type !== 'im'
+  ) {
     await sendSourceReplyStep({
       source,
       text: input.step.text,

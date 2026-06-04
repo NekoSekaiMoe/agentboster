@@ -59,7 +59,17 @@
       "Bash(git --no-pager log --all --oneline -p -- lib/mcp/builtin/web.ts 2>&1 | head -30; echo \"===\"; git --no-pager log --all --oneline -p -S \"streamDedupKey\" 2>&1 | head -40)",
       "Bash(grep -nE \"^import|get|set|del\" /home/user/repo/agentboster/lib/core/kv/skills.ts | head -30)",
       "Bash(grep -nE \"listSkillMetas|export\" /home/user/repo/agentboster/lib/core/kv/skills.ts | head -20)",
-      "Bash(grep -rnE \"from ['\\\\\"]@/lib/core/kv|redis\\\\.|redisState\" /home/user/repo/agentboster/lib/workflow/ /home/user/repo/agentboster/lib/chat/ 2>&1 | grep -v node_modules | head -20)"
+      "Bash(grep -rnE \"from ['\\\\\"]@/lib/core/kv|redis\\\\.|redisState\" /home/user/repo/agentboster/lib/workflow/ /home/user/repo/agentboster/lib/chat/ 2>&1 | grep -v node_modules | head -20)",
+      "Bash(ls /home/user/repo/agentboster/ref/ 2>/dev/null; echo \"---\"; ls /home/user/repo/agentboster/ref/dashboard/ 2>/dev/null)",
+      "Bash(ls /home/user/repo/agentboster/ref/dashboard/src/ 2>/dev/null; echo \"---views---\"; ls /home/user/repo/agentboster/ref/dashboard/src/views/ 2>/dev/null; echo \"---components---\"; ls /home/user/repo/agentboster/ref/dashboard/src/components/ 2>/dev/null | head -30)",
+      "Bash(ls /home/user/repo/agentboster/ref/dashboard/src/components/chat/; echo \"---composables---\"; ls /home/user/repo/agentboster/ref/dashboard/src/composables/; echo \"---stores---\"; ls /home/user/repo/agentboster/ref/dashboard/src/stores/)",
+      "Bash(wc -l /home/user/repo/agentboster/ref/dashboard/src/views/ChatPage.vue /home/user/repo/agentboster/ref/dashboard/src/components/chat/*.vue 2>/dev/null | tail -25)",
+      "Bash(grep -nE \"^<|class=\\\\\"chat-|class=\\\\\"message-|class=\\\\\"input-\" /home/user/repo/agentboster/ref/dashboard/src/components/chat/Chat.vue | head -30; echo \"---\"; ls /home/user/repo/agentboster/ref/dashboard/src/components/chat/message_list_comps/)",
+      "Bash(wc -l /home/user/repo/agentboster/components/{chat,chat-header,messages,message,multimodal-input,sidebar-core-content,app-sidebar,mobile-nav-wrapper,mobile-nav,attachments,markdown,code-block,message-actions,message-editor,overview,chat-message}*.tsx 2>/dev/null | tail -20; echo \"---\"; ls /home/user/repo/agentboster/app/\\(chat\\)/ 2>/dev/null)",
+      "Bash(ls /home/user/repo/agentboster/components/ | grep -E \"chat|message|sidebar|nav|mobile|input|markdown|code-block|attachment|overview\" ; echo \"---\"; ls /home/user/repo/agentboster/app/\\\\\\(chat\\\\\\)/)",
+      "Bash(grep -nE \"chat-ui|chat-sidebar|chat-main|message-|background|border-radius|font-size|--v-\" /home/user/repo/agentboster/ref/dashboard/src/components/chat/Chat.vue | grep -E \"^\\\\s*[0-9]{4,}\" | head -60)",
+      "Bash(wc -l /home/user/repo/agentboster/app/\\\\\\(chat\\\\\\)/page.tsx /home/user/repo/agentboster/app/\\\\\\(chat\\\\\\)/layout.tsx /home/user/repo/agentboster/app/\\\\\\(chat\\\\\\)/chat/*.tsx 2>/dev/null; echo \"---\"; ls /home/user/repo/agentboster/app/\\\\\\(chat\\\\\\)/chat/)",
+      "Bash(ls /home/user/repo/agentboster/app/\\\\\\(chat\\\\\\)/chat/\\\\[id\\\\]/; wc -l /home/user/repo/agentboster/app/\\\\\\(chat\\\\\\)/chat/\\\\[id\\\\]/page.tsx /home/user/repo/agentboster/components/chat.tsx /home/user/repo/agentboster/components/messages.tsx /home/user/repo/agentboster/components/message.tsx /home/user/repo/agentboster/components/multimodal-input.tsx /home/user/repo/agentboster/components/sidebar-core-content.tsx /home/user/repo/agentboster/components/app-sidebar.tsx 2>/dev/null)"
     ]
   }
 }
