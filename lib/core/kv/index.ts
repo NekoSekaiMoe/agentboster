@@ -1,5 +1,3 @@
-import './buffer-polyfill';
-import { createRedisState } from '@chat-adapter/state-redis';
 import { Redis } from '@upstash/redis';
 
 let _redis: Redis | null = null;
@@ -27,20 +25,33 @@ export const redis = new Proxy({} as Redis, {
   },
 });
 
-let _redisState: ReturnType<typeof createRedisState> | null = null;
+type RedisStateModule = typeof import('@chat-adapter/state-redis');
+type RedisState = ReturnType<RedisStateModule['createRedisState']>;
 
-export const redisState = new Proxy({} as ReturnType<typeof createRedisState>, {
-  get(_target, prop, receiver) {
-    if (!_redisState) {
+let _redisStatePromise: Promise<RedisState> | null = null;
+function loadRedisState(): Promise<RedisState> {
+  if (!_redisStatePromise) {
+    _redisStatePromise = import('@chat-adapter/state-redis').then((mod) => {
       const redisUrl = process.env.REDIS_URL;
       if (!redisUrl) {
         throw new Error('REDIS_URL env var is required');
       }
-      _redisState = createRedisState({
-        url: redisUrl,
-      });
-    }
-    return Reflect.get(_redisState, prop, receiver);
+      return mod.createRedisState({ url: redisUrl });
+    });
+  }
+  return _redisStatePromise;
+}
+
+export const redisState = new Proxy({} as RedisState, {
+  get(_target, prop, _receiver) {
+    return async (...args: unknown[]) => {
+      const state = await loadRedisState();
+      const value = Reflect.get(state, prop);
+      if (typeof value === 'function') {
+        return (value as (...a: unknown[]) => unknown).apply(state, args);
+      }
+      return value;
+    };
   },
 });
 

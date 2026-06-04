@@ -33,7 +33,22 @@
       "Bash(ls /home/user/repo/agentboster/node_modules/@upstash/redis/ 2>/dev/null; echo \"---\"; grep -E '\"redis\"|\"@redis\"' /home/user/repo/agentboster/node_modules/@upstash/redis/package.json 2>/dev/null; echo \"---\"; grep -E '\"redis\"|\"@redis\"' /home/user/repo/agentboster/node_modules/@chat-adapter/state-redis/package.json 2>/dev/null)",
       "Bash(cat /home/user/repo/agentboster/next.config.* 2>/dev/null | head -60)",
       "Bash(rm /home/user/repo/agentboster/lib/workflow/polyfills.ts && ls /home/user/repo/agentboster/lib/workflow/ | head)",
-      "Bash(yarn check 2>&1 | tail -5 && yarn lint:fix 2>&1 | tail -5)"
+      "Bash(yarn check 2>&1 | tail -5 && yarn lint:fix 2>&1 | tail -5)",
+      "Bash(git:*)",
+      "Bash(git --no-pager log --all --oneline -- lib/core/kv/index.ts lib/bot/core.ts app/api/auth/users/ package.json 2>&1 | head -30)",
+      "Bash(git --no-pager log --all --oneline --follow -p -- lib/core/kv/index.ts 2>&1 | grep -E \"^[a-f0-9]|^[\\\\+\\\\-]import|^[\\\\+\\\\-].*redis|^@@ \" | head -40)",
+      "Bash(git --no-pager log --all --oneline --stat -- app/api/auth/users/ lib/core/db/users.ts lib/auth/ 2>&1 | head -40)",
+      "Bash(git --no-pager log --all --oneline --stat -- app/api/bot/ lib/bot/ 2>&1 | head -40)",
+      "Bash(git --no-pager show --stat 879e6e2 2>&1 | head -30; echo \"---\"; git --no-pager show --stat ea33db9 2>&1 | head -30)",
+      "Bash(git --no-pager diff ea33db9^..ea33db9 -- lib/bot/reply.ts lib/bot/webhook.ts 2>&1 | head -50)",
+      "Bash(find /home/user/repo/agentboster/node_modules/@chat-adapter/state-redis/dist -type f 2>/dev/null | head; echo \"---\"; cat /home/user/repo/agentboster/node_modules/@chat-adapter/state-redis/dist/index.d.ts 2>/dev/null | head -40)",
+      "Bash(grep -A 30 \"declare class RedisStateAdapter\" /home/user/repo/agentboster/node_modules/@chat-adapter/state-redis/dist/index.d.ts | head -40)",
+      "Bash(grep -B1 -A 30 \"interface StateAdapter\" /home/user/repo/agentboster/node_modules/chat/dist/index.d.ts 2>/dev/null | head -50)",
+      "Bash(grep -rn \"StateAdapter\\\\|state-adapter\\\\|stateAdapter\" /home/user/repo/agentboster/node_modules/chat/dist/ 2>/dev/null | grep -v \".map:\" | head -20)",
+      "Bash(rm /home/user/repo/agentboster/lib/core/kv/buffer-polyfill.ts && ls /home/user/repo/agentboster/lib/core/kv/)",
+      "Bash(yarn check 2>&1 | tail -30)",
+      "Bash(yarn build 2>&1 | tail -40)",
+      "Bash(git --no-pager stash && yarn build 2>&1 | tail -10 && git --no-pager stash pop)"
     ]
   }
 }
