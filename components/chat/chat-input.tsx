@@ -13,16 +13,16 @@ import {
   AttachmentList,
   type ComposerAttachment,
   fileToComposerAttachment,
-} from './attachments';
-import { ArrowUpIcon, StopIcon } from './icons';
+} from '@/components/attachments';
+import { ArrowUpIcon, StopIcon } from '@/components/icons';
 import {
   SlashCommandMenu,
   applySlashCommand,
   getSlashCommandMatch,
   useSlashCommandNavigation,
-} from './slash-command-menu';
-import { Button } from './ui/button';
-import { Textarea } from './ui/textarea';
+} from '@/components/slash-command-menu';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 type ComposerMessage = { text: string } | CreateUIMessage<WorkflowUIMessage>;
 

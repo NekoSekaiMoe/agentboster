@@ -5,10 +5,10 @@ import { ArrowUp } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 
 import type { WorkflowUIMessage } from '@/types/workflow';
-import { DecisionCard } from './decision-card';
-import { PreviewMessage, ThinkingMessage } from './message';
-import { Overview } from './overview';
-import { useScrollToBottom } from './use-scroll-to-bottom';
+import { DecisionCard } from '@/components/decision-card';
+import { PreviewMessage, ThinkingMessage } from '@/components/message';
+import { Overview } from '@/components/overview';
+import { useScrollToBottom } from '@/components/use-scroll-to-bottom';
 
 interface PendingDecision {
   decision_id: string;
