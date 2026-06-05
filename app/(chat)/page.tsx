@@ -1,4 +1,4 @@
-import { Chat } from '@/components/chat';
+import { Chat } from '@/components/chat/chat-container';
 import { getAppBaseUrl } from '@/lib/bot/webhook';
 import { generateUUID } from '@/lib/utils';
 import type { Metadata } from 'next';
