@@ -670,11 +670,11 @@ const PurePreviewMessage = ({
         >
           {message.role === 'assistant' && <AssistantGlyph />}
 
-          <div className="flex w-full min-w-0 flex-col gap-2">
+          <div className="flex w-full min-w-0 flex-col gap-2 group-data-[role=user]/message:items-end group-data-[role=assistant]/message:items-start">
             {message.role === 'user' &&
               hasRenderableContent &&
               mode === 'view' && (
-                <div className="flex flex-row items-start gap-2">
+                <div className="flex w-full flex-row items-start justify-end gap-2">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -704,7 +704,7 @@ const PurePreviewMessage = ({
             {message.role === 'user' &&
               hasRenderableContent &&
               mode === 'edit' && (
-                <div className="flex flex-row items-start gap-2">
+                <div className="flex w-full flex-row items-start justify-end gap-2">
                   <div className="size-8" />
 
                   <MessageEditor

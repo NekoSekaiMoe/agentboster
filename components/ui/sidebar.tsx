@@ -198,7 +198,7 @@ const Sidebar = React.forwardRef<
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="p-0 pb-[env(safe-area-inset-bottom)] text-sidebar-foreground [&>button]:hidden"
+            className="p-0 pb-[env(safe-area-inset-bottom)] text-sidebar-foreground duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:duration-0 [&>button]:hidden"
             side={side}
           >
             <div className="flex h-full w-full flex-col">{children}</div>

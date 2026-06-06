@@ -216,27 +216,41 @@ function PureMessages({
             transition={{ duration: 0.2 }}
             className="absolute right-5 bottom-5 z-10 flex flex-col gap-2"
           >
-            {showScrollToTop ? (
-              <button
-                type="button"
-                onClick={scrollToTop}
-                className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-md backdrop-blur transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                aria-label="Scroll to top"
-              >
-                <ArrowUp className="size-5" />
-              </button>
-            ) : null}
+            <AnimatePresence initial={false}>
+              {showScrollToTop ? (
+                <motion.button
+                  key="scroll-to-top"
+                  type="button"
+                  layout
+                  initial={{ opacity: 0, y: 8, scale: 0.86 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.86 }}
+                  transition={{ duration: 0.16, ease: 'easeOut' }}
+                  onClick={scrollToTop}
+                  className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-md backdrop-blur transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-muted hover:shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 motion-reduce:transition-colors motion-reduce:active:scale-100"
+                  aria-label="Scroll to top"
+                >
+                  <ArrowUp className="size-5" />
+                </motion.button>
+              ) : null}
 
-            {showScrollToBottom ? (
-              <button
-                type="button"
-                onClick={scrollToBottom}
-                className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-md backdrop-blur transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                aria-label="Scroll to bottom"
-              >
-                <ArrowDown className="size-5" />
-              </button>
-            ) : null}
+              {showScrollToBottom ? (
+                <motion.button
+                  key="scroll-to-bottom"
+                  type="button"
+                  layout
+                  initial={{ opacity: 0, y: 8, scale: 0.86 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.86 }}
+                  transition={{ duration: 0.16, ease: 'easeOut' }}
+                  onClick={scrollToBottom}
+                  className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-md backdrop-blur transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-muted hover:shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 motion-reduce:transition-colors motion-reduce:active:scale-100"
+                  aria-label="Scroll to bottom"
+                >
+                  <ArrowDown className="size-5" />
+                </motion.button>
+              ) : null}
+            </AnimatePresence>
           </motion.div>
         ) : null}
       </AnimatePresence>

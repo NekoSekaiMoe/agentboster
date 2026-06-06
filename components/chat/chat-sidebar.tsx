@@ -57,7 +57,7 @@ interface SessionItem {
 export function ChatSidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { open, setOpen, isMobile } = useSidebar();
+  const { open, setOpen, isMobile, setOpenMobile } = useSidebar();
   const { theme = 'system', setTheme } = useTheme();
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -93,13 +93,13 @@ export function ChatSidebar() {
   function handleNewChat() {
     const newSessionId = generateUUID();
     router.push(`/chat/${newSessionId}`);
-    if (isMobile) setOpen(false);
+    if (isMobile) setOpenMobile(false);
   }
 
   // 选择会话
   function handleSelectSession(sessionId: string) {
     router.push(`/chat/${sessionId}`);
-    if (isMobile) setOpen(false);
+    if (isMobile) setOpenMobile(false);
   }
 
   // 删除会话

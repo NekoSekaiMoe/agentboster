@@ -11,6 +11,7 @@ import {
   DefaultChatTransport,
 } from 'ai';
 import { ofetch } from 'ofetch';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -125,6 +126,7 @@ export function Chat({
     externalThreadId: string | null;
   } | null;
 }) {
+  const router = useRouter();
   const activeRunIdRef = useRef<string | null>(null);
   const shouldBootstrapSessionStatusRef = useRef(false);
   const resumeInFlightRef = useRef(false);
@@ -676,12 +678,28 @@ export function Chat({
           method: 'POST',
           body: { message_id: messageId },
         });
+        setMessages((current) => {
+          const targetIndex = current.findIndex(
+            (message) => message.id === messageId,
+          );
+
+          if (targetIndex === -1) {
+            return current;
+          }
+
+          return current.slice(0, targetIndex);
+        });
+        activeRunIdRef.current = null;
+        setActiveRunId(null);
+        setShouldResumeStream(false);
+        invalidateSessionList();
+        router.refresh();
         toast.success('Reverted to this message');
       } catch {
         toast.error('Failed to revert');
       }
     },
-    [id],
+    [id, router, setMessages],
   );
 
   const isRuntimePanelEnabled =
