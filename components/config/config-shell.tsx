@@ -82,7 +82,7 @@ export function ConfigShell({
             </div>
           </div>
 
-          <nav className="flex flex-wrap items-center gap-2">
+          <nav className="flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {configSections.map((item) => {
               const href = `/config/${item.key}`;
               const isActive = pathname === href;
@@ -93,6 +93,7 @@ export function ConfigShell({
                   asChild
                   size="sm"
                   variant={isActive ? 'default' : 'secondary'}
+                  className="shrink-0"
                 >
                   <Link href={href} prefetch={false}>
                     {item.title}

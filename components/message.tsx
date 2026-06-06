@@ -20,6 +20,7 @@ import {
   filePartToComposerAttachment,
 } from './attachments';
 import { PencilEditIcon } from './icons';
+import { Logo } from './logo';
 import { Markdown } from './markdown';
 import { MessageActions } from './message-actions';
 import { MessageEditor } from './message-editor';
@@ -91,8 +92,8 @@ function getFileAttachment(
 
 function AssistantGlyph() {
   return (
-    <div className="flex size-6 shrink-0 items-center justify-center pt-1 text-[#6d9ec3]">
-      <Sparkles className="size-5" fill="currentColor" strokeWidth={1.7} />
+    <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-background ring-1 ring-border/70">
+      <Logo width={22} height={22} />
     </div>
   );
 }
@@ -338,7 +339,7 @@ function AstrBotAssistantMessageParts({
                   className="-mx-1 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left text-foreground/70 text-sm leading-6 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   <Sparkles className="size-3.5 shrink-0 text-[#6d9ec3]" />
-                  <span className="min-w-0 truncate">已完成思考</span>
+                  <span className="min-w-0 truncate">思考过程</span>
                   <ChevronRight
                     className={cn(
                       'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
