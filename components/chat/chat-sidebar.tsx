@@ -1,35 +1,8 @@
 'use client';
-
-import { Logo } from '@/components/logo';
-import { Button } from '@/components/ui/button';
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  useSidebar,
-} from '@/components/ui/sidebar';
 import {
   deleteSessionAction,
-  listRecentSessionsAction
+  listRecentSessionsAction,
 } from '@/app/(chat)/actions';
-import {
-  Plus,
-  ChevronLeft,
-  MessageSquare,
-  Loader2,
-  Pencil,
-  Trash2,
-  Settings,
-  Sun,
-  Moon,
-  Monitor,
-} from 'lucide-react';
-import { useTheme } from 'next-themes';
-import { useRouter, usePathname } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
-import { toast } from 'sonner';
-import { generateUUID } from '@/lib/utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,9 +13,38 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  useSidebar,
+} from '@/components/ui/sidebar';
+import { generateUUID } from '@/lib/utils';
+import {
+  ChevronLeft,
+  Loader2,
+  MessageSquare,
+  Monitor,
+  Moon,
+  Plus,
+  Settings,
+  Sun,
+  Trash2,
+} from 'lucide-react';
+import { useTheme } from 'next-themes';
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
-type SessionStatus = 'idle' | 'running' | 'waiting_user' | 'completed' | 'aborted';
+type SessionStatus =
+  | 'idle'
+  | 'running'
+  | 'waiting_user'
+  | 'completed'
+  | 'aborted';
 
 interface SessionItem {
   id: string;
@@ -60,8 +62,11 @@ export function ChatSidebar() {
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
-  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
-  const [pendingDeleteSession, setPendingDeleteSession] = useState<SessionItem | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
+    null,
+  );
+  const [pendingDeleteSession, setPendingDeleteSession] =
+    useState<SessionItem | null>(null);
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
 
   const currentSessionId = pathname.split('/').pop();
@@ -126,14 +131,9 @@ export function ChatSidebar() {
 
   return (
     <>
-      <Sidebar
-        className="border-r"
-        style={{
-          backgroundColor: 'var(--sidebar-bg)',
-        }}
-      >
+      <Sidebar className="border-r-0">
         {/* Header */}
-        <SidebarHeader className="p-3">
+        <SidebarHeader className="border-sidebar-border border-b p-3">
           {!isMobile && (
             <div className="mb-2 flex min-h-[36px] items-center">
               <Button
@@ -152,9 +152,9 @@ export function ChatSidebar() {
           )}
 
           <Button
-            variant="ghost"
-            className={`w-full justify-start rounded-lg font-medium ${
-              isCollapsed ? 'px-0 justify-center' : ''
+            variant="secondary"
+            className={`w-full justify-start rounded-xl font-medium ${
+              isCollapsed ? 'justify-center px-0' : ''
             }`}
             onClick={handleNewChat}
           >
@@ -164,7 +164,7 @@ export function ChatSidebar() {
         </SidebarHeader>
 
         {/* Sessions List */}
-        <SidebarContent className="px-3">
+        <SidebarContent className="px-3 py-3">
           {!isCollapsed && (
             <div className="flex-1 space-y-1">
               {loadingSessions ? (
@@ -172,7 +172,7 @@ export function ChatSidebar() {
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : sessions.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">
+                <div className="py-8 text-center text-muted-foreground text-sm">
                   暂无对话
                 </div>
               ) : (
@@ -181,9 +181,9 @@ export function ChatSidebar() {
                     key={session.id}
                     role="button"
                     tabIndex={0}
-                    className={`group relative flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-accent ${
+                    className={`group relative flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
                       currentSessionId === session.id
-                        ? 'bg-accent/80'
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                         : ''
                     }`}
                     onClick={() => handleSelectSession(session.id)}
@@ -201,23 +201,21 @@ export function ChatSidebar() {
                     {session.status === 'running' && (
                       <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                     )}
-                    <div
-                      className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                    <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100">
                       <Button
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6"
                         disabled={deletingSessionId === session.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSession(session);
+                        }}
                       >
                         {deletingSessionId === session.id ? (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         ) : (
-                          <Trash2
-                            className="h-3 w-3"
-                            onClick={() => handleDeleteSession(session)}
-                          />
+                          <Trash2 className="h-3 w-3" />
                         )}
                       </Button>
                     </div>
@@ -229,12 +227,12 @@ export function ChatSidebar() {
         </SidebarContent>
 
         {/* Footer */}
-        <SidebarFooter className="border-t p-3">
+        <SidebarFooter className="border-sidebar-border border-t p-3">
           <div className="relative">
             <Button
               variant="ghost"
-              className={`w-full justify-start rounded-lg font-medium ${
-                isCollapsed ? 'px-0 justify-center' : ''
+              className={`w-full justify-start rounded-xl font-medium ${
+                isCollapsed ? 'justify-center px-0' : ''
               }`}
               onClick={() => setSettingsMenuOpen(!settingsMenuOpen)}
             >
@@ -244,8 +242,8 @@ export function ChatSidebar() {
 
             {/* Settings Menu */}
             {settingsMenuOpen && !isCollapsed && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border bg-popover p-2 shadow-lg">
-                <div className="mb-2 px-2 text-xs font-medium text-muted-foreground">
+              <div className="absolute right-0 bottom-full left-0 mb-2 rounded-xl border bg-popover p-2 shadow-lg">
+                <div className="mb-2 px-2 font-medium text-muted-foreground text-xs">
                   主题
                 </div>
                 <div className="space-y-1">
@@ -320,8 +318,10 @@ export function ChatSidebar() {
 
       {/* 点击外部关闭设置菜单 */}
       {settingsMenuOpen && (
-        <div
-          className="fixed inset-0 z-40"
+        <button
+          type="button"
+          aria-label="关闭设置菜单"
+          className="fixed inset-0 z-40 cursor-default bg-transparent"
           onClick={() => setSettingsMenuOpen(false)}
         />
       )}

@@ -194,45 +194,23 @@ const Sidebar = React.forwardRef<
 
     if (isMobile) {
       return (
-        <>
-          <button
-            type="button"
-            aria-label="Open Sidebar"
-            onClick={() => setOpenMobile(true)}
-            className={cn(
-              '-translate-y-1/2 fixed top-1/2 z-40 flex h-24 w-6 items-center justify-center border border-sidebar-border bg-sidebar/95 text-sidebar-foreground shadow-sm backdrop-blur transition-all duration-200 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring',
-              side === 'left'
-                ? 'left-0 rounded-r-full border-l-0'
-                : 'right-0 rounded-l-full border-r-0',
-              openMobile ? 'pointer-events-none opacity-0' : 'opacity-100',
-            )}
+        <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
+          <SheetContent
+            data-sidebar="sidebar"
+            data-mobile="true"
+            className="p-0 pb-[env(safe-area-inset-bottom)] text-sidebar-foreground [&>button]:hidden"
+            side={side}
           >
-            {side === 'left' ? (
-              <ChevronRight className="size-4" />
-            ) : (
-              <ChevronLeft className="size-4" />
-            )}
-            <span className="sr-only">Open Sidebar</span>
-          </button>
-
-          <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
-            <SheetContent
-              data-sidebar="sidebar"
-              data-mobile="true"
-              className='p-0 pb-[env(safe-area-inset-bottom)] text-sidebar-foreground [&>button]:hidden'
-              side={side}
-            >
-              <div className="flex h-full w-full flex-col">{children}</div>
-            </SheetContent>
-          </Sheet>
-        </>
+            <div className="flex h-full w-full flex-col">{children}</div>
+          </SheetContent>
+        </Sheet>
       );
     }
 
     return (
       <div
         ref={ref}
-        className='group peer hidden text-sidebar-foreground md:block'
+        className="group peer hidden text-sidebar-foreground md:block"
         data-state={state}
         data-collapsible={state === 'collapsed' ? collapsible : ''}
         data-variant={variant}
@@ -693,7 +671,7 @@ const SidebarMenuSkeleton = React.forwardRef<
         />
       )}
       <Skeleton
-        className='h-4 max-w-[--skeleton-width] flex-1'
+        className="h-4 max-w-[--skeleton-width] flex-1"
         data-sidebar="menu-skeleton-text"
         style={
           {

@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   Box,
+  CheckCircle2,
+  CircleAlert,
   Cpu,
   HardDrive,
   Server,
@@ -67,77 +69,154 @@ export function MonitoringForm() {
 
   if (metricsLoading || nodesLoading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <div className="text-muted-foreground">Loading monitoring data...</div>
+      <div className="rounded-3xl border bg-card p-8 shadow-sm">
+        <div className="flex items-center justify-center text-muted-foreground">
+          Loading dashboard data...
+        </div>
       </div>
     );
   }
 
+  const onlineNodes =
+    nodes?.filter((node) => node.status === 'online').length ?? 0;
+  const totalNodes = nodes?.length ?? 0;
+  const successRate =
+    metrics && metrics.totalTasks > 0
+      ? `${((metrics.completedTasks / metrics.totalTasks) * 100).toFixed(1)}%`
+      : '0%';
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className='font-bold text-2xl tracking-tight'>Monitoring</h2>
-        <p className="text-muted-foreground">
-          Real-time status of Agent Daemon and sandbox resources.
-        </p>
-        <p className='mt-1 text-muted-foreground text-xs'>
-          Last updated: {currentTime.toLocaleTimeString()}
-        </p>
+    <div className="space-y-5">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <Card className="rounded-3xl border-border/70 shadow-sm">
+          <CardHeader className="pb-4">
+            <CardTitle className="font-semibold text-xl">
+              AgentBoster WebUI
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              {[
+                {
+                  label: 'Models',
+                  value: 'Provider endpoints',
+                },
+                {
+                  label: 'AgentD',
+                  value: `${onlineNodes}/${totalNodes} nodes online`,
+                },
+                {
+                  label: 'Security',
+                  value: 'Rules and authorization',
+                },
+              ].map((item, index) => (
+                <div
+                  key={item.label}
+                  className="rounded-2xl border bg-background px-4 py-3"
+                >
+                  <div className="mb-2 flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">
+                    {index + 1}
+                  </div>
+                  <div className="font-medium text-sm">{item.label}</div>
+                  <div className="mt-1 text-muted-foreground text-xs">
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-3xl border-border/70 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="font-medium text-sm">
+              Runtime Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600">
+                {onlineNodes > 0 ? (
+                  <CheckCircle2 className="size-5" />
+                ) : (
+                  <CircleAlert className="size-5" />
+                )}
+              </div>
+              <div>
+                <div className="font-semibold">
+                  {onlineNodes}/{totalNodes} nodes online
+                </div>
+                <div className="text-muted-foreground text-xs">
+                  Updated {currentTime.toLocaleTimeString()}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-2xl bg-muted px-3 py-2">
+                <div className="text-muted-foreground text-xs">
+                  Active tasks
+                </div>
+                <div className="font-semibold">{metrics?.activeTasks ?? 0}</div>
+              </div>
+              <div className="rounded-2xl bg-muted px-3 py-2">
+                <div className="text-muted-foreground text-xs">Sandboxes</div>
+                <div className="font-semibold">
+                  {metrics?.activeSandboxes ?? 0}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Metrics Overview */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card className="rounded-2xl border-border/70 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className='font-medium text-sm'>
+            <CardTitle className="font-medium text-sm">
               Active Sandboxes
             </CardTitle>
             <Box className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className='font-bold text-2xl'>
+            <div className="font-bold text-2xl">
               {metrics?.activeSandboxes ?? 0}
             </div>
-            <p className='text-muted-foreground text-xs'>Currently running</p>
+            <p className="text-muted-foreground text-xs">Currently running</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-border/70 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className='font-medium text-sm'>Active Tasks</CardTitle>
+            <CardTitle className="font-medium text-sm">Active Tasks</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className='font-bold text-2xl'>
+            <div className="font-bold text-2xl">
               {metrics?.activeTasks ?? 0}
             </div>
-            <p className='text-muted-foreground text-xs'>In progress</p>
+            <p className="text-muted-foreground text-xs">In progress</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-border/70 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className='font-medium text-sm'>Total Tasks</CardTitle>
+            <CardTitle className="font-medium text-sm">Total Tasks</CardTitle>
             <Server className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className='font-bold text-2xl'>{metrics?.totalTasks ?? 0}</div>
-            <p className='text-muted-foreground text-xs'>All time</p>
+            <div className="font-bold text-2xl">{metrics?.totalTasks ?? 0}</div>
+            <p className="text-muted-foreground text-xs">All time</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-2xl border-border/70 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className='font-medium text-sm'>Success Rate</CardTitle>
+            <CardTitle className="font-medium text-sm">Success Rate</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className='font-bold text-2xl'>
-              {metrics && metrics.totalTasks > 0
-                ? `${((metrics.completedTasks / metrics.totalTasks) * 100).toFixed(1)}%`
-                : '0%'}
-            </div>
-            <p className='text-muted-foreground text-xs'>
+            <div className="font-bold text-2xl">{successRate}</div>
+            <p className="text-muted-foreground text-xs">
               {metrics?.completedTasks ?? 0} completed,{' '}
               {metrics?.failedTasks ?? 0} failed
             </p>
@@ -145,11 +224,10 @@ export function MonitoringForm() {
         </Card>
       </div>
 
-      {/* Node Status */}
-      <div>
-        <h3 className='mb-4 font-semibold text-lg'>Daemon Nodes</h3>
+      <section className="space-y-3">
+        <h3 className="font-semibold text-lg">Daemon Nodes</h3>
         {!nodes || nodes.length === 0 ? (
-          <Card>
+          <Card className="rounded-2xl border-border/70 shadow-sm">
             <CardContent className="flex items-center justify-center p-8 text-muted-foreground">
               No daemon nodes registered
             </CardContent>
@@ -157,9 +235,12 @@ export function MonitoringForm() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {nodes.map((node) => (
-              <Card key={node.id}>
+              <Card
+                key={node.id}
+                className="rounded-2xl border-border/70 shadow-sm"
+              >
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className='font-medium text-sm'>
+                  <CardTitle className="font-medium text-sm">
                     {node.hostname}
                   </CardTitle>
                   <Badge
@@ -204,7 +285,7 @@ export function MonitoringForm() {
                         : '—'}
                     </span>
                   </div>
-                  <div className='border-t pt-2 text-muted-foreground text-xs'>
+                  <div className="border-t pt-2 text-muted-foreground text-xs">
                     Last heartbeat:{' '}
                     {node.lastHeartbeat
                       ? new Date(node.lastHeartbeat).toLocaleTimeString()
@@ -215,7 +296,7 @@ export function MonitoringForm() {
             ))}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

@@ -35,16 +35,16 @@ export function ConfigShell({
     runtimeHealth?.checks.filter((check) => check.status !== 'ready') ?? [];
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background pb-16 md:pb-0">
-      <header className='sticky top-0 z-20 border-b bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur'>
-        <div className="flex flex-col gap-4 px-4 py-4 lg:px-6">
+    <div className="flex min-h-dvh flex-col bg-background pb-20 md:pb-0">
+      <header className="sticky top-0 z-20 border-b bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur">
+        <div className="flex flex-col gap-4 px-14 py-4 md:px-6 lg:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-1">
               <div>
-                <h1 className='font-semibold text-xl tracking-tight md:text-2xl'>
+                <h1 className="font-semibold text-2xl tracking-tight md:text-3xl">
                   {sectionMeta.title}
                 </h1>
-                <p className='text-muted-foreground text-sm'>
+                <p className="max-w-2xl text-muted-foreground text-sm">
                   {sectionMeta.description}
                 </p>
               </div>
@@ -61,7 +61,7 @@ export function ConfigShell({
                 {validationPassed ? 'Ready to save' : 'Fix validation issues'}
               </div>
               {saveReminderVisible && isDirty ? (
-                <div className='rounded-full bg-sky-500/10 px-3 py-1 font-medium text-sky-700 text-xs dark:text-sky-300'>
+                <div className="rounded-full bg-sky-500/10 px-3 py-1 font-medium text-sky-700 text-xs dark:text-sky-300">
                   Unsaved changes
                 </div>
               ) : null}
@@ -82,7 +82,7 @@ export function ConfigShell({
             </div>
           </div>
 
-          <nav className='flex snap-x snap-mandatory scroll-px-4 gap-2 overflow-x-auto pb-1'>
+          <nav className="flex snap-x snap-mandatory scroll-px-4 gap-2 overflow-x-auto pb-1">
             {configSections.map((item) => {
               const href = `/config/${item.key}`;
               const isActive = pathname === href;
@@ -95,7 +95,7 @@ export function ConfigShell({
                   className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1.5 text-sm transition-colors ${
                     isActive
                       ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                      : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                   }`}
                 >
                   {item.title}
@@ -106,15 +106,15 @@ export function ConfigShell({
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
         {isLoading ? (
           <div className="flex h-[60vh] items-center justify-center">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="mx-auto max-w-7xl space-y-6">
             {runtimeIssues.length > 0 ? (
-              <div className='rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-950 text-sm'>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-950 text-sm">
                 <div className="font-medium">
                   Runtime prerequisites need attention
                 </div>
@@ -129,7 +129,7 @@ export function ConfigShell({
                         {issue.label}: {issue.message}
                       </div>
                       {issue.missingEnvVars.length > 0 ? (
-                        <div className='text-amber-900/80 text-xs'>
+                        <div className="text-amber-900/80 text-xs">
                           Missing: {issue.missingEnvVars.join(', ')}
                         </div>
                       ) : null}
@@ -139,7 +139,7 @@ export function ConfigShell({
               </div>
             ) : null}
 
-            <div className='grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.95fr)] xl:items-start'>
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.95fr)] xl:items-start">
               <div className="min-w-0">{children}</div>
               <div className="min-w-0 xl:self-start">
                 <div className="xl:sticky xl:top-0 xl:self-start">
@@ -150,6 +150,19 @@ export function ConfigShell({
           </div>
         )}
       </div>
+
+      <Button
+        aria-label="Save config"
+        className="fixed right-5 bottom-5 z-30 size-14 rounded-full shadow-lg md:right-8 md:bottom-8"
+        disabled={!validationPassed || isLoading || isSaving || !isDirty}
+        onClick={saveConfig}
+      >
+        {isSaving ? (
+          <Loader2 className="size-5 animate-spin" />
+        ) : (
+          <Save className="size-5" />
+        )}
+      </Button>
     </div>
   );
 }

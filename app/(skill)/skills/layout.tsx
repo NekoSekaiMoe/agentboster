@@ -1,8 +1,6 @@
 import { cookies } from 'next/headers';
 
-import { AppSidebar } from '@/components/app-sidebar';
-import { MobileDrawerBridge } from '@/components/mobile-drawer-bridge';
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { BotShell } from '@/components/bot-shell';
 
 export default async function SkillsLayout({
   children,
@@ -10,13 +8,7 @@ export default async function SkillsLayout({
   children: React.ReactNode;
 }) {
   const cookieStore = await cookies();
-  const isCollapsed = cookieStore.get('sidebar:state')?.value !== 'true';
+  const defaultOpen = cookieStore.get('sidebar:state')?.value !== 'false';
 
-  return (
-    <SidebarProvider defaultOpen={!isCollapsed}>
-      <AppSidebar />
-      <MobileDrawerBridge />
-      <SidebarInset>{children}</SidebarInset>
-    </SidebarProvider>
-  );
+  return <BotShell defaultOpen={defaultOpen}>{children}</BotShell>;
 }

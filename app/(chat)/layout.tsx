@@ -1,8 +1,6 @@
 import { cookies } from 'next/headers';
 
-import { AppSidebar } from '@/components/app-sidebar';
-import { MobileDrawerBridge } from '@/components/mobile-drawer-bridge';
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { AdaptiveChatLayout } from '@/components/adaptive-chat-layout';
 
 export const experimental_ppr = true;
 
@@ -12,13 +10,11 @@ export default async function Layout({
   children: React.ReactNode;
 }) {
   const cookieStore = await cookies();
-  const isCollapsed = cookieStore.get('sidebar:state')?.value !== 'true';
+  const defaultOpen = cookieStore.get('sidebar:state')?.value !== 'false';
 
   return (
-    <SidebarProvider defaultOpen={!isCollapsed}>
-      <AppSidebar />
-      <MobileDrawerBridge />
-      <SidebarInset>{children}</SidebarInset>
-    </SidebarProvider>
+    <AdaptiveChatLayout defaultOpen={defaultOpen}>
+      {children}
+    </AdaptiveChatLayout>
   );
 }

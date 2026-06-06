@@ -15,7 +15,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { ChatHeader } from '@/components/chat-header';
+import { MobileDrawerBridge } from '@/components/mobile-drawer-bridge';
 import { SessionRuntimePanel } from '@/components/session-runtime-panel';
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import {
   invalidateSessionList,
   upsertSessionListItem,
@@ -29,10 +31,9 @@ import {
   type WorkflowUIMessage,
   chatMessageMetadataSchema,
 } from '@/types/workflow';
-import { Messages } from './message-list';
 import { MultimodalInput } from './chat-input';
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { ChatSidebar } from './chat-sidebar';
+import { Messages } from './message-list';
 
 type SessionRuntimeSnapshot = {
   workflow?: { runId?: string | null; status?: string | null };
@@ -706,9 +707,14 @@ export function Chat({
   return (
     <SidebarProvider>
       <ChatSidebar />
-      <SidebarInset>
+      <MobileDrawerBridge />
+      <SidebarInset className="bg-background">
         <div className="flex h-dvh min-w-0 flex-col overflow-x-hidden bg-background">
-          <ChatHeader session={headerSession} chatId={id} onAbort={handleAbort} />
+          <ChatHeader
+            session={headerSession}
+            chatId={id}
+            onAbort={handleAbort}
+          />
 
           <Messages
             chatId={id}
@@ -723,7 +729,7 @@ export function Chat({
             regenerate={regenerate}
           />
 
-          <form className='mx-auto flex w-full gap-2 border-t bg-background px-4 py-4 md:max-w-3xl md:py-6'>
+          <form className="mx-auto flex w-full gap-2 bg-background/95 px-4 pt-3 pb-4 backdrop-blur md:max-w-4xl md:pb-6">
             <MultimodalInput
               chatId={id}
               focusTrigger={composerFocusKey}

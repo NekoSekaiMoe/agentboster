@@ -6,8 +6,6 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 
-import { cn } from '@/lib/utils';
-import type { UserMessagePart, WorkflowUIMessage } from '@/types/workflow';
 import {
   AttachmentButton,
   AttachmentList,
@@ -23,6 +21,8 @@ import {
 } from '@/components/slash-command-menu';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+import type { UserMessagePart, WorkflowUIMessage } from '@/types/workflow';
 
 type ComposerMessage = { text: string } | CreateUIMessage<WorkflowUIMessage>;
 
@@ -272,13 +272,13 @@ function PureMultimodalInput({
   ]);
 
   return (
-    <div className='relative flex w-full flex-col gap-4'>
+    <div className="relative flex w-full flex-col gap-4">
       <input
         type="file"
         ref={fileInputRef}
         multiple
         aria-label="Attach files"
-        className='-top-4 -left-4 pointer-events-none fixed size-0.5 opacity-0'
+        className="-top-4 -left-4 pointer-events-none fixed size-0.5 opacity-0"
         tabIndex={-1}
         onChange={(event) => {
           if (event.target.files) {
@@ -292,7 +292,7 @@ function PureMultimodalInput({
         role="group"
         aria-label="Message composer"
         className={cn(
-          'relative flex flex-col gap-3 rounded-xl border bg-background px-4 py-4 shadow-sm transition-colors dark:border-zinc-700',
+          'relative flex flex-col gap-3 rounded-[28px] border border-border/80 bg-card px-4 py-4 shadow-sm transition-colors dark:border-zinc-700',
           {
             'border-primary/60 bg-primary/5': isDragActive,
           },
@@ -329,10 +329,10 @@ function PureMultimodalInput({
 
         <Textarea
           ref={textareaRef}
-          placeholder="Send a message..."
+          placeholder="Ask AgentBoster..."
           value={input}
           onChange={handleInput}
-          className='!text-base max-h-[calc(75dvh)] min-h-[48px] resize-none overflow-hidden border-0 bg-transparent px-0 pt-0 pb-14 shadow-none focus-visible:ring-0'
+          className="!text-base max-h-[calc(75dvh)] min-h-[48px] resize-none overflow-hidden border-0 bg-transparent px-0 pt-0 pb-14 shadow-none focus-visible:ring-0"
           rows={2}
           autoFocus
           onClick={(event) => {
@@ -356,11 +356,11 @@ function PureMultimodalInput({
           }}
         />
 
-        <div className='absolute bottom-0 left-0 flex w-fit flex-row justify-end p-3'>
+        <div className="absolute bottom-0 left-0 flex w-fit flex-row justify-end p-3">
           <AttachmentButton onClick={() => fileInputRef.current?.click()} />
         </div>
 
-        <div className='absolute right-0 bottom-0 flex w-fit flex-row justify-end gap-2 p-3'>
+        <div className="absolute right-0 bottom-0 flex w-fit flex-row justify-end gap-2 p-3">
           <SendButton
             input={input}
             hasAttachments={attachments.length > 0}
@@ -392,7 +392,7 @@ function PureStopButton({
 }) {
   return (
     <Button
-      className='h-fit rounded-full border p-2 dark:border-zinc-600'
+      className="size-11 rounded-full border p-0 dark:border-zinc-600"
       onClick={(event) => {
         event.preventDefault();
         stop();
@@ -416,7 +416,7 @@ function PureSendButton({
 }) {
   return (
     <Button
-      className='h-fit rounded-full border p-2 dark:border-zinc-600'
+      className="size-11 rounded-full border p-0 dark:border-zinc-600"
       onClick={(event) => {
         event.preventDefault();
         void submitForm();

@@ -1,6 +1,8 @@
 'use client';
 
 import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
+import { Bot, MessageSquare } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -105,82 +107,99 @@ function PureChatHeader({
     : null;
 
   return (
-    <header className="sticky top-0 z-20 border-b bg-background/95 px-2 py-2 backdrop-blur md:px-3">
-      <div className="flex items-start gap-2">
-        {session ? (
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className='min-w-0 truncate font-semibold text-foreground text-sm'>
-                {session.title ?? 'Untitled Session'}
-              </h1>
-              {/* Status indicator */}
-              {isRunning && (
-                <span className='inline-flex shrink-0 items-center gap-1 text-amber-600 text-xs'>
-                  <Loader2 className="size-3 animate-spin" />
-                  {status === 'waiting_user' ? 'Waiting' : 'Running'}
-                </span>
-              )}
-              {status === 'completed' && (
-                <span className='inline-flex shrink-0 items-center gap-1 text-green-600 text-xs'>
-                  ✓ Done
-                </span>
-              )}
-              {status === 'aborted' && (
-                <span className='inline-flex shrink-0 items-center gap-1 text-muted-foreground text-xs'>
-                  ⏹ Aborted
-                </span>
-              )}
-              {/* Agent Daemon status */}
-              {agentdStatus === 'online' && (
-                <span
-                  className='inline-flex shrink-0 items-center gap-1 text-green-600 text-xs'
-                  title="Agent Daemon online — full security review active"
-                >
-                  <span className="size-1.5 rounded-full bg-green-500" />
-                  AgentD
-                </span>
-              )}
-              {agentdStatus === 'offline' && (
-                <span
-                  className='inline-flex shrink-0 items-center gap-1 text-amber-600 text-xs'
-                  title="Agent Daemon offline — using Vercel Sandbox (limited security)"
-                >
-                  <span className="size-1.5 rounded-full bg-amber-500" />
-                  Sandbox
-                </span>
-              )}
+    <header className="sticky top-0 z-20 border-b bg-background/95 px-14 py-3 backdrop-blur md:px-4">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="font-semibold text-lg tracking-tight">
+                AgentBoster
+              </span>
+              <span className="text-lg text-muted-foreground">ChatUI</span>
             </div>
-            <div className='mt-1 flex flex-wrap items-center gap-2 text-muted-foreground text-xs'>
-              {sessionDetails.map(({ label, value, valueClassName }) => (
-                <span
-                  key={label}
-                  className="inline-flex w-fit max-w-full items-center gap-1 rounded-md bg-muted px-2 py-1 leading-5"
-                >
-                  <span className="shrink-0 whitespace-nowrap text-muted-foreground/80">
-                    {label}
-                  </span>
-                  <span className={`min-w-0 ${valueClassName}`}>{value}</span>
-                </span>
-              ))}
-              {tokenDisplay && (
-                <span className='inline-flex items-center gap-1 text-muted-foreground text-xs'>
-                  🪙 {tokenDisplay}
-                </span>
-              )}
+
+            <div className="ml-auto hidden rounded-xl bg-muted p-1 md:grid md:grid-cols-2">
+              <Button
+                asChild
+                size="sm"
+                variant="ghost"
+                className="h-8 rounded-lg"
+              >
+                <Link href="/config/monitoring">
+                  <Bot className="size-3.5" />
+                  Bot
+                </Link>
+              </Button>
+              <Button size="sm" className="h-8 rounded-lg">
+                <MessageSquare className="size-3.5" />
+                Chat
+              </Button>
             </div>
           </div>
-        ) : (
-          <div className="min-w-0 flex-1" />
-        )}
 
-        <div className='flex shrink-0 items-center gap-1'>
+          <div className="mt-2 flex min-h-5 flex-wrap items-center gap-2 text-muted-foreground text-xs">
+            {session ? (
+              <>
+                <span className="max-w-[280px] truncate font-medium text-foreground">
+                  {session.title ?? 'Untitled Session'}
+                </span>
+                {isRunning && (
+                  <span className="inline-flex shrink-0 items-center gap-1 text-amber-600">
+                    <Loader2 className="size-3 animate-spin" />
+                    {status === 'waiting_user' ? 'Waiting' : 'Running'}
+                  </span>
+                )}
+                {status === 'completed' && (
+                  <span className="text-green-600">Done</span>
+                )}
+                {status === 'aborted' && (
+                  <span className="text-muted-foreground">Aborted</span>
+                )}
+                {agentdStatus === 'online' && (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 text-green-600"
+                    title="Agent Daemon online - full security review active"
+                  >
+                    <span className="size-1.5 rounded-full bg-green-500" />
+                    AgentD
+                  </span>
+                )}
+                {agentdStatus === 'offline' && (
+                  <span
+                    className="inline-flex shrink-0 items-center gap-1 text-amber-600"
+                    title="Agent Daemon offline - using Vercel Sandbox"
+                  >
+                    <span className="size-1.5 rounded-full bg-amber-500" />
+                    Sandbox
+                  </span>
+                )}
+                {sessionDetails.map(({ label, value, valueClassName }) => (
+                  <span
+                    key={label}
+                    className="inline-flex w-fit max-w-full items-center gap-1 rounded-md bg-muted px-2 py-1 leading-5"
+                  >
+                    <span className="shrink-0 whitespace-nowrap text-muted-foreground/80">
+                      {label}
+                    </span>
+                    <span className={`min-w-0 ${valueClassName}`}>{value}</span>
+                  </span>
+                ))}
+                {tokenDisplay && <span>Tokens {tokenDisplay}</span>}
+              </>
+            ) : (
+              <span>Start a new agent conversation.</span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
           {/* Abort button — only when running */}
           {isRunning && chatId && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="outline"
-                  className='shrink-0 px-2 text-red-600 hover:bg-red-50 hover:text-red-700 md:h-fit'
+                  className="shrink-0 px-2 text-red-600 hover:bg-red-50 hover:text-red-700 md:h-fit"
                   aria-label="Abort session"
                   onClick={handleAbort}
                   disabled={aborting}

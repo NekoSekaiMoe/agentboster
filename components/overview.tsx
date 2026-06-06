@@ -1,6 +1,6 @@
-import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
+import { Sparkles } from 'lucide-react';
 
 export type QuickPrompt = {
   title: string;
@@ -40,33 +40,41 @@ export const Overview = ({
   return (
     <motion.div
       key="overview"
-      className="mx-auto max-w-3xl px-4 md:mt-20"
+      className="mx-auto flex min-h-full max-w-4xl flex-col justify-center px-4 py-12"
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
       transition={{ delay: 0.5 }}
     >
-      <div className="mx-auto flex max-w-xl flex-col items-center gap-4 text-center leading-relaxed">
-        <p className='flex size-12 items-center rounded-full border border-muted bg-muted/50 '>
-          <Logo />
-        </p>
-        <p className="text-xl">Hi, How's it going?</p>
+      <div className="mx-auto flex max-w-2xl flex-col items-center gap-4 text-center leading-relaxed">
+        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <Sparkles className="size-6" />
+        </div>
+        <div>
+          <p className="font-semibold text-3xl tracking-tight md:text-4xl">
+            欢迎使用 AgentBoster
+          </p>
+          <p className="mt-3 text-muted-foreground text-sm md:text-base">
+            Ask, automate, schedule, and review agent work from one focused
+            chat.
+          </p>
+        </div>
       </div>
 
-      <div className="mx-auto mt-8 grid max-w-2xl gap-3 md:grid-cols-2">
+      <div className="mx-auto mt-8 grid w-full max-w-2xl gap-3 md:grid-cols-2">
         {quickPrompts.map((item) => (
           <Button
             key={item.title}
             type="button"
             variant="outline"
-            className="h-auto min-h-28 items-start justify-start whitespace-normal rounded-2xl border-dashed px-4 py-4 text-left"
+            className="h-auto min-h-24 items-start justify-start whitespace-normal rounded-2xl border-dashed bg-card/70 px-4 py-4 text-left shadow-sm"
             onClick={() => onPromptSelect?.(item.prompt)}
           >
             <span className="flex flex-col gap-1">
-              <span className='font-medium text-foreground text-sm'>
+              <span className="font-medium text-foreground text-sm">
                 {item.title}
               </span>
-              <span className='text-muted-foreground text-sm'>
+              <span className="text-muted-foreground text-sm">
                 {item.description}
               </span>
             </span>

@@ -1,10 +1,8 @@
 import { cookies } from 'next/headers';
 
-import { AppSidebar } from '@/components/app-sidebar';
+import { BotShell } from '@/components/bot-shell';
 import { ConfigProvider } from '@/components/config/config-provider';
-import { MobileDrawerBridge } from '@/components/mobile-drawer-bridge';
 import { ReactQueryProvider } from '@/components/react-query-provider';
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 export default async function ConfigLayout({
   children,
@@ -12,17 +10,13 @@ export default async function ConfigLayout({
   children: React.ReactNode;
 }) {
   const cookieStore = await cookies();
-  const isCollapsed = cookieStore.get('sidebar:state')?.value !== 'true';
+  const defaultOpen = cookieStore.get('sidebar:state')?.value !== 'false';
 
   return (
-    <SidebarProvider defaultOpen={!isCollapsed}>
-      <AppSidebar />
-      <MobileDrawerBridge />
-      <SidebarInset>
-        <ReactQueryProvider>
-          <ConfigProvider>{children}</ConfigProvider>
-        </ReactQueryProvider>
-      </SidebarInset>
-    </SidebarProvider>
+    <BotShell defaultOpen={defaultOpen}>
+      <ReactQueryProvider>
+        <ConfigProvider>{children}</ConfigProvider>
+      </ReactQueryProvider>
+    </BotShell>
   );
 }
