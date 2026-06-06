@@ -102,83 +102,6 @@ flowchart TB
 
 ---
 
-## 项目结构
-
-```
-app/                     # Next.js App Router 页面 & API 路由
-├── (auth)/              #   登录
-├── (chat)/              #   聊天、文件、调度
-├── (config)/            #   配置、监控、审计日志
-├── (memory)/            #   记忆/RAG 管理
-├── (schedule)/          #   调度管理
-├── (skill)/             #   技能管理
-├── api/                 #   公开 API
-│   ├── agentd/v1/       #     Daemon 回调 (L1/L2)
-│   ├── bot/[secret]/    #     IM Webhook
-│   ├── config/          #     配置、审计、监控
-│   ├── notifications/   #     通知
-│   ├── pair/            #     Daemon 配对
-│   ├── sandbox/         #     沙箱工具
-│   ├── sessions/        #     会话回滚
-│   ├── soul/            #     Agent 人格
-│   └── tasks/           #     任务历史
-├── (chat)/api/          # Daemon 内部 API (35+ 端点)
-│   ├── agentd/v1/       #     代理配置、Blob、健康、规则、通知、
-│   │                    #     沙箱、会话、任务、工作空间、记忆等
-│   └── ai/              #     AI 聊天、流式、消息、暂停、状态
-└── .well-known/workflow/#   Workflow DevKit 回调 (绕过 auth)
-components/              # React 组件 (shadcn/ui)
-├── ui/                  #   shadcn/ui 原语 (19 个)
-├── config/              #   配置表单
-└── ...                  #   聊天、消息、侧边栏、时间线等
-lib/                     # 核心逻辑
-├── ai/                  #   AI SDK Provider 工厂 (Anthropic/Google/OpenAI)
-├── auth/                #   认证 (bcryptjs, cookie)
-├── bot/                 #   Bot 适配器 & Webhook 路由
-├── chat/                #   聊天传输、流式、斜杠命令
-├── core/                #   基础设施: DB (Drizzle+Neon), KV (Redis), Blob, Sandbox
-├── extra/               #   服务端业务逻辑
-│   ├── agent/           #     Daemon 客户端、并行执行、技能
-│   ├── auth/            #     API Key、JWT、用户管理
-│   ├── channels/        #     TG/Discord/Slack/Feishu 适配器
-│   ├── config/          #     配置管理
-│   ├── cron/            #     定时调度
-│   ├── memory/          #     记忆管理
-│   ├── prompts/         #     System Prompt 片段
-│   ├── sandbox/         #     Vercel Sandbox 管理
-│   └── security/        #     L0/L1/L2 安全引擎
-├── mcp/                 #   内置 MCP 服务器 (Context7, Firecrawl, GitHub, Web)
-├── memory/              #   记忆: 内置、RAG 长期、会话
-├── security/            #   Web 端安全 (L1 评分器、L2 队列)
-├── utils/               #   工具函数
-└── workflow/            #   Vercel Workflow DevKit
-    ├── agent/           #     Agent Workflow (hooks/steps/tools/security)
-    └── scheduled/       #     定时调度 Workflow
-hooks/                   # React Hooks (config draft, validation, mobile, nav)
-types/                   # TypeScript 类型 (config/memory/skills/workflow)
-agentd/                  # Go 1.26 Daemon
-├── cmd/agentd/main.go   #   入口
-├── agentd.toml.example  #   配置示例
-└── internal/
-    ├── agent/           #   CodeAct Loop、工具定义、上下文
-    ├── sandbox/         #   沙箱: docker / docker-strict / lxc
-    ├── security/        #   L0 规则、L2 授权、OS 强制
-    ├── session/         #   会话持久化、LRU、归档
-    ├── worker/          #   工作池、分发器
-    ├── server/          #   Gin HTTP 路由 & 中间件
-    ├── clawless/        #   Web API 客户端
-    ├── config/          #   Viper 配置加载
-    ├── certs/           #   mTLS 证书管理
-    ├── cache/           #   内部缓存
-    ├── eventbus/        #   内部事件总线
-    ├── identity/        #   Daemon 身份与配对
-    ├── lifecycle/       #   启停编排
-    ├── metrics/         #   运行时指标
-    └── persistence/     #   本地状态持久化
-```
-
----
-
 ## 功能特性
 
 ### AgentBoster Web (Next.js)
@@ -208,6 +131,32 @@ agentd/                  # Go 1.26 Daemon
 - **Webhook 回调** — 任务完成或需决策时回调 Web 端
 - **Daemon 身份** — 节点注册、心跳、配对
 
+### 集百家之长
+
+AgentBoster 不是从零开始的创新，而是站在多个优秀项目的肩膀上，各取所长，缝合出一个全新的品类。
+
+**ClawLess 是整个项目的基石。** AgentBoster 的全部前端——Next.js 全栈应用、Vercel Serverless 部署、多渠道 IM 接入、Vercel Sandbox 兜底、Vercel Workflow 工作流引擎、Neon Postgres 持久化、Upstash Redis 缓存——全部基于 ClawLess。点按钮部署、零成本启动、永远在线的前端体验，是 AgentBoster 区别于其他所有自托管 Agent 的核心优势。AgentBoster 在 ClawLess 之上叠加了 Agent Daemon 远程执行层，将其从"轻量聊天 Agent"升级为"安全异步 Task Agent"。
+
+**从 Asika 继承骨架。** Event Bus + 动态 Worker Pool + Writer Actor 的并发架构，经过跨平台 PR 管理场景的生产级验证。Agent Daemon 的沙箱调度、子 Agent 并行、审查日志批量写入、多节点智能调度，全部跑在这套骨架上。Asika 的 13 个 Worker 在 PR 管理场景跑了两年没出过并发问题，AgentBoster 直接复用这份可靠性。Asika 的 Label Rules 和 Spam Detector 改造为 L0 规则引擎，Asika 的 Webhook Health Checker 和 Poller 模式改造为 Agent Daemon 心跳检测和节点健康监控。
+
+**从 AstrBot 借鉴前端设计。** Chat UI 和 Settings UI 从 AstrBot 的 Vue Dashboard 中汲取设计灵感，让 AgentBoster 的聊天界面和配置管理界面达到了产品级体验。AstrBot 在中文 IM 生态中的 UI 打磨经验，帮助 AgentBoster 快速构建了用户友好的前端交互。
+
+**从 Manboster 学习安全哲学。** Manboster 的 Hachimi 守门员证明了"AI 可以评估工具调用的安全性"。AgentBoster 借鉴了这个思路，但走了不同的路——不用专用守门员，而是用通用 Flash 模型做 L1 打分，加上 L0 规则引擎和 L2 时间窗口授权，形成三级梯度审查。Manboster 信任 Hachimi，AgentBoster 只信任用户。OS 级强制（cap-drop + seccomp-bpf + mount namespace + network namespace）在 Manboster 的 WASM 沙箱思路上进一步增强，将安全边界推到 Linux 内核层。
+
+**从 Memoh 参考沙箱与记忆。** Memoh 的容器化 Workspace 和混合检索记忆引擎是开源 Agent 框架里做得最细的之一。AgentBoster 借鉴了 Memoh 的沙箱隔离思路，但把粒度从"一个 Bot 一个容器"改为"一个任务一个沙箱"——轻任务用 Docker，持久项目用 LXC。记忆系统借鉴了 Memoh 的混合检索和 LLM 提取提示词，但裁剪为适合 Task Agent 的结构化摘要记忆。
+
+**从 Cahciua/Edelweiss 汲取上下文工程思路。** Cahciua 的 DCP 确定性上下文管线把 LLM 上下文当成纯函数状态机来维护，Edelweiss 在此基础上加入了子 Agent 和技能文件支持。AgentBoster 借鉴了"维护上下文的构造过程而非上下文本身"这一思路，用于会话压缩和长程任务摘要的确定性生成。
+
+**从 Loong Recall 完善记忆系统。** 语义编码、双路检索融合、记忆类型分类、TTL 过期、冷热归档、记忆衰减——Loong Recall 为 AI 编程助手设计的记忆特性，AgentBoster 几乎全部跟进。AgentBoster 的记忆系统在功能完整度上和 Loong Recall 基本持平，在 Task Agent 特化需求上（Built-in Memory、Session Memory 版本管理、Daemon 独立记忆通道）超出更多。
+
+**从 OpenCode 理解终端 Agent 的交互局限。** OpenCode 证明了终端里的 AI 编程助手可以非常高效，但也暴露了同步交互的局限——用户必须盯着终端等结果。AgentBoster 把交互范式从同步改为异步，从终端改为 IM，保留了 OpenCode 的执行能力，但解放了用户的时间。
+
+**从 LobeHub 学习产品化思维。** LobeHub 的 Agent 团队协作、个人记忆结构化、可视化日程管理——这些产品化能力让 AgentBoster 从"能用的工具"变成"好用的产品"。监控标签页、审计日志查看器、L2 授权管理页面、任务历史页面、通知中心，这些前端增强全部从 LobeHub 的产品设计语言中汲取灵感。
+
+**从 CyberGroupmate 借鉴沙箱内目录布局。** CyberGroupmate 的 `workspace/` 目录结构——记忆数据库、会话状态、技能文件、媒体资产、下载文件各自独立——为 AgentBoster 的 chroot/LXC 沙箱布局提供了参考模板。Agent 和用户都知道每个目录的用途，备份和迁移时一目了然。
+
+**AgentBoster 不是"又一个 AI 助手"。** 它是 ClawLess 的全栈基础、Asika 的并发骨架、AstrBot 的前端设计、Manboster 的安全哲学、Memoh 的沙箱思路、Cahciua 的上下文工程、Loong Recall 的记忆系统、OpenCode 的交互反思、LobeHub 的产品思维、CyberGroupmate 的沙箱布局——这十者的缝合产物。缝合不是贬义词，缝合意味着不需要从零发明一切，意味着每个组件都经过其他项目的验证，意味着 AgentBoster 可以站在巨人的肩膀上，把省下来的精力全部投在差异化能力上——异步安全执行链。
+
 ---
 
 ## 技术栈
@@ -234,8 +183,8 @@ agentd/                  # Go 1.26 Daemon
 | 语言 | Go 1.26 (Linux-only) |
 | HTTP | Gin 1.12 |
 | 配置 | Viper (TOML) + 环境变量 |
-| 事件 | 自研 Event Bus |
-| 工作池 | 自研 Worker Pool (动态扩缩容) |
+| 事件 | Asika Event Bus |
+| 工作池 | Asika Worker Pool (动态扩缩容) |
 | 沙箱 | Docker + LXC |
 | 安全 | seccomp, capability drop, cgroup |
 | 通信 | mTLS + API Key |

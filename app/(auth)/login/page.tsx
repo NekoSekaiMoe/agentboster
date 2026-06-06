@@ -78,18 +78,18 @@ export default async function LoginPage({
 
   if (!authConfig.isConfigured) {
     return (
-      <main className="min-h-dvh bg-gradient-to-b from-background to-muted/20 px-4 py-8 md:px-6 md:py-12">
-        <div className="mx-auto flex min-h-[70dvh] max-w-5xl items-center justify-center">
-          <Card className="w-full max-w-2xl border-border/60 shadow-sm">
+      <main className="flex min-h-dvh items-center justify-center bg-[#f7f9fb] px-4 py-10 dark:bg-background">
+        <div className="w-full max-w-2xl">
+          <Card className="rounded-2xl border-border/70 shadow-[0_18px_45px_rgba(15,23,42,0.08)]">
             <CardHeader>
               <CardTitle>Authentication setup required</CardTitle>
               <CardDescription>
-                Sign in is disabled until the server is configured with
-                the <code>AUTH_SECRET</code> environment variable.
+                Sign in is disabled until the server is configured with the{' '}
+                <code>AUTH_SECRET</code> environment variable.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className='rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-amber-950 text-sm dark:text-amber-100'>
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-amber-950 text-sm dark:text-amber-100">
                 <p>
                   Add the missing variables to <code>.env.local</code> or{' '}
                   <code>.env</code>, then restart the app.
@@ -99,7 +99,7 @@ export default async function LoginPage({
                 </p>
               </div>
               <div className="space-y-2">
-                <p className='font-medium text-sm'>Example env file</p>
+                <p className="font-medium text-sm">Example env file</p>
                 <pre className="overflow-x-auto rounded-md bg-zinc-950 p-4 text-sm text-zinc-50">
                   <code>{authConfig.exampleEnvFile}</code>
                 </pre>
@@ -120,8 +120,8 @@ export default async function LoginPage({
   }
 
   return (
-    <main className="min-h-dvh bg-gradient-to-b from-background to-muted/20 px-4 py-8 md:px-6 md:py-12">
-      <div className="mx-auto flex min-h-[70dvh] max-w-5xl items-center justify-center">
+    <main className="flex min-h-dvh items-center justify-center bg-[#f7f9fb] px-4 py-10 dark:bg-background">
+      <div className="flex w-full items-center justify-center">
         <LoginForm redirectTo={nextPath} />
       </div>
     </main>
