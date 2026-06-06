@@ -87,7 +87,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
 
       <div className="mb-5">
         <h1 className="font-semibold text-[22px] text-foreground tracking-tight">
-          AgentBoster WebUI
+          AgentBoster WebUI Login
         </h1>
         <p className="mt-2 text-muted-foreground text-sm">欢迎使用</p>
       </div>

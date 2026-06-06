@@ -2,11 +2,11 @@
 
 import { type DynamicToolUIPart, getToolName, isToolUIPart } from 'ai';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { ChevronRight, Wrench } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 import { cn } from '@/lib/utils';
 import type { WorkflowUIMessage } from '@/types/workflow';
-import { ChevronDownIcon } from './icons';
 
 export function formatJSON(value: unknown): string {
   try {
@@ -136,6 +136,26 @@ export function getToolDisplayTitle(part: DynamicToolUIPart): string {
   return title && title.length > 0 ? title : formatToolName(part.toolName);
 }
 
+function getToolActionText(state: DynamicToolUIPart['state']): string {
+  switch (state) {
+    case 'input-streaming':
+      return '正在准备';
+    case 'input-available':
+      return '已调用';
+    case 'approval-requested':
+      return '等待批准';
+    case 'approval-responded':
+      return '已批准';
+    case 'output-error':
+      return '执行失败';
+    case 'output-denied':
+      return '已拒绝';
+    case 'output-available':
+    default:
+      return '已使用';
+  }
+}
+
 export function getToolStateTone(state: DynamicToolUIPart['state']): {
   badge: string;
   card: string;
@@ -203,7 +223,7 @@ export function ToolDetailsSection({
 }) {
   return (
     <div className="space-y-2">
-      <div className='text-[11px] text-muted-foreground uppercase tracking-[0.16em]'>
+      <div className="text-[11px] text-muted-foreground uppercase tracking-[0.16em]">
         {label}
       </div>
       {children}
@@ -213,9 +233,48 @@ export function ToolDetailsSection({
 
 export function ToolDetailsPre({ value }: { value: unknown }) {
   return (
-    <pre className='overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-3 text-foreground/80 text-xs leading-5'>
+    <pre className="overflow-x-auto rounded-xl border border-border/60 bg-muted/40 p-3 text-foreground/80 text-xs leading-5">
       {typeof value === 'string' ? value : formatJSON(value)}
     </pre>
+  );
+}
+
+export function ToolCallSummaryButton({
+  part,
+  detailsId,
+  isExpanded,
+  onToggle,
+}: {
+  part: DynamicToolUIPart;
+  detailsId: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const displayTitle = getToolDisplayTitle(part);
+  const summary = `${getToolActionText(part.state)} ${displayTitle} 工具`;
+  const fullTitle =
+    displayTitle === part.toolName
+      ? displayTitle
+      : `${displayTitle} (${part.toolName})`;
+
+  return (
+    <button
+      type="button"
+      aria-expanded={isExpanded}
+      aria-controls={detailsId}
+      onClick={onToggle}
+      title={fullTitle}
+      className="-mx-1 flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-left text-foreground/80 text-sm leading-6 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+    >
+      <Wrench className="size-4 shrink-0 text-foreground/70" />
+      <span className="min-w-0 truncate">{summary}</span>
+      <ChevronRight
+        className={cn(
+          'size-4 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+          isExpanded && 'rotate-90',
+        )}
+      />
+    </button>
   );
 }
 
@@ -237,13 +296,8 @@ export function ToolTimeline({ parts }: { parts: DynamicToolUIPart[] }) {
     <div className="space-y-0">
       {parts.map((part, index) => {
         const tone = getToolStateTone(part.state);
-        const displayTitle = getToolDisplayTitle(part);
         const detailsId = `tool-details-${part.toolCallId}-${index}`;
         const isExpanded = expandedToolCalls[part.toolCallId] ?? false;
-        const showRawToolName =
-          typeof part.title === 'string' &&
-          part.title.trim().length > 0 &&
-          part.title.trim() !== part.toolName;
         const hasInput = 'input' in part && part.input !== undefined;
         const hasOutput = part.state === 'output-available';
         const hasApproval = 'approval' in part && part.approval !== undefined;
@@ -258,7 +312,7 @@ export function ToolTimeline({ parts }: { parts: DynamicToolUIPart[] }) {
             <div className="flex h-full flex-col items-center">
               <span
                 className={cn(
-                  'mt-4 size-2.5 rounded-full border-2 border-background shadow-sm',
+                  'mt-3 size-2.5 rounded-full border-2 border-background shadow-sm',
                   tone.dot,
                   part.state === 'input-streaming' &&
                     'animate-pulse motion-reduce:animate-none',
@@ -270,54 +324,18 @@ export function ToolTimeline({ parts }: { parts: DynamicToolUIPart[] }) {
             </div>
 
             <div className={cn(index < parts.length - 1 && 'pb-4')}>
-              <div
-                className={cn(
-                  'overflow-hidden rounded-[1.25rem] border border-border/70 bg-background/90 shadow-sm',
-                  tone.card,
-                )}
-              >
-                <button
-                  type="button"
-                  aria-expanded={isExpanded}
-                  aria-controls={detailsId}
-                  onClick={() => {
+              <div className="min-w-0">
+                <ToolCallSummaryButton
+                  part={part}
+                  detailsId={detailsId}
+                  isExpanded={isExpanded}
+                  onToggle={() => {
                     setExpandedToolCalls((current) => ({
                       ...current,
                       [part.toolCallId]: !isExpanded,
                     }));
                   }}
-                  className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className='font-semibold text-foreground text-sm leading-5'>
-                      {displayTitle}
-                    </div>
-                    {showRawToolName ? (
-                      <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-                        {part.toolName}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-2 pl-2">
-                    <span
-                      className={cn(
-                        'rounded-full border px-2 py-0.5 font-medium text-[10px] uppercase tracking-[0.16em]',
-                        tone.badge,
-                      )}
-                    >
-                      {formatToolState(part.state)}
-                    </span>
-                    <span
-                      className={cn(
-                        'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-                        isExpanded && 'rotate-180',
-                      )}
-                    >
-                      <ChevronDownIcon size={14} />
-                    </span>
-                  </div>
-                </button>
+                />
 
                 <AnimatePresence initial={false}>
                   {isExpanded ? (
@@ -337,7 +355,7 @@ export function ToolTimeline({ parts }: { parts: DynamicToolUIPart[] }) {
                       transition={detailsTransition}
                       className="overflow-hidden"
                     >
-                      <div className='border-border/60 border-t bg-muted/10 px-4 pt-3 pb-4'>
+                      <div className="mt-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-3">
                         <div className="space-y-3">
                           {hasInput ? (
                             <ToolDetailsSection label="Input">
@@ -364,7 +382,7 @@ export function ToolTimeline({ parts }: { parts: DynamicToolUIPart[] }) {
                           ) : null}
 
                           {!hasDetails ? (
-                            <div className='rounded-xl border border-border/60 border-dashed bg-muted/30 p-3 text-muted-foreground text-xs'>
+                            <div className="rounded-xl border border-border/60 border-dashed bg-muted/30 p-3 text-muted-foreground text-xs">
                               Structured details are not available yet.
                             </div>
                           ) : null}

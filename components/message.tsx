@@ -24,10 +24,9 @@ import { Markdown } from './markdown';
 import { MessageActions } from './message-actions';
 import { MessageEditor } from './message-editor';
 import {
+  ToolCallSummaryButton,
   ToolDetailsPre,
   ToolDetailsSection,
-  formatToolState,
-  getToolDisplayTitle,
   getToolStateTone,
   normalizeToolPart,
 } from './tool-timeline';
@@ -248,7 +247,7 @@ function AssistantMessageParts({
 
   return (
     <>
-      <div className='flex w-full min-w-0 flex-col gap-2'>
+      <div className="flex w-full min-w-0 flex-col gap-2">
         {renderableParts.map(({ part, index }) => {
           const showConnector = hasNextTimelinePart(index);
 
@@ -320,7 +319,7 @@ function AssistantMessageParts({
                       className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className='truncate font-semibold text-foreground text-sm leading-5'>
+                        <div className="truncate font-semibold text-foreground text-sm leading-5">
                           Reasoning
                         </div>
                       </div>
@@ -353,8 +352,8 @@ function AssistantMessageParts({
                           transition={detailsTransition}
                           className="overflow-hidden"
                         >
-                          <div className='border-border/60 border-t bg-muted/10 px-4 pt-3 pb-4'>
-                            <div className='whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6'>
+                          <div className="border-border/60 border-t bg-muted/10 px-4 pt-3 pb-4">
+                            <div className="whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6">
                               {part.text}
                             </div>
                           </div>
@@ -370,13 +369,8 @@ function AssistantMessageParts({
           const toolPart = normalizeToolPart(part);
           if (toolPart) {
             const tone = getToolStateTone(toolPart.state);
-            const displayTitle = getToolDisplayTitle(toolPart);
             const detailsId = `tool-details-${toolPart.toolCallId}-${index}`;
             const isExpanded = expandedToolCalls[toolPart.toolCallId] ?? false;
-            const showRawToolName =
-              typeof toolPart.title === 'string' &&
-              toolPart.title.trim().length > 0 &&
-              toolPart.title.trim() !== toolPart.toolName;
             const hasInput =
               'input' in toolPart && toolPart.input !== undefined;
             const hasOutput = toolPart.state === 'output-available';
@@ -396,7 +390,7 @@ function AssistantMessageParts({
                 <div className="flex h-full flex-col items-center">
                   <span
                     className={cn(
-                      'mt-4 size-2.5 rounded-full border-2 border-background shadow-sm',
+                      'mt-3 size-2.5 rounded-full border-2 border-background shadow-sm',
                       tone.dot,
                       toolPart.state === 'input-streaming' &&
                         'animate-pulse motion-reduce:animate-none',
@@ -408,58 +402,22 @@ function AssistantMessageParts({
                 </div>
 
                 <div className={cn(showConnector && 'pb-4')}>
-                  <div
-                    className={cn(
-                      'overflow-hidden rounded-[1.25rem] border border-border/70 bg-background/90 shadow-sm',
-                      tone.card,
-                    )}
-                  >
-                    <button
-                      type="button"
-                      aria-expanded={isExpanded}
-                      aria-controls={detailsId}
-                      onClick={() => {
+                  <div className="min-w-0">
+                    <ToolCallSummaryButton
+                      part={toolPart}
+                      detailsId={detailsId}
+                      isExpanded={isExpanded}
+                      onToggle={() => {
                         setExpandedToolCalls((current) => ({
                           ...current,
                           [toolPart.toolCallId]: !isExpanded,
                         }));
                       }}
-                      className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className='font-semibold text-foreground text-sm leading-5'>
-                          {displayTitle}
-                        </div>
-                        {showRawToolName ? (
-                          <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-                            {toolPart.toolName}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="flex shrink-0 items-center gap-2 pl-2">
-                        <span
-                          className={cn(
-                            'rounded-full border px-2 py-0.5 font-medium text-[10px] uppercase tracking-[0.16em]',
-                            tone.badge,
-                          )}
-                        >
-                          {formatToolState(toolPart.state)}
-                        </span>
-                        <span
-                          className={cn(
-                            'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-                            isExpanded && 'rotate-180',
-                          )}
-                        >
-                          <ChevronDownIcon size={14} />
-                        </span>
-                      </div>
-                    </button>
+                    />
 
                     {canRespondApproval ? (
-                      <div className='border-border/60 border-t bg-background/60 px-4 py-3'>
-                        <div className="flex flex-wrap justify-end gap-2">
+                      <div className="mt-2 pl-6">
+                        <div className="flex flex-wrap gap-2">
                           <Button
                             size="sm"
                             type="button"
@@ -509,7 +467,7 @@ function AssistantMessageParts({
                           transition={detailsTransition}
                           className="overflow-hidden"
                         >
-                          <div className='border-border/60 border-t bg-muted/10 px-4 pt-3 pb-4'>
+                          <div className="mt-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-3">
                             <div className="space-y-3">
                               {hasInput ? (
                                 <ToolDetailsSection label="Input">
@@ -536,7 +494,7 @@ function AssistantMessageParts({
                               ) : null}
 
                               {!hasDetails ? (
-                                <div className='rounded-xl border border-border/60 border-dashed bg-muted/30 p-3 text-muted-foreground text-xs'>
+                                <div className="rounded-xl border border-border/60 border-dashed bg-muted/30 p-3 text-muted-foreground text-xs">
                                   Structured details are not available yet.
                                 </div>
                               ) : null}
@@ -610,10 +568,10 @@ function AssistantMessageParts({
                       className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className='font-semibold text-foreground text-sm leading-5'>
+                        <div className="font-semibold text-foreground text-sm leading-5">
                           {formatWorkflowEventTitle(part)}
                         </div>
-                        <div className='mt-1 text-[11px] text-muted-foreground uppercase tracking-[0.16em]'>
+                        <div className="mt-1 text-[11px] text-muted-foreground uppercase tracking-[0.16em]">
                           Workflow
                         </div>
                       </div>
@@ -656,9 +614,9 @@ function AssistantMessageParts({
                           transition={detailsTransition}
                           className="overflow-hidden"
                         >
-                          <div className='border-border/60 border-t px-4 pt-3 pb-4'>
+                          <div className="border-border/60 border-t px-4 pt-3 pb-4">
                             {part.data.type === 'system-event' ? (
-                              <div className='whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6'>
+                              <div className="whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6">
                                 {part.data.message}
                               </div>
                             ) : null}
@@ -812,23 +770,23 @@ const PurePreviewMessage = ({
           )}
         >
           {message.role === 'assistant' && (
-            <div className='flex size-8 shrink-0 items-center justify-center rounded-full bg-background ring-1 ring-border'>
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-background ring-1 ring-border">
               <div className="translate-y-px">
                 <Logo />
               </div>
             </div>
           )}
 
-          <div className='flex w-full min-w-0 flex-col gap-2'>
+          <div className="flex w-full min-w-0 flex-col gap-2">
             {message.role === 'user' &&
               hasRenderableContent &&
               mode === 'view' && (
-                <div className='flex flex-row items-start gap-2'>
+                <div className="flex flex-row items-start gap-2">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
-                        className='h-fit rounded-full px-2 text-muted-foreground opacity-0 group-hover/message:opacity-100'
+                        className="h-fit rounded-full px-2 text-muted-foreground opacity-0 group-hover/message:opacity-100"
                         onClick={() => {
                           setMode('edit');
                         }}
@@ -853,7 +811,7 @@ const PurePreviewMessage = ({
             {message.role === 'user' &&
               hasRenderableContent &&
               mode === 'edit' && (
-                <div className='flex flex-row items-start gap-2'>
+                <div className="flex flex-row items-start gap-2">
                   <div className="size-8" />
 
                   <MessageEditor
@@ -922,11 +880,11 @@ export const ThinkingMessage = () => {
           },
         )}
       >
-        <div className='flex size-8 shrink-0 items-center justify-center rounded-full ring-1 ring-border'>
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full ring-1 ring-border">
           <Logo />
         </div>
 
-        <div className='flex w-full min-w-0 flex-col gap-2'>
+        <div className="flex w-full min-w-0 flex-col gap-2">
           <div className="flex flex-col gap-4 text-muted-foreground">
             Thinking...
           </div>
