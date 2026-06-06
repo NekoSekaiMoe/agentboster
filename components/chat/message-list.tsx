@@ -1,7 +1,7 @@
 import type { ChatRequestOptions } from 'ai';
 import equal from 'fast-deep-equal';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUp } from 'lucide-react';
+import { ArrowDown } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 
 import type { WorkflowUIMessage } from '@/types/workflow';
@@ -112,32 +112,52 @@ function PureMessages({
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>(lastMessage, shouldShowThinking);
 
-  const [showScrollToTop, setShowScrollToTop] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const updateScrollToBottomVisibility = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+
+    setShowScrollToBottom(distanceFromBottom > 180);
+  }, [messagesContainerRef]);
 
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
-    const handleScroll = () => {
-      setShowScrollToTop(container.scrollTop > 300);
-    };
-
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [messagesContainerRef]);
-
-  const scrollToTop = useCallback(() => {
-    messagesContainerRef.current?.scrollTo({
-      top: 0,
-      behavior: 'smooth',
+    updateScrollToBottomVisibility();
+    container.addEventListener('scroll', updateScrollToBottomVisibility, {
+      passive: true,
     });
-  }, [messagesContainerRef]);
+    return () =>
+      container.removeEventListener('scroll', updateScrollToBottomVisibility);
+  }, [messagesContainerRef, updateScrollToBottomVisibility]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(updateScrollToBottomVisibility);
+    return () => cancelAnimationFrame(frame);
+  }, [
+    isLoading,
+    messages.length,
+    shouldShowThinking,
+    updateScrollToBottomVisibility,
+  ]);
+
+  const scrollToBottom = useCallback(() => {
+    setShowScrollToBottom(false);
+    messagesEndRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'end',
+    });
+  }, [messagesEndRef]);
 
   return (
-    <div className='relative min-h-0 min-w-0 flex-1'>
+    <div className="relative min-h-0 min-w-0 flex-1">
       <div
         ref={messagesContainerRef}
-        className='flex h-full min-h-0 flex-col gap-8 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-6 md:px-6 md:py-8'
+        className="flex h-full min-h-0 flex-col gap-8 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pt-5 pb-8 md:px-6 md:pt-8 md:pb-10"
       >
         {messages.length === 0 && <Overview onPromptSelect={onPromptSelect} />}
 
@@ -173,23 +193,23 @@ function PureMessages({
 
         <div
           ref={messagesEndRef}
-          className='min-h-[24px] min-w-[24px] shrink-0'
+          className="min-h-[24px] min-w-[24px] shrink-0"
         />
       </div>
 
       <AnimatePresence>
-        {showScrollToTop && (
+        {showScrollToBottom && (
           <motion.button
             type="button"
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             transition={{ duration: 0.2 }}
-            onClick={scrollToTop}
-            className='absolute bottom-6 right-6 flex size-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2'
-            aria-label="Scroll to top"
+            onClick={scrollToBottom}
+            className="absolute right-5 bottom-5 z-10 flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-md backdrop-blur transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            aria-label="Scroll to bottom"
           >
-            <ArrowUp className="size-5" />
+            <ArrowDown className="size-5" />
           </motion.button>
         )}
       </AnimatePresence>

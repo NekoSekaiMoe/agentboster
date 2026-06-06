@@ -76,6 +76,12 @@ function PureMultimodalInput({
     }
   }, []);
 
+  useEffect(() => {
+    if (width && width > 768) {
+      textareaRef.current?.focus();
+    }
+  }, [width]);
+
   const [localStorageInput, setLocalStorageInput] = useLocalStorage(
     `chat-input:${chatId}`,
     '',
@@ -334,7 +340,7 @@ function PureMultimodalInput({
           onChange={handleInput}
           className="!text-base max-h-[calc(75dvh)] min-h-[48px] resize-none overflow-hidden border-0 bg-transparent px-0 pt-0 pb-14 shadow-none focus-visible:ring-0"
           rows={2}
-          autoFocus
+          autoFocus={false}
           onClick={(event) => {
             setCursor(event.currentTarget.selectionStart ?? input.length);
           }}

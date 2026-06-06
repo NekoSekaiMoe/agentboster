@@ -1,11 +1,11 @@
 'use client';
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { ChevronRight, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 
 import { cn } from '@/lib/utils';
 import type { WorkflowUIMessage } from '@/types/workflow';
-import { ChevronDownIcon } from './icons';
 
 export function getReasoningParts(
   message: WorkflowUIMessage,
@@ -25,7 +25,6 @@ export function getReasoningParts(
 
 export function ReasoningTimeline({
   parts,
-  isLast = true,
 }: {
   parts: Array<{ text: string }>;
   isLast?: boolean;
@@ -43,100 +42,62 @@ export function ReasoningTimeline({
     ? { duration: 0 }
     : { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
 
-  const tone = {
-    badge:
-      'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-    card: '',
-    dot: 'bg-amber-500',
-  };
-
   return (
-    <div className="space-y-0">
+    <div className="space-y-2">
       {parts.map((part, index) => {
         const isExpanded = expandedReasoningParts[index] ?? false;
         const detailsId = `reasoning-details-${index}`;
-        const isLastItem = isLast && index === parts.length - 1;
 
         return (
-          <div
-            key={`reasoning-${index + 1}`}
-            className="grid grid-cols-[20px_minmax(0,1fr)] gap-3"
-          >
-            <div className="flex h-full flex-col items-center">
-              <span
+          <div key={`reasoning-${index + 1}`} className="min-w-0">
+            <button
+              type="button"
+              aria-expanded={isExpanded}
+              aria-controls={detailsId}
+              onClick={() => {
+                setExpandedReasoningParts((current) => ({
+                  ...current,
+                  [index]: !isExpanded,
+                }));
+              }}
+              className="-mx-1 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left text-foreground/70 text-sm leading-6 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            >
+              <Sparkles className="size-3.5 shrink-0 text-[#6d9ec3]" />
+              <span className="min-w-0 truncate">已完成思考</span>
+              <ChevronRight
                 className={cn(
-                  'mt-4 size-2.5 rounded-full border-2 border-background shadow-sm',
-                  tone.dot,
+                  'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                  isExpanded && 'rotate-90',
                 )}
               />
-              {!isLastItem ? (
-                <span className="mt-2 w-px flex-1 bg-border/80" />
-              ) : null}
-            </div>
+            </button>
 
-            <div className={cn(!isLastItem && 'pb-4')}>
-              <div
-                className={cn(
-                  'overflow-hidden rounded-[1.25rem] border border-border/70 bg-background/90 shadow-sm',
-                  tone.card,
-                )}
-              >
-                <button
-                  type="button"
-                  aria-expanded={isExpanded}
-                  aria-controls={detailsId}
-                  onClick={() => {
-                    setExpandedReasoningParts((current) => ({
-                      ...current,
-                      [index]: !isExpanded,
-                    }));
+            <AnimatePresence initial={false}>
+              {isExpanded ? (
+                <motion.div
+                  id={detailsId}
+                  initial={{
+                    height: 0,
+                    opacity: 0,
+                    y: reduceMotion ? 0 : -4,
                   }}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  animate={{ height: 'auto', opacity: 1, y: 0 }}
+                  exit={{
+                    height: 0,
+                    opacity: 0,
+                    y: reduceMotion ? 0 : -4,
+                  }}
+                  transition={detailsTransition}
+                  className="overflow-hidden"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className='truncate font-semibold text-foreground text-sm leading-5'>
-                      Reasoning
+                  <div className="mt-2 ml-6 rounded-lg border border-border/50 bg-muted/20 px-3 py-3">
+                    <div className="whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6">
+                      {part.text}
                     </div>
                   </div>
-
-                  <span
-                    className={cn(
-                      'shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-                      isExpanded && 'rotate-180',
-                    )}
-                  >
-                    <ChevronDownIcon size={14} />
-                  </span>
-                </button>
-
-                <AnimatePresence initial={false}>
-                  {isExpanded ? (
-                    <motion.div
-                      id={detailsId}
-                      initial={{
-                        height: 0,
-                        opacity: 0,
-                        y: reduceMotion ? 0 : -4,
-                      }}
-                      animate={{ height: 'auto', opacity: 1, y: 0 }}
-                      exit={{
-                        height: 0,
-                        opacity: 0,
-                        y: reduceMotion ? 0 : -4,
-                      }}
-                      transition={detailsTransition}
-                      className="overflow-hidden"
-                    >
-                      <div className='border-border/60 border-t bg-muted/10 px-4 pt-3 pb-4'>
-                        <div className='whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6'>
-                          {part.text}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ) : null}
-                </AnimatePresence>
-              </div>
-            </div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
           </div>
         );
       })}

@@ -2,7 +2,14 @@
 
 import { type DynamicToolUIPart, getToolName, isToolUIPart } from 'ai';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ChevronRight, Wrench } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronRight,
+  Code2,
+  Globe,
+  Terminal,
+  Wrench,
+} from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -16,25 +23,8 @@ export function formatJSON(value: unknown): string {
   }
 }
 
-export function formatToolState(state: DynamicToolUIPart['state']): string {
-  switch (state) {
-    case 'input-available':
-      return 'Called';
-    case 'approval-requested':
-      return 'Needs approval';
-    case 'approval-responded':
-      return 'Approval received';
-    case 'output-available':
-      return 'Result';
-    case 'output-error':
-      return 'Failed';
-    case 'output-denied':
-      return 'Denied';
-    case 'input-streaming':
-      return 'Preparing input';
-    default:
-      return state;
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 export function formatToolName(toolName: string): string {
@@ -139,15 +129,15 @@ export function getToolDisplayTitle(part: DynamicToolUIPart): string {
 function getToolActionText(state: DynamicToolUIPart['state']): string {
   switch (state) {
     case 'input-streaming':
-      return '正在准备';
+      return '正在使用';
     case 'input-available':
-      return '已调用';
+      return '已使用';
     case 'approval-requested':
       return '等待批准';
     case 'approval-responded':
       return '已批准';
     case 'output-error':
-      return '执行失败';
+      return '工具失败';
     case 'output-denied':
       return '已拒绝';
     case 'output-available':
@@ -156,62 +146,89 @@ function getToolActionText(state: DynamicToolUIPart['state']): string {
   }
 }
 
-export function getToolStateTone(state: DynamicToolUIPart['state']): {
-  badge: string;
-  card: string;
-  dot: string;
-} {
-  switch (state) {
-    case 'output-available':
-      return {
-        badge:
-          'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-        card: '',
-        dot: 'bg-emerald-500',
-      };
-    case 'output-error':
-      return {
-        badge:
-          'border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300',
-        card: '',
-        dot: 'bg-rose-500',
-      };
-    case 'approval-requested':
-      return {
-        badge:
-          'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-        card: 'border-l-[3px] border-l-amber-500/70',
-        dot: 'bg-amber-500',
-      };
-    case 'approval-responded':
-      return {
-        badge: 'border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300',
-        card: '',
-        dot: 'bg-sky-500',
-      };
-    case 'output-denied':
-      return {
-        badge:
-          'border-zinc-500/25 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300',
-        card: '',
-        dot: 'bg-zinc-500',
-      };
-    case 'input-streaming':
-      return {
-        badge:
-          'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300',
-        card: '',
-        dot: 'bg-indigo-500',
-      };
-    case 'input-available':
-    default:
-      return {
-        badge:
-          'border-slate-500/25 bg-slate-500/10 text-slate-700 dark:text-slate-300',
-        card: '',
-        dot: 'bg-slate-500',
-      };
+function formatDuration(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+    return '';
   }
+
+  if (milliseconds < 1000) {
+    return `${Math.round(milliseconds)}ms`;
+  }
+
+  const seconds = milliseconds / 1000;
+  if (seconds < 10) {
+    return `${seconds.toFixed(1)}s`;
+  }
+
+  return `${Math.round(seconds)}s`;
+}
+
+function readDurationCandidate(value: unknown): string {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return formatDuration(value > 60 ? value : value * 1000);
+  }
+
+  return '';
+}
+
+function getToolDurationText(part: DynamicToolUIPart): string {
+  const containers: unknown[] = [part];
+
+  if ('callProviderMetadata' in part) {
+    containers.push(part.callProviderMetadata);
+  }
+
+  if ('output' in part) {
+    containers.push(part.output);
+  }
+
+  for (const container of containers) {
+    if (!isRecord(container)) {
+      continue;
+    }
+
+    for (const key of [
+      'durationText',
+      'duration',
+      'durationMs',
+      'duration_ms',
+      'elapsedMs',
+      'elapsed_ms',
+    ]) {
+      const formatted = readDurationCandidate(container[key]);
+      if (formatted) {
+        return formatted;
+      }
+    }
+  }
+
+  return '';
+}
+
+function ToolCallIcon({ toolName }: { toolName: string }) {
+  const normalized = toolName.toLowerCase();
+
+  if (normalized.includes('python') || normalized.includes('code')) {
+    return <Code2 className="size-3.5 shrink-0 text-foreground/80" />;
+  }
+
+  if (normalized.includes('search') || normalized.includes('web')) {
+    return <Globe className="size-3.5 shrink-0 text-foreground/80" />;
+  }
+
+  if (normalized.includes('shell') || normalized.includes('terminal')) {
+    return <Terminal className="size-3.5 shrink-0 text-foreground/80" />;
+  }
+
+  if (normalized.includes('memory')) {
+    return <BookOpen className="size-3.5 shrink-0 text-foreground/80" />;
+  }
+
+  return <Wrench className="size-3.5 shrink-0 text-foreground/80" />;
 }
 
 export function ToolDetailsSection({
@@ -252,6 +269,7 @@ export function ToolCallSummaryButton({
 }) {
   const displayTitle = getToolDisplayTitle(part);
   const summary = `${getToolActionText(part.state)} ${displayTitle} 工具`;
+  const duration = getToolDurationText(part);
   const fullTitle =
     displayTitle === part.toolName
       ? displayTitle
@@ -264,13 +282,16 @@ export function ToolCallSummaryButton({
       aria-controls={detailsId}
       onClick={onToggle}
       title={fullTitle}
-      className="-mx-1 flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-left text-foreground/80 text-sm leading-6 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      className="-mx-1 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left text-foreground/75 text-sm leading-6 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
     >
-      <Wrench className="size-4 shrink-0 text-foreground/70" />
+      <ToolCallIcon toolName={part.toolName} />
       <span className="min-w-0 truncate">{summary}</span>
+      {duration ? (
+        <span className="shrink-0 text-muted-foreground/70">{duration}</span>
+      ) : null}
       <ChevronRight
         className={cn(
-          'size-4 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+          'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
           isExpanded && 'rotate-90',
         )}
       />
@@ -293,9 +314,8 @@ export function ToolTimeline({ parts }: { parts: DynamicToolUIPart[] }) {
     : { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
 
   return (
-    <div className="space-y-0">
+    <div className="space-y-2">
       {parts.map((part, index) => {
-        const tone = getToolStateTone(part.state);
         const detailsId = `tool-details-${part.toolCallId}-${index}`;
         const isExpanded = expandedToolCalls[part.toolCallId] ?? false;
         const hasInput = 'input' in part && part.input !== undefined;
@@ -307,92 +327,74 @@ export function ToolTimeline({ parts }: { parts: DynamicToolUIPart[] }) {
         return (
           <div
             key={`${part.toolCallId}-${part.state}-${index}`}
-            className="grid grid-cols-[20px_minmax(0,1fr)] gap-3"
+            className="min-w-0"
           >
-            <div className="flex h-full flex-col items-center">
-              <span
-                className={cn(
-                  'mt-3 size-2.5 rounded-full border-2 border-background shadow-sm',
-                  tone.dot,
-                  part.state === 'input-streaming' &&
-                    'animate-pulse motion-reduce:animate-none',
-                )}
-              />
-              {index < parts.length - 1 ? (
-                <span className="mt-2 w-px flex-1 bg-border/80" />
-              ) : null}
-            </div>
+            <ToolCallSummaryButton
+              part={part}
+              detailsId={detailsId}
+              isExpanded={isExpanded}
+              onToggle={() => {
+                setExpandedToolCalls((current) => ({
+                  ...current,
+                  [part.toolCallId]: !isExpanded,
+                }));
+              }}
+            />
 
-            <div className={cn(index < parts.length - 1 && 'pb-4')}>
-              <div className="min-w-0">
-                <ToolCallSummaryButton
-                  part={part}
-                  detailsId={detailsId}
-                  isExpanded={isExpanded}
-                  onToggle={() => {
-                    setExpandedToolCalls((current) => ({
-                      ...current,
-                      [part.toolCallId]: !isExpanded,
-                    }));
+            <AnimatePresence initial={false}>
+              {isExpanded ? (
+                <motion.div
+                  id={detailsId}
+                  initial={{
+                    height: 0,
+                    opacity: 0,
+                    y: reduceMotion ? 0 : -4,
                   }}
-                />
+                  animate={{ height: 'auto', opacity: 1, y: 0 }}
+                  exit={{
+                    height: 0,
+                    opacity: 0,
+                    y: reduceMotion ? 0 : -4,
+                  }}
+                  transition={detailsTransition}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-2 ml-6 rounded-lg border border-border/50 bg-muted/20 px-3 py-3">
+                    <div className="space-y-3">
+                      {hasInput ? (
+                        <ToolDetailsSection label="Input">
+                          <ToolDetailsPre value={part.input} />
+                        </ToolDetailsSection>
+                      ) : null}
 
-                <AnimatePresence initial={false}>
-                  {isExpanded ? (
-                    <motion.div
-                      id={detailsId}
-                      initial={{
-                        height: 0,
-                        opacity: 0,
-                        y: reduceMotion ? 0 : -4,
-                      }}
-                      animate={{ height: 'auto', opacity: 1, y: 0 }}
-                      exit={{
-                        height: 0,
-                        opacity: 0,
-                        y: reduceMotion ? 0 : -4,
-                      }}
-                      transition={detailsTransition}
-                      className="overflow-hidden"
-                    >
-                      <div className="mt-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-3">
-                        <div className="space-y-3">
-                          {hasInput ? (
-                            <ToolDetailsSection label="Input">
-                              <ToolDetailsPre value={part.input} />
-                            </ToolDetailsSection>
-                          ) : null}
+                      {hasOutput ? (
+                        <ToolDetailsSection label="Output">
+                          <ToolDetailsPre value={part.output} />
+                        </ToolDetailsSection>
+                      ) : null}
 
-                          {hasOutput ? (
-                            <ToolDetailsSection label="Output">
-                              <ToolDetailsPre value={part.output} />
-                            </ToolDetailsSection>
-                          ) : null}
+                      {hasApproval ? (
+                        <ToolDetailsSection label="Approval">
+                          <ToolDetailsPre value={part.approval} />
+                        </ToolDetailsSection>
+                      ) : null}
 
-                          {hasApproval ? (
-                            <ToolDetailsSection label="Approval">
-                              <ToolDetailsPre value={part.approval} />
-                            </ToolDetailsSection>
-                          ) : null}
+                      {hasError ? (
+                        <ToolDetailsSection label="Error">
+                          <ToolDetailsPre value={part.errorText} />
+                        </ToolDetailsSection>
+                      ) : null}
 
-                          {hasError ? (
-                            <ToolDetailsSection label="Error">
-                              <ToolDetailsPre value={part.errorText} />
-                            </ToolDetailsSection>
-                          ) : null}
-
-                          {!hasDetails ? (
-                            <div className="rounded-xl border border-border/60 border-dashed bg-muted/30 p-3 text-muted-foreground text-xs">
-                              Structured details are not available yet.
-                            </div>
-                          ) : null}
+                      {!hasDetails ? (
+                        <div className="rounded-lg border border-border/60 border-dashed bg-muted/30 p-3 text-muted-foreground text-xs">
+                          Structured details are not available yet.
                         </div>
-                      </div>
-                    </motion.div>
-                  ) : null}
-                </AnimatePresence>
-              </div>
-            </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
           </div>
         );
       })}

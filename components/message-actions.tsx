@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useCopyToClipboard } from 'usehooks-ts';
 
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { WorkflowUIMessage } from '@/types/workflow';
 import { CopyIcon, RefreshCwIcon } from './icons';
 import {
@@ -17,6 +18,24 @@ function getTextFromParts(message: WorkflowUIMessage): string {
     .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
     .map((p) => p.text)
     .join('');
+}
+
+function formatMessageTime(value: string | undefined): string {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  return `${month}-${day} ${hours}:${minutes}`;
 }
 
 export function PureMessageActions({
@@ -47,17 +66,25 @@ export function PureMessageActions({
   if (!textContent.trim() && message.role === 'assistant') return null;
 
   const isUser = message.role === 'user';
+  const timestamp = formatMessageTime(message.metadata?.createdAt);
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="flex flex-row gap-1">
+      <div
+        className={cn(
+          'flex flex-row items-center gap-2 text-muted-foreground text-xs',
+          isUser && 'justify-end',
+        )}
+      >
+        {timestamp ? <span className="leading-7">{timestamp}</span> : null}
+
         {/* Copy — both user and assistant */}
         {textContent.trim() && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                className='h-fit px-2 py-1 text-muted-foreground'
-                variant="outline"
+                className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                variant="ghost"
                 onClick={handleCopy}
               >
                 <CopyIcon />
@@ -71,8 +98,8 @@ export function PureMessageActions({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                className='h-fit px-2 py-1 text-muted-foreground'
-                variant="outline"
+                className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                variant="ghost"
                 onClick={handleRevert}
               >
                 <RefreshCwIcon />

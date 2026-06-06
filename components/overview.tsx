@@ -40,7 +40,7 @@ export const Overview = ({
   return (
     <motion.div
       key="overview"
-      className="mx-auto flex min-h-full max-w-4xl flex-col justify-center px-4 py-12"
+      className="mx-auto flex w-full max-w-4xl flex-col px-4 pt-10 pb-24 md:min-h-full md:justify-center md:py-12"
       initial={{ opacity: 0, scale: 0.98 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}

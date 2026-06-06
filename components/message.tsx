@@ -3,6 +3,7 @@
 import { type ChatRequestOptions } from 'ai';
 import equal from 'fast-deep-equal';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { ChevronRight, Sparkles } from 'lucide-react';
 import { memo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -18,8 +19,7 @@ import {
   type ComposerAttachment,
   filePartToComposerAttachment,
 } from './attachments';
-import { ChevronDownIcon, PencilEditIcon } from './icons';
-import { Logo } from './logo';
+import { PencilEditIcon } from './icons';
 import { Markdown } from './markdown';
 import { MessageActions } from './message-actions';
 import { MessageEditor } from './message-editor';
@@ -27,7 +27,7 @@ import {
   ToolCallSummaryButton,
   ToolDetailsPre,
   ToolDetailsSection,
-  getToolStateTone,
+  formatToolName,
   normalizeToolPart,
 } from './tool-timeline';
 import {
@@ -41,11 +41,7 @@ import {
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
-import {
-  WorkflowDataTimeline,
-  formatWorkflowEventTitle,
-  getWorkflowEventTone,
-} from './workflow-timeline';
+import { formatWorkflowEventTitle } from './workflow-timeline';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -93,7 +89,109 @@ function getFileAttachment(
   };
 }
 
-function AssistantMessageParts({
+function AssistantGlyph() {
+  return (
+    <div className="flex size-6 shrink-0 items-center justify-center pt-1 text-[#6d9ec3]">
+      <Sparkles className="size-5" fill="currentColor" strokeWidth={1.7} />
+    </div>
+  );
+}
+
+function WorkflowSummaryButton({
+  part,
+  detailsId,
+  isExpanded,
+  onToggle,
+}: {
+  part: WorkflowDataUIPart;
+  detailsId: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const agentName = getWorkflowDataAgentName(part);
+  const title = isWorkflowMessageUIPart(part)
+    ? formatWorkflowEventTitle(part)
+    : formatWorkflowStatusTitle(part);
+  const summary = agentName ? `${agentName}: ${title}` : title;
+
+  return (
+    <button
+      type="button"
+      aria-expanded={isExpanded}
+      aria-controls={detailsId}
+      onClick={onToggle}
+      className="-mx-1 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left text-foreground/70 text-sm leading-6 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+    >
+      <Sparkles className="size-3.5 shrink-0 text-[#6d9ec3]" />
+      <span className="min-w-0 truncate">Workflow {summary}</span>
+      <ChevronRight
+        className={cn(
+          'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+          isExpanded && 'rotate-90',
+        )}
+      />
+    </button>
+  );
+}
+
+function formatWorkflowStatusTitle(part: WorkflowDataUIPart): string {
+  if (part.data.kind !== 'status') {
+    return 'Workflow';
+  }
+
+  switch (part.data.type) {
+    case 'runtime-event':
+      return formatToolName(part.data.payload.event);
+    case 'token-usage':
+      return 'Token Usage';
+    case 'step-finish':
+      return `Step ${part.data.stepNumber} Finished`;
+    case 'user-message':
+      return 'User Message';
+    default:
+      return 'Workflow';
+  }
+}
+
+function WorkflowDetails({ part }: { part: WorkflowDataUIPart }) {
+  if (part.data.kind === 'message') {
+    return (
+      <div className="whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6">
+        {part.data.message}
+      </div>
+    );
+  }
+
+  switch (part.data.type) {
+    case 'runtime-event':
+      return <ToolDetailsPre value={part.data.payload} />;
+    case 'token-usage':
+      return <ToolDetailsPre value={part.data.usage} />;
+    case 'step-finish':
+      return (
+        <ToolDetailsPre
+          value={{
+            stepNumber: part.data.stepNumber,
+            finishReason: part.data.finishReason,
+            totalTokens: part.data.totalTokens,
+            inputTokens: part.data.inputTokens,
+            outputTokens: part.data.outputTokens,
+            messageIds: part.data.messageIds,
+          }}
+        />
+      );
+    case 'user-message':
+      return (
+        <div className="whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6">
+          {part.data.content}
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
+function AstrBotAssistantMessageParts({
   message,
   onToolApproval,
 }: {
@@ -127,7 +225,6 @@ function AssistantMessageParts({
     ? { duration: 0 }
     : { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
 
-  // Build a list of renderable parts with their index info
   const renderableParts = message.parts
     .map((part, index) => ({ part, index }))
     .filter(({ part }) => {
@@ -143,59 +240,8 @@ function AssistantMessageParts({
       if (normalizeToolPart(part)) {
         return true;
       }
-      if (isWorkflowStatusUIPart(part)) {
-        return Boolean(getWorkflowDataAgentName(part));
-      }
-      if (isWorkflowMessageUIPart(part)) {
-        return true;
-      }
-      return false;
+      return isWorkflowMessageUIPart(part) || isWorkflowStatusUIPart(part);
     });
-
-  // Check if a part is a timeline type (reasoning, tool, workflow)
-  const isTimelinePart = (part: WorkflowUIMessage['parts'][number]) => {
-    return (
-      part.type === 'reasoning' ||
-      normalizeToolPart(part) !== null ||
-      isWorkflowMessageUIPart(part) ||
-      (isWorkflowStatusUIPart(part) && Boolean(getWorkflowDataAgentName(part)))
-    );
-  };
-
-  const workflowAgentGroups = new Map<
-    string,
-    { firstIndex: number; parts: WorkflowDataUIPart[] }
-  >();
-
-  for (const { part, index } of renderableParts) {
-    if (!isWorkflowMessageUIPart(part) && !isWorkflowStatusUIPart(part)) {
-      continue;
-    }
-
-    const agentName = getWorkflowDataAgentName(part);
-    if (!agentName) {
-      continue;
-    }
-
-    const existing = workflowAgentGroups.get(agentName);
-    if (existing) {
-      existing.parts.push(part);
-      continue;
-    }
-
-    workflowAgentGroups.set(agentName, {
-      firstIndex: index,
-      parts: [part],
-    });
-  }
-
-  // Check if next renderable part is also a timeline part (for connector line)
-  const hasNextTimelinePart = (currentIdx: number) => {
-    const currentPos = renderableParts.findIndex((p) => p.index === currentIdx);
-    if (currentPos < 0 || currentPos >= renderableParts.length - 1)
-      return false;
-    return isTimelinePart(renderableParts[currentPos + 1].part);
-  };
 
   const openApprovalDialog = (input: {
     toolCallId: string;
@@ -247,15 +293,13 @@ function AssistantMessageParts({
 
   return (
     <>
-      <div className="flex w-full min-w-0 flex-col gap-2">
+      <div className="flex w-full min-w-0 flex-col gap-3 text-[15px] leading-7">
         {renderableParts.map(({ part, index }) => {
-          const showConnector = hasNextTimelinePart(index);
-
           if (part.type === 'text') {
             return (
               <div
                 key={`text-${message.id}-${index}`}
-                className="min-w-0 break-words"
+                className="min-w-0 break-words text-foreground/90"
               >
                 <Markdown>{part.text}</Markdown>
               </div>
@@ -264,7 +308,10 @@ function AssistantMessageParts({
 
           if (part.type === 'file') {
             const attachment = getFileAttachment(part);
-            if (!attachment) return null;
+            if (!attachment) {
+              return null;
+            }
+
             return (
               <div key={`file-${message.id}-${index}`}>
                 <AttachmentList attachments={[attachment]} />
@@ -275,100 +322,63 @@ function AssistantMessageParts({
           if (part.type === 'reasoning' && typeof part.text === 'string') {
             const reasoningId = `reasoning-${message.id}-${index}`;
             const isExpanded = expandedReasoningParts[reasoningId] ?? false;
-            const tone = {
-              badge:
-                'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-              card: '',
-              dot: 'bg-amber-500',
-            };
 
             return (
-              <div
-                key={reasoningId}
-                className="grid grid-cols-[20px_minmax(0,1fr)] gap-3"
-              >
-                <div className="flex h-full flex-col items-center">
-                  <span
+              <div key={reasoningId} className="min-w-0">
+                <button
+                  type="button"
+                  aria-expanded={isExpanded}
+                  aria-controls={`${reasoningId}-details`}
+                  onClick={() => {
+                    setExpandedReasoningParts((current) => ({
+                      ...current,
+                      [reasoningId]: !isExpanded,
+                    }));
+                  }}
+                  className="-mx-1 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-left text-foreground/70 text-sm leading-6 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                >
+                  <Sparkles className="size-3.5 shrink-0 text-[#6d9ec3]" />
+                  <span className="min-w-0 truncate">已完成思考</span>
+                  <ChevronRight
                     className={cn(
-                      'mt-4 size-2.5 rounded-full border-2 border-background shadow-sm',
-                      tone.dot,
+                      'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                      isExpanded && 'rotate-90',
                     )}
                   />
-                  {showConnector ? (
-                    <span className="mt-2 w-px flex-1 bg-border/80" />
-                  ) : null}
-                </div>
+                </button>
 
-                <div className={cn(showConnector && 'pb-4')}>
-                  <div
-                    className={cn(
-                      'overflow-hidden rounded-[1.25rem] border border-border/70 bg-background/90 shadow-sm',
-                      tone.card,
-                    )}
-                  >
-                    <button
-                      type="button"
-                      aria-expanded={isExpanded}
-                      aria-controls={`${reasoningId}-details`}
-                      onClick={() => {
-                        setExpandedReasoningParts((current) => ({
-                          ...current,
-                          [reasoningId]: !isExpanded,
-                        }));
+                <AnimatePresence initial={false}>
+                  {isExpanded ? (
+                    <motion.div
+                      id={`${reasoningId}-details`}
+                      initial={{
+                        height: 0,
+                        opacity: 0,
+                        y: reduceMotion ? 0 : -4,
                       }}
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                      animate={{ height: 'auto', opacity: 1, y: 0 }}
+                      exit={{
+                        height: 0,
+                        opacity: 0,
+                        y: reduceMotion ? 0 : -4,
+                      }}
+                      transition={detailsTransition}
+                      className="overflow-hidden"
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-semibold text-foreground text-sm leading-5">
-                          Reasoning
+                      <div className="mt-2 ml-6 rounded-lg border border-border/50 bg-muted/20 px-3 py-3">
+                        <div className="whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6">
+                          {part.text}
                         </div>
                       </div>
-
-                      <span
-                        className={cn(
-                          'shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-                          isExpanded && 'rotate-180',
-                        )}
-                      >
-                        <ChevronDownIcon size={14} />
-                      </span>
-                    </button>
-
-                    <AnimatePresence initial={false}>
-                      {isExpanded ? (
-                        <motion.div
-                          id={`${reasoningId}-details`}
-                          initial={{
-                            height: 0,
-                            opacity: 0,
-                            y: reduceMotion ? 0 : -4,
-                          }}
-                          animate={{ height: 'auto', opacity: 1, y: 0 }}
-                          exit={{
-                            height: 0,
-                            opacity: 0,
-                            y: reduceMotion ? 0 : -4,
-                          }}
-                          transition={detailsTransition}
-                          className="overflow-hidden"
-                        >
-                          <div className="border-border/60 border-t bg-muted/10 px-4 pt-3 pb-4">
-                            <div className="whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6">
-                              {part.text}
-                            </div>
-                          </div>
-                        </motion.div>
-                      ) : null}
-                    </AnimatePresence>
-                  </div>
-                </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
               </div>
             );
           }
 
           const toolPart = normalizeToolPart(part);
           if (toolPart) {
-            const tone = getToolStateTone(toolPart.state);
             const detailsId = `tool-details-${toolPart.toolCallId}-${index}`;
             const isExpanded = expandedToolCalls[toolPart.toolCallId] ?? false;
             const hasInput =
@@ -385,268 +395,156 @@ function AssistantMessageParts({
             return (
               <div
                 key={`${toolPart.toolCallId}-${toolPart.state}-${index}`}
-                className="grid grid-cols-[20px_minmax(0,1fr)] gap-3"
+                className="min-w-0"
               >
-                <div className="flex h-full flex-col items-center">
-                  <span
-                    className={cn(
-                      'mt-3 size-2.5 rounded-full border-2 border-background shadow-sm',
-                      tone.dot,
-                      toolPart.state === 'input-streaming' &&
-                        'animate-pulse motion-reduce:animate-none',
-                    )}
-                  />
-                  {showConnector ? (
-                    <span className="mt-2 w-px flex-1 bg-border/80" />
-                  ) : null}
-                </div>
+                <ToolCallSummaryButton
+                  part={toolPart}
+                  detailsId={detailsId}
+                  isExpanded={isExpanded}
+                  onToggle={() => {
+                    setExpandedToolCalls((current) => ({
+                      ...current,
+                      [toolPart.toolCallId]: !isExpanded,
+                    }));
+                  }}
+                />
 
-                <div className={cn(showConnector && 'pb-4')}>
-                  <div className="min-w-0">
-                    <ToolCallSummaryButton
-                      part={toolPart}
-                      detailsId={detailsId}
-                      isExpanded={isExpanded}
-                      onToggle={() => {
-                        setExpandedToolCalls((current) => ({
-                          ...current,
-                          [toolPart.toolCallId]: !isExpanded,
-                        }));
+                {canRespondApproval ? (
+                  <div className="mt-2 ml-6 flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        openApprovalDialog({
+                          toolCallId: toolPart.toolCallId,
+                          toolName: toolPart.toolName,
+                          action: 'reject',
+                        });
                       }}
-                    />
+                    >
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm"
+                      type="button"
+                      onClick={() => {
+                        openApprovalDialog({
+                          toolCallId: toolPart.toolCallId,
+                          toolName: toolPart.toolName,
+                          action: 'approve',
+                        });
+                      }}
+                    >
+                      Approve
+                    </Button>
+                  </div>
+                ) : null}
 
-                    {canRespondApproval ? (
-                      <div className="mt-2 pl-6">
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                              openApprovalDialog({
-                                toolCallId: toolPart.toolCallId,
-                                toolName: toolPart.toolName,
-                                action: 'reject',
-                              });
-                            }}
-                          >
-                            Reject
-                          </Button>
-                          <Button
-                            size="sm"
-                            type="button"
-                            onClick={() => {
-                              openApprovalDialog({
-                                toolCallId: toolPart.toolCallId,
-                                toolName: toolPart.toolName,
-                                action: 'approve',
-                              });
-                            }}
-                          >
-                            Approve
-                          </Button>
+                <AnimatePresence initial={false}>
+                  {isExpanded ? (
+                    <motion.div
+                      id={detailsId}
+                      initial={{
+                        height: 0,
+                        opacity: 0,
+                        y: reduceMotion ? 0 : -4,
+                      }}
+                      animate={{ height: 'auto', opacity: 1, y: 0 }}
+                      exit={{
+                        height: 0,
+                        opacity: 0,
+                        y: reduceMotion ? 0 : -4,
+                      }}
+                      transition={detailsTransition}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-2 ml-6 rounded-lg border border-border/50 bg-muted/20 px-3 py-3">
+                        <div className="space-y-3">
+                          {hasInput ? (
+                            <ToolDetailsSection label="Input">
+                              <ToolDetailsPre value={toolPart.input} />
+                            </ToolDetailsSection>
+                          ) : null}
+
+                          {hasOutput ? (
+                            <ToolDetailsSection label="Output">
+                              <ToolDetailsPre value={toolPart.output} />
+                            </ToolDetailsSection>
+                          ) : null}
+
+                          {hasApproval ? (
+                            <ToolDetailsSection label="Approval">
+                              <ToolDetailsPre value={toolPart.approval} />
+                            </ToolDetailsSection>
+                          ) : null}
+
+                          {hasError ? (
+                            <ToolDetailsSection label="Error">
+                              <ToolDetailsPre value={toolPart.errorText} />
+                            </ToolDetailsSection>
+                          ) : null}
+
+                          {!hasDetails ? (
+                            <div className="rounded-lg border border-border/60 border-dashed bg-muted/30 p-3 text-muted-foreground text-xs">
+                              Structured details are not available yet.
+                            </div>
+                          ) : null}
                         </div>
                       </div>
-                    ) : null}
-
-                    <AnimatePresence initial={false}>
-                      {isExpanded ? (
-                        <motion.div
-                          id={detailsId}
-                          initial={{
-                            height: 0,
-                            opacity: 0,
-                            y: reduceMotion ? 0 : -4,
-                          }}
-                          animate={{ height: 'auto', opacity: 1, y: 0 }}
-                          exit={{
-                            height: 0,
-                            opacity: 0,
-                            y: reduceMotion ? 0 : -4,
-                          }}
-                          transition={detailsTransition}
-                          className="overflow-hidden"
-                        >
-                          <div className="mt-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-3">
-                            <div className="space-y-3">
-                              {hasInput ? (
-                                <ToolDetailsSection label="Input">
-                                  <ToolDetailsPre value={toolPart.input} />
-                                </ToolDetailsSection>
-                              ) : null}
-
-                              {hasOutput ? (
-                                <ToolDetailsSection label="Output">
-                                  <ToolDetailsPre value={toolPart.output} />
-                                </ToolDetailsSection>
-                              ) : null}
-
-                              {hasApproval ? (
-                                <ToolDetailsSection label="Approval">
-                                  <ToolDetailsPre value={toolPart.approval} />
-                                </ToolDetailsSection>
-                              ) : null}
-
-                              {hasError ? (
-                                <ToolDetailsSection label="Error">
-                                  <ToolDetailsPre value={toolPart.errorText} />
-                                </ToolDetailsSection>
-                              ) : null}
-
-                              {!hasDetails ? (
-                                <div className="rounded-xl border border-border/60 border-dashed bg-muted/30 p-3 text-muted-foreground text-xs">
-                                  Structured details are not available yet.
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
-                        </motion.div>
-                      ) : null}
-                    </AnimatePresence>
-                  </div>
-                </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
               </div>
             );
           }
 
-          if (isWorkflowMessageUIPart(part)) {
-            const agentName = getWorkflowDataAgentName(part);
-            if (agentName) {
-              const workflowGroup = workflowAgentGroups.get(agentName);
-              if (!workflowGroup || workflowGroup.firstIndex !== index) {
-                return null;
-              }
-
-              return (
-                <div key={`workflow-agent-${message.id}-${agentName}-${index}`}>
-                  <WorkflowDataTimeline
-                    agentName={agentName}
-                    parts={workflowGroup.parts}
-                  />
-                </div>
-              );
-            }
-
-            const tone = getWorkflowEventTone(part);
-            const workflowId = `${part.data.type}-${part.data.eventType}-${index}`;
+          if (isWorkflowMessageUIPart(part) || isWorkflowStatusUIPart(part)) {
+            const workflowSuffix =
+              part.data.kind === 'message'
+                ? `${part.data.type}-${part.data.eventType}`
+                : `${part.data.type}-${index}`;
+            const workflowId = `workflow-${message.id}-${workflowSuffix}`;
             const isExpanded = expandedWorkflowParts[workflowId] ?? false;
 
             return (
-              <div
-                key={workflowId}
-                className="grid grid-cols-[20px_minmax(0,1fr)] gap-3"
-              >
-                <div className="flex h-full flex-col items-center">
-                  <span
-                    className={cn(
-                      'mt-4 size-2.5 rounded-full border-2 border-background shadow-sm',
-                      tone.dot,
-                    )}
-                  />
-                  {showConnector ? (
-                    <span className="mt-2 w-px flex-1 bg-border/80" />
-                  ) : null}
-                </div>
-
-                <div className={cn(showConnector && 'pb-4')}>
-                  <div
-                    className={cn(
-                      'overflow-hidden rounded-[1.25rem] border border-border/70 bg-background/90 shadow-sm',
-                      tone.card,
-                    )}
-                  >
-                    <button
-                      type="button"
-                      aria-expanded={isExpanded}
-                      aria-controls={`${workflowId}-details`}
-                      onClick={() => {
-                        setExpandedWorkflowParts((current) => ({
-                          ...current,
-                          [workflowId]: !isExpanded,
-                        }));
-                      }}
-                      className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-foreground text-sm leading-5">
-                          {formatWorkflowEventTitle(part)}
-                        </div>
-                        <div className="mt-1 text-[11px] text-muted-foreground uppercase tracking-[0.16em]">
-                          Workflow
-                        </div>
-                      </div>
-
-                      <div className="flex shrink-0 items-center gap-2 pl-2">
-                        <span
-                          className={cn(
-                            'rounded-full border px-2 py-0.5 font-medium text-[10px] uppercase tracking-[0.16em]',
-                            tone.badge,
-                          )}
-                        >
-                          {isExpanded ? 'Expanded' : 'Collapsed'}
-                        </span>
-                        <span
-                          className={cn(
-                            'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-                            isExpanded && 'rotate-180',
-                          )}
-                        >
-                          <ChevronDownIcon size={14} />
-                        </span>
-                      </div>
-                    </button>
-
-                    <AnimatePresence initial={false}>
-                      {isExpanded ? (
-                        <motion.div
-                          id={`${workflowId}-details`}
-                          initial={{
-                            height: 0,
-                            opacity: 0,
-                            y: reduceMotion ? 0 : -4,
-                          }}
-                          animate={{ height: 'auto', opacity: 1, y: 0 }}
-                          exit={{
-                            height: 0,
-                            opacity: 0,
-                            y: reduceMotion ? 0 : -4,
-                          }}
-                          transition={detailsTransition}
-                          className="overflow-hidden"
-                        >
-                          <div className="border-border/60 border-t px-4 pt-3 pb-4">
-                            {part.data.type === 'system-event' ? (
-                              <div className="whitespace-pre-wrap break-words text-foreground/80 text-sm leading-6">
-                                {part.data.message}
-                              </div>
-                            ) : null}
-                          </div>
-                        </motion.div>
-                      ) : null}
-                    </AnimatePresence>
-                  </div>
-                </div>
-              </div>
-            );
-          }
-
-          if (isWorkflowStatusUIPart(part)) {
-            const agentName = getWorkflowDataAgentName(part);
-            if (!agentName) {
-              return null;
-            }
-
-            const workflowGroup = workflowAgentGroups.get(agentName);
-            if (!workflowGroup || workflowGroup.firstIndex !== index) {
-              return null;
-            }
-
-            return (
-              <div key={`workflow-agent-${message.id}-${agentName}-${index}`}>
-                <WorkflowDataTimeline
-                  agentName={agentName}
-                  parts={workflowGroup.parts}
+              <div key={workflowId} className="min-w-0">
+                <WorkflowSummaryButton
+                  part={part}
+                  detailsId={`${workflowId}-details`}
+                  isExpanded={isExpanded}
+                  onToggle={() => {
+                    setExpandedWorkflowParts((current) => ({
+                      ...current,
+                      [workflowId]: !isExpanded,
+                    }));
+                  }}
                 />
+
+                <AnimatePresence initial={false}>
+                  {isExpanded ? (
+                    <motion.div
+                      id={`${workflowId}-details`}
+                      initial={{
+                        height: 0,
+                        opacity: 0,
+                        y: reduceMotion ? 0 : -4,
+                      }}
+                      animate={{ height: 'auto', opacity: 1, y: 0 }}
+                      exit={{
+                        height: 0,
+                        opacity: 0,
+                        y: reduceMotion ? 0 : -4,
+                      }}
+                      transition={detailsTransition}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-2 ml-6 rounded-lg border border-border/50 bg-muted/20 px-3 py-3">
+                        <WorkflowDetails part={part} />
+                      </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
               </div>
             );
           }
@@ -754,7 +652,7 @@ const PurePreviewMessage = ({
   return (
     <AnimatePresence>
       <motion.div
-        className="group/message mx-auto w-full max-w-full px-3 sm:max-w-3xl sm:px-4"
+        className="group/message mx-auto w-full max-w-full px-3 sm:max-w-[920px] sm:px-4"
         initial={{ y: 5, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         data-role={message.role}
@@ -769,13 +667,7 @@ const PurePreviewMessage = ({
             },
           )}
         >
-          {message.role === 'assistant' && (
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-background ring-1 ring-border">
-              <div className="translate-y-px">
-                <Logo />
-              </div>
-            </div>
-          )}
+          {message.role === 'assistant' && <AssistantGlyph />}
 
           <div className="flex w-full min-w-0 flex-col gap-2">
             {message.role === 'user' &&
@@ -797,7 +689,7 @@ const PurePreviewMessage = ({
                     <TooltipContent>Edit message</TooltipContent>
                   </Tooltip>
 
-                  <div className="flex min-w-0 max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-primary px-3 py-2 text-primary-foreground">
+                  <div className="flex min-w-0 max-w-full flex-col gap-3 overflow-hidden rounded-2xl bg-[#e7ecf5] px-4 py-2.5 text-foreground shadow-none dark:bg-muted">
                     <AttachmentList attachments={attachments} />
                     {textContent ? (
                       <div className="min-w-0 break-words">
@@ -825,7 +717,7 @@ const PurePreviewMessage = ({
               )}
 
             {message.role === 'assistant' && (
-              <AssistantMessageParts
+              <AstrBotAssistantMessageParts
                 message={message}
                 onToolApproval={onToolApproval}
               />
@@ -867,7 +759,7 @@ export const ThinkingMessage = () => {
 
   return (
     <motion.div
-      className="group/message mx-auto w-full max-w-full px-3 sm:max-w-3xl sm:px-4"
+      className="group/message mx-auto w-full max-w-full px-3 sm:max-w-[920px] sm:px-4"
       initial={{ y: 5, opacity: 0 }}
       animate={{ y: 0, opacity: 1, transition: { delay: 1 } }}
       data-role={role}
@@ -880,9 +772,7 @@ export const ThinkingMessage = () => {
           },
         )}
       >
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full ring-1 ring-border">
-          <Logo />
-        </div>
+        <AssistantGlyph />
 
         <div className="flex w-full min-w-0 flex-col gap-2">
           <div className="flex flex-col gap-4 text-muted-foreground">
