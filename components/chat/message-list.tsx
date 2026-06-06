@@ -134,10 +134,10 @@ function PureMessages({
   }, [messagesContainerRef]);
 
   return (
-    <div className='relative min-w-0 flex-1'>
+    <div className='relative min-h-0 min-w-0 flex-1'>
       <div
         ref={messagesContainerRef}
-        className='flex h-full flex-col gap-8 overflow-x-hidden overflow-y-scroll px-4 py-6 md:px-6 md:py-8'
+        className='flex h-full min-h-0 flex-col gap-8 overflow-x-hidden overflow-y-auto overscroll-contain px-4 py-6 md:px-6 md:py-8'
       >
         {messages.length === 0 && <Overview onPromptSelect={onPromptSelect} />}
 

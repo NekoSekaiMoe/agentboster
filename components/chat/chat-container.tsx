@@ -708,8 +708,8 @@ export function Chat({
     <SidebarProvider>
       <ChatSidebar />
       <MobileDrawerBridge />
-      <SidebarInset className="bg-background">
-        <div className="flex h-dvh min-w-0 flex-col overflow-x-hidden bg-background">
+      <SidebarInset className="min-w-0 bg-background">
+        <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background">
           <ChatHeader
             session={headerSession}
             chatId={id}
@@ -729,18 +729,20 @@ export function Chat({
             regenerate={regenerate}
           />
 
-          <form className="mx-auto flex w-full gap-2 bg-background/95 px-4 pt-3 pb-4 backdrop-blur md:max-w-4xl md:pb-6">
-            <MultimodalInput
-              chatId={id}
-              focusTrigger={composerFocusKey}
-              input={input}
-              setInput={setInput}
-              isLoading={isLoading}
-              stop={() => {
-                void cancelWorkflow();
-              }}
-              sendMessage={submitChatMessage}
-            />
+          <form className="sticky bottom-0 z-20 shrink-0 border-t bg-background/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-[0_-12px_30px_rgba(15,23,42,0.06)] backdrop-blur md:pb-6">
+            <div className="mx-auto flex w-full gap-2 md:max-w-4xl">
+              <MultimodalInput
+                chatId={id}
+                focusTrigger={composerFocusKey}
+                input={input}
+                setInput={setInput}
+                isLoading={isLoading}
+                stop={() => {
+                  void cancelWorkflow();
+                }}
+                sendMessage={submitChatMessage}
+              />
+            </div>
           </form>
 
           <SessionRuntimePanel

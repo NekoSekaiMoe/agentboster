@@ -1,5 +1,7 @@
 import { type RefObject, useEffect, useRef } from 'react';
 
+const PINNED_TO_BOTTOM_THRESHOLD = 64;
+
 export function useScrollToBottom<T extends HTMLElement>(
   trackedItem: unknown,
   secondarySignal: unknown = null,
@@ -10,6 +12,7 @@ export function useScrollToBottom<T extends HTMLElement>(
   const hasMountedRef = useRef(false);
   const previousTrackedItemRef = useRef<unknown>(null);
   const previousSecondarySignalRef = useRef<unknown>(null);
+  const touchStartYRef = useRef<number | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -21,14 +24,48 @@ export function useScrollToBottom<T extends HTMLElement>(
       const distanceFromBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight;
 
-      isPinnedToBottomRef.current = distanceFromBottom <= 32;
+      isPinnedToBottomRef.current =
+        distanceFromBottom <= PINNED_TO_BOTTOM_THRESHOLD;
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) {
+        isPinnedToBottomRef.current = false;
+      }
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      touchStartYRef.current = event.touches[0]?.clientY ?? null;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const startY = touchStartYRef.current;
+      const currentY = event.touches[0]?.clientY;
+
+      if (startY == null || currentY == null) {
+        return;
+      }
+
+      if (currentY - startY > 4) {
+        isPinnedToBottomRef.current = false;
+      }
     };
 
     updatePinnedState();
     container.addEventListener('scroll', updatePinnedState, { passive: true });
+    container.addEventListener('wheel', handleWheel, { passive: true });
+    container.addEventListener('touchstart', handleTouchStart, {
+      passive: true,
+    });
+    container.addEventListener('touchmove', handleTouchMove, {
+      passive: true,
+    });
 
     return () => {
       container.removeEventListener('scroll', updatePinnedState);
+      container.removeEventListener('wheel', handleWheel);
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
     };
   }, []);
 
