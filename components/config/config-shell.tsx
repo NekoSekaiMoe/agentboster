@@ -82,24 +82,22 @@ export function ConfigShell({
             </div>
           </div>
 
-          <nav className="flex snap-x snap-mandatory scroll-px-4 gap-2 overflow-x-auto pb-1">
+          <nav className="flex flex-wrap items-center gap-2">
             {configSections.map((item) => {
               const href = `/config/${item.key}`;
               const isActive = pathname === href;
 
               return (
-                <Link
+                <Button
                   key={item.key}
-                  href={href}
-                  prefetch={false}
-                  className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1.5 text-sm transition-colors ${
-                    isActive
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                  }`}
+                  asChild
+                  size="sm"
+                  variant={isActive ? 'default' : 'secondary'}
                 >
-                  {item.title}
-                </Link>
+                  <Link href={href} prefetch={false}>
+                    {item.title}
+                  </Link>
+                </Button>
               );
             })}
           </nav>

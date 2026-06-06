@@ -94,7 +94,7 @@ function PureChatHeader({
               {
                 label: 'External Thread',
                 value: session.externalThreadId,
-                valueClassName: 'break-all font-mono text-foreground',
+                valueClassName: 'font-mono text-foreground',
               },
             ]
           : []),
@@ -137,7 +137,7 @@ function PureChatHeader({
             </div>
           </div>
 
-          <div className="mt-2 flex min-h-5 flex-wrap items-center gap-2 text-muted-foreground text-xs">
+          <div className="mt-2 flex min-h-5 min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 text-muted-foreground text-xs">
             {session ? (
               <>
                 <span className="max-w-[280px] truncate font-medium text-foreground">
@@ -176,12 +176,14 @@ function PureChatHeader({
                 {sessionDetails.map(({ label, value, valueClassName }) => (
                   <span
                     key={label}
-                    className="inline-flex w-fit max-w-full items-center gap-1 rounded-md bg-muted px-2 py-1 leading-5"
+                    className="inline-flex max-w-none shrink-0 items-center gap-1 rounded-md bg-muted px-2 py-1 leading-5"
                   >
                     <span className="shrink-0 whitespace-nowrap text-muted-foreground/80">
                       {label}
                     </span>
-                    <span className={`min-w-0 ${valueClassName}`}>{value}</span>
+                    <span className={`whitespace-nowrap ${valueClassName}`}>
+                      {value}
+                    </span>
                   </span>
                 ))}
                 {tokenDisplay && <span>Tokens {tokenDisplay}</span>}

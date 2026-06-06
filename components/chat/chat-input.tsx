@@ -356,17 +356,17 @@ function PureMultimodalInput({
           }}
         />
 
-        <div className="absolute bottom-0 left-0 flex w-fit flex-row justify-end p-3">
-          <AttachmentButton onClick={() => fileInputRef.current?.click()} />
-        </div>
-
         <div className="absolute right-0 bottom-0 flex w-fit flex-row justify-end gap-2 p-3">
-          <SendButton
-            input={input}
-            hasAttachments={attachments.length > 0}
-            submitForm={submitForm}
-          />
-          {isLoading ? <StopButton stop={stop} /> : null}
+          <AttachmentButton onClick={() => fileInputRef.current?.click()} />
+          {isLoading ? (
+            <StopButton stop={stop} />
+          ) : (
+            <SendButton
+              input={input}
+              hasAttachments={attachments.length > 0}
+              submitForm={submitForm}
+            />
+          )}
         </div>
       </div>
     </div>
