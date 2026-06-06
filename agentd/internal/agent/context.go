@@ -5,7 +5,9 @@ import (
 	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
+	"github.com/clawless/agentd/internal/eventbus"
 	"github.com/clawless/agentd/internal/persistence"
+	"github.com/clawless/agentd/internal/worker/workers"
 )
 
 // AgentContext holds the runtime context for an agent session.
@@ -32,6 +34,10 @@ type AgentContext struct {
 
 	// Persistence stores (injected by Manager)
 	BGTaskStore *persistence.BackgroundTaskStore
+
+	// Parallel exec infrastructure (injected by Manager/Dispatcher)
+	ExecBus       *eventbus.Bus
+	ExecCollector *workers.BatchCollector
 
 	// TaskState tracks execution state across compaction boundaries
 	TaskState TaskState

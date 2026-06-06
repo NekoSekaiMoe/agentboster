@@ -28,18 +28,18 @@ type SandboxProvider interface {
 type SandboxSpec struct {
 	Type           string
 	AgentID        string
-	Persistent     bool              // true = LXC persistent container
-	Distro         string            // LXC distro (default: alpine)
-	Release        string            // LXC release (default: 3.21)
-	InitCommands   []string          // LXC init commands after first boot
-	CPULimit       float64           // CPU cores limit (Docker: 0.25, LXC: 1.0)
-	MemoryLimit    int64             // Memory limit in bytes (Docker: 256MB, LXC: 512MB)
-	Image          string            // Docker image
+	Persistent     bool     // true = LXC persistent container
+	Distro         string   // LXC distro (default: alpine)
+	Release        string   // LXC release (default: 3.21)
+	InitCommands   []string // LXC init commands after first boot
+	CPULimit       float64  // CPU cores limit (Docker: 0.25, LXC: 1.0)
+	MemoryLimit    int64    // Memory limit in bytes (Docker: 256MB, LXC: 512MB)
+	Image          string   // Docker image
 	Mounts         []Mount
 	Environment    map[string]string
 	WorkDir        string
-	SecurityLevel  string // "light" (default) or "strict" (Docker only)
-	UserSpecified  bool   // true if user explicitly specified sandbox type
+	SecurityLevel  string               // "light" (default) or "strict" (Docker only)
+	UserSpecified  bool                 // true if user explicitly specified sandbox type
 	SecurityPolicy *os_enforce.OSPolicy // OS-level enforcement (nil = skip)
 }
 
@@ -98,36 +98,47 @@ func NewManager(cfg *config.Config, l0Engine *l0_rules.Engine) *Manager {
 
 	// Register built-in providers:
 	// "docker" — light tasks (alpine:edge, --rm, low resource)
-	m.providers["docker"] = NewDockerLightProvider(
+	dockerLight := NewDockerLightProvider(
 		cfg.Sandbox.DockerSocket,
 		cfg.Sandbox.DockerImage,
 		cfg.Sandbox.DockerDefaultCPU,
 		cfg.Sandbox.DockerDefaultMem,
 	)
+	m.providers["docker"] = dockerLight
+	registerGlobal("docker", dockerLight)
 
 	// "docker-strict" — high-risk/untrusted code (no network, read-only, cap-drop ALL)
-	m.providers["docker-strict"] = NewDockerProvider(
+	dockerStrict := NewDockerProvider(
 		cfg.Sandbox.DockerSocket,
 		cfg.Sandbox.AllowedImages,
 		cfg.Sandbox.DockerStrictCPU,
 		cfg.Sandbox.DockerStrictMem,
 	)
+	m.providers["docker-strict"] = dockerStrict
+	registerGlobal("docker-strict", dockerStrict)
 
 	// "lxc" — persistent containers
-	m.providers["lxc"] = NewLXCPersistentProvider(
+	lxc := NewLXCPersistentProvider(
 		cfg.Sandbox.LXCRootfsBase,
 		cfg.Sandbox.LXCDistro,
 		cfg.Sandbox.LXCRelease,
 	)
+	m.providers["lxc"] = lxc
+	registerGlobal("lxc", lxc)
+
+	// Register this manager as the process-wide default for event-bus workers.
+	setDefaultManager(m)
 
 	return m
 }
 
-// RegisterProvider registers a sandbox provider.
+// RegisterProvider registers a sandbox provider on both this manager and the
+// process-wide registry, so event-bus workers can resolve it via SelectProvider.
 func (m *Manager) RegisterProvider(name string, provider SandboxProvider) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.providers[name] = provider
+	m.mu.Unlock()
+	registerGlobal(name, provider)
 }
 
 // GetProvider returns a sandbox provider by name.
@@ -139,6 +150,15 @@ func (m *Manager) GetProvider(name string) (SandboxProvider, error) {
 		return nil, fmt.Errorf("sandbox provider %q not registered", name)
 	}
 	return p, nil
+}
+
+// Get returns the sandbox with the given ID and whether it was found.
+// Used by the LXC "reuse parent sandbox" exception in the parallel-exec worker.
+func (m *Manager) Get(sandboxID string) (*Sandbox, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	sb, ok := m.sandboxes[sandboxID]
+	return sb, ok
 }
 
 // CreateSandbox creates a sandbox with the given spec.

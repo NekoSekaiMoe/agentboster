@@ -27,6 +27,7 @@ type Config struct {
 	WorkerPool  WorkerPoolConfig  `mapstructure:"worker_pool"`
 	TaskSummary TaskSummaryConfig `mapstructure:"task_summary"`
 	Logging     LoggingConfig     `mapstructure:"logging"`
+	ExecPool    ExecPoolConfig    `mapstructure:"exec_pool"`
 }
 
 type TaskSummaryConfig struct {
@@ -121,6 +122,18 @@ type WorkerPoolConfig struct {
 	ScaleDownPct  int    `mapstructure:"scale_down_pct" default:"25"`
 	CooldownSecs  int    `mapstructure:"cooldown_secs" default:"30"`
 	StatsInterval string `mapstructure:"stats_interval" default:"30s"`
+}
+
+// ExecPoolConfig controls the dynamic worker pool sizing for parallel exec batches.
+// Defaults are tuned faster than WorkerPoolConfig (10s cooldown, 5s stats) because
+// sub-second exec commands need workers spawned quickly to keep batches snappy.
+type ExecPoolConfig struct {
+	MinWorkers    int    `mapstructure:"min_workers" default:"2"`
+	MaxWorkers    int    `mapstructure:"max_workers" default:"0"` // 0 = auto (CPU * 4)
+	ScaleUpPct    int    `mapstructure:"scale_up_pct" default:"75"`
+	ScaleDownPct  int    `mapstructure:"scale_down_pct" default:"25"`
+	CooldownSecs  int    `mapstructure:"cooldown_secs" default:"10"`  // 10s, faster than worker_pool's 30s
+	StatsInterval string `mapstructure:"stats_interval" default:"5s"` // 5s, faster than worker_pool's 30s
 }
 
 // registerDefaults reads `default` struct tags and registers them with Viper.
@@ -218,6 +231,21 @@ func (c *Config) Validate() {
 	}
 	if c.WorkerPool.CooldownSecs <= 0 {
 		c.WorkerPool.CooldownSecs = 30
+	}
+	if c.ExecPool.MinWorkers <= 0 {
+		c.ExecPool.MinWorkers = 2
+	}
+	if c.ExecPool.MaxWorkers <= 0 {
+		c.ExecPool.MaxWorkers = runtime.NumCPU() * 4
+	}
+	if c.ExecPool.ScaleUpPct <= 0 {
+		c.ExecPool.ScaleUpPct = 75
+	}
+	if c.ExecPool.ScaleDownPct < 0 {
+		c.ExecPool.ScaleDownPct = 25
+	}
+	if c.ExecPool.CooldownSecs <= 0 {
+		c.ExecPool.CooldownSecs = 10
 	}
 	if c.Cache.SessionMaxSize <= 0 {
 		c.Cache.SessionMaxSize = 104857600

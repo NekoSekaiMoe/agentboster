@@ -15,6 +15,7 @@ func RegisterAllTools(
 	// === Sandbox execution (2) ===
 	registerExec(registry, sbManager, agentCtx)
 	registerExecBackground(registry, sbManager, agentCtx)
+	registerExecBatch(registry, sbManager, agentCtx)
 
 	// === File operations (7) ===
 	registerRead(registry, sbManager, agentCtx)

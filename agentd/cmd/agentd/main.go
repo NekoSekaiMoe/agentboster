@@ -167,7 +167,7 @@ func main() {
 	agentMgr.SetBus(bus)
 	agentMgr.SetGatekeeper(gk)
 
-	dispatcher := worker.NewDispatcher(bus, cfg.WorkerPool, gk, sbManager, clawlessClient, agentMgr, l2Manager, cfg.TaskSummary.TidyInterval)
+	dispatcher := worker.NewDispatcher(bus, cfg.WorkerPool, cfg.ExecPool, gk, sbManager, clawlessClient, agentMgr, l2Manager, cfg.TaskSummary.TidyInterval)
 	dispatcher.Start()
 	defer dispatcher.Stop()
 

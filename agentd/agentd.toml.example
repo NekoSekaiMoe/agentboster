@@ -93,6 +93,16 @@ scale_down_pct = 25       # scale down when utilization ≤ 25%
 cooldown_secs = 30        # minimum seconds between scale events
 stats_interval = "30s"    # how often to check utilization
 
+# [exec_pool]
+# Dedicated pool for the exec_batch tool (parallel command execution).
+# Workers auto-scale based on channel utilization.
+# min_workers = 2
+# max_workers = 0           # 0 = CPU cores × 4
+# scale_up_pct = 75         # scale up when utilization ≥ 75%
+# scale_down_pct = 25       # scale down when utilization ≤ 25%
+# cooldown_secs = 10        # minimum seconds between scale events (faster than worker_pool)
+# stats_interval = "5s"     # how often to check utilization (faster than worker_pool)
+
 [task_summary]
 auto_update = true
 tidy_interval = "168h"

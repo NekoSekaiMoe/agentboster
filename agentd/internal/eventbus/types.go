@@ -47,6 +47,12 @@ const (
 
 	// Task summary
 	EventTaskTidyTick EventType = "task_summary.tidy_tick"
+
+	// Parallel exec
+	EventExecRequested      EventType = "exec.requested"
+	EventExecCompleted      EventType = "exec.completed"
+	EventExecBatchCompleted EventType = "exec.batch_completed"
+	EventExecBatchFailed    EventType = "exec.batch_failed"
 )
 
 // Event represents a domain event.

@@ -2,7 +2,10 @@ package security
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/eventbus"
@@ -14,19 +17,19 @@ import (
 type ReviewDecision string
 
 const (
-	DecisionAllowed       ReviewDecision = "allowed"
-	DecisionBlocked       ReviewDecision = "blocked"
+	DecisionAllowed        ReviewDecision = "allowed"
+	DecisionBlocked        ReviewDecision = "blocked"
 	DecisionPendingConfirm ReviewDecision = "pending_confirm"
 )
 
 // ReviewResult holds the full review result from all tiers.
 type ReviewResult struct {
-	Decision  ReviewDecision
-	L0Result  *l0_rules.L0Result
-	L1Result  *clawless.L1Result
-	TaskID    string
-	Command   string
-	Reason    string
+	Decision ReviewDecision
+	L0Result *l0_rules.L0Result
+	L1Result *clawless.L1Result
+	TaskID   string
+	Command  string
+	Reason   string
 }
 
 // ReviewLog creates a ReviewLog from the review result.
@@ -43,11 +46,11 @@ func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason s
 
 // Gatekeeper orchestrates the three-tier security review (replicating Manboster Zero Trust).
 type Gatekeeper struct {
-	l0       *l0_rules.Engine
-	l1       clawless.L1Scorer
-	l2       *l2_auth.L2AuthManager
-	bus      *eventbus.Bus
-	agentID  string
+	l0      *l0_rules.Engine
+	l1      clawless.L1Scorer
+	l2      *l2_auth.L2AuthManager
+	bus     *eventbus.Bus
+	agentID string
 }
 
 // NewGatekeeper creates a new Gatekeeper with all three tiers.
@@ -271,13 +274,298 @@ func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *clawless.L1Res
 	result.Reason = "L2: awaiting user authorization"
 
 	g.bus.Publish(eventbus.EventL2AuthRequired, map[string]any{
-		"task_id":  task.ID,
-		"command":  task.Command,
-		"score":    l1Result.Score,
-		"reason":   l1Result.Reason,
-		"level":    l1Result.Level,
-		"message":  l2_auth.FormatNotificationMessage(task.Command, l1Result.Score, l1Result.Reason, l1Result.Level),
+		"task_id": task.ID,
+		"command": task.Command,
+		"score":   l1Result.Score,
+		"reason":  l1Result.Reason,
+		"level":   l1Result.Level,
+		"message": l2_auth.FormatNotificationMessage(task.Command, l1Result.Score, l1Result.Reason, l1Result.Level),
 	})
 
 	return result
+}
+
+const batchTokenBombLimit = 4096
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
+// batchTaskID synthesises a per-cmd identifier for audit events. Real exec
+// commands will later carry their own IDs (set by the exec_batch tool), but
+// the audit step needs a stable, traceable key for the L2/L1 events.
+func batchTaskID(sessionID string, index int) string {
+	return fmt.Sprintf("%s:batch:%d", sessionID, index)
+}
+
+// runL1Batch calls the batched L1 scorer for a list of commands that have
+// already passed L0. If the batched call fails (HTTP, parse, or token-bomb)
+// the method falls back to per-cmd Score sequentially so callers always get
+// a fully-populated result slice. The returned usedFallback flag is included
+// in the "L1 batched score" log line for observability.
+func (g *Gatekeeper) runL1Batch(
+	ctx context.Context,
+	commands []string,
+	workDir string,
+	sessionSummary string,
+) ([]*clawless.L1Result, bool) {
+	start := time.Now()
+	results, err := g.l1.ScoreBatch(ctx, commands, sessionSummary)
+	elapsed := time.Since(start)
+
+	usedFallback := false
+	if err != nil {
+		usedFallback = true
+		slog.Warn("L1 batched score failed, falling back to per-cmd",
+			slog.String("fallback_reason", err.Error()),
+			slog.Int("batch_size", len(commands)),
+		)
+		results = make([]*clawless.L1Result, len(commands))
+		for i, cmd := range commands {
+			r, sErr := g.l1.Score(ctx, cmd, workDir, sessionSummary)
+			if sErr != nil {
+				// L1Client.Score never returns an error (it fails open with
+				// medium), but stay defensive in case a mock implementation
+				// propagates.
+				slog.Error("L1 per-cmd fallback error",
+					slog.Int("index", i),
+					slog.String("command", truncate(cmd, 80)),
+					slog.String("error", sErr.Error()),
+				)
+				r = &clawless.L1Result{
+					Score:  0.3,
+					Level:  "medium",
+					Reason: "l1_percmd_fallback_error",
+				}
+			}
+			results[i] = r
+		}
+	}
+
+	blockedCount := 0
+	for _, r := range results {
+		if r == nil {
+			continue
+		}
+		if r.Level == "high" || r.Level == "critical" {
+			blockedCount++
+		}
+	}
+
+	slog.LogAttrs(ctx, slog.LevelInfo, "L1 batched score",
+		slog.Int("batch_size", len(commands)),
+		slog.Int("l1_blocked_count", blockedCount),
+		slog.Duration("l1_latency_ms", elapsed),
+		slog.Bool("fallback", usedFallback),
+	)
+
+	return results, usedFallback
+}
+
+// applyL1Result updates the per-cmd result with the L1 decision and (for
+// medium/high/critical) the corresponding observability event. Missing L1
+// results default to allow with reason "l1_missing_index".
+func (g *Gatekeeper) applyL1Result(taskID, command string, r *ReviewResult, l1 *clawless.L1Result) {
+	if l1 == nil {
+		r.L1Result = &clawless.L1Result{
+			Level:  "low",
+			Reason: "l1_missing_index",
+		}
+		r.Decision = DecisionAllowed
+		r.Reason = "L1: missing index, defaulting to allow"
+		return
+	}
+
+	r.L1Result = l1
+
+	switch l1.Level {
+	case "low":
+		r.Decision = DecisionAllowed
+		r.Reason = "L1: low risk"
+	case "medium":
+		r.Decision = DecisionAllowed
+		r.Reason = "L1: medium risk, notified user"
+		g.bus.Publish(eventbus.EventSecurityAlert, map[string]any{
+			"task_id":  taskID,
+			"level":    "L1",
+			"score":    l1.Score,
+			"decision": "allowed_with_warning",
+			"reason":   l1.Reason,
+			"command":  command,
+		})
+	case "high", "critical":
+		// Decision/Reason are filled in by the L2 step; leave the result
+		// in a "needs L2" state for the L2 step to finalize.
+	default:
+		r.Decision = DecisionAllowed
+		r.Reason = "L1: unknown risk level, defaulting to allow"
+	}
+}
+
+// applyL2Cache checks the L2 cache for the command. Returns true if the
+// decision was finalised (allow or reject) by the cache; false if the
+// command still needs a user prompt.
+func (g *Gatekeeper) applyL2Cache(command string, r *ReviewResult) bool {
+	entry, hit, rejected := g.l2.Check(command)
+	if !hit {
+		return false
+	}
+	if rejected {
+		slog.Info("Gatekeeper: L2 cache reject",
+			"task_id", r.TaskID,
+			"pattern", entry.Pattern,
+		)
+		r.Decision = DecisionBlocked
+		r.Reason = "L2: rejected by cache"
+		return true
+	}
+	slog.Info("Gatekeeper: L2 cache hit",
+		"task_id", r.TaskID,
+		"pattern", entry.Pattern,
+	)
+	r.Decision = DecisionAllowed
+	r.Reason = "L2: cached authorization"
+	return true
+}
+
+// AuditBatch runs the three-tier security review across a list of commands.
+// L0 is applied per-command (cheap and correctness-critical). L1 is batched
+// into a single LLM call (with per-cmd fallback on failure). L2 is applied
+// per-command for those whose L1 score warrants user authorization.
+// The returned slice has the same length and order as the input.
+func (g *Gatekeeper) AuditBatch(ctx context.Context, sessionID, workDir, summary string, commands []string) []ReviewResult {
+	results := make([]ReviewResult, len(commands))
+	for i, cmd := range commands {
+		results[i] = ReviewResult{
+			TaskID:  batchTaskID(sessionID, i),
+			Command: cmd,
+		}
+	}
+
+	// === Tier 1: L0 per-cmd (parallel) ===
+	var wg sync.WaitGroup
+	for i := range commands {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			cmd := commands[i]
+			l0Result, err := g.l0.Check(cmd, workDir)
+			if err != nil {
+				slog.Warn("Gatekeeper: L0 check error in batch",
+					"index", i,
+					"command", truncate(cmd, 80),
+					"error", err,
+				)
+				return
+			}
+			if l0Result == nil || !l0Result.Blocked {
+				return
+			}
+			results[i].L0Result = l0Result
+			results[i].Decision = DecisionBlocked
+			results[i].Reason = l0Result.Reason
+			g.bus.Publish(eventbus.EventSecurityAlert, map[string]any{
+				"task_id":  results[i].TaskID,
+				"level":    "L0",
+				"decision": "blocked",
+				"reason":   l0Result.Reason,
+				"command":  cmd,
+				"rule_id":  l0Result.Rule.ID,
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	// === Tier 2: L1 batched ===
+	// Build the L1 input as the commands whose L0 decision is still empty.
+	// The parallel `pendingIdx` aligns results back to the original indices.
+	var pendingIdx []int
+	var pendingCmds []string
+	for i, r := range results {
+		if r.Decision == "" {
+			pendingIdx = append(pendingIdx, i)
+			pendingCmds = append(pendingCmds, commands[i])
+		}
+	}
+
+	if len(pendingCmds) > 0 {
+		// Token-bomb guard: if the per-cmd characters exceed the cap, fall
+		// back to per-cmd scoring instead of building a huge batched prompt.
+		totalLen := 0
+		for _, c := range pendingCmds {
+			totalLen += len(c)
+		}
+		var l1Results []*clawless.L1Result
+		if totalLen > batchTokenBombLimit {
+			slog.Warn("L1 batched score skipped: token-bomb guard tripped, falling back to per-cmd",
+				"total_chars", totalLen,
+				"limit", batchTokenBombLimit,
+				"batch_size", len(pendingCmds),
+			)
+			l1Results = make([]*clawless.L1Result, len(pendingCmds))
+			start := time.Now()
+			for j, c := range pendingCmds {
+				r, sErr := g.l1.Score(ctx, c, workDir, summary)
+				if sErr != nil {
+					r = &clawless.L1Result{Score: 0.3, Level: "medium", Reason: "l1_percmd_fallback_error"}
+				}
+				l1Results[j] = r
+			}
+			blockedCount := 0
+			for _, r := range l1Results {
+				if r != nil && (r.Level == "high" || r.Level == "critical") {
+					blockedCount++
+				}
+			}
+			slog.LogAttrs(ctx, slog.LevelInfo, "L1 batched score",
+				slog.Int("batch_size", len(pendingCmds)),
+				slog.Int("l1_blocked_count", blockedCount),
+				slog.Duration("l1_latency_ms", time.Since(start)),
+				slog.Bool("fallback", true),
+			)
+		} else {
+			l1Results, _ = g.runL1Batch(ctx, pendingCmds, workDir, summary)
+		}
+
+		for j, idx := range pendingIdx {
+			var l1 *clawless.L1Result
+			if j < len(l1Results) {
+				l1 = l1Results[j]
+			}
+			g.applyL1Result(results[idx].TaskID, commands[idx], &results[idx], l1)
+		}
+	}
+
+	// === Tier 3: L2 per-cmd ===
+	for i := range results {
+		r := &results[i]
+		if r.Decision == DecisionBlocked {
+			continue
+		}
+		l1 := r.L1Result
+		if l1 == nil {
+			continue
+		}
+		if l1.Level != "high" && l1.Level != "critical" {
+			continue
+		}
+		if g.applyL2Cache(commands[i], r) {
+			continue
+		}
+		r.Decision = DecisionPendingConfirm
+		r.Reason = "L2: awaiting user authorization"
+		g.bus.Publish(eventbus.EventL2AuthRequired, map[string]any{
+			"task_id": r.TaskID,
+			"command": commands[i],
+			"score":   l1.Score,
+			"reason":  l1.Reason,
+			"level":   l1.Level,
+			"message": l2_auth.FormatNotificationMessage(commands[i], l1.Score, l1.Reason, l1.Level),
+		})
+	}
+
+	return results
 }

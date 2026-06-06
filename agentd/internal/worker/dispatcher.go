@@ -22,25 +22,29 @@ import (
 
 // Dispatcher routes events from the bus to the appropriate worker pools.
 type Dispatcher struct {
-	bus          *eventbus.Bus
-	taskPool     *Pool
-	reviewPool   *Pool
-	sandboxPool  *Pool
-	memoryPool   *Pool
-	cleanupPool  *Pool
-	gatekeeper   *security.Gatekeeper
-	sbManager    *sandbox.Manager
-	clawless     *clawless.Client
-	agentManager *agent.Manager
-	l2Mgr        *l2_auth.L2AuthManager
-	tidyInterval time.Duration
-	tidyStop     chan struct{}
+	bus                 *eventbus.Bus
+	taskPool            *Pool
+	reviewPool          *Pool
+	sandboxPool         *Pool
+	memoryPool          *Pool
+	cleanupPool         *Pool
+	execPool            *Pool
+	gatekeeper          *security.Gatekeeper
+	sbManager           *sandbox.Manager
+	clawless            *clawless.Client
+	agentManager        *agent.Manager
+	l2Mgr               *l2_auth.L2AuthManager
+	tidyInterval        time.Duration
+	tidyStop            chan struct{}
+	execCollector       *workers.BatchCollector
+	execCollectorCancel context.CancelFunc
 }
 
 // NewDispatcher creates a dispatcher with all worker pools and dependencies.
 func NewDispatcher(
 	bus *eventbus.Bus,
 	poolCfg config.WorkerPoolConfig,
+	execPoolCfg config.ExecPoolConfig,
 	gk *security.Gatekeeper,
 	sbManager *sandbox.Manager,
 	clawlessClient *clawless.Client,
@@ -48,38 +52,62 @@ func NewDispatcher(
 	l2Mgr *l2_auth.L2AuthManager,
 	tidyInterval time.Duration,
 ) *Dispatcher {
+	collector := workers.NewBatchCollector(bus, 0)
 	d := &Dispatcher{
-		bus:          bus,
-		taskPool:     NewPool("task", poolCfg),
-		reviewPool:   NewPool("review", poolCfg),
-		sandboxPool:  NewPool("sandbox", poolCfg),
-		memoryPool:   NewPool("memory", poolCfg),
-		cleanupPool:  NewPool("cleanup", poolCfg),
-		gatekeeper:   gk,
-		sbManager:    sbManager,
-		clawless:     clawlessClient,
-		agentManager: agentManager,
-		l2Mgr:        l2Mgr,
-		tidyInterval: tidyInterval,
-		tidyStop:     make(chan struct{}),
+		bus:           bus,
+		taskPool:      NewPool("task", poolCfg),
+		reviewPool:    NewPool("review", poolCfg),
+		sandboxPool:   NewPool("sandbox", poolCfg),
+		memoryPool:    NewPool("memory", poolCfg),
+		cleanupPool:   NewPool("cleanup", poolCfg),
+		execPool:      NewPool("exec", workerPoolFromExecPool(execPoolCfg)),
+		gatekeeper:    gk,
+		sbManager:     sbManager,
+		clawless:      clawlessClient,
+		agentManager:  agentManager,
+		l2Mgr:         l2Mgr,
+		tidyInterval:  tidyInterval,
+		tidyStop:      make(chan struct{}),
+		execCollector: collector,
 	}
+	agentManager.SetExecCollector(collector)
 	d.registerRoutes()
 	return d
 }
 
-// Start launches the tidy ticker (pools auto-start in NewPool).
+func workerPoolFromExecPool(cfg config.ExecPoolConfig) config.WorkerPoolConfig {
+	return config.WorkerPoolConfig{
+		MinWorkers:    cfg.MinWorkers,
+		MaxWorkers:    cfg.MaxWorkers,
+		ScaleUpPct:    cfg.ScaleUpPct,
+		ScaleDownPct:  cfg.ScaleDownPct,
+		CooldownSecs:  cfg.CooldownSecs,
+		StatsInterval: cfg.StatsInterval,
+	}
+}
+
+// Start launches the tidy ticker and exec batch collector (pools auto-start in NewPool).
 func (d *Dispatcher) Start() {
+	collectorCtx, collectorCancel := context.WithCancel(context.Background())
+	d.execCollectorCancel = collectorCancel
+	if err := d.execCollector.Start(collectorCtx); err != nil {
+		slog.Warn("exec batch collector failed to start", "error", err)
+	}
 	d.startTidyTicker()
 }
 
 // Stop gracefully shuts down all pools and the tidy ticker.
 func (d *Dispatcher) Stop() {
 	close(d.tidyStop)
+	if d.execCollectorCancel != nil {
+		d.execCollectorCancel()
+	}
 	d.taskPool.Stop()
 	d.reviewPool.Stop()
 	d.sandboxPool.Stop()
 	d.memoryPool.Stop()
 	d.cleanupPool.Stop()
+	d.execPool.Stop()
 }
 
 // Metrics returns aggregated metrics from all worker pools.
@@ -90,6 +118,7 @@ func (d *Dispatcher) Metrics() map[string]any {
 		"sandbox": d.sandboxPool.Metrics(),
 		"memory":  d.memoryPool.Metrics(),
 		"cleanup": d.cleanupPool.Metrics(),
+		"exec":    d.execPool.Metrics(),
 	}
 }
 
@@ -145,6 +174,11 @@ func (d *Dispatcher) registerRoutes() {
 	})
 	d.bus.Subscribe(eventbus.EventTaskTidyTick, func(e eventbus.Event) {
 		d.memoryPool.Submit(func() { d.handleTaskTidyTick(e) })
+	})
+	d.bus.Subscribe(eventbus.EventExecRequested, func(e eventbus.Event) {
+		d.execPool.Submit(func() {
+			workers.HandleExecCommand(context.Background(), e, d.bus)
+		})
 	})
 }
 
@@ -460,10 +494,10 @@ func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
 		title = "L1 High Risk Detected"
 	}
 	notification := &clawless.Notification{
-		TaskID:  taskID,
-		Type:    "security_alert",
-		Title:   title,
-		Message: reason,
+		TaskID:   taskID,
+		Type:     "security_alert",
+		Title:    title,
+		Message:  reason,
 		Metadata: payload,
 	}
 	if err := d.clawless.CreateNotification(ctx, notification); err != nil {

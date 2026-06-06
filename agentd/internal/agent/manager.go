@@ -15,23 +15,25 @@ import (
 	"github.com/clawless/agentd/internal/sandbox"
 	"github.com/clawless/agentd/internal/security"
 	"github.com/clawless/agentd/internal/session"
+	"github.com/clawless/agentd/internal/worker/workers"
 )
 
 // Manager manages agent sessions and their loops.
 type Manager struct {
-	mu           sync.RWMutex
-	sessions     map[string]*AgentContext
-	sbManager    *sandbox.Manager
-	clawless     *clawless.Client
-	l1Scorer     clawless.L1Scorer
-	llmEndpoint  string
-	llmModel     string
-	llmAPIKey    string
-	sessionStore *session.Store
-	bus          *eventbus.Bus
-	questionSvc  *QuestionService
-	bgTaskStore  *persistence.BackgroundTaskStore
-	gatekeeper   *security.Gatekeeper
+	mu            sync.RWMutex
+	sessions      map[string]*AgentContext
+	sbManager     *sandbox.Manager
+	clawless      *clawless.Client
+	l1Scorer      clawless.L1Scorer
+	llmEndpoint   string
+	llmModel      string
+	llmAPIKey     string
+	sessionStore  *session.Store
+	bus           *eventbus.Bus
+	questionSvc   *QuestionService
+	bgTaskStore   *persistence.BackgroundTaskStore
+	gatekeeper    *security.Gatekeeper
+	execCollector *workers.BatchCollector
 }
 
 // NewManager creates a new agent manager.
@@ -76,6 +78,17 @@ func (m *Manager) SetBus(bus *eventbus.Bus) {
 	m.questionSvc = NewQuestionService(bus, m.clawless)
 }
 
+// SetExecCollector wires the parallel exec batch collector into existing and
+// future sessions.
+func (m *Manager) SetExecCollector(collector *workers.BatchCollector) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.execCollector = collector
+	for _, ctx := range m.sessions {
+		m.wireSessionRuntime(ctx)
+	}
+}
+
 // GetQuestionService returns the shared question service.
 func (m *Manager) GetQuestionService() *QuestionService {
 	return m.questionSvc
@@ -94,6 +107,15 @@ func (m *Manager) SetBGTaskStore(store *persistence.BackgroundTaskStore) {
 // GetBGTaskStore returns the background task store.
 func (m *Manager) GetBGTaskStore() *persistence.BackgroundTaskStore {
 	return m.bgTaskStore
+}
+
+func (m *Manager) wireSessionRuntime(ctx *AgentContext) {
+	if ctx.QuestionService == nil {
+		ctx.QuestionService = m.questionSvc
+	}
+	ctx.BGTaskStore = m.bgTaskStore
+	ctx.ExecBus = m.bus
+	ctx.ExecCollector = m.execCollector
 }
 
 // GetSessionStore returns the session store.
@@ -134,6 +156,8 @@ func (m *Manager) CreateSession(sessionID, agentID string) (*AgentContext, error
 		RecentToolCalls: make([]ToolCallRecord, 0),
 		QuestionService: m.questionSvc,
 		BGTaskStore:     m.bgTaskStore,
+		ExecBus:         m.bus,
+		ExecCollector:   m.execCollector,
 	}
 
 	m.sessions[sessionID] = ctx
@@ -184,10 +208,7 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 		}
 
 		// Ensure question service and bgTaskStore are wired for loaded sessions
-		if ctx.QuestionService == nil {
-			ctx.QuestionService = m.questionSvc
-		}
-		ctx.BGTaskStore = m.bgTaskStore
+		m.wireSessionRuntime(ctx)
 
 		slog.Info("session switched (loaded from store)",
 			"old", currentSessionID, "new", newSessionID)
@@ -216,6 +237,8 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 		RecentToolCalls: make([]ToolCallRecord, 0),
 		QuestionService: m.questionSvc,
 		BGTaskStore:     m.bgTaskStore,
+		ExecBus:         m.bus,
+		ExecCollector:   m.execCollector,
 	}
 
 	m.sessions[newSessionID] = ctx
@@ -237,10 +260,7 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 		})
 	}
 
-	// Ensure question service is wired for loaded sessions
-	if ctx.QuestionService == nil {
-		ctx.QuestionService = m.questionSvc
-	}
+	m.wireSessionRuntime(ctx)
 
 	slog.Info("session switched (new)", "old", currentSessionID, "new", newSessionID)
 	return ctx, nil
@@ -297,6 +317,7 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 	if !ok {
 		return "", fmt.Errorf("session %s not found", sessionID)
 	}
+	m.wireSessionRuntime(agentCtx)
 
 	// Fetch SOUL content for this session
 	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
@@ -355,6 +376,7 @@ func (m *Manager) ExecuteTool(ctx context.Context, sessionID, toolName string, t
 			return nil, fmt.Errorf("create session for tool exec: %w", err)
 		}
 	}
+	m.wireSessionRuntime(agentCtx)
 
 	// Fetch SOUL and build system prompt
 	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
