@@ -37,7 +37,7 @@ export const configSections = [
   },
   {
     key: 'monitoring',
-    title: 'Monitoring',
+    title: 'Dashboard',
     description: 'View Agent Daemon status, node health, and sandbox usage.',
   },
   {

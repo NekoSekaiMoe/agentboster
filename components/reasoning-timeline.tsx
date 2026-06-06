@@ -91,32 +91,22 @@ export function ReasoningTimeline({
                       [index]: !isExpanded,
                     }));
                   }}
-                  className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className='font-semibold text-foreground text-sm leading-5'>
+                    <div className='truncate font-semibold text-foreground text-sm leading-5'>
                       Reasoning
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-2 pl-2">
-                    <span
-                      className={cn(
-                        'rounded-full border px-2 py-0.5 font-medium text-[10px] uppercase tracking-[0.16em]',
-                        tone.badge,
-                      )}
-                    >
-                      {isExpanded ? 'Expanded' : 'Collapsed'}
-                    </span>
-                    <span
-                      className={cn(
-                        'text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-                        isExpanded && 'rotate-180',
-                      )}
-                    >
-                      <ChevronDownIcon size={14} />
-                    </span>
-                  </div>
+                  <span
+                    className={cn(
+                      'shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                      isExpanded && 'rotate-180',
+                    )}
+                  >
+                    <ChevronDownIcon size={14} />
+                  </span>
                 </button>
 
                 <AnimatePresence initial={false}>
