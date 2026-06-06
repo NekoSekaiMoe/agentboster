@@ -53,13 +53,15 @@ allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "alpine:edge"
 os_enforce = true
 # Custom seccomp profile path (empty = auto-generate from L0 rules)
 seccomp_profile_path = ""
-# Isolate network namespace by default for docker_light and LXC
+# Isolate network namespace by default for docker_light and LXC.
+# Set to false for rendered web search/fetch tasks that need sandbox network access.
 network_isolate = true
 
 [sandbox.lxc]
-# Init commands executed on first LXC container creation
+# Init commands executed on first LXC container creation.
+# web_fetch_rendered/web_search_rendered auto-install Chromium on first use if it is missing.
 init_commands = [
-    "apk add --no-cache git curl bash",
+    "apk add --no-cache git curl bash ca-certificates",
     "mkdir -p /workspace",
     "echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
 ]

@@ -614,12 +614,14 @@ func buildSystemPrompt(projectID, projectName, soulContent string) string {
 ## Capabilities
 - Execute commands: Run shell commands in the sandbox
 - File operations: Read and write files inside the sandbox
+- Web access: Use web_fetch/web_search for lightweight HTTP access. Use web_fetch_rendered/web_search_rendered for JavaScript-heavy pages or when the request must originate from the sandbox; rendered tools return text/HTML JSON only and auto-install Chromium through the sandbox package manager when missing.
 - Parallel sub-agents: Decompose complex tasks into sub-tasks and delegate to multiple sub-agents. Before using the subagent tool, infer file boundaries for each sub-agent. If two sub-agents might modify the same file, run them sequentially instead. Out-of-bounds operations are blocked by L0.
 - Persistent environments: LXC containers retain project dependencies across sessions
 
 ## Sandbox Selection Strategy
 - One-shot scripts or tests → docker (lightweight alpine:edge, --rm, low resource, destroyed after task)
 - Long-term project development → lxc (persistent filesystem, survives restart, cgroup CPU/memory limits)
+- Rendered web search, JavaScript page fetching, or headless browser work → lxc with package-manager access and network access enabled
 - Untrusted external code → docker-strict (strong isolation: --network none, --cap-drop ALL, --read-only, whitelisted images only)
 
 docker light uses configurable CPU/memory limits (default 0.25 CPU, 256MB). docker-strict only allows whitelisted images (e.g., ubuntu:22.04, alpine:latest, golang:1.22).

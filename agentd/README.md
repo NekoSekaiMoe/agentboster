@@ -283,7 +283,7 @@ and exposed to the LLM as OpenAI-compatible function-calling definitions:
 - `file` (`tools_file.go`) — read, write, edit, list, grep, glob, patch
 - `exec` (`tools_exec.go`) — sandboxed shell execution, gated through the Gatekeeper
 - `git` (`tools_git.go`) — clone, add, commit, push, diff, log
-- `web` (`tools_web.go`) — fetch URL, web search
+- `web` (`tools_web.go`, `tools_web_rendered.go`) — fetch URL, web search, plus Chromium-rendered fetch/search for JavaScript-heavy pages
 - `memory` (`tools_memory.go`) — search, save
 - `skills` (`tools_skills.go`) — load a named skill
 - `subagent` (`tools_subagent.go`) — spawn a sub-agent with its own session
@@ -295,6 +295,13 @@ and exposed to the LLM as OpenAI-compatible function-calling definitions:
 
 The same tools are reachable synchronously from the Web side via
 `POST /api/v1/tools/{name}` — see [`internal/server/routes.go`](internal/server/routes.go).
+
+`web_fetch_rendered` and `web_search_rendered` run headless Chromium inside the current
+sandbox and return text/HTML JSON only. They do not require multimodal message transport.
+If Chromium is missing, the tool searches the sandbox package manager (`apk`, `apt`,
+`dnf`, `yum`, `pacman`, or `zypper`) and installs a compatible browser package before
+rendering. The sandbox must have package-manager permissions and network access, so
+disable `sandbox.network_isolate` for tasks that need rendered web access.
 
 ---
 

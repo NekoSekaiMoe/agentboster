@@ -167,6 +167,9 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 	if spec.SecurityPolicy == nil && m.policy != nil && spec.Type != "docker-strict" {
 		spec.SecurityPolicy = m.policy
 	}
+	if spec.Type == "lxc" && len(spec.InitCommands) == 0 && m.config != nil {
+		spec.InitCommands = append([]string(nil), m.config.Sandbox.InitCommands...)
+	}
 
 	provider, err := m.GetProvider(spec.Type)
 	if err != nil {
@@ -312,6 +315,9 @@ func needsPersistence(command string) bool {
 		"go build", "npm install", "pip install",
 		"cargo build", "mvn package", "gradle build",
 		"make", "cmake",
+		"headless browser", "browser automation", "rendered fetch",
+		"rendered web search", "js rendering", "javascript rendering",
+		"web_fetch_rendered", "web_search_rendered",
 	}
 	for _, p := range persistPatterns {
 		if containsPattern(command, p) {
@@ -322,5 +328,5 @@ func needsPersistence(command string) bool {
 }
 
 func containsPattern(s, pattern string) bool {
-	return len(s) > 0 && len(pattern) > 0 && strings.Contains(s, pattern)
+	return len(s) > 0 && len(pattern) > 0 && strings.Contains(strings.ToLower(s), strings.ToLower(pattern))
 }

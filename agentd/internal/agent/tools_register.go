@@ -30,9 +30,10 @@ func RegisterAllTools(
 	registerSubagent(registry, clawlessClient, agentCtx)
 	registerSubagentResult(registry, clawlessClient, agentCtx)
 
-	// === Web (2) ===
+	// === Web (4) ===
 	registerWebFetch(registry)
 	registerWebSearch(registry)
+	registerWebRendered(registry, sbManager, agentCtx)
 
 	// === Git (4) ===
 	registerGitClone(registry, sbManager, agentCtx)

@@ -44,10 +44,10 @@ type LoggingConfig struct {
 }
 
 type ServerConfig struct {
-	Listen        string `mapstructure:"listen" default:":18732"`
-	TLSCertPath   string `mapstructure:"tls_cert_path"`
-	TLSKeyPath    string `mapstructure:"tls_key_path"`
-	CAPath        string `mapstructure:"ca_path"`
+	Listen         string `mapstructure:"listen" default:":18732"`
+	TLSCertPath    string `mapstructure:"tls_cert_path"`
+	TLSKeyPath     string `mapstructure:"tls_key_path"`
+	CAPath         string `mapstructure:"ca_path"`
 	WebUIUsername  string `mapstructure:"webui_username"`
 	WebUIPassword  string `mapstructure:"webui_password"`
 	ClawLessAPIKey string `mapstructure:"clawless_api_key"`
@@ -77,20 +77,21 @@ type SecurityConfig struct {
 }
 
 type SandboxConfig struct {
-	Default           string   `mapstructure:"default" default:"docker"`
-	DockerSocket      string   `mapstructure:"docker_socket" default:"unix:///var/run/docker.sock"`
-	DockerImage       string   `mapstructure:"docker_image" default:"alpine:edge"`
-	DockerDefaultCPU  float64  `mapstructure:"docker_default_cpu" default:"0.25"`
-	DockerDefaultMem  string   `mapstructure:"docker_default_memory" default:"256m"`
-	DockerStrictCPU   float64  `mapstructure:"docker_strict_cpu" default:"1.0"`
-	DockerStrictMem   string   `mapstructure:"docker_strict_memory" default:"512m"`
-	LXCDistro         string   `mapstructure:"lxc_default_distro" default:"alpine"`
-	LXCRelease        string   `mapstructure:"lxc_default_release" default:"3.21"`
-	LXCRootfsBase     string   `mapstructure:"lxc_rootfs_base" default:"/var/lib/agentd/lxc"`
-	AllowedImages     []string `mapstructure:"allowed_images"`
-	OSEnforce         bool     `mapstructure:"os_enforce" default:"true"`
-	SeccompPath       string   `mapstructure:"seccomp_profile_path"`
-	NetworkIsolate    bool     `mapstructure:"network_isolate" default:"true"`
+	Default          string   `mapstructure:"default" default:"docker"`
+	DockerSocket     string   `mapstructure:"docker_socket" default:"unix:///var/run/docker.sock"`
+	DockerImage      string   `mapstructure:"docker_image" default:"alpine:edge"`
+	DockerDefaultCPU float64  `mapstructure:"docker_default_cpu" default:"0.25"`
+	DockerDefaultMem string   `mapstructure:"docker_default_memory" default:"256m"`
+	DockerStrictCPU  float64  `mapstructure:"docker_strict_cpu" default:"1.0"`
+	DockerStrictMem  string   `mapstructure:"docker_strict_memory" default:"512m"`
+	LXCDistro        string   `mapstructure:"lxc_default_distro" default:"alpine"`
+	LXCRelease       string   `mapstructure:"lxc_default_release" default:"3.21"`
+	LXCRootfsBase    string   `mapstructure:"lxc_rootfs_base" default:"/var/lib/agentd/lxc"`
+	InitCommands     []string `mapstructure:"init_commands"`
+	AllowedImages    []string `mapstructure:"allowed_images"`
+	OSEnforce        bool     `mapstructure:"os_enforce" default:"true"`
+	SeccompPath      string   `mapstructure:"seccomp_profile_path"`
+	NetworkIsolate   bool     `mapstructure:"network_isolate" default:"true"`
 }
 
 type CacheConfig struct {
@@ -192,8 +193,8 @@ func sandboxExtras(v *viper.Viper) {
 		"ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "alpine:edge",
 		"golang:1.22", "node:20", "python:3.12",
 	})
-	v.SetDefault("sandbox.init_commands", []string{
-		"apk add --no-cache git curl bash",
+	v.SetDefault("sandbox.lxc.init_commands", []string{
+		"apk add --no-cache git curl bash ca-certificates",
 		"mkdir -p /workspace",
 		"echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
 	})
@@ -286,6 +287,14 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+
+	// Historically the example config placed LXC initialization commands under
+	// [sandbox.lxc], while the runtime SandboxConfig keeps the flattened value.
+	// Support both forms, with explicit [sandbox] init_commands taking priority.
+	cfg.Sandbox.InitCommands = v.GetStringSlice("sandbox.lxc.init_commands")
+	if rootInitCommands := v.GetStringSlice("sandbox.init_commands"); len(rootInitCommands) > 0 {
+		cfg.Sandbox.InitCommands = rootInitCommands
 	}
 
 	cfg.Validate()
@@ -390,7 +399,7 @@ allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "alpine:edge"
 
 [sandbox.lxc]
 init_commands = [
-    "apk add --no-cache git curl bash",
+    "apk add --no-cache git curl bash ca-certificates",
     "mkdir -p /workspace",
     "echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
 ]
