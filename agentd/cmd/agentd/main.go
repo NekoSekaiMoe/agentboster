@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -25,6 +26,7 @@ import (
 	"github.com/clawless/agentd/internal/eventbus"
 	"github.com/clawless/agentd/internal/identity"
 	"github.com/clawless/agentd/internal/lifecycle"
+	"github.com/clawless/agentd/internal/logging"
 	"github.com/clawless/agentd/internal/metrics"
 	"github.com/clawless/agentd/internal/persistence"
 	"github.com/clawless/agentd/internal/sandbox"
@@ -73,8 +75,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+	slog.SetDefault(slog.New(logging.NewHandler(os.Stdout, logging.Config{
+		Level:     cfg.Logging.Level,
+		Module:    cfg.Logging.Module,
+		AddSource: cfg.Logging.AddSource,
 	})))
 
 	slog.Info("Agent Daemon starting",
@@ -213,7 +217,7 @@ func main() {
 		}
 	}()
 
-	slog.Info("Agent Daemon started", "addr", cfg.Server.Listen)
+	logConnectInfo(cfg.Server.Listen, cfg.Server.TLSCertPath != "")
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -228,4 +232,24 @@ func main() {
 	}
 
 	slog.Info("Agent Daemon stopped")
+}
+
+func logConnectInfo(listen string, tlsEnabled bool) {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		slog.Info("Agent Daemon started", "addr", listen)
+		return
+	}
+	if host == "" || host == "0.0.0.0" {
+		slog.Info("Agent Daemon listens on all interfaces", "addr", listen)
+	}
+
+	scheme := "http"
+	if tlsEnabled {
+		scheme = "https"
+	}
+	slog.Info(fmt.Sprintf("Agent Daemon ready  ➜  Local:   %s://localhost:%s", scheme, port))
+	if host != "" && host != "0.0.0.0" {
+		slog.Info(fmt.Sprintf("Agent Daemon ready  ➜  Network: %s://%s:%s", scheme, host, port))
+	}
 }

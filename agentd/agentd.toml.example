@@ -97,3 +97,8 @@ stats_interval = "30s"    # how often to check utilization
 auto_update = true
 tidy_interval = "168h"
 max_decisions = 50
+
+[logging]
+level = "info"      # debug, info, warn, error
+module = "AgentD"   # module name shown in [brackets]
+add_source = true   # show [func.name:line]

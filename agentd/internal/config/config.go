@@ -26,12 +26,20 @@ type Config struct {
 	Worker      WorkerConfig      `mapstructure:"worker"`
 	WorkerPool  WorkerPoolConfig  `mapstructure:"worker_pool"`
 	TaskSummary TaskSummaryConfig `mapstructure:"task_summary"`
+	Logging     LoggingConfig     `mapstructure:"logging"`
 }
 
 type TaskSummaryConfig struct {
 	AutoUpdate   bool          `mapstructure:"auto_update" default:"true"`
 	TidyInterval time.Duration `mapstructure:"tidy_interval" default:"168h"`
 	MaxDecisions int           `mapstructure:"max_decisions" default:"50"`
+}
+
+// LoggingConfig controls the custom text logger output format.
+type LoggingConfig struct {
+	Level     string `mapstructure:"level" default:"info"`
+	Module    string `mapstructure:"module" default:"AgentD"`
+	AddSource bool   `mapstructure:"add_source" default:"true"`
 }
 
 type ServerConfig struct {
