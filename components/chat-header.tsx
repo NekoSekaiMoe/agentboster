@@ -107,7 +107,7 @@ function PureChatHeader({
     : null;
 
   return (
-    <header className="sticky top-0 z-20 border-b bg-background/95 px-14 py-3 backdrop-blur md:px-4">
+    <header className="sticky top-0 z-20 border-b bg-background/95 py-3 pr-4 pl-14 backdrop-blur md:px-4">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -137,27 +137,31 @@ function PureChatHeader({
             </div>
           </div>
 
-          <div className="mt-2 flex min-h-5 min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 text-muted-foreground text-xs">
+          <div className="mt-2 flex min-h-8 min-w-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-1 text-muted-foreground text-xs [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {session ? (
               <>
-                <span className="max-w-[280px] truncate font-medium text-foreground">
+                <span className="h-7 max-w-[11rem] shrink-0 truncate rounded-md bg-muted/70 px-2 font-medium text-foreground leading-7 sm:max-w-[280px]">
                   {session.title ?? 'Untitled Session'}
                 </span>
                 {isRunning && (
-                  <span className="inline-flex shrink-0 items-center gap-1 text-amber-600">
+                  <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-amber-500/10 px-2 text-amber-700 dark:text-amber-300">
                     <Loader2 className="size-3 animate-spin" />
                     {status === 'waiting_user' ? 'Waiting' : 'Running'}
                   </span>
                 )}
                 {status === 'completed' && (
-                  <span className="text-green-600">Done</span>
+                  <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-green-500/10 px-2 text-green-700 dark:text-green-300">
+                    Done
+                  </span>
                 )}
                 {status === 'aborted' && (
-                  <span className="text-muted-foreground">Aborted</span>
+                  <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-muted px-2 text-muted-foreground">
+                    Aborted
+                  </span>
                 )}
                 {agentdStatus === 'online' && (
                   <span
-                    className="inline-flex shrink-0 items-center gap-1 text-green-600"
+                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-green-500/10 px-2 text-green-700 dark:text-green-300"
                     title="Agent Daemon online - full security review active"
                   >
                     <span className="size-1.5 rounded-full bg-green-500" />
@@ -166,7 +170,7 @@ function PureChatHeader({
                 )}
                 {agentdStatus === 'offline' && (
                   <span
-                    className="inline-flex shrink-0 items-center gap-1 text-amber-600"
+                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-amber-500/10 px-2 text-amber-700 dark:text-amber-300"
                     title="Agent Daemon offline - using Vercel Sandbox"
                   >
                     <span className="size-1.5 rounded-full bg-amber-500" />
@@ -176,7 +180,7 @@ function PureChatHeader({
                 {sessionDetails.map(({ label, value, valueClassName }) => (
                   <span
                     key={label}
-                    className="inline-flex max-w-none shrink-0 items-center gap-1 rounded-md bg-muted px-2 py-1 leading-5"
+                    className="inline-flex h-7 max-w-none shrink-0 items-center gap-1 rounded-md bg-muted px-2 leading-7"
                   >
                     <span className="shrink-0 whitespace-nowrap text-muted-foreground/80">
                       {label}
@@ -186,10 +190,16 @@ function PureChatHeader({
                     </span>
                   </span>
                 ))}
-                {tokenDisplay && <span>Tokens {tokenDisplay}</span>}
+                {tokenDisplay && (
+                  <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-muted px-2">
+                    Tokens {tokenDisplay}
+                  </span>
+                )}
               </>
             ) : (
-              <span>Start a new agent conversation.</span>
+              <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-muted/70 px-2">
+                Start a new agent conversation.
+              </span>
             )}
           </div>
         </div>

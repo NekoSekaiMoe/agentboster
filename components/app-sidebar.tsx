@@ -255,6 +255,20 @@ export function AppSidebar() {
             </Button>
           </div>
         )}
+
+        {!isCollapsed && activeMode !== 'chat' ? (
+          <Button
+            asChild
+            size="sm"
+            variant="outline"
+            className="h-9 justify-start rounded-xl"
+          >
+            <Link href="/" onClick={() => setOpenMobile(false)}>
+              <MessageSquare className="size-4" />
+              Back to Chat
+            </Link>
+          </Button>
+        ) : null}
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-3">

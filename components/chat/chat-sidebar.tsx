@@ -33,6 +33,7 @@ import {
   Sun,
   Trash2,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTheme } from 'next-themes';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -241,55 +242,63 @@ export function ChatSidebar() {
             </Button>
 
             {/* Settings Menu */}
-            {settingsMenuOpen && !isCollapsed && (
-              <div className="absolute right-0 bottom-full left-0 mb-2 rounded-xl border bg-popover p-2 shadow-lg">
-                <div className="mb-2 px-2 font-medium text-muted-foreground text-xs">
-                  主题
-                </div>
-                <div className="space-y-1">
-                  <Button
-                    variant={theme === 'light' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    className="w-full justify-start"
-                    onClick={() => setTheme('light')}
-                  >
-                    <Sun className="mr-2 h-4 w-4" />
-                    浅色
-                  </Button>
-                  <Button
-                    variant={theme === 'dark' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    className="w-full justify-start"
-                    onClick={() => setTheme('dark')}
-                  >
-                    <Moon className="mr-2 h-4 w-4" />
-                    深色
-                  </Button>
-                  <Button
-                    variant={theme === 'system' ? 'secondary' : 'ghost'}
-                    size="sm"
-                    className="w-full justify-start"
-                    onClick={() => setTheme('system')}
-                  >
-                    <Monitor className="mr-2 h-4 w-4" />
-                    系统
-                  </Button>
-                </div>
+            <AnimatePresence initial={false}>
+              {settingsMenuOpen && !isCollapsed && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ duration: 0.16, ease: 'easeOut' }}
+                  className="absolute right-0 bottom-full left-0 z-50 mb-2 rounded-xl border bg-popover p-2 shadow-lg"
+                >
+                  <div className="mb-2 px-2 font-medium text-muted-foreground text-xs">
+                    主题
+                  </div>
+                  <div className="space-y-1">
+                    <Button
+                      variant={theme === 'light' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="w-full justify-start"
+                      onClick={() => setTheme('light')}
+                    >
+                      <Sun className="mr-2 h-4 w-4" />
+                      浅色
+                    </Button>
+                    <Button
+                      variant={theme === 'dark' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="w-full justify-start"
+                      onClick={() => setTheme('dark')}
+                    >
+                      <Moon className="mr-2 h-4 w-4" />
+                      深色
+                    </Button>
+                    <Button
+                      variant={theme === 'system' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="w-full justify-start"
+                      onClick={() => setTheme('system')}
+                    >
+                      <Monitor className="mr-2 h-4 w-4" />
+                      系统
+                    </Button>
+                  </div>
 
-                <div className="my-2 border-t" />
+                  <div className="my-2 border-t" />
 
-                <Link href="/config">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start"
-                  >
-                    <Settings className="mr-2 h-4 w-4" />
-                    配置管理
-                  </Button>
-                </Link>
-              </div>
-            )}
+                  <Link href="/config">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start"
+                    >
+                      <Settings className="mr-2 h-4 w-4" />
+                      配置管理
+                    </Button>
+                  </Link>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </SidebarFooter>
       </Sidebar>
