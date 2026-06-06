@@ -1,6 +1,9 @@
-import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import { listSkillMetas } from '@/lib/core/kv/skills';
-import { getBuiltinMemorySection, listBuiltinMemorySections } from '@/lib/memory';
+import {
+  getBuiltinMemorySection,
+  listBuiltinMemorySections,
+} from '@/lib/memory';
+import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import type { AppConfig } from '@/types/config';
 import { BUILTIN_MEMORY_MAX_LENGTH } from '@/types/memory';
 import { DEFAULT_SYSTEM_PROMPT } from '../config';
@@ -34,6 +37,9 @@ async function buildMCPSubsection(): Promise<string> {
 
   const lines: string[] = [
     'Use builtin MCP tools for live information, web content, documentation lookup, and repository operations.',
+    'Use `web_search` for search and `fetch_url` for lightweight static page reads.',
+    'Use browser tools when a page is JavaScript-rendered, requires interaction, needs a screenshot, or when you need DOM/network inspection.',
+    'For browser workflows, call `browser_navigate` first, inspect with `browser_get_text`, `browser_get_html`, `browser_screenshot`, or `browser_get_network_requests`, interact with `browser_click` and `browser_type`, and call `browser_close` when finished.',
   ];
 
   const toolDescriptions: string[] = [];

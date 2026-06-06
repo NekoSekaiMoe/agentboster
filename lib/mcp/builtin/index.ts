@@ -1,16 +1,25 @@
 import { type JSONRPCMessage, type MCPTransport } from '@ai-sdk/mcp';
 
+import { browserTools, executeBrowserTool } from '../tools/browser';
 import { builtinContext7Tools, executeBuiltinContext7Tool } from './context7';
-import { builtinFirecrawlTools, executeBuiltinFirecrawlTool } from './firecrawl';
+import {
+  builtinFirecrawlTools,
+  executeBuiltinFirecrawlTool,
+} from './firecrawl';
 import { builtinGithubTools, executeBuiltinGithubTool } from './github';
-import { builtinWebTools, executeBuiltinWebTool } from './web';
 import type {
   BuiltinMcpServerContext,
   BuiltinMcpToolDefinition,
   BuiltinMcpToolResult,
 } from './types';
+import { builtinWebTools, executeBuiltinWebTool } from './web';
 
-type BuiltinServerName = 'web' | 'firecrawl' | 'github' | 'context7';
+type BuiltinServerName =
+  | 'web'
+  | 'browser'
+  | 'firecrawl'
+  | 'github'
+  | 'context7';
 
 type BuiltinServerDefinition = {
   serverInfo: { name: string; version: string; title?: string };
@@ -28,6 +37,8 @@ type BuiltinServerExport = {
   title?: string;
   instructions: string;
 };
+
+type BuiltinServerExportOptions = BuiltinMcpServerContext;
 
 type MCPToolDefinition = {
   name: string;
@@ -49,6 +60,17 @@ const builtinServers: Record<BuiltinServerName, BuiltinServerDefinition> = {
       'Use web_search for public web search and fetch_url for reading page content.',
     tools: builtinWebTools,
     execute: executeBuiltinWebTool,
+  },
+  browser: {
+    serverInfo: {
+      name: 'agentboster-builtin-browser',
+      version: '1.0.0',
+      title: 'AgentBoster Builtin Browser',
+    },
+    instructions:
+      'Use browser tools for JavaScript-rendered pages, screenshots, interaction, DOM inspection, and network request inspection. Close the browser with browser_close when done.',
+    tools: browserTools,
+    execute: executeBrowserTool,
   },
   firecrawl: {
     serverInfo: {
@@ -110,7 +132,10 @@ class InMemoryBuiltinMcpTransport implements MCPTransport {
   onmessage?: (message: JSONRPCMessage) => void;
   protocolVersion?: string;
 
-  constructor(private readonly server: BuiltinServerDefinition) {}
+  constructor(
+    private readonly server: BuiltinServerDefinition,
+    private readonly context: BuiltinMcpServerContext = {},
+  ) {}
 
   async start(): Promise<void> {
     return;
@@ -163,6 +188,7 @@ class InMemoryBuiltinMcpTransport implements MCPTransport {
         const result = await this.server.execute(
           toolName,
           (message.params?.arguments ?? {}) as Record<string, unknown>,
+          this.context,
         );
 
         this.onmessage?.({
@@ -198,26 +224,28 @@ class InMemoryBuiltinMcpTransport implements MCPTransport {
   }
 }
 
-export function createBuiltinMcpTransport(serverName: BuiltinServerName) {
-  return new InMemoryBuiltinMcpTransport(builtinServers[serverName]);
+export function createBuiltinMcpTransport(
+  serverName: BuiltinServerName,
+  context?: BuiltinMcpServerContext,
+) {
+  return new InMemoryBuiltinMcpTransport(builtinServers[serverName], context);
 }
 
-export function getBuiltinMcpServers() {
+export function getBuiltinMcpServers(options: BuiltinServerExportOptions = {}) {
   return Object.fromEntries(
-    (Object.entries(builtinServers) as Array<[BuiltinServerName, BuiltinServerDefinition]>).map(
-      ([serverName, server]) => [
-        serverName,
-        {
-          transport: createBuiltinMcpTransport(serverName),
-          title: server.serverInfo.title,
-          instructions: server.instructions,
-        },
-      ],
-    ),
-  ) as unknown as Record<
-    BuiltinServerName,
-    BuiltinServerExport
-  >;
+    (
+      Object.entries(builtinServers) as Array<
+        [BuiltinServerName, BuiltinServerDefinition]
+      >
+    ).map(([serverName, server]) => [
+      serverName,
+      {
+        transport: createBuiltinMcpTransport(serverName, options),
+        title: server.serverInfo.title,
+        instructions: server.instructions,
+      },
+    ]),
+  ) as unknown as Record<BuiltinServerName, BuiltinServerExport>;
 }
 
 export type { BuiltinServerName };

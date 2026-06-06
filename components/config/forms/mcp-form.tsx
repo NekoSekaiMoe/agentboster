@@ -37,7 +37,16 @@ const builtinServers = [
     name: 'web',
     description: 'Search the web and fetch URL content.',
     tools: 'web_search, fetch_url',
-    requirements: 'No required API key for basic fetch/search.',
+    requirements:
+      'No required API key for basic fetch/search. Optional BRAVE_SEARCH_API_KEY or TAVILY_API_KEY improves fallback quality.',
+  },
+  {
+    name: 'browser',
+    description: 'Render and interact with pages using Playwright.',
+    tools:
+      'browser_navigate, browser_screenshot, browser_click, browser_type, browser_get_text, browser_get_html, browser_get_network_requests, browser_evaluate, browser_close',
+    requirements:
+      'Requires Playwright browser binaries in the runtime environment.',
   },
   {
     name: 'firecrawl',
@@ -48,8 +57,10 @@ const builtinServers = [
   {
     name: 'github',
     description: 'Inspect repositories and manage GitHub issues/PRs.',
-    tools: 'github_get_repository, github_search_issues, github_create_issue, github_update_issue, github_create_pull_request',
-    requirements: 'GITHUB_TOKEN is optional for reads and required for mutations.',
+    tools:
+      'github_get_repository, github_search_issues, github_create_issue, github_update_issue, github_create_pull_request',
+    requirements:
+      'GITHUB_TOKEN is optional for reads and required for mutations.',
   },
   {
     name: 'context7',
@@ -99,17 +110,17 @@ export function McpForm() {
             <div key={server.name} className="rounded-2xl border p-4">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="font-medium">{server.name}</h3>
-                <span className='rounded-full bg-primary/10 px-2 py-0.5 text-primary text-xs'>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary text-xs">
                   Enabled
                 </span>
               </div>
-              <p className='mt-2 text-muted-foreground text-sm'>
+              <p className="mt-2 text-muted-foreground text-sm">
                 {server.description}
               </p>
-              <p className='mt-3 text-muted-foreground text-xs'>
+              <p className="mt-3 text-muted-foreground text-xs">
                 Tools: {server.tools}
               </p>
-              <p className='mt-1 text-muted-foreground text-xs'>
+              <p className="mt-1 text-muted-foreground text-xs">
                 {server.requirements}
               </p>
             </div>

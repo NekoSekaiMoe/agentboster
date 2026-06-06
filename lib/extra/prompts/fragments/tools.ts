@@ -18,6 +18,11 @@ export function buildToolsSection(): string {
 - Use \`exec_status\` to query background job status.
 - Use \`exec_kill\` to terminate a background job.
 
+### Browser Tools
+- Use \`web_search\` for search and \`fetch_url\` for lightweight static page reads.
+- Use browser tools for JavaScript-rendered pages, screenshots, interaction, DOM inspection, and network request inspection.
+- Start browser workflows with \`browser_navigate\`, inspect with \`browser_get_text\`, \`browser_get_html\`, \`browser_screenshot\`, or \`browser_get_network_requests\`, interact with \`browser_click\` and \`browser_type\`, and call \`browser_close\` when finished.
+
 ### File Operations
 - Use dedicated tools (Read, Edit, Write) for file manipulation
 - Prefer \`patch\` for code modifications

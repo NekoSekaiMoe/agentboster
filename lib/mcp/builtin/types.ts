@@ -20,6 +20,11 @@ export type BuiltinMcpToolResult = {
         description?: string;
         mimeType?: string;
       }
+    | {
+        type: 'image';
+        data: string;
+        mimeType: string;
+      }
   >;
   structuredContent?: JSONValue;
   isError?: boolean;

@@ -1,8 +1,8 @@
 import { getBuiltinMcpServers } from '@/lib/mcp/builtin';
 import { createLogger } from '@/lib/utils/logger';
 import type { MCPRemoteServersConfig } from '@/types/config/mcp';
-import { type ToolSet, dynamicTool, jsonSchema } from 'ai';
 import type { ToolResultOutput } from '@ai-sdk/provider-utils';
+import { type ToolSet, dynamicTool, jsonSchema } from 'ai';
 import { withToolExecutionLogger } from './define';
 
 type MCPToolDescriptor = {
@@ -195,10 +195,14 @@ async function executeBuiltinMCPTool(input: {
   serverName: string;
   toolName: string;
   args: Record<string, unknown>;
+  context?: {
+    sessionId?: string;
+    agentName?: string;
+  };
 }): Promise<unknown> {
   'use step';
 
-  const serverConfig = getBuiltinMcpServers()[
+  const serverConfig = getBuiltinMcpServers(input.context)[
     input.serverName as keyof ReturnType<typeof getBuiltinMcpServers>
   ];
 
@@ -259,7 +263,11 @@ function mcpResultToModelOutput({
         typeof part.data === 'string' &&
         typeof part.mimeType === 'string'
       ) {
-        return { type: 'image-data' as const, data: part.data, mediaType: part.mimeType };
+        return {
+          type: 'image-data' as const,
+          data: part.data,
+          mediaType: part.mimeType,
+        };
       }
       return { type: 'text' as const, text: JSON.stringify(part) };
     }),
@@ -302,9 +310,7 @@ export async function getMCPTools(
         toModelOutput: mcpResultToModelOutput,
         execute: async (input) => {
           const args =
-            typeof input === 'object' &&
-            input !== null &&
-            !Array.isArray(input)
+            typeof input === 'object' && input !== null && !Array.isArray(input)
               ? (input as Record<string, unknown>)
               : {};
 
@@ -313,6 +319,7 @@ export async function getMCPTools(
                 serverName: descriptor.serverName,
                 toolName: descriptor.toolName,
                 args,
+                context,
               })
             : await executeMCPTool({
                 config: config ?? {},
