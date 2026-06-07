@@ -39,10 +39,26 @@ function getStoredLocale(): Locale {
 
   try {
     const storedLocale = window.localStorage.getItem(STORAGE_KEY);
-    return normalizeLocale(storedLocale ?? window.navigator.language);
+    if (storedLocale) {
+      return normalizeLocale(storedLocale);
+    }
   } catch {
-    return normalizeLocale(window.navigator.language);
+    // Fall through to browser language detection.
   }
+
+  const browserLanguages =
+    window.navigator.languages && window.navigator.languages.length > 0
+      ? window.navigator.languages
+      : [window.navigator.language];
+
+  for (const browserLanguage of browserLanguages) {
+    const locale = normalizeLocale(browserLanguage);
+    if (locale !== defaultLocale || browserLanguage.toLowerCase() === 'en-us') {
+      return locale;
+    }
+  }
+
+  return defaultLocale;
 }
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
