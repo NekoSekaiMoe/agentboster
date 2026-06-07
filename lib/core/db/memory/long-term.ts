@@ -113,9 +113,7 @@ export async function listLongTermMemoryRows(options?: {
     .offset(safeOffset);
 }
 
-export async function listAllLongTermMemoryRows(options?: {
-  userId?: string;
-}) {
+export async function listAllLongTermMemoryRows(options?: { userId?: string }) {
   const conditions: ReturnType<typeof eq>[] = [];
   if (options?.userId) {
     conditions.push(eq(schema.longTermMemories.userId, options.userId));

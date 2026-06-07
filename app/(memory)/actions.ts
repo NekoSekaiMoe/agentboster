@@ -193,7 +193,10 @@ export async function setSessionSoulAction(sessionId: string, content: string) {
     .set({ soulContent: trimmed })
     .where(eq(schema.sessions.id, sid));
 
-  return { ok: true as const, truncated: content.length > SOUL_MEMORY_MAX_LENGTH };
+  return {
+    ok: true as const,
+    truncated: content.length > SOUL_MEMORY_MAX_LENGTH,
+  };
 }
 
 export async function clearSessionSoulAction(sessionId: string) {

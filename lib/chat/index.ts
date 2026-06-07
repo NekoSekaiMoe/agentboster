@@ -1,4 +1,7 @@
-import { sendAdapterSourceReply, streamAdapterSourceReply } from '@/lib/bot/reply';
+import {
+  sendAdapterSourceReply,
+  streamAdapterSourceReply,
+} from '@/lib/bot/reply';
 import {
   createSession,
   deleteMessagesAfterUiMessageId,
@@ -774,7 +777,9 @@ export async function chatMain(
   chatMainLogger.info('chatMain:start', { sessionId: request.sessionId });
 
   const source = normalizeSource(options);
-  chatMainLogger.info('chatMain:source_normalized', { sourceType: source.type });
+  chatMainLogger.info('chatMain:source_normalized', {
+    sourceType: source.type,
+  });
 
   const envelope = parseChatInputEnvelope({
     sessionId: request.sessionId,
@@ -786,7 +791,9 @@ export async function chatMain(
   chatMainLogger.info('chatMain:envelope_parsed', { kind: envelope.kind });
 
   if (envelope.kind === 'command') {
-    chatMainLogger.info('chatMain:processing_command', { command: envelope.command });
+    chatMainLogger.info('chatMain:processing_command', {
+      command: envelope.command,
+    });
     const currentSession = await resolveCommandSession({
       sessionId: envelope.sessionId,
       source: envelope.source,
@@ -849,7 +856,9 @@ export async function chatMain(
   const isRegenerate = request.trigger === 'regenerate-message';
 
   if (isRegenerate && session.workflowRunId) {
-    chatMainLogger.info('chatMain:checking_resume', { runId: session.workflowRunId });
+    chatMainLogger.info('chatMain:checking_resume', {
+      runId: session.workflowRunId,
+    });
     const resumable = await canResumeRun(session.workflowRunId);
     if (resumable) {
       await pauseWorkflow(session.workflowRunId);
@@ -865,7 +874,9 @@ export async function chatMain(
   const normalizedText = normalizeMessageText(
     envelope.text || normalizedInput.text,
   );
-  chatMainLogger.info('chatMain:input_normalized', { textLength: normalizedText.length });
+  chatMainLogger.info('chatMain:input_normalized', {
+    textLength: normalizedText.length,
+  });
 
   const nextUiMessageId = envelope.uiMessageId ?? generateUUID();
   chatMainLogger.info('chatMain:upserting_user_message');
@@ -886,7 +897,9 @@ export async function chatMain(
     session.id,
     nextUiMessageId,
   );
-  chatMainLogger.info('chatMain:old_messages_deleted', { truncatedCount: truncated.length });
+  chatMainLogger.info('chatMain:old_messages_deleted', {
+    truncatedCount: truncated.length,
+  });
 
   if (isRegenerate || truncated.length > 0) {
     await invalidateCurrentSessionSummary(session.id);
@@ -911,7 +924,9 @@ export async function chatMain(
     session.workflowRunId &&
     (await canResumeRun(session.workflowRunId))
   ) {
-    chatMainLogger.info('chatMain:resuming_workflow', { runId: session.workflowRunId });
+    chatMainLogger.info('chatMain:resuming_workflow', {
+      runId: session.workflowRunId,
+    });
     await resumeWithMessage(session.workflowRunId, {
       type: 'user-message',
       message: normalizedText,
@@ -936,7 +951,9 @@ export async function chatMain(
   const initialMessages = await buildInitialContextMessages(session.id, {
     modelId: config.models?.model ?? null,
   });
-  chatMainLogger.info('chatMain:initial_messages_built', { messageCount: initialMessages.length });
+  chatMainLogger.info('chatMain:initial_messages_built', {
+    messageCount: initialMessages.length,
+  });
 
   chatMainLogger.info('chatMain:starting_workflow');
   const { runId, readable } = await startWorkflow({

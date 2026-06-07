@@ -49,7 +49,7 @@ export function CodeBlock<T extends boolean>({
         )}
 
         {tab === 'run' && output && (
-          <div className='w-full overflow-x-auto rounded-b-xl border border-zinc-200 border-t-0 bg-zinc-800 p-4 text-sm text-zinc-50 dark:border-zinc-700 dark:bg-zinc-900'>
+          <div className="w-full overflow-x-auto rounded-b-xl border border-zinc-200 border-t-0 bg-zinc-800 p-4 text-sm text-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
             <code>{output}</code>
           </div>
         )}

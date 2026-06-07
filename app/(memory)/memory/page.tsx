@@ -1,13 +1,6 @@
 'use client';
 
-import {
-  Download,
-  Loader2,
-  Plus,
-  Save,
-  Trash2,
-  Upload,
-} from 'lucide-react';
+import { Download, Loader2, Plus, Save, Trash2, Upload } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -70,12 +63,12 @@ export default function MemoryPage() {
   const [activeScope, setActiveScope] = useState<Scope>('builtin');
 
   return (
-    <div className='flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0'>
-      <header className='sticky top-0 flex items-center border-b bg-background px-4 py-3'>
-        <h1 className='font-semibold text-base md:text-lg'>Memory</h1>
+    <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
+      <header className="sticky top-0 flex items-center border-b bg-background px-4 py-3">
+        <h1 className="font-semibold text-base md:text-lg">Memory</h1>
       </header>
 
-      <div className='flex-1 space-y-4 overflow-y-auto p-4'>
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
         <div className="flex flex-wrap items-center gap-2">
           {(['builtin', 'soul', 'long_term', 'session'] as Scope[]).map(
             (scope) => (
@@ -182,13 +175,13 @@ function SoulPanel() {
     return (
       <div className="space-y-4">
         <Card>
-          <CardContent className='space-y-2 pt-4'>
+          <CardContent className="space-y-2 pt-4">
             <Skeleton className="h-4 w-full" />
             <Skeleton className="h-4 w-3/4" />
           </CardContent>
         </Card>
         <Card>
-          <CardContent className='space-y-2 pt-4'>
+          <CardContent className="space-y-2 pt-4">
             <Skeleton className="h-64 w-full" />
             <div className="flex items-center justify-between">
               <Skeleton className="h-3 w-32" />
@@ -205,11 +198,12 @@ function SoulPanel() {
       <Card>
         <CardHeader className="space-y-2">
           <CardTitle className="text-base">SOUL.md</CardTitle>
-          <p className='text-muted-foreground text-sm'>
-            SOUL.md 定义 Agent 的人格、语气和风格。支持上传 .md 文件或直接在下方编辑。
+          <p className="text-muted-foreground text-sm">
+            SOUL.md 定义 Agent 的人格、语气和风格。支持上传 .md
+            文件或直接在下方编辑。
             内容会注入到系统提示中，影响所有会话的行为表现。
           </p>
-          <p className='text-muted-foreground text-xs'>
+          <p className="text-muted-foreground text-xs">
             最大长度：{SOUL_MEMORY_MAX_LENGTH.toLocaleString()} 字符
           </p>
         </CardHeader>
@@ -227,7 +221,7 @@ function SoulPanel() {
               size="sm"
               onClick={() => fileInputRef.current?.click()}
             >
-              <Upload className='mr-1 size-4' />
+              <Upload className="mr-1 size-4" />
               上传 .md
             </Button>
             <Button
@@ -236,7 +230,7 @@ function SoulPanel() {
               onClick={downloadSoul}
               disabled={!content}
             >
-              <Download className='mr-1 size-4' />
+              <Download className="mr-1 size-4" />
               下载 SOUL.md
             </Button>
           </div>
@@ -244,7 +238,7 @@ function SoulPanel() {
       </Card>
 
       <Card>
-        <CardContent className='space-y-2 pt-4'>
+        <CardContent className="space-y-2 pt-4">
           <Textarea
             rows={16}
             value={content}
@@ -254,20 +248,21 @@ function SoulPanel() {
           />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className='text-muted-foreground text-xs'>
-                {content.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()} 字符
+              <span className="text-muted-foreground text-xs">
+                {content.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()}{' '}
+                字符
               </span>
               {updatedAt && (
-                <span className='text-muted-foreground text-xs'>
+                <span className="text-muted-foreground text-xs">
                   更新于: {new Date(updatedAt).toLocaleString()}
                 </span>
               )}
             </div>
             <Button size="sm" disabled={saving} onClick={save}>
               {saving ? (
-                <Loader2 className='mr-1 size-4 animate-spin' />
+                <Loader2 className="mr-1 size-4 animate-spin" />
               ) : (
-                <Save className='mr-1 size-4' />
+                <Save className="mr-1 size-4" />
               )}
               保存
             </Button>
@@ -357,16 +352,16 @@ function BuiltinPanel() {
     <div className="space-y-4">
       <Card>
         <CardHeader className="space-y-3">
-          <p className='text-muted-foreground text-sm'>
-            These built-in memories are used to build system prompts, making your
-            Agent customizable to you.
+          <p className="text-muted-foreground text-sm">
+            These built-in memories are used to build system prompts, making
+            your Agent customizable to you.
           </p>
         </CardHeader>
       </Card>
       {BUILTIN_KEYS.map((key) => (
         <Card key={key}>
           <CardHeader className="pb-2">
-            <CardTitle className='font-mono text-sm'>{key}</CardTitle>
+            <CardTitle className="font-mono text-sm">{key}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <Textarea
@@ -379,7 +374,7 @@ function BuiltinPanel() {
               className={key === 'SOUL' ? 'font-mono text-sm' : undefined}
             />
             <div className="flex items-center justify-between">
-              <span className='text-muted-foreground text-xs'>
+              <span className="text-muted-foreground text-xs">
                 {memories[key]?.updatedAt
                   ? `Updated: ${new Date(memories[key].updatedAt).toLocaleString()}`
                   : 'Not set'}
@@ -390,9 +385,9 @@ function BuiltinPanel() {
                 onClick={() => saveKey(key)}
               >
                 {savingKey === key ? (
-                  <Loader2 className='mr-1 size-4 animate-spin' />
+                  <Loader2 className="mr-1 size-4 animate-spin" />
                 ) : (
-                  <Save className='mr-1 size-4' />
+                  <Save className="mr-1 size-4" />
                 )}
                 Save
               </Button>
@@ -516,11 +511,11 @@ function LongTermPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Add Long-term Memory</CardTitle>
-          <p className='text-muted-foreground text-sm'>
+          <p className="text-muted-foreground text-sm">
             Claw can remember your preferences and knowledge across this
             single-user project.
           </p>
-          <p className='text-muted-foreground text-sm'>
+          <p className="text-muted-foreground text-sm">
             Setting the <span className="font-medium">embedding model</span> in
             the AI configuration can make retrieval more accurate, but memory
             still saves even if embeddings are unavailable.
@@ -536,9 +531,9 @@ function LongTermPanel() {
           <div className="flex justify-end">
             <Button onClick={create} disabled={creating}>
               {creating ? (
-                <Loader2 className='mr-1 size-4 animate-spin' />
+                <Loader2 className="mr-1 size-4 animate-spin" />
               ) : (
-                <Plus className='mr-1 size-4' />
+                <Plus className="mr-1 size-4" />
               )}
               Add
             </Button>
@@ -551,7 +546,7 @@ function LongTermPanel() {
           {Array.from({ length: 3 }).map((_, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
             <Card key={`skeleton-${i}`}>
-              <CardContent className='space-y-2 pt-4'>
+              <CardContent className="space-y-2 pt-4">
                 <Skeleton className="h-16 w-full" />
                 <div className="flex items-center justify-between">
                   <Skeleton className="h-3 w-32" />
@@ -562,17 +557,17 @@ function LongTermPanel() {
           ))}
         </div>
       ) : memories.length === 0 ? (
-        <div className='rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm'>
+        <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
           No long-term memories yet
         </div>
       ) : (
         <div className="space-y-3">
           {memories.map((item) => (
             <Card key={item.id}>
-              <CardContent className='space-y-2 pt-4'>
-                <p className='whitespace-pre-wrap text-sm'>{item.content}</p>
+              <CardContent className="space-y-2 pt-4">
+                <p className="whitespace-pre-wrap text-sm">{item.content}</p>
                 <div className="flex items-center justify-between">
-                  <span className='text-muted-foreground text-xs'>
+                  <span className="text-muted-foreground text-xs">
                     {new Date(item.createdAt).toLocaleString()}
                   </span>
                   <Button
@@ -710,7 +705,7 @@ function SessionPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Session Summaries</CardTitle>
-          <p className='text-muted-foreground text-sm'>
+          <p className="text-muted-foreground text-sm">
             Session memory is isolated within each session, which is especially
             useful for long sessions.
           </p>
@@ -734,15 +729,17 @@ function SessionPanel() {
         <Card>
           <CardHeader className="space-y-2">
             <CardTitle className="text-base">Session SOUL</CardTitle>
-            <p className='text-muted-foreground text-sm'>
+            <p className="text-muted-foreground text-sm">
               为此会话设置独立的 SOUL 内容，覆盖全局 SOUL.md。
               {sessionSoulScope === 'global' && sessionSoul && (
-                <span className='ml-1 text-amber-500'>
+                <span className="ml-1 text-amber-500">
                   （当前使用全局 SOUL）
                 </span>
               )}
               {sessionSoulScope === 'session' && (
-                <span className='ml-1 text-green-600'>（已设置会话级 SOUL）</span>
+                <span className="ml-1 text-green-600">
+                  （已设置会话级 SOUL）
+                </span>
               )}
             </p>
           </CardHeader>
@@ -755,7 +752,7 @@ function SessionPanel() {
                 onClick={loadSessionSoul}
               >
                 {loadingSoul ? (
-                  <Loader2 className='mr-1 size-4 animate-spin' />
+                  <Loader2 className="mr-1 size-4 animate-spin" />
                 ) : null}
                 加载 SOUL
               </Button>
@@ -766,9 +763,9 @@ function SessionPanel() {
                 onClick={saveSessionSoul}
               >
                 {savingSoul ? (
-                  <Loader2 className='mr-1 size-4 animate-spin' />
+                  <Loader2 className="mr-1 size-4 animate-spin" />
                 ) : (
-                  <Save className='mr-1 size-4' />
+                  <Save className="mr-1 size-4" />
                 )}
                 保存
               </Button>
@@ -779,7 +776,7 @@ function SessionPanel() {
                   className="text-destructive"
                   onClick={clearSessionSoul}
                 >
-                  <Trash2 className='mr-1 size-4' />
+                  <Trash2 className="mr-1 size-4" />
                   清除覆盖
                 </Button>
               )}
@@ -791,15 +788,16 @@ function SessionPanel() {
               placeholder="会话级 SOUL 内容（留空则使用全局 SOUL.md）..."
               className="font-mono text-sm"
             />
-            <span className='text-muted-foreground text-xs'>
-              {sessionSoul.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()} 字符
+            <span className="text-muted-foreground text-xs">
+              {sessionSoul.length} / {SOUL_MEMORY_MAX_LENGTH.toLocaleString()}{' '}
+              字符
             </span>
           </CardContent>
         </Card>
       )}
 
       {summaries.length === 0 ? (
-        <div className='rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm'>
+        <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
           {sessionId.trim()
             ? 'No summaries for this session'
             : 'Enter a session ID to view summaries'}
@@ -808,19 +806,19 @@ function SessionPanel() {
         <div className="space-y-3">
           {summaries.map((s) => (
             <Card key={s.id}>
-              <CardContent className='space-y-2 pt-4'>
+              <CardContent className="space-y-2 pt-4">
                 <div className="flex items-center gap-2">
-                  <code className='rounded bg-muted px-2 py-0.5 text-xs'>
+                  <code className="rounded bg-muted px-2 py-0.5 text-xs">
                     v{s.summaryVersion}
                   </code>
                   {s.isCurrent && (
-                    <span className='font-medium text-green-600 text-xs'>
+                    <span className="font-medium text-green-600 text-xs">
                       current
                     </span>
                   )}
                 </div>
-                <p className='whitespace-pre-wrap text-sm'>{s.content}</p>
-                <span className='block text-muted-foreground text-xs'>
+                <p className="whitespace-pre-wrap text-sm">{s.content}</p>
+                <span className="block text-muted-foreground text-xs">
                   {new Date(s.createdAt).toLocaleString()}
                 </span>
               </CardContent>

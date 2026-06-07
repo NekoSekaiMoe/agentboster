@@ -6,10 +6,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-} from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
@@ -47,7 +44,9 @@ async function createUser(data: {
     body: JSON.stringify(data),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Failed to create user' }));
+    const err = await res
+      .json()
+      .catch(() => ({ error: 'Failed to create user' }));
     throw new Error(err.error);
   }
   return res.json();
@@ -89,27 +88,23 @@ export default function UsersPage() {
   });
 
   return (
-    <div className='max-w-2xl space-y-6 p-6'>
+    <div className="max-w-2xl space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className='font-bold text-2xl tracking-tight'>Users</h1>
-          <p className='text-muted-foreground text-sm'>
-            Manage user accounts
-          </p>
+          <h1 className="font-bold text-2xl tracking-tight">Users</h1>
+          <p className="text-muted-foreground text-sm">Manage user accounts</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button>
-              <UserPlus className='mr-2 size-4' />
+              <UserPlus className="mr-2 size-4" />
               Add User
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create User</DialogTitle>
-              <DialogDescription>
-                Add a new user account
-              </DialogDescription>
+              <DialogDescription>Add a new user account</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
@@ -137,7 +132,10 @@ export default function UsersPage() {
                   checked={isAdmin}
                   onCheckedChange={(checked) => setIsAdmin(checked === true)}
                 />
-                <Label htmlFor="new-is-admin" className='cursor-pointer text-sm'>
+                <Label
+                  htmlFor="new-is-admin"
+                  className="cursor-pointer text-sm"
+                >
                   Admin (full access to config and settings)
                 </Label>
               </div>
@@ -161,9 +159,9 @@ export default function UsersPage() {
       </div>
 
       {isLoading ? (
-        <p className='text-muted-foreground text-sm'>Loading...</p>
+        <p className="text-muted-foreground text-sm">Loading...</p>
       ) : users.length === 0 ? (
-        <p className='text-muted-foreground text-sm'>No users found.</p>
+        <p className="text-muted-foreground text-sm">No users found.</p>
       ) : (
         <div className="space-y-2">
           {users.map((user) => (
@@ -187,7 +185,9 @@ function UserCard({ user }: { user: User }) {
         body: JSON.stringify({ id: user.id }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Failed to delete user' }));
+        const err = await res
+          .json()
+          .catch(() => ({ error: 'Failed to delete user' }));
         throw new Error(err.error);
       }
     },
@@ -211,18 +211,18 @@ function UserCard({ user }: { user: User }) {
           )}
           <div>
             <p className="font-medium">{user.username}</p>
-            <p className='text-muted-foreground text-xs'>
+            <p className="text-muted-foreground text-xs">
               Created {formatDate(user.createdAt)}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {isAdmin ? (
-            <span className='rounded bg-amber-500/10 px-2 py-0.5 text-amber-600 text-xs'>
+            <span className="rounded bg-amber-500/10 px-2 py-0.5 text-amber-600 text-xs">
               Admin
             </span>
           ) : (
-            <span className='rounded bg-muted px-2 py-0.5 text-xs'>User</span>
+            <span className="rounded bg-muted px-2 py-0.5 text-xs">User</span>
           )}
           <Button
             variant="ghost"

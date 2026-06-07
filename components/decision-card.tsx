@@ -364,7 +364,7 @@ export function DecisionCard({
     return (
       <Card className="border-green-500/30">
         <CardContent className="pt-4">
-          <p className='text-green-600 text-sm'>{resultMessage}</p>
+          <p className="text-green-600 text-sm">{resultMessage}</p>
         </CardContent>
       </Card>
     );
@@ -384,7 +384,7 @@ export function DecisionCard({
             {decision.type === 'l2_auth' && decision.command && (
               <div>
                 命令：
-                <code className='rounded bg-muted px-1'>
+                <code className="rounded bg-muted px-1">
                   {decision.command}
                 </code>
               </div>
@@ -399,7 +399,7 @@ export function DecisionCard({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className='text-red-600 text-sm'>
+          <p className="text-red-600 text-sm">
             Agent 已暂停。您可以稍后重新发送指令。
           </p>
         </CardContent>
@@ -465,13 +465,13 @@ export function DecisionCard({
             <Clock className="size-3" /> {countdown}
           </span>
         </div>
-        <CardDescription className='space-y-1 text-xs'>
+        <CardDescription className="space-y-1 text-xs">
           {decision.type === 'l2_auth' && decision.command && (
             <>
               <div>任务：{decision.command}</div>
               <div>
                 命令：
-                <code className='rounded bg-muted px-1'>
+                <code className="rounded bg-muted px-1">
                   {decision.command}
                 </code>
               </div>
@@ -556,13 +556,13 @@ export function DecisionCard({
               className="space-y-2"
             >
               <div className="flex items-start gap-2">
-                <span className='mt-0.5 text-muted-foreground text-xs'>
+                <span className="mt-0.5 text-muted-foreground text-xs">
                   {pIdx + 1}.
                 </span>
                 <div className="flex-1">
-                  <p className='font-medium text-sm'>{prompt.question}</p>
+                  <p className="font-medium text-sm">{prompt.question}</p>
                   {prompt.header && (
-                    <p className='mt-0.5 text-muted-foreground text-xs'>
+                    <p className="mt-0.5 text-muted-foreground text-xs">
                       [{prompt.header}]
                     </p>
                   )}
@@ -592,7 +592,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor={`q${pIdx}-o${oIdx}`}
-                        className='cursor-pointer text-sm'
+                        className="cursor-pointer text-sm"
                       >
                         {opt}
                       </Label>
@@ -621,7 +621,7 @@ export function DecisionCard({
                         />
                         <Label
                           htmlFor={`q${pIdx}-o${oIdx}`}
-                          className='cursor-pointer text-sm'
+                          className="cursor-pointer text-sm"
                         >
                           {opt}
                         </Label>
@@ -687,10 +687,10 @@ export function DecisionCard({
             {decision.conflict.files.map((file, fIdx) => (
               <div
                 key={`conflict-${fIdx}-${file.path}`}
-                className='space-y-2 rounded-md border border-purple-200/50 bg-purple-50/30 p-3'
+                className="space-y-2 rounded-md border border-purple-200/50 bg-purple-50/30 p-3"
               >
                 <div className="flex items-center gap-2">
-                  <code className='rounded bg-muted px-1.5 py-0.5 font-mono text-xs'>
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
                     {file.path}
                   </code>
                 </div>
@@ -698,7 +698,7 @@ export function DecisionCard({
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {file.ours && (
                       <div className="rounded border border-green-200/50 bg-green-50/30 p-2">
-                        <p className='mb-1 font-medium text-green-700'>Ours</p>
+                        <p className="mb-1 font-medium text-green-700">Ours</p>
                         <pre className="whitespace-pre-wrap text-muted-foreground">
                           {file.ours}
                         </pre>
@@ -706,7 +706,7 @@ export function DecisionCard({
                     )}
                     {file.theirs && (
                       <div className="rounded border border-blue-200/50 bg-blue-50/30 p-2">
-                        <p className='mb-1 font-medium text-blue-700'>Theirs</p>
+                        <p className="mb-1 font-medium text-blue-700">Theirs</p>
                         <pre className="whitespace-pre-wrap text-muted-foreground">
                           {file.theirs}
                         </pre>
@@ -733,7 +733,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor={`cf-${fIdx}-ours`}
-                        className='cursor-pointer text-green-700 text-xs'
+                        className="cursor-pointer text-green-700 text-xs"
                       >
                         ours
                       </Label>
@@ -746,7 +746,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor={`cf-${fIdx}-theirs`}
-                        className='cursor-pointer text-blue-700 text-xs'
+                        className="cursor-pointer text-blue-700 text-xs"
                       >
                         theirs
                       </Label>
@@ -759,7 +759,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor={`cf-${fIdx}-manual`}
-                        className='cursor-pointer text-amber-700 text-xs'
+                        className="cursor-pointer text-amber-700 text-xs"
                       >
                         manual
                       </Label>
@@ -801,7 +801,7 @@ export function DecisionCard({
 
         {decision.type === 'branch' && decision.branch && (
           <div className="space-y-3">
-            <div className='grid grid-cols-1 gap-3 md:grid-cols-2'>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {/* Plan A */}
               <PlanCard
                 label={decision.branch.plan_a.label}
@@ -840,7 +840,7 @@ export function DecisionCard({
                       />
                       <Label
                         htmlFor="branch-custom"
-                        className='cursor-pointer text-sm'
+                        className="cursor-pointer text-sm"
                       >
                         自定义方案
                       </Label>
@@ -898,14 +898,14 @@ function TimeInputForm({
   return (
     <div className="space-y-2 rounded-md border border-orange-300/40 bg-orange-50/50 p-3">
       <div className="flex items-center justify-between">
-        <p className='flex items-center gap-1 font-medium text-xs'>
+        <p className="flex items-center gap-1 font-medium text-xs">
           <Clock className="size-3" /> 请回复时间
         </p>
-        <span className='font-mono text-muted-foreground text-xs'>
+        <span className="font-mono text-muted-foreground text-xs">
           {countdown}
         </span>
       </div>
-      <p className='text-muted-foreground text-xs'>
+      <p className="text-muted-foreground text-xs">
         格式：hhddmmyy（时-日-月-年）或 always
       </p>
       <div className="flex gap-2">
@@ -999,7 +999,7 @@ function PlanCard({
         }
       }}
     >
-      <div className='mb-1 flex items-center gap-2'>
+      <div className="mb-1 flex items-center gap-2">
         <RadioGroup
           value={selected ? 'selected' : ''}
           onValueChange={() => !disabled && onSelect()}
@@ -1008,16 +1008,16 @@ function PlanCard({
         </RadioGroup>
         <Label
           htmlFor={radioId}
-          className='cursor-pointer font-semibold text-sm'
+          className="cursor-pointer font-semibold text-sm"
         >
           {label}
         </Label>
       </div>
       {description && (
-        <p className='ml-6 text-muted-foreground text-xs'>{description}</p>
+        <p className="ml-6 text-muted-foreground text-xs">{description}</p>
       )}
       {details && (
-        <pre className='mt-2 ml-6 whitespace-pre-wrap text-muted-foreground text-xs'>
+        <pre className="mt-2 ml-6 whitespace-pre-wrap text-muted-foreground text-xs">
           {details}
         </pre>
       )}

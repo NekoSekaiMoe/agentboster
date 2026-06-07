@@ -130,7 +130,7 @@ export default async function RootLayout({
           }}
         />
       </head>
-      <body className='overscroll-none antialiased'>
+      <body className="overscroll-none antialiased">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

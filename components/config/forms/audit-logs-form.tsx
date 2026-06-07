@@ -157,7 +157,7 @@ export function AuditLogsForm() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className='font-bold text-2xl tracking-tight'>Audit Logs</h2>
+        <h2 className="font-bold text-2xl tracking-tight">Audit Logs</h2>
         <p className="text-muted-foreground">
           Review security audit logs for all agent operations.
         </p>
@@ -166,7 +166,7 @@ export function AuditLogsForm() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className='flex items-center gap-2 font-medium text-sm'>
+            <CardTitle className="flex items-center gap-2 font-medium text-sm">
               <Filter className="h-4 w-4" />
               Filters
             </CardTitle>
@@ -182,7 +182,7 @@ export function AuditLogsForm() {
             {/* Row 1: Dropdowns */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
-                <Label className='mb-1.5 block text-xs'>Level</Label>
+                <Label className="mb-1.5 block text-xs">Level</Label>
                 <Select
                   value={filters.level || 'all'}
                   onValueChange={(value) =>
@@ -205,7 +205,7 @@ export function AuditLogsForm() {
               </div>
 
               <div>
-                <Label className='mb-1.5 block text-xs'>Decision</Label>
+                <Label className="mb-1.5 block text-xs">Decision</Label>
                 <Select
                   value={filters.decision || 'all'}
                   onValueChange={(value) =>
@@ -230,7 +230,7 @@ export function AuditLogsForm() {
               </div>
 
               <div>
-                <Label className='mb-1.5 block text-xs'>Agent ID</Label>
+                <Label className="mb-1.5 block text-xs">Agent ID</Label>
                 <Input
                   placeholder="Filter by agent..."
                   value={agentIdSearch}
@@ -244,7 +244,7 @@ export function AuditLogsForm() {
             {/* Row 2: Text searches */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
-                <Label className='mb-1.5 block text-xs'>Search Command</Label>
+                <Label className="mb-1.5 block text-xs">Search Command</Label>
                 <div className="flex gap-2">
                   <Input
                     placeholder="Search commands..."
@@ -263,7 +263,7 @@ export function AuditLogsForm() {
               </div>
 
               <div>
-                <Label className='mb-1.5 block text-xs'>Task ID</Label>
+                <Label className="mb-1.5 block text-xs">Task ID</Label>
                 <Input
                   placeholder="Filter by task ID..."
                   value={taskIdSearch}
@@ -277,7 +277,7 @@ export function AuditLogsForm() {
             {/* Row 3: Date range + download */}
             <div className="flex flex-wrap items-end gap-4">
               <div>
-                <Label className='mb-1.5 block text-xs'>From</Label>
+                <Label className="mb-1.5 block text-xs">From</Label>
                 <Input
                   type="datetime-local"
                   value={filters.from?.slice(0, 16) || ''}
@@ -292,7 +292,7 @@ export function AuditLogsForm() {
                 />
               </div>
               <div>
-                <Label className='mb-1.5 block text-xs'>To</Label>
+                <Label className="mb-1.5 block text-xs">To</Label>
                 <Input
                   type="datetime-local"
                   value={filters.to?.slice(0, 16) || ''}
@@ -332,7 +332,7 @@ export function AuditLogsForm() {
             </div>
           ) : (
             <>
-              <div className='border-b px-4 py-2 text-muted-foreground text-xs'>
+              <div className="border-b px-4 py-2 text-muted-foreground text-xs">
                 {logs.length} record{logs.length !== 1 ? 's' : ''}
               </div>
               <Table>
@@ -378,7 +378,7 @@ export function AuditLogsForm() {
                       <TableCell className="text-right">
                         {log.score !== null ? log.score : '-'}
                       </TableCell>
-                      <TableCell className='max-w-[120px] truncate text-muted-foreground text-xs'>
+                      <TableCell className="max-w-[120px] truncate text-muted-foreground text-xs">
                         {log.agentId || '-'}
                       </TableCell>
                     </TableRow>
@@ -395,7 +395,7 @@ export function AuditLogsForm() {
         open={!!selectedLog}
         onOpenChange={(open) => !open && setSelectedLog(null)}
       >
-        <DialogContent className='max-h-[80vh] max-w-2xl overflow-y-auto'>
+        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
           {selectedLog && (
             <>
               <DialogHeader>
@@ -443,20 +443,20 @@ export function AuditLogsForm() {
                 )}
 
                 <div>
-                  <Label className='font-medium text-muted-foreground text-xs'>
+                  <Label className="font-medium text-muted-foreground text-xs">
                     Command
                   </Label>
-                  <pre className='mt-1 whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs'>
+                  <pre className="mt-1 whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs">
                     {selectedLog.command}
                   </pre>
                 </div>
 
                 {selectedLog.reason && (
                   <div>
-                    <Label className='font-medium text-muted-foreground text-xs'>
+                    <Label className="font-medium text-muted-foreground text-xs">
                       Reason
                     </Label>
-                    <p className='mt-1 rounded-md bg-muted p-3 text-sm'>
+                    <p className="mt-1 rounded-md bg-muted p-3 text-sm">
                       {selectedLog.reason}
                     </p>
                   </div>
@@ -474,10 +474,14 @@ function DetailRow({
   label,
   value,
   mono,
-}: { label: string; value: string; mono?: boolean }) {
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div>
-      <Label className='font-medium text-muted-foreground text-xs'>
+      <Label className="font-medium text-muted-foreground text-xs">
         {label}
       </Label>
       <p className={`mt-0.5 text-sm ${mono ? 'font-mono text-xs' : ''}`}>

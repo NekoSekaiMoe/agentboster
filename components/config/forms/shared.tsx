@@ -111,7 +111,9 @@ export function parseOptionalNumber(value: string) {
 
 export function SectionIssues({
   issues,
-}: { issues: Array<{ message: string; path: string }> }) {
+}: {
+  issues: Array<{ message: string; path: string }>;
+}) {
   if (!issues.length) {
     return null;
   }
@@ -210,7 +212,7 @@ export function ToggleField({
   return (
     <label className="flex items-center justify-between gap-4 rounded-xl border px-4 py-3">
       <div>
-        <p className='font-medium text-sm'>{label}</p>
+        <p className="font-medium text-sm">{label}</p>
       </div>
       <input
         checked={checked}

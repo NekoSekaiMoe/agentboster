@@ -22,7 +22,7 @@ const variableVector = customType<{ data: number[]; driverParam: string }>({
   },
   fromDriver(value) {
     return String(value)
-      .replace(/[\[\]]/g, '')
+      .replace(/[[\]]/g, '')
       .split(',')
       .filter((part) => part.length > 0)
       .map(Number);

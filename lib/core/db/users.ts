@@ -63,9 +63,7 @@ export async function authenticateUser(
   };
 }
 
-export async function getUserById(
-  userId: string,
-): Promise<StoredUser | null> {
+export async function getUserById(userId: string): Promise<StoredUser | null> {
   const rows = await db
     .select()
     .from(users)

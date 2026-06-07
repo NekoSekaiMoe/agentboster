@@ -405,6 +405,9 @@ func (d *Dispatcher) sendCompletionNotification(ctx context.Context, task *clawl
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if d.clawless.APIKey != "" {
+		req.Header.Set("X-API-Key", d.clawless.APIKey)
+	}
 
 	resp, err := d.clawless.HTTPClient.Do(req)
 	if err != nil {

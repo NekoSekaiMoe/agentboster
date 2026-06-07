@@ -14,17 +14,11 @@ import { users } from '@/lib/core/db/schema';
 
 const apiKeyIndex = new Map<string, string>();
 
-export async function createUser(
-  username: string,
-  password: string,
-) {
+export async function createUser(username: string, password: string) {
   return dbCreateUser(username, password);
 }
 
-export async function authenticateUser(
-  username: string,
-  password: string,
-) {
+export async function authenticateUser(username: string, password: string) {
   return dbAuthenticateUser(username, password);
 }
 

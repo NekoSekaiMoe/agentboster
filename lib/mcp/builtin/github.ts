@@ -41,7 +41,9 @@ async function requestGithub(
 
   const text = await response.text();
   if (!response.ok) {
-    return buildError(`GitHub request failed with status ${response.status}: ${text}`);
+    return buildError(
+      `GitHub request failed with status ${response.status}: ${text}`,
+    );
   }
 
   return {
@@ -78,7 +80,8 @@ export const builtinGithubTools: BuiltinMcpToolDefinition[] = [
   {
     name: 'github_create_issue',
     title: 'Create GitHub Issue',
-    description: 'Create an issue. Requires GITHUB_TOKEN with repo permissions.',
+    description:
+      'Create an issue. Requires GITHUB_TOKEN with repo permissions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -93,7 +96,8 @@ export const builtinGithubTools: BuiltinMcpToolDefinition[] = [
   {
     name: 'github_update_issue',
     title: 'Update GitHub Issue',
-    description: 'Update an issue. Requires GITHUB_TOKEN with repo permissions.',
+    description:
+      'Update an issue. Requires GITHUB_TOKEN with repo permissions.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -179,7 +183,8 @@ export async function executeBuiltinGithubTool(
     const title = typeof input.title === 'string' ? input.title : '';
     const head = typeof input.head === 'string' ? input.head : '';
     const base = typeof input.base === 'string' ? input.base : '';
-    if (!title || !head || !base) return buildError('Missing title, head, or base.');
+    if (!title || !head || !base)
+      return buildError('Missing title, head, or base.');
     return requestGithub(`/repos/${owner}/${repo}/pulls`, {
       method: 'POST',
       body: JSON.stringify({

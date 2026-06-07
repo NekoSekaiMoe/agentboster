@@ -4,7 +4,11 @@
  */
 
 import { getConfig } from '@/lib/core/kv/config';
-import { type L1ScoreResult, scoreCommand, scoreOutput } from '@/lib/security/l1-scorer';
+import {
+  type L1ScoreResult,
+  scoreCommand,
+  scoreOutput,
+} from '@/lib/security/l1-scorer';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
 

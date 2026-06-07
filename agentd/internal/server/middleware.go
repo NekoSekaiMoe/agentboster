@@ -8,10 +8,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// MTLSMiddleware verifies that the request has a valid mTLS client certificate.
+// MTLSMiddleware verifies that HTTPS requests have a valid mTLS client
+// certificate. Plain HTTP deployments are allowed for local/private-network
+// setups and rely on APIKeyMiddleware for authentication.
 func MTLSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.TLS == nil || len(c.Request.TLS.PeerCertificates) == 0 {
+		if c.Request.TLS == nil {
+			c.Next()
+			return
+		}
+		if len(c.Request.TLS.PeerCertificates) == 0 {
 			slog.Warn("mTLS: no client cert", "remote", c.RemoteIP())
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"success": false,

@@ -4,26 +4,50 @@
  * Used by agentd to fetch per-session SOUL overrides.
  */
 
+import { eq } from 'drizzle-orm';
+import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import { db, schema } from '@/lib/core/db';
 import { getBuiltinMemorySection } from '@/lib/memory';
 import { createLogger } from '@/lib/utils/logger';
-import { eq } from 'drizzle-orm';
-import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
 
 const logger = createLogger('api.soul.session');
 
+function readBearerToken(value: string | null): string {
+  if (!value?.startsWith('Bearer ')) {
+    return '';
+  }
+
+  return value.slice('Bearer '.length);
+}
+
+function hasValidAgentdApiKey(request: Request): boolean {
+  const expected = process.env.AGENTD_API_KEY;
+  if (!expected) {
+    return false;
+  }
+
+  const provided =
+    request.headers.get('x-api-key') ||
+    readBearerToken(request.headers.get('authorization'));
+
+  return provided === expected;
+}
+
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
   try {
-    const cookieStore = await cookies();
-    const session = await readAuthSessionFromCookies(cookieStore);
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!hasValidAgentdApiKey(request)) {
+      const cookieStore = await cookies();
+      const session = await readAuthSessionFromCookies(cookieStore);
+      if (!session) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
     }
+
     const { sessionId } = await params;
 
     const [sessionRow] = await db

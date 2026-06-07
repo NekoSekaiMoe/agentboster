@@ -15,7 +15,7 @@ const components: Components = {
   pre: ({ children }) => <>{children}</>,
   ol: ({ node, children, ...props }) => {
     return (
-      <ol className='ml-4 list-outside list-decimal' {...props}>
+      <ol className="ml-4 list-outside list-decimal" {...props}>
         {children}
       </ol>
     );
@@ -29,7 +29,7 @@ const components: Components = {
   },
   ul: ({ node, children, ...props }) => {
     return (
-      <ul className='ml-4 list-outside list-decimal' {...props}>
+      <ul className="ml-4 list-outside list-decimal" {...props}>
         {children}
       </ul>
     );
@@ -56,42 +56,42 @@ const components: Components = {
   },
   h1: ({ node, children, ...props }) => {
     return (
-      <h1 className='mt-6 mb-2 font-semibold text-2xl md:text-3xl' {...props}>
+      <h1 className="mt-6 mb-2 font-semibold text-2xl md:text-3xl" {...props}>
         {children}
       </h1>
     );
   },
   h2: ({ node, children, ...props }) => {
     return (
-      <h2 className='mt-6 mb-2 font-semibold text-xl md:text-2xl' {...props}>
+      <h2 className="mt-6 mb-2 font-semibold text-xl md:text-2xl" {...props}>
         {children}
       </h2>
     );
   },
   h3: ({ node, children, ...props }) => {
     return (
-      <h3 className='mt-6 mb-2 font-semibold text-lg md:text-xl' {...props}>
+      <h3 className="mt-6 mb-2 font-semibold text-lg md:text-xl" {...props}>
         {children}
       </h3>
     );
   },
   h4: ({ node, children, ...props }) => {
     return (
-      <h4 className='mt-6 mb-2 font-semibold text-base md:text-lg' {...props}>
+      <h4 className="mt-6 mb-2 font-semibold text-base md:text-lg" {...props}>
         {children}
       </h4>
     );
   },
   h5: ({ node, children, ...props }) => {
     return (
-      <h5 className='mt-6 mb-2 font-semibold text-base' {...props}>
+      <h5 className="mt-6 mb-2 font-semibold text-base" {...props}>
         {children}
       </h5>
     );
   },
   h6: ({ node, children, ...props }) => {
     return (
-      <h6 className='mt-6 mb-2 font-semibold text-sm' {...props}>
+      <h6 className="mt-6 mb-2 font-semibold text-sm" {...props}>
         {children}
       </h6>
     );

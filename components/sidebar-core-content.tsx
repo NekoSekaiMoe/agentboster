@@ -20,9 +20,9 @@ import {
   Users,
   Wrench,
 } from 'lucide-react';
-import { useTheme } from 'next-themes';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -55,10 +55,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
+  invalidateSessionList,
   SESSION_LIST_INVALIDATED_EVENT,
   SESSION_LIST_UPSERTED_EVENT,
   type SessionListItemEventDetail,
-  invalidateSessionList,
 } from '@/lib/chat/session-events';
 import packageJson from '@/package.json';
 import { Logo } from './logo';
@@ -298,9 +298,15 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
 
   const handleAbortSession = useCallback(async (sessionItem: SessionItem) => {
     try {
-      await fetch(`/api/agentd/v1/sessions/${sessionItem.id}/abort`, {
-        method: 'POST',
-      });
+      const response = await fetch(
+        `/api/agentd/v1/sessions/${sessionItem.id}/abort`,
+        {
+          method: 'POST',
+        },
+      );
+      if (!response.ok) {
+        throw new Error('Abort request failed');
+      }
       setSessions((prev) =>
         prev.map((s) =>
           s.id === sessionItem.id ? { ...s, status: 'aborted' as const } : s,
@@ -330,17 +336,17 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     if (!status || status === 'idle') return null;
     if (status === 'running')
       return (
-        <Loader2 className='size-3 shrink-0 animate-spin text-amber-500' />
+        <Loader2 className="size-3 shrink-0 animate-spin text-amber-500" />
       );
     if (status === 'waiting_user')
       return (
-        <span className='size-2 shrink-0 animate-pulse rounded-full bg-amber-500' />
+        <span className="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
       );
     if (status === 'completed')
-      return <span className='size-2 shrink-0 rounded-full bg-green-500' />;
+      return <span className="size-2 shrink-0 rounded-full bg-green-500" />;
     if (status === 'aborted')
       return (
-        <span className='size-2 shrink-0 rounded-full bg-muted-foreground' />
+        <span className="size-2 shrink-0 rounded-full bg-muted-foreground" />
       );
     return null;
   };
@@ -351,12 +357,12 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className='-translate-y-1/2 absolute top-1/2 right-2 rounded p-1 opacity-0 hover:bg-muted focus:opacity-100 group-hover:opacity-100'
+            className="-translate-y-1/2 absolute top-1/2 right-2 rounded p-1 opacity-0 hover:bg-muted focus:opacity-100 group-hover:opacity-100"
             aria-label="Session actions"
             disabled={deletingSessionId === sessionItem.id}
           >
             {deletingSessionId === sessionItem.id ? (
-              <Loader2 className='size-4 animate-spin' />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
               <Trash2 className="size-4" />
             )}
@@ -405,7 +411,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       >
         <StatusDot status={sessionItem.status} />
         <MessageSquare className="size-4 shrink-0" />
-        <span className='flex-1 truncate'>
+        <span className="flex-1 truncate">
           {sessionItem.title ?? 'Untitled'}
         </span>
         {sessionItem.pinned && <span className="text-xs">📌</span>}
@@ -414,16 +420,16 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
   );
 
   return (
-    <div className='flex h-full flex-col'>
+    <div className="flex h-full flex-col">
       {/* Header */}
-      <div className='flex flex-row items-center justify-between border-b p-4'>
+      <div className="flex flex-row items-center justify-between border-b p-4">
         <Link
           href="/"
           onClick={onClose}
-          className='flex flex-row items-center gap-2'
+          className="flex flex-row items-center gap-2"
         >
           <Logo width={24} height={24} />
-          <span className='font-semibold text-lg'>AgentBoster</span>
+          <span className="font-semibold text-lg">AgentBoster</span>
         </Link>
         <Button
           variant="ghost"
@@ -440,8 +446,8 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       </div>
 
       {/* Navigation */}
-      <div className='space-y-1 p-4'>
-        <div className='mb-2 px-3 font-semibold text-muted-foreground text-xs'>
+      <div className="space-y-1 p-4">
+        <div className="mb-2 px-3 font-semibold text-muted-foreground text-xs">
           Navigation
         </div>
         {navItems.map((item) => (
@@ -467,12 +473,12 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
 
       {/* Sessions */}
       {isChatPage && (
-        <div className='flex-1 space-y-2 overflow-y-auto p-4'>
-          <div className='mb-2 px-3 font-semibold text-muted-foreground text-xs'>
+        <div className="flex-1 space-y-2 overflow-y-auto p-4">
+          <div className="mb-2 px-3 font-semibold text-muted-foreground text-xs">
             Recent Sessions
           </div>
           <div className="relative mb-3">
-            <Search className='-translate-y-1/2 absolute top-1/2 left-2 size-3.5 text-muted-foreground' />
+            <Search className="-translate-y-1/2 absolute top-1/2 left-2 size-3.5 text-muted-foreground" />
             <Input
               ref={searchInputRef}
               value={searchQuery}
@@ -487,7 +493,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
               <Loader2 className="size-4 animate-spin text-muted-foreground" />
             </div>
           ) : filteredSessions.length === 0 ? (
-            <p className='px-3 py-2 text-muted-foreground text-xs'>
+            <p className="px-3 py-2 text-muted-foreground text-xs">
               {searchQuery ? 'No matching sessions' : 'No sessions yet'}
             </p>
           ) : (
@@ -497,7 +503,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
                   {pinnedSessions.map(renderSessionItem)}
                   {recentSessions.length > 0 && (
                     <div className="px-3 py-1">
-                      <span className='text-[10px] text-muted-foreground/60 uppercase tracking-wider'>
+                      <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">
                         Recent
                       </span>
                     </div>
@@ -511,7 +517,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       )}
 
       {/* Footer */}
-      <div className='space-y-2 border-t p-4'>
+      <div className="space-y-2 border-t p-4">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="w-full justify-start gap-3">
@@ -526,15 +532,15 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
               onValueChange={(value) => setTheme(value as ThemeMode)}
             >
               <DropdownMenuRadioItem value="light">
-                <Sun className='mx-2 size-4' />
+                <Sun className="mx-2 size-4" />
                 Light
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="dark">
-                <Moon className='mx-2 size-4' />
+                <Moon className="mx-2 size-4" />
                 Dark
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="system">
-                <Monitor className='mx-2 size-4' />
+                <Monitor className="mx-2 size-4" />
                 System
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
@@ -560,7 +566,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
               {loggingOut ? 'Signing out...' : 'Sign out'}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className='text-muted-foreground text-xs'>
+            <DropdownMenuLabel className="text-muted-foreground text-xs">
               Version {packageJson.version}
             </DropdownMenuLabel>
           </DropdownMenuContent>

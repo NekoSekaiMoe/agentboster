@@ -130,12 +130,12 @@ export default function FilesPage() {
   );
 
   return (
-    <div className='flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0'>
+    <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
       <header className="sticky top-0 z-10 border-b bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className='font-semibold text-base md:text-lg'>Files</h1>
-            <p className='text-muted-foreground text-sm'>
+            <h1 className="font-semibold text-base md:text-lg">Files</h1>
+            <p className="text-muted-foreground text-sm">
               Browse sandbox exports and jump back to the related session.
             </p>
           </div>
@@ -165,7 +165,7 @@ export default function FilesPage() {
             </CardHeader>
             <CardContent className="flex flex-col gap-3 md:flex-row md:items-center">
               <div className="relative w-full md:max-w-md">
-                <Search className='-translate-y-1/2 pointer-events-none absolute top-1/2 left-3 size-4 text-muted-foreground' />
+                <Search className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-3 size-4 text-muted-foreground" />
                 <Input
                   className="pl-9"
                   placeholder="Filter by session ID"
@@ -197,7 +197,7 @@ export default function FilesPage() {
             </CardContent>
           </Card>
 
-          <div className='text-muted-foreground text-sm'>
+          <div className="text-muted-foreground text-sm">
             {summary.filter
               ? `Showing ${summary.total} file(s) for session ${summary.filter}`
               : `Showing ${summary.total} file(s) from all sessions`}
@@ -209,7 +209,7 @@ export default function FilesPage() {
                 // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
                 <Card key={`skeleton-${i}`}>
                   <CardContent className="flex flex-col gap-3 pt-4 md:flex-row md:items-start md:justify-between">
-                    <div className='min-w-0 flex-1 space-y-2'>
+                    <div className="min-w-0 flex-1 space-y-2">
                       <div className="flex items-center gap-2">
                         <Skeleton className="size-4" />
                         <Skeleton className="h-4 w-48" />
@@ -240,23 +240,23 @@ export default function FilesPage() {
               {items.map((item) => (
                 <Card key={item.id}>
                   <CardContent className="flex flex-col gap-3 pt-4 md:flex-row md:items-start md:justify-between">
-                    <div className='min-w-0 space-y-2'>
+                    <div className="min-w-0 space-y-2">
                       <div className="flex items-center gap-2">
                         <FileArchive className="size-4 text-muted-foreground" />
-                        <p className='break-all font-medium text-sm'>
+                        <p className="break-all font-medium text-sm">
                           {item.fileName}
                         </p>
                       </div>
-                      <div className='break-all text-muted-foreground text-xs'>
+                      <div className="break-all text-muted-foreground text-xs">
                         Source: {item.sourcePath}
                       </div>
-                      <div className='flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs'>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
                         <span>Size: {formatBytes(item.size)}</span>
                         <span>MIME: {item.mimeType}</span>
                         <span>Created: {formatDate(item.createdAt)}</span>
                         <span>Session: {shortSessionId(item.sessionId)}</span>
                       </div>
-                      <div className='text-muted-foreground text-xs'>
+                      <div className="text-muted-foreground text-xs">
                         {item.sessionTitle
                           ? `Session title: ${item.sessionTitle}`
                           : `Channel: ${item.sessionChannel ?? 'unknown'}`}

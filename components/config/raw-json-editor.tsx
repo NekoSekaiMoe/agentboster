@@ -138,19 +138,19 @@ export function RawJsonEditor() {
         <div ref={editorRef} />
 
         {jsonSyntaxError ? (
-          <div className='rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-destructive text-sm'>
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-destructive text-sm">
             <div className="flex items-center gap-2 font-medium">
               <AlertCircle className="size-4" />
               JSON syntax error
             </div>
-            <p className='mt-1 text-destructive/90 text-xs'>
+            <p className="mt-1 text-destructive/90 text-xs">
               {jsonSyntaxError}
             </p>
           </div>
         ) : null}
 
         {!jsonSyntaxError && shownIssues.length > 0 ? (
-          <div className='rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-amber-900 text-sm dark:text-amber-200'>
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-amber-900 text-sm dark:text-amber-200">
             <div className="flex items-center gap-2 font-medium">
               <AlertCircle className="size-4" />
               Schema validation issues
@@ -164,7 +164,7 @@ export function RawJsonEditor() {
               ))}
             </ul>
             {validationIssues.length > shownIssues.length ? (
-              <p className='mt-2 text-muted-foreground text-xs'>
+              <p className="mt-2 text-muted-foreground text-xs">
                 Showing {shownIssues.length} of {validationIssues.length}{' '}
                 issues.
               </p>

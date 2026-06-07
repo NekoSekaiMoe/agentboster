@@ -338,37 +338,37 @@ export default function SkillsPage() {
   }
 
   return (
-    <div className='flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0'>
+    <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
       {/* Top progress bar — shown during any async operation */}
       {isAnyLoading && (
-        <div className='pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-primary/10'>
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-primary/10">
           <div
-            className='h-full w-1/2 rounded-full bg-primary'
+            className="h-full w-1/2 rounded-full bg-primary"
             style={{ animation: 'progress-indeterminate 1.4s linear infinite' }}
           />
         </div>
       )}
 
-      <header className='sticky top-0 flex items-center gap-2 border-b bg-background px-4 py-3'>
-        <h1 className='font-semibold text-base md:text-lg'>Skills</h1>
+      <header className="sticky top-0 flex items-center gap-2 border-b bg-background px-4 py-3">
+        <h1 className="font-semibold text-base md:text-lg">Skills</h1>
         <div className="ml-auto flex gap-2">
           <Button
             size="sm"
             variant="outline"
             onClick={() => setViewMode('import')}
           >
-            <Download className='mr-1 size-4' /> Import Git
+            <Download className="mr-1 size-4" /> Import Git
           </Button>
           <Button size="sm" onClick={() => setViewMode('create')}>
-            <Plus className='mr-1 size-4' /> Create
+            <Plus className="mr-1 size-4" /> Create
           </Button>
         </div>
       </header>
 
-      <div className='flex-1 space-y-4 overflow-y-auto p-4'>
+      <div className="flex-1 space-y-4 overflow-y-auto p-4">
         <Card>
           <CardHeader>
-            <p className='text-muted-foreground text-sm'>
+            <p className="text-muted-foreground text-sm">
               Skills are a knowledge base owned by the Agent, you can add them
               manually or from a Git repository.
             </p>
@@ -391,13 +391,13 @@ export default function SkillsPage() {
                 onChange={(e) => setGitURL(e.target.value)}
                 placeholder="https://github.com/user/repo"
               />
-              <div className='flex justify-end gap-2'>
+              <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setViewMode('list')}>
                   Cancel
                 </Button>
                 <Button onClick={importFromGit} disabled={importing}>
                   {importing && (
-                    <Loader2 className='mr-2 size-4 animate-spin' />
+                    <Loader2 className="mr-2 size-4 animate-spin" />
                   )}
                   Import
                 </Button>
@@ -413,7 +413,7 @@ export default function SkillsPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div>
-                <label htmlFor="skill-name" className='font-medium text-sm'>
+                <label htmlFor="skill-name" className="font-medium text-sm">
                   Name
                 </label>
                 <Input
@@ -426,7 +426,7 @@ export default function SkillsPage() {
               <div>
                 <label
                   htmlFor="skill-description"
-                  className='font-medium text-sm'
+                  className="font-medium text-sm"
                 >
                   Description
                 </label>
@@ -440,15 +440,15 @@ export default function SkillsPage() {
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className='font-medium text-sm'>Files</span>
+                  <span className="font-medium text-sm">Files</span>
                   <Button size="sm" variant="outline" onClick={addCreateFile}>
-                    <Plus className='mr-1 size-3' /> Add File
+                    <Plus className="mr-1 size-3" /> Add File
                   </Button>
                 </div>
                 {createFiles.map((file) => (
                   <div
                     key={file.id}
-                    className='space-y-2 rounded-md border p-3'
+                    className="space-y-2 rounded-md border p-3"
                   >
                     <div className="flex items-center gap-2">
                       <Input
@@ -463,7 +463,7 @@ export default function SkillsPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className='shrink-0 text-destructive'
+                          className="shrink-0 text-destructive"
                           onClick={() => removeCreateFile(file.id)}
                         >
                           <Trash2 className="size-4" />
@@ -483,7 +483,7 @@ export default function SkillsPage() {
                 ))}
               </div>
 
-              <div className='flex justify-end gap-2'>
+              <div className="flex justify-end gap-2">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -515,7 +515,7 @@ export default function SkillsPage() {
               >
                 ← Back
               </Button>
-              <h2 className='font-semibold text-lg'>{selectedSkill.name}</h2>
+              <h2 className="font-semibold text-lg">{selectedSkill.name}</h2>
               <div className="ml-auto flex gap-2">
                 <Button
                   size="sm"
@@ -524,34 +524,34 @@ export default function SkillsPage() {
                   disabled={downloading === selectedSkill.name || isAnyLoading}
                 >
                   {downloading === selectedSkill.name ? (
-                    <Loader2 className='mr-2 size-4 animate-spin' />
+                    <Loader2 className="mr-2 size-4 animate-spin" />
                   ) : (
-                    <Download className='mr-1 size-4' />
+                    <Download className="mr-1 size-4" />
                   )}
                   Download
                 </Button>
               </div>
             </div>
             {selectedSkill.description && (
-              <p className='text-muted-foreground text-sm'>
+              <p className="text-muted-foreground text-sm">
                 {selectedSkill.description}
               </p>
             )}
-            <div className='flex flex-wrap gap-2 text-muted-foreground text-xs'>
-              <code className='rounded bg-muted px-2 py-1'>
+            <div className="flex flex-wrap gap-2 text-muted-foreground text-xs">
+              <code className="rounded bg-muted px-2 py-1">
                 {selectedSkill.sourceType}
               </code>
               {selectedSkill.gitURL && (
-                <code className='rounded bg-muted px-2 py-1'>
+                <code className="rounded bg-muted px-2 py-1">
                   {selectedSkill.gitURL}
                 </code>
               )}
               {selectedSkill.updatedAt > 0 && (
-                <code className='rounded bg-muted px-2 py-1'>
+                <code className="rounded bg-muted px-2 py-1">
                   {formatTime(selectedSkill.updatedAt)}
                 </code>
               )}
-              <code className='rounded bg-muted px-2 py-1'>
+              <code className="rounded bg-muted px-2 py-1">
                 {selectedSkill.files.length} file(s)
               </code>
             </div>
@@ -570,9 +570,9 @@ export default function SkillsPage() {
                     onClick={() => viewFile(selectedSkill.name, file.path)}
                   >
                     {loadingFile === file.path ? (
-                      <Loader2 className='mr-2 size-4 shrink-0 animate-spin' />
+                      <Loader2 className="mr-2 size-4 shrink-0 animate-spin" />
                     ) : (
-                      <FileText className='mr-2 size-4 shrink-0' />
+                      <FileText className="mr-2 size-4 shrink-0" />
                     )}
                     {file.path}
                   </Button>
@@ -582,10 +582,10 @@ export default function SkillsPage() {
             {selectedFileContent !== null && selectedFilePath && (
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className='truncate font-mono text-sm'>
+                  <CardTitle className="truncate font-mono text-sm">
                     {selectedFilePath}
                   </CardTitle>
-                  <div className='ml-2 flex shrink-0 gap-2'>
+                  <div className="ml-2 flex shrink-0 gap-2">
                     {editingFileContent === null ? (
                       <Button
                         size="sm"
@@ -612,7 +612,7 @@ export default function SkillsPage() {
                           disabled={savingFile}
                         >
                           {savingFile && (
-                            <Loader2 className='mr-2 size-4 animate-spin' />
+                            <Loader2 className="mr-2 size-4 animate-spin" />
                           )}
                           Save
                         </Button>
@@ -622,7 +622,7 @@ export default function SkillsPage() {
                 </CardHeader>
                 <CardContent>
                   {editingFileContent === null ? (
-                    <pre className='max-h-96 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs'>
+                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs">
                       {selectedFileContent}
                     </pre>
                   ) : (
@@ -645,7 +645,7 @@ export default function SkillsPage() {
               {Array.from({ length: 3 }).map((_, i) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
                 <Card key={`skeleton-${i}`}>
-                  <CardContent className='flex items-start justify-between gap-4 pt-4'>
+                  <CardContent className="flex items-start justify-between gap-4 pt-4">
                     <div className="flex-1 space-y-2">
                       <Skeleton className="h-4 w-32" />
                       <Skeleton className="h-3 w-64" />
@@ -668,11 +668,11 @@ export default function SkillsPage() {
               {/* Optimistic import pending card */}
               {importJob && (
                 <Card className="border-dashed opacity-70">
-                  <CardContent className='flex items-center gap-3 pt-4'>
-                    <Loader2 className='size-4 shrink-0 animate-spin text-muted-foreground' />
+                  <CardContent className="flex items-center gap-3 pt-4">
+                    <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
                     <div className="min-w-0">
                       <div className="font-medium text-sm">Importing…</div>
-                      <p className='truncate text-muted-foreground text-xs'>
+                      <p className="truncate text-muted-foreground text-xs">
                         {importJob.gitURL}
                       </p>
                     </div>
@@ -680,16 +680,16 @@ export default function SkillsPage() {
                 </Card>
               )}
               {skills.length === 0 && !importJob && (
-                <div className='rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm'>
+                <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
                   No skills installed
                 </div>
               )}
               {skills.map((skill) => (
                 <Card
                   key={skill.name}
-                  className='cursor-pointer transition-colors hover:bg-accent/50'
+                  className="cursor-pointer transition-colors hover:bg-accent/50"
                 >
-                  <CardContent className='flex items-start justify-between gap-4 pt-4'>
+                  <CardContent className="flex items-start justify-between gap-4 pt-4">
                     <button
                       type="button"
                       className="flex-1 text-left"
@@ -698,14 +698,14 @@ export default function SkillsPage() {
                     >
                       <div className="font-medium text-sm">{skill.name}</div>
                       {skill.description && (
-                        <p className='mt-1 text-muted-foreground text-xs'>
+                        <p className="mt-1 text-muted-foreground text-xs">
                           {skill.description}
                         </p>
                       )}
-                      <div className='mt-1 flex flex-wrap gap-2 text-muted-foreground text-xs'>
+                      <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground text-xs">
                         <span>{skill.sourceType}</span>
                         {skill.gitURL && (
-                          <span className='max-w-48 truncate'>
+                          <span className="max-w-48 truncate">
                             {skill.gitURL}
                           </span>
                         )}
@@ -715,7 +715,7 @@ export default function SkillsPage() {
                         <span>{skill.fileCount} file(s)</span>
                       </div>
                     </button>
-                    <div className='flex items-center gap-2'>
+                    <div className="flex items-center gap-2">
                       <Button
                         variant="ghost"
                         size="sm"
@@ -735,7 +735,7 @@ export default function SkillsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className='shrink-0 text-destructive'
+                        className="shrink-0 text-destructive"
                         disabled={deleting === skill.name}
                         onClick={(e) => {
                           e.stopPropagation();

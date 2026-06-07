@@ -1,6 +1,4 @@
-import { createLogger } from '@/lib/utils/logger';
-
-const logger = createLogger('agentd-client');
+import { requestAgentd } from './agentd-http';
 
 /**
  * Server-side client for communicating with the Go Agent Daemon.
@@ -38,60 +36,15 @@ async function agentdRequest<T>(
   body?: unknown,
 ): Promise<T> {
   const config = getConfig();
-  const url = `${config.baseUrl}${path}`;
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  if (config.apiKey) {
-    headers['X-API-Key'] = config.apiKey;
-  }
-
-  const fetchOptions: RequestInit = {
-    method,
-    headers,
-  };
-
-  if (body !== undefined) {
-    fetchOptions.body = JSON.stringify(body);
-  }
-
-  // In Node.js with mTLS, we may need to use a custom agent.
-  // For now, rely on environment-level TLS configuration or
-  // the daemon running on a reachable address.
-  // If mTLS certs are configured, use Node.js https agent.
-  if (config.clientCertPath && config.clientKeyPath) {
-    try {
-      const { Agent } = await import('node:https');
-      const fs = await import('node:fs');
-      const agentOptions: Record<string, unknown> = {
-        cert: fs.readFileSync(config.clientCertPath),
-        key: fs.readFileSync(config.clientKeyPath),
-        rejectUnauthorized: true,
-      };
-      if (config.caPath) {
-        agentOptions.ca = fs.readFileSync(config.caPath);
-      }
-      // @ts-expect-error - Node.js fetch supports agent option
-      fetchOptions.agent = new Agent(agentOptions);
-    } catch (err) {
-      logger.warn('Failed to set up mTLS agent, proceeding without', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  const response = await fetch(url, fetchOptions);
+  const response = await requestAgentd(config, method, path, body);
 
   if (!response.ok) {
-    const errorBody = await response.text().catch(() => 'unknown');
     throw new Error(
-      `AgentDaemon request failed: ${method} ${path} → ${response.status}: ${errorBody}`,
+      `AgentDaemon request failed: ${method} ${path} → ${response.status}: ${response.text}`,
     );
   }
 
-  const json = (await response.json()) as {
+  const json = JSON.parse(response.text) as {
     success: boolean;
     data: T;
     error?: string;

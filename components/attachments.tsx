@@ -76,12 +76,12 @@ export function AttachmentList({
   }
 
   return (
-    <div className='h-fit overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'>
+    <div className="h-fit overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <div className="flex min-w-max gap-2 pr-1">
         {attachments.map((attachment) => (
           <div
             key={attachment.id}
-            className='inline-flex max-w-[220px] shrink-0 items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-foreground text-sm shadow-sm'
+            className="inline-flex max-w-[220px] shrink-0 items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-foreground text-sm shadow-sm"
           >
             <FileIcon size={14} />
             <span className="truncate">

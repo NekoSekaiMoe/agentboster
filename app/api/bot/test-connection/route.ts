@@ -1,6 +1,10 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import { createBotAdapters } from '@/lib/bot/adaptor';
-import { getWebhookCallbackUrl, registerTelegramWebhook, registerTelegramCommands } from '@/lib/bot/webhook';
+import {
+  getWebhookCallbackUrl,
+  registerTelegramWebhook,
+  registerTelegramCommands,
+} from '@/lib/bot/webhook';
 import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName } from '@/types/config/channels';
 import { cookies } from 'next/headers';

@@ -1,4 +1,5 @@
 import { createLogger } from '@/lib/utils/logger';
+import { requestAgentd } from './agentd-http';
 
 const logger = createLogger('agentd-tools-client');
 
@@ -21,6 +22,9 @@ interface AgentdToolExecResponse {
 interface AgentdClientConfig {
   baseUrl: string;
   apiKey: string;
+  clientCertPath?: string;
+  clientKeyPath?: string;
+  caPath?: string;
 }
 
 function getConfig(): AgentdClientConfig {
@@ -29,7 +33,13 @@ function getConfig(): AgentdClientConfig {
   if (!baseUrl) {
     throw new Error('AGENTD_URL environment variable is not set');
   }
-  return { baseUrl, apiKey };
+  return {
+    baseUrl,
+    apiKey,
+    clientCertPath: process.env.AGENTD_CLIENT_CERT_PATH,
+    clientKeyPath: process.env.AGENTD_CLIENT_KEY_PATH,
+    caPath: process.env.AGENTD_CA_PATH,
+  };
 }
 
 async function agentdRequest<T>(
@@ -38,25 +48,13 @@ async function agentdRequest<T>(
   body?: unknown,
 ): Promise<T> {
   const config = getConfig();
-  const url = `${config.baseUrl}${path}`;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (config.apiKey) {
-    headers['X-API-Key'] = config.apiKey;
-  }
-  const fetchOptions: RequestInit = { method, headers };
-  if (body !== undefined) {
-    fetchOptions.body = JSON.stringify(body);
-  }
-  const response = await fetch(url, fetchOptions);
+  const response = await requestAgentd(config, method, path, body);
   if (!response.ok) {
-    const errorBody = await response.text().catch(() => 'unknown');
     throw new Error(
-      `AgentDaemon request failed: ${method} ${path} → ${response.status}: ${errorBody}`,
+      `AgentDaemon request failed: ${method} ${path} → ${response.status}: ${response.text}`,
     );
   }
-  return (await response.json()) as T;
+  return JSON.parse(response.text) as T;
 }
 
 /**
@@ -91,10 +89,13 @@ export async function execToolOnAgentd(
 export async function checkAgentdHealth(): Promise<boolean> {
   try {
     const config = getConfig();
-    const response = await fetch(`${config.baseUrl}/health`, {
-      headers: config.apiKey ? { 'X-API-Key': config.apiKey } : {},
-      signal: AbortSignal.timeout(5000),
-    });
+    const response = await requestAgentd(
+      config,
+      'GET',
+      '/health',
+      undefined,
+      5000,
+    );
     return response.ok;
   } catch {
     return false;
@@ -111,14 +112,30 @@ export async function getAgentdHealth(): Promise<{
 } | null> {
   try {
     const config = getConfig();
-    const response = await fetch(`${config.baseUrl}/health`, {
-      headers: config.apiKey ? { 'X-API-Key': config.apiKey } : {},
-      signal: AbortSignal.timeout(5000),
-    });
+    const response = await requestAgentd(
+      config,
+      'GET',
+      '/health',
+      undefined,
+      5000,
+    );
     if (!response.ok) return null;
-    const data = await response.json();
+    const data = JSON.parse(response.text);
     return data.data ?? null;
   } catch {
     return null;
+  }
+}
+
+export async function abortAgentdSession(sessionId: string): Promise<boolean> {
+  try {
+    const response = await requestAgentd(
+      getConfig(),
+      'POST',
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}/abort`,
+    );
+    return response.ok;
+  } catch {
+    return false;
   }
 }

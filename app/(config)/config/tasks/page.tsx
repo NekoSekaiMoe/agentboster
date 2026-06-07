@@ -92,7 +92,7 @@ export default function TasksPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className='font-bold text-3xl tracking-tight'>Task History</h1>
+        <h1 className="font-bold text-3xl tracking-tight">Task History</h1>
         <p className="text-muted-foreground">
           View and filter historical task execution records.
         </p>
@@ -101,8 +101,13 @@ export default function TasksPage() {
       {/* Filters */}
       <Card>
         <CardContent className="flex flex-wrap gap-4 pt-6">
-          <div className='min-w-[200px] flex-1'>
-            <label htmlFor='tasks-filter-status' className='mb-2 block font-medium text-sm'>Status</label>
+          <div className="min-w-[200px] flex-1">
+            <label
+              htmlFor="tasks-filter-status"
+              className="mb-2 block font-medium text-sm"
+            >
+              Status
+            </label>
             <Select
               value={filters.status || 'all'}
               onValueChange={(value) =>
@@ -112,7 +117,7 @@ export default function TasksPage() {
                 })
               }
             >
-              <SelectTrigger id='tasks-filter-status'>
+              <SelectTrigger id="tasks-filter-status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -125,8 +130,13 @@ export default function TasksPage() {
             </Select>
           </div>
 
-          <div className='min-w-[200px] flex-1'>
-            <label htmlFor='tasks-filter-agent' className='mb-2 block font-medium text-sm'>Agent</label>
+          <div className="min-w-[200px] flex-1">
+            <label
+              htmlFor="tasks-filter-agent"
+              className="mb-2 block font-medium text-sm"
+            >
+              Agent
+            </label>
             <Select
               value={filters.agentId || 'all'}
               onValueChange={(value) =>
@@ -136,7 +146,7 @@ export default function TasksPage() {
                 })
               }
             >
-              <SelectTrigger id='tasks-filter-agent'>
+              <SelectTrigger id="tasks-filter-agent">
                 <SelectValue placeholder="All Agents" />
               </SelectTrigger>
               <SelectContent>

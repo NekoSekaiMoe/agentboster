@@ -1,22 +1,37 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  },
   "css": {
     "formatter": {
       "enabled": false
     },
     "linter": {
       "enabled": false
+    },
+    "parser": {
+      "tailwindDirectives": true
     }
   },
   "files": {
-    "ignore": [
-      "**/yarn.lock",
-      "node_modules",
-      ".next",
-      "public",
-      "ref",
-      ".vercel",
-      "app/.well-known"
+    "includes": [
+      "**",
+      "!**/yarn.lock",
+      "!**/node_modules",
+      "!**/.next",
+      "!**/public",
+      "!**/ref",
+      "!**/.vercel",
+      "!**/app/.well-known",
+      "!**/.backup",
+      "!**/.omo",
+      "!**/.claude",
+      "!**/png"
     ],
     "ignoreUnknown": false
   },
@@ -58,7 +73,6 @@
     "rules": {
       "a11y": {
         "noAutofocus": "off", // We're highly intentional about when we use autofocus
-        "noBlankTarget": "off", // Covered by Conformance
         "noHeaderScope": "warn", // Not in recommended ruleset, turning on manually
         "noSvgWithoutTitle": "off", // We do not intend to adhere to this rule
         "useAriaPropsForRole": "off", // Disable required ARIA attributes check
@@ -73,34 +87,30 @@
             "allowInvalidRoles": ["none", "text"],
             "ignoreNonDom": false
           }
-        }
+        },
+        "noStaticElementInteractions": "warn",
+        "useValidAutocomplete": "warn"
       },
       "complexity": {
         "noForEach": "off", // forEach is too familiar to ban
         "noUselessStringConcat": "warn", // Not in recommended ruleset, turning on manually
         "noUselessSwitchCase": "off", // Turned off due to developer preferences
-        "noUselessThisAlias": "off" // Turned off due to developer preferences
+        "noUselessThisAlias": "off", // Turned off due to developer preferences
+        "noUselessContinue": "off"
       },
       "correctness": {
-        "noNewSymbol": "warn", // Not in recommended ruleset, turning on manually
-        "noUnnecessaryContinue": "off", // Turned off due to developer preferences
         "noUnusedImports": "warn", // Not in recommended ruleset, turning on manually
-        "useArrayLiterals": "warn", // Not in recommended ruleset, turning on manually
         "useExhaustiveDependencies": "warn",
-        "useJsxKeyInIterable": "off" // Rule is buggy, revisit later
+        "useJsxKeyInIterable": "off", // Rule is buggy, revisit later
+        "noInvalidBuiltinInstantiation": "warn"
       },
       "nursery": {
-        "noDocumentImportInPage": "warn",
-        "noDuplicateElseIf": "warn",
-        "noHeadImportInDocument": "warn",
-        "noIrregularWhitespace": "warn",
-        "noStaticElementInteractions": "warn",
-        "useSortedClasses": "warn",
-        "useValidAutocomplete": "warn"
+        "useSortedClasses": "warn"
       },
       "recommended": true,
       "security": {
-        "noDangerouslySetInnerHtml": "off" // Covered by Conformance
+        "noDangerouslySetInnerHtml": "off", // Covered by Conformance
+        "noBlankTarget": "off"
       },
       "style": {
         "noUnusedTemplateLiteral": "off", // Stylistic opinion
@@ -109,10 +119,16 @@
         "useDefaultParameterLast": "warn", // Not in recommended ruleset, turning on manually
         "useExponentiationOperator": "off", // Obscure and arguably not easily readable
         "useFragmentSyntax": "warn", // Not in recommended ruleset, turning on manually
-        "useImportType": "off" // Turned off manually
+        "useImportType": "off", // Turned off manually
+        "useArrayLiterals": "warn"
       },
       "suspicious": {
-        "noExplicitAny": "warn" // We trust Vercelians to use any only when necessary
+        "noExplicitAny": "warn", // We trust Vercelians to use any only when necessary
+        "noArrayIndexKey": "off",
+        "noDocumentImportInPage": "warn",
+        "noDuplicateElseIf": "warn",
+        "noHeadImportInDocument": "warn",
+        "noIrregularWhitespace": "warn"
       }
     }
   },

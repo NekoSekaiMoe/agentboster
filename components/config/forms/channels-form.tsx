@@ -248,7 +248,7 @@ export function ChannelsForm() {
                         }
                       />
                       {fieldInfo?.help && (
-                        <p className='mt-1 text-muted-foreground text-xs'>
+                        <p className="mt-1 text-muted-foreground text-xs">
                           {fieldInfo.help}
                         </p>
                       )}
@@ -275,7 +275,7 @@ export function ChannelsForm() {
                     } as AppConfig['channels'])
                   }
                 />
-                <p className='text-muted-foreground text-xs'>
+                <p className="text-muted-foreground text-xs">
                   Only these user IDs can send messages to the bot. Leave empty
                   to allow everyone.
                 </p>
@@ -353,27 +353,27 @@ export function ChannelsForm() {
                         </Button>
                       </div>
                       {testResults[adapter.key]?.detail && (
-                        <div className='rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-green-800 text-sm'>
+                        <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-green-800 text-sm">
                           ✓ {testResults[adapter.key].detail}
                         </div>
                       )}
                       {testResults[adapter.key]?.error && (
-                        <div className='rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800 text-sm'>
+                        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800 text-sm">
                           ✗ {testResults[adapter.key].error}
                         </div>
                       )}
                     </div>
                   ) : webhookConfigStatus === 'loading' ? (
-                    <div className='rounded-lg border px-3 py-2 text-muted-foreground text-sm'>
+                    <div className="rounded-lg border px-3 py-2 text-muted-foreground text-sm">
                       Loading webhook configuration...
                     </div>
                   ) : webhookConfigStatus === 'error' ? (
-                    <div className='rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 text-sm'>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 text-sm">
                       Failed to load the webhook URL from the server. Refresh
                       the page and try again.
                     </div>
                   ) : (
-                    <div className='rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 text-sm'>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 text-sm">
                       AUTH_SECRET is not configured on the server yet, so the
                       callback URL cannot be generated.
                     </div>

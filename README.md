@@ -312,7 +312,7 @@ LXC 持久化容器使用 `lxc-create`/`lxc-start`/`lxc-attach`，支持 init �
 # Web (Next.js)
 yarn install          # 安装依赖
 yarn dev              # 启动开发服务器 (localhost:3000)
-yarn check            # Typecheck + Biome lint/format
+yarn run check        # Typecheck + Biome lint/format
 yarn build            # 生产构建
 yarn db:generate      # Drizzle 生成迁移
 yarn db:push          # Drizzle 推送 schema

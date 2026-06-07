@@ -10,7 +10,7 @@ export function AppearanceForm() {
           <CardTitle>Appearance</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className='text-muted-foreground text-sm'>
+          <p className="text-muted-foreground text-sm">
             Appearance settings will be available here in the future.
           </p>
         </CardContent>

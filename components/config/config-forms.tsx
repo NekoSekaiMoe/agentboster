@@ -12,11 +12,7 @@ import { ModelsForm } from './forms/models/models-form';
 import { MonitoringForm } from './forms/monitoring-form';
 import { ToolsForm } from './forms/tools-form';
 
-export function ConfigSectionForm({
-  section,
-}: {
-  section: ConfigSectionKey;
-}) {
+export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
   switch (section) {
     case 'models':
       return <ModelsForm />;

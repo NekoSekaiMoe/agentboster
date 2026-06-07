@@ -1,6 +1,5 @@
 'use client';
 
-import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
 import { Bot, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -52,7 +51,14 @@ function PureChatHeader({
     let cancelled = false;
     const check = async () => {
       try {
-        const healthy = await checkAgentdHealth();
+        const response = await fetch('/api/agentd/v1/health', {
+          cache: 'no-store',
+        });
+        const payload = (await response.json()) as {
+          data?: { daemon?: { status?: string } };
+        };
+        const healthy =
+          response.ok && payload.data?.daemon?.status === 'online';
         if (!cancelled) setAgentdStatus(healthy ? 'online' : 'offline');
       } catch {
         if (!cancelled) setAgentdStatus('offline');
@@ -70,9 +76,12 @@ function PureChatHeader({
     if (!chatId) return;
     setAborting(true);
     try {
-      await fetch(`/api/agentd/v1/sessions/${chatId}/abort`, {
+      const response = await fetch(`/api/agentd/v1/sessions/${chatId}/abort`, {
         method: 'POST',
       });
+      if (!response.ok) {
+        throw new Error('Abort request failed');
+      }
       toast.success('Session aborted');
       onAbort?.();
     } catch {

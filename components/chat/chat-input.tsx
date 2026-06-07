@@ -391,11 +391,7 @@ export const MultimodalInput = memo(
   },
 );
 
-function PureStopButton({
-  stop,
-}: {
-  stop: () => void;
-}) {
+function PureStopButton({ stop }: { stop: () => void }) {
   return (
     <Button
       className="size-11 rounded-full border p-0 dark:border-zinc-600"

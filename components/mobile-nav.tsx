@@ -71,7 +71,7 @@ export function MobileNav() {
   const pathname = usePathname();
 
   return (
-    <nav className='fixed right-0 bottom-0 left-0 z-50 border-t bg-background/95 backdrop-blur md:hidden'>
+    <nav className="fixed right-0 bottom-0 left-0 z-50 border-t bg-background/95 backdrop-blur md:hidden">
       <div className="flex items-center justify-around pb-[env(safe-area-inset-bottom)]">
         {navItems.map((item) => {
           const isActive = item.match(pathname);
@@ -85,7 +85,7 @@ export function MobileNav() {
               }`}
             >
               <Icon className="size-5" />
-              <span className='truncate font-medium text-[10px]'>
+              <span className="truncate font-medium text-[10px]">
                 {item.label}
               </span>
             </Link>

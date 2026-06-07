@@ -1,8 +1,8 @@
+import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getAuthConfigStatus } from '@/lib/auth/config';
 import { AUTH_COOKIE_NAME } from '@/lib/auth/constants';
 import { verifyAuthToken } from '@/lib/auth/session';
-import type { NextRequest } from 'next/server';
-import { NextResponse } from 'next/server';
 
 function isPublicAssetPath(pathname: string): boolean {
   return /\.[^/]+$/.test(pathname);
@@ -24,6 +24,49 @@ function isAlwaysBypassPath(pathname: string): boolean {
   return isPublicAssetPath(pathname);
 }
 
+function isAgentdBypassPath(pathname: string): boolean {
+  return (
+    pathname === '/api/agentd/v1' ||
+    pathname.startsWith('/api/agentd/v1/') ||
+    pathname === '/api/soul' ||
+    pathname.startsWith('/api/soul/')
+  );
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+
+  return mismatch === 0;
+}
+
+function readBearerToken(value: string | null): string {
+  if (!value?.startsWith('Bearer ')) {
+    return '';
+  }
+
+  return value.slice('Bearer '.length);
+}
+
+function hasValidAgentdApiKey(request: NextRequest): boolean {
+  const expected = process.env.AGENTD_API_KEY;
+  if (!expected) {
+    return false;
+  }
+
+  const provided =
+    request.headers.get('x-api-key') ||
+    readBearerToken(request.headers.get('authorization'));
+
+  return provided ? constantTimeEqual(provided, expected) : false;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
@@ -33,6 +76,10 @@ export async function middleware(request: NextRequest) {
 
   const isBotRoute = /^\/api\/bot\/[^/]+(?:\/|$)/.test(pathname);
   if (isBotRoute) {
+    return NextResponse.next();
+  }
+
+  if (isAgentdBypassPath(pathname) && hasValidAgentdApiKey(request)) {
     return NextResponse.next();
   }
 

@@ -152,7 +152,7 @@ export default function NotificationsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className='font-bold text-3xl tracking-tight'>Notifications</h1>
+          <h1 className="font-bold text-3xl tracking-tight">Notifications</h1>
           <p className="text-muted-foreground">
             View and manage notifications across all channels.
           </p>
@@ -167,8 +167,13 @@ export default function NotificationsPage() {
       {/* Filters */}
       <Card>
         <CardContent className="flex flex-wrap gap-4 pt-6">
-          <div className='min-w-[200px] flex-1'>
-            <label htmlFor='notifications-filter-channel' className='mb-2 block font-medium text-sm'>Channel</label>
+          <div className="min-w-[200px] flex-1">
+            <label
+              htmlFor="notifications-filter-channel"
+              className="mb-2 block font-medium text-sm"
+            >
+              Channel
+            </label>
             <Select
               value={filters.channel || 'all'}
               onValueChange={(value) =>
@@ -178,7 +183,7 @@ export default function NotificationsPage() {
                 })
               }
             >
-              <SelectTrigger id='notifications-filter-channel'>
+              <SelectTrigger id="notifications-filter-channel">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -191,8 +196,13 @@ export default function NotificationsPage() {
             </Select>
           </div>
 
-          <div className='min-w-[200px] flex-1'>
-            <label htmlFor='notifications-filter-status' className='mb-2 block font-medium text-sm'>Status</label>
+          <div className="min-w-[200px] flex-1">
+            <label
+              htmlFor="notifications-filter-status"
+              className="mb-2 block font-medium text-sm"
+            >
+              Status
+            </label>
             <Select
               value={filters.read || 'all'}
               onValueChange={(value) =>
@@ -202,7 +212,7 @@ export default function NotificationsPage() {
                 })
               }
             >
-              <SelectTrigger id='notifications-filter-status'>
+              <SelectTrigger id="notifications-filter-status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -219,7 +229,7 @@ export default function NotificationsPage() {
       {selected.size > 0 && (
         <Card>
           <CardContent className="flex items-center gap-4 pt-6">
-            <span className='font-medium text-sm'>
+            <span className="font-medium text-sm">
               {selected.size} notification(s) selected
             </span>
             <Button
@@ -248,7 +258,7 @@ export default function NotificationsPage() {
           ) : (
             <div className="divide-y">
               {/* Select All */}
-              <div className='flex items-center gap-3 border-b p-4'>
+              <div className="flex items-center gap-3 border-b p-4">
                 <Checkbox
                   checked={
                     notifications.filter((n) => !n.read).length > 0 &&
@@ -257,7 +267,7 @@ export default function NotificationsPage() {
                   }
                   onCheckedChange={toggleAll}
                 />
-                <span className='font-medium text-sm'>Select all unread</span>
+                <span className="font-medium text-sm">Select all unread</span>
               </div>
 
               {notifications.map((notification) => (
@@ -275,17 +285,17 @@ export default function NotificationsPage() {
                   )}
                   {notification.read && <div className="w-4" />}
 
-                  <div className='mt-1 flex-shrink-0'>
+                  <div className="mt-1 flex-shrink-0">
                     {getIcon(notification.type)}
                   </div>
 
-                  <div className='min-w-0 flex-1'>
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1">
                         <p className="font-medium text-sm">
                           {notification.title}
                         </p>
-                        <p className='mt-1 text-muted-foreground text-sm'>
+                        <p className="mt-1 text-muted-foreground text-sm">
                           {notification.message}
                         </p>
                       </div>
@@ -297,7 +307,7 @@ export default function NotificationsPage() {
                         {notification.channel}
                       </Badge>
                     </div>
-                    <p className='mt-2 text-muted-foreground text-xs'>
+                    <p className="mt-2 text-muted-foreground text-xs">
                       {new Date(notification.createdAt).toLocaleString()}
                     </p>
                   </div>

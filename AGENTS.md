@@ -54,7 +54,7 @@ hooks/               — React hooks for config UI (draft, validation, debounce)
 # Web (Next.js)
 yarn install          # Install deps (uses yarn.lock)
 yarn dev              # Start dev server (http://localhost:3000)
-yarn check            # Typecheck + Biome lint/format (run before committing)
+yarn run check        # Typecheck + Biome lint/format (run before committing)
 yarn build            # Production build
 yarn postbuild        # Vercel postbuild: ensures pgvector + Drizzle schema push
 yarn db:generate      # Drizzle generate migrations
@@ -79,10 +79,10 @@ go build -o agentd ./cmd/agentd/
 - **Path alias**: `@/*` maps to repo root (`tsconfig.json`).
 - **shadcn/ui**: Components in `components/`, UI primitives in `components/ui/`. Aliases: `@/components`, `@/components/ui`, `@/lib/utils`, `@/hooks`.
 - **Styling**: Tailwind CSS 3 + `tailwindcss-animate`. Dark mode via `next-themes` (`class` strategy). Colors use CSS custom properties (HSL vars).
-- **Linting**: Biome (not ESLint/Prettier). Config: `biome.jsonc`. Run `yarn check` before committing.
+- **Linting**: Biome (not ESLint/Prettier). Config: `biome.jsonc`. Run `yarn run check` before committing.
 - **DB**: Neon Postgres via Drizzle ORM. Schema in `lib/core/db/schema/`. Migrations output to `lib/core/db/migrations/`.
 - **Auth**: Cookie-based. Requires `AUTH_SECRET`, `USERNAME`, `PASSWORD` env vars. Middleware in `middleware.ts` protects all routes except `/login`, `/api/auth/login`, `/.well-known/workflow/*`, and public assets (`.*` file extensions).
-- **Bot webhooks**: Auth secret is embedded in the callback URL path (`/api/bot/{AUTH_SECRET}/{adapter}/callback`). CI uses Yarn (`yarn check`).
+- **Bot webhooks**: Auth secret is embedded in the callback URL path (`/api/bot/{AUTH_SECRET}/{adapter}/callback`). CI uses Yarn (`yarn run check`).
 
 ## Key Env Vars
 
@@ -140,4 +140,4 @@ Schema source: `lib/core/db/schema/`. Export barrel: `lib/core/db/schema/index.t
 - `middleware.ts` matcher excludes `_next/static`, `_next/image`, `favicon.ico`, and `.well-known/workflow/` — workflow callbacks bypass auth.
 - The `useImport` style is turned off in Biome (`useImportType: "off"`). Don't auto-fix imports to `import type`.
 - `noExplicitAny` is `"warn"` (not error) in Biome config.
-- CI uses **Yarn** (not Bun) to run checks: `yarn check`.
+- CI uses **Yarn** (not Bun) to run checks: `yarn run check`.
