@@ -16,9 +16,9 @@ export const BUILTIN_MEMORY_KEYS = [
   'USER',
 ] as const satisfies readonly BuiltinMemoryKey[];
 
-export const BUILTIN_MEMORY_MAX_LENGTH = 300;
+export const BUILTIN_MEMORY_MAX_LENGTH = 4096;
 
-export const SOUL_MEMORY_MAX_LENGTH = 5000;
+export const SOUL_MEMORY_MAX_LENGTH = 4096;
 
 export const builtinMemorySectionSchema = z.object({
   key: builtinMemoryKeySchema,
