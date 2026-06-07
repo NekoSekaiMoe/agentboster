@@ -99,6 +99,7 @@ type ChatMainOptions = {
 type AdapterMessageInput = {
   adapter: AdapterName;
   origin: string;
+  sessionId?: string;
   threadId: string;
   userId?: string | null;
   userName?: string | null;
@@ -435,6 +436,7 @@ export async function routeAdapterMessage(
   const source = buildAdapterSource(input);
   const dispatched = await chatMain(
     {
+      sessionId: input.sessionId,
       trigger: 'route-message',
       input: {
         parts: input.parts ?? [{ type: 'text', text: input.text }],
@@ -826,7 +828,11 @@ export async function chatMain(
     };
   }
 
-  if (envelope.kind === 'message' && source.type === 'im') {
+  if (
+    envelope.kind === 'message' &&
+    source.type === 'im' &&
+    !envelope.sessionId
+  ) {
     chatMainLogger.info('chatMain:checking_duplicate');
     const dedup = await checkDuplicate(source, envelope.text);
     if (dedup) {

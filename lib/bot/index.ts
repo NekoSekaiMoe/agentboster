@@ -1,4 +1,5 @@
 import { routeAdapterMessage } from '@/lib/chat/index';
+import { buildInlineFollowUpText } from '@/lib/chat/follow-up';
 import {
   createSession,
   listSessionsByExternalThreadIds,
@@ -19,6 +20,7 @@ import {
 } from '@/types/workflow';
 import { type Attachment, Chat } from 'chat';
 import { getBaseBot } from './core';
+import { getAdapterReplyContext } from './reply-context';
 
 type IncomingThread = {
   adapter: { name: string };
@@ -33,6 +35,8 @@ type IncomingMessage = {
     userId?: string | null;
     userName?: string | null;
   };
+  id?: string | null;
+  raw?: unknown;
   text?: string | null;
   threadId: string;
 };
@@ -126,6 +130,100 @@ function isAllowedAdapterAuthor(
   }
 
   return false;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getTextFromRawMessage(value: unknown): string {
+  const record = asRecord(value);
+  if (!record) {
+    return '';
+  }
+
+  return (
+    (typeof record.text === 'string' ? record.text : '') ||
+    (typeof record.caption === 'string' ? record.caption : '') ||
+    (typeof record.content === 'string' ? record.content : '')
+  ).trim();
+}
+
+function getTelegramCompositeMessageId(value: unknown): string | null {
+  const record = asRecord(value);
+  const chat = asRecord(record?.chat);
+  const chatId = chat?.id;
+  const messageId = record?.message_id;
+
+  if (
+    (typeof chatId !== 'string' && typeof chatId !== 'number') ||
+    typeof messageId !== 'number'
+  ) {
+    return null;
+  }
+
+  return `${chatId}:${messageId}`;
+}
+
+function extractReplyReference(message: IncomingMessage): {
+  messageId: string | null;
+  text: string;
+} | null {
+  const raw = asRecord(message.raw);
+  if (!raw) {
+    return null;
+  }
+
+  const telegramReply = asRecord(raw.reply_to_message);
+  if (telegramReply) {
+    return {
+      messageId: getTelegramCompositeMessageId(telegramReply),
+      text: getTextFromRawMessage(telegramReply),
+    };
+  }
+
+  const discordReply = asRecord(raw.referenced_message);
+  if (discordReply) {
+    const id = discordReply.id;
+    return {
+      messageId: typeof id === 'string' ? id : null,
+      text: getTextFromRawMessage(discordReply),
+    };
+  }
+
+  const messageReference = asRecord(raw.message_reference);
+  if (messageReference) {
+    const id = messageReference.message_id;
+    return {
+      messageId: typeof id === 'string' ? id : null,
+      text: '',
+    };
+  }
+
+  return null;
+}
+
+function buildRoutedParts(input: {
+  parts: UserMessagePart[];
+  replyText: string;
+  text: string;
+}): UserMessagePart[] {
+  if (!input.replyText || input.text.startsWith('/')) {
+    return input.parts;
+  }
+
+  const followUpText = buildInlineFollowUpText({
+    quoteLabel: '回复的消息',
+    quoteText: input.replyText,
+    question: input.text,
+  });
+
+  return [
+    { type: 'text', text: followUpText },
+    ...input.parts.filter((part) => part.type !== 'text'),
+  ];
 }
 
 function buildIncomingSource(
@@ -273,6 +371,17 @@ export async function getBot(): Promise<Chat> {
 
     const userId = message.author?.userId?.trim() ?? '';
     const source = buildIncomingSource(adapter, thread, message);
+    const replyReference = extractReplyReference(message);
+    const replyContext = replyReference?.messageId
+      ? await getAdapterReplyContext(adapter, replyReference.messageId)
+      : null;
+    const routedParts = buildRoutedParts({
+      parts,
+      replyText: replyReference?.text || replyContext?.sentText || '',
+      text,
+    });
+    const routedText =
+      routedParts[0]?.type === 'text' ? routedParts[0].text : text;
 
     if (!isAllowedAdapterAuthor(config?.channels, adapter, message)) {
       const isPairCommand = text.startsWith('/pair ');
@@ -304,16 +413,24 @@ export async function getBot(): Promise<Chat> {
     await routeAdapterMessage({
       adapter,
       origin: thread.channelId ?? thread.id,
+      sessionId: replyContext?.sessionId,
       threadId: thread.id,
       userId: message.author?.userId ?? null,
       userName: message.author?.userName ?? null,
-      text,
-      parts,
+      text: routedText,
+      parts: routedParts,
     });
   }
 
   function dedupKey(thread: { id: string }, message: IncomingMessage): string {
-    return `bot:dedup:${thread.id}:${message.author?.userId ?? ''}:${message.text ?? ''}`;
+    const messageId = message.id?.trim();
+    if (messageId) {
+      return `bot:dedup:${thread.id}:${messageId}`;
+    }
+
+    const replyReference = extractReplyReference(message);
+    const replyMessageId = replyReference?.messageId ?? '';
+    return `bot:dedup:${thread.id}:${message.author?.userId ?? ''}:${replyMessageId}:${message.text ?? ''}`;
   }
 
   async function tryAcquireDedup(key: string): Promise<boolean> {

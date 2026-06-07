@@ -656,6 +656,7 @@ const PurePreviewMessage = ({
         className="group/message mx-auto w-full max-w-full px-3 sm:max-w-[920px] sm:px-4"
         initial={{ y: 5, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
+        data-message-id={message.id}
         data-role={message.role}
       >
         <div

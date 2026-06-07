@@ -28,6 +28,7 @@ import {
   upsertSessionListItem,
 } from '@/lib/chat/session-events';
 import { deriveSessionTitle } from '@/lib/chat/session-title';
+import { buildInlineFollowUpText } from '@/lib/chat/follow-up';
 import { usePendingDecisions } from '@/lib/chat/use-pending-decisions';
 import { useStreamRecovery } from '@/lib/chat/use-stream-recovery';
 import { generateUUID } from '@/lib/utils';
@@ -601,6 +602,27 @@ export function Chat({
     ],
   );
 
+  const submitInlineFollowUp = useCallback(
+    async (input: {
+      messageId: string;
+      question: string;
+      selectedText: string;
+    }) => {
+      const text = buildInlineFollowUpText({
+        quoteLabel: '选中的内容',
+        quoteText: input.selectedText,
+        question: input.question,
+      });
+
+      await submitChatMessage({
+        id: generateUUID(),
+        role: 'user',
+        parts: [{ type: 'text', text }],
+      });
+    },
+    [submitChatMessage],
+  );
+
   const cancelWorkflow = useCallback(async () => {
     stop();
 
@@ -779,6 +801,9 @@ export function Chat({
             onToolApproval={submitToolApproval}
             onRevert={handleRevert}
             onDecisionResolved={handleDecisionResolved}
+            onFollowUpSubmit={
+              isAccessDeniedSession ? undefined : submitInlineFollowUp
+            }
             setMessages={setMessages}
             regenerate={regenerate}
           />

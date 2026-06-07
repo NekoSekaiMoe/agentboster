@@ -1,14 +1,24 @@
 import type { ChatRequestOptions } from 'ai';
 import equal from 'fast-deep-equal';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowDown, ArrowUp } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { ArrowDown, ArrowUp, MessageSquareQuote, Send, X } from 'lucide-react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react';
 
 import type { WorkflowUIMessage } from '@/types/workflow';
 import { DecisionCard } from '@/components/decision-card';
 import { PreviewMessage, ThinkingMessage } from '@/components/message';
 import { Overview } from '@/components/overview';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { useScrollToBottom } from '@/components/use-scroll-to-bottom';
+import { useI18n } from '@/components/i18n-provider';
 
 interface PendingDecision {
   decision_id: string;
@@ -80,6 +90,11 @@ interface MessagesProps {
   }) => Promise<void>;
   onRevert?: (messageId: string) => void;
   onDecisionResolved?: (decisionId: string, action: string) => void;
+  onFollowUpSubmit?: (input: {
+    messageId: string;
+    question: string;
+    selectedText: string;
+  }) => Promise<void>;
   setMessages: (
     messages:
       | WorkflowUIMessage[]
@@ -88,6 +103,49 @@ interface MessagesProps {
   regenerate: (
     options?: { messageId?: string } & ChatRequestOptions,
   ) => Promise<void>;
+}
+
+type InlineFollowUpSelection = {
+  messageId: string;
+  selectedText: string;
+  x: number;
+  y: number;
+};
+
+function isInsideCodeBlock(node: Node): boolean {
+  let current: Node | null = node;
+  while (current) {
+    if (current instanceof HTMLElement) {
+      const tagName = current.tagName.toLowerCase();
+      if (tagName === 'code' || tagName === 'pre') {
+        return true;
+      }
+    }
+    current = current.parentNode;
+  }
+
+  return false;
+}
+
+function getElementFromNode(node: Node): Element | null {
+  return node instanceof Element ? node : node.parentElement;
+}
+
+function clampFollowUpPosition(input: { x: number; y: number }) {
+  if (typeof window === 'undefined') {
+    return input;
+  }
+
+  return {
+    x: Math.min(
+      Math.max(input.x - 150, 12),
+      Math.max(12, window.innerWidth - 340),
+    ),
+    y: Math.min(
+      Math.max(input.y + 14, 12),
+      Math.max(12, window.innerHeight - 210),
+    ),
+  };
 }
 
 function PureMessages({
@@ -99,9 +157,11 @@ function PureMessages({
   onToolApproval,
   onRevert,
   onDecisionResolved,
+  onFollowUpSubmit,
   setMessages,
   regenerate,
 }: MessagesProps) {
+  const { t } = useI18n();
   const lastMessage = messages[messages.length - 1];
   const shouldShowThinking =
     isLoading &&
@@ -118,6 +178,11 @@ function PureMessages({
 
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [showScrollToTop, setShowScrollToTop] = useState(false);
+  const [followUpSelection, setFollowUpSelection] =
+    useState<InlineFollowUpSelection | null>(null);
+  const [followUpQuestion, setFollowUpQuestion] = useState('');
+  const [isSubmittingFollowUp, setIsSubmittingFollowUp] = useState(false);
+  const followUpPopoverRef = useRef<HTMLDivElement>(null);
   const updateScrollButtonVisibility = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
@@ -140,6 +205,114 @@ function PureMessages({
     return () =>
       container.removeEventListener('scroll', updateScrollButtonVisibility);
   }, [messagesContainerRef, updateScrollButtonVisibility]);
+
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container || !onFollowUpSubmit) return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearTimer = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const handleMouseUp = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest('[data-inline-follow-up-popover]')
+      ) {
+        return;
+      }
+
+      clearTimer();
+      timer = setTimeout(() => {
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+          return;
+        }
+
+        const selectedText = selection.toString().trim();
+        if (!selectedText) {
+          return;
+        }
+
+        const range = selection.getRangeAt(0);
+        if (
+          !container.contains(range.startContainer) ||
+          !container.contains(range.endContainer) ||
+          isInsideCodeBlock(range.startContainer) ||
+          isInsideCodeBlock(range.endContainer)
+        ) {
+          return;
+        }
+
+        const startMessage = getElementFromNode(range.startContainer)?.closest(
+          '[data-role="assistant"][data-message-id]',
+        );
+        const endMessage = getElementFromNode(range.endContainer)?.closest(
+          '[data-role="assistant"][data-message-id]',
+        );
+        if (!startMessage || startMessage !== endMessage) {
+          return;
+        }
+
+        const messageId = startMessage.getAttribute('data-message-id');
+        if (!messageId) {
+          return;
+        }
+
+        const position = clampFollowUpPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        setFollowUpSelection({
+          messageId,
+          selectedText,
+          ...position,
+        });
+        setFollowUpQuestion('');
+      }, 140);
+    };
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest('[data-inline-follow-up-popover]')
+      ) {
+        return;
+      }
+
+      setFollowUpSelection(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setFollowUpSelection(null);
+      }
+    };
+
+    const handleScroll = () => {
+      setFollowUpSelection(null);
+    };
+
+    container.addEventListener('mouseup', handleMouseUp);
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      clearTimer();
+      container.removeEventListener('mouseup', handleMouseUp);
+      container.removeEventListener('scroll', handleScroll);
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [messagesContainerRef, onFollowUpSubmit]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(updateScrollButtonVisibility);
@@ -166,6 +339,30 @@ function PureMessages({
       block: 'end',
     });
   }, [messagesEndRef]);
+
+  const submitInlineFollowUp = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!followUpSelection || !onFollowUpSubmit) {
+        return;
+      }
+
+      setIsSubmittingFollowUp(true);
+      try {
+        await onFollowUpSubmit({
+          messageId: followUpSelection.messageId,
+          question: followUpQuestion,
+          selectedText: followUpSelection.selectedText,
+        });
+        window.getSelection()?.removeAllRanges();
+        setFollowUpSelection(null);
+        setFollowUpQuestion('');
+      } finally {
+        setIsSubmittingFollowUp(false);
+      }
+    },
+    [followUpQuestion, followUpSelection, onFollowUpSubmit],
+  );
 
   return (
     <div className="relative min-h-0 min-w-0 flex-1">
@@ -219,6 +416,88 @@ function PureMessages({
           className="min-h-[24px] min-w-[24px] shrink-0"
         />
       </div>
+
+      <AnimatePresence>
+        {followUpSelection && onFollowUpSubmit ? (
+          <motion.div
+            ref={followUpPopoverRef}
+            data-inline-follow-up-popover
+            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.98 }}
+            transition={{ duration: 0.16, ease: 'easeOut' }}
+            className="fixed z-50 w-[min(calc(100vw-24px),328px)] rounded-xl border border-border/70 bg-background/95 p-3 shadow-2xl backdrop-blur"
+            style={{
+              left: followUpSelection.x,
+              top: followUpSelection.y,
+            }}
+          >
+            <form
+              className="flex flex-col gap-2"
+              onSubmit={submitInlineFollowUp}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2 text-foreground text-sm">
+                  <MessageSquareQuote className="size-4 shrink-0 text-[#6d9ec3]" />
+                  <span className="font-medium">
+                    {t('chat.followUp.title')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label={t('chat.followUp.close')}
+                  onClick={() => {
+                    setFollowUpSelection(null);
+                  }}
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <div className="line-clamp-3 rounded-lg bg-muted/70 px-2.5 py-2 text-muted-foreground text-xs leading-5">
+                {followUpSelection.selectedText}
+              </div>
+
+              <Textarea
+                autoFocus
+                value={followUpQuestion}
+                onChange={(event) => {
+                  setFollowUpQuestion(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === 'Enter' &&
+                    (event.metaKey || event.ctrlKey)
+                  ) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                placeholder={t('chat.followUp.placeholder')}
+                className="min-h-20 resize-none rounded-lg"
+              />
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setFollowUpSelection(null);
+                  }}
+                >
+                  {t('chat.followUp.cancel')}
+                </Button>
+                <Button type="submit" size="sm" disabled={isSubmittingFollowUp}>
+                  <Send className="size-4" />
+                  {t('chat.followUp.send')}
+                </Button>
+              </div>
+            </form>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showScrollToTop || showScrollToBottom ? (
@@ -279,6 +558,7 @@ export const Messages = memo(PureMessages, (prevProps, nextProps) => {
   if (!equal(prevProps.messages, nextProps.messages)) return false;
   if (prevProps.pendingDecisions?.length !== nextProps.pendingDecisions?.length)
     return false;
+  if (prevProps.onFollowUpSubmit !== nextProps.onFollowUpSubmit) return false;
 
   return true;
 });

@@ -9,6 +9,7 @@ import {
 import type { ChatSource } from '@/types/workflow';
 import type { Chat } from 'chat';
 import { createBaseBotFromConfig, getBaseBot } from './core';
+import { recordAdapterReplyContext } from './reply-context';
 
 const logger = createLogger('bot.reply');
 
@@ -115,9 +116,10 @@ export async function sendAdapterSourceReply(
   try {
     const bot = await getBaseBot();
     const adapter = bot.getAdapter(source.adapter);
-    await adapter.postMessage(source.threadId, {
+    const sent = await adapter.postMessage(source.threadId, {
       markdown: content,
     });
+    await recordAdapterReplyContext(source, sent.id, content);
     return true;
   } catch (error) {
     logger.warn('reply:failed', {
@@ -182,6 +184,7 @@ export async function streamAdapterSourceReply(
         await adapter.editMessage(source.threadId, messageId, {
           markdown: trimmed,
         });
+        await recordAdapterReplyContext(source, messageId, trimmed);
         lastEditedText = trimmed;
         lastEditTime = now;
       } catch {
@@ -219,6 +222,11 @@ export async function streamAdapterSourceReply(
                     markdown: fullText.trim(),
                   });
                   messageId = posted.id;
+                  await recordAdapterReplyContext(
+                    source,
+                    posted.id,
+                    fullText.trim(),
+                  );
                   lastEditedText = fullText.trim();
                   lastEditTime = Date.now();
                 } else {
@@ -242,6 +250,7 @@ export async function streamAdapterSourceReply(
               markdown: fullText.trim(),
             });
             messageId = posted.id;
+            await recordAdapterReplyContext(source, posted.id, fullText.trim());
             lastEditedText = fullText.trim();
             lastEditTime = Date.now();
           } else {
@@ -274,6 +283,7 @@ export async function streamAdapterSourceReply(
           await adapter.editMessage(source.threadId, messageId, {
             markdown: finalText,
           });
+          await recordAdapterReplyContext(source, messageId, finalText);
         } catch {
           // ignore
         }
@@ -281,7 +291,10 @@ export async function streamAdapterSourceReply(
 
       // If we never got any text, send a fallback
       if (!messageId && finalText) {
-        await adapter.postMessage(source.threadId, { markdown: finalText });
+        const posted = await adapter.postMessage(source.threadId, {
+          markdown: finalText,
+        });
+        await recordAdapterReplyContext(source, posted.id, finalText);
       }
     } finally {
       clearInterval(typingTimer);
