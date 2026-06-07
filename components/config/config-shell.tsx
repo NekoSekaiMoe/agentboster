@@ -1,12 +1,9 @@
 'use client';
 
 import { Loader2, Save } from 'lucide-react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 
 import {
   type ConfigSectionKey,
-  configSections,
   getConfigSectionMeta,
 } from '@/components/config/config-sections';
 import { RawJsonEditor } from '@/components/config/raw-json-editor';
@@ -20,14 +17,12 @@ export function ConfigShell({
   children: React.ReactNode;
   section: ConfigSectionKey;
 }) {
-  const pathname = usePathname();
   const {
     isDirty,
     isLoading,
     isSaving,
     runtimeHealth,
     saveConfig,
-    saveReminderVisible,
     validationPassed,
   } = useConfigDraft();
   const sectionMeta = getConfigSectionMeta(section);
@@ -38,70 +33,16 @@ export function ConfigShell({
     <div className="flex min-h-dvh flex-col bg-background pb-20 md:pb-0">
       <header className="sticky top-0 z-20 border-b bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur">
         <div className="flex flex-col gap-4 px-14 py-4 md:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-1">
-              <div>
-                <h1 className="font-semibold text-2xl tracking-tight md:text-3xl">
-                  {sectionMeta.title}
-                </h1>
-                <p className="max-w-2xl text-muted-foreground text-sm">
-                  {sectionMeta.description}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div
-                className={`rounded-full px-3 py-1 font-medium text-xs ${
-                  validationPassed
-                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                    : 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                }`}
-              >
-                {validationPassed ? 'Ready to save' : 'Fix validation issues'}
-              </div>
-              {saveReminderVisible && isDirty ? (
-                <div className="rounded-full bg-sky-500/10 px-3 py-1 font-medium text-sky-700 text-xs dark:text-sky-300">
-                  Unsaved changes
-                </div>
-              ) : null}
-              <Button
-                size="sm"
-                disabled={
-                  !validationPassed || isLoading || isSaving || !isDirty
-                }
-                onClick={saveConfig}
-              >
-                {isSaving ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Save className="size-4" />
-                )}
-                Save config
-              </Button>
+          <div className="space-y-1">
+            <div>
+              <h1 className="font-semibold text-2xl tracking-tight md:text-3xl">
+                {sectionMeta.title}
+              </h1>
+              <p className="max-w-2xl text-muted-foreground text-sm">
+                {sectionMeta.description}
+              </p>
             </div>
           </div>
-
-          <nav className="flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {configSections.map((item) => {
-              const href = `/config/${item.key}`;
-              const isActive = pathname === href;
-
-              return (
-                <Button
-                  key={item.key}
-                  asChild
-                  size="sm"
-                  variant={isActive ? 'default' : 'secondary'}
-                  className="shrink-0"
-                >
-                  <Link href={href} prefetch={false}>
-                    {item.title}
-                  </Link>
-                </Button>
-              );
-            })}
-          </nav>
         </div>
       </header>
 
