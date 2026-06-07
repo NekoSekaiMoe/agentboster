@@ -109,6 +109,10 @@ function PureMessages({
     (lastMessage.role === 'user' ||
       (lastMessage.role === 'assistant' &&
         !hasRenderableAssistantParts(lastMessage)));
+  const shouldHideLastAssistantPlaceholder =
+    shouldShowThinking &&
+    lastMessage.role === 'assistant' &&
+    !hasRenderableAssistantParts(lastMessage);
   const [messagesContainerRef, messagesEndRef] =
     useScrollToBottom<HTMLDivElement>(lastMessage, shouldShowThinking);
 
@@ -167,22 +171,31 @@ function PureMessages({
     <div className="relative min-h-0 min-w-0 flex-1">
       <div
         ref={messagesContainerRef}
-        className="flex h-full min-h-0 flex-col gap-8 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pt-5 pb-8 md:px-6 md:pt-8 md:pb-10"
+        className="flex h-full min-h-0 flex-col gap-8 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pt-5 pb-8 md:px-6 md:pt-8 md:pb-10"
       >
         {messages.length === 0 && <Overview onPromptSelect={onPromptSelect} />}
 
-        {messages.map((message, index) => (
-          <PreviewMessage
-            key={message.id}
-            chatId={chatId}
-            message={message}
-            isLoading={isLoading && messages.length - 1 === index}
-            onToolApproval={onToolApproval}
-            onRevert={onRevert}
-            setMessages={setMessages}
-            regenerate={regenerate}
-          />
-        ))}
+        {messages.map((message, index) => {
+          if (
+            shouldHideLastAssistantPlaceholder &&
+            index === messages.length - 1
+          ) {
+            return null;
+          }
+
+          return (
+            <PreviewMessage
+              key={message.id}
+              chatId={chatId}
+              message={message}
+              isLoading={isLoading && messages.length - 1 === index}
+              onToolApproval={onToolApproval}
+              onRevert={onRevert}
+              setMessages={setMessages}
+              regenerate={regenerate}
+            />
+          );
+        })}
 
         {shouldShowThinking ? <ThinkingMessage /> : null}
 

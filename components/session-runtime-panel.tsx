@@ -283,7 +283,7 @@ export function SessionRuntimePanel({
       drag
       dragMomentum={false}
       initial={{ x: 0, y: 0 }}
-      className="fixed right-2 bottom-3 z-50 max-w-[calc(100vw-1rem)] sm:right-5 sm:bottom-5"
+      className="fixed right-3 bottom-[calc(env(safe-area-inset-bottom)+9rem)] z-30 max-w-[calc(100vw-1.5rem)] sm:right-5 md:bottom-5 md:z-50"
     >
       <div className="flex flex-col items-end gap-3">
         {open && (

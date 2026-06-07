@@ -36,7 +36,7 @@ const adjustHeight = (ref: React.RefObject<HTMLTextAreaElement | null>) => {
 const resetHeight = (ref: React.RefObject<HTMLTextAreaElement | null>) => {
   if (ref.current) {
     ref.current.style.height = 'auto';
-    ref.current.style.height = '98px';
+    ref.current.style.height = '56px';
   }
 };
 
@@ -338,8 +338,8 @@ function PureMultimodalInput({
           placeholder="Ask AgentBoster..."
           value={input}
           onChange={handleInput}
-          className="!text-base max-h-[calc(75dvh)] min-h-[48px] resize-none overflow-hidden border-0 bg-transparent px-0 pt-0 pb-14 shadow-none focus-visible:ring-0"
-          rows={2}
+          className="!text-base max-h-[calc(75dvh)] min-h-11 resize-none overflow-hidden border-0 bg-transparent px-0 pt-0 pb-12 shadow-none focus-visible:ring-0"
+          rows={1}
           autoFocus={false}
           onClick={(event) => {
             setCursor(event.currentTarget.selectionStart ?? input.length);
