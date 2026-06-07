@@ -14,14 +14,22 @@ import { useTheme } from 'next-themes';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { useI18n } from '@/components/i18n-provider';
+import { LanguageMenuGroup } from '@/components/language-menu-group';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export function LoginForm({ redirectTo }: { redirectTo: string }) {
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
+  const { t } = useI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -42,14 +50,14 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
       });
 
       if (!result.ok) {
-        setError(result.error ?? 'Login failed.');
+        setError(result.error ?? t('login.failed'));
         return;
       }
 
       router.replace(result.redirectTo ?? '/');
       router.refresh();
     } catch {
-      setError('Network error. Please try again.');
+      setError(t('login.networkError'));
     } finally {
       setSubmitting(false);
     }
@@ -63,21 +71,30 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
         </div>
 
         <div className="flex items-center gap-1.5 text-sky-600">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 rounded-lg text-sky-600 hover:bg-sky-50 hover:text-sky-700 dark:hover:bg-sky-950/50"
+                aria-label={t('login.language')}
+              >
+                <Languages className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <LanguageMenuGroup />
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="size-8 rounded-lg text-sky-600 hover:bg-sky-50 hover:text-sky-700 dark:hover:bg-sky-950/50"
-            aria-label="Language"
-          >
-            <Languages className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8 rounded-lg text-sky-600 hover:bg-sky-50 hover:text-sky-700 dark:hover:bg-sky-950/50"
-            aria-label={isDark ? 'Use light mode' : 'Use dark mode'}
+            aria-label={
+              isDark ? t('login.useLightMode') : t('login.useDarkMode')
+            }
             onClick={() => setTheme(isDark ? 'light' : 'dark')}
           >
             {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
@@ -87,15 +104,17 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
 
       <div className="mb-5">
         <h1 className="font-semibold text-[22px] text-foreground tracking-tight">
-          AgentBoster WebUI Login
+          {t('login.title')}
         </h1>
-        <p className="mt-2 text-muted-foreground text-sm">欢迎使用</p>
+        <p className="mt-2 text-muted-foreground text-sm">
+          {t('login.welcome')}
+        </p>
       </div>
 
       <form className="grid gap-4" onSubmit={handleSubmit}>
         <div className="grid gap-2">
           <Label htmlFor="username" className="sr-only">
-            用户名
+            {t('login.username')}
           </Label>
           <div className="relative">
             <User className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 size-5 text-muted-foreground" />
@@ -104,7 +123,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
               autoComplete="username"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="用户名"
+              placeholder={t('login.username')}
               className="h-14 rounded-lg border-border/80 bg-background pr-4 pl-12 text-base shadow-none"
               required
             />
@@ -113,7 +132,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
 
         <div className="grid gap-2">
           <Label htmlFor="password" className="sr-only">
-            密码
+            {t('login.password')}
           </Label>
           <div className="relative">
             <LockKeyhole className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 size-5 text-muted-foreground" />
@@ -123,7 +142,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="密码"
+              placeholder={t('login.password')}
               className="h-14 rounded-lg border-border/80 bg-background pr-12 pl-12 text-base shadow-none"
               required
             />
@@ -132,7 +151,11 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
               variant="ghost"
               size="icon"
               className="-translate-y-1/2 absolute top-1/2 right-2 size-9 rounded-lg text-muted-foreground hover:bg-transparent hover:text-foreground"
-              aria-label={passwordVisible ? '隐藏密码' : '显示密码'}
+              aria-label={
+                passwordVisible
+                  ? t('login.hidePassword')
+                  : t('login.showPassword')
+              }
               onClick={() => setPasswordVisible((current) => !current)}
             >
               {passwordVisible ? (
@@ -145,7 +168,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
         </div>
 
         <p className="text-muted-foreground text-xs">
-          如果是第一次登录，请留意日志输出的默认密码
+          {t('login.firstLoginHint')}
         </p>
 
         {error ? <p className="text-destructive text-sm">{error}</p> : null}
@@ -155,7 +178,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
           disabled={submitting}
           className="mt-2 h-12 rounded-lg bg-[#2f91c7] font-semibold text-base hover:bg-[#2a83b4]"
         >
-          {submitting ? '登录中...' : '登录'}
+          {submitting ? t('login.submitting') : t('login.submit')}
         </Button>
       </form>
     </div>

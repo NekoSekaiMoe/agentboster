@@ -1,59 +1,60 @@
+import type { TranslationKey } from '@/lib/i18n';
+
 export const configSections = [
   {
     key: 'models',
-    title: 'Models',
-    description: 'Set default models, provider endpoints, and token limits.',
+    descriptionKey: 'config.sections.models.description',
+    titleKey: 'config.sections.models.title',
   },
   {
     key: 'agents',
-    title: 'Agents',
-    description: 'Configure named agents, prompts, and model overrides.',
+    descriptionKey: 'config.sections.agents.description',
+    titleKey: 'config.sections.agents.title',
   },
   {
     key: 'channels',
-    title: 'Channels',
-    description: 'Set up Slack, Teams, Google Chat, and Telegram.',
+    descriptionKey: 'config.sections.channels.description',
+    titleKey: 'config.sections.channels.title',
   },
   {
     key: 'autonomy',
-    title: 'Autonomy',
-    description: 'Control agent autonomy level and maximum steps.',
+    descriptionKey: 'config.sections.autonomy.description',
+    titleKey: 'config.sections.autonomy.title',
   },
   {
     key: 'tools',
-    title: 'Tools',
-    description: 'Toggle built-in tools and provide per-tool config.',
+    descriptionKey: 'config.sections.tools.description',
+    titleKey: 'config.sections.tools.title',
   },
   {
     key: 'mcp',
-    title: 'MCP',
-    description: 'Manage MCP remote servers and authentication headers.',
+    descriptionKey: 'config.sections.mcp.description',
+    titleKey: 'config.sections.mcp.title',
   },
   {
     key: 'agentd',
-    title: 'Agent Daemon',
-    description:
-      'Manage remote Agent Daemon connections, certificates, and sandbox settings.',
+    descriptionKey: 'config.sections.agentd.description',
+    titleKey: 'config.sections.agentd.title',
   },
   {
     key: 'monitoring',
-    title: 'Dashboard',
-    description: 'View Agent Daemon status, node health, and sandbox usage.',
+    descriptionKey: 'config.sections.monitoring.description',
+    titleKey: 'config.sections.monitoring.title',
   },
   {
     key: 'audit-logs',
-    title: 'Audit Logs',
-    description: 'Review security audit logs and export data.',
+    descriptionKey: 'config.sections.auditLogs.description',
+    titleKey: 'config.sections.auditLogs.title',
   },
   {
     key: 'appearance',
-    title: 'Appearance',
-    description: 'Customize navigation style and display preferences.',
+    descriptionKey: 'config.sections.appearance.description',
+    titleKey: 'config.sections.appearance.title',
   },
 ] as const satisfies ReadonlyArray<{
-  description: string;
+  descriptionKey: TranslationKey;
   key: string;
-  title: string;
+  titleKey: TranslationKey;
 }>;
 
 export type ConfigSectionKey = (typeof configSections)[number]['key'];

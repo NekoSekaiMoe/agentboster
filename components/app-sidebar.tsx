@@ -27,9 +27,12 @@ import { useTheme } from 'next-themes';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
+import type { ComponentType } from 'react';
 import { toast } from 'sonner';
 
 import { logoutAction } from '@/app/(auth)/actions';
+import { useI18n } from '@/components/i18n-provider';
+import { LanguageMenuGroup } from '@/components/language-menu-group';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import {
@@ -58,82 +61,94 @@ import {
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
+import type { TranslationKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import packageJson from '@/package.json';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
-const workspaceGroups = [
+type WorkspaceItem = {
+  href: string;
+  icon: ComponentType<{ className?: string }>;
+  labelKey: TranslationKey;
+};
+
+type WorkspaceGroup = {
+  items: readonly WorkspaceItem[];
+  labelKey: TranslationKey;
+};
+
+const workspaceGroups: readonly WorkspaceGroup[] = [
   {
-    label: 'Bot',
+    labelKey: 'nav.bot',
     items: [
       {
-        label: 'Dashboard',
+        labelKey: 'nav.dashboard',
         href: '/config/monitoring',
         icon: Gauge,
       },
       {
-        label: 'Model Providers',
+        labelKey: 'nav.modelProviders',
         href: '/config/models',
         icon: Sparkles,
       },
       {
-        label: 'Agents',
+        labelKey: 'nav.agents',
         href: '/config/agents',
         icon: BotIcon,
       },
       {
-        label: 'Channels',
+        labelKey: 'nav.channels',
         href: '/config/channels',
         icon: Network,
       },
     ],
   },
   {
-    label: 'Workspace',
+    labelKey: 'nav.workspace',
     items: [
       {
-        label: 'Memory',
+        labelKey: 'nav.memory',
         href: '/memory',
         icon: Brain,
       },
       {
-        label: 'Skills',
+        labelKey: 'nav.skills',
         href: '/skills',
         icon: Puzzle,
       },
       {
-        label: 'Files',
+        labelKey: 'nav.files',
         href: '/files',
         icon: FileArchive,
       },
       {
-        label: 'Schedule',
+        labelKey: 'nav.schedule',
         href: '/schedule',
         icon: CalendarClock,
       },
     ],
   },
   {
-    label: 'Operations',
+    labelKey: 'nav.operations',
     items: [
       {
-        label: 'Tasks',
+        labelKey: 'nav.tasks',
         href: '/config/tasks',
         icon: SquareTerminal,
       },
       {
-        label: 'Notifications',
+        labelKey: 'nav.notifications',
         href: '/config/notifications',
         icon: Bell,
       },
       {
-        label: 'Agent Daemon',
+        labelKey: 'nav.agentDaemon',
         href: '/config/agentd',
         icon: ShieldCheck,
       },
       {
-        label: 'Audit Logs',
+        labelKey: 'nav.auditLogs',
         href: '/config/audit-logs',
         icon: Database,
       },
@@ -161,6 +176,7 @@ export function AppSidebar() {
   const router = useRouter();
   const { setOpenMobile, state } = useSidebar();
   const { theme = 'system', setTheme } = useTheme();
+  const { t } = useI18n();
   const [loggingOut, setLoggingOut] = useState(false);
   const isCollapsed = state === 'collapsed';
 
@@ -184,11 +200,11 @@ export function AppSidebar() {
       router.push('/login');
       router.refresh();
     } catch {
-      toast.error('Failed to sign out. Please try again.');
+      toast.error(t('auth.signOutError'));
     } finally {
       setLoggingOut(false);
     }
-  }, [router, setOpenMobile]);
+  }, [router, setOpenMobile, t]);
 
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
@@ -216,7 +232,7 @@ export function AppSidebar() {
 
           <SidebarTrigger
             className="hidden size-8 shrink-0 rounded-lg md:inline-flex"
-            aria-label="Toggle sidebar"
+            aria-label={t('common.openNavigation')}
           />
         </div>
 
@@ -236,7 +252,7 @@ export function AppSidebar() {
                 onClick={() => setOpenMobile(false)}
               >
                 <BotIcon className="size-3.5" />
-                Bot
+                {t('nav.bot')}
               </Link>
             </Button>
             <Button
@@ -250,7 +266,7 @@ export function AppSidebar() {
             >
               <Link href="/" onClick={() => setOpenMobile(false)}>
                 <MessageSquare className="size-3.5" />
-                Chat
+                {t('nav.chat')}
               </Link>
             </Button>
           </div>
@@ -265,7 +281,7 @@ export function AppSidebar() {
           >
             <Link href="/" onClick={() => setOpenMobile(false)}>
               <MessageSquare className="size-4" />
-              Back to Chat
+              {t('menu.backToChat')}
             </Link>
           </Button>
         ) : null}
@@ -273,8 +289,8 @@ export function AppSidebar() {
 
       <SidebarContent className="px-2 py-3">
         {workspaceGroups.map((group) => (
-          <SidebarGroup key={group.label} className="py-1">
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+          <SidebarGroup key={group.labelKey} className="py-1">
+            <SidebarGroupLabel>{t(group.labelKey)}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {
@@ -286,14 +302,14 @@ export function AppSidebar() {
                       <SidebarMenuButton
                         asChild
                         isActive={isActive}
-                        tooltip={item.label}
+                        tooltip={t(item.labelKey)}
                       >
                         <Link
                           href={item.href}
                           onClick={() => setOpenMobile(false)}
                         >
                           <Icon className="size-4" />
-                          <span>{item.label}</span>
+                          <span>{t(item.labelKey)}</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -311,10 +327,10 @@ export function AppSidebar() {
         {!isCollapsed && activeItem ? (
           <div className="rounded-xl border border-sidebar-border bg-sidebar-accent/45 px-3 py-2">
             <div className="text-[11px] text-sidebar-foreground/50 uppercase">
-              Current
+              {t('menu.current')}
             </div>
             <div className="mt-0.5 truncate font-medium text-sm">
-              {activeItem.label}
+              {t(activeItem.labelKey)}
             </div>
           </div>
         ) : null}
@@ -323,45 +339,53 @@ export function AppSidebar() {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton>
               <Wrench className="size-4" />
-              <span>Settings</span>
+              <span>{t('menu.settings')}</span>
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" side="top" className="w-60">
-            <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('menu.appearance')}</DropdownMenuLabel>
             <DropdownMenuRadioGroup
               value={theme}
               onValueChange={(value) => setTheme(value as ThemeMode)}
             >
               <DropdownMenuRadioItem value="light">
                 <Sun className="mr-2 size-4" />
-                Light
+                {t('theme.light')}
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="dark">
                 <Moon className="mr-2 size-4" />
-                Dark
+                {t('theme.dark')}
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="system">
                 <Monitor className="mr-2 size-4" />
-                System
+                {t('theme.system')}
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
+            <LanguageMenuGroup />
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/" onClick={() => setOpenMobile(false)}>
+                <MessageSquare className="size-4" />
+                {t('menu.backToChat')}
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href={settingsHref} onClick={() => setOpenMobile(false)}>
                 <Settings className="size-4" />
-                Settings
+                {t('menu.settings')}
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <a href={docsUrl} target="_blank" rel="noreferrer">
                 <BookOpen className="size-4" />
-                Documentation
+                {t('menu.documentation')}
               </a>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <a href={docsUrl} target="_blank" rel="noreferrer">
                 <GitBranch className="size-4" />
-                GitHub
+                {t('menu.github')}
               </a>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -370,7 +394,7 @@ export function AppSidebar() {
               onSelect={() => void handleLogout()}
             >
               <LogOut className="size-4" />
-              {loggingOut ? 'Signing out...' : 'Sign out'}
+              {loggingOut ? t('menu.signingOut') : t('menu.signOut')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { Loader2, PlusIcon, SquareIcon } from './icons';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
@@ -39,6 +40,7 @@ function PureChatHeader({
   onAbort?: () => void;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const [aborting, setAborting] = useState(false);
 
   const status = session?.status ?? 'idle';
@@ -82,26 +84,26 @@ function PureChatHeader({
       if (!response.ok) {
         throw new Error('Abort request failed');
       }
-      toast.success('Session aborted');
+      toast.success(t('chatHeader.abortSuccess'));
       onAbort?.();
     } catch {
-      toast.error('Failed to abort session');
+      toast.error(t('chatHeader.abortError'));
     } finally {
       setAborting(false);
     }
-  }, [chatId, onAbort]);
+  }, [chatId, onAbort, t]);
 
   const sessionDetails = session
     ? [
         {
-          label: 'Channel',
+          label: t('chatHeader.channel'),
           value: session.channel,
           valueClassName: 'text-foreground',
         },
         ...(session.externalThreadId
           ? [
               {
-                label: 'External Thread',
+                label: t('chatHeader.externalThread'),
                 value: session.externalThreadId,
                 valueClassName: 'font-mono text-foreground',
               },
@@ -136,12 +138,12 @@ function PureChatHeader({
               >
                 <Link href="/config/monitoring">
                   <Bot className="size-3.5" />
-                  Bot
+                  {t('nav.bot')}
                 </Link>
               </Button>
               <Button size="sm" className="h-8 rounded-lg">
                 <MessageSquare className="size-3.5" />
-                Chat
+                {t('nav.chat')}
               </Button>
             </div>
           </div>
@@ -150,28 +152,30 @@ function PureChatHeader({
             {session ? (
               <>
                 <span className="h-7 max-w-[11rem] shrink-0 truncate rounded-md bg-muted/70 px-2 font-medium text-foreground leading-7 sm:max-w-[280px]">
-                  {session.title ?? 'Untitled Session'}
+                  {session.title ?? t('chatHeader.untitledSession')}
                 </span>
                 {isRunning && (
                   <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-amber-500/10 px-2 text-amber-700 dark:text-amber-300">
                     <Loader2 className="size-3 animate-spin" />
-                    {status === 'waiting_user' ? 'Waiting' : 'Running'}
+                    {status === 'waiting_user'
+                      ? t('chatHeader.waiting')
+                      : t('chatHeader.running')}
                   </span>
                 )}
                 {status === 'completed' && (
                   <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-green-500/10 px-2 text-green-700 dark:text-green-300">
-                    Done
+                    {t('chatHeader.done')}
                   </span>
                 )}
                 {status === 'aborted' && (
                   <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-muted px-2 text-muted-foreground">
-                    Aborted
+                    {t('chatHeader.aborted')}
                   </span>
                 )}
                 {agentdStatus === 'online' && (
                   <span
                     className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-green-500/10 px-2 text-green-700 dark:text-green-300"
-                    title="Agent Daemon online - full security review active"
+                    title={t('chatHeader.agentdOnlineTitle')}
                   >
                     <span className="size-1.5 rounded-full bg-green-500" />
                     AgentD
@@ -180,7 +184,7 @@ function PureChatHeader({
                 {agentdStatus === 'offline' && (
                   <span
                     className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-amber-500/10 px-2 text-amber-700 dark:text-amber-300"
-                    title="Agent Daemon offline - using Vercel Sandbox"
+                    title={t('chatHeader.agentdOfflineTitle')}
                   >
                     <span className="size-1.5 rounded-full bg-amber-500" />
                     Sandbox
@@ -201,13 +205,13 @@ function PureChatHeader({
                 ))}
                 {tokenDisplay && (
                   <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-muted px-2">
-                    Tokens {tokenDisplay}
+                    {t('chatHeader.tokens', { value: tokenDisplay })}
                   </span>
                 )}
               </>
             ) : (
               <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-muted/70 px-2">
-                Start a new agent conversation.
+                {t('chatHeader.startNew')}
               </span>
             )}
           </div>
@@ -221,7 +225,7 @@ function PureChatHeader({
                 <Button
                   variant="outline"
                   className="shrink-0 px-2 text-red-600 hover:bg-red-50 hover:text-red-700 md:h-fit"
-                  aria-label="Abort session"
+                  aria-label={t('chatHeader.abortSession')}
                   onClick={handleAbort}
                   disabled={aborting}
                 >
@@ -230,10 +234,12 @@ function PureChatHeader({
                   ) : (
                     <SquareIcon />
                   )}
-                  <span className="hidden md:inline">Abort</span>
+                  <span className="hidden md:inline">
+                    {t('chatHeader.abort')}
+                  </span>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Abort Session</TooltipContent>
+              <TooltipContent>{t('chatHeader.abortSession')}</TooltipContent>
             </Tooltip>
           )}
 
@@ -242,17 +248,19 @@ function PureChatHeader({
               <Button
                 variant="outline"
                 className="shrink-0 px-2 md:h-fit"
-                aria-label="New chat"
+                aria-label={t('chatHeader.newChat')}
                 onClick={() => {
                   router.push('/');
                   router.refresh();
                 }}
               >
                 <PlusIcon />
-                <span className="hidden md:inline">New Chat</span>
+                <span className="hidden md:inline">
+                  {t('chatHeader.newChat')}
+                </span>
               </Button>
             </TooltipTrigger>
-            <TooltipContent>New Chat</TooltipContent>
+            <TooltipContent>{t('chatHeader.newChat')}</TooltipContent>
           </Tooltip>
         </div>
       </div>

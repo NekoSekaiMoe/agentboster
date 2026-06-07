@@ -6,6 +6,7 @@ import {
   type ConfigSectionKey,
   getConfigSectionMeta,
 } from '@/components/config/config-sections';
+import { useI18n } from '@/components/i18n-provider';
 import { RawJsonEditor } from '@/components/config/raw-json-editor';
 import { Button } from '@/components/ui/button';
 import { useConfigDraft } from '@/hooks/use-config-draft';
@@ -25,6 +26,7 @@ export function ConfigShell({
     saveConfig,
     validationPassed,
   } = useConfigDraft();
+  const { t } = useI18n();
   const sectionMeta = getConfigSectionMeta(section);
   const runtimeIssues =
     runtimeHealth?.checks.filter((check) => check.status !== 'ready') ?? [];
@@ -36,10 +38,10 @@ export function ConfigShell({
           <div className="space-y-1">
             <div>
               <h1 className="font-semibold text-2xl tracking-tight md:text-3xl">
-                {sectionMeta.title}
+                {t(sectionMeta.titleKey)}
               </h1>
               <p className="max-w-2xl text-muted-foreground text-sm">
-                {sectionMeta.description}
+                {t(sectionMeta.descriptionKey)}
               </p>
             </div>
           </div>
@@ -55,12 +57,9 @@ export function ConfigShell({
           <div className="mx-auto max-w-7xl space-y-6">
             {runtimeIssues.length > 0 ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-amber-950 text-sm">
-                <div className="font-medium">
-                  Runtime prerequisites need attention
-                </div>
+                <div className="font-medium">{t('config.runtime.title')}</div>
                 <div className="mt-1 text-amber-900/80">
-                  Some server features will run in a degraded state until the
-                  missing environment variables are configured.
+                  {t('config.runtime.description')}
                 </div>
                 <div className="mt-3 space-y-2">
                   {runtimeIssues.map((issue) => (
@@ -70,7 +69,9 @@ export function ConfigShell({
                       </div>
                       {issue.missingEnvVars.length > 0 ? (
                         <div className="text-amber-900/80 text-xs">
-                          Missing: {issue.missingEnvVars.join(', ')}
+                          {t('config.runtime.missing', {
+                            vars: issue.missingEnvVars.join(', '),
+                          })}
                         </div>
                       ) : null}
                     </div>
@@ -92,7 +93,7 @@ export function ConfigShell({
       </div>
 
       <Button
-        aria-label="Save config"
+        aria-label={t('config.saveConfig')}
         className="fixed right-5 bottom-5 z-30 size-14 rounded-full shadow-lg md:right-8 md:bottom-8"
         disabled={!validationPassed || isLoading || isSaving || !isDirty}
         onClick={saveConfig}

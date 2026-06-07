@@ -3,6 +3,7 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 import type { Metadata } from 'next';
 import { Toaster } from 'sonner';
 
+import { I18nProvider } from '@/components/i18n-provider';
 import { MobileNavWrapper } from '@/components/mobile-nav-wrapper';
 import { ThemeProvider } from '@/components/theme-provider';
 import { getAppBaseUrl } from '@/lib/bot/webhook';
@@ -137,9 +138,11 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <Toaster position="top-center" />
-          {children}
-          <MobileNavWrapper />
+          <I18nProvider>
+            <Toaster position="top-center" />
+            {children}
+            <MobileNavWrapper />
+          </I18nProvider>
         </ThemeProvider>
 
         {/* For Vercel */}

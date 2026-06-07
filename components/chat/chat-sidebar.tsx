@@ -3,6 +3,7 @@ import {
   deleteSessionAction,
   listRecentSessionsAction,
 } from '@/app/(chat)/actions';
+import { useI18n } from '@/components/i18n-provider';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,6 +25,7 @@ import {
 import { generateUUID } from '@/lib/utils';
 import {
   ChevronLeft,
+  Languages,
   Loader2,
   MessageSquare,
   Monitor,
@@ -60,6 +62,7 @@ export function ChatSidebar() {
   const pathname = usePathname();
   const { open, setOpen, isMobile, setOpenMobile } = useSidebar();
   const { theme = 'system', setTheme } = useTheme();
+  const { locale, localeLabels, locales, setLocale, t } = useI18n();
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
@@ -120,9 +123,9 @@ export function ChatSidebar() {
         router.push('/');
       }
 
-      toast.success('会话已删除');
+      toast.success(t('chat.deleteSuccess'));
     } catch (error) {
-      toast.error('删除失败');
+      toast.error(t('chat.deleteError'));
       console.error(error);
     } finally {
       setDeletingSessionId(null);
@@ -160,7 +163,7 @@ export function ChatSidebar() {
             onClick={handleNewChat}
           >
             <Plus className={`h-5 w-5 ${!isCollapsed && 'mr-2'}`} />
-            {!isCollapsed && '新建对话'}
+            {!isCollapsed && t('chat.newChat')}
           </Button>
         </SidebarHeader>
 
@@ -174,7 +177,7 @@ export function ChatSidebar() {
                 </div>
               ) : sessions.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground text-sm">
-                  暂无对话
+                  {t('chat.noConversations')}
                 </div>
               ) : (
                 sessions.map((session) => (
@@ -197,7 +200,7 @@ export function ChatSidebar() {
                   >
                     <MessageSquare className="h-4 w-4 shrink-0" />
                     <span className="flex-1 truncate text-sm">
-                      {session.title || '新对话'}
+                      {session.title || t('chat.newConversation')}
                     </span>
                     {session.status === 'running' && (
                       <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
@@ -238,7 +241,7 @@ export function ChatSidebar() {
               onClick={() => setSettingsMenuOpen(!settingsMenuOpen)}
             >
               <Settings className={`h-5 w-5 ${!isCollapsed && 'mr-2'}`} />
-              {!isCollapsed && '设置'}
+              {!isCollapsed && t('chat.settings')}
             </Button>
 
             {/* Settings Menu */}
@@ -252,7 +255,7 @@ export function ChatSidebar() {
                   className="absolute right-0 bottom-full left-0 z-50 mb-2 rounded-xl border bg-popover p-2 shadow-lg"
                 >
                   <div className="mb-2 px-2 font-medium text-muted-foreground text-xs">
-                    主题
+                    {t('chat.theme')}
                   </div>
                   <div className="space-y-1">
                     <Button
@@ -262,7 +265,7 @@ export function ChatSidebar() {
                       onClick={() => setTheme('light')}
                     >
                       <Sun className="mr-2 h-4 w-4" />
-                      浅色
+                      {t('theme.light')}
                     </Button>
                     <Button
                       variant={theme === 'dark' ? 'secondary' : 'ghost'}
@@ -271,7 +274,7 @@ export function ChatSidebar() {
                       onClick={() => setTheme('dark')}
                     >
                       <Moon className="mr-2 h-4 w-4" />
-                      深色
+                      {t('theme.dark')}
                     </Button>
                     <Button
                       variant={theme === 'system' ? 'secondary' : 'ghost'}
@@ -280,10 +283,28 @@ export function ChatSidebar() {
                       onClick={() => setTheme('system')}
                     >
                       <Monitor className="mr-2 h-4 w-4" />
-                      系统
+                      {t('theme.system')}
                     </Button>
                   </div>
 
+                  <div className="my-2 border-t" />
+                  <div className="mb-2 px-2 font-medium text-muted-foreground text-xs">
+                    {t('common.language')}
+                  </div>
+                  <div className="space-y-1">
+                    {locales.map((item) => (
+                      <Button
+                        key={item}
+                        variant={locale === item ? 'secondary' : 'ghost'}
+                        size="sm"
+                        className="w-full justify-start"
+                        onClick={() => setLocale(item)}
+                      >
+                        <Languages className="mr-2 h-4 w-4" />
+                        {localeLabels[item]}
+                      </Button>
+                    ))}
+                  </div>
                   <div className="my-2 border-t" />
 
                   <Link href="/config">
@@ -293,7 +314,7 @@ export function ChatSidebar() {
                       className="w-full justify-start"
                     >
                       <Settings className="mr-2 h-4 w-4" />
-                      配置管理
+                      {t('chat.configManagement')}
                     </Button>
                   </Link>
                 </motion.div>
@@ -310,16 +331,17 @@ export function ChatSidebar() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogTitle>{t('chat.delete.title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              确定要删除会话 "{pendingDeleteSession?.title || '新对话'}" 吗？
-              此操作无法撤销。
+              {t('chat.delete.description', {
+                title: pendingDeleteSession?.title || t('chat.newConversation'),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogCancel>{t('chat.delete.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDeleteSession}>
-              删除
+              {t('chat.delete.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -329,7 +351,7 @@ export function ChatSidebar() {
       {settingsMenuOpen && (
         <button
           type="button"
-          aria-label="关闭设置菜单"
+          aria-label={t('chat.settings')}
           className="fixed inset-0 z-40 cursor-default bg-transparent"
           onClick={() => setSettingsMenuOpen(false)}
         />

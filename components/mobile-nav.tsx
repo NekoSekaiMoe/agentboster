@@ -12,52 +12,56 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import type { ComponentType } from 'react';
+
+import { useI18n } from '@/components/i18n-provider';
+import type { TranslationKey } from '@/lib/i18n';
 
 const navItems = [
   {
-    label: 'Chat',
+    labelKey: 'nav.chat',
     icon: MessageSquare,
     href: '/',
     match: (p: string) => p === '/' || p.startsWith('/chat'),
   },
   {
-    label: 'Files',
+    labelKey: 'nav.files',
     icon: FolderArchive,
     href: '/files',
     match: (p: string) => p.startsWith('/files'),
   },
   {
-    label: 'Memory',
+    labelKey: 'nav.memory',
     icon: Brain,
     href: '/memory',
     match: (p: string) => p.startsWith('/memory'),
   },
   {
-    label: 'Schedule',
+    labelKey: 'nav.schedule',
     icon: Clock3,
     href: '/schedule',
     match: (p: string) => p.startsWith('/schedule'),
   },
   {
-    label: 'Skills',
+    labelKey: 'nav.skills',
     icon: Puzzle,
     href: '/skills',
     match: (p: string) => p.startsWith('/skills'),
   },
   {
-    label: 'Tasks',
+    labelKey: 'nav.tasks',
     icon: History,
     href: '/config/tasks',
     match: (p: string) => p.startsWith('/config/tasks'),
   },
   {
-    label: 'Alerts',
+    labelKey: 'nav.alerts',
     icon: Bell,
     href: '/config/notifications',
     match: (p: string) => p.startsWith('/config/notifications'),
   },
   {
-    label: 'Config',
+    labelKey: 'nav.config',
     icon: Settings,
     href: '/config',
     match: (p: string) =>
@@ -65,10 +69,16 @@ const navItems = [
       !p.startsWith('/config/tasks') &&
       !p.startsWith('/config/notifications'),
   },
-];
+] as const satisfies ReadonlyArray<{
+  href: string;
+  icon: ComponentType<{ className?: string }>;
+  labelKey: TranslationKey;
+  match: (pathname: string) => boolean;
+}>;
 
 export function MobileNav() {
   const pathname = usePathname();
+  const { t } = useI18n();
 
   return (
     <nav className="fixed right-0 bottom-0 left-0 z-50 border-t bg-background/95 backdrop-blur md:hidden">
@@ -86,7 +96,7 @@ export function MobileNav() {
             >
               <Icon className="size-5" />
               <span className="truncate font-medium text-[10px]">
-                {item.label}
+                {t(item.labelKey)}
               </span>
             </Link>
           );
