@@ -2948,11 +2948,6 @@
   resolved "https://registry.npmmirror.com/@swc/core-linux-arm64-gnu/-/core-linux-arm64-gnu-1.15.3.tgz#9b9861bc44059e393d4baf98b3cd3d6c4ea6f521"
   integrity sha512-2Nc/s8jE6mW2EjXWxO/lyQuLKShcmTrym2LRf5Ayp3ICEMX6HwFqB1EzDhwoMa2DcUgmnZIalesq2lG3krrUNw==
 
-"@swc/core-linux-arm64-gnu@^1.15.40":
-  version "1.15.40"
-  resolved "https://registry.npmmirror.com/@swc/core-linux-arm64-gnu/-/core-linux-arm64-gnu-1.15.40.tgz#26304933922f2a8e3194770e404403fc25a19c89"
-  integrity sha512-Q8byxJt2fh8CR3EUX6snBpy47AoBVm+In/+Z3rjDHMjC38ZvR9/gtUUNCT0tfrn4EdVsO8/QPi59nxrxvqxvBQ==
-
 "@swc/core-linux-arm64-musl@1.15.3":
   version "1.15.3"
   resolved "https://registry.npmmirror.com/@swc/core-linux-arm64-musl/-/core-linux-arm64-musl-1.15.3.tgz#f6388743e5a159018bd468e8f710940b2614384b"
