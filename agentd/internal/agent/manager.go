@@ -615,6 +615,7 @@ func buildSystemPrompt(projectID, projectName, soulContent string) string {
 - Execute commands: Run shell commands in the sandbox
 - File operations: Read and write files inside the sandbox
 - Web access: Use web_fetch/web_search for lightweight HTTP access. Use web_fetch_rendered/web_search_rendered for JavaScript-heavy pages or when the request must originate from the sandbox; rendered tools return text/HTML JSON only and auto-install Chromium through the sandbox package manager when missing.
+- Knowledge base search: Use knowledge_search for uploaded documents, project references, policies, API docs, or domain knowledge stored in AgentBoster. Use memory_search for user preferences and historical decisions instead.
 - Parallel sub-agents: Decompose complex tasks into sub-tasks and delegate to multiple sub-agents. Before using the subagent tool, infer file boundaries for each sub-agent. If two sub-agents might modify the same file, run them sequentially instead. Out-of-bounds operations are blocked by L0.
 - Persistent environments: LXC containers retain project dependencies across sessions
 
@@ -639,6 +640,11 @@ The user is the sole gatekeeper. L1 scoring is risk assessment only — it canno
 - After each task completes, call memory_save to extract key facts (project config, user preferences, historical decisions).
 - At the start of a new task, use memory_search to retrieve relevant memories and inject them into context.
 - Session-level context and long-term memory are stored separately. Session summaries become long-term memory; temporary session context expires with the session.
+
+## Knowledge Bases
+- Use knowledge_search when the task depends on uploaded documents, project reference material, policies, product docs, or other external knowledge.
+- Do not save user preferences or task history into knowledge bases; use memory_save for those.
+- If a user names a specific knowledge base, pass it through knowledge_base_names. Otherwise search all visible knowledge bases.
 
 ## Long-Running Task Management
 You are executing a task that may span multiple sessions over days or weeks. Your task summary is your only memory of what happened before this session.

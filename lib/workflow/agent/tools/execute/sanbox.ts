@@ -19,7 +19,6 @@ import {
   patchSandboxRuntime,
   truncateStreamOutput,
 } from '@/lib/core/sandbox/runtime';
-import { execToolOnAgentd } from '@/lib/extra/agent/agentd-tools-client';
 import { approvalHookBuilder } from '@/lib/workflow/agent/hooks';
 import { sendApprovalRequestReminderStep } from '@/lib/workflow/agent/sender/bots';
 import {
@@ -29,7 +28,6 @@ import {
 } from '@/lib/workflow/agent/sender/writers';
 import { tool } from 'ai';
 import { z } from 'zod';
-import { isAgentdAvailable } from '../../dispatch';
 import { defineBuildInTool } from '../define';
 
 const execInputSchema = z.object({
@@ -142,7 +140,13 @@ async function execOnAgentd(
   toolName: string,
   toolInput: Record<string, unknown>,
 ): Promise<{ success: boolean; data?: string; error?: string } | null> {
+  'use step';
+
   try {
+    const [{ isAgentdAvailable }, { execToolOnAgentd }] = await Promise.all([
+      import('../../dispatch'),
+      import('@/lib/extra/agent/agentd-tools-client'),
+    ]);
     const available = await isAgentdAvailable();
     if (!available) {
       if (!fallbackNotified) {

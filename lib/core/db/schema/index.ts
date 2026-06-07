@@ -7,6 +7,11 @@ export {
   longTermMemoryChunks,
   sessionMemories,
 } from './memory';
+export {
+  knowledgeBases,
+  knowledgeChunks,
+  knowledgeDocuments,
+} from './knowledge';
 export { scheduledTasks } from './scheduled';
 export {
   agentTasks,

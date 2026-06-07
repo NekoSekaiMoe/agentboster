@@ -45,6 +45,9 @@ func RegisterAllTools(
 	registerMemorySearch(registry, clawlessClient, agentCtx)
 	registerMemorySave(registry, clawlessClient, agentCtx)
 
+	// === Knowledge Base (1) ===
+	registerKnowledgeSearch(registry, clawlessClient, agentCtx)
+
 	// === Task Summary (2) ===
 	registerTaskSummary(registry, clawlessClient, agentCtx)
 	registerTaskProgress(registry, clawlessClient, agentCtx)

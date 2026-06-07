@@ -217,6 +217,24 @@ func (c *Client) DeleteMemory(ctx context.Context, memoryID string) error {
 	return doVoid(c, ctx, http.MethodDelete, "/api/agentd/v1/memories/"+memoryID, nil)
 }
 
+// ── Knowledge Bases ─────────────────────────────────────────────────
+
+func (c *Client) SearchKnowledge(ctx context.Context, agentID, query string, knowledgeBaseNames, knowledgeBaseIDs []string, limit int) ([]KnowledgeSearchResult, error) {
+	body := map[string]any{
+		"agent_id": agentID,
+		"query":    query,
+		"limit":    limit,
+	}
+	if len(knowledgeBaseNames) > 0 {
+		body["knowledge_base_names"] = knowledgeBaseNames
+	}
+	if len(knowledgeBaseIDs) > 0 {
+		body["knowledge_base_ids"] = knowledgeBaseIDs
+	}
+
+	return requestJSON[[]KnowledgeSearchResult](c, ctx, http.MethodPost, "/api/agentd/v1/knowledge/search", body)
+}
+
 // ── Agent Config ─────────────────────────────────────────────────────
 
 func (c *Client) GetAgentConfig(ctx context.Context, agentID string) (*AgentConfig, error) {
@@ -293,9 +311,9 @@ func (c *Client) GetSoulContent(ctx context.Context) (*SoulResponse, error) {
 		return nil, err
 	}
 	var resp struct {
-		Success bool          `json:"success"`
-		Data    SoulResponse  `json:"data"`
-		Error   string        `json:"error,omitempty"`
+		Success bool         `json:"success"`
+		Data    SoulResponse `json:"data"`
+		Error   string       `json:"error,omitempty"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
@@ -312,9 +330,9 @@ func (c *Client) GetSessionSoul(ctx context.Context, sessionID string) (*SoulRes
 		return nil, err
 	}
 	var resp struct {
-		Success bool          `json:"success"`
-		Data    SoulResponse  `json:"data"`
-		Error   string        `json:"error,omitempty"`
+		Success bool         `json:"success"`
+		Data    SoulResponse `json:"data"`
+		Error   string       `json:"error,omitempty"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
