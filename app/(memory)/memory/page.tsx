@@ -31,7 +31,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
-import { SOUL_MEMORY_MAX_LENGTH } from '@/types/memory/builtin';
+import {
+  BUILTIN_MEMORY_MAX_LENGTH,
+  SOUL_MEMORY_MAX_LENGTH,
+} from '@/types/memory/builtin';
 
 type Scope = 'builtin' | 'long_term' | 'session' | 'soul';
 
@@ -243,6 +246,7 @@ function SoulPanel() {
             rows={16}
             value={content}
             onChange={(e) => setContent(e.target.value)}
+            maxLength={SOUL_MEMORY_MAX_LENGTH}
             placeholder="在此编辑 SOUL.md 内容..."
             className="font-mono text-sm"
           />
@@ -370,15 +374,22 @@ function BuiltinPanel() {
               onChange={(e) =>
                 setDrafts((prev) => ({ ...prev, [key]: e.target.value }))
               }
+              maxLength={BUILTIN_MEMORY_MAX_LENGTH}
               placeholder={`${key} content...`}
               className={key === 'SOUL' ? 'font-mono text-sm' : undefined}
             />
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground text-xs">
-                {memories[key]?.updatedAt
-                  ? `Updated: ${new Date(memories[key].updatedAt).toLocaleString()}`
-                  : 'Not set'}
-              </span>
+              <div className="flex flex-col gap-1 text-muted-foreground text-xs sm:flex-row sm:items-center sm:gap-3">
+                <span>
+                  {(drafts[key] ?? '').length} /{' '}
+                  {BUILTIN_MEMORY_MAX_LENGTH.toLocaleString()} 字符
+                </span>
+                <span>
+                  {memories[key]?.updatedAt
+                    ? `Updated: ${new Date(memories[key].updatedAt).toLocaleString()}`
+                    : 'Not set'}
+                </span>
+              </div>
               <Button
                 size="sm"
                 disabled={savingKey === key}
@@ -785,6 +796,7 @@ function SessionPanel() {
               rows={8}
               value={sessionSoul}
               onChange={(e) => setSessionSoul(e.target.value)}
+              maxLength={SOUL_MEMORY_MAX_LENGTH}
               placeholder="会话级 SOUL 内容（留空则使用全局 SOUL.md）..."
               className="font-mono text-sm"
             />

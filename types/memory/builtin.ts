@@ -34,8 +34,8 @@ export const updateBuiltinMemorySchema = z.object({
     .string()
     .min(1, 'Content is required')
     .max(
-      SOUL_MEMORY_MAX_LENGTH,
-      `Built-in memory content must be at most ${SOUL_MEMORY_MAX_LENGTH} characters`,
+      BUILTIN_MEMORY_MAX_LENGTH,
+      `Built-in memory content must be at most ${BUILTIN_MEMORY_MAX_LENGTH} characters`,
     ),
 });
 
