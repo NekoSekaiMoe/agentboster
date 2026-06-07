@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { loadToolCatalogAction } from '@/app/(config)/actions';
 
+import { useI18n } from '@/components/i18n-provider';
 import {
   Card,
   CardContent,
@@ -64,6 +65,7 @@ function pickAllowedConfig(
 
 export function ToolsForm() {
   const { issues, value, updateValue } = useConfigSection('tools');
+  const { t } = useI18n();
   const tools = (value ?? {}) as ToolConfig;
   const [catalog, setCatalog] = useState<ToolCatalogResponse | null>(null);
   const [catalogLoadError, setCatalogLoadError] = useState<string | null>(null);
@@ -86,7 +88,7 @@ export function ToolsForm() {
           return;
         }
 
-        setCatalogLoadError('Failed to load tool catalog.');
+        setCatalogLoadError(t('config.forms.tools.catalogLoadError'));
       }
     };
 
@@ -143,16 +145,17 @@ export function ToolsForm() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-base">Built-in tools</CardTitle>
+          <CardTitle className="text-base">
+            {t('config.forms.tools.builtinTools')}
+          </CardTitle>
           <CardDescription>
-            Each built-in tool can be toggled and configured with string
-            key-value pairs.
+            {t('config.forms.tools.builtinDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {visibleToolIds.length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              No built-in tools found.
+              {t('config.forms.tools.noTools')}
             </p>
           ) : (
             visibleToolIds.map((toolId) => {
@@ -173,23 +176,28 @@ export function ToolsForm() {
               return (
                 <div key={toolId} className="rounded-2xl border p-4">
                   <div className="space-y-2">
-                    <p className="font-medium text-sm">ID</p>
+                    <p className="font-medium text-sm">
+                      {t('config.common.id')}
+                    </p>
                     <p className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
                       {toolId}
                     </p>
                   </div>
 
                   <div className="mt-3 space-y-2">
-                    <p className="font-medium text-sm">Description</p>
+                    <p className="font-medium text-sm">
+                      {t('config.common.description')}
+                    </p>
                     <p className="text-muted-foreground text-sm">
-                      {catalogItem?.description ?? 'No description.'}
+                      {catalogItem?.description ??
+                        t('config.common.noDescription')}
                     </p>
                   </div>
 
                   <div className="mt-4">
                     <ToggleField
                       checked={toolValue.enabled ?? true}
-                      label="Enabled"
+                      label={t('config.common.enabled')}
                       onCheckedChange={(checked) =>
                         updateTool(toolId, {
                           ...toolValue,
@@ -201,21 +209,24 @@ export function ToolsForm() {
 
                   {missingRequiredInDraft.length > 0 ? (
                     <p className="mt-3 text-amber-700 text-sm">
-                      Missing required config:{' '}
-                      {missingRequiredInDraft.join(', ')}
+                      {t('config.forms.tools.missingRequired', {
+                        keys: missingRequiredInDraft.join(', '),
+                      })}
                     </p>
                   ) : null}
 
                   <div className="mt-4 space-y-3">
-                    <p className="font-medium text-sm">Configure</p>
+                    <p className="font-medium text-sm">
+                      {t('config.common.configure')}
+                    </p>
 
                     {requiredConfig.map((configKey) => (
                       <Field
                         key={`${toolId}-required-${configKey}`}
-                        label={`${configKey} (required)`}
+                        label={`${configKey} (${t('config.common.required')})`}
                       >
                         <Input
-                          placeholder="Required value"
+                          placeholder={t('config.common.requiredValue')}
                           value={config[configKey] ?? ''}
                           onChange={(event) => {
                             const nextConfig = { ...config };
@@ -239,10 +250,10 @@ export function ToolsForm() {
                     {optionalConfig.map((configKey) => (
                       <Field
                         key={`${toolId}-optional-${configKey}`}
-                        label={`${configKey} (optional)`}
+                        label={`${configKey} (${t('config.common.optional')})`}
                       >
                         <Input
-                          placeholder="Optional value"
+                          placeholder={t('config.common.optionalValue')}
                           value={config[configKey] ?? ''}
                           onChange={(event) => {
                             const nextConfig = { ...config };
@@ -265,7 +276,7 @@ export function ToolsForm() {
 
                     {!hasConfigFields ? (
                       <p className="text-muted-foreground text-sm">
-                        No configurable fields.
+                        {t('config.forms.tools.noConfigurableFields')}
                       </p>
                     ) : null}
                   </div>

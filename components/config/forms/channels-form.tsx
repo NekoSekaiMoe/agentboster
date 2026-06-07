@@ -7,6 +7,7 @@ import { loadWebhookConfigAction } from '@/app/(config)/actions';
 import { toast } from 'sonner';
 import { useCopyToClipboard } from 'usehooks-ts';
 
+import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -48,6 +49,7 @@ type WebhookConfigResponse = {
 
 export function ChannelsForm() {
   const { issues, value, updateValue } = useConfigSection('channels');
+  const { t } = useI18n();
   const channels = (value ?? {}) as Partial<ChannelsConfig>;
   const [webhookConfig, setWebhookConfig] =
     useState<WebhookConfigResponse | null>(null);
@@ -82,24 +84,28 @@ export function ChannelsForm() {
           ...prev,
           [adapter]: { detail: data.detail },
         }));
-        toast.success(`${adapter}: Connected`);
+        toast.success(t('config.forms.channels.connected', { adapter }));
       } else {
         setTestStates((prev) => ({ ...prev, [adapter]: 'error' }));
         setTestResults((prev) => ({
           ...prev,
           [adapter]: { error: data.error },
         }));
-        toast.error(`${adapter}: ${data.error || 'Connection failed'}`);
+        toast.error(
+          `${adapter}: ${
+            data.error || t('config.forms.channels.connectionFailed')
+          }`,
+        );
       }
     } catch (err) {
       setTestStates((prev) => ({ ...prev, [adapter]: 'error' }));
       setTestResults((prev) => ({
         ...prev,
         [adapter]: {
-          error: err instanceof Error ? err.message : 'Network error',
+          error: err instanceof Error ? err.message : t('config.common.networkError'),
         },
       }));
-      toast.error(`${adapter}: Network error`);
+      toast.error(`${adapter}: ${t('config.common.networkError')}`);
     }
   }
 
@@ -216,7 +222,7 @@ export function ChannelsForm() {
             <CardContent className="space-y-4">
               <ToggleField
                 checked={Boolean(adapterValue.enabled)}
-                label="Enabled"
+                label={t('config.common.enabled')}
                 onCheckedChange={(checked) =>
                   updateValue({
                     ...channels,
@@ -260,11 +266,11 @@ export function ChannelsForm() {
               {/* Allowed whitelist */}
               <Field label="allowed_author_ids">
                 <StringListEditor
-                  addLabel="Add author ID"
+                  addLabel={t('config.forms.channels.addAuthorId')}
                   entries={createStringListEntries(
                     adapterValue.allowed_author_ids as string[] | undefined,
                   )}
-                  placeholder="Author user ID"
+                  placeholder={t('config.forms.channels.authorId')}
                   onChange={(entries) =>
                     updateValue({
                       ...channels,
@@ -276,8 +282,7 @@ export function ChannelsForm() {
                   }
                 />
                 <p className="text-muted-foreground text-xs">
-                  Only these user IDs can send messages to the bot. Leave empty
-                  to allow everyone.
+                  {t('config.forms.channels.allowHelp')}
                 </p>
               </Field>
 
@@ -287,18 +292,14 @@ export function ChannelsForm() {
                     <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600" />
                     <div className="space-y-1">
                       <p className="font-medium">
-                        Configure this channel webhook with the callback URL
-                        below.
+                        {t('config.forms.channels.webhookInstruction')}
                       </p>
                       <p className="text-muted-foreground">
-                        Use this exact HTTPS URL in the provider dashboard so
-                        Chat SDK can receive inbound events on Vercel Functions.
+                        {t('config.forms.channels.webhookUsage')}
                       </p>
                       {adapter.key === 'gchat' ? (
                         <p className="text-muted-foreground">
-                          Google Chat default webhook delivery mainly covers
-                          @mentions. If you need all space messages, configure
-                          Workspace Events with Pub/Sub as well.
+                          {t('config.forms.channels.gchatNote')}
                         </p>
                       ) : null}
                     </div>
@@ -318,16 +319,20 @@ export function ChannelsForm() {
                           onClick={async () => {
                             const url = webhookConfig.urls[adapter.key];
                             if (!url) {
-                              toast.error('Webhook URL is not available yet.');
+                              toast.error(
+                                t('config.forms.channels.webhookUnavailable'),
+                              );
                               return;
                             }
 
                             await copyToClipboard(url);
-                            toast.success('Webhook URL copied.');
+                            toast.success(
+                              t('config.forms.channels.webhookCopied'),
+                            );
                           }}
                         >
                           <Copy className="mr-2 size-4" />
-                          Copy URL
+                          {t('config.forms.channels.copyUrl')}
                         </Button>
                         <Button
                           size="sm"
@@ -344,12 +349,12 @@ export function ChannelsForm() {
                             <X className="mr-2 size-4 text-red-600" />
                           ) : null}
                           {testStates[adapter.key] === 'testing'
-                            ? 'Testing...'
+                            ? t('config.common.testing')
                             : testStates[adapter.key] === 'ok'
-                              ? 'Connected'
+                              ? t('config.common.connected')
                               : testStates[adapter.key] === 'error'
-                                ? 'Retry'
-                                : 'Test connection'}
+                                ? t('config.common.retry')
+                                : t('config.forms.channels.testConnection')}
                         </Button>
                       </div>
                       {testResults[adapter.key]?.detail && (
@@ -365,17 +370,15 @@ export function ChannelsForm() {
                     </div>
                   ) : webhookConfigStatus === 'loading' ? (
                     <div className="rounded-lg border px-3 py-2 text-muted-foreground text-sm">
-                      Loading webhook configuration...
+                      {t('config.forms.channels.loadingWebhook')}
                     </div>
                   ) : webhookConfigStatus === 'error' ? (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 text-sm">
-                      Failed to load the webhook URL from the server. Refresh
-                      the page and try again.
+                      {t('config.forms.channels.loadWebhookError')}
                     </div>
                   ) : (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900 text-sm">
-                      AUTH_SECRET is not configured on the server yet, so the
-                      callback URL cannot be generated.
+                      {t('config.forms.channels.authSecretMissing')}
                     </div>
                   )}
                 </div>

@@ -4,6 +4,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { useI18n } from '@/components/i18n-provider';
 import {
   Card,
   CardContent,
@@ -34,6 +35,7 @@ import {
 export function AgentsForm() {
   const { issues, value, updateValue } = useConfigSection('agents');
   const { value: modelsValue } = useConfigSection('models');
+  const { t } = useI18n();
   const agents = (value ?? {}) as AgentConfig;
   const models = (modelsValue ?? {}) as Partial<AIConfig>;
   const entries = Object.entries(agents);
@@ -85,9 +87,11 @@ export function AgentsForm() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-base">Agent instances</CardTitle>
+          <CardTitle className="text-base">
+            {t('config.forms.agents.title')}
+          </CardTitle>
           <CardDescription>
-            Each entry defines a named bot or persona with optional overrides.
+            {t('config.forms.agents.description')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -97,7 +101,7 @@ export function AgentsForm() {
               className="rounded-2xl border p-4"
             >
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Agent name">
+                <Field label={t('config.forms.agents.name')}>
                   <EditableObjectKeyInput
                     currentKey={agentKey}
                     onCommit={(nextKey) => {
@@ -122,7 +126,7 @@ export function AgentsForm() {
                     }}
                   />
                 </Field>
-                <Field label="Model">
+                <Field label={t('config.forms.agents.model')}>
                   <SuggestionInput
                     placeholder="openai/gpt-4o-mini"
                     suggestions={buildModelPredictions(
@@ -142,7 +146,7 @@ export function AgentsForm() {
                     }
                   />
                 </Field>
-                <Field label="Temperature">
+                <Field label={t('config.forms.agents.temperature')}>
                   <Input
                     max="2"
                     min="0"
@@ -163,10 +167,12 @@ export function AgentsForm() {
               </div>
 
               <div className="mt-4">
-                <Field label="System prompt">
+                <Field label={t('config.forms.agents.systemPrompt')}>
                   <Textarea
                     className="min-h-32"
-                    placeholder="You are a helpful agent..."
+                    placeholder={t(
+                      'config.forms.agents.systemPromptPlaceholder',
+                    )}
                     value={agentValue.system_prompt ?? ''}
                     onChange={(event) =>
                       updateValue({
@@ -192,7 +198,7 @@ export function AgentsForm() {
                   }}
                 >
                   <Trash2 className="size-4" />
-                  Remove agent
+                  {t('config.forms.agents.remove')}
                 </Button>
               </div>
             </div>
@@ -209,7 +215,7 @@ export function AgentsForm() {
             }
           >
             <Plus className="size-4" />
-            Add agent
+            {t('config.forms.agents.add')}
           </Button>
         </CardContent>
       </Card>

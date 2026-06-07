@@ -5,6 +5,7 @@ import * as React from 'react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { useI18n } from '@/components/i18n-provider';
 import {
   Card,
   CardContent,
@@ -114,6 +115,8 @@ export function SectionIssues({
 }: {
   issues: Array<{ message: string; path: string }>;
 }) {
+  const { t } = useI18n();
+
   if (!issues.length) {
     return null;
   }
@@ -121,16 +124,20 @@ export function SectionIssues({
   return (
     <Card className="fixed bottom-2 z-10 border-amber-500/5 backdrop:blur-sm">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Validation issues</CardTitle>
+        <CardTitle className="text-base">
+          {t('config.common.validationIssues')}
+        </CardTitle>
         <CardDescription>
-          Local schema validation is blocking save until these fields are fixed.
+          {t('config.common.validationIssuesDescription')}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <ul className="space-y-2 text-sm">
           {issues.map((issue) => (
             <li key={`${issue.path}:${issue.message}`}>
-              <span className="font-medium">{issue.path || '(root)'}</span>{' '}
+              <span className="font-medium">
+                {issue.path || t('config.common.root')}
+              </span>{' '}
               {issue.message}
             </li>
           ))}

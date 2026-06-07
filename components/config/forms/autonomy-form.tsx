@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { useI18n } from '@/components/i18n-provider';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -22,6 +23,7 @@ import { Field, SectionIssues } from './shared';
 
 export function AutonomyForm() {
   const { issues, value, updateValue } = useConfigSection('autonomy');
+  const { t } = useI18n();
   const autonomy = (value ?? {
     level: 'supervised',
     max_steps: 20,
@@ -33,13 +35,15 @@ export function AutonomyForm() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-base">Autonomy policy</CardTitle>
+          <CardTitle className="text-base">
+            {t('config.forms.autonomy.title')}
+          </CardTitle>
           <CardDescription>
-            Choose the operating mode and the per-conversation action limit.
+            {t('config.forms.autonomy.description')}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
-          <Field label="Level">
+          <Field label={t('config.forms.autonomy.level')}>
             <Select
               value={autonomy.level}
               onValueChange={(nextValue) =>
@@ -50,7 +54,9 @@ export function AutonomyForm() {
               }
             >
               <SelectTrigger>
-                <SelectValue placeholder="Choose a level" />
+                <SelectValue
+                  placeholder={t('config.forms.autonomy.chooseLevel')}
+                />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="supervised">supervised</SelectItem>
@@ -59,7 +65,7 @@ export function AutonomyForm() {
             </Select>
           </Field>
 
-          <Field label="Max steps">
+          <Field label={t('config.forms.autonomy.maxSteps')}>
             <Input
               min="0"
               type="number"

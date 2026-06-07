@@ -4,6 +4,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { useI18n } from '@/components/i18n-provider';
 import {
   Card,
   CardContent,
@@ -72,6 +73,7 @@ const builtinServers = [
 
 export function McpForm() {
   const { issues, value, updateValue } = useConfigSection('mcp');
+  const { t } = useI18n();
   const servers = (value ?? {}) as MCPRemoteServersConfig;
   const entries = Object.entries(servers);
   const [serverRowIds, setServerRowIds] = useState<Record<string, string>>({});
@@ -100,9 +102,11 @@ export function McpForm() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-base">Built-in servers</CardTitle>
+          <CardTitle className="text-base">
+            {t('config.forms.mcp.builtinServers')}
+          </CardTitle>
           <CardDescription>
-            AgentBoster automatically exposes these MCP servers to agents.
+            {t('config.forms.mcp.builtinDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
@@ -111,14 +115,14 @@ export function McpForm() {
               <div className="flex items-center justify-between gap-3">
                 <h3 className="font-medium">{server.name}</h3>
                 <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary text-xs">
-                  Enabled
+                  {t('config.common.enabled')}
                 </span>
               </div>
               <p className="mt-2 text-muted-foreground text-sm">
                 {server.description}
               </p>
               <p className="mt-3 text-muted-foreground text-xs">
-                Tools: {server.tools}
+                {t('config.forms.mcp.tools', { tools: server.tools })}
               </p>
               <p className="mt-1 text-muted-foreground text-xs">
                 {server.requirements}
@@ -130,9 +134,11 @@ export function McpForm() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-base">Custom remote servers</CardTitle>
+          <CardTitle className="text-base">
+            {t('config.forms.mcp.customServers')}
+          </CardTitle>
           <CardDescription>
-            Add extra HTTP or SSE MCP endpoints plus optional request headers.
+            {t('config.forms.mcp.customDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -142,7 +148,7 @@ export function McpForm() {
               className="rounded-2xl border p-4"
             >
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Server name">
+                <Field label={t('config.forms.mcp.serverName')}>
                   <EditableObjectKeyInput
                     currentKey={serverKey}
                     onCommit={(nextKey) => {
@@ -167,7 +173,7 @@ export function McpForm() {
                     }}
                   />
                 </Field>
-                <Field label="Type">
+                <Field label={t('config.forms.mcp.type')}>
                   <Select
                     value={serverValue.type}
                     onValueChange={(nextValue) =>
@@ -181,7 +187,11 @@ export function McpForm() {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Choose a transport" />
+                      <SelectValue
+                        placeholder={t(
+                          'config.forms.mcp.transportPlaceholder',
+                        )}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="http">http</SelectItem>
@@ -207,11 +217,11 @@ export function McpForm() {
               </div>
 
               <div className="mt-4">
-                <Field label="Headers">
+                <Field label={t('config.common.headers')}>
                   <KeyValueEditor
-                    addLabel="Add header"
+                    addLabel={t('config.common.addHeader')}
                     entries={createKeyValueEntries(serverValue.headers)}
-                    keyLabel="Header key"
+                    keyLabel={t('config.common.headerKey')}
                     onChange={(entries) =>
                       updateValue({
                         ...servers,
@@ -221,7 +231,7 @@ export function McpForm() {
                         },
                       })
                     }
-                    valueLabel="Header value"
+                    valueLabel={t('config.common.headerValue')}
                   />
                 </Field>
               </div>
@@ -237,7 +247,7 @@ export function McpForm() {
                   }}
                 >
                   <Trash2 className="size-4" />
-                  Remove server
+                  {t('config.forms.mcp.removeServer')}
                 </Button>
               </div>
             </div>
@@ -257,7 +267,7 @@ export function McpForm() {
             }
           >
             <Plus className="size-4" />
-            Add server
+            {t('config.forms.mcp.addServer')}
           </Button>
         </CardContent>
       </Card>

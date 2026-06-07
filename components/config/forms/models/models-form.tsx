@@ -4,6 +4,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { useI18n } from '@/components/i18n-provider';
 import {
   Card,
   CardContent,
@@ -50,6 +51,7 @@ import { SuggestionInput } from './suggestion-input';
 
 export function ModelsForm() {
   const { issues, value, updateValue } = useConfigSection('models');
+  const { t } = useI18n();
   const models = (value ?? {}) as Partial<AIConfig>;
   const providers = Object.entries(models.providers ?? {});
   const [providerRowIds, setProviderRowIds] = useState<Record<string, string>>(
@@ -154,15 +156,15 @@ export function ModelsForm() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-base">Default model settings</CardTitle>
+          <CardTitle className="text-base">
+            {t('config.forms.models.defaultSettingsTitle')}
+          </CardTitle>
           <CardDescription>
-            Configure the default model and its parameters for your Claw. You
-            can also specify different models for different use cases in the
-            Agents section.
+            {t('config.forms.models.defaultSettingsDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
-          <Field label="Default model">
+          <Field label={t('config.forms.models.defaultModel')}>
             <SuggestionInput
               placeholder={defaultModelPlaceholder}
               suggestions={modelPredictions}
@@ -183,16 +185,11 @@ export function ModelsForm() {
             />
             {acceptsBareModelNames && (
               <p className="mt-1 text-muted-foreground text-xs">
-                Bare model names resolve against your OpenAI Compatible
-                provider. Use{' '}
-                <code className="rounded bg-muted px-1 py-0.5 text-[0.7rem]">
-                  provider/model-id
-                </code>{' '}
-                to target a specific provider.
+                {t('config.forms.models.bareModelHelp')}
               </p>
             )}
           </Field>
-          <Field label="Embedding model">
+          <Field label={t('config.forms.models.embeddingModel')}>
             <SuggestionInput
               placeholder={embeddingModelPlaceholder}
               suggestions={embeddingModelPredictions}
@@ -206,12 +203,9 @@ export function ModelsForm() {
             />
           </Field>
           <div className="text-muted-foreground text-xs md:col-span-2">
-            Changing the embedding model changes vector dimensions and only new
-            or re-indexed memories will participate in vector retrieval. Older
-            memories still fall back to full-text search until they are
-            re-indexed.
+            {t('config.forms.models.embeddingWarning')}
           </div>
-          <Field label="Temperature">
+          <Field label={t('config.forms.agents.temperature')}>
             <Input
               max="2"
               min="0"
@@ -227,7 +221,7 @@ export function ModelsForm() {
             />
           </Field>
           <div className="space-y-2">
-            <Field label="Default context limit">
+            <Field label={t('config.forms.models.defaultContextLimit')}>
               <Input
                 min="1"
                 placeholder="128000"
@@ -242,12 +236,11 @@ export function ModelsForm() {
               />
             </Field>
             <p className="text-muted-foreground text-xs">
-              Sets the default context window. Selecting a model only fills this
-              when the field is empty.
+              {t('config.forms.models.defaultContextHelp')}
             </p>
           </div>
           <div className="space-y-2">
-            <Field label="Max output tokens">
+            <Field label={t('config.forms.models.maxOutputTokens')}>
               <Input
                 min="1"
                 placeholder="4096"
@@ -263,8 +256,9 @@ export function ModelsForm() {
             </Field>
             {typeof predictedModelLimit?.output === 'number' ? (
               <p className="text-muted-foreground text-xs">
-                Keep this at or below the predicted limit of{' '}
-                {predictedModelLimit.output}.
+                {t('config.forms.models.keepBelowLimit', {
+                  limit: predictedModelLimit.output,
+                })}
               </p>
             ) : null}
           </div>
@@ -273,10 +267,11 @@ export function ModelsForm() {
 
       <Card className="shadow-none">
         <CardHeader>
-          <CardTitle className="text-base">Providers</CardTitle>
+          <CardTitle className="text-base">
+            {t('config.forms.models.providers')}
+          </CardTitle>
           <CardDescription>
-            Provider configurations allow you to connect to multiple AI
-            providers and use them.
+            {t('config.forms.models.providerDescription')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -286,7 +281,7 @@ export function ModelsForm() {
               className="rounded-2xl border p-4"
             >
               <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Provider id">
+                <Field label={t('config.forms.models.providerId')}>
                   <DeferredProviderIdInput
                     providerKey={providerKey}
                     suggestions={providerPredictions}
@@ -326,7 +321,7 @@ export function ModelsForm() {
                     }}
                   />
                 </Field>
-                <Field label="Format">
+                <Field label={t('config.forms.models.format')}>
                   <Select
                     value={providerValue.format}
                     onValueChange={(nextValue) =>
@@ -343,7 +338,11 @@ export function ModelsForm() {
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select provider format" />
+                      <SelectValue
+                        placeholder={t(
+                          'config.forms.models.selectProviderFormat',
+                        )}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {aiProviderEnum.options.map((option) => (
@@ -354,7 +353,7 @@ export function ModelsForm() {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="API key">
+                <Field label={t('config.agentd.apiKey')}>
                   <Input
                     placeholder="optional"
                     value={providerValue.api_key ?? ''}
@@ -372,7 +371,7 @@ export function ModelsForm() {
                     }
                   />
                 </Field>
-                <Field label="Base URL">
+                <Field label={t('config.common.baseUrl')}>
                   <Input
                     placeholder="https://api.example.com/v1"
                     value={providerValue.base_url ?? ''}
@@ -393,11 +392,11 @@ export function ModelsForm() {
               </div>
 
               <div className="mt-4 space-y-2">
-                <Field label="Headers">
+                <Field label={t('config.common.headers')}>
                   <KeyValueEditor
-                    addLabel="Add header"
+                    addLabel={t('config.common.addHeader')}
                     entries={createKeyValueEntries(providerValue.headers)}
-                    keyLabel="Header key"
+                    keyLabel={t('config.common.headerKey')}
                     onChange={(entries) =>
                       updateValue({
                         ...models,
@@ -410,7 +409,7 @@ export function ModelsForm() {
                         },
                       } as AppConfig['models'])
                     }
-                    valueLabel="Header value"
+                    valueLabel={t('config.common.headerValue')}
                   />
                 </Field>
               </div>
@@ -429,7 +428,7 @@ export function ModelsForm() {
                   }}
                 >
                   <Trash2 className="size-4" />
-                  Remove provider
+                  {t('config.forms.models.removeProvider')}
                 </Button>
               </div>
             </div>
@@ -451,7 +450,7 @@ export function ModelsForm() {
             }
           >
             <Plus className="size-4" />
-            Add provider
+            {t('config.forms.models.addProvider')}
           </Button>
         </CardContent>
       </Card>
