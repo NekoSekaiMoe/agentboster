@@ -1,8 +1,22 @@
 import { routeAdapterMessage } from '@/lib/chat/index';
+import {
+  createSession,
+  listSessionsByExternalThreadIds,
+  updateSession,
+  upsertPersistedMessage,
+} from '@/lib/core/db/chat';
+import {
+  serializeAssistantMessage,
+  serializeUserMessage,
+} from '@/lib/chat/message-utils';
 import { get, set } from '@/lib/core/kv';
 import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName, ChannelsConfig } from '@/types/config/channels';
-import type { UserMessagePart } from '@/types/workflow';
+import {
+  buildExternalThreadId,
+  type ChatSource,
+  type UserMessagePart,
+} from '@/types/workflow';
 import { type Attachment, Chat } from 'chat';
 import { getBaseBot } from './core';
 
@@ -22,6 +36,11 @@ type IncomingMessage = {
   text?: string | null;
   threadId: string;
 };
+
+const ACCESS_DENIED_TEXT = '拒绝访问：你的账号未被允许使用此 bot。';
+const ACCESS_DENIED_TITLE = '拒绝访问';
+const ACCESS_DENIED_USER_MESSAGE_ID = 'access-denied:user';
+const ACCESS_DENIED_ASSISTANT_MESSAGE_ID = 'access-denied:assistant';
 
 async function attachmentToPart(
   attachment: Attachment,
@@ -109,6 +128,131 @@ function isAllowedAdapterAuthor(
   return false;
 }
 
+function buildIncomingSource(
+  adapter: AdapterName,
+  thread: IncomingThread,
+  message: IncomingMessage,
+): Extract<ChatSource, { type: 'im' }> {
+  return {
+    type: 'im',
+    adapter,
+    origin: thread.channelId ?? thread.id,
+    threadId: thread.id,
+    userId: message.author?.userId ?? null,
+    userName: message.author?.userName ?? null,
+  };
+}
+
+function getIncomingExternalThreadIds(
+  source: Extract<ChatSource, { type: 'im' }>,
+): string[] {
+  return [buildExternalThreadId(source), source.threadId].filter(
+    (value, index, values): value is string =>
+      typeof value === 'string' &&
+      value.length > 0 &&
+      values.indexOf(value) === index,
+  );
+}
+
+async function persistAccessDeniedSession(input: {
+  adapter: AdapterName;
+  source: Extract<ChatSource, { type: 'im' }>;
+  text: string;
+}): Promise<void> {
+  const externalThreadIds = getIncomingExternalThreadIds(input.source);
+  const externalThreadId = externalThreadIds[0] ?? null;
+  const [existing] =
+    externalThreadIds.length > 0
+      ? await listSessionsByExternalThreadIds(externalThreadIds)
+      : [];
+  const deniedAt = new Date();
+  const metadata = {
+    ...(existing?.metadata ?? {}),
+    source: input.source,
+    accessDenied: {
+      reason: 'adapter_author_not_allowed',
+      adapter: input.adapter,
+      userId: input.source.userId,
+      deniedAt: deniedAt.toISOString(),
+    },
+  };
+  const session =
+    existing ??
+    (await createSession({
+      title: ACCESS_DENIED_TITLE,
+      channel: input.adapter,
+      externalThreadId,
+      userId: input.source.userId ?? null,
+      metadata,
+    }));
+
+  if (existing) {
+    await updateSession(existing.id, {
+      title: existing.title ?? ACCESS_DENIED_TITLE,
+      channel: input.adapter,
+      externalThreadId,
+      userId: input.source.userId ?? null,
+      metadata,
+    });
+  }
+
+  const deniedText = ACCESS_DENIED_TEXT;
+  const userText = input.text || '/start';
+  await Promise.all([
+    upsertPersistedMessage(
+      serializeUserMessage({
+        sessionId: session.id,
+        uiMessageId: ACCESS_DENIED_USER_MESSAGE_ID,
+        text: userText,
+        parts: [{ type: 'text', text: userText }],
+        source: input.source,
+        createdAt: deniedAt,
+      }),
+    ),
+    upsertPersistedMessage({
+      ...serializeAssistantMessage({
+        sessionId: session.id,
+        text: deniedText,
+        createdAt: new Date(deniedAt.getTime() + 1),
+      }),
+      uiMessageId: ACCESS_DENIED_ASSISTANT_MESSAGE_ID,
+    }),
+  ]);
+}
+
+async function sendAccessDeniedReply(input: {
+  bot: Chat;
+  adapter: AdapterName;
+  threadId: string;
+}): Promise<void> {
+  const adapter = input.bot.getAdapter(input.adapter);
+  await adapter.postMessage(input.threadId, {
+    markdown: ACCESS_DENIED_TEXT,
+  });
+}
+
+async function clearAccessDeniedSession(
+  source: Extract<ChatSource, { type: 'im' }>,
+): Promise<void> {
+  const externalThreadIds = getIncomingExternalThreadIds(source);
+  if (externalThreadIds.length === 0) {
+    return;
+  }
+
+  const [session] = await listSessionsByExternalThreadIds(externalThreadIds);
+  const metadata = session?.metadata;
+  if (!session || !metadata || !('accessDenied' in metadata)) {
+    return;
+  }
+
+  const nextMetadata = { ...metadata };
+  delete nextMetadata.accessDenied;
+  await updateSession(session.id, {
+    metadata: nextMetadata,
+    title: session.title === ACCESS_DENIED_TITLE ? null : session.title,
+  });
+}
+
 /**
  * Create and return a Chat SDK bot instance.
  *
@@ -128,14 +272,33 @@ export async function getBot(): Promise<Chat> {
     if (parts.length === 0) return;
 
     const userId = message.author?.userId?.trim() ?? '';
+    const source = buildIncomingSource(adapter, thread, message);
 
     if (!isAllowedAdapterAuthor(config?.channels, adapter, message)) {
       const isPairCommand = text.startsWith('/pair ');
       const isPaired =
         userId.length > 0 && (await get(`pair:bound:${adapter}:${userId}`));
-      if (!isPairCommand || isPaired) {
+      if (isPairCommand && !isPaired) {
+        // Unpaired users need /pair to complete authorization.
+      } else {
+        await persistAccessDeniedSession({
+          adapter,
+          source,
+          text,
+        });
+        try {
+          await sendAccessDeniedReply({
+            bot,
+            adapter,
+            threadId: thread.id,
+          });
+        } catch (error) {
+          console.warn('[bot] access-denied reply failed:', error);
+        }
         return;
       }
+    } else {
+      await clearAccessDeniedSession(source);
     }
 
     await routeAdapterMessage({

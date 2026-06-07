@@ -2,6 +2,14 @@ import { Chat } from '@/components/chat/chat-container';
 import { deserializePersistedMessages } from '@/lib/chat/persistence';
 import { getSession, getVisibleSessionMessages } from '@/lib/core/db/chat';
 
+function hasAccessDeniedMetadata(metadata: unknown): boolean {
+  return (
+    typeof metadata === 'object' &&
+    metadata !== null &&
+    Boolean((metadata as { accessDenied?: unknown }).accessDenied)
+  );
+}
+
 export default async function Page({
   params,
 }: {
@@ -26,6 +34,7 @@ export default async function Page({
                 title: session.title,
                 channel: session.channel,
                 externalThreadId: session.externalThreadId ?? null,
+                accessDenied: hasAccessDeniedMetadata(session.metadata),
               }
             : null
         }

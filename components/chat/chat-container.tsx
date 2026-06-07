@@ -2,6 +2,7 @@
 
 import {
   controlSessionRuntimeAction,
+  deleteSessionAction,
   updateSessionTitleAction,
 } from '@/app/(chat)/actions';
 import { useChat } from '@ai-sdk/react';
@@ -14,10 +15,13 @@ import { ofetch } from 'ofetch';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { Trash2 } from 'lucide-react';
 
 import { ChatHeader } from '@/components/chat-header';
+import { useI18n } from '@/components/i18n-provider';
 import { MobileDrawerBridge } from '@/components/mobile-drawer-bridge';
 import { SessionRuntimePanel } from '@/components/session-runtime-panel';
+import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import {
   invalidateSessionList,
@@ -124,9 +128,11 @@ export function Chat({
     title: string | null;
     channel: string;
     externalThreadId: string | null;
+    accessDenied?: boolean;
   } | null;
 }) {
   const router = useRouter();
+  const { t } = useI18n();
   const activeRunIdRef = useRef<string | null>(null);
   const shouldBootstrapSessionStatusRef = useRef(false);
   const resumeInFlightRef = useRef(false);
@@ -150,6 +156,8 @@ export function Chat({
   const lastWorkflowEventKeyRef = useRef<string | null>(null);
   const [shouldResumeStream, setShouldResumeStream] = useState(false);
   const [runtimePollingResumeKey, setRuntimePollingResumeKey] = useState(0);
+  const [isDeletingAccessDeniedSession, setIsDeletingAccessDeniedSession] =
+    useState(false);
 
   const { pendingDecisions, handleDecisionResolved } = usePendingDecisions(id);
 
@@ -197,6 +205,7 @@ export function Chat({
                 title: null,
                 channel,
                 externalThreadId: session?.externalThreadId ?? null,
+                accessDenied: session?.accessDenied ?? false,
               },
         );
         invalidateSessionList();
@@ -216,7 +225,12 @@ export function Chat({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [bootstrapStatusRunId, session?.channel, session?.externalThreadId]);
+  }, [
+    bootstrapStatusRunId,
+    session?.accessDenied,
+    session?.channel,
+    session?.externalThreadId,
+  ]);
 
   const transport = useMemo(
     () =>
@@ -508,6 +522,7 @@ export function Chat({
               title,
               channel: session?.channel ?? 'web',
               externalThreadId: session?.externalThreadId ?? null,
+              accessDenied: false,
             },
       );
       upsertSessionListItem({
@@ -546,6 +561,7 @@ export function Chat({
           title: optimisticTitle,
           channel: session?.channel ?? 'web',
           externalThreadId: session?.externalThreadId ?? null,
+          accessDenied: false,
         });
         upsertSessionListItem({
           id,
@@ -670,6 +686,23 @@ export function Chat({
     );
   }, []);
 
+  const deleteAccessDeniedSession = useCallback(async () => {
+    setIsDeletingAccessDeniedSession(true);
+
+    try {
+      await deleteSessionAction(id);
+      invalidateSessionList();
+      toast.success(t('chat.deleteSuccess'));
+      router.push('/');
+      router.refresh();
+    } catch (error) {
+      console.warn('[chat] delete access-denied session failed:', error);
+      toast.error(t('chat.deleteError'));
+    } finally {
+      setIsDeletingAccessDeniedSession(false);
+    }
+  }, [id, router, t]);
+
   const handleRevert = useCallback(
     async (messageId: string) => {
       if (!id) return;
@@ -702,8 +735,10 @@ export function Chat({
     [id, router, setMessages],
   );
 
+  const isAccessDeniedSession = sessionState?.accessDenied === true;
   const isRuntimePanelEnabled =
-    Boolean(session) || initialMessages.length > 0 || Boolean(activeRunId);
+    !isAccessDeniedSession &&
+    (Boolean(session) || initialMessages.length > 0 || Boolean(activeRunId));
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -748,21 +783,43 @@ export function Chat({
             regenerate={regenerate}
           />
 
-          <form className="relative z-20 shrink-0 border-t bg-background/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-[0_-12px_30px_rgba(15,23,42,0.06)] backdrop-blur md:pb-6">
-            <div className="mx-auto flex w-full gap-2 md:max-w-4xl">
-              <MultimodalInput
-                chatId={id}
-                focusTrigger={composerFocusKey}
-                input={input}
-                setInput={setInput}
-                isLoading={isComposerBusy}
-                stop={() => {
-                  void cancelWorkflow();
-                }}
-                sendMessage={submitChatMessage}
-              />
+          {isAccessDeniedSession ? (
+            <div className="relative z-20 shrink-0 border-t bg-background/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-[0_-12px_30px_rgba(15,23,42,0.06)] backdrop-blur md:pb-6">
+              <div className="mx-auto flex w-full flex-col gap-3 md:max-w-4xl md:flex-row md:items-center md:justify-between">
+                <p className="text-muted-foreground text-sm">
+                  {t('chat.accessDenied.description')}
+                </p>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="gap-2 md:shrink-0"
+                  disabled={isDeletingAccessDeniedSession}
+                  onClick={() => {
+                    void deleteAccessDeniedSession();
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  {t('chat.accessDenied.delete')}
+                </Button>
+              </div>
             </div>
-          </form>
+          ) : (
+            <form className="relative z-20 shrink-0 border-t bg-background/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-[0_-12px_30px_rgba(15,23,42,0.06)] backdrop-blur md:pb-6">
+              <div className="mx-auto flex w-full gap-2 md:max-w-4xl">
+                <MultimodalInput
+                  chatId={id}
+                  focusTrigger={composerFocusKey}
+                  input={input}
+                  setInput={setInput}
+                  isLoading={isComposerBusy}
+                  stop={() => {
+                    void cancelWorkflow();
+                  }}
+                  sendMessage={submitChatMessage}
+                />
+              </div>
+            </form>
+          )}
 
           <SessionRuntimePanel
             chatId={id}
