@@ -2,7 +2,16 @@ import type { NextConfig } from 'next';
 import { withWorkflow } from 'workflow/next';
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ['@vercel/queue', 'playwright', 'zlib-sync'],
+  outputFileTracingRoot: process.cwd(),
+  serverExternalPackages: [
+    '@chat-adapter/discord',
+    '@discordjs/ws',
+    '@vercel/queue',
+    'discord-interactions',
+    'discord.js',
+    'playwright',
+    'zlib-sync',
+  ],
   async headers() {
     return [
       {

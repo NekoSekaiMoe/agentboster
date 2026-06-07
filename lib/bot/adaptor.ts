@@ -1,17 +1,9 @@
 import type { ChannelsConfig } from '@/types/config/channels';
-import { createDiscordAdapter } from '@chat-adapter/discord';
-import { createGoogleChatAdapter } from '@chat-adapter/gchat';
-import { createSlackAdapter } from '@chat-adapter/slack';
-import { createTeamsAdapter } from '@chat-adapter/teams';
-import { createTelegramAdapter } from '@chat-adapter/telegram';
+import type { Adapter } from 'chat';
 
-type BotAdapters = {
-  discord?: ReturnType<typeof createDiscordAdapter>;
-  gchat?: ReturnType<typeof createGoogleChatAdapter>;
-  slack?: ReturnType<typeof createSlackAdapter>;
-  teams?: ReturnType<typeof createTeamsAdapter>;
-  telegram?: ReturnType<typeof createTelegramAdapter>;
-};
+type ChatSdkAdapterName = 'discord' | 'gchat' | 'slack' | 'teams' | 'telegram';
+
+type BotAdapters = Partial<Record<ChatSdkAdapterName, Adapter>>;
 
 type ExtraAdapters = {
   feishuEvents?: {
@@ -24,10 +16,13 @@ type ExtraAdapters = {
   };
 };
 
-export function createBotAdapters(channels?: ChannelsConfig): BotAdapters {
+export async function createBotAdapters(
+  channels?: ChannelsConfig,
+): Promise<BotAdapters> {
   const adapters: BotAdapters = {};
 
   if (channels?.telegram?.enabled) {
+    const { createTelegramAdapter } = await import('@chat-adapter/telegram');
     const cfg = channels.telegram;
     adapters.telegram = createTelegramAdapter({
       ...(cfg.bot_token ? { botToken: cfg.bot_token } : {}),
@@ -38,6 +33,7 @@ export function createBotAdapters(channels?: ChannelsConfig): BotAdapters {
   }
 
   if (channels?.discord?.enabled) {
+    const { createDiscordAdapter } = await import('@chat-adapter/discord');
     const cfg = channels.discord;
     if (cfg.bot_token) {
       adapters.discord = createDiscordAdapter({
@@ -49,6 +45,7 @@ export function createBotAdapters(channels?: ChannelsConfig): BotAdapters {
   }
 
   if (channels?.slack?.enabled) {
+    const { createSlackAdapter } = await import('@chat-adapter/slack');
     const cfg = channels.slack;
     adapters.slack = createSlackAdapter({
       ...(cfg.bot_token ? { botToken: cfg.bot_token } : {}),
@@ -60,6 +57,7 @@ export function createBotAdapters(channels?: ChannelsConfig): BotAdapters {
   }
 
   if (channels?.teams?.enabled) {
+    const { createTeamsAdapter } = await import('@chat-adapter/teams');
     const cfg = channels.teams;
     adapters.teams = createTeamsAdapter({
       ...(cfg.app_id ? { appId: cfg.app_id } : {}),
@@ -68,6 +66,7 @@ export function createBotAdapters(channels?: ChannelsConfig): BotAdapters {
   }
 
   if (channels?.gchat?.enabled) {
+    const { createGoogleChatAdapter } = await import('@chat-adapter/gchat');
     const cfg = channels.gchat;
     adapters.gchat = createGoogleChatAdapter({
       ...(cfg.project_id ? { projectId: cfg.project_id } : {}),

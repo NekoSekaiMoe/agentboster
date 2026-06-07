@@ -17,11 +17,11 @@ function resolveBotUserName(options?: CreateBaseBotOptions): string {
   return agentName;
 }
 
-export function createBaseBotFromConfig(
+export async function createBaseBotFromConfig(
   config: AppConfig,
   options?: CreateBaseBotOptions,
-): Chat {
-  const adapters = createBotAdapters(config?.channels);
+): Promise<Chat> {
+  const adapters = await createBotAdapters(config?.channels);
 
   return new Chat({
     adapters,

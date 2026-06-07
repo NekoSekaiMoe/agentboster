@@ -7,6 +7,7 @@ import {
   type ChannelsConfig,
 } from '@/types/config/channels';
 import type { ChatSource } from '@/types/workflow';
+import type { Chat } from 'chat';
 import { createBaseBotFromConfig, getBaseBot } from './core';
 
 const logger = createLogger('bot.reply');
@@ -41,7 +42,7 @@ function getScheduledBroadcastTargets(channels?: ChannelsConfig) {
 }
 
 async function sendScheduledDirectMessage(input: {
-  bot: ReturnType<typeof createBaseBotFromConfig>;
+  bot: Chat;
   adapter: AdapterName;
   userId: string;
   text: string;
@@ -78,7 +79,7 @@ async function sendScheduledSourceReply(
     return false;
   }
 
-  const bot = createBaseBotFromConfig(config);
+  const bot = await createBaseBotFromConfig(config);
   let deliveredCount = 0;
 
   for (const target of targets) {

@@ -31,13 +31,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const adapters = createBotAdapters(config.channels);
-
     // Try to call a lightweight API method on the adapter
     let testResult: { ok: boolean; detail?: string; error?: string };
 
     // Feishu and QQ are not Chat SDK adapters, skip adapter instance check
     if (adapter !== 'feishu' && adapter !== 'qq') {
+      const adapters = await createBotAdapters(config.channels);
       const adapterInstance = adapters[adapter];
       if (!adapterInstance) {
         return NextResponse.json({

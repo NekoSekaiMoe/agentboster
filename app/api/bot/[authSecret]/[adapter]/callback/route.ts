@@ -1,7 +1,5 @@
-import { createExtraAdapters } from '@/lib/bot/adaptor';
 import { getBot } from '@/lib/bot/index';
 import { isValidBotSecret } from '@/lib/bot/webhook';
-import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName } from '@/types/config/channels';
 import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
@@ -48,8 +46,6 @@ async function handleFeishuWebhook(
   request: NextRequest,
 ): Promise<NextResponse> {
   try {
-    const config = await getConfig();
-    const extra = createExtraAdapters(config.channels);
     const body = await request.json().catch(() => ({}));
 
     // URL verification (challenge)
