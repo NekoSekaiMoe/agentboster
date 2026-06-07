@@ -26,7 +26,10 @@ import {
   initializeRunSessionStep,
   persistStepDeltaAndUsageStep,
 } from './steps/persist';
-import { createModelResolver } from './steps/resolve-model';
+import {
+  createModelResolver,
+  resolveAgentProviderOptions,
+} from './steps/resolve-model';
 import { buildAgentTools } from './tools';
 import { getTokenUsageTotal } from './types';
 import {
@@ -273,12 +276,14 @@ export async function chatWorkflow(
     toolNames: Object.keys(tools),
   });
 
+  const providerOptions = await resolveAgentProviderOptions(config, modelId);
   const agent = new DurableAgent({
     model: createModelResolver(config, modelId),
     system,
     tools,
     temperature,
     maxOutputTokens: outputLimit,
+    providerOptions,
   });
 
   try {

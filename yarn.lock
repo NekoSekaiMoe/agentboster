@@ -2,7 +2,7 @@
 # yarn lockfile v1
 
 
-"@ai-sdk/anthropic@^3.0.0", "@ai-sdk/anthropic@^3.0.79":
+"@ai-sdk/anthropic@^3.0.0":
   version "3.0.79"
   resolved "https://registry.npmmirror.com/@ai-sdk/anthropic/-/anthropic-3.0.79.tgz#6d13c23c8ce3d984635b91bbbfea942b0d18e76a"
   integrity sha512-saEX+h5JDOkT9P/+REKDyikbnJiToFuLipgNcsmu4Zr3GW5kW1m9HhvrPK+vj63itIOsoZU6tmVIjkrePOlIUA==
@@ -10,7 +10,24 @@
     "@ai-sdk/provider" "3.0.10"
     "@ai-sdk/provider-utils" "4.0.27"
 
-"@ai-sdk/gateway@3.0.120", "@ai-sdk/gateway@^3.0.0":
+"@ai-sdk/anthropic@^3.0.81":
+  version "3.0.81"
+  resolved "https://registry.npmmirror.com/@ai-sdk/anthropic/-/anthropic-3.0.81.tgz#9580a7fba6e5c525feafe94a885c085ff7d45aee"
+  integrity sha512-B1JDd9Ugq9R5AgIaW3674lhGCMMYJcPUxnrZh8fzbGojgg4QvHFRv6eZahGQAUsmGHbcf74G9bdSBDLWQGY2GA==
+  dependencies:
+    "@ai-sdk/provider" "3.0.10"
+    "@ai-sdk/provider-utils" "4.0.27"
+
+"@ai-sdk/gateway@3.0.125":
+  version "3.0.125"
+  resolved "https://registry.npmmirror.com/@ai-sdk/gateway/-/gateway-3.0.125.tgz#703c28bed715c4e3bc8b69e4bfc0869fa2922830"
+  integrity sha512-tocl7cUDoTpmhZqeW8XVKMMznZQwwQAEunF0VyNKmf64qt8NbMIAEiet/vRMzh7Jr9WcFeb6EZjmhLTP4Qx2Og==
+  dependencies:
+    "@ai-sdk/provider" "3.0.10"
+    "@ai-sdk/provider-utils" "4.0.27"
+    "@vercel/oidc" "3.2.0"
+
+"@ai-sdk/gateway@^3.0.0":
   version "3.0.120"
   resolved "https://registry.npmmirror.com/@ai-sdk/gateway/-/gateway-3.0.120.tgz#37457125d3cbd20fb153a8984ffc0285598a122d"
   integrity sha512-MYKAeD2q7/sa1ZdqtL2tw0Me0B8Tok6Q/fhkJDhJl39dG8u+VBlWO9yk9lcdm784bM418o1EKObo4aOxs6+18Q==
@@ -19,7 +36,7 @@
     "@ai-sdk/provider-utils" "4.0.27"
     "@vercel/oidc" "3.2.0"
 
-"@ai-sdk/google@^3.0.0", "@ai-sdk/google@^3.0.79":
+"@ai-sdk/google@^3.0.0":
   version "3.0.79"
   resolved "https://registry.npmmirror.com/@ai-sdk/google/-/google-3.0.79.tgz#2e65d354b4003876f8bc0f26db752cf0ed18724b"
   integrity sha512-QWVAvYeA7JzEX2wkSyXOWv/I9PD9kvTzdykkSTLi+Eu8RyJ6gA0tdPIGa8esEtOcHE//G5vy6FTB70qQw8l/uw==
@@ -27,10 +44,18 @@
     "@ai-sdk/provider" "3.0.10"
     "@ai-sdk/provider-utils" "4.0.27"
 
-"@ai-sdk/mcp@^1.0.43":
-  version "1.0.43"
-  resolved "https://registry.npmmirror.com/@ai-sdk/mcp/-/mcp-1.0.43.tgz#284a30635186c95ff8e8cde2b1fccbee7400979f"
-  integrity sha512-HdDMeyCcfIn5tW/P1kJ+BmYP8vfY8vppRn7swbVNRcLeFz/cpwik+B+C49Up4u5scRAcATtRJywOa7/rA4BmIA==
+"@ai-sdk/google@^3.0.80":
+  version "3.0.80"
+  resolved "https://registry.npmmirror.com/@ai-sdk/google/-/google-3.0.80.tgz#8072a6cd0c37f9c7604def901fbf0236ccad4d05"
+  integrity sha512-5ORbm/yFUPO0MEvZsxBMN0cdKw2+lwU/wVn5KN3KF8Dmk1LughuDuUohMh/7iU/XFTiyB0OvmTW/tdV/J7O9zg==
+  dependencies:
+    "@ai-sdk/provider" "3.0.10"
+    "@ai-sdk/provider-utils" "4.0.27"
+
+"@ai-sdk/mcp@^1.0.46":
+  version "1.0.46"
+  resolved "https://registry.npmmirror.com/@ai-sdk/mcp/-/mcp-1.0.46.tgz#54e794bdde928255899913656e7921673b601ae5"
+  integrity sha512-owU0wAP87KzsTzr+2JE9sT9lpsCWKg8ZwHhce/KQmD9D/kbhe69sUZ+lsFF5MoGvV/ZzMujrhAvC1MgmufwMeQ==
   dependencies:
     "@ai-sdk/provider" "3.0.10"
     "@ai-sdk/provider-utils" "4.0.27"
@@ -44,10 +69,18 @@
     "@ai-sdk/provider" "3.0.10"
     "@ai-sdk/provider-utils" "4.0.27"
 
-"@ai-sdk/openai@^3.0.0", "@ai-sdk/openai@^3.0.65":
+"@ai-sdk/openai@^3.0.0":
   version "3.0.65"
   resolved "https://registry.npmmirror.com/@ai-sdk/openai/-/openai-3.0.65.tgz#16740cde57ea3d6a66926a75a3f2d54057694b95"
   integrity sha512-ZlVoWH+zrdiYDiUt6n/xvfCsk33mzsB81TUQkBRVx79rxU1FKZqVH9J/QCtEpSLqx0cUzjvtIw9l9p7EbUv+dw==
+  dependencies:
+    "@ai-sdk/provider" "3.0.10"
+    "@ai-sdk/provider-utils" "4.0.27"
+
+"@ai-sdk/openai@^3.0.68":
+  version "3.0.68"
+  resolved "https://registry.npmmirror.com/@ai-sdk/openai/-/openai-3.0.68.tgz#52716da762fafbf943295dfb03bdee127845313a"
+  integrity sha512-FCs/DPr4M95UyZ/ABHJmTmCEYRCka/4J0Bna0nsd78QCdGIS0X/zhn+fVzB7mZJo7464uOWYUjROx9PGNGOb0w==
   dependencies:
     "@ai-sdk/provider" "3.0.10"
     "@ai-sdk/provider-utils" "4.0.27"
@@ -68,13 +101,13 @@
   dependencies:
     json-schema "^0.4.0"
 
-"@ai-sdk/react@^3.0.193":
-  version "3.0.193"
-  resolved "https://registry.npmmirror.com/@ai-sdk/react/-/react-3.0.193.tgz#191fcd5220d79b2805b4daf729f8c9705b5d5319"
-  integrity sha512-El0jUZ/B7mvBHAD5rfSDqOAhWxutVTq7BCNhfGuwfDPT9SO0TMHybh2bMkieJQI7YOfl+qNBoWrRAOHHaFb99Q==
+"@ai-sdk/react@^3.0.199":
+  version "3.0.199"
+  resolved "https://registry.npmmirror.com/@ai-sdk/react/-/react-3.0.199.tgz#a4e2dd6bfc54297e6530c8db1fb2937f240eb97e"
+  integrity sha512-0QmG6nd1iDTTWpWbQbE5qgSpEm0XkBvrOn1L1rSzBhG5+7BasckcjTF3CQMwUxdvozMMYRNOGXLQODs/1+a3NQ==
   dependencies:
     "@ai-sdk/provider-utils" "4.0.27"
-    ai "6.0.191"
+    ai "6.0.197"
     swr "^2.2.5"
     throttleit "2.1.0"
 
@@ -3615,10 +3648,10 @@
   resolved "https://registry.npmmirror.com/@vladfrangu/async_event_emitter/-/async_event_emitter-2.4.7.tgz#5d6db8b20e2a3d729834e7cda429d1b6723ff91b"
   integrity sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g==
 
-"@workflow/ai@^4.1.1":
-  version "4.1.2"
-  resolved "https://registry.npmmirror.com/@workflow/ai/-/ai-4.1.2.tgz#d3eb978389bf24c652fcc17223b8018eeeb425e5"
-  integrity sha512-6gxc/FEseaJukjZ/1J1wELg5an+Vu2d8MftbLmPAD9lXq1Z4mGImu3We+Anqkv0dBHRbu+qlvl7mtqb1YtbqkA==
+"@workflow/ai@^5.0.0":
+  version "5.0.0"
+  resolved "https://registry.npmmirror.com/@workflow/ai/-/ai-5.0.0.tgz#408d5e71fe8953b4f76e143af04230c35f762cd0"
+  integrity sha512-T/E3ZaemwNSqcOSbr2e+L5b+VFVjcPpeLx3ZS3jw81fEKOldr3WwulTVyq340FinxBJ9DoTztFwQc+uLBaNqJA==
   dependencies:
     "@ai-sdk/provider" "^3.0.0"
     "@workflow/serde" "^4.1.1"
@@ -3630,27 +3663,27 @@
     "@ai-sdk/openai" "^3.0.0"
     "@ai-sdk/xai" "^3.0.0"
 
-"@workflow/astro@4.0.5":
-  version "4.0.5"
-  resolved "https://registry.npmmirror.com/@workflow/astro/-/astro-4.0.5.tgz#6166603489926fd02e46cddb78700cf82c37209b"
-  integrity sha512-WVDa9Q1rHAnKWtyLh9fRO+yZqjBu3ziL+2G20l+t9h82RIDB4ZUUuyVjx11VhAhgkaBB804YEtV9H54PlgBSEg==
+"@workflow/astro@4.0.8":
+  version "4.0.8"
+  resolved "https://registry.npmmirror.com/@workflow/astro/-/astro-4.0.8.tgz#d3d66f9295062c71e6f7bd4d208cf1cac53d507c"
+  integrity sha512-y+m9tJ3BqpwJiXGJCVF2vvBDiQ0EJnidh4RgyrX/txR3/IGQtMYo1LI65ZcBjsNj+8rzsSkDRR0eQM+6ztGmkw==
   dependencies:
     "@swc/core" "1.15.3"
-    "@workflow/builders" "4.0.6"
-    "@workflow/rollup" "4.0.5"
+    "@workflow/builders" "4.0.9"
+    "@workflow/rollup" "4.0.8"
     "@workflow/swc-plugin" "4.1.1"
-    "@workflow/vite" "4.0.5"
+    "@workflow/vite" "4.0.8"
     exsolve "^1.0.8"
     pathe "^2.0.3"
 
-"@workflow/builders@4.0.6":
-  version "4.0.6"
-  resolved "https://registry.npmmirror.com/@workflow/builders/-/builders-4.0.6.tgz#a81dc507846750354cdea052edb5354d2deecfd1"
-  integrity sha512-Kfs5SrpxMTBEO4xo6EMwjq9aDtIijJ71d2+/onKpkm0dgI4PmRVOChmp47iFg2lq43gsw5ikDeopoMQBYKSK2Q==
+"@workflow/builders@4.0.9":
+  version "4.0.9"
+  resolved "https://registry.npmmirror.com/@workflow/builders/-/builders-4.0.9.tgz#703028860d68eb54e367ecc7ab1abfa9d161fc0a"
+  integrity sha512-SqMt+AXWwoTZqAic5GWt7J8KyhwkmXiEEjM49uq4ISmHK/zrKBynzrBl+BHEJZS6KSnlTICKZUvjtfDknYRu4Q==
   dependencies:
     "@swc/core" "1.15.3"
-    "@workflow/core" "4.2.5"
-    "@workflow/errors" "4.1.2"
+    "@workflow/core" "4.3.1"
+    "@workflow/errors" "4.1.3"
     "@workflow/swc-plugin" "4.1.1"
     "@workflow/utils" "4.1.2"
     builtin-modules "5.0.0"
@@ -3661,24 +3694,24 @@
     json5 "2.2.3"
     tinyglobby "0.2.15"
 
-"@workflow/cli@4.2.5":
-  version "4.2.5"
-  resolved "https://registry.npmmirror.com/@workflow/cli/-/cli-4.2.5.tgz#f6e63709d3e0d2de202688a16aaa3f5985d404c4"
-  integrity sha512-C/J5KRaOA8Ew2M2ZkPyTOFhT8EUx+JCuPEcUv44JCvZ5OZiaG9GJAzJ60kkJxZH5ZKRUfz/nEc5I7zYj1MWmcw==
+"@workflow/cli@4.2.8":
+  version "4.2.8"
+  resolved "https://registry.npmmirror.com/@workflow/cli/-/cli-4.2.8.tgz#bfb03fc0156786f737f16e15512ed51221bf8996"
+  integrity sha512-/pfOMeKzXoRXJDoGZwSSj7eHuHlJH0P4jmNJ42Vd4XchnxgS/a8asVx+ym2QMM03yLy3drhKsBs3S4saQjTcPw==
   dependencies:
     "@oclif/core" "4.8.1"
     "@oclif/plugin-help" "6.2.37"
     "@swc/core" "1.15.3"
     "@vercel/cli-auth" "0.0.1"
-    "@workflow/builders" "4.0.6"
-    "@workflow/core" "4.2.5"
-    "@workflow/errors" "4.1.2"
+    "@workflow/builders" "4.0.9"
+    "@workflow/core" "4.3.1"
+    "@workflow/errors" "4.1.3"
     "@workflow/swc-plugin" "4.1.1"
     "@workflow/utils" "4.1.2"
-    "@workflow/web" "4.1.6"
-    "@workflow/world" "4.1.2"
-    "@workflow/world-local" "4.1.2"
-    "@workflow/world-vercel" "4.2.0"
+    "@workflow/web" "4.1.9"
+    "@workflow/world" "4.1.4"
+    "@workflow/world-local" "4.1.4"
+    "@workflow/world-vercel" "4.3.2"
     boxen "8.0.1"
     builtin-modules "5.0.0"
     chalk "5.6.2"
@@ -3697,22 +3730,22 @@
     xdg-app-paths "5.1.0"
     zod "4.3.6"
 
-"@workflow/core@4.2.5":
-  version "4.2.5"
-  resolved "https://registry.npmmirror.com/@workflow/core/-/core-4.2.5.tgz#b499e5ad9290b936313da2fe0a72a6a709acc291"
-  integrity sha512-6diO5Ik9JHm72ZmLtQ7AvDWNZ4xs8QO9FsHQ9/mdl4pgoZiWXPcR70Atx2W/Q417lu3g16HYSIxzP/KUmcesvg==
+"@workflow/core@4.3.1":
+  version "4.3.1"
+  resolved "https://registry.npmmirror.com/@workflow/core/-/core-4.3.1.tgz#e1dbd7e6276053cc362ce06490636841ce1cb1f5"
+  integrity sha512-TUNRYHCDXHYDg/Q+m9rHc0WOzZBQHK8j6OUZalaAWruTQB4e93jXtH/Kh9sIqODthvgV9i5lROmVWzXfILhkmw==
   dependencies:
     "@aws-sdk/credential-provider-web-identity" "3.972.13"
     "@jridgewell/trace-mapping" "0.3.31"
     "@standard-schema/spec" "1.0.0"
     "@types/ms" "2.1.0"
     "@vercel/functions" "^3.4.3"
-    "@workflow/errors" "4.1.2"
+    "@workflow/errors" "4.1.3"
     "@workflow/serde" "4.1.1"
     "@workflow/utils" "4.1.2"
-    "@workflow/world" "4.1.2"
-    "@workflow/world-local" "4.1.2"
-    "@workflow/world-vercel" "4.2.0"
+    "@workflow/world" "4.1.4"
+    "@workflow/world-local" "4.1.4"
+    "@workflow/world-vercel" "4.3.2"
     debug "4.4.3"
     devalue "5.6.3"
     ms "2.1.3"
@@ -3722,65 +3755,65 @@
     ulid "~3.0.1"
     zod "4.3.6"
 
-"@workflow/errors@4.1.2":
-  version "4.1.2"
-  resolved "https://registry.npmmirror.com/@workflow/errors/-/errors-4.1.2.tgz#d64d12ad4d4c9d5b53d014cf6c9d32c72ac7a4cc"
-  integrity sha512-/W5J6N2DaOvUyx5r3GB21mzV6IV1/KyxkODRJMRvpjHTxcRxsQWfclcr9oDVO6iGoV3gM8Hld3JJKBuzwCmDQw==
+"@workflow/errors@4.1.3":
+  version "4.1.3"
+  resolved "https://registry.npmmirror.com/@workflow/errors/-/errors-4.1.3.tgz#76a698fcd4a0f516b76ddad0a3a7a66e0685b5ec"
+  integrity sha512-0QaAZPqxTg38zeTEXxgVhTOyX5ANFNsEKg4Esk/Kl2xWzFK54U+YE4vcqTyZn7raKLz3wnEh6f0oA9kzIZiTNA==
   dependencies:
     "@workflow/utils" "4.1.2"
     ms "2.1.3"
 
-"@workflow/nest@0.0.5":
-  version "0.0.5"
-  resolved "https://registry.npmmirror.com/@workflow/nest/-/nest-0.0.5.tgz#6ad9a5ed08bc48c048d7e10c1e34fedf3a075cb8"
-  integrity sha512-mVrfDZtBMSntMmO0h7yNSBi+6INzA4HEB/hD0Ayl7QGgx83O2f2xwKIpeJ9DZw5gSMivEH6HQZQvvPnkOFlFag==
+"@workflow/nest@0.0.8":
+  version "0.0.8"
+  resolved "https://registry.npmmirror.com/@workflow/nest/-/nest-0.0.8.tgz#e58f03e695564c2b96c92ed32b8a7e12f77c5149"
+  integrity sha512-3F7qb5KA7pm9tWiCqaBCY0Z736AvPq+t/8vhwrtg7VQ57M/6JPQdo21PBacQfUXpf6N36I0TPKH/tFrPYefHxA==
   dependencies:
     "@swc/core" "1.15.3"
-    "@workflow/builders" "4.0.6"
+    "@workflow/builders" "4.0.9"
     "@workflow/swc-plugin" "4.1.1"
     pathe "2.0.3"
 
-"@workflow/next@4.0.6":
-  version "4.0.6"
-  resolved "https://registry.npmmirror.com/@workflow/next/-/next-4.0.6.tgz#0ef867befdff45d23561bbdc1a2f3e90f91af196"
-  integrity sha512-OLte8mYwdGbH+RLcvQs+7FnwV9MseAXQYrU/wqtap0MLb/TtKG56xqnDBhzh2lZstlEDLswXe4PjKEE3eNajwQ==
+"@workflow/next@4.0.9":
+  version "4.0.9"
+  resolved "https://registry.npmmirror.com/@workflow/next/-/next-4.0.9.tgz#e4a8fae1e12ce22547a9c3ec5b20ea67b48adff9"
+  integrity sha512-uTGF/xJStgN/nPdMYX0m6zk34p3VhwGrNSW3GkuGTKWavKdG6OfNFBSG6WakpkSOltdoeKpNeQPTcrdSC4CSuw==
   dependencies:
     "@swc/core" "1.15.3"
-    "@workflow/builders" "4.0.6"
-    "@workflow/core" "4.2.5"
+    "@workflow/builders" "4.0.9"
+    "@workflow/core" "4.3.1"
     "@workflow/swc-plugin" "4.1.1"
     semver "7.7.4"
     watchpack "2.5.1"
 
-"@workflow/nitro@4.0.6":
-  version "4.0.6"
-  resolved "https://registry.npmmirror.com/@workflow/nitro/-/nitro-4.0.6.tgz#1c98ec03f67e24cae7d73450895ddcffc0d222f9"
-  integrity sha512-0Qxg69gdwllPTTEmjD2tdcvVsxiLZngyXmd6FDDvm4VYaZD0tqtD1JPBOEzFnLb/VQOlLtax9uHRya1M5npmow==
+"@workflow/nitro@4.0.9":
+  version "4.0.9"
+  resolved "https://registry.npmmirror.com/@workflow/nitro/-/nitro-4.0.9.tgz#f70b426e8dfb2168a19657efbdc799bc03e0f4c2"
+  integrity sha512-JSJWH6RVB01hgNezx2H3mnlF9XUQEC0PuSW3BKICarXxWC3XjIxy6Bg8bVOqFWRyC1+NYxwhqMEHtHMde+Ni9w==
   dependencies:
     "@swc/core" "1.15.3"
-    "@workflow/builders" "4.0.6"
-    "@workflow/core" "4.2.5"
-    "@workflow/rollup" "4.0.5"
+    "@workflow/builders" "4.0.9"
+    "@workflow/core" "4.3.1"
+    "@workflow/rollup" "4.0.8"
     "@workflow/swc-plugin" "4.1.1"
-    "@workflow/vite" "4.0.5"
+    "@workflow/vite" "4.0.8"
     exsolve "1.0.8"
     pathe "2.0.3"
 
-"@workflow/nuxt@4.0.6":
-  version "4.0.6"
-  resolved "https://registry.npmmirror.com/@workflow/nuxt/-/nuxt-4.0.6.tgz#72174a2f8b424e9e9a6c3d0165c1d0f6db640320"
-  integrity sha512-4akuaJViP04VQbKOFAiiGersELyXAjMbeaZoZN+VuQzGIkg2P5mwVHAI89dc0OkGKrhopUKv4BynBgJ7ebfWdQ==
+"@workflow/nuxt@4.0.9":
+  version "4.0.9"
+  resolved "https://registry.npmmirror.com/@workflow/nuxt/-/nuxt-4.0.9.tgz#db8c8f13ca0e946834e5508dbcb074dc08ebbc60"
+  integrity sha512-SW6sXphFk33H5Vtz7oyG4hP5vTY7oAJYCVoeREy6m/FNdY+z8DEly5C5bqEfIUeQzE3BjtPTFqbG7aUD2L28Yg==
   dependencies:
     "@nuxt/kit" "4.4.2"
-    "@workflow/nitro" "4.0.6"
+    "@workflow/nitro" "4.0.9"
 
-"@workflow/rollup@4.0.5":
-  version "4.0.5"
-  resolved "https://registry.npmmirror.com/@workflow/rollup/-/rollup-4.0.5.tgz#60f7de05c51dffe3f9a1ba9a4334d7f576a586ec"
-  integrity sha512-w4IvRfWCGOvlhcJTH/aTy+M1SNdgBjTQ8cyJvivaiV/bcNlH7P8eUGNrU+2frfS8V62Jtw/gxqbM77vl4xX3Vw==
+"@workflow/rollup@4.0.8":
+  version "4.0.8"
+  resolved "https://registry.npmmirror.com/@workflow/rollup/-/rollup-4.0.8.tgz#46ff81f0ae23eec827922c3fbc67ec9bab5cce0b"
+  integrity sha512-Wn3xqYNcq8ZktHzh37PnP0MWzk8pXT5KKBflmzz/eHIOBEePnjRhlZUjIAQ+ryQt2wGoZA+gnI+Pgf5UTUhgdA==
   dependencies:
     "@swc/core" "1.15.3"
-    "@workflow/builders" "4.0.6"
+    "@workflow/builders" "4.0.9"
     "@workflow/swc-plugin" "4.1.1"
     exsolve "1.0.7"
 
@@ -3794,16 +3827,16 @@
   resolved "https://registry.npmmirror.com/@workflow/serde/-/serde-4.1.1.tgz#74d5c097c4c62228407c9ea09af921a236ee88cf"
   integrity sha512-191/N2w3WlrapuAvtAT1knONuqJ9auOqM8c7yMMM7c6rqXAZQKkNJrOuuj/j0vp7x43rg0+fy90bqT/xQ5ki4w==
 
-"@workflow/sveltekit@4.0.5":
-  version "4.0.5"
-  resolved "https://registry.npmmirror.com/@workflow/sveltekit/-/sveltekit-4.0.5.tgz#603e06c6a9055ec8e396593c3be605bfc9f44d56"
-  integrity sha512-FZAW1slGgRKctNq47id0PMA0KHh3aa6xz2XQsltaqq3A88n/i9LgqapaYM9J7/is58KmrJ+JWQPiEMoHh+byoA==
+"@workflow/sveltekit@4.0.8":
+  version "4.0.8"
+  resolved "https://registry.npmmirror.com/@workflow/sveltekit/-/sveltekit-4.0.8.tgz#72e65ea498efec157bf82265dd6053d109c24d76"
+  integrity sha512-Vl/tqNE/j7+/LdYMeDM+WeZPY9XiOlGRBIF1UsRHquzyKYBz6x+wqByCNB6m4EHMLCpT+YcFkgDmZfOPdFprtA==
   dependencies:
     "@swc/core" "1.15.3"
-    "@workflow/builders" "4.0.6"
-    "@workflow/rollup" "4.0.5"
+    "@workflow/builders" "4.0.9"
+    "@workflow/rollup" "4.0.8"
     "@workflow/swc-plugin" "4.1.1"
-    "@workflow/vite" "4.0.5"
+    "@workflow/vite" "4.0.8"
     exsolve "^1.0.8"
     fs-extra "^11.3.2"
     pathe "^2.0.3"
@@ -3825,51 +3858,51 @@
   dependencies:
     ms "2.1.3"
 
-"@workflow/vite@4.0.5":
-  version "4.0.5"
-  resolved "https://registry.npmmirror.com/@workflow/vite/-/vite-4.0.5.tgz#d60793de3c77beba9e592f732f8ee8a82fb28083"
-  integrity sha512-GrhdJxoQ82jacrXdHn76qcNzi/B4byO26O3YzoXM9blRk409Zjm6F/cnl+j6D67wlA0gXH4GbCBlkwh4lcNlWg==
+"@workflow/vite@4.0.8":
+  version "4.0.8"
+  resolved "https://registry.npmmirror.com/@workflow/vite/-/vite-4.0.8.tgz#628c74d6be7eacede9a7d6c312b6fd38886f1365"
+  integrity sha512-WXvNL3IPB4eLSjJBvxxK1+MYkrQDpv7OtaqkCtUyFeTr0IzsKlcgp91cqIH7L4UcLZ3TA0AQy6Phucb54hadTQ==
   dependencies:
-    "@workflow/builders" "4.0.6"
+    "@workflow/builders" "4.0.9"
 
-"@workflow/web@4.1.6":
-  version "4.1.6"
-  resolved "https://registry.npmmirror.com/@workflow/web/-/web-4.1.6.tgz#749033672018d3f79bfc2249997dde45bbabc5cd"
-  integrity sha512-1hwxADyKXkkxpjCPyCq4PV4YaFhCija5p/EBp5cr0TeuoJ0ZYKB8A/mCdTqzfGmy+m568W8mKOo8qgu2qdhhXQ==
+"@workflow/web@4.1.9":
+  version "4.1.9"
+  resolved "https://registry.npmmirror.com/@workflow/web/-/web-4.1.9.tgz#cb624424b322a101a522fe9f9d0c51106f93ba5e"
+  integrity sha512-LHmxH/WNLluI8ZnJtGMyCgvf4qsHlI22Om7/RYnFBbgCjB8rGXjyv0giEC8WFFU2hkz4bloBxmH+SCCmNruYSw==
   dependencies:
     express "^4.21.0"
 
-"@workflow/world-local@4.1.2":
-  version "4.1.2"
-  resolved "https://registry.npmmirror.com/@workflow/world-local/-/world-local-4.1.2.tgz#300ad292000e24e2a17bc8744053e5022f6f9178"
-  integrity sha512-tf9vCLs/y1NOxRb3iLXspAIA0HWf5NoviTVv+uHy4nwbajaDYxlOGtMGcQ4YT2d7fFoiKJQA0dX4/ZBhXPit5Q==
+"@workflow/world-local@4.1.4":
+  version "4.1.4"
+  resolved "https://registry.npmmirror.com/@workflow/world-local/-/world-local-4.1.4.tgz#1ee57f892c23622bd0b8884bc7c76a312fd2301e"
+  integrity sha512-vQsQFZF8Wifd1Sm8plo45CXAtKQBQ0dBOus7IGkDPabrp7hfJRbfN5YG4CiiyoiXfmJCBQgW9utv6XneY+YTbg==
   dependencies:
     "@vercel/queue" "0.1.7"
-    "@workflow/errors" "4.1.2"
+    "@workflow/errors" "4.1.3"
     "@workflow/utils" "4.1.2"
-    "@workflow/world" "4.1.2"
+    "@workflow/world" "4.1.4"
     async-sema "3.1.1"
     ulid "~3.0.1"
     undici "7.22.0"
     zod "4.3.6"
 
-"@workflow/world-vercel@4.2.0":
-  version "4.2.0"
-  resolved "https://registry.npmmirror.com/@workflow/world-vercel/-/world-vercel-4.2.0.tgz#197d662fbbf1a1987206c0c33f36643e1ed16a70"
-  integrity sha512-fas+uUaFL+iXlG3olsiH+YS/BLNQgJYUfRRgGCrQKjFSgd1HRQIWvRZU0nqkDV/DEHVEulShxNmrzqvRi9WULQ==
+"@workflow/world-vercel@4.3.2":
+  version "4.3.2"
+  resolved "https://registry.npmmirror.com/@workflow/world-vercel/-/world-vercel-4.3.2.tgz#162a3eb2310a42922c38ef617bf97b10ff46db7b"
+  integrity sha512-uVUQaoP7ojqWPQjTJGFMASBXXjlL9yuCGaF6IZ51rNoyb9MiKS/t668p23tzrQrY3kqgh4PNu1jYc/5R4j+UPg==
   dependencies:
     "@vercel/oidc" "3.2.0"
     "@vercel/queue" "0.1.7"
-    "@workflow/errors" "4.1.2"
-    "@workflow/world" "4.1.2"
+    "@workflow/errors" "4.1.3"
+    "@workflow/world" "4.1.4"
     cbor-x "1.6.0"
     undici "7.22.0"
     zod "4.3.6"
 
-"@workflow/world@4.1.2":
-  version "4.1.2"
-  resolved "https://registry.npmmirror.com/@workflow/world/-/world-4.1.2.tgz#d54ba72c14a5999e794412e533e67e5760bb839c"
-  integrity sha512-fN4Sy8vyfjEl5A4lmegA+9i+3N7I99aNbck16aqhXDKMrvFCQMDJmFnN7nxJCnAnZ20X8/OA0cg/pNCcJeR95A==
+"@workflow/world@4.1.4":
+  version "4.1.4"
+  resolved "https://registry.npmmirror.com/@workflow/world/-/world-4.1.4.tgz#e23eff241e5338fea2e707732199ba2df860ef31"
+  integrity sha512-XJYkyLewLI23JtYDGAq0WGSjXBYPeieOjOQyrR8COe8SFECqQym45NcMoJw34OsEdc7R7KA1IQnBnNdV97/4Pg==
   dependencies:
     ulid "~3.0.1"
 
@@ -3923,12 +3956,12 @@ agent-base@^7.0.2, agent-base@^7.1.0, agent-base@^7.1.2:
   resolved "https://registry.npmmirror.com/agent-base/-/agent-base-7.1.4.tgz#e3cd76d4c548ee895d3c3fd8dc1f6c5b9032e7a8"
   integrity sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==
 
-ai@6.0.191, ai@^6.0.191:
-  version "6.0.191"
-  resolved "https://registry.npmmirror.com/ai/-/ai-6.0.191.tgz#afba823c7734484b211b9edec72c9d007ecd15f2"
-  integrity sha512-zAxvjKebQE7YkSyyNIl0OM7i6/zygnKeF+yNUjD4nWOelYrG+LpDd6RnH6mjySI4zUpZ7o4wbnmAy8jc6u98vQ==
+ai@6.0.197, ai@^6.0.197:
+  version "6.0.197"
+  resolved "https://registry.npmmirror.com/ai/-/ai-6.0.197.tgz#991e61f829c14cdc65038270dfba90593ee801fe"
+  integrity sha512-U3KsjkqwQXGHC0u0VeUDqUaNaBS/uQc7v4Vj92Cjv5lPx5DIyRBQYk4Hipy5vwD9AQKIG8uRvdaN9R+pAvrtcQ==
   dependencies:
-    "@ai-sdk/gateway" "3.0.120"
+    "@ai-sdk/gateway" "3.0.125"
     "@ai-sdk/provider" "3.0.10"
     "@ai-sdk/provider-utils" "4.0.27"
     "@opentelemetry/api" "^1.9.0"
@@ -10051,21 +10084,21 @@ wordwrap@^1.0.0:
   resolved "https://registry.npmmirror.com/wordwrap/-/wordwrap-1.0.0.tgz#27584810891456a4171c8d0226441ade90cbcaeb"
   integrity sha512-gvVzJFlPycKc5dZN4yPkP8w7Dc37BtP1yczEneOb4uq34pXZcvrtRTmWV8W+Ume+XCxKgbjM+nevkyFPMybd4Q==
 
-workflow@^4.2.1:
-  version "4.2.5"
-  resolved "https://registry.npmmirror.com/workflow/-/workflow-4.2.5.tgz#a1bfca44eec030debbcca2618245fd6de876ec15"
-  integrity sha512-IsEPRZqRGwn6VG95Y4+phKnvSgJ59O2Ev8HsUsIH6aHoJ0+acY2kq5nWhTGS7vIqMEXgwzUfPT7hXlru5mnm0w==
+workflow@^4.3.1:
+  version "4.3.1"
+  resolved "https://registry.npmmirror.com/workflow/-/workflow-4.3.1.tgz#0040a6233bd2a704669657d47f891cd8112e8842"
+  integrity sha512-G2NxBf9BVerh0/AA14Ona0zamjCjCFvYQ9+k3pMzRnet0A/qzXiRL6t29iLjfau9jEIvR9oaU+i+DXTvCj9JQQ==
   dependencies:
-    "@workflow/astro" "4.0.5"
-    "@workflow/cli" "4.2.5"
-    "@workflow/core" "4.2.5"
-    "@workflow/errors" "4.1.2"
-    "@workflow/nest" "0.0.5"
-    "@workflow/next" "4.0.6"
-    "@workflow/nitro" "4.0.6"
-    "@workflow/nuxt" "4.0.6"
-    "@workflow/rollup" "4.0.5"
-    "@workflow/sveltekit" "4.0.5"
+    "@workflow/astro" "4.0.8"
+    "@workflow/cli" "4.2.8"
+    "@workflow/core" "4.3.1"
+    "@workflow/errors" "4.1.3"
+    "@workflow/nest" "0.0.8"
+    "@workflow/next" "4.0.9"
+    "@workflow/nitro" "4.0.9"
+    "@workflow/nuxt" "4.0.9"
+    "@workflow/rollup" "4.0.8"
+    "@workflow/sveltekit" "4.0.8"
     "@workflow/typescript-plugin" "4.0.2"
     "@workflow/utils" "4.1.2"
     ms "2.1.3"

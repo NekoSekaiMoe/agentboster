@@ -1,6 +1,9 @@
 import { createLogger } from '@/lib/utils/logger';
 import { buildSystemPrompt } from '@/lib/workflow/agent/steps/build-prompt';
-import { createModelResolver } from '@/lib/workflow/agent/steps/resolve-model';
+import {
+  createModelResolver,
+  resolveAgentProviderOptions,
+} from '@/lib/workflow/agent/steps/resolve-model';
 import {
   getAgentModelId,
   getAgentTemperature,
@@ -89,11 +92,16 @@ export default defineBuildInTool({
             toolNames: Object.keys(tools).sort(),
             toolCount: Object.keys(tools).length,
           });
+          const providerOptions = await resolveAgentProviderOptions(
+            context.appConfig,
+            modelId,
+          );
           const agent = new DurableAgent({
             model: createModelResolver(context.appConfig, modelId),
             system,
             tools,
             temperature,
+            providerOptions,
           });
           const writable = context.writable ?? createWritable();
 
