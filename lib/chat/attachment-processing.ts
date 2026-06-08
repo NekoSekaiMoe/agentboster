@@ -3,6 +3,7 @@ import {
   type ClawlessAttachmentSource,
   attachClawlessAttachmentMetadata,
   getClawlessAttachmentMetadata,
+  isMarkdownAttachment,
   isTextAttachmentMediaType,
 } from '@/lib/chat/attachment-metadata';
 import { put } from '@/lib/core/blob';
@@ -138,7 +139,14 @@ async function normalizeFilePart(input: {
       bytes,
       attachmentId,
     });
-    extractedText = extractTextFromBytes(bytes, resolvedMediaType);
+    extractedText =
+      extractTextFromBytes(bytes, resolvedMediaType) ??
+      (isMarkdownAttachment(resolvedMediaType, filename)
+        ? new TextDecoder('utf-8', { fatal: false })
+            .decode(bytes)
+            .trim()
+            .slice(0, MAX_EXTRACTED_TEXT_CHARS)
+        : undefined);
     size = bytes.byteLength;
   }
 

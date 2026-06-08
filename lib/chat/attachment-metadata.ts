@@ -169,6 +169,76 @@ export function isPdfAttachmentMediaType(mediaType: string): boolean {
   return mediaType.toLowerCase() === 'application/pdf';
 }
 
+const DOCUMENT_ATTACHMENT_MEDIA_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/markdown',
+  'text/markdown',
+]);
+
+const DOCUMENT_ATTACHMENT_EXTENSIONS = new Set([
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'md',
+  'markdown',
+  'mdx',
+]);
+
+const MARKDOWN_ATTACHMENT_EXTENSIONS = new Set(['md', 'markdown', 'mdx']);
+
+function getFilenameExtension(filename?: string): string {
+  const normalized = filename?.trim().toLowerCase();
+  if (!normalized) {
+    return '';
+  }
+
+  const separatorIndex = normalized.lastIndexOf('.');
+  if (separatorIndex < 0 || separatorIndex === normalized.length - 1) {
+    return '';
+  }
+
+  return normalized.slice(separatorIndex + 1);
+}
+
+export function isAudioOrVideoAttachmentMediaType(mediaType: string): boolean {
+  const normalized = mediaType.toLowerCase();
+  return normalized.startsWith('audio/') || normalized.startsWith('video/');
+}
+
+export function isDocumentAttachment(
+  mediaType: string,
+  filename?: string,
+): boolean {
+  const normalized = mediaType.toLowerCase();
+  if (DOCUMENT_ATTACHMENT_MEDIA_TYPES.has(normalized)) {
+    return true;
+  }
+
+  return DOCUMENT_ATTACHMENT_EXTENSIONS.has(getFilenameExtension(filename));
+}
+
+export function isMarkdownAttachment(
+  mediaType: string,
+  filename?: string,
+): boolean {
+  const normalized = mediaType.toLowerCase();
+  return (
+    normalized === 'text/markdown' ||
+    normalized === 'application/markdown' ||
+    MARKDOWN_ATTACHMENT_EXTENSIONS.has(getFilenameExtension(filename))
+  );
+}
+
 export function isTextAttachmentMediaType(mediaType: string): boolean {
   const normalized = mediaType.toLowerCase();
 

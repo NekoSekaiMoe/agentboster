@@ -3,16 +3,16 @@ import type {
   LanguageModelV3Prompt,
   LanguageModelV3TextPart,
 } from '@ai-sdk/provider';
-import type { DynamicToolUIPart, ModelMessage } from 'ai';
+import type { DynamicToolUIPart, ModelMessage, UserContent } from 'ai';
 
 import {
   type ClawlessAttachmentMetadata,
   attachClawlessAttachmentMetadata,
   createAttachmentTextContext,
   getClawlessAttachmentMetadata,
+  isAudioOrVideoAttachmentMediaType,
+  isDocumentAttachment,
   isImageAttachmentMediaType,
-  isPdfAttachmentMediaType,
-  isTextAttachmentMediaType,
 } from '@/lib/chat/attachment-metadata';
 import { generateUUID } from '@/lib/utils';
 import type { TokenUsage } from '@/lib/workflow/agent/types';
@@ -561,16 +561,9 @@ export function toModelMessage(
   if (row.role === 'user') {
     const text = row.payload.text?.trim();
     const attachmentTextParts: Array<{ type: 'text'; text: string }> = [];
-    const fileParts: Array<{
-      type: 'file';
-      data: string;
-      filename?: string;
-      mediaType: string;
-    }> = [];
+    const fileParts: Exclude<UserContent, string> = [];
     const attachments = extractPersistedAttachments(row.payload);
-    const allowFileParts =
-      options?.allowFileParts ??
-      (options?.modelId ? canModelAcceptFileParts(options.modelId) : false);
+    const allowAttachmentParts = options?.allowFileParts ?? true;
 
     for (const attachment of attachments) {
       if (attachment.extractedText?.trim()) {
@@ -582,8 +575,20 @@ export function toModelMessage(
       }
 
       if (
-        allowFileParts &&
-        canIncludeAttachmentAsFile(attachment.mediaType, options?.modelId)
+        allowAttachmentParts &&
+        isImageAttachmentMediaType(attachment.mediaType)
+      ) {
+        fileParts.push({
+          type: 'image',
+          image: attachment.modelUrl ?? attachment.blobUrl,
+          mediaType: attachment.mediaType,
+        });
+        continue;
+      }
+
+      if (
+        allowAttachmentParts &&
+        canIncludeAttachmentAsFile(attachment.mediaType, attachment.filename)
       ) {
         fileParts.push({
           type: 'file',
@@ -771,28 +776,12 @@ function buildDeniedToolApproval(
   };
 }
 
-function canModelAcceptFileParts(modelId: string): boolean {
-  const provider = modelId.split('/')[0];
-  return (
-    provider === 'anthropic' || provider === 'google' || provider === 'openai'
-  );
-}
-
-function canIncludeAttachmentAsFile(
-  mediaType: string,
-  modelId?: string | null,
-): boolean {
-  if (!modelId || !canModelAcceptFileParts(modelId)) {
+function canIncludeAttachmentAsFile(mediaType: string, filename?: string) {
+  if (isAudioOrVideoAttachmentMediaType(mediaType)) {
     return false;
   }
 
-  if (isTextAttachmentMediaType(mediaType)) {
-    return false;
-  }
-
-  return (
-    isImageAttachmentMediaType(mediaType) || isPdfAttachmentMediaType(mediaType)
-  );
+  return isDocumentAttachment(mediaType, filename);
 }
 
 function toUserPromptContent(
