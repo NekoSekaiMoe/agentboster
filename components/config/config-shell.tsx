@@ -7,7 +7,6 @@ import {
   getConfigSectionMeta,
 } from '@/components/config/config-sections';
 import { useI18n } from '@/components/i18n-provider';
-import { RawJsonEditor } from '@/components/config/raw-json-editor';
 import { Button } from '@/components/ui/button';
 import { useConfigDraft } from '@/hooks/use-config-draft';
 
@@ -80,14 +79,7 @@ export function ConfigShell({
               </div>
             ) : null}
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.95fr)] xl:items-start">
-              <div className="min-w-0">{children}</div>
-              <div className="min-w-0 xl:self-start">
-                <div className="xl:sticky xl:top-0 xl:self-start">
-                  <RawJsonEditor />
-                </div>
-              </div>
-            </div>
+            <div className="min-w-0">{children}</div>
           </div>
         )}
       </div>

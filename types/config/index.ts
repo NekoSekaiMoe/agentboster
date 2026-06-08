@@ -7,6 +7,7 @@ import { autonomyConfigSchema } from './autonomy';
 import { channelsConfigSchema } from './channels';
 import { mcpRemotesServersConfigSchema } from './mcp';
 import { sandboxConfigSchema } from './sandbox';
+import { securityConfigSchema } from './security';
 import { buildInToolConfigSchema } from './tools';
 
 /**
@@ -25,6 +26,9 @@ export const appConfigSchema = z.object({
 
   /** Agent autonomy permissions and limits. */
   autonomy: autonomyConfigSchema.optional(),
+
+  /** Web-side security scoring configuration. */
+  security: securityConfigSchema.optional(),
 
   /** Sandbox configuration. */
   sandbox: sandboxConfigSchema.optional(),

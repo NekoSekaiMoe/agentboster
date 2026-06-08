@@ -22,6 +22,11 @@ export const configSections = [
     titleKey: 'config.sections.autonomy.title',
   },
   {
+    key: 'security',
+    descriptionKey: 'config.sections.security.description',
+    titleKey: 'config.sections.security.title',
+  },
+  {
     key: 'tools',
     descriptionKey: 'config.sections.tools.description',
     titleKey: 'config.sections.tools.title',
@@ -50,6 +55,11 @@ export const configSections = [
     key: 'appearance',
     descriptionKey: 'config.sections.appearance.description',
     titleKey: 'config.sections.appearance.title',
+  },
+  {
+    key: 'raw-json',
+    descriptionKey: 'config.sections.rawJson.description',
+    titleKey: 'config.sections.rawJson.title',
   },
 ] as const satisfies ReadonlyArray<{
   descriptionKey: TranslationKey;

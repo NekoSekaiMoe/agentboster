@@ -10,6 +10,7 @@ import {
   FileArchive,
   Gauge,
   GitBranch,
+  LockKeyhole,
   LogOut,
   MessageSquare,
   Monitor,
@@ -102,6 +103,11 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
         href: '/config/channels',
         icon: Network,
       },
+      {
+        labelKey: 'nav.security',
+        href: '/config/security',
+        icon: LockKeyhole,
+      },
     ],
   },
   {
@@ -151,6 +157,11 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
         labelKey: 'nav.auditLogs',
         href: '/config/audit-logs',
         icon: Database,
+      },
+      {
+        labelKey: 'nav.rawJson',
+        href: '/config/raw-json',
+        icon: GitBranch,
       },
     ],
   },

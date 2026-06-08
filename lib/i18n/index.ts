@@ -102,6 +102,12 @@ const enUS = {
   'config.sections.monitoring.description':
     'View Agent Daemon status, node health, and sandbox usage.',
   'config.sections.monitoring.title': 'Dashboard',
+  'config.sections.rawJson.description':
+    'Inspect and edit the complete stored configuration as JSON.',
+  'config.sections.rawJson.title': 'Raw JSON',
+  'config.sections.security.description':
+    'Configure web-side L1 security scoring defaults.',
+  'config.sections.security.title': 'Security',
   'config.sections.tools.description':
     'Toggle built-in tools and provide per-tool config.',
   'config.sections.tools.title': 'Tools',
@@ -132,8 +138,7 @@ const enUS = {
   'config.agentd.noNodes':
     'No nodes registered yet. Start an Agent Daemon to register a node.',
   'config.agentd.regenerate': 'Regenerate',
-  'config.agentd.regenerateCertsError':
-    'Failed to regenerate certificates',
+  'config.agentd.regenerateCertsError': 'Failed to regenerate certificates',
   'config.agentd.regenerateCertsSuccess': 'Certificates regenerated',
   'config.agentd.sandboxDescription':
     'Configure sandbox providers and default selection.',
@@ -151,8 +156,7 @@ const enUS = {
   'config.agentd.sessionSettings': 'Session Settings',
   'config.agentd.sessionStorePath': 'Session Store Path',
   'config.agentd.sessionTimeout': 'Session Timeout',
-  'config.agentd.storePathHelp':
-    'Directory for session persistence on disk.',
+  'config.agentd.storePathHelp': 'Directory for session persistence on disk.',
   'config.agentd.timeoutHelp':
     'Idle timeout (e.g. 30m, 1h). Expired sessions auto-cleaned.',
   'config.agentd.ttlExpiry':
@@ -231,8 +235,7 @@ const enUS = {
   'config.forms.agents.name': 'Agent name',
   'config.forms.agents.remove': 'Remove agent',
   'config.forms.agents.systemPrompt': 'System prompt',
-  'config.forms.agents.systemPromptPlaceholder':
-    'You are a helpful agent...',
+  'config.forms.agents.systemPromptPlaceholder': 'You are a helpful agent...',
   'config.forms.agents.temperature': 'Temperature',
   'config.forms.agents.title': 'Agent instances',
   'config.forms.autonomy.chooseLevel': 'Choose a level',
@@ -241,6 +244,10 @@ const enUS = {
   'config.forms.autonomy.level': 'Level',
   'config.forms.autonomy.maxSteps': 'Max steps',
   'config.forms.autonomy.title': 'Autonomy policy',
+  'config.forms.security.l1Description':
+    'This model scores sandbox commands and outputs when Agent Daemon asks the web app for L1 review. If set, it overrides the model_id sent by agentd.',
+  'config.forms.security.l1Model': 'L1 scorer model',
+  'config.forms.security.l1Title': 'L1 scoring',
   'config.forms.channels.addAuthorId': 'Add author ID',
   'config.forms.channels.allowHelp':
     'Only these user IDs can send messages to the bot. Leave empty to allow everyone.',
@@ -252,8 +259,7 @@ const enUS = {
   'config.forms.channels.copyUrl': 'Copy URL',
   'config.forms.channels.gchatNote':
     'Google Chat default webhook delivery mainly covers @mentions. If you need all space messages, configure Workspace Events with Pub/Sub as well.',
-  'config.forms.channels.loadingWebhook':
-    'Loading webhook configuration...',
+  'config.forms.channels.loadingWebhook': 'Loading webhook configuration...',
   'config.forms.channels.loadWebhookError':
     'Failed to load the webhook URL from the server. Refresh the page and try again.',
   'config.forms.channels.testConnection': 'Test connection',
@@ -285,8 +291,7 @@ const enUS = {
   'config.forms.models.defaultModel': 'Default model',
   'config.forms.models.defaultSettingsDescription':
     'Configure the default model and its parameters for your Claw. You can also specify different models for different use cases in the Agents section.',
-  'config.forms.models.defaultSettingsTitle':
-    'Default model settings',
+  'config.forms.models.defaultSettingsTitle': 'Default model settings',
   'config.forms.models.embeddingModel': 'Embedding model',
   'config.forms.models.embeddingWarning':
     'Changing the embedding model changes vector dimensions and only new or re-indexed memories will participate in vector retrieval. Older memories still fall back to full-text search until they are re-indexed.',
@@ -303,16 +308,14 @@ const enUS = {
   'config.forms.tools.builtinDescription':
     'Each built-in tool can be toggled and configured with string key-value pairs.',
   'config.forms.tools.builtinTools': 'Built-in tools',
-  'config.forms.tools.missingRequired':
-    'Missing required config: {keys}',
+  'config.forms.tools.missingRequired': 'Missing required config: {keys}',
   'config.forms.tools.noConfigurableFields': 'No configurable fields.',
   'config.forms.tools.noTools': 'No built-in tools found.',
   'config.forms.tools.catalogLoadError': 'Failed to load tool catalog.',
   'config.monitoring.activeSandboxes': 'Active Sandboxes',
   'config.monitoring.activeTasks': 'Active Tasks',
   'config.monitoring.allTime': 'All time',
-  'config.monitoring.completedFailed':
-    '{completed} completed, {failed} failed',
+  'config.monitoring.completedFailed': '{completed} completed, {failed} failed',
   'config.monitoring.currentlyRunning': 'Currently running',
   'config.monitoring.daemonNodes': 'Daemon Nodes',
   'config.monitoring.inProgress': 'In progress',
@@ -364,7 +367,9 @@ const enUS = {
   'nav.modelProviders': 'Model Providers',
   'nav.notifications': 'Notifications',
   'nav.operations': 'Operations',
+  'nav.rawJson': 'Raw JSON',
   'nav.schedule': 'Schedule',
+  'nav.security': 'Security',
   'nav.skills': 'Skills',
   'nav.tasks': 'Tasks',
   'nav.users': 'Users',
@@ -455,6 +460,10 @@ const zhCN = {
   'config.sections.monitoring.description':
     '查看 Agent Daemon 状态、节点健康和沙箱使用情况。',
   'config.sections.monitoring.title': '仪表板',
+  'config.sections.rawJson.description': '以 JSON 查看和编辑完整存储配置。',
+  'config.sections.rawJson.title': 'Raw JSON',
+  'config.sections.security.description': '配置 Web 侧 L1 安全评分默认值。',
+  'config.sections.security.title': '安全',
   'config.sections.tools.description': '开关内置工具并提供单工具配置。',
   'config.sections.tools.title': '工具',
   'config.agentd.agentbosterConnection': 'AgentBoster 连接',
@@ -585,6 +594,10 @@ const zhCN = {
   'config.forms.autonomy.level': '级别',
   'config.forms.autonomy.maxSteps': '最大步数',
   'config.forms.autonomy.title': '自主策略',
+  'config.forms.security.l1Description':
+    'Agent Daemon 请求 Web 应用执行 L1 审查时，此模型会对沙箱命令和输出评分。设置后会覆盖 agentd 传来的 model_id。',
+  'config.forms.security.l1Model': 'L1 评分模型',
+  'config.forms.security.l1Title': 'L1 评分',
   'config.forms.channels.addAuthorId': '添加作者 ID',
   'config.forms.channels.allowHelp':
     '只有这些用户 ID 可以向 bot 发送消息。留空表示允许所有人。',
@@ -701,7 +714,9 @@ const zhCN = {
   'nav.modelProviders': '模型 Provider',
   'nav.notifications': '通知',
   'nav.operations': '运维',
+  'nav.rawJson': 'Raw JSON',
   'nav.schedule': '计划',
+  'nav.security': '安全',
   'nav.skills': '技能',
   'nav.tasks': '任务',
   'nav.users': '用户',
@@ -783,6 +798,10 @@ const zhTW = {
   'config.sections.monitoring.description':
     '檢視 Agent Daemon 狀態、節點健康度和沙箱使用情況。',
   'config.sections.monitoring.title': '儀表板',
+  'config.sections.rawJson.description': '以 JSON 檢視和編輯完整儲存設定。',
+  'config.sections.rawJson.title': 'Raw JSON',
+  'config.sections.security.description': '設定 Web 端 L1 安全評分預設值。',
+  'config.sections.security.title': '安全',
   'config.sections.tools.description': '開關內建工具並提供個別工具設定。',
   'config.sections.tools.title': '工具',
   'config.agentd.agentbosterConnection': 'AgentBoster 連線',
@@ -913,6 +932,10 @@ const zhTW = {
   'config.forms.autonomy.level': '等級',
   'config.forms.autonomy.maxSteps': '最大步數',
   'config.forms.autonomy.title': '自主策略',
+  'config.forms.security.l1Description':
+    'Agent Daemon 要求 Web 應用程式執行 L1 審查時，此模型會對沙箱命令和輸出評分。設定後會覆寫 agentd 傳來的 model_id。',
+  'config.forms.security.l1Model': 'L1 評分模型',
+  'config.forms.security.l1Title': 'L1 評分',
   'config.forms.channels.addAuthorId': '新增作者 ID',
   'config.forms.channels.allowHelp':
     '只有這些使用者 ID 可以向 bot 傳送訊息。留空表示允許所有人。',
@@ -1029,7 +1052,9 @@ const zhTW = {
   'nav.modelProviders': '模型 Provider',
   'nav.notifications': '通知',
   'nav.operations': '維運',
+  'nav.rawJson': 'Raw JSON',
   'nav.schedule': '排程',
+  'nav.security': '安全',
   'nav.skills': '技能',
   'nav.tasks': '任務',
   'nav.users': '使用者',
@@ -1140,6 +1165,12 @@ const ja = {
   'config.sections.monitoring.description':
     'Agent Daemon の状態、ノードの健全性、サンドボックス使用状況を確認します。',
   'config.sections.monitoring.title': 'ダッシュボード',
+  'config.sections.rawJson.description':
+    '保存されている設定全体を JSON として確認、編集します。',
+  'config.sections.rawJson.title': 'Raw JSON',
+  'config.sections.security.description':
+    'Web 側の L1 セキュリティスコアリング既定値を設定します。',
+  'config.sections.security.title': 'セキュリティ',
   'config.sections.tools.description':
     '組み込みツールの有効化とツール別設定を行います。',
   'config.sections.tools.title': 'ツール',
@@ -1188,7 +1219,8 @@ const ja = {
   'config.agentd.sessionSettings': 'セッション設定',
   'config.agentd.sessionStorePath': 'セッション保存パス',
   'config.agentd.sessionTimeout': 'セッションタイムアウト',
-  'config.agentd.storePathHelp': 'ディスク上のセッション永続化ディレクトリです。',
+  'config.agentd.storePathHelp':
+    'ディスク上のセッション永続化ディレクトリです。',
   'config.agentd.timeoutHelp':
     'アイドルタイムアウト（例: 30m、1h）。期限切れセッションは自動でクリーンアップされます。',
   'config.agentd.ttlExpiry':
@@ -1277,6 +1309,10 @@ const ja = {
   'config.forms.autonomy.level': 'レベル',
   'config.forms.autonomy.maxSteps': '最大ステップ数',
   'config.forms.autonomy.title': '自律ポリシー',
+  'config.forms.security.l1Description':
+    'Agent Daemon が Web アプリに L1 レビューを依頼したとき、このモデルがサンドボックスコマンドと出力をスコアリングします。設定すると agentd から送られた model_id を上書きします。',
+  'config.forms.security.l1Model': 'L1 スコアラーモデル',
+  'config.forms.security.l1Title': 'L1 スコアリング',
   'config.forms.channels.addAuthorId': '作成者 ID を追加',
   'config.forms.channels.allowHelp':
     'これらのユーザー ID だけが bot にメッセージを送信できます。空の場合は全員を許可します。',
@@ -1295,7 +1331,8 @@ const ja = {
   'config.forms.channels.webhookCopied': 'Webhook URL をコピーしました。',
   'config.forms.channels.webhookInstruction':
     '下のコールバック URL でこのチャンネルの webhook を設定してください。',
-  'config.forms.channels.webhookUnavailable': 'Webhook URL はまだ利用できません。',
+  'config.forms.channels.webhookUnavailable':
+    'Webhook URL はまだ利用できません。',
   'config.forms.channels.webhookUsage':
     'provider ダッシュボードでこの HTTPS URL を使用し、Chat SDK が Vercel Functions で受信イベントを受け取れるようにします。',
   'config.forms.mcp.addServer': 'サーバーを追加',
@@ -1335,9 +1372,11 @@ const ja = {
   'config.forms.tools.builtinDescription':
     '各組み込みツールは切り替え可能で、文字列のキー値ペアで設定できます。',
   'config.forms.tools.builtinTools': '組み込みツール',
-  'config.forms.tools.catalogLoadError': 'ツールカタログの読み込みに失敗しました。',
+  'config.forms.tools.catalogLoadError':
+    'ツールカタログの読み込みに失敗しました。',
   'config.forms.tools.missingRequired': '必須設定が不足しています: {keys}',
-  'config.forms.tools.noConfigurableFields': '設定可能なフィールドはありません。',
+  'config.forms.tools.noConfigurableFields':
+    '設定可能なフィールドはありません。',
   'config.forms.tools.noTools': '組み込みツールが見つかりません。',
   'config.monitoring.activeSandboxes': 'アクティブなサンドボックス',
   'config.monitoring.activeTasks': 'アクティブなタスク',
@@ -1394,7 +1433,9 @@ const ja = {
   'nav.modelProviders': 'モデル Provider',
   'nav.notifications': '通知',
   'nav.operations': '運用',
+  'nav.rawJson': 'Raw JSON',
   'nav.schedule': 'スケジュール',
+  'nav.security': 'セキュリティ',
   'nav.skills': 'スキル',
   'nav.tasks': 'タスク',
   'nav.users': 'ユーザー',

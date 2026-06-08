@@ -10,7 +10,9 @@ import { ChannelsForm } from './forms/channels-form';
 import { McpForm } from './forms/mcp-form';
 import { ModelsForm } from './forms/models/models-form';
 import { MonitoringForm } from './forms/monitoring-form';
+import { SecurityForm } from './forms/security-form';
 import { ToolsForm } from './forms/tools-form';
+import { RawJsonEditor } from './raw-json-editor';
 
 export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
   switch (section) {
@@ -22,6 +24,8 @@ export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
       return <ChannelsForm />;
     case 'autonomy':
       return <AutonomyForm />;
+    case 'security':
+      return <SecurityForm />;
     case 'tools':
       return <ToolsForm />;
     case 'mcp':
@@ -34,6 +38,8 @@ export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
       return <AuditLogsForm />;
     case 'appearance':
       return <AppearanceForm />;
+    case 'raw-json':
+      return <RawJsonEditor />;
     default:
       return null;
   }
