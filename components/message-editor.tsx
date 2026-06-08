@@ -1,14 +1,23 @@
 'use client';
 
 import type { ChatRequestOptions } from 'ai';
-import { Dispatch, SetStateAction, useEffect, useRef, useState } from 'react';
+import {
+  Dispatch,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { toast } from 'sonner';
 
 import type { UserMessagePart, WorkflowUIMessage } from '@/types/workflow';
 import {
   AttachmentButton,
   AttachmentList,
+  type AttachmentUploadProgress,
   type ComposerAttachment,
+  buildAttachmentId,
   filePartToComposerAttachment,
   fileToComposerAttachment,
 } from './attachments';
@@ -67,17 +76,27 @@ export function MessageEditor({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>(
     getAttachmentsFromParts(message),
   );
+  const [uploadProgress, setUploadProgress] = useState<
+    AttachmentUploadProgress[]
+  >([]);
   const [cursor, setCursor] = useState<number>(
     getTextFromParts(message).length,
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const adjustHeight = useCallback(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight + 2}px`;
+    }
+  }, []);
+
   useEffect(() => {
     if (textareaRef.current) {
       adjustHeight();
     }
-  }, []);
+  }, [adjustHeight]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -91,13 +110,6 @@ export function MessageEditor({
       textarea.setSelectionRange(cursorPosition, cursorPosition);
     });
   }, []);
-
-  const adjustHeight = () => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight + 2}px`;
-    }
-  };
 
   const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     setDraftContent(event.target.value);
@@ -144,10 +156,18 @@ export function MessageEditor({
     if (fileArray.length === 0) {
       return;
     }
+    const fileIds = new Set(fileArray.map((file) => buildAttachmentId(file)));
 
     try {
       const nextAttachments = await Promise.all(
-        fileArray.map((file) => fileToComposerAttachment(file)),
+        fileArray.map((file) =>
+          fileToComposerAttachment(file, (progress) => {
+            setUploadProgress((current) => {
+              const next = current.filter((item) => item.id !== progress.id);
+              return [...next, progress];
+            });
+          }),
+        ),
       );
 
       setAttachments((current) => {
@@ -162,7 +182,18 @@ export function MessageEditor({
 
         return [...current, ...deduped];
       });
+      setUploadProgress((current) =>
+        current.filter(
+          (progress) =>
+            !nextAttachments.some(
+              (attachment) => attachment.id === progress.id,
+            ),
+        ),
+      );
     } catch {
+      setUploadProgress((current) =>
+        current.filter((progress) => !fileIds.has(progress.id)),
+      );
       toast.error('Failed to add attachment, please try again.');
     }
   };
@@ -173,7 +204,7 @@ export function MessageEditor({
         type="file"
         ref={fileInputRef}
         multiple
-        className="-top-4 -left-4 pointer-events-none fixed size-0.5 opacity-0"
+        className="pointer-events-none fixed -top-4 -left-4 size-0.5 opacity-0"
         tabIndex={-1}
         onChange={(event) => {
           if (event.target.files) {
@@ -197,6 +228,7 @@ export function MessageEditor({
       >
         <AttachmentList
           attachments={attachments}
+          uploadProgress={uploadProgress}
           onRemove={(attachmentId) => {
             setAttachments((current) =>
               current.filter((attachment) => attachment.id !== attachmentId),
@@ -255,8 +287,12 @@ export function MessageEditor({
         <Button
           variant="default"
           className="h-fit px-3 py-2"
-          disabled={isSubmitting}
+          disabled={isSubmitting || uploadProgress.length > 0}
           onClick={async () => {
+            if (uploadProgress.length > 0) {
+              return;
+            }
+
             setIsSubmitting(true);
             const messageId = message.id;
             const updatedParts: UserMessagePart[] = [

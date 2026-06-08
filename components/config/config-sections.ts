@@ -69,6 +69,8 @@ export const configSections = [
 
 export type ConfigSectionKey = (typeof configSections)[number]['key'];
 
+export const CONFIG_LAST_SECTION_COOKIE = 'agentboster:config:last-section';
+
 export function isConfigSectionKey(value: string): value is ConfigSectionKey {
   return configSections.some((section) => section.key === value);
 }

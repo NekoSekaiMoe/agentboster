@@ -167,7 +167,7 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
   },
 ];
 
-const settingsHref = '/config/appearance';
+const settingsHref = '/config';
 const docsUrl = 'https://github.com/niapya/agentboster';
 
 function isItemActive(pathname: string, href: string) {
@@ -222,7 +222,7 @@ export function AppSidebar() {
       <SidebarHeader className="border-sidebar-border border-b px-3 py-3">
         <div className="flex min-h-10 items-center gap-2">
           <Link
-            href="/config/monitoring"
+            href="/config"
             className="flex min-w-0 flex-1 items-center gap-2"
             onClick={() => setOpenMobile(false)}
           >
@@ -258,10 +258,7 @@ export function AppSidebar() {
                 activeMode !== 'bot' && 'text-muted-foreground',
               )}
             >
-              <Link
-                href="/config/monitoring"
-                onClick={() => setOpenMobile(false)}
-              >
+              <Link href="/config" onClick={() => setOpenMobile(false)}>
                 <BotIcon className="size-3.5" />
                 {t('nav.bot')}
               </Link>

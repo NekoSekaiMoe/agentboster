@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { WorkspacePageHeader } from '@/components/workspace-page-header';
 
 interface Notification {
   id: string;
@@ -150,19 +151,17 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-bold text-3xl tracking-tight">Notifications</h1>
-          <p className="text-muted-foreground">
-            View and manage notifications across all channels.
-          </p>
-        </div>
-        {unreadCount > 0 && (
-          <Button onClick={handleMarkAllAsRead} variant="outline" size="sm">
-            Mark all as read
-          </Button>
-        )}
-      </div>
+      <WorkspacePageHeader
+        title="Notifications"
+        description="View and manage notifications across all channels."
+        actions={
+          unreadCount > 0 ? (
+            <Button onClick={handleMarkAllAsRead} variant="outline" size="sm">
+              Mark all as read
+            </Button>
+          ) : null
+        }
+      />
 
       {/* Filters */}
       <Card>

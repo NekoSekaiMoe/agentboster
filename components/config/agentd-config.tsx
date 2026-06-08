@@ -1,21 +1,20 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   CheckCircle2,
+  Copy,
   Cpu,
-  FolderTree,
   HardDrive,
-  Key,
-  Power,
+  Info,
+  Loader2,
   RefreshCw,
   Server,
-  Shield,
+  ShieldCheck,
+  WifiOff,
   XCircle,
-  Zap,
 } from 'lucide-react';
-import { ofetch } from 'ofetch';
-import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfigContext } from '@/components/config/config-provider';
@@ -29,41 +28,21 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 
-interface AgentDStatus {
-  status: string;
-  version: string;
-  uptime: string;
-  timestamp: string;
-}
-
-interface AgentDConfig {
-  server: {
-    listen: string;
-    tls_cert_path: string;
-    tls_key_path: string;
-    ca_path: string;
-    clawless_api_key: string;
-  };
-  clawless: {
-    base_url: string;
-    client_cert_path: string;
-    client_key_path: string;
-    ca_path: string;
-  };
-  sandbox: {
-    default: string;
-    chroot_base: string;
-    tmpfs_size: string;
-    docker_socket: string;
-  };
-  session: {
-    max_count: number;
-    timeout: string;
-    store_path: string;
+interface HealthResponse {
+  success: boolean;
+  data: {
+    daemon:
+      | {
+          status: 'online';
+          uptime?: string;
+          version?: string;
+        }
+      | {
+          status: 'offline';
+        };
+    timestamp: string;
   };
 }
 
@@ -73,7 +52,7 @@ interface NodeStatusItem {
   port: number;
   sandboxes: string[];
   version: string;
-  status: string;
+  status: 'online' | 'offline';
   cpu_usage: number | null;
   mem_avail: number | null;
   disk_avail: number | null;
@@ -83,645 +62,399 @@ interface NodeStatusItem {
   registered_at: string | null;
 }
 
-const defaultConfig: AgentDConfig = {
-  server: {
-    listen: ':18732',
-    tls_cert_path: './certs/server-cert.pem',
-    tls_key_path: './certs/server-key.pem',
-    ca_path: './certs/ca-cert.pem',
-    clawless_api_key: '',
-  },
-  clawless: {
-    base_url: 'http://localhost:3000',
-    client_cert_path: './certs/client-cert.pem',
-    client_key_path: './certs/client-key.pem',
-    ca_path: './certs/ca-cert.pem',
-  },
-  sandbox: {
-    default: 'tmpfs',
-    chroot_base: '/var/lib/agentd/chroots',
-    tmpfs_size: '512m',
-    docker_socket: 'unix:///var/run/docker.sock',
-  },
-  session: {
-    max_count: 50,
-    timeout: '30m',
-    store_path: '/tmp/agentd/sessions',
-  },
-};
+async function fetchHealth(): Promise<HealthResponse> {
+  const response = await fetch('/api/agentd/v1/health');
+  if (!response.ok) {
+    throw new Error('Failed to fetch agentd health');
+  }
+  return response.json();
+}
+
+async function fetchNodeStatuses(): Promise<NodeStatusItem[]> {
+  const response = await fetch('/api/agentd/v1/nodes/status');
+  if (!response.ok) {
+    throw new Error('Failed to fetch agentd nodes');
+  }
+  const body = (await response.json()) as { nodes?: NodeStatusItem[] };
+  return body.nodes ?? [];
+}
+
+const agentdTomlSnippet = `[server]
+listen = ":18732"
+tls_cert_path = "./certs/server-cert.pem"
+tls_key_path = "./certs/server-key.pem"
+ca_path = "./certs/ca-cert.pem"
+clawless_api_key = "same-value-as-AGENTD_API_KEY"
+
+[clawless]
+base_url = "https://your-agentboster.vercel.app"
+client_cert_path = "./certs/client-cert.pem"
+client_key_path = "./certs/client-key.pem"
+ca_path = "./certs/ca-cert.pem"
+heartbeat_interval = "30s"
+
+[security]
+l1_provider = "web"
+l1_endpoint = ""
+l1_model = ""
+
+[sandbox]
+default = "docker"
+docker_socket = "unix:///var/run/docker.sock"
+docker_image = "alpine:edge"
+docker_default_cpu = 0.25
+docker_default_memory = "256m"
+docker_strict_cpu = 1.0
+docker_strict_memory = "512m"
+lxc_default_distro = "alpine"
+lxc_default_release = "3.21"
+lxc_rootfs_base = "/var/lib/agentd/lxc"
+os_enforce = true
+network_isolate = true`;
+
+function formatPercent(value: number | null) {
+  return value == null ? 'N/A' : `${(value * 100).toFixed(0)}%`;
+}
+
+function formatHeartbeat(value: string | null) {
+  if (!value) {
+    return 'never';
+  }
+
+  const diffSeconds = Math.max(
+    0,
+    Math.round((Date.now() - new Date(value).getTime()) / 1000),
+  );
+
+  if (diffSeconds < 60) {
+    return `${diffSeconds}s ago`;
+  }
+
+  const diffMinutes = Math.round(diffSeconds / 60);
+  return `${diffMinutes}m ago`;
+}
 
 export function AgentDConfigPage() {
   const { draft, updateSection } = useConfigContext();
   const agentdEnabled = draft.agentd?.enabled ?? false;
 
-  const [status, setStatus] = useState<AgentDStatus | null>(null);
-  const [config, setConfig] = useState<AgentDConfig>(defaultConfig);
-  const [loading, setLoading] = useState(false);
-  const [daemonAddress, setDaemonAddress] = useState('https://127.0.0.1:18732');
+  const {
+    data: health,
+    isFetching: healthFetching,
+    refetch: refetchHealth,
+  } = useQuery({
+    queryKey: ['agentd-health'],
+    queryFn: fetchHealth,
+    refetchInterval: 10_000,
+  });
 
-  const checkStatus = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await ofetch<AgentDStatus>(`${daemonAddress}/health`, {
-        timeout: 5000,
-      });
-      setStatus(res);
-    } catch {
-      setStatus(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [daemonAddress]);
+  const {
+    data: nodes,
+    isFetching: nodesFetching,
+    refetch: refetchNodes,
+  } = useQuery({
+    queryKey: ['agentd-nodes'],
+    queryFn: fetchNodeStatuses,
+    refetchInterval: 15_000,
+  });
 
-  useEffect(() => {
-    checkStatus();
-  }, [checkStatus]);
+  const daemon = health?.data.daemon;
+  const directOnline = daemon?.status === 'online';
+  const onlineNodes = nodes?.filter((node) => node.status === 'online') ?? [];
 
-  const handleSave = useCallback(async () => {
-    try {
-      await ofetch(`${daemonAddress}/api/v1/agentd/config`, {
-        method: 'PUT',
-        body: config,
-      });
-      toast.success('Configuration saved');
-    } catch {
-      toast.error('Failed to save configuration');
-    }
-  }, [config, daemonAddress]);
-
-  const [nodeStatuses, setNodeStatuses] = useState<NodeStatusItem[]>([]);
-
-  const fetchNodeStatuses = useCallback(async () => {
-    try {
-      const res = await ofetch<{ nodes: NodeStatusItem[] }>(
-        '/api/agentd/v1/nodes/status',
-        { timeout: 10000 },
-      );
-      setNodeStatuses(res.nodes || []);
-    } catch {
-      setNodeStatuses([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchNodeStatuses();
-    const interval = setInterval(fetchNodeStatuses, 30000);
-    return () => clearInterval(interval);
-  }, [fetchNodeStatuses]);
-
-  const handleRegenerateCerts = useCallback(async () => {
-    try {
-      await ofetch(`${daemonAddress}/api/v1/agentd/certs`, { method: 'POST' });
-      toast.success('Certificates regenerated');
-    } catch {
-      toast.error('Failed to regenerate certificates');
-    }
-  }, [daemonAddress]);
-
-  const isOnline = status?.status === 'ok';
+  async function copySnippet() {
+    await navigator.clipboard.writeText(agentdTomlSnippet);
+    toast.success('agentd.toml snippet copied');
+  }
 
   return (
     <div className="space-y-6">
-      {/* Enable/Disable Toggle */}
-      <Card>
+      <Card className="shadow-none">
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Power className="h-5 w-5" />
-              <CardTitle>Agent Daemon</CardTitle>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ShieldCheck className="size-4" />
+                Agent Daemon
+              </CardTitle>
+              <CardDescription>
+                Enable daemon execution and monitor registered Linux sandbox
+                workers. Daemon runtime settings live in agentd.toml on the
+                server.
+              </CardDescription>
             </div>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="agentd-enabled" className="text-sm">
-                {agentdEnabled ? 'Enabled' : 'Disabled'}
-              </Label>
+            <label
+              htmlFor="agentd-enabled"
+              className="flex items-center gap-2 rounded-md border px-3 py-2"
+            >
               <Checkbox
                 id="agentd-enabled"
                 checked={agentdEnabled}
-                onCheckedChange={(checked) => {
-                  updateSection('agentd', { enabled: Boolean(checked) });
-                }}
+                onCheckedChange={(checked) =>
+                  updateSection('agentd', { enabled: Boolean(checked) })
+                }
               />
-            </div>
+              <span className="text-sm">
+                {agentdEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </label>
           </div>
-          <CardDescription>
-            Enable the Agent Daemon to run sandboxed tasks on remote servers.
-            When disabled, all agent polling is stopped.
-          </CardDescription>
         </CardHeader>
       </Card>
 
-      {agentdEnabled && (
-        <>
-          {/* Connection Status */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Server className="h-5 w-5" />
-                  <CardTitle>Connection</CardTitle>
-                </div>
-                <Badge
-                  variant={isOnline ? 'default' : 'destructive'}
-                  className="gap-1"
-                >
-                  {isOnline ? (
-                    <CheckCircle2 className="h-3 w-3" />
-                  ) : (
-                    <XCircle className="h-3 w-3" />
-                  )}
-                  {isOnline ? 'Online' : 'Offline'}
-                </Badge>
-              </div>
-              <CardDescription>
-                Agent Daemon remote server status and connection settings.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <Label htmlFor="daemon-address">Daemon Address</Label>
-                  <Input
-                    id="daemon-address"
-                    value={daemonAddress}
-                    onChange={(e) => setDaemonAddress(e.target.value)}
-                    placeholder="https://127.0.0.1:18732"
-                  />
-                </div>
-                <Button
-                  variant="outline"
-                  className="mt-6"
-                  onClick={checkStatus}
-                  disabled={loading}
-                >
-                  <RefreshCw
-                    className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`}
-                  />
-                  Check
-                </Button>
-              </div>
-              {isOnline && status && (
-                <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
-                  <div className="flex items-center gap-2">
-                    <Cpu className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">Version:</span>
-                    <span className="font-mono">{status.version}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">Uptime:</span>
-                    <span className="font-mono">{status.uptime}</span>
-                  </div>
-                  <div className="col-span-2 flex items-center gap-2">
-                    <HardDrive className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-muted-foreground">Last Check:</span>
-                    <span className="font-mono text-xs">
-                      {status.timestamp}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <StatusCard
+          description="Web server direct health check via AGENTD_URL."
+          icon={directOnline ? CheckCircle2 : WifiOff}
+          title="Direct daemon"
+          value={directOnline ? 'Online' : 'Offline'}
+          variant={directOnline ? 'online' : 'offline'}
+        />
+        <StatusCard
+          description="Nodes that have registered and sent recent heartbeats."
+          icon={onlineNodes.length > 0 ? Server : XCircle}
+          title="Registered nodes"
+          value={`${onlineNodes.length}/${nodes?.length ?? 0}`}
+          variant={onlineNodes.length > 0 ? 'online' : 'neutral'}
+        />
+        <StatusCard
+          description="Execution is controlled by the saved Web config."
+          icon={agentdEnabled ? Activity : Info}
+          title="Web execution"
+          value={agentdEnabled ? 'Enabled' : 'Disabled'}
+          variant={agentdEnabled ? 'online' : 'neutral'}
+        />
+      </div>
 
-          {/* Node Status Panel */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Zap className="h-5 w-5" />
-                  <CardTitle>Cluster Nodes</CardTitle>
-                </div>
-                <Button variant="ghost" size="sm" onClick={fetchNodeStatuses}>
-                  <RefreshCw className="mr-1 h-4 w-4" />
-                  Refresh
-                </Button>
-              </div>
+      <Card className="shadow-none">
+        <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle className="text-base">Cluster Nodes</CardTitle>
               <CardDescription>
-                Agent Daemon nodes registered in this cluster. Tasks are
-                automatically scheduled to the optimal node.
+                These rows come from daemon registration and heartbeat callbacks
+                into AgentBoster Web.
               </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {nodeStatuses.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  No nodes registered yet. Start an Agent Daemon to register a
-                  node.
-                </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={nodesFetching}
+              onClick={() => void refetchNodes()}
+            >
+              {nodesFetching ? (
+                <Loader2 className="size-4 animate-spin" />
               ) : (
-                <div className="space-y-3">
-                  {nodeStatuses.map((node) => {
-                    const isOnline = node.status === 'online';
-                    return (
-                      <div
-                        key={node.node_id}
-                        className="space-y-2 rounded-lg border p-3"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              variant={isOnline ? 'default' : 'destructive'}
-                              className="gap-1 text-xs"
-                            >
-                              {isOnline ? (
-                                <CheckCircle2 className="h-3 w-3" />
-                              ) : (
-                                <XCircle className="h-3 w-3" />
-                              )}
-                              {isOnline ? 'Online' : 'Offline'}
-                            </Badge>
-                            <span className="font-medium font-mono text-sm">
-                              {node.node_id}
-                            </span>
-                          </div>
-                          <span className="text-muted-foreground text-xs">
-                            {node.ip}:{node.port}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div className="flex items-center gap-1">
-                            <Cpu className="h-3 w-3 text-muted-foreground" />
-                            <span>CPU:</span>
-                            <span className="font-medium">
-                              {node.cpu_usage != null
-                                ? `${(node.cpu_usage * 100).toFixed(0)}%`
-                                : 'N/A'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Activity className="h-3 w-3 text-muted-foreground" />
-                            <span>Mem:</span>
-                            <span className="font-medium">
-                              {node.mem_avail != null
-                                ? `${(node.mem_avail * 100).toFixed(0)}%`
-                                : 'N/A'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <HardDrive className="h-3 w-3 text-muted-foreground" />
-                            <span>Disk:</span>
-                            <span className="font-medium">
-                              {node.disk_avail != null
-                                ? `${(node.disk_avail * 100).toFixed(0)}%`
-                                : 'N/A'}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between text-muted-foreground text-xs">
-                          <div className="flex gap-2">
-                            {node.sandboxes.map((s) => (
-                              <Badge
-                                key={s}
-                                variant="outline"
-                                className="text-xs"
-                              >
-                                {s}
-                              </Badge>
-                            ))}
-                          </div>
-                          <span>
-                            {node.active_tasks} tasks ·{' '}
-                            {node.last_heartbeat
-                              ? `${Math.round((Date.now() - new Date(node.last_heartbeat).getTime()) / 1000)}s ago`
-                              : 'never'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <RefreshCw className="size-4" />
               )}
-            </CardContent>
-          </Card>
-
-          {/* mTLS Certificates */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Key className="h-5 w-5" />
-                <CardTitle>mTLS Certificates</CardTitle>
-              </div>
-              <CardDescription>
-                Mutual TLS certificates for secure AgentBoster ↔ Daemon
-                communication.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <Label>CA Certificate Path</Label>
-                  <Input
-                    value={config.server.ca_path}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        server: { ...c.server, ca_path: e.target.value },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <Label>Server Certificate Path</Label>
-                  <Input
-                    value={config.server.tls_cert_path}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        server: { ...c.server, tls_cert_path: e.target.value },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <Label>Server Key Path</Label>
-                  <Input
-                    value={config.server.tls_key_path}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        server: { ...c.server, tls_key_path: e.target.value },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <Label>API Key</Label>
-                  <Input
-                    type="password"
-                    value={config.server.clawless_api_key}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        server: {
-                          ...c.server,
-                          clawless_api_key: e.target.value,
-                        },
-                      }))
-                    }
-                    placeholder="sk-agentboster-xxx"
-                  />
-                </div>
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <p className="text-muted-foreground text-sm">
-                  Use{' '}
-                  <code className="rounded bg-muted px-1">
-                    agentd -gen-certs
-                  </code>{' '}
-                  to generate certificates on the daemon server.
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRegenerateCerts}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Regenerate
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* AgentBoster Connection */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                <CardTitle>AgentBoster Connection</CardTitle>
-              </div>
-              <CardDescription>
-                How the Daemon connects back to AgentBoster.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label>Base URL</Label>
-                <Input
-                  value={config.clawless.base_url}
-                  onChange={(e) =>
-                    setConfig((c) => ({
-                      ...c,
-                      clawless: { ...c.clawless, base_url: e.target.value },
-                    }))
-                  }
-                  placeholder="https://your-agentboster.vercel.app"
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <Label>Client Certificate Path</Label>
-                  <Input
-                    value={config.clawless.client_cert_path}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        clawless: {
-                          ...c.clawless,
-                          client_cert_path: e.target.value,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <Label>Client Key Path</Label>
-                  <Input
-                    value={config.clawless.client_key_path}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        clawless: {
-                          ...c.clawless,
-                          client_key_path: e.target.value,
-                        },
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Sandbox Settings */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <FolderTree className="h-5 w-5" />
-                <CardTitle>Sandbox Settings</CardTitle>
-              </div>
-              <CardDescription>
-                Configure sandbox providers and default selection.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <Label>Default Sandbox</Label>
-                  <div className="mt-1 flex gap-2">
-                    {['tmpfs', 'chroot', 'docker'].map((type) => (
-                      <Button
-                        key={type}
-                        variant={
-                          config.sandbox.default === type
-                            ? 'default'
-                            : 'outline'
-                        }
-                        size="sm"
-                        onClick={() =>
-                          setConfig((c) => ({
-                            ...c,
-                            sandbox: { ...c.sandbox, default: type },
-                          }))
-                        }
-                      >
-                        {type}
-                      </Button>
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!nodes || nodes.length === 0 ? (
+            <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground text-sm">
+              No nodes registered yet. Start agentd with a valid base_url and
+              clawless_api_key.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {nodes.map((node) => (
+                <div key={node.node_id} className="rounded-md border p-3">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant={
+                            node.status === 'online' ? 'default' : 'destructive'
+                          }
+                        >
+                          {node.status}
+                        </Badge>
+                        <span className="break-all font-mono text-sm">
+                          {node.node_id}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground text-xs">
+                        {node.ip}:{node.port} · v{node.version} · heartbeat{' '}
+                        {formatHeartbeat(node.last_heartbeat)}
+                      </div>
+                    </div>
+                    <div className="grid gap-2 text-xs sm:grid-cols-5 md:min-w-[520px]">
+                      <Metric
+                        icon={Cpu}
+                        label="CPU"
+                        value={formatPercent(node.cpu_usage)}
+                      />
+                      <Metric
+                        icon={Activity}
+                        label="Mem"
+                        value={formatPercent(node.mem_avail)}
+                      />
+                      <Metric
+                        icon={HardDrive}
+                        label="Disk"
+                        value={formatPercent(node.disk_avail)}
+                      />
+                      <Metric label="Tasks" value={String(node.active_tasks)} />
+                      <Metric
+                        label="Sandboxes"
+                        value={String(node.active_sandboxes)}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {node.sandboxes.map((sandbox) => (
+                      <Badge key={sandbox} variant="outline">
+                        {sandbox}
+                      </Badge>
                     ))}
                   </div>
-                  <p className="mt-1 text-muted-foreground text-xs">
-                    tmpfs: lightweight (default) · chroot: persistent · docker:
-                    high-risk isolation
-                  </p>
                 </div>
-                <div>
-                  <Label>Tmpfs Size</Label>
-                  <Input
-                    value={config.sandbox.tmpfs_size}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        sandbox: { ...c.sandbox, tmpfs_size: e.target.value },
-                      }))
-                    }
-                    placeholder="512m"
-                  />
-                </div>
-                <div>
-                  <Label>Chroot Base Directory</Label>
-                  <Input
-                    value={config.sandbox.chroot_base}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        sandbox: { ...c.sandbox, chroot_base: e.target.value },
-                      }))
-                    }
-                    placeholder="/var/lib/agentd/chroots"
-                  />
-                </div>
-                <div>
-                  <Label>Docker Socket</Label>
-                  <Input
-                    value={config.sandbox.docker_socket}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        sandbox: {
-                          ...c.sandbox,
-                          docker_socket: e.target.value,
-                        },
-                      }))
-                    }
-                    placeholder="unix:///var/run/docker.sock"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-          {/* Session Settings */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
-                <CardTitle>Session Settings</CardTitle>
-              </div>
+      <Card className="shadow-none">
+        <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle className="text-base">Web Direct Connection</CardTitle>
               <CardDescription>
-                Configure session lifecycle, TTL isolation, and L2 authorization
-                cache.
+                Optional server-to-daemon calls use AGENTD_URL, AGENTD_API_KEY,
+                AGENTD_CLIENT_CERT_PATH, AGENTD_CLIENT_KEY_PATH, and
+                AGENTD_CA_PATH.
               </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div>
-                  <Label>Max Session Count</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={config.session.max_count}
-                    onChange={(e) => {
-                      const parsed = Number.parseInt(e.target.value, 10);
-                      setConfig((c) => ({
-                        ...c,
-                        session: {
-                          ...c.session,
-                          max_count: Number.isNaN(parsed) ? 50 : parsed,
-                        },
-                      }));
-                    }}
-                  />
-                  <p className="mt-1 text-muted-foreground text-xs">
-                    Max sessions to retain (default: 50). Oldest archived when
-                    exceeded.
-                  </p>
-                </div>
-                <div>
-                  <Label>Session Timeout</Label>
-                  <Input
-                    value={config.session.timeout}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        session: { ...c.session, timeout: e.target.value },
-                      }))
-                    }
-                    placeholder="30m"
-                  />
-                  <p className="mt-1 text-muted-foreground text-xs">
-                    Idle timeout (e.g. 30m, 1h). Expired sessions auto-cleaned.
-                  </p>
-                </div>
-                <div>
-                  <Label>Session Store Path</Label>
-                  <Input
-                    value={config.session.store_path}
-                    onChange={(e) =>
-                      setConfig((c) => ({
-                        ...c,
-                        session: { ...c.session, store_path: e.target.value },
-                      }))
-                    }
-                    placeholder="/tmp/agentd/sessions"
-                  />
-                  <p className="mt-1 text-muted-foreground text-xs">
-                    Directory for session persistence on disk.
-                  </p>
-                </div>
-              </div>
-              <div className="space-y-1 rounded-md bg-muted/50 p-3 text-muted-foreground text-xs">
-                <p>
-                  <strong>Session Isolation:</strong> Each session has
-                  independent L2 authorization cache. Session A's "always"
-                  authorization does not affect Session B.
-                </p>
-                <p>
-                  <strong>TTL Expiry:</strong> CleanupWorker scans every 30s.
-                  Expired L2 authorizations are logged to review_logs.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Actions */}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setConfig(defaultConfig)}>
-              Reset
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={healthFetching}
+              onClick={() => void refetchHealth()}
+            >
+              {healthFetching ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              Check
             </Button>
-            <Button onClick={handleSave}>Save Configuration</Button>
           </div>
-        </>
-      )}
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <Detail label="Status" value={daemon?.status ?? 'unknown'} />
+          <Detail
+            label="Version"
+            value={daemon?.status === 'online' ? daemon.version || '-' : '-'}
+          />
+          <Detail
+            label="Uptime"
+            value={daemon?.status === 'online' ? daemon.uptime || '-' : '-'}
+          />
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle className="text-base">agentd.toml Baseline</CardTitle>
+              <CardDescription>
+                Edit this on the daemon server. The old WebUI direct-save API no
+                longer exists in current agentd.
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void copySnippet()}
+            >
+              <Copy className="size-4" />
+              Copy
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <pre className="max-h-[420px] overflow-auto rounded-md bg-muted p-4 text-xs">
+            {agentdTomlSnippet}
+          </pre>
+          <p className="mt-3 text-muted-foreground text-xs">
+            Generate certificates on the daemon host with{' '}
+            <code className="rounded bg-muted px-1">
+              agentd -gen-certs ./certs
+            </code>
+            , then set matching AGENTD_* environment variables on Vercel if Web
+            needs to call daemon endpoints directly.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function StatusCard({
+  description,
+  icon: Icon,
+  title,
+  value,
+  variant,
+}: {
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  value: string;
+  variant: 'neutral' | 'offline' | 'online';
+}) {
+  const tone =
+    variant === 'online'
+      ? 'text-emerald-600'
+      : variant === 'offline'
+        ? 'text-red-600'
+        : 'text-muted-foreground';
+
+  return (
+    <Card className="shadow-none">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Icon className={`size-4 ${tone}`} />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="font-semibold text-2xl">{value}</div>
+        <p className="mt-1 text-muted-foreground text-xs">{description}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Metric({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon?: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-md bg-muted px-3 py-2">
+      <div className="flex items-center gap-1 text-muted-foreground">
+        {Icon ? <Icon className="size-3" /> : null}
+        <span>{label}</span>
+      </div>
+      <div className="mt-1 font-medium">{value}</div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1 rounded-md border p-3">
+      <Label className="text-muted-foreground text-xs">{label}</Label>
+      <div className="break-all font-mono text-sm">{value}</div>
     </div>
   );
 }

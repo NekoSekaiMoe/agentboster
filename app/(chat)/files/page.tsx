@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { WorkspacePageHeader } from '@/components/workspace-page-header';
 
 function formatBytes(size: number): string {
   if (!Number.isFinite(size) || size <= 0) {
@@ -131,15 +132,12 @@ export default function FilesPage() {
 
   return (
     <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
-      <header className="sticky top-0 z-10 border-b bg-background/95 px-4 py-3 backdrop-blur">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="font-semibold text-base md:text-lg">Files</h1>
-            <p className="text-muted-foreground text-sm">
-              Browse sandbox exports and jump back to the related session.
-            </p>
-          </div>
+      <WorkspacePageHeader
+        title="Files"
+        description="Browse sandbox exports and jump back to the related session."
+        actions={
           <Button
+            size="sm"
             variant="outline"
             onClick={() => void loadFirstPage()}
             disabled={refreshing}
@@ -151,8 +149,8 @@ export default function FilesPage() {
             )}
             Refresh
           </Button>
-        </div>
-      </header>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto p-4">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
@@ -165,7 +163,7 @@ export default function FilesPage() {
             </CardHeader>
             <CardContent className="flex flex-col gap-3 md:flex-row md:items-center">
               <div className="relative w-full md:max-w-md">
-                <Search className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-3 size-4 text-muted-foreground" />
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   className="pl-9"
                   placeholder="Filter by session ID"
@@ -206,7 +204,6 @@ export default function FilesPage() {
           {loading ? (
             <div className="grid gap-3">
               {Array.from({ length: 3 }).map((_, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
                 <Card key={`skeleton-${i}`}>
                   <CardContent className="flex flex-col gap-3 pt-4 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0 flex-1 space-y-2">

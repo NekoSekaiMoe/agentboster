@@ -8,6 +8,7 @@ import {
   getFirstVisibleSessionMessage,
   getSession,
   getSessionByExternalThreadId,
+  listSessions,
   listSessionsByExternalThreadIds,
   updateSession,
   upsertUserMessage,
@@ -115,8 +116,10 @@ const COMMAND_HELP_TEXT = [
   '/status - Show the current session status',
   '/new - Create and switch to a new session',
   '/init - Generate or update AGENTS.md for this repository',
+  '/sessions - List recent sessions available to this IM user',
   '/session - Show the current bound session',
   '/session <session-id> - Switch to an existing session',
+  '/switch <index|session-id> - Switch to a listed or existing session',
   '/stop - Stop the active workflow run',
   '/compact - Request context compaction',
   '/approve <toolCallId> [note] - Approve a pending tool call',
@@ -306,6 +309,105 @@ async function resolveCommandSession(input: {
   }
 
   return null;
+}
+
+async function listSwitchableSessions(input: {
+  currentSession: SessionRecord;
+  source: ChatSource;
+}) {
+  if (input.source.type !== 'im') {
+    return input.currentSession ? [input.currentSession] : [];
+  }
+
+  if (!input.source.userId) {
+    return input.currentSession ? [input.currentSession] : [];
+  }
+
+  return listSessions({
+    archived: false,
+    channel: input.source.adapter,
+    limit: 20,
+    userId: input.source.userId,
+  });
+}
+
+function formatSessionTitle(session: NonNullable<SessionRecord>) {
+  return session.title?.trim() || 'Untitled';
+}
+
+function formatSessionList(
+  sessions: NonNullable<SessionRecord>[],
+  currentSessionId?: string,
+) {
+  if (sessions.length === 0) {
+    return 'No sessions found for this IM user.';
+  }
+
+  const lines = sessions.map((session, index) => {
+    const marker = session.id === currentSessionId ? '*' : ' ';
+    const updatedAt = session.updatedAt.toLocaleString();
+    return `${index + 1}. ${marker} ${formatSessionTitle(session)}\n   ${session.id}\n   updated ${updatedAt}`;
+  });
+
+  return [
+    'Recent sessions:',
+    ...lines,
+    '',
+    'Use /switch <number> or /switch <session-id>.',
+  ].join('\n');
+}
+
+function canImSourceAccessSession(
+  source: Extract<ChatSource, { type: 'im' }>,
+  session: NonNullable<SessionRecord>,
+) {
+  return (
+    session.channel === source.adapter &&
+    Boolean(source.userId) &&
+    session.userId === source.userId
+  );
+}
+
+async function resolveSwitchTarget(input: {
+  args: string;
+  currentSession: SessionRecord;
+  source: ChatSource;
+}) {
+  const trimmed = input.args.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const candidates = await listSwitchableSessions({
+    currentSession: input.currentSession,
+    source: input.source,
+  });
+
+  const asNumber = Number.parseInt(trimmed, 10);
+  if (
+    String(asNumber) === trimmed &&
+    asNumber >= 1 &&
+    asNumber <= candidates.length
+  ) {
+    return candidates[asNumber - 1] ?? null;
+  }
+
+  const exact =
+    input.source.type === 'im' && trimmed.length >= 32
+      ? await getSession(trimmed)
+      : null;
+  if (
+    exact &&
+    (input.source.type !== 'im' ||
+      canImSourceAccessSession(input.source, exact))
+  ) {
+    return exact;
+  }
+
+  const prefixMatches = candidates.filter((session) =>
+    session.id.startsWith(trimmed),
+  );
+  return prefixMatches.length === 1 ? prefixMatches[0] : null;
 }
 
 async function maybeAssignSessionTitle(input: {
@@ -527,11 +629,78 @@ async function executeCommand(input: {
         };
       }
 
-      const target = await getSession(input.args);
+      const target = await resolveSwitchTarget({
+        args: input.args,
+        currentSession: session,
+        source: input.source,
+      });
       if (!target) {
         return {
           sessionId: currentSessionId,
-          text: `Session ${input.args} was not found.`,
+          text: `No matching session found for "${input.args}". Use /sessions to list recent sessions.`,
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+
+      const rebound = await bindImSourceToSession(input.source, target.id);
+
+      return {
+        sessionId: rebound?.id ?? target.id,
+        text: `Switched to session ${target.id}.`,
+        runId: target.workflowRunId ?? null,
+      };
+    }
+    case 'sessions': {
+      if (input.source.type !== 'im') {
+        return {
+          sessionId: currentSessionId,
+          text: 'Session listing is only available for IM threads.',
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+
+      const sessions = await listSwitchableSessions({
+        currentSession: session,
+        source: input.source,
+      });
+
+      return {
+        sessionId: currentSessionId,
+        text: formatSessionList(sessions, session?.id),
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'switch': {
+      if (input.source.type !== 'im') {
+        return {
+          sessionId: currentSessionId,
+          text: 'Session switching is only available for IM threads.',
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+
+      if (!input.args.trim()) {
+        const sessions = await listSwitchableSessions({
+          currentSession: session,
+          source: input.source,
+        });
+        return {
+          sessionId: currentSessionId,
+          text: formatSessionList(sessions, session?.id),
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+
+      const target = await resolveSwitchTarget({
+        args: input.args,
+        currentSession: session,
+        source: input.source,
+      });
+
+      if (!target) {
+        return {
+          sessionId: currentSessionId,
+          text: `No matching session found for "${input.args}". Use /sessions to list recent sessions.`,
           runId: session?.workflowRunId ?? null,
         };
       }

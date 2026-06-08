@@ -1,4 +1,4 @@
-import { and, desc, eq, like } from 'drizzle-orm';
+import { and, desc, eq, like, or } from 'drizzle-orm';
 import { db } from './index';
 import {
   agentL0Rules,
@@ -116,7 +116,13 @@ export async function getL0Rules(agentId: string) {
     .select()
     .from(agentL0Rules)
     .where(
-      and(eq(agentL0Rules.enabled, true), eq(agentL0Rules.agentId, agentId)),
+      and(
+        eq(agentL0Rules.enabled, true),
+        or(
+          eq(agentL0Rules.agentId, agentId),
+          eq(agentL0Rules.agentId, 'global'),
+        ),
+      ),
     );
 }
 
@@ -130,6 +136,7 @@ export async function createL0Rule(data: {
   type: string;
   action: string;
   scope?: string;
+  enabled?: boolean;
 }) {
   const [rule] = await db
     .insert(agentL0Rules)
@@ -139,6 +146,7 @@ export async function createL0Rule(data: {
       type: data.type as 'command' | 'path' | 'network',
       action: data.action as 'block' | 'warn',
       scope: (data.scope ?? 'global') as 'workspace' | 'global',
+      enabled: data.enabled ?? true,
     })
     .returning();
   return rule;
@@ -147,7 +155,7 @@ export async function createL0Rule(data: {
 export async function updateL0Rule(id: string, data: Record<string, unknown>) {
   const [rule] = await db
     .update(agentL0Rules)
-    .set(data)
+    .set({ ...data, updatedAt: new Date() })
     .where(eq(agentL0Rules.id, id))
     .returning();
   return rule;

@@ -33,7 +33,7 @@ export function ConfigShell({
   return (
     <div className="flex min-h-dvh flex-col bg-background pb-20 md:pb-0">
       <header className="sticky top-0 z-20 border-b bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur">
-        <div className="flex flex-col gap-4 px-14 py-4 md:px-6 lg:px-8">
+        <div className="flex flex-col gap-4 px-4 py-4 pl-16 md:px-6 lg:px-8">
           <div className="space-y-1">
             <div>
               <h1 className="font-semibold text-2xl tracking-tight md:text-3xl">

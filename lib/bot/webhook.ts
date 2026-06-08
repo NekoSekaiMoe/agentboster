@@ -172,6 +172,8 @@ export async function registerTelegramWebhook(
 const TELEGRAM_BOT_COMMANDS = [
   { command: 'help', description: 'Show available commands' },
   { command: 'new', description: 'Start a new session' },
+  { command: 'sessions', description: 'List recent sessions' },
+  { command: 'switch', description: 'Switch session by number or ID' },
   { command: 'status', description: 'Show current session status' },
   { command: 'stop', description: 'Stop the active run' },
   { command: 'compact', description: 'Compact conversation context' },

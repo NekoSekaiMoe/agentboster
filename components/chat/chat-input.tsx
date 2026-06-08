@@ -9,7 +9,9 @@ import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 import {
   AttachmentButton,
   AttachmentList,
+  type AttachmentUploadProgress,
   type ComposerAttachment,
+  buildAttachmentId,
   fileToComposerAttachment,
 } from '@/components/attachments';
 import { ArrowUpIcon, StopIcon } from '@/components/icons';
@@ -66,6 +68,9 @@ function PureMultimodalInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { width } = useWindowSize();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<
+    AttachmentUploadProgress[]
+  >([]);
   const [isDragActive, setIsDragActive] = useState(false);
   const [cursor, setCursor] = useState(0);
   const hasHydratedInputRef = useRef(false);
@@ -194,10 +199,18 @@ function PureMultimodalInput({
     if (fileArray.length === 0) {
       return;
     }
+    const fileIds = new Set(fileArray.map((file) => buildAttachmentId(file)));
 
     try {
       const nextAttachments = await Promise.all(
-        fileArray.map((file) => fileToComposerAttachment(file)),
+        fileArray.map((file) =>
+          fileToComposerAttachment(file, (progress) => {
+            setUploadProgress((current) => {
+              const next = current.filter((item) => item.id !== progress.id);
+              return [...next, progress];
+            });
+          }),
+        ),
       );
 
       setAttachments((current) => {
@@ -212,7 +225,18 @@ function PureMultimodalInput({
 
         return [...current, ...deduped];
       });
+      setUploadProgress((current) =>
+        current.filter(
+          (progress) =>
+            !nextAttachments.some(
+              (attachment) => attachment.id === progress.id,
+            ),
+        ),
+      );
     } catch {
+      setUploadProgress((current) =>
+        current.filter((progress) => !fileIds.has(progress.id)),
+      );
       toast.error('Failed to add attachment, please try again.');
     }
   }, []);
@@ -224,6 +248,7 @@ function PureMultimodalInput({
   }, []);
 
   const submitForm = useCallback(async () => {
+    if (uploadProgress.length > 0) return;
     if (!input.trim() && attachments.length === 0) return;
 
     const previousUrl =
@@ -246,6 +271,15 @@ function PureMultimodalInput({
 
     setInput('');
     setLocalStorageInput('');
+    setUploadProgress(
+      attachments.map((attachment) => ({
+        id: attachment.id,
+        name: attachment.name,
+        loaded: attachment.size,
+        total: attachment.size,
+        status: 'processing',
+      })),
+    );
     setAttachments([]);
     resetHeight(textareaRef);
 
@@ -257,11 +291,13 @@ function PureMultimodalInput({
       if (width && width > 768) {
         textareaRef.current?.focus();
       }
+      setUploadProgress([]);
     } catch (error) {
       window.history.replaceState({}, '', previousUrl);
       setInput(previousInput);
       setLocalStorageInput(previousInput);
       setAttachments(previousAttachments);
+      setUploadProgress([]);
       adjustHeight(textareaRef);
       toast.error(
         error instanceof Error ? error.message : 'Failed to send message.',
@@ -274,6 +310,7 @@ function PureMultimodalInput({
     sendMessage,
     setInput,
     setLocalStorageInput,
+    uploadProgress.length,
     width,
   ]);
 
@@ -284,7 +321,7 @@ function PureMultimodalInput({
         ref={fileInputRef}
         multiple
         aria-label="Attach files"
-        className="-top-4 -left-4 pointer-events-none fixed size-0.5 opacity-0"
+        className="pointer-events-none fixed -top-4 -left-4 size-0.5 opacity-0"
         tabIndex={-1}
         onChange={(event) => {
           if (event.target.files) {
@@ -323,7 +360,11 @@ function PureMultimodalInput({
           void addFiles(event.dataTransfer.files);
         }}
       >
-        <AttachmentList attachments={attachments} onRemove={removeAttachment} />
+        <AttachmentList
+          attachments={attachments}
+          uploadProgress={uploadProgress}
+          onRemove={removeAttachment}
+        />
 
         <SlashCommandMenu
           value={input}
@@ -370,6 +411,7 @@ function PureMultimodalInput({
             <SendButton
               input={input}
               hasAttachments={attachments.length > 0}
+              isUploading={uploadProgress.length > 0}
               submitForm={submitForm}
             />
           )}
@@ -411,10 +453,12 @@ function PureSendButton({
   submitForm,
   input,
   hasAttachments,
+  isUploading,
 }: {
   submitForm: () => Promise<void>;
   input: string;
   hasAttachments: boolean;
+  isUploading: boolean;
 }) {
   return (
     <Button
@@ -423,7 +467,7 @@ function PureSendButton({
         event.preventDefault();
         void submitForm();
       }}
-      disabled={input.trim().length === 0 && !hasAttachments}
+      disabled={isUploading || (input.trim().length === 0 && !hasAttachments)}
     >
       <ArrowUpIcon size={14} />
     </Button>
@@ -433,5 +477,6 @@ function PureSendButton({
 const SendButton = memo(PureSendButton, (prevProps, nextProps) => {
   if (prevProps.input !== nextProps.input) return false;
   if (prevProps.hasAttachments !== nextProps.hasAttachments) return false;
+  if (prevProps.isUploading !== nextProps.isUploading) return false;
   return true;
 });

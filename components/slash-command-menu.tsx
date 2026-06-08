@@ -66,6 +66,16 @@ const COMMAND_METADATA: Record<
     hint: '/session <session-id>',
     icon: Hash,
   },
+  sessions: {
+    description: 'List recent switchable sessions',
+    hint: '/sessions',
+    icon: Search,
+  },
+  switch: {
+    description: 'Switch to a listed session',
+    hint: '/switch <index|session-id>',
+    icon: Hash,
+  },
   approve: {
     description: 'Approve a pending tool call',
     hint: '/approve <toolCallId> [note]',

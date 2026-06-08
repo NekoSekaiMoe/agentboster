@@ -39,6 +39,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { WorkspacePageHeader } from '@/components/workspace-page-header';
 
 let nextFileId = 0;
 
@@ -349,21 +350,24 @@ export default function SkillsPage() {
         </div>
       )}
 
-      <header className="sticky top-0 flex items-center gap-2 border-b bg-background px-4 py-3">
-        <h1 className="font-semibold text-base md:text-lg">Skills</h1>
-        <div className="ml-auto flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setViewMode('import')}
-          >
-            <Download className="mr-1 size-4" /> Import Git
-          </Button>
-          <Button size="sm" onClick={() => setViewMode('create')}>
-            <Plus className="mr-1 size-4" /> Create
-          </Button>
-        </div>
-      </header>
+      <WorkspacePageHeader
+        title="Skills"
+        description="Create, import, edit, and export agent skills."
+        actions={
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setViewMode('import')}
+            >
+              <Download className="mr-1 size-4" /> Import Git
+            </Button>
+            <Button size="sm" onClick={() => setViewMode('create')}>
+              <Plus className="mr-1 size-4" /> Create
+            </Button>
+          </>
+        }
+      />
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
         <Card>
@@ -643,7 +647,6 @@ export default function SkillsPage() {
           (loading ? (
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
                 <Card key={`skeleton-${i}`}>
                   <CardContent className="flex items-start justify-between gap-4 pt-4">
                     <div className="flex-1 space-y-2">

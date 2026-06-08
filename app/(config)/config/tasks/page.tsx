@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { WorkspacePageHeader } from '@/components/workspace-page-header';
 
 interface Task {
   id: string;
@@ -91,12 +92,10 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-bold text-3xl tracking-tight">Task History</h1>
-        <p className="text-muted-foreground">
-          View and filter historical task execution records.
-        </p>
-      </div>
+      <WorkspacePageHeader
+        title="Task History"
+        description="View and filter historical task execution records."
+      />
 
       {/* Filters */}
       <Card>

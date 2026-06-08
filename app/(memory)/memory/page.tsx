@@ -31,6 +31,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { WorkspacePageHeader } from '@/components/workspace-page-header';
 import {
   BUILTIN_MEMORY_MAX_LENGTH,
   SOUL_MEMORY_MAX_LENGTH,
@@ -67,9 +68,10 @@ export default function MemoryPage() {
 
   return (
     <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
-      <header className="sticky top-0 flex items-center border-b bg-background px-4 py-3">
-        <h1 className="font-semibold text-base md:text-lg">Memory</h1>
-      </header>
+      <WorkspacePageHeader
+        title="Memory"
+        description="Manage builtin, long-term, session, and SOUL memory."
+      />
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -555,7 +557,6 @@ function LongTermPanel() {
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
             <Card key={`skeleton-${i}`}>
               <CardContent className="space-y-2 pt-4">
                 <Skeleton className="h-16 w-full" />

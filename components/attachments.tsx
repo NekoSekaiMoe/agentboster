@@ -18,19 +18,37 @@ export type ComposerAttachment = {
   size: number;
 };
 
+export type AttachmentUploadProgress = {
+  id: string;
+  name: string;
+  loaded: number;
+  total: number;
+  status: 'reading' | 'processing';
+};
+
 export function buildAttachmentId(file: File) {
   return `${file.name}-${file.size}-${file.lastModified}`;
 }
 
 export async function fileToComposerAttachment(
   file: File,
+  onProgress?: (progress: AttachmentUploadProgress) => void,
 ): Promise<ComposerAttachment> {
+  const id = buildAttachmentId(file);
   return {
-    id: buildAttachmentId(file),
+    id,
     name: file.name,
     mediaType: file.type || 'application/octet-stream',
     providerMetadata: undefined,
-    url: await readFileAsDataUrl(file),
+    url: await readFileAsDataUrl(file, (loaded, total) => {
+      onProgress?.({
+        id,
+        name: file.name,
+        loaded,
+        total,
+        status: 'reading',
+      });
+    }),
     size: file.size,
   };
 }
@@ -53,11 +71,23 @@ export function filePartToComposerAttachment(
   };
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
+function readFileAsDataUrl(
+  file: File,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
-    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onprogress = (event) => {
+      onProgress?.(
+        event.loaded,
+        event.lengthComputable ? event.total : file.size,
+      );
+    };
+    reader.onload = () => {
+      onProgress?.(file.size, file.size);
+      resolve(String(reader.result ?? ''));
+    };
     reader.onerror = () =>
       reject(reader.error ?? new Error('Failed to read file.'));
     reader.readAsDataURL(file);
@@ -67,17 +97,47 @@ function readFileAsDataUrl(file: File): Promise<string> {
 export function AttachmentList({
   attachments,
   onRemove,
+  uploadProgress = [],
 }: {
   attachments: ComposerAttachment[];
   onRemove?: (id: string) => void;
+  uploadProgress?: AttachmentUploadProgress[];
 }) {
-  if (attachments.length === 0) {
+  if (attachments.length === 0 && uploadProgress.length === 0) {
     return null;
   }
 
   return (
     <div className="h-fit overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       <div className="flex min-w-max gap-2 pr-1">
+        {uploadProgress.map((progress) => {
+          const total = progress.total > 0 ? progress.total : 1;
+          const percent = Math.min(
+            100,
+            Math.round((progress.loaded / total) * 100),
+          );
+
+          return (
+            <div
+              key={progress.id}
+              className="inline-flex max-w-[240px] shrink-0 items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-foreground text-sm shadow-sm"
+            >
+              <FileIcon size={14} />
+              <span className="max-w-28 truncate">{progress.name}</span>
+              <span className="text-muted-foreground text-xs tabular-nums">
+                {progress.status === 'processing'
+                  ? 'processing'
+                  : `${percent}%`}
+              </span>
+              <span className="h-1 w-14 overflow-hidden rounded-full bg-muted">
+                <span
+                  className="block h-full rounded-full bg-primary transition-[width]"
+                  style={{ width: `${percent}%` }}
+                />
+              </span>
+            </div>
+          );
+        })}
         {attachments.map((attachment) => (
           <div
             key={attachment.id}

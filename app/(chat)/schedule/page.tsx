@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { WorkspacePageHeader } from '@/components/workspace-page-header';
 import {
   AlarmClock,
   CalendarClock,
@@ -283,15 +284,12 @@ export default function SchedulePage() {
 
   return (
     <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
-      <header className="sticky top-0 z-10 border-b bg-background/95 px-4 py-3 backdrop-blur">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="font-semibold text-base md:text-lg">Schedule</h1>
-            <p className="text-muted-foreground text-sm">
-              View, edit, and archive delayed or daily tasks.
-            </p>
-          </div>
+      <WorkspacePageHeader
+        title="Schedule"
+        description="View, edit, and archive delayed or daily tasks."
+        actions={
           <Button
+            size="sm"
             variant="outline"
             onClick={() => loadTasks()}
             disabled={refreshing}
@@ -303,8 +301,8 @@ export default function SchedulePage() {
             )}
             Refresh
           </Button>
-        </div>
-      </header>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto p-4">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
