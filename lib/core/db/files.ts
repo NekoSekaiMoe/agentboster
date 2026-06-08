@@ -63,6 +63,40 @@ export type ListedFileRecord = {
   sessionChannel: string | null;
 };
 
+export async function getFileForUser(input: {
+  fileId: string;
+  userId: string;
+}): Promise<ListedFileRecord | null> {
+  const [file] = await db
+    .select({
+      id: schema.files.id,
+      sessionId: schema.files.sessionId,
+      runId: schema.files.runId,
+      sandboxId: schema.files.sandboxId,
+      sourcePath: schema.files.sourcePath,
+      fileName: schema.files.fileName,
+      mimeType: schema.files.mimeType,
+      size: schema.files.size,
+      blobPath: schema.files.blobPath,
+      blobUrl: schema.files.blobUrl,
+      metadata: schema.files.metadata,
+      createdAt: schema.files.createdAt,
+      sessionTitle: schema.sessions.title,
+      sessionChannel: schema.sessions.channel,
+    })
+    .from(schema.files)
+    .leftJoin(schema.sessions, eq(schema.files.sessionId, schema.sessions.id))
+    .where(
+      and(
+        eq(schema.files.id, input.fileId),
+        eq(schema.sessions.userId, input.userId),
+      ),
+    )
+    .limit(1);
+
+  return file ?? null;
+}
+
 export async function listFiles(options: ListFilesOptions = {}): Promise<{
   files: ListedFileRecord[];
   hasMore: boolean;

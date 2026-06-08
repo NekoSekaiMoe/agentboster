@@ -265,7 +265,11 @@ export default function FilesPage() {
 
                     <div className="flex shrink-0 flex-wrap gap-2">
                       <Button size="sm" variant="outline" asChild>
-                        <a href={item.blobUrl} target="_blank" rel="noreferrer">
+                        <a
+                          href={`/api/files/${item.id}/download`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
                           <Download className="mr-2 size-4" />
                           Download
                         </a>

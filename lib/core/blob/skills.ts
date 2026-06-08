@@ -7,7 +7,7 @@ import matter from 'gray-matter';
 import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/node';
 import { ofetch } from 'ofetch';
-import { del, list, put } from './';
+import { del, getBlob, list, put } from './';
 
 import { createLogger } from '@/lib/utils/logger';
 import type {
@@ -348,7 +348,6 @@ export async function syncSkillFilesToBlob(
     const absolutePath = path.join(localDir, relativePath);
     const content = await readFile(absolutePath);
     await put(toSkillBlobPath(skillName, relativePath), new Blob([content]), {
-      access: 'public',
       addRandomSuffix: false,
       allowOverwrite: true,
     });
@@ -414,8 +413,15 @@ export async function getSkillFileContentFromBlob(
   const blob = result.blobs[0];
   if (!blob) return null;
 
-  const response = await ofetch.raw(blob.url, { responseType: 'text' });
-  return typeof response._data === 'string' ? response._data : null;
+  const response = await getBlob(blob.pathname);
+  if (response?.statusCode !== 200) {
+    const publicResponse = await ofetch.raw(blob.url, { responseType: 'text' });
+    return typeof publicResponse._data === 'string'
+      ? publicResponse._data
+      : null;
+  }
+
+  return new Response(response.stream).text();
 }
 
 export async function listSkillFilesWithContentFromBlob(
@@ -528,7 +534,6 @@ export async function updateSkillFileInBlob(
   const normalizedFilePath = normalizeSkillPath(`${skillName}/${filePath}`);
   const pathname = `${SKILLS_BLOB_ROOT}/${normalizedFilePath}`;
   await put(pathname, content, {
-    access: 'public',
     addRandomSuffix: false,
     allowOverwrite: true,
   });
@@ -564,7 +569,6 @@ export async function persistManualSkillToBlob(
     const normalized = normalizeSkillPath(`${skillName}/${file.path}`);
     const fileBytes = encoder.encode(file.content).byteLength;
     await put(`${SKILLS_BLOB_ROOT}/${normalized}`, file.content, {
-      access: 'public',
       addRandomSuffix: false,
       allowOverwrite: true,
     });

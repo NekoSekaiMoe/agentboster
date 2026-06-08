@@ -93,7 +93,7 @@ function buildBlobCheck(): RuntimeDependencyHealth {
       label: 'Blob',
       status: 'ready',
       message:
-        'Blob storage is configured for attachment persistence, skill sync, and archive downloads.',
+        'Blob storage is configured. Set BLOB_ACCESS=private when the linked Vercel Blob store uses private access.',
       requiredEnvVars: ['BLOB_READ_WRITE_TOKEN'],
       missingEnvVars: [],
     };

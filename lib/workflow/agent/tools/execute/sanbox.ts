@@ -453,10 +453,7 @@ async function exportSandboxFileStep(
       const fileBuffer = await readLocalFile(localPath);
       size = fileBuffer.length;
       const blobPath = `sandbox-export/${sessionId}/${fileName}`;
-      const blobResult = await put(blobPath, fileBuffer, {
-        access: 'public',
-      });
-      url = blobResult.url;
+      const blobResult = await put(blobPath, fileBuffer);
       const fileRecord = await createFileRecord({
         sessionId,
         fileName,
@@ -464,8 +461,9 @@ async function exportSandboxFileStep(
         size,
         mimeType: 'application/octet-stream',
         blobPath,
-        blobUrl: url,
+        blobUrl: blobResult.url,
       });
+      url = `/api/files/${fileRecord.id}/download`;
     } finally {
       await removeLocalFile(localPath, {
         force: true,

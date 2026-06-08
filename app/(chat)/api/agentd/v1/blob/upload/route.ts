@@ -1,5 +1,5 @@
+import { put } from '@/lib/core/blob';
 import { createLogger } from '@/lib/utils/logger';
-import { put } from '@vercel/blob';
 
 const logger = createLogger('api.agentd.blob-upload');
 
@@ -30,7 +30,6 @@ export async function POST(request: Request) {
 
     const blobPath = `task-deliveries/${task_id}/${file_name}`;
     const blobResult = await put(blobPath, fileBuffer, {
-      access: 'public',
       addRandomSuffix: false,
       allowOverwrite: true,
     });

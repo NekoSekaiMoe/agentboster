@@ -621,6 +621,7 @@ const PurePreviewMessage = ({
   chatId,
   message,
   isLoading,
+  showAssistantGlyph,
   onToolApproval,
   onRevert,
   setMessages,
@@ -629,6 +630,7 @@ const PurePreviewMessage = ({
   chatId: string;
   message: WorkflowUIMessage;
   isLoading: boolean;
+  showAssistantGlyph: boolean;
   onToolApproval?: (input: {
     toolCallId: string;
     toolName: string;
@@ -669,7 +671,12 @@ const PurePreviewMessage = ({
             },
           )}
         >
-          {message.role === 'assistant' && <AssistantGlyph />}
+          {message.role === 'assistant' &&
+            (showAssistantGlyph ? (
+              <AssistantGlyph />
+            ) : (
+              <div className="size-7 shrink-0" aria-hidden="true" />
+            ))}
 
           <div className="flex w-full min-w-0 flex-col gap-2 group-data-[role=user]/message:items-end group-data-[role=assistant]/message:items-start">
             {message.role === 'user' &&
@@ -744,6 +751,9 @@ export const PreviewMessage = memo(
   (prevProps, nextProps) => {
     if (prevProps.chatId !== nextProps.chatId) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
+    if (prevProps.showAssistantGlyph !== nextProps.showAssistantGlyph) {
+      return false;
+    }
     if (prevProps.message.id !== nextProps.message.id) return false;
     if (prevProps.message.role !== nextProps.message.role) return false;
     if (prevProps.onToolApproval !== nextProps.onToolApproval) return false;

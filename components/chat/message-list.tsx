@@ -380,12 +380,18 @@ function PureMessages({
             return null;
           }
 
+          const showAssistantGlyph =
+            message.role !== 'assistant' ||
+            index === 0 ||
+            messages[index - 1]?.role !== 'assistant';
+
           return (
             <PreviewMessage
               key={message.id}
               chatId={chatId}
               message={message}
               isLoading={isLoading && messages.length - 1 === index}
+              showAssistantGlyph={showAssistantGlyph}
               onToolApproval={onToolApproval}
               onRevert={onRevert}
               setMessages={setMessages}

@@ -587,7 +587,7 @@ export function toModelMessage(
       ) {
         fileParts.push({
           type: 'file',
-          data: attachment.blobUrl,
+          data: attachment.modelUrl ?? attachment.blobUrl,
           filename: attachment.filename,
           mediaType: attachment.mediaType,
         });

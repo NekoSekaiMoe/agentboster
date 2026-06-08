@@ -91,7 +91,6 @@ async function storeAttachmentInBlob(input: {
   ].join('/');
 
   const blob = await put(pathname, new Blob([Buffer.from(input.bytes)]), {
-    access: 'public',
     addRandomSuffix: false,
     contentType: input.mediaType,
   });
@@ -146,6 +145,7 @@ async function normalizeFilePart(input: {
   const metadata: ClawlessAttachmentMetadata = {
     attachmentId,
     blobUrl,
+    modelUrl: isDataUrl(originalUrl) ? originalUrl : undefined,
     originalUrl,
     mediaType: input.part.mediaType,
     filename,

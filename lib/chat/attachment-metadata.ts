@@ -15,6 +15,7 @@ export type ClawlessAttachmentSource = {
 export type ClawlessAttachmentMetadata = {
   attachmentId: string;
   blobUrl: string;
+  modelUrl?: string;
   originalUrl?: string;
   mediaType: string;
   filename?: string;
@@ -62,6 +63,10 @@ export function getClawlessAttachmentMetadata(
   return {
     attachmentId: clawlessMetadata.attachmentId,
     blobUrl: clawlessMetadata.blobUrl,
+    modelUrl:
+      typeof clawlessMetadata.modelUrl === 'string'
+        ? clawlessMetadata.modelUrl
+        : undefined,
     originalUrl:
       typeof clawlessMetadata.originalUrl === 'string'
         ? clawlessMetadata.originalUrl
@@ -133,6 +138,7 @@ function buildAttachmentProviderMetadata(
   return {
     attachmentId: metadata.attachmentId,
     blobUrl: metadata.blobUrl,
+    modelUrl: metadata.modelUrl,
     originalUrl: metadata.originalUrl,
     mediaType: metadata.mediaType,
     filename: metadata.filename,
