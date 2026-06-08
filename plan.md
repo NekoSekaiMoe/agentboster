@@ -3,7 +3,7 @@
 > 基于 AgentBoster vs Manboster 全面对比分析（results.md）和 REPORT.md 的竞品分析，
 > 识别 AgentBoster 相对 Manboster 缺失或不足的能力，并制定补充计划。
 >
-> 本计划经过 22 轮技术异议审查，所有方案均基于代码级验证。
+> 本计划经过 40 轮技术异议审查，所有方案均基于代码级验证。
 
 ---
 
@@ -22,34 +22,128 @@ AgentBoster 在功能广度上已大幅领先（25+ 工具、7 个 Bot 平台、
 
 **影响**：多用户场景下无法区分"谁能用什么工具"。
 
-**⚠️ 异议 #1：不只是加字段——需要完整信任链**
+**⚠️ 异议 #14：user identity 不能由 daemon 请求头作为可信来源**
 
-当前方案只加 `MinUserType` 字段是不够的。需要解决：
-- **role 从哪里来**：~~AgentBoster Web 侧是单用户 cookie auth（`lib/auth/`），无 role 概念~~ **事实错误**。Web 侧已有 `users` 表（`users.ts:15`：`roles: text('roles').array().default(['user'])`）和 admin 校验（`route.ts:18`：`user.roles.includes('admin')`）。应**复用现有 user roles**，而非新建
-- **如何可信传到 daemon**：Daemon 通过 mTLS + API key 与 Web 通信（`clawless/` 包），但 Agent/Task 结构体无 user 字段
-- **如何落审计**：当前 audit log 无 user identity（`l2_auth/manager.go:266` 仅记录 session_id + pattern）
+计划写"Daemon 回调 API 在请求头携带 user identity + roles"——这把身份来源放到 daemon 侧，不安全。daemon 可以伪造请求头。
 
-**方案（完整信任链）**：
+**正确信任链**：Web 根据 `task.sessionId → sessions.userId → users.roles` 派生身份，作为 Task payload 返回给 daemon。Daemon 不应信任自己提交的 roles。
+
+**⚠️ 异议 #19：MinUserType 和 Web roles 缺映射定义**
+
+Manboster 是 root/admin/user/unknown，Web 侧是字符串数组 `roles: text('roles').array().default(['user'])`（如 `['admin']`、`['user']`）。计划还提到 readonly。需要明确：
+- readonly 算不算 user？
+- root 从哪里来？
+- 多 role 时取最高还是最低？
+- 没有 session/user 时是 unknown 还是拒绝？
+
+**⚠️ 异议 #20：无 session 的 task 没有处理**
+
+`agentTasks.sessionId` 是可空的（`agentd.ts:15` 无 `.notNull()`），`createTask()` 允许不传 sessionId。信任链依赖 `task.sessionId → sessions.userId → users.roles`，但没定义 `sessionId = null` 的任务怎么授权。
+
+**Roles 映射定义**：
+```
+Manboster MinUserType → Web roles 映射：
+  root    → roles 包含 'owner' 或 'root'（显式声明，不从 admin 提升）
+  admin   → roles 包含 'admin'（默认种子用户就是 admin，不会提升为 root）
+  user    → roles 包含 'user'（默认值）
+  unknown → sessionId = null 或 userId = null（无身份信息）
+
+多 role 取最高：
+  owner/root > admin > user > unknown
+  例：roles=['user', 'admin'] → admin
+  例：roles=['admin'] → admin（不会提升为 root）
+
+readonly 处理：
+  readonly 不是独立的 MinUserType，而是通过 roles 数组控制：
+  - Web 侧新增 'readonly' role
+  - readonly 映射为 unknown（最低权限）
+  - 只允许标记为 unknown 的只读工具（如 vault_list, knowledge_search）
+  - 不扩展 MinUserType 枚举，避免 Manboster 兼容性问题
+
+⚠️ 异议 #24：admin → root 风险
+  种子用户 roles=['admin']（users.ts:113）。如果 root → roles 包含 admin，
+  默认管理员会被提升为 root。修正：root 只来自 'owner' 或 'root' role，
+  admin 永远只映射到 admin。
+
+⚠️ 异议 #27：admin 可提权创建 owner/root
+  当前 app/api/auth/users/route.ts:64：createUser(username, password, { roles })
+  roles 从请求体直接传入，无白名单校验。admin 可创建 roles: ['owner'] 的 root 用户。
+
+  修正：roles 白名单校验 + 授予限制：
+    ALL_ROLES = ['owner', 'root', 'admin', 'user', 'readonly']
+    PROTECTED_ROLES = ['owner', 'root']
+    校验逻辑：
+      1. 请求中的 roles 必须是 ALL_ROLES 的子集
+      2. 如果请求包含 PROTECTED_ROLES，调用者必须已是 owner/root（非 admin）
+      3. admin 只能授予 admin/user/readonly
+    实现位置：app/api/auth/users/route.ts POST 方法 + lib/core/db/users.ts
+
+⚠️ 异议 #29：缺少 owner/root 的 bootstrap 方案
+  种子用户 roles=['admin']（users.ts:113）。admin 不能创建 owner/root，
+  系统里可能永远没有 root 用户。需要一个明确的 owner 入口。
+
+  修正：env var bootstrap owner
+    USERNAME + OWNER_USERNAME 环境变量：
+      1. 如果设置 OWNER_USERNAME，在 seedInitialUser() 中创建 owner 用户
+      2. owner 用户 roles=['owner']，不受 VALID_ROLES 限制
+      3. 如果未设置 OWNER_USERNAME，回退到 admin 种子用户
+      4. 首次登录后建议通过 Web UI 创建其他 owner/root 用户
+    实现位置：lib/core/db/users.ts seedInitialUser()
+```
+
+**无 session task 的授权策略**：
+```
+sessionId = null 的任务：
+  1. 信任链断裂：无法派生 userId/roles
+  2. 授权决策：userId = null → 视为 unknown
+  3. unknown 能力：
+     - 仅允许 MinUserType ≤ unknown 的工具（低权限工具）
+     - 高权限工具（exec, shell, codeact 等）拒绝
+  4. 安全兜底：无 session 的任务不写入 reviewLog user 字段（userId=null）
+```
+
+**⚠️ 异议 #16：ReviewLog 缺 Web schema 改动**
+
+`agentd.ts:42-55`：`agentReviewLogs` 表无 user 字段。`writeReviewLogs()`（line 79-102）无 user 参数。
+
+**方案（完整信任链 + Web DB 改动）**：
 
 ```
-Web 侧（role 来源——复用现有）：
-  1. 复用 lib/core/db/schema/users.ts 的 roles 字段（已有 admin/user/readonly）
-  2. Session 创建时携带 user_id + roles（从 users 表读取）
-  3. Daemon 回调 API（/api/agentd/v1/）在请求头携带 user identity + roles
+Web DB Schema 改动：
+  1. lib/core/db/schema/agentd.ts：
+     - agentTasks 表新增 userId 字段（从 session 派生）
+     - agentReviewLogs 表新增 userId + roles 字段
 
-Daemon 侧（role 传递）：
-  4. clawless/types.go：Task 结构体新增 UserID + Roles 字段
+Web DB 查询改动：
+  2. lib/core/db/agentd.ts：
+     - createTask()：从 sessionId 查 sessions.userId，写入 agentTasks.userId
+     - getTask()：join sessions + users，返回 user identity + roles
+     - writeReviewLogs()：新增 userId/roles 参数，写入 agentReviewLogs
+
+Web API 改动：
+  3. app/api/agentd/v1/tasks/[id]/route.ts：
+     - GET 返回 Task 时携带 userId + roles（从 DB 派生，非 daemon 提交）
+  4. app/(chat)/api/agentd/v1/review-logs/route.ts：
+     - POST：Web 侧重新校验 task.sessionId → user identity，不信任 daemon 提交的 roles
+     - 注意：review logs 路由在 (chat) 布局下，不是 tasks/[id] 路由
+
+Daemon 侧（被动接收）：
+  4. clawless/types.go：Task 结构体新增 UserID + Roles（从 Web API 响应中读取）
   5. agent/loop.go：Run 方法从 Task 中提取 roles，传递给 gatekeeper
   6. security/gatekeeper.go：Audit 方法接收 roles 参数
 
-审计侧（role 落地）：
+审计侧（Web 侧校验）：
   7. l2_auth/manager.go：ReviewLog 新增 UserID + Roles 字段
   8. clawless/review_logs.go：WriteReviewLogs 携带 user identity
+  9. Web 侧 writeReviewLogs()：重新从 task.sessionId 派生 roles，不信任 daemon 提交值
 ```
 
 **预期产出**：
-- `lib/auth/`：复用现有 user roles，扩展 session 携带 user_id + roles
-- `agentd/internal/clawless/types.go`：Task 新增 UserID/Roles
+- `lib/core/db/schema/agentd.ts`：agentTasks 新增 userId，agentReviewLogs 新增 userId/roles
+- `lib/core/db/agentd.ts`：createTask() 从 session 派生 userId，getTask() join user，writeReviewLogs() 写入 user
+- `app/api/agentd/v1/tasks/[id]/route.ts`：GET 返回 user identity
+- `app/(chat)/api/agentd/v1/review-logs/route.ts`：POST 重新校验 roles（正确路由落点）
+- `agentd/internal/clawless/types.go`：Task 新增 UserID/Roles（从 Web API 响应读取）
 - `agentd/internal/agent/loop.go`：Run 方法传递 roles
 - `agentd/internal/security/gatekeeper.go`：Audit 接收 roles
 - `agentd/internal/security/l2_auth/manager.go`：ReviewLog 新增 user 字段
@@ -157,6 +251,17 @@ L1Model     string `mapstructure:"l1_model" default:"tinyllama:latest"`
   ├─ L0 无规则命中 + L1 未配置（自动降级）→ 跳过 L1，直接进入 L2
   └─ L2 认证失败 → 直接拒绝（硬规则，不受 fail_open 影响）
 ```
+
+**⚠️ 异议 #18：L1 不可用时"直接进入 L2"语义不清**
+
+"L1 不可用时直接进入 L2"没有明确：是所有工具调用都要求 L2，还是只有命中某类风险才 L2？没有 L1 score 时怎么判定风险？
+
+**明确语义**：
+- L1 降级时，**所有通过 L0 的工具调用都要求 L2 确认**
+- 理由：没有 L1 score，无法判定风险等级，安全策略应保守
+- 影响：用户体验下降（每次工具调用都要确认），但安全性不降级
+- 缓解：L2 支持 "always" 持久授权（用户确认一次后，后续同类工具自动通过）
+- README 明确说明：L1 降级模式下所有工具调用需 L2 确认，建议配置 L1 以获得更好体验
 
 **迁移说明（已有部署）**：
 - 已有 `fail_open = true` 的部署：不受影响
@@ -369,23 +474,52 @@ cache_key = user_id + ":" + session_id + ":" + tool_name + ":" + args_hash + ":"
 
 当前方案写 `server/routes.go: GET /capabilities`，这是错误的方向。AgentBoster 的通信模式是 **daemon → web**（通过 `clawless.Client` 调用 Web API），不是 web → daemon。Capability 应由 daemon 查询 Web 获取。
 
-**方案（daemon 查询 web + capability 感知）**：
+**⚠️ 异议 #17：Recall capability 缺 adapter/source 上下文**
+
+删除消息必须知道 adapter、chat/thread/message id。当前 daemon Task 结构（`clawless/types.go`）无这些字段。`GET /api/agentd/v1/capabilities` 不能只返回"当前 adapter 能力"——需要 adapter/source 上下文才能执行删除。
+
+**⚠️ 异议 #21：Recall 的 message_id 来源不对**
+
+删除的是 **L2 确认消息本身**，不是 task/source 原始消息。计划说 Task 需要 message_id，但实际应是：
+1. Daemon 发送 L2 确认通知 → Web 侧 send notification/reply 返回 **sent message id**
+2. Recall timer 保存这个 sent message id
+3. 5 秒后删除这个 sent message id
+
+Task 不需要 message_id——recall 的 message_id 来自 notification 发送的返回值。
+
+**方案（daemon 查询 web + adapter/source 上下文）**：
 ```
+Web DB Schema 改动：
+  0. lib/core/db/schema/agentd.ts：agentTasks 表新增 adapter + source metadata 字段
+     （或从 sessions 表 join 获取：sessions.channel + sessions.externalThreadId）
+
 Web 侧（capability 定义 + API 暴露）：
   1. lib/bot/adaptor.ts：BotAdapters 新增 capabilities 查询
   2. 每个 adapter 声明支持的操作：{ delete: boolean, edit: boolean, reaction: boolean }
-  3. app/api/agentd/v1/capabilities/route.ts：GET endpoint 返回当前 adapter 能力
+  3. app/api/agentd/v1/capabilities/route.ts：
+     GET /capabilities?adapter=telegram&chatId=xxx
+     - 接收 adapter 参数（从 task.source 派生）
+     - 返回该 adapter 的能力 + 所需上下文（chat_id, thread_id）
 
 Daemon 侧（capability 查询 + 感知）：
-  4. clawless/client.go：新增 GetCapabilities() 方法（daemon → web 查询）
-  5. clawless/types.go：新增 BotCapabilities 结构体
-  6. security/l2_auth/manager.go：发送确认消息时查询 capability
-     - 如果 adapter 支持 delete → 发送 + 启动 recall timer
+  4. clawless/client.go：新增 GetCapabilities(adapter, chatId, threadId string) 方法
+  5. clawless/types.go：新增 BotCapabilities + BotSource 结构体
+  6. security/l2_auth/manager.go：发送确认消息时
+     - 从 task.source 获取 adapter/chatId/threadId 信息
+     - 调用 GetCapabilities(adapter, chatId, threadId) 查询能力
+     - 如果 adapter 支持 delete → 发送 + 保存 sent message id + 启动 recall timer
      - 如果 adapter 不支持 delete → 仅发送，不 recall
 
+⚠️ 异议 #25：Recall capability 方法签名不一致
+  API 是 GET /capabilities?adapter=telegram&chatId=xxx，但 daemon 方法写
+  GetCapabilities(adapter string)，少了 chatId/threadId/source。
+  修正：GetCapabilities(adapter, chatId, threadId string) 或 GetCapabilities(source BotSource)
+
 Recall 执行（web 侧）：
-  7. lib/bot/reply.ts：新增 deleteMessage 方法
+  7. lib/bot/reply.ts：新增 deleteMessage(adapter, chatId, messageId) 方法
   8. lib/workflow/：L2 确认 workflow 中调用 deleteMessage
+  9. message_id 来源：notification/reply API 返回的 sent message id（非 task 原始消息）
+  10. Recall timer 保存 sent message id，5 秒后调用 deleteMessage
 ```
 
 **预期产出**：
@@ -404,9 +538,21 @@ Recall 执行（web 侧）：
 
 **影响**：用户无法按需禁用不需要的工具。
 
+**⚠️ 异议 #22：Tools.Enabled 缺默认语义**
+
+如果 `Tools.Enabled []string` 默认为空数组，会表示"启用空工具集"——破坏默认配置。
+
+**修正方案（改用 Disabled 列表）**：
+- 使用 `Tools.Disabled []string` 而非 `Tools.Enabled []string`
+- 默认语义：
+  - `nil`（未配置）= 启用全部工具
+  - `[]`（显式空数组）= 启用全部工具
+  - `["shell", "exec"]` = 禁用 shell 和 exec，其余启用
+- 理由：禁用列表更安全——新增工具默认启用，只有明确禁用的才不注册
+
 **方案**：
-- `agentd/internal/config/config.go` 新增 `Tools.Enabled []string` 配置
-- `agentd/internal/agent/tools_register.go` 的 `RegisterAllTools` 中根据配置过滤
+- `agentd/internal/config/config.go` 新增 `Tools.Disabled []string` 配置
+- `agentd/internal/agent/tools_register.go` 的 `RegisterAllTools` 中过滤掉 Disabled 列表中的工具
 
 **预期产出**：
 - `agentd/internal/config/config.go`：新增 Tools 配置
@@ -565,8 +711,24 @@ LLM 不可读边界（Web 侧存储）：
   7. vault_list 注册为 daemon agent tool（返回 key 名称列表，LLM 可读）
   8. vault_read 不注册为 agent tool
   9. Web 侧 app/api/vault/read/route.ts（鉴权后返回明文）
-  10. Web 用户通过 Dashboard vault 页面读取明文
-  11. Daemon 不参与 vault 读取，不持有 VAULT_MASTER_KEY
+  10. Web 侧 app/api/vault/list/route.ts（鉴权后返回 key 名称列表）
+  11. Web 用户通过 Dashboard vault 页面读取明文
+  12. Daemon vault_list tool 通过 clawless.Client 调用 Web API 获取 key 列表
+  13. Daemon 不持有 VAULT_MASTER_KEY，不接触明文
+
+Daemon vault_list 调用链：
+  agent tool vault_list → clawless.Client.ListVaultKeys() → Web API /api/vault/list → 返回 key 名称列表
+
+⚠️ 异议 #28：Vault daemon list endpoint 鉴权不匹配
+  middleware.ts:29-30：只有 /api/agentd/v1/* 走 AGENTD_API_KEY 放行。
+  /api/vault/list 需要 web login cookie，daemon 没有 cookie 调不了。
+
+  修正：拆成两个端点：
+    Web 侧（Dashboard 用户）：
+      app/api/vault/list/route.ts — 鉴权后返回 key 名称 + 值摘要
+    Daemon 侧（vault_list tool）：
+      app/api/agentd/v1/vault/list/route.ts — AGENTD_API_KEY 鉴权，只返回 key 名称
+      clawless.Client 调此端点，不走 /api/vault/list
 
 Audit（Web 侧）：
   12. 所有 vault 操作写入 audit log（who/when/what/action）
@@ -577,8 +739,10 @@ Audit（Web 侧）：
 - `lib/core/db/schema/vault.ts`：vault_entries 表定义
 - `app/api/vault/read/route.ts`：Web 侧鉴权读取端点
 - `app/api/vault/list/route.ts`：Web 侧 vault 管理端点
+- `app/api/agentd/v1/vault/list/route.ts`：Daemon vault_list tool 端点（AGENTD_API_KEY 鉴权，只返回 key 名称）
 - `lib/vault/`：Web 侧加密/解密/审计逻辑
-- `agentd/internal/agent/tools_vault.go`：`vault_list` 工具（仅返回 key 名称）
+- `agentd/internal/clawless/client.go`：ListVaultKeys() 方法（daemon → web 查询 key 列表）
+- `agentd/internal/agent/tools_vault.go`：`vault_list` 工具（通过 clawless.Client 调 Web API）
 - `agentd/internal/agent/tools_register.go`：仅注册 vault_list
 
 ---
@@ -626,18 +790,23 @@ Audit（Web 侧）：
 
 ## 风险提示
 
-1. **MinUserType 信任链**是最高复杂度变更——复用现有 user roles（`users.ts:15`），需 Web 侧 session 扩展 + Daemon 协议扩展 + 审计落地
-2. **Fail-close + 安全层默认开启**是最高风险变更——L1 默认值（`local_ollama`、`tinyllama:latest`）会绕过"未配置"判断，必须做启动时健康检查
-3. **L1 unknown provider**——配置拼写错误会静默降级安全层，unknown provider 必须启动失败（除非显式 `l1_enabled=false`）
-4. **安全 cache key**——args_hash 需要稳定序列化，否则相同参数不同顺序会产生不同 hash
-5. **消息召回 capability**——不是所有平台都支持 DeleteMessage，需要 graceful degradation
-6. **Vault 数据存储**——决定存在 Web 侧（Postgres），daemon 不参与 vault 读取，不持有 VAULT_MASTER_KEY
-7. **Vault LLM 不可读边界**——tool result 会无条件进入 LLM context（`loop.go:142-146`），必须通过 Web 侧鉴权代理实现
-8. **Vault API 路径**——Next.js App Router：`app/api/vault/read/route.ts`，不是 `lib/api/vault/`
-9. **重复消息检测**——已有 Web 侧 dedup（`lib/chat/dedup.ts:45`），需增强而非从零实现
-10. **L0 文案**——"L0 匹配失败"有歧义，需区分：命中阻断规则 → 拒绝；引擎错误 → fail-close；无规则命中 → 继续
-11. **i18n 范围**——限定为用户可见错误，结构化日志保持英文
-12. **路径准确性**——Web 应用在仓库根目录，无 `web/` 子目录，所有路径以 `lib/`、`types/`、`app/` 开头
+1. **MinUserType 信任链**是最高复杂度变更——需 Web DB schema 改动 + Web API 重新校验 roles + Daemon 协议扩展
+2. **信任链方向**——Web 根据 task.sessionId → sessions.userId → users.roles 派生身份，不信任 daemon 请求头
+3. **Roles 映射**——Manboster root/admin/user/unknown 与 Web roles 数组的映射需明确定义，多 role 取最高
+4. **无 session task**——sessionId=null 时信任链断裂，userId=null → unknown，仅允许低权限工具
+5. **Fail-close + 安全层默认开启**是最高风险变更——L1 默认值会绕过"未配置"判断，必须做启动时健康检查
+6. **L1 unknown provider**——配置拼写错误会静默降级安全层，unknown provider 必须启动失败
+7. **L1 降级语义**——L1 不可用时所有通过 L0 的工具调用都要求 L2 确认（无 L1 score 无法判定风险）
+8. **安全 cache key**——args_hash 需要稳定序列化
+9. **消息召回 capability**——需 adapter/source 上下文，message_id 来自 notification 返回值（非 task 原始消息）
+10. **Review logs 路由**——正确路径是 `app/(chat)/api/agentd/v1/review-logs/route.ts`，不是 tasks/[id]
+11. **Vault 数据存储**——存在 Web 侧（Postgres），daemon 通过 clawless.Client.ListVaultKeys() 调 Web API
+12. **Vault LLM 不可读边界**——vault_read 不注册为 agent tool
+13. **Tools.Disabled**——使用 Disabled 列表而非 Enabled，nil/空 = 全部启用
+14. **重复消息检测**——已有 Web 侧 dedup，需增强而非从零实现
+15. **L0 文案**——区分：命中阻断规则 → 拒绝；引擎错误 → fail-close；无规则命中 → 继续
+16. **i18n 范围**——限定为用户可见错误，结构化日志保持英文
+17. **路径准确性**——Web 应用在仓库根目录，无 `web/` 子目录
 
 ### P0 执行依赖关系
 
@@ -656,4 +825,4 @@ Audit（Web 侧）：
 
 > 计划生成日期：2026-06-08
 > 基于：results.md 对比分析 + REPORT.md 竞品分析
-> 审查：22 轮技术异议（信任链、cache key、幂等键、capability、加密、i18n 范围、路径统一、零信任措辞、Vault LLM 边界、MinUserType 依赖、Recall 方向、路径错误、L1 默认值绕过、字段名不一致、Vault 内部矛盾、localhost 不适配、Web 已有 roles、dedup 已存在、Vault 数据流方向、Vault API 路径、L1 unknown provider、L0 文案歧义）
+> 审查：40 轮技术异议（信任链、cache key、幂等键、capability、加密、i18n 范围、路径统一、零信任措辞、Vault LLM 边界、MinUserType 依赖、Recall 方向、路径错误、L1 默认值绕过、字段名不一致、Vault 内部矛盾、localhost 不适配、Web 已有 roles、dedup 已存在、Vault 数据流方向、Vault API 路径、L1 unknown provider、L0 文案歧义、信任链方向、Web DB schema、ReviewLog schema、Recall adapter context、L1→L2 语义、vault_list 调用链、Roles 映射、无 session task、Review logs 路由、Recall message_id、Tools.Disabled 语义、admin→root 风险、readonly 语义、Recall 方法签名、admin 提权、Vault daemon 鉴权、roles 校验矛盾、owner bootstrap）

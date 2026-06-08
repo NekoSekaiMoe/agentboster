@@ -49,6 +49,17 @@ import {
 import { DeferredProviderIdInput } from './provider-id-input';
 import { SuggestionInput } from './suggestion-input';
 
+function createAvailableProviderKey(providers: Partial<AIConfig>['providers']) {
+  const existingProviderKeys = new Set(Object.keys(providers ?? {}));
+  let index = 1;
+
+  while (existingProviderKeys.has(`provider-${index}`)) {
+    index += 1;
+  }
+
+  return `provider-${index}`;
+}
+
 export function ModelsForm() {
   const { issues, value, updateValue } = useConfigSection('models');
   const { t } = useI18n();
@@ -437,17 +448,26 @@ export function ModelsForm() {
           <Button
             type="button"
             variant="secondary"
-            onClick={() =>
+            onClick={() => {
+              const nextProviderKey = createAvailableProviderKey(
+                models.providers,
+              );
+
+              setProviderRowIds((current) => ({
+                ...current,
+                [nextProviderKey]: createStableId('provider'),
+              }));
+
               updateValue({
                 ...models,
                 providers: {
                   ...(models.providers ?? {}),
-                  [`provider-${providers.length + 1}`]: {
+                  [nextProviderKey]: {
                     format: 'openai',
                   },
                 },
-              } as AppConfig['models'])
-            }
+              } as AppConfig['models']);
+            }}
           >
             <Plus className="size-4" />
             {t('config.forms.models.addProvider')}
