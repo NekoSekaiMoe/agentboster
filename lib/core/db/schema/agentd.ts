@@ -68,6 +68,53 @@ export const agentReviewLogs = pgTable('agent_review_logs', {
     .notNull(),
 });
 
+export const agentToolActivityLogs = pgTable(
+  'agent_tool_activity_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    taskId: uuid('task_id'),
+    sessionId: uuid('session_id'),
+    agentId: text('agent_id').notNull(),
+    userId: text('user_id'),
+    roles: text('roles').array(),
+    source: jsonb('source').$type<Record<string, unknown>>(),
+    sandboxId: text('sandbox_id'),
+    model: text('model'),
+    step: integer('step'),
+    toolCallId: text('tool_call_id'),
+    toolName: text('tool_name').notNull(),
+    action: text('action', {
+      enum: ['read', 'write', 'execute', 'search', 'network', 'other'],
+    }).notNull(),
+    target: text('target'),
+    arguments: jsonb('arguments').$type<unknown>(),
+    result: jsonb('result').$type<unknown>(),
+    outputText: text('output_text'),
+    success: boolean('success').default(false).notNull(),
+    error: text('error'),
+    durationMs: integer('duration_ms'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    taskIdx: index('agent_tool_activity_logs_task_idx').on(table.taskId),
+    sessionIdx: index('agent_tool_activity_logs_session_idx').on(
+      table.sessionId,
+    ),
+    agentCreatedIdx: index('agent_tool_activity_logs_agent_created_idx').on(
+      table.agentId,
+      table.createdAt,
+    ),
+    toolCreatedIdx: index('agent_tool_activity_logs_tool_created_idx').on(
+      table.toolName,
+      table.createdAt,
+    ),
+  }),
+);
+
 export const agentL0Rules = pgTable('agent_l0_rules', {
   id: uuid('id').defaultRandom().primaryKey(),
   agentId: text('agent_id').default('global').notNull(),

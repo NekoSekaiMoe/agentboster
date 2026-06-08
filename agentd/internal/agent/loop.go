@@ -121,14 +121,11 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 		}
 
 		// Execute tool
+		toolStartedAt := time.Now()
 		toolDef, _, ok := l.registry.Get(llmResp.ToolCall.Name)
 		if !ok {
 			toolResult := &ToolResult{Success: false, Error: fmt.Sprintf("unknown tool: %s", llmResp.ToolCall.Name)}
-			resultJSON, _ := json.Marshal(toolResult)
-			l.messages = append(l.messages, Message{
-				Role:    "tool",
-				Content: string(resultJSON),
-			})
+			l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
 			continue
 		}
 		if !usertype.CanUse(l.agentCtx.Roles, toolDef.MinUserType) {
@@ -136,11 +133,7 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 				Success: false,
 				Error:   fmt.Sprintf("permission denied: tool %s requires %s", llmResp.ToolCall.Name, toolDef.MinUserType),
 			}
-			resultJSON, _ := json.Marshal(toolResult)
-			l.messages = append(l.messages, Message{
-				Role:    "tool",
-				Content: string(resultJSON),
-			})
+			l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
 			continue
 		}
 
@@ -170,11 +163,7 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 					Success: false,
 					Error:   fmt.Sprintf("tool blocked by security review: %s", auditResult.Reason),
 				}
-				resultJSON, _ := json.Marshal(toolResult)
-				l.messages = append(l.messages, Message{
-					Role:    "tool",
-					Content: string(resultJSON),
-				})
+				l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
 				continue
 			}
 		}
@@ -184,25 +173,7 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 			toolResult = &ToolResult{Success: false, Error: err.Error()}
 		}
 
-		// Record tool call
-		l.agentCtx.RecentToolCalls = append(l.agentCtx.RecentToolCalls, ToolCallRecord{
-			Tool:    llmResp.ToolCall.Name,
-			Args:    string(llmResp.ToolCall.Arguments),
-			Result:  toolResult.Data,
-			Success: toolResult.Success,
-			Time:    time.Now(),
-		})
-		// Keep only last 5
-		if len(l.agentCtx.RecentToolCalls) > 5 {
-			l.agentCtx.RecentToolCalls = l.agentCtx.RecentToolCalls[len(l.agentCtx.RecentToolCalls)-5:]
-		}
-
-		// Add tool result message
-		resultJSON, _ := json.Marshal(toolResult)
-		l.messages = append(l.messages, Message{
-			Role:    "tool",
-			Content: string(resultJSON),
-		})
+		l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
 	}
 
 	return "", fmt.Errorf("agent loop exceeded max steps (%d)", l.maxSteps)

@@ -130,6 +130,198 @@ export interface ToolSecurityContext {
   appConfig: AppConfig;
 }
 
+function stringifyFull(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    const serialized = JSON.stringify(value, null, 2);
+    return serialized ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function readTextField(value: unknown, key: string): string {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return '';
+  }
+
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === 'string' ? field : '';
+}
+
+function firstTextField(value: unknown, keys: string[]): string {
+  for (const key of keys) {
+    const field = readTextField(value, key);
+    if (field) {
+      return field;
+    }
+  }
+  return '';
+}
+
+function classifyWorkflowToolActivity(
+  context: ToolExecutionLogContext,
+  input: unknown,
+): {
+  action: 'read' | 'write' | 'execute' | 'search' | 'network' | 'other';
+  target: string;
+} {
+  const toolName = context.toolName.toLowerCase();
+  const toolId = context.toolId.toLowerCase();
+  const combinedName = `${toolId}.${toolName}`;
+
+  if (toolName.includes('read') || toolName.includes('list')) {
+    return {
+      action: 'read',
+      target: firstTextField(input, ['path', 'name', 'query', 'key']),
+    };
+  }
+  if (
+    toolName.includes('write') ||
+    toolName.includes('upsert') ||
+    toolName.includes('update') ||
+    toolName.includes('delete') ||
+    toolName.includes('save')
+  ) {
+    return {
+      action: 'write',
+      target: firstTextField(input, ['path', 'name', 'key', 'title']),
+    };
+  }
+  if (toolName.includes('search')) {
+    return {
+      action: 'search',
+      target: firstTextField(input, ['query', 'q', 'pattern']),
+    };
+  }
+  if (
+    toolName.includes('exec') ||
+    toolName.includes('command') ||
+    combinedName.includes('sandbox')
+  ) {
+    return {
+      action: 'execute',
+      target: firstTextField(input, ['command', 'path', 'port']),
+    };
+  }
+  if (toolName.includes('fetch') || toolName.includes('browser')) {
+    return {
+      action: 'network',
+      target: firstTextField(input, ['url', 'query']),
+    };
+  }
+
+  return {
+    action: 'other',
+    target: firstTextField(input, ['path', 'command', 'url', 'query', 'name']),
+  };
+}
+
+function isAgentdBackedToolResult(value: unknown): boolean {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (value as { backend?: unknown }).backend === 'agentd',
+  );
+}
+
+async function writeWorkflowToolActivityLogStep(input: {
+  sessionId: string;
+  agentId: string;
+  toolCallId?: string;
+  toolName: string;
+  action: 'read' | 'write' | 'execute' | 'search' | 'network' | 'other';
+  target: string;
+  toolInput: unknown;
+  result: unknown;
+  outputText: string;
+  success: boolean;
+  error?: string;
+  durationMs: number;
+  startedAt: Date;
+  completedAt: Date;
+}) {
+  'use step';
+
+  const { writeToolActivityLogs } = await import('@/lib/core/db/agentd');
+  await writeToolActivityLogs([
+    {
+      sessionId: input.sessionId,
+      agentId: input.agentId,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      action: input.action,
+      target: input.target,
+      arguments: input.toolInput,
+      result: input.result,
+      outputText: input.outputText,
+      success: input.success,
+      error: input.error,
+      durationMs: input.durationMs,
+      startedAt: input.startedAt,
+      completedAt: input.completedAt,
+    },
+  ]);
+}
+
+async function writeWorkflowToolActivityLog(input: {
+  context: ToolExecutionLogContext;
+  toolCallId?: string;
+  toolInput: unknown;
+  result?: unknown;
+  error?: unknown;
+  startedAt: Date;
+  completedAt: Date;
+  elapsedMs: number;
+}) {
+  if (!input.context.sessionId) {
+    return;
+  }
+
+  const { action, target } = classifyWorkflowToolActivity(
+    input.context,
+    input.toolInput,
+  );
+  const errorMessage = input.error ? getErrorMessage(input.error) : undefined;
+  const result =
+    input.error instanceof Error
+      ? {
+          name: input.error.name,
+          message: input.error.message,
+          cause: getErrorCause(input.error),
+        }
+      : (input.error ?? input.result);
+
+  try {
+    await writeWorkflowToolActivityLogStep({
+      sessionId: input.context.sessionId,
+      agentId: input.context.agentName ?? 'default',
+      toolCallId: input.toolCallId,
+      toolName: `${input.context.toolId}.${input.context.toolName}`,
+      action,
+      target,
+      toolInput: input.toolInput,
+      result,
+      outputText: stringifyFull(result),
+      success: !input.error,
+      error: errorMessage,
+      durationMs: input.elapsedMs,
+      startedAt: input.startedAt,
+      completedAt: input.completedAt,
+    });
+  } catch (error) {
+    logger.warn('execute:activity_log_failed', {
+      ...input.context,
+      toolCallId: input.toolCallId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export function withToolExecutionLogger(
   tool: ToolSet[string],
   context: ToolExecutionLogContext,
@@ -143,7 +335,8 @@ export function withToolExecutionLogger(
   return {
     ...tool,
     execute: async (input, options) => {
-      const startedAt = Date.now();
+      const startedAtMs = Date.now();
+      const startedAt = new Date(startedAtMs);
       const argKeys = getArgKeys(input);
       const toolCallId = options?.toolCallId;
 
@@ -203,12 +396,14 @@ export function withToolExecutionLogger(
 
       try {
         const result = await execute(input, options);
+        const completedAt = new Date();
+        const elapsedMs = completedAt.getTime() - startedAtMs;
 
         logger.info('execute:success', {
           ...context,
           argKeys,
           toolCallId,
-          elapsedMs: Date.now() - startedAt,
+          elapsedMs,
           resultShape: getResultShape(result),
         });
 
@@ -225,7 +420,7 @@ export function withToolExecutionLogger(
             toolId: context.toolId,
             input: input as Record<string, unknown>,
             result,
-            elapsedMs: Date.now() - startedAt,
+            elapsedMs,
           };
           await hookRegistry.executeAfter(
             'afterToolCall',
@@ -234,13 +429,27 @@ export function withToolExecutionLogger(
           );
         }
 
+        if (!isAgentdBackedToolResult(result)) {
+          await writeWorkflowToolActivityLog({
+            context,
+            toolCallId,
+            toolInput: input,
+            result,
+            startedAt,
+            completedAt,
+            elapsedMs,
+          });
+        }
+
         return result;
       } catch (error) {
+        const completedAt = new Date();
+        const elapsedMs = completedAt.getTime() - startedAtMs;
         logger.error('execute:failed', {
           ...context,
           argKeys,
           toolCallId,
-          elapsedMs: Date.now() - startedAt,
+          elapsedMs,
           errorName: getErrorName(error),
           error: getErrorMessage(error),
           errorCause: getErrorCause(error),
@@ -267,6 +476,16 @@ export function withToolExecutionLogger(
             hookCtx,
           );
         }
+
+        await writeWorkflowToolActivityLog({
+          context,
+          toolCallId,
+          toolInput: input,
+          error,
+          startedAt,
+          completedAt,
+          elapsedMs,
+        });
 
         throw error;
       }

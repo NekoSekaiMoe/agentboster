@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, Download, Filter, Search } from 'lucide-react';
+import { Activity, ChevronDown, Download, Filter, Search } from 'lucide-react';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -54,6 +54,42 @@ interface Filters {
   to?: string;
 }
 
+interface ToolActivityLog {
+  id: string;
+  taskId: string | null;
+  sessionId: string | null;
+  agentId: string;
+  userId: string | null;
+  sandboxId: string | null;
+  model: string | null;
+  step: number | null;
+  toolCallId: string | null;
+  toolName: string;
+  action: 'read' | 'write' | 'execute' | 'search' | 'network' | 'other';
+  target: string | null;
+  arguments: unknown;
+  result: unknown;
+  outputText: string | null;
+  success: boolean;
+  error: string | null;
+  durationMs: number | null;
+  startedAt: string;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+interface ToolActivityFilters {
+  action?: string;
+  toolName?: string;
+  success?: string;
+  search?: string;
+  taskId?: string;
+  sessionId?: string;
+  agentId?: string;
+  from?: string;
+  to?: string;
+}
+
 async function fetchReviewLogs(filters: Filters): Promise<ReviewLog[]> {
   const params = new URLSearchParams();
   if (filters.level) params.set('level', filters.level);
@@ -66,6 +102,27 @@ async function fetchReviewLogs(filters: Filters): Promise<ReviewLog[]> {
 
   const res = await fetch(`/api/config/audit-logs?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to fetch audit logs');
+  return res.json();
+}
+
+async function fetchToolActivityLogs(
+  filters: ToolActivityFilters,
+): Promise<ToolActivityLog[]> {
+  const params = new URLSearchParams();
+  if (filters.action) params.set('action', filters.action);
+  if (filters.toolName) params.set('toolName', filters.toolName);
+  if (filters.success) params.set('success', filters.success);
+  if (filters.search) params.set('search', filters.search);
+  if (filters.taskId) params.set('taskId', filters.taskId);
+  if (filters.sessionId) params.set('sessionId', filters.sessionId);
+  if (filters.agentId) params.set('agentId', filters.agentId);
+  if (filters.from) params.set('from', filters.from);
+  if (filters.to) params.set('to', filters.to);
+
+  const res = await fetch(
+    `/api/config/tool-activity-logs?${params.toString()}`,
+  );
+  if (!res.ok) throw new Error('Failed to fetch tool activity logs');
   return res.json();
 }
 
@@ -110,6 +167,22 @@ const decisionLabels: Record<string, string> = {
   allowed: 'Allowed',
   blocked: 'Blocked',
   pending_confirm: 'Pending Confirm',
+};
+
+const actionBadgeClass: Record<string, string> = {
+  read: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200',
+  write:
+    'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+  execute: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200',
+  search: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-200',
+  network:
+    'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200',
+  other: 'bg-muted text-muted-foreground',
+};
+
+const successBadgeClass: Record<string, string> = {
+  true: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+  false: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
 };
 
 export function AuditLogsForm() {
@@ -390,6 +463,8 @@ export function AuditLogsForm() {
         </CardContent>
       </Card>
 
+      <ToolActivitySection />
+
       {/* Detail Dialog */}
       <Dialog
         open={!!selectedLog}
@@ -466,6 +541,441 @@ export function AuditLogsForm() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function ToolActivitySection() {
+  const [filters, setFilters] = useState<ToolActivityFilters>({});
+  const [searchText, setSearchText] = useState('');
+  const [toolNameSearch, setToolNameSearch] = useState('');
+  const [taskIdSearch, setTaskIdSearch] = useState('');
+  const [sessionIdSearch, setSessionIdSearch] = useState('');
+  const [agentIdSearch, setAgentIdSearch] = useState('');
+  const [selectedLog, setSelectedLog] = useState<ToolActivityLog | null>(null);
+
+  const { data: logs, isLoading } = useQuery({
+    queryKey: ['tool-activity-logs', filters],
+    queryFn: () => fetchToolActivityLogs(filters),
+    refetchInterval: 10000,
+  });
+
+  const applyTextFilters = () => {
+    setFilters((prev) => ({
+      ...prev,
+      search: searchText || undefined,
+      toolName: toolNameSearch || undefined,
+      taskId: taskIdSearch || undefined,
+      sessionId: sessionIdSearch || undefined,
+      agentId: agentIdSearch || undefined,
+    }));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') applyTextFilters();
+  };
+
+  const clearFilters = () => {
+    setFilters({});
+    setSearchText('');
+    setToolNameSearch('');
+    setTaskIdSearch('');
+    setSessionIdSearch('');
+    setAgentIdSearch('');
+  };
+
+  const hasActiveFilters =
+    filters.action ||
+    filters.toolName ||
+    filters.success ||
+    filters.search ||
+    filters.taskId ||
+    filters.sessionId ||
+    filters.agentId ||
+    filters.from ||
+    filters.to;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="flex items-center gap-2 font-semibold text-lg">
+          <Activity className="h-4 w-4" />
+          Tool Activity Logs
+        </h3>
+        <p className="text-muted-foreground text-sm">
+          Model-requested reads, writes, command executions, and full tool
+          results.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 font-medium text-sm">
+              <Filter className="h-4 w-4" />
+              Tool Filters
+            </CardTitle>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                Clear all
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <Label className="mb-1.5 block text-xs">Action</Label>
+                <Select
+                  value={filters.action || 'all'}
+                  onValueChange={(value) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      action: value === 'all' ? undefined : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Actions</SelectItem>
+                    <SelectItem value="read">Read</SelectItem>
+                    <SelectItem value="write">Write</SelectItem>
+                    <SelectItem value="execute">Execute</SelectItem>
+                    <SelectItem value="search">Search</SelectItem>
+                    <SelectItem value="network">Network</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="mb-1.5 block text-xs">Status</Label>
+                <Select
+                  value={filters.success || 'all'}
+                  onValueChange={(value) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      success: value === 'all' ? undefined : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="true">Success</SelectItem>
+                    <SelectItem value="false">Failed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="mb-1.5 block text-xs">Tool Name</Label>
+                <Input
+                  placeholder="Filter by tool..."
+                  value={toolNameSearch}
+                  onChange={(e) => setToolNameSearch(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onBlur={applyTextFilters}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label className="mb-1.5 block text-xs">
+                  Search Target or Result
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Search targets, output, errors..."
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                  />
+                  <Button
+                    onClick={applyTextFilters}
+                    size="icon"
+                    variant="outline"
+                  >
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <Label className="mb-1.5 block text-xs">Task ID</Label>
+                <Input
+                  placeholder="Filter by task ID..."
+                  value={taskIdSearch}
+                  onChange={(e) => setTaskIdSearch(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onBlur={applyTextFilters}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label className="mb-1.5 block text-xs">Session ID</Label>
+                <Input
+                  placeholder="Filter by session ID..."
+                  value={sessionIdSearch}
+                  onChange={(e) => setSessionIdSearch(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onBlur={applyTextFilters}
+                />
+              </div>
+
+              <div>
+                <Label className="mb-1.5 block text-xs">Agent ID</Label>
+                <Input
+                  placeholder="Filter by agent..."
+                  value={agentIdSearch}
+                  onChange={(e) => setAgentIdSearch(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onBlur={applyTextFilters}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <Label className="mb-1.5 block text-xs">From</Label>
+                <Input
+                  type="datetime-local"
+                  value={filters.from?.slice(0, 16) || ''}
+                  onChange={(e) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      from: e.target.value
+                        ? new Date(e.target.value).toISOString()
+                        : undefined,
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <Label className="mb-1.5 block text-xs">To</Label>
+                <Input
+                  type="datetime-local"
+                  value={filters.to?.slice(0, 16) || ''}
+                  onChange={(e) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      to: e.target.value
+                        ? new Date(e.target.value).toISOString()
+                        : undefined,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="flex items-center justify-center p-8 text-muted-foreground">
+              Loading tool activity logs...
+            </div>
+          ) : !logs || logs.length === 0 ? (
+            <div className="flex items-center justify-center p-8 text-muted-foreground">
+              No tool activity logs found
+            </div>
+          ) : (
+            <>
+              <div className="border-b px-4 py-2 text-muted-foreground text-xs">
+                {logs.length} record{logs.length !== 1 ? 's' : ''}
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-8" />
+                    <TableHead>Time</TableHead>
+                    <TableHead>Action</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Tool</TableHead>
+                    <TableHead>Target</TableHead>
+                    <TableHead className="text-right">Duration</TableHead>
+                    <TableHead>Agent</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {logs.map((log) => (
+                    <TableRow
+                      key={log.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => setSelectedLog(log)}
+                    >
+                      <TableCell className="w-8 text-muted-foreground">
+                        <ChevronDown className="h-4 w-4" />
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {new Date(log.createdAt).toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={actionBadgeClass[log.action] || ''}>
+                          {log.action}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          className={successBadgeClass[String(log.success)]}
+                        >
+                          {log.success ? 'success' : 'failed'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[180px] truncate font-mono text-xs">
+                        {log.toolName}
+                      </TableCell>
+                      <TableCell className="max-w-md truncate font-mono text-xs">
+                        {log.target || '-'}
+                      </TableCell>
+                      <TableCell className="text-right text-xs">
+                        {formatDuration(log.durationMs)}
+                      </TableCell>
+                      <TableCell className="max-w-[120px] truncate text-muted-foreground text-xs">
+                        {log.agentId || '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog
+        open={!!selectedLog}
+        onOpenChange={(open) => !open && setSelectedLog(null)}
+      >
+        <DialogContent className="max-h-[82vh] max-w-4xl overflow-y-auto">
+          {selectedLog && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex flex-wrap items-center gap-2">
+                  Tool Activity Detail
+                  <Badge className={actionBadgeClass[selectedLog.action] || ''}>
+                    {selectedLog.action}
+                  </Badge>
+                  <Badge
+                    className={successBadgeClass[String(selectedLog.success)]}
+                  >
+                    {selectedLog.success ? 'success' : 'failed'}
+                  </Badge>
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="grid gap-4 pt-2 sm:grid-cols-2">
+                <DetailRow
+                  label="Started"
+                  value={new Date(selectedLog.startedAt).toLocaleString()}
+                />
+                <DetailRow
+                  label="Completed"
+                  value={
+                    selectedLog.completedAt
+                      ? new Date(selectedLog.completedAt).toLocaleString()
+                      : '-'
+                  }
+                />
+                <DetailRow label="Tool" value={selectedLog.toolName} mono />
+                <DetailRow
+                  label="Duration"
+                  value={formatDuration(selectedLog.durationMs)}
+                />
+                {selectedLog.target && (
+                  <DetailRow label="Target" value={selectedLog.target} mono />
+                )}
+                {selectedLog.model && (
+                  <DetailRow label="Model" value={selectedLog.model} mono />
+                )}
+                {selectedLog.step !== null && (
+                  <DetailRow label="Step" value={String(selectedLog.step)} />
+                )}
+                {selectedLog.toolCallId && (
+                  <DetailRow
+                    label="Tool Call ID"
+                    value={selectedLog.toolCallId}
+                    mono
+                  />
+                )}
+                {selectedLog.taskId && (
+                  <DetailRow label="Task ID" value={selectedLog.taskId} mono />
+                )}
+                {selectedLog.sessionId && (
+                  <DetailRow
+                    label="Session"
+                    value={selectedLog.sessionId}
+                    mono
+                  />
+                )}
+                <DetailRow label="Agent" value={selectedLog.agentId} mono />
+                {selectedLog.sandboxId && (
+                  <DetailRow
+                    label="Sandbox"
+                    value={selectedLog.sandboxId}
+                    mono
+                  />
+                )}
+              </div>
+
+              <div className="space-y-4 pt-4">
+                <DetailBlock
+                  label="Arguments"
+                  value={formatStructuredValue(selectedLog.arguments)}
+                />
+                <DetailBlock
+                  label="Full Result"
+                  value={
+                    selectedLog.outputText ||
+                    formatStructuredValue(selectedLog.result)
+                  }
+                />
+                {selectedLog.error && (
+                  <DetailBlock label="Error" value={selectedLog.error} />
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function formatDuration(value: number | null): string {
+  return typeof value === 'number' ? `${value} ms` : '-';
+}
+
+function formatStructuredValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function DetailBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <Label className="font-medium text-muted-foreground text-xs">
+        {label}
+      </Label>
+      <pre className="mt-1 max-h-[42vh] overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-3 font-mono text-xs">
+        {value}
+      </pre>
     </div>
   );
 }

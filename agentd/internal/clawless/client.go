@@ -192,6 +192,10 @@ func (c *Client) WriteReviewLogs(ctx context.Context, logs []ReviewLog) error {
 	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/review-logs", logs)
 }
 
+func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityLog) error {
+	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/tool-activity-logs", logs)
+}
+
 // ── Memories ─────────────────────────────────────────────────────────
 
 func (c *Client) ListMemories(ctx context.Context, agentID string) ([]Memory, error) {

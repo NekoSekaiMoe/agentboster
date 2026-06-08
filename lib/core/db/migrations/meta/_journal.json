@@ -36,6 +36,13 @@
       "when": 1780872000000,
       "tag": "0004_agentd_identity_and_vault",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780872000000,
+      "tag": "0005_agent_tool_activity_logs",
+      "breakpoints": true
     }
   ]
 }

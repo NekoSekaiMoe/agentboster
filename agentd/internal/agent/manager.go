@@ -400,25 +400,54 @@ func (m *Manager) ExecuteTool(ctx context.Context, sessionID, toolName string, t
 	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
 
 	// Execute the tool directly
+	startedAt := time.Now()
+	argsJSON := mustMarshalJSON(toolInput)
+	toolCall := &ToolCall{
+		Name:      toolName,
+		Arguments: json.RawMessage(argsJSON),
+	}
+	recordResult := func(result *ToolResult) {
+		if result == nil {
+			result = &ToolResult{Success: false, Error: "tool returned nil result"}
+		}
+		resultJSON, err := json.Marshal(result)
+		if err != nil {
+			resultJSON = []byte(`{"success":false,"error":"marshal tool result failed"}`)
+		}
+		writeToolActivityLog(ctx, m.clawless, agentCtx, m.llmModel, 0, toolCall, result, string(resultJSON), startedAt, time.Now())
+	}
+
 	def, _, ok := registry.Get(toolName)
 	if !ok {
-		return &ToolExecResponse{Success: false, Error: fmt.Sprintf("unknown tool: %s", toolName)}, nil
+		toolResult := &ToolResult{Success: false, Error: fmt.Sprintf("unknown tool: %s", toolName)}
+		recordResult(toolResult)
+		return &ToolExecResponse{Success: false, Error: toolResult.Error}, nil
 	}
 	if !usertype.CanUse(agentCtx.Roles, def.MinUserType) {
-		return &ToolExecResponse{
+		toolResult := &ToolResult{
 			Success: false,
 			Error:   fmt.Sprintf("permission denied: tool %s requires %s", toolName, def.MinUserType),
-		}, nil
+		}
+		recordResult(toolResult)
+		return &ToolExecResponse{Success: false, Error: toolResult.Error}, nil
 	}
 
-	result, err := registry.Execute(ctx, toolName, mustMarshalJSON(toolInput))
+	result, err := registry.Execute(ctx, toolName, argsJSON)
 	if err != nil {
-		return &ToolExecResponse{
+		toolResult := &ToolResult{
 			Success: false,
 			Error:   err.Error(),
-		}, nil
+		}
+		recordResult(toolResult)
+		return &ToolExecResponse{Success: false, Error: toolResult.Error}, nil
+	}
+	if result == nil {
+		toolResult := &ToolResult{Success: false, Error: "tool returned nil result"}
+		recordResult(toolResult)
+		return &ToolExecResponse{Success: false, Error: toolResult.Error}, nil
 	}
 
+	recordResult(result)
 	return &ToolExecResponse{
 		Success: true,
 		Data:    result.Data,

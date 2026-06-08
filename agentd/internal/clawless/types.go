@@ -74,6 +74,31 @@ type ReviewLog struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+// ToolActivityLog records a model-requested tool call and its full result.
+type ToolActivityLog struct {
+	TaskID      string    `json:"task_id,omitempty"`
+	SessionID   string    `json:"session_id,omitempty"`
+	AgentID     string    `json:"agent_id"`
+	UserID      string    `json:"user_id,omitempty"`
+	Roles       []string  `json:"roles,omitempty"`
+	Source      BotSource `json:"source,omitempty"`
+	SandboxID   string    `json:"sandbox_id,omitempty"`
+	Model       string    `json:"model,omitempty"`
+	Step        int       `json:"step,omitempty"`
+	ToolCallID  string    `json:"tool_call_id,omitempty"`
+	ToolName    string    `json:"tool_name"`
+	Action      string    `json:"action"`
+	Target      string    `json:"target,omitempty"`
+	Arguments   any       `json:"arguments,omitempty"`
+	Result      any       `json:"result,omitempty"`
+	OutputText  string    `json:"output_text,omitempty"`
+	Success     bool      `json:"success"`
+	Error       string    `json:"error,omitempty"`
+	DurationMs  int64     `json:"duration_ms,omitempty"`
+	StartedAt   time.Time `json:"started_at"`
+	CompletedAt time.Time `json:"completed_at,omitempty"`
+}
+
 // Memory represents an agent memory entry.
 type Memory struct {
 	ID          string    `json:"id"`

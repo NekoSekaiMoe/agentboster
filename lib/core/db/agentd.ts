@@ -7,6 +7,7 @@ import {
   agentSandboxes,
   agentTaskOutputs,
   agentTasks,
+  agentToolActivityLogs,
   archivedTaskSummaries,
   sessions,
   taskSummaries,
@@ -21,6 +22,44 @@ type AgentdTask = typeof agentTasks.$inferSelect & {
 };
 
 type ReviewDecision = (typeof agentReviewLogs.decision.enumValues)[number];
+type ToolActivityAction =
+  (typeof agentToolActivityLogs.action.enumValues)[number];
+
+type ToolActivityLogInput = {
+  taskId?: string;
+  task_id?: string;
+  sessionId?: string;
+  session_id?: string;
+  agentId?: string;
+  agent_id?: string;
+  userId?: string;
+  user_id?: string;
+  roles?: string[];
+  source?: Record<string, unknown>;
+  sandboxId?: string;
+  sandbox_id?: string;
+  model?: string;
+  step?: number;
+  toolCallId?: string;
+  tool_call_id?: string;
+  toolName?: string;
+  tool_name?: string;
+  action?: string;
+  target?: string;
+  arguments?: unknown;
+  args?: unknown;
+  result?: unknown;
+  outputText?: string;
+  output_text?: string;
+  success?: boolean;
+  error?: string;
+  durationMs?: number;
+  duration_ms?: number;
+  startedAt?: string | Date;
+  started_at?: string | Date;
+  completedAt?: string | Date;
+  completed_at?: string | Date;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -122,6 +161,29 @@ function normalizeScore(value: number | undefined): number | null {
     return null;
   }
   return value > 0 && value <= 1 ? Math.round(value * 100) : Math.round(value);
+}
+
+function normalizeNullableText(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  return value;
+}
+
+function normalizeDate(value: string | Date | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeToolAction(value: string | undefined): ToolActivityAction {
+  const allowed = new Set<string>(agentToolActivityLogs.action.enumValues);
+  return (value && allowed.has(value) ? value : 'other') as ToolActivityAction;
 }
 
 export function formatTaskForAgentd(task: AgentdTask) {
@@ -279,6 +341,78 @@ export async function getReviewLogs(taskId: string) {
     .from(agentReviewLogs)
     .where(eq(agentReviewLogs.taskId, taskId))
     .orderBy(desc(agentReviewLogs.createdAt));
+}
+
+// === Tool Activity Logs ===
+
+export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
+  const taskIdentityCache = new Map<
+    string,
+    Awaited<ReturnType<typeof deriveTaskIdentity>>
+  >();
+  const sessionIdentityCache = new Map<
+    string,
+    Awaited<ReturnType<typeof deriveSessionIdentity>>
+  >();
+
+  async function identityFor(input: ToolActivityLogInput) {
+    const taskId = input.taskId ?? input.task_id ?? '';
+    if (taskId) {
+      const cached = taskIdentityCache.get(taskId);
+      if (cached) return cached;
+      const identity = await deriveTaskIdentity(taskId);
+      taskIdentityCache.set(taskId, identity);
+      return identity;
+    }
+
+    const sessionId = input.sessionId ?? input.session_id ?? '';
+    if (!sessionId) {
+      return { userId: null, roles: [], source: null };
+    }
+
+    const cached = sessionIdentityCache.get(sessionId);
+    if (cached) return cached;
+    const identity = await deriveSessionIdentity(sessionId);
+    sessionIdentityCache.set(sessionId, identity);
+    return identity;
+  }
+
+  const values = await Promise.all(
+    logs.map(async (log) => {
+      const identity = await identityFor(log);
+      const startedAt =
+        normalizeDate(log.startedAt ?? log.started_at) ?? new Date();
+      const completedAt = normalizeDate(log.completedAt ?? log.completed_at);
+      return {
+        taskId: normalizeNullableText(log.taskId ?? log.task_id),
+        sessionId: normalizeNullableText(log.sessionId ?? log.session_id),
+        agentId: log.agentId ?? log.agent_id ?? 'default',
+        userId: log.userId ?? log.user_id ?? identity.userId,
+        roles: log.roles ?? identity.roles,
+        source: log.source ?? identity.source,
+        sandboxId: normalizeNullableText(log.sandboxId ?? log.sandbox_id),
+        model: normalizeNullableText(log.model),
+        step: typeof log.step === 'number' ? log.step : null,
+        toolCallId: normalizeNullableText(log.toolCallId ?? log.tool_call_id),
+        toolName: log.toolName ?? log.tool_name ?? 'unknown',
+        action: normalizeToolAction(log.action),
+        target: normalizeNullableText(log.target),
+        arguments: log.arguments ?? log.args ?? null,
+        result: log.result ?? null,
+        outputText: log.outputText ?? log.output_text ?? null,
+        success: log.success ?? false,
+        error: log.error ?? null,
+        durationMs:
+          typeof (log.durationMs ?? log.duration_ms) === 'number'
+            ? (log.durationMs ?? log.duration_ms)
+            : null,
+        startedAt,
+        completedAt,
+      };
+    }),
+  );
+
+  return db.insert(agentToolActivityLogs).values(values).returning();
 }
 
 // === L0 Rules ===

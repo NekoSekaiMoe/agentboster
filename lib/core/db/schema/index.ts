@@ -17,6 +17,7 @@ export {
   agentTasks,
   agentTaskOutputs,
   agentReviewLogs,
+  agentToolActivityLogs,
   agentL0Rules,
   agentSandboxes,
   agentMemories,
