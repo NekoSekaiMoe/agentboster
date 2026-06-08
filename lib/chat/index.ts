@@ -43,7 +43,12 @@ import { executeConfigCommand } from './commands/config';
 import { executeMemoryCommand } from './commands/memory';
 import { executeModelCommand } from './commands/model';
 import { executePairCommand } from './commands/pair';
-import { checkDuplicate, recordMessage } from './dedup';
+import {
+  checkDuplicate,
+  checkIdempotencyDuplicate,
+  recordIdempotencyMessage,
+  recordMessage,
+} from './dedup';
 import { INIT_AGENTS_MD_MARKER, INIT_AGENTS_MD_PROMPT } from './init-prompt';
 import { serializeUserMessage } from './message-utils';
 import { deriveSessionTitle } from './session-title';
@@ -94,6 +99,7 @@ type ChatMainOptions = {
   channel?: string;
   externalThreadId?: string;
   userId?: string;
+  idempotencyKey?: string;
   workflowSource?: 'scheduled';
 };
 
@@ -102,6 +108,7 @@ type AdapterMessageInput = {
   origin: string;
   sessionId?: string;
   threadId: string;
+  messageId?: string | null;
   userId?: string | null;
   userName?: string | null;
   text: string;
@@ -153,6 +160,7 @@ function buildAdapterSource(
     adapter: input.adapter,
     origin: input.origin,
     threadId: input.threadId,
+    messageId: input.messageId ?? null,
     userId: input.userId ?? null,
     userName: input.userName ?? null,
   };
@@ -1003,7 +1011,10 @@ export async function chatMain(
     !envelope.sessionId
   ) {
     chatMainLogger.info('chatMain:checking_duplicate');
-    const dedup = await checkDuplicate(source, envelope.text);
+    const dedup = await checkDuplicate(source, envelope.text, {
+      idempotencyKey: options?.idempotencyKey,
+      messageId: source.messageId ?? undefined,
+    });
     if (dedup) {
       chatMainLogger.info('chatMain:duplicate_detected');
       return {
@@ -1011,6 +1022,25 @@ export async function chatMain(
         result: {
           sessionId: dedup.sessionId,
           text: `Active session: ${dedup.sessionId.slice(0, 8)}…\nSimilar task detected (${(dedup.similarity * 100).toFixed(0)}% match).\nReply 'confirm' to proceed, or /new to start fresh.`,
+          runId: null,
+        },
+      };
+    }
+  }
+
+  if (
+    envelope.kind === 'message' &&
+    source.type !== 'im' &&
+    options?.idempotencyKey &&
+    !envelope.sessionId
+  ) {
+    const dedup = await checkIdempotencyDuplicate(options.idempotencyKey);
+    if (dedup) {
+      return {
+        kind: 'command',
+        result: {
+          sessionId: dedup.sessionId,
+          text: `Active session: ${dedup.sessionId.slice(0, 8)}…\nDuplicate request detected by idempotency key.`,
           runId: null,
         },
       };
@@ -1025,7 +1055,16 @@ export async function chatMain(
   chatMainLogger.info('chatMain:session_ready', { sessionId: session.id });
 
   if (envelope.kind === 'message' && source.type === 'im') {
-    await recordMessage(source, envelope.text, session.id);
+    await recordMessage(source, envelope.text, session.id, {
+      idempotencyKey: options?.idempotencyKey,
+      messageId: source.messageId ?? undefined,
+    });
+  } else if (envelope.kind === 'message' && options?.idempotencyKey) {
+    await recordIdempotencyMessage(
+      options.idempotencyKey,
+      envelope.text,
+      session.id,
+    );
   }
 
   const isRegenerate = request.trigger === 'regenerate-message';

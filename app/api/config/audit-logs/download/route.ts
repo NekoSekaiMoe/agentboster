@@ -29,7 +29,7 @@ export async function GET(request: Request) {
       conditions.push(
         eq(
           agentReviewLogs.decision,
-          decision as 'allowed' | 'blocked' | 'pending_confirm',
+          decision as (typeof agentReviewLogs.decision.enumValues)[number],
         ),
       );
     }

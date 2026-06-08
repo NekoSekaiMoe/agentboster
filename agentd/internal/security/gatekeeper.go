@@ -46,11 +46,18 @@ func (r *ReviewResult) ReviewLog(level string, score float64, decision, reason s
 
 // Gatekeeper orchestrates the three-tier security review (replicating Manboster Zero Trust).
 type Gatekeeper struct {
-	l0      *l0_rules.Engine
-	l1      clawless.L1Scorer
-	l2      *l2_auth.L2AuthManager
-	bus     *eventbus.Bus
-	agentID string
+	l0        *l0_rules.Engine
+	l1        clawless.L1Scorer
+	l2        *l2_auth.L2AuthManager
+	bus       *eventbus.Bus
+	agentID   string
+	l1Enabled bool
+	failOpen  bool
+}
+
+type GatekeeperOptions struct {
+	L1Enabled bool
+	FailOpen  bool
 }
 
 // NewGatekeeper creates a new Gatekeeper with all three tiers.
@@ -60,13 +67,16 @@ func NewGatekeeper(
 	l2 *l2_auth.L2AuthManager,
 	bus *eventbus.Bus,
 	agentID string,
+	options GatekeeperOptions,
 ) *Gatekeeper {
 	return &Gatekeeper{
-		l0:      l0,
-		l1:      l1,
-		l2:      l2,
-		bus:     bus,
-		agentID: agentID,
+		l0:        l0,
+		l1:        l1,
+		l2:        l2,
+		bus:       bus,
+		agentID:   agentID,
+		l1Enabled: options.L1Enabled,
+		failOpen:  options.FailOpen,
 	}
 }
 
@@ -84,8 +94,16 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 	l0Result, err := g.l0.Check(task.Command, "")
 	if err != nil {
 		slog.Error("L0 check error", "task_id", task.ID, "error", err)
-		// L0 error → fail open, let L1 handle it
-		logs = append(logs, result.ReviewLog("L0", 0, "allowed", "L0 check error: "+err.Error()))
+		decision := "blocked"
+		if g.failOpen {
+			decision = "allowed"
+			logs = append(logs, result.ReviewLog("L0", 0, decision, "L0 check error: "+err.Error()))
+		} else {
+			result.Decision = DecisionBlocked
+			result.Reason = "L0 engine error: " + err.Error()
+			logs = append(logs, result.ReviewLog("L0", 1.0, decision, result.Reason))
+			return result, logs
+		}
 	} else if l0Result != nil && l0Result.Blocked {
 		result.L0Result = l0Result
 		result.Decision = DecisionBlocked
@@ -109,14 +127,25 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 		logs = append(logs, result.ReviewLog("L0", 0, "allowed", "no L0 rules matched"))
 	}
 
+	if !g.l1Enabled {
+		result.Decision = DecisionAllowed
+		result.Reason = "L1 disabled by configuration"
+		return result, logs
+	}
+
 	// === Tier 2: L1 Scorer ===
 	slog.Info("Gatekeeper: L1 review", "task_id", task.ID)
 	l1Result, err := g.l1.Score(ctx, task.Command, "", sessionSummary)
 	if err != nil {
 		slog.Error("L1 scoring error", "task_id", task.ID, "error", err)
+		if !g.failOpen {
+			result.Decision = DecisionBlocked
+			result.Reason = "L1 scoring error: " + err.Error()
+			logs = append(logs, result.ReviewLog("L1", 1.0, "blocked", result.Reason))
+			return result, logs
+		}
 		logs = append(logs, result.ReviewLog("L1", 0.3, "allowed", "L1 scoring error: "+err.Error()))
-		// L1 error → fail open with medium score
-		l1Result = &clawless.L1Result{Score: 0.3, Level: "medium", Reason: "scoring error, defaulting to medium risk"}
+		l1Result = &clawless.L1Result{Score: 0.3, Level: "medium", Reason: "scoring error, fail_open=true"}
 	}
 
 	result.L1Result = l1Result
@@ -256,7 +285,7 @@ func (g *Gatekeeper) AuditOutput(ctx context.Context, output string, sessionSumm
 // requestL2Auth handles the L2 authorization flow for high/critical risk commands.
 func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *clawless.L1Result, result *ReviewResult, logs []clawless.ReviewLog) *ReviewResult {
 	// Check L2 cache
-	if entry, hit, rejected := g.l2.Check(task.Command); hit {
+	if entry, hit, rejected := g.l2.CheckTask(task); hit {
 		if rejected {
 			slog.Info("Gatekeeper: L2 cache reject", "task_id", task.ID, "pattern", entry.Pattern)
 			result.Decision = DecisionBlocked
@@ -270,6 +299,7 @@ func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *clawless.L1Res
 	}
 
 	// Request L2 authorization
+	g.l2.RememberPendingTask(task)
 	result.Decision = DecisionPendingConfirm
 	result.Reason = "L2: awaiting user authorization"
 
@@ -279,6 +309,9 @@ func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *clawless.L1Res
 		"score":   l1Result.Score,
 		"reason":  l1Result.Reason,
 		"level":   l1Result.Level,
+		"task":    task,
+		"source":  task.Source,
+		"user_id": task.UserID,
 		"message": l2_auth.FormatNotificationMessage(task.Command, l1Result.Score, l1Result.Reason, l1Result.Level),
 	})
 

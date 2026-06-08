@@ -236,6 +236,7 @@ function buildIncomingSource(
     adapter,
     origin: thread.channelId ?? thread.id,
     threadId: thread.id,
+    messageId: message.id?.trim() || null,
     userId: message.author?.userId ?? null,
     userName: message.author?.userName ?? null,
   };
@@ -415,6 +416,7 @@ export async function getBot(): Promise<Chat> {
       origin: thread.channelId ?? thread.id,
       sessionId: replyContext?.sessionId,
       threadId: thread.id,
+      messageId: message.id?.trim() || null,
       userId: message.author?.userId ?? null,
       userName: message.author?.userName ?? null,
       text: routedText,

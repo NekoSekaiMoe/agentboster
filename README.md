@@ -209,6 +209,24 @@ agentd/                  # Go 1.26 Daemon
 - **Webhook 回调** — 任务完成或需决策时回调 Web 端
 - **Daemon 身份** — 节点注册、心跳、配对
 
+### Agent Daemon 安装
+
+```bash
+go install github.com/clawless/agentd/cmd/agentd@latest
+agentd -tui
+agentd -gen-certs -cert-dir ./certs
+agentd -config agentd.toml
+```
+
+如果从源码构建：
+
+```bash
+cd agentd
+go build -ldflags "-X main.version=$(git describe --tags --always) -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o agentd ./cmd/agentd/
+```
+
+L1 安全层默认开启。未配置或健康检查失败时，所有通过 L0 的工具调用会进入 L2 用户授权；建议在 Web 配置中设置 L1 scorer model 以减少交互确认次数。`security.fail_open=false` 是默认值，只有显式设置为 `true` 才会在 L1 执行错误时放行。
+
 ### 集百家之长
 
 AgentBoster 不是从零开始的创新，而是站在多个优秀项目的肩膀上，各取所长，缝合出一个全新的品类。

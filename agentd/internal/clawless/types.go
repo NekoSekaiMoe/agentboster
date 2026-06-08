@@ -19,6 +19,9 @@ type Task struct {
 	ID           string            `json:"id"`
 	AgentID      string            `json:"agent_id"`
 	SessionID    string            `json:"session_id"`
+	UserID       string            `json:"user_id"`
+	Roles        []string          `json:"roles"`
+	Source       BotSource         `json:"source"`
 	Command      string            `json:"command"`
 	SandboxType  string            `json:"sandbox_type"`
 	SandboxID    string            `json:"sandbox_id"`
@@ -35,6 +38,9 @@ type Task struct {
 type Session struct {
 	ID        string    `json:"id"`
 	AgentID   string    `json:"agent_id"`
+	UserID    string    `json:"user_id"`
+	Roles     []string  `json:"roles"`
+	Source    BotSource `json:"source"`
 	Messages  []Message `json:"messages"`
 	Summary   string    `json:"summary"`
 	KeyFacts  []KeyFact `json:"key_facts"`
@@ -58,6 +64,8 @@ type KeyFact struct {
 // ReviewLog represents a security review record.
 type ReviewLog struct {
 	TaskID    string    `json:"task_id"`
+	UserID    string    `json:"user_id,omitempty"`
+	Roles     []string  `json:"roles,omitempty"`
 	Command   string    `json:"command"`
 	Level     string    `json:"level"`
 	Score     float64   `json:"score"`
@@ -147,6 +155,34 @@ type Notification struct {
 	Title    string         `json:"title"`
 	Message  string         `json:"message"`
 	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
+type BotSource struct {
+	Type      string `json:"type,omitempty"`
+	Adapter   string `json:"adapter,omitempty"`
+	Origin    string `json:"origin,omitempty"`
+	ThreadID  string `json:"threadId,omitempty"`
+	MessageID string `json:"messageId,omitempty"`
+	UserID    string `json:"userId,omitempty"`
+	UserName  string `json:"userName,omitempty"`
+}
+
+type BotCapabilities struct {
+	Delete   bool `json:"delete"`
+	Edit     bool `json:"edit"`
+	Reaction bool `json:"reaction"`
+}
+
+type BotCapabilitiesResponse struct {
+	Adapter      string          `json:"adapter"`
+	ChatID       string          `json:"chat_id"`
+	ThreadID     string          `json:"thread_id"`
+	Capabilities BotCapabilities `json:"capabilities"`
+}
+
+type NotificationSendResponse struct {
+	Channel   string `json:"channel"`
+	MessageID string `json:"message_id"`
 }
 
 // Decision represents a recorded decision in a task summary.

@@ -1,4 +1,8 @@
-import { createTask, listTasks } from '@/lib/core/db/agentd';
+import {
+  createTask,
+  formatTaskForAgentd,
+  listTasks,
+} from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.tasks');
@@ -9,6 +13,7 @@ export async function POST(request: Request) {
     const task = await createTask({
       agentId: body.agent_id ?? 'default',
       sessionId: body.session_id,
+      source: body.source,
       command: body.command,
       sandboxType: body.sandbox_type,
       sandboxId: body.sandbox_id,
@@ -16,7 +21,7 @@ export async function POST(request: Request) {
       timeout: body.timeout,
     });
     logger.info('task created', { taskId: task.id, agentId: task.agentId });
-    return Response.json({ success: true, data: task });
+    return Response.json({ success: true, data: formatTaskForAgentd(task) });
   } catch (error) {
     logger.error('task creation failed', {
       error: error instanceof Error ? error.message : String(error),
@@ -33,5 +38,8 @@ export async function GET(request: Request) {
   const agentId = searchParams.get('agent_id') ?? 'default';
   const limit = Number(searchParams.get('limit') ?? 50);
   const tasks = await listTasks(agentId, limit);
-  return Response.json({ success: true, data: tasks });
+  return Response.json({
+    success: true,
+    data: tasks.map((task) => formatTaskForAgentd(task)),
+  });
 }

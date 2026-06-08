@@ -31,3 +31,4 @@ export {
   notificationPreferences,
   channelHealth,
 } from './notification';
+export { vaultAuditLogs, vaultEntries } from './vault';

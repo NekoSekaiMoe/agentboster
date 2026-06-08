@@ -220,6 +220,7 @@ export type IMChatSource = {
   adapter: AdapterName;
   origin: string;
   threadId: string;
+  messageId?: string | null;
   userId?: string | null;
   userName?: string | null;
 };
@@ -243,11 +244,12 @@ const imChatSourceSchema = z.object({
   adapter: adapterNameSchema,
   origin: z.string(),
   threadId: z.string(),
+  messageId: z.string().nullable().optional(),
   userId: z.string().nullable().optional(),
   userName: z.string().nullable().optional(),
 });
 
-const chatSourceSchema = z.discriminatedUnion('type', [
+export const chatSourceSchema = z.discriminatedUnion('type', [
   webChatSourceSchema,
   scheduledChatSourceSchema,
   imChatSourceSchema,

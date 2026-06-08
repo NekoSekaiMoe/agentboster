@@ -8,10 +8,141 @@ import {
   agentTaskOutputs,
   agentTasks,
   archivedTaskSummaries,
+  sessions,
   taskSummaries,
+  users,
   workspaces,
 } from './schema';
 import type { Decision } from './schema';
+
+type AgentdTask = typeof agentTasks.$inferSelect & {
+  roles?: string[];
+  source?: Record<string, unknown> | null;
+};
+
+type ReviewDecision = (typeof agentReviewLogs.decision.enumValues)[number];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeSource(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+export async function deriveSessionIdentity(
+  sessionId?: string | null,
+): Promise<{
+  userId: string | null;
+  roles: string[];
+  source: Record<string, unknown> | null;
+}> {
+  if (!sessionId) {
+    return { userId: null, roles: [], source: null };
+  }
+
+  const [session] = await db
+    .select({
+      userId: sessions.userId,
+      channel: sessions.channel,
+      externalThreadId: sessions.externalThreadId,
+      metadata: sessions.metadata,
+    })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+
+  if (!session) {
+    return { userId: null, roles: [], source: null };
+  }
+
+  const metadataSource = normalizeSource(session.metadata?.source);
+  const fallbackSource =
+    session.channel && session.externalThreadId && session.channel !== 'web'
+      ? {
+          type: 'im',
+          adapter: session.channel,
+          origin: session.externalThreadId,
+          threadId: session.externalThreadId,
+        }
+      : null;
+  const source = metadataSource ?? fallbackSource;
+
+  if (!session.userId) {
+    return { userId: null, roles: [], source };
+  }
+
+  const [user] = await db
+    .select({ id: users.id, roles: users.roles })
+    .from(users)
+    .where(eq(users.id, session.userId))
+    .limit(1);
+
+  return {
+    userId: user?.id ?? session.userId,
+    roles: (user?.roles as string[] | undefined) ?? [],
+    source,
+  };
+}
+
+async function deriveTaskIdentity(taskId: string): Promise<{
+  userId: string | null;
+  roles: string[];
+  source: Record<string, unknown> | null;
+}> {
+  const [task] = await db
+    .select({
+      userId: agentTasks.userId,
+      sessionId: agentTasks.sessionId,
+      source: agentTasks.source,
+    })
+    .from(agentTasks)
+    .where(eq(agentTasks.id, taskId))
+    .limit(1);
+
+  if (!task) {
+    return { userId: null, roles: [], source: null };
+  }
+
+  const sessionIdentity = await deriveSessionIdentity(task.sessionId);
+  return {
+    userId: sessionIdentity.userId ?? task.userId ?? null,
+    roles: sessionIdentity.roles,
+    source: normalizeSource(task.source) ?? sessionIdentity.source,
+  };
+}
+
+function normalizeDecision(value: string): ReviewDecision {
+  const allowed = new Set<string>(agentReviewLogs.decision.enumValues);
+  return (allowed.has(value) ? value : 'allowed') as ReviewDecision;
+}
+
+function normalizeScore(value: number | undefined): number | null {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return null;
+  }
+  return value > 0 && value <= 1 ? Math.round(value * 100) : Math.round(value);
+}
+
+export function formatTaskForAgentd(task: AgentdTask) {
+  return {
+    id: task.id,
+    agent_id: task.agentId,
+    session_id: task.sessionId,
+    user_id: task.userId ?? null,
+    roles: task.roles ?? [],
+    source: task.source ?? null,
+    command: task.command,
+    sandbox_type: task.sandboxType,
+    sandbox_id: task.sandboxId,
+    env: task.env,
+    timeout: task.timeout,
+    status: task.status,
+    result: task.result,
+    created_at: task.createdAt,
+    updated_at: task.updatedAt,
+  };
+}
 
 // === Tasks ===
 
@@ -19,26 +150,34 @@ export async function createTask(data: {
   id?: string;
   agentId: string;
   sessionId?: string;
+  source?: Record<string, unknown>;
   command: string;
   sandboxType?: string;
   sandboxId?: string;
   env?: Record<string, string>;
   timeout?: number;
 }) {
+  const identity = await deriveSessionIdentity(data.sessionId);
   const [task] = await db
     .insert(agentTasks)
     .values({
       agentId: data.agentId,
       sessionId: data.sessionId ?? null,
+      userId: identity.userId,
       command: data.command,
       sandboxType: data.sandboxType ?? 'auto',
       sandboxId: data.sandboxId ?? null,
+      source: data.source ?? identity.source,
       env: data.env ?? null,
       timeout: data.timeout ?? 300,
       status: 'pending',
     })
     .returning();
-  return task;
+  return {
+    ...task,
+    roles: identity.roles,
+    source: task.source ?? identity.source,
+  };
 }
 
 export async function getTask(id: string) {
@@ -46,7 +185,14 @@ export async function getTask(id: string) {
     .select()
     .from(agentTasks)
     .where(eq(agentTasks.id, id));
-  return task ?? null;
+  if (!task) return null;
+  const identity = await deriveTaskIdentity(task.id);
+  return {
+    ...task,
+    userId: identity.userId ?? task.userId,
+    roles: identity.roles,
+    source: normalizeSource(task.source) ?? identity.source,
+  };
 }
 
 export async function updateTaskStatus(
@@ -62,7 +208,14 @@ export async function updateTaskStatus(
     })
     .where(eq(agentTasks.id, id))
     .returning();
-  return task;
+  if (!task) return task;
+  const identity = await deriveTaskIdentity(task.id);
+  return {
+    ...task,
+    userId: identity.userId ?? task.userId,
+    roles: identity.roles,
+    source: normalizeSource(task.source) ?? identity.source,
+  };
 }
 
 export async function listTasks(agentId: string, limit = 50) {
@@ -78,7 +231,8 @@ export async function listTasks(agentId: string, limit = 50) {
 
 export async function writeReviewLogs(
   logs: Array<{
-    taskId: string;
+    taskId?: string;
+    task_id?: string;
     command: string;
     level: string;
     score?: number;
@@ -86,19 +240,37 @@ export async function writeReviewLogs(
     reason?: string;
   }>,
 ) {
-  return db
-    .insert(agentReviewLogs)
-    .values(
-      logs.map((log) => ({
-        taskId: log.taskId,
+  const identityCache = new Map<
+    string,
+    Awaited<ReturnType<typeof deriveTaskIdentity>>
+  >();
+
+  async function identityFor(taskId: string) {
+    const cached = identityCache.get(taskId);
+    if (cached) return cached;
+    const identity = await deriveTaskIdentity(taskId);
+    identityCache.set(taskId, identity);
+    return identity;
+  }
+
+  const values = await Promise.all(
+    logs.map(async (log) => {
+      const taskId = log.taskId ?? log.task_id ?? '';
+      const identity = await identityFor(taskId);
+      return {
+        taskId,
+        userId: identity.userId,
+        roles: identity.roles,
         command: log.command,
         level: log.level as 'L0' | 'L1' | 'L2',
-        score: log.score ?? null,
-        decision: log.decision as 'allowed' | 'blocked' | 'pending_confirm',
+        score: normalizeScore(log.score),
+        decision: normalizeDecision(log.decision),
         reason: log.reason ?? null,
-      })),
-    )
-    .returning();
+      };
+    }),
+  );
+
+  return db.insert(agentReviewLogs).values(values).returning();
 }
 
 export async function getReviewLogs(taskId: string) {

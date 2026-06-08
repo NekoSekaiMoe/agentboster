@@ -11,14 +11,13 @@ import (
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/eventbus"
+	"github.com/clawless/agentd/internal/i18n"
+	"github.com/clawless/agentd/internal/usertype"
 )
 
 const (
 	ActionPass   = "pass"
 	ActionReject = "reject"
-
-	// farFuture is used for "always" (session-scoped) entries.
-	farFuture = 365 * 24 * time.Hour
 
 	// cleanupInterval is the default interval for the cleanup worker.
 	cleanupInterval = 30 * time.Second
@@ -30,6 +29,7 @@ var durationRe = regexp.MustCompile(`^(always|\d{8})$`)
 type L2AuthEntry struct {
 	SessionID string
 	Pattern   string
+	CacheKey  CacheKey
 	Action    string
 	ExpiresAt time.Time
 	CreatedAt time.Time
@@ -39,7 +39,8 @@ type L2AuthEntry struct {
 // DecisionQueue, pending tasks, and persistence moved to clawless web layer.
 type L2AuthManager struct {
 	mu         sync.RWMutex
-	entries    map[string]*L2AuthEntry // key = session_id + ":" + command_pattern
+	entries    map[string]*L2AuthEntry
+	pending    map[string]CacheKey
 	clawless   *clawless.Client
 	bus        *eventbus.Bus
 	agentID    string
@@ -51,6 +52,7 @@ type L2AuthManager struct {
 func NewL2AuthManager(client *clawless.Client, agentID string) *L2AuthManager {
 	return &L2AuthManager{
 		entries:    make(map[string]*L2AuthEntry),
+		pending:    make(map[string]CacheKey),
 		clawless:   client,
 		agentID:    agentID,
 		escalation: 5 * time.Minute,
@@ -85,10 +87,26 @@ func (m *L2AuthManager) SetSession(sessionID string) {
 //   - hit:   true if a valid (non-expired) cache entry was found
 //   - rejected: true if the cache hit has Action="reject" (caller should silently reject)
 func (m *L2AuthManager) Check(pattern string) (*L2AuthEntry, bool, bool) {
+	return m.checkWithKey(CacheKey{
+		UserID:        "unknown",
+		SessionID:     m.sessionID,
+		ToolName:      "task_command",
+		ArgsHash:      hashString(pattern),
+		SandboxID:     "unknown",
+		PolicyVersion: PolicyVersion,
+		UserType:      usertype.Unknown,
+	}, pattern)
+}
+
+func (m *L2AuthManager) CheckTask(task *clawless.Task) (*L2AuthEntry, bool, bool) {
+	return m.checkWithKey(CacheKeyForTask(task), task.Command)
+}
+
+func (m *L2AuthManager) checkWithKey(cacheKey CacheKey, pattern string) (*L2AuthEntry, bool, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	key := m.sessionID + ":" + pattern
+	key := cacheKey.SessionScopedKey()
 	entry, ok := m.entries[key]
 	if !ok {
 		return nil, false, false
@@ -100,11 +118,18 @@ func (m *L2AuthManager) Check(pattern string) (*L2AuthEntry, bool, bool) {
 
 	slog.Info("L2 auth cache hit",
 		"pattern", pattern,
+		"cache_key", key,
 		"action", entry.Action,
 		"expires", entry.ExpiresAt,
 	)
 
 	return entry, true, entry.Action == ActionReject
+}
+
+func (m *L2AuthManager) RememberPendingTask(task *clawless.Task) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pending[task.ID] = CacheKeyForTask(task)
 }
 
 // Authorize records a pass authorization decision for the given pattern and duration.
@@ -114,8 +139,42 @@ func (m *L2AuthManager) Check(pattern string) (*L2AuthEntry, bool, bool) {
 //   - "always" → write cache with far-future expiry
 //   - "hhddmmyy" → parse and write cache with computed TTL
 func (m *L2AuthManager) Authorize(pattern string, duration string) error {
+	return m.authorizeWithKey(CacheKey{
+		UserID:        "unknown",
+		SessionID:     m.sessionID,
+		ToolName:      "task_command",
+		ArgsHash:      hashString(pattern),
+		SandboxID:     "unknown",
+		PolicyVersion: PolicyVersion,
+		UserType:      usertype.Unknown,
+	}, pattern, duration, ActionPass)
+}
+
+func (m *L2AuthManager) AuthorizeTask(taskID, pattern, duration string) error {
+	return m.authorizePending(taskID, pattern, duration, ActionPass)
+}
+
+func (m *L2AuthManager) authorizePending(taskID, pattern, duration, action string) error {
+	m.mu.RLock()
+	cacheKey, ok := m.pending[taskID]
+	m.mu.RUnlock()
+	if !ok {
+		cacheKey = CacheKey{
+			UserID:        "unknown",
+			SessionID:     m.sessionID,
+			ToolName:      "task_command",
+			ArgsHash:      hashString(pattern),
+			SandboxID:     "unknown",
+			PolicyVersion: PolicyVersion,
+			UserType:      usertype.Unknown,
+		}
+	}
+	return m.authorizeWithKey(cacheKey, pattern, duration, action)
+}
+
+func (m *L2AuthManager) authorizeWithKey(cacheKey CacheKey, pattern string, duration string, action string) error {
 	if duration == "once" {
-		slog.Info("L2 authorize once (no cache write)", "pattern", pattern)
+		slog.Info("L2 decision once (no cache write)", "pattern", pattern, "action", action)
 		return nil
 	}
 
@@ -124,7 +183,7 @@ func (m *L2AuthManager) Authorize(pattern string, duration string) error {
 
 	var expiresAt time.Time
 	if duration == "always" {
-		expiresAt = time.Now().Add(farFuture)
+		expiresAt = time.Now().Add(ttlForUserType(cacheKey.UserType))
 	} else {
 		ttl, err := ParseDuration(duration)
 		if err != nil {
@@ -133,11 +192,12 @@ func (m *L2AuthManager) Authorize(pattern string, duration string) error {
 		expiresAt = time.Now().Add(ttl)
 	}
 
-	key := m.sessionID + ":" + pattern
+	key := cacheKey.SessionScopedKey()
 	entry := &L2AuthEntry{
-		SessionID: m.sessionID,
+		SessionID: cacheKey.SessionID,
 		Pattern:   pattern,
-		Action:    ActionPass,
+		CacheKey:  cacheKey,
+		Action:    action,
 		ExpiresAt: expiresAt,
 		CreatedAt: time.Now(),
 	}
@@ -145,10 +205,24 @@ func (m *L2AuthManager) Authorize(pattern string, duration string) error {
 
 	slog.Info("L2 authorized",
 		"pattern", pattern,
-		"action", ActionPass,
+		"cache_key", key,
+		"action", action,
 		"expires", expiresAt,
 	)
 	return nil
+}
+
+func ttlForUserType(userType usertype.UserType) time.Duration {
+	switch userType {
+	case usertype.Root:
+		return 30 * time.Minute
+	case usertype.Admin:
+		return 2 * time.Hour
+	case usertype.User:
+		return 3 * time.Hour
+	default:
+		return 4 * time.Hour
+	}
 }
 
 // Reject records a reject authorization decision for the given pattern and duration.
@@ -158,48 +232,34 @@ func (m *L2AuthManager) Authorize(pattern string, duration string) error {
 //   - "always" → write cache with far-future expiry
 //   - "hhddmmyy" → parse and write cache with computed TTL
 func (m *L2AuthManager) Reject(pattern string, duration string) error {
-	if duration == "once" {
-		slog.Info("L2 reject once (no cache write)", "pattern", pattern)
-		return nil
-	}
+	return m.authorizeWithKey(CacheKey{
+		UserID:        "unknown",
+		SessionID:     m.sessionID,
+		ToolName:      "task_command",
+		ArgsHash:      hashString(pattern),
+		SandboxID:     "unknown",
+		PolicyVersion: PolicyVersion,
+		UserType:      usertype.Unknown,
+	}, pattern, duration, ActionReject)
+}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	var expiresAt time.Time
-	if duration == "always" {
-		expiresAt = time.Now().Add(farFuture)
-	} else {
-		ttl, err := ParseDuration(duration)
-		if err != nil {
-			return err
-		}
-		expiresAt = time.Now().Add(ttl)
-	}
-
-	key := m.sessionID + ":" + pattern
-	entry := &L2AuthEntry{
-		SessionID: m.sessionID,
-		Pattern:   pattern,
-		Action:    ActionReject,
-		ExpiresAt: expiresAt,
-		CreatedAt: time.Now(),
-	}
-	m.entries[key] = entry
-
-	slog.Info("L2 rejected",
-		"pattern", pattern,
-		"action", ActionReject,
-		"expires", expiresAt,
-	)
-	return nil
+func (m *L2AuthManager) RejectTask(taskID, pattern, duration string) error {
+	return m.authorizePending(taskID, pattern, duration, ActionReject)
 }
 
 // Revoke removes an authorization entry by pattern.
 func (m *L2AuthManager) Revoke(pattern string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	key := m.sessionID + ":" + pattern
+	key := CacheKey{
+		UserID:        "unknown",
+		SessionID:     m.sessionID,
+		ToolName:      "task_command",
+		ArgsHash:      hashString(pattern),
+		SandboxID:     "unknown",
+		PolicyVersion: PolicyVersion,
+		UserType:      usertype.Unknown,
+	}.SessionScopedKey()
 	delete(m.entries, key)
 }
 
@@ -318,19 +378,13 @@ func FormatNotificationMessage(command string, score float64, reason string, lev
 	if level == "critical" {
 		icon = "🚨"
 	}
-	return fmt.Sprintf(
-		"%s 高风险操作需要您的授权\n\n"+
-			"命令：%s\n"+
-			"风险评分：%.1f/1.0\n"+
-			"风险等级：%s\n"+
-			"原因：%s\n\n"+
-			"请选择授权时间窗口：\n"+
-			"- pass_once: 仅此次\n"+
-			"- pass_until: 指定时间前 (格式 hhddmmyy)\n"+
-			"- reject_once: 仅此次拒绝\n"+
-			"- reject_until: 指定时间前拒绝 (格式 hhddmmyy)",
-		icon, command, score, level, reason,
-	)
+	return i18n.T("l2.authorization.message", map[string]any{
+		"Icon":    icon,
+		"Command": command,
+		"Score":   fmt.Sprintf("%.1f", score),
+		"Level":   level,
+		"Reason":  reason,
+	})
 }
 
 // ParseDuration parses the hhddmmyy format and returns a time.Duration.

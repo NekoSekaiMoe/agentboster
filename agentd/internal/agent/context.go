@@ -15,6 +15,9 @@ type AgentContext struct {
 	SessionID      string
 	TaskID         string
 	AgentID        string
+	UserID         string
+	Roles          []string
+	Source         clawless.BotSource
 	SandboxID      string
 	SandboxType    string
 	SandboxPath    string

@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -267,6 +268,25 @@ func (c *Client) CreateNotification(ctx context.Context, notification *Notificat
 	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/notifications", notification)
 }
 
+func (c *Client) SendNotification(ctx context.Context, body map[string]any) (*NotificationSendResponse, error) {
+	return requestJSONPtr[NotificationSendResponse](c, ctx, http.MethodPost, "/api/agentd/v1/notifications/send", body)
+}
+
+func (c *Client) GetCapabilities(ctx context.Context, source BotSource) (*BotCapabilitiesResponse, error) {
+	values := url.Values{}
+	values.Set("adapter", source.Adapter)
+	values.Set("chatId", source.ThreadID)
+	values.Set("threadId", source.ThreadID)
+	return requestJSONPtr[BotCapabilitiesResponse](c, ctx, http.MethodGet, "/api/agentd/v1/capabilities?"+values.Encode(), nil)
+}
+
+func (c *Client) RecallNotification(ctx context.Context, source BotSource, messageID string) error {
+	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/notifications/recall", map[string]any{
+		"source":     source,
+		"message_id": messageID,
+	})
+}
+
 // PostJSON sends a POST request and optionally decodes the response into dest.
 func (c *Client) PostJSON(ctx context.Context, path string, body any, dest any) error {
 	data, err := c.doRequest(ctx, http.MethodPost, path, body)
@@ -295,6 +315,16 @@ func (c *Client) ExtractTaskMemory(ctx context.Context, taskID string, req TaskM
 
 func (c *Client) RunTaskSummaryTidy(ctx context.Context) error {
 	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/task-summaries/tidy/run", map[string]any{"agent_id": "default"})
+}
+
+func (c *Client) ListVaultKeys(ctx context.Context) ([]string, error) {
+	resp, err := requestJSON[struct {
+		Keys []string `json:"keys"`
+	}](c, ctx, http.MethodGet, "/api/agentd/v1/vault/list", nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Keys, nil
 }
 
 // ── SOUL ─────────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ func registerMemorySearch(registry *ToolRegistry, client *clawless.Client, ctx *
 	registry.Register(ToolDefinition{
 		Name:        "memory_search",
 		Description: "Search agent memories by keywords. Returns relevant memory entries.",
+		MinUserType: "unknown",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

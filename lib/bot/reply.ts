@@ -131,6 +131,30 @@ export async function sendAdapterSourceReply(
   }
 }
 
+export async function deleteAdapterSourceMessage(
+  source: ChatSource,
+  messageId: string,
+): Promise<boolean> {
+  if (source.type !== 'im' || !messageId) {
+    return false;
+  }
+
+  try {
+    const bot = await getBaseBot();
+    const adapter = bot.getAdapter(source.adapter);
+    await adapter.deleteMessage(source.threadId, messageId);
+    return true;
+  } catch (error) {
+    logger.warn('reply:delete_failed', {
+      adapter: source.adapter,
+      threadId: source.threadId,
+      messageId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 /** Telegram typing indicator lasts ~5s; refresh at this interval */
 const TYPING_REFRESH_MS = 4500;
 /** Minimum text length change before editing the message */

@@ -158,6 +158,7 @@ export async function POST(request: Request) {
       },
       {
         source: { type: 'web' },
+        idempotencyKey: request.headers.get('X-Idempotency-Key') ?? undefined,
       },
     );
 

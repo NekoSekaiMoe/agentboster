@@ -15,6 +15,7 @@ import (
 	"github.com/clawless/agentd/internal/sandbox"
 	"github.com/clawless/agentd/internal/security"
 	"github.com/clawless/agentd/internal/session"
+	"github.com/clawless/agentd/internal/usertype"
 	"github.com/clawless/agentd/internal/worker/workers"
 )
 
@@ -34,6 +35,7 @@ type Manager struct {
 	bgTaskStore   *persistence.BackgroundTaskStore
 	gatekeeper    *security.Gatekeeper
 	execCollector *workers.BatchCollector
+	disabledTools []string
 }
 
 // NewManager creates a new agent manager.
@@ -50,14 +52,15 @@ func NewManager(
 	}
 
 	m := &Manager{
-		sessions:     make(map[string]*AgentContext),
-		sbManager:    sbManager,
-		clawless:     clawlessClient,
-		l1Scorer:     l1Scorer,
-		llmEndpoint:  cfg.Security.L1Endpoint,
-		llmModel:     cfg.Security.L1Model,
-		llmAPIKey:    cfg.Security.L1APIKey,
-		sessionStore: store,
+		sessions:      make(map[string]*AgentContext),
+		sbManager:     sbManager,
+		clawless:      clawlessClient,
+		l1Scorer:      l1Scorer,
+		llmEndpoint:   cfg.Security.L1Endpoint,
+		llmModel:      cfg.Security.L1Model,
+		llmAPIKey:     cfg.Security.L1APIKey,
+		sessionStore:  store,
+		disabledTools: cfg.Tools.Disabled,
 	}
 	return m
 }
@@ -326,7 +329,7 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 	agentCtx.SystemPrompt = buildSystemPrompt(agentCtx.ProjectID, "", agentCtx.SoulContent)
 
 	// Create tool registry with all MVP tools
-	registry := NewToolRegistry()
+	registry := NewToolRegistry(m.disabledTools)
 	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
 
 	// Create agent loop
@@ -351,6 +354,8 @@ type ToolExecRequest struct {
 	SessionID string         `json:"session_id"`
 	ToolName  string         `json:"tool_name"`
 	ToolInput map[string]any `json:"tool_input"`
+	UserID    string         `json:"user_id,omitempty"`
+	Roles     []string       `json:"roles,omitempty"`
 }
 
 // ToolExecResponse is the result of a synchronous tool execution.
@@ -377,14 +382,35 @@ func (m *Manager) ExecuteTool(ctx context.Context, sessionID, toolName string, t
 		}
 	}
 	m.wireSessionRuntime(agentCtx)
+	if len(toolInput) == 0 {
+		toolInput = map[string]any{}
+	}
+	if agentCtx.UserID == "" || len(agentCtx.Roles) == 0 {
+		if session, err := m.clawless.GetSession(ctx, sessionID); err == nil {
+			agentCtx.UserID = session.UserID
+			agentCtx.Roles = session.Roles
+			agentCtx.Source = session.Source
+		}
+	}
 
 	// Fetch SOUL and build system prompt
 	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
 	agentCtx.SystemPrompt = buildDefaultSystemPrompt(agentCtx.SoulContent)
-	registry := NewToolRegistry()
+	registry := NewToolRegistry(m.disabledTools)
 	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
 
 	// Execute the tool directly
+	def, _, ok := registry.Get(toolName)
+	if !ok {
+		return &ToolExecResponse{Success: false, Error: fmt.Sprintf("unknown tool: %s", toolName)}, nil
+	}
+	if !usertype.CanUse(agentCtx.Roles, def.MinUserType) {
+		return &ToolExecResponse{
+			Success: false,
+			Error:   fmt.Sprintf("permission denied: tool %s requires %s", toolName, def.MinUserType),
+		}, nil
+	}
+
 	result, err := registry.Execute(ctx, toolName, mustMarshalJSON(toolInput))
 	if err != nil {
 		return &ToolExecResponse{

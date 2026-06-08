@@ -100,6 +100,10 @@ func (c *L1Client) unavailableResult(reason string) (*L1Result, error) {
 	}, nil
 }
 
+func (c *L1Client) Available() bool {
+	return c.available
+}
+
 type l1ScoreRequest struct {
 	Type           string `json:"type"`
 	Command        string `json:"command,omitempty"`
@@ -132,7 +136,7 @@ func (c *L1Client) Score(ctx context.Context, command, workDir, sessionSummary s
 	result, err := c.doScore(ctx, req)
 	if err != nil {
 		slog.Error("L1 scoring failed", "error", err)
-		return c.unavailableResult(fmt.Sprintf("L1 scoring error: %v", err))
+		return nil, fmt.Errorf("L1 scoring error: %w", err)
 	}
 
 	return result, nil
@@ -154,7 +158,7 @@ func (c *L1Client) ScoreOutput(ctx context.Context, output, sessionSummary strin
 	result, err := c.doScore(ctx, req)
 	if err != nil {
 		slog.Error("L1 output scoring failed", "error", err)
-		return c.unavailableResult(fmt.Sprintf("L1 output scoring error: %v", err))
+		return nil, fmt.Errorf("L1 output scoring error: %w", err)
 	}
 
 	return result, nil

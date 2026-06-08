@@ -15,6 +15,7 @@ func registerWebFetch(registry *ToolRegistry) {
 	registry.Register(ToolDefinition{
 		Name:        "web_fetch",
 		Description: "Fetch content from a URL. Returns the page content as text.",
+		MinUserType: "unknown",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -68,6 +69,7 @@ func registerWebSearch(registry *ToolRegistry) {
 	registry.Register(ToolDefinition{
 		Name:        "web_search",
 		Description: "Search the web. Returns top search results with titles, URLs, and snippets.",
+		MinUserType: "unknown",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

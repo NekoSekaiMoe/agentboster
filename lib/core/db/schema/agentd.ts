@@ -13,9 +13,11 @@ export const agentTasks = pgTable('agent_tasks', {
   id: uuid('id').defaultRandom().primaryKey(),
   agentId: text('agent_id').notNull(),
   sessionId: uuid('session_id'),
+  userId: text('user_id'),
   command: text('command').notNull(),
   sandboxType: text('sandbox_type').default('auto').notNull(),
   sandboxId: text('sandbox_id'),
+  source: jsonb('source').$type<Record<string, unknown>>(),
   env: jsonb('env').$type<Record<string, string>>(),
   timeout: integer('timeout').default(300),
   status: text('status', {
@@ -42,11 +44,23 @@ export const agentTasks = pgTable('agent_tasks', {
 export const agentReviewLogs = pgTable('agent_review_logs', {
   id: uuid('id').defaultRandom().primaryKey(),
   taskId: uuid('task_id').notNull(),
+  userId: text('user_id'),
+  roles: text('roles').array(),
   command: text('command').notNull(),
   level: text('level', { enum: ['L0', 'L1', 'L2'] }).notNull(),
   score: integer('score'),
   decision: text('decision', {
-    enum: ['allowed', 'blocked', 'pending_confirm'],
+    enum: [
+      'allowed',
+      'allowed_with_warning',
+      'blocked',
+      'pending_confirm',
+      'pending_l2',
+      'pending_l2_critical',
+      'approved',
+      'rejected',
+      'expired',
+    ],
   }).notNull(),
   reason: text('reason'),
   createdAt: timestamp('created_at', { withTimezone: true })

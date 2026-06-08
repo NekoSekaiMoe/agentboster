@@ -1,4 +1,8 @@
-import { getTask, updateTaskStatus } from '@/lib/core/db/agentd';
+import {
+  formatTaskForAgentd,
+  getTask,
+  updateTaskStatus,
+} from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.tasks');
@@ -15,7 +19,7 @@ export async function GET(
       { status: 404 },
     );
   }
-  return Response.json({ success: true, data: task });
+  return Response.json({ success: true, data: formatTaskForAgentd(task) });
 }
 
 export async function PUT(
@@ -26,5 +30,8 @@ export async function PUT(
   const body = await request.json();
   const task = await updateTaskStatus(id, body.status, body.result);
   logger.info('task updated', { taskId: id, status: body.status });
-  return Response.json({ success: true, data: task });
+  return Response.json({
+    success: true,
+    data: task ? formatTaskForAgentd(task) : null,
+  });
 }

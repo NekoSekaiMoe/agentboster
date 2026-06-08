@@ -70,7 +70,7 @@ export async function POST(request: Request) {
 
       return Response.json({
         success: result.success,
-        data: { channel: result.channel },
+        data: { channel: result.channel, message_id: result.messageId },
       });
     }
 

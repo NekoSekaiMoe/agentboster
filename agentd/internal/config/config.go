@@ -17,9 +17,11 @@ import (
 
 // Config holds the full agentd configuration.
 type Config struct {
+	Version     string            `mapstructure:"version" default:"1"`
 	Server      ServerConfig      `mapstructure:"server"`
 	ClawLess    ClawLessConfig    `mapstructure:"clawless"`
 	Security    SecurityConfig    `mapstructure:"security"`
+	Tools       ToolsConfig       `mapstructure:"tools"`
 	Sandbox     SandboxConfig     `mapstructure:"sandbox"`
 	Cache       CacheConfig       `mapstructure:"cache"`
 	Session     SessionConfig     `mapstructure:"session"`
@@ -63,8 +65,10 @@ type ClawLessConfig struct {
 }
 
 type SecurityConfig struct {
-	L1Provider  string `mapstructure:"l1_provider" default:"local_ollama"`
-	L1Endpoint  string `mapstructure:"l1_endpoint" default:"http://localhost:11434/api/generate"`
+	L1Enabled   bool   `mapstructure:"l1_enabled" default:"true"`
+	FailOpen    bool   `mapstructure:"fail_open" default:"false"`
+	L1Provider  string `mapstructure:"l1_provider" default:"web_callback"`
+	L1Endpoint  string `mapstructure:"l1_endpoint" default:""`
 	L1Model     string `mapstructure:"l1_model"`
 	L1APIKey    string `mapstructure:"l1_api_key"`
 	L1Threshold struct {
@@ -74,6 +78,10 @@ type SecurityConfig struct {
 		Critical float64 `mapstructure:"critical" default:"0.9"`
 	} `mapstructure:"l1_threshold"`
 	RunAsUser string `mapstructure:"run_as_user"`
+}
+
+type ToolsConfig struct {
+	Disabled []string `mapstructure:"disabled"`
 }
 
 type SandboxConfig struct {
@@ -202,7 +210,23 @@ func sandboxExtras(v *viper.Viper) {
 
 // Validate applies runtime-computed defaults and validates ranges.
 // Call after Load() returns a Config.
-func (c *Config) Validate() {
+func (c *Config) Validate() error {
+	if c.Version == "" {
+		c.Version = "1"
+	}
+	if c.Version != "1" {
+		return fmt.Errorf("unsupported config version %q; expected version \"1\"", c.Version)
+	}
+	if c.Security.L1Provider == "web" {
+		c.Security.L1Provider = "web_callback"
+	}
+	if c.Security.L1Enabled {
+		switch c.Security.L1Provider {
+		case "web_callback", "local_ollama":
+		default:
+			return fmt.Errorf("unknown security.l1_provider %q; set security.l1_enabled=false to disable L1", c.Security.L1Provider)
+		}
+	}
 	if c.Worker.ReviewPoolSize <= 0 {
 		c.Worker.ReviewPoolSize = runtime.NumCPU() * 4
 	}
@@ -254,6 +278,7 @@ func (c *Config) Validate() {
 	if c.Cache.RetryMaxAttempts <= 0 {
 		c.Cache.RetryMaxAttempts = 5
 	}
+	return nil
 }
 
 // Load reads configuration from file and environment variables.
@@ -297,7 +322,9 @@ func Load(path string) (*Config, error) {
 		cfg.Sandbox.InitCommands = rootInitCommands
 	}
 
-	cfg.Validate()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
 }
 

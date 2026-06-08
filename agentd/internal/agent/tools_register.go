@@ -48,6 +48,9 @@ func RegisterAllTools(
 	// === Knowledge Base (1) ===
 	registerKnowledgeSearch(registry, clawlessClient, agentCtx)
 
+	// === Vault (1) ===
+	registerVaultList(registry, clawlessClient)
+
 	// === Task Summary (2) ===
 	registerTaskSummary(registry, clawlessClient, agentCtx)
 	registerTaskProgress(registry, clawlessClient, agentCtx)

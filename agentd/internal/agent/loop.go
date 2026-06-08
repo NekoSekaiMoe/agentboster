@@ -10,6 +10,7 @@ import (
 
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/security"
+	"github.com/clawless/agentd/internal/usertype"
 )
 
 // Message represents a chat message.
@@ -20,8 +21,8 @@ type Message struct {
 
 // ToolCall represents a tool invocation request from the LLM.
 type ToolCall struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
 }
 
@@ -30,17 +31,17 @@ const compactionThreshold = 50
 
 // AgentLoop implements the think→act→observe reasoning loop.
 type AgentLoop struct {
-	registry      *ToolRegistry
-	agentCtx      *AgentContext
-	clawless      *clawless.Client
-	llmEndpoint   string
-	llmModel      string
-	llmAPIKey     string
-	l1Scorer      clawless.L1Scorer
-	gatekeeper    *security.Gatekeeper
-	messages      []Message
-	stepCount     int
-	maxSteps      int
+	registry    *ToolRegistry
+	agentCtx    *AgentContext
+	clawless    *clawless.Client
+	llmEndpoint string
+	llmModel    string
+	llmAPIKey   string
+	l1Scorer    clawless.L1Scorer
+	gatekeeper  *security.Gatekeeper
+	messages    []Message
+	stepCount   int
+	maxSteps    int
 }
 
 // NewAgentLoop creates a new agent loop.
@@ -120,6 +121,64 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 		}
 
 		// Execute tool
+		toolDef, _, ok := l.registry.Get(llmResp.ToolCall.Name)
+		if !ok {
+			toolResult := &ToolResult{Success: false, Error: fmt.Sprintf("unknown tool: %s", llmResp.ToolCall.Name)}
+			resultJSON, _ := json.Marshal(toolResult)
+			l.messages = append(l.messages, Message{
+				Role:    "tool",
+				Content: string(resultJSON),
+			})
+			continue
+		}
+		if !usertype.CanUse(l.agentCtx.Roles, toolDef.MinUserType) {
+			toolResult := &ToolResult{
+				Success: false,
+				Error:   fmt.Sprintf("permission denied: tool %s requires %s", llmResp.ToolCall.Name, toolDef.MinUserType),
+			}
+			resultJSON, _ := json.Marshal(toolResult)
+			l.messages = append(l.messages, Message{
+				Role:    "tool",
+				Content: string(resultJSON),
+			})
+			continue
+		}
+
+		if l.gatekeeper != nil {
+			auditTaskID := l.agentCtx.TaskID
+			if auditTaskID == "" {
+				auditTaskID = "00000000-0000-0000-0000-000000000000"
+			}
+			auditTask := &clawless.Task{
+				ID:        auditTaskID,
+				AgentID:   l.agentCtx.AgentID,
+				SessionID: l.agentCtx.SessionID,
+				UserID:    l.agentCtx.UserID,
+				Roles:     l.agentCtx.Roles,
+				Source:    l.agentCtx.Source,
+				SandboxID: l.agentCtx.SandboxID,
+				Command:   fmt.Sprintf("tool=%s args=%s", llmResp.ToolCall.Name, string(llmResp.ToolCall.Arguments)),
+			}
+			auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)
+			if len(auditLogs) > 0 {
+				if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
+					slog.Warn("failed to write tool audit logs", "error", err)
+				}
+			}
+			if auditResult.Decision != security.DecisionAllowed {
+				toolResult := &ToolResult{
+					Success: false,
+					Error:   fmt.Sprintf("tool blocked by security review: %s", auditResult.Reason),
+				}
+				resultJSON, _ := json.Marshal(toolResult)
+				l.messages = append(l.messages, Message{
+					Role:    "tool",
+					Content: string(resultJSON),
+				})
+				continue
+			}
+		}
+
 		toolResult, err := l.registry.Execute(ctx, llmResp.ToolCall.Name, llmResp.ToolCall.Arguments)
 		if err != nil {
 			toolResult = &ToolResult{Success: false, Error: err.Error()}

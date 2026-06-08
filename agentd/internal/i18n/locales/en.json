@@ -1,0 +1,6 @@
+[
+  {
+    "id": "l2.authorization.message",
+    "translation": "{{.Icon}} High-risk operation needs your authorization\n\nCommand: {{.Command}}\nRisk score: {{.Score}}/1.0\nRisk level: {{.Level}}\nReason: {{.Reason}}\n\nChoose an authorization window:\n- pass_once: Only this time\n- pass_until: Until a specified time (format hhddmmyy)\n- reject_once: Reject only this time\n- reject_until: Reject until a specified time (format hhddmmyy)"
+  }
+]

@@ -22,6 +22,7 @@ func registerKnowledgeSearch(registry *ToolRegistry, client *clawless.Client, ct
 	registry.Register(ToolDefinition{
 		Name:        "knowledge_search",
 		Description: "Search AgentBoster knowledge bases for uploaded documents, project references, policies, or domain knowledge. Use memory_search for user preferences and historical facts.",
+		MinUserType: "unknown",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

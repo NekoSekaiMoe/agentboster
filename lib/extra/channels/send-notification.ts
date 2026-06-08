@@ -14,7 +14,12 @@ export async function sendNotification(params: {
   source: ChatSource;
   payload: NotificationPayload;
   userId?: string;
-}): Promise<{ success: boolean; channel: string; error?: string }> {
+}): Promise<{
+  success: boolean;
+  channel: string;
+  error?: string;
+  messageId?: string;
+}> {
   const { source, payload, userId } = params;
 
   if (source.type !== 'im') {
@@ -58,6 +63,7 @@ export async function sendNotification(params: {
       success: result.success,
       channel: result.channel,
       error: result.error,
+      messageId: result.messageId,
     };
   }
 
@@ -82,6 +88,7 @@ export async function sendNotification(params: {
     success: result.success,
     channel: result.channel,
     error: result.error,
+    messageId: result.messageId,
   };
 }
 

@@ -163,8 +163,14 @@ func (d *Dispatcher) registerRoutes() {
 	d.bus.Subscribe(eventbus.EventL2AuthApproved, func(e eventbus.Event) {
 		d.reviewPool.Submit(func() { d.handleL2Auth(e) })
 	})
+	d.bus.Subscribe(eventbus.EventL2AuthRequired, func(e eventbus.Event) {
+		d.reviewPool.Submit(func() { d.handleL2AuthRequired(e) })
+	})
 	d.bus.Subscribe(eventbus.EventL2AuthRejected, func(e eventbus.Event) {
-		d.bus.Publish(eventbus.EventTaskRejected, e.Payload)
+		d.reviewPool.Submit(func() {
+			d.handleL2Auth(e)
+			d.bus.Publish(eventbus.EventTaskRejected, e.Payload)
+		})
 	})
 	d.bus.Subscribe(eventbus.EventSessionClosed, func(e eventbus.Event) {
 		d.cleanupPool.Submit(func() { d.handleSessionClosed(e) })
@@ -231,6 +237,9 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 		return
 	}
 	agentCtx.TaskID = task.ID
+	agentCtx.UserID = task.UserID
+	agentCtx.Roles = task.Roles
+	agentCtx.Source = task.Source
 
 	// Set sandbox info — use SelectSandbox for auto-selection
 	agentCtx.SandboxID = task.SandboxID
@@ -510,6 +519,70 @@ func (d *Dispatcher) handleSecurityAlert(e eventbus.Event) {
 	}
 }
 
+func (d *Dispatcher) handleL2AuthRequired(e eventbus.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		slog.Error("dispatch: invalid L2 required payload", "type", e.Type)
+		return
+	}
+
+	taskID, _ := payload["task_id"].(string)
+	command, _ := payload["command"].(string)
+	reason, _ := payload["reason"].(string)
+	level, _ := payload["level"].(string)
+	score, _ := payload["score"].(float64)
+	source, _ := payload["source"].(clawless.BotSource)
+	if taskID == "" || command == "" {
+		slog.Warn("L2 required event missing task_id or command", "task_id", taskID)
+		return
+	}
+	if source.Type != "im" {
+		slog.Info("L2 required without IM source; notification persisted only", "task_id", taskID)
+		return
+	}
+
+	decisionID := taskID + ":" + generateProjectID()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	resp, err := d.clawless.SendNotification(ctx, map[string]any{
+		"type":       "decision",
+		"task_id":    taskID,
+		"taskId":     taskID,
+		"decisionId": decisionID,
+		"title":      "High-risk operation needs authorization",
+		"body":       command,
+		"command":    command,
+		"score":      score,
+		"reason":     reason,
+		"level":      level,
+		"source":     source,
+		"options":    []string{"pass_once", "pass_until", "reject_once", "reject_until"},
+		"expiresAt":  time.Now().Add(3 * time.Minute).Format(time.RFC3339),
+		"message":    payload["message"],
+	})
+	if err != nil {
+		slog.Warn("L2 notification send failed", "task_id", taskID, "error", err)
+		return
+	}
+	if resp == nil || resp.MessageID == "" {
+		return
+	}
+
+	capabilities, err := d.clawless.GetCapabilities(ctx, source)
+	if err != nil || capabilities == nil || !capabilities.Capabilities.Delete {
+		return
+	}
+
+	go func() {
+		time.Sleep(5 * time.Second)
+		recallCtx, recallCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer recallCancel()
+		if err := d.clawless.RecallNotification(recallCtx, source, resp.MessageID); err != nil {
+			slog.Warn("L2 notification recall failed", "task_id", taskID, "message_id", resp.MessageID, "error", err)
+		}
+	}()
+}
+
 func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 	payload, ok := e.Payload.(map[string]any)
 	if !ok {
@@ -532,11 +605,11 @@ func (d *Dispatcher) handleL2Auth(e eventbus.Event) {
 
 	// Update L2AuthCache
 	if action == "pass" {
-		if err := d.l2Mgr.Authorize(command, duration); err != nil {
+		if err := d.l2Mgr.AuthorizeTask(taskID, command, duration); err != nil {
 			slog.Error("failed to update L2AuthCache", "task_id", taskID, "error", err)
 		}
 	} else if action == "reject" {
-		if err := d.l2Mgr.Reject(command, duration); err != nil {
+		if err := d.l2Mgr.RejectTask(taskID, command, duration); err != nil {
 			slog.Error("failed to update L2AuthCache", "task_id", taskID, "error", err)
 		}
 	}

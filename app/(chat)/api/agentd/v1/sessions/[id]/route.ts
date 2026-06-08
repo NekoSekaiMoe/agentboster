@@ -1,4 +1,5 @@
 import { deleteSession, getSession, updateSession } from '@/lib/core/db/chat';
+import { deriveSessionIdentity } from '@/lib/core/db/agentd';
 
 export async function GET(
   _request: Request,
@@ -12,7 +13,16 @@ export async function GET(
       { status: 404 },
     );
   }
-  return Response.json({ success: true, data: session });
+  const identity = await deriveSessionIdentity(id);
+  return Response.json({
+    success: true,
+    data: {
+      ...session,
+      user_id: identity.userId,
+      roles: identity.roles,
+      source: identity.source,
+    },
+  });
 }
 
 export async function PUT(

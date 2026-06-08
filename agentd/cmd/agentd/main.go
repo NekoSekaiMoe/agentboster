@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clawless/agentd/cmd/agentd/tui"
 	"github.com/clawless/agentd/internal/agent"
 	"github.com/clawless/agentd/internal/cache"
 	"github.com/clawless/agentd/internal/certs"
@@ -48,17 +49,27 @@ func main() {
 		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon requires Linux. Current OS: %s\n", runtime.GOOS)
 		os.Exit(1)
 	}
-	if os.Getuid() != 0 {
-		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon must be run as root (current uid: %d)\n", os.Getuid())
-		os.Exit(1)
-	}
 
 	var (
 		configPath = flag.String("config", "", "Path to agentd.toml config file")
 		genCerts   = flag.Bool("gen-certs", false, "Generate mTLS certificates and exit")
 		certDir    = flag.String("cert-dir", "./certs", "Directory for generated certificates")
+		showTUI    = flag.Bool("tui", false, "Run interactive terminal setup")
 	)
 	flag.Parse()
+
+	if *showTUI {
+		if err := tui.Run(version, buildTime); err != nil {
+			fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if os.Getuid() != 0 {
+		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon must be run as root (current uid: %d)\n", os.Getuid())
+		os.Exit(1)
+	}
 
 	if *genCerts {
 		if err := certs.Generate(*certDir); err != nil {
@@ -117,13 +128,17 @@ func main() {
 		cfg.Security.L1Model,
 		cfg.Server.ClawLessAPIKey,
 	)
-	l1HealthCtx, l1HealthCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := l1Client.Health(l1HealthCtx); err != nil {
-		slog.Error("L1 scorer health check failed; high-risk commands will require L2 authorization", "error", err)
+	if cfg.Security.L1Enabled {
+		l1HealthCtx, l1HealthCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := l1Client.Health(l1HealthCtx); err != nil {
+			slog.Error("L1 scorer health check failed; all L0-passing commands will require L2 authorization", "error", err)
+		} else {
+			slog.Info("L1 scorer health check passed")
+		}
+		l1HealthCancel()
 	} else {
-		slog.Info("L1 scorer health check passed")
+		slog.Warn("L1 scorer disabled by configuration")
 	}
-	l1HealthCancel()
 	bus := eventbus.New()
 
 	l2Manager := l2_auth.NewL2AuthManager(nil, "default")
@@ -132,7 +147,10 @@ func main() {
 	l2CleanupStop := l2Manager.StartCleanupWithInterval(30 * time.Second)
 	defer l2CleanupStop()
 
-	gk := security.NewGatekeeper(l0Engine, l1Client, l2Manager, bus, "default")
+	gk := security.NewGatekeeper(l0Engine, l1Client, l2Manager, bus, "default", security.GatekeeperOptions{
+		L1Enabled: cfg.Security.L1Enabled,
+		FailOpen:  cfg.Security.FailOpen,
+	})
 
 	clawlessClient, err := clawless.NewClientFromConfig(
 		cfg.ClawLess.BaseURL, cfg.Server.ClawLessAPIKey,

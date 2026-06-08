@@ -53,6 +53,7 @@ func registerWebFetchRendered(registry *ToolRegistry, sbMgr *sandbox.Manager, ct
 	registry.Register(ToolDefinition{
 		Name:        "web_fetch_rendered",
 		Description: "Fetch a URL with a sandbox-local headless Chromium browser, then return rendered text or HTML as JSON. If Chromium is missing, the tool attempts package-manager auto-install first. Use for JS-heavy pages or when the request must originate from the agent sandbox.",
+		MinUserType: "unknown",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -122,6 +123,7 @@ func registerWebSearchRendered(registry *ToolRegistry, sbMgr *sandbox.Manager, c
 	registry.Register(ToolDefinition{
 		Name:        "web_search_rendered",
 		Description: "Search the web from the sandbox using a headless Chromium-rendered DuckDuckGo HTML results page. If Chromium is missing, the tool attempts package-manager auto-install first. Returns JSON titles, URLs, and snippets; no image or multimodal transport is used.",
+		MinUserType: "unknown",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

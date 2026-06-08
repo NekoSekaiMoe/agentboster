@@ -54,7 +54,7 @@ func (e *Engine) Check(command, workDir string) (*L0Result, error) {
 		matched, err := e.matchRule(rule, command, workDir)
 		if err != nil {
 			slog.Warn("L0 rule match error", "rule_id", rule.ID, "error", err)
-			continue
+			return nil, err
 		}
 		if !matched {
 			continue

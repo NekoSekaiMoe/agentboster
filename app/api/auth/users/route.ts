@@ -1,9 +1,13 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import {
+  canGrantRoles,
   createUser,
+  hasAdminRole,
   getUserById,
+  invalidRoles,
   listUsers,
   deleteUser,
+  normalizeRoles,
 } from '@/lib/core/db/users';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
@@ -15,10 +19,10 @@ async function requireAdmin() {
     throw new Error('Unauthorized');
   }
   const user = await getUserById(session.userId);
-  if (!user || !user.roles.includes('admin')) {
+  if (!user || !hasAdminRole(user.roles)) {
     throw new Error('Forbidden');
   }
-  return session;
+  return { session, user };
 }
 
 export async function GET() {
@@ -40,8 +44,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  let caller: Awaited<ReturnType<typeof requireAdmin>>;
   try {
-    await requireAdmin();
+    caller = await requireAdmin();
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -60,8 +65,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const badRoles = invalidRoles(roles);
+  if (badRoles.length > 0) {
+    return NextResponse.json(
+      { error: `Invalid roles: ${badRoles.join(', ')}` },
+      { status: 400 },
+    );
+  }
+
+  const requestedRoles = normalizeRoles(roles);
+  if (!canGrantRoles(caller.user.roles, requestedRoles)) {
+    return NextResponse.json(
+      { error: 'You are not allowed to grant one or more requested roles.' },
+      { status: 403 },
+    );
+  }
+
   try {
-    const user = await createUser(username, password, { roles });
+    const user = await createUser(username, password, {
+      roles: requestedRoles,
+    });
     return NextResponse.json(
       { id: user.id, username: user.username, roles: user.roles },
       { status: 201 },
@@ -74,11 +97,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  let session: NonNullable<
-    Awaited<ReturnType<typeof readAuthSessionFromCookies>>
-  >;
+  let admin: Awaited<ReturnType<typeof requireAdmin>>;
   try {
-    session = await requireAdmin();
+    admin = await requireAdmin();
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -93,7 +114,7 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
-  if (id === session.userId) {
+  if (id === admin.session.userId) {
     return NextResponse.json(
       { error: 'Cannot delete yourself.' },
       { status: 400 },
@@ -106,11 +127,15 @@ export async function DELETE(request: NextRequest) {
   }
 
   const seedUsername = process.env.USERNAME?.trim();
-  if (seedUsername && userToDelete.username === seedUsername) {
+  const ownerUsername = process.env.OWNER_USERNAME?.trim();
+  if (
+    (seedUsername && userToDelete.username === seedUsername) ||
+    (ownerUsername && userToDelete.username === ownerUsername)
+  ) {
     return NextResponse.json(
       {
         error:
-          'Cannot delete the seed user configured via environment variables.',
+          'Cannot delete a seed user configured via environment variables.',
       },
       { status: 400 },
     );
