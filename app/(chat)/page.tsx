@@ -53,8 +53,6 @@ export default async function Page() {
   const id = generateUUID();
 
   return (
-    <>
-      <Chat key={id} id={id} />
-    </>
+    <Chat key={id} id={id} />
   );
 }

@@ -8,7 +8,7 @@ const logger = createLogger('agentd.pending-l2');
  * The agentd daemon calls this on startup to re-surface tasks
  * that were awaiting user authorization before a restart.
  */
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
     // TODO: In a full implementation, this would query a dedicated
     // pending_l2 table. For now, we scan recent tasks with status

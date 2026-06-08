@@ -21,7 +21,7 @@ export class ParallelOrchestrator implements IParallelOrchestrator {
   }
 
   async createSubAgent(
-    parentTaskId: string,
+    _parentTaskId: string,
     tasks: SubAgentTask[],
   ): Promise<SubAgentResult[]> {
     const runningTasks: RunningTask[] = [];

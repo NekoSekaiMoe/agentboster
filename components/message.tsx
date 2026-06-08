@@ -44,7 +44,7 @@ import { Textarea } from './ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { formatWorkflowEventTitle } from './workflow-timeline';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function _isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
@@ -678,7 +678,7 @@ const PurePreviewMessage = ({
               <div className="size-7 shrink-0" aria-hidden="true" />
             ))}
 
-          <div className="flex w-full min-w-0 flex-col gap-2 group-data-[role=user]/message:items-end group-data-[role=assistant]/message:items-start">
+          <div className="flex w-full min-w-0 flex-col gap-2 group-data-[role=assistant]/message:items-start group-data-[role=user]/message:items-end">
             {message.role === 'user' &&
               hasRenderableContent &&
               mode === 'view' && (

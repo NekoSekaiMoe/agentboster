@@ -23,8 +23,7 @@ export default async function Page({
   const initialMessages = deserializePersistedMessages(visibleMessages);
 
   return (
-    <>
-      <Chat
+    <Chat
         key={id}
         id={id}
         initialMessages={initialMessages}
@@ -39,6 +38,5 @@ export default async function Page({
             : null
         }
       />
-    </>
   );
 }

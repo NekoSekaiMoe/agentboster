@@ -46,7 +46,7 @@ export async function scheduledTaskWorkflow(taskId: string) {
   'use workflow';
 
   const task = await readScheduledTask(taskId);
-  if (!task || !task.active) {
+  if (!task?.active) {
     return {
       taskId,
       status: 'inactive',
@@ -72,7 +72,7 @@ export async function scheduledTaskWorkflow(taskId: string) {
 
   while (true) {
     const current = await readScheduledTask(taskId);
-    if (!current || !current.active || current.type !== 'daily') {
+    if (!current?.active || current.type !== 'daily') {
       return {
         taskId,
         status: 'stopped',

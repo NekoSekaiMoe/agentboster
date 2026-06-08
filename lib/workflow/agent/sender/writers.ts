@@ -20,7 +20,7 @@ function enqueueWrite(task: () => Promise<void>): Promise<void> {
   return next;
 }
 
-function applyWritableScope(
+function _applyWritableScope(
   chunk: WorkflowUIMessageChunk,
   scope?: WritableScope,
 ): WorkflowUIMessageChunk {
@@ -52,7 +52,7 @@ function applyWritableScope(
   return chunk;
 }
 
-async function writeChunkToWritable(
+async function _writeChunkToWritable(
   writable: WritableStream<WorkflowUIMessageChunk>,
   chunk: WorkflowUIMessageChunk,
 ): Promise<void> {

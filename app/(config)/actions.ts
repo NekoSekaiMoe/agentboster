@@ -56,7 +56,7 @@ export async function saveConfigAction(input: unknown): Promise<AppConfig> {
   const authSession = await requireAuth();
   const { getUserById } = await import('@/lib/core/db/users');
   const user = await getUserById(authSession.userId);
-  if (!user || !user.roles.includes('admin')) {
+  if (!user?.roles.includes('admin')) {
     throw new Error('Forbidden: admin access required');
   }
 

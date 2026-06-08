@@ -255,7 +255,7 @@ export async function scanSkillsFromRepo(
 ): Promise<ScannedSkill[]> {
   const skillsDir = path.join(repoDir, SKILLS_REPO_DIR);
   const skillsDirStat = await stat(skillsDir).catch(() => null);
-  if (!skillsDirStat || !skillsDirStat.isDirectory()) {
+  if (!skillsDirStat?.isDirectory()) {
     throw new Error(
       `Repository does not contain /${SKILLS_REPO_DIR} directory`,
     );
@@ -276,7 +276,7 @@ export async function scanSkillsFromRepo(
     const manifestPath = path.join(skillDir, SKILL_MANIFEST);
     const manifestStat = await stat(manifestPath).catch(() => null);
 
-    if (!manifestStat || !manifestStat.isFile()) continue;
+    if (!manifestStat?.isFile()) continue;
 
     const manifestContent = await readFile(manifestPath, 'utf8');
     const { frontmatter, description } = parseSkillManifest(manifestContent);

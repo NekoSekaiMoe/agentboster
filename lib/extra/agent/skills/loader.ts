@@ -154,7 +154,7 @@ export class SkillLoader implements ISkillLoader {
 
   private async installFromUrl(url: string): Promise<SkillManifest> {
     const { ofetch } = await import('ofetch');
-    const content = await ofetch<string>(url);
+    const _content = await ofetch<string>(url);
     const name = basename(url, extname(url));
 
     const manifest: SkillManifest = {

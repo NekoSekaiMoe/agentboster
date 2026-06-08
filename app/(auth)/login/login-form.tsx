@@ -117,7 +117,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
             {t('login.username')}
           </Label>
           <div className="relative">
-            <User className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 size-5 text-muted-foreground" />
+            <User className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="username"
               autoComplete="username"
@@ -135,7 +135,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
             {t('login.password')}
           </Label>
           <div className="relative">
-            <LockKeyhole className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-4 size-5 text-muted-foreground" />
+            <LockKeyhole className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="password"
               type={passwordVisible ? 'text' : 'password'}
@@ -150,7 +150,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
               type="button"
               variant="ghost"
               size="icon"
-              className="-translate-y-1/2 absolute top-1/2 right-2 size-9 rounded-lg text-muted-foreground hover:bg-transparent hover:text-foreground"
+              className="absolute top-1/2 right-2 size-9 -translate-y-1/2 rounded-lg text-muted-foreground hover:bg-transparent hover:text-foreground"
               aria-label={
                 passwordVisible
                   ? t('login.hidePassword')

@@ -97,7 +97,7 @@ export function ToolsForm() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [t]);
 
   const catalogTools = catalog?.tools ?? [];
   const catalogToolMap = useMemo(

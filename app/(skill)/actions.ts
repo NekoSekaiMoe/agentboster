@@ -87,7 +87,7 @@ export async function createSkillAction(input: unknown): Promise<SkillDetail> {
   const authSession = await requireAuth();
   const { getUserById } = await import('@/lib/core/db/users');
   const user = await getUserById(authSession.userId);
-  if (!user || !user.roles.includes('admin')) {
+  if (!user?.roles.includes('admin')) {
     throw new Error('Forbidden: admin access required');
   }
 
@@ -114,7 +114,7 @@ export async function deleteSkillAction(name: string) {
   const authSession = await requireAuth();
   const { getUserById } = await import('@/lib/core/db/users');
   const user = await getUserById(authSession.userId);
-  if (!user || !user.roles.includes('admin')) {
+  if (!user?.roles.includes('admin')) {
     throw new Error('Forbidden: admin access required');
   }
 
@@ -184,7 +184,7 @@ export async function updateSkillFileAction(input: unknown): Promise<{
   const authSession = await requireAuth();
   const { getUserById } = await import('@/lib/core/db/users');
   const user = await getUserById(authSession.userId);
-  if (!user || !user.roles.includes('admin')) {
+  if (!user?.roles.includes('admin')) {
     throw new Error('Forbidden: admin access required');
   }
 
@@ -236,7 +236,7 @@ export async function startSkillImportAction(input: unknown): Promise<{
   const authSession = await requireAuth();
   const { getUserById } = await import('@/lib/core/db/users');
   const user = await getUserById(authSession.userId);
-  if (!user || !user.roles.includes('admin')) {
+  if (!user?.roles.includes('admin')) {
     throw new Error('Forbidden: admin access required');
   }
 

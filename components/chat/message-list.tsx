@@ -318,10 +318,7 @@ function PureMessages({
     const frame = requestAnimationFrame(updateScrollButtonVisibility);
     return () => cancelAnimationFrame(frame);
   }, [
-    isLoading,
-    messages.length,
-    shouldShowThinking,
-    updateScrollButtonVisibility,
+    updateScrollButtonVisibility
   ]);
 
   const scrollToTop = useCallback(() => {
@@ -525,7 +522,7 @@ function PureMessages({
                   exit={{ opacity: 0, y: 8, scale: 0.86 }}
                   transition={{ duration: 0.16, ease: 'easeOut' }}
                   onClick={scrollToTop}
-                  className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-md backdrop-blur transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-muted hover:shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 motion-reduce:transition-colors motion-reduce:active:scale-100"
+                  className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-md backdrop-blur transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-muted hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 active:scale-95 motion-reduce:transition-colors motion-reduce:active:scale-100"
                   aria-label="Scroll to top"
                 >
                   <ArrowUp className="size-5" />
@@ -542,7 +539,7 @@ function PureMessages({
                   exit={{ opacity: 0, y: 8, scale: 0.86 }}
                   transition={{ duration: 0.16, ease: 'easeOut' }}
                   onClick={scrollToBottom}
-                  className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-md backdrop-blur transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-muted hover:shadow-lg active:scale-95 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 motion-reduce:transition-colors motion-reduce:active:scale-100"
+                  className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-md backdrop-blur transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-muted hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 active:scale-95 motion-reduce:transition-colors motion-reduce:active:scale-100"
                   aria-label="Scroll to bottom"
                 >
                   <ArrowDown className="size-5" />

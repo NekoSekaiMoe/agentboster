@@ -21,8 +21,8 @@ export function CodeBlock<T extends boolean>({
   children,
   ...props
 }: CodeBlockProps<T>) {
-  const [output, setOutput] = useState<string | null>(null);
-  const [tab, setTab] = useState<'code' | 'run'>('code');
+  const [output, _setOutput] = useState<string | null>(null);
+  const [tab, _setTab] = useState<'code' | 'run'>('code');
 
   if (inline) {
     return (

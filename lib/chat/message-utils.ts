@@ -707,7 +707,7 @@ function parseToolApproval(value: unknown): ParsedToolApproval | undefined {
 function toApprovedToolApproval(
   approval?: ParsedToolApproval,
 ): Extract<DynamicToolUIPart, { state: 'output-available' }>['approval'] {
-  if (!approval || approval.approved !== true) {
+  if (approval?.approved !== true) {
     return undefined;
   }
 

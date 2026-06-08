@@ -90,7 +90,7 @@ interface DecisionCardProps {
   onResolved?: (decisionId: string, action: string) => void;
 }
 
-const TIMEOUT_MS = 3 * 60 * 1000;
+const _TIMEOUT_MS = 3 * 60 * 1000;
 
 // ── L2 action labels ──
 
@@ -139,7 +139,7 @@ export function DecisionCard({
 }: DecisionCardProps) {
   // L2 state
   const [awaitingTimeInput, setAwaitingTimeInput] = useState(false);
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [pendingAction, _setPendingAction] = useState<string | null>(null);
   const [timeValue, setTimeValue] = useState('');
 
   // Question state

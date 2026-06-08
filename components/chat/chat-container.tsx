@@ -78,7 +78,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function extractLatestUserInput(messages: WorkflowUIMessage[]): {
+function _extractLatestUserInput(messages: WorkflowUIMessage[]): {
   parts: WorkflowUIMessage['parts'];
 } {
   for (let index = messages.length - 1; index >= 0; index -= 1) {

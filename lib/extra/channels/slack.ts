@@ -66,7 +66,7 @@ export class SlackAdapter implements IChannelAdapter {
     }
 
     const event = payload.event;
-    if (!event || event.type !== 'message') return undefined;
+    if (event?.type !== 'message') return undefined;
 
     const incoming: IncomingMessage = {
       channelType: this.type,

@@ -110,7 +110,7 @@ export async function listMCPToolDescriptors(
 }
 
 export async function listBuiltinMCPToolDescriptors(
-  baseName: string,
+  _baseName: string,
 ): Promise<MCPToolDescriptor[]> {
   'use step';
 

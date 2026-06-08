@@ -357,7 +357,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="-translate-y-1/2 absolute top-1/2 right-2 rounded p-1 opacity-0 hover:bg-muted focus:opacity-100 group-hover:opacity-100"
+            className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 opacity-0 hover:bg-muted focus:opacity-100 group-hover:opacity-100"
             aria-label="Session actions"
             disabled={deletingSessionId === sessionItem.id}
           >
@@ -478,7 +478,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
             Recent Sessions
           </div>
           <div className="relative mb-3">
-            <Search className="-translate-y-1/2 absolute top-1/2 left-2 size-3.5 text-muted-foreground" />
+            <Search className="absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               ref={searchInputRef}
               value={searchQuery}

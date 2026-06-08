@@ -24,7 +24,7 @@ export default defineBuildInTool({
         title: 'List Skills',
         description: `List all skills.`,
         inputSchema: z.object({}),
-        execute: async (value) => {
+        execute: async (_value) => {
           'use step';
 
           return { items: await listSkillMetas() };

@@ -75,10 +75,10 @@ export async function buildSystemPrompt(
   const skills = await listSkillMetas();
 
   // Check for session-level SOUL override
-  const sessionSoulContent: string | null = null;
+  const _sessionSoulContent: string | null = null;
   if (options.sessionId) {
     try {
-      const sessionSoul = await getBuiltinMemorySection('SOUL');
+      const _sessionSoul = await getBuiltinMemorySection('SOUL');
       // Session SOUL is stored in the session itself; we check if it differs from global
       // For now, the SOUL section in builtin memories is the source of truth
       // Session-level override is handled by the caller passing sessionId

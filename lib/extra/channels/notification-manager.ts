@@ -335,7 +335,7 @@ class NotificationManager {
     taskId: string,
     sentChannels: string[],
     targetChatId: string,
-    targetUserId?: string,
+    _targetUserId?: string,
   ): void {
     const remainingMs = ESCALATION_TIMEOUT_MS - L2_TIMEOUT_MS;
 

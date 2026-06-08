@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
 
       case 'patch': {
         const patchContent = (params?.patch as string) || '';
-        const filePath = (params?.path as string) || '';
+        const _filePath = (params?.path as string) || '';
         const result = await runSandboxCommandAction({
           sessionId,
           command: `cat > /tmp/patch.diff << 'PATCH_EOF'\n${patchContent}\nPATCH_EOF\npatch -p1 < /tmp/patch.diff`,
