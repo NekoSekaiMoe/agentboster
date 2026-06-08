@@ -209,6 +209,32 @@ agentd/                  # Go 1.26 Daemon
 - **Webhook Callbacks** — Notifies Web on task completion or user decision
 - **Daemon Identity** — Node registration, heartbeat, pairing
 
+### Best of Many Projects
+
+AgentBoster is not an attempt to invent everything from scratch. It stands on several strong projects, takes the parts that proved useful, and combines them into a new kind of system.
+
+**ClawLess is the foundation.** AgentBoster's frontend stack — the Next.js full-stack app, Vercel Serverless deployment, multi-channel IM integration, Vercel Sandbox fallback, Vercel Workflow engine, Neon Postgres persistence, and Upstash Redis cache — is based on ClawLess. One-click deployment, near-zero startup cost, and an always-online frontend are the core advantages that separate AgentBoster from most self-hosted agents. AgentBoster adds the Agent Daemon remote execution layer on top of ClawLess, turning it from a lightweight chat agent into a secure asynchronous task agent.
+
+**The execution skeleton comes from Asika.** The Event Bus + dynamic Worker Pool + Writer Actor concurrency architecture has been validated in cross-platform PR management workloads. Agent Daemon's sandbox scheduling, sub-agent parallelism, batched review-log writes, and multi-node dispatch all run on this skeleton. Asika's 13 workers ran PR management workloads for two years without concurrency issues, and AgentBoster reuses that reliability. Asika's Label Rules and Spam Detector inspired the L0 rule engine, while its Webhook Health Checker and poller patterns became Agent Daemon heartbeat checks and node health monitoring.
+
+**Frontend design borrows from AstrBot.** The Chat UI and Settings UI take design inspiration from AstrBot's Vue Dashboard, helping AgentBoster reach a product-grade chat and configuration experience. AstrBot's polish in the Chinese IM ecosystem helped shape AgentBoster's front-end interaction model.
+
+**Security philosophy comes from Manboster.** Manboster's Hachimi gatekeeper proved that AI can evaluate the safety of tool calls. AgentBoster borrows the idea but takes a different route: instead of a dedicated gatekeeper model, it uses a general Flash model for L1 scoring, combines it with an L0 rule engine, and adds L2 time-window user authorization. Manboster trusts Hachimi; AgentBoster trusts the user. OS-level enforcement (cap-drop + seccomp-bpf + mount namespace + network namespace) extends the WASM sandbox idea into the Linux kernel boundary.
+
+**Sandboxing and memory reference Memoh.** Memoh's containerized workspace and hybrid retrieval memory engine are among the more detailed designs in open-source agent frameworks. AgentBoster borrows its isolation ideas but changes the granularity from "one bot, one container" to "one task, one sandbox": Docker for light tasks and LXC for persistent projects. The memory system also borrows Memoh's hybrid retrieval and LLM extraction prompts, trimmed into structured summary memory for task agents.
+
+**Context engineering comes from Cahciua/Edelweiss.** Cahciua's DCP deterministic context pipeline treats LLM context as a pure-function state machine, and Edelweiss extends that with sub-agents and skill files. AgentBoster borrows the idea of maintaining the construction process of context rather than treating context as opaque state, and applies it to session compression and deterministic long-running task summaries.
+
+**The memory system learns from Loong Recall.** Semantic encoding, dual-path retrieval fusion, memory type classification, TTL expiration, hot/cold archiving, and memory decay are all ideas Loong Recall designed for AI coding assistants. AgentBoster follows most of these capabilities. Its memory system is roughly on par with Loong Recall in feature completeness, and extends further for task-agent needs: Built-in Memory, Session Memory versioning, and a separate Daemon memory channel.
+
+**OpenCode clarifies terminal-agent limits.** OpenCode shows how efficient terminal AI coding assistants can be, but also exposes the limitation of synchronous interaction: the user has to watch the terminal and wait. AgentBoster moves the interaction model from synchronous to asynchronous, and from terminal to IM, keeping execution power while freeing the user's time.
+
+**Product thinking comes from LobeHub.** LobeHub's agent collaboration, structured personal memory, and visual schedule management show how agent tools move from "usable tools" to "good products". Monitoring tabs, audit-log viewers, L2 authorization management, task history, and notification centers all borrow from LobeHub's product language.
+
+**CyberGroupmate informs sandbox layout.** CyberGroupmate's `workspace/` layout — memory database, session state, skill files, media assets, and downloads in separate locations — provides a reference template for AgentBoster's chroot/LXC sandbox. Both agent and user know what each directory is for, and backup or migration is easier to reason about.
+
+**AgentBoster is not "yet another AI assistant".** It is the result of combining ClawLess's full-stack foundation, Asika's concurrency skeleton, AstrBot's frontend design, Manboster's security philosophy, Memoh's sandbox ideas, Cahciua's context engineering, Loong Recall's memory system, OpenCode's interaction lessons, LobeHub's product thinking, and CyberGroupmate's sandbox layout. Stitching proven ideas together is not a drawback. It means fewer parts need to be invented from zero, more components have been validated elsewhere, and AgentBoster can spend its energy on its differentiating capability — an asynchronous secure execution chain.
+
 ---
 
 ## Tech Stack
@@ -235,8 +261,8 @@ agentd/                  # Go 1.26 Daemon
 | Language | Go 1.26 (Linux-only) |
 | HTTP | Gin 1.12 |
 | Config | Viper (TOML) + environment |
-| Events | Custom Event Bus |
-| Worker Pool | Custom (auto-scaling) |
+| Events | Asika Event Bus |
+| Worker Pool | Asika Worker Pool (auto-scaling) |
 | Sandbox | Docker + LXC |
 | Security | seccomp, capability drop, cgroup |
 | Communication | mTLS + API Key |
@@ -245,7 +271,7 @@ agentd/                  # Go 1.26 Daemon
 
 ## Deploy
 
-### AgentBuster Web → Vercel
+### AgentBoster Web → Vercel
 
 You don't need to download locally or own a VPS. You only need:
 
@@ -254,7 +280,7 @@ You don't need to download locally or own a VPS. You only need:
 - Click the deploy button below
 
 <p align="center">
-	<a href=https://vercel.com/new/clone?repository-url=https://github.com/Niapya/agentboster&stores=[{"type":"blob"},{"type":"integration","productSlug":"upstash-kv","integrationSlug":"upstash"},{"type":"integration","protocol":"storage","productSlug":"neon","integrationSlug":"neon"}]&env=AUTH_SECRET,USERNAME,PASSWORD&envDescription=Do_not_disclose_them_and_keep_them_safe.&project-name=agentboster&repository-name=agentboster&redirect-url=https://niapya.github.io/agentboster target="_blank">
+	<a href=https://vercel.com/new/clone?repository-url=https://github.com/NekoSekaiMoe/agentboster&stores=[{"type":"blob"},{"type":"integration","productSlug":"upstash-kv","integrationSlug":"upstash"},{"type":"integration","protocol":"storage","productSlug":"neon","integrationSlug":"neon"}]&env=AUTH_SECRET,USERNAME,PASSWORD,BLOB_ACCESS&envDescription=Do_not_disclose_AUTH_SECRET_USERNAME_PASSWORD._Set_BLOB_ACCESS_to_private_for_Vercel_Blob_private_stores.&project-name=agentboster&repository-name=agentboster target="_blank">
 		<img src="https://vercel.com/button" alt="Deploy with Vercel" width="120" />
 	</a>
 </p>
@@ -262,7 +288,7 @@ You don't need to download locally or own a VPS. You only need:
 ### Agent Daemon → Linux Server
 
 ```bash
-git clone https://github.com/Niapya/agentboster.git
+git clone https://github.com/NekoSekaiMoe/agentboster.git
 cd agentboster/agentd
 
 # Build (Go 1.26+ required)
@@ -280,7 +306,7 @@ vim agentd.toml
 
 ### 1. Configure Environment Variables
 
-Deployment requires `AUTH_SECRET`, `USERNAME`, and `PASSWORD`. **Do not expose them.**
+Deployment requires `AUTH_SECRET`, `USERNAME`, `PASSWORD`, and `BLOB_ACCESS`. **Do not expose** `AUTH_SECRET`, `USERNAME`, or `PASSWORD`; set `BLOB_ACCESS` to `private` for Vercel Blob private stores.
 
 ### 2. Log In and Configure
 
@@ -361,7 +387,7 @@ LXC uses `lxc-create`/`lxc-start`/`lxc-attach` with init commands, cgroup limits
 # Web (Next.js)
 yarn install          # Install dependencies
 yarn dev              # Start dev server (localhost:3000)
-yarn check            # Typecheck + Biome lint/format
+yarn run check        # Typecheck + Biome lint/format
 yarn build            # Production build
 yarn db:generate      # Drizzle generate migrations
 yarn db:push          # Drizzle push schema

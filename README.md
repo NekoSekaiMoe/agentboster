@@ -19,7 +19,7 @@
 >
 > 在版本号没有达到 1.0 之前，我建议你可以把本项目当作一个尝鲜，我们不保证向前的兼容性。
 >
-> Until version 1.0 is released, I suggest you treat this as a try. We cannot guarantee full backwards compatibility at this stage.
+> Until version 1.0 is released, I suggest you treat this as a preview. We cannot guarantee backwards compatibility at this stage.
 
 ![AgentBoster](.docs/public/images/preview.png)
 
@@ -102,6 +102,84 @@ flowchart TB
 
 ---
 
+## 项目结构
+
+```
+app/                     # Next.js App Router 页面和 API routes
+├── (auth)/              #   登录
+├── (chat)/              #   聊天、文件、计划任务
+├── (config)/            #   配置、监控、审计日志
+├── (memory)/            #   Memory/RAG 管理
+├── (schedule)/          #   日程管理
+├── (skill)/             #   Skill 管理
+├── api/                 #   Public API
+│   ├── agentd/v1/       #     Daemon 回调 (L1/L2)
+│   ├── bot/[secret]/    #     IM webhooks
+│   ├── config/          #     配置、审计、监控
+│   ├── notifications/   #     通知
+│   ├── pair/            #     Daemon 配对
+│   ├── sandbox/         #     沙箱工具
+│   ├── sessions/        #     会话回退
+│   ├── soul/            #     Agent 人格
+│   └── tasks/           #     任务历史
+├── (chat)/api/          # Daemon-facing API (35+ endpoints)
+│   ├── agentd/v1/       #     Agent 配置、blob、健康检查、
+│   │                    #     规则、通知、沙箱、会话、
+│   │                    #     任务、工作区、记忆
+│   └── ai/              #     AI chat、stream、message、pause、status
+└── .well-known/workflow/#   Workflow DevKit callbacks（无 auth）
+components/              # React 组件 (shadcn/ui)
+├── ui/                  #   shadcn/ui primitives (19)
+├── config/              #   配置表单
+└── ...                  #   Chat、messages、sidebar、timelines
+lib/                     # 核心逻辑
+├── ai/                  #   AI SDK provider factory (Anthropic/Google/OpenAI)
+├── auth/                #   Auth (bcryptjs, cookies)
+├── bot/                 #   Bot adapters 与 webhook routing
+├── chat/                #   Chat transport、streaming、slash commands
+├── core/                #   基础设施：DB (Drizzle+Neon)、KV (Redis)、Blob、Sandbox
+├── extra/               #   服务端业务逻辑
+│   ├── agent/           #     Daemon client、parallel exec、skills
+│   ├── auth/            #     API keys、JWT、users
+│   ├── channels/        #     TG/Discord/Slack/Feishu adapters
+│   ├── config/          #     配置管理
+│   ├── cron/            #     Cron scheduling
+│   ├── memory/          #     Memory 管理
+│   ├── prompts/         #     System prompt fragments
+│   ├── sandbox/         #     Vercel Sandbox 管理
+│   └── security/        #     L0/L1/L2 security engine
+├── mcp/                 #   内置 MCP (Context7, Firecrawl, GitHub, Web)
+├── memory/              #   Memory: builtin, RAG long-term, session
+├── security/            #   Web-side security (L1 scorer, L2 queue)
+├── utils/               #   工具函数
+└── workflow/            #   Vercel Workflow DevKit
+    ├── agent/           #     Agent workflow (hooks/steps/tools/security)
+    └── scheduled/       #     Scheduled workflow
+hooks/                   # React hooks (config draft, validation, mobile, nav)
+types/                   # TypeScript types (config/memory/skills/workflow)
+agentd/                  # Go 1.26 Daemon
+├── cmd/agentd/main.go   #   入口
+├── agentd.toml.example  #   示例配置
+└── internal/
+    ├── agent/           #   CodeAct loop、tools、context
+    ├── sandbox/         #   Providers: docker / docker-strict / lxc
+    ├── security/        #   L0 rules、L2 auth、OS enforcement
+    ├── session/         #   Session persistence、LRU、archiving
+    ├── worker/          #   Worker pool、dispatcher
+    ├── server/          #   Gin HTTP routes 与 middleware
+    ├── clawless/        #   Web API client
+    ├── config/          #   Viper config loading
+    ├── certs/           #   mTLS certificates
+    ├── cache/           #   Internal cache
+    ├── eventbus/        #   Internal event bus
+    ├── identity/        #   Daemon identity 与 pairing
+    ├── lifecycle/       #   Startup/shutdown orchestration
+    ├── metrics/         #   Runtime metrics
+    └── persistence/     #   Local state persistence
+```
+
+---
+
 ## 功能特性
 
 ### AgentBoster Web (Next.js)
@@ -124,7 +202,7 @@ flowchart TB
 - **18+ Tools** — 文件读写、Shell 执行、Git、Web 搜索/抓取、记忆、技能、媒体、CodeAct、Sub-agent、任务总结
 - **三层安全** — L0 规则过滤 → L1 AI 评分 → L2 用户授权
 - **统一决策队列** — L2 授权 + LLM 提问 + 冲突解决 + 任务分支
-- **三种沙箱** — docker（轻量日常）、docker-strict（强隔离高风险的隔离）、lxc（持久化容器）
+- **三种沙箱** — docker（轻量日常）、docker-strict（强隔离高风险）、lxc（持久化容器）
 - **OS 级强制** — seccomp、capability drop、网络隔离、只读路径
 - **Worker Pool** — 动态扩缩容工作池（任务/审查/沙箱/记忆/清理）
 - **Session 管理** — LRU 淘汰、归档、Sub-agent 状态追踪、abort 控制
@@ -191,7 +269,7 @@ AgentBoster 不是从零开始的创新，而是站在多个优秀项目的肩�
 
 ---
 
-## Deploy
+## 部署
 
 ### AgentBoster Web → Vercel
 
@@ -202,16 +280,16 @@ AgentBoster 不是从零开始的创新，而是站在多个优秀项目的肩�
 - 点击下方按钮部署
 
 <p align="center">
-	<a href=https://vercel.com/new/clone?repository-url=https://github.com/NekoSekaiMoe/agentboster&stores=[{"type":"blob"},{"type":"integration","productSlug":"upstash-kv","integrationSlug":"upstash"},{"type":"integration","protocol":"storage","productSlug":"neon","integrationSlug":"neon"}]&env=AUTH_SECRET,USERNAME,PASSWORD&envDescription=Do_not_disclose_them_and_keep_them_safe.&project-name=agentboster&repository-name=agentboster target="_blank">
+	<a href=https://vercel.com/new/clone?repository-url=https://github.com/NekoSekaiMoe/agentboster&stores=[{"type":"blob"},{"type":"integration","productSlug":"upstash-kv","integrationSlug":"upstash"},{"type":"integration","protocol":"storage","productSlug":"neon","integrationSlug":"neon"}]&env=AUTH_SECRET,USERNAME,PASSWORD,BLOB_ACCESS&envDescription=Do_not_disclose_AUTH_SECRET_USERNAME_PASSWORD._Set_BLOB_ACCESS_to_private_for_Vercel_Blob_private_stores.&project-name=agentboster&repository-name=agentboster target="_blank">
 		<img src="https://vercel.com/button" alt="Deploy with Vercel" width="120" />
 	</a>
 </p>
 
-### Agent Daemon → Linux Server
+### Agent Daemon → Linux 服务器
 
 ```bash
 # 克隆仓库
-git clone https://github.com/Niapya/agentboster.git
+git clone https://github.com/NekoSekaiMoe/agentboster.git
 cd agentboster/agentd
 
 # 编译（需要 Go 1.26+）
@@ -227,11 +305,11 @@ vim agentd.toml
 
 ---
 
-## Quick Start
+## 快速开始
 
 ### 1. 配置环境变量
 
-部署时需要 `AUTH_SECRET`、`USERNAME`、`PASSWORD` 三个环境变量，**不要泄漏**。
+部署时需要 `AUTH_SECRET`、`USERNAME`、`PASSWORD`、`BLOB_ACCESS` 环境变量。`AUTH_SECRET`、`USERNAME`、`PASSWORD` **不要泄漏**；`BLOB_ACCESS` 推荐填写 `private`。
 
 ### 2. 登录并配置
 
@@ -293,7 +371,7 @@ LXC 持久化容器使用 `lxc-create`/`lxc-start`/`lxc-attach`，支持 init �
 
 ---
 
-## Security
+## 安全
 
 - **L0** — 预定义规则，直接拒绝危险命令（`rm -rf /`、`mkfs`、`dd if=`、`sudo` 等）
 - **L1** — LLM 评分（local_ollama/remote API），对命令进行风险评分（低/中/高/严重），带缓存
@@ -306,7 +384,7 @@ LXC 持久化容器使用 `lxc-create`/`lxc-start`/`lxc-attach`，支持 init �
 
 ---
 
-## Development
+## 开发
 
 ```bash
 # Web (Next.js)
@@ -328,7 +406,7 @@ go build -o agentd ./cmd/agentd/
 
 ---
 
-## Others
+## 其他
 
 如果你有任何想法或者发现了问题，请随时提交 Pull Request 或者在 Issues 中提出，欢迎任何形式的贡献。
 
