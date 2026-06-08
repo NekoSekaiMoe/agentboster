@@ -117,6 +117,13 @@ func main() {
 		cfg.Security.L1Model,
 		cfg.Server.ClawLessAPIKey,
 	)
+	l1HealthCtx, l1HealthCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := l1Client.Health(l1HealthCtx); err != nil {
+		slog.Error("L1 scorer health check failed; high-risk commands will require L2 authorization", "error", err)
+	} else {
+		slog.Info("L1 scorer health check passed")
+	}
+	l1HealthCancel()
 	bus := eventbus.New()
 
 	l2Manager := l2_auth.NewL2AuthManager(nil, "default")

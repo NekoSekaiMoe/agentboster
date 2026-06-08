@@ -34,12 +34,13 @@ type L1Client struct {
 	modelID    string
 	httpClient *http.Client
 	apiKey     string
+	available  bool
 }
 
 // NewL1Client creates a new L1 client that calls the ClawLess scoring API.
 func NewL1Client(baseURL, modelID, apiKey string) *L1Client {
 	return &L1Client{
-		baseURL: baseURL,
+		baseURL: strings.TrimRight(baseURL, "/"),
 		modelID: modelID,
 		apiKey:  apiKey,
 		httpClient: &http.Client{
@@ -48,13 +49,64 @@ func NewL1Client(baseURL, modelID, apiKey string) *L1Client {
 	}
 }
 
+// Health verifies that the web-side L1 scorer endpoint is reachable and has a
+// configured model provider. It does not run an LLM request.
+func (c *L1Client) Health(ctx context.Context) error {
+	url := fmt.Sprintf("%s/api/agentd/v1/l1-health", c.baseURL)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("create L1 health request: %w", err)
+	}
+	if c.apiKey != "" {
+		httpReq.Header.Set("X-API-Key", c.apiKey)
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("L1 health request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read L1 health response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("L1 health API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var healthResp struct {
+		Success bool   `json:"success"`
+		Error   string `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(body, &healthResp); err != nil {
+		return fmt.Errorf("parse L1 health response: %w", err)
+	}
+	if !healthResp.Success {
+		return fmt.Errorf("L1 health API error: %s", healthResp.Error)
+	}
+
+	c.available = true
+	return nil
+}
+
+func (c *L1Client) unavailableResult(reason string) (*L1Result, error) {
+	return &L1Result{
+		Score:  0.8,
+		Level:  "high",
+		Reason: reason,
+	}, nil
+}
+
 type l1ScoreRequest struct {
 	Type           string `json:"type"`
 	Command        string `json:"command,omitempty"`
 	Output         string `json:"output,omitempty"`
 	WorkDir        string `json:"work_dir,omitempty"`
 	ContextSummary string `json:"context_summary,omitempty"`
-	ModelID        string `json:"model_id"`
+	ModelID        string `json:"model_id,omitempty"`
 }
 
 type l1ScoreResponse struct {
@@ -65,6 +117,10 @@ type l1ScoreResponse struct {
 
 // Score evaluates a command for safety risks via the ClawLess API.
 func (c *L1Client) Score(ctx context.Context, command, workDir, sessionSummary string) (*L1Result, error) {
+	if !c.available {
+		return c.unavailableResult("L1 unavailable: startup health check failed or was not run")
+	}
+
 	req := l1ScoreRequest{
 		Type:           "command",
 		Command:        command,
@@ -76,8 +132,7 @@ func (c *L1Client) Score(ctx context.Context, command, workDir, sessionSummary s
 	result, err := c.doScore(ctx, req)
 	if err != nil {
 		slog.Error("L1 scoring failed", "error", err)
-		// Fail-open with medium score — L0 already caught obvious threats
-		return &L1Result{Score: 0.3, Level: "medium", Reason: fmt.Sprintf("L1 scoring error: %v", err)}, nil
+		return c.unavailableResult(fmt.Sprintf("L1 scoring error: %v", err))
 	}
 
 	return result, nil
@@ -85,6 +140,10 @@ func (c *L1Client) Score(ctx context.Context, command, workDir, sessionSummary s
 
 // ScoreOutput evaluates LLM output content for safety risks via the ClawLess API.
 func (c *L1Client) ScoreOutput(ctx context.Context, output, sessionSummary string) (*L1Result, error) {
+	if !c.available {
+		return c.unavailableResult("L1 unavailable: startup health check failed or was not run")
+	}
+
 	req := l1ScoreRequest{
 		Type:           "output",
 		Output:         output,
@@ -95,7 +154,7 @@ func (c *L1Client) ScoreOutput(ctx context.Context, output, sessionSummary strin
 	result, err := c.doScore(ctx, req)
 	if err != nil {
 		slog.Error("L1 output scoring failed", "error", err)
-		return &L1Result{Score: 0.3, Level: "medium", Reason: fmt.Sprintf("L1 output scoring error: %v", err)}, nil
+		return c.unavailableResult(fmt.Sprintf("L1 output scoring error: %v", err))
 	}
 
 	return result, nil
@@ -114,6 +173,7 @@ func (c *L1Client) doScore(ctx context.Context, req l1ScoreRequest) (*L1Result, 
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
+		httpReq.Header.Set("X-API-Key", c.apiKey)
 		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
@@ -153,7 +213,7 @@ type l1BatchScoreRequest struct {
 	Type           string `json:"type"`
 	Prompt         string `json:"prompt"`
 	ContextSummary string `json:"context_summary,omitempty"`
-	ModelID        string `json:"model_id"`
+	ModelID        string `json:"model_id,omitempty"`
 }
 
 type l1BatchScoreResponse struct {
@@ -224,6 +284,9 @@ func (c *L1Client) ScoreBatch(ctx context.Context, commands []string, sessionSum
 	if len(commands) == 0 {
 		return []*L1Result{}, nil
 	}
+	if !c.available {
+		return nil, fmt.Errorf("L1 unavailable: startup health check failed or was not run")
+	}
 
 	prompt := buildBatchPrompt(commands, sessionSummary)
 
@@ -246,6 +309,7 @@ func (c *L1Client) ScoreBatch(ctx context.Context, commands []string, sessionSum
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
+		httpReq.Header.Set("X-API-Key", c.apiKey)
 		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 

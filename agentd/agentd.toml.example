@@ -20,9 +20,10 @@ ca_path = "./certs/ca-cert.pem"
 heartbeat_interval = "30s"
 
 [security]
-l1_provider = "local_ollama"
-l1_endpoint = "http://localhost:11434/api/generate"
-l1_model = "tinyllama:latest"
+l1_provider = "web"
+l1_endpoint = ""
+# Optional. Leave empty to use AgentBoster Web Config > Security > L1 scorer model.
+l1_model = ""
 l1_api_key = ""
 # Unprivileged user to drop to after root setup (empty = stay root)
 run_as_user = ""

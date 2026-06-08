@@ -4,6 +4,7 @@
  */
 
 import { getConfig } from '@/lib/core/kv/config';
+import { resolveL1ScorerModelId } from '@/lib/security/l1-model';
 import {
   type L1ScoreResult,
   scoreCommand,
@@ -19,14 +20,14 @@ const commandScoreRequestSchema = z.object({
   command: z.string(),
   work_dir: z.string().optional(),
   context_summary: z.string().optional(),
-  model_id: z.string().default('openai/gpt-4o-mini'),
+  model_id: z.string().trim().min(1).optional(),
 });
 
 const outputScoreRequestSchema = z.object({
   type: z.literal('output'),
   output: z.string(),
   context_summary: z.string().optional(),
-  model_id: z.string().default('openai/gpt-4o-mini'),
+  model_id: z.string().trim().min(1).optional(),
 });
 
 const requestSchema = z.discriminatedUnion('type', [
@@ -65,6 +66,7 @@ export async function POST(request: Request) {
       );
     }
 
+    const modelId = resolveL1ScorerModelId(config, parsed.data.model_id);
     let result: L1ScoreResult;
     if (parsed.data.type === 'command') {
       result = await scoreCommand(
@@ -73,11 +75,12 @@ export async function POST(request: Request) {
           workDir: parsed.data.work_dir,
           contextSummary: parsed.data.context_summary,
         },
-        parsed.data.model_id,
+        modelId,
         config,
       );
       logger.info('command scored', {
         command: parsed.data.command.slice(0, 100),
+        modelId,
         score: result.score,
         level: result.level,
       });
@@ -87,11 +90,12 @@ export async function POST(request: Request) {
           output: parsed.data.output,
           contextSummary: parsed.data.context_summary,
         },
-        parsed.data.model_id,
+        modelId,
         config,
       );
       logger.info('output scored', {
         outputLength: parsed.data.output.length,
+        modelId,
         score: result.score,
         level: result.level,
       });

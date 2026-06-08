@@ -7,6 +7,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { resolveLanguageModel } from '@/lib/ai';
 import { getConfig } from '@/lib/core/kv/config';
+import { resolveL1ScorerModelId } from '@/lib/security/l1-model';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.l1-score-batch');
@@ -15,7 +16,7 @@ const batchScoreRequestSchema = z.object({
   type: z.literal('command_batch'),
   prompt: z.string().min(1),
   context_summary: z.string().optional(),
-  model_id: z.string().default('openai/gpt-4o-mini'),
+  model_id: z.string().trim().min(1).optional(),
 });
 
 const batchScoreResultSchema = z.object({
@@ -57,7 +58,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const model = resolveLanguageModel(parsed.data.model_id, config);
+    const modelId = resolveL1ScorerModelId(config, parsed.data.model_id);
+    const model = resolveLanguageModel(modelId, config);
     const { object } = await generateObject({
       model,
       schema: batchScoreResultSchema,
@@ -66,6 +68,7 @@ export async function POST(request: Request) {
 
     logger.info('batch scored', {
       count: object.results.length,
+      modelId,
     });
 
     return Response.json({

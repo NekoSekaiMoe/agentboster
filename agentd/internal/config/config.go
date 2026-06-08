@@ -65,7 +65,7 @@ type ClawLessConfig struct {
 type SecurityConfig struct {
 	L1Provider  string `mapstructure:"l1_provider" default:"local_ollama"`
 	L1Endpoint  string `mapstructure:"l1_endpoint" default:"http://localhost:11434/api/generate"`
-	L1Model     string `mapstructure:"l1_model" default:"tinyllama:latest"`
+	L1Model     string `mapstructure:"l1_model"`
 	L1APIKey    string `mapstructure:"l1_api_key"`
 	L1Threshold struct {
 		Low      float64 `mapstructure:"low" default:"0.4"`
