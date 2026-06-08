@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { toast } from 'sonner';
@@ -35,7 +36,9 @@ interface ConfigContextValue {
   updateJsonText: (value: string) => void;
   updateSection: <K extends keyof AppConfig>(
     key: K,
-    value: AppConfig[K],
+    value:
+      | AppConfig[K]
+      | ((currentValue: AppConfig[K] | undefined) => AppConfig[K]),
   ) => void;
   validationIssues: ConfigValidationIssue[];
   validationPassed: boolean;
@@ -43,11 +46,6 @@ interface ConfigContextValue {
 }
 
 const ConfigContext = createContext<ConfigContextValue | null>(null);
-
-type ConfigLoadResponse = {
-  config: AppConfig;
-  runtimeHealth: RuntimeHealthSnapshot | null;
-};
 
 function formatJson(value: unknown) {
   return JSON.stringify(value, null, 2);
@@ -59,6 +57,7 @@ function cloneDraft(value: ConfigDraft): ConfigDraft {
 
 export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [draft, setDraft] = useState<ConfigDraft>({});
+  const draftRef = useRef<ConfigDraft>({});
   const [jsonText, setJsonText] = useState('{}');
   const [jsonSyntaxError, setJsonSyntaxError] = useState<string | null>(null);
   const [lastValidDraft, setLastValidDraft] = useState<AppConfig>({});
@@ -85,6 +84,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
         await loadConfigAction();
 
       startTransition(() => {
+        draftRef.current = config;
         setDraft(config);
         setLastValidDraft(config);
         setRuntimeHealth(nextRuntimeHealth);
@@ -108,6 +108,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   }, [loadConfig]);
 
   const applyDraftUpdate = useCallback((nextDraft: ConfigDraft) => {
+    draftRef.current = nextDraft;
     setDraft(nextDraft);
     setJsonText(formatJson(nextDraft));
     setJsonSyntaxError(null);
@@ -116,18 +117,29 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateSection = useCallback(
-    <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
-      const nextDraft = cloneDraft(draft);
+    <K extends keyof AppConfig>(
+      key: K,
+      value:
+        | AppConfig[K]
+        | ((currentValue: AppConfig[K] | undefined) => AppConfig[K]),
+    ) => {
+      const nextDraft = cloneDraft(draftRef.current);
+      const nextValue =
+        typeof value === 'function'
+          ? (value as (currentValue: AppConfig[K] | undefined) => AppConfig[K])(
+              nextDraft[key] as AppConfig[K] | undefined,
+            )
+          : value;
 
-      if (value === undefined) {
+      if (nextValue === undefined) {
         delete nextDraft[key];
       } else {
-        nextDraft[key] = value;
+        nextDraft[key] = nextValue;
       }
 
       applyDraftUpdate(nextDraft);
     },
-    [applyDraftUpdate, draft],
+    [applyDraftUpdate],
   );
 
   const updateJsonText = useCallback((value: string) => {
@@ -146,6 +158,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       }
 
       startTransition(() => {
+        draftRef.current = parsedConfig.data;
         setDraft(parsedConfig.data);
         setLastValidDraft(parsedConfig.data);
       });
@@ -175,6 +188,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       const saved = await saveConfigAction(parsed);
 
       startTransition(() => {
+        draftRef.current = saved;
         setDraft(saved);
         setLastValidDraft(saved);
         setJsonText(formatJson(saved));

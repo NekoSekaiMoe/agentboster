@@ -2,8 +2,10 @@ import {
   sendAdapterSourceReply,
   streamAdapterSourceReply,
 } from '@/lib/bot/reply';
+import { getRun } from 'workflow/api';
 import {
   createSession,
+  deleteSession,
   deleteMessagesAfterUiMessageId,
   getFirstVisibleSessionMessage,
   getSession,
@@ -13,8 +15,11 @@ import {
   updateSession,
   upsertUserMessage,
 } from '@/lib/core/db/chat';
+import { listScheduledTasksBySessionId } from '@/lib/core/db/scheduled';
 import { getConfig } from '@/lib/core/kv/config';
+import { stopSessionSandbox } from '@/lib/core/sandbox';
 import { getSessionRuntime } from '@/lib/core/sandbox/session-runtime';
+import { abortAgentdSession } from '@/lib/extra/agent/agentd-tools-client';
 import { invalidateCurrentSessionSummary } from '@/lib/memory';
 import { generateUUID } from '@/lib/utils';
 import { createLogger } from '@/lib/utils/logger';
@@ -43,6 +48,7 @@ import { executeConfigCommand } from './commands/config';
 import { executeMemoryCommand } from './commands/memory';
 import { executeModelCommand } from './commands/model';
 import { executePairCommand } from './commands/pair';
+import { executeProviderCommand } from './commands/provider';
 import {
   checkDuplicate,
   checkIdempotencyDuplicate,
@@ -127,12 +133,16 @@ const COMMAND_HELP_TEXT = [
   '/session - Show the current bound session',
   '/session <session-id> - Switch to an existing session',
   '/switch <index|session-id> - Switch to a listed or existing session',
+  '/delete_session [index|session-id] - Delete the current or selected IM session',
   '/stop - Stop the active workflow run',
   '/compact - Request context compaction',
   '/approve <toolCallId> [note] - Approve a pending tool call',
   '/reject <toolCallId> [note] - Reject a pending tool call',
   '/model - Show current model config',
   '/model <model-id> - Switch model (use "provider/model-id" or bare model name)',
+  '/provider - List model providers',
+  '/provider add <name> <format> [base_url] - Add a model provider',
+  '/provider set <name> <field> <value> - Update a model provider',
   '/config - Show config whitelist',
   '/config <path> [value] - Get or set a config value',
   '/memory <query> - Search memories',
@@ -374,6 +384,50 @@ function canImSourceAccessSession(
     Boolean(source.userId) &&
     session.userId === source.userId
   );
+}
+
+async function cancelWorkflowRun(runId: string | null | undefined) {
+  if (!runId) {
+    return false;
+  }
+
+  try {
+    await getRun(runId).cancel();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function deleteChatSession(session: NonNullable<SessionRecord>) {
+  const [daemonAborted, workflowCancelled, scheduledTasks] = await Promise.all([
+    abortAgentdSession(session.id),
+    cancelWorkflowRun(session.workflowRunId),
+    listScheduledTasksBySessionId(session.id),
+  ]);
+
+  const scheduleRunsCancelled = await Promise.all(
+    scheduledTasks.map((task) => cancelWorkflowRun(task.scheduleWorkflowRunId)),
+  );
+
+  let sandboxStopped = false;
+  if (session.sandboxId) {
+    try {
+      await stopSessionSandbox(session.id);
+      sandboxStopped = true;
+    } catch {
+      sandboxStopped = false;
+    }
+  }
+
+  await deleteSession(session.id);
+
+  return {
+    daemonAborted,
+    workflowCancelled,
+    sandboxStopped,
+    scheduleRunsCancelled: scheduleRunsCancelled.filter(Boolean).length,
+  };
 }
 
 async function resolveSwitchTarget(input: {
@@ -721,6 +775,57 @@ async function executeCommand(input: {
         runId: target.workflowRunId ?? null,
       };
     }
+    case 'delete_session': {
+      if (input.source.type !== 'im') {
+        return {
+          sessionId: currentSessionId,
+          text: 'Session deletion is only available for IM threads.',
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+
+      const target = input.args.trim()
+        ? await resolveSwitchTarget({
+            args: input.args,
+            currentSession: session,
+            source: input.source,
+          })
+        : session;
+
+      if (!target) {
+        return {
+          sessionId: currentSessionId,
+          text: input.args.trim()
+            ? `No matching session found for "${input.args}". Use /sessions to list recent sessions.`
+            : 'No session is currently bound to this thread.',
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+
+      if (!canImSourceAccessSession(input.source, target)) {
+        return {
+          sessionId: currentSessionId,
+          text: 'You can only delete sessions that belong to this IM account.',
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+
+      const deletedSessionId = target.id;
+      const cleanup = await deleteChatSession(target);
+
+      return {
+        sessionId:
+          session?.id && session.id !== deletedSessionId ? session.id : 'none',
+        text: [
+          `Deleted session ${deletedSessionId}.`,
+          `workflow_cancelled=${cleanup.workflowCancelled}`,
+          `daemon_aborted=${cleanup.daemonAborted}`,
+          `sandbox_stopped=${cleanup.sandboxStopped}`,
+          `schedule_runs_cancelled=${cleanup.scheduleRunsCancelled}`,
+        ].join('\n'),
+        runId: null,
+      };
+    }
     case 'stop': {
       if (!session) {
         return {
@@ -898,6 +1003,14 @@ async function executeCommand(input: {
     }
     case 'model': {
       const text = await executeModelCommand(input.args);
+      return {
+        sessionId: currentSessionId,
+        text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'provider': {
+      const text = await executeProviderCommand(input.args);
       return {
         sessionId: currentSessionId,
         text,

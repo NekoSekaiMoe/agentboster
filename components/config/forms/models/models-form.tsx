@@ -72,6 +72,15 @@ export function ModelsForm() {
     null,
   );
 
+  const updateModels = (
+    updater: (current: Partial<AIConfig>) => Partial<AIConfig>,
+  ) => {
+    updateValue((currentModels) => {
+      const current = (currentModels ?? {}) as Partial<AIConfig>;
+      return updater(current) as AppConfig['models'];
+    });
+  };
+
   useEffect(() => {
     let disposed = false;
 
@@ -319,16 +328,21 @@ export function ModelsForm() {
                       const predictedBaseUrl = catalogProvider
                         ? modelsCatalog?.[catalogProvider]?.api
                         : undefined;
-                      const nextProviders = { ...(models.providers ?? {}) };
-                      delete nextProviders[providerKey];
-                      nextProviders[nextProviderName] = {
-                        ...providerValue,
-                        base_url: predictedBaseUrl ?? providerValue.base_url,
-                      };
-                      updateValue({
-                        ...models,
-                        providers: nextProviders,
-                      } as AppConfig['models']);
+                      updateModels((current) => {
+                        const nextProviders = { ...(current.providers ?? {}) };
+                        const currentProvider =
+                          nextProviders[providerKey] ?? providerValue;
+                        delete nextProviders[providerKey];
+                        nextProviders[nextProviderName] = {
+                          ...currentProvider,
+                          base_url:
+                            predictedBaseUrl ?? currentProvider.base_url,
+                        };
+                        return {
+                          ...current,
+                          providers: nextProviders,
+                        };
+                      });
                     }}
                   />
                 </Field>
@@ -336,16 +350,17 @@ export function ModelsForm() {
                   <Select
                     value={providerValue.format}
                     onValueChange={(nextValue) =>
-                      updateValue({
-                        ...models,
+                      updateModels((current) => ({
+                        ...current,
                         providers: {
-                          ...(models.providers ?? {}),
+                          ...(current.providers ?? {}),
                           [providerKey]: {
-                            ...providerValue,
+                            ...(current.providers?.[providerKey] ??
+                              providerValue),
                             format: nextValue as AIProvider,
                           },
                         },
-                      } as AppConfig['models'])
+                      }))
                     }
                   >
                     <SelectTrigger>
@@ -369,16 +384,17 @@ export function ModelsForm() {
                     placeholder="optional"
                     value={providerValue.api_key ?? ''}
                     onChange={(event) =>
-                      updateValue({
-                        ...models,
+                      updateModels((current) => ({
+                        ...current,
                         providers: {
-                          ...(models.providers ?? {}),
+                          ...(current.providers ?? {}),
                           [providerKey]: {
-                            ...providerValue,
+                            ...(current.providers?.[providerKey] ??
+                              providerValue),
                             api_key: event.target.value || undefined,
                           },
                         },
-                      } as AppConfig['models'])
+                      }))
                     }
                   />
                 </Field>
@@ -387,16 +403,17 @@ export function ModelsForm() {
                     placeholder="https://api.example.com/v1"
                     value={providerValue.base_url ?? ''}
                     onChange={(event) =>
-                      updateValue({
-                        ...models,
+                      updateModels((current) => ({
+                        ...current,
                         providers: {
-                          ...(models.providers ?? {}),
+                          ...(current.providers ?? {}),
                           [providerKey]: {
-                            ...providerValue,
+                            ...(current.providers?.[providerKey] ??
+                              providerValue),
                             base_url: event.target.value || undefined,
                           },
                         },
-                      } as AppConfig['models'])
+                      }))
                     }
                   />
                 </Field>
@@ -409,16 +426,17 @@ export function ModelsForm() {
                     entries={createKeyValueEntries(providerValue.headers)}
                     keyLabel={t('config.common.headerKey')}
                     onChange={(entries) =>
-                      updateValue({
-                        ...models,
+                      updateModels((current) => ({
+                        ...current,
                         providers: {
-                          ...(models.providers ?? {}),
+                          ...(current.providers ?? {}),
                           [providerKey]: {
-                            ...providerValue,
+                            ...(current.providers?.[providerKey] ??
+                              providerValue),
                             headers: compactRecord(entries),
                           },
                         },
-                      } as AppConfig['models'])
+                      }))
                     }
                     valueLabel={t('config.common.headerValue')}
                   />
@@ -430,12 +448,14 @@ export function ModelsForm() {
                   type="button"
                   variant="outline"
                   onClick={() => {
-                    const nextProviders = { ...(models.providers ?? {}) };
-                    delete nextProviders[providerKey];
-                    updateValue({
-                      ...models,
-                      providers: nextProviders,
-                    } as AppConfig['models']);
+                    updateModels((current) => {
+                      const nextProviders = { ...(current.providers ?? {}) };
+                      delete nextProviders[providerKey];
+                      return {
+                        ...current,
+                        providers: nextProviders,
+                      };
+                    });
                   }}
                 >
                   <Trash2 className="size-4" />
@@ -449,24 +469,28 @@ export function ModelsForm() {
             type="button"
             variant="secondary"
             onClick={() => {
-              const nextProviderKey = createAvailableProviderKey(
-                models.providers,
-              );
+              let nextProviderKey = '';
 
-              setProviderRowIds((current) => ({
-                ...current,
-                [nextProviderKey]: createStableId('provider'),
-              }));
+              updateModels((current) => {
+                nextProviderKey = createAvailableProviderKey(current.providers);
 
-              updateValue({
-                ...models,
-                providers: {
-                  ...(models.providers ?? {}),
-                  [nextProviderKey]: {
-                    format: 'openai',
+                return {
+                  ...current,
+                  providers: {
+                    ...(current.providers ?? {}),
+                    [nextProviderKey]: {
+                      format: 'openai',
+                    },
                   },
-                },
-              } as AppConfig['models']);
+                };
+              });
+
+              if (nextProviderKey) {
+                setProviderRowIds((current) => ({
+                  ...current,
+                  [nextProviderKey]: createStableId('provider'),
+                }));
+              }
             }}
           >
             <Plus className="size-4" />

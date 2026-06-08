@@ -3,12 +3,17 @@
 import { json, jsonParseLinter } from '@codemirror/lang-json';
 import { lintGutter, linter } from '@codemirror/lint';
 import { EditorSelection, EditorState } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import { type Command, EditorView, keymap } from '@codemirror/view';
 import { AlertCircle, CheckCircle2, Code2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useConfigDraft } from '@/hooks/use-config-draft';
+
+const insertNewline: Command = (view) => {
+  view.dispatch(view.state.replaceSelection('\n'));
+  return true;
+};
 
 export function RawJsonEditor() {
   const {
@@ -20,7 +25,13 @@ export function RawJsonEditor() {
   } = useConfigDraft();
   const editorRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const initialJsonTextRef = useRef(jsonText);
   const editorValueRef = useRef(jsonText);
+  const updateJsonTextRef = useRef(updateJsonText);
+
+  useEffect(() => {
+    updateJsonTextRef.current = updateJsonText;
+  }, [updateJsonText]);
 
   useEffect(() => {
     if (!editorRef.current || viewRef.current) {
@@ -28,11 +39,12 @@ export function RawJsonEditor() {
     }
 
     const state = EditorState.create({
-      doc: jsonText,
+      doc: initialJsonTextRef.current,
       extensions: [
         json(),
         linter(jsonParseLinter()),
         lintGutter(),
+        keymap.of([{ key: 'Enter', run: insertNewline }]),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) {
@@ -41,7 +53,7 @@ export function RawJsonEditor() {
 
           const nextValue = update.state.doc.toString();
           editorValueRef.current = nextValue;
-          updateJsonText(nextValue);
+          updateJsonTextRef.current(nextValue);
         }),
         EditorView.theme({
           '&': {
@@ -69,7 +81,7 @@ export function RawJsonEditor() {
       viewRef.current?.destroy();
       viewRef.current = null;
     };
-  }, [jsonText, updateJsonText]);
+  }, []);
 
   useEffect(() => {
     const view = viewRef.current;

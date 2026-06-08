@@ -11,6 +11,7 @@ import {
   Square,
   ThumbsDown,
   ThumbsUp,
+  Trash2,
   Wand2,
 } from 'lucide-react';
 import type React from 'react';
@@ -76,6 +77,11 @@ const COMMAND_METADATA: Record<
     hint: '/switch <index|session-id>',
     icon: Hash,
   },
+  delete_session: {
+    description: 'Delete the current or selected session',
+    hint: '/delete_session [index|session-id]',
+    icon: Trash2,
+  },
   approve: {
     description: 'Approve a pending tool call',
     hint: '/approve <toolCallId> [note]',
@@ -95,6 +101,11 @@ const COMMAND_METADATA: Record<
     description: 'Show or switch the current model',
     hint: '/model <model-id>',
     icon: Hash,
+  },
+  provider: {
+    description: 'List, add, update, or remove model providers',
+    hint: '/provider <add|set|remove>',
+    icon: Settings,
   },
   config: {
     description: 'Show or set config values (whitelist)',

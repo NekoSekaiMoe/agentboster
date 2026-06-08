@@ -129,23 +129,19 @@ export async function listSessions(options?: {
   if (options?.userId) {
     conditions.push(eq(schema.sessions.userId, options.userId));
   }
+  if (options?.channel) {
+    conditions.push(eq(schema.sessions.channel, options.channel));
+  }
+  if (options?.archived !== undefined) {
+    conditions.push(eq(schema.sessions.archived, options.archived));
+  }
 
-  const rows = await db
+  return db
     .select()
     .from(schema.sessions)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.sessions.updatedAt))
     .limit(safeLimit);
-
-  return rows.filter((row) => {
-    if (options?.channel && row.channel !== options.channel) {
-      return false;
-    }
-    if (options?.archived !== undefined && row.archived !== options.archived) {
-      return false;
-    }
-    return true;
-  });
 }
 
 export async function updateSession(

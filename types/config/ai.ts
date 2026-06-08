@@ -53,7 +53,7 @@ export const aiConfigSchema = z.object({
     .max(2, 'Temperature must be <= 2')
     .default(0.7),
   /** Default model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
-  model: aiModelConfigSchema,
+  model: aiModelConfigSchema.optional(),
   /** Embedding model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
   embedding_model: aiModelConfigSchema.optional(),
   /** Default context length limit (tokens). */

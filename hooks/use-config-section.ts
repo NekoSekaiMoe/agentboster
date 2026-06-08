@@ -20,7 +20,10 @@ export function useConfigSection<K extends keyof AppConfig>(sectionKey: K) {
     ...config,
     issues,
     value: config.draft[sectionKey] as AppConfig[K],
-    updateValue: (value: AppConfig[K]) =>
-      config.updateSection(sectionKey, value),
+    updateValue: (
+      value:
+        | AppConfig[K]
+        | ((currentValue: AppConfig[K] | undefined) => AppConfig[K]),
+    ) => config.updateSection(sectionKey, value),
   };
 }
