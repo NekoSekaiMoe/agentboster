@@ -52,7 +52,5 @@ export const metadata: Metadata = {
 export default async function Page() {
   const id = generateUUID();
 
-  return (
-    <Chat key={id} id={id} />
-  );
+  return <Chat key={id} id={id} />;
 }

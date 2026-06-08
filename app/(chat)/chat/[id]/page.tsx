@@ -24,19 +24,19 @@ export default async function Page({
 
   return (
     <Chat
-        key={id}
-        id={id}
-        initialMessages={initialMessages}
-        session={
-          session
-            ? {
-                title: session.title,
-                channel: session.channel,
-                externalThreadId: session.externalThreadId ?? null,
-                accessDenied: hasAccessDeniedMetadata(session.metadata),
-              }
-            : null
-        }
-      />
+      key={id}
+      id={id}
+      initialMessages={initialMessages}
+      session={
+        session
+          ? {
+              title: session.title,
+              channel: session.channel,
+              externalThreadId: session.externalThreadId ?? null,
+              accessDenied: hasAccessDeniedMetadata(session.metadata),
+            }
+          : null
+      }
+    />
   );
 }

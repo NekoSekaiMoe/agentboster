@@ -188,9 +188,7 @@ export function McpForm() {
                   >
                     <SelectTrigger>
                       <SelectValue
-                        placeholder={t(
-                          'config.forms.mcp.transportPlaceholder',
-                        )}
+                        placeholder={t('config.forms.mcp.transportPlaceholder')}
                       />
                     </SelectTrigger>
                     <SelectContent>

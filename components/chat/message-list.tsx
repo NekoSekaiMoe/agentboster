@@ -314,11 +314,15 @@ function PureMessages({
     };
   }, [messagesContainerRef, onFollowUpSubmit]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Message/loading changes affect rendered height, so this effect intentionally rechecks scroll controls after those renders.
   useEffect(() => {
     const frame = requestAnimationFrame(updateScrollButtonVisibility);
     return () => cancelAnimationFrame(frame);
   }, [
-    updateScrollButtonVisibility
+    isLoading,
+    messages.length,
+    shouldShowThinking,
+    updateScrollButtonVisibility,
   ]);
 
   const scrollToTop = useCallback(() => {

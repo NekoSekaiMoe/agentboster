@@ -102,7 +102,10 @@ export function ChannelsForm() {
       setTestResults((prev) => ({
         ...prev,
         [adapter]: {
-          error: err instanceof Error ? err.message : t('config.common.networkError'),
+          error:
+            err instanceof Error
+              ? err.message
+              : t('config.common.networkError'),
         },
       }));
       toast.error(`${adapter}: ${t('config.common.networkError')}`);

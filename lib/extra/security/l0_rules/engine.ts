@@ -32,7 +32,10 @@ export class L0RuleEngine implements IL0RuleEngine {
     this.rules = rules ?? [...DEFAULT_L0_RULES];
   }
 
-  async evaluate(command: string, _workingDirectory: string): Promise<L0Result> {
+  async evaluate(
+    command: string,
+    _workingDirectory: string,
+  ): Promise<L0Result> {
     const sortedRules = [...this.rules]
       .filter((r) => r.enabled)
       .sort((a, b) => b.priority - a.priority);
