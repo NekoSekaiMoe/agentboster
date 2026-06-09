@@ -9,6 +9,8 @@ const logger = createLogger('db.knowledge');
 const RRF_K = 60;
 
 export type KnowledgeBaseRow = typeof schema.knowledgeBases.$inferSelect;
+export type KnowledgeConnectorRow =
+  typeof schema.knowledgeConnectors.$inferSelect;
 export type KnowledgeDocumentRow =
   typeof schema.knowledgeDocuments.$inferSelect;
 export type KnowledgeVisibility = 'team' | 'private';
@@ -345,6 +347,105 @@ export async function deleteKnowledgeDocumentRow(input: {
       and(
         eq(schema.knowledgeDocuments.id, input.documentId),
         eq(schema.knowledgeDocuments.knowledgeBaseId, input.knowledgeBaseId),
+      ),
+    )
+    .returning();
+
+  return row ?? null;
+}
+
+export async function listKnowledgeConnectorRows(knowledgeBaseId: string) {
+  return db
+    .select()
+    .from(schema.knowledgeConnectors)
+    .where(eq(schema.knowledgeConnectors.knowledgeBaseId, knowledgeBaseId))
+    .orderBy(desc(schema.knowledgeConnectors.createdAt));
+}
+
+export async function getKnowledgeConnectorRow(input: {
+  knowledgeBaseId: string;
+  connectorId: string;
+}) {
+  const [row] = await db
+    .select()
+    .from(schema.knowledgeConnectors)
+    .where(
+      and(
+        eq(schema.knowledgeConnectors.id, input.connectorId),
+        eq(schema.knowledgeConnectors.knowledgeBaseId, input.knowledgeBaseId),
+      ),
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
+export async function createKnowledgeConnectorRow(input: {
+  knowledgeBaseId: string;
+  provider?: 'url';
+  name: string;
+  sourceUri: string;
+  config?: Record<string, unknown> | null;
+}) {
+  const [row] = await db
+    .insert(schema.knowledgeConnectors)
+    .values({
+      knowledgeBaseId: input.knowledgeBaseId,
+      provider: input.provider ?? 'url',
+      name: input.name,
+      sourceUri: input.sourceUri,
+      config: input.config ?? null,
+      syncStatus: 'idle',
+    })
+    .returning();
+
+  return row;
+}
+
+export async function updateKnowledgeConnectorSyncRow(input: {
+  connectorId: string;
+  status: 'idle' | 'syncing' | 'failed';
+  lastDocumentId?: string | null;
+  lastError?: string | null;
+  lastSyncedAt?: Date | null;
+}) {
+  const values: {
+    syncStatus: 'idle' | 'syncing' | 'failed';
+    lastDocumentId?: string | null;
+    lastError?: string | null;
+    lastSyncedAt?: Date | null;
+    updatedAt: Date;
+  } = {
+    syncStatus: input.status,
+    lastError: input.lastError ?? null,
+    updatedAt: new Date(),
+  };
+  if ('lastDocumentId' in input) {
+    values.lastDocumentId = input.lastDocumentId;
+  }
+  if ('lastSyncedAt' in input) {
+    values.lastSyncedAt = input.lastSyncedAt;
+  }
+
+  const [row] = await db
+    .update(schema.knowledgeConnectors)
+    .set(values)
+    .where(eq(schema.knowledgeConnectors.id, input.connectorId))
+    .returning();
+
+  return row ?? null;
+}
+
+export async function deleteKnowledgeConnectorRow(input: {
+  knowledgeBaseId: string;
+  connectorId: string;
+}) {
+  const [row] = await db
+    .delete(schema.knowledgeConnectors)
+    .where(
+      and(
+        eq(schema.knowledgeConnectors.id, input.connectorId),
+        eq(schema.knowledgeConnectors.knowledgeBaseId, input.knowledgeBaseId),
       ),
     )
     .returning();

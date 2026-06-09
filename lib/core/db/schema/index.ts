@@ -9,6 +9,7 @@ export {
 } from './memory';
 export {
   knowledgeBases,
+  knowledgeConnectors,
   knowledgeChunks,
   knowledgeDocuments,
 } from './knowledge';

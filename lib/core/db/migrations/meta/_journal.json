@@ -57,6 +57,13 @@
       "when": 1780966800000,
       "tag": "0007_knowledge_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780970400000,
+      "tag": "0008_knowledge_connectors",
+      "breakpoints": true
     }
   ]
 }

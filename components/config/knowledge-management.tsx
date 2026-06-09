@@ -3,9 +3,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BookOpen,
+  ExternalLink,
   FileText,
+  Link2,
   Loader2,
   Plus,
+  RefreshCw,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -53,6 +56,18 @@ type KnowledgeDocument = {
   createdAt: string;
 };
 
+type KnowledgeConnector = {
+  id: string;
+  provider: 'url';
+  name: string;
+  sourceUri: string;
+  enabled: boolean;
+  syncStatus: 'idle' | 'syncing' | 'failed';
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+};
+
 type KnowledgeListResponse = {
   data: KnowledgeBase[];
   meta?: { isAdmin?: boolean };
@@ -84,6 +99,19 @@ async function fetchKnowledgeDocuments(
   return payload.data ?? [];
 }
 
+async function fetchKnowledgeConnectors(
+  knowledgeBaseId: string,
+): Promise<KnowledgeConnector[]> {
+  const res = await fetch(
+    `/api/knowledge/${encodeURIComponent(knowledgeBaseId)}/connectors`,
+  );
+  if (!res.ok) {
+    throw new Error(await readError(res, 'Failed to fetch external sources'));
+  }
+  const payload = await res.json();
+  return payload.data ?? [];
+}
+
 async function createKnowledgeBase(input: {
   name: string;
   description?: string;
@@ -96,6 +124,28 @@ async function createKnowledgeBase(input: {
   });
   if (!res.ok) {
     throw new Error(await readError(res, 'Failed to create knowledge base'));
+  }
+  return res.json();
+}
+
+async function createKnowledgeConnector(input: {
+  knowledgeBaseId: string;
+  name: string;
+  sourceUri: string;
+}) {
+  const res = await fetch(
+    `/api/knowledge/${encodeURIComponent(input.knowledgeBaseId)}/connectors`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: input.name,
+        source_uri: input.sourceUri,
+      }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(await readError(res, 'Failed to add external source'));
   }
   return res.json();
 }
@@ -147,9 +197,54 @@ async function deleteKnowledgeDocument(input: {
   }
 }
 
+async function syncKnowledgeConnector(input: {
+  knowledgeBaseId: string;
+  connectorId: string;
+}) {
+  const res = await fetch(
+    `/api/knowledge/${encodeURIComponent(
+      input.knowledgeBaseId,
+    )}/connectors/${encodeURIComponent(input.connectorId)}/sync`,
+    { method: 'POST' },
+  );
+  if (!res.ok) {
+    throw new Error(await readError(res, 'Failed to sync external source'));
+  }
+  return res.json();
+}
+
+async function deleteKnowledgeConnector(input: {
+  knowledgeBaseId: string;
+  connectorId: string;
+}) {
+  const res = await fetch(
+    `/api/knowledge/${encodeURIComponent(
+      input.knowledgeBaseId,
+    )}/connectors?connector_id=${encodeURIComponent(input.connectorId)}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok) {
+    throw new Error(await readError(res, 'Failed to delete external source'));
+  }
+}
+
 function formatDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatOptionalDate(value: string | null) {
+  return value ? formatDate(value) : 'Never';
+}
+
+function connectorStatusVariant(status: KnowledgeConnector['syncStatus']) {
+  if (status === 'failed') {
+    return 'destructive';
+  }
+  if (status === 'syncing') {
+    return 'secondary';
+  }
+  return 'outline';
 }
 
 export function KnowledgeManagement() {
@@ -157,11 +252,14 @@ export function KnowledgeManagement() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [documentOpen, setDocumentOpen] = useState(false);
+  const [connectorOpen, setConnectorOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<KnowledgeVisibility>('private');
   const [documentTitle, setDocumentTitle] = useState('');
   const [documentContent, setDocumentContent] = useState('');
+  const [connectorName, setConnectorName] = useState('');
+  const [connectorUrl, setConnectorUrl] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['knowledge-bases'],
@@ -196,6 +294,12 @@ export function KnowledgeManagement() {
     enabled: Boolean(selectedBase?.id),
   });
 
+  const connectorsQuery = useQuery({
+    queryKey: ['knowledge-connectors', selectedBase?.id],
+    queryFn: () => fetchKnowledgeConnectors(selectedBase?.id ?? ''),
+    enabled: Boolean(selectedBase?.id),
+  });
+
   const createMutation = useMutation({
     mutationFn: createKnowledgeBase,
     onSuccess: async () => {
@@ -222,6 +326,25 @@ export function KnowledgeManagement() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const addConnectorMutation = useMutation({
+    mutationFn: createKnowledgeConnector,
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['knowledge-connectors', variables.knowledgeBaseId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['knowledge-documents', variables.knowledgeBaseId],
+        }),
+      ]);
+      setConnectorName('');
+      setConnectorUrl('');
+      setConnectorOpen(false);
+      toast.success('External source synced');
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
   const deleteBaseMutation = useMutation({
     mutationFn: deleteKnowledgeBase,
     onSuccess: async () => {
@@ -239,6 +362,38 @@ export function KnowledgeManagement() {
         queryKey: ['knowledge-documents', selectedBase?.id],
       });
       toast.success('Document deleted');
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const syncConnectorMutation = useMutation({
+    mutationFn: syncKnowledgeConnector,
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['knowledge-connectors', variables.knowledgeBaseId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['knowledge-documents', variables.knowledgeBaseId],
+        }),
+      ]);
+      toast.success('External source synced');
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const deleteConnectorMutation = useMutation({
+    mutationFn: deleteKnowledgeConnector,
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['knowledge-connectors', variables.knowledgeBaseId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['knowledge-documents', variables.knowledgeBaseId],
+        }),
+      ]);
+      toast.success('External source deleted');
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -466,6 +621,7 @@ export function KnowledgeManagement() {
                   <Button
                     size="sm"
                     variant="outline"
+                    aria-label={`Delete knowledge base ${selectedBase.name}`}
                     disabled={
                       !selectedBase.canManage || deleteBaseMutation.isPending
                     }
@@ -482,6 +638,216 @@ export function KnowledgeManagement() {
                     <Trash2 className="size-4" />
                   </Button>
                 </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h4 className="font-medium text-sm">External Sources</h4>
+                    <p className="mt-1 text-muted-foreground text-xs">
+                      URL sources are synced into this knowledge base as indexed
+                      documents.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {connectorsQuery.isFetching ? (
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    ) : null}
+                    <Dialog
+                      open={connectorOpen}
+                      onOpenChange={setConnectorOpen}
+                    >
+                      <DialogTrigger asChild>
+                        <Button size="sm" disabled={!selectedBase.canManage}>
+                          <Link2 className="mr-2 size-4" />
+                          Add URL
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-lg">
+                        <DialogHeader>
+                          <DialogTitle>Add URL Source</DialogTitle>
+                          <DialogDescription>
+                            The URL is fetched, chunked, and indexed into the
+                            selected knowledge base.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-2">
+                          <div className="grid gap-2">
+                            <Label htmlFor="connector-name">Name</Label>
+                            <Input
+                              id="connector-name"
+                              value={connectorName}
+                              onChange={(event) =>
+                                setConnectorName(event.target.value)
+                              }
+                              placeholder="Product docs"
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="connector-url">URL</Label>
+                            <Input
+                              id="connector-url"
+                              value={connectorUrl}
+                              onChange={(event) =>
+                                setConnectorUrl(event.target.value)
+                              }
+                              placeholder="https://example.com/docs"
+                            />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button
+                            disabled={
+                              addConnectorMutation.isPending ||
+                              !connectorUrl.trim()
+                            }
+                            onClick={() =>
+                              addConnectorMutation.mutate({
+                                knowledgeBaseId: selectedBase.id,
+                                name: connectorName.trim(),
+                                sourceUri: connectorUrl.trim(),
+                              })
+                            }
+                          >
+                            {addConnectorMutation.isPending ? (
+                              <Loader2 className="mr-2 size-4 animate-spin" />
+                            ) : (
+                              <Link2 className="mr-2 size-4" />
+                            )}
+                            Add and Sync
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                </div>
+
+                {connectorsQuery.isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 2 }).map((_, index) => (
+                      <Skeleton
+                        key={`connector-skeleton-${index}`}
+                        className="h-16"
+                      />
+                    ))}
+                  </div>
+                ) : (connectorsQuery.data ?? []).length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
+                    No external sources connected
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(connectorsQuery.data ?? []).map((connector) => {
+                      const isSyncing =
+                        syncConnectorMutation.isPending &&
+                        syncConnectorMutation.variables?.connectorId ===
+                          connector.id;
+                      const isDeleting =
+                        deleteConnectorMutation.isPending &&
+                        deleteConnectorMutation.variables?.connectorId ===
+                          connector.id;
+
+                      return (
+                        <div
+                          key={connector.id}
+                          className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center"
+                        >
+                          <Link2 className="size-4 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <div className="min-w-0 truncate font-medium text-sm">
+                                {connector.name}
+                              </div>
+                              <Badge
+                                className="shrink-0 rounded-md"
+                                variant={connectorStatusVariant(
+                                  connector.syncStatus,
+                                )}
+                              >
+                                {connector.syncStatus}
+                              </Badge>
+                            </div>
+                            <div className="mt-1 truncate text-muted-foreground text-xs">
+                              {connector.sourceUri}
+                            </div>
+                            <div className="mt-1 text-muted-foreground text-xs">
+                              Last synced{' '}
+                              {formatOptionalDate(connector.lastSyncedAt)}
+                            </div>
+                            {connector.lastError ? (
+                              <div className="mt-1 line-clamp-2 text-destructive text-xs">
+                                {connector.lastError}
+                              </div>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1 self-start sm:self-center">
+                            <Button size="sm" variant="ghost" asChild>
+                              <a
+                                href={connector.sourceUri}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={`Open external source ${connector.name}`}
+                              >
+                                <ExternalLink className="size-4" />
+                              </a>
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              aria-label={`Sync external source ${connector.name}`}
+                              disabled={
+                                !selectedBase.canManage ||
+                                syncConnectorMutation.isPending ||
+                                connector.syncStatus === 'syncing'
+                              }
+                              onClick={() =>
+                                syncConnectorMutation.mutate({
+                                  knowledgeBaseId: selectedBase.id,
+                                  connectorId: connector.id,
+                                })
+                              }
+                            >
+                              {isSyncing ||
+                              connector.syncStatus === 'syncing' ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="size-4" />
+                              )}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive"
+                              aria-label={`Delete external source ${connector.name}`}
+                              disabled={
+                                !selectedBase.canManage ||
+                                deleteConnectorMutation.isPending
+                              }
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    `Delete external source "${connector.name}"?`,
+                                  )
+                                ) {
+                                  deleteConnectorMutation.mutate({
+                                    knowledgeBaseId: selectedBase.id,
+                                    connectorId: connector.id,
+                                  });
+                                }
+                              }}
+                            >
+                              {isDeleting ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="size-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
@@ -526,6 +892,7 @@ export function KnowledgeManagement() {
                           size="sm"
                           variant="ghost"
                           className="text-destructive"
+                          aria-label={`Delete document ${document.title}`}
                           disabled={
                             !selectedBase.canManage ||
                             deleteDocumentMutation.isPending

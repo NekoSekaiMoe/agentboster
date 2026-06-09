@@ -119,6 +119,50 @@ export const knowledgeDocuments = pgTable(
   }),
 );
 
+export const knowledgeConnectors = pgTable(
+  'knowledge_connectors',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    knowledgeBaseId: uuid('knowledge_base_id')
+      .references(() => knowledgeBases.id, { onDelete: 'cascade' })
+      .notNull(),
+    provider: text('provider', { enum: ['url'] })
+      .default('url')
+      .notNull(),
+    name: text('name').notNull(),
+    sourceUri: text('source_uri').notNull(),
+    enabled: boolean('enabled').default(true).notNull(),
+    syncStatus: text('sync_status', {
+      enum: ['idle', 'syncing', 'failed'],
+    })
+      .default('idle')
+      .notNull(),
+    lastDocumentId: uuid('last_document_id').references(
+      () => knowledgeDocuments.id,
+      { onDelete: 'set null' },
+    ),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    config: jsonb('config').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    kbCreatedIdx: index('knowledge_connectors_kb_created_idx').on(
+      table.knowledgeBaseId,
+      table.createdAt,
+    ),
+    providerIdx: index('knowledge_connectors_provider_idx').on(
+      table.provider,
+      table.enabled,
+    ),
+  }),
+);
+
 export const knowledgeChunks = pgTable(
   'knowledge_chunks',
   {
