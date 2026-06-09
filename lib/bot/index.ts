@@ -21,6 +21,7 @@ import {
 import { type Attachment, Chat } from 'chat';
 import { getBaseBot } from './core';
 import { getAdapterReplyContext } from './reply-context';
+import { SUGGESTED_FOLLOW_UP_ACTION_ID } from './reply';
 
 type IncomingThread = {
   adapter: { name: string };
@@ -457,6 +458,37 @@ export async function getBot(): Promise<Chat> {
       thread as IncomingThread,
       message as IncomingMessage,
     );
+  });
+
+  bot.onAction(SUGGESTED_FOLLOW_UP_ACTION_ID, async (event) => {
+    const text = event.value?.trim();
+    if (!text || !event.threadId) {
+      return;
+    }
+
+    const adapter = event.adapter.name as AdapterName;
+    const source: Extract<ChatSource, { type: 'im' }> = {
+      adapter,
+      origin: event.threadId,
+      threadId: event.threadId,
+      messageId: event.messageId,
+      type: 'im',
+      userId: event.user.userId ?? null,
+      userName: event.user.userName ?? null,
+    };
+    const replyContext = await getAdapterReplyContext(adapter, event.messageId);
+
+    await routeAdapterMessage({
+      adapter,
+      origin: source.origin,
+      sessionId: replyContext?.sessionId,
+      threadId: event.threadId,
+      messageId: null,
+      userId: source.userId,
+      userName: source.userName,
+      text,
+      parts: [{ type: 'text', text }],
+    });
   });
 
   return bot;

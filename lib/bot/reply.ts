@@ -1,4 +1,5 @@
 import { getConfig } from '@/lib/core/kv/config';
+import { parseSuggestedFollowUps } from '@/lib/chat/suggested-follow-up';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import {
@@ -7,11 +8,12 @@ import {
   type ChannelsConfig,
 } from '@/types/config/channels';
 import type { ChatSource } from '@/types/workflow';
-import type { Chat } from 'chat';
+import { Actions, Button, Card, CardText, type Chat } from 'chat';
 import { createBaseBotFromConfig, getBaseBot } from './core';
 import { recordAdapterReplyContext } from './reply-context';
 
 const logger = createLogger('bot.reply');
+const SUGGESTED_FOLLOW_UP_ACTION_ID = 'agentboster_follow_up';
 
 function normalizeAllowedUserIds(value?: string[]): string[] {
   if (!Array.isArray(value)) {
@@ -104,6 +106,60 @@ async function sendScheduledSourceReply(
   return deliveredCount > 0;
 }
 
+function buildSuggestedFollowUpCard(text: string) {
+  const followUps = parseSuggestedFollowUps(text);
+  if (!followUps) {
+    return null;
+  }
+
+  const cardText = followUps.textWithoutQuestions || text;
+  return {
+    card: Card({
+      children: [
+        CardText(cardText),
+        Actions(
+          followUps.questions.map((question) =>
+            Button({
+              id: SUGGESTED_FOLLOW_UP_ACTION_ID,
+              label: question,
+              value: question,
+            }),
+          ),
+        ),
+      ],
+    }),
+    fallbackText: text,
+  };
+}
+
+async function postAdapterReply(input: {
+  adapter: ReturnType<Chat['getAdapter']>;
+  source: Extract<ChatSource, { type: 'im' }>;
+  text: string;
+}) {
+  const suggestedFollowUpCard = buildSuggestedFollowUpCard(input.text);
+  let sent: Awaited<ReturnType<typeof input.adapter.postMessage>>;
+  if (suggestedFollowUpCard) {
+    try {
+      sent = await input.adapter.postMessage(input.source.threadId, {
+        card: suggestedFollowUpCard.card,
+        fallbackText: input.text,
+      });
+    } catch {
+      sent = await input.adapter.postMessage(input.source.threadId, {
+        markdown: input.text,
+      });
+    }
+  } else {
+    sent = await input.adapter.postMessage(input.source.threadId, {
+      markdown: input.text,
+    });
+  }
+
+  await recordAdapterReplyContext(input.source, sent.id, input.text);
+  return sent;
+}
+
 export async function sendAdapterSourceReply(
   source: ChatSource,
   text: string,
@@ -116,10 +172,11 @@ export async function sendAdapterSourceReply(
   try {
     const bot = await getBaseBot();
     const adapter = bot.getAdapter(source.adapter);
-    const sent = await adapter.postMessage(source.threadId, {
-      markdown: content,
+    await postAdapterReply({
+      adapter,
+      source,
+      text: content,
     });
-    await recordAdapterReplyContext(source, sent.id, content);
     return true;
   } catch (error) {
     logger.warn('reply:failed', {
@@ -302,7 +359,23 @@ export async function streamAdapterSourceReply(
 
       // Final edit with complete text
       const finalText = fullText.trim();
-      if (messageId && finalText && finalText !== lastEditedText) {
+      const suggestedFollowUpCard = buildSuggestedFollowUpCard(finalText);
+
+      if (messageId && suggestedFollowUpCard) {
+        try {
+          const edited = await adapter.editMessage(source.threadId, messageId, {
+            card: suggestedFollowUpCard.card,
+            fallbackText: suggestedFollowUpCard.fallbackText,
+          });
+          await recordAdapterReplyContext(source, edited.id, finalText);
+        } catch {
+          await postAdapterReply({
+            adapter,
+            source,
+            text: finalText,
+          });
+        }
+      } else if (messageId && finalText && finalText !== lastEditedText) {
         try {
           await adapter.editMessage(source.threadId, messageId, {
             markdown: finalText,
@@ -315,10 +388,11 @@ export async function streamAdapterSourceReply(
 
       // If we never got any text, send a fallback
       if (!messageId && finalText) {
-        const posted = await adapter.postMessage(source.threadId, {
-          markdown: finalText,
+        await postAdapterReply({
+          adapter,
+          source,
+          text: finalText,
         });
-        await recordAdapterReplyContext(source, posted.id, finalText);
       }
     } finally {
       clearInterval(typingTimer);
@@ -364,3 +438,5 @@ export async function sendRoutedSourceReply(
 
   return sendAdapterSourceReply(source, content);
 }
+
+export { SUGGESTED_FOLLOW_UP_ACTION_ID };
