@@ -4,6 +4,8 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useConfigContext } from '@/components/config/config-provider';
 import { useI18n } from '@/components/i18n-provider';
 import {
   Card,
@@ -15,6 +17,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useConfigSection } from '@/hooks/use-config-section';
+import type { AgentdConfig } from '@/types/config/agentd';
 import type { AgentConfig } from '@/types/config/agents';
 import type { AIConfig } from '@/types/config/ai';
 
@@ -34,9 +37,12 @@ import {
 
 export function AgentsForm() {
   const { issues, value, updateValue } = useConfigSection('agents');
+  const { draft, updateSection } = useConfigContext();
   const { value: modelsValue } = useConfigSection('models');
   const { t } = useI18n();
   const agents = (value ?? {}) as AgentConfig;
+  const agentdConfig = (draft.agentd ?? {}) as Partial<AgentdConfig>;
+  const followUpEnabled = agentdConfig.follow_up_enabled ?? false;
   const models = (modelsValue ?? {}) as Partial<AIConfig>;
   const entries = Object.entries(agents);
   const [agentRowIds, setAgentRowIds] = useState<Record<string, string>>({});
@@ -81,9 +87,53 @@ export function AgentsForm() {
     [models.providers],
   );
 
+  function updateAgentdConfig(patch: Partial<AgentdConfig>) {
+    updateSection('agentd', (current) => ({
+      enabled: current?.enabled ?? false,
+      follow_up_enabled: current?.follow_up_enabled ?? false,
+      ...current,
+      ...patch,
+    }));
+  }
+
   return (
     <div className="space-y-6">
       <SectionIssues issues={issues} />
+
+      <Card className="shadow-none">
+        <CardHeader>
+          <CardTitle className="text-base">Chat follow-up</CardTitle>
+          <CardDescription>
+            Control whether Web and IM replies include suggested next questions.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <label
+            htmlFor="agents-follow-up"
+            className="flex items-start gap-3 rounded-md border p-3"
+          >
+            <Checkbox
+              id="agents-follow-up"
+              checked={followUpEnabled}
+              onCheckedChange={(checked) =>
+                updateAgentdConfig({
+                  follow_up_enabled: Boolean(checked),
+                })
+              }
+            />
+            <span className="space-y-1">
+              <span className="block font-medium text-sm">
+                Follow-up buttons
+              </span>
+              <span className="block text-muted-foreground text-xs">
+                When enabled, assistant answers end with “你要是愿意...” and
+                Web/IM renders three suggested follow-up buttons where the
+                channel supports them.
+              </span>
+            </span>
+          </label>
+        </CardContent>
+      </Card>
 
       <Card className="shadow-none">
         <CardHeader>

@@ -141,7 +141,6 @@ export function AgentDConfigPage() {
   const agentdConfig = (draft.agentd ?? {}) as Partial<AgentdConfig>;
   const agentdEnabled = agentdConfig.enabled ?? false;
   const agentdUrl = agentdConfig.url ?? '';
-  const followUpEnabled = agentdConfig.follow_up_enabled ?? false;
 
   function updateAgentdConfig(patch: Partial<AgentdConfig>) {
     updateSection('agentd', (current) => ({
@@ -215,7 +214,7 @@ export function AgentDConfigPage() {
           </div>
         </CardHeader>
         {agentdEnabled ? (
-          <CardContent className="grid gap-5 border-t pt-5 md:grid-cols-2">
+          <CardContent className="border-t pt-5">
             <div className="grid gap-2">
               <Label htmlFor="agentd-url">Daemon URL</Label>
               <Input
@@ -233,30 +232,6 @@ export function AgentDConfigPage() {
                 empty, AGENTD_URL from the environment is used.
               </p>
             </div>
-
-            <label
-              htmlFor="agentd-follow-up"
-              className="flex items-start gap-3 rounded-md border p-3"
-            >
-              <Checkbox
-                id="agentd-follow-up"
-                checked={followUpEnabled}
-                onCheckedChange={(checked) =>
-                  updateAgentdConfig({
-                    follow_up_enabled: Boolean(checked),
-                  })
-                }
-              />
-              <span className="space-y-1">
-                <span className="block font-medium text-sm">
-                  Follow-up buttons
-                </span>
-                <span className="block text-muted-foreground text-xs">
-                  When enabled, assistant answers end with “你要是愿意...” and
-                  the Web UI renders three suggested follow-up buttons.
-                </span>
-              </span>
-            </label>
           </CardContent>
         ) : null}
       </Card>
