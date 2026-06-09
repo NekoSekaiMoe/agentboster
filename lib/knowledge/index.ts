@@ -4,6 +4,8 @@ import {
   createKnowledgeBaseRow,
   createKnowledgeDocumentRow,
   canManageKnowledgeBaseRow,
+  deleteKnowledgeBaseRow,
+  deleteKnowledgeDocumentRow,
   getKnowledgeBaseRow,
   hashKnowledgeContent,
   hybridSearchKnowledgeChunks,
@@ -245,6 +247,53 @@ export async function listKnowledgeDocuments(
   }
 
   return listKnowledgeDocumentRows(knowledgeBaseId);
+}
+
+export async function deleteKnowledgeBase(input: {
+  knowledgeBaseId: string;
+  access: KnowledgeAccessScope;
+  includeAllPrivate?: boolean;
+}) {
+  const knowledgeBase = await getKnowledgeBaseRow(input.knowledgeBaseId, {
+    access: input.access,
+    includeAllPrivate: input.includeAllPrivate,
+  });
+  if (!knowledgeBase) {
+    throw new Error(`Knowledge base ${input.knowledgeBaseId} not found`);
+  }
+  if (!canManageKnowledgeBaseRow(knowledgeBase, input.access)) {
+    throw new Error('Forbidden');
+  }
+
+  return deleteKnowledgeBaseRow(input.knowledgeBaseId);
+}
+
+export async function deleteKnowledgeDocument(input: {
+  knowledgeBaseId: string;
+  documentId: string;
+  access: KnowledgeAccessScope;
+  includeAllPrivate?: boolean;
+}) {
+  const knowledgeBase = await getKnowledgeBaseRow(input.knowledgeBaseId, {
+    access: input.access,
+    includeAllPrivate: input.includeAllPrivate,
+  });
+  if (!knowledgeBase) {
+    throw new Error(`Knowledge base ${input.knowledgeBaseId} not found`);
+  }
+  if (!canManageKnowledgeBaseRow(knowledgeBase, input.access)) {
+    throw new Error('Forbidden');
+  }
+
+  const deleted = await deleteKnowledgeDocumentRow({
+    knowledgeBaseId: input.knowledgeBaseId,
+    documentId: input.documentId,
+  });
+  if (!deleted) {
+    throw new Error(`Knowledge document ${input.documentId} not found`);
+  }
+
+  return deleted;
 }
 
 export async function addKnowledgeDocument(input: {

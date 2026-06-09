@@ -326,6 +326,32 @@ export async function listKnowledgeDocumentRows(knowledgeBaseId: string) {
     .orderBy(desc(schema.knowledgeDocuments.createdAt));
 }
 
+export async function deleteKnowledgeBaseRow(id: string) {
+  const [row] = await db
+    .delete(schema.knowledgeBases)
+    .where(eq(schema.knowledgeBases.id, id))
+    .returning();
+
+  return row ?? null;
+}
+
+export async function deleteKnowledgeDocumentRow(input: {
+  knowledgeBaseId: string;
+  documentId: string;
+}) {
+  const [row] = await db
+    .delete(schema.knowledgeDocuments)
+    .where(
+      and(
+        eq(schema.knowledgeDocuments.id, input.documentId),
+        eq(schema.knowledgeDocuments.knowledgeBaseId, input.knowledgeBaseId),
+      ),
+    )
+    .returning();
+
+  return row ?? null;
+}
+
 export async function replaceKnowledgeDocumentChunks(input: {
   knowledgeBaseId: string;
   documentId: string;

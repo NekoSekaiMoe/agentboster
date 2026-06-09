@@ -108,6 +108,9 @@ const enUS = {
   'config.sections.users.description':
     'Manage users, roles, conversations, files, and memories.',
   'config.sections.users.title': 'Users',
+  'config.sections.knowledge.description':
+    'Manage team and private knowledge bases.',
+  'config.sections.knowledge.title': 'Knowledge',
   'config.sections.rawJson.description':
     'Inspect and edit the complete stored configuration as JSON.',
   'config.sections.rawJson.title': 'Raw JSON',
@@ -489,6 +492,8 @@ const zhCN = {
   'config.sections.monitoring.title': '仪表板',
   'config.sections.users.description': '管理用户、角色、对话、文件和记忆。',
   'config.sections.users.title': '用户',
+  'config.sections.knowledge.description': '管理团队和个人知识库。',
+  'config.sections.knowledge.title': '知识库',
   'config.sections.rawJson.description': '以 JSON 查看和编辑完整存储配置。',
   'config.sections.rawJson.title': 'Raw JSON',
   'config.sections.security.description': '配置 Web 侧 L1 安全评分默认值。',
@@ -849,6 +854,8 @@ const zhTW = {
   'config.sections.monitoring.title': '儀表板',
   'config.sections.users.description': '管理使用者、角色、對話、檔案和記憶。',
   'config.sections.users.title': '使用者',
+  'config.sections.knowledge.description': '管理團隊和個人知識庫。',
+  'config.sections.knowledge.title': '知識庫',
   'config.sections.rawJson.description': '以 JSON 檢視和編輯完整儲存設定。',
   'config.sections.rawJson.title': 'Raw JSON',
   'config.sections.security.description': '設定 Web 端 L1 安全評分預設值。',
@@ -1242,6 +1249,9 @@ const ja = {
   'config.sections.users.description':
     'ユーザー、ロール、会話、ファイル、メモリを管理します。',
   'config.sections.users.title': 'ユーザー',
+  'config.sections.knowledge.description':
+    'チームと個人のナレッジベースを管理します。',
+  'config.sections.knowledge.title': 'ナレッジ',
   'config.sections.rawJson.description':
     '保存されている設定全体を JSON として確認、編集します。',
   'config.sections.rawJson.title': 'Raw JSON',
@@ -1623,6 +1633,9 @@ const ko = {
   'config.sections.users.description':
     '사용자, 역할, 대화, 파일, 메모리를 관리합니다.',
   'config.sections.users.title': '사용자',
+  'config.sections.knowledge.description':
+    '팀 및 개인 지식 베이스를 관리합니다.',
+  'config.sections.knowledge.title': '지식 베이스',
   'config.sections.rawJson.description':
     '저장된 전체 설정을 JSON으로 확인하고 편집합니다.',
   'config.sections.rawJson.title': 'Raw JSON',

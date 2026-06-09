@@ -1,5 +1,9 @@
-import { createKnowledgeBase, listKnowledgeBases } from '@/lib/knowledge';
 import { requireAuthAccess } from '@/lib/auth/access';
+import {
+  createKnowledgeBase,
+  deleteKnowledgeBase,
+  listKnowledgeBases,
+} from '@/lib/knowledge';
 import { cookies } from 'next/headers';
 
 export async function GET(request: Request) {
@@ -21,12 +25,58 @@ export async function GET(request: Request) {
       includeAllPrivate: access.isAdmin,
     });
 
-    return Response.json({ success: true, data: knowledgeBases });
+    return Response.json({
+      success: true,
+      data: knowledgeBases,
+      meta: { isAdmin: access.isAdmin },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return Response.json(
       { success: false, error: message },
       { status: message === 'Unauthorized' ? 401 : 500 },
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const cookieStore = await cookies();
+    const access = await requireAuthAccess(cookieStore);
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return Response.json(
+        { success: false, error: 'id is required' },
+        { status: 400 },
+      );
+    }
+
+    await deleteKnowledgeBase({
+      knowledgeBaseId: id,
+      access: {
+        userId: access.session.userId,
+        isAdmin: access.isAdmin,
+      },
+      includeAllPrivate: access.isAdmin,
+    });
+
+    return Response.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return Response.json(
+      { success: false, error: message },
+      {
+        status:
+          message === 'Unauthorized'
+            ? 401
+            : message === 'Forbidden'
+              ? 403
+              : message.includes('not found')
+                ? 404
+                : 500,
+      },
     );
   }
 }

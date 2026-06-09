@@ -57,6 +57,11 @@ export const configSections = [
     titleKey: 'config.sections.users.title',
   },
   {
+    key: 'knowledge',
+    descriptionKey: 'config.sections.knowledge.description',
+    titleKey: 'config.sections.knowledge.title',
+  },
+  {
     key: 'audit-logs',
     descriptionKey: 'config.sections.auditLogs.description',
     titleKey: 'config.sections.auditLogs.title',

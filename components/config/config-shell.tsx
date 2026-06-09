@@ -27,7 +27,7 @@ export function ConfigShell({
   } = useConfigDraft();
   const { t } = useI18n();
   const sectionMeta = getConfigSectionMeta(section);
-  const showSaveButton = section !== 'users';
+  const showSaveButton = section !== 'users' && section !== 'knowledge';
   const runtimeIssues =
     runtimeHealth?.checks.filter((check) => check.status !== 'ready') ?? [];
 
