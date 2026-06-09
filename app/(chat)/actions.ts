@@ -1,12 +1,17 @@
 'use server';
 
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import {
+  assertCanAccessOwnedResource,
+  requireAuthAccess,
+} from '@/lib/auth/access';
 import {
   createSession,
   deleteSession,
+  deleteSessionForUser,
   getSession,
   listSessions,
   updateSession,
+  updateSessionForUser,
 } from '@/lib/core/db/chat';
 import { listScheduledTasksBySessionId } from '@/lib/core/db/scheduled';
 import { stopSessionSandbox } from '@/lib/core/sandbox';
@@ -43,13 +48,7 @@ const runtimeControlSchema = z.discriminatedUnion('target', [
 
 async function requireAuth() {
   const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-
-  if (!authSession) {
-    throw new Error('Unauthorized');
-  }
-
-  return authSession;
+  return requireAuthAccess(cookieStore);
 }
 
 async function cancelRun(runId: string | null | undefined) {
@@ -72,11 +71,12 @@ export async function saveModelId(model: string) {
 }
 
 export async function listRecentSessionsAction(limit = 30) {
-  await requireAuth();
+  const access = await requireAuth();
 
   const sessions = await listSessions({
     archived: false,
     limit,
+    ...(access.isAdmin ? {} : { userId: access.session.userId }),
   });
 
   return sessions.map((session) => ({
@@ -91,7 +91,7 @@ export async function updateSessionTitleAction(input: {
   id: string;
   title: string | null;
 }) {
-  await requireAuth();
+  const access = await requireAuth();
 
   const id = input.id.trim();
   if (!id) {
@@ -105,9 +105,17 @@ export async function updateSessionTitleAction(input: {
     await createSession({
       id,
       title: nextTitle,
+      userId: access.session.userId,
     });
   } else {
-    await updateSession(id, { title: nextTitle });
+    assertCanAccessOwnedResource(access, existing.userId);
+    if (access.isAdmin) {
+      await updateSession(id, { title: nextTitle });
+    } else {
+      await updateSessionForUser(id, access.session.userId, {
+        title: nextTitle,
+      });
+    }
   }
 
   return {
@@ -116,7 +124,7 @@ export async function updateSessionTitleAction(input: {
 }
 
 export async function deleteSessionAction(sessionId: string) {
-  await requireAuth();
+  const access = await requireAuth();
 
   const id = sessionId.trim();
   if (!id) {
@@ -127,6 +135,7 @@ export async function deleteSessionAction(sessionId: string) {
   if (!session) {
     throw new Error('Session not found.');
   }
+  assertCanAccessOwnedResource(access, session.userId);
 
   await cancelRun(session.workflowRunId);
 
@@ -143,7 +152,11 @@ export async function deleteSessionAction(sessionId: string) {
     scheduledTasks.map((task) => cancelRun(task.scheduleWorkflowRunId)),
   );
 
-  await deleteSession(id);
+  if (access.isAdmin) {
+    await deleteSession(id);
+  } else {
+    await deleteSessionForUser(id, access.session.userId);
+  }
 
   return {
     ok: true as const,
@@ -153,12 +166,18 @@ export async function deleteSessionAction(sessionId: string) {
 export async function getSessionRuntimeAction(
   sessionId: string,
 ): Promise<SessionRuntimeResponse | null> {
-  await requireAuth();
+  const access = await requireAuth();
 
   const id = sessionId.trim();
   if (!id) {
     throw new Error('Missing session id');
   }
+
+  const session = await getSession(id);
+  if (!session) {
+    return null;
+  }
+  assertCanAccessOwnedResource(access, session.userId);
 
   return getSessionRuntime(id);
 }
@@ -170,7 +189,7 @@ export async function controlSessionRuntimeAction(input: {
   toolCallId?: string;
   comment?: string;
 }): Promise<{ ok: true; runtime: SessionRuntimeResponse | null }> {
-  await requireAuth();
+  const access = await requireAuth();
 
   const id = input.sessionId.trim();
   if (!id) {
@@ -181,6 +200,7 @@ export async function controlSessionRuntimeAction(input: {
   if (!session) {
     throw new Error('Session not found.');
   }
+  assertCanAccessOwnedResource(access, session.userId);
 
   const parsedInput = runtimeControlSchema.safeParse({
     target: input.target,

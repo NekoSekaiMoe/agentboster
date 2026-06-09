@@ -1,6 +1,6 @@
 'use server';
 
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess } from '@/lib/auth/access';
 import { listFiles } from '@/lib/core/db/files';
 import { cookies } from 'next/headers';
 
@@ -29,13 +29,7 @@ export type FilesListResponse = {
 
 async function requireAuth() {
   const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-
-  if (!authSession) {
-    throw new Error('Unauthorized');
-  }
-
-  return authSession;
+  return requireAuthAccess(cookieStore);
 }
 
 function parseLimit(raw: number | null | undefined): number {
@@ -64,12 +58,17 @@ export async function listFilesAction(input?: {
   limit?: number;
   sessionId?: string | null;
   sort?: 'asc' | 'desc';
+  userId?: string | null;
 }): Promise<FilesListResponse> {
-  const authSession = await requireAuth();
+  const access = await requireAuth();
+  const targetUserId =
+    access.isAdmin && input?.userId?.trim()
+      ? input.userId.trim()
+      : access.session.userId;
 
   const result = await listFiles({
     sessionId: input?.sessionId?.trim() || undefined,
-    userId: authSession.userId,
+    userId: targetUserId,
     limit: parseLimit(input?.limit),
     before: parseBefore(input?.before),
     sort: input?.sort === 'asc' ? 'asc' : 'desc',

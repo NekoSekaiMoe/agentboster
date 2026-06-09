@@ -17,7 +17,6 @@ import {
   Settings,
   Sun,
   Trash2,
-  Users,
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -70,7 +69,6 @@ const navItems = [
   { label: 'Schedule', icon: Clock3, href: '/schedule' },
   { label: 'Skills', icon: Puzzle, href: '/skills' },
   { label: 'Config', icon: Settings, href: '/config' },
-  { label: 'Users', icon: Users, href: '/config/users' },
 ];
 
 type ThemeMode = 'light' | 'dark' | 'system';

@@ -1,5 +1,6 @@
 console.log('[api/ai] Module loading...');
 
+import { readAuthSessionFromCookies } from '@/lib/auth';
 import { chatMain } from '@/lib/chat';
 import { createStaticAssistantStream } from '@/lib/chat/stream';
 import { guardWorkflowChunks } from '@/lib/chat/stream-guard';
@@ -12,6 +13,7 @@ import {
   workflowDataSchema,
 } from '@/types/workflow';
 import { createUIMessageStreamResponse, validateUIMessages } from 'ai';
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 console.log('[api/ai] Module loaded successfully');
@@ -137,6 +139,15 @@ export async function POST(request: Request) {
   const input = getInputPayload(body, messages);
   logger.info('post:input_ready', { textLength: input.text.length });
 
+  const cookieStore = await cookies();
+  const authSession = await readAuthSessionFromCookies(cookieStore);
+  if (!authSession) {
+    return Response.json(
+      { success: false, error: 'Unauthorized' },
+      { status: 401 },
+    );
+  }
+
   let result: Awaited<ReturnType<typeof chatMain>>;
   try {
     logger.info('post:calling_chatMain');
@@ -157,7 +168,7 @@ export async function POST(request: Request) {
         messages,
       },
       {
-        source: { type: 'web' },
+        source: { type: 'web', userId: authSession.userId },
         idempotencyKey: request.headers.get('X-Idempotency-Key') ?? undefined,
       },
     );

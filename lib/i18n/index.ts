@@ -102,6 +102,9 @@ const enUS = {
   'config.sections.monitoring.description':
     'View Agent Daemon status, node health, and sandbox usage.',
   'config.sections.monitoring.title': 'Dashboard',
+  'config.sections.users.description':
+    'Manage users, roles, conversations, files, and memories.',
+  'config.sections.users.title': 'Users',
   'config.sections.rawJson.description':
     'Inspect and edit the complete stored configuration as JSON.',
   'config.sections.rawJson.title': 'Raw JSON',
@@ -460,6 +463,8 @@ const zhCN = {
   'config.sections.monitoring.description':
     '查看 Agent Daemon 状态、节点健康和沙箱使用情况。',
   'config.sections.monitoring.title': '仪表板',
+  'config.sections.users.description': '管理用户、角色、对话、文件和记忆。',
+  'config.sections.users.title': '用户',
   'config.sections.rawJson.description': '以 JSON 查看和编辑完整存储配置。',
   'config.sections.rawJson.title': 'Raw JSON',
   'config.sections.security.description': '配置 Web 侧 L1 安全评分默认值。',
@@ -798,6 +803,8 @@ const zhTW = {
   'config.sections.monitoring.description':
     '檢視 Agent Daemon 狀態、節點健康度和沙箱使用情況。',
   'config.sections.monitoring.title': '儀表板',
+  'config.sections.users.description': '管理使用者、角色、對話、檔案和記憶。',
+  'config.sections.users.title': '使用者',
   'config.sections.rawJson.description': '以 JSON 檢視和編輯完整儲存設定。',
   'config.sections.rawJson.title': 'Raw JSON',
   'config.sections.security.description': '設定 Web 端 L1 安全評分預設值。',
@@ -1077,6 +1084,8 @@ const zhHK = {
     '在缺少的環境變數完成設定前，部分伺服器功能會以降級狀態執行。',
   'config.sections.auditLogs.description': '查看安全審計記錄並匯出資料。',
   'config.sections.auditLogs.title': '審計記錄',
+  'config.sections.users.description': '管理用戶、角色、對話、檔案和記憶。',
+  'config.sections.users.title': '用戶',
   'login.networkError': '網絡錯誤，請再試。',
   'login.username': '用戶名稱',
   'menu.current': '目前',
@@ -1165,6 +1174,9 @@ const ja = {
   'config.sections.monitoring.description':
     'Agent Daemon の状態、ノードの健全性、サンドボックス使用状況を確認します。',
   'config.sections.monitoring.title': 'ダッシュボード',
+  'config.sections.users.description':
+    'ユーザー、ロール、会話、ファイル、メモリを管理します。',
+  'config.sections.users.title': 'ユーザー',
   'config.sections.rawJson.description':
     '保存されている設定全体を JSON として確認、編集します。',
   'config.sections.rawJson.title': 'Raw JSON',
@@ -1525,6 +1537,12 @@ const ko = {
   'config.sections.monitoring.description':
     'Agent Daemon 상태, 노드 상태, 샌드박스 사용량을 확인합니다.',
   'config.sections.monitoring.title': '대시보드',
+  'config.sections.users.description':
+    '사용자, 역할, 대화, 파일, 메모리를 관리합니다.',
+  'config.sections.users.title': '사용자',
+  'config.sections.rawJson.description':
+    '저장된 전체 설정을 JSON으로 확인하고 편집합니다.',
+  'config.sections.rawJson.title': 'Raw JSON',
   'config.sections.tools.description':
     '내장 도구를 켜거나 끄고 도구별 설정을 제공합니다.',
   'config.sections.tools.title': '도구',

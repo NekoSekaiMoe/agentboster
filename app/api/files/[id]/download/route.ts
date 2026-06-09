@@ -1,6 +1,6 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess } from '@/lib/auth/access';
 import { getBlob } from '@/lib/core/blob';
-import { getFileForUser } from '@/lib/core/db/files';
+import { getFileById, getFileForUser } from '@/lib/core/db/files';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
@@ -14,14 +14,19 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const cookieStore = await cookies();
-  const session = await readAuthSessionFromCookies(cookieStore);
-
-  if (!session) {
+  let access: Awaited<ReturnType<typeof requireAuthAccess>>;
+  try {
+    access = await requireAuthAccess(cookieStore);
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { id } = await params;
-  const file = await getFileForUser({ fileId: id, userId: session.userId });
+  const ownedFile = await getFileForUser({
+    fileId: id,
+    userId: access.session.userId,
+  });
+  const file = ownedFile ?? (access.isAdmin ? await getFileById(id) : null);
 
   if (!file) {
     return NextResponse.json({ error: 'File not found' }, { status: 404 });

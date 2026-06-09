@@ -1,6 +1,6 @@
 'use server';
 
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAdminAccess } from '@/lib/auth/access';
 import {
   getAppBaseUrl,
   getBotAuthSecret,
@@ -34,13 +34,7 @@ export type WebhookConfigResponse = {
 
 async function requireAuth() {
   const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-
-  if (!authSession) {
-    throw new Error('Unauthorized');
-  }
-
-  return authSession;
+  return requireAdminAccess(cookieStore);
 }
 
 export async function loadConfigAction(): Promise<ConfigLoadResponse> {
@@ -53,12 +47,7 @@ export async function loadConfigAction(): Promise<ConfigLoadResponse> {
 }
 
 export async function saveConfigAction(input: unknown): Promise<AppConfig> {
-  const authSession = await requireAuth();
-  const { getUserById } = await import('@/lib/core/db/users');
-  const user = await getUserById(authSession.userId);
-  if (!user?.roles.includes('admin')) {
-    throw new Error('Forbidden: admin access required');
-  }
+  await requireAuth();
 
   const config = appConfigSchema.parse(input);
 

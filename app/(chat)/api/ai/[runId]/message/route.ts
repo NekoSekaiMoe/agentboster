@@ -1,6 +1,12 @@
+import {
+  assertCanAccessOwnedResource,
+  requireAuthAccess,
+} from '@/lib/auth/access';
+import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
 import { createLogger } from '@/lib/utils/logger';
 import { resumeWithMessage } from '@/lib/workflow/agent/dispatch';
 import { chatHookPayloadSchema } from '@/types/workflow';
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 const logger = createLogger('api.ai.run.message');
@@ -10,6 +16,22 @@ export async function POST(
   { params }: { params: Promise<{ runId: string }> },
 ) {
   const { runId } = await params;
+  const cookieStore = await cookies();
+  let access: Awaited<ReturnType<typeof requireAuthAccess>>;
+  try {
+    access = await requireAuthAccess(cookieStore);
+  } catch {
+    return Response.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const session = await getSessionByWorkflowRunId(runId);
+  if (!session) {
+    return Response.json(
+      { ok: false, error: 'Run not found.' },
+      { status: 404 },
+    );
+  }
+  assertCanAccessOwnedResource(access, session.userId);
 
   let payload: z.infer<typeof chatHookPayloadSchema>;
   try {

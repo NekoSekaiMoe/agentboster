@@ -7,8 +7,12 @@
 import { eq } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import {
+  assertCanAccessOwnedResource,
+  requireAuthAccess,
+} from '@/lib/auth/access';
 import { db, schema } from '@/lib/core/db';
+import { getSession } from '@/lib/core/db/chat';
 import { getBuiltinMemorySection } from '@/lib/memory';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -40,15 +44,25 @@ export async function GET(
   { params }: { params: Promise<{ sessionId: string }> },
 ) {
   try {
+    const { sessionId } = await params;
     if (!hasValidAgentdApiKey(request)) {
       const cookieStore = await cookies();
-      const session = await readAuthSessionFromCookies(cookieStore);
-      if (!session) {
+      let access: Awaited<ReturnType<typeof requireAuthAccess>>;
+      try {
+        access = await requireAuthAccess(cookieStore);
+      } catch {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
-    }
 
-    const { sessionId } = await params;
+      const session = await getSession(sessionId);
+      if (!session) {
+        return NextResponse.json(
+          { error: 'Session not found' },
+          { status: 404 },
+        );
+      }
+      assertCanAccessOwnedResource(access, session.userId);
+    }
 
     const [sessionRow] = await db
       .select({ soulContent: schema.sessions.soulContent })

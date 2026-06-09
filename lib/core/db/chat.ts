@@ -4,7 +4,7 @@ import type {
 } from '@/lib/chat/message-utils';
 import { db, schema } from '@/lib/core/db';
 import { createLogger } from '@/lib/utils/logger';
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 
 const logger = createLogger('db.chat');
 
@@ -160,6 +160,28 @@ export async function updateSession(
   return session ?? null;
 }
 
+export async function updateSessionForUser(
+  sessionId: string,
+  userId: string,
+  patch: Partial<typeof schema.sessions.$inferInsert>,
+) {
+  const [session] = await db
+    .update(schema.sessions)
+    .set({
+      ...patch,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(schema.sessions.id, sessionId),
+        eq(schema.sessions.userId, userId),
+      ),
+    )
+    .returning();
+
+  return session ?? null;
+}
+
 export async function deleteSession(sessionId: string) {
   const [session] = await db
     .delete(schema.sessions)
@@ -167,6 +189,58 @@ export async function deleteSession(sessionId: string) {
     .returning();
 
   return session ?? null;
+}
+
+export async function deleteSessionForUser(sessionId: string, userId: string) {
+  const [session] = await db
+    .delete(schema.sessions)
+    .where(
+      and(
+        eq(schema.sessions.id, sessionId),
+        eq(schema.sessions.userId, userId),
+      ),
+    )
+    .returning();
+
+  return session ?? null;
+}
+
+export async function listUserSessions(options: {
+  userId: string;
+  limit?: number;
+}) {
+  const safeLimit = Math.max(1, Math.min(options.limit ?? 50, 200));
+
+  return db
+    .select()
+    .from(schema.sessions)
+    .where(eq(schema.sessions.userId, options.userId))
+    .orderBy(desc(schema.sessions.updatedAt))
+    .limit(safeLimit);
+}
+
+export async function countSessionsByUserIds(userIds: string[]) {
+  const ids = [...new Set(userIds.filter((id) => id.trim().length > 0))];
+  if (ids.length === 0) {
+    return new Map<string, number>();
+  }
+
+  const rows = await db
+    .select({
+      userId: schema.sessions.userId,
+      count: count(),
+    })
+    .from(schema.sessions)
+    .where(inArray(schema.sessions.userId, ids))
+    .groupBy(schema.sessions.userId);
+
+  return new Map(
+    rows
+      .filter((row): row is { userId: string; count: number } =>
+        Boolean(row.userId),
+      )
+      .map((row) => [row.userId, Number(row.count)]),
+  );
 }
 
 export async function saveMessages(messages: SerializedMessageForDB[]) {

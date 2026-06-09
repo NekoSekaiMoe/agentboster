@@ -22,6 +22,7 @@ import {
   Sparkles,
   SquareTerminal,
   Sun,
+  Users,
   Wrench,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -156,6 +157,11 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
         labelKey: 'nav.auditLogs',
         href: '/config/audit-logs',
         icon: Database,
+      },
+      {
+        labelKey: 'nav.users',
+        href: '/config/users',
+        icon: Users,
       },
       {
         labelKey: 'nav.rawJson',

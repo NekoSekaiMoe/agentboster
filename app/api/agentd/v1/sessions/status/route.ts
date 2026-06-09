@@ -1,5 +1,7 @@
+import { requireAuthAccess } from '@/lib/auth/access';
 import { db, schema } from '@/lib/core/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 type FrontendStatus =
@@ -31,6 +33,13 @@ function mapStatus(session: {
 
 export async function GET() {
   try {
+    const cookieStore = await cookies();
+    const access = await requireAuthAccess(cookieStore);
+    const conditions = [eq(schema.sessions.archived, false)];
+    if (!access.isAdmin) {
+      conditions.push(eq(schema.sessions.userId, access.session.userId));
+    }
+
     const sessions = await db
       .select({
         session_id: schema.sessions.id,
@@ -39,7 +48,7 @@ export async function GET() {
         metadata: schema.sessions.metadata,
       })
       .from(schema.sessions)
-      .where(eq(schema.sessions.archived, false))
+      .where(and(...conditions))
       .limit(100);
 
     const data = sessions.map((s) => ({

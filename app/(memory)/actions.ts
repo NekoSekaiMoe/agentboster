@@ -1,6 +1,10 @@
 'use server';
 
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import {
+  assertCanAccessOwnedResource,
+  requireAuthAccess,
+} from '@/lib/auth/access';
+import { getSession } from '@/lib/core/db/chat';
 import { db, schema } from '@/lib/core/db';
 import {
   createLongTermMemory,
@@ -45,13 +49,7 @@ export type SessionSummaryRecord = {
 
 async function requireAuth() {
   const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-
-  if (!authSession) {
-    throw new Error('Unauthorized');
-  }
-
-  return authSession;
+  return requireAuthAccess(cookieStore);
 }
 
 export async function listBuiltinMemorySectionsAction() {
@@ -62,7 +60,10 @@ export async function listBuiltinMemorySectionsAction() {
 }
 
 export async function updateBuiltinMemorySectionAction(input: unknown) {
-  await requireAuth();
+  const access = await requireAuth();
+  if (!access.isAdmin) {
+    throw new Error('Forbidden');
+  }
 
   const parsed = updateBuiltinMemorySchema.safeParse(input);
   if (!parsed.success) {
@@ -76,8 +77,9 @@ export async function listLongTermMemoriesAction(input?: {
   page?: number;
   pageSize?: number;
   search?: string;
+  userId?: string | null;
 }) {
-  const authSession = await requireAuth();
+  const access = await requireAuth();
 
   const parsed = longTermMemoryListQuerySchema.safeParse({
     page: input?.page,
@@ -88,10 +90,15 @@ export async function listLongTermMemoriesAction(input?: {
     throw new Error(parsed.error.issues[0]?.message ?? 'Validation failed');
   }
 
+  const targetUserId =
+    access.isAdmin && input?.userId?.trim()
+      ? input.userId.trim()
+      : access.session.userId;
+
   const items = await listLongTermMemories({
     ...parsed.data,
     search: input?.search?.trim() || undefined,
-    userId: authSession.userId,
+    userId: targetUserId,
   });
 
   return {
@@ -105,26 +112,37 @@ export async function listLongTermMemoriesAction(input?: {
 }
 
 export async function createLongTermMemoryAction(input: unknown) {
-  const authSession = await requireAuth();
+  const access = await requireAuth();
 
   const parsed = createLongTermMemorySchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Validation failed');
   }
 
-  return createLongTermMemory({ ...parsed.data, userId: authSession.userId });
+  return createLongTermMemory({
+    ...parsed.data,
+    userId: access.session.userId,
+  });
 }
 
-export async function deleteLongTermMemoryAction(id: string) {
-  const authSession = await requireAuth();
+export async function deleteLongTermMemoryAction(
+  id: string,
+  options?: { userId?: string | null },
+) {
+  const access = await requireAuth();
 
   const memoryId = id.trim();
   if (!memoryId) {
     throw new Error('Memory id is required');
   }
 
+  const targetUserId =
+    access.isAdmin && options?.userId?.trim()
+      ? options.userId.trim()
+      : access.session.userId;
+
   const deleted = await deleteLongTermMemory(memoryId, {
-    userId: authSession.userId,
+    userId: targetUserId,
   });
   if (!deleted) {
     throw new Error('Memory not found');
@@ -134,12 +152,18 @@ export async function deleteLongTermMemoryAction(id: string) {
 }
 
 export async function listSessionSummariesAction(input: { sessionId: string }) {
-  await requireAuth();
+  const access = await requireAuth();
 
   const parsed = sessionMemoryQuerySchema.safeParse(input);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Validation failed');
   }
+
+  const session = await getSession(parsed.data.sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+  assertCanAccessOwnedResource(access, session.userId);
 
   const summaries = await listSessionSummaries(parsed.data.sessionId);
 
@@ -157,12 +181,18 @@ export async function listSessionSummariesAction(input: { sessionId: string }) {
 }
 
 export async function getSessionSoulAction(sessionId: string) {
-  await requireAuth();
+  const access = await requireAuth();
 
   const sid = sessionId.trim();
   if (!sid) {
     throw new Error('Session ID is required');
   }
+
+  const targetSession = await getSession(sid);
+  if (!targetSession) {
+    throw new Error('Session not found');
+  }
+  assertCanAccessOwnedResource(access, targetSession.userId);
 
   const [session] = await db
     .select({ soulContent: schema.sessions.soulContent })
@@ -179,12 +209,18 @@ export async function getSessionSoulAction(sessionId: string) {
 }
 
 export async function setSessionSoulAction(sessionId: string, content: string) {
-  await requireAuth();
+  const access = await requireAuth();
 
   const sid = sessionId.trim();
   if (!sid) {
     throw new Error('Session ID is required');
   }
+
+  const targetSession = await getSession(sid);
+  if (!targetSession) {
+    throw new Error('Session not found');
+  }
+  assertCanAccessOwnedResource(access, targetSession.userId);
 
   const trimmed = content.slice(0, SOUL_MEMORY_MAX_LENGTH);
 
@@ -200,12 +236,18 @@ export async function setSessionSoulAction(sessionId: string, content: string) {
 }
 
 export async function clearSessionSoulAction(sessionId: string) {
-  await requireAuth();
+  const access = await requireAuth();
 
   const sid = sessionId.trim();
   if (!sid) {
     throw new Error('Session ID is required');
   }
+
+  const targetSession = await getSession(sid);
+  if (!targetSession) {
+    throw new Error('Session not found');
+  }
+  assertCanAccessOwnedResource(access, targetSession.userId);
 
   await db
     .update(schema.sessions)

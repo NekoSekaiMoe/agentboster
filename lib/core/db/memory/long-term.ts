@@ -5,7 +5,15 @@ import {
   mergeHybridSearchCandidates,
 } from '@/lib/memory/search';
 import { createLogger } from '@/lib/utils/logger';
-import { and, cosineDistance, desc, eq, inArray, sql } from 'drizzle-orm';
+import {
+  and,
+  cosineDistance,
+  count,
+  desc,
+  eq,
+  inArray,
+  sql,
+} from 'drizzle-orm';
 
 const logger = createLogger('db.memory.long_term');
 
@@ -124,6 +132,30 @@ export async function listAllLongTermMemoryRows(options?: { userId?: string }) {
     .from(schema.longTermMemories)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.longTermMemories.updatedAt));
+}
+
+export async function countLongTermMemoriesByUserIds(userIds: string[]) {
+  const ids = [...new Set(userIds.filter((id) => id.trim().length > 0))];
+  if (ids.length === 0) {
+    return new Map<string, number>();
+  }
+
+  const rows = await db
+    .select({
+      userId: schema.longTermMemories.userId,
+      count: count(),
+    })
+    .from(schema.longTermMemories)
+    .where(inArray(schema.longTermMemories.userId, ids))
+    .groupBy(schema.longTermMemories.userId);
+
+  return new Map(
+    rows
+      .filter((row): row is { userId: string; count: number } =>
+        Boolean(row.userId),
+      )
+      .map((row) => [row.userId, Number(row.count)]),
+  );
 }
 
 export async function updateLongTermMemoryRow(

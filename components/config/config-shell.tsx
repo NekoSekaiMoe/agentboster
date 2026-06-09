@@ -27,6 +27,7 @@ export function ConfigShell({
   } = useConfigDraft();
   const { t } = useI18n();
   const sectionMeta = getConfigSectionMeta(section);
+  const showSaveButton = section !== 'users';
   const runtimeIssues =
     runtimeHealth?.checks.filter((check) => check.status !== 'ready') ?? [];
 
@@ -84,18 +85,20 @@ export function ConfigShell({
         )}
       </div>
 
-      <Button
-        aria-label={t('config.saveConfig')}
-        className="fixed right-5 bottom-5 z-30 size-14 rounded-full shadow-lg md:right-8 md:bottom-8"
-        disabled={!validationPassed || isLoading || isSaving || !isDirty}
-        onClick={saveConfig}
-      >
-        {isSaving ? (
-          <Loader2 className="size-5 animate-spin" />
-        ) : (
-          <Save className="size-5" />
-        )}
-      </Button>
+      {showSaveButton ? (
+        <Button
+          aria-label={t('config.saveConfig')}
+          className="fixed right-5 bottom-5 z-30 size-14 rounded-full shadow-lg md:right-8 md:bottom-8"
+          disabled={!validationPassed || isLoading || isSaving || !isDirty}
+          onClick={saveConfig}
+        >
+          {isSaving ? (
+            <Loader2 className="size-5 animate-spin" />
+          ) : (
+            <Save className="size-5" />
+          )}
+        </Button>
+      ) : null}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { MonitoringForm } from './forms/monitoring-form';
 import { SecurityForm } from './forms/security-form';
 import { ToolsForm } from './forms/tools-form';
 import { RawJsonEditor } from './raw-json-editor';
+import { UsersManagement } from './users-management';
 
 export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
   switch (section) {
@@ -34,6 +35,8 @@ export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
       return <AgentDConfigPage />;
     case 'monitoring':
       return <MonitoringForm />;
+    case 'users':
+      return <UsersManagement />;
     case 'audit-logs':
       return <AuditLogsForm />;
     case 'appearance':

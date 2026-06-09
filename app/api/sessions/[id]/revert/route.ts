@@ -1,5 +1,9 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import {
+  assertCanAccessOwnedResource,
+  requireAuthAccess,
+} from '@/lib/auth/access';
 import { db, schema } from '@/lib/core/db';
+import { getSession } from '@/lib/core/db/chat';
 import { and, eq, gte } from 'drizzle-orm';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -10,11 +14,19 @@ export async function POST(
 ) {
   try {
     const cookieStore = await cookies();
-    const session = await readAuthSessionFromCookies(cookieStore);
-    if (!session) {
+    let access: Awaited<ReturnType<typeof requireAuthAccess>>;
+    try {
+      access = await requireAuthAccess(cookieStore);
+    } catch {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const { id: sessionId } = await params;
+    const session = await getSession(sessionId);
+    if (!session) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+    assertCanAccessOwnedResource(access, session.userId);
+
     const body = await request.json();
     const messageId = body.message_id;
 

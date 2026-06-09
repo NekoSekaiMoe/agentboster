@@ -1,7 +1,12 @@
+import {
+  assertCanAccessOwnedResource,
+  requireAuthAccess,
+} from '@/lib/auth/access';
 import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
 import { getSessionRuntimeMetadata } from '@/lib/core/sandbox/runtime';
 import { createLogger } from '@/lib/utils/logger';
 import { getWorkflowStatus } from '@/lib/workflow/agent/dispatch';
+import { cookies } from 'next/headers';
 
 const logger = createLogger('api.ai.run.status');
 
@@ -10,11 +15,20 @@ export async function GET(
   { params }: { params: Promise<{ runId: string }> },
 ) {
   const { runId } = await params;
+  const cookieStore = await cookies();
+  let access: Awaited<ReturnType<typeof requireAuthAccess>>;
+  try {
+    access = await requireAuthAccess(cookieStore);
+  } catch {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const session = await getSessionByWorkflowRunId(runId);
 
   if (!session) {
     return Response.json({ error: 'Run not found.' }, { status: 404 });
   }
+  assertCanAccessOwnedResource(access, session.userId);
 
   const status = await getWorkflowStatus(runId);
   const metadata = getSessionRuntimeMetadata(session.metadata ?? null);

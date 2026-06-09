@@ -281,6 +281,27 @@ async function ensureMessageSession(input: {
   if (input.sessionId) {
     const existing = await getSession(input.sessionId);
     if (existing) {
+      if (
+        input.source.type === 'web' &&
+        input.source.userId &&
+        !existing.userId &&
+        existing.channel === 'web'
+      ) {
+        return (
+          (await updateSession(existing.id, {
+            userId: input.source.userId,
+            metadata: {
+              ...(existing.metadata ?? {}),
+              source: input.source,
+            },
+          })) ?? existing
+        );
+      }
+
+      if (!canSourceAccessSession(input.source, existing)) {
+        throw new Error('Forbidden');
+      }
+
       return existing;
     }
 
@@ -289,7 +310,10 @@ async function ensureMessageSession(input: {
       channel:
         input.source.type === 'im' ? input.source.adapter : input.source.type,
       externalThreadId,
-      userId: input.source.type === 'im' ? (input.source.userId ?? null) : null,
+      userId:
+        input.source.type === 'im' || input.source.type === 'web'
+          ? (input.source.userId ?? null)
+          : null,
       metadata: {
         source: input.source,
       },
@@ -307,7 +331,10 @@ async function ensureMessageSession(input: {
     channel:
       input.source.type === 'im' ? input.source.adapter : input.source.type,
     externalThreadId,
-    userId: input.source.type === 'im' ? (input.source.userId ?? null) : null,
+    userId:
+      input.source.type === 'im' || input.source.type === 'web'
+        ? (input.source.userId ?? null)
+        : null,
     metadata: {
       source: input.source,
     },
@@ -319,7 +346,11 @@ async function resolveCommandSession(input: {
   source: ChatSource;
 }) {
   if (input.sessionId) {
-    return getSession(input.sessionId);
+    const session = await getSession(input.sessionId);
+    if (session && !canSourceAccessSession(input.source, session)) {
+      return null;
+    }
+    return session;
   }
 
   if (input.source.type === 'im') {
@@ -384,6 +415,21 @@ function canImSourceAccessSession(
     Boolean(source.userId) &&
     session.userId === source.userId
   );
+}
+
+function canSourceAccessSession(
+  source: ChatSource,
+  session: NonNullable<SessionRecord>,
+) {
+  if (source.type === 'web') {
+    return Boolean(source.userId) && session.userId === source.userId;
+  }
+
+  if (source.type === 'im') {
+    return canImSourceAccessSession(source, session);
+  }
+
+  return true;
 }
 
 async function cancelWorkflowRun(runId: string | null | undefined) {
@@ -993,6 +1039,8 @@ async function executeCommand(input: {
 
       const next = await createSession({
         channel: session?.channel ?? 'web',
+        userId:
+          input.source.type === 'web' ? (input.source.userId ?? null) : null,
       });
 
       return {

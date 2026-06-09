@@ -211,6 +211,7 @@ export type PersistedMessageRole =
 
 export type WebChatSource = {
   type: 'web';
+  userId?: string | null;
 };
 
 export type ScheduledChatSource = {

@@ -26,6 +26,13 @@ export interface StoredUser {
   createdAt: Date;
 }
 
+function readSeedAdminUsernames() {
+  return [
+    process.env.OWNER_USERNAME?.trim(),
+    process.env.USERNAME?.trim(),
+  ].filter((value): value is string => Boolean(value));
+}
+
 export function normalizeRoles(value?: unknown): UserRole[] {
   if (!Array.isArray(value)) {
     return ['user'];
@@ -72,6 +79,14 @@ export function canGrantRoles(
     PROTECTED_ROLE_SET.has(role),
   );
   return !grantsProtectedRole || hasOwnerRole(granterRoles);
+}
+
+export function isSeedAdminUsername(username: string): boolean {
+  return readSeedAdminUsernames().includes(username);
+}
+
+export function isSeedAdminUser(user: Pick<StoredUser, 'username'>): boolean {
+  return isSeedAdminUsername(user.username);
 }
 
 export function resolveMinUserType(
@@ -172,6 +187,35 @@ export async function listUsers(): Promise<StoredUser[]> {
     roles: row.roles as string[],
     createdAt: row.createdAt,
   }));
+}
+
+export async function updateUserRoles(
+  userId: string,
+  roles: string[],
+): Promise<StoredUser | null> {
+  const normalizedRoles = normalizeRoles(roles);
+  const [row] = await db
+    .update(users)
+    .set({
+      roles: normalizedRoles,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId))
+    .returning({
+      id: users.id,
+      username: users.username,
+      roles: users.roles,
+      createdAt: users.createdAt,
+    });
+
+  return row
+    ? {
+        id: row.id,
+        username: row.username,
+        roles: row.roles as string[],
+        createdAt: row.createdAt,
+      }
+    : null;
 }
 
 export async function deleteUser(userId: string): Promise<boolean> {

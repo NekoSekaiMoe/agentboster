@@ -1,6 +1,9 @@
 import { Chat } from '@/components/chat/chat-container';
+import { canAccessOwnedResource, requireAuthAccess } from '@/lib/auth/access';
 import { deserializePersistedMessages } from '@/lib/chat/persistence';
 import { getSession, getVisibleSessionMessages } from '@/lib/core/db/chat';
+import { cookies } from 'next/headers';
+import { notFound } from 'next/navigation';
 
 function hasAccessDeniedMetadata(metadata: unknown): boolean {
   return (
@@ -16,10 +19,15 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [session, visibleMessages] = await Promise.all([
-    getSession(id),
-    getVisibleSessionMessages(id),
-  ]);
+  const cookieStore = await cookies();
+  const access = await requireAuthAccess(cookieStore);
+  const session = await getSession(id);
+
+  if (session && !canAccessOwnedResource(access, session.userId)) {
+    notFound();
+  }
+
+  const visibleMessages = session ? await getVisibleSessionMessages(id) : [];
   const initialMessages = deserializePersistedMessages(visibleMessages);
 
   return (

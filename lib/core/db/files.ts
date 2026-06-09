@@ -1,5 +1,5 @@
 import { db, schema } from '@/lib/core/db';
-import { and, asc, desc, eq, gt, lt } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, lt } from 'drizzle-orm';
 
 type FileRecordMetadata = Record<string, unknown> | null | undefined;
 
@@ -97,6 +97,34 @@ export async function getFileForUser(input: {
   return file ?? null;
 }
 
+export async function getFileById(
+  fileId: string,
+): Promise<ListedFileRecord | null> {
+  const [file] = await db
+    .select({
+      id: schema.files.id,
+      sessionId: schema.files.sessionId,
+      runId: schema.files.runId,
+      sandboxId: schema.files.sandboxId,
+      sourcePath: schema.files.sourcePath,
+      fileName: schema.files.fileName,
+      mimeType: schema.files.mimeType,
+      size: schema.files.size,
+      blobPath: schema.files.blobPath,
+      blobUrl: schema.files.blobUrl,
+      metadata: schema.files.metadata,
+      createdAt: schema.files.createdAt,
+      sessionTitle: schema.sessions.title,
+      sessionChannel: schema.sessions.channel,
+    })
+    .from(schema.files)
+    .leftJoin(schema.sessions, eq(schema.files.sessionId, schema.sessions.id))
+    .where(eq(schema.files.id, fileId))
+    .limit(1);
+
+  return file ?? null;
+}
+
 export async function listFiles(options: ListFilesOptions = {}): Promise<{
   files: ListedFileRecord[];
   hasMore: boolean;
@@ -170,4 +198,29 @@ export async function listFiles(options: ListFilesOptions = {}): Promise<{
     hasMore,
     nextBefore,
   };
+}
+
+export async function countFilesByUserIds(userIds: string[]) {
+  const ids = [...new Set(userIds.filter((id) => id.trim().length > 0))];
+  if (ids.length === 0) {
+    return new Map<string, number>();
+  }
+
+  const rows = await db
+    .select({
+      userId: schema.sessions.userId,
+      count: count(),
+    })
+    .from(schema.files)
+    .innerJoin(schema.sessions, eq(schema.files.sessionId, schema.sessions.id))
+    .where(inArray(schema.sessions.userId, ids))
+    .groupBy(schema.sessions.userId);
+
+  return new Map(
+    rows
+      .filter((row): row is { userId: string; count: number } =>
+        Boolean(row.userId),
+      )
+      .map((row) => [row.userId, Number(row.count)]),
+  );
 }
