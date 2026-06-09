@@ -93,6 +93,8 @@ const enUS = {
   'config.sections.chat.description':
     'Configure chat composer shortcuts and suggested follow-up behavior.',
   'config.sections.chat.title': 'Chat',
+  'config.sections.language.description': 'Set WebUI and IM bot languages.',
+  'config.sections.language.title': 'Language',
   'config.sections.channels.description':
     'Set up Slack, Teams, Google Chat, and Telegram.',
   'config.sections.channels.title': 'Channels',
@@ -272,6 +274,12 @@ const enUS = {
   'config.forms.chat.shortcutsOn':
     'When enabled: Enter = send, Shift+Enter = new line.',
   'config.forms.chat.shortcutsTitle': 'Keyboard shortcuts',
+  'config.forms.language.botDescription':
+    'Controls the default language used by IM bot replies.',
+  'config.forms.language.botTitle': 'Bot language',
+  'config.forms.language.webuiDescription':
+    'Controls the language used by navigation, settings, and shared UI.',
+  'config.forms.language.webuiTitle': 'WebUI language',
   'config.forms.security.l1Description':
     'This model scores sandbox commands and outputs when Agent Daemon asks the web app for L1 review. If set, it overrides the model_id sent by agentd.',
   'config.forms.security.l1Model': 'L1 scorer model',
@@ -479,6 +487,8 @@ const zhCN = {
   'config.sections.autonomy.title': '自主模式',
   'config.sections.chat.description': '配置聊天输入快捷键和建议追问行为。',
   'config.sections.chat.title': '聊天',
+  'config.sections.language.description': '设置 WebUI 和 IM bot 的语言。',
+  'config.sections.language.title': '语言',
   'config.sections.channels.description':
     '设置 Slack、Teams、Google Chat 和 Telegram。',
   'config.sections.channels.title': '渠道',
@@ -646,6 +656,11 @@ const zhCN = {
     '关闭时：Enter = 换行，Shift+Enter = 发送。',
   'config.forms.chat.shortcutsOn': '开启时：Enter = 发送，Shift+Enter = 换行。',
   'config.forms.chat.shortcutsTitle': '键位说明',
+  'config.forms.language.botDescription': '控制 IM bot 回复默认使用的语言。',
+  'config.forms.language.botTitle': 'Bot 语言',
+  'config.forms.language.webuiDescription':
+    '控制导航、设置和通用界面使用的语言。',
+  'config.forms.language.webuiTitle': 'WebUI 语言',
   'config.forms.security.l1Description':
     'Agent Daemon 请求 Web 应用执行 L1 审查时，此模型会对沙箱命令和输出评分。设置后会覆盖 agentd 传来的 model_id。',
   'config.forms.security.l1Model': 'L1 评分模型',
@@ -841,6 +856,8 @@ const zhTW = {
   'config.sections.autonomy.title': '自主模式',
   'config.sections.chat.description': '設定聊天輸入快捷鍵和建議追問行為。',
   'config.sections.chat.title': '聊天',
+  'config.sections.language.description': '設定 WebUI 和 IM bot 的語言。',
+  'config.sections.language.title': '語言',
   'config.sections.channels.description':
     '設定 Slack、Teams、Google Chat 和 Telegram。',
   'config.sections.channels.title': '通道',
@@ -1008,6 +1025,11 @@ const zhTW = {
     '關閉時：Enter = 換行，Shift+Enter = 傳送。',
   'config.forms.chat.shortcutsOn': '開啟時：Enter = 傳送，Shift+Enter = 換行。',
   'config.forms.chat.shortcutsTitle': '鍵位說明',
+  'config.forms.language.botDescription': '控制 IM bot 回覆預設使用的語言。',
+  'config.forms.language.botTitle': 'Bot 語言',
+  'config.forms.language.webuiDescription':
+    '控制導覽、設定和通用介面使用的語言。',
+  'config.forms.language.webuiTitle': 'WebUI 語言',
   'config.forms.security.l1Description':
     'Agent Daemon 要求 Web 應用程式執行 L1 審查時，此模型會對沙箱命令和輸出評分。設定後會覆寫 agentd 傳來的 model_id。',
   'config.forms.security.l1Model': 'L1 評分模型',
@@ -1234,6 +1256,9 @@ const ja = {
   'config.sections.chat.description':
     'チャット入力のショートカットとフォローアップ候補を設定します。',
   'config.sections.chat.title': 'チャット',
+  'config.sections.language.description':
+    'WebUI と IM bot の言語を設定します。',
+  'config.sections.language.title': '言語',
   'config.sections.channels.description':
     'Slack、Teams、Google Chat、Telegram を設定します。',
   'config.sections.channels.title': 'チャンネル',
@@ -1414,6 +1439,12 @@ const ja = {
     '無効時: Enter = 改行、Shift+Enter = 送信。',
   'config.forms.chat.shortcutsOn': '有効時: Enter = 送信、Shift+Enter = 改行。',
   'config.forms.chat.shortcutsTitle': 'キーボードショートカット',
+  'config.forms.language.botDescription':
+    'IM bot の返信で既定使用する言語を制御します。',
+  'config.forms.language.botTitle': 'Bot 言語',
+  'config.forms.language.webuiDescription':
+    'ナビゲーション、設定、共通 UI で使用する言語を制御します。',
+  'config.forms.language.webuiTitle': 'WebUI 言語',
   'config.forms.security.l1Description':
     'Agent Daemon が Web アプリに L1 レビューを依頼したとき、このモデルがサンドボックスコマンドと出力をスコアリングします。設定すると agentd から送られた model_id を上書きします。',
   'config.forms.security.l1Model': 'L1 スコアラーモデル',
@@ -1619,6 +1650,11 @@ const ko = {
   'config.sections.autonomy.description':
     '에이전트 자율 수준과 최대 단계 수를 제어합니다.',
   'config.sections.autonomy.title': '자율성',
+  'config.sections.chat.description':
+    '채팅 입력 단축키와 추천 후속 질문 동작을 설정합니다.',
+  'config.sections.chat.title': '채팅',
+  'config.sections.language.description': 'WebUI와 IM bot의 언어를 설정합니다.',
+  'config.sections.language.title': '언어',
   'config.sections.channels.description':
     'Slack, Teams, Google Chat, Telegram을 설정합니다.',
   'config.sections.channels.title': '채널',
@@ -1642,6 +1678,12 @@ const ko = {
   'config.sections.tools.description':
     '내장 도구를 켜거나 끄고 도구별 설정을 제공합니다.',
   'config.sections.tools.title': '도구',
+  'config.forms.language.botDescription':
+    'IM bot 답변에 기본으로 사용할 언어를 제어합니다.',
+  'config.forms.language.botTitle': 'Bot 언어',
+  'config.forms.language.webuiDescription':
+    '내비게이션, 설정, 공통 UI에서 사용할 언어를 제어합니다.',
+  'config.forms.language.webuiTitle': 'WebUI 언어',
   'login.firstLoginHint':
     '처음 로그인하는 경우 로그에 출력된 기본 비밀번호를 확인하세요.',
   'login.failed': '로그인에 실패했습니다.',

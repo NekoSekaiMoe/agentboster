@@ -420,6 +420,7 @@ export async function getBot(): Promise<Chat> {
       messageId: message.id?.trim() || null,
       userId: message.author?.userId ?? null,
       userName: message.author?.userName ?? null,
+      locale: config.language?.bot_locale ?? 'auto',
       text: routedText,
       parts: routedParts,
     });
@@ -486,6 +487,7 @@ export async function getBot(): Promise<Chat> {
       messageId: null,
       userId: source.userId,
       userName: source.userName,
+      locale: config.language?.bot_locale ?? 'auto',
       text,
       parts: [{ type: 'text', text }],
     });

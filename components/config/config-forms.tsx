@@ -3,11 +3,11 @@
 import type { ConfigSectionKey } from '@/components/config/config-sections';
 import { AgentDConfigPage } from './agentd-config';
 import { AgentsForm } from './forms/agents-form';
-import { AppearanceForm } from './forms/appearance-form';
 import { AuditLogsForm } from './forms/audit-logs-form';
 import { AutonomyForm } from './forms/autonomy-form';
 import { ChatForm } from './forms/chat-form';
 import { ChannelsForm } from './forms/channels-form';
+import { LanguageForm } from './forms/language-form';
 import { McpForm } from './forms/mcp-form';
 import { ModelsForm } from './forms/models/models-form';
 import { MonitoringForm } from './forms/monitoring-form';
@@ -25,6 +25,8 @@ export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
       return <AgentsForm />;
     case 'chat':
       return <ChatForm />;
+    case 'language':
+      return <LanguageForm />;
     case 'channels':
       return <ChannelsForm />;
     case 'autonomy':
@@ -45,8 +47,6 @@ export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
       return <KnowledgeManagement />;
     case 'audit-logs':
       return <AuditLogsForm />;
-    case 'appearance':
-      return <AppearanceForm />;
     case 'raw-json':
       return <RawJsonEditor />;
     default:

@@ -17,6 +17,16 @@ export const configSections = [
     titleKey: 'config.sections.chat.title',
   },
   {
+    key: 'language',
+    descriptionKey: 'config.sections.language.description',
+    titleKey: 'config.sections.language.title',
+  },
+  {
+    key: 'knowledge',
+    descriptionKey: 'config.sections.knowledge.description',
+    titleKey: 'config.sections.knowledge.title',
+  },
+  {
     key: 'channels',
     descriptionKey: 'config.sections.channels.description',
     titleKey: 'config.sections.channels.title',
@@ -57,19 +67,9 @@ export const configSections = [
     titleKey: 'config.sections.users.title',
   },
   {
-    key: 'knowledge',
-    descriptionKey: 'config.sections.knowledge.description',
-    titleKey: 'config.sections.knowledge.title',
-  },
-  {
     key: 'audit-logs',
     descriptionKey: 'config.sections.auditLogs.description',
     titleKey: 'config.sections.auditLogs.title',
-  },
-  {
-    key: 'appearance',
-    descriptionKey: 'config.sections.appearance.description',
-    titleKey: 'config.sections.appearance.title',
   },
   {
     key: 'raw-json',

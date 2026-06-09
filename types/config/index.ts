@@ -6,6 +6,7 @@ import { aiConfigSchema } from './ai';
 import { autonomyConfigSchema } from './autonomy';
 import { chatConfigSchema } from './chat';
 import { channelsConfigSchema } from './channels';
+import { languageConfigSchema } from './language';
 import { mcpRemotesServersConfigSchema } from './mcp';
 import { sandboxConfigSchema } from './sandbox';
 import { securityConfigSchema } from './security';
@@ -15,6 +16,7 @@ import { buildInToolConfigSchema } from './tools';
  * Full application configuration schema.
  */
 export * from './channels';
+export * from './language';
 export const appConfigSchema = z.object({
   /** AI models and provider settings. */
   models: aiConfigSchema.optional(),
@@ -24,6 +26,9 @@ export const appConfigSchema = z.object({
 
   /** Chat UI and reply behavior. */
   chat: chatConfigSchema.optional(),
+
+  /** Interface and bot language settings. */
+  language: languageConfigSchema.optional(),
 
   /** Communication channel configuration (Telegram, Slack, Teams, Google Chat, etc.). */
   channels: channelsConfigSchema.optional(),

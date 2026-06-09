@@ -1,4 +1,5 @@
 import type { AdapterName } from '@/types/config/channels';
+import { botLocaleSchema, type BotLocale } from '@/types/config/language';
 import type { UIMessage, UIMessageChunk } from 'ai';
 import { z } from 'zod';
 
@@ -226,6 +227,7 @@ export type IMChatSource = {
   messageId?: string | null;
   userId?: string | null;
   userName?: string | null;
+  locale?: BotLocale;
 };
 
 export type ChatSource = WebChatSource | ScheduledChatSource | IMChatSource;
@@ -250,6 +252,7 @@ const imChatSourceSchema = z.object({
   messageId: z.string().nullable().optional(),
   userId: z.string().nullable().optional(),
   userName: z.string().nullable().optional(),
+  locale: botLocaleSchema.optional(),
 });
 
 export const chatSourceSchema = z.discriminatedUnion('type', [

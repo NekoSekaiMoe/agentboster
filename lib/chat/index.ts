@@ -28,6 +28,7 @@ import {
   startWorkflow,
 } from '@/lib/workflow/agent/dispatch';
 import type { AdapterName } from '@/types/config/channels';
+import type { BotLocale } from '@/types/config/language';
 import {
   type ChatInputEnvelope,
   type ChatSource,
@@ -113,6 +114,7 @@ type AdapterMessageInput = {
   messageId?: string | null;
   userId?: string | null;
   userName?: string | null;
+  locale?: BotLocale;
   text: string;
   parts?: ChatInputEnvelope['parts'];
 };
@@ -169,6 +171,7 @@ function buildAdapterSource(
     messageId: input.messageId ?? null,
     userId: input.userId ?? null,
     userName: input.userName ?? null,
+    locale: input.locale,
   };
 }
 

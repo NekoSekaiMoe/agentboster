@@ -185,6 +185,10 @@ export async function chatWorkflow(
       (source.type === 'web' || source.type === 'im') &&
       (config.chat?.follow_up_enabled ?? config.agentd?.follow_up_enabled) ===
         true,
+    responseLocale:
+      source.type === 'im'
+        ? (source.locale ?? config.language?.bot_locale)
+        : undefined,
   });
   const writable = createWritable();
   const tools = await buildAgentTools(config, sessionId, {

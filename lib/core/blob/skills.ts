@@ -11,11 +11,13 @@ import { del, getBlob, list, put } from './';
 
 import { createLogger } from '@/lib/utils/logger';
 import type {
+  ClawHubManifest,
   SkillDetail,
   SkillFile,
   SkillFileEntry,
   SkillFrontmatter,
 } from '@/types/skills';
+import { clawhubManifestSchema } from '@/types/skills';
 
 /** Max total size (in bytes) for manually added skill files */
 export const MANUAL_SKILL_MAX_TOTAL_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -27,6 +29,7 @@ const logger = createLogger('blob.skills');
 const SKILLS_REPO_DIR = 'skills';
 const SKILLS_BLOB_ROOT = 'skills';
 const SKILL_MANIFEST = 'SKILL.md';
+const CLAWHUB_MANIFEST = 'clawhub.json';
 
 interface ClonedRepo {
   tempDir: string;
@@ -180,6 +183,40 @@ function toFileEntries(paths: string[]): SkillFileEntry[] {
   return paths.map((p) => ({ path: p }));
 }
 
+async function assertRepoSkillLimits(rootDir: string, filePaths: string[]) {
+  if (filePaths.length > GIT_IMPORT_MAX_FILE_COUNT) {
+    throw new Error(
+      `Repository exceeds the ${GIT_IMPORT_MAX_FILE_COUNT} file limit for skill imports`,
+    );
+  }
+
+  let totalBytes = 0;
+  for (const relativePath of filePaths) {
+    const fileStat = await stat(path.join(rootDir, relativePath));
+    totalBytes += fileStat.size;
+    if (totalBytes > GIT_IMPORT_MAX_TOTAL_BYTES) {
+      throw new Error(
+        `Repository exceeds the ${Math.round(GIT_IMPORT_MAX_TOTAL_BYTES / 1024 / 1024)} MB size limit for skill imports`,
+      );
+    }
+  }
+
+  return totalBytes;
+}
+
+function clawhubManifestToFrontmatter(
+  manifest: ClawHubManifest,
+): SkillFrontmatter {
+  return {
+    author: manifest.author,
+    clawhub: manifest,
+    description: manifest.description,
+    entrypoint: manifest.entrypoint,
+    tags: manifest.tags,
+    version: manifest.version,
+  };
+}
+
 // ─── Blob list / delete ───
 
 async function listBlobPathnamesByPrefix(prefix: string): Promise<string[]> {
@@ -256,8 +293,13 @@ export async function scanSkillsFromRepo(
   const skillsDir = path.join(repoDir, SKILLS_REPO_DIR);
   const skillsDirStat = await stat(skillsDir).catch(() => null);
   if (!skillsDirStat?.isDirectory()) {
+    const clawhubSkill = await scanClawHubSkillFromRepo(repoDir, gitURL);
+    if (clawhubSkill) {
+      return [clawhubSkill];
+    }
+
     throw new Error(
-      `Repository does not contain /${SKILLS_REPO_DIR} directory`,
+      `Repository does not contain /${SKILLS_REPO_DIR} directory or ${CLAWHUB_MANIFEST}`,
     );
   }
 
@@ -289,14 +331,11 @@ export async function scanSkillsFromRepo(
       );
     }
 
-    for (const relativePath of filePaths) {
-      const fileStat = await stat(path.join(skillDir, relativePath));
-      totalBytes += fileStat.size;
-      if (totalBytes > GIT_IMPORT_MAX_TOTAL_BYTES) {
-        throw new Error(
-          `Repository exceeds the ${Math.round(GIT_IMPORT_MAX_TOTAL_BYTES / 1024 / 1024)} MB size limit for skill imports`,
-        );
-      }
+    totalBytes += await assertRepoSkillLimits(skillDir, filePaths);
+    if (totalBytes > GIT_IMPORT_MAX_TOTAL_BYTES) {
+      throw new Error(
+        `Repository exceeds the ${Math.round(GIT_IMPORT_MAX_TOTAL_BYTES / 1024 / 1024)} MB size limit for skill imports`,
+      );
     }
 
     scanned.push({
@@ -322,6 +361,44 @@ export async function scanSkillsFromRepo(
   }
 
   return scanned;
+}
+
+async function scanClawHubSkillFromRepo(
+  repoDir: string,
+  gitURL: string,
+): Promise<ScannedSkill | null> {
+  const manifestPath = path.join(repoDir, CLAWHUB_MANIFEST);
+  const manifestStat = await stat(manifestPath).catch(() => null);
+  if (!manifestStat?.isFile()) {
+    return null;
+  }
+
+  const rawManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const manifest = clawhubManifestSchema.parse(rawManifest);
+  const entrypoint = normalizeSkillPath(manifest.entrypoint);
+  const entrypointPath = path.join(repoDir, entrypoint);
+  const entrypointStat = await stat(entrypointPath).catch(() => null);
+  if (!entrypointStat?.isFile()) {
+    throw new Error(`ClawHub entrypoint "${entrypoint}" was not found`);
+  }
+
+  const filePaths = await listSkillFilesRecursive(repoDir);
+  await assertRepoSkillLimits(repoDir, filePaths);
+
+  return {
+    detail: {
+      name: manifest.name,
+      description: manifest.description,
+      sourceType: 'git',
+      gitURL: normalizeGitURL(gitURL),
+      repoId: deriveRepoId(normalizeGitURL(gitURL)),
+      updatedAt: Date.now(),
+      frontmatter: clawhubManifestToFrontmatter(manifest),
+      files: toFileEntries(filePaths),
+    },
+    localDir: repoDir,
+    filePaths,
+  };
 }
 
 // ─── Blob sync ───

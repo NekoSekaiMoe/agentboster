@@ -25,7 +25,6 @@ import {
 import { generateUUID } from '@/lib/utils';
 import {
   ChevronLeft,
-  Languages,
   Loader2,
   MessageSquare,
   Monitor,
@@ -62,7 +61,7 @@ export function ChatSidebar() {
   const pathname = usePathname();
   const { open, setOpen, isMobile, setOpenMobile } = useSidebar();
   const { theme = 'system', setTheme } = useTheme();
-  const { locale, localeLabels, locales, setLocale, t } = useI18n();
+  const { t } = useI18n();
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
@@ -287,24 +286,6 @@ export function ChatSidebar() {
                     </Button>
                   </div>
 
-                  <div className="my-2 border-t" />
-                  <div className="mb-2 px-2 font-medium text-muted-foreground text-xs">
-                    {t('common.language')}
-                  </div>
-                  <div className="space-y-1">
-                    {locales.map((item) => (
-                      <Button
-                        key={item}
-                        variant={locale === item ? 'secondary' : 'ghost'}
-                        size="sm"
-                        className="w-full justify-start"
-                        onClick={() => setLocale(item)}
-                      >
-                        <Languages className="mr-2 h-4 w-4" />
-                        {localeLabels[item]}
-                      </Button>
-                    ))}
-                  </div>
                   <div className="my-2 border-t" />
 
                   <Link href="/config">

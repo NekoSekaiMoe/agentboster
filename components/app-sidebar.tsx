@@ -10,6 +10,7 @@ import {
   FileArchive,
   Gauge,
   GitBranch,
+  Languages,
   LockKeyhole,
   LogOut,
   MessageSquare,
@@ -35,7 +36,6 @@ import { toast } from 'sonner';
 
 import { logoutAction } from '@/app/(auth)/actions';
 import { useI18n } from '@/components/i18n-provider';
-import { LanguageMenuGroup } from '@/components/language-menu-group';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import {
@@ -105,6 +105,11 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
         icon: MessageSquareText,
       },
       {
+        labelKey: 'common.language',
+        href: '/config/language',
+        icon: Languages,
+      },
+      {
         labelKey: 'nav.channels',
         href: '/config/channels',
         icon: Network,
@@ -123,6 +128,11 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
         labelKey: 'nav.memory',
         href: '/memory',
         icon: Brain,
+      },
+      {
+        labelKey: 'config.sections.knowledge.title',
+        href: '/config/knowledge',
+        icon: BookOpen,
       },
       {
         labelKey: 'nav.skills',
@@ -344,8 +354,6 @@ export function AppSidebar() {
                 {t('theme.system')}
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <LanguageMenuGroup />
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link href="/" onClick={() => setOpenMobile(false)}>

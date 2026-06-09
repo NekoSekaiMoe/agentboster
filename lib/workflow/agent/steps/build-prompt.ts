@@ -5,7 +5,9 @@ import {
 } from '@/lib/memory';
 import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import type { AppConfig } from '@/types/config';
+import type { BotLocale } from '@/types/config/language';
 import { BUILTIN_MEMORY_MAX_LENGTH } from '@/types/memory';
+import { localeLabels } from '@/lib/i18n';
 import { DEFAULT_SYSTEM_PROMPT } from '../config';
 import { MAIN_AGENT_NAME } from '../utils/agent-config';
 
@@ -16,6 +18,7 @@ export type BuildSystemPromptOptions = {
   delegation?: {
     parentAgentName: string;
   };
+  responseLocale?: BotLocale;
   sessionId?: string;
 };
 
@@ -78,6 +81,17 @@ function buildFollowUpSection(enabled: boolean): string {
   ]);
 }
 
+function buildResponseLanguageSection(locale?: BotLocale): string | null {
+  if (!locale || locale === 'auto') {
+    return null;
+  }
+
+  return createSection('Response Language', [
+    `Reply in ${localeLabels[locale]} by default.`,
+    'If the user explicitly asks for another language in a message, follow that message-level request.',
+  ]);
+}
+
 export async function buildSystemPrompt(
   config: AppConfig,
   options: BuildSystemPromptOptions = {},
@@ -125,6 +139,12 @@ export async function buildSystemPrompt(
       resolvedPrompt,
     ]),
   ];
+  const responseLanguageSection = buildResponseLanguageSection(
+    options.responseLocale,
+  );
+  if (responseLanguageSection) {
+    sections.push(responseLanguageSection);
+  }
 
   if (options.delegation) {
     sections.push(
