@@ -63,7 +63,6 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import type { TranslationKey } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 import packageJson from '@/package.json';
 
 type ThemeMode = 'light' | 'dark' | 'system';
@@ -191,9 +190,6 @@ export function AppSidebar() {
   const [loggingOut, setLoggingOut] = useState(false);
   const isCollapsed = state === 'collapsed';
 
-  const activeMode =
-    pathname === '/' || pathname.startsWith('/chat') ? 'chat' : 'bot';
-
   const flatItems = useMemo(
     () => workspaceGroups.flatMap((group) => group.items),
     [],
@@ -247,40 +243,7 @@ export function AppSidebar() {
           />
         </div>
 
-        {!isCollapsed && (
-          <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
-            <Button
-              asChild
-              size="sm"
-              variant={activeMode === 'bot' ? 'default' : 'ghost'}
-              className={cn(
-                'h-8 rounded-lg text-xs',
-                activeMode !== 'bot' && 'text-muted-foreground',
-              )}
-            >
-              <Link href="/config" onClick={() => setOpenMobile(false)}>
-                <BotIcon className="size-3.5" />
-                {t('nav.bot')}
-              </Link>
-            </Button>
-            <Button
-              asChild
-              size="sm"
-              variant={activeMode === 'chat' ? 'default' : 'ghost'}
-              className={cn(
-                'h-8 rounded-lg text-xs',
-                activeMode !== 'chat' && 'text-muted-foreground',
-              )}
-            >
-              <Link href="/" onClick={() => setOpenMobile(false)}>
-                <MessageSquare className="size-3.5" />
-                {t('nav.chat')}
-              </Link>
-            </Button>
-          </div>
-        )}
-
-        {!isCollapsed && activeMode !== 'chat' ? (
+        {!isCollapsed ? (
           <Button
             asChild
             size="sm"
