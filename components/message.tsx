@@ -227,6 +227,7 @@ function AstrBotAssistantMessageParts({
   message,
   onToolApproval,
   onSuggestedFollowUpSelect,
+  showSuggestedFollowUps,
 }: {
   message: WorkflowUIMessage;
   onToolApproval?: (input: {
@@ -236,6 +237,7 @@ function AstrBotAssistantMessageParts({
     comment?: string;
   }) => Promise<void>;
   onSuggestedFollowUpSelect?: (question: string) => void;
+  showSuggestedFollowUps: boolean;
 }) {
   const reduceMotion = useReducedMotion();
   const [expandedReasoningParts, setExpandedReasoningParts] = useState<
@@ -338,7 +340,7 @@ function AstrBotAssistantMessageParts({
                 <div className="min-w-0 break-words text-foreground/90">
                   <Markdown>{displayText}</Markdown>
                 </div>
-                {followUps ? (
+                {followUps && showSuggestedFollowUps ? (
                   <div className="mt-2">
                     <SuggestedFollowUpButtons
                       questions={followUps.questions}
@@ -665,6 +667,7 @@ const PurePreviewMessage = ({
   message,
   isLoading,
   showAssistantGlyph,
+  showSuggestedFollowUps,
   onToolApproval,
   onSuggestedFollowUpSelect,
   onRevert,
@@ -675,6 +678,7 @@ const PurePreviewMessage = ({
   message: WorkflowUIMessage;
   isLoading: boolean;
   showAssistantGlyph: boolean;
+  showSuggestedFollowUps: boolean;
   onToolApproval?: (input: {
     toolCallId: string;
     toolName: string;
@@ -775,6 +779,7 @@ const PurePreviewMessage = ({
                 message={message}
                 onToolApproval={onToolApproval}
                 onSuggestedFollowUpSelect={onSuggestedFollowUpSelect}
+                showSuggestedFollowUps={showSuggestedFollowUps}
               />
             )}
 
@@ -798,6 +803,9 @@ export const PreviewMessage = memo(
     if (prevProps.chatId !== nextProps.chatId) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
     if (prevProps.showAssistantGlyph !== nextProps.showAssistantGlyph) {
+      return false;
+    }
+    if (prevProps.showSuggestedFollowUps !== nextProps.showSuggestedFollowUps) {
       return false;
     }
     if (prevProps.message.id !== nextProps.message.id) return false;

@@ -1,10 +1,25 @@
-import { deleteMemory } from '@/lib/core/db/agentd';
+import {
+  deleteMemory,
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+} from '@/lib/core/db/agentd';
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  await deleteMemory(id);
-  return Response.json({ success: true });
+  try {
+    const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    await deleteMemory(id, {
+      taskId: searchParams.get('task_id'),
+      sessionId: searchParams.get('session_id'),
+    });
+    return Response.json({ success: true });
+  } catch (error) {
+    return Response.json(
+      { success: false, error: getResourceErrorMessage(error) },
+      { status: getResourceErrorStatus(error) },
+    );
+  }
 }

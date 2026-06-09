@@ -3,6 +3,8 @@ package server
 import (
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/clawless/agentd/internal/agent"
@@ -17,14 +19,14 @@ import (
 
 // Server holds all dependencies for HTTP handlers.
 type Server struct {
-	cfg         *config.Config
-	bus         *eventbus.Bus
-	dispatcher  *worker.Dispatcher
-	clawless    *clawless.Client
-	cache       *cache.Manager
-	agentMgr    *agent.Manager
-	l2Mgr       *l2_auth.L2AuthManager
-	startTime   time.Time
+	cfg        *config.Config
+	bus        *eventbus.Bus
+	dispatcher *worker.Dispatcher
+	clawless   *clawless.Client
+	cache      *cache.Manager
+	agentMgr   *agent.Manager
+	l2Mgr      *l2_auth.L2AuthManager
+	startTime  time.Time
 }
 
 // NewServer creates a new HTTP server with all dependencies.
@@ -248,7 +250,23 @@ func (s *Server) handleWriteReviewLogs(c *gin.Context) {
 func (s *Server) handleGetMemories(c *gin.Context) {
 	agentID := c.Query("agent_id")
 	limit := 10
-	memories, err := s.clawless.GetMemories(c.Request.Context(), agentID, nil, limit)
+	if rawLimit := c.Query("limit"); rawLimit != "" {
+		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	var keywords []string
+	if rawKeywords := c.Query("keywords"); rawKeywords != "" {
+		for _, keyword := range strings.Split(rawKeywords, ",") {
+			if trimmed := strings.TrimSpace(keyword); trimmed != "" {
+				keywords = append(keywords, trimmed)
+			}
+		}
+	}
+	memories, err := s.clawless.GetMemories(c.Request.Context(), agentID, keywords, limit, clawless.MemoryScope{
+		TaskID:    c.Query("task_id"),
+		SessionID: c.Query("session_id"),
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -258,12 +276,23 @@ func (s *Server) handleGetMemories(c *gin.Context) {
 
 // handleWriteMemories writes memories.
 func (s *Server) handleWriteMemories(c *gin.Context) {
-	var memories []clawless.Memory
-	if err := c.ShouldBindJSON(&memories); err != nil {
+	var body struct {
+		TaskID    string            `json:"task_id"`
+		SessionID string            `json:"session_id"`
+		Memories  []clawless.Memory `json:"memories"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	if err := s.clawless.WriteMemories(c.Request.Context(), memories); err != nil {
+	if len(body.Memories) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "memories cannot be empty"})
+		return
+	}
+	if err := s.clawless.WriteMemories(c.Request.Context(), body.Memories, clawless.MemoryScope{
+		TaskID:    body.TaskID,
+		SessionID: body.SessionID,
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
@@ -273,7 +302,10 @@ func (s *Server) handleWriteMemories(c *gin.Context) {
 // handleDeleteMemory deletes a memory.
 func (s *Server) handleDeleteMemory(c *gin.Context) {
 	id := c.Param("id")
-	if err := s.clawless.DeleteMemory(c.Request.Context(), id); err != nil {
+	if err := s.clawless.DeleteMemory(c.Request.Context(), id, clawless.MemoryScope{
+		TaskID:    c.Query("task_id"),
+		SessionID: c.Query("session_id"),
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
@@ -427,7 +459,7 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 	var body struct {
 		TaskID     string `json:"task_id"`
 		DecisionID string `json:"decision_id"`
-		Action     string `json:"action"`  // pass_once | pass_until | reject_once | reject_until
+		Action     string `json:"action"` // pass_once | pass_until | reject_once | reject_until
 		Pattern    string `json:"pattern"`
 		Duration   string `json:"duration"` // once | always | hhddmmyy
 	}
@@ -546,7 +578,7 @@ func (s *Server) handleToolExec(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	result, err := s.agentMgr.ExecuteTool(c.Request.Context(), req.SessionID, req.ToolName, req.ToolInput)
+	result, err := s.agentMgr.ExecuteTool(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -554,16 +586,16 @@ func (s *Server) handleToolExec(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-func (s *Server) handleToolRead(c *gin.Context)       { s.handleToolExec(c) }
-func (s *Server) handleToolWrite(c *gin.Context)      { s.handleToolExec(c) }
-func (s *Server) handleToolEdit(c *gin.Context)       { s.handleToolExec(c) }
-func (s *Server) handleToolLs(c *gin.Context)         { s.handleToolExec(c) }
-func (s *Server) handleToolGrep(c *gin.Context)       { s.handleToolExec(c) }
-func (s *Server) handleToolGlob(c *gin.Context)       { s.handleToolExec(c) }
-func (s *Server) handleToolPatch(c *gin.Context)      { s.handleToolExec(c) }
-func (s *Server) handleToolGit(c *gin.Context)        { s.handleToolExec(c) }
-func (s *Server) handleToolWebFetch(c *gin.Context)   { s.handleToolExec(c) }
-func (s *Server) handleToolWebSearch(c *gin.Context)  { s.handleToolExec(c) }
-func (s *Server) handleToolMemorySearch(c *gin.Context) { s.handleToolExec(c) }
-func (s *Server) handleToolMemorySave(c *gin.Context) { s.handleToolExec(c) }
+func (s *Server) handleToolRead(c *gin.Context)           { s.handleToolExec(c) }
+func (s *Server) handleToolWrite(c *gin.Context)          { s.handleToolExec(c) }
+func (s *Server) handleToolEdit(c *gin.Context)           { s.handleToolExec(c) }
+func (s *Server) handleToolLs(c *gin.Context)             { s.handleToolExec(c) }
+func (s *Server) handleToolGrep(c *gin.Context)           { s.handleToolExec(c) }
+func (s *Server) handleToolGlob(c *gin.Context)           { s.handleToolExec(c) }
+func (s *Server) handleToolPatch(c *gin.Context)          { s.handleToolExec(c) }
+func (s *Server) handleToolGit(c *gin.Context)            { s.handleToolExec(c) }
+func (s *Server) handleToolWebFetch(c *gin.Context)       { s.handleToolExec(c) }
+func (s *Server) handleToolWebSearch(c *gin.Context)      { s.handleToolExec(c) }
+func (s *Server) handleToolMemorySearch(c *gin.Context)   { s.handleToolExec(c) }
+func (s *Server) handleToolMemorySave(c *gin.Context)     { s.handleToolExec(c) }
 func (s *Server) handleToolSandboxInstall(c *gin.Context) { s.handleToolExec(c) }

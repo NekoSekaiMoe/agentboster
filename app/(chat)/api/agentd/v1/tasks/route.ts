@@ -1,6 +1,8 @@
 import {
   createTask,
   formatTaskForAgentd,
+  getResourceErrorMessage,
+  getResourceErrorStatus,
   listTasks,
 } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
@@ -13,7 +15,6 @@ export async function POST(request: Request) {
     const task = await createTask({
       agentId: body.agent_id ?? 'default',
       sessionId: body.session_id,
-      source: body.source,
       command: body.command,
       sandboxType: body.sandbox_type,
       sandboxId: body.sandbox_id,
@@ -26,9 +27,10 @@ export async function POST(request: Request) {
     logger.error('task creation failed', {
       error: error instanceof Error ? error.message : String(error),
     });
+    const status = getResourceErrorStatus(error);
     return Response.json(
-      { success: false, error: 'Failed to create task' },
-      { status: 500 },
+      { success: false, error: getResourceErrorMessage(error) },
+      { status },
     );
   }
 }

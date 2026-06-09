@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or } from 'drizzle-orm';
+import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
 import { db } from './index';
 import {
   agentL0Rules,
@@ -59,6 +59,17 @@ type ToolActivityLogInput = {
   started_at?: string | Date;
   completedAt?: string | Date;
   completed_at?: string | Date;
+};
+
+export type AgentdResourceScope = {
+  taskId?: string | null;
+  sessionId?: string | null;
+};
+
+type TaskAccessRecord = Omit<AgentdTask, 'roles' | 'sessionId' | 'source'> & {
+  sessionId: string;
+  roles: string[];
+  source: Record<string, unknown> | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -124,7 +135,7 @@ export async function deriveSessionIdentity(
   };
 }
 
-async function deriveTaskIdentity(taskId: string): Promise<{
+export async function deriveTaskIdentity(taskId: string): Promise<{
   userId: string | null;
   roles: string[];
   source: Record<string, unknown> | null;
@@ -145,10 +156,60 @@ async function deriveTaskIdentity(taskId: string): Promise<{
 
   const sessionIdentity = await deriveSessionIdentity(task.sessionId);
   return {
-    userId: sessionIdentity.userId ?? task.userId ?? null,
+    userId: task.sessionId ? sessionIdentity.userId : (task.userId ?? null),
     roles: sessionIdentity.roles,
-    source: normalizeSource(task.source) ?? sessionIdentity.source,
+    source: task.sessionId
+      ? sessionIdentity.source
+      : (normalizeSource(task.source) ?? null),
   };
+}
+
+function taskAccessError(status: number, message: string) {
+  return Object.assign(new Error(message), { status });
+}
+
+function isSameSession(left?: string | null, right?: string | null) {
+  return Boolean(left) && Boolean(right) && left === right;
+}
+
+export async function requireTaskAccess(input: {
+  taskId: string;
+  sessionId?: string | null;
+}): Promise<TaskAccessRecord> {
+  const task = await getTask(input.taskId);
+  if (!task) {
+    throw taskAccessError(404, 'Task not found');
+  }
+
+  if (!task.sessionId) {
+    throw taskAccessError(403, 'Task is not bound to a session');
+  }
+
+  if (
+    input.sessionId !== undefined &&
+    !isSameSession(task.sessionId, input.sessionId)
+  ) {
+    throw taskAccessError(403, 'Task/session mismatch');
+  }
+
+  return {
+    ...task,
+    sessionId: task.sessionId,
+    roles: task.roles ?? [],
+    source: task.source ?? null,
+  };
+}
+
+export function getResourceErrorStatus(error: unknown) {
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? (error as { status?: unknown }).status
+      : undefined;
+  return typeof status === 'number' ? status : 500;
+}
+
+export function getResourceErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Internal server error';
 }
 
 function normalizeDecision(value: string): ReviewDecision {
@@ -212,14 +273,21 @@ export async function createTask(data: {
   id?: string;
   agentId: string;
   sessionId?: string;
-  source?: Record<string, unknown>;
   command: string;
   sandboxType?: string;
   sandboxId?: string;
   env?: Record<string, string>;
   timeout?: number;
 }) {
+  if (!data.sessionId) {
+    throw taskAccessError(400, 'session_id is required');
+  }
+
   const identity = await deriveSessionIdentity(data.sessionId);
+  if (!identity.userId) {
+    throw taskAccessError(404, 'Session not found');
+  }
+
   const [task] = await db
     .insert(agentTasks)
     .values({
@@ -229,7 +297,7 @@ export async function createTask(data: {
       command: data.command,
       sandboxType: data.sandboxType ?? 'auto',
       sandboxId: data.sandboxId ?? null,
-      source: data.source ?? identity.source,
+      source: identity.source,
       env: data.env ?? null,
       timeout: data.timeout ?? 300,
       status: 'pending',
@@ -238,7 +306,7 @@ export async function createTask(data: {
   return {
     ...task,
     roles: identity.roles,
-    source: task.source ?? identity.source,
+    source: identity.source,
   };
 }
 
@@ -251,9 +319,11 @@ export async function getTask(id: string) {
   const identity = await deriveTaskIdentity(task.id);
   return {
     ...task,
-    userId: identity.userId ?? task.userId,
+    userId: task.sessionId ? identity.userId : (identity.userId ?? task.userId),
     roles: identity.roles,
-    source: normalizeSource(task.source) ?? identity.source,
+    source: task.sessionId
+      ? identity.source
+      : (identity.source ?? normalizeSource(task.source)),
   };
 }
 
@@ -274,19 +344,37 @@ export async function updateTaskStatus(
   const identity = await deriveTaskIdentity(task.id);
   return {
     ...task,
-    userId: identity.userId ?? task.userId,
+    userId: task.sessionId ? identity.userId : (identity.userId ?? task.userId),
     roles: identity.roles,
-    source: normalizeSource(task.source) ?? identity.source,
+    source: task.sessionId
+      ? identity.source
+      : (identity.source ?? normalizeSource(task.source)),
   };
 }
 
 export async function listTasks(agentId: string, limit = 50) {
-  return db
+  const tasks = await db
     .select()
     .from(agentTasks)
     .where(eq(agentTasks.agentId, agentId))
     .orderBy(desc(agentTasks.createdAt))
     .limit(limit);
+
+  return Promise.all(
+    tasks.map(async (task) => {
+      const identity = await deriveTaskIdentity(task.id);
+      return {
+        ...task,
+        userId: task.sessionId
+          ? identity.userId
+          : (identity.userId ?? task.userId),
+        roles: identity.roles,
+        source: task.sessionId
+          ? identity.source
+          : (identity.source ?? normalizeSource(task.source)),
+      };
+    }),
+  );
 }
 
 // === Review Logs ===
@@ -387,9 +475,9 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
         taskId: normalizeNullableText(log.taskId ?? log.task_id),
         sessionId: normalizeNullableText(log.sessionId ?? log.session_id),
         agentId: log.agentId ?? log.agent_id ?? 'default',
-        userId: log.userId ?? log.user_id ?? identity.userId,
-        roles: log.roles ?? identity.roles,
-        source: log.source ?? identity.source,
+        userId: identity.userId,
+        roles: identity.roles,
+        source: identity.source,
         sandboxId: normalizeNullableText(log.sandboxId ?? log.sandbox_id),
         model: normalizeNullableText(log.model),
         step: typeof log.step === 'number' ? log.step : null,
@@ -511,29 +599,69 @@ export async function getSandbox(id: string) {
 
 // === Memories ===
 
+async function resolveResourceScope(scope?: AgentdResourceScope): Promise<{
+  sessionId: string;
+  userId: string;
+  roles: string[];
+  source: Record<string, unknown> | null;
+}> {
+  if (scope?.taskId) {
+    const task = await requireTaskAccess({
+      taskId: scope.taskId,
+      sessionId: scope.sessionId,
+    });
+    if (!task.userId) {
+      throw taskAccessError(403, 'Task owner is unknown');
+    }
+    return {
+      sessionId: task.sessionId,
+      userId: task.userId,
+      roles: task.roles,
+      source: task.source,
+    };
+  }
+
+  if (!scope?.sessionId) {
+    throw taskAccessError(400, 'task_id or session_id is required');
+  }
+
+  const identity = await deriveSessionIdentity(scope.sessionId);
+  if (!identity.userId) {
+    throw taskAccessError(404, 'Session not found');
+  }
+
+  return {
+    sessionId: scope.sessionId,
+    userId: identity.userId,
+    roles: identity.roles,
+    source: identity.source,
+  };
+}
+
 export async function getMemories(
   agentId: string,
   keywords: string[] = [],
   limit = 10,
+  scope?: AgentdResourceScope,
 ) {
-  let query = db
-    .select()
-    .from(agentMemories)
-    .where(eq(agentMemories.agentId, agentId))
-    .orderBy(desc(agentMemories.createdAt))
-    .limit(limit);
+  const identity = await resolveResourceScope(scope);
+  const conditions: SQL[] = [
+    eq(agentMemories.agentId, agentId),
+    eq(agentMemories.userId, identity.userId),
+  ];
 
   if (keywords.length > 0) {
-    const conditions = keywords.map((k) => like(agentMemories.key, `%${k}%`));
-    query = db
-      .select()
-      .from(agentMemories)
-      .where(and(eq(agentMemories.agentId, agentId), ...conditions))
-      .orderBy(desc(agentMemories.createdAt))
-      .limit(limit);
+    conditions.push(
+      ...keywords.map((keyword) => like(agentMemories.key, `%${keyword}%`)),
+    );
   }
 
-  return query;
+  return db
+    .select()
+    .from(agentMemories)
+    .where(and(...conditions))
+    .orderBy(desc(agentMemories.createdAt))
+    .limit(limit);
 }
 
 export async function writeMemories(
@@ -543,22 +671,31 @@ export async function writeMemories(
     value: string;
     source?: string;
   }>,
+  scope?: AgentdResourceScope,
 ) {
+  const identity = await resolveResourceScope(scope);
   return db
     .insert(agentMemories)
     .values(
       memories.map((m) => ({
         agentId: m.agentId,
+        sessionId: identity.sessionId,
+        userId: identity.userId,
         key: m.key,
         value: m.value,
-        source: m.source ?? null,
+        source: m.source ?? identity.sessionId,
       })),
     )
     .returning();
 }
 
-export async function deleteMemory(id: string) {
-  await db.delete(agentMemories).where(eq(agentMemories.id, id));
+export async function deleteMemory(id: string, scope?: AgentdResourceScope) {
+  const identity = await resolveResourceScope(scope);
+  await db
+    .delete(agentMemories)
+    .where(
+      and(eq(agentMemories.id, id), eq(agentMemories.userId, identity.userId)),
+    );
 }
 
 // === Task Outputs (Streaming) ===
@@ -734,17 +871,43 @@ export async function archiveTaskSummary(taskId: string): Promise<boolean> {
 
 export async function listActiveTaskSummaries(
   agentId: string,
+  options?: { userId?: string },
 ): Promise<TaskSummaryRecord[]> {
+  const conditions: SQL[] = [
+    eq(taskSummaries.agentId, agentId),
+    eq(taskSummaries.status, 'active'),
+    eq(taskSummaries.isCurrent, true),
+  ];
+  if (options?.userId) {
+    conditions.push(eq(sessions.userId, options.userId));
+  }
+
+  if (!options?.userId) {
+    return db
+      .select()
+      .from(taskSummaries)
+      .where(and(...conditions))
+      .orderBy(desc(taskSummaries.lastUpdated));
+  }
+
   return db
-    .select()
+    .select({
+      id: taskSummaries.id,
+      taskId: taskSummaries.taskId,
+      agentId: taskSummaries.agentId,
+      sessionId: taskSummaries.sessionId,
+      status: taskSummaries.status,
+      progress: taskSummaries.progress,
+      decisions: taskSummaries.decisions,
+      pending: taskSummaries.pending,
+      knownIssues: taskSummaries.knownIssues,
+      version: taskSummaries.version,
+      lastUpdated: taskSummaries.lastUpdated,
+      createdAt: taskSummaries.createdAt,
+    })
     .from(taskSummaries)
-    .where(
-      and(
-        eq(taskSummaries.agentId, agentId),
-        eq(taskSummaries.status, 'active'),
-        eq(taskSummaries.isCurrent, true),
-      ),
-    )
+    .innerJoin(sessions, eq(taskSummaries.sessionId, sessions.id))
+    .where(and(...conditions))
     .orderBy(desc(taskSummaries.lastUpdated));
 }
 

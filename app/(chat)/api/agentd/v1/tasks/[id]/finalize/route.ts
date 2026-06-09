@@ -1,3 +1,8 @@
+import {
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+  requireTaskAccess,
+} from '@/lib/core/db/agentd';
 import { extractTaskMemory } from '@/lib/extra/task-memory';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -15,16 +20,27 @@ export async function POST(
 ) {
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const result = await extractTaskMemory({
-    taskId: id,
-    agentId: typeof body.agent_id === 'string' ? body.agent_id : 'default',
-    sessionId:
-      typeof body.session_id === 'string' ? body.session_id : undefined,
-    command: typeof body.command === 'string' ? body.command : '',
-    result: typeof body.result === 'string' ? body.result : '',
-    status: taskStatus(body.status),
-  });
+  try {
+    const task = await requireTaskAccess({
+      taskId: id,
+      sessionId:
+        typeof body.session_id === 'string' ? body.session_id : undefined,
+    });
+    const result = await extractTaskMemory({
+      taskId: id,
+      agentId: task.agentId,
+      sessionId: task.sessionId,
+      command: task.command,
+      result: typeof body.result === 'string' ? body.result : '',
+      status: taskStatus(body.status),
+    });
 
-  logger.info('task finalized', { taskId: id, mode: result.mode });
-  return Response.json({ success: true, data: result });
+    logger.info('task finalized', { taskId: id, mode: result.mode });
+    return Response.json({ success: true, data: result });
+  } catch (error) {
+    return Response.json(
+      { success: false, error: getResourceErrorMessage(error) },
+      { status: getResourceErrorStatus(error) },
+    );
+  }
 }

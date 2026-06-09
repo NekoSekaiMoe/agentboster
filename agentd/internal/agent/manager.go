@@ -352,6 +352,7 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 // ToolExecRequest is a synchronous tool execution request from the web app.
 type ToolExecRequest struct {
 	SessionID string         `json:"session_id"`
+	TaskID    string         `json:"task_id,omitempty"`
 	ToolName  string         `json:"tool_name"`
 	ToolInput map[string]any `json:"tool_input"`
 	UserID    string         `json:"user_id,omitempty"`
@@ -367,7 +368,11 @@ type ToolExecResponse struct {
 
 // ExecuteTool executes a single tool synchronously in the agent's sandbox.
 // This is the primary execution path when Agent Daemon is online.
-func (m *Manager) ExecuteTool(ctx context.Context, sessionID, toolName string, toolInput map[string]any) (*ToolExecResponse, error) {
+func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolExecResponse, error) {
+	sessionID := req.SessionID
+	toolName := req.ToolName
+	toolInput := req.ToolInput
+
 	// Get or create session
 	m.mu.RLock()
 	agentCtx, ok := m.sessions[sessionID]
@@ -382,15 +387,22 @@ func (m *Manager) ExecuteTool(ctx context.Context, sessionID, toolName string, t
 		}
 	}
 	m.wireSessionRuntime(agentCtx)
+	agentCtx.TaskID = req.TaskID
 	if len(toolInput) == 0 {
 		toolInput = map[string]any{}
 	}
-	if agentCtx.UserID == "" || len(agentCtx.Roles) == 0 {
-		if session, err := m.clawless.GetSession(ctx, sessionID); err == nil {
-			agentCtx.UserID = session.UserID
-			agentCtx.Roles = session.Roles
-			agentCtx.Source = session.Source
-		}
+	if session, err := m.clawless.GetSession(ctx, sessionID); err == nil {
+		agentCtx.UserID = session.UserID
+		agentCtx.Roles = session.Roles
+		agentCtx.Source = session.Source
+	} else {
+		agentCtx.UserID = ""
+		agentCtx.Roles = nil
+		agentCtx.Source = clawless.BotSource{}
+	}
+	agentCtx.LastAccessTime = time.Now()
+	if err := m.sessionStore.Put(sessionID, agentContextToData(agentCtx)); err != nil {
+		slog.Warn("failed to persist session identity", "session_id", sessionID, "error", err)
 	}
 
 	// Fetch SOUL and build system prompt
@@ -551,6 +563,9 @@ func agentContextToData(ctx *AgentContext) *session.SessionData {
 		SessionID:       ctx.SessionID,
 		TaskID:          ctx.TaskID,
 		AgentID:         ctx.AgentID,
+		UserID:          ctx.UserID,
+		Roles:           ctx.Roles,
+		Source:          ctx.Source,
 		SandboxID:       ctx.SandboxID,
 		SandboxType:     ctx.SandboxType,
 		SandboxPath:     ctx.SandboxPath,
@@ -573,6 +588,9 @@ func dataToAgentContext(data *session.SessionData) *AgentContext {
 		SessionID:       data.SessionID,
 		TaskID:          data.TaskID,
 		AgentID:         data.AgentID,
+		UserID:          data.UserID,
+		Roles:           data.Roles,
+		Source:          data.Source,
 		SandboxID:       data.SandboxID,
 		SandboxType:     data.SandboxType,
 		SandboxPath:     data.SandboxPath,

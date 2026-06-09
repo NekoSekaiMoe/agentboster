@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { getTaskSummary, upsertTaskSummary } from '@/lib/core/db/agentd';
+import {
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+  getTaskSummary,
+  requireTaskAccess,
+  upsertTaskSummary,
+} from '@/lib/core/db/agentd';
 import type { Decision } from '@/lib/core/db/schema';
 
 type DecisionUpdate = {
@@ -70,104 +76,112 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const summary = await getTaskSummary(id);
+  try {
+    const { id } = await params;
+    await requireTaskAccess({ taskId: id });
+    const summary = await getTaskSummary(id);
 
-  if (!summary) {
-    return Response.json(
-      { success: false, error: 'Task summary not found' },
-      { status: 404 },
-    );
-  }
-
-  const body = await request.json().catch(() => ({}));
-  const expectedLastUpdated =
-    typeof body.summary_last_updated === 'string'
-      ? body.summary_last_updated
-      : null;
-
-  if (!expectedLastUpdated) {
-    return Response.json(
-      { success: false, error: 'summary_last_updated is required' },
-      { status: 400 },
-    );
-  }
-
-  if (summary.lastUpdated.toISOString() !== expectedLastUpdated) {
-    return Response.json(
-      {
-        success: false,
-        error: 'Task summary changed since tidy report was generated',
-      },
-      { status: 409 },
-    );
-  }
-
-  const mergeIds = asStringArray(body.merge_ids);
-  const deleteIds = new Set(asStringArray(body.delete_ids));
-  const updates = asUpdates(body.update_ids);
-
-  if (mergeIds.length > 0 && updates.length === 0) {
-    return Response.json(
-      {
-        success: false,
-        error: 'merge_ids requires explicit update_ids in this version',
-      },
-      { status: 400 },
-    );
-  }
-
-  const decisions = ensureDecisionIds(summary.decisions ?? []).flatMap(
-    (decision, index) => {
-      if (
-        Array.from(deleteIds).some((id) =>
-          matchesDecisionId(decision, index, id),
-        )
-      ) {
-        return [];
-      }
-
-      const update = updates.find((item) =>
-        matchesDecisionId(decision, index, item.id),
+    if (!summary) {
+      return Response.json(
+        { success: false, error: 'Task summary not found' },
+        { status: 404 },
       );
-      if (!update) {
-        return [decision];
-      }
+    }
 
-      return [
+    const body = await request.json().catch(() => ({}));
+    const expectedLastUpdated =
+      typeof body.summary_last_updated === 'string'
+        ? body.summary_last_updated
+        : null;
+
+    if (!expectedLastUpdated) {
+      return Response.json(
+        { success: false, error: 'summary_last_updated is required' },
+        { status: 400 },
+      );
+    }
+
+    if (summary.lastUpdated.toISOString() !== expectedLastUpdated) {
+      return Response.json(
         {
-          ...decision,
-          ...(update.description !== undefined && {
-            description: update.description,
-          }),
-          ...(update.reason !== undefined && { reason: update.reason }),
-          ...(update.alternatives !== undefined && {
-            alternatives: update.alternatives,
-          }),
+          success: false,
+          error: 'Task summary changed since tidy report was generated',
         },
-      ];
-    },
-  );
+        { status: 409 },
+      );
+    }
 
-  const updated = await upsertTaskSummary({
-    taskId: id,
-    agentId: summary.agentId,
-    sessionId: summary.sessionId ?? undefined,
-    status: summary.status,
-    progress: summary.progress ?? undefined,
-    decisions,
-    pending: removeItems(
-      summary.pending ?? [],
-      asStringArray(body.resolved_pending),
-    ),
-    knownIssues: removeItems(
-      summary.knownIssues ?? [],
-      asStringArray(body.resolved_issues),
-    ),
-  });
+    const mergeIds = asStringArray(body.merge_ids);
+    const deleteIds = new Set(asStringArray(body.delete_ids));
+    const updates = asUpdates(body.update_ids);
 
-  return Response.json({
-    success: true,
-    data: { success: true, summary: updated },
-  });
+    if (mergeIds.length > 0 && updates.length === 0) {
+      return Response.json(
+        {
+          success: false,
+          error: 'merge_ids requires explicit update_ids in this version',
+        },
+        { status: 400 },
+      );
+    }
+
+    const decisions = ensureDecisionIds(summary.decisions ?? []).flatMap(
+      (decision, index) => {
+        if (
+          Array.from(deleteIds).some((id) =>
+            matchesDecisionId(decision, index, id),
+          )
+        ) {
+          return [];
+        }
+
+        const update = updates.find((item) =>
+          matchesDecisionId(decision, index, item.id),
+        );
+        if (!update) {
+          return [decision];
+        }
+
+        return [
+          {
+            ...decision,
+            ...(update.description !== undefined && {
+              description: update.description,
+            }),
+            ...(update.reason !== undefined && { reason: update.reason }),
+            ...(update.alternatives !== undefined && {
+              alternatives: update.alternatives,
+            }),
+          },
+        ];
+      },
+    );
+
+    const updated = await upsertTaskSummary({
+      taskId: id,
+      agentId: summary.agentId,
+      sessionId: summary.sessionId ?? undefined,
+      status: summary.status,
+      progress: summary.progress ?? undefined,
+      decisions,
+      pending: removeItems(
+        summary.pending ?? [],
+        asStringArray(body.resolved_pending),
+      ),
+      knownIssues: removeItems(
+        summary.knownIssues ?? [],
+        asStringArray(body.resolved_issues),
+      ),
+    });
+
+    return Response.json({
+      success: true,
+      data: { success: true, summary: updated },
+    });
+  } catch (error) {
+    return Response.json(
+      { success: false, error: getResourceErrorMessage(error) },
+      { status: getResourceErrorStatus(error) },
+    );
+  }
 }

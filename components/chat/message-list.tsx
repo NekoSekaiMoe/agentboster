@@ -387,6 +387,10 @@ function PureMessages({
             message.role !== 'assistant' ||
             index === 0 ||
             messages[index - 1]?.role !== 'assistant';
+          const showSuggestedFollowUps =
+            message.role === 'assistant' &&
+            index === messages.length - 1 &&
+            !isLoading;
 
           return (
             <PreviewMessage
@@ -395,6 +399,7 @@ function PureMessages({
               message={message}
               isLoading={isLoading && messages.length - 1 === index}
               showAssistantGlyph={showAssistantGlyph}
+              showSuggestedFollowUps={showSuggestedFollowUps}
               onToolApproval={onToolApproval}
               onSuggestedFollowUpSelect={onSuggestedFollowUpSelect}
               onRevert={onRevert}

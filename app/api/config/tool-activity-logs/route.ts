@@ -1,4 +1,4 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess } from '@/lib/auth/access';
 import { db } from '@/lib/core/db';
 import { agentToolActivityLogs } from '@/lib/core/db/schema';
 import { type SQL, and, desc, eq, gte, ilike, lte, or } from 'drizzle-orm';
@@ -16,10 +16,7 @@ function parseLimit(value: string | null): number {
 export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
-    const session = await readAuthSessionFromCookies(cookieStore);
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const access = await requireAuthAccess(cookieStore);
 
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
@@ -63,6 +60,9 @@ export async function GET(request: Request) {
     }
     if (agentId) {
       conditions.push(eq(agentToolActivityLogs.agentId, agentId));
+    }
+    if (!access.isAdmin) {
+      conditions.push(eq(agentToolActivityLogs.userId, access.session.userId));
     }
     if (success === 'true' || success === 'false') {
       conditions.push(eq(agentToolActivityLogs.success, success === 'true'));

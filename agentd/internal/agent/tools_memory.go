@@ -34,7 +34,10 @@ func registerMemorySearch(registry *ToolRegistry, client *clawless.Client, ctx *
 			params.Limit = 5
 		}
 
-		memories, err := client.GetMemories(toolCtx, ctx.AgentID, []string{params.Query}, params.Limit)
+		memories, err := client.GetMemories(toolCtx, ctx.AgentID, []string{params.Query}, params.Limit, clawless.MemoryScope{
+			TaskID:    ctx.TaskID,
+			SessionID: ctx.SessionID,
+		})
 		if err != nil {
 			slog.Warn("memory search failed", "error", err)
 			return &ToolResult{Success: true, Data: "(no memories found)"}, nil
@@ -80,7 +83,10 @@ func registerMemorySave(registry *ToolRegistry, client *clawless.Client, ctx *Ag
 			Source:  ctx.SessionID,
 		}
 
-		if err := client.WriteMemories(toolCtx, []clawless.Memory{memory}); err != nil {
+		if err := client.WriteMemories(toolCtx, []clawless.Memory{memory}, clawless.MemoryScope{
+			TaskID:    ctx.TaskID,
+			SessionID: ctx.SessionID,
+		}); err != nil {
 			slog.Warn("memory save failed", "error", err)
 			return &ToolResult{Success: false, Error: fmt.Sprintf("save memory: %v", err)}, nil
 		}

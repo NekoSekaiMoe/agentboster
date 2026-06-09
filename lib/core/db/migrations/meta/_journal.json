@@ -43,6 +43,13 @@
       "when": 1780872000000,
       "tag": "0005_agent_tool_activity_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780963200000,
+      "tag": "0006_agent_memories_identity",
+      "breakpoints": true
     }
   ]
 }

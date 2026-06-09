@@ -107,8 +107,12 @@ func registerDeliverFiles(registry *ToolRegistry, sbMgr *sandbox.Manager, client
 			return &ToolResult{Success: false, Error: fmt.Sprintf("read file: %v", err)}, nil
 		}
 
+		if ctx.TaskID == "" {
+			return &ToolResult{Success: false, Error: "deliver_files requires an active task"}, nil
+		}
+
 		// Upload to ClawLess Blob storage
-		uploadResult, err := client.UploadFile(toolCtx, ctx.SessionID, fileName, content, 7*24*time.Hour)
+		uploadResult, err := client.UploadFile(toolCtx, ctx.TaskID, fileName, content, 7*24*time.Hour)
 		if err != nil {
 			slog.Warn("deliver_files: upload failed", "error", err)
 			return &ToolResult{Success: false, Error: fmt.Sprintf("upload: %v", err)}, nil

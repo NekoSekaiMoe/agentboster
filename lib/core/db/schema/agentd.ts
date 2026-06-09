@@ -8,6 +8,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { sessions } from './chat';
 
 export const agentTasks = pgTable('agent_tasks', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -161,17 +162,34 @@ export const agentTaskOutputs = pgTable('agent_task_outputs', {
     .notNull(),
 });
 
-export const agentMemories = pgTable('agent_memories', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  agentId: text('agent_id').notNull(),
-  key: text('key').notNull(),
-  value: text('value').notNull(),
-  source: text('source'),
-  accessCount: integer('access_count').default(0).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const agentMemories = pgTable(
+  'agent_memories',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    agentId: text('agent_id').notNull(),
+    sessionId: uuid('session_id').references(() => sessions.id, {
+      onDelete: 'cascade',
+    }),
+    userId: text('user_id'),
+    key: text('key').notNull(),
+    value: text('value').notNull(),
+    source: text('source'),
+    accessCount: integer('access_count').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    agentUserCreatedIdx: index('agent_memories_agent_user_created_idx').on(
+      table.agentId,
+      table.userId,
+      table.createdAt,
+    ),
+    agentSessionCreatedIdx: index(
+      'agent_memories_agent_session_created_idx',
+    ).on(table.agentId, table.sessionId, table.createdAt),
+  }),
+);
 
 export interface Decision {
   id?: string;

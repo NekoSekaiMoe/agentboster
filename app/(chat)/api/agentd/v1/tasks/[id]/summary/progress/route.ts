@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { getTaskSummary, upsertTaskSummary } from '@/lib/core/db/agentd';
+import {
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+  getTaskSummary,
+  requireTaskAccess,
+  upsertTaskSummary,
+} from '@/lib/core/db/agentd';
 import type { Decision } from '@/lib/core/db/schema';
 
 type DecisionInput = {
@@ -57,39 +63,49 @@ export async function PUT(
 ) {
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  const existing = await getTaskSummary(id);
   const decision = normalizeDecision(body.decision);
 
-  const summary = await upsertTaskSummary({
-    taskId: id,
-    agentId:
-      typeof body.agent_id === 'string'
-        ? body.agent_id
-        : (existing?.agentId ?? 'default'),
-    sessionId:
-      typeof body.session_id === 'string'
-        ? body.session_id
-        : (existing?.sessionId ?? undefined),
-    status: statusValue(body.status) ?? existing?.status ?? 'active',
-    progress:
-      typeof body.progress === 'string'
-        ? body.progress
-        : (existing?.progress ?? undefined),
-    decisions: decision
-      ? [...(existing?.decisions ?? []), decision]
-      : (existing?.decisions ?? undefined),
-    pending: [
-      ...removeItems(existing?.pending ?? [], asStringArray(body.pending_done)),
-      ...asStringArray(body.pending_add),
-    ],
-    knownIssues: [
-      ...removeItems(
-        existing?.knownIssues ?? [],
-        asStringArray(body.known_issue_resolve),
-      ),
-      ...asStringArray(body.known_issue_add),
-    ],
-  });
+  try {
+    const task = await requireTaskAccess({
+      taskId: id,
+      sessionId:
+        typeof body.session_id === 'string' ? body.session_id : undefined,
+    });
+    const existing = await getTaskSummary(id);
 
-  return Response.json({ success: true, data: summary });
+    const summary = await upsertTaskSummary({
+      taskId: id,
+      agentId: task.agentId,
+      sessionId: task.sessionId,
+      status: statusValue(body.status) ?? existing?.status ?? 'active',
+      progress:
+        typeof body.progress === 'string'
+          ? body.progress
+          : (existing?.progress ?? undefined),
+      decisions: decision
+        ? [...(existing?.decisions ?? []), decision]
+        : (existing?.decisions ?? undefined),
+      pending: [
+        ...removeItems(
+          existing?.pending ?? [],
+          asStringArray(body.pending_done),
+        ),
+        ...asStringArray(body.pending_add),
+      ],
+      knownIssues: [
+        ...removeItems(
+          existing?.knownIssues ?? [],
+          asStringArray(body.known_issue_resolve),
+        ),
+        ...asStringArray(body.known_issue_add),
+      ],
+    });
+
+    return Response.json({ success: true, data: summary });
+  } catch (error) {
+    return Response.json(
+      { success: false, error: getResourceErrorMessage(error) },
+      { status: getResourceErrorStatus(error) },
+    );
+  }
 }

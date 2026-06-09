@@ -1,4 +1,9 @@
-import { upsertAgentTaskOutput } from '@/lib/core/db/agentd';
+import {
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+  requireTaskAccess,
+  upsertAgentTaskOutput,
+} from '@/lib/core/db/agentd';
 import { getSession, updateSession } from '@/lib/core/db/chat';
 import { createLogger } from '@/lib/utils/logger';
 import { NextRequest, NextResponse } from 'next/server';
@@ -38,6 +43,8 @@ export async function POST(
   }
 
   try {
+    await requireTaskAccess({ taskId: taskID, sessionId: session_id });
+
     // Persist output to database (append-only)
     await upsertAgentTaskOutput({
       taskID,
@@ -72,8 +79,8 @@ export async function POST(
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
-      { status: 500 },
+      { success: false, error: getResourceErrorMessage(error) },
+      { status: getResourceErrorStatus(error) },
     );
   }
 }

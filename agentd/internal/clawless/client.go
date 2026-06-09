@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -198,28 +199,76 @@ func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityL
 
 // ── Memories ─────────────────────────────────────────────────────────
 
-func (c *Client) ListMemories(ctx context.Context, agentID string) ([]Memory, error) {
-	return c.GetMemories(ctx, agentID, nil, 1000)
+type MemoryScope struct {
+	TaskID    string
+	SessionID string
+}
+
+func memoryScope(scope []MemoryScope) MemoryScope {
+	if len(scope) == 0 {
+		return MemoryScope{}
+	}
+	return scope[0]
+}
+
+func (c *Client) ListMemories(ctx context.Context, agentID string, scope ...MemoryScope) ([]Memory, error) {
+	return c.GetMemories(ctx, agentID, nil, 1000, scope...)
 }
 
 func (c *Client) UpdateMemory(ctx context.Context, memoryID, newValue string) error {
 	return doVoid(c, ctx, http.MethodPut, fmt.Sprintf("/api/agentd/v1/memories/%s", memoryID), map[string]string{"value": newValue})
 }
 
-func (c *Client) GetMemories(ctx context.Context, agentID string, keywords []string, limit int) ([]Memory, error) {
-	return requestJSON[[]Memory](c, ctx, http.MethodGet, "/api/agentd/v1/memories", map[string]any{
-		"agent_id": agentID,
-		"keywords": keywords,
-		"limit":    limit,
+func (c *Client) GetMemories(ctx context.Context, agentID string, keywords []string, limit int, scope ...MemoryScope) ([]Memory, error) {
+	values := url.Values{}
+	if agentID != "" {
+		values.Set("agent_id", agentID)
+	}
+	if len(keywords) > 0 {
+		values.Set("keywords", strings.Join(keywords, ","))
+	}
+	if limit > 0 {
+		values.Set("limit", fmt.Sprintf("%d", limit))
+	}
+
+	s := memoryScope(scope)
+	if s.TaskID != "" {
+		values.Set("task_id", s.TaskID)
+	}
+	if s.SessionID != "" {
+		values.Set("session_id", s.SessionID)
+	}
+
+	path := "/api/agentd/v1/memories"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	return requestJSON[[]Memory](c, ctx, http.MethodGet, path, nil)
+}
+
+func (c *Client) WriteMemories(ctx context.Context, memories []Memory, scope ...MemoryScope) error {
+	s := memoryScope(scope)
+	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/memories", map[string]any{
+		"task_id":    s.TaskID,
+		"session_id": s.SessionID,
+		"memories":   memories,
 	})
 }
 
-func (c *Client) WriteMemories(ctx context.Context, memories []Memory) error {
-	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/memories", memories)
-}
-
-func (c *Client) DeleteMemory(ctx context.Context, memoryID string) error {
-	return doVoid(c, ctx, http.MethodDelete, "/api/agentd/v1/memories/"+memoryID, nil)
+func (c *Client) DeleteMemory(ctx context.Context, memoryID string, scope ...MemoryScope) error {
+	values := url.Values{}
+	s := memoryScope(scope)
+	if s.TaskID != "" {
+		values.Set("task_id", s.TaskID)
+	}
+	if s.SessionID != "" {
+		values.Set("session_id", s.SessionID)
+	}
+	path := "/api/agentd/v1/memories/" + memoryID
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	return doVoid(c, ctx, http.MethodDelete, path, nil)
 }
 
 // ── Knowledge Bases ─────────────────────────────────────────────────

@@ -1,4 +1,9 @@
 import { put } from '@/lib/core/blob';
+import {
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+  requireTaskAccess,
+} from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.blob-upload');
@@ -17,6 +22,8 @@ export async function POST(request: Request) {
       );
     }
 
+    await requireTaskAccess({ taskId: task_id });
+
     const fileBuffer = Buffer.from(content, 'base64');
     if (fileBuffer.length > MAX_FILE_SIZE) {
       return Response.json(
@@ -28,7 +35,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const blobPath = `task-deliveries/${task_id}/${file_name}`;
+    const safeFileName = String(file_name).split(/[\\/]/).pop()?.trim();
+    if (!safeFileName || safeFileName === '.' || safeFileName === '..') {
+      return Response.json(
+        { success: false, error: 'Invalid file_name' },
+        { status: 400 },
+      );
+    }
+
+    const blobPath = `task-deliveries/${task_id}/${safeFileName}`;
     const blobResult = await put(blobPath, fileBuffer, {
       addRandomSuffix: false,
       allowOverwrite: true,
@@ -36,7 +51,7 @@ export async function POST(request: Request) {
 
     logger.info('blob uploaded', {
       taskId: task_id,
-      fileName: file_name,
+      fileName: safeFileName,
       size: fileBuffer.length,
     });
 
@@ -54,8 +69,8 @@ export async function POST(request: Request) {
       error: error instanceof Error ? error.message : String(error),
     });
     return Response.json(
-      { success: false, error: 'Failed to upload file' },
-      { status: 500 },
+      { success: false, error: getResourceErrorMessage(error) },
+      { status: getResourceErrorStatus(error) },
     );
   }
 }

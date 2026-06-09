@@ -1,4 +1,4 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess } from '@/lib/auth/access';
 import { db } from '@/lib/core/db';
 import { agentTasks } from '@/lib/core/db/schema';
 import { and, desc, eq } from 'drizzle-orm';
@@ -8,10 +8,7 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
-    const session = await readAuthSessionFromCookies(cookieStore);
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const access = await requireAuthAccess(cookieStore);
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
     const agentId = searchParams.get('agentId');
@@ -27,6 +24,9 @@ export async function GET(request: Request) {
     }
     if (agentId) {
       conditions.push(eq(agentTasks.agentId, agentId));
+    }
+    if (!access.isAdmin) {
+      conditions.push(eq(agentTasks.userId, access.session.userId));
     }
 
     const tasks = await db

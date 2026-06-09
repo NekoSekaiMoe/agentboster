@@ -1,3 +1,8 @@
+import {
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+  requireTaskAccess,
+} from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -52,10 +57,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    await requireTaskAccess({ taskId: task_id, sessionId: session_id });
+
     logger.info('pending L2 state reported', {
       task_id,
       session_id,
       command,
+      score,
+      reason,
       level,
     });
 
@@ -66,8 +75,8 @@ export async function POST(req: NextRequest) {
       error: error instanceof Error ? error.message : String(error),
     });
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
-      { status: 500 },
+      { success: false, error: getResourceErrorMessage(error) },
+      { status: getResourceErrorStatus(error) },
     );
   }
 }

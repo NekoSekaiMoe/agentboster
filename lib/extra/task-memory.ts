@@ -147,7 +147,10 @@ export async function extractTaskMemory(input: {
     return { mode: 'memory' as const, facts, memories: [] };
   }
 
-  const existing = await getMemories(input.agentId, [], 1000);
+  const existing = await getMemories(input.agentId, [], 1000, {
+    taskId: input.taskId,
+    sessionId: input.sessionId,
+  });
   const newFacts = facts.filter((fact) => !isDuplicateFact(fact, existing));
   const memories =
     newFacts.length > 0
@@ -158,6 +161,7 @@ export async function extractTaskMemory(input: {
             value: fact.value,
             source: input.sessionId,
           })),
+          { taskId: input.taskId, sessionId: input.sessionId },
         )
       : [];
 
