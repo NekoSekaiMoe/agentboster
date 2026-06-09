@@ -9,6 +9,7 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  Save,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -40,6 +41,7 @@ type KnowledgeBase = {
   agentId: string;
   ownerUserId: string | null;
   visibility: KnowledgeVisibility;
+  priority: number;
   name: string;
   description: string | null;
   emoji: string;
@@ -124,6 +126,21 @@ async function createKnowledgeBase(input: {
   });
   if (!res.ok) {
     throw new Error(await readError(res, 'Failed to create knowledge base'));
+  }
+  return res.json();
+}
+
+async function updateKnowledgeBasePriority(input: {
+  id: string;
+  priority: number;
+}) {
+  const res = await fetch('/api/knowledge', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await readError(res, 'Failed to update priority'));
   }
   return res.json();
 }
@@ -260,6 +277,7 @@ export function KnowledgeManagement() {
   const [documentContent, setDocumentContent] = useState('');
   const [connectorName, setConnectorName] = useState('');
   const [connectorUrl, setConnectorUrl] = useState('');
+  const [priorityValue, setPriorityValue] = useState('0');
 
   const { data, isLoading } = useQuery({
     queryKey: ['knowledge-bases'],
@@ -287,6 +305,12 @@ export function KnowledgeManagement() {
       setSelectedId(selectedBase.id);
     }
   }, [selectedBase, selectedId]);
+
+  useEffect(() => {
+    if (selectedBase) {
+      setPriorityValue(String(selectedBase.priority ?? 0));
+    }
+  }, [selectedBase]);
 
   const documentsQuery = useQuery({
     queryKey: ['knowledge-documents', selectedBase?.id],
@@ -322,6 +346,15 @@ export function KnowledgeManagement() {
       setDocumentContent('');
       setDocumentOpen(false);
       toast.success('Document imported');
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const updatePriorityMutation = useMutation({
+    mutationFn: updateKnowledgeBasePriority,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
+      toast.success('Knowledge priority updated');
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -397,6 +430,13 @@ export function KnowledgeManagement() {
     },
     onError: (error: Error) => toast.error(error.message),
   });
+
+  const priorityNumber = Number(priorityValue);
+  const canSavePriority =
+    Boolean(selectedBase?.canManage) &&
+    Number.isFinite(priorityNumber) &&
+    Math.trunc(priorityNumber) !== (selectedBase?.priority ?? 0) &&
+    !updatePriorityMutation.isPending;
 
   return (
     <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[360px_1fr]">
@@ -522,6 +562,9 @@ export function KnowledgeManagement() {
                       >
                         {base.visibility === 'team' ? 'Team' : 'Private'}
                       </Badge>
+                      <Badge variant="outline" className="shrink-0 rounded-md">
+                        P {base.priority}
+                      </Badge>
                     </div>
                     <div className="mt-1 line-clamp-2 text-muted-foreground text-xs">
                       {base.description || 'No description'}
@@ -547,6 +590,9 @@ export function KnowledgeManagement() {
                     <Badge className="rounded-md" variant="secondary">
                       {selectedBase.agentId}
                     </Badge>
+                    <Badge className="rounded-md" variant="outline">
+                      P {selectedBase.priority}
+                    </Badge>
                   </div>
                   <p className="mt-1 text-muted-foreground text-sm">
                     {selectedBase.description || 'No description'}
@@ -555,6 +601,46 @@ export function KnowledgeManagement() {
                     Imported documents and synced external sources are searched
                     together in this knowledge base.
                   </p>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+                    <div className="grid max-w-40 gap-1.5">
+                      <Label htmlFor={`knowledge-priority-${selectedBase.id}`}>
+                        Priority
+                      </Label>
+                      <Input
+                        id={`knowledge-priority-${selectedBase.id}`}
+                        type="number"
+                        min={-1000}
+                        max={1000}
+                        step={1}
+                        disabled={!selectedBase.canManage}
+                        value={priorityValue}
+                        onChange={(event) =>
+                          setPriorityValue(event.target.value)
+                        }
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!canSavePriority}
+                      onClick={() =>
+                        updatePriorityMutation.mutate({
+                          id: selectedBase.id,
+                          priority: priorityNumber,
+                        })
+                      }
+                    >
+                      {updatePriorityMutation.isPending ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : (
+                        <Save className="mr-2 size-4" />
+                      )}
+                      Save
+                    </Button>
+                    <p className="text-muted-foreground text-xs sm:pb-2">
+                      Higher priority wins when sources conflict.
+                    </p>
+                  </div>
                   <p className="mt-2 text-muted-foreground text-xs">
                     Updated {formatDate(selectedBase.updatedAt)}
                   </p>

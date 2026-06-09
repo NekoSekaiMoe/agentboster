@@ -112,15 +112,20 @@ type Memory struct {
 
 // KnowledgeSearchResult represents one retrieved knowledge-base chunk.
 type KnowledgeSearchResult struct {
-	ChunkID           string  `json:"chunkId"`
-	KnowledgeBaseID   string  `json:"knowledgeBaseId"`
-	KnowledgeBaseName string  `json:"knowledgeBaseName"`
-	DocumentID        string  `json:"documentId"`
-	DocumentTitle     string  `json:"documentTitle"`
-	Content           string  `json:"content"`
-	VectorScore       float64 `json:"vectorScore"`
-	KeywordScore      float64 `json:"keywordScore"`
-	FinalScore        float64 `json:"finalScore"`
+	ChunkID                 string  `json:"chunkId"`
+	KnowledgeBaseID         string  `json:"knowledgeBaseId"`
+	KnowledgeBaseName       string  `json:"knowledgeBaseName"`
+	KnowledgeBasePriority   int     `json:"knowledgeBasePriority"`
+	KnowledgeBaseVisibility string  `json:"knowledgeBaseVisibility"`
+	DocumentID              string  `json:"documentId"`
+	DocumentTitle           string  `json:"documentTitle"`
+	DocumentSourceType      string  `json:"documentSourceType"`
+	DocumentSourceURI       string  `json:"documentSourceUri"`
+	DocumentCreatedAt       string  `json:"documentCreatedAt"`
+	Content                 string  `json:"content"`
+	VectorScore             float64 `json:"vectorScore"`
+	KeywordScore            float64 `json:"keywordScore"`
+	FinalScore              float64 `json:"finalScore"`
 }
 
 // AgentConfig represents agent configuration from ClawLess.

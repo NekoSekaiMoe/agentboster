@@ -3,6 +3,7 @@ import {
   createKnowledgeBase,
   deleteKnowledgeBase,
   listKnowledgeBases,
+  updateKnowledgeBase,
 } from '@/lib/knowledge';
 import { cookies } from 'next/headers';
 
@@ -81,6 +82,49 @@ export async function DELETE(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  try {
+    const cookieStore = await cookies();
+    const access = await requireAuthAccess(cookieStore);
+    const body = await request.json();
+    const id = String(body.id ?? '').trim();
+
+    if (!id) {
+      return Response.json(
+        { success: false, error: 'id is required' },
+        { status: 400 },
+      );
+    }
+
+    const knowledgeBase = await updateKnowledgeBase({
+      knowledgeBaseId: id,
+      priority: body.priority,
+      access: {
+        userId: access.session.userId,
+        isAdmin: access.isAdmin,
+      },
+      includeAllPrivate: access.isAdmin,
+    });
+
+    return Response.json({ success: true, data: knowledgeBase });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return Response.json(
+      { success: false, error: message },
+      {
+        status:
+          message === 'Unauthorized'
+            ? 401
+            : message === 'Forbidden'
+              ? 403
+              : message.includes('not found')
+                ? 404
+                : 500,
+      },
+    );
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
@@ -123,6 +167,7 @@ export async function POST(request: Request) {
       embeddingModel: body.embedding_model,
       chunkSize: body.chunk_size,
       chunkOverlap: body.chunk_overlap,
+      priority: body.priority,
     });
 
     return Response.json(

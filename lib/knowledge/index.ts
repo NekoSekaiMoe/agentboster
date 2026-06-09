@@ -20,6 +20,7 @@ import {
   listKnowledgeDocumentRows,
   replaceKnowledgeDocumentChunks,
   resolveKnowledgeBaseRows,
+  updateKnowledgeBasePriorityRow,
   updateKnowledgeConnectorSyncRow,
   type KnowledgeBaseRow,
   type KnowledgeAccessScope,
@@ -49,6 +50,15 @@ function normalizeSourceType(
   return value === 'file' || value === 'url' || value === 'import'
     ? value
     : 'text';
+}
+
+function normalizeKnowledgePriority(value: unknown) {
+  const priority = Number(value ?? 0);
+  if (!Number.isFinite(priority)) {
+    return 0;
+  }
+
+  return Math.max(-1000, Math.min(1000, Math.trunc(priority)));
 }
 
 function normalizeHostname(hostname: string) {
@@ -404,6 +414,7 @@ export async function createKnowledgeBase(input: {
   embeddingModel?: string | null;
   chunkSize?: number;
   chunkOverlap?: number;
+  priority?: number;
   config?: AppConfig;
 }) {
   const config = await getEffectiveConfig(input.config);
@@ -420,7 +431,25 @@ export async function createKnowledgeBase(input: {
     embeddingModel,
     chunkSize: input.chunkSize,
     chunkOverlap: input.chunkOverlap,
+    priority: normalizeKnowledgePriority(input.priority),
   });
+}
+
+export async function updateKnowledgeBase(input: {
+  knowledgeBaseId: string;
+  priority: number;
+  access: KnowledgeAccessScope;
+  includeAllPrivate?: boolean;
+}) {
+  await getManageableKnowledgeBase(input);
+  const row = await updateKnowledgeBasePriorityRow({
+    id: input.knowledgeBaseId,
+    priority: normalizeKnowledgePriority(input.priority),
+  });
+  if (!row) {
+    throw new Error(`Knowledge base ${input.knowledgeBaseId} not found`);
+  }
+  return row;
 }
 
 export async function listKnowledgeDocuments(

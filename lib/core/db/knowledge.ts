@@ -31,8 +31,13 @@ export type KnowledgeSearchRow = {
   chunkId: string;
   knowledgeBaseId: string;
   knowledgeBaseName: string;
+  knowledgeBasePriority: number;
+  knowledgeBaseVisibility: KnowledgeVisibility;
   documentId: string;
   documentTitle: string;
+  documentSourceType: 'text' | 'file' | 'url' | 'import';
+  documentSourceUri: string | null;
+  documentCreatedAt: Date;
   content: string;
   vectorScore: number;
   keywordScore: number;
@@ -94,8 +99,13 @@ function mergeKnowledgeCandidates(input: {
       chunkId: row.chunkId,
       knowledgeBaseId: row.knowledgeBaseId,
       knowledgeBaseName: row.knowledgeBaseName,
+      knowledgeBasePriority: row.knowledgeBasePriority,
+      knowledgeBaseVisibility: row.knowledgeBaseVisibility,
       documentId: row.documentId,
       documentTitle: row.documentTitle,
+      documentSourceType: row.documentSourceType,
+      documentSourceUri: row.documentSourceUri,
+      documentCreatedAt: row.documentCreatedAt,
       content: row.content,
       vectorScore: row.vectorScore,
       keywordScore: row.keywordScore,
@@ -105,6 +115,9 @@ function mergeKnowledgeCandidates(input: {
     .sort((left, right) => {
       if (right.finalScore !== left.finalScore) {
         return right.finalScore - left.finalScore;
+      }
+      if (right.knowledgeBasePriority !== left.knowledgeBasePriority) {
+        return right.knowledgeBasePriority - left.knowledgeBasePriority;
       }
       if (right.vectorScore !== left.vectorScore) {
         return right.vectorScore - left.vectorScore;
@@ -199,6 +212,7 @@ export async function createKnowledgeBaseRow(input: {
   embeddingDimensions?: number | null;
   chunkSize?: number;
   chunkOverlap?: number;
+  priority?: number;
 }) {
   const visibility = input.visibility ?? 'team';
   if (visibility === 'private' && !input.ownerUserId) {
@@ -219,10 +233,27 @@ export async function createKnowledgeBaseRow(input: {
       embeddingDimensions: input.embeddingDimensions ?? null,
       chunkSize: input.chunkSize ?? 1000,
       chunkOverlap: input.chunkOverlap ?? 120,
+      priority: input.priority ?? 0,
     })
     .returning();
 
   return row;
+}
+
+export async function updateKnowledgeBasePriorityRow(input: {
+  id: string;
+  priority: number;
+}) {
+  const [row] = await db
+    .update(schema.knowledgeBases)
+    .set({
+      priority: input.priority,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.knowledgeBases.id, input.id))
+    .returning();
+
+  return row ?? null;
 }
 
 export async function listKnowledgeBaseRows(options?: {
@@ -504,8 +535,13 @@ async function listKeywordCandidateRows(options: {
     chunkId: schema.knowledgeChunks.id,
     knowledgeBaseId: schema.knowledgeChunks.knowledgeBaseId,
     knowledgeBaseName: schema.knowledgeBases.name,
+    knowledgeBasePriority: schema.knowledgeBases.priority,
+    knowledgeBaseVisibility: schema.knowledgeBases.visibility,
     documentId: schema.knowledgeChunks.documentId,
     documentTitle: schema.knowledgeDocuments.title,
+    documentSourceType: schema.knowledgeDocuments.sourceType,
+    documentSourceUri: schema.knowledgeDocuments.sourceUri,
+    documentCreatedAt: schema.knowledgeDocuments.createdAt,
     content: schema.knowledgeChunks.content,
   };
 
@@ -662,8 +698,13 @@ export async function hybridSearchKnowledgeChunks(options: {
       chunkId: schema.knowledgeChunks.id,
       knowledgeBaseId: schema.knowledgeChunks.knowledgeBaseId,
       knowledgeBaseName: schema.knowledgeBases.name,
+      knowledgeBasePriority: schema.knowledgeBases.priority,
+      knowledgeBaseVisibility: schema.knowledgeBases.visibility,
       documentId: schema.knowledgeChunks.documentId,
       documentTitle: schema.knowledgeDocuments.title,
+      documentSourceType: schema.knowledgeDocuments.sourceType,
+      documentSourceUri: schema.knowledgeDocuments.sourceUri,
+      documentCreatedAt: schema.knowledgeDocuments.createdAt,
       content: schema.knowledgeChunks.content,
       vectorScore: vectorScoreExpr,
       keywordScore: sql<number>`0`,

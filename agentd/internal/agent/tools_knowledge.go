@@ -83,14 +83,24 @@ func registerKnowledgeSearch(registry *ToolRegistry, client *clawless.Client, ct
 		}
 
 		var builder strings.Builder
+		builder.WriteString("Conflict policy: if retrieved sources conflict, prefer the source with the higher priority. If priorities are equal, mention the conflict instead of merging incompatible claims, and cite the relevant sources.\n\n")
 		for index, result := range results {
 			content := truncateKnowledgeContent(strings.TrimSpace(result.Content), 1600)
+			sourceURI := strings.TrimSpace(result.DocumentSourceURI)
+			if sourceURI != "" {
+				sourceURI = " uri=" + truncateKnowledgeContent(sourceURI, 180)
+			}
 			builder.WriteString(fmt.Sprintf(
-				"%d. [%s / %s] score=%.4f\n%s\n\n",
+				"%d. [%s / %s] priority=%d scope=%s source=%s%s score=%.4f created=%s\n%s\n\n",
 				index+1,
 				result.KnowledgeBaseName,
 				result.DocumentTitle,
+				result.KnowledgeBasePriority,
+				result.KnowledgeBaseVisibility,
+				result.DocumentSourceType,
+				sourceURI,
 				result.FinalScore,
+				result.DocumentCreatedAt,
 				content,
 			))
 		}

@@ -46,6 +46,7 @@ export const knowledgeBases = pgTable(
     visibility: text('visibility', { enum: ['team', 'private'] })
       .default('team')
       .notNull(),
+    priority: integer('priority').default(0).notNull(),
     name: text('name').notNull(),
     description: text('description'),
     emoji: text('emoji').default('book').notNull(),
@@ -79,6 +80,11 @@ export const knowledgeBases = pgTable(
     ),
     agentEnabledIdx: index('knowledge_bases_agent_enabled_idx').on(
       table.agentId,
+      table.enabled,
+    ),
+    agentPriorityIdx: index('knowledge_bases_agent_priority_idx').on(
+      table.agentId,
+      table.priority,
       table.enabled,
     ),
   }),
