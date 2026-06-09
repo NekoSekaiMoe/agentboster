@@ -179,7 +179,11 @@ export async function chatWorkflow(
   const agentName = MAIN_AGENT_NAME;
   const modelId = getMainAgentModelId(config);
   const temperature = getMainAgentTemperature(config);
-  const system = await buildSystemPrompt(config, { agentName });
+  const system = await buildSystemPrompt(config, {
+    agentName,
+    enableFollowUpSuggestions:
+      source.type === 'web' && config.agentd?.follow_up_enabled === true,
+  });
   const writable = createWritable();
   const tools = await buildAgentTools(config, sessionId, {
     runId,

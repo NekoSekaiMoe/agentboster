@@ -1,4 +1,5 @@
 import { createLogger } from '@/lib/utils/logger';
+import { getConfig as getAppConfig } from '@/lib/core/kv/config';
 import { requestAgentd } from './agentd-http';
 
 const logger = createLogger('agentd-tools-client');
@@ -27,11 +28,13 @@ interface AgentdClientConfig {
   caPath?: string;
 }
 
-function getConfig(): AgentdClientConfig {
-  const baseUrl = process.env.AGENTD_URL;
+export async function getAgentdClientConfig(): Promise<AgentdClientConfig> {
+  const appConfig = await getAppConfig();
+  const configuredUrl = appConfig.agentd?.url?.trim();
+  const baseUrl = configuredUrl || process.env.AGENTD_URL;
   const apiKey = process.env.AGENTD_API_KEY ?? '';
   if (!baseUrl) {
-    throw new Error('AGENTD_URL environment variable is not set');
+    throw new Error('Agent Daemon URL is not configured');
   }
   return {
     baseUrl,
@@ -47,7 +50,7 @@ async function agentdRequest<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const config = getConfig();
+  const config = await getAgentdClientConfig();
   const response = await requestAgentd(config, method, path, body);
   if (!response.ok) {
     throw new Error(
@@ -88,7 +91,7 @@ export async function execToolOnAgentd(
  */
 export async function checkAgentdHealth(): Promise<boolean> {
   try {
-    const config = getConfig();
+    const config = await getAgentdClientConfig();
     const response = await requestAgentd(
       config,
       'GET',
@@ -111,7 +114,7 @@ export async function getAgentdHealth(): Promise<{
   uptime: string;
 } | null> {
   try {
-    const config = getConfig();
+    const config = await getAgentdClientConfig();
     const response = await requestAgentd(
       config,
       'GET',
@@ -130,7 +133,7 @@ export async function getAgentdHealth(): Promise<{
 export async function abortAgentdSession(sessionId: string): Promise<boolean> {
   try {
     const response = await requestAgentd(
-      getConfig(),
+      await getAgentdClientConfig(),
       'POST',
       `/api/v1/sessions/${encodeURIComponent(sessionId)}/abort`,
     );

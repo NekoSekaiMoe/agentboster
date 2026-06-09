@@ -95,6 +95,7 @@ interface MessagesProps {
     question: string;
     selectedText: string;
   }) => Promise<void>;
+  onSuggestedFollowUpSelect?: (question: string) => void;
   setMessages: (
     messages:
       | WorkflowUIMessage[]
@@ -158,6 +159,7 @@ function PureMessages({
   onRevert,
   onDecisionResolved,
   onFollowUpSubmit,
+  onSuggestedFollowUpSelect,
   setMessages,
   regenerate,
 }: MessagesProps) {
@@ -394,6 +396,7 @@ function PureMessages({
               isLoading={isLoading && messages.length - 1 === index}
               showAssistantGlyph={showAssistantGlyph}
               onToolApproval={onToolApproval}
+              onSuggestedFollowUpSelect={onSuggestedFollowUpSelect}
               onRevert={onRevert}
               setMessages={setMessages}
               regenerate={regenerate}
@@ -566,6 +569,11 @@ export const Messages = memo(PureMessages, (prevProps, nextProps) => {
   if (prevProps.pendingDecisions?.length !== nextProps.pendingDecisions?.length)
     return false;
   if (prevProps.onFollowUpSubmit !== nextProps.onFollowUpSubmit) return false;
+  if (
+    prevProps.onSuggestedFollowUpSelect !== nextProps.onSuggestedFollowUpSelect
+  ) {
+    return false;
+  }
 
   return true;
 });

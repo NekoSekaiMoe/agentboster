@@ -11,6 +11,7 @@ import { MAIN_AGENT_NAME } from '../utils/agent-config';
 
 export type BuildSystemPromptOptions = {
   agentName?: string;
+  enableFollowUpSuggestions?: boolean;
   useConfiguredAgentPrompt?: boolean;
   delegation?: {
     parentAgentName: string;
@@ -54,6 +55,27 @@ async function buildMCPSubsection(): Promise<string> {
   );
 
   return createSubsection('Builtin MCP Tools', lines);
+}
+
+function buildFollowUpSection(enabled: boolean): string {
+  if (!enabled) {
+    return createSection('Follow-up Suggestions', [
+      'Do not end answers with "你要是愿意", "If you want", or generated follow-up suggestion buttons/questions unless the user explicitly asks for suggestions.',
+    ]);
+  }
+
+  return createSection('Follow-up Suggestions', [
+    'After fully answering the user, append a short follow-up suggestion block at the very end of your final assistant answer.',
+    'Use exactly this format:',
+    '',
+    '你要是愿意，我还可以继续帮你：',
+    '- <a concise follow-up question or next action>',
+    '- <a concise follow-up question or next action>',
+    '- <a concise follow-up question or next action>',
+    '',
+    'The three items must be useful continuations for the just-finished answer. Keep each item short enough to fit on a button.',
+    'Do not add more text after this block.',
+  ]);
 }
 
 export async function buildSystemPrompt(
@@ -119,6 +141,8 @@ export async function buildSystemPrompt(
   );
 
   const mcpSubsection = await buildMCPSubsection();
+  const enableFollowUpSuggestions =
+    !options.delegation && options.enableFollowUpSuggestions === true;
 
   const summarySection = createSection('Tool', [
     createSubsection('Runtime', [
@@ -163,6 +187,7 @@ export async function buildSystemPrompt(
   ]);
 
   sections.push(summarySection);
+  sections.push(buildFollowUpSection(enableFollowUpSuggestions));
 
   return sections.join('\n\n');
 }

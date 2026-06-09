@@ -28,7 +28,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import type { AgentdConfig } from '@/types/config/agentd';
 
 interface HealthResponse {
   success: boolean;
@@ -136,7 +138,19 @@ function formatHeartbeat(value: string | null) {
 
 export function AgentDConfigPage() {
   const { draft, updateSection } = useConfigContext();
-  const agentdEnabled = draft.agentd?.enabled ?? false;
+  const agentdConfig = (draft.agentd ?? {}) as Partial<AgentdConfig>;
+  const agentdEnabled = agentdConfig.enabled ?? false;
+  const agentdUrl = agentdConfig.url ?? '';
+  const followUpEnabled = agentdConfig.follow_up_enabled ?? false;
+
+  function updateAgentdConfig(patch: Partial<AgentdConfig>) {
+    updateSection('agentd', (current) => ({
+      enabled: current?.enabled ?? false,
+      follow_up_enabled: current?.follow_up_enabled ?? false,
+      ...current,
+      ...patch,
+    }));
+  }
 
   const {
     data: health,
@@ -191,7 +205,7 @@ export function AgentDConfigPage() {
                 id="agentd-enabled"
                 checked={agentdEnabled}
                 onCheckedChange={(checked) =>
-                  updateSection('agentd', { enabled: Boolean(checked) })
+                  updateAgentdConfig({ enabled: Boolean(checked) })
                 }
               />
               <span className="text-sm">
@@ -200,11 +214,56 @@ export function AgentDConfigPage() {
             </label>
           </div>
         </CardHeader>
+        {agentdEnabled ? (
+          <CardContent className="grid gap-5 border-t pt-5 md:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="agentd-url">Daemon URL</Label>
+              <Input
+                id="agentd-url"
+                type="url"
+                inputMode="url"
+                placeholder="https://agentd.example.com"
+                value={agentdUrl}
+                onChange={(event) =>
+                  updateAgentdConfig({ url: event.target.value })
+                }
+              />
+              <p className="text-muted-foreground text-xs">
+                Used by Web server direct checks and daemon API calls. If left
+                empty, AGENTD_URL from the environment is used.
+              </p>
+            </div>
+
+            <label
+              htmlFor="agentd-follow-up"
+              className="flex items-start gap-3 rounded-md border p-3"
+            >
+              <Checkbox
+                id="agentd-follow-up"
+                checked={followUpEnabled}
+                onCheckedChange={(checked) =>
+                  updateAgentdConfig({
+                    follow_up_enabled: Boolean(checked),
+                  })
+                }
+              />
+              <span className="space-y-1">
+                <span className="block font-medium text-sm">
+                  Follow-up buttons
+                </span>
+                <span className="block text-muted-foreground text-xs">
+                  When enabled, assistant answers end with “你要是愿意...” and
+                  the Web UI renders three suggested follow-up buttons.
+                </span>
+              </span>
+            </label>
+          </CardContent>
+        ) : null}
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <StatusCard
-          description="Web server direct health check via AGENTD_URL."
+          description="Web server direct health check via saved URL or AGENTD_URL."
           icon={directOnline ? CheckCircle2 : WifiOff}
           title="Direct daemon"
           value={directOnline ? 'Online' : 'Offline'}

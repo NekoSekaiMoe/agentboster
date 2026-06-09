@@ -3,7 +3,7 @@
 import { type ChatRequestOptions } from 'ai';
 import equal from 'fast-deep-equal';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ChevronRight, Sparkles } from 'lucide-react';
+import { ChevronRight, MessageSquareText, Sparkles } from 'lucide-react';
 import { memo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -53,6 +53,77 @@ function getTextFromParts(message: WorkflowUIMessage): string {
     .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
     .map((p) => p.text)
     .join('');
+}
+
+type SuggestedFollowUpBlock = {
+  questions: string[];
+  textWithoutQuestions: string;
+};
+
+function stripListMarker(value: string): string {
+  return value
+    .replace(/^\s*(?:[-*+]|[0-9]{1,2}[.)]|[一二三四五六七八九十][、.])\s*/, '')
+    .trim();
+}
+
+function parseSuggestedFollowUps(text: string): SuggestedFollowUpBlock | null {
+  const marker = '你要是愿意';
+  const markerIndex = text.lastIndexOf(marker);
+  if (markerIndex < 0) {
+    return null;
+  }
+
+  const beforeMarker = text.slice(0, markerIndex).trimEnd();
+  const block = text.slice(markerIndex).trim();
+  const lines = block
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 4 || !lines[0]?.startsWith(marker)) {
+    return null;
+  }
+
+  const questions = lines.slice(1).map(stripListMarker).filter(Boolean);
+
+  if (questions.length !== 3) {
+    return null;
+  }
+
+  return {
+    questions,
+    textWithoutQuestions: [beforeMarker, lines[0]].filter(Boolean).join('\n\n'),
+  };
+}
+
+function SuggestedFollowUpButtons({
+  questions,
+  onSelect,
+}: {
+  questions: string[];
+  onSelect?: (question: string) => void;
+}) {
+  if (!onSelect) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {questions.map((question) => (
+        <Button
+          key={question}
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-auto min-h-9 max-w-full justify-start rounded-md px-3 py-2 text-left font-normal text-sm leading-5"
+          onClick={() => onSelect(question)}
+        >
+          <MessageSquareText className="size-4 shrink-0 text-[#6d9ec3]" />
+          <span className="min-w-0 break-words">{question}</span>
+        </Button>
+      ))}
+    </div>
+  );
 }
 
 function getFileAttachments(message: WorkflowUIMessage): ComposerAttachment[] {
@@ -195,6 +266,7 @@ function WorkflowDetails({ part }: { part: WorkflowDataUIPart }) {
 function AstrBotAssistantMessageParts({
   message,
   onToolApproval,
+  onSuggestedFollowUpSelect,
 }: {
   message: WorkflowUIMessage;
   onToolApproval?: (input: {
@@ -203,6 +275,7 @@ function AstrBotAssistantMessageParts({
     action: 'approve' | 'reject';
     comment?: string;
   }) => Promise<void>;
+  onSuggestedFollowUpSelect?: (question: string) => void;
 }) {
   const reduceMotion = useReducedMotion();
   const [expandedReasoningParts, setExpandedReasoningParts] = useState<
@@ -297,12 +370,22 @@ function AstrBotAssistantMessageParts({
       <div className="flex w-full min-w-0 flex-col gap-3 text-[15px] leading-7">
         {renderableParts.map(({ part, index }) => {
           if (part.type === 'text') {
+            const followUps = parseSuggestedFollowUps(part.text);
+            const displayText = followUps?.textWithoutQuestions ?? part.text;
+
             return (
-              <div
-                key={`text-${message.id}-${index}`}
-                className="min-w-0 break-words text-foreground/90"
-              >
-                <Markdown>{part.text}</Markdown>
+              <div key={`text-${message.id}-${index}`} className="min-w-0">
+                <div className="min-w-0 break-words text-foreground/90">
+                  <Markdown>{displayText}</Markdown>
+                </div>
+                {followUps ? (
+                  <div className="mt-2">
+                    <SuggestedFollowUpButtons
+                      questions={followUps.questions}
+                      onSelect={onSuggestedFollowUpSelect}
+                    />
+                  </div>
+                ) : null}
               </div>
             );
           }
@@ -623,6 +706,7 @@ const PurePreviewMessage = ({
   isLoading,
   showAssistantGlyph,
   onToolApproval,
+  onSuggestedFollowUpSelect,
   onRevert,
   setMessages,
   regenerate,
@@ -637,6 +721,7 @@ const PurePreviewMessage = ({
     action: 'approve' | 'reject';
     comment?: string;
   }) => Promise<void>;
+  onSuggestedFollowUpSelect?: (question: string) => void;
   onRevert?: (messageId: string) => void;
   setMessages: (
     messages:
@@ -729,6 +814,7 @@ const PurePreviewMessage = ({
               <AstrBotAssistantMessageParts
                 message={message}
                 onToolApproval={onToolApproval}
+                onSuggestedFollowUpSelect={onSuggestedFollowUpSelect}
               />
             )}
 
@@ -757,6 +843,12 @@ export const PreviewMessage = memo(
     if (prevProps.message.id !== nextProps.message.id) return false;
     if (prevProps.message.role !== nextProps.message.role) return false;
     if (prevProps.onToolApproval !== nextProps.onToolApproval) return false;
+    if (
+      prevProps.onSuggestedFollowUpSelect !==
+      nextProps.onSuggestedFollowUpSelect
+    ) {
+      return false;
+    }
     if (!equal(prevProps.message.parts, nextProps.message.parts)) return false;
     if (!equal(prevProps.message.metadata, nextProps.message.metadata)) {
       return false;

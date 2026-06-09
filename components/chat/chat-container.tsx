@@ -623,6 +623,22 @@ export function Chat({
     [submitChatMessage],
   );
 
+  const submitSuggestedFollowUp = useCallback(
+    (question: string) => {
+      const text = question.trim();
+      if (!text) {
+        return;
+      }
+
+      void submitChatMessage({
+        id: generateUUID(),
+        role: 'user',
+        parts: [{ type: 'text', text }],
+      });
+    },
+    [submitChatMessage],
+  );
+
   const cancelWorkflow = useCallback(async () => {
     stop();
 
@@ -803,6 +819,9 @@ export function Chat({
             onDecisionResolved={handleDecisionResolved}
             onFollowUpSubmit={
               isAccessDeniedSession ? undefined : submitInlineFollowUp
+            }
+            onSuggestedFollowUpSelect={
+              isAccessDeniedSession ? undefined : submitSuggestedFollowUp
             }
             setMessages={setMessages}
             regenerate={regenerate}

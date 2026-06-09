@@ -1,41 +1,17 @@
 import { requestAgentd } from './agentd-http';
+import { getAgentdClientConfig } from './agentd-tools-client';
 
 /**
  * Server-side client for communicating with the Go Agent Daemon.
  * Uses mTLS + API key authentication.
  */
 
-interface AgentdClientConfig {
-  baseUrl: string;
-  apiKey: string;
-  clientCertPath?: string;
-  clientKeyPath?: string;
-  caPath?: string;
-}
-
-function getConfig(): AgentdClientConfig {
-  const baseUrl = process.env.AGENTD_URL;
-  const apiKey = process.env.AGENTD_API_KEY ?? '';
-
-  if (!baseUrl) {
-    throw new Error('AGENTD_URL environment variable is not set');
-  }
-
-  return {
-    baseUrl,
-    apiKey,
-    clientCertPath: process.env.AGENTD_CLIENT_CERT_PATH,
-    clientKeyPath: process.env.AGENTD_CLIENT_KEY_PATH,
-    caPath: process.env.AGENTD_CA_PATH,
-  };
-}
-
 async function agentdRequest<T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const config = getConfig();
+  const config = await getAgentdClientConfig();
   const response = await requestAgentd(config, method, path, body);
 
   if (!response.ok) {
