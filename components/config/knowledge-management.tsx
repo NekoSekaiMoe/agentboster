@@ -534,7 +534,10 @@ export function KnowledgeManagement() {
             ))
           ) : bases.length === 0 ? (
             <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
-              No knowledge bases yet
+              <div>No knowledge bases yet</div>
+              <div className="mt-1">
+                Create one first, then add external URL sources to it.
+              </div>
             </div>
           ) : (
             bases.map((base) => (
@@ -645,7 +648,77 @@ export function KnowledgeManagement() {
                     Updated {formatDate(selectedBase.updatedAt)}
                   </p>
                 </div>
-                <div className="flex shrink-0 gap-2">
+                <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                  <Dialog open={connectorOpen} onOpenChange={setConnectorOpen}>
+                    <DialogTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!selectedBase.canManage}
+                      >
+                        <Link2 className="mr-2 size-4" />
+                        Add External Source
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-lg">
+                      <DialogHeader>
+                        <DialogTitle>Add External Source</DialogTitle>
+                        <DialogDescription>
+                          Add a public URL. AgentBoster will fetch, chunk, and
+                          index it into the selected knowledge base.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="grid gap-4 py-2">
+                        <div className="grid gap-2">
+                          <Label htmlFor="connector-name">Name</Label>
+                          <Input
+                            id="connector-name"
+                            value={connectorName}
+                            onChange={(event) =>
+                              setConnectorName(event.target.value)
+                            }
+                            placeholder="Product docs"
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="connector-url">URL</Label>
+                          <Input
+                            id="connector-url"
+                            value={connectorUrl}
+                            onChange={(event) =>
+                              setConnectorUrl(event.target.value)
+                            }
+                            placeholder="https://example.com/docs"
+                          />
+                          <p className="text-muted-foreground text-xs">
+                            Local and private network URLs are blocked.
+                          </p>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button
+                          disabled={
+                            addConnectorMutation.isPending ||
+                            !connectorUrl.trim()
+                          }
+                          onClick={() =>
+                            addConnectorMutation.mutate({
+                              knowledgeBaseId: selectedBase.id,
+                              name: connectorName.trim(),
+                              sourceUri: connectorUrl.trim(),
+                            })
+                          }
+                        >
+                          {addConnectorMutation.isPending ? (
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                          ) : (
+                            <Link2 className="mr-2 size-4" />
+                          )}
+                          Add and Sync
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                   <Dialog open={documentOpen} onOpenChange={setDocumentOpen}>
                     <DialogTrigger asChild>
                       <Button size="sm" disabled={!selectedBase.canManage}>
@@ -743,72 +816,14 @@ export function KnowledgeManagement() {
                     {connectorsQuery.isFetching ? (
                       <Loader2 className="size-4 animate-spin text-muted-foreground" />
                     ) : null}
-                    <Dialog
-                      open={connectorOpen}
-                      onOpenChange={setConnectorOpen}
+                    <Button
+                      size="sm"
+                      disabled={!selectedBase.canManage}
+                      onClick={() => setConnectorOpen(true)}
                     >
-                      <DialogTrigger asChild>
-                        <Button size="sm" disabled={!selectedBase.canManage}>
-                          <Link2 className="mr-2 size-4" />
-                          Add URL
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-lg">
-                        <DialogHeader>
-                          <DialogTitle>Add URL Source</DialogTitle>
-                          <DialogDescription>
-                            The URL is fetched, chunked, and indexed into the
-                            selected knowledge base.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="grid gap-4 py-2">
-                          <div className="grid gap-2">
-                            <Label htmlFor="connector-name">Name</Label>
-                            <Input
-                              id="connector-name"
-                              value={connectorName}
-                              onChange={(event) =>
-                                setConnectorName(event.target.value)
-                              }
-                              placeholder="Product docs"
-                            />
-                          </div>
-                          <div className="grid gap-2">
-                            <Label htmlFor="connector-url">URL</Label>
-                            <Input
-                              id="connector-url"
-                              value={connectorUrl}
-                              onChange={(event) =>
-                                setConnectorUrl(event.target.value)
-                              }
-                              placeholder="https://example.com/docs"
-                            />
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <Button
-                            disabled={
-                              addConnectorMutation.isPending ||
-                              !connectorUrl.trim()
-                            }
-                            onClick={() =>
-                              addConnectorMutation.mutate({
-                                knowledgeBaseId: selectedBase.id,
-                                name: connectorName.trim(),
-                                sourceUri: connectorUrl.trim(),
-                              })
-                            }
-                          >
-                            {addConnectorMutation.isPending ? (
-                              <Loader2 className="mr-2 size-4 animate-spin" />
-                            ) : (
-                              <Link2 className="mr-2 size-4" />
-                            )}
-                            Add and Sync
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
+                      <Link2 className="mr-2 size-4" />
+                      Add External Source
+                    </Button>
                   </div>
                 </div>
 
@@ -1010,8 +1025,11 @@ export function KnowledgeManagement() {
             </CardContent>
           </Card>
         ) : (
-          <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-dashed text-muted-foreground text-sm">
-            Select or create a knowledge base
+          <div className="flex min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed px-6 text-center text-muted-foreground text-sm">
+            <div>Select or create a knowledge base</div>
+            <div className="mt-1">
+              External URL sources are added inside a selected knowledge base.
+            </div>
           </div>
         )}
       </div>
