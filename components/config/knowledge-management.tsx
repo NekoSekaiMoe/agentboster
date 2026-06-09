@@ -552,6 +552,10 @@ export function KnowledgeManagement() {
                     {selectedBase.description || 'No description'}
                   </p>
                   <p className="mt-2 text-muted-foreground text-xs">
+                    Imported documents and synced external sources are searched
+                    together in this knowledge base.
+                  </p>
+                  <p className="mt-2 text-muted-foreground text-xs">
                     Updated {formatDate(selectedBase.updatedAt)}
                   </p>
                 </div>
@@ -645,8 +649,8 @@ export function KnowledgeManagement() {
                   <div>
                     <h4 className="font-medium text-sm">External Sources</h4>
                     <p className="mt-1 text-muted-foreground text-xs">
-                      URL sources are synced into this knowledge base as indexed
-                      documents.
+                      Connected URLs are synced into this knowledge base and
+                      searched with imported documents.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -852,7 +856,7 @@ export function KnowledgeManagement() {
 
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-medium text-sm">Documents</h4>
+                  <h4 className="font-medium text-sm">Imported Documents</h4>
                   {documentsQuery.isFetching ? (
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                   ) : null}
