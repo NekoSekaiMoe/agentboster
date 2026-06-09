@@ -1,23 +1,14 @@
 import {
-  type PersistedMessageRecord,
   normalizeToolOutputForPersistence,
   reconstructUIMessageParts,
   toModelMessage,
 } from '@/lib/chat/message-utils';
 import { getSessionMessages } from '@/lib/core/db/chat';
 import { getCurrentSessionSummary } from '@/lib/memory';
-import type { PersistedMessageRole, WorkflowUIMessage } from '@/types/workflow';
+import type { WorkflowUIMessage } from '@/types/workflow';
 import type { ModelMessage } from 'ai';
 
 const SUMMARY_MESSAGE_PREFIX = '[Conversation Summary]\n';
-type ToolModelMessagePart = Exclude<
-  Extract<ModelMessage, { role: 'tool' }>['content'],
-  string
->[number];
-type ToolResultOutput = Extract<
-  ToolModelMessagePart,
-  { type: 'tool-result' }
->['output'];
 
 export function createSummaryModelMessage(summaryText: string): ModelMessage {
   return {
@@ -42,78 +33,35 @@ async function getConversationRowsAfterLatestSummary(sessionId: string) {
   };
 }
 
-function mapPersistedToolOutputToModelOutput(input: {
+function mapToolRowToTextContextMessage(input: {
+  toolName: string;
+  toolInput?: unknown;
+  toolOutput?: unknown;
   toolState?: unknown;
-  output?: unknown;
   error?: unknown;
-}): ToolResultOutput {
-  if (input.toolState === 'output-denied') {
-    return {
-      type: 'execution-denied',
-      reason:
-        typeof input.output === 'string'
-          ? input.output
-          : typeof input.error === 'string'
-            ? input.error
-            : undefined,
-    };
-  }
+}): ModelMessage {
+  const output =
+    input.toolOutput === undefined &&
+    typeof input.error === 'string' &&
+    input.error.trim().length > 0
+      ? input.error
+      : input.toolOutput;
+  const sections = [
+    `[tool:${input.toolName}]`,
+    typeof input.toolState === 'string' ? `state: ${input.toolState}` : null,
+    input.toolInput === undefined
+      ? null
+      : `input:\n${normalizeToolOutputForPersistence(input.toolInput, 4_000)}`,
+    output === undefined
+      ? null
+      : `output:\n${normalizeToolOutputForPersistence(output, 8_000)}`,
+  ].filter((value): value is string => Boolean(value));
 
-  if (typeof input.output === 'string') {
-    return {
-      type: 'text',
-      value: input.output,
-    };
-  }
-
-  if (input.output !== undefined) {
-    return {
-      type: 'text',
-      value: normalizeToolOutputForPersistence(input.output, 8_000),
-    };
-  }
-
-  if (typeof input.error === 'string' && input.error.trim().length > 0) {
-    return {
-      type: 'error-text',
-      value: input.error,
-    };
-  }
-
+  // Persisted tool rows are historical context, not fresh tool outputs. Replay
+  // them as text so OpenAI Responses HTTP does not create orphaned outputs.
   return {
-    type: 'text',
-    value: 'Tool execution finished without output.',
-  };
-}
-
-function mapToolRowToInitialModelMessage(
-  row: Pick<PersistedMessageRecord, 'payload'>,
-): ModelMessage | null {
-  const toolCallId =
-    typeof row.payload.toolCallId === 'string'
-      ? row.payload.toolCallId.trim()
-      : '';
-  const toolName =
-    typeof row.payload.toolName === 'string' ? row.payload.toolName.trim() : '';
-
-  if (toolCallId.length === 0 || toolName.length === 0) {
-    return null;
-  }
-
-  return {
-    role: 'tool',
-    content: [
-      {
-        type: 'tool-result',
-        toolCallId,
-        toolName,
-        output: mapPersistedToolOutputToModelOutput({
-          toolState: row.payload.toolState,
-          output: row.payload.output,
-          error: row.payload.error,
-        }),
-      },
-    ],
+    role: 'assistant',
+    content: sections.join('\n\n'),
   };
 }
 
@@ -134,9 +82,16 @@ export async function buildPostSummaryConversationMessages(
     (row) => row.role === 'user' || row.role === 'assistant',
   );
   const modelMessages = rows.flatMap((row) => {
-    if (row.role === 'tool') {
-      const message = mapToolRowToInitialModelMessage(row);
-      return message ? [message] : [];
+    if (row.role === 'tool' && typeof row.payload.toolName === 'string') {
+      return [
+        mapToolRowToTextContextMessage({
+          toolName: row.payload.toolName,
+          toolInput: row.payload.input,
+          toolOutput: row.payload.output,
+          toolState: row.payload.toolState,
+          error: row.payload.error,
+        }),
+      ];
     }
 
     if (row.role !== 'user' && row.role !== 'assistant') {
@@ -175,28 +130,6 @@ export async function buildInitialContextMessages(
     : modelMessages;
 }
 
-function mapToolRowToCompressionMessage(input: {
-  toolName: string;
-  role: PersistedMessageRole;
-  toolInput?: unknown;
-  toolOutput?: unknown;
-}): ModelMessage {
-  const sections = [
-    `[tool:${input.toolName}]`,
-    input.toolInput === undefined
-      ? null
-      : `input:\n${normalizeToolOutputForPersistence(input.toolInput, 4_000)}`,
-    input.toolOutput === undefined
-      ? null
-      : `output:\n${normalizeToolOutputForPersistence(input.toolOutput, 8_000)}`,
-  ].filter((value): value is string => Boolean(value));
-
-  return {
-    role: input.role === 'user' ? 'user' : 'assistant',
-    content: sections.join('\n\n'),
-  };
-}
-
 export async function buildCompressionConversationMessages(sessionId: string) {
   const { rows } = await getConversationRowsAfterLatestSummary(sessionId);
 
@@ -208,11 +141,12 @@ export async function buildCompressionConversationMessages(sessionId: string) {
 
     if (row.role === 'tool' && typeof row.payload.toolName === 'string') {
       return [
-        mapToolRowToCompressionMessage({
-          role: row.role,
+        mapToolRowToTextContextMessage({
           toolName: row.payload.toolName,
           toolInput: row.payload.input,
           toolOutput: row.payload.output,
+          toolState: row.payload.toolState,
+          error: row.payload.error,
         }),
       ];
     }

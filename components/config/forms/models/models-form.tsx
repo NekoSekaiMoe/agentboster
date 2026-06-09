@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -63,6 +64,7 @@ function createAvailableProviderKey(providers: Partial<AIConfig>['providers']) {
 export function ModelsForm() {
   const { issues, value, updateValue } = useConfigSection('models');
   const { t } = useI18n();
+  const reduceMotion = useReducedMotion();
   const models = (value ?? {}) as Partial<AIConfig>;
   const providers = Object.entries(models.providers ?? {});
   const [providerRowIds, setProviderRowIds] = useState<Record<string, string>>(
@@ -126,6 +128,9 @@ export function ModelsForm() {
     () => listProviderNames(modelsCatalog),
     [modelsCatalog],
   );
+  const collapseTransition = reduceMotion
+    ? { duration: 0 }
+    : { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
 
   const modelPredictions = useMemo(
     () =>
@@ -342,177 +347,190 @@ export function ModelsForm() {
                   />
                 </button>
 
-                {isExpanded ? (
-                  <div className="space-y-4 border-t p-4">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <Field label={t('config.forms.models.providerId')}>
-                        <DeferredProviderIdInput
-                          providerKey={providerKey}
-                          suggestions={providerPredictions}
-                          onCommit={(nextProviderName) => {
-                            if (nextProviderName === providerKey) {
-                              return;
-                            }
+                <AnimatePresence initial={false}>
+                  {isExpanded ? (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={collapseTransition}
+                      className="overflow-hidden border-t"
+                    >
+                      <div className="space-y-4 p-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <Field label={t('config.forms.models.providerId')}>
+                            <DeferredProviderIdInput
+                              providerKey={providerKey}
+                              suggestions={providerPredictions}
+                              onCommit={(nextProviderName) => {
+                                if (nextProviderName === providerKey) {
+                                  return;
+                                }
 
-                            setProviderRowIds((current) => {
-                              const rowId =
-                                current[providerKey] ??
-                                createStableId('provider');
-                              const next = { ...current };
-                              delete next[providerKey];
-                              next[nextProviderName] = rowId;
-                              return next;
-                            });
+                                setProviderRowIds((current) => {
+                                  const rowId =
+                                    current[providerKey] ??
+                                    createStableId('provider');
+                                  const next = { ...current };
+                                  delete next[providerKey];
+                                  next[nextProviderName] = rowId;
+                                  return next;
+                                });
 
-                            const catalogProvider = modelsCatalog
-                              ? resolveCatalogProviderName(
-                                  nextProviderName,
-                                  modelsCatalog,
-                                )
-                              : null;
-                            const predictedBaseUrl = catalogProvider
-                              ? modelsCatalog?.[catalogProvider]?.api
-                              : undefined;
-                            updateModels((current) => {
-                              const nextProviders = {
-                                ...(current.providers ?? {}),
-                              };
-                              const currentProvider =
-                                nextProviders[providerKey] ?? providerValue;
-                              delete nextProviders[providerKey];
-                              nextProviders[nextProviderName] = {
-                                ...currentProvider,
-                                base_url:
-                                  predictedBaseUrl ?? currentProvider.base_url,
-                              };
-                              return {
-                                ...current,
-                                providers: nextProviders,
-                              };
-                            });
-                          }}
-                        />
-                      </Field>
-                      <Field label={t('config.forms.models.format')}>
-                        <Select
-                          value={providerValue.format}
-                          onValueChange={(nextValue) =>
-                            updateModels((current) => ({
-                              ...current,
-                              providers: {
-                                ...(current.providers ?? {}),
-                                [providerKey]: {
-                                  ...(current.providers?.[providerKey] ??
-                                    providerValue),
-                                  format: nextValue as AIProvider,
-                                },
-                              },
-                            }))
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue
-                              placeholder={t(
-                                'config.forms.models.selectProviderFormat',
-                              )}
+                                const catalogProvider = modelsCatalog
+                                  ? resolveCatalogProviderName(
+                                      nextProviderName,
+                                      modelsCatalog,
+                                    )
+                                  : null;
+                                const predictedBaseUrl = catalogProvider
+                                  ? modelsCatalog?.[catalogProvider]?.api
+                                  : undefined;
+                                updateModels((current) => {
+                                  const nextProviders = {
+                                    ...(current.providers ?? {}),
+                                  };
+                                  const currentProvider =
+                                    nextProviders[providerKey] ?? providerValue;
+                                  delete nextProviders[providerKey];
+                                  nextProviders[nextProviderName] = {
+                                    ...currentProvider,
+                                    base_url:
+                                      predictedBaseUrl ??
+                                      currentProvider.base_url,
+                                  };
+                                  return {
+                                    ...current,
+                                    providers: nextProviders,
+                                  };
+                                });
+                              }}
                             />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {aiProviderEnum.options.map((option) => (
-                              <SelectItem key={option} value={option}>
-                                {option}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                      <Field label={t('config.agentd.apiKey')}>
-                        <Input
-                          placeholder="optional"
-                          value={providerValue.api_key ?? ''}
-                          onChange={(event) =>
-                            updateModels((current) => ({
-                              ...current,
-                              providers: {
-                                ...(current.providers ?? {}),
-                                [providerKey]: {
-                                  ...(current.providers?.[providerKey] ??
-                                    providerValue),
-                                  api_key: event.target.value || undefined,
-                                },
-                              },
-                            }))
-                          }
-                        />
-                      </Field>
-                      <Field label={t('config.common.baseUrl')}>
-                        <Input
-                          placeholder="https://api.example.com/v1"
-                          value={providerValue.base_url ?? ''}
-                          onChange={(event) =>
-                            updateModels((current) => ({
-                              ...current,
-                              providers: {
-                                ...(current.providers ?? {}),
-                                [providerKey]: {
-                                  ...(current.providers?.[providerKey] ??
-                                    providerValue),
-                                  base_url: event.target.value || undefined,
-                                },
-                              },
-                            }))
-                          }
-                        />
-                      </Field>
-                    </div>
+                          </Field>
+                          <Field label={t('config.forms.models.format')}>
+                            <Select
+                              value={providerValue.format}
+                              onValueChange={(nextValue) =>
+                                updateModels((current) => ({
+                                  ...current,
+                                  providers: {
+                                    ...(current.providers ?? {}),
+                                    [providerKey]: {
+                                      ...(current.providers?.[providerKey] ??
+                                        providerValue),
+                                      format: nextValue as AIProvider,
+                                    },
+                                  },
+                                }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={t(
+                                    'config.forms.models.selectProviderFormat',
+                                  )}
+                                />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {aiProviderEnum.options.map((option) => (
+                                  <SelectItem key={option} value={option}>
+                                    {option}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                          <Field label={t('config.agentd.apiKey')}>
+                            <Input
+                              placeholder="optional"
+                              value={providerValue.api_key ?? ''}
+                              onChange={(event) =>
+                                updateModels((current) => ({
+                                  ...current,
+                                  providers: {
+                                    ...(current.providers ?? {}),
+                                    [providerKey]: {
+                                      ...(current.providers?.[providerKey] ??
+                                        providerValue),
+                                      api_key: event.target.value || undefined,
+                                    },
+                                  },
+                                }))
+                              }
+                            />
+                          </Field>
+                          <Field label={t('config.common.baseUrl')}>
+                            <Input
+                              placeholder="https://api.example.com/v1"
+                              value={providerValue.base_url ?? ''}
+                              onChange={(event) =>
+                                updateModels((current) => ({
+                                  ...current,
+                                  providers: {
+                                    ...(current.providers ?? {}),
+                                    [providerKey]: {
+                                      ...(current.providers?.[providerKey] ??
+                                        providerValue),
+                                      base_url: event.target.value || undefined,
+                                    },
+                                  },
+                                }))
+                              }
+                            />
+                          </Field>
+                        </div>
 
-                    <div className="space-y-2">
-                      <Field label={t('config.common.headers')}>
-                        <KeyValueEditor
-                          addLabel={t('config.common.addHeader')}
-                          entries={createKeyValueEntries(providerValue.headers)}
-                          keyLabel={t('config.common.headerKey')}
-                          onChange={(entries) =>
-                            updateModels((current) => ({
-                              ...current,
-                              providers: {
-                                ...(current.providers ?? {}),
-                                [providerKey]: {
-                                  ...(current.providers?.[providerKey] ??
-                                    providerValue),
-                                  headers: compactRecord(entries),
-                                },
-                              },
-                            }))
-                          }
-                          valueLabel={t('config.common.headerValue')}
-                        />
-                      </Field>
-                    </div>
+                        <div className="space-y-2">
+                          <Field label={t('config.common.headers')}>
+                            <KeyValueEditor
+                              addLabel={t('config.common.addHeader')}
+                              entries={createKeyValueEntries(
+                                providerValue.headers,
+                              )}
+                              keyLabel={t('config.common.headerKey')}
+                              onChange={(entries) =>
+                                updateModels((current) => ({
+                                  ...current,
+                                  providers: {
+                                    ...(current.providers ?? {}),
+                                    [providerKey]: {
+                                      ...(current.providers?.[providerKey] ??
+                                        providerValue),
+                                      headers: compactRecord(entries),
+                                    },
+                                  },
+                                }))
+                              }
+                              valueLabel={t('config.common.headerValue')}
+                            />
+                          </Field>
+                        </div>
 
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          updateModels((current) => {
-                            const nextProviders = {
-                              ...(current.providers ?? {}),
-                            };
-                            delete nextProviders[providerKey];
-                            return {
-                              ...current,
-                              providers: nextProviders,
-                            };
-                          });
-                        }}
-                      >
-                        <Trash2 className="size-4" />
-                        {t('config.forms.models.removeProvider')}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              updateModels((current) => {
+                                const nextProviders = {
+                                  ...(current.providers ?? {}),
+                                };
+                                delete nextProviders[providerKey];
+                                return {
+                                  ...current,
+                                  providers: nextProviders,
+                                };
+                              });
+                            }}
+                          >
+                            <Trash2 className="size-4" />
+                            {t('config.forms.models.removeProvider')}
+                          </Button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
               </div>
             );
           })}
