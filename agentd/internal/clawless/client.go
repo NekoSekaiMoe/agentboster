@@ -199,14 +199,16 @@ func (c *Client) WriteToolActivityLogs(ctx context.Context, logs []ToolActivityL
 
 // ── Memories ─────────────────────────────────────────────────────────
 
-type MemoryScope struct {
+type ResourceScope struct {
 	TaskID    string
 	SessionID string
 }
 
-func memoryScope(scope []MemoryScope) MemoryScope {
+type MemoryScope = ResourceScope
+
+func resourceScope(scope []ResourceScope) ResourceScope {
 	if len(scope) == 0 {
-		return MemoryScope{}
+		return ResourceScope{}
 	}
 	return scope[0]
 }
@@ -231,7 +233,7 @@ func (c *Client) GetMemories(ctx context.Context, agentID string, keywords []str
 		values.Set("limit", fmt.Sprintf("%d", limit))
 	}
 
-	s := memoryScope(scope)
+	s := resourceScope(scope)
 	if s.TaskID != "" {
 		values.Set("task_id", s.TaskID)
 	}
@@ -247,7 +249,7 @@ func (c *Client) GetMemories(ctx context.Context, agentID string, keywords []str
 }
 
 func (c *Client) WriteMemories(ctx context.Context, memories []Memory, scope ...MemoryScope) error {
-	s := memoryScope(scope)
+	s := resourceScope(scope)
 	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/memories", map[string]any{
 		"task_id":    s.TaskID,
 		"session_id": s.SessionID,
@@ -257,7 +259,7 @@ func (c *Client) WriteMemories(ctx context.Context, memories []Memory, scope ...
 
 func (c *Client) DeleteMemory(ctx context.Context, memoryID string, scope ...MemoryScope) error {
 	values := url.Values{}
-	s := memoryScope(scope)
+	s := resourceScope(scope)
 	if s.TaskID != "" {
 		values.Set("task_id", s.TaskID)
 	}
@@ -273,11 +275,18 @@ func (c *Client) DeleteMemory(ctx context.Context, memoryID string, scope ...Mem
 
 // ── Knowledge Bases ─────────────────────────────────────────────────
 
-func (c *Client) SearchKnowledge(ctx context.Context, agentID, query string, knowledgeBaseNames, knowledgeBaseIDs []string, limit int) ([]KnowledgeSearchResult, error) {
+func (c *Client) SearchKnowledge(ctx context.Context, agentID, query string, knowledgeBaseNames, knowledgeBaseIDs []string, limit int, scope ...ResourceScope) ([]KnowledgeSearchResult, error) {
 	body := map[string]any{
 		"agent_id": agentID,
 		"query":    query,
 		"limit":    limit,
+	}
+	s := resourceScope(scope)
+	if s.TaskID != "" {
+		body["task_id"] = s.TaskID
+	}
+	if s.SessionID != "" {
+		body["session_id"] = s.SessionID
 	}
 	if len(knowledgeBaseNames) > 0 {
 		body["knowledge_base_names"] = knowledgeBaseNames

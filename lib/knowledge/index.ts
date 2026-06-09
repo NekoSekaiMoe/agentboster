@@ -3,6 +3,7 @@ import { embedMany } from 'ai';
 import {
   createKnowledgeBaseRow,
   createKnowledgeDocumentRow,
+  canManageKnowledgeBaseRow,
   getKnowledgeBaseRow,
   hashKnowledgeContent,
   hybridSearchKnowledgeChunks,
@@ -11,6 +12,8 @@ import {
   replaceKnowledgeDocumentChunks,
   resolveKnowledgeBaseRows,
   type KnowledgeBaseRow,
+  type KnowledgeAccessScope,
+  type KnowledgeVisibility,
   type KnowledgeChunkInput,
   type KnowledgeSearchRow,
 } from '@/lib/core/db/knowledge';
@@ -182,12 +185,25 @@ async function buildIndexedChunks(input: {
 export async function listKnowledgeBases(input?: {
   agentId?: string;
   includeDisabled?: boolean;
+  access?: KnowledgeAccessScope;
+  includeAllPrivate?: boolean;
 }) {
-  return listKnowledgeBaseRows(input);
+  const rows = await listKnowledgeBaseRows(input);
+  const access = input?.access;
+  if (!access) {
+    return rows;
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    canManage: canManageKnowledgeBaseRow(row, access),
+  }));
 }
 
 export async function createKnowledgeBase(input: {
   agentId?: string;
+  ownerUserId?: string | null;
+  visibility?: KnowledgeVisibility;
   name: string;
   description?: string | null;
   emoji?: string | null;
@@ -202,6 +218,8 @@ export async function createKnowledgeBase(input: {
 
   return createKnowledgeBaseRow({
     agentId: input.agentId,
+    ownerUserId: input.ownerUserId,
+    visibility: input.visibility,
     name: input.name.trim(),
     description: input.description,
     emoji: input.emoji,
@@ -211,7 +229,21 @@ export async function createKnowledgeBase(input: {
   });
 }
 
-export async function listKnowledgeDocuments(knowledgeBaseId: string) {
+export async function listKnowledgeDocuments(
+  knowledgeBaseId: string,
+  options?: {
+    access?: KnowledgeAccessScope;
+    includeAllPrivate?: boolean;
+  },
+) {
+  const knowledgeBase = await getKnowledgeBaseRow(knowledgeBaseId, {
+    access: options?.access,
+    includeAllPrivate: options?.includeAllPrivate,
+  });
+  if (!knowledgeBase) {
+    throw new Error(`Knowledge base ${knowledgeBaseId} not found`);
+  }
+
   return listKnowledgeDocumentRows(knowledgeBaseId);
 }
 
@@ -223,10 +255,18 @@ export async function addKnowledgeDocument(input: {
   sourceUri?: string | null;
   metadata?: Record<string, unknown> | null;
   config?: AppConfig;
+  access?: KnowledgeAccessScope;
+  includeAllPrivate?: boolean;
 }) {
-  const knowledgeBase = await getKnowledgeBaseRow(input.knowledgeBaseId);
+  const knowledgeBase = await getKnowledgeBaseRow(input.knowledgeBaseId, {
+    access: input.access,
+    includeAllPrivate: input.includeAllPrivate,
+  });
   if (!knowledgeBase) {
     throw new Error(`Knowledge base ${input.knowledgeBaseId} not found`);
+  }
+  if (input.access && !canManageKnowledgeBaseRow(knowledgeBase, input.access)) {
+    throw new Error('Forbidden');
   }
 
   const config = await getEffectiveConfig(input.config);
@@ -292,6 +332,7 @@ export async function searchKnowledge(input: {
   limit?: number;
   minConfidence?: number;
   config?: AppConfig;
+  access?: KnowledgeAccessScope;
 }): Promise<KnowledgeSearchRow[]> {
   const query = input.query.trim();
   if (!query) {
@@ -303,6 +344,7 @@ export async function searchKnowledge(input: {
     agentId: input.agentId,
     knowledgeBaseIds: input.knowledgeBaseIds,
     knowledgeBaseNames: input.knowledgeBaseNames,
+    access: input.access,
   });
   const hasExplicitKnowledgeBaseFilter =
     (input.knowledgeBaseIds?.length ?? 0) > 0 ||
@@ -311,11 +353,13 @@ export async function searchKnowledge(input: {
   if (hasExplicitKnowledgeBaseFilter && knowledgeBases.length === 0) {
     return [];
   }
+  if (knowledgeBases.length === 0) {
+    return [];
+  }
 
-  const knowledgeBaseIds =
-    knowledgeBases.length > 0
-      ? knowledgeBases.map((knowledgeBase) => knowledgeBase.id)
-      : undefined;
+  const knowledgeBaseIds = knowledgeBases.map(
+    (knowledgeBase) => knowledgeBase.id,
+  );
   const embeddingModel = selectSearchEmbeddingModel({
     knowledgeBases,
     config,

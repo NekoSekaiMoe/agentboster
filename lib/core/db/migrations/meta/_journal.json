@@ -50,6 +50,13 @@
       "when": 1780963200000,
       "tag": "0006_agent_memories_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780966800000,
+      "tag": "0007_knowledge_visibility",
+      "breakpoints": true
     }
   ]
 }

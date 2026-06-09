@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   customType,
@@ -10,6 +11,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { users } from './users';
 
 const variableVector = customType<{ data: number[]; driverParam: string }>({
   dataType() {
@@ -38,6 +40,12 @@ export const knowledgeBases = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     agentId: text('agent_id').default('global').notNull(),
+    ownerUserId: uuid('owner_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    visibility: text('visibility', { enum: ['team', 'private'] })
+      .default('team')
+      .notNull(),
     name: text('name').notNull(),
     description: text('description'),
     emoji: text('emoji').default('book').notNull(),
@@ -54,9 +62,20 @@ export const knowledgeBases = pgTable(
       .notNull(),
   },
   (table) => ({
-    agentNameIdx: uniqueIndex('knowledge_bases_agent_name_idx').on(
-      table.agentId,
-      table.name,
+    teamAgentNameIdx: uniqueIndex('knowledge_bases_team_agent_name_idx')
+      .on(table.agentId, table.name)
+      .where(sql`${table.visibility} = 'team'`),
+    privateOwnerAgentNameIdx: uniqueIndex(
+      'knowledge_bases_private_owner_agent_name_idx',
+    )
+      .on(table.agentId, table.ownerUserId, table.name)
+      .where(sql`${table.visibility} = 'private'`),
+    agentVisibilityEnabledIdx: index(
+      'knowledge_bases_agent_visibility_enabled_idx',
+    ).on(table.agentId, table.visibility, table.enabled),
+    ownerVisibilityIdx: index('knowledge_bases_owner_visibility_idx').on(
+      table.ownerUserId,
+      table.visibility,
     ),
     agentEnabledIdx: index('knowledge_bases_agent_enabled_idx').on(
       table.agentId,

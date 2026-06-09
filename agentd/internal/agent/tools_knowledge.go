@@ -69,6 +69,10 @@ func registerKnowledgeSearch(registry *ToolRegistry, client *clawless.Client, ct
 			params.KnowledgeBaseNames,
 			params.KnowledgeBaseIDs,
 			params.Limit,
+			clawless.ResourceScope{
+				TaskID:    ctx.TaskID,
+				SessionID: ctx.SessionID,
+			},
 		)
 		if err != nil {
 			slog.Warn("knowledge search failed", "error", err)

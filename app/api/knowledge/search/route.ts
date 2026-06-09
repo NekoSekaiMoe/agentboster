@@ -1,7 +1,11 @@
 import { searchKnowledge } from '@/lib/knowledge';
+import { requireAuthAccess } from '@/lib/auth/access';
+import { cookies } from 'next/headers';
 
 export async function POST(request: Request) {
   try {
+    const cookieStore = await cookies();
+    const access = await requireAuthAccess(cookieStore);
     const body = await request.json();
     const query = String(body.query ?? '').trim();
 
@@ -19,16 +23,21 @@ export async function POST(request: Request) {
       knowledgeBaseNames: body.knowledge_base_names,
       limit: body.limit,
       minConfidence: body.min_confidence,
+      access: {
+        userId: access.session.userId,
+        isAdmin: access.isAdmin,
+      },
     });
 
     return Response.json({ success: true, data: results });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     return Response.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       },
-      { status: 500 },
+      { status: message === 'Unauthorized' ? 401 : 500 },
     );
   }
 }

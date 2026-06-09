@@ -11,6 +11,11 @@ const RRF_K = 60;
 export type KnowledgeBaseRow = typeof schema.knowledgeBases.$inferSelect;
 export type KnowledgeDocumentRow =
   typeof schema.knowledgeDocuments.$inferSelect;
+export type KnowledgeVisibility = 'team' | 'private';
+export type KnowledgeAccessScope = {
+  userId?: string | null;
+  isAdmin?: boolean;
+};
 
 export type KnowledgeChunkInput = {
   chunkIndex: number;
@@ -139,12 +144,52 @@ function buildAgentScopeCondition(agentId?: string) {
   );
 }
 
+function buildKnowledgeAccessCondition(
+  access?: KnowledgeAccessScope,
+  options?: { includeAllPrivate?: boolean },
+) {
+  if (access?.isAdmin && options?.includeAllPrivate) {
+    return undefined;
+  }
+
+  const teamCondition = eq(schema.knowledgeBases.visibility, 'team');
+  const userId = access?.userId?.trim();
+  if (!userId) {
+    return teamCondition;
+  }
+
+  return or(
+    teamCondition,
+    and(
+      eq(schema.knowledgeBases.visibility, 'private'),
+      eq(schema.knowledgeBases.ownerUserId, userId),
+    ),
+  );
+}
+
+export function canManageKnowledgeBaseRow(
+  knowledgeBase: Pick<KnowledgeBaseRow, 'visibility' | 'ownerUserId'>,
+  access: KnowledgeAccessScope,
+) {
+  if (access.isAdmin) {
+    return true;
+  }
+
+  return (
+    knowledgeBase.visibility === 'private' &&
+    Boolean(access.userId) &&
+    knowledgeBase.ownerUserId === access.userId
+  );
+}
+
 export function hashKnowledgeContent(content: string) {
   return createHash('sha256').update(content).digest('hex');
 }
 
 export async function createKnowledgeBaseRow(input: {
   agentId?: string;
+  ownerUserId?: string | null;
+  visibility?: KnowledgeVisibility;
   name: string;
   description?: string | null;
   emoji?: string | null;
@@ -153,10 +198,18 @@ export async function createKnowledgeBaseRow(input: {
   chunkSize?: number;
   chunkOverlap?: number;
 }) {
+  const visibility = input.visibility ?? 'team';
+  if (visibility === 'private' && !input.ownerUserId) {
+    throw new Error('owner_user_id is required for private knowledge base');
+  }
+
   const [row] = await db
     .insert(schema.knowledgeBases)
     .values({
       agentId: input.agentId ?? 'global',
+      ownerUserId:
+        visibility === 'private' ? (input.ownerUserId ?? null) : null,
+      visibility,
       name: input.name,
       description: input.description ?? null,
       emoji: input.emoji ?? 'book',
@@ -173,9 +226,14 @@ export async function createKnowledgeBaseRow(input: {
 export async function listKnowledgeBaseRows(options?: {
   agentId?: string;
   includeDisabled?: boolean;
+  access?: KnowledgeAccessScope;
+  includeAllPrivate?: boolean;
 }) {
   const conditions = [
     options?.agentId ? buildAgentScopeCondition(options.agentId) : undefined,
+    buildKnowledgeAccessCondition(options?.access, {
+      includeAllPrivate: options?.includeAllPrivate,
+    }),
     options?.includeDisabled
       ? undefined
       : eq(schema.knowledgeBases.enabled, true),
@@ -190,11 +248,18 @@ export async function listKnowledgeBaseRows(options?: {
 
 export async function getKnowledgeBaseRow(
   id: string,
-  options?: { agentId?: string },
+  options?: {
+    agentId?: string;
+    access?: KnowledgeAccessScope;
+    includeAllPrivate?: boolean;
+  },
 ) {
   const conditions = [
     eq(schema.knowledgeBases.id, id),
     options?.agentId ? buildAgentScopeCondition(options.agentId) : undefined,
+    buildKnowledgeAccessCondition(options?.access, {
+      includeAllPrivate: options?.includeAllPrivate,
+    }),
   ];
 
   const [row] = await db
@@ -210,6 +275,7 @@ export async function resolveKnowledgeBaseRows(input: {
   agentId?: string;
   knowledgeBaseIds?: string[];
   knowledgeBaseNames?: string[];
+  access?: KnowledgeAccessScope;
 }) {
   const ids = normalizeIds(input.knowledgeBaseIds);
   const names = normalizeKnowledgeBaseNames(input.knowledgeBaseNames);
@@ -217,6 +283,7 @@ export async function resolveKnowledgeBaseRows(input: {
   const conditions = [
     eq(schema.knowledgeBases.enabled, true),
     input.agentId ? buildAgentScopeCondition(input.agentId) : undefined,
+    buildKnowledgeAccessCondition(input.access),
     ids.length > 0 ? inArray(schema.knowledgeBases.id, ids) : undefined,
     names.length > 0 ? inArray(schema.knowledgeBases.name, names) : undefined,
   ];
