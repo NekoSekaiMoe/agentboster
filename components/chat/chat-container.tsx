@@ -3,6 +3,7 @@
 import {
   controlSessionRuntimeAction,
   deleteSessionAction,
+  getChatUiSettingsAction,
   updateSessionTitleAction,
 } from '@/app/(chat)/actions';
 import { useChat } from '@ai-sdk/react';
@@ -159,6 +160,7 @@ export function Chat({
   const [runtimePollingResumeKey, setRuntimePollingResumeKey] = useState(0);
   const [isDeletingAccessDeniedSession, setIsDeletingAccessDeniedSession] =
     useState(false);
+  const [enterToSend, setEnterToSend] = useState(true);
 
   const { pendingDecisions, handleDecisionResolved } = usePendingDecisions(id);
 
@@ -169,6 +171,24 @@ export function Chat({
   useEffect(() => {
     setSessionState(session);
   }, [session]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getChatUiSettingsAction()
+      .then((settings) => {
+        if (!cancelled) {
+          setEnterToSend(settings.enterToSend);
+        }
+      })
+      .catch((error) => {
+        console.warn('[chat] load UI settings failed:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!bootstrapStatusRunId) {
@@ -856,6 +876,7 @@ export function Chat({
                   input={input}
                   setInput={setInput}
                   isLoading={isComposerBusy}
+                  enterToSend={enterToSend}
                   stop={() => {
                     void cancelWorkflow();
                   }}

@@ -2,10 +2,8 @@ import {
   sendAdapterSourceReply,
   streamAdapterSourceReply,
 } from '@/lib/bot/reply';
-import { getRun } from 'workflow/api';
 import {
   createSession,
-  deleteSession,
   deleteMessagesAfterUiMessageId,
   getFirstVisibleSessionMessage,
   getSession,
@@ -15,11 +13,8 @@ import {
   updateSession,
   upsertUserMessage,
 } from '@/lib/core/db/chat';
-import { listScheduledTasksBySessionId } from '@/lib/core/db/scheduled';
 import { getConfig } from '@/lib/core/kv/config';
-import { stopSessionSandbox } from '@/lib/core/sandbox';
 import { getSessionRuntime } from '@/lib/core/sandbox/session-runtime';
-import { abortAgentdSession } from '@/lib/extra/agent/agentd-tools-client';
 import { invalidateCurrentSessionSummary } from '@/lib/memory';
 import { generateUUID } from '@/lib/utils';
 import { createLogger } from '@/lib/utils/logger';
@@ -57,6 +52,7 @@ import {
 } from './dedup';
 import { INIT_AGENTS_MD_MARKER, INIT_AGENTS_MD_PROMPT } from './init-prompt';
 import { serializeUserMessage } from './message-utils';
+import { cleanupChatSession } from './session-cleanup';
 import { deriveSessionTitle } from './session-title';
 
 const chatMainLogger = createLogger('chat.main');
@@ -430,50 +426,6 @@ function canSourceAccessSession(
   }
 
   return true;
-}
-
-async function cancelWorkflowRun(runId: string | null | undefined) {
-  if (!runId) {
-    return false;
-  }
-
-  try {
-    await getRun(runId).cancel();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function deleteChatSession(session: NonNullable<SessionRecord>) {
-  const [daemonAborted, workflowCancelled, scheduledTasks] = await Promise.all([
-    abortAgentdSession(session.id),
-    cancelWorkflowRun(session.workflowRunId),
-    listScheduledTasksBySessionId(session.id),
-  ]);
-
-  const scheduleRunsCancelled = await Promise.all(
-    scheduledTasks.map((task) => cancelWorkflowRun(task.scheduleWorkflowRunId)),
-  );
-
-  let sandboxStopped = false;
-  if (session.sandboxId) {
-    try {
-      await stopSessionSandbox(session.id);
-      sandboxStopped = true;
-    } catch {
-      sandboxStopped = false;
-    }
-  }
-
-  await deleteSession(session.id);
-
-  return {
-    daemonAborted,
-    workflowCancelled,
-    sandboxStopped,
-    scheduleRunsCancelled: scheduleRunsCancelled.filter(Boolean).length,
-  };
 }
 
 async function resolveSwitchTarget(input: {
@@ -857,7 +809,7 @@ async function executeCommand(input: {
       }
 
       const deletedSessionId = target.id;
-      const cleanup = await deleteChatSession(target);
+      const cleanup = await cleanupChatSession(target);
 
       return {
         sessionId:

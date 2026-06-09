@@ -1,10 +1,10 @@
 import { requireAdminAccess } from '@/lib/auth/access';
 import {
   countSessionsByUserIds,
-  deleteSession,
   getSession,
   listUserSessions,
 } from '@/lib/core/db/chat';
+import { cleanupChatSession } from '@/lib/chat/session-cleanup';
 import { countFilesByUserIds, listFiles } from '@/lib/core/db/files';
 import { countLongTermMemoriesByUserIds } from '@/lib/core/db/memory/long-term';
 import {
@@ -278,8 +278,8 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    await deleteSession(sessionId);
-    return NextResponse.json({ ok: true });
+    const cleanup = await cleanupChatSession(session);
+    return NextResponse.json({ ok: cleanup.deleted, cleanup });
   }
 
   if (resource === 'memory') {

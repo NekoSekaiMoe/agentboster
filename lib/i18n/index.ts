@@ -90,6 +90,9 @@ const enUS = {
   'config.sections.autonomy.description':
     'Control agent autonomy level and maximum steps.',
   'config.sections.autonomy.title': 'Autonomy',
+  'config.sections.chat.description':
+    'Configure chat composer shortcuts and suggested follow-up behavior.',
+  'config.sections.chat.title': 'Chat',
   'config.sections.channels.description':
     'Set up Slack, Teams, Google Chat, and Telegram.',
   'config.sections.channels.title': 'Channels',
@@ -247,6 +250,25 @@ const enUS = {
   'config.forms.autonomy.level': 'Level',
   'config.forms.autonomy.maxSteps': 'Max steps',
   'config.forms.autonomy.title': 'Autonomy policy',
+  'config.forms.chat.composerDescription':
+    'Choose how keyboard shortcuts work in the Web chat composer.',
+  'config.forms.chat.composerTitle': 'Composer',
+  'config.forms.chat.enterToSendLabel': 'Send automatically with Enter',
+  'config.forms.chat.enterToSendOffHelp':
+    'Disabled: Enter inserts a new line, and Shift+Enter sends the message.',
+  'config.forms.chat.enterToSendOnHelp':
+    'Enabled: Enter sends the message, and Shift+Enter inserts a new line.',
+  'config.forms.chat.followUpDescription':
+    'Control suggested follow-up output for Web and IM replies.',
+  'config.forms.chat.followUpHelp':
+    'When enabled, assistant answers end with “你要是愿意...” and supported clients render three suggested follow-up buttons.',
+  'config.forms.chat.followUpLabel': 'Suggested follow-up buttons',
+  'config.forms.chat.followUpTitle': 'Follow-up',
+  'config.forms.chat.shortcutsOff':
+    'When disabled: Enter = new line, Shift+Enter = send.',
+  'config.forms.chat.shortcutsOn':
+    'When enabled: Enter = send, Shift+Enter = new line.',
+  'config.forms.chat.shortcutsTitle': 'Keyboard shortcuts',
   'config.forms.security.l1Description':
     'This model scores sandbox commands and outputs when Agent Daemon asks the web app for L1 review. If set, it overrides the model_id sent by agentd.',
   'config.forms.security.l1Model': 'L1 scorer model',
@@ -452,6 +474,8 @@ const zhCN = {
   'config.sections.auditLogs.title': '审计日志',
   'config.sections.autonomy.description': '控制智能体自主级别和最大步数。',
   'config.sections.autonomy.title': '自主模式',
+  'config.sections.chat.description': '配置聊天输入快捷键和建议追问行为。',
+  'config.sections.chat.title': '聊天',
   'config.sections.channels.description':
     '设置 Slack、Teams、Google Chat 和 Telegram。',
   'config.sections.channels.title': '渠道',
@@ -599,6 +623,24 @@ const zhCN = {
   'config.forms.autonomy.level': '级别',
   'config.forms.autonomy.maxSteps': '最大步数',
   'config.forms.autonomy.title': '自主策略',
+  'config.forms.chat.composerDescription':
+    '选择 Web 聊天输入框的键盘快捷键行为。',
+  'config.forms.chat.composerTitle': '输入框',
+  'config.forms.chat.enterToSendLabel': '按回车键自动发送',
+  'config.forms.chat.enterToSendOffHelp':
+    '关闭后：Enter 换行，Shift+Enter 发送消息。',
+  'config.forms.chat.enterToSendOnHelp':
+    '开启后：Enter 发送消息，Shift+Enter 换行。',
+  'config.forms.chat.followUpDescription':
+    '控制 Web 和 IM 回复的建议追问输出。',
+  'config.forms.chat.followUpHelp':
+    '开启后，AI 回答末尾会输出“你要是愿意...”，支持的客户端会渲染三个建议追问按钮。',
+  'config.forms.chat.followUpLabel': '建议追问按钮',
+  'config.forms.chat.followUpTitle': '追问',
+  'config.forms.chat.shortcutsOff':
+    '关闭时：Enter = 换行，Shift+Enter = 发送。',
+  'config.forms.chat.shortcutsOn': '开启时：Enter = 发送，Shift+Enter = 换行。',
+  'config.forms.chat.shortcutsTitle': '键位说明',
   'config.forms.security.l1Description':
     'Agent Daemon 请求 Web 应用执行 L1 审查时，此模型会对沙箱命令和输出评分。设置后会覆盖 agentd 传来的 model_id。',
   'config.forms.security.l1Model': 'L1 评分模型',
@@ -792,6 +834,8 @@ const zhTW = {
   'config.sections.auditLogs.title': '稽核記錄',
   'config.sections.autonomy.description': '控制智能體自主等級和最大步數。',
   'config.sections.autonomy.title': '自主模式',
+  'config.sections.chat.description': '設定聊天輸入快捷鍵和建議追問行為。',
+  'config.sections.chat.title': '聊天',
   'config.sections.channels.description':
     '設定 Slack、Teams、Google Chat 和 Telegram。',
   'config.sections.channels.title': '通道',
@@ -939,6 +983,24 @@ const zhTW = {
   'config.forms.autonomy.level': '等級',
   'config.forms.autonomy.maxSteps': '最大步數',
   'config.forms.autonomy.title': '自主策略',
+  'config.forms.chat.composerDescription':
+    '選擇 Web 聊天輸入框的鍵盤快捷鍵行為。',
+  'config.forms.chat.composerTitle': '輸入框',
+  'config.forms.chat.enterToSendLabel': '按 Enter 自動傳送',
+  'config.forms.chat.enterToSendOffHelp':
+    '關閉後：Enter 換行，Shift+Enter 傳送訊息。',
+  'config.forms.chat.enterToSendOnHelp':
+    '開啟後：Enter 傳送訊息，Shift+Enter 換行。',
+  'config.forms.chat.followUpDescription':
+    '控制 Web 和 IM 回覆的建議追問輸出。',
+  'config.forms.chat.followUpHelp':
+    '開啟後，AI 回答末尾會輸出「你要是愿意...」，支援的客戶端會顯示三個建議追問按鈕。',
+  'config.forms.chat.followUpLabel': '建議追問按鈕',
+  'config.forms.chat.followUpTitle': '追問',
+  'config.forms.chat.shortcutsOff':
+    '關閉時：Enter = 換行，Shift+Enter = 傳送。',
+  'config.forms.chat.shortcutsOn': '開啟時：Enter = 傳送，Shift+Enter = 換行。',
+  'config.forms.chat.shortcutsTitle': '鍵位說明',
   'config.forms.security.l1Description':
     'Agent Daemon 要求 Web 應用程式執行 L1 審查時，此模型會對沙箱命令和輸出評分。設定後會覆寫 agentd 傳來的 model_id。',
   'config.forms.security.l1Model': 'L1 評分模型',
@@ -1162,6 +1224,9 @@ const ja = {
   'config.sections.autonomy.description':
     'エージェントの自律レベルと最大ステップ数を制御します。',
   'config.sections.autonomy.title': '自律性',
+  'config.sections.chat.description':
+    'チャット入力のショートカットとフォローアップ候補を設定します。',
+  'config.sections.chat.title': 'チャット',
   'config.sections.channels.description':
     'Slack、Teams、Google Chat、Telegram を設定します。',
   'config.sections.channels.title': 'チャンネル',
@@ -1321,6 +1386,24 @@ const ja = {
   'config.forms.autonomy.level': 'レベル',
   'config.forms.autonomy.maxSteps': '最大ステップ数',
   'config.forms.autonomy.title': '自律ポリシー',
+  'config.forms.chat.composerDescription':
+    'Web チャット入力欄のキーボードショートカットを選択します。',
+  'config.forms.chat.composerTitle': '入力欄',
+  'config.forms.chat.enterToSendLabel': 'Enter で自動送信',
+  'config.forms.chat.enterToSendOffHelp':
+    '無効時: Enter は改行、Shift+Enter は送信です。',
+  'config.forms.chat.enterToSendOnHelp':
+    '有効時: Enter は送信、Shift+Enter は改行です。',
+  'config.forms.chat.followUpDescription':
+    'Web と IM の返信に表示するフォローアップ候補を制御します。',
+  'config.forms.chat.followUpHelp':
+    '有効にすると、回答末尾に「你要是愿意...」が出力され、対応クライアントでは 3 つの候補ボタンを表示します。',
+  'config.forms.chat.followUpLabel': 'フォローアップ候補ボタン',
+  'config.forms.chat.followUpTitle': 'フォローアップ',
+  'config.forms.chat.shortcutsOff':
+    '無効時: Enter = 改行、Shift+Enter = 送信。',
+  'config.forms.chat.shortcutsOn': '有効時: Enter = 送信、Shift+Enter = 改行。',
+  'config.forms.chat.shortcutsTitle': 'キーボードショートカット',
   'config.forms.security.l1Description':
     'Agent Daemon が Web アプリに L1 レビューを依頼したとき、このモデルがサンドボックスコマンドと出力をスコアリングします。設定すると agentd から送られた model_id を上書きします。',
   'config.forms.security.l1Model': 'L1 スコアラーモデル',

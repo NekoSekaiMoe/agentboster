@@ -4,6 +4,7 @@ import { agentdConfigSchema } from './agentd';
 import { agentConfigSchema } from './agents';
 import { aiConfigSchema } from './ai';
 import { autonomyConfigSchema } from './autonomy';
+import { chatConfigSchema } from './chat';
 import { channelsConfigSchema } from './channels';
 import { mcpRemotesServersConfigSchema } from './mcp';
 import { sandboxConfigSchema } from './sandbox';
@@ -20,6 +21,9 @@ export const appConfigSchema = z.object({
 
   /** Agent/Bot configuration. */
   agents: agentConfigSchema.optional(),
+
+  /** Chat UI and reply behavior. */
+  chat: chatConfigSchema.optional(),
 
   /** Communication channel configuration (Telegram, Slack, Teams, Google Chat, etc.). */
   channels: channelsConfigSchema.optional(),

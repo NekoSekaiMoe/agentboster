@@ -12,6 +12,11 @@ export const configSections = [
     titleKey: 'config.sections.agents.title',
   },
   {
+    key: 'chat',
+    descriptionKey: 'config.sections.chat.description',
+    titleKey: 'config.sections.chat.title',
+  },
+  {
     key: 'channels',
     descriptionKey: 'config.sections.channels.description',
     titleKey: 'config.sections.channels.title',

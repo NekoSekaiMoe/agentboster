@@ -48,6 +48,7 @@ function PureMultimodalInput({
   input,
   setInput,
   isLoading,
+  enterToSend,
   stop,
   sendMessage,
   className,
@@ -57,6 +58,7 @@ function PureMultimodalInput({
   input: string;
   setInput: (value: string) => void;
   isLoading: boolean;
+  enterToSend: boolean;
   stop: () => void;
   sendMessage: (
     message?: ComposerMessage,
@@ -396,7 +398,11 @@ function PureMultimodalInput({
               return;
             }
 
-            if (event.key === 'Enter' && !event.shiftKey) {
+            const shouldSubmit =
+              event.key === 'Enter' &&
+              (enterToSend ? !event.shiftKey : event.shiftKey);
+
+            if (shouldSubmit) {
               event.preventDefault();
               void submitForm();
             }
@@ -428,6 +434,7 @@ export const MultimodalInput = memo(
     if (prevProps.focusTrigger !== nextProps.focusTrigger) return false;
     if (prevProps.input !== nextProps.input) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
+    if (prevProps.enterToSend !== nextProps.enterToSend) return false;
 
     return true;
   },

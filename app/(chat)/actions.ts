@@ -6,14 +6,12 @@ import {
 } from '@/lib/auth/access';
 import {
   createSession,
-  deleteSession,
-  deleteSessionForUser,
   getSession,
   listSessions,
   updateSession,
   updateSessionForUser,
 } from '@/lib/core/db/chat';
-import { listScheduledTasksBySessionId } from '@/lib/core/db/scheduled';
+import { cleanupChatSession } from '@/lib/chat/session-cleanup';
 import { stopSessionSandbox } from '@/lib/core/sandbox';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
 import {
@@ -59,7 +57,7 @@ async function cancelRun(runId: string | null | undefined) {
   try {
     await getRun(runId).cancel();
   } catch {
-    // Best-effort cleanup: the run may already be completed or cancelled.
+    // Best-effort runtime control: the run may already be completed.
   }
 }
 
@@ -137,25 +135,12 @@ export async function deleteSessionAction(sessionId: string) {
   }
   assertCanAccessOwnedResource(access, session.userId);
 
-  await cancelRun(session.workflowRunId);
+  const cleanup = await cleanupChatSession(session, {
+    userId: access.isAdmin ? undefined : access.session.userId,
+  });
 
-  if (session.sandboxId) {
-    try {
-      await stopSessionSandbox(id);
-    } catch {
-      // Best-effort cleanup: sandbox may already be stopped.
-    }
-  }
-
-  const scheduledTasks = await listScheduledTasksBySessionId(id);
-  await Promise.all(
-    scheduledTasks.map((task) => cancelRun(task.scheduleWorkflowRunId)),
-  );
-
-  if (access.isAdmin) {
-    await deleteSession(id);
-  } else {
-    await deleteSessionForUser(id, access.session.userId);
+  if (!cleanup.deleted) {
+    throw new Error('Session not found.');
   }
 
   return {
@@ -346,4 +331,15 @@ export async function controlSessionRuntimeAction(input: {
 export async function isAgentdEnabled(): Promise<boolean> {
   const config = await getConfig();
   return config.agentd?.enabled ?? false;
+}
+
+export async function getChatUiSettingsAction(): Promise<{
+  enterToSend: boolean;
+}> {
+  await requireAuth();
+
+  const config = await getConfig();
+  return {
+    enterToSend: config.chat?.enter_to_send ?? true,
+  };
 }

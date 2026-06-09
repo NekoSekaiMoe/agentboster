@@ -13,6 +13,7 @@ import {
   LockKeyhole,
   LogOut,
   MessageSquare,
+  MessageSquareText,
   Monitor,
   Moon,
   Network,
@@ -97,6 +98,11 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
         labelKey: 'nav.agents',
         href: '/config/agents',
         icon: BotIcon,
+      },
+      {
+        labelKey: 'nav.chat',
+        href: '/config/chat',
+        icon: MessageSquareText,
       },
       {
         labelKey: 'nav.channels',
