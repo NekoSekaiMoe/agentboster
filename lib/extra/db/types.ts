@@ -1,4 +1,4 @@
-export type DBProviderType = 'vercel-postgres' | 'mongodb';
+export type DBProviderType = 'vercel-postgres';
 
 export interface DBConfig {
   type: DBProviderType;

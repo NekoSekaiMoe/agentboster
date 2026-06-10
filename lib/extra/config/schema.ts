@@ -23,7 +23,7 @@ const l2AuthorizationWindowSchema = z.enum([
 
 const sandboxTypeSchema = z.enum(['tmpfs', 'docker', 'chroot']);
 
-const dbProviderTypeSchema = z.enum(['vercel-postgres', 'mongodb']);
+const dbProviderTypeSchema = z.literal('vercel-postgres');
 
 const defaultLocalScorer = {
   baseUrl: 'http://localhost:11434/v1',
@@ -90,10 +90,10 @@ export const agentBosterConfigSchema = z.object({
     ssl: z.boolean().default(false),
   }),
 
-  memory: z.object({
-    provider: z.enum(['vercel-kv', 'mongodb']).default('vercel-kv'),
-    connectionString: z.string().optional(),
-  }),
+	memory: z.object({
+		provider: z.literal('vercel-kv').default('vercel-kv'),
+		connectionString: z.string().optional(),
+	}),
 
   cron: z.object({
     pollers: z

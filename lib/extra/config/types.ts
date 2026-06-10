@@ -46,7 +46,7 @@ export interface AgentBosterConfig {
   };
   auth: { jwtSecret: string; tokenExpiration: number };
   db: DBConfig;
-  memory: { provider: 'vercel-kv' | 'mongodb'; connectionString?: string };
+	memory: { provider: 'vercel-kv'; connectionString?: string };
   cron: { pollers: PollerConfig[] };
   daemon: { enabled: boolean; endpoints: DaemonConfig[] };
 }
