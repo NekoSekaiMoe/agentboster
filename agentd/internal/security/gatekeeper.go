@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -60,6 +62,38 @@ type GatekeeperOptions struct {
 	FailOpen  bool
 }
 
+type deterministicL2Pattern struct {
+	reason string
+	re     *regexp.Regexp
+}
+
+var deterministicL2Patterns = []deterministicL2Pattern{
+	{
+		reason: "uses shred to overwrite file contents",
+		re:     regexp.MustCompile(`(?is)(^|[^\w./-])shred([^\w./-]|$)`),
+	},
+	{
+		reason: "uses find -exec with a destructive command",
+		re:     regexp.MustCompile(`(?is)\bfind\b.*\s-exec\s+.*\b(?:rm|shred|dd|truncate|wipefs)\b`),
+	},
+	{
+		reason: "uses find -delete for bulk deletion",
+		re:     regexp.MustCompile(`(?is)\bfind\b.*\s-delete\b`),
+	},
+	{
+		reason: "pipes file lists into a destructive command",
+		re:     regexp.MustCompile(`(?is)\bxargs\b.*\b(?:rm|shred|dd|truncate|wipefs)\b`),
+	},
+	{
+		reason: "uses an interpreter one-liner for destructive filesystem changes",
+		re:     regexp.MustCompile(`(?is)\b(?:perl|ruby|node)\b.*\s-e\s+.*\b(?:unlink|rmtree|remove_tree|rm\s+-rf|shred)\b`),
+	},
+	{
+		reason: "uses a Python one-liner for destructive filesystem changes",
+		re:     regexp.MustCompile(`(?is)\bpython3?\b.*\s-c\s+.*\b(?:shutil\.rmtree|os\.(?:remove|unlink)|rm\s+-rf|shred)\b`),
+	},
+}
+
 // NewGatekeeper creates a new Gatekeeper with all three tiers.
 func NewGatekeeper(
 	l0 *l0_rules.Engine,
@@ -78,6 +112,60 @@ func NewGatekeeper(
 		l1Enabled: options.L1Enabled,
 		failOpen:  options.FailOpen,
 	}
+}
+
+func deterministicL2Reason(command string) (string, bool) {
+	for _, pattern := range deterministicL2Patterns {
+		if pattern.re.MatchString(command) {
+			return pattern.reason, true
+		}
+	}
+	return "", false
+}
+
+func hardenL1Result(command string, l1 *clawless.L1Result) *clawless.L1Result {
+	if l1 == nil {
+		return &clawless.L1Result{
+			Score:  0.8,
+			Level:  "high",
+			Reason: "L1 returned no result, requiring L2 authorization",
+		}
+	}
+
+	hardened := *l1
+	switch hardened.Level {
+	case "low", "medium", "high", "critical":
+	default:
+		hardened.Score = maxFloat(hardened.Score, 0.8)
+		hardened.Level = "high"
+		hardened.Reason = appendL1Reason(
+			fmt.Sprintf("unknown L1 level %q, requiring L2 authorization", l1.Level),
+			l1.Reason,
+		)
+	}
+
+	if reason, ok := deterministicL2Reason(command); ok && hardened.Level != "high" && hardened.Level != "critical" {
+		hardened.Score = maxFloat(hardened.Score, 0.8)
+		hardened.Level = "high"
+		hardened.Reason = appendL1Reason("deterministic L2 risk: "+reason, l1.Reason)
+	}
+
+	return &hardened
+}
+
+func appendL1Reason(prefix, existing string) string {
+	existing = strings.TrimSpace(existing)
+	if existing == "" {
+		return prefix
+	}
+	return prefix + "; L1: " + existing
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // Audit runs the full three-tier review pipeline.
@@ -148,6 +236,7 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 		l1Result = &clawless.L1Result{Score: 0.3, Level: "medium", Reason: "scoring error, fail_open=true"}
 	}
 
+	l1Result = hardenL1Result(task.Command, l1Result)
 	result.L1Result = l1Result
 	logs = append(logs, result.ReviewLog("L1", l1ScoreToFloat(l1Result), l1Action(l1Result), l1Result.Reason))
 
@@ -191,10 +280,12 @@ func (g *Gatekeeper) Audit(ctx context.Context, task *clawless.Task, sessionSumm
 		return g.requestL2Auth(task, l1Result, result, logs), logs
 
 	default:
-		// Unknown level → treat as medium
-		result.Decision = DecisionAllowed
-		result.Reason = "L1: unknown risk level, defaulting to allow"
-		return result, logs
+		// hardenL1Result converts unknown levels to high. Keep this branch
+		// defensive in case new levels are introduced without updating it.
+		l1Result.Level = "high"
+		l1Result.Score = maxFloat(l1Result.Score, 0.8)
+		l1Result.Reason = appendL1Reason("unknown L1 level, requiring L2 authorization", l1Result.Reason)
+		return g.requestL2Auth(task, l1Result, result, logs), logs
 	}
 }
 
@@ -399,19 +490,10 @@ func (g *Gatekeeper) runL1Batch(
 }
 
 // applyL1Result updates the per-cmd result with the L1 decision and (for
-// medium/high/critical) the corresponding observability event. Missing L1
-// results default to allow with reason "l1_missing_index".
+// medium/high/critical) the corresponding observability event. Missing,
+// unknown, or deterministically risky L1 results require L2 authorization.
 func (g *Gatekeeper) applyL1Result(taskID, command string, r *ReviewResult, l1 *clawless.L1Result) {
-	if l1 == nil {
-		r.L1Result = &clawless.L1Result{
-			Level:  "low",
-			Reason: "l1_missing_index",
-		}
-		r.Decision = DecisionAllowed
-		r.Reason = "L1: missing index, defaulting to allow"
-		return
-	}
-
+	l1 = hardenL1Result(command, l1)
 	r.L1Result = l1
 
 	switch l1.Level {
@@ -433,8 +515,9 @@ func (g *Gatekeeper) applyL1Result(taskID, command string, r *ReviewResult, l1 *
 		// Decision/Reason are filled in by the L2 step; leave the result
 		// in a "needs L2" state for the L2 step to finalize.
 	default:
-		r.Decision = DecisionAllowed
-		r.Reason = "L1: unknown risk level, defaulting to allow"
+		l1.Level = "high"
+		l1.Score = maxFloat(l1.Score, 0.8)
+		l1.Reason = appendL1Reason("unknown L1 level, requiring L2 authorization", l1.Reason)
 	}
 }
 

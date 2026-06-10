@@ -236,8 +236,6 @@ type l1BatchItem struct {
 	Reason string `json:"reason"`
 }
 
-const batchPromptCommandCap = 256
-
 func buildBatchPrompt(commands []string, sessionSummary string) string {
 	var sb strings.Builder
 	sb.WriteString("You are a security scorer. Score each command for risk (allow|low|medium|high|block).\n")
@@ -250,11 +248,7 @@ func buildBatchPrompt(commands []string, sessionSummary string) string {
 	}
 	sb.WriteString("\nCommands:\n")
 	for i, cmd := range commands {
-		truncated := cmd
-		if len(truncated) > batchPromptCommandCap {
-			truncated = truncated[:batchPromptCommandCap] + "... [truncated]"
-		}
-		sb.WriteString(fmt.Sprintf("[%d] %s\n", i, truncated))
+		sb.WriteString(fmt.Sprintf("[%d] %s\n", i, cmd))
 	}
 	return sb.String()
 }

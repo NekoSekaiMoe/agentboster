@@ -86,3 +86,84 @@ func TestGatekeeperL1UnavailableRequiresL2(t *testing.T) {
 		t.Fatalf("expected pending confirmation, got %s (%s)", result.Decision, result.Reason)
 	}
 }
+
+func TestGatekeeperDeterministicRiskRequiresL2WhenL1Low(t *testing.T) {
+	engine := l0_rules.NewEngine()
+	if err := engine.Reload(nil); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	gk := NewGatekeeper(
+		engine,
+		mockL1Scorer{result: &clawless.L1Result{Score: 0.1, Level: "low", Reason: "looks safe"}},
+		l2_auth.NewL2AuthManager(nil, "default"),
+		eventbus.New(),
+		"default",
+		GatekeeperOptions{L1Enabled: true, FailOpen: false},
+	)
+
+	result, _ := gk.Audit(context.Background(), &clawless.Task{
+		ID:        "task-3",
+		SessionID: "session-1",
+		Command:   `find . -type f -exec shred {} \;`,
+		Roles:     []string{"user"},
+	}, "")
+
+	if result.Decision != DecisionPendingConfirm {
+		t.Fatalf("expected pending confirmation, got %s (%s)", result.Decision, result.Reason)
+	}
+	if result.L1Result == nil || result.L1Result.Level != "high" {
+		t.Fatalf("expected hardened high L1 result, got %#v", result.L1Result)
+	}
+}
+
+func TestGatekeeperUnknownL1LevelRequiresL2(t *testing.T) {
+	engine := l0_rules.NewEngine()
+	if err := engine.Reload(nil); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	gk := NewGatekeeper(
+		engine,
+		mockL1Scorer{result: &clawless.L1Result{Score: 0.1, Level: "allow", Reason: "unexpected vocabulary"}},
+		l2_auth.NewL2AuthManager(nil, "default"),
+		eventbus.New(),
+		"default",
+		GatekeeperOptions{L1Enabled: true, FailOpen: false},
+	)
+
+	result, _ := gk.Audit(context.Background(), &clawless.Task{
+		ID:        "task-4",
+		SessionID: "session-1",
+		Command:   "echo hello",
+		Roles:     []string{"user"},
+	}, "")
+
+	if result.Decision != DecisionPendingConfirm {
+		t.Fatalf("expected pending confirmation, got %s (%s)", result.Decision, result.Reason)
+	}
+}
+
+func TestAuditBatchMissingL1ResultRequiresL2(t *testing.T) {
+	engine := l0_rules.NewEngine()
+	if err := engine.Reload(nil); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	gk := NewGatekeeper(
+		engine,
+		mockL1Scorer{result: nil},
+		l2_auth.NewL2AuthManager(nil, "default"),
+		eventbus.New(),
+		"default",
+		GatekeeperOptions{L1Enabled: true, FailOpen: false},
+	)
+
+	results := gk.AuditBatch(context.Background(), "session-1", "", "", []string{"echo hello"})
+	if len(results) != 1 {
+		t.Fatalf("expected one result, got %d", len(results))
+	}
+	if results[0].Decision != DecisionPendingConfirm {
+		t.Fatalf("expected pending confirmation, got %s (%s)", results[0].Decision, results[0].Reason)
+	}
+}
