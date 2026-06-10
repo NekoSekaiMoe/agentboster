@@ -46,6 +46,36 @@ export function isClawHubSkillDetail(
   );
 }
 
+export function getSkillFamilyLabel(input: {
+  isClawHub?: boolean;
+  sourceType: SkillSourceType;
+}): string {
+  if (input.sourceType === 'clawhub' || input.isClawHub) {
+    return 'ClawHub skill';
+  }
+
+  return 'Agent skill';
+}
+
+export function getSkillSourceLabel(input: {
+  isClawHub?: boolean;
+  sourceType: SkillSourceType;
+}): string {
+  if (input.sourceType === 'clawhub') {
+    return 'ClawHub registry';
+  }
+
+  if (input.isClawHub) {
+    return 'ClawHub-compatible Git';
+  }
+
+  if (input.sourceType === 'git') {
+    return 'Git agent skill';
+  }
+
+  return 'Manual agent skill';
+}
+
 export function getSkillEntrypointPath(
   detail: Pick<SkillDetail, 'files' | 'frontmatter'>,
 ): string | null {
@@ -71,6 +101,7 @@ export const skillMetaSchema = z.object({
   description: z.string().default(''),
   sourceType: skillSourceTypeSchema,
   gitURL: z.string().default(''),
+  isClawHub: z.boolean().default(false),
   updatedAt: z.number().int().nonnegative().default(0),
   fileCount: z.number().int().nonnegative().default(0),
 });
@@ -129,6 +160,7 @@ export function toSkillMeta(detail: SkillDetail): SkillMeta {
     description: detail.description,
     sourceType: detail.sourceType,
     gitURL: detail.gitURL,
+    isClawHub: detail.sourceType === 'clawhub' || isClawHubSkillDetail(detail),
     updatedAt: detail.updatedAt,
     fileCount: detail.files.length,
   };

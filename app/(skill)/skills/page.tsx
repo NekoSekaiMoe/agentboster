@@ -17,7 +17,9 @@ import {
   updateSkillFileAction,
 } from '@/app/(skill)/actions';
 import {
+  getSkillFamilyLabel,
   getSkillEntrypointPath,
+  getSkillSourceLabel,
   isClawHubSkillDetail,
   type SkillDetail,
   type SkillMeta,
@@ -378,6 +380,18 @@ export default function SkillsPage() {
   const selectedIsClawHub = selectedSkill
     ? isClawHubSkillDetail(selectedSkill)
     : false;
+  const selectedFamilyLabel = selectedSkill
+    ? getSkillFamilyLabel({
+        isClawHub: selectedIsClawHub,
+        sourceType: selectedSkill.sourceType,
+      })
+    : '';
+  const selectedSourceLabel = selectedSkill
+    ? getSkillSourceLabel({
+        isClawHub: selectedIsClawHub,
+        sourceType: selectedSkill.sourceType,
+      })
+    : '';
 
   return (
     <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
@@ -415,7 +429,7 @@ export default function SkillsPage() {
           <CardHeader>
             <p className="text-muted-foreground text-sm">
               Skills are a knowledge base owned by the Agent, you can add them
-              manually or from a Git repository.
+              as agent skills or import them from ClawHub.
             </p>
           </CardHeader>
         </Card>
@@ -462,7 +476,7 @@ export default function SkillsPage() {
                     ClawHub slug
                   </label>
                   <p className="text-muted-foreground text-xs">
-                    Imports from the public ClawHub registry. Version is
+                    Imports a ClawHub skill from the public registry. Version is
                     optional; latest is used when empty.
                   </p>
                 </div>
@@ -648,11 +662,11 @@ export default function SkillsPage() {
             )}
             <div className="flex flex-wrap gap-2 text-muted-foreground text-xs">
               <code className="rounded bg-muted px-2 py-1">
-                {selectedSkill.sourceType}
+                {selectedFamilyLabel}
               </code>
-              {selectedIsClawHub ? (
-                <code className="rounded bg-muted px-2 py-1">clawhub</code>
-              ) : null}
+              <code className="rounded bg-muted px-2 py-1">
+                {selectedSourceLabel}
+              </code>
               {selectedEntrypointPath ? (
                 <code className="rounded bg-muted px-2 py-1">
                   entry: {selectedEntrypointPath}
@@ -819,7 +833,18 @@ export default function SkillsPage() {
                         </p>
                       )}
                       <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground text-xs">
-                        <span>{skill.sourceType}</span>
+                        <span>
+                          {getSkillFamilyLabel({
+                            isClawHub: skill.isClawHub,
+                            sourceType: skill.sourceType,
+                          })}
+                        </span>
+                        <span>
+                          {getSkillSourceLabel({
+                            isClawHub: skill.isClawHub,
+                            sourceType: skill.sourceType,
+                          })}
+                        </span>
                         {skill.gitURL && (
                           <span className="max-w-48 truncate">
                             {skill.gitURL}

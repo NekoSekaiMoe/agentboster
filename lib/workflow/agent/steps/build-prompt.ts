@@ -7,6 +7,7 @@ import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import type { AppConfig } from '@/types/config';
 import type { BotLocale } from '@/types/config/language';
 import { BUILTIN_MEMORY_MAX_LENGTH } from '@/types/memory';
+import { getSkillFamilyLabel } from '@/types/skills';
 import { localeLabels } from '@/lib/i18n';
 import { DEFAULT_SYSTEM_PROMPT } from '../config';
 import { MAIN_AGENT_NAME } from '../utils/agent-config';
@@ -157,7 +158,8 @@ export async function buildSystemPrompt(
   }
 
   const skillsList = skills.map(
-    (skill) => `- \`${skill.name}\`: ${skill.description}`,
+    (skill) =>
+      `- [${getSkillFamilyLabel(skill)}] \`${skill.name}\`: ${skill.description}`,
   );
 
   const mcpSubsection = await buildMCPSubsection();
