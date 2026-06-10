@@ -24,6 +24,8 @@ const (
 	cleanupInterval = 30 * time.Second
 )
 
+var sessionLifetimeExpiry = time.Date(9999, time.December, 31, 23, 59, 59, 0, time.UTC)
+
 var durationRe = regexp.MustCompile(`^(always|\d{8})$`)
 
 var commandReviewRiskPatterns = []*regexp.Regexp{
@@ -147,7 +149,7 @@ func (m *L2AuthManager) RememberPendingTask(task *clawless.Task) {
 //
 // Duration values:
 //   - "once" → don't write to cache (just return)
-//   - "always" → write cache with far-future expiry
+//   - "always" → write a session-lifetime cache entry
 //   - "hhddmmyy" → parse and write cache with computed TTL
 func (m *L2AuthManager) Authorize(pattern string, duration string) error {
 	return m.authorizeWithKey(CacheKey{
@@ -194,7 +196,7 @@ func (m *L2AuthManager) authorizeWithKey(cacheKey CacheKey, pattern string, dura
 
 	var expiresAt time.Time
 	if duration == "always" {
-		expiresAt = time.Now().Add(ttlForUserType(cacheKey.UserType))
+		expiresAt = sessionLifetimeExpiry
 	} else {
 		ttl, err := ParseDuration(duration)
 		if err != nil {
@@ -223,24 +225,11 @@ func (m *L2AuthManager) authorizeWithKey(cacheKey CacheKey, pattern string, dura
 	return nil
 }
 
-func ttlForUserType(userType usertype.UserType) time.Duration {
-	switch userType {
-	case usertype.Root:
-		return 30 * time.Minute
-	case usertype.Admin:
-		return 2 * time.Hour
-	case usertype.User:
-		return 3 * time.Hour
-	default:
-		return 4 * time.Hour
-	}
-}
-
 // Reject records a reject authorization decision for the given pattern and duration.
 //
 // Duration values:
 //   - "once" → don't write to cache (just return)
-//   - "always" → write cache with far-future expiry
+//   - "always" → write a session-lifetime cache entry
 //   - "hhddmmyy" → parse and write cache with computed TTL
 func (m *L2AuthManager) Reject(pattern string, duration string) error {
 	return m.authorizeWithKey(CacheKey{
@@ -278,12 +267,21 @@ func (m *L2AuthManager) Revoke(pattern string) {
 func (m *L2AuthManager) ClearSession(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	removedEntries := 0
 	for key, entry := range m.entries {
 		if entry.SessionID == sessionID {
 			delete(m.entries, key)
+			removedEntries++
 		}
 	}
-	slog.Info("L2 session cleared", "session_id", sessionID)
+	removedPending := 0
+	for taskID, cacheKey := range m.pending {
+		if cacheKey.SessionID == sessionID {
+			delete(m.pending, taskID)
+			removedPending++
+		}
+	}
+	slog.Info("L2 session cleared", "session_id", sessionID, "entries", removedEntries, "pending", removedPending)
 }
 
 // ExpireStale removes expired entries and writes review logs for each.

@@ -693,6 +693,8 @@ func (d *Dispatcher) handleSessionClosed(e eventbus.Event) {
 		return
 	}
 
+	d.l2Mgr.ClearSession(sessionID)
+
 	// Clean up session from store
 	if err := d.agentManager.GetSessionStore().Delete(sessionID); err != nil {
 		slog.Warn("failed to delete session from store", "session_id", sessionID, "error", err)
@@ -723,6 +725,8 @@ func (d *Dispatcher) handleSessionArchived(e eventbus.Event) {
 		slog.Warn("session archived event missing session_id")
 		return
 	}
+
+	d.l2Mgr.ClearSession(sessionID)
 
 	// Keep session JSON but mark as archived (handled by session store if needed)
 	// Release sandbox resources

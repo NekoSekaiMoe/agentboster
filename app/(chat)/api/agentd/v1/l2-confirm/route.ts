@@ -132,11 +132,11 @@ export async function POST(request: Request) {
       }
 
       // Calculate expiry
-      let expiresAt: Date;
+      let expiresAt: Date | null;
       let windowLabel: string;
 
       if (timeInput === 'always') {
-        expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        expiresAt = null;
         windowLabel = '本次会话内';
       } else {
         const hh = Number.parseInt(timeInput.slice(0, 2), 10);
@@ -156,25 +156,31 @@ export async function POST(request: Request) {
 
       // Store authorization in KV
       const authKey = `l2:auth:${taskId}:${chatId}`;
-      await kv.set(
-        authKey,
-        JSON.stringify({
-          action: action === 'pass_until' ? 'pass' : 'reject',
-          taskId,
-          decisionId,
-          chatId,
-          userId,
-          expiresAt: expiresAt.toISOString(),
-          decidedAt: new Date().toISOString(),
-        }),
-        { ex: Math.floor((expiresAt.getTime() - Date.now()) / 1000) },
-      );
+      const authValue = JSON.stringify({
+        action: action === 'pass_until' ? 'pass' : 'reject',
+        taskId,
+        decisionId,
+        chatId,
+        userId,
+        window: timeInput === 'always' ? 'session' : 'duration',
+        expiresAt: expiresAt?.toISOString() ?? null,
+        decidedAt: new Date().toISOString(),
+      });
+      if (expiresAt) {
+        await kv.set(authKey, authValue, {
+          ex: Math.floor((expiresAt.getTime() - Date.now()) / 1000),
+        });
+      } else {
+        await kv.set(authKey, authValue);
+      }
 
       await mgr.markDecisionProcessed(decisionId);
 
       const isPass = action === 'pass_until';
       const emoji = isPass ? '✅' : '🔕';
       const verb = isPass ? '放行' : '拒绝';
+      const scopeLabel =
+        timeInput === 'always' ? windowLabel : `未来 ${windowLabel}`;
 
       if (isPass) {
         await updateTaskStatus(
@@ -195,8 +201,8 @@ export async function POST(request: Request) {
         data: {
           taskId,
           decision: action,
-          expiresAt: expiresAt.toISOString(),
-          message: `${emoji} 已${verb}至 ${windowLabel}。${isPass ? '在此之前同类操作将自动放行，不再询问。' : '在此之前同类操作将自动拒绝，不再通知。'}`,
+          expiresAt: expiresAt?.toISOString() ?? null,
+          message: `${emoji} 已${verb}，${scopeLabel}同类操作将自动${verb}。`,
         },
       });
     }
