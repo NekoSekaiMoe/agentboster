@@ -1,4 +1,3 @@
-import { TmpfsSandboxProvider } from './tmpfs';
 import type {
   ISandboxManager,
   ISandboxProvider,
@@ -17,7 +16,7 @@ export class SandboxManager implements ISandboxManager {
   private sandboxes = new Map<string, StoredSandbox>();
   private defaultType: SandboxType;
 
-  constructor(defaultType: SandboxType = 'tmpfs') {
+  constructor(defaultType: SandboxType = 'docker') {
     this.defaultType = defaultType;
   }
 
@@ -85,20 +84,19 @@ export class SandboxManager implements ISandboxManager {
     riskLevel?: 'low' | 'medium' | 'high';
     persist?: boolean;
   }): SandboxType {
-    if (task.riskLevel === 'high') return 'docker';
-    if (task.persist) return 'chroot';
-    if (task.riskLevel === 'medium') return 'chroot';
+    if (task.riskLevel === 'high') return 'docker-strict';
+    if (task.persist) return 'lxc';
+    if (task.riskLevel === 'medium') return 'lxc';
     return this.defaultType;
   }
 
   private createProvider(type: SandboxType): ISandboxProvider {
     switch (type) {
-      case 'tmpfs':
-        return new TmpfsSandboxProvider();
       case 'docker':
-      case 'chroot':
+      case 'docker-strict':
+      case 'lxc':
         throw new Error(
-          `Sandbox provider "${type}" is not yet implemented. Use "tmpfs" for now.`,
+          `Sandbox provider "${type}" is handled by Agent Daemon and is not implemented in the web-side sandbox manager.`,
         );
       default: {
         const unsupported: never = type;

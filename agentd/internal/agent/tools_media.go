@@ -112,14 +112,13 @@ func saveMediaFile(sbMgr *sandbox.Manager, sandboxID, workspacePath, filename, c
 	safeName := sanitizeMediaFilename(filename)
 	destPath := filepath.Join(catDir, safeName)
 
-	// For chroot/tmpfs, write directly. For docker, use exec.
+	// Docker-backed sandboxes need writes to go through the container.
 	sb, err := sbMgr.Status(sandboxID)
 	if err != nil {
 		return "", err
 	}
 
-	if sb.Type == "docker" {
-		// For docker, encode and use exec
+	if sandbox.IsDockerSandbox(sb.Type) {
 		encoded := base64Encode(data)
 		cmd := fmt.Sprintf("echo '%s' | base64 -d > /workspace/downloads/%s/%s", encoded, category, safeName)
 		result, execErr := sbMgr.Exec(sandboxID, cmd, nil, 30)
@@ -132,7 +131,7 @@ func saveMediaFile(sbMgr *sandbox.Manager, sandboxID, workspacePath, filename, c
 		return destPath, nil
 	}
 
-	// Direct write for chroot/tmpfs
+	// Direct write for host-backed persistent sandboxes.
 	if err := os.WriteFile(destPath, data, 0o640); err != nil {
 		return "", fmt.Errorf("write media file: %w", err)
 	}

@@ -131,7 +131,7 @@ const enUS = {
   'config.agentd.certificatesDescription':
     'Mutual TLS certificates for secure AgentBoster <-> Daemon communication.',
   'config.agentd.check': 'Check',
-  'config.agentd.chrootBaseDirectory': 'Chroot Base Directory',
+  'config.agentd.lxcRootfsBaseDirectory': 'LXC Rootfs Base Directory',
   'config.agentd.clusterDescription':
     'Agent Daemon nodes registered in this cluster. Tasks are automatically scheduled to the optimal node.',
   'config.agentd.clusterNodes': 'Cluster Nodes',
@@ -154,7 +154,7 @@ const enUS = {
   'config.agentd.sandboxDescription':
     'Configure sandbox providers and default selection.',
   'config.agentd.sandboxHelp':
-    'tmpfs: lightweight (default) · chroot: persistent · docker: high-risk isolation',
+    'docker: lightweight (default) · docker-strict: high-risk isolation · lxc: persistent containers',
   'config.agentd.sandboxSettings': 'Sandbox Settings',
   'config.agentd.saveError': 'Failed to save configuration',
   'config.agentd.saveSuccess': 'Configuration saved',
@@ -172,7 +172,7 @@ const enUS = {
     'Idle timeout (e.g. 30m, 1h). Expired sessions auto-cleaned.',
   'config.agentd.ttlExpiry':
     'TTL Expiry: CleanupWorker scans every 30s. Expired L2 authorizations are logged to review_logs.',
-  'config.agentd.tmpfsSize': 'Tmpfs Size',
+  'config.agentd.dockerWorkspaceSize': 'Docker Workspace Size',
   'config.agentd.useGenCerts':
     'Use `agentd -gen-certs` to generate certificates on the daemon server.',
   'config.agentd.uptime': 'Uptime:',
@@ -519,7 +519,7 @@ const zhCN = {
   'config.agentd.certificatesDescription':
     '用于 AgentBoster 与 Daemon 安全通信的双向 TLS 证书。',
   'config.agentd.check': '检查',
-  'config.agentd.chrootBaseDirectory': 'Chroot 基础目录',
+  'config.agentd.lxcRootfsBaseDirectory': 'LXC Rootfs 基础目录',
   'config.agentd.clusterDescription':
     '此集群中注册的 Agent Daemon 节点。任务会自动调度到最优节点。',
   'config.agentd.clusterNodes': '集群节点',
@@ -540,7 +540,7 @@ const zhCN = {
   'config.agentd.regenerateCertsSuccess': '证书已重新生成',
   'config.agentd.sandboxDescription': '配置沙箱提供方和默认选择。',
   'config.agentd.sandboxHelp':
-    'tmpfs：轻量（默认） · chroot：持久化 · docker：高风险隔离',
+    'docker：轻量（默认） · docker-strict：高风险隔离 · lxc：持久化容器',
   'config.agentd.sandboxSettings': '沙箱设置',
   'config.agentd.saveError': '保存配置失败',
   'config.agentd.saveSuccess': '配置已保存',
@@ -557,7 +557,7 @@ const zhCN = {
   'config.agentd.timeoutHelp': '空闲超时（例如 30m、1h）。过期会话会自动清理。',
   'config.agentd.ttlExpiry':
     'TTL 过期：CleanupWorker 每 30 秒扫描一次。过期的 L2 授权会写入 review_logs。',
-  'config.agentd.tmpfsSize': 'Tmpfs 大小',
+  'config.agentd.dockerWorkspaceSize': 'Docker 工作区大小',
   'config.agentd.useGenCerts':
     '在 daemon 服务器上使用 `agentd -gen-certs` 生成证书。',
   'config.agentd.uptime': '运行时间：',
@@ -888,7 +888,7 @@ const zhTW = {
   'config.agentd.certificatesDescription':
     '用於 AgentBoster 與 Daemon 安全通訊的雙向 TLS 憑證。',
   'config.agentd.check': '檢查',
-  'config.agentd.chrootBaseDirectory': 'Chroot 基礎目錄',
+  'config.agentd.lxcRootfsBaseDirectory': 'LXC Rootfs 基礎目錄',
   'config.agentd.clusterDescription':
     '此叢集中註冊的 Agent Daemon 節點。任務會自動排程到最佳節點。',
   'config.agentd.clusterNodes': '叢集節點',
@@ -909,7 +909,7 @@ const zhTW = {
   'config.agentd.regenerateCertsSuccess': '憑證已重新產生',
   'config.agentd.sandboxDescription': '設定沙箱提供方與預設選項。',
   'config.agentd.sandboxHelp':
-    'tmpfs：輕量（預設） · chroot：持久化 · docker：高風險隔離',
+    'docker：輕量（預設） · docker-strict：高風險隔離 · lxc：持久化容器',
   'config.agentd.sandboxSettings': '沙箱設定',
   'config.agentd.saveError': '儲存設定失敗',
   'config.agentd.saveSuccess': '設定已儲存',
@@ -926,7 +926,7 @@ const zhTW = {
   'config.agentd.timeoutHelp': '閒置逾時（例如 30m、1h）。過期對話會自動清理。',
   'config.agentd.ttlExpiry':
     'TTL 過期：CleanupWorker 每 30 秒掃描一次。過期的 L2 授權會寫入 review_logs。',
-  'config.agentd.tmpfsSize': 'Tmpfs 大小',
+  'config.agentd.dockerWorkspaceSize': 'Docker 工作區大小',
   'config.agentd.useGenCerts':
     '在 daemon 伺服器上使用 `agentd -gen-certs` 產生憑證。',
   'config.agentd.uptime': '執行時間：',
@@ -1295,7 +1295,7 @@ const ja = {
   'config.agentd.certificatesDescription':
     'AgentBoster と Daemon の安全な通信に使用する相互 TLS 証明書です。',
   'config.agentd.check': '確認',
-  'config.agentd.chrootBaseDirectory': 'Chroot ベースディレクトリ',
+  'config.agentd.lxcRootfsBaseDirectory': 'LXC Rootfs ベースディレクトリ',
   'config.agentd.clusterDescription':
     'このクラスターに登録された Agent Daemon ノードです。タスクは最適なノードへ自動的にスケジュールされます。',
   'config.agentd.clusterNodes': 'クラスターノード',
@@ -1318,7 +1318,7 @@ const ja = {
   'config.agentd.sandboxDescription':
     'サンドボックスプロバイダーと既定値を設定します。',
   'config.agentd.sandboxHelp':
-    'tmpfs: 軽量（既定） · chroot: 永続化 · docker: 高リスク分離',
+    'docker: 軽量（既定） · docker-strict: 高リスク分離 · lxc: 永続コンテナ',
   'config.agentd.sandboxSettings': 'サンドボックス設定',
   'config.agentd.saveError': '設定の保存に失敗しました',
   'config.agentd.saveSuccess': '設定を保存しました',
@@ -1337,7 +1337,7 @@ const ja = {
     'アイドルタイムアウト（例: 30m、1h）。期限切れセッションは自動でクリーンアップされます。',
   'config.agentd.ttlExpiry':
     'TTL 期限切れ: CleanupWorker は 30 秒ごとにスキャンします。期限切れの L2 承認は review_logs に記録されます。',
-  'config.agentd.tmpfsSize': 'Tmpfs サイズ',
+  'config.agentd.dockerWorkspaceSize': 'Docker ワークスペースサイズ',
   'config.agentd.useGenCerts':
     'daemon サーバーで `agentd -gen-certs` を使用して証明書を生成します。',
   'config.agentd.uptime': '稼働時間:',

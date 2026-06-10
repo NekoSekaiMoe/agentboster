@@ -7,4 +7,4 @@ export type {
   ISandboxManager,
 } from './types';
 export { SandboxManager } from './manager';
-export { TmpfsSandboxProvider } from './tmpfs';
+export { DockerLocalSandboxProvider } from './docker-local';

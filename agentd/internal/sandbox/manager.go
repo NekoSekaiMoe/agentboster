@@ -195,8 +195,15 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 
 func (m *Manager) prepareSpec(spec SandboxSpec) SandboxSpec {
 	spec.PermissionProfile = NormalizePermissionProfile(spec.PermissionProfile)
+	// Compatibility only: older Web/API callers may still send "tmpfs".
+	// New lightweight sandbox logic uses "docker".
 	if spec.Type == "" || spec.Type == "auto" || spec.Type == "tmpfs" {
 		spec.Type = "docker"
+	}
+	// Compatibility only: older Web/API callers may still send "chroot".
+	// New persistent sandbox logic uses "lxc".
+	if spec.Type == "chroot" {
+		spec.Type = "lxc"
 	}
 
 	switch spec.PermissionProfile {

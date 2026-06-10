@@ -571,7 +571,7 @@ export async function registerSandbox(data: {
     .insert(agentSandboxes)
     .values({
       agentId: data.agentId,
-      type: data.type as 'tmpfs' | 'chroot' | 'docker',
+      type: data.type as 'docker' | 'docker-strict' | 'lxc',
       path: data.path ?? null,
       status: 'creating',
       persistent: data.persistent ?? false,

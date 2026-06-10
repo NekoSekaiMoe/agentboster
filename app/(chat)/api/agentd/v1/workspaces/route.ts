@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       agentId: agent_id,
       name,
       sandboxId: sandbox_id,
-      sandboxType: sandbox_type ?? 'chroot',
+      sandboxType: sandbox_type ?? 'docker',
     });
 
     logger.info('workspace created', {

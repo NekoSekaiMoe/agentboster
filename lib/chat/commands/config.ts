@@ -24,7 +24,7 @@ const CONFIG_PATHS: Record<string, ConfigPathDef> = {
         defaultType: value,
       }),
     }),
-    display: (c) => c.sandbox?.defaultType ?? 'tmpfs',
+    display: (c) => c.sandbox?.defaultType ?? 'docker',
   },
   'autonomy.level': {
     schema: autonomyLevelEnum,

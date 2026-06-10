@@ -71,7 +71,7 @@ func RegisterNode(client *clawless.Client, nodeID string, cfg *config.Config, ve
 		"node_id":   nodeID,
 		"ip":        getNodeIP(),
 		"port":      getListenPort(cfg.Server.Listen),
-		"sandboxes": []string{"tmpfs", "chroot", "docker"},
+		"sandboxes": []string{"docker", "docker-strict", "lxc"},
 		"version":   version,
 	}
 

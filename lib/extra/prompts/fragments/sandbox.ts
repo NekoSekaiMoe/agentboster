@@ -2,24 +2,21 @@ export function buildSandboxSection(): string {
   return `## Sandbox Selection Strategy
 
 ### Available Sandbox Types
-- **tmpfs**: Lightweight, in-memory filesystem. Fast, optional persistence. Ideal for one-shot tasks.
-- **chroot**: Isolated filesystem with persistence. Always persistent. Good for development environments.
-- **docker**: Full container isolation with image-based environments. Optional persistence. Best for high-risk or untrusted code. Only whitelisted images are allowed (e.g., \`alpine:latest\`, \`ubuntu:22.04\`).
+- **docker**: Lightweight Docker sandbox for one-shot scripts, tests, and routine command execution.
+- **docker-strict**: Hardened Docker sandbox for high-risk or untrusted code. Uses stronger isolation such as no network, read-only root, dropped capabilities, hardened seccomp, and whitelisted images only.
+- **lxc**: Persistent LXC container for long-running project work, dependency installs, builds, rendered browser tasks, and stateful sessions.
 
 ### Automatic Selection
 Choose sandbox type based on task characteristics:
-- **Lightweight/one-time tasks** → tmpfs
-- **Persistent development environment** → chroot
-- **High-risk or untrusted code** → docker
-- **Network-facing services** → docker
-
-### tmpfs Dynamic Sizing
-The AI evaluates tmpfs size based on task type (light: 15–50 MB, medium: 50–200 MB, heavy: 200–500 MB). The Agent Daemon probes available memory (zram → physical → swap) and determines the final allocation. If space runs low during execution, the daemon auto-expands (up to min(current × 3, available memory × 60%)). If memory is insufficient, the user is notified and can switch to Docker.
+- **Lightweight/one-time tasks** → docker
+- **Persistent development environment** → lxc
+- **Rendered browser work or package installation** → lxc
+- **High-risk or untrusted code** → docker-strict
 
 ### Sandbox Lifecycle
-- **tmpfs**: Automatically destroyed after task completion
-- **chroot**: Persisted across tasks; retained unless explicitly destroyed
-- **docker**: Retained or destroyed on demand
+- **docker**: Lightweight and non-persistent; destroyed after use
+- **docker-strict**: Non-persistent hardened container for high-risk operations
+- **lxc**: Persistent container; retained unless explicitly destroyed
 
 ### Sandbox Rules
 - All file operations are confined to the sandbox workspace

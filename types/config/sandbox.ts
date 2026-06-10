@@ -1,11 +1,19 @@
 import { z } from 'zod';
 
-export const sandboxTypeEnum = z.enum(['tmpfs', 'docker', 'chroot']);
+const agentdSandboxTypeEnum = z.enum(['docker', 'docker-strict', 'lxc']);
+
+export const sandboxTypeEnum = z.preprocess((value) => {
+  // Compatibility only: older Web configs may still store tmpfs/chroot.
+  // New sandbox logic uses docker/docker-strict/lxc.
+  if (value === 'tmpfs') return 'docker';
+  if (value === 'chroot') return 'lxc';
+  return value;
+}, agentdSandboxTypeEnum);
 
 export type SandboxType = z.infer<typeof sandboxTypeEnum>;
 
 export const sandboxConfigSchema = z.object({
-  defaultType: sandboxTypeEnum.default('tmpfs'),
+  defaultType: sandboxTypeEnum.default('docker'),
   workspace: z
     .object({
       skillsDir: z.string().default('/workspace/skills'),

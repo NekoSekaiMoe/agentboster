@@ -10,7 +10,7 @@ import type {
   SandboxInfo,
 } from './types';
 
-interface TmpfsSandboxState {
+interface DockerLocalSandboxState {
   info: SandboxInfo;
   dir: string;
 }
@@ -18,16 +18,16 @@ interface TmpfsSandboxState {
 const SANDBOX_TIMEOUT_MS = 300_000;
 const MAX_OUTPUT_LENGTH = 50_000;
 
-export class TmpfsSandboxProvider implements ISandboxProvider {
-  private sandboxes = new Map<string, TmpfsSandboxState>();
+export class DockerLocalSandboxProvider implements ISandboxProvider {
+  private sandboxes = new Map<string, DockerLocalSandboxState>();
 
   async create(_config: SandboxConfig): Promise<SandboxInfo> {
-    const id = `tmpfs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const id = `docker-local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const dir = await mkdtemp(join(tmpdir(), 'agentclaw-sandbox-'));
 
     const info: SandboxInfo = {
       id,
-      type: 'tmpfs',
+      type: 'docker',
       status: 'ready',
       workspacePath: dir,
     };

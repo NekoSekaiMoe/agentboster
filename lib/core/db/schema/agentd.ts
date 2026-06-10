@@ -137,7 +137,7 @@ export const agentL0Rules = pgTable('agent_l0_rules', {
 export const agentSandboxes = pgTable('agent_sandboxes', {
   id: uuid('id').defaultRandom().primaryKey(),
   agentId: text('agent_id').notNull(),
-  type: text('type', { enum: ['tmpfs', 'chroot', 'docker'] }).notNull(),
+  type: text('type', { enum: ['docker', 'docker-strict', 'lxc'] }).notNull(),
   path: text('path'),
   status: text('status', { enum: ['creating', 'ready', 'destroyed'] })
     .default('creating')

@@ -10,22 +10,22 @@ import (
 )
 
 // Workspace subdirectories — standardized layout inspired by CyberGroupmate's workspace design.
-// Each sandbox type (chroot/tmpfs/docker) calls InitWorkspaceLayout after creating the base directory.
+// Each sandbox provider calls InitWorkspaceLayout after creating the base directory.
 const (
-	WorkspaceDir     = "workspace"
-	SkillsDir        = "workspace/skills"
-	DownloadsDir     = "workspace/downloads"
-	PhotosDir        = "workspace/downloads/photos"
-	VideosDir        = "workspace/downloads/videos"
-	DocumentsDir     = "workspace/downloads/documents"
-	MediaDir         = "workspace/media"
-	SessionsDir      = "workspace/sessions"
-	MemoryDir        = "workspace/memory"
-	OutputsDir       = "workspace/outputs"
-	ProjectsDir      = "workspace/projects"
-	BinDir           = "workspace/bin"
-	LocalDir         = "workspace/.local"
-	LocalBinDir      = "workspace/.local/bin"
+	WorkspaceDir = "workspace"
+	SkillsDir    = "workspace/skills"
+	DownloadsDir = "workspace/downloads"
+	PhotosDir    = "workspace/downloads/photos"
+	VideosDir    = "workspace/downloads/videos"
+	DocumentsDir = "workspace/downloads/documents"
+	MediaDir     = "workspace/media"
+	SessionsDir  = "workspace/sessions"
+	MemoryDir    = "workspace/memory"
+	OutputsDir   = "workspace/outputs"
+	ProjectsDir  = "workspace/projects"
+	BinDir       = "workspace/bin"
+	LocalDir     = "workspace/.local"
+	LocalBinDir  = "workspace/.local/bin"
 )
 
 // workspaceSubdirs is the full list of subdirectories to create inside the sandbox root.
@@ -58,8 +58,12 @@ func InitWorkspaceLayout(sandboxRoot string) error {
 // WorkspaceRoot returns the absolute path to the workspace directory
 // given a sandbox root path and sandbox type.
 func WorkspaceRoot(sandboxRoot, sandboxType string) string {
-	if sandboxType == "docker" {
+	if IsDockerSandbox(sandboxType) {
 		return "/" + WorkspaceDir
 	}
 	return filepath.Join(sandboxRoot, WorkspaceDir)
+}
+
+func IsDockerSandbox(sandboxType string) bool {
+	return sandboxType == "docker" || sandboxType == "docker-strict"
 }

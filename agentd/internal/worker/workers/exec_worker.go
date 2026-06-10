@@ -24,7 +24,6 @@ const (
 	maxExecTimeoutMs     = 600_000
 	maxOutputBytes       = 100 * 1024
 	truncationMarker     = "\n... [truncated at 100KB] ..."
-	providerTypeTmpfs    = "tmpfs"
 	providerTypeDocker   = "docker"
 	providerTypeLXC      = "lxc"
 )
@@ -309,15 +308,18 @@ func isProcessTimeout(err error) bool {
 }
 
 // resolveProviderType maps the public sandbox_type alias to the registered
-// provider name. "tmpfs" is the default alias for the docker light provider
-// (which mounts /workspace as a tmpfs). Unknown values pass through and let
+// provider name. Legacy values are accepted only for older Web UI/config
+// callers: "tmpfs" maps to the new lightweight "docker" logic, and "chroot"
+// maps to the new persistent "lxc" logic. Unknown values pass through and let
 // SelectProvider produce the "not registered" error.
 func resolveProviderType(sandboxType string) string {
 	switch sandboxType {
 	case "":
 		return providerTypeDocker
-	case providerTypeTmpfs:
+	case "tmpfs":
 		return providerTypeDocker
+	case "chroot":
+		return providerTypeLXC
 	default:
 		return sandboxType
 	}

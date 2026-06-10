@@ -1,9 +1,8 @@
-export type SandboxType = 'tmpfs' | 'docker' | 'chroot';
+export type SandboxType = 'docker' | 'docker-strict' | 'lxc';
 
 export interface SandboxConfig {
   type: SandboxType;
   image?: string;
-  chrootPath?: string;
   persist: boolean;
   resources?: {
     cpuLimit: string;

@@ -21,7 +21,16 @@ const l2AuthorizationWindowSchema = z.enum([
   'session',
 ]);
 
-const sandboxTypeSchema = z.enum(['tmpfs', 'docker', 'chroot']);
+const sandboxTypeSchema = z.preprocess(
+  (value) => {
+    // Compatibility only: older config files may still store tmpfs/chroot.
+    // New sandbox logic uses docker/docker-strict/lxc.
+    if (value === 'tmpfs') return 'docker';
+    if (value === 'chroot') return 'lxc';
+    return value;
+  },
+  z.enum(['docker', 'docker-strict', 'lxc']),
+);
 
 const dbProviderTypeSchema = z.literal('vercel-postgres');
 
@@ -49,20 +58,23 @@ export const agentBosterConfigSchema = z.object({
   }),
 
   sandbox: z.object({
-    defaultType: sandboxTypeSchema.default('tmpfs'),
+    defaultType: sandboxTypeSchema.default('docker'),
     docker: z
       .object({
         socketPath: z.string().default('/var/run/docker.sock'),
       })
       .optional(),
-    chroot: z
+    dockerStrict: z
       .object({
-        basePath: z.string().default('/var/sandbox/chroot'),
+        cpuLimit: z.string().default('1'),
+        memoryLimit: z.string().default('512M'),
       })
       .optional(),
-    tmpfs: z
+    lxc: z
       .object({
-        maxSize: z.string().default('512M'),
+        rootfsBase: z.string().default('/var/lib/agentd/lxc'),
+        distro: z.string().default('alpine'),
+        release: z.string().default('3.21'),
       })
       .optional(),
   }),
@@ -90,10 +102,10 @@ export const agentBosterConfigSchema = z.object({
     ssl: z.boolean().default(false),
   }),
 
-	memory: z.object({
-		provider: z.literal('vercel-kv').default('vercel-kv'),
-		connectionString: z.string().optional(),
-	}),
+  memory: z.object({
+    provider: z.literal('vercel-kv').default('vercel-kv'),
+    connectionString: z.string().optional(),
+  }),
 
   cron: z.object({
     pollers: z

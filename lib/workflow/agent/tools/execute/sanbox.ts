@@ -529,14 +529,14 @@ async function waitForSandboxApproval(input: {
 
 export default defineBuildInTool({
   id: 'sandbox',
-  description: `Run shell commands and read/write files inside a session-scoped sandbox. When Agent Daemon is online, tools are executed on Agent Daemon with full security review (L0/L1/L2) and sandbox management (tmpfs/chroot/docker). When Agent Daemon is offline, falls back to Vercel Sandbox with limited isolation.`,
+  description: `Run shell commands and read/write files inside a session-scoped sandbox. When Agent Daemon is online, tools are executed on Agent Daemon with full security review (L0/L1/L2) and sandbox management (docker/docker-strict/lxc). When Agent Daemon is offline, falls back to Vercel Sandbox with limited isolation.`,
   factory: async (_config, { sessionId, runId, appConfig }) => {
     const requiresApproval = appConfig.autonomy?.level === 'supervised';
 
     return {
       exec: tool({
         title: 'Execute Shell Command',
-        description: `Execute a shell command. Agent Daemon online → full security review + chroot/Docker sandbox. Agent Daemon offline → Vercel Sandbox (limited).`,
+        description: `Execute a shell command. Agent Daemon online → full security review + docker/docker-strict/lxc sandbox. Agent Daemon offline → Vercel Sandbox (limited).`,
         inputSchema: execInputSchema,
         execute: async (input, { toolCallId }) => {
           if (requiresApproval) {

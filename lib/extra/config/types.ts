@@ -34,8 +34,8 @@ export interface AgentBosterConfig {
   sandbox: {
     defaultType: SandboxType;
     docker?: { socketPath: string };
-    chroot?: { basePath: string };
-    tmpfs?: { maxSize: string };
+    dockerStrict?: { cpuLimit: string; memoryLimit: string };
+    lxc?: { rootfsBase: string; distro: string; release: string };
   };
   agents: { maxParallel: number; defaultTimeout: number };
   channels: {
@@ -46,7 +46,7 @@ export interface AgentBosterConfig {
   };
   auth: { jwtSecret: string; tokenExpiration: number };
   db: DBConfig;
-	memory: { provider: 'vercel-kv'; connectionString?: string };
+  memory: { provider: 'vercel-kv'; connectionString?: string };
   cron: { pollers: PollerConfig[] };
   daemon: { enabled: boolean; endpoints: DaemonConfig[] };
 }
@@ -75,10 +75,14 @@ export const DEFAULT_AGENT_BOSTER_CONFIG: AgentBosterConfig = {
     l2CachePath: '/tmp/agentd/l2_cache.json',
   },
   sandbox: {
-    defaultType: 'tmpfs',
+    defaultType: 'docker',
     docker: { socketPath: '/var/run/docker.sock' },
-    chroot: { basePath: '/var/sandbox/chroot' },
-    tmpfs: { maxSize: '512M' },
+    dockerStrict: { cpuLimit: '1', memoryLimit: '512M' },
+    lxc: {
+      rootfsBase: '/var/lib/agentd/lxc',
+      distro: 'alpine',
+      release: '3.21',
+    },
   },
   agents: {
     maxParallel: 4,
