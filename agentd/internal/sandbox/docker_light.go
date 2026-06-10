@@ -7,9 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -100,16 +98,11 @@ func (p *DockerLightProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 
 		// Seccomp profile
 		if policy.Seccomp != nil {
-			seccompJSON, err := policy.Seccomp.ToDockerJSON()
-			if err == nil {
-				seccompDir := "/tmp/agentd"
-				if err := os.MkdirAll(seccompDir, 0o755); err == nil {
-					seccompPath := filepath.Join(seccompDir, "seccomp-docker-light.json")
-					if err := os.WriteFile(seccompPath, seccompJSON, 0o644); err == nil {
-						args = append(args, "--security-opt", "seccomp="+seccompPath)
-					}
-				}
+			seccompPath, err := writeDockerSeccompProfile("docker-light", policy.Seccomp)
+			if err != nil {
+				return nil, fmt.Errorf("write docker light seccomp profile: %w", err)
 			}
+			args = append(args, "--security-opt", "seccomp="+seccompPath)
 		}
 
 		// Network isolation

@@ -44,9 +44,11 @@ high = 0.9
 [sandbox]
 # Default sandbox type: "docker" (light), "docker-strict", or "lxc" (persistent)
 default = "docker"
-docker_socket = "unix:///var/run/docker.sock"
-# For rootless Docker, set this to e.g. "unix:///run/user/1001/docker.sock"
-# and use the matching [security].run_as_user.
+# Prefer rootless Docker and use the matching [security].run_as_user.
+docker_socket = "unix:///run/user/1001/docker.sock"
+# Rootful Docker's /var/run/docker.sock is root-equivalent. To use it anyway,
+# set docker_socket = "unix:///var/run/docker.sock" and explicitly opt in:
+allow_rootful_docker = false
 # Docker light provider defaults
 docker_image = "alpine:edge"
 docker_default_cpu = 0.25

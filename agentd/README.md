@@ -35,7 +35,7 @@ syncs with the Web API.
 
 ## Version
 
-`0.5.0` — set in `cmd/agentd/main.go`. Bump it as part of any release that changes the HTTP
+`0.1.0` — set in `cmd/agentd/main.go`. Bump it as part of any release that changes the HTTP
 contract or the on-disk cache format.
 
 ---
@@ -56,8 +56,8 @@ Run with `go run` for development:
 sudo go run ./cmd/agentd/ -config agentd.toml
 ```
 
-There is no test suite in this directory yet (`internal/logging/handler_test.go` is the only
-existing test file). Verify changes with `go vet ./...` and `go build ./...`.
+Verify daemon changes with `go test ./...`. Use `go vet ./...` and `go build ./...` when
+you need broader static checks or build validation.
 
 ---
 
@@ -329,51 +329,7 @@ A `tidy_interval` ticker (default 168h = 7 days) publishes `EventTaskTidyTick` t
 
 ## Internal Layout
 
-```
-agentd/
-├── cmd/agentd/main.go            entry point, lifecycle, signal handling
-├── agentd.toml.example           annotated config template
-├── go.mod / go.sum
-└── internal/
-    ├── agent/                    CodeAct loop, tool registry, context compaction
-    │   ├── loop.go
-    │   ├── codeact.go
-    │   ├── context.go
-    │   ├── manager.go
-    │   ├── question.go
-    │   ├── tools.go, tools_register.go
-    │   └── tools_*.go            one file per tool family
-    ├── cache/                    local session blob with periodic sync + retry
-    ├── certs/                    `agentd -gen-certs` CA + server + client
-    ├── clawless/                 Web API client (REST) and L1 scorer client
-    ├── config/                   Viper-backed TOML loader, defaults, validation, mTLS
-    ├── eventbus/                 in-process pub/sub (bus + event types)
-    ├── identity/                 persistent node ID file
-    ├── lifecycle/                singleton lock, node registration, heartbeat
-    ├── logging/                  slog handler with `[module] [func:line]` formatting
-    ├── metrics/                  runtime metrics collector → /tmp/agentd/metrics.json
-    ├── persistence/              background task store, kvstore, task stream
-    ├── sandbox/                  docker, docker-strict, lxc providers, workspace,
-    │                             media, skills loader, availability checks
-    ├── security/
-    │   ├── gatekeeper.go         L0 → L1 → L2 orchestration, output audit
-    │   ├── privilege.go          DropPrivileges to run_as_user
-    │   ├── l0_rules/             regex engine + default presets (command/path/network/output)
-    │   ├── l2_auth/              L2 cache, notification formatter
-    │   └── os_enforce/           seccomp, capabilities, policy
-    ├── server/                   Gin HTTP routes + middleware (mTLS, API key, CORS, logger)
-    ├── session/                  session store, LRU eviction, sub-agent state
-    └── worker/
-        ├── pool.go               dynamic goroutine pool (Asika-style)
-        ├── dispatcher.go         event → pool routing
-        ├── writer.go             buffered output writer
-        └── workers/              per-event-type handlers
-            ├── task_worker.go
-            ├── review_worker.go
-            ├── sandbox_worker.go
-            ├── cleanup_worker.go
-            └── tidy_worker.go
-```
+The detailed package map lives in [LAYOUT.MD](LAYOUT.MD).
 
 ---
 
@@ -423,5 +379,6 @@ agentd/
 ## Related
 
 - [Root README](../README.md) — full platform architecture
+- [LAYOUT.MD](LAYOUT.MD) — internal package layout
 - [`agentd.toml.example`](agentd.toml.example) — annotated config template
 - [AgentBoster Web app](../app/) — the Next.js side that calls into this Daemon

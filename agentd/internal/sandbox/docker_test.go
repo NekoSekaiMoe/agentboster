@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/clawless/agentd/internal/security/os_enforce"
 )
 
 func TestDockerProviderCreateKeepsStrictTypeAndWorkspaceTmpfs(t *testing.T) {
@@ -26,7 +28,10 @@ echo fake-container-id
 	t.Setenv("AGENTD_TEST_DOCKER_ARGS", argsFile)
 
 	provider := NewDockerProvider("unix:///tmp/agentd-test-docker.sock", nil, 1, "512m")
-	sb, err := provider.Create(SandboxSpec{Type: "docker-strict"})
+	sb, err := provider.Create(SandboxSpec{
+		Type:           "docker-strict",
+		SecurityPolicy: &os_enforce.OSPolicy{Seccomp: os_enforce.DefaultHardened()},
+	})
 	if err != nil {
 		t.Fatalf("create strict docker sandbox: %v", err)
 	}
@@ -45,5 +50,8 @@ echo fake-container-id
 	}
 	if !strings.Contains(args, "-w\n/workspace\n") {
 		t.Fatalf("expected /workspace workdir, got args:\n%s", args)
+	}
+	if !strings.Contains(args, "--security-opt\nseccomp=") {
+		t.Fatalf("expected hardened seccomp profile, got args:\n%s", args)
 	}
 }

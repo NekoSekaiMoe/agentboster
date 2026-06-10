@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -85,21 +86,22 @@ type ToolsConfig struct {
 }
 
 type SandboxConfig struct {
-	Default          string   `mapstructure:"default" default:"docker"`
-	DockerSocket     string   `mapstructure:"docker_socket" default:"unix:///var/run/docker.sock"`
-	DockerImage      string   `mapstructure:"docker_image" default:"alpine:edge"`
-	DockerDefaultCPU float64  `mapstructure:"docker_default_cpu" default:"0.25"`
-	DockerDefaultMem string   `mapstructure:"docker_default_memory" default:"256m"`
-	DockerStrictCPU  float64  `mapstructure:"docker_strict_cpu" default:"1.0"`
-	DockerStrictMem  string   `mapstructure:"docker_strict_memory" default:"512m"`
-	LXCDistro        string   `mapstructure:"lxc_default_distro" default:"alpine"`
-	LXCRelease       string   `mapstructure:"lxc_default_release" default:"3.21"`
-	LXCRootfsBase    string   `mapstructure:"lxc_rootfs_base" default:"/var/lib/agentd/lxc"`
-	InitCommands     []string `mapstructure:"init_commands"`
-	AllowedImages    []string `mapstructure:"allowed_images"`
-	OSEnforce        bool     `mapstructure:"os_enforce" default:"true"`
-	SeccompPath      string   `mapstructure:"seccomp_profile_path"`
-	NetworkIsolate   bool     `mapstructure:"network_isolate" default:"true"`
+	Default            string   `mapstructure:"default" default:"docker"`
+	DockerSocket       string   `mapstructure:"docker_socket" default:"unix:///run/user/1001/docker.sock"`
+	DockerImage        string   `mapstructure:"docker_image" default:"alpine:edge"`
+	DockerDefaultCPU   float64  `mapstructure:"docker_default_cpu" default:"0.25"`
+	DockerDefaultMem   string   `mapstructure:"docker_default_memory" default:"256m"`
+	DockerStrictCPU    float64  `mapstructure:"docker_strict_cpu" default:"1.0"`
+	DockerStrictMem    string   `mapstructure:"docker_strict_memory" default:"512m"`
+	AllowRootfulDocker bool     `mapstructure:"allow_rootful_docker" default:"false"`
+	LXCDistro          string   `mapstructure:"lxc_default_distro" default:"alpine"`
+	LXCRelease         string   `mapstructure:"lxc_default_release" default:"3.21"`
+	LXCRootfsBase      string   `mapstructure:"lxc_rootfs_base" default:"/var/lib/agentd/lxc"`
+	InitCommands       []string `mapstructure:"init_commands"`
+	AllowedImages      []string `mapstructure:"allowed_images"`
+	OSEnforce          bool     `mapstructure:"os_enforce" default:"true"`
+	SeccompPath        string   `mapstructure:"seccomp_profile_path"`
+	NetworkIsolate     bool     `mapstructure:"network_isolate" default:"true"`
 }
 
 type CacheConfig struct {
@@ -227,6 +229,12 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("unknown security.l1_provider %q; set security.l1_enabled=false to disable L1", c.Security.L1Provider)
 		}
 	}
+	if strings.TrimSpace(c.Sandbox.DockerSocket) == "" {
+		return fmt.Errorf("sandbox.docker_socket is required; use rootless Docker (for example unix:///run/user/<uid>/docker.sock) or explicitly configure a rootful endpoint with sandbox.allow_rootful_docker=true")
+	}
+	if isPrivilegedDockerEndpoint(c.Sandbox.DockerSocket) && !c.Sandbox.AllowRootfulDocker {
+		return fmt.Errorf("sandbox.docker_socket %q is a privileged Docker control endpoint; use rootless Docker (for example unix:///run/user/<uid>/docker.sock) or set sandbox.allow_rootful_docker=true to explicitly accept root-equivalent risk", c.Sandbox.DockerSocket)
+	}
 	if c.Worker.ReviewPoolSize <= 0 {
 		c.Worker.ReviewPoolSize = runtime.NumCPU() * 4
 	}
@@ -279,6 +287,23 @@ func (c *Config) Validate() error {
 		c.Cache.RetryMaxAttempts = 5
 	}
 	return nil
+}
+
+func isPrivilegedDockerEndpoint(endpoint string) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(endpoint, "tcp://"),
+		strings.HasPrefix(endpoint, "http://"),
+		strings.HasPrefix(endpoint, "https://"):
+		return true
+	case strings.HasPrefix(endpoint, "unix://"):
+		endpoint = strings.TrimPrefix(endpoint, "unix://")
+	}
+	path := filepath.Clean(endpoint)
+	return path == "/var/run/docker.sock" || path == "/run/docker.sock"
 }
 
 // Load reads configuration from file and environment variables.

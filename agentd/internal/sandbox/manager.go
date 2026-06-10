@@ -208,8 +208,8 @@ func (m *Manager) prepareSpec(spec SandboxSpec) SandboxSpec {
 		spec.Persistent = true
 	}
 
-	// Inject OS enforcement policy if not already set and not docker-strict
-	if spec.SecurityPolicy == nil && m.policy != nil && spec.Type != "docker-strict" {
+	// Inject OS enforcement policy if not already set.
+	if spec.SecurityPolicy == nil && m.policy != nil {
 		spec.SecurityPolicy = cloneOSPolicy(m.policy)
 	}
 

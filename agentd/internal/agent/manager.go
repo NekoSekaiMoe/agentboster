@@ -689,14 +689,14 @@ func buildSystemPrompt(projectID, projectName, soulContent string) string {
 - File operations: Read and write files inside the sandbox
 - Web access: Use web_fetch/web_search for lightweight HTTP access. Use web_fetch_rendered/web_search_rendered for JavaScript-heavy pages or when the request must originate from the sandbox; rendered tools return text/HTML JSON only and auto-install Chromium through the sandbox package manager when missing.
 - Knowledge base search: Use knowledge_search for uploaded documents, project references, policies, API docs, or domain knowledge stored in AgentBoster. Use memory_search for user preferences and historical decisions instead.
-- Parallel sub-agents: Decompose complex tasks into sub-tasks and delegate to multiple sub-agents. Before using the subagent tool, infer file boundaries for each sub-agent. If two sub-agents might modify the same file, run them sequentially instead. Out-of-bounds operations are blocked by L0.
+- Parallel sub-agents: Use context-independent sub-agents for context-heavy sandbox work: repo-wide scans, large test/build matrices, multi-file investigations, or independent parallel edits. The parent agent must summarize only the needed context, assign explicit file boundaries, then call subagent_result and merge the summaries. Use direct sandbox tools for simple one-shot commands and tightly coupled edits. If two sub-agents might modify the same file, run them sequentially instead. Out-of-bounds operations are blocked by L0.
 - Persistent environments: LXC containers retain project dependencies across sessions
 
 ## Sandbox Selection Strategy
 - One-shot scripts or tests → docker (lightweight alpine:edge, --rm, low resource, destroyed after task)
 - Long-term project development → lxc (persistent filesystem, survives restart, cgroup CPU/memory limits)
 - Rendered web search, JavaScript page fetching, or headless browser work → lxc with package-manager access and network access enabled
-- Untrusted external code → docker-strict (strong isolation: --network none, --cap-drop ALL, --read-only, whitelisted images only)
+- Untrusted external code → docker-strict (strong isolation: --network none, --cap-drop ALL, hardened seccomp, --read-only, whitelisted images only)
 
 docker light uses configurable CPU/memory limits (default 0.25 CPU, 256MB). docker-strict only allows whitelisted images (e.g., ubuntu:22.04, alpine:latest, golang:1.22).
 
@@ -717,7 +717,7 @@ The user is the sole gatekeeper. L1 scoring is risk assessment only — it canno
 - You may only access /workspace and paths permitted by the sandbox.
 - You must not read the host's /etc, /sys, /proc.
 - You must not perform network scans or access unauthorized network services.
-- Any privilege escalation attempt will be blocked and logged.
+- Privilege-escalation attempts are screened by L0/L1/L2 and constrained by sandbox cap drops, seccomp, no-new-privileges, and namespace isolation. Blocked attempts are logged.
 
 ## Memory
 - After each task completes, call memory_save to extract key facts (project config, user preferences, historical decisions).

@@ -96,6 +96,14 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		"-w", "/workspace",
 	}
 
+	if spec.SecurityPolicy != nil && spec.SecurityPolicy.Seccomp != nil {
+		seccompPath, err := writeDockerSeccompProfile(fmt.Sprintf("docker-strict-%s", id), spec.SecurityPolicy.Seccomp)
+		if err != nil {
+			return nil, fmt.Errorf("write docker strict seccomp profile: %w", err)
+		}
+		args = append(args, "--security-opt", "seccomp="+seccompPath)
+	}
+
 	// Add environment variables
 	for k, v := range spec.Environment {
 		args = append(args, "-e", k+"="+v)
@@ -108,6 +116,15 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 			mountStr += ":ro"
 		}
 		args = append(args, "-v", mountStr)
+	}
+
+	if spec.SecurityPolicy != nil {
+		for _, mp := range spec.SecurityPolicy.MaskedPaths {
+			args = append(args, "-v", "/dev/null:"+mp+":ro")
+		}
+		for _, rp := range spec.SecurityPolicy.ReadonlyPaths {
+			args = append(args, "-v", rp+":"+rp+":ro")
+		}
 	}
 
 	// Create workspace directory structure inside the container

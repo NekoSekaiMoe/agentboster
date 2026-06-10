@@ -160,22 +160,8 @@ types/                   # TypeScript types (config/memory/skills/workflow)
 agentd/                  # Go 1.26 Daemon
 ├── cmd/agentd/main.go   #   入口
 ├── agentd.toml.example  #   示例配置
-└── internal/
-    ├── agent/           #   CodeAct loop、tools、context
-    ├── sandbox/         #   Providers: docker / docker-strict / lxc
-    ├── security/        #   L0 rules、L2 auth、OS enforcement
-    ├── session/         #   Session persistence、LRU、archiving
-    ├── worker/          #   Worker pool、dispatcher
-    ├── server/          #   Gin HTTP routes 与 middleware
-    ├── clawless/        #   Web API client
-    ├── config/          #   Viper config loading
-    ├── certs/           #   mTLS certificates
-    ├── cache/           #   Internal cache
-    ├── eventbus/        #   Internal event bus
-    ├── identity/        #   Daemon identity 与 pairing
-    ├── lifecycle/       #   Startup/shutdown orchestration
-    ├── metrics/         #   Runtime metrics
-    └── persistence/     #   Local state persistence
+├── README.md            #   Daemon usage and operations
+└── LAYOUT.MD            #   Detailed internal package layout
 ```
 
 ---
