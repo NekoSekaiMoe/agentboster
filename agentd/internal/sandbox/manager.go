@@ -16,6 +16,15 @@ import (
 	"github.com/clawless/agentd/internal/security/os_enforce"
 )
 
+const (
+	PermissionProfileDefault        = "default"
+	PermissionProfileStrict         = "strict"
+	PermissionProfileNetwork        = "network"
+	PermissionProfilePackageInstall = "package-install"
+	PermissionProfileBrowser        = "browser"
+	PermissionProfilePersistent     = "persistent"
+)
+
 // SandboxProvider is the interface for sandbox implementations.
 type SandboxProvider interface {
 	Create(spec SandboxSpec) (*Sandbox, error)
@@ -26,21 +35,22 @@ type SandboxProvider interface {
 
 // SandboxSpec defines how to create a sandbox.
 type SandboxSpec struct {
-	Type           string
-	AgentID        string
-	Persistent     bool     // true = LXC persistent container
-	Distro         string   // LXC distro (default: alpine)
-	Release        string   // LXC release (default: 3.21)
-	InitCommands   []string // LXC init commands after first boot
-	CPULimit       float64  // CPU cores limit (Docker: 0.25, LXC: 1.0)
-	MemoryLimit    int64    // Memory limit in bytes (Docker: 256MB, LXC: 512MB)
-	Image          string   // Docker image
-	Mounts         []Mount
-	Environment    map[string]string
-	WorkDir        string
-	SecurityLevel  string               // "light" (default) or "strict" (Docker only)
-	UserSpecified  bool                 // true if user explicitly specified sandbox type
-	SecurityPolicy *os_enforce.OSPolicy // OS-level enforcement (nil = skip)
+	Type              string
+	AgentID           string
+	Persistent        bool     // true = LXC persistent container
+	Distro            string   // LXC distro (default: alpine)
+	Release           string   // LXC release (default: 3.21)
+	InitCommands      []string // LXC init commands after first boot
+	CPULimit          float64  // CPU cores limit (Docker: 0.25, LXC: 1.0)
+	MemoryLimit       int64    // Memory limit in bytes (Docker: 256MB, LXC: 512MB)
+	Image             string   // Docker image
+	Mounts            []Mount
+	Environment       map[string]string
+	WorkDir           string
+	SecurityLevel     string               // "light" (default) or "strict" (Docker only)
+	PermissionProfile string               // fixed permission profile requested by the model
+	UserSpecified     bool                 // true if user explicitly specified sandbox type
+	SecurityPolicy    *os_enforce.OSPolicy // OS-level enforcement (nil = skip)
 }
 
 // Mount defines a bind mount.
@@ -163,13 +173,7 @@ func (m *Manager) Get(sandboxID string) (*Sandbox, bool) {
 
 // CreateSandbox creates a sandbox with the given spec.
 func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
-	// Inject OS enforcement policy if not already set and not docker-strict
-	if spec.SecurityPolicy == nil && m.policy != nil && spec.Type != "docker-strict" {
-		spec.SecurityPolicy = m.policy
-	}
-	if spec.Type == "lxc" && len(spec.InitCommands) == 0 && m.config != nil {
-		spec.InitCommands = append([]string(nil), m.config.Sandbox.InitCommands...)
-	}
+	spec = m.prepareSpec(spec)
 
 	provider, err := m.GetProvider(spec.Type)
 	if err != nil {
@@ -185,8 +189,76 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 	m.sandboxes[sb.ID] = sb
 	m.mu.Unlock()
 
-	slog.Info("sandbox created", "id", sb.ID, "type", sb.Type)
+	slog.Info("sandbox created", "id", sb.ID, "type", sb.Type, "permission_profile", spec.PermissionProfile)
 	return sb, nil
+}
+
+func (m *Manager) prepareSpec(spec SandboxSpec) SandboxSpec {
+	spec.PermissionProfile = NormalizePermissionProfile(spec.PermissionProfile)
+	if spec.Type == "" || spec.Type == "auto" || spec.Type == "tmpfs" {
+		spec.Type = "docker"
+	}
+
+	switch spec.PermissionProfile {
+	case PermissionProfileStrict:
+		spec.Type = "docker-strict"
+		spec.SecurityLevel = "strict"
+	case PermissionProfilePackageInstall, PermissionProfileBrowser, PermissionProfilePersistent:
+		spec.Type = "lxc"
+		spec.Persistent = true
+	}
+
+	// Inject OS enforcement policy if not already set and not docker-strict
+	if spec.SecurityPolicy == nil && m.policy != nil && spec.Type != "docker-strict" {
+		spec.SecurityPolicy = cloneOSPolicy(m.policy)
+	}
+
+	if spec.SecurityPolicy != nil {
+		switch spec.PermissionProfile {
+		case PermissionProfileNetwork, PermissionProfilePackageInstall, PermissionProfileBrowser:
+			spec.SecurityPolicy.NetworkNone = false
+		case PermissionProfileStrict:
+			spec.SecurityPolicy.NetworkNone = true
+		}
+	}
+
+	if spec.Type == "lxc" && len(spec.InitCommands) == 0 && m.config != nil {
+		spec.InitCommands = append([]string(nil), m.config.Sandbox.InitCommands...)
+	}
+	return spec
+}
+
+func NormalizePermissionProfile(profile string) string {
+	switch strings.TrimSpace(strings.ToLower(profile)) {
+	case "", PermissionProfileDefault:
+		return PermissionProfileDefault
+	case PermissionProfileStrict:
+		return PermissionProfileStrict
+	case PermissionProfileNetwork:
+		return PermissionProfileNetwork
+	case PermissionProfilePackageInstall, "package_install":
+		return PermissionProfilePackageInstall
+	case PermissionProfileBrowser:
+		return PermissionProfileBrowser
+	case PermissionProfilePersistent:
+		return PermissionProfilePersistent
+	default:
+		return PermissionProfileDefault
+	}
+}
+
+func cloneOSPolicy(policy *os_enforce.OSPolicy) *os_enforce.OSPolicy {
+	if policy == nil {
+		return nil
+	}
+	return &os_enforce.OSPolicy{
+		Seccomp:       policy.Seccomp,
+		CapDrop:       append([]string(nil), policy.CapDrop...),
+		CapKeep:       append([]string(nil), policy.CapKeep...),
+		MaskedPaths:   append([]string(nil), policy.MaskedPaths...),
+		ReadonlyPaths: append([]string(nil), policy.ReadonlyPaths...),
+		NetworkNone:   policy.NetworkNone,
+	}
 }
 
 // Exec executes a command in a sandbox.

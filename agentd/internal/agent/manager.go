@@ -700,6 +700,16 @@ func buildSystemPrompt(projectID, projectName, soulContent string) string {
 
 docker light uses configurable CPU/memory limits (default 0.25 CPU, 256MB). docker-strict only allows whitelisted images (e.g., ubuntu:22.04, alpine:latest, golang:1.22).
 
+## Permission Profiles
+When using exec_batch, you may request permission_profile per command. This is only a request; policy may clamp it or require L2 user authorization.
+- default: current sandbox or lightweight isolated Docker, no extra permission.
+- strict: strongest Docker isolation for untrusted or destructive code.
+- network: allow sandbox network access without host mounts or extra capabilities.
+- package-install: persistent LXC with network for dependency installation.
+- browser: persistent LXC with network for headless browser/rendered web work.
+- persistent: persistent LXC for long-lived project state.
+Never request raw Docker flags, host mounts, devices, privileged mode, host network, or Linux capabilities.
+
 ## User Control
 The user is the sole gatekeeper. L1 scoring is risk assessment only — it cannot make decisions on behalf of the user. High-risk operations require user confirmation. L1 is a general-purpose flash model, not a dedicated gatekeeper. There is no "handled by L1" option — decision authority always rests with the user.
 

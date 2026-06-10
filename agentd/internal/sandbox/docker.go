@@ -92,6 +92,8 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		"--cap-drop", "ALL", // Drop all capabilities
 		"--read-only",               // Read-only rootfs
 		"--tmpfs", "/tmp:size=256m", // Writable tmp
+		"--tmpfs", "/workspace:size=512m", // Writable workspace on read-only rootfs
+		"-w", "/workspace",
 	}
 
 	// Add environment variables
@@ -122,9 +124,14 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 
 	containerID := strings.TrimSpace(string(output))
 
+	sbType := spec.Type
+	if sbType == "" {
+		sbType = "docker-strict"
+	}
+
 	sb := &Sandbox{
 		ID:         id,
-		Type:       "docker",
+		Type:       sbType,
 		Path:       containerID,
 		Status:     "ready",
 		Persistent: false, // Docker sandboxes are not persistent by default

@@ -31,16 +31,17 @@ const (
 
 // execRequest is the payload shape for EventExecRequested.
 type execRequest struct {
-	BatchID          string            `json:"batch_id"`
-	ID               string            `json:"id"`
-	Index            int               `json:"index"`
-	Command          string            `json:"command"`
-	WorkDir          string            `json:"workdir"`
-	Env              map[string]string `json:"env"`
-	TimeoutMs        int               `json:"timeout_ms"`
-	SandboxType      string            `json:"sandbox_type"`
-	UseParentSandbox bool              `json:"use_parent_sandbox"`
-	SandboxID        string            `json:"sandbox_id"`
+	BatchID           string            `json:"batch_id"`
+	ID                string            `json:"id"`
+	Index             int               `json:"index"`
+	Command           string            `json:"command"`
+	WorkDir           string            `json:"workdir"`
+	Env               map[string]string `json:"env"`
+	TimeoutMs         int               `json:"timeout_ms"`
+	SandboxType       string            `json:"sandbox_type"`
+	PermissionProfile string            `json:"permission_profile"`
+	UseParentSandbox  bool              `json:"use_parent_sandbox"`
+	SandboxID         string            `json:"sandbox_id"`
 }
 
 // HandleExecCommand executes one command from an EventExecRequested event in
@@ -72,6 +73,7 @@ func HandleExecCommand(ctx context.Context, ev eventbus.Event, bus *eventbus.Bus
 		ownsSandbox  = false
 		sb           *sandbox.Sandbox
 		provider     sandbox.SandboxProvider
+		sandboxMgr   *sandbox.Manager
 	)
 	if req.ID == "" {
 		req.ID = fmt.Sprintf("%s:%d", req.BatchID, req.Index)
@@ -91,8 +93,14 @@ func HandleExecCommand(ctx context.Context, ev eventbus.Event, bus *eventbus.Bus
 				errMsg = fmt.Sprintf("panic: %v", r)
 			}
 		}
-		if sb != nil && ownsSandbox && provider != nil {
-			if derr := provider.Destroy(sb.ID); derr != nil {
+		if sb != nil && ownsSandbox {
+			var derr error
+			if sandboxMgr != nil {
+				derr = sandboxMgr.DestroySandbox(sb.ID)
+			} else if provider != nil {
+				derr = provider.Destroy(sb.ID)
+			}
+			if derr != nil {
 				slog.Warn("exec_worker: sandbox destroy failed",
 					slog.String("batch_id", req.BatchID),
 					slog.Int("index", req.Index),
@@ -163,17 +171,26 @@ func HandleExecCommand(ctx context.Context, ev eventbus.Event, bus *eventbus.Bus
 		}
 	} else {
 		providerType := resolveProviderType(req.SandboxType)
-		var perr error
-		provider, perr = sandbox.SelectProvider(providerType)
-		if perr != nil {
-			statusString = "error"
-			errMsg = perr.Error()
-			return nil
+		spec := sandbox.SandboxSpec{
+			Type:              providerType,
+			WorkDir:           req.WorkDir,
+			PermissionProfile: req.PermissionProfile,
 		}
-		created, cerr := provider.Create(sandbox.SandboxSpec{
-			Type:    providerType,
-			WorkDir: req.WorkDir,
-		})
+		var created *sandbox.Sandbox
+		var cerr error
+		if mgr := sandbox.DefaultManager(); mgr != nil {
+			sandboxMgr = mgr
+			created, cerr = mgr.CreateSandbox(spec)
+		} else {
+			var perr error
+			provider, perr = sandbox.SelectProvider(providerType)
+			if perr != nil {
+				statusString = "error"
+				errMsg = perr.Error()
+				return nil
+			}
+			created, cerr = provider.Create(spec)
+		}
 		if cerr != nil {
 			statusString = "error"
 			errMsg = fmt.Sprintf("create sandbox: %v", cerr)
@@ -181,6 +198,13 @@ func HandleExecCommand(ctx context.Context, ev eventbus.Event, bus *eventbus.Bus
 		}
 		sb = created
 		ownsSandbox = true
+		var perr error
+		provider, perr = sandbox.SelectProvider(sb.Type)
+		if perr != nil {
+			statusString = "error"
+			errMsg = perr.Error()
+			return nil
+		}
 	}
 
 	sbID = sb.ID
@@ -316,16 +340,17 @@ func parseExecRequest(payload any) (execRequest, bool) {
 		return *v, true
 	case map[string]any:
 		return execRequest{
-			BatchID:          stringFromMap(v, "batch_id"),
-			ID:               stringFromMap(v, "id"),
-			Index:            intFromMap(v, "index"),
-			Command:          stringFromMap(v, "command"),
-			WorkDir:          firstNonEmpty(stringFromMap(v, "workdir"), stringFromMap(v, "work_dir")),
-			Env:              stringMapFromMap(v, "env"),
-			TimeoutMs:        intFromMap(v, "timeout_ms"),
-			SandboxType:      firstNonEmpty(stringFromMap(v, "sandbox_type"), stringFromMap(v, "sandbox_hint")),
-			UseParentSandbox: boolFromMap(v, "use_parent_sandbox"),
-			SandboxID:        stringFromMap(v, "sandbox_id"),
+			BatchID:           stringFromMap(v, "batch_id"),
+			ID:                stringFromMap(v, "id"),
+			Index:             intFromMap(v, "index"),
+			Command:           stringFromMap(v, "command"),
+			WorkDir:           firstNonEmpty(stringFromMap(v, "workdir"), stringFromMap(v, "work_dir")),
+			Env:               stringMapFromMap(v, "env"),
+			TimeoutMs:         intFromMap(v, "timeout_ms"),
+			SandboxType:       firstNonEmpty(stringFromMap(v, "sandbox_type"), stringFromMap(v, "sandbox_hint")),
+			PermissionProfile: stringFromMap(v, "permission_profile"),
+			UseParentSandbox:  boolFromMap(v, "use_parent_sandbox"),
+			SandboxID:         stringFromMap(v, "sandbox_id"),
 		}, true
 	default:
 		raw, err := json.Marshal(v)
@@ -344,6 +369,11 @@ func parseExecRequest(payload any) (execRequest, bool) {
 		if req.SandboxType == "" {
 			if m, ok := payload.(map[string]any); ok {
 				req.SandboxType = firstNonEmpty(stringFromMap(m, "sandbox_hint"))
+			}
+		}
+		if req.PermissionProfile == "" {
+			if m, ok := payload.(map[string]any); ok {
+				req.PermissionProfile = stringFromMap(m, "permission_profile")
 			}
 		}
 		return req, true

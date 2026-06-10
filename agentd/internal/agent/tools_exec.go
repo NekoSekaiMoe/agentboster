@@ -27,13 +27,14 @@ const (
 // It is also the payload shape for `eventbus.EventExecRequested` once the
 // exec worker pool is wired in (Step 7).
 type ExecCommand struct {
-	ID               string            `json:"id,omitempty"`                 // ULID, set at submission
-	Command          string            `json:"command"`                      // shell command to execute
-	WorkDir          string            `json:"work_dir,omitempty"`           // working dir (relative to sandbox workspace)
-	Env              map[string]string `json:"env,omitempty"`                // extra env vars
-	TimeoutMs        int               `json:"timeout_ms,omitempty"`         // per-command timeout in ms
-	SandboxHint      string            `json:"sandbox_hint,omitempty"`       // "auto" | "docker" | "docker-strict" | "lxc" | "inherit"
-	UseParentSandbox bool              `json:"use_parent_sandbox,omitempty"` // true → reuse calling session's lxc container
+	ID                string            `json:"id,omitempty"`                 // ULID, set at submission
+	Command           string            `json:"command"`                      // shell command to execute
+	WorkDir           string            `json:"work_dir,omitempty"`           // working dir (relative to sandbox workspace)
+	Env               map[string]string `json:"env,omitempty"`                // extra env vars
+	TimeoutMs         int               `json:"timeout_ms,omitempty"`         // per-command timeout in ms
+	SandboxHint       string            `json:"sandbox_hint,omitempty"`       // "auto" | "docker" | "docker-strict" | "lxc" | "inherit"
+	PermissionProfile string            `json:"permission_profile,omitempty"` // "default" | "strict" | "network" | "package-install" | "browser" | "persistent"
+	UseParentSandbox  bool              `json:"use_parent_sandbox,omitempty"` // true → reuse calling session's lxc container
 }
 
 // ExecResult is the per-command result in a parallel exec_batch tool call.
@@ -307,7 +308,10 @@ func registerExecBatch(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agen
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"commands":   map[string]any{"type": "array", "description": "List of commands to execute in parallel (ExecCommand shape)"},
+				"commands": map[string]any{
+					"type":        "array",
+					"description": "List of commands to execute in parallel. Each command may set sandbox_hint (auto/docker/docker-strict/lxc/inherit) and permission_profile (default/strict/network/package-install/browser/persistent). Permission profiles are requests; policy may clamp or escalate them.",
+				},
 				"fail_fast":  map[string]any{"type": "boolean", "description": "Return as soon as the first command fails"},
 				"timeout_ms": map[string]any{"type": "integer", "description": "Per-command timeout fallback in ms"},
 				"work_dir":   map[string]any{"type": "string", "description": "Default working directory (relative to sandbox workspace)"},
@@ -362,16 +366,26 @@ func registerExecBatch(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agen
 			if cmd.WorkDir == "" {
 				cmd.WorkDir = params.WorkDir
 			}
+			reuseCurrentSandbox := cmd.UseParentSandbox ||
+				(cmd.SandboxHint == "" && cmd.PermissionProfile == "") ||
+				cmd.SandboxHint == "inherit"
+			sandboxID := ""
+			if reuseCurrentSandbox {
+				sandboxID = ctx.SandboxID
+			}
 
 			ctx.ExecBus.Publish(eventbus.EventExecRequested, map[string]any{
-				"batch_id":   batchID,
-				"id":         cmd.ID,
-				"index":      i,
-				"command":    cmd.Command,
-				"work_dir":   cmd.WorkDir,
-				"env":        cmd.Env,
-				"timeout_ms": cmd.TimeoutMs,
-				"sandbox_id": ctx.SandboxID,
+				"batch_id":           batchID,
+				"id":                 cmd.ID,
+				"index":              i,
+				"command":            cmd.Command,
+				"work_dir":           cmd.WorkDir,
+				"env":                cmd.Env,
+				"timeout_ms":         cmd.TimeoutMs,
+				"sandbox_hint":       cmd.SandboxHint,
+				"permission_profile": cmd.PermissionProfile,
+				"use_parent_sandbox": cmd.UseParentSandbox,
+				"sandbox_id":         sandboxID,
 			})
 		}
 
