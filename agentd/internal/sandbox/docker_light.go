@@ -151,7 +151,7 @@ func (p *DockerLightProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	initCmd := "mkdir -p /workspace/skills /workspace/downloads/photos /workspace/downloads/videos /workspace/downloads/documents /workspace/media /workspace/sessions /workspace/memory /workspace/outputs /workspace/projects /workspace/bin /workspace/.local/bin /workspace/tmp && tail -f /dev/null"
 	args = append(args, image, "sh", "-c", initCmd)
 
-	cmd := exec.Command("docker", args...)
+	cmd := dockerCommand(p.socket, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("docker run failed: %w (output: %s)", err, string(output))
@@ -194,9 +194,9 @@ func (p *DockerLightProvider) Exec(sandboxID, cmd string, env map[string]string,
 	if timeout > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		defer cancel()
-		execCmd = exec.CommandContext(ctx, "docker", dockerArgs...)
+		execCmd = dockerCommandContext(ctx, p.socket, dockerArgs...)
 	} else {
-		execCmd = exec.Command("docker", dockerArgs...)
+		execCmd = dockerCommand(p.socket, dockerArgs...)
 	}
 
 	start := time.Now()
@@ -231,7 +231,7 @@ func (p *DockerLightProvider) Destroy(sandboxID string) error {
 	delete(p.sandboxes, sandboxID)
 	p.mu.Unlock()
 
-	rmCmd := exec.Command("docker", "rm", "-f", sb.Path)
+	rmCmd := dockerCommand(p.socket, "rm", "-f", sb.Path)
 	if output, err := rmCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("docker rm failed: %w (output: %s)", err, string(output))
 	}
@@ -249,7 +249,7 @@ func (p *DockerLightProvider) Status(sandboxID string) (*Sandbox, error) {
 		return nil, fmt.Errorf("sandbox %q not found", sandboxID)
 	}
 
-	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", sb.Path)
+	cmd := dockerCommand(p.socket, "inspect", "--format", "{{.State.Status}}", sb.Path)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		sb.Status = "destroyed"

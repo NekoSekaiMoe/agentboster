@@ -44,6 +44,7 @@ export async function sendNotification(params: {
       title: payload.title,
       body: payload.body,
       command: payload.command,
+      commandReview: payload.commandReview,
       score: payload.score,
       reason: payload.reason,
       preferredChannel,

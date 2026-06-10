@@ -154,6 +154,7 @@ class NotificationManager {
     title: string;
     body: string;
     command: string;
+    commandReview?: string;
     score: number;
     reason: string;
     preferredChannel: string;
@@ -167,6 +168,7 @@ class NotificationManager {
       title,
       body,
       command,
+      commandReview,
       score,
       reason,
       preferredChannel,
@@ -190,6 +192,7 @@ class NotificationManager {
       title,
       body,
       command,
+      commandReview,
       score,
       reason,
       options: ['pass_once', 'pass_until', 'reject_once', 'reject_until'],

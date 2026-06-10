@@ -42,6 +42,7 @@ export interface DecisionNotification {
   title: string;
   body: string;
   command: string;
+  commandReview?: string;
   score: number;
   reason: string;
   options: L2Action[];

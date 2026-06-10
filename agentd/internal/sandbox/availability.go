@@ -21,7 +21,7 @@ func CheckDockerAvailable(socket string) error {
 		return fmt.Errorf("docker socket not accessible at %s: %w", socketPath, err)
 	}
 
-	cmd := exec.Command("docker", "info")
+	cmd := dockerCommand(socket, "info")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("docker info failed: %w (output: %s)", err, string(output))
@@ -31,8 +31,8 @@ func CheckDockerAvailable(socket string) error {
 }
 
 // PrePullDockerImage pulls a Docker image to warm up the cache.
-func PrePullDockerImage(image string) error {
-	cmd := exec.Command("docker", "pull", image)
+func PrePullDockerImage(socket string, image string) error {
+	cmd := dockerCommand(socket, "pull", image)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("docker pull %s failed: %w (output: %s)", image, err, string(output))

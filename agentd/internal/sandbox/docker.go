@@ -18,12 +18,12 @@ import (
 // DockerProvider implements SandboxProvider using Docker containers.
 // Used for high-risk commands requiring strong isolation (strict mode).
 type DockerProvider struct {
-	mu             sync.RWMutex
-	socket         string   // docker socket path
-	allowedImages  []string // image whitelist
-	defaultCPU     float64
-	defaultMem     string
-	sandboxes      map[string]*Sandbox
+	mu            sync.RWMutex
+	socket        string   // docker socket path
+	allowedImages []string // image whitelist
+	defaultCPU    float64
+	defaultMem    string
+	sandboxes     map[string]*Sandbox
 }
 
 // NewDockerProvider creates a new strict Docker sandbox provider.
@@ -84,14 +84,14 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	args := []string{
 		"run", "-d",
 		"--name", containerName,
-		"--network", "none",              // No network by default (strong isolation)
-		"--memory", mem,                  // Memory limit
+		"--network", "none", // No network by default (strong isolation)
+		"--memory", mem, // Memory limit
 		"--cpus", fmt.Sprintf("%.2f", cpu), // CPU limit
-		"--pids-limit", "128",            // Process limit
+		"--pids-limit", "128", // Process limit
 		"--security-opt", "no-new-privileges",
-		"--cap-drop", "ALL",              // Drop all capabilities
-		"--read-only",                    // Read-only rootfs
-		"--tmpfs", "/tmp:size=256m",     // Writable tmp
+		"--cap-drop", "ALL", // Drop all capabilities
+		"--read-only",               // Read-only rootfs
+		"--tmpfs", "/tmp:size=256m", // Writable tmp
 	}
 
 	// Add environment variables
@@ -114,7 +114,7 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	// Keep container running
 	args = append(args, image, "sh", "-c", workspaceInitCmd+" && tail -f /dev/null")
 
-	cmd := exec.Command("docker", args...)
+	cmd := dockerCommand(p.socket, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("docker run failed: %w (output: %s)", err, string(output))
@@ -163,12 +163,9 @@ func (p *DockerProvider) Exec(sandboxID, cmd string, env map[string]string, time
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 		defer cancel()
-		execCmd = exec.CommandContext(ctx, "timeout", append([]string{fmt.Sprintf("%ds", timeout)}, "docker")...)
-		// Rebuild: timeout <N> docker exec ...
-		execCmd = exec.CommandContext(ctx, "timeout", fmt.Sprintf("%ds", timeout), "docker")
-		execCmd.Args = append(execCmd.Args, dockerArgs...)
+		execCmd = dockerCommandContext(ctx, p.socket, dockerArgs...)
 	} else {
-		execCmd = exec.Command("docker", dockerArgs...)
+		execCmd = dockerCommand(p.socket, dockerArgs...)
 	}
 
 	start := time.Now()
@@ -206,13 +203,13 @@ func (p *DockerProvider) Destroy(sandboxID string) error {
 	p.mu.Unlock()
 
 	// Stop container
-	stopCmd := exec.Command("docker", "stop", sb.Path)
+	stopCmd := dockerCommand(p.socket, "stop", sb.Path)
 	if output, err := stopCmd.CombinedOutput(); err != nil {
 		slog.Warn("docker stop failed", "container", sb.Path, "error", err, "output", string(output))
 	}
 
 	// Remove container
-	rmCmd := exec.Command("docker", "rm", "-f", sb.Path)
+	rmCmd := dockerCommand(p.socket, "rm", "-f", sb.Path)
 	if output, err := rmCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("docker rm failed: %w (output: %s)", err, string(output))
 	}
@@ -230,7 +227,7 @@ func (p *DockerProvider) Status(sandboxID string) (*Sandbox, error) {
 		return nil, fmt.Errorf("sandbox %q not found", sandboxID)
 	}
 
-	cmd := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", sb.Path)
+	cmd := dockerCommand(p.socket, "inspect", "--format", "{{.State.Status}}", sb.Path)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		sb.Status = "destroyed"

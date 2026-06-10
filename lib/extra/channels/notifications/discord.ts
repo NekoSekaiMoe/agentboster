@@ -89,6 +89,9 @@ export class DiscordNotificationChannel implements NotificationChannel {
             description: [
               `任务：${payload.body}`,
               `命令：\`${payload.command}\``,
+              ...(payload.commandReview
+                ? [`命令审查：\n${payload.commandReview}`]
+                : []),
               `风险评分：${payload.score.toFixed(1)}/1.0`,
               `原因：${payload.reason}`,
               ``,

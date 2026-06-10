@@ -528,6 +528,10 @@ func (d *Dispatcher) handleL2AuthRequired(e eventbus.Event) {
 
 	taskID, _ := payload["task_id"].(string)
 	command, _ := payload["command"].(string)
+	commandReview, _ := payload["command_review"].(string)
+	if commandReview == "" {
+		commandReview, _ = payload["commandReview"].(string)
+	}
 	reason, _ := payload["reason"].(string)
 	level, _ := payload["level"].(string)
 	score, _ := payload["score"].(float64)
@@ -545,20 +549,22 @@ func (d *Dispatcher) handleL2AuthRequired(e eventbus.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	resp, err := d.clawless.SendNotification(ctx, map[string]any{
-		"type":       "decision",
-		"task_id":    taskID,
-		"taskId":     taskID,
-		"decisionId": decisionID,
-		"title":      "High-risk operation needs authorization",
-		"body":       command,
-		"command":    command,
-		"score":      score,
-		"reason":     reason,
-		"level":      level,
-		"source":     source,
-		"options":    []string{"pass_once", "pass_until", "reject_once", "reject_until"},
-		"expiresAt":  time.Now().Add(3 * time.Minute).Format(time.RFC3339),
-		"message":    payload["message"],
+		"type":           "decision",
+		"task_id":        taskID,
+		"taskId":         taskID,
+		"decisionId":     decisionID,
+		"title":          "High-risk operation needs authorization",
+		"body":           command,
+		"command":        command,
+		"commandReview":  commandReview,
+		"command_review": commandReview,
+		"score":          score,
+		"reason":         reason,
+		"level":          level,
+		"source":         source,
+		"options":        []string{"pass_once", "pass_until", "reject_once", "reject_until"},
+		"expiresAt":      time.Now().Add(3 * time.Minute).Format(time.RFC3339),
+		"message":        payload["message"],
 	})
 	if err != nil {
 		slog.Warn("L2 notification send failed", "task_id", taskID, "error", err)

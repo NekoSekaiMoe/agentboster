@@ -393,17 +393,23 @@ func (g *Gatekeeper) requestL2Auth(task *clawless.Task, l1Result *clawless.L1Res
 	g.l2.RememberPendingTask(task)
 	result.Decision = DecisionPendingConfirm
 	result.Reason = "L2: awaiting user authorization"
+	commandReview := l2_auth.FormatCommandReview(task.Command, l1Result.Score, l1Result.Reason, l1Result.Level)
+	message := l2_auth.FormatNotificationMessage(task.Command, l1Result.Score, l1Result.Reason, l1Result.Level)
+	if commandReview != "" {
+		message += "\n\n" + commandReview
+	}
 
 	g.bus.Publish(eventbus.EventL2AuthRequired, map[string]any{
-		"task_id": task.ID,
-		"command": task.Command,
-		"score":   l1Result.Score,
-		"reason":  l1Result.Reason,
-		"level":   l1Result.Level,
-		"task":    task,
-		"source":  task.Source,
-		"user_id": task.UserID,
-		"message": l2_auth.FormatNotificationMessage(task.Command, l1Result.Score, l1Result.Reason, l1Result.Level),
+		"task_id":        task.ID,
+		"command":        task.Command,
+		"command_review": commandReview,
+		"score":          l1Result.Score,
+		"reason":         l1Result.Reason,
+		"level":          l1Result.Level,
+		"task":           task,
+		"source":         task.Source,
+		"user_id":        task.UserID,
+		"message":        message,
 	})
 
 	return result
@@ -673,13 +679,19 @@ func (g *Gatekeeper) AuditBatch(ctx context.Context, sessionID, workDir, summary
 		}
 		r.Decision = DecisionPendingConfirm
 		r.Reason = "L2: awaiting user authorization"
+		commandReview := l2_auth.FormatCommandReview(commands[i], l1.Score, l1.Reason, l1.Level)
+		message := l2_auth.FormatNotificationMessage(commands[i], l1.Score, l1.Reason, l1.Level)
+		if commandReview != "" {
+			message += "\n\n" + commandReview
+		}
 		g.bus.Publish(eventbus.EventL2AuthRequired, map[string]any{
-			"task_id": r.TaskID,
-			"command": commands[i],
-			"score":   l1.Score,
-			"reason":  l1.Reason,
-			"level":   l1.Level,
-			"message": l2_auth.FormatNotificationMessage(commands[i], l1.Score, l1.Reason, l1.Level),
+			"task_id":        r.TaskID,
+			"command":        commands[i],
+			"command_review": commandReview,
+			"score":          l1.Score,
+			"reason":         l1.Reason,
+			"level":          l1.Level,
+			"message":        message,
 		})
 	}
 

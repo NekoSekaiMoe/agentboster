@@ -100,6 +100,9 @@ export class TelegramNotificationChannel implements NotificationChannel {
         ``,
         `任务：${this.escape(payload.body)}`,
         `命令：\`${this.escape(payload.command)}\``,
+        ...(payload.commandReview
+          ? [`命令审查：\n${this.escape(payload.commandReview)}`]
+          : []),
         `风险评分：${payload.score.toFixed(1)}/1.0`,
         `原因：${this.escape(payload.reason)}`,
         ``,

@@ -176,7 +176,7 @@ func main() {
 		slog.Warn("Docker not available, docker sandboxes will not work", "error", err)
 	} else {
 		slog.Info("Docker available, pre-pulling light image", "image", cfg.Sandbox.DockerImage)
-		if err := sandbox.PrePullDockerImage(cfg.Sandbox.DockerImage); err != nil {
+		if err := sandbox.PrePullDockerImage(cfg.Sandbox.DockerSocket, cfg.Sandbox.DockerImage); err != nil {
 			slog.Warn("Docker image pre-pull failed (will pull on demand)", "image", cfg.Sandbox.DockerImage, "error", err)
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,16 @@ const (
 )
 
 var durationRe = regexp.MustCompile(`^(always|\d{8})$`)
+
+var commandReviewRiskPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?is)\b(?:shred|mkfs|wipefs|fdisk)\b`),
+	regexp.MustCompile(`(?is)\bdd\b.*\bof=/dev/`),
+	regexp.MustCompile(`(?is)\brm\s+-[^\n]*[rf]`),
+	regexp.MustCompile(`(?is)\bfind\b.*\s-(?:delete|exec)\b`),
+	regexp.MustCompile(`(?is)\bxargs\b.*\b(?:rm|shred|dd|truncate|wipefs)\b`),
+	regexp.MustCompile(`(?is)\b(?:curl|wget)\b.*\|\s*(?:sh|bash)\b`),
+	regexp.MustCompile(`(?is)\b(?:sudo|su\s+-|chmod\s+777|chown\s+root)\b`),
+}
 
 // L2AuthEntry represents a cached authorization decision.
 type L2AuthEntry struct {
@@ -370,6 +381,115 @@ func (m *L2AuthManager) StartCleanupWithInterval(interval time.Duration) (stop f
 // EscalationTimeout returns the duration before an unconfirmed auth escalates.
 func (m *L2AuthManager) EscalationTimeout() time.Duration {
 	return m.escalation
+}
+
+// FormatCommandReview produces a compact diff-style preview for L2 prompts.
+// It is not an execution diff; it highlights command segments the user is
+// being asked to authorize before the command runs.
+func FormatCommandReview(command string, score float64, reason string, level string) string {
+	segments := splitCommandSegments(command)
+	if len(segments) == 0 {
+		segments = []string{strings.TrimSpace(command)}
+	}
+
+	var b strings.Builder
+	b.WriteString("Command diff preview:\n")
+	for i, segment := range segments {
+		if i >= 8 {
+			fmt.Fprintf(&b, "... %d more segment(s)\n", len(segments)-i)
+			break
+		}
+		prefix := "+"
+		if commandSegmentLooksRisky(segment) {
+			prefix = "!"
+		}
+		fmt.Fprintf(&b, "%s %s\n", prefix, truncateForReview(segment, 180))
+	}
+	fmt.Fprintf(&b, "! L2 level=%s score=%.1f\n", level, score)
+	if strings.TrimSpace(reason) != "" {
+		fmt.Fprintf(&b, "! Reason: %s\n", truncateForReview(reason, 260))
+	}
+	return truncateForReview(strings.TrimSpace(b.String()), 1600)
+}
+
+func splitCommandSegments(command string) []string {
+	var segments []string
+	var b strings.Builder
+	inSingle := false
+	inDouble := false
+	escaped := false
+
+	flush := func() {
+		segment := strings.TrimSpace(b.String())
+		if segment != "" {
+			segments = append(segments, segment)
+		}
+		b.Reset()
+	}
+
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		if escaped {
+			b.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			b.WriteByte(ch)
+			escaped = true
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			b.WriteByte(ch)
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			b.WriteByte(ch)
+			continue
+		}
+		if !inSingle && !inDouble {
+			switch ch {
+			case '\n', ';':
+				flush()
+				continue
+			case '&', '|':
+				if i+1 < len(command) && command[i+1] == ch {
+					flush()
+					i++
+					continue
+				}
+				if ch == '|' {
+					flush()
+					continue
+				}
+			}
+		}
+		b.WriteByte(ch)
+	}
+	flush()
+	return segments
+}
+
+func commandSegmentLooksRisky(segment string) bool {
+	for _, pattern := range commandReviewRiskPatterns {
+		if pattern.MatchString(segment) {
+			return true
+		}
+	}
+	return false
+}
+
+func truncateForReview(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
 }
 
 // FormatNotificationMessage formats the L2 authorization notification per the design doc.
