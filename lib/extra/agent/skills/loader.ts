@@ -1,5 +1,5 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 
 import type {
   ExecutionContext,
@@ -7,6 +7,7 @@ import type {
   SkillInstallOptions,
   SkillManifest,
 } from './types';
+import { clawhubManifestSchema } from '@/types/skills';
 
 interface InstalledSkill extends SkillManifest {
   path: string;
@@ -14,6 +15,7 @@ interface InstalledSkill extends SkillManifest {
 }
 
 const SKILL_FILE_PATTERN = 'SKILL.md';
+const CLAWHUB_FILE_PATTERN = 'clawhub.json';
 
 export class SkillLoader implements ISkillLoader {
   private skillDirs: string[];
@@ -30,12 +32,16 @@ export class SkillLoader implements ISkillLoader {
   }
 
   async loadFromFile(path: string): Promise<SkillManifest> {
+    if (basename(path) === CLAWHUB_FILE_PATTERN) {
+      return this.loadFromClawHubFile(path);
+    }
+
     const content = await readFile(path, 'utf-8');
     return this.parseSkillContent(content, path);
   }
 
   async install(options: SkillInstallOptions): Promise<SkillManifest> {
-    const { source, autoRestart } = options;
+    const { source } = options;
 
     if (source.startsWith('http://') || source.startsWith('https://')) {
       return this.installFromUrl(source);
@@ -109,12 +115,14 @@ export class SkillLoader implements ISkillLoader {
 
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        const skillPath = join(dir, entry.name, SKILL_FILE_PATTERN);
         try {
-          const manifest = await this.loadFromFile(skillPath);
+          const manifest = await this.loadFromSkillDir(join(dir, entry.name));
           results.push(manifest);
         } catch {}
-      } else if (entry.name === SKILL_FILE_PATTERN) {
+      } else if (
+        entry.name === SKILL_FILE_PATTERN ||
+        entry.name === CLAWHUB_FILE_PATTERN
+      ) {
         try {
           const manifest = await this.loadFromFile(join(dir, entry.name));
           results.push(manifest);
@@ -123,6 +131,37 @@ export class SkillLoader implements ISkillLoader {
     }
 
     return results;
+  }
+
+  private async loadFromSkillDir(skillDir: string): Promise<SkillManifest> {
+    const clawhubPath = join(skillDir, CLAWHUB_FILE_PATTERN);
+    try {
+      const manifestStat = await stat(clawhubPath);
+      if (manifestStat.isFile()) {
+        return this.loadFromClawHubFile(clawhubPath);
+      }
+    } catch {}
+
+    return this.loadFromFile(join(skillDir, SKILL_FILE_PATTERN));
+  }
+
+  private async loadFromClawHubFile(path: string): Promise<SkillManifest> {
+    const rawManifest = JSON.parse(await readFile(path, 'utf-8'));
+    const manifest = clawhubManifestSchema.parse(rawManifest);
+    const skillDir = dirname(path);
+    const entrypointPath = join(skillDir, manifest.entrypoint);
+    const entrypointStat = await stat(entrypointPath);
+
+    if (!entrypointStat.isFile()) {
+      throw new Error(`ClawHub entrypoint not found: ${manifest.entrypoint}`);
+    }
+
+    return {
+      name: manifest.name,
+      version: manifest.version,
+      description: manifest.description,
+      main: entrypointPath,
+    };
   }
 
   private parseSkillContent(content: string, path: string): SkillManifest {

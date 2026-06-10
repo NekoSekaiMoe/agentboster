@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // --- Source type ---
 
-export const skillSourceTypeSchema = z.enum(['git', 'manual']);
+export const skillSourceTypeSchema = z.enum(['git', 'manual', 'clawhub']);
 export type SkillSourceType = z.infer<typeof skillSourceTypeSchema>;
 
 // --- Structured file entry ---
@@ -36,6 +36,33 @@ export const skillDetailSchema = z.object({
 export type SkillDetail = z.infer<typeof skillDetailSchema>;
 export const skillDetailListSchema = z.array(skillDetailSchema);
 export type SkillDetailList = z.infer<typeof skillDetailListSchema>;
+
+export function isClawHubSkillDetail(
+  detail: Pick<SkillDetail, 'files' | 'frontmatter'>,
+): boolean {
+  return (
+    detail.files.some((file) => file.path === 'clawhub.json') ||
+    Boolean(detail.frontmatter.clawhub)
+  );
+}
+
+export function getSkillEntrypointPath(
+  detail: Pick<SkillDetail, 'files' | 'frontmatter'>,
+): string | null {
+  const frontmatterEntrypoint = detail.frontmatter.entrypoint;
+  if (
+    typeof frontmatterEntrypoint === 'string' &&
+    frontmatterEntrypoint.trim()
+  ) {
+    return frontmatterEntrypoint.trim();
+  }
+
+  if (detail.files.some((file) => file.path === 'SKILL.md')) {
+    return 'SKILL.md';
+  }
+
+  return detail.files[0]?.path ?? null;
+}
 
 // --- Skill meta (lightweight list projection) ---
 

@@ -9,17 +9,36 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 // SkillInfo describes a discovered skill in the workspace.
 type SkillInfo struct {
-	Name       string    `json:"name"`
-	Path       string    `json:"path"`        // absolute path: {rootFS}/workspace/skills/{name}
-	HasSKILLMD bool      `json:"has_skill_md"` // has SKILL.md
-	HasEntry   bool      `json:"has_entry"`    // has entry script (index.ts, index.sh, etc.)
-	HasDeps    bool      `json:"has_deps"`     // has package.json or requirements.txt
-	InstalledAt time.Time `json:"installed_at"`
+	Name          string    `json:"name"`
+	Path          string    `json:"path"`           // absolute path: {rootFS}/workspace/skills/{name}
+	HasSKILLMD    bool      `json:"has_skill_md"`   // has SKILL.md
+	HasClawHub    bool      `json:"has_clawhub"`    // has clawhub.json
+	Entrypoint    string    `json:"entrypoint"`     // primary entrypoint from clawhub.json or SKILL.md
+	HasEntrypoint bool      `json:"has_entrypoint"` // entrypoint file exists
+	HasEntry      bool      `json:"has_entry"`      // has entry script (index.ts, index.sh, etc.)
+	HasDeps       bool      `json:"has_deps"`       // has package.json or requirements.txt
+	InstalledAt   time.Time `json:"installed_at"`
+}
+
+type clawHubManifest struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Entrypoint  string `json:"entrypoint"`
+}
+
+func isSafeRelativeSkillPath(pathname string) bool {
+	cleaned := filepath.Clean(pathname)
+	return cleaned != "." &&
+		cleaned != ".." &&
+		!filepath.IsAbs(cleaned) &&
+		!strings.HasPrefix(cleaned, ".."+string(os.PathSeparator))
 }
 
 // DiscoverSkills scans the workspace/skills directory and returns all discovered skills.
@@ -49,6 +68,30 @@ func DiscoverSkills(rootFS string) []SkillInfo {
 		// Check for SKILL.md
 		if _, err := os.Stat(filepath.Join(skillPath, "SKILL.md")); err == nil {
 			info.HasSKILLMD = true
+			info.Entrypoint = "SKILL.md"
+			info.HasEntrypoint = true
+		}
+
+		// Check for OpenClaw/ClawHub manifest and its configured entrypoint.
+		clawhubPath := filepath.Join(skillPath, "clawhub.json")
+		if manifestBytes, err := os.ReadFile(clawhubPath); err == nil {
+			info.HasClawHub = true
+			var manifest clawHubManifest
+			if err := json.Unmarshal(manifestBytes, &manifest); err == nil {
+				entrypoint := manifest.Entrypoint
+				if entrypoint == "" {
+					entrypoint = "SKILL.md"
+				}
+				if isSafeRelativeSkillPath(entrypoint) {
+					info.Entrypoint = filepath.Clean(entrypoint)
+					if _, err := os.Stat(filepath.Join(skillPath, info.Entrypoint)); err == nil {
+						info.HasEntrypoint = true
+						if info.Entrypoint == "SKILL.md" {
+							info.HasSKILLMD = true
+						}
+					}
+				}
+			}
 		}
 
 		// Check for entry scripts

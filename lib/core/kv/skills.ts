@@ -15,6 +15,7 @@ import type {
 } from '@/types/skills';
 import {
   SKILLS_INDEX_KEY,
+  clawhubManifestSchema,
   skillDetailListSchema,
   skillDetailSchema,
   skillIndexSchema,
@@ -30,8 +31,8 @@ const repoSkillNamesSchema = z.array(z.string().min(1));
 
 // ─── KV migration helpers ───
 
-function coerceSourceType(v: unknown): 'git' | 'manual' {
-  if (v === 'git' || v === 'manual') return v;
+function coerceSourceType(v: unknown): 'git' | 'manual' | 'clawhub' {
+  if (v === 'git' || v === 'manual' || v === 'clawhub') return v;
   return 'manual';
 }
 
@@ -325,11 +326,33 @@ export async function persistManualSkill(input: {
 
   const filePaths = await persistManualSkillToBlob(trimmedName, files);
 
-  // Try to parse frontmatter from SKILL.md if present
+  // Try to parse ClawHub metadata first, then fall back to SKILL.md frontmatter.
+  const clawhubFile = files.find((f) => f.path === 'clawhub.json');
   const skillMd = files.find((f) => f.path === 'SKILL.md');
-  const { frontmatter, description: fmDescription } = skillMd
-    ? parseSkillManifest(skillMd.content)
-    : { frontmatter: {}, description: '' };
+  let parsedClawHub: ReturnType<typeof clawhubManifestSchema.safeParse> | null =
+    null;
+  if (clawhubFile) {
+    try {
+      parsedClawHub = clawhubManifestSchema.safeParse(
+        JSON.parse(clawhubFile.content),
+      );
+    } catch {}
+  }
+  const { frontmatter, description: fmDescription } = parsedClawHub?.success
+    ? {
+        frontmatter: {
+          author: parsedClawHub.data.author,
+          clawhub: parsedClawHub.data,
+          description: parsedClawHub.data.description,
+          entrypoint: parsedClawHub.data.entrypoint,
+          tags: parsedClawHub.data.tags,
+          version: parsedClawHub.data.version,
+        },
+        description: parsedClawHub.data.description,
+      }
+    : skillMd
+      ? parseSkillManifest(skillMd.content)
+      : { frontmatter: {}, description: '' };
 
   const now = Date.now();
   const detail: SkillDetail = {
@@ -372,8 +395,19 @@ export async function updateSkillFile(
     existing.files.sort((a, b) => a.path.localeCompare(b.path));
   }
 
-  // Re-parse frontmatter if SKILL.md was updated
-  if (trimmedPath === 'SKILL.md') {
+  // Re-parse metadata if SKILL.md or clawhub.json was updated
+  if (trimmedPath === 'clawhub.json') {
+    const parsedClawHub = clawhubManifestSchema.parse(JSON.parse(content));
+    existing.frontmatter = {
+      author: parsedClawHub.author,
+      clawhub: parsedClawHub,
+      description: parsedClawHub.description,
+      entrypoint: parsedClawHub.entrypoint,
+      tags: parsedClawHub.tags,
+      version: parsedClawHub.version,
+    };
+    existing.description = parsedClawHub.description;
+  } else if (trimmedPath === 'SKILL.md') {
     const { frontmatter, description } = parseSkillManifest(content);
     existing.frontmatter = frontmatter;
     if (description) {

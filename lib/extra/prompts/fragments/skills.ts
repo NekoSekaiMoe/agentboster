@@ -5,7 +5,7 @@ export function buildSkillsSection(
     return `## OpenClaw Skills
 
 No skills are currently installed. Skills can be installed from:
-- Local filesystem (SKILL.md files)
+- Local filesystem (SKILL.md files, plus supporting files)
 - ClawHub package registry
 - Remote URLs
 
@@ -24,7 +24,7 @@ ${skillList}
 
 ### Skill Usage
 - Skills provide specialized instructions for specific domains
-- Each skill has a SKILL.md file with detailed instructions
+- Each skill has a SKILL.md file or compatible manifest entrypoint with detailed instructions
 - Skills are automatically loaded and available as tools
 - Use skills when a task matches their described domain`;
 }

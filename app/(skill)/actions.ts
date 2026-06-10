@@ -7,8 +7,10 @@ import { readAuthSessionFromCookies } from '@/lib/auth';
 import {
   cloneRepoToTmp,
   createSkillArchiveTar,
+  downloadAndSyncSkillFromClawHub,
   getSkillFileContentFromBlob,
   listSkillFilesWithContentFromBlob,
+  normalizeClawHubSlug,
   normalizeGitURL,
   scanSkillsFromRepo,
   syncSkillFilesToBlob,
@@ -30,6 +32,7 @@ import {
   persistManualSkill,
   removeSkillDetail,
   syncRepoSkillDetails,
+  upsertSkillDetail,
   updateSkillFile,
 } from '@/lib/core/kv/skills';
 import type {
@@ -65,6 +68,11 @@ const updateFileInputSchema = fileContentInputSchema.extend({
 
 const importInputSchema = z.object({
   gitURL: z.string().url('A valid HTTPS git URL is required'),
+});
+
+const clawHubImportInputSchema = z.object({
+  slug: z.string().min(1, 'ClawHub skill slug is required'),
+  version: z.string().optional(),
 });
 
 async function requireAuth() {
@@ -339,6 +347,37 @@ export async function startSkillImportAction(input: unknown): Promise<{
     status: 'pending',
     gitURL,
   };
+}
+
+export async function importClawHubSkillAction(
+  input: unknown,
+): Promise<SkillDetail> {
+  const authSession = await requireAuth();
+  const { getUserById } = await import('@/lib/core/db/users');
+  const user = await getUserById(authSession.userId);
+  if (!user?.roles.includes('admin')) {
+    throw new Error('Forbidden: admin access required');
+  }
+
+  const parsed = clawHubImportInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? 'Validation failed');
+  }
+
+  const slug = normalizeClawHubSlug(parsed.data.slug);
+  const existing = await getSkillDetail(slug);
+  if (existing && existing.sourceType !== 'clawhub') {
+    throw new Error(
+      `Skill "${slug}" already exists and was not imported from ClawHub. Delete or rename it first.`,
+    );
+  }
+
+  const detail = await downloadAndSyncSkillFromClawHub({
+    slug,
+    version: parsed.data.version?.trim() || undefined,
+  });
+
+  return upsertSkillDetail(detail);
 }
 
 export async function buildSkillArchiveAction(name: string): Promise<{

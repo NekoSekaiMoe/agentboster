@@ -14,6 +14,7 @@ func registerSandboxSkills(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *
 		Description: `Manage skills in the sandbox workspace. Skills are reusable modules stored in /workspace/skills/{name}/.
 Each skill can have:
 - SKILL.md: documentation and usage guide
+- clawhub.json: OpenClaw/ClawHub manifest with an entrypoint
 - index.ts/index.js/index.sh: executable entry point
 - package.json/requirements.txt: dependencies
 

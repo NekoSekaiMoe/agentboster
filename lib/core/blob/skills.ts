@@ -1,5 +1,13 @@
 import fs from 'node:fs';
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -7,6 +15,7 @@ import matter from 'gray-matter';
 import git from 'isomorphic-git';
 import http from 'isomorphic-git/http/node';
 import { ofetch } from 'ofetch';
+import { z } from 'zod';
 import { del, getBlob, list, put } from './';
 
 import { createLogger } from '@/lib/utils/logger';
@@ -30,6 +39,7 @@ const SKILLS_REPO_DIR = 'skills';
 const SKILLS_BLOB_ROOT = 'skills';
 const SKILL_MANIFEST = 'SKILL.md';
 const CLAWHUB_MANIFEST = 'clawhub.json';
+const CLAWHUB_API_BASE_URL = 'https://clawhub.ai';
 
 interface ClonedRepo {
   tempDir: string;
@@ -46,6 +56,52 @@ export type SkillArchiveFile = {
   path: string;
   content: string;
 };
+
+const clawhubSkillApiSchema = z.object({
+  latestVersion: z
+    .object({
+      version: z.string().min(1),
+    })
+    .passthrough()
+    .optional(),
+  skill: z
+    .object({
+      displayName: z.string().optional(),
+      slug: z.string().min(1),
+      summary: z.string().optional(),
+      tags: z
+        .object({
+          latest: z.string().optional(),
+        })
+        .passthrough()
+        .optional(),
+    })
+    .passthrough(),
+});
+
+const clawhubVersionApiSchema = z.object({
+  skill: z
+    .object({
+      displayName: z.string().optional(),
+      slug: z.string().min(1),
+    })
+    .passthrough(),
+  version: z
+    .object({
+      files: z.array(
+        z
+          .object({
+            contentType: z.string().nullable().optional(),
+            path: z.string().min(1),
+            sha256: z.string().optional(),
+            size: z.number().int().nonnegative(),
+          })
+          .passthrough(),
+      ),
+      version: z.string().min(1),
+    })
+    .passthrough(),
+});
 
 // ─── URL helpers ───
 
@@ -69,10 +125,24 @@ export function normalizeGitURL(input: string): string {
   return `https://${parsed.hostname}/${owner}/${repo}`;
 }
 
+export function normalizeClawHubSlug(input: string): string {
+  const slug = input.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(slug)) {
+    throw new Error('Invalid ClawHub skill slug');
+  }
+  return slug;
+}
+
 function deriveRepoId(gitURL: string): string {
   const parsed = new URL(gitURL);
   const parts = parsed.pathname.split('/').filter(Boolean);
   return `${parsed.hostname}/${parts[0]}/${(parts[1] || '').replace(/\.git$/i, '')}`;
+}
+
+function deriveRepoName(gitURL: string): string {
+  const parsed = new URL(gitURL);
+  const parts = parsed.pathname.split('/').filter(Boolean);
+  return (parts[1] || 'skill').replace(/\.git$/i, '');
 }
 
 // ─── Path helpers ───
@@ -290,16 +360,21 @@ export async function scanSkillsFromRepo(
   repoDir: string,
   gitURL: string,
 ): Promise<ScannedSkill[]> {
+  const clawhubSkill = await scanClawHubSkillFromRepo(repoDir, gitURL);
+  if (clawhubSkill) {
+    return [clawhubSkill];
+  }
+
+  const rootSkill = await scanRootSkillFromRepo(repoDir, gitURL);
+  if (rootSkill) {
+    return [rootSkill];
+  }
+
   const skillsDir = path.join(repoDir, SKILLS_REPO_DIR);
   const skillsDirStat = await stat(skillsDir).catch(() => null);
   if (!skillsDirStat?.isDirectory()) {
-    const clawhubSkill = await scanClawHubSkillFromRepo(repoDir, gitURL);
-    if (clawhubSkill) {
-      return [clawhubSkill];
-    }
-
     throw new Error(
-      `Repository does not contain /${SKILLS_REPO_DIR} directory or ${CLAWHUB_MANIFEST}`,
+      `Repository does not contain /${SKILLS_REPO_DIR} directory, root ${SKILL_MANIFEST}, or ${CLAWHUB_MANIFEST}`,
     );
   }
 
@@ -361,6 +436,39 @@ export async function scanSkillsFromRepo(
   }
 
   return scanned;
+}
+
+async function scanRootSkillFromRepo(
+  repoDir: string,
+  gitURL: string,
+): Promise<ScannedSkill | null> {
+  const manifestPath = path.join(repoDir, SKILL_MANIFEST);
+  const manifestStat = await stat(manifestPath).catch(() => null);
+  if (!manifestStat?.isFile()) {
+    return null;
+  }
+
+  const manifestContent = await readFile(manifestPath, 'utf8');
+  const { frontmatter, description } = parseSkillManifest(manifestContent);
+  const frontmatterName =
+    typeof frontmatter.name === 'string' ? frontmatter.name.trim() : '';
+  const filePaths = await listSkillFilesRecursive(repoDir);
+  await assertRepoSkillLimits(repoDir, filePaths);
+
+  return {
+    detail: {
+      name: frontmatterName || deriveRepoName(normalizeGitURL(gitURL)),
+      description,
+      sourceType: 'git',
+      gitURL: normalizeGitURL(gitURL),
+      repoId: deriveRepoId(normalizeGitURL(gitURL)),
+      updatedAt: Date.now(),
+      frontmatter,
+      files: toFileEntries(filePaths),
+    },
+    localDir: repoDir,
+    filePaths,
+  };
 }
 
 async function scanClawHubSkillFromRepo(
@@ -474,6 +582,151 @@ export async function downloadAndSyncSkillsFromGit(
     return scannedSkills.map((item) => item.detail);
   } finally {
     await rm(cloned.tempDir, { recursive: true, force: true });
+  }
+}
+
+async function fetchClawHubJson(url: URL): Promise<unknown> {
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'AgentBoster-ClawHubImporter/1.0',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `ClawHub API request failed with HTTP ${response.status}: ${url.pathname}`,
+    );
+  }
+
+  return response.json();
+}
+
+async function fetchClawHubFile(input: {
+  filePath: string;
+  slug: string;
+  version: string;
+}): Promise<string> {
+  const url = new URL(
+    `/api/v1/skills/${encodeURIComponent(input.slug)}/file`,
+    CLAWHUB_API_BASE_URL,
+  );
+  url.searchParams.set('path', input.filePath);
+  url.searchParams.set('version', input.version);
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'text/plain,text/markdown,text/*,*/*;q=0.5',
+      'User-Agent': 'AgentBoster-ClawHubImporter/1.0',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch ClawHub file "${input.filePath}" with HTTP ${response.status}`,
+    );
+  }
+
+  return response.text();
+}
+
+export async function downloadAndSyncSkillFromClawHub(input: {
+  slug: string;
+  version?: string;
+}): Promise<SkillDetail> {
+  const slug = normalizeClawHubSlug(input.slug);
+  const skillUrl = new URL(
+    `/api/v1/skills/${encodeURIComponent(slug)}`,
+    CLAWHUB_API_BASE_URL,
+  );
+  const skillPayload = clawhubSkillApiSchema.parse(
+    await fetchClawHubJson(skillUrl),
+  );
+  const version =
+    input.version?.trim() ||
+    skillPayload.latestVersion?.version ||
+    skillPayload.skill.tags?.latest;
+
+  if (!version) {
+    throw new Error(`ClawHub skill "${slug}" does not expose a version`);
+  }
+
+  const versionUrl = new URL(
+    `/api/v1/skills/${encodeURIComponent(slug)}/versions/${encodeURIComponent(version)}`,
+    CLAWHUB_API_BASE_URL,
+  );
+  const versionPayload = clawhubVersionApiSchema.parse(
+    await fetchClawHubJson(versionUrl),
+  );
+  const fileMetas = versionPayload.version.files;
+
+  if (fileMetas.length === 0) {
+    throw new Error(`ClawHub skill "${slug}" has no files`);
+  }
+  if (fileMetas.length > GIT_IMPORT_MAX_FILE_COUNT) {
+    throw new Error(
+      `ClawHub skill exceeds the ${GIT_IMPORT_MAX_FILE_COUNT} file limit`,
+    );
+  }
+
+  const totalBytes = fileMetas.reduce((sum, file) => sum + file.size, 0);
+  if (totalBytes > GIT_IMPORT_MAX_TOTAL_BYTES) {
+    throw new Error(
+      `ClawHub skill exceeds the ${Math.round(GIT_IMPORT_MAX_TOTAL_BYTES / 1024 / 1024)} MB size limit`,
+    );
+  }
+
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'clawhub-skill-'));
+  try {
+    const filePaths: string[] = [];
+    for (const file of fileMetas.sort((a, b) => a.path.localeCompare(b.path))) {
+      const normalizedPath = normalizeSkillPath(file.path);
+      const content = await fetchClawHubFile({
+        filePath: normalizedPath,
+        slug,
+        version: versionPayload.version.version,
+      });
+      const absolutePath = path.join(tempDir, normalizedPath);
+      await mkdir(path.dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, content, 'utf8');
+      filePaths.push(normalizedPath);
+    }
+
+    const skillMdPath = path.join(tempDir, SKILL_MANIFEST);
+    const skillMd = await readFile(skillMdPath, 'utf8').catch(() => '');
+    const parsedSkillMd = skillMd
+      ? parseSkillManifest(skillMd)
+      : { description: '', frontmatter: {} };
+    const description =
+      parsedSkillMd.description || skillPayload.skill.summary || '';
+
+    const detail: SkillDetail = {
+      name: slug,
+      description,
+      sourceType: 'clawhub',
+      gitURL: `${CLAWHUB_API_BASE_URL}/skills/${slug}`,
+      repoId: `clawhub/${slug}`,
+      updatedAt: Date.now(),
+      frontmatter: {
+        ...parsedSkillMd.frontmatter,
+        clawhub: {
+          files: fileMetas,
+          registry: CLAWHUB_API_BASE_URL,
+          skill: skillPayload.skill,
+          slug,
+          sourceType: 'registry',
+          version: versionPayload.version.version,
+        },
+        version:
+          parsedSkillMd.frontmatter.version ?? versionPayload.version.version,
+      },
+      files: toFileEntries(filePaths),
+    };
+
+    await syncSkillFilesToBlob(detail.name, tempDir, filePaths);
+    return detail;
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
   }
 }
 

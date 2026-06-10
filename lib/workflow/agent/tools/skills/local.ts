@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import {
   downloadAndSyncSkillsFromGit,
+  downloadAndSyncSkillFromClawHub,
   getSkillFileContentFromBlob,
 } from '@/lib/core/blob/skills';
 import {
@@ -11,8 +12,10 @@ import {
   persistManualSkill,
   removeSkillDetail,
   syncRepoSkillDetails,
+  upsertSkillDetail,
   updateSkillFile,
 } from '@/lib/core/kv/skills';
+import { getSkillEntrypointPath } from '@/types/skills';
 import { defineBuildInTool } from '../define';
 
 export default defineBuildInTool({
@@ -86,9 +89,54 @@ export default defineBuildInTool({
         },
       }),
 
+      getSkillEntrypoint: tool({
+        title: 'Get Skill Entrypoint',
+        description: `Get the primary instruction/entrypoint file for a skill. Supports ClawHub clawhub.json entrypoint metadata and falls back to SKILL.md.`,
+        inputSchema: z.object({
+          name: z.string().min(1),
+          startLine: z.number().int().positive().optional(),
+          endLine: z.number().int().positive().optional(),
+        }),
+        execute: async ({ name, startLine, endLine }) => {
+          'use step';
+
+          const detail = await getSkillDetail(name);
+          if (!detail) throw new Error(`Skill "${name}" not found`);
+
+          const entrypoint = getSkillEntrypointPath(detail);
+          if (!entrypoint) {
+            throw new Error(`Skill "${name}" does not have any files`);
+          }
+
+          let content = await getSkillFileContentFromBlob(name, entrypoint);
+          if (content === null) {
+            throw new Error(
+              `Entrypoint "${entrypoint}" not found in skill "${name}"`,
+            );
+          }
+
+          if (startLine || endLine) {
+            const lines = content.split('\n');
+            const start = Math.max(1, startLine ?? 1) - 1;
+            const end = Math.min(lines.length, endLine ?? lines.length);
+            content = lines.slice(start, end).join('\n');
+            return {
+              name,
+              path: entrypoint,
+              content,
+              startLine: start + 1,
+              endLine: end,
+              totalLines: lines.length,
+            };
+          }
+
+          return { name, path: entrypoint, content };
+        },
+      }),
+
       importSkillRepo: tool({
         title: 'Import Skill Repo',
-        description: `Clone a git repo and import all skills from its /skills directory.`,
+        description: `Clone a git repo and import skills. Supports OpenClaw/ClawHub single-skill repositories with root SKILL.md, compatible root clawhub.json manifests, and AgentBoster /skills repositories.`,
         inputSchema: z.object({
           /** Git URL of the repository */
           gitURL: z.string().min(1),
@@ -99,6 +147,24 @@ export default defineBuildInTool({
           const imported = await downloadAndSyncSkillsFromGit(gitURL);
           const result = await syncRepoSkillDetails(gitURL, imported);
           return { gitURL, imported: result.imported, removed: result.removed };
+        },
+      }),
+
+      importSkillFromClawHub: tool({
+        title: 'Import Skill From ClawHub',
+        description: `Import a public OpenClaw/ClawHub skill by slug from the ClawHub registry. Uses the latest version unless version is provided.`,
+        inputSchema: z.object({
+          slug: z.string().min(1),
+          version: z.string().optional(),
+        }),
+        execute: async ({ slug, version }) => {
+          'use step';
+
+          const detail = await downloadAndSyncSkillFromClawHub({
+            slug,
+            version,
+          });
+          return { detail: await upsertSkillDetail(detail) };
         },
       }),
 

@@ -10,12 +10,18 @@ import {
   getSkillDetailAction,
   getSkillFileContentAction,
   getSkillImportJobAction,
+  importClawHubSkillAction,
   listActiveSkillImportJobsAction,
   listSkillsAction,
   startSkillImportAction,
   updateSkillFileAction,
 } from '@/app/(skill)/actions';
-import type { SkillDetail, SkillMeta } from '@/types/skills';
+import {
+  getSkillEntrypointPath,
+  isClawHubSkillDetail,
+  type SkillDetail,
+  type SkillMeta,
+} from '@/types/skills';
 import { toast } from 'sonner';
 
 import {
@@ -77,6 +83,9 @@ export default function SkillsPage() {
   // Import form
   const [gitURL, setGitURL] = useState('');
   const [importing, setImporting] = useState(false);
+  const [clawHubSlug, setClawHubSlug] = useState('');
+  const [clawHubVersion, setClawHubVersion] = useState('');
+  const [importingClawHub, setImportingClawHub] = useState(false);
   const [importJob, setImportJob] = useState<{
     jobId: string;
     gitURL: string;
@@ -88,7 +97,8 @@ export default function SkillsPage() {
     null,
   );
 
-  const isAnyLoading = loading || loadingDetail || !!loadingFile || importing;
+  const isAnyLoading =
+    loading || loadingDetail || !!loadingFile || importing || importingClawHub;
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
@@ -234,6 +244,30 @@ export default function SkillsPage() {
     }
   }
 
+  async function importFromClawHub() {
+    if (!clawHubSlug.trim()) return;
+    setImportingClawHub(true);
+    try {
+      const detail = await importClawHubSkillAction({
+        slug: clawHubSlug.trim(),
+        version: clawHubVersion.trim() || undefined,
+      });
+      setClawHubSlug('');
+      setClawHubVersion('');
+      setViewMode('list');
+      toast.success(`Imported ${detail.name} from ClawHub`);
+      await loadSkills();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to import from ClawHub',
+      );
+    } finally {
+      setImportingClawHub(false);
+    }
+  }
+
   async function deleteSkill(name: string) {
     setDeleting(name);
     try {
@@ -338,6 +372,13 @@ export default function SkillsPage() {
     return new Date(ts).toLocaleString();
   }
 
+  const selectedEntrypointPath = selectedSkill
+    ? getSkillEntrypointPath(selectedSkill)
+    : null;
+  const selectedIsClawHub = selectedSkill
+    ? isClawHubSkillDetail(selectedSkill)
+    : false;
+
   return (
     <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
       {/* Top progress bar — shown during any async operation */}
@@ -381,29 +422,80 @@ export default function SkillsPage() {
         {viewMode === 'import' && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Import from Git</CardTitle>
+              <CardTitle className="text-base">Import Skill</CardTitle>
               <CardDescription>
                 Enter the URL of a Git repository to import skills from. The git
-                repo should contain a <span className="font-mono">skills</span>{' '}
-                folder with one subfolder per skill, each containing the skill
-                files.
+                repo can contain a root{' '}
+                <span className="font-mono">SKILL.md</span>, a{' '}
+                <span className="font-mono">skills</span> folder with one
+                subfolder per skill, or a root{' '}
+                <span className="font-mono">clawhub.json</span> manifest.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Input
-                value={gitURL}
-                onChange={(e) => setGitURL(e.target.value)}
-                placeholder="https://github.com/user/repo"
-              />
-              <div className="flex justify-end gap-2">
+              <div className="space-y-2 rounded-md border p-3">
+                <label htmlFor="skill-git-url" className="font-medium text-sm">
+                  Git URL
+                </label>
+                <Input
+                  id="skill-git-url"
+                  value={gitURL}
+                  onChange={(e) => setGitURL(e.target.value)}
+                  placeholder="https://github.com/user/repo"
+                />
+                <div className="flex justify-end">
+                  <Button onClick={importFromGit} disabled={importing}>
+                    {importing && (
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                    )}
+                    Import Git
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2 rounded-md border p-3">
+                <div>
+                  <label
+                    htmlFor="skill-clawhub-slug"
+                    className="font-medium text-sm"
+                  >
+                    ClawHub slug
+                  </label>
+                  <p className="text-muted-foreground text-xs">
+                    Imports from the public ClawHub registry. Version is
+                    optional; latest is used when empty.
+                  </p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[1fr_160px]">
+                  <Input
+                    id="skill-clawhub-slug"
+                    value={clawHubSlug}
+                    onChange={(e) => setClawHubSlug(e.target.value)}
+                    placeholder="gifgrep"
+                  />
+                  <Input
+                    aria-label="ClawHub version"
+                    value={clawHubVersion}
+                    onChange={(e) => setClawHubVersion(e.target.value)}
+                    placeholder="version"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    onClick={importFromClawHub}
+                    disabled={importingClawHub || !clawHubSlug.trim()}
+                  >
+                    {importingClawHub && (
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                    )}
+                    Import ClawHub
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
                 <Button variant="outline" onClick={() => setViewMode('list')}>
                   Cancel
-                </Button>
-                <Button onClick={importFromGit} disabled={importing}>
-                  {importing && (
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                  )}
-                  Import
                 </Button>
               </div>
             </CardContent>
@@ -520,7 +612,20 @@ export default function SkillsPage() {
                 ← Back
               </Button>
               <h2 className="font-semibold text-lg">{selectedSkill.name}</h2>
-              <div className="ml-auto flex gap-2">
+              <div className="ml-auto flex flex-wrap justify-end gap-2">
+                {selectedEntrypointPath ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!!loadingFile}
+                    onClick={() =>
+                      viewFile(selectedSkill.name, selectedEntrypointPath)
+                    }
+                  >
+                    <FileText className="mr-1 size-4" />
+                    Open Entrypoint
+                  </Button>
+                ) : null}
                 <Button
                   size="sm"
                   variant="outline"
@@ -545,6 +650,14 @@ export default function SkillsPage() {
               <code className="rounded bg-muted px-2 py-1">
                 {selectedSkill.sourceType}
               </code>
+              {selectedIsClawHub ? (
+                <code className="rounded bg-muted px-2 py-1">clawhub</code>
+              ) : null}
+              {selectedEntrypointPath ? (
+                <code className="rounded bg-muted px-2 py-1">
+                  entry: {selectedEntrypointPath}
+                </code>
+              ) : null}
               {selectedSkill.gitURL && (
                 <code className="rounded bg-muted px-2 py-1">
                   {selectedSkill.gitURL}
