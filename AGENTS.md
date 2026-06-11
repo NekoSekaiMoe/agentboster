@@ -141,3 +141,4 @@ Schema source: `lib/core/db/schema/`. Export barrel: `lib/core/db/schema/index.t
 - The `useImport` style is turned off in Biome (`useImportType: "off"`). Don't auto-fix imports to `import type`.
 - `noExplicitAny` is `"warn"` (not error) in Biome config.
 - CI uses **Yarn** (not Bun) to run checks: `yarn run check`.
+- **Vercel Workflow constraints**: Node.js modules (`node:fs`, `node:path`, etc.) cannot be used in workflow functions. All file I/O must be wrapped in `'use step'` functions. Functions calling agentd (like `execToolOnAgentd`, `checkAgentdHealth`) use `'use step'` and read certificates inside the step.
