@@ -55,6 +55,7 @@ interface NodeStatusItem {
   sandboxes: string[];
   version: string;
   status: 'online' | 'offline';
+  cpu_model: string | null;
   cpu_usage: number | null;
   mem_avail: number | null;
   disk_avail: number | null;
@@ -313,6 +314,11 @@ export function AgentDConfigPage() {
                         {node.ip}:{node.port} · v{node.version} · heartbeat{' '}
                         {formatHeartbeat(node.last_heartbeat)}
                       </div>
+                      {node.cpu_model && (
+                        <div className="truncate text-muted-foreground text-xs">
+                          CPU: {node.cpu_model}
+                        </div>
+                      )}
                     </div>
                     <div className="grid gap-2 text-xs sm:grid-cols-5 md:min-w-[520px]">
                       <Metric

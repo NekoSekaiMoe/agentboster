@@ -283,6 +283,7 @@ export const agentdNodes = pgTable('agentd_nodes', {
   status: text('status', { enum: ['online', 'offline'] })
     .default('online')
     .notNull(),
+  cpuModel: text('cpu_model'),
   cpuUsage: integer('cpu_usage'),
   memAvail: integer('mem_avail'),
   diskAvail: integer('disk_avail'),

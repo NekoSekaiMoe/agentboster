@@ -113,6 +113,7 @@ func StartHeartbeat(client *clawless.Client, nodeID string, interval time.Durati
 
 			reqBody := map[string]any{
 				"node_id":          nodeID,
+				"cpu_model":        m["cpu_model"],
 				"cpu_usage":        m["cpu_usage"],
 				"mem_avail":        m["mem_avail"],
 				"disk_avail":       m["disk_avail"],

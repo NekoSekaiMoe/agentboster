@@ -71,6 +71,13 @@
       "when": 1780974000000,
       "tag": "0009_knowledge_priority",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781191101373,
+      "tag": "0010_thin_joystick",
+      "breakpoints": true
     }
   ]
 }

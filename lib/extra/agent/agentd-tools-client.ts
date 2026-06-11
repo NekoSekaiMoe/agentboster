@@ -45,44 +45,68 @@ export async function getAgentdClientConfig(): Promise<AgentdClientConfig> {
   };
 }
 
-async function agentdRequest<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const config = await getAgentdClientConfig();
-  const response = await requestAgentd(config, method, path, body);
-  if (!response.ok) {
-    throw new Error(
-      `AgentDaemon request failed: ${method} ${path} → ${response.status}: ${response.text}`,
-    );
-  }
-  return JSON.parse(response.text) as T;
-}
-
 /**
  * Execute a tool on the Agent Daemon synchronously.
  * This is the primary execution path when Agent Daemon is online.
+ * Automatically selects the best available node based on resource availability.
  */
 export async function execToolOnAgentd(
   sessionId: string,
   toolName: string,
   toolInput: Record<string, unknown>,
 ): Promise<{ success: boolean; data?: string; error?: string }> {
+  const { selectBestNode } = await import('@/lib/workflow/agent/dispatch');
+  const node = await selectBestNode();
+
+  if (!node) {
+    throw new Error('No Agent Daemon nodes available');
+  }
+
+  const nodeUrl = `https://${node.ip}:${node.port}`;
+  const apiKey = process.env.AGENTD_API_KEY ?? '';
+
+  const config: AgentdClientConfig = {
+    baseUrl: nodeUrl,
+    apiKey,
+    clientCertPath: process.env.AGENTD_CLIENT_CERT_PATH,
+    clientKeyPath: process.env.AGENTD_CLIENT_KEY_PATH,
+    caPath: process.env.AGENTD_CA_PATH,
+  };
+
   const req: AgentdToolExecRequest = {
     session_id: sessionId,
     tool_name: toolName,
     tool_input: toolInput,
   };
-  logger.info('Executing tool on Agent Daemon', { sessionId, toolName });
-  const resp = await agentdRequest<AgentdToolExecResponse>(
+
+  logger.info('Executing tool on Agent Daemon', {
+    sessionId,
+    toolName,
+    nodeId: node.nodeID,
+    nodeIp: node.ip,
+    cpuUsage: node.cpuUsage,
+    memAvail: node.memAvail,
+  });
+
+  const response = await requestAgentd(
+    config,
     'POST',
     '/api/v1/tools/exec',
     req,
   );
+
+  if (!response.ok) {
+    throw new Error(
+      `AgentDaemon tool exec failed: ${response.status}: ${response.text}`,
+    );
+  }
+
+  const resp = JSON.parse(response.text) as AgentdToolExecResponse;
+
   if (!resp.success) {
     throw new Error(`AgentDaemon tool exec failed: ${resp.error}`);
   }
+
   return resp.data ?? { success: true };
 }
 

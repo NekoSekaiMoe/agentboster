@@ -57,6 +57,10 @@ func (c *Collector) collect() {
 		"timestamp": time.Now().Unix(),
 	}
 
+	if model := getCPUModel(); model != "" {
+		m["cpu_model"] = model
+	}
+
 	if loadData, err := os.ReadFile("/proc/loadavg"); err == nil {
 		fields := strings.Fields(string(loadData))
 		if len(fields) >= 1 {
@@ -114,6 +118,22 @@ func getNumCPU() int {
 		}
 	}
 	return 1
+}
+
+func getCPUModel() string {
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "model name") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	return ""
 }
 
 // Read reads the latest metrics written by the collector.
