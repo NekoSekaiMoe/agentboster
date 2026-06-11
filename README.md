@@ -34,6 +34,8 @@ AgentBoster 拥有你对 AI Agent 的核心需求：Chat、Skills、Memory (RAG)
 
 ## 架构
 
+### 运行时架构
+
 ```mermaid
 flowchart TB
     subgraph Vercel["Vercel (Serverless)"]
@@ -100,70 +102,73 @@ flowchart TB
     Claw -.->|"callback"| Gateway
 ```
 
----
+### 项目结构
 
-## 项目结构
+```mermaid
+graph LR
+    subgraph Web["AgentBoster Web (Next.js)"]
+        subgraph App["app/"]
+            Auth["(auth)/<br/>Login"]
+            Chat["(chat)/<br/>Chat UI, Sessions"]
+            Config["(config)/<br/>Provider, Channel"]
+            Skill["(skill)/<br/>Skill Mgmt"]
+            Memory["(memory)/<br/>RAG, Memory"]
+            WF["/.well-known/workflow/<br/>Workflow Callbacks"]
+            subgraph API["api/"]
+                AuthAPI["auth/"]
+                AgentdAPI["agentd/v1/"]
+                BotAPI["bot/"]
+                ConfigAPI["config/"]
+                L2API["l2-authorizations/"]
+                TaskAPI["tasks/"]
+                NotifAPI["notifications/"]
+                SandboxAPI["sandbox/"]
+                PairAPI["pair/"]
+            end
+        end
+        subgraph Lib["lib/"]
+            LibAuth["auth/"]
+            LibAI["ai/"]
+            LibBot["bot/"]
+            LibChat["chat/"]
+            LibCore["core/<br/>db, kv, blob"]
+            LibExtra["extra/<br/>agent, channels,<br/>security"]
+            LibMem["memory/"]
+            LibSec["security/"]
+            LibWF["workflow/"]
+            LibUtils["utils/"]
+        end
+        Types["types/"]
+        Hooks["hooks/"]
+    end
 
+    subgraph Daemon["Agent Daemon (Go)"]
+        subgraph Cmd["cmd/"]
+            Main["agentd/"]
+        end
+        subgraph Internal["internal/"]
+            Agent["agent/<br/>Loop, Tools, Context"]
+            Worker["worker/<br/>Pool, Dispatch"]
+            Sandbox["sandbox/<br/>docker, lxc"]
+            Security["security/<br/>L0, L1, L2"]
+            Session["session/<br/>Manager, LRU"]
+            EventBus["eventbus/"]
+            Server["server/<br/>Gin Routes"]
+            Clawless["clawless/<br/>Web Client"]
+            ConfPkg["config/"]
+            Certs["certs/"]
+            Identity["identity/"]
+            Lifecycle["lifecycle/"]
+            Metrics["metrics/"]
+            Persist["persistence/"]
+            Cache["cache/"]
+        end
+    end
+
+    App --> Lib
+    Lib --> Types
+    Cmd --> Internal
 ```
-app/                     # Next.js App Router 页面和 API routes
-├── (auth)/              #   登录
-├── (chat)/              #   聊天、文件、计划任务
-├── (config)/            #   配置、监控、审计日志
-├── (memory)/            #   Memory/RAG 管理
-├── (schedule)/          #   日程管理
-├── (skill)/             #   Skill 管理
-├── api/                 #   Public API
-│   ├── agentd/v1/       #     Daemon 回调 (L1/L2)
-│   ├── bot/[secret]/    #     IM webhooks
-│   ├── config/          #     配置、审计、监控
-│   ├── notifications/   #     通知
-│   ├── pair/            #     Daemon 配对
-│   ├── sandbox/         #     沙箱工具
-│   ├── sessions/        #     会话回退
-│   ├── soul/            #     Agent 人格
-│   └── tasks/           #     任务历史
-├── (chat)/api/          # Daemon-facing API (35+ endpoints)
-│   ├── agentd/v1/       #     Agent 配置、blob、健康检查、
-│   │                    #     规则、通知、沙箱、会话、
-│   │                    #     任务、工作区、记忆
-│   └── ai/              #     AI chat、stream、message、pause、status
-└── .well-known/workflow/#   Workflow DevKit callbacks（无 auth）
-components/              # React 组件 (shadcn/ui)
-├── ui/                  #   shadcn/ui primitives (19)
-├── config/              #   配置表单
-└── ...                  #   Chat、messages、sidebar、timelines
-lib/                     # 核心逻辑
-├── ai/                  #   AI SDK provider factory (Anthropic/Google/OpenAI)
-├── auth/                #   Auth (bcryptjs, cookies)
-├── bot/                 #   Bot adapters 与 webhook routing
-├── chat/                #   Chat transport、streaming、slash commands
-├── core/                #   基础设施：DB (Drizzle+Neon)、KV (Redis)、Blob、Sandbox
-├── extra/               #   服务端业务逻辑
-│   ├── agent/           #     Daemon client、parallel exec、skills
-│   ├── auth/            #     API keys、JWT、users
-│   ├── channels/        #     TG/Discord/Slack/Feishu adapters
-│   ├── config/          #     配置管理
-│   ├── cron/            #     Cron scheduling
-│   ├── memory/          #     Memory 管理
-│   ├── prompts/         #     System prompt fragments
-│   ├── sandbox/         #     Vercel Sandbox 管理
-│   └── security/        #     L0/L1/L2 security engine
-├── mcp/                 #   内置 MCP (Context7, Firecrawl, GitHub, Web)
-├── memory/              #   Memory: builtin, RAG long-term, session
-├── security/            #   Web-side security (L1 scorer, L2 queue)
-├── utils/               #   工具函数
-└── workflow/            #   Vercel Workflow DevKit
-    ├── agent/           #     Agent workflow (hooks/steps/tools/security)
-    └── scheduled/       #     Scheduled workflow
-hooks/                   # React hooks (config draft, validation, mobile, nav)
-types/                   # TypeScript types (config/memory/skills/workflow)
-agentd/                  # Go 1.26 Daemon
-├── cmd/agentd/main.go   #   入口
-├── agentd.toml.example  #   示例配置
-├── README.md            #   Daemon usage and operations
-└── LAYOUT.MD            #   Detailed internal package layout
-```
-
 ---
 
 ## 功能特性
