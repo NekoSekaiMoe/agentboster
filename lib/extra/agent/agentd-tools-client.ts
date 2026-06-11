@@ -1,6 +1,8 @@
 import { createLogger } from '@/lib/utils/logger';
 import { getConfig as getAppConfig } from '@/lib/core/kv/config';
 import { requestAgentd } from './agentd-http';
+import type { AgentdHttpConfig } from './agentd-http';
+import { readFileSync } from 'node:fs';
 
 const logger = createLogger('agentd-tools-client');
 
@@ -20,15 +22,8 @@ interface AgentdToolExecResponse {
   error?: string;
 }
 
-interface AgentdClientConfig {
-  baseUrl: string;
-  apiKey: string;
-  clientCertPath?: string;
-  clientKeyPath?: string;
-  caPath?: string;
-}
-
-export async function getAgentdClientConfig(): Promise<AgentdClientConfig> {
+export async function getAgentdClientConfig(): Promise<AgentdHttpConfig> {
+  'use step';
   const appConfig = await getAppConfig();
   const configuredUrl = appConfig.agentd?.url?.trim();
   const baseUrl = configuredUrl || process.env.AGENTD_URL;
@@ -36,13 +31,25 @@ export async function getAgentdClientConfig(): Promise<AgentdClientConfig> {
   if (!baseUrl) {
     throw new Error('Agent Daemon URL is not configured');
   }
-  return {
+
+  const config: AgentdHttpConfig = {
     baseUrl,
     apiKey,
-    clientCertPath: process.env.AGENTD_CLIENT_CERT_PATH,
-    clientKeyPath: process.env.AGENTD_CLIENT_KEY_PATH,
-    caPath: process.env.AGENTD_CA_PATH,
   };
+
+  if (
+    process.env.AGENTD_CLIENT_CERT_PATH &&
+    process.env.AGENTD_CLIENT_KEY_PATH
+  ) {
+    config.cert = readFileSync(process.env.AGENTD_CLIENT_CERT_PATH);
+    config.key = readFileSync(process.env.AGENTD_CLIENT_KEY_PATH);
+  }
+
+  if (process.env.AGENTD_CA_PATH) {
+    config.ca = readFileSync(process.env.AGENTD_CA_PATH);
+  }
+
+  return config;
 }
 
 /**
@@ -57,6 +64,8 @@ export async function execToolOnAgentd(
   toolInput: Record<string, unknown>,
   nodeId?: string,
 ): Promise<{ success: boolean; data?: string; error?: string }> {
+  'use step';
+
   const { selectBestNode } = await import('@/lib/workflow/agent/dispatch');
   const { agentdNodes } = await import('@/lib/core/db/schema');
   const { db } = await import('@/lib/core/db');
@@ -103,13 +112,22 @@ export async function execToolOnAgentd(
   const nodeUrl = `https://${node.ip}:${node.port}`;
   const apiKey = process.env.AGENTD_API_KEY ?? '';
 
-  const config: AgentdClientConfig = {
+  const config: AgentdHttpConfig = {
     baseUrl: nodeUrl,
     apiKey,
-    clientCertPath: process.env.AGENTD_CLIENT_CERT_PATH,
-    clientKeyPath: process.env.AGENTD_CLIENT_KEY_PATH,
-    caPath: process.env.AGENTD_CA_PATH,
   };
+
+  if (
+    process.env.AGENTD_CLIENT_CERT_PATH &&
+    process.env.AGENTD_CLIENT_KEY_PATH
+  ) {
+    config.cert = readFileSync(process.env.AGENTD_CLIENT_CERT_PATH);
+    config.key = readFileSync(process.env.AGENTD_CLIENT_KEY_PATH);
+  }
+
+  if (process.env.AGENTD_CA_PATH) {
+    config.ca = readFileSync(process.env.AGENTD_CA_PATH);
+  }
 
   const req: AgentdToolExecRequest = {
     session_id: sessionId,
@@ -153,6 +171,7 @@ export async function execToolOnAgentd(
  * Check if Agent Daemon is healthy.
  */
 export async function checkAgentdHealth(): Promise<boolean> {
+  'use step';
   try {
     const config = await getAgentdClientConfig();
     const response = await requestAgentd(
@@ -176,6 +195,7 @@ export async function getAgentdHealth(): Promise<{
   version: string;
   uptime: string;
 } | null> {
+  'use step';
   try {
     const config = await getAgentdClientConfig();
     const response = await requestAgentd(
@@ -194,9 +214,11 @@ export async function getAgentdHealth(): Promise<{
 }
 
 export async function abortAgentdSession(sessionId: string): Promise<boolean> {
+  'use step';
   try {
+    const config = await getAgentdClientConfig();
     const response = await requestAgentd(
-      await getAgentdClientConfig(),
+      config,
       'POST',
       `/api/v1/sessions/${encodeURIComponent(sessionId)}/abort`,
     );

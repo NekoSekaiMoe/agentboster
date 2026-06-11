@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import {
   type RequestOptions as HttpRequestOptions,
   request as httpRequest,
@@ -11,9 +10,9 @@ import {
 export interface AgentdHttpConfig {
   baseUrl: string;
   apiKey: string;
-  clientCertPath?: string;
-  clientKeyPath?: string;
-  caPath?: string;
+  cert?: string | Buffer;
+  key?: string | Buffer;
+  ca?: string | Buffer;
 }
 
 export interface AgentdHttpResponse {
@@ -27,18 +26,13 @@ type NodeRequestOptions = HttpRequestOptions & HttpsRequestOptions;
 function getTlsOptions(config: AgentdHttpConfig): HttpsRequestOptions {
   const options: HttpsRequestOptions = {};
 
-  if (config.clientCertPath || config.clientKeyPath) {
-    if (!config.clientCertPath || !config.clientKeyPath) {
-      throw new Error(
-        'Both AGENTD_CLIENT_CERT_PATH and AGENTD_CLIENT_KEY_PATH must be set for mTLS.',
-      );
-    }
-    options.cert = readFileSync(config.clientCertPath);
-    options.key = readFileSync(config.clientKeyPath);
+  if (config.cert && config.key) {
+    options.cert = config.cert;
+    options.key = config.key;
   }
 
-  if (config.caPath) {
-    options.ca = readFileSync(config.caPath);
+  if (config.ca) {
+    options.ca = config.ca;
     options.rejectUnauthorized = true;
   }
 
