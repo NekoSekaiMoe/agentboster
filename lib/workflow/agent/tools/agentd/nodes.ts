@@ -9,7 +9,27 @@ import { defineBuildInTool } from '../define';
 export default defineBuildInTool({
   id: 'agentd-nodes',
   description: `Query available agentd nodes and their resource status. Use this to inspect node capacity before delegating compute-intensive tasks.`,
-  factory: async () => {
+  factory: async (_config, { appConfig }) => {
+    const agentdEnabled = appConfig.agentd?.enabled ?? false;
+    if (!agentdEnabled) {
+      return null;
+    }
+
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+    const onlineNodes = await db
+      .select()
+      .from(agentdNodes)
+      .where(
+        and(
+          eq(agentdNodes.status, 'online'),
+          gte(agentdNodes.lastHeartbeat, twoMinutesAgo),
+        ),
+      );
+
+    if (onlineNodes.length < 2) {
+      return null;
+    }
+
     return {
       listNodes: tool({
         title: 'List AgentD Nodes',
