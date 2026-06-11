@@ -47,6 +47,7 @@ flowchart TB
             L2Q["L2 Decision Queue"]
             CfgMgmt["Config / Soul"]
             Notif["Notification"]
+            NodeSel["Node Selector<br/>(Resource-aware Scheduling)"]
         end
         subgraph IM["IM Channels (Web-side)"]
             Tg["Telegram"]
@@ -66,38 +67,50 @@ flowchart TB
     BotR --> IM
     Notif --> IM
 
-    Gateway <-->|"mTLS"| DaemonSrv
+    Gateway <-->|"mTLS"| Node1
+    Gateway <-->|"mTLS"| Node2
+    Gateway <-->|"mTLS"| NodeN
+    NodeSel -.->|"select best"| Node1
+    NodeSel -.->|"select best"| Node2
 
-    subgraph Linux["User's Linux Server"]
-        subgraph Daemon["Agent Daemon (Go)"]
-            DaemonSrv["HTTP Server (Gin)"]
-            AgentLoop["Agent Loop (CodeAct)"]
-            Tools["Tools: file / exec / git / web /<br/>memory / skills / subagent / ..."]
-            Gate["Security Gatekeeper<br/>L0 Rules → L1 → L2"]
-            SbxMgr["Sandbox Manager"]
-            SesMgr["Session Manager"]
-            Pool["Worker Pool"]
-            Claw["Web API Client<br/>(clawless)"]
+    subgraph Linux1["Linux Server 1"]
+        subgraph Node1["Agent Daemon Node 1"]
+            Srv1["HTTP :18732"]
+            Loop1["Agent Loop"]
+            Metrics1["Metrics Collector<br/>(CPU/Mem/Disk)"]
         end
-        subgraph SP["Sandbox Providers"]
-            DokL["docker<br/>(lightweight, daily)"]
-            DokS["docker-strict<br/>(high-risk isolation)"]
-            Lxc["lxc<br/>(persistent containers)"]
-        end
+        Sandbox1["docker/lxc"]
     end
 
-    DaemonSrv --> AgentLoop
-    DaemonSrv --> Gate
-    DaemonSrv --> SesMgr
-    DaemonSrv --> Pool
-    AgentLoop --> Tools
-    AgentLoop --> Gate
-    Gate --> SbxMgr
-    SbxMgr --> SP
-    AgentLoop --> SesMgr
-    AgentLoop --> Claw
-    Pool -.->|"dispatch"| AgentLoop
-    Claw -.->|"callback"| Gateway
+    subgraph Linux2["Linux Server 2"]
+        subgraph Node2["Agent Daemon Node 2"]
+            Srv2["HTTP :18732"]
+            Loop2["Agent Loop"]
+            Metrics2["Metrics Collector"]
+        end
+        Sandbox2["docker/lxc"]
+    end
+
+    subgraph LinuxN["Linux Server N"]
+        subgraph NodeN["Agent Daemon Node N"]
+            SrvN["HTTP :18732"]
+            LoopN["Agent Loop"]
+            MetricsN["Metrics Collector"]
+        end
+        SandboxN["docker/lxc"]
+    end
+
+    Srv1 --> Loop1
+    Loop1 --> Sandbox1
+    Metrics1 -.->|"heartbeat<br/>30s"| Gateway
+
+    Srv2 --> Loop2
+    Loop2 --> Sandbox2
+    Metrics2 -.->|"heartbeat"| Gateway
+
+    SrvN --> LoopN
+    LoopN --> SandboxN
+    MetricsN -.->|"heartbeat"| Gateway
 ```
 
 ---
@@ -196,6 +209,7 @@ agentd/                  # Go 1.26 Daemon
 - **Security** — L1 AI scoring, L2 user authorization queue
 - **Audit & Monitoring** — Audit logs, runtime metrics, Daemon node status
 - **Daemon Pairing** — One-click pair key for secure Daemon registration
+- **Multi-Node Scheduling** — Intelligent scheduling across nodes based on CPU/memory/disk resources
 
 ### Agent Daemon (Go)
 - **CodeAct Agent Loop** — Tool calling, multi-step reasoning, Sub-agent branching
@@ -207,7 +221,8 @@ agentd/                  # Go 1.26 Daemon
 - **Worker Pool** — Dynamic auto-scaling (task/review/sandbox/memory/cleanup)
 - **Session Management** — LRU eviction, archiving, Sub-agent state tracking, abort control
 - **Webhook Callbacks** — Notifies Web on task completion or user decision
-- **Daemon Identity** — Node registration, heartbeat, pairing
+- **Node Registration** — Node registration, heartbeat reporting, resource monitoring (CPU model/usage, memory usage, disk usage)
+- **Agent Self-Selection** — AI agents can query node status and autonomously choose execution nodes (multi-node only)
 
 ### Best of Many Projects
 
@@ -253,6 +268,7 @@ AgentBoster is not an attempt to invent everything from scratch. It stands on se
 | Workflow | Vercel Workflow DevKit + @workflow/ai |
 | Sandbox | Vercel Sandbox |
 | MCP | @ai-sdk/mcp (Context7, Firecrawl, GitHub, Web) |
+| Scheduling | Multi-node resource-aware scheduling (CPU/Memory/Disk scoring algorithm) |
 | Tools | Biome, TypeScript 6, Yarn |
 
 ### Agent Daemon
@@ -266,6 +282,7 @@ AgentBoster is not an attempt to invent everything from scratch. It stands on se
 | Sandbox | Docker + LXC |
 | Security | seccomp, capability drop, cgroup |
 | Communication | mTLS + API Key |
+| Monitoring | CPU model collection, resource metrics reporting (30s heartbeat) |
 
 ---
 

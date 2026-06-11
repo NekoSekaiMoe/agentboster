@@ -49,6 +49,7 @@ flowchart TB
             L2Q["L2 Decision Queue"]
             CfgMgmt["Config / Soul"]
             Notif["Notification"]
+            NodeSel["Node Selector<br/>(资源感知调度)"]
         end
         subgraph IM["IM Channels (Web-side)"]
             Tg["Telegram"]
@@ -68,107 +69,52 @@ flowchart TB
     BotR --> IM
     Notif --> IM
 
-    Gateway <-->|"mTLS"| DaemonSrv
+    Gateway <-->|"mTLS"| Node1
+    Gateway <-->|"mTLS"| Node2
+    Gateway <-->|"mTLS"| NodeN
+    NodeSel -.->|"select best"| Node1
+    NodeSel -.->|"select best"| Node2
 
-    subgraph Linux["User's Linux Server"]
-        subgraph Daemon["Agent Daemon (Go)"]
-            DaemonSrv["HTTP Server (Gin)"]
-            AgentLoop["Agent Loop (CodeAct)"]
-            Tools["Tools: file / exec / git / web /<br/>memory / skills / subagent / ..."]
-            Gate["Security Gatekeeper<br/>L0 Rules → L1 → L2"]
-            SbxMgr["Sandbox Manager"]
-            SesMgr["Session Manager"]
-            Pool["Worker Pool"]
-            Claw["Web API Client<br/>(clawless)"]
+    subgraph Linux1["Linux Server 1"]
+        subgraph Node1["Agent Daemon Node 1"]
+            Srv1["HTTP :18732"]
+            Loop1["Agent Loop"]
+            Metrics1["Metrics Collector<br/>(CPU/Mem/Disk)"]
         end
-        subgraph SP["Sandbox Providers"]
-            DokL["docker<br/>(lightweight, daily)"]
-            DokS["docker-strict<br/>(high-risk isolation)"]
-            Lxc["lxc<br/>(persistent containers)"]
-        end
+        Sandbox1["docker/lxc"]
     end
 
-    DaemonSrv --> AgentLoop
-    DaemonSrv --> Gate
-    DaemonSrv --> SesMgr
-    DaemonSrv --> Pool
-    AgentLoop --> Tools
-    AgentLoop --> Gate
-    Gate --> SbxMgr
-    SbxMgr --> SP
-    AgentLoop --> SesMgr
-    AgentLoop --> Claw
-    Pool -.->|"dispatch"| AgentLoop
-    Claw -.->|"callback"| Gateway
+    subgraph Linux2["Linux Server 2"]
+        subgraph Node2["Agent Daemon Node 2"]
+            Srv2["HTTP :18732"]
+            Loop2["Agent Loop"]
+            Metrics2["Metrics Collector"]
+        end
+        Sandbox2["docker/lxc"]
+    end
+
+    subgraph LinuxN["Linux Server N"]
+        subgraph NodeN["Agent Daemon Node N"]
+            SrvN["HTTP :18732"]
+            LoopN["Agent Loop"]
+            MetricsN["Metrics Collector"]
+        end
+        SandboxN["docker/lxc"]
+    end
+
+    Srv1 --> Loop1
+    Loop1 --> Sandbox1
+    Metrics1 -.->|"heartbeat<br/>30s"| Gateway
+
+    Srv2 --> Loop2
+    Loop2 --> Sandbox2
+    Metrics2 -.->|"heartbeat"| Gateway
+
+    SrvN --> LoopN
+    LoopN --> SandboxN
+    MetricsN -.->|"heartbeat"| Gateway
 ```
 
-### 项目结构
-
-```mermaid
-graph LR
-    subgraph Web["AgentBoster Web (Next.js)"]
-        subgraph App["app/"]
-            Auth["(auth)/<br/>Login"]
-            Chat["(chat)/<br/>Chat UI, Sessions"]
-            Config["(config)/<br/>Provider, Channel"]
-            Skill["(skill)/<br/>Skill Mgmt"]
-            Memory["(memory)/<br/>RAG, Memory"]
-            WF["/.well-known/workflow/<br/>Workflow Callbacks"]
-            subgraph API["api/"]
-                AuthAPI["auth/"]
-                AgentdAPI["agentd/v1/"]
-                BotAPI["bot/"]
-                ConfigAPI["config/"]
-                L2API["l2-authorizations/"]
-                TaskAPI["tasks/"]
-                NotifAPI["notifications/"]
-                SandboxAPI["sandbox/"]
-                PairAPI["pair/"]
-            end
-        end
-        subgraph Lib["lib/"]
-            LibAuth["auth/"]
-            LibAI["ai/"]
-            LibBot["bot/"]
-            LibChat["chat/"]
-            LibCore["core/<br/>db, kv, blob"]
-            LibExtra["extra/<br/>agent, channels,<br/>security"]
-            LibMem["memory/"]
-            LibSec["security/"]
-            LibWF["workflow/"]
-            LibUtils["utils/"]
-        end
-        Types["types/"]
-        Hooks["hooks/"]
-    end
-
-    subgraph Daemon["Agent Daemon (Go)"]
-        subgraph Cmd["cmd/"]
-            Main["agentd/"]
-        end
-        subgraph Internal["internal/"]
-            Agent["agent/<br/>Loop, Tools, Context"]
-            Worker["worker/<br/>Pool, Dispatch"]
-            Sandbox["sandbox/<br/>docker, lxc"]
-            Security["security/<br/>L0, L1, L2"]
-            Session["session/<br/>Manager, LRU"]
-            EventBus["eventbus/"]
-            Server["server/<br/>Gin Routes"]
-            Clawless["clawless/<br/>Web Client"]
-            ConfPkg["config/"]
-            Certs["certs/"]
-            Identity["identity/"]
-            Lifecycle["lifecycle/"]
-            Metrics["metrics/"]
-            Persist["persistence/"]
-            Cache["cache/"]
-        end
-    end
-
-    App --> Lib
-    Lib --> Types
-    Cmd --> Internal
-```
 ---
 
 ## 功能特性
@@ -187,6 +133,7 @@ graph LR
 - **Security** — L1 AI 评分、L2 用户授权决策队列
 - **Audit & Monitoring** — 审计日志、运行时监控、Daemon 节点状态
 - **Daemon Pairing** — 一键配对密钥，安全注册 Daemon
+- **Multi-Node Scheduling** — 多节点智能调度，基于 CPU/内存/磁盘资源自动选择最佳节点
 
 ### Agent Daemon (Go)
 - **CodeAct Agent Loop** — 工具调用、多步推理、Sub-agent 分支
@@ -198,7 +145,8 @@ graph LR
 - **Worker Pool** — 动态扩缩容工作池（任务/审查/沙箱/记忆/清理）
 - **Session 管理** — LRU 淘汰、归档、Sub-agent 状态追踪、abort 控制
 - **Webhook 回调** — 任务完成或需决策时回调 Web 端
-- **Daemon 身份** — 节点注册、心跳、配对
+- **Node Registration** — 节点注册、心跳上报、资源监控（CPU 型号/使用率、内存占用、磁盘占用）
+- **Agent Self-Selection** — AI Agent 可查询节点状态并自主选择执行节点（仅多节点时可用）
 
 ### Agent Daemon 安装
 
@@ -262,6 +210,7 @@ AgentBoster 不是从零开始的创新，而是站在多个优秀项目的肩�
 | 工作流 | Vercel Workflow DevKit + @workflow/ai |
 | 沙箱 | Vercel Sandbox |
 | MCP | @ai-sdk/mcp (Context7, Firecrawl, GitHub, Web) |
+| 调度 | 多节点资源感知调度（CPU/内存/磁盘评分算法） |
 | 工具 | Biome, TypeScript 6, Yarn |
 
 ### Agent Daemon
@@ -275,6 +224,7 @@ AgentBoster 不是从零开始的创新，而是站在多个优秀项目的肩�
 | 沙箱 | Docker + LXC |
 | 安全 | seccomp, capability drop, cgroup |
 | 通信 | mTLS + API Key |
+| 监控 | CPU 型号采集、资源指标上报（30s 心跳） |
 
 ---
 
