@@ -36,17 +36,25 @@ const execInputSchema = z.object({
   cwd: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
   sudo: z.boolean().optional(),
+  nodeId: z
+    .string()
+    .optional()
+    .describe(
+      'Specific agentd node ID to execute on. If not provided, automatically selects the best node.',
+    ),
 });
 
 const readFileInputSchema = z.object({
   path: z.string().min(1),
   cwd: z.string().optional(),
+  nodeId: z.string().optional().describe('Specific agentd node ID'),
 });
 
 const writeFileInputSchema = z.object({
   path: z.string().min(1),
   content: z.string(),
   cwd: z.string().optional(),
+  nodeId: z.string().optional().describe('Specific agentd node ID'),
 });
 
 const publicPortInputSchema = z.object({
@@ -139,6 +147,7 @@ async function execOnAgentd(
   sessionId: string,
   toolName: string,
   toolInput: Record<string, unknown>,
+  nodeId?: string,
 ): Promise<{ success: boolean; data?: string; error?: string } | null> {
   'use step';
 
@@ -157,13 +166,14 @@ async function execOnAgentd(
       }
       return null;
     }
-    return await execToolOnAgentd(sessionId, toolName, toolInput);
+    return await execToolOnAgentd(sessionId, toolName, toolInput, nodeId);
   } catch (error) {
     console.warn(
       '[sandbox] Agent Daemon exec failed, falling back to Vercel Sandbox',
       {
         sessionId,
         toolName,
+        nodeId,
         error: error instanceof Error ? error.message : String(error),
       },
     );
@@ -556,13 +566,18 @@ export default defineBuildInTool({
           }
 
           // Try Agent Daemon first
-          const agentdResult = await execOnAgentd(sessionId, 'exec', {
-            command: input.command,
-            args: input.args,
-            cwd: input.cwd,
-            env: input.env,
-            sudo: input.sudo,
-          });
+          const agentdResult = await execOnAgentd(
+            sessionId,
+            'exec',
+            {
+              command: input.command,
+              args: input.args,
+              cwd: input.cwd,
+              env: input.env,
+              sudo: input.sudo,
+            },
+            input.nodeId,
+          );
           if (agentdResult?.success) {
             const parsed = parseAgentdResult(agentdResult.data || '');
             return {
@@ -626,10 +641,15 @@ export default defineBuildInTool({
               } satisfies SandboxDeniedOutput;
           }
 
-          const agentdResult = await execOnAgentd(sessionId, 'read', {
-            path: input.path,
-            cwd: input.cwd,
-          });
+          const agentdResult = await execOnAgentd(
+            sessionId,
+            'read',
+            {
+              path: input.path,
+              cwd: input.cwd,
+            },
+            input.nodeId,
+          );
           if (agentdResult?.success) {
             return {
               kind: 'read',
@@ -674,11 +694,16 @@ export default defineBuildInTool({
               } satisfies SandboxDeniedOutput;
           }
 
-          const agentdResult = await execOnAgentd(sessionId, 'write', {
-            path: input.path,
-            content: input.content,
-            cwd: input.cwd,
-          });
+          const agentdResult = await execOnAgentd(
+            sessionId,
+            'write',
+            {
+              path: input.path,
+              content: input.content,
+              cwd: input.cwd,
+            },
+            input.nodeId,
+          );
           if (agentdResult?.success) {
             return {
               kind: 'write',

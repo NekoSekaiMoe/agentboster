@@ -10,6 +10,7 @@ export {
   type BuildInToolDefinition,
 } from './define';
 
+import agentdNodesTool from './agentd/nodes';
 import sandboxTool from './execute/sanbox';
 import memoryTool from './memories/local';
 import localSkillTool from './skills/local';
@@ -24,6 +25,7 @@ const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   scheduleTool,
   taskSummaryTool,
   subAgentTool,
+  agentdNodesTool,
 ];
 
 export function getBuildInToolCatalog(config: AppConfig): ToolCatalogResponse {

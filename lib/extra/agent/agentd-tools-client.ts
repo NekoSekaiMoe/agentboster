@@ -48,15 +48,53 @@ export async function getAgentdClientConfig(): Promise<AgentdClientConfig> {
 /**
  * Execute a tool on the Agent Daemon synchronously.
  * This is the primary execution path when Agent Daemon is online.
- * Automatically selects the best available node based on resource availability.
+ * Automatically selects the best available node based on resource availability,
+ * or uses the specified nodeId if provided.
  */
 export async function execToolOnAgentd(
   sessionId: string,
   toolName: string,
   toolInput: Record<string, unknown>,
+  nodeId?: string,
 ): Promise<{ success: boolean; data?: string; error?: string }> {
   const { selectBestNode } = await import('@/lib/workflow/agent/dispatch');
-  const node = await selectBestNode();
+  const { agentdNodes } = await import('@/lib/core/db/schema');
+  const { db } = await import('@/lib/core/db');
+  const { eq } = await import('drizzle-orm');
+
+  let node: {
+    nodeID: string;
+    ip: string;
+    port: number;
+    sandboxes: string[];
+    cpuUsage: number | null;
+    memAvail: number | null;
+    diskAvail: number | null;
+    activeTasks: number;
+  } | null = null;
+
+  if (nodeId) {
+    const rows = await db
+      .select()
+      .from(agentdNodes)
+      .where(eq(agentdNodes.nodeID, nodeId))
+      .limit(1);
+    if (rows.length === 0) {
+      throw new Error(`Node ${nodeId} not found`);
+    }
+    node = {
+      nodeID: rows[0].nodeID,
+      ip: rows[0].ip,
+      port: rows[0].port,
+      sandboxes: (rows[0].sandboxes as string[]) || [],
+      cpuUsage: rows[0].cpuUsage,
+      memAvail: rows[0].memAvail,
+      diskAvail: rows[0].diskAvail,
+      activeTasks: rows[0].activeTasks || 0,
+    };
+  } else {
+    node = await selectBestNode();
+  }
 
   if (!node) {
     throw new Error('No Agent Daemon nodes available');
@@ -86,6 +124,7 @@ export async function execToolOnAgentd(
     nodeIp: node.ip,
     cpuUsage: node.cpuUsage,
     memAvail: node.memAvail,
+    selectedBy: nodeId ? 'explicit' : 'auto',
   });
 
   const response = await requestAgentd(

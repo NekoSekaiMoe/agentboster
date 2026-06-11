@@ -329,12 +329,20 @@ export function AgentDConfigPage() {
                       <Metric
                         icon={Activity}
                         label="Mem"
-                        value={formatPercent(node.mem_avail)}
+                        value={formatPercent(
+                          node.mem_avail != null
+                            ? 1 - node.mem_avail / 100
+                            : null,
+                        )}
                       />
                       <Metric
                         icon={HardDrive}
                         label="Disk"
-                        value={formatPercent(node.disk_avail)}
+                        value={formatPercent(
+                          node.disk_avail != null
+                            ? 1 - node.disk_avail / 100
+                            : null,
+                        )}
                       />
                       <Metric label="Tasks" value={String(node.active_tasks)} />
                       <Metric

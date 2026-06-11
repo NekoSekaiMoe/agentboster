@@ -200,12 +200,8 @@
           "name": "agent_memories_session_id_sessions_id_fk",
           "tableFrom": "agent_memories",
           "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1171,12 +1167,8 @@
           "name": "files_session_id_sessions_id_fk",
           "tableFrom": "files",
           "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1445,12 +1437,8 @@
           "name": "knowledge_bases_owner_user_id_users_id_fk",
           "tableFrom": "knowledge_bases",
           "tableTo": "users",
-          "columnsFrom": [
-            "owner_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1619,12 +1607,8 @@
           "name": "knowledge_chunks_knowledge_base_id_knowledge_bases_id_fk",
           "tableFrom": "knowledge_chunks",
           "tableTo": "knowledge_bases",
-          "columnsFrom": [
-            "knowledge_base_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["knowledge_base_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1632,12 +1616,8 @@
           "name": "knowledge_chunks_document_id_knowledge_documents_id_fk",
           "tableFrom": "knowledge_chunks",
           "tableTo": "knowledge_documents",
-          "columnsFrom": [
-            "document_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["document_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1786,12 +1766,8 @@
           "name": "knowledge_connectors_knowledge_base_id_knowledge_bases_id_fk",
           "tableFrom": "knowledge_connectors",
           "tableTo": "knowledge_bases",
-          "columnsFrom": [
-            "knowledge_base_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["knowledge_base_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1799,12 +1775,8 @@
           "name": "knowledge_connectors_last_document_id_knowledge_documents_id_fk",
           "tableFrom": "knowledge_connectors",
           "tableTo": "knowledge_documents",
-          "columnsFrom": [
-            "last_document_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["last_document_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1927,12 +1899,8 @@
           "name": "knowledge_documents_knowledge_base_id_knowledge_bases_id_fk",
           "tableFrom": "knowledge_documents",
           "tableTo": "knowledge_bases",
-          "columnsFrom": [
-            "knowledge_base_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["knowledge_base_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2172,12 +2140,8 @@
           "name": "long_term_memory_chunks_memory_id_long_term_memories_id_fk",
           "tableFrom": "long_term_memory_chunks",
           "tableTo": "long_term_memories",
-          "columnsFrom": [
-            "memory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["memory_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2272,12 +2236,8 @@
           "name": "messages_session_id_sessions_id_fk",
           "tableFrom": "messages",
           "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2559,12 +2519,8 @@
           "name": "scheduled_tasks_session_id_sessions_id_fk",
           "tableFrom": "scheduled_tasks",
           "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -2647,12 +2603,8 @@
           "name": "session_memories_session_id_sessions_id_fk",
           "tableFrom": "session_memories",
           "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -3174,9 +3126,7 @@
         "workspaces_project_id_unique": {
           "name": "workspaces_project_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "project_id"
-          ]
+          "columns": ["project_id"]
         }
       },
       "policies": {},
