@@ -1,8 +1,14 @@
-export async function executeRetryCommand(input: {
-  sessionId: string | null;
-}): Promise<{ shouldRetry: boolean; text?: string }> {
+import { t } from '@/lib/i18n/server';
+import type { Locale } from '@/lib/i18n';
+
+export async function executeRetryCommand(
+  locale: Locale,
+  input: {
+    sessionId: string | null;
+  },
+): Promise<{ shouldRetry: boolean; text?: string }> {
   if (!input.sessionId) {
-    return { shouldRetry: false, text: '没有活动的会话。' };
+    return { shouldRetry: false, text: t(locale, 'cmd.retry.noSession') };
   }
 
   // Signal that we should regenerate the last response

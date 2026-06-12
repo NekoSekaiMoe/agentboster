@@ -6,6 +6,7 @@ import {
   Hash,
   Info,
   KeyRound,
+  Languages,
   Play,
   RotateCcw,
   Search,
@@ -160,6 +161,11 @@ const COMMAND_METADATA: Record<
     description: 'Quick switch model with provider/model format',
     hint: '/models <provider/model>',
     icon: Hash,
+  },
+  lang: {
+    description: 'Change interface language',
+    hint: '/lang [language-code]',
+    icon: Languages,
   },
 };
 

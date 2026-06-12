@@ -200,6 +200,7 @@ export const COMMANDS = [
   'retry',
   'version',
   'id',
+  'lang',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];

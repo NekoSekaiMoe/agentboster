@@ -43,6 +43,7 @@ import { normalizeUserMessageParts } from './attachment-processing';
 import { executeCancelCommand } from './commands/cancel';
 import { executeConfigCommand } from './commands/config';
 import { executeIdCommand } from './commands/id';
+import { executeLangCommand } from './commands/lang';
 import { executeMemoryCommand } from './commands/memory';
 import { executeModelCommand } from './commands/model';
 import { executeModelsCommand } from './commands/models';
@@ -62,6 +63,8 @@ import { INIT_AGENTS_MD_MARKER, INIT_AGENTS_MD_PROMPT } from './init-prompt';
 import { serializeUserMessage } from './message-utils';
 import { cleanupChatSession } from './session-cleanup';
 import { deriveSessionTitle } from './session-title';
+import { t } from '@/lib/i18n/server';
+import type { Locale } from '@/lib/i18n';
 
 const chatMainLogger = createLogger('chat.main');
 
@@ -633,6 +636,11 @@ async function executeCommand(input: {
   const runtime = session ? await getSessionRuntime(session.id) : null;
   const currentSessionId = session?.id ?? input.requestedSessionId ?? 'none';
 
+  // Get locale from session metadata, IM source, or default
+  const locale: Locale = ((session?.metadata?.locale as string) ||
+    (input.source.type === 'im' ? input.source.locale : undefined) ||
+    'en-US') as Locale;
+
   switch (input.command) {
     case 'help':
       return {
@@ -1064,7 +1072,7 @@ async function executeCommand(input: {
       };
     }
     case 'start': {
-      const result = executeStartCommand();
+      const result = executeStartCommand(locale);
       return {
         sessionId: currentSessionId,
         text: result.text,
@@ -1072,7 +1080,7 @@ async function executeCommand(input: {
       };
     }
     case 'version': {
-      const result = executeVersionCommand();
+      const result = executeVersionCommand(locale);
       return {
         sessionId: currentSessionId,
         text: result.text,
@@ -1080,7 +1088,7 @@ async function executeCommand(input: {
       };
     }
     case 'id': {
-      const result = executeIdCommand({
+      const result = executeIdCommand(locale, {
         sessionId: session?.id ?? null,
         userId:
           input.source.type === 'im' ? (input.source.userId ?? null) : null,
@@ -1099,7 +1107,7 @@ async function executeCommand(input: {
       };
     }
     case 'cancel': {
-      const result = await executeCancelCommand({
+      const result = await executeCancelCommand(locale, {
         sessionId: session?.id ?? null,
         runId: runtime?.workflow.runId ?? null,
       });
@@ -1110,7 +1118,7 @@ async function executeCommand(input: {
       };
     }
     case 'reset': {
-      const result = await executeResetCommand({
+      const result = await executeResetCommand(locale, {
         sessionId: session?.id ?? null,
       });
       return {
@@ -1120,24 +1128,35 @@ async function executeCommand(input: {
       };
     }
     case 'retry': {
-      const result = await executeRetryCommand({
+      const result = await executeRetryCommand(locale, {
         sessionId: session?.id ?? null,
       });
       if (result.shouldRetry) {
         return {
           sessionId: currentSessionId,
-          text: '正在重试上一个消息...',
+          text: t(locale, 'cmd.retry.retrying'),
           runId: session?.workflowRunId ?? null,
         };
       }
       return {
         sessionId: currentSessionId,
-        text: result.text ?? '重试失败',
+        text: result.text ?? t(locale, 'cmd.retry.failed'),
         runId: session?.workflowRunId ?? null,
       };
     }
     case 'models': {
-      const result = await executeModelsCommand({
+      const result = await executeModelsCommand(locale, {
+        args: input.args,
+        sessionId: session?.id ?? null,
+      });
+      return {
+        sessionId: currentSessionId,
+        text: result.text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'lang': {
+      const result = await executeLangCommand(locale, {
         args: input.args,
         sessionId: session?.id ?? null,
       });

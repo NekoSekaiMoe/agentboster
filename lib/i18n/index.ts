@@ -413,6 +413,36 @@ const enUS = {
   'theme.dark': 'Dark',
   'theme.light': 'Light',
   'theme.system': 'System',
+  'cmd.start.welcome':
+    'Welcome to AgentBoster!\n\nAvailable commands:\n/help - Show help\n/new - Create new conversation\n/status - Show status\n/model <provider/model> - Switch model\n/provider - Manage providers\n/config - Manage config\n/session - Switch session\n/sessions - List sessions\n/compact - Compact context\n/stop - Stop current run\n/cancel - Cancel request\n/retry - Retry failed request\n/version - Show version\n/id - Show IDs\n/lang - Change language\n\nStart chatting with AI!',
+  'cmd.version.text':
+    'AgentBoster v{version}\nRuntime: Node.js {nodeVersion}\nPlatform: {platform}',
+  'cmd.id.title': 'Current ID Information:',
+  'cmd.id.sessionId': 'Session ID: {value}',
+  'cmd.id.noSession': 'Session ID: (none)',
+  'cmd.id.userId': 'User ID: {value}',
+  'cmd.id.adapter': 'Adapter: {value}',
+  'cmd.id.threadId': 'Thread ID: {value}',
+  'cmd.cancel.noSession': 'No active session.',
+  'cmd.cancel.noRun': 'No running request in current session.',
+  'cmd.cancel.success': 'Request cancelled.',
+  'cmd.cancel.failed': 'Failed to cancel: {error}',
+  'cmd.reset.noSession': 'No active session.',
+  'cmd.reset.success': 'Session state reset, all pending approvals cleared.',
+  'cmd.reset.failed': 'Reset failed: {error}',
+  'cmd.retry.noSession': 'No active session.',
+  'cmd.retry.retrying': 'Retrying last message...',
+  'cmd.retry.failed': 'Retry failed',
+  'cmd.models.usage':
+    'Usage: /models provider/model\nExample: /models anthropic/claude-opus-4',
+  'cmd.models.noSession': 'No active session.',
+  'cmd.models.invalidFormat':
+    'Invalid format. Usage: /models provider/model\nExample: /models anthropic/claude-opus-4',
+  'cmd.models.success': 'Switched to {provider}/{model}',
+  'cmd.models.failed': 'Failed to switch model: {error}',
+  'cmd.lang.prompt': 'Please select your language:',
+  'cmd.lang.success': 'Language changed to {language}',
+  'cmd.lang.failed': 'Failed to change language: {error}',
 } as const;
 
 const enGB = {
@@ -791,6 +821,36 @@ const zhCN = {
   'theme.dark': '深色',
   'theme.light': '浅色',
   'theme.system': '跟随系统',
+  'cmd.start.welcome':
+    '欢迎使用 AgentBoster！\n\n可用命令：\n/help - 显示帮助\n/new - 创建新对话\n/status - 显示状态\n/model <provider/model> - 切换模型\n/provider - 管理提供商\n/config - 管理配置\n/session - 切换会话\n/sessions - 列出会话\n/compact - 压缩上下文\n/stop - 停止当前运行\n/cancel - 取消请求\n/retry - 重试失败请求\n/version - 显示版本\n/id - 显示 ID\n/lang - 切换语言\n\n开始与 AI 对话吧！',
+  'cmd.version.text':
+    'AgentBoster v{version}\n运行环境：Node.js {nodeVersion}\n平台：{platform}',
+  'cmd.id.title': '当前 ID 信息：',
+  'cmd.id.sessionId': 'Session ID: {value}',
+  'cmd.id.noSession': 'Session ID: (无)',
+  'cmd.id.userId': 'User ID: {value}',
+  'cmd.id.adapter': 'Adapter: {value}',
+  'cmd.id.threadId': 'Thread ID: {value}',
+  'cmd.cancel.noSession': '没有活动的会话。',
+  'cmd.cancel.noRun': '当前会话没有正在运行的请求。',
+  'cmd.cancel.success': '已取消当前请求。',
+  'cmd.cancel.failed': '取消请求失败：{error}',
+  'cmd.reset.noSession': '没有活动的会话。',
+  'cmd.reset.success': '已重置会话状态，清除所有待审批决策。',
+  'cmd.reset.failed': '重置失败：{error}',
+  'cmd.retry.noSession': '没有活动的会话。',
+  'cmd.retry.retrying': '正在重试上一个消息...',
+  'cmd.retry.failed': '重试失败',
+  'cmd.models.usage':
+    '用法：/models provider/model\n例如：/models anthropic/claude-opus-4',
+  'cmd.models.noSession': '没有活动的会话。',
+  'cmd.models.invalidFormat':
+    '格式错误。用法：/models provider/model\n例如：/models anthropic/claude-opus-4',
+  'cmd.models.success': '已切换到 {provider}/{model}',
+  'cmd.models.failed': '切换模型失败：{error}',
+  'cmd.lang.prompt': '请选择语言：',
+  'cmd.lang.success': '语言已切换为 {language}',
+  'cmd.lang.failed': '切换语言失败：{error}',
 } satisfies Record<keyof typeof enUS, string>;
 
 const zhTW = {
@@ -1160,6 +1220,36 @@ const zhTW = {
   'theme.dark': '深色',
   'theme.light': '淺色',
   'theme.system': '跟隨系統',
+  'cmd.start.welcome':
+    '歡迎使用 AgentBoster！\n\n可用命令：\n/help - 顯示幫助\n/new - 創建新對話\n/status - 顯示狀態\n/model <provider/model> - 切換模型\n/provider - 管理提供商\n/config - 管理配置\n/session - 切換會話\n/sessions - 列出會話\n/compact - 壓縮上下文\n/stop - 停止當前運行\n/cancel - 取消請求\n/retry - 重試失敗請求\n/version - 顯示版本\n/id - 顯示 ID\n/lang - 切換語言\n\n開始與 AI 對話吧！',
+  'cmd.version.text':
+    'AgentBoster v{version}\n運行環境：Node.js {nodeVersion}\n平台：{platform}',
+  'cmd.id.title': '當前 ID 信息：',
+  'cmd.id.sessionId': 'Session ID: {value}',
+  'cmd.id.noSession': 'Session ID: (無)',
+  'cmd.id.userId': 'User ID: {value}',
+  'cmd.id.adapter': 'Adapter: {value}',
+  'cmd.id.threadId': 'Thread ID: {value}',
+  'cmd.cancel.noSession': '沒有活動的會話。',
+  'cmd.cancel.noRun': '當前會話沒有正在運行的請求。',
+  'cmd.cancel.success': '已取消當前請求。',
+  'cmd.cancel.failed': '取消請求失敗：{error}',
+  'cmd.reset.noSession': '沒有活動的會話。',
+  'cmd.reset.success': '已重置會話狀態，清除所有待審批決策。',
+  'cmd.reset.failed': '重置失敗：{error}',
+  'cmd.retry.noSession': '沒有活動的會話。',
+  'cmd.retry.retrying': '正在重試上一個消息...',
+  'cmd.retry.failed': '重試失敗',
+  'cmd.models.usage':
+    '用法：/models provider/model\n例如：/models anthropic/claude-opus-4',
+  'cmd.models.noSession': '沒有活動的會話。',
+  'cmd.models.invalidFormat':
+    '格式錯誤。用法：/models provider/model\n例如：/models anthropic/claude-opus-4',
+  'cmd.models.success': '已切換到 {provider}/{model}',
+  'cmd.models.failed': '切換模型失敗：{error}',
+  'cmd.lang.prompt': '請選擇語言：',
+  'cmd.lang.success': '語言已切換為 {language}',
+  'cmd.lang.failed': '切換語言失敗：{error}',
 } satisfies Record<keyof typeof enUS, string>;
 
 const zhHK = {
@@ -1579,6 +1669,37 @@ const ja = {
   'theme.dark': 'ダーク',
   'theme.light': 'ライト',
   'theme.system': 'システム設定',
+  'cmd.start.welcome':
+    'AgentBoster へようこそ！\n\n利用可能なコマンド：\n/help - ヘルプを表示\n/new - 新しい会話を作成\n/status - ステータスを表示\n/model <provider/model> - モデルを切り替え\n/provider - プロバイダーを管理\n/config - 設定を管理\n/session - セッションを切り替え\n/sessions - セッションを一覧表示\n/compact - コンテキストを圧縮\n/stop - 現在の実行を停止\n/cancel - リクエストをキャンセル\n/retry - 失敗したリクエストを再試行\n/version - バージョンを表示\n/id - IDを表示\n/lang - 言語を切り替え\n\nAIとの会話を始めましょう！',
+  'cmd.version.text':
+    'AgentBoster v{version}\nランタイム：Node.js {nodeVersion}\nプラットフォーム：{platform}',
+  'cmd.id.title': '現在のID情報：',
+  'cmd.id.sessionId': 'Session ID: {value}',
+  'cmd.id.noSession': 'Session ID: (なし)',
+  'cmd.id.userId': 'User ID: {value}',
+  'cmd.id.adapter': 'Adapter: {value}',
+  'cmd.id.threadId': 'Thread ID: {value}',
+  'cmd.cancel.noSession': 'アクティブなセッションがありません。',
+  'cmd.cancel.noRun': '現在のセッションで実行中のリクエストがありません。',
+  'cmd.cancel.success': 'リクエストをキャンセルしました。',
+  'cmd.cancel.failed': 'キャンセルに失敗しました：{error}',
+  'cmd.reset.noSession': 'アクティブなセッションがありません。',
+  'cmd.reset.success':
+    'セッション状態をリセットし、すべての承認待ちを削除しました。',
+  'cmd.reset.failed': 'リセットに失敗しました：{error}',
+  'cmd.retry.noSession': 'アクティブなセッションがありません。',
+  'cmd.retry.retrying': '最後のメッセージを再試行しています...',
+  'cmd.retry.failed': '再試行に失敗しました',
+  'cmd.models.usage':
+    '使い方：/models provider/model\n例：/models anthropic/claude-opus-4',
+  'cmd.models.noSession': 'アクティブなセッションがありません。',
+  'cmd.models.invalidFormat':
+    'フォーマットエラー。使い方：/models provider/model\n例：/models anthropic/claude-opus-4',
+  'cmd.models.success': '{provider}/{model} に切り替えました',
+  'cmd.models.failed': 'モデルの切り替えに失敗しました：{error}',
+  'cmd.lang.prompt': '言語を選択してください：',
+  'cmd.lang.success': '言語を {language} に切り替えました',
+  'cmd.lang.failed': '言語の切り替えに失敗しました：{error}',
 } satisfies Record<keyof typeof enUS, string>;
 
 const ko = {
@@ -1729,6 +1850,37 @@ const ko = {
   'theme.dark': '다크',
   'theme.light': '라이트',
   'theme.system': '시스템',
+  'cmd.start.welcome':
+    'AgentBoster에 오신 것을 환영합니다!\n\n사용 가능한 명령어:\n/help - 도움말 표시\n/new - 새 대화 생성\n/status - 상태 표시\n/model <provider/model> - 모델 전환\n/provider - 제공자 관리\n/config - 설정 관리\n/session - 세션 전환\n/sessions - 세션 목록\n/compact - 컨텍스트 압축\n/stop - 현재 실행 중지\n/cancel - 요청 취소\n/retry - 실패한 요청 재시도\n/version - 버전 표시\n/id - ID 표시\n/lang - 언어 전환\n\nAI와 대화를 시작하세요!',
+  'cmd.version.text':
+    'AgentBoster v{version}\n런타임: Node.js {nodeVersion}\n플랫폼: {platform}',
+  'cmd.id.title': '현재 ID 정보:',
+  'cmd.id.sessionId': 'Session ID: {value}',
+  'cmd.id.noSession': 'Session ID: (없음)',
+  'cmd.id.userId': 'User ID: {value}',
+  'cmd.id.adapter': 'Adapter: {value}',
+  'cmd.id.threadId': 'Thread ID: {value}',
+  'cmd.cancel.noSession': '활성 세션이 없습니다.',
+  'cmd.cancel.noRun': '현재 세션에서 실행 중인 요청이 없습니다.',
+  'cmd.cancel.success': '요청이 취소되었습니다.',
+  'cmd.cancel.failed': '취소 실패: {error}',
+  'cmd.reset.noSession': '활성 세션이 없습니다.',
+  'cmd.reset.success':
+    '세션 상태가 재설정되었으며 모든 승인 대기가 삭제되었습니다.',
+  'cmd.reset.failed': '재설정 실패: {error}',
+  'cmd.retry.noSession': '활성 세션이 없습니다.',
+  'cmd.retry.retrying': '마지막 메시지를 재시도하는 중...',
+  'cmd.retry.failed': '재시도 실패',
+  'cmd.models.usage':
+    '사용법: /models provider/model\n예: /models anthropic/claude-opus-4',
+  'cmd.models.noSession': '활성 세션이 없습니다.',
+  'cmd.models.invalidFormat':
+    '형식 오류. 사용법: /models provider/model\n예: /models anthropic/claude-opus-4',
+  'cmd.models.success': '{provider}/{model}로 전환되었습니다',
+  'cmd.models.failed': '모델 전환 실패: {error}',
+  'cmd.lang.prompt': '언어를 선택하세요:',
+  'cmd.lang.success': '언어가 {language}로 변경되었습니다',
+  'cmd.lang.failed': '언어 전환 실패: {error}',
 } satisfies Record<keyof typeof enUS, string>;
 
 export const translations = {
