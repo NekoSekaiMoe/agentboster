@@ -319,6 +319,52 @@ vim agentd.toml
 
 ---
 
+---
+
+## IM Commands
+
+AgentBoster supports the following commands via IM channels (Telegram/Discord/Slack/Feishu/Teams):
+
+### Session Management
+- `/start` - Show welcome message and available commands
+- `/new` - Create a new session
+- `/sessions` - List all sessions
+- `/session [id]` - Switch to or show current session
+- `/switch <index|id>` - Switch to specified session
+- `/delete_session [id]` - Delete session
+
+### Execution Control
+- `/stop` - Stop current workflow run
+- `/cancel` - Cancel current request
+- `/retry` - Retry last failed request
+- `/compact` - Request context compaction
+
+### Configuration Management
+- `/model [model-id]` - Show or switch model
+- `/models <provider/model>` - Quick switch model (e.g., `/models anthropic/claude-opus-4`)
+- `/provider` - Manage model providers
+- `/config [path] [value]` - Show or set configuration
+- `/lang [code]` - Switch language (supports en-US/zh-CN/zh-TW/ja/ko, etc.)
+
+### Security Review
+- `/approve <toolCallId> [note]` - Approve pending tool call
+- `/reject <toolCallId> [note]` - Reject pending tool call
+- `/decisions` - List pending decisions (L2 auth + questions)
+- `/reset` - Reset session state, clear all pending approvals
+
+### Others
+- `/status` - Show session status
+- `/help` - Show help information
+- `/version` - Show version information
+- `/id` - Show current session and user ID
+- `/init` - Generate or update AGENTS.md
+- `/memory <query>` - Search memories
+- `/pair <code>` - Pair IM account
+
+All command responses support multiple languages (automatically switch based on user's `/lang` setting).
+
+---
+
 ## Quick Start
 
 ### 1. Configure Environment Variables

@@ -264,6 +264,52 @@ vim agentd.toml
 
 ---
 
+---
+
+## IM 命令
+
+AgentBoster 支持通过 IM 渠道（Telegram/Discord/Slack/Feishu/Teams）使用以下命令：
+
+### 会话管理
+- `/start` - 显示欢迎消息和可用命令
+- `/new` - 创建新会话
+- `/sessions` - 列出所有会话
+- `/session [id]` - 切换或显示当前会话
+- `/switch <index|id>` - 切换到指定会话
+- `/delete_session [id]` - 删除会话
+
+### 执行控制
+- `/stop` - 停止当前 workflow 运行
+- `/cancel` - 取消当前请求
+- `/retry` - 重试上一个失败的请求
+- `/compact` - 请求上下文压缩
+
+### 配置管理
+- `/model [model-id]` - 显示或切换模型
+- `/models <provider/model>` - 快速切换模型（如 `/models anthropic/claude-opus-4`）
+- `/provider` - 管理模型提供商
+- `/config [path] [value]` - 显示或设置配置
+- `/lang [code]` - 切换语言（支持 en-US/zh-CN/zh-TW/ja/ko 等）
+
+### 安全审查
+- `/approve <toolCallId> [note]` - 批准待审工具调用
+- `/reject <toolCallId> [note]` - 拒绝待审工具调用
+- `/decisions` - 列出待决策项（L2 授权 + 提问）
+- `/reset` - 重置会话状态，清除所有待审批决策
+
+### 其他
+- `/status` - 显示会话状态
+- `/help` - 显示帮助信息
+- `/version` - 显示版本信息
+- `/id` - 显示当前会话和用户 ID
+- `/init` - 生成或更新 AGENTS.md
+- `/memory <query>` - 搜索记忆
+- `/pair <code>` - 配对 IM 账号
+
+所有命令响应支持多语言（根据用户设置的 `/lang` 自动切换）。
+
+---
+
 ## 快速开始
 
 ### 1. 配置环境变量
