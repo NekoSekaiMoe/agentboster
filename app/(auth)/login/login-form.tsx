@@ -34,6 +34,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const isDark = resolvedTheme === 'dark';
 
@@ -41,6 +42,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
+    setSuccess(false);
 
     try {
       const result = await loginAction({
@@ -54,6 +56,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
         return;
       }
 
+      setSuccess(true);
       router.replace(result.redirectTo ?? '/');
       router.refresh();
     } catch {
@@ -172,6 +175,11 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
         </p>
 
         {error ? <p className="text-destructive text-sm">{error}</p> : null}
+        {success ? (
+          <p className="text-green-600 text-sm dark:text-green-500">
+            {t('login.success')}
+          </p>
+        ) : null}
 
         <Button
           type="submit"

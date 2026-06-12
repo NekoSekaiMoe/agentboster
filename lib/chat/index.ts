@@ -637,9 +637,10 @@ async function executeCommand(input: {
   const currentSessionId = session?.id ?? input.requestedSessionId ?? 'none';
 
   // Get locale from session metadata, IM source, or default
-  const locale: Locale = ((session?.metadata?.locale as string) ||
+  let rawLocale = (session?.metadata?.locale as string) ||
     (input.source.type === 'im' ? input.source.locale : undefined) ||
-    'en-US') as Locale;
+    'en-US';
+  const locale: Locale = (rawLocale === 'auto' ? 'en-US' : rawLocale) as Locale;
 
   switch (input.command) {
     case 'help':
