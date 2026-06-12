@@ -189,10 +189,17 @@ export const COMMANDS = [
   'compact',
   'decisions',
   'model',
+  'models',
   'provider',
   'config',
   'memory',
   'pair',
+  'start',
+  'cancel',
+  'reset',
+  'retry',
+  'version',
+  'id',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];

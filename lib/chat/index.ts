@@ -40,11 +40,18 @@ import {
   parseChatInputEnvelope,
 } from '@/types/workflow';
 import { normalizeUserMessageParts } from './attachment-processing';
+import { executeCancelCommand } from './commands/cancel';
 import { executeConfigCommand } from './commands/config';
+import { executeIdCommand } from './commands/id';
 import { executeMemoryCommand } from './commands/memory';
 import { executeModelCommand } from './commands/model';
+import { executeModelsCommand } from './commands/models';
 import { executePairCommand } from './commands/pair';
 import { executeProviderCommand } from './commands/provider';
+import { executeResetCommand } from './commands/reset';
+import { executeRetryCommand } from './commands/retry';
+import { executeStartCommand } from './commands/start';
+import { executeVersionCommand } from './commands/version';
 import {
   checkDuplicate,
   checkIdempotencyDuplicate,
@@ -1053,6 +1060,90 @@ async function executeCommand(input: {
       return {
         sessionId: currentSessionId,
         text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'start': {
+      const result = executeStartCommand();
+      return {
+        sessionId: currentSessionId,
+        text: result.text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'version': {
+      const result = executeVersionCommand();
+      return {
+        sessionId: currentSessionId,
+        text: result.text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'id': {
+      const result = executeIdCommand({
+        sessionId: session?.id ?? null,
+        userId:
+          input.source.type === 'im' ? (input.source.userId ?? null) : null,
+        source:
+          input.source.type === 'im'
+            ? {
+                adapter: input.source.adapter,
+                threadId: input.source.threadId,
+              }
+            : null,
+      });
+      return {
+        sessionId: currentSessionId,
+        text: result.text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'cancel': {
+      const result = await executeCancelCommand({
+        sessionId: session?.id ?? null,
+        runId: runtime?.workflow.runId ?? null,
+      });
+      return {
+        sessionId: currentSessionId,
+        text: result.text,
+        runId: null,
+      };
+    }
+    case 'reset': {
+      const result = await executeResetCommand({
+        sessionId: session?.id ?? null,
+      });
+      return {
+        sessionId: currentSessionId,
+        text: result.text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'retry': {
+      const result = await executeRetryCommand({
+        sessionId: session?.id ?? null,
+      });
+      if (result.shouldRetry) {
+        return {
+          sessionId: currentSessionId,
+          text: '正在重试上一个消息...',
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+      return {
+        sessionId: currentSessionId,
+        text: result.text ?? '重试失败',
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'models': {
+      const result = await executeModelsCommand({
+        args: input.args,
+        sessionId: session?.id ?? null,
+      });
+      return {
+        sessionId: currentSessionId,
+        text: result.text,
         runId: session?.workflowRunId ?? null,
       };
     }

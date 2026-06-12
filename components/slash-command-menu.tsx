@@ -4,15 +4,19 @@ import {
   BookOpen,
   Database,
   Hash,
+  Info,
   KeyRound,
   Play,
+  RotateCcw,
   Search,
   Settings,
+  Sparkles,
   Square,
   ThumbsDown,
   ThumbsUp,
   Trash2,
   Wand2,
+  X,
 } from 'lucide-react';
 import type React from 'react';
 import { useMemo, useState } from 'react';
@@ -121,6 +125,41 @@ const COMMAND_METADATA: Record<
     description: 'Pair your IM account with a code',
     hint: '/pair <code>',
     icon: KeyRound,
+  },
+  start: {
+    description: 'Show welcome message and available commands',
+    hint: '/start',
+    icon: Sparkles,
+  },
+  cancel: {
+    description: 'Cancel the current running request',
+    hint: '/cancel',
+    icon: X,
+  },
+  reset: {
+    description: 'Reset session state and clear pending approvals',
+    hint: '/reset',
+    icon: RotateCcw,
+  },
+  retry: {
+    description: 'Retry the last failed request',
+    hint: '/retry',
+    icon: RotateCcw,
+  },
+  version: {
+    description: 'Show AgentBoster version information',
+    hint: '/version',
+    icon: Info,
+  },
+  id: {
+    description: 'Show current session and user IDs',
+    hint: '/id',
+    icon: Hash,
+  },
+  models: {
+    description: 'Quick switch model with provider/model format',
+    hint: '/models <provider/model>',
+    icon: Hash,
   },
 };
 
