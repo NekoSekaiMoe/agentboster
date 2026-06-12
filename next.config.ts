@@ -26,7 +26,6 @@ const nextConfig: NextConfig = {
     ],
   },
   turbopack: {},
-  },
   serverExternalPackages: [
     '@chat-adapter/discord',
     '@discordjs/ws',
