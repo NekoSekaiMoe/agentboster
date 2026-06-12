@@ -3,7 +3,6 @@ import { withWorkflow } from 'workflow/next';
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: process.cwd(),
-  swcMinify: true,
   compiler: {
     removeConsole:
       process.env.NODE_ENV === 'production'
@@ -25,7 +24,8 @@ const nextConfig: NextConfig = {
       '@radix-ui/react-tabs',
       '@radix-ui/react-tooltip',
     ],
-    turbo: {},
+  },
+  turbopack: {},
   },
   serverExternalPackages: [
     '@chat-adapter/discord',
