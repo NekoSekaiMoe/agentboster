@@ -25,8 +25,9 @@ interface AgentdToolExecResponse {
 export async function getAgentdClientConfig(): Promise<AgentdHttpConfig> {
   'use step';
   const appConfig = await getAppConfig();
-  const configuredUrl = appConfig.agentd?.url?.trim();
-  const baseUrl = configuredUrl || process.env.AGENTD_URL;
+  const nodes = appConfig.agentd?.nodes ?? [];
+  const firstNodeUrl = nodes.length > 0 ? nodes[0].url : undefined;
+  const baseUrl = firstNodeUrl || process.env.AGENTD_URL;
   const apiKey = process.env.AGENTD_API_KEY ?? '';
   if (!baseUrl) {
     throw new Error('Agent Daemon URL is not configured');

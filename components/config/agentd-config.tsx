@@ -9,9 +9,11 @@ import {
   HardDrive,
   Info,
   Loader2,
+  Plus,
   RefreshCw,
   Server,
   ShieldCheck,
+  Trash2,
   WifiOff,
   XCircle,
 } from 'lucide-react';
@@ -30,7 +32,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { AgentdConfig } from '@/types/config/agentd';
+import type { AgentdConfig, AgentdNode } from '@/types/config/agentd';
 
 interface HealthResponse {
   success: boolean;
@@ -141,15 +143,35 @@ export function AgentDConfigPage() {
   const { draft, updateSection } = useConfigContext();
   const agentdConfig = (draft.agentd ?? {}) as Partial<AgentdConfig>;
   const agentdEnabled = agentdConfig.enabled ?? false;
-  const agentdUrl = agentdConfig.url ?? '';
+  const configuredNodes = agentdConfig.nodes ?? [];
 
   function updateAgentdConfig(patch: Partial<AgentdConfig>) {
     updateSection('agentd', (current) => ({
       enabled: current?.enabled ?? false,
       follow_up_enabled: current?.follow_up_enabled ?? false,
+      nodes: current?.nodes ?? [],
       ...current,
       ...patch,
     }));
+  }
+
+  function addNode() {
+    const newNode: AgentdNode = {
+      id: crypto.randomUUID(),
+      url: '',
+      name: '',
+    };
+    updateAgentdConfig({ nodes: [...configuredNodes, newNode] });
+  }
+
+  function updateNode(id: string, patch: Partial<AgentdNode>) {
+    updateAgentdConfig({
+      nodes: configuredNodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+    });
+  }
+
+  function removeNode(id: string) {
+    updateAgentdConfig({ nodes: configuredNodes.filter((n) => n.id !== id) });
   }
 
   const {
@@ -163,7 +185,7 @@ export function AgentDConfigPage() {
   });
 
   const {
-    data: nodes,
+    data: registeredNodes,
     isFetching: nodesFetching,
     refetch: refetchNodes,
   } = useQuery({
@@ -174,7 +196,8 @@ export function AgentDConfigPage() {
 
   const daemon = health?.data.daemon;
   const directOnline = daemon?.status === 'online';
-  const onlineNodes = nodes?.filter((node) => node.status === 'online') ?? [];
+  const onlineNodes =
+    registeredNodes?.filter((node) => node.status === 'online') ?? [];
 
   async function copySnippet() {
     await navigator.clipboard.writeText(agentdTomlSnippet);
@@ -216,26 +239,85 @@ export function AgentDConfigPage() {
         </CardHeader>
         {agentdEnabled ? (
           <CardContent className="border-t pt-5">
-            <div className="grid gap-2">
-              <Label htmlFor="agentd-url">Daemon URL</Label>
-              <Input
-                id="agentd-url"
-                type="url"
-                inputMode="url"
-                placeholder="https://agentd.example.com"
-                value={agentdUrl}
-                onChange={(event) =>
-                  updateAgentdConfig({ url: event.target.value })
-                }
-              />
-              <p className="text-muted-foreground text-xs">
-                Used by Web server direct checks and daemon API calls. If left
-                empty, AGENTD_URL from the environment is used.
-              </p>
-            </div>
+            <p className="text-muted-foreground text-sm">
+              Configure daemon nodes below. Each node can be called directly by
+              the Web server for health checks and API operations.
+            </p>
           </CardContent>
         ) : null}
       </Card>
+
+      {agentdEnabled && (
+        <Card className="shadow-none">
+          <CardHeader>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <CardTitle className="text-base">Daemon Nodes</CardTitle>
+                <CardDescription>
+                  Add daemon URLs for Web server to call directly
+                </CardDescription>
+              </div>
+              <Button size="sm" variant="outline" onClick={addNode}>
+                <Plus className="size-4" />
+                Add Node
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {configuredNodes.length === 0 ? (
+              <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground text-sm">
+                No nodes configured. Click "Add Node" to add a daemon URL.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {configuredNodes.map((node) => (
+                  <div key={node.id} className="rounded-md border p-4">
+                    <div className="grid gap-3">
+                      <div className="grid gap-2">
+                        <Label htmlFor={`node-name-${node.id}`}>
+                          Name (optional)
+                        </Label>
+                        <Input
+                          id={`node-name-${node.id}`}
+                          placeholder="Production Node 1"
+                          value={node.name ?? ''}
+                          onChange={(e) =>
+                            updateNode(node.id, { name: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor={`node-url-${node.id}`}>
+                          Daemon URL
+                        </Label>
+                        <div className="flex gap-2">
+                          <Input
+                            id={`node-url-${node.id}`}
+                            type="url"
+                            inputMode="url"
+                            placeholder="https://agentd.example.com"
+                            value={node.url}
+                            onChange={(e) =>
+                              updateNode(node.id, { url: e.target.value })
+                            }
+                          />
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => removeNode(node.id)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <StatusCard
@@ -249,7 +331,7 @@ export function AgentDConfigPage() {
           description="Nodes that have registered and sent recent heartbeats."
           icon={onlineNodes.length > 0 ? Server : XCircle}
           title="Registered nodes"
-          value={`${onlineNodes.length}/${nodes?.length ?? 0}`}
+          value={`${onlineNodes.length}/${registeredNodes?.length ?? 0}`}
           variant={onlineNodes.length > 0 ? 'online' : 'neutral'}
         />
         <StatusCard
@@ -287,14 +369,14 @@ export function AgentDConfigPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {!nodes || nodes.length === 0 ? (
+          {!registeredNodes || registeredNodes.length === 0 ? (
             <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground text-sm">
               No nodes registered yet. Start agentd with a valid base_url and
               clawless_api_key.
             </div>
           ) : (
             <div className="space-y-3">
-              {nodes.map((node) => (
+              {registeredNodes.map((node) => (
                 <div key={node.node_id} className="rounded-md border p-3">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0 space-y-2">
