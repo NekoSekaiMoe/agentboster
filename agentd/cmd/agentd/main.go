@@ -35,6 +35,7 @@ import (
 	"github.com/clawless/agentd/internal/security/l0_rules"
 	"github.com/clawless/agentd/internal/security/l2_auth"
 	"github.com/clawless/agentd/internal/server"
+	"github.com/clawless/agentd/internal/system"
 	"github.com/clawless/agentd/internal/worker"
 	"github.com/gin-gonic/gin"
 )
@@ -83,6 +84,12 @@ func main() {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check system dependencies
+	if err := system.CheckDependencies(cfg.Sandbox.Default); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
 		os.Exit(1)
 	}
 

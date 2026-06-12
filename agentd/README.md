@@ -24,7 +24,12 @@ on Vercel) over mTLS.
 
 - Linux (build tags enforce this — `//go:build linux`)
 - Root at startup — needed to create cgroups, mount namespaces, drop to `run_as_user` afterwards
-- Go 1.26.2 to build, Docker or LXC at runtime depending on the sandbox types you enable
+- Go 1.26.2 to build
+- Docker or LXC at runtime depending on the sandbox types you enable
+  - Docker (rootless recommended): `docker`, `libseccomp2`
+    - Default config uses rootless Docker at `/run/user/1001/docker.sock` for reduced attack surface
+    - Rootful Docker (`/var/run/docker.sock`) requires explicit `allow_rootful_docker = true`
+  - LXC requires: `lxc`, `libcap2`, `debootstrap` (or `yum`/`dnf` for non-Debian distros)
 
 The daemon is stateless from a database perspective. All persistent state (sessions, tasks,
 review logs, memories, agent configs) lives in the AgentBoster Web Postgres. Agentd caches a
