@@ -107,6 +107,12 @@ export async function POST(request: Request) {
     logger.info('post:body_parsed', {
       sessionId: body.id,
       trigger: body.trigger,
+      hasInput: !!body.input,
+      inputKeys: body.input ? Object.keys(body.input) : [],
+      hasInputMetadata: !!body.input?.metadata,
+      inputMetadataKeys: body.input?.metadata
+        ? Object.keys(body.input.metadata)
+        : [],
     });
   } catch (error) {
     logger.error('post:parse_failed', {
