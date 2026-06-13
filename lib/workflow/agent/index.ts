@@ -31,6 +31,7 @@ import {
   resolveAgentProviderOptions,
 } from './steps/resolve-model';
 import { buildAgentTools } from './tools';
+import { sanitizeToolName } from './tools/tool-name-guard';
 import { getTokenUsageTotal } from './types';
 import {
   MAIN_AGENT_NAME,
@@ -303,6 +304,32 @@ export async function chatWorkflow(
       preventClose: true,
       maxSteps,
       collectUIMessages: false,
+      experimental_repairToolCall: async ({ toolCall, tools }) => {
+        // DurableAgent only invokes this hook on schema-validation failure,
+        // not on "tool not found". The empty-name / unknown-name crash is
+        // handled by the trap tools registered in buildAgentTools. This hook
+        // catches the secondary case where the model produced valid-looking
+        // arguments but used a subtly wrong tool name (alias / casing).
+        const known = new Set(Object.keys(tools));
+        const fixed = sanitizeToolName(toolCall.toolName, known);
+        if (fixed && fixed.reason !== 'exact') {
+          logger.info('tool:repaired_name', {
+            sessionId,
+            runId,
+            toolCallId: toolCall.toolCallId,
+            original: toolCall.toolName,
+            repaired: fixed.name,
+            reason: fixed.reason,
+          });
+          return {
+            type: 'tool-call' as const,
+            toolCallId: toolCall.toolCallId,
+            toolName: fixed.name,
+            input: toolCall.input,
+          };
+        }
+        return null;
+      },
       prepareStep: async ({ messages, stepNumber }) => {
         const startedAt = new Date();
         stepStartedAt.set(stepNumber, startedAt);
