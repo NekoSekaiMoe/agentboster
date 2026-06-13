@@ -293,8 +293,6 @@ export function MessageEditor({
               return;
             }
 
-            console.log('Send button clicked, starting edit save');
-
             setIsSubmitting(true);
             const messageId = message.id;
             const updatedParts: UserMessagePart[] = [
@@ -310,13 +308,16 @@ export function MessageEditor({
               })),
             ];
 
-            console.log('Updated parts created:', updatedParts);
-
             if (!messageId) {
               toast.error('Something went wrong, please try again!');
               setIsSubmitting(false);
               return;
             }
+
+            let historyToPreserve: {
+              editHistory: typeof editHistory;
+              currentEditIndex: number;
+            } | null = null;
 
             setMessages((messages) => {
               const index = messages.findIndex((m) => m.id === message.id);
@@ -331,15 +332,6 @@ export function MessageEditor({
                 const currentText = getTextFromParts(message);
                 const newText = draftContent.trim();
                 const contentChanged = currentText !== newText;
-
-                console.log('Editing message:', {
-                  messageId: message.id,
-                  currentText,
-                  newText,
-                  contentChanged,
-                  editHistoryLength: editHistory.length,
-                  currentEditIndex,
-                });
 
                 let newEditHistory = editHistory;
                 let newEditIndex = currentEditIndex;
@@ -393,13 +385,13 @@ export function MessageEditor({
                     },
                   ];
                   newEditIndex = newEditHistory.length - 1;
-
-                  console.log('Edit history updated:', {
-                    historyLength: newEditHistory.length,
-                    currentIndex: newEditIndex,
-                    contentChanged,
-                  });
                 }
+
+                // Store for reapplication after regenerate
+                historyToPreserve = {
+                  editHistory: newEditHistory,
+                  currentEditIndex: newEditIndex,
+                };
 
                 const updatedMessage: WorkflowUIMessage = {
                   ...message,
@@ -422,6 +414,7 @@ export function MessageEditor({
             });
 
             setMode('view');
+
             try {
               await regenerate({
                 messageId,
@@ -431,6 +424,27 @@ export function MessageEditor({
                   },
                 },
               });
+
+              // Reapply the edit history after regenerate completes
+              if (historyToPreserve) {
+                setMessages((messages) => {
+                  const index = messages.findIndex((m) => m.id === message.id);
+                  if (index === -1) return messages;
+
+                  return [
+                    ...messages.slice(0, index),
+                    {
+                      ...messages[index],
+                      metadata: {
+                        ...messages[index].metadata,
+                        editHistory: historyToPreserve.editHistory,
+                        currentEditIndex: historyToPreserve.currentEditIndex,
+                      },
+                    },
+                    ...messages.slice(index + 1),
+                  ];
+                });
+              }
             } catch {
               toast.error('Failed to regenerate response');
             } finally {
