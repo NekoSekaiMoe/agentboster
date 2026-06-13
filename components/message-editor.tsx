@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { flushSync } from 'react-dom';
 import { toast } from 'sonner';
 
 import type { UserMessagePart, WorkflowUIMessage } from '@/types/workflow';
@@ -70,10 +69,6 @@ export function MessageEditor({
   regenerate,
 }: MessageEditorProps) {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [shouldRegenerate, setShouldRegenerate] = useState<{
-    messageId: string;
-    parts: UserMessagePart[];
-  } | null>(null);
 
   const [draftContent, setDraftContent] = useState<string>(
     getTextFromParts(message),
@@ -89,31 +84,6 @@ export function MessageEditor({
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Trigger regenerate after messages state is updated
-  useEffect(() => {
-    if (!shouldRegenerate) return;
-
-    const doRegenerate = async () => {
-      try {
-        await regenerate({
-          messageId: shouldRegenerate.messageId,
-          body: {
-            input: {
-              parts: shouldRegenerate.parts,
-            },
-          },
-        });
-      } catch {
-        toast.error('Failed to regenerate response');
-      } finally {
-        setIsSubmitting(false);
-        setShouldRegenerate(null);
-      }
-    };
-
-    void doRegenerate();
-  }, [shouldRegenerate, regenerate]);
 
   const adjustHeight = useCallback(() => {
     if (textareaRef.current) {
@@ -404,40 +374,51 @@ export function MessageEditor({
             }
 
             // Build the updated message with editHistory
+            const updatedMetadata = {
+              ...message.metadata,
+              editHistory: newEditHistory,
+              currentEditIndex: newEditIndex,
+              createdAt:
+                message.metadata?.createdAt || new Date().toISOString(),
+            };
             const updatedMessage: WorkflowUIMessage = {
               ...message,
               parts: updatedParts,
-              metadata: {
-                ...message.metadata,
-                editHistory: newEditHistory,
-                currentEditIndex: newEditIndex,
-                createdAt:
-                  message.metadata?.createdAt || new Date().toISOString(),
-              },
+              metadata: updatedMetadata,
             };
+
+            // Optimistic UI update (truncate later messages, show edited content)
+            setMessages((messages) => {
+              const index = messages.findIndex((m) => m.id === message.id);
+              if (index !== -1) {
+                return [
+                  ...messages.slice(0, index),
+                  updatedMessage,
+                  ...messages.slice(index + 1),
+                ];
+              }
+              return messages;
+            });
 
             setMode('view');
 
-            // Use flushSync to ensure state update is synchronous
-            flushSync(() => {
-              setMessages((messages) => {
-                const index = messages.findIndex((m) => m.id === message.id);
-                if (index !== -1) {
-                  return [
-                    ...messages.slice(0, index),
-                    updatedMessage,
-                    ...messages.slice(index + 1),
-                  ];
-                }
-                return messages;
+            try {
+              // Pass metadata explicitly in the request body — no dependency on
+              // useChat's internal message state, so no race condition.
+              await regenerate({
+                messageId,
+                body: {
+                  input: {
+                    parts: updatedParts,
+                    metadata: updatedMetadata,
+                  },
+                },
               });
-            });
-
-            // Trigger regenerate via useEffect after state update
-            setShouldRegenerate({
-              messageId,
-              parts: updatedParts,
-            });
+            } catch {
+              toast.error('Failed to regenerate response');
+            } finally {
+              setIsSubmitting(false);
+            }
           }}
         >
           {isSubmitting ? 'Sending...' : 'Send'}

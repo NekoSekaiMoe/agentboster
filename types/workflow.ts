@@ -51,12 +51,32 @@ export type ChatMessageMetadata = {
   currentGenerationIndex?: number;
 };
 
+const editHistoryEntrySchema = z.object({
+  parts: z.array(
+    z.union([
+      z.object({ type: z.literal('text'), text: z.string() }),
+      z.object({
+        type: z.literal('file'),
+        filename: z.string().optional(),
+        mediaType: z.string(),
+        url: z.string(),
+        providerMetadata: z.unknown().optional(),
+      }),
+    ]),
+  ),
+  createdAt: z.string(),
+});
+
 export const chatMessageMetadataSchema = z.object({
   stepNumber: z.number().finite().optional(),
   finishReason: z.string().optional(),
   createdAt: z.string().optional(),
   toolName: z.string().optional(),
   agentName: z.string().optional(),
+  editHistory: z.array(editHistoryEntrySchema).optional(),
+  currentEditIndex: z.number().finite().optional(),
+  generationHistory: z.array(editHistoryEntrySchema).optional(),
+  currentGenerationIndex: z.number().finite().optional(),
 });
 
 const tokenUsageSchema = z.object({

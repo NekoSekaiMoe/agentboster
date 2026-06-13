@@ -34,6 +34,7 @@ const requestSchema = z.object({
     .object({
       text: z.string().optional(),
       parts: z.array(z.custom<WorkflowUIMessage['parts'][number]>()).optional(),
+      metadata: chatMessageMetadataSchema.optional(),
     })
     .optional(),
   messages: z.array(z.unknown()).optional(),
@@ -56,6 +57,7 @@ function getInputPayload(
         parts
           .flatMap((part) => (part.type === 'text' ? [part.text] : []))
           .join(''),
+      metadata: body.input.metadata,
     };
   }
 
@@ -74,6 +76,7 @@ function getInputPayload(
       parts
         .flatMap((part) => (part.type === 'text' ? [part.text] : []))
         .join('') ?? '',
+    metadata: lastMessage?.metadata,
   };
 }
 

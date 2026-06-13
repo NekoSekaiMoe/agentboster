@@ -31,6 +31,7 @@ import type { AdapterName } from '@/types/config/channels';
 import type { BotLocale } from '@/types/config/language';
 import {
   type ChatInputEnvelope,
+  type ChatMessageMetadata,
   type ChatSource,
   type Command,
   type WorkflowUIMessage,
@@ -101,6 +102,7 @@ type LegacyChatMainRequest = {
   input: {
     parts?: ChatInputEnvelope['parts'];
     text?: string;
+    metadata?: ChatMessageMetadata;
   };
   messages?: WorkflowUIMessage[];
   sessionId?: string;
@@ -1322,24 +1324,15 @@ export async function chatMain(
 
   const nextUiMessageId = envelope.uiMessageId ?? generateUUID();
 
-  // Extract metadata from the existing message if available (for preserving edit history)
-  const existingMessage = request.messages?.find(
-    (m) => m.id === nextUiMessageId,
-  );
-  const messageMetadata = existingMessage?.metadata;
+  // Metadata (e.g. edit history) is passed explicitly via input — no race with
+  // client state, no lookup in request.messages.
+  const messageMetadata = request.input.metadata;
 
-  // Debug: log metadata extraction
   if (messageMetadata?.editHistory) {
     chatMainLogger.info('chatMain:found_edit_history', {
       messageId: nextUiMessageId,
       editHistoryLength: messageMetadata.editHistory.length,
       currentEditIndex: messageMetadata.currentEditIndex,
-    });
-  } else {
-    chatMainLogger.info('chatMain:no_edit_history', {
-      messageId: nextUiMessageId,
-      hasExistingMessage: !!existingMessage,
-      hasMetadata: !!existingMessage?.metadata,
     });
   }
 
