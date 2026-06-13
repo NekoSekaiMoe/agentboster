@@ -51,6 +51,7 @@ function getAttachmentsFromParts(
 
 export type MessageEditorProps = {
   message: WorkflowUIMessage;
+  sessionId: string;
   setMode: Dispatch<SetStateAction<'view' | 'edit'>>;
   setMessages: (
     messages:
@@ -64,6 +65,7 @@ export type MessageEditorProps = {
 
 export function MessageEditor({
   message,
+  sessionId,
   setMode,
   setMessages,
   regenerate,
@@ -410,7 +412,7 @@ export function MessageEditor({
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    sessionId: message.sessionId,
+                    sessionId,
                     metadata: updatedMetadata,
                   }),
                 },

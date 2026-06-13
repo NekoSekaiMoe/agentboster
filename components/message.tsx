@@ -1001,6 +1001,7 @@ const PurePreviewMessage = ({
                   <MessageEditor
                     key={message.id}
                     message={message}
+                    sessionId={chatId}
                     setMode={setMode}
                     setMessages={setMessages}
                     regenerate={regenerate}
