@@ -128,6 +128,16 @@ export function PureMessageActions({
   const canGoPrevious = currentEditIndex > 0;
   const canGoNext = currentEditIndex < editHistory.length - 1;
 
+  // Debug logging
+  if (isUser && editHistory.length > 0) {
+    console.log('Message actions for user message:', {
+      messageId: message.id,
+      historyLength: editHistory.length,
+      currentIndex: currentEditIndex,
+      hasEditHistory,
+    });
+  }
+
   // Generation history for assistant messages
   const generationHistory = message.metadata?.generationHistory || [];
   const currentGenerationIndex = message.metadata?.currentGenerationIndex ?? 0;

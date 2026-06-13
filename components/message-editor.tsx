@@ -380,6 +380,12 @@ export function MessageEditor({
                     },
                   ];
                   newEditIndex = newEditHistory.length - 1;
+
+                  console.log('Edit history updated:', {
+                    historyLength: newEditHistory.length,
+                    currentIndex: newEditIndex,
+                    contentChanged,
+                  });
                 }
 
                 const updatedMessage: WorkflowUIMessage = {
