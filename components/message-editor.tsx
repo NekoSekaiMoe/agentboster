@@ -384,11 +384,13 @@ export function MessageEditor({
                 message.metadata?.createdAt || new Date().toISOString(),
             };
 
-            console.log('[MessageEditor] Built metadata:', {
-              editHistoryLength: newEditHistory.length,
-              currentEditIndex: newEditIndex,
-              contentChanged,
-            });
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[message-editor] Built metadata:', {
+                editHistoryLength: newEditHistory.length,
+                currentEditIndex: newEditIndex,
+                contentChanged,
+              });
+            }
 
             const updatedMessage: WorkflowUIMessage = {
               ...message,
@@ -439,7 +441,9 @@ export function MessageEditor({
                 },
               });
             } catch (error) {
-              console.error('[MessageEditor] Error:', error);
+              if (process.env.NODE_ENV === 'development') {
+                console.error('[message-editor] Error:', error);
+              }
               toast.error('Failed to regenerate response');
             } finally {
               setIsSubmitting(false);
