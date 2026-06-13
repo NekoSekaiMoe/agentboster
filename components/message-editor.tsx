@@ -328,6 +328,15 @@ export function MessageEditor({
                 const newText = draftContent.trim();
                 const contentChanged = currentText !== newText;
 
+                console.log('Editing message:', {
+                  messageId: message.id,
+                  currentText,
+                  newText,
+                  contentChanged,
+                  editHistoryLength: editHistory.length,
+                  currentEditIndex,
+                });
+
                 let newEditHistory = editHistory;
                 let newEditIndex = currentEditIndex;
 
