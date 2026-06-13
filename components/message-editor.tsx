@@ -329,8 +329,12 @@ export function MessageEditor({
             let newEditIndex = currentEditIndex;
 
             if (contentChanged) {
-              // If this is the first edit, initialize history with original message
               if (editHistory.length === 0) {
+                // First edit: snapshot the original message then append the
+                // new version. This branch is fully isolated from the
+                // truncate logic below, which previously mis-fired when
+                // currentEditIndex was still the default -1 and sliced the
+                // original entry back out, leaving history length at 1.
                 const originalParts = message.parts
                   .filter(
                     (p): p is UserMessagePart =>
@@ -355,24 +359,31 @@ export function MessageEditor({
                     createdAt:
                       message.metadata?.createdAt || new Date().toISOString(),
                   },
+                  {
+                    parts: updatedParts,
+                    createdAt: new Date().toISOString(),
+                  },
                 ];
-                newEditIndex = 0;
-              }
+                newEditIndex = newEditHistory.length - 1;
+              } else {
+                // Subsequent edit: drop any "future" versions after the
+                // current index before appending the new version.
+                if (currentEditIndex < newEditHistory.length - 1) {
+                  newEditHistory = newEditHistory.slice(
+                    0,
+                    currentEditIndex + 1,
+                  );
+                }
 
-              // If we're not at the latest version, truncate history after current index
-              if (currentEditIndex < newEditHistory.length - 1) {
-                newEditHistory = newEditHistory.slice(0, currentEditIndex + 1);
+                newEditHistory = [
+                  ...newEditHistory,
+                  {
+                    parts: updatedParts,
+                    createdAt: new Date().toISOString(),
+                  },
+                ];
+                newEditIndex = newEditHistory.length - 1;
               }
-
-              // Add new version
-              newEditHistory = [
-                ...newEditHistory,
-                {
-                  parts: updatedParts,
-                  createdAt: new Date().toISOString(),
-                },
-              ];
-              newEditIndex = newEditHistory.length - 1;
             }
 
             // Build the updated message with editHistory

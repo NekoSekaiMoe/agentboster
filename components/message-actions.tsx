@@ -274,6 +274,14 @@ export const MessageActions = memo(
     if (prevProps.message.id !== nextProps.message.id) return false;
     if (prevProps.message.role !== nextProps.message.role) return false;
     if (prevProps.message.parts !== nextProps.message.parts) return false;
+    // Metadata carries editHistory / generationHistory and their current
+    // indices. Without this check, version-switching UI (1/N counter and
+    // arrow buttons) does not re-render when only metadata changes — e.g.
+    // after handleRegenerate's setTimeout setMessages, which keeps the same
+    // parts reference while appending to generationHistory.
+    if (prevProps.message.metadata !== nextProps.message.metadata) {
+      return false;
+    }
     return true;
   },
 );

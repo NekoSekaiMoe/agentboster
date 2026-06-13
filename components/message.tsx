@@ -883,8 +883,12 @@ const PurePreviewMessage = ({
     try {
       await regenerate({ messageId: userMessageIdToRegenerate });
 
-      // After regeneration completes, add the new generation to history
+      // After regeneration completes, add the new generation to history.
+      // The setTimeout is a heuristic wait for the streaming text to land in
+      // the message parts before snapshotting it into generationHistory.
       setTimeout(() => {
+        let nextMetadata: WorkflowUIMessage['metadata'] | undefined;
+
         setMessages((msgs) => {
           const index = msgs.findIndex((m) => m.id === messageId);
           if (index === -1) return msgs;
@@ -916,19 +920,43 @@ const PurePreviewMessage = ({
             },
           ];
 
+          nextMetadata = {
+            ...msg.metadata,
+            generationHistory: updatedHistory,
+            currentGenerationIndex: updatedHistory.length - 1,
+          };
+
           return [
             ...msgs.slice(0, index),
             {
               ...msg,
-              metadata: {
-                ...msg.metadata,
-                generationHistory: updatedHistory,
-                currentGenerationIndex: updatedHistory.length - 1,
-              },
+              metadata: nextMetadata,
             },
             ...msgs.slice(index + 1),
           ];
         });
+
+        // Persist generationHistory to DB so the version navigation
+        // survives page refresh. Without this, toUIMessage reads the
+        // assistant row from DB on next page load and finds no
+        // generationHistory, causing the 1/N buttons to disappear.
+        if (nextMetadata && chatId) {
+          fetch(`/api/messages/${messageId}/metadata`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId: chatId,
+              metadata: nextMetadata,
+            }),
+          }).catch((persistError) => {
+            // Persistence failure is non-fatal — the in-memory UI state is
+            // already correct. Log so it's visible without surfacing to user.
+            console.error(
+              '[handleRegenerate] metadata persist failed:',
+              persistError,
+            );
+          });
+        }
       }, 500);
     } catch (_error) {
       toast.error('Failed to regenerate response');
