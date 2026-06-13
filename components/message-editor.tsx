@@ -403,18 +403,34 @@ export function MessageEditor({
             setMode('view');
 
             try {
-              // Pass metadata explicitly in the request body — no dependency on
-              // useChat's internal message state, so no race condition.
+              // First, persist metadata to database so regenerate can load it
+              const metadataResponse = await fetch(
+                `/api/messages/${messageId}/metadata`,
+                {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    sessionId: message.sessionId,
+                    metadata: updatedMetadata,
+                  }),
+                },
+              );
+
+              if (!metadataResponse.ok) {
+                throw new Error('Failed to update metadata');
+              }
+
+              // Now regenerate — backend will load metadata from database
               await regenerate({
                 messageId,
                 body: {
                   input: {
                     parts: updatedParts,
-                    metadata: updatedMetadata,
                   },
                 },
               });
-            } catch {
+            } catch (error) {
+              console.error('[MessageEditor] Error:', error);
               toast.error('Failed to regenerate response');
             } finally {
               setIsSubmitting(false);
