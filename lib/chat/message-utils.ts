@@ -205,6 +205,20 @@ function asChatMessageMetadata(value: unknown): ChatMessageMetadata {
       typeof metadata.toolName === 'string' ? metadata.toolName : undefined,
     agentName:
       typeof metadata.agentName === 'string' ? metadata.agentName : undefined,
+    editHistory: Array.isArray(metadata.editHistory)
+      ? metadata.editHistory
+      : undefined,
+    currentEditIndex:
+      typeof metadata.currentEditIndex === 'number'
+        ? metadata.currentEditIndex
+        : undefined,
+    generationHistory: Array.isArray(metadata.generationHistory)
+      ? metadata.generationHistory
+      : undefined,
+    currentGenerationIndex:
+      typeof metadata.currentGenerationIndex === 'number'
+        ? metadata.currentGenerationIndex
+        : undefined,
   };
 }
 
@@ -216,6 +230,7 @@ export function serializeUserMessage(input: {
   attachments?: ClawlessAttachmentMetadata[];
   source?: ChatSource;
   createdAt?: Date;
+  metadata?: ChatMessageMetadata;
 }): SerializedMessageForDB {
   return {
     sessionId: input.sessionId,
@@ -229,6 +244,7 @@ export function serializeUserMessage(input: {
       attachments: input.attachments,
       source: input.source,
       createdAt: input.createdAt?.toISOString(),
+      metadata: input.metadata,
     },
   };
 }

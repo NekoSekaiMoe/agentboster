@@ -637,7 +637,8 @@ async function executeCommand(input: {
   const currentSessionId = session?.id ?? input.requestedSessionId ?? 'none';
 
   // Get locale from session metadata, IM source, or default
-  let rawLocale = (session?.metadata?.locale as string) ||
+  const rawLocale =
+    (session?.metadata?.locale as string) ||
     (input.source.type === 'im' ? input.source.locale : undefined) ||
     'en-US';
   const locale: Locale = (rawLocale === 'auto' ? 'en-US' : rawLocale) as Locale;
@@ -1320,6 +1321,13 @@ export async function chatMain(
   });
 
   const nextUiMessageId = envelope.uiMessageId ?? generateUUID();
+
+  // Extract metadata from the existing message if available (for preserving edit history)
+  const existingMessage = request.messages?.find(
+    (m) => m.id === nextUiMessageId,
+  );
+  const messageMetadata = existingMessage?.metadata;
+
   chatMainLogger.info('chatMain:upserting_user_message');
   await upsertUserMessage(
     serializeUserMessage({
@@ -1329,6 +1337,7 @@ export async function chatMain(
       parts: normalizedInput.parts,
       attachments: normalizedInput.attachments,
       source: envelope.source,
+      metadata: messageMetadata,
     }),
   );
   chatMainLogger.info('chatMain:user_message_upserted');
