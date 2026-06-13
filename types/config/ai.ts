@@ -58,7 +58,7 @@ export type AIProviderConfig = z.infer<typeof aiProviderConfigSchema>;
  * Accepts two formats:
  * - Scoped: "provider/model-id" (e.g. "anthropic/claude-sonnet-4-20250514", "openai/gpt-4o")
  * - Bare: "model-id" (e.g. "deepseek-chat", "stepfun-3.5-flash") — resolved against the
- *   first configured provider at runtime. Preferred for OpenAI Compatible providers whose
+ *   first configured provider at runtime. Preferred for OpenAI Legacy providers whose
  *   base URL already implies the provider.
  */
 export const aiModelConfigSchema = z

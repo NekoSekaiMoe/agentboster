@@ -320,7 +320,7 @@ const enUS = {
   'config.forms.mcp.type': 'Type',
   'config.forms.models.addProvider': 'Add provider',
   'config.forms.models.bareModelHelp':
-    'Bare model names resolve against your OpenAI Compatible provider. Use provider/model-id to target a specific provider.',
+    'Bare model names resolve against your OpenAI Legacy provider. Use provider/model-id to target a specific provider.',
   'config.forms.models.defaultContextHelp':
     'Sets the default context window. Selecting a model only fills this when the field is empty.',
   'config.forms.models.defaultContextLimit': 'Default context limit',
@@ -731,7 +731,7 @@ const zhCN = {
   'config.forms.mcp.type': '类型',
   'config.forms.models.addProvider': '添加 Provider',
   'config.forms.models.bareModelHelp':
-    '裸模型名会解析到你的 OpenAI Compatible provider。使用 provider/model-id 可指定 provider。',
+    '裸模型名会解析到你的 OpenAI Legacy provider。使用 provider/model-id 可指定 provider。',
   'config.forms.models.defaultContextHelp':
     '设置默认上下文窗口。选择模型时仅在该字段为空时自动填充。',
   'config.forms.models.defaultContextLimit': '默认上下文限制',
@@ -1131,7 +1131,7 @@ const zhTW = {
   'config.forms.mcp.type': '類型',
   'config.forms.models.addProvider': '新增 Provider',
   'config.forms.models.bareModelHelp':
-    '裸模型名稱會解析到你的 OpenAI Compatible provider。使用 provider/model-id 可指定 provider。',
+    '裸模型名稱會解析到你的 OpenAI Legacy provider。使用 provider/model-id 可指定 provider。',
   'config.forms.models.defaultContextHelp':
     '設定預設上下文視窗。選擇模型時僅在該欄位為空時自動填入。',
   'config.forms.models.defaultContextLimit': '預設上下文限制',
@@ -1578,7 +1578,7 @@ const ja = {
   'config.forms.mcp.type': '種類',
   'config.forms.models.addProvider': 'Provider を追加',
   'config.forms.models.bareModelHelp':
-    '裸のモデル名は OpenAI Compatible provider に解決されます。特定 provider を指定するには provider/model-id を使用します。',
+    '裸のモデル名は OpenAI Legacy provider に解決されます。特定 provider を指定するには provider/model-id を使用します。',
   'config.forms.models.defaultContextHelp':
     '既定のコンテキストウィンドウを設定します。モデル選択時は、このフィールドが空の場合のみ自動入力されます。',
   'config.forms.models.defaultContextLimit': '既定のコンテキスト制限',

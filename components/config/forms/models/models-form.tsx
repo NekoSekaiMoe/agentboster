@@ -29,6 +29,22 @@ import {
   aiProviderEnum,
 } from '@/types/config/ai';
 
+/**
+ * Human-readable labels for provider format values.
+ * The underlying enum value (e.g. "openaicompatible") stays the same for
+ * backward compatibility with stored configs; only the display text changes.
+ */
+const FORMAT_LABELS: Record<AIProvider, string> = {
+  openaicompatible: 'OpenAI Legacy',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  google: 'Google',
+};
+
+function formatLabel(format: AIProvider): string {
+  return FORMAT_LABELS[format] ?? format;
+}
+
 import {
   Field,
   KeyValueEditor,
@@ -334,7 +350,7 @@ export function ModelsForm() {
                       {providerKey}
                     </span>
                     <span className="block truncate text-muted-foreground text-xs">
-                      {providerValue.format}
+                      {formatLabel(providerValue.format)}
                       {providerValue.base_url
                         ? ` · ${providerValue.base_url}`
                         : ''}
@@ -434,7 +450,7 @@ export function ModelsForm() {
                               <SelectContent>
                                 {aiProviderEnum.options.map((option) => (
                                   <SelectItem key={option} value={option}>
-                                    {option}
+                                    {formatLabel(option as AIProvider)}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
