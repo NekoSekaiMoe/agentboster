@@ -21,6 +21,34 @@ export type ChatMessageMetadata = {
   createdAt?: string;
   toolName?: string;
   agentName?: string;
+  editHistory?: Array<{
+    parts: Array<
+      | { type: 'text'; text: string }
+      | {
+          type: 'file';
+          filename?: string;
+          mediaType: string;
+          url: string;
+          providerMetadata?: unknown;
+        }
+    >;
+    createdAt: string;
+  }>;
+  currentEditIndex?: number;
+  generationHistory?: Array<{
+    parts: Array<
+      | { type: 'text'; text: string }
+      | {
+          type: 'file';
+          filename?: string;
+          mediaType: string;
+          url: string;
+          providerMetadata?: unknown;
+        }
+    >;
+    createdAt: string;
+  }>;
+  currentGenerationIndex?: number;
 };
 
 export const chatMessageMetadataSchema = z.object({

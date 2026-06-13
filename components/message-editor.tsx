@@ -318,9 +318,78 @@ export function MessageEditor({
               const index = messages.findIndex((m) => m.id === message.id);
 
               if (index !== -1) {
+                // Save current content to edit history
+                const editHistory = message.metadata?.editHistory || [];
+                const currentEditIndex =
+                  message.metadata?.currentEditIndex ?? -1;
+
+                // Only add to history if content actually changed
+                const currentText = getTextFromParts(message);
+                const newText = draftContent.trim();
+                const contentChanged = currentText !== newText;
+
+                let newEditHistory = editHistory;
+                let newEditIndex = currentEditIndex;
+
+                if (contentChanged) {
+                  // If this is the first edit, initialize history with original message
+                  if (editHistory.length === 0) {
+                    const originalParts = message.parts
+                      .filter(
+                        (p): p is UserMessagePart =>
+                          p.type === 'text' || p.type === 'file',
+                      )
+                      .map((p) => {
+                        if (p.type === 'text') {
+                          return { type: 'text' as const, text: p.text };
+                        }
+                        return {
+                          type: 'file' as const,
+                          filename: p.filename,
+                          mediaType: p.mediaType,
+                          url: p.url,
+                          providerMetadata: p.providerMetadata,
+                        };
+                      });
+
+                    newEditHistory = [
+                      {
+                        parts: originalParts,
+                        createdAt:
+                          message.metadata?.createdAt ||
+                          new Date().toISOString(),
+                      },
+                    ];
+                    newEditIndex = 0;
+                  }
+
+                  // If we're not at the latest version, truncate history after current index
+                  if (currentEditIndex < newEditHistory.length - 1) {
+                    newEditHistory = newEditHistory.slice(
+                      0,
+                      currentEditIndex + 1,
+                    );
+                  }
+
+                  // Add new version
+                  newEditHistory = [
+                    ...newEditHistory,
+                    {
+                      parts: updatedParts,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ];
+                  newEditIndex = newEditHistory.length - 1;
+                }
+
                 const updatedMessage: WorkflowUIMessage = {
                   ...message,
                   parts: updatedParts,
+                  metadata: {
+                    ...message.metadata,
+                    editHistory: newEditHistory,
+                    currentEditIndex: newEditIndex,
+                  },
                 };
 
                 return [

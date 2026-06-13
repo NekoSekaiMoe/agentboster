@@ -8,7 +8,11 @@ import { memo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
-import type { WorkflowDataUIPart, WorkflowUIMessage } from '@/types/workflow';
+import type {
+  WorkflowDataUIPart,
+  WorkflowUIMessage,
+  WorkflowUIPart,
+} from '@/types/workflow';
 import {
   getWorkflowDataAgentName,
   isWorkflowMessageUIPart,
@@ -701,6 +705,236 @@ const PurePreviewMessage = ({
   const attachments = getFileAttachments(message);
   const hasRenderableContent = textContent || attachments.length > 0;
 
+  const handleEditVersionChange = (messageId: string, newIndex: number) => {
+    setMessages((messages) => {
+      const index = messages.findIndex((m) => m.id === messageId);
+      if (index === -1) return messages;
+
+      const msg = messages[index];
+      const editHistory = msg.metadata?.editHistory || [];
+
+      if (newIndex < 0 || newIndex >= editHistory.length) return messages;
+
+      const selectedVersion = editHistory[newIndex];
+
+      // Convert back to full UI parts
+      const convertedParts = selectedVersion.parts.map((p): WorkflowUIPart => {
+        if (p.type === 'text') {
+          return { type: 'text', text: p.text };
+        }
+        return {
+          type: 'file',
+          filename: p.filename,
+          mediaType: p.mediaType,
+          url: p.url,
+          providerMetadata: p.providerMetadata as
+            | import('ai').ProviderMetadata
+            | undefined,
+        };
+      });
+
+      const updatedMessage: WorkflowUIMessage = {
+        ...msg,
+        parts: convertedParts,
+        metadata: {
+          ...msg.metadata,
+          currentEditIndex: newIndex,
+        },
+      };
+
+      return [
+        ...messages.slice(0, index),
+        updatedMessage,
+        ...messages.slice(index + 1),
+      ];
+    });
+  };
+
+  const handleGenerationVersionChange = (
+    messageId: string,
+    newIndex: number,
+  ) => {
+    setMessages((messages) => {
+      const index = messages.findIndex((m) => m.id === messageId);
+      if (index === -1) return messages;
+
+      const msg = messages[index];
+      const generationHistory = msg.metadata?.generationHistory || [];
+
+      if (newIndex < 0 || newIndex >= generationHistory.length) return messages;
+
+      const selectedVersion = generationHistory[newIndex];
+
+      // Convert back to full UI parts
+      const convertedParts = selectedVersion.parts.map((p): WorkflowUIPart => {
+        if (p.type === 'text') {
+          return { type: 'text', text: p.text };
+        }
+        return {
+          type: 'file',
+          filename: p.filename,
+          mediaType: p.mediaType,
+          url: p.url,
+          providerMetadata: p.providerMetadata as
+            | import('ai').ProviderMetadata
+            | undefined,
+        };
+      });
+
+      const updatedMessage: WorkflowUIMessage = {
+        ...msg,
+        parts: convertedParts,
+        metadata: {
+          ...msg.metadata,
+          currentGenerationIndex: newIndex,
+        },
+      };
+
+      return [
+        ...messages.slice(0, index),
+        updatedMessage,
+        ...messages.slice(index + 1),
+      ];
+    });
+  };
+
+  const handleRegenerate = async (messageId: string) => {
+    // We need to get the current messages state to find the user message
+    let userMessageIdToRegenerate: string | undefined;
+    let assistantMessageToSave: WorkflowUIMessage | undefined;
+
+    setMessages((currentMessages) => {
+      // Find the assistant message
+      const assistantMsgIndex = currentMessages.findIndex(
+        (m) => m.id === messageId,
+      );
+      if (assistantMsgIndex === -1) return currentMessages;
+
+      assistantMessageToSave = currentMessages[assistantMsgIndex];
+
+      // Find the previous user message to regenerate from
+      for (let i = assistantMsgIndex - 1; i >= 0; i--) {
+        if (currentMessages[i].role === 'user') {
+          userMessageIdToRegenerate = currentMessages[i].id;
+          break;
+        }
+      }
+
+      if (!assistantMessageToSave) return currentMessages;
+
+      // Save current generation to history
+      const generationHistory =
+        assistantMessageToSave.metadata?.generationHistory || [];
+      const currentGenerationIndex =
+        assistantMessageToSave.metadata?.currentGenerationIndex ?? -1;
+
+      let newGenerationHistory = generationHistory;
+
+      // If this is the first regeneration, save the original message
+      if (generationHistory.length === 0) {
+        const originalParts = assistantMessageToSave.parts
+          .filter((p) => p.type === 'text' || p.type === 'file')
+          .map((p) => {
+            if (p.type === 'text') {
+              return { type: 'text' as const, text: p.text };
+            }
+            return {
+              type: 'file' as const,
+              filename: p.filename,
+              mediaType: p.mediaType,
+              url: p.url,
+              providerMetadata: p.providerMetadata,
+            };
+          });
+
+        newGenerationHistory = [
+          {
+            parts: originalParts,
+            createdAt:
+              assistantMessageToSave.metadata?.createdAt ||
+              new Date().toISOString(),
+          },
+        ];
+      } else if (currentGenerationIndex < generationHistory.length - 1) {
+        // If we're not at the latest generation, truncate history after current index
+        newGenerationHistory = generationHistory.slice(
+          0,
+          currentGenerationIndex + 1,
+        );
+      }
+
+      // Update the assistant message with the generation history
+      return [
+        ...currentMessages.slice(0, assistantMsgIndex),
+        {
+          ...assistantMessageToSave,
+          metadata: {
+            ...assistantMessageToSave.metadata,
+            generationHistory: newGenerationHistory,
+            currentGenerationIndex: newGenerationHistory.length - 1,
+          },
+        },
+        ...currentMessages.slice(assistantMsgIndex + 1),
+      ];
+    });
+
+    if (!userMessageIdToRegenerate) return;
+
+    try {
+      await regenerate({ messageId: userMessageIdToRegenerate });
+
+      // After regeneration completes, add the new generation to history
+      setTimeout(() => {
+        setMessages((msgs) => {
+          const index = msgs.findIndex((m) => m.id === messageId);
+          if (index === -1) return msgs;
+
+          const msg = msgs[index];
+          const currentHistory = msg.metadata?.generationHistory || [];
+
+          // Add the new generation
+          const newParts = msg.parts
+            .filter((p) => p.type === 'text' || p.type === 'file')
+            .map((p) => {
+              if (p.type === 'text') {
+                return { type: 'text' as const, text: p.text };
+              }
+              return {
+                type: 'file' as const,
+                filename: p.filename,
+                mediaType: p.mediaType,
+                url: p.url,
+                providerMetadata: p.providerMetadata,
+              };
+            });
+
+          const updatedHistory = [
+            ...currentHistory,
+            {
+              parts: newParts,
+              createdAt: new Date().toISOString(),
+            },
+          ];
+
+          return [
+            ...msgs.slice(0, index),
+            {
+              ...msg,
+              metadata: {
+                ...msg.metadata,
+                generationHistory: updatedHistory,
+                currentGenerationIndex: updatedHistory.length - 1,
+              },
+            },
+            ...msgs.slice(index + 1),
+          ];
+        });
+      }, 500);
+    } catch (_error) {
+      toast.error('Failed to regenerate response');
+    }
+  };
+
   return (
     <AnimatePresence>
       <motion.div
@@ -789,6 +1023,9 @@ const PurePreviewMessage = ({
               message={message}
               isLoading={isLoading}
               onRevert={onRevert}
+              onEditVersionChange={handleEditVersionChange}
+              onRegenerate={handleRegenerate}
+              onGenerationVersionChange={handleGenerationVersionChange}
             />
           </div>
         </div>
