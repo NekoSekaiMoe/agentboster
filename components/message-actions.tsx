@@ -124,14 +124,14 @@ export function PureMessageActions({
   const timestamp = formatMessageTime(message.metadata?.createdAt);
   const editHistory = message.metadata?.editHistory || [];
   const currentEditIndex = message.metadata?.currentEditIndex ?? 0;
-  const hasEditHistory = editHistory.length > 0;
+  const hasEditHistory = editHistory.length > 1; // Only show if there are 2+ versions
   const canGoPrevious = currentEditIndex > 0;
   const canGoNext = currentEditIndex < editHistory.length - 1;
 
   // Generation history for assistant messages
   const generationHistory = message.metadata?.generationHistory || [];
   const currentGenerationIndex = message.metadata?.currentGenerationIndex ?? 0;
-  const hasGenerationHistory = generationHistory.length > 0;
+  const hasGenerationHistory = generationHistory.length > 1; // Only show if there are 2+ versions
   const canGoPreviousGeneration = currentGenerationIndex > 0;
   const canGoNextGeneration =
     currentGenerationIndex < generationHistory.length - 1;
