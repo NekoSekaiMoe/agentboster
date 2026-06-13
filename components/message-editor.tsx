@@ -293,6 +293,8 @@ export function MessageEditor({
               return;
             }
 
+            console.log('Send button clicked, starting edit save');
+
             setIsSubmitting(true);
             const messageId = message.id;
             const updatedParts: UserMessagePart[] = [
@@ -307,6 +309,8 @@ export function MessageEditor({
                 url: attachment.url,
               })),
             ];
+
+            console.log('Updated parts created:', updatedParts);
 
             if (!messageId) {
               toast.error('Something went wrong, please try again!');
