@@ -43,31 +43,32 @@ export async function PATCH(
   }
 
   try {
-    // Update the message's metadata in the database
-    const [updated] = await db
-      .update(messages)
-      .set({
-        payload: db.raw(
-          `
-          jsonb_set(
-            COALESCE(payload, '{}'::jsonb),
-            '{metadata}',
-            ?::jsonb
-          )
-        `,
-          [JSON.stringify(body.metadata)],
-        ),
-      })
+    // Load the current message
+    const [currentMessage] = await db
+      .select()
+      .from(messages)
       .where(eq(messages.uiMessageId, messageId))
-      .returning({ id: messages.id });
+      .limit(1);
 
-    if (!updated) {
+    if (!currentMessage) {
       logger.error('patch:message_not_found', { messageId });
       return Response.json(
         { success: false, error: 'Message not found' },
         { status: 404 },
       );
     }
+
+    // Update the payload with new metadata
+    const updatedPayload = {
+      ...(currentMessage.payload as Record<string, unknown>),
+      metadata: body.metadata,
+    };
+
+    // Write back the updated payload
+    await db
+      .update(messages)
+      .set({ payload: updatedPayload })
+      .where(eq(messages.uiMessageId, messageId));
 
     logger.info('patch:success', {
       messageId,
