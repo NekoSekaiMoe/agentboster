@@ -6,6 +6,7 @@ import {
   createSession,
   deleteMessagesAfterUiMessageId,
   getFirstVisibleSessionMessage,
+  getMessageByUiMessageId,
   getSession,
   getSessionByExternalThreadId,
   listSessions,
@@ -1324,9 +1325,27 @@ export async function chatMain(
 
   const nextUiMessageId = envelope.uiMessageId ?? generateUUID();
 
-  // Metadata (e.g. edit history) is passed explicitly via input — no race with
-  // client state, no lookup in request.messages.
-  const messageMetadata = request.input.metadata;
+  // Metadata can come from two sources:
+  // 1. Explicitly passed in request.input.metadata (preferred, avoids race)
+  // 2. Fallback: load from database if regenerating an existing message
+  let messageMetadata = request.input.metadata;
+
+  if (!messageMetadata && request.trigger === 'regenerate-message') {
+    // Load existing message from database to preserve metadata
+    const existingMessage = await getMessageByUiMessageId(
+      session.id,
+      nextUiMessageId,
+    );
+    if (existingMessage) {
+      messageMetadata = existingMessage.payload?.metadata as
+        | ChatMessageMetadata
+        | undefined;
+      chatMainLogger.info('chatMain:loaded_metadata_from_db', {
+        messageId: nextUiMessageId,
+        hasMetadata: !!messageMetadata,
+      });
+    }
+  }
 
   if (messageMetadata?.editHistory) {
     chatMainLogger.info('chatMain:found_edit_history', {
@@ -1337,8 +1356,9 @@ export async function chatMain(
   } else {
     chatMainLogger.info('chatMain:no_edit_history', {
       messageId: nextUiMessageId,
-      hasInputMetadata: !!messageMetadata,
-      inputMetadataKeys: messageMetadata ? Object.keys(messageMetadata) : [],
+      hasInputMetadata: !!request.input.metadata,
+      hasLoadedMetadata: !!messageMetadata,
+      trigger: request.trigger,
     });
   }
 

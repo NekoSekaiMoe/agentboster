@@ -334,6 +334,24 @@ export async function getVisibleSessionMessages(
   return rows.map(toPersistedMessageRecord);
 }
 
+export async function getMessageByUiMessageId(
+  sessionId: string,
+  uiMessageId: string,
+): Promise<PersistedMessageRecord | null> {
+  const [row] = await db
+    .select()
+    .from(schema.messages)
+    .where(
+      and(
+        eq(schema.messages.sessionId, sessionId),
+        eq(schema.messages.uiMessageId, uiMessageId),
+      ),
+    )
+    .limit(1);
+
+  return row ? toPersistedMessageRecord(row) : null;
+}
+
 export async function getFirstVisibleSessionMessage(
   sessionId: string,
 ): Promise<PersistedMessageRecord | null> {
