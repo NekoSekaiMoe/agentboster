@@ -80,6 +80,7 @@ go build -o agentd ./cmd/agentd/
 - **shadcn/ui**: Components in `components/`, UI primitives in `components/ui/`. Aliases: `@/components`, `@/components/ui`, `@/lib/utils`, `@/hooks`.
 - **Styling**: Tailwind CSS 3 + `tailwindcss-animate`. Dark mode via `next-themes` (`class` strategy). Colors use CSS custom properties (HSL vars).
 - **Linting**: Biome (not ESLint/Prettier). Config: `biome.jsonc`. Run `yarn run check` before committing.
+- **Logging**: Use `createLogger` from `lib/utils/logger.ts` for server-side logging (Vercel logs). Never use `console.log` in server code — it won't appear in Vercel logs properly. For client-side debugging, `console.log` is fine.
 - **DB**: Neon Postgres via Drizzle ORM. Schema in `lib/core/db/schema/`. Migrations output to `lib/core/db/migrations/`.
 - **Auth**: Cookie-based. Requires `AUTH_SECRET`, `USERNAME`, `PASSWORD` env vars. Middleware in `middleware.ts` protects all routes except `/login`, `/api/auth/login`, `/.well-known/workflow/*`, and public assets (`.*` file extensions).
 - **Bot webhooks**: Auth secret is embedded in the callback URL path (`/api/bot/{AUTH_SECRET}/{adapter}/callback`). CI uses Yarn (`yarn run check`).
