@@ -39,6 +39,7 @@ import {
   getMainAgentTemperature,
 } from './utils/agent-config';
 import { estimatePromptTokens } from './utils/estimateTokens';
+import { fixFinishReasonWithToolCalls } from './utils/fix-finish-reason';
 import {
   resolveModelContextLimit,
   resolveModelMaxOutputTokens,
@@ -304,6 +305,12 @@ export async function chatWorkflow(
       preventClose: true,
       maxSteps,
       collectUIMessages: false,
+      // Some third-party OpenAI-compatible APIs return finish_reason "stop"
+      // even when the response contains tool_calls. Without this transform,
+      // DurableAgent sees "stop" and ends the loop without executing tools,
+      // leaving them stuck in "input-available" forever. The transform
+      // detects this mismatch and rewrites the finish reason to "tool-calls".
+      experimental_transform: fixFinishReasonWithToolCalls,
       experimental_repairToolCall: async ({ toolCall, tools }) => {
         // DurableAgent only invokes this hook on schema-validation failure,
         // not on "tool not found". The empty-name / unknown-name crash is
