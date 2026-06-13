@@ -15,6 +15,7 @@ import {
   isImageAttachmentMediaType,
 } from '@/lib/chat/attachment-metadata';
 import { generateUUID } from '@/lib/utils';
+import { createLogger } from '@/lib/utils/logger';
 import type { TokenUsage } from '@/lib/workflow/agent/types';
 import type {
   ChatMessageMetadata,
@@ -23,6 +24,8 @@ import type {
   WorkflowMessageData,
   WorkflowUIMessage,
 } from '@/types/workflow';
+
+const logger = createLogger('message-utils');
 
 type MessagePart = WorkflowUIMessage['parts'][number];
 type UserPromptContent = Extract<
@@ -234,14 +237,11 @@ export function serializeUserMessage(input: {
 }): SerializedMessageForDB {
   // Debug: log metadata when saving
   if (input.metadata?.editHistory) {
-    console.log(
-      '[serializeUserMessage] Saving user message with editHistory:',
-      {
-        messageId: input.uiMessageId,
-        editHistoryLength: input.metadata.editHistory.length,
-        currentEditIndex: input.metadata.currentEditIndex,
-      },
-    );
+    logger.info('serializeUserMessage:edit_history', {
+      messageId: input.uiMessageId,
+      editHistoryLength: input.metadata.editHistory.length,
+      currentEditIndex: input.metadata.currentEditIndex,
+    });
   }
 
   return {
@@ -553,7 +553,7 @@ export function toUIMessage(
 
   // Debug: log metadata for user messages
   if (row.role === 'user' && metadata.editHistory) {
-    console.log('[toUIMessage] User message with editHistory:', {
+    logger.info('toUIMessage:edit_history', {
       messageId: row.uiMessageId ?? row.id,
       editHistoryLength: metadata.editHistory.length,
       currentEditIndex: metadata.currentEditIndex,
