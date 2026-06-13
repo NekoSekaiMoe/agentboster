@@ -3,6 +3,7 @@ import type { AppConfig } from '@/types/config';
 import type { ToolCatalogResponse } from '@/types/config/tools';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
+import { createLogger } from '@/lib/utils/logger';
 import { MAIN_AGENT_NAME, getMainAgentModelId } from '../utils/agent-config';
 import type { BuildAgentToolsOptions, BuildInToolDefinition } from './define';
 import { getMCPTools } from './mcp';
@@ -135,6 +136,7 @@ function buildTrapTools(config: AppConfig, knownNames: string[]): ToolSet {
     return {};
   }
 
+  const logger = createLogger('workflow.agent.tools.trap');
   const known = new Set(knownNames);
   const traps: ToolSet = {};
 
@@ -142,8 +144,16 @@ function buildTrapTools(config: AppConfig, knownNames: string[]): ToolSet {
     // Each trap closes over its own `key` so the error message can name it.
     const trapKey = key;
     traps[trapKey] = tool({
+      description:
+        'Internal fallback invoked when the model emits a tool call with an empty name. Do not call this tool directly.',
       inputSchema: z.record(z.string(), z.unknown()),
-      execute: async () => {
+      execute: async (input, options) => {
+        const toolCallId = options?.toolCallId ?? '<unknown>';
+        logger.warn('trap:invoked', {
+          trapKey: trapKey.length === 0 ? '<empty>' : trapKey,
+          toolCallId,
+          inputKeys: Object.keys(input ?? {}),
+        });
         const suggestion = suggestClosestName(trapKey, known);
         return {
           ok: false,

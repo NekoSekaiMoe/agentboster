@@ -325,21 +325,198 @@ export function MessageEditor({
             const newText = draftContent.trim();
             const contentChanged = currentText !== newText;
 
-            let newEditHistory = editHistory;
-            let newEditIndex = currentEditIndex;
+            // Capture current assistant response parts so switching back to
+            // a previous edit version also restores the matching response.
+            // We snapshot inside setMessages (which has the full message list)
+            // below — here we just prepare the user-side parts.
+            const messageCreatedAt =
+              message.metadata?.createdAt || new Date().toISOString();
 
-            if (contentChanged) {
-              if (editHistory.length === 0) {
-                // First edit: snapshot the original message then append the
-                // new version. This branch is fully isolated from the
-                // truncate logic below, which previously mis-fired when
-                // currentEditIndex was still the default -1 and sliced the
-                // original entry back out, leaving history length at 1.
-                const originalParts = message.parts
-                  .filter(
-                    (p): p is UserMessagePart =>
-                      p.type === 'text' || p.type === 'file',
-                  )
+            // Optimistic UI update (truncate later messages, show edited content).
+            // Done inside setMessages so we can also snapshot the assistant reply.
+            setMessages((messages) => {
+              const index = messages.findIndex((m) => m.id === message.id);
+              if (index === -1) return messages;
+
+              // Find the assistant message right after this user message
+              let assistantResponseParts:
+                | Array<
+                    | { type: 'text'; text: string }
+                    | {
+                        type: 'file';
+                        filename?: string;
+                        mediaType: string;
+                        url: string;
+                        providerMetadata?: unknown;
+                      }
+                  >
+                | undefined;
+              for (let i = index + 1; i < messages.length; i++) {
+                if (messages[i].role === 'assistant') {
+                  assistantResponseParts = messages[i].parts
+                    .filter((p) => p.type === 'text' || p.type === 'file')
+                    .map((p) => {
+                      if (p.type === 'text') {
+                        return { type: 'text' as const, text: p.text };
+                      }
+                      return {
+                        type: 'file' as const,
+                        filename: p.filename,
+                        mediaType: p.mediaType,
+                        url: p.url,
+                        providerMetadata: p.providerMetadata,
+                      };
+                    });
+                  break;
+                }
+              }
+
+              let newEditHistory = editHistory;
+              let newEditIndex = currentEditIndex;
+
+              if (contentChanged) {
+                if (editHistory.length === 0) {
+                  // First edit: snapshot original user parts + assistant reply
+                  const originalParts = message.parts
+                    .filter(
+                      (p): p is UserMessagePart =>
+                        p.type === 'text' || p.type === 'file',
+                    )
+                    .map((p) => {
+                      if (p.type === 'text') {
+                        return { type: 'text' as const, text: p.text };
+                      }
+                      return {
+                        type: 'file' as const,
+                        filename: p.filename,
+                        mediaType: p.mediaType,
+                        url: p.url,
+                        providerMetadata: p.providerMetadata,
+                      };
+                    });
+
+                  newEditHistory = [
+                    {
+                      parts: originalParts,
+                      responseParts: assistantResponseParts,
+                      createdAt: messageCreatedAt,
+                    },
+                    {
+                      parts: updatedParts,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ];
+                  newEditIndex = newEditHistory.length - 1;
+                } else {
+                  // Subsequent edit: attach assistant reply to the CURRENT
+                  // version (before truncation), then append the new version.
+                  if (currentEditIndex < newEditHistory.length - 1) {
+                    newEditHistory = newEditHistory.slice(
+                      0,
+                      currentEditIndex + 1,
+                    );
+                  }
+
+                  // Attach the captured assistant response to the entry at
+                  // currentEditIndex (which is the version the user was viewing).
+                  if (
+                    assistantResponseParts &&
+                    newEditHistory[currentEditIndex]
+                  ) {
+                    newEditHistory = newEditHistory.map((entry, i) =>
+                      i === currentEditIndex
+                        ? { ...entry, responseParts: assistantResponseParts }
+                        : entry,
+                    );
+                  }
+
+                  newEditHistory = [
+                    ...newEditHistory,
+                    {
+                      parts: updatedParts,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ];
+                  newEditIndex = newEditHistory.length - 1;
+                }
+              }
+
+              const updatedMetadata = {
+                ...message.metadata,
+                editHistory: newEditHistory,
+                currentEditIndex: newEditIndex,
+                createdAt: messageCreatedAt,
+              };
+
+              const updatedMessage: WorkflowUIMessage = {
+                ...message,
+                parts: updatedParts,
+                metadata: updatedMetadata,
+              };
+
+              return [
+                ...messages.slice(0, index),
+                updatedMessage,
+                ...messages.slice(index + 1),
+              ];
+            });
+
+            setMode('view');
+
+            // Persist the updated metadata (including responseParts) so it
+            // survives page refresh and is available when switching versions.
+            try {
+              // Read the latest metadata from the just-updated message
+              let metadataToPersist: WorkflowUIMessage['metadata'] | undefined;
+              setMessages((msgs) => {
+                const m = msgs.find((x) => x.id === message.id);
+                if (m) metadataToPersist = m.metadata;
+                return msgs;
+              });
+
+              if (metadataToPersist) {
+                await fetch(
+                  `/api/messages/${messageId}/metadata`,
+                  {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      sessionId,
+                      metadata: metadataToPersist,
+                    }),
+                  },
+                );
+              }
+
+              // Now regenerate — backend will load metadata from database
+              await regenerate({
+                messageId,
+                body: {
+                  input: {
+                    parts: updatedParts,
+                  },
+                },
+              });
+
+              // After regenerate completes, attach the NEW assistant reply
+              // to the current edit version so it shows up when switching
+              // back to this version later.
+              setMessages((msgs) => {
+                const userIdx = msgs.findIndex((m) => m.id === message.id);
+                if (userIdx === -1) return msgs;
+
+                // Find the new assistant message
+                let assistantIdx = -1;
+                for (let i = userIdx + 1; i < msgs.length; i++) {
+                  if (msgs[i].role === 'assistant') {
+                    assistantIdx = i;
+                    break;
+                  }
+                }
+                if (assistantIdx === -1) return msgs;
+
+                const newResponseParts = msgs[assistantIdx].parts
+                  .filter((p) => p.type === 'text' || p.type === 'file')
                   .map((p) => {
                     if (p.type === 'text') {
                       return { type: 'text' as const, text: p.text };
@@ -353,103 +530,43 @@ export function MessageEditor({
                     };
                   });
 
-                newEditHistory = [
-                  {
-                    parts: originalParts,
-                    createdAt:
-                      message.metadata?.createdAt || new Date().toISOString(),
-                  },
-                  {
-                    parts: updatedParts,
-                    createdAt: new Date().toISOString(),
-                  },
-                ];
-                newEditIndex = newEditHistory.length - 1;
-              } else {
-                // Subsequent edit: drop any "future" versions after the
-                // current index before appending the new version.
-                if (currentEditIndex < newEditHistory.length - 1) {
-                  newEditHistory = newEditHistory.slice(
-                    0,
-                    currentEditIndex + 1,
-                  );
+                const userMsg = msgs[userIdx];
+                const hist = userMsg.metadata?.editHistory || [];
+                const curIdx = userMsg.metadata?.currentEditIndex ?? 0;
+
+                if (curIdx < 0 || curIdx >= hist.length) return msgs;
+
+                const updatedHist = hist.map((entry, i) =>
+                  i === curIdx
+                    ? { ...entry, responseParts: newResponseParts }
+                    : entry,
+                );
+
+                const updatedMeta = {
+                  ...userMsg.metadata,
+                  editHistory: updatedHist,
+                };
+
+                // Persist the updated history with responseParts
+                if (sessionId) {
+                  fetch(
+                    `/api/messages/${message.id}/metadata`,
+                    {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        sessionId,
+                        metadata: updatedMeta,
+                      }),
+                    },
+                  ).catch(() => {});
                 }
 
-                newEditHistory = [
-                  ...newEditHistory,
-                  {
-                    parts: updatedParts,
-                    createdAt: new Date().toISOString(),
-                  },
-                ];
-                newEditIndex = newEditHistory.length - 1;
-              }
-            }
-
-            // Build the updated message with editHistory
-            const updatedMetadata = {
-              ...message.metadata,
-              editHistory: newEditHistory,
-              currentEditIndex: newEditIndex,
-              createdAt:
-                message.metadata?.createdAt || new Date().toISOString(),
-            };
-
-            if (process.env.NODE_ENV === 'development') {
-              console.log('[message-editor] Built metadata:', {
-                editHistoryLength: newEditHistory.length,
-                currentEditIndex: newEditIndex,
-                contentChanged,
-              });
-            }
-
-            const updatedMessage: WorkflowUIMessage = {
-              ...message,
-              parts: updatedParts,
-              metadata: updatedMetadata,
-            };
-
-            // Optimistic UI update (truncate later messages, show edited content)
-            setMessages((messages) => {
-              const index = messages.findIndex((m) => m.id === message.id);
-              if (index !== -1) {
                 return [
-                  ...messages.slice(0, index),
-                  updatedMessage,
-                  ...messages.slice(index + 1),
+                  ...msgs.slice(0, userIdx),
+                  { ...userMsg, metadata: updatedMeta },
+                  ...msgs.slice(userIdx + 1),
                 ];
-              }
-              return messages;
-            });
-
-            setMode('view');
-
-            try {
-              // First, persist metadata to database so regenerate can load it
-              const metadataResponse = await fetch(
-                `/api/messages/${messageId}/metadata`,
-                {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    sessionId,
-                    metadata: updatedMetadata,
-                  }),
-                },
-              );
-
-              if (!metadataResponse.ok) {
-                throw new Error('Failed to update metadata');
-              }
-
-              // Now regenerate — backend will load metadata from database
-              await regenerate({
-                messageId,
-                body: {
-                  input: {
-                    parts: updatedParts,
-                  },
-                },
               });
             } catch (error) {
               if (process.env.NODE_ENV === 'development') {

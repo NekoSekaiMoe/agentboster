@@ -228,27 +228,20 @@ export function suggestClosestName(
  * format. Returns an empty array for well-behaved providers to avoid
  * polluting their tool list.
  *
- * The empty string is always included when active: it catches the original
- * "Tool \"\" not found" crash. Alias keys are included opportunistically —
- * only those whose canonical name does NOT already exist in `knownNames`,
- * since otherwise the alias would shadow a real tool.
+ * Only the empty string is registered as a trap. Alias resolution
+ * (write_memory -> writeMemory, etc.) is handled entirely by
+ * `experimental_repairToolCall`, which fires when a tool name is not
+ * found. Registering aliases as separate trap tools would bloat the
+ * model's tool list with dozens of no-description entries and confuse
+ * the model — exactly the opposite of what we want.
  */
 export function getTrapToolKeys(
   providerFormat: string | undefined,
-  knownNames: string[],
+  _knownNames: string[],
 ): string[] {
   if (providerFormat !== 'openai' && providerFormat !== 'openaicompatible') {
     return [];
   }
 
-  const known = new Set(knownNames);
-  const keys: string[] = [''];
-
-  for (const alias of Object.keys(TOOL_NAME_ALIASES)) {
-    if (!known.has(alias)) {
-      keys.push(alias);
-    }
-  }
-
-  return keys;
+  return [''];
 }

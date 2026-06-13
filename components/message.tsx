@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
 import type {
+  ChatMessageMetadata,
   WorkflowDataUIPart,
   WorkflowUIMessage,
   WorkflowUIPart,
@@ -742,11 +743,49 @@ const PurePreviewMessage = ({
         },
       };
 
-      return [
+      let newMessages = [
         ...messages.slice(0, index),
         updatedMessage,
         ...messages.slice(index + 1),
       ];
+
+      // Also restore the corresponding assistant reply if available
+      if (selectedVersion.responseParts) {
+        let assistantIdx = -1;
+        for (let i = index + 1; i < newMessages.length; i++) {
+          if (newMessages[i].role === 'assistant') {
+            assistantIdx = i;
+            break;
+          }
+        }
+
+        if (assistantIdx !== -1) {
+          const convertedResponseParts = selectedVersion.responseParts.map(
+            (p): WorkflowUIPart => {
+              if (p.type === 'text') {
+                return { type: 'text', text: p.text };
+              }
+              return {
+                type: 'file',
+                filename: p.filename,
+                mediaType: p.mediaType,
+                url: p.url,
+                providerMetadata: p.providerMetadata as
+                  | import('ai').ProviderMetadata
+                  | undefined,
+              };
+            },
+          );
+
+          const oldAssistant = newMessages[assistantIdx];
+          newMessages[assistantIdx] = {
+            ...oldAssistant,
+            parts: convertedResponseParts,
+          };
+        }
+      }
+
+      return newMessages;
     });
   };
 
@@ -799,20 +838,25 @@ const PurePreviewMessage = ({
   };
 
   const handleRegenerate = async (messageId: string) => {
-    // We need to get the current messages state to find the user message
+    // messageId is the assistant message id. We need to:
+    // 1. Snapshot the current assistant parts + existing generationHistory
+    // 2. Find the preceding user message to regenerate from
+    // 3. After regenerate completes, locate the NEW assistant message
+    //    (which has a different id because backend deleted the old one)
+    //    and attach the accumulated generationHistory to it.
     let userMessageIdToRegenerate: string | undefined;
-    let assistantMessageToSave: WorkflowUIMessage | undefined;
+    let snapshotHistory: NonNullable<ChatMessageMetadata['generationHistory']> =
+      [];
+    let snapshotWasFirstRegen = false;
 
     setMessages((currentMessages) => {
-      // Find the assistant message
       const assistantMsgIndex = currentMessages.findIndex(
         (m) => m.id === messageId,
       );
       if (assistantMsgIndex === -1) return currentMessages;
 
-      assistantMessageToSave = currentMessages[assistantMsgIndex];
+      const assistantMessageToSave = currentMessages[assistantMsgIndex];
 
-      // Find the previous user message to regenerate from
       for (let i = assistantMsgIndex - 1; i >= 0; i--) {
         if (currentMessages[i].role === 'user') {
           userMessageIdToRegenerate = currentMessages[i].id;
@@ -820,19 +864,76 @@ const PurePreviewMessage = ({
         }
       }
 
-      if (!assistantMessageToSave) return currentMessages;
-
-      // Save current generation to history
-      const generationHistory =
+      const existingHistory =
         assistantMessageToSave.metadata?.generationHistory || [];
-      const currentGenerationIndex =
+      const existingIndex =
         assistantMessageToSave.metadata?.currentGenerationIndex ?? -1;
 
-      let newGenerationHistory = generationHistory;
+      // Snapshot current parts as a history entry
+      const currentPartsSnapshot = assistantMessageToSave.parts
+        .filter((p) => p.type === 'text' || p.type === 'file')
+        .map((p) => {
+          if (p.type === 'text') {
+            return { type: 'text' as const, text: p.text };
+          }
+          return {
+            type: 'file' as const,
+            filename: p.filename,
+            mediaType: p.mediaType,
+            url: p.url,
+            providerMetadata: p.providerMetadata,
+          };
+        });
 
-      // If this is the first regeneration, save the original message
-      if (generationHistory.length === 0) {
-        const originalParts = assistantMessageToSave.parts
+      snapshotWasFirstRegen = existingHistory.length === 0;
+      if (existingHistory.length === 0) {
+        // First regeneration: seed history with the current (original) parts
+        snapshotHistory = [
+          {
+            parts: currentPartsSnapshot,
+            createdAt:
+              assistantMessageToSave.metadata?.createdAt ||
+              new Date().toISOString(),
+          },
+        ];
+      } else if (existingIndex < existingHistory.length - 1) {
+        // Not at latest: truncate future entries, keep up to current
+        snapshotHistory = existingHistory.slice(0, existingIndex + 1);
+      } else {
+        snapshotHistory = [...existingHistory];
+      }
+
+      // Don't modify the message here — we'll attach history to the NEW
+      // assistant message after regenerate completes. Just return as-is.
+      return currentMessages;
+    });
+
+    if (!userMessageIdToRegenerate) return;
+
+    try {
+      await regenerate({ messageId: userMessageIdToRegenerate });
+
+      // After regenerate, find the NEW assistant message (it has a new id)
+      // and attach the generation history. The new assistant message is
+      // the one right after the user message we regenerated from.
+      setMessages((msgs) => {
+        const userIdx = msgs.findIndex(
+          (m) => m.id === userMessageIdToRegenerate,
+        );
+        if (userIdx === -1) return msgs;
+
+        // Find the first assistant message after the user message
+        let newAssistantIdx = -1;
+        for (let i = userIdx + 1; i < msgs.length; i++) {
+          if (msgs[i].role === 'assistant') {
+            newAssistantIdx = i;
+            break;
+          }
+        }
+        if (newAssistantIdx === -1) return msgs;
+
+        const newAssistant = msgs[newAssistantIdx];
+        const newPartsSnapshot = newAssistant.parts
           .filter((p) => p.type === 'text' || p.type === 'file')
           .map((p) => {
             if (p.type === 'text') {
@@ -847,117 +948,43 @@ const PurePreviewMessage = ({
             };
           });
 
-        newGenerationHistory = [
+        const finalHistory = [
+          ...snapshotHistory,
           {
-            parts: originalParts,
-            createdAt:
-              assistantMessageToSave.metadata?.createdAt ||
-              new Date().toISOString(),
+            parts: newPartsSnapshot,
+            createdAt: new Date().toISOString(),
           },
         ];
-      } else if (currentGenerationIndex < generationHistory.length - 1) {
-        // If we're not at the latest generation, truncate history after current index
-        newGenerationHistory = generationHistory.slice(
-          0,
-          currentGenerationIndex + 1,
-        );
-      }
 
-      // Update the assistant message with the generation history
-      return [
-        ...currentMessages.slice(0, assistantMsgIndex),
-        {
-          ...assistantMessageToSave,
-          metadata: {
-            ...assistantMessageToSave.metadata,
-            generationHistory: newGenerationHistory,
-            currentGenerationIndex: newGenerationHistory.length - 1,
-          },
-        },
-        ...currentMessages.slice(assistantMsgIndex + 1),
-      ];
-    });
+        const finalMetadata = {
+          ...newAssistant.metadata,
+          generationHistory: finalHistory,
+          currentGenerationIndex: finalHistory.length - 1,
+        };
 
-    if (!userMessageIdToRegenerate) return;
-
-    try {
-      await regenerate({ messageId: userMessageIdToRegenerate });
-
-      // After regeneration completes, add the new generation to history.
-      // The setTimeout is a heuristic wait for the streaming text to land in
-      // the message parts before snapshotting it into generationHistory.
-      setTimeout(() => {
-        let nextMetadata: WorkflowUIMessage['metadata'] | undefined;
-
-        setMessages((msgs) => {
-          const index = msgs.findIndex((m) => m.id === messageId);
-          if (index === -1) return msgs;
-
-          const msg = msgs[index];
-          const currentHistory = msg.metadata?.generationHistory || [];
-
-          // Add the new generation
-          const newParts = msg.parts
-            .filter((p) => p.type === 'text' || p.type === 'file')
-            .map((p) => {
-              if (p.type === 'text') {
-                return { type: 'text' as const, text: p.text };
-              }
-              return {
-                type: 'file' as const,
-                filename: p.filename,
-                mediaType: p.mediaType,
-                url: p.url,
-                providerMetadata: p.providerMetadata,
-              };
-            });
-
-          const updatedHistory = [
-            ...currentHistory,
-            {
-              parts: newParts,
-              createdAt: new Date().toISOString(),
-            },
-          ];
-
-          nextMetadata = {
-            ...msg.metadata,
-            generationHistory: updatedHistory,
-            currentGenerationIndex: updatedHistory.length - 1,
-          };
-
-          return [
-            ...msgs.slice(0, index),
-            {
-              ...msg,
-              metadata: nextMetadata,
-            },
-            ...msgs.slice(index + 1),
-          ];
-        });
-
-        // Persist generationHistory to DB so the version navigation
-        // survives page refresh. Without this, toUIMessage reads the
-        // assistant row from DB on next page load and finds no
-        // generationHistory, causing the 1/N buttons to disappear.
-        if (nextMetadata && chatId) {
-          fetch(`/api/messages/${messageId}/metadata`, {
+        // Persist to DB so it survives page refresh
+        if (chatId && newAssistant.id) {
+          fetch(`/api/messages/${newAssistant.id}/metadata`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               sessionId: chatId,
-              metadata: nextMetadata,
+              metadata: finalMetadata,
             }),
           }).catch((persistError) => {
-            // Persistence failure is non-fatal — the in-memory UI state is
-            // already correct. Log so it's visible without surfacing to user.
             console.error(
               '[handleRegenerate] metadata persist failed:',
               persistError,
             );
           });
         }
-      }, 500);
+
+        return [
+          ...msgs.slice(0, newAssistantIdx),
+          { ...newAssistant, metadata: finalMetadata },
+          ...msgs.slice(newAssistantIdx + 1),
+        ];
+      });
     } catch (_error) {
       toast.error('Failed to regenerate response');
     }

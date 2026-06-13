@@ -32,6 +32,16 @@ export type ChatMessageMetadata = {
           providerMetadata?: unknown;
         }
     >;
+    responseParts?: Array<
+      | { type: 'text'; text: string }
+      | {
+          type: 'file';
+          filename?: string;
+          mediaType: string;
+          url: string;
+          providerMetadata?: unknown;
+        }
+    >;
     createdAt: string;
   }>;
   currentEditIndex?: number;
@@ -64,6 +74,20 @@ const editHistoryEntrySchema = z.object({
       }),
     ]),
   ),
+  responseParts: z
+    .array(
+      z.union([
+        z.object({ type: z.literal('text'), text: z.string() }),
+        z.object({
+          type: z.literal('file'),
+          filename: z.string().optional(),
+          mediaType: z.string(),
+          url: z.string(),
+          providerMetadata: z.unknown().optional(),
+        }),
+      ]),
+    )
+    .optional(),
   createdAt: z.string(),
 });
 
