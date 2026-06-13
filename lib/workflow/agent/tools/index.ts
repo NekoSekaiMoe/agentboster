@@ -80,8 +80,18 @@ export async function buildAgentTools(
     },
     config,
   );
+
   return {
     ...tools,
     ...mcpTools,
+    // Fallback for empty tool names (model hallucination)
+    '': {
+      description: 'Invalid tool name',
+      parameters: {},
+      execute: async () => ({
+        error:
+          'Tool name is empty. Please specify a valid tool name from the available tools list.',
+      }),
+    },
   };
 }
