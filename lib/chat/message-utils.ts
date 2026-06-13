@@ -232,6 +232,18 @@ export function serializeUserMessage(input: {
   createdAt?: Date;
   metadata?: ChatMessageMetadata;
 }): SerializedMessageForDB {
+  // Debug: log metadata when saving
+  if (input.metadata?.editHistory) {
+    console.log(
+      '[serializeUserMessage] Saving user message with editHistory:',
+      {
+        messageId: input.uiMessageId,
+        editHistoryLength: input.metadata.editHistory.length,
+        currentEditIndex: input.metadata.currentEditIndex,
+      },
+    );
+  }
+
   return {
     sessionId: input.sessionId,
     role: 'user',
@@ -538,6 +550,16 @@ export function toUIMessage(
 
   const parts = reconstructUIMessageParts(row);
   const metadata = asChatMessageMetadata(row.payload.metadata);
+
+  // Debug: log metadata for user messages
+  if (row.role === 'user' && metadata.editHistory) {
+    console.log('[toUIMessage] User message with editHistory:', {
+      messageId: row.uiMessageId ?? row.id,
+      editHistoryLength: metadata.editHistory.length,
+      currentEditIndex: metadata.currentEditIndex,
+    });
+  }
+
   const sharedStepMetadata =
     row.stepNumber !== null && row.stepNumber !== undefined
       ? {

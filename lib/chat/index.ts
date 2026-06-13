@@ -1328,6 +1328,21 @@ export async function chatMain(
   );
   const messageMetadata = existingMessage?.metadata;
 
+  // Debug: log metadata extraction
+  if (messageMetadata?.editHistory) {
+    chatMainLogger.info('chatMain:found_edit_history', {
+      messageId: nextUiMessageId,
+      editHistoryLength: messageMetadata.editHistory.length,
+      currentEditIndex: messageMetadata.currentEditIndex,
+    });
+  } else {
+    chatMainLogger.info('chatMain:no_edit_history', {
+      messageId: nextUiMessageId,
+      hasExistingMessage: !!existingMessage,
+      hasMetadata: !!existingMessage?.metadata,
+    });
+  }
+
   chatMainLogger.info('chatMain:upserting_user_message');
   await upsertUserMessage(
     serializeUserMessage({
