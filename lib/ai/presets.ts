@@ -4,6 +4,18 @@ export interface ProviderPreset {
   base_url: string;
   default_models: string[];
   description: string;
+  /**
+   * Which OpenAI-style API endpoint to use when format === 'openai'.
+   * - 'responses' : /v1/responses (OpenAI's newer API, supports server-side
+   *                 state, reasoning persistence, etc.)
+   * - 'chat'      : /v1/chat/completions (the classic endpoint, universally
+   *                 supported by all OpenAI-compatible providers)
+   * - 'auto'      : decide at runtime — 'responses' for the official OpenAI
+   *                 base_url, 'chat' for everything else (default)
+   *
+   * Ignored when format !== 'openai'.
+   */
+  openai_api?: 'responses' | 'chat' | 'auto';
 }
 
 export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
@@ -13,6 +25,7 @@ export const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     base_url: 'https://api.openai.com/v1',
     default_models: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o3-mini'],
     description: 'OpenAI official API',
+    openai_api: 'responses',
   },
   anthropic: {
     label: 'Anthropic',

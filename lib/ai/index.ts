@@ -1,7 +1,9 @@
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
+import type { AIProviderConfig } from '@/types/config/ai';
 import { embed } from 'ai';
 import { getEmbeddingModel, getLanguageModel, getProvider } from './providers';
+import { getPreset } from './presets';
 
 type ParsedModelId =
   | { providerName: string; providerModelId: string }
@@ -90,14 +92,10 @@ export function resolveLanguageModel(modelId: string, config: AppConfig) {
     throw new Error(`Provider "${providerName}" not found in configuration`);
   }
 
-  // For format 'openai' with a non-OpenAI base_url, force Chat Completions
-  // API. The @ai-sdk/openai provider defaults to the Responses API
-  // (/v1/responses), which most third-party OpenAI-compatible endpoints
-  // do not implement — causing malformed tool_calls (empty names, missing
-  // ids) and breaking all tool-based agent loops.
-  const useChatApi =
-    providerConfig.format === 'openai' &&
-    !isOfficialOpenAIBaseUrl(providerConfig.base_url);
+  // Decide whether to use the Responses API or Chat Completions API.
+  // Only relevant when format === 'openai' — other formats use their
+  // provider's native API surface.
+  const useChatApi = shouldUseChatApi(providerConfig);
 
   logger.info('resolve:language_model', {
     modelId,
@@ -119,9 +117,59 @@ export function resolveLanguageModel(modelId: string, config: AppConfig) {
 }
 
 /**
+ * Decide whether to force Chat Completions API for an OpenAI-format provider.
+ *
+ * The @ai-sdk/openai provider function defaults to the Responses API
+ * (/v1/responses). Most third-party OpenAI-compatible endpoints only
+ * implement Chat Completions (/v1/chat/completions), so sending them
+ * Responses-format requests produces malformed tool_calls and breaks
+ * all agent tool loops.
+ *
+ * Resolution order:
+ *   1. Explicit `openai_api` in provider config ('responses' | 'chat' | 'auto')
+ *   2. Preset's `openai_api` value, if a preset is set
+ *   3. 'auto' default: 'responses' for the official OpenAI base_url,
+ *      'chat' for everything else
+ *
+ * Returns false (use provider default = Responses API) only when the
+ * caller explicitly opts in via 'responses' or when auto-detection
+ * concludes the endpoint is the official OpenAI API.
+ */
+function shouldUseChatApi(providerConfig: AIProviderConfig): boolean {
+  if (providerConfig?.format !== 'openai') {
+    return false;
+  }
+
+  const choice = providerConfig.openai_api ?? 'auto';
+
+  if (choice === 'responses') {
+    return false;
+  }
+  if (choice === 'chat') {
+    return true;
+  }
+
+  // 'auto': check preset first, then fall back to base_url detection.
+  const presetKey = providerConfig.preset;
+  if (presetKey) {
+    const preset = getPreset(presetKey);
+    if (preset?.openai_api === 'chat') {
+      return true;
+    }
+    if (preset?.openai_api === 'responses') {
+      return false;
+    }
+  }
+
+  // No explicit signal — detect by base_url.
+  const baseUrl = providerConfig.base_url ?? '';
+  return !isOfficialOpenAIBaseUrl(baseUrl);
+}
+
+/**
  * Check whether a base_url points to the official OpenAI API.
- * When false, format='openai' providers are routed to Chat Completions
- * instead of the Responses API for compatibility.
+ * Used as the 'auto' fallback when neither the provider config nor
+ * the preset explicitly declares openai_api.
  */
 function isOfficialOpenAIBaseUrl(baseUrl: string | undefined): boolean {
   if (!baseUrl) {

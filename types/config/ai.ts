@@ -10,6 +10,25 @@ export const aiProviderEnum = z.enum([
 export type AIProvider = z.infer<typeof aiProviderEnum>;
 
 /**
+ * Which OpenAI-style HTTP endpoint to use when format === 'openai'.
+ *
+ * Background: @ai-sdk/openai's createOpenAI() defaults to the Responses
+ * API (/v1/responses). Third-party OpenAI-compatible endpoints (GLM,
+ * DeepSeek via openai format, Azure OpenAI, etc.) typically only implement
+ * the Chat Completions API (/v1/chat/completions) and return malformed
+ * tool_calls when sent Responses-format requests.
+ *
+ * - 'responses' : always use /v1/responses (official OpenAI only)
+ * - 'chat'      : always use /v1/chat/completions (max compatibility)
+ * - 'auto'      : decide at runtime based on base_url — official OpenAI
+ *                 uses 'responses', everything else uses 'chat'
+ *
+ * Ignored when format !== 'openai'.
+ */
+export const openaiApiEnum = z.enum(['responses', 'chat', 'auto']);
+export type OpenAiApi = z.infer<typeof openaiApiEnum>;
+
+/**
  * AI provider configuration schema.
  */
 export const aiProviderConfigSchema = z.object({
@@ -22,6 +41,12 @@ export const aiProviderConfigSchema = z.object({
     .optional()
     .describe(
       'Provider preset key (e.g., openai, anthropic, deepseek, ollama). When set, base_url and format are auto-filled.',
+    ),
+  openai_api: openaiApiEnum
+    .default('auto')
+    .optional()
+    .describe(
+      'Which OpenAI API endpoint to use when format=openai. "auto" picks "responses" for the official OpenAI base_url and "chat" for everything else.',
     ),
 });
 

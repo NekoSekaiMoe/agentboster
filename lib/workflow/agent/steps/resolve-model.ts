@@ -1,4 +1,5 @@
 import { parseProviderScopedModelId, resolveLanguageModel } from '@/lib/ai';
+import { getPreset } from '@/lib/ai/presets';
 import type { AppConfig } from '@/types/config';
 import type {
   CompatibleLanguageModel,
@@ -28,20 +29,57 @@ export async function resolveAgentProviderOptions(
     return undefined;
   }
 
-  // Third-party OpenAI-compatible endpoints are now routed to Chat
-  // Completions API (see resolveLanguageModel), so store:false doesn't
-  // apply. Only return it for the official OpenAI Responses API, where
-  // it prevents multi-step tool-loop replay issues.
-  const baseUrl = providerConfig.base_url ?? '';
-  const isOfficialOpenAI =
-    !baseUrl ||
-    baseUrl.replace(/\/+$/, '').toLowerCase() ===
-      'https://api.openai.com/v1' ||
-    baseUrl.replace(/\/+$/, '').toLowerCase() === 'https://api.openai.com';
-
-  if (!isOfficialOpenAI) {
+  // store:false is a Responses-API-specific workaround for multi-step
+  // local tool loops. It's meaningless for Chat Completions API.
+  // Only return it when the provider actually uses the Responses API.
+  if (!usesResponsesApi(providerConfig)) {
     return undefined;
   }
 
   return { openai: { store: false } };
+}
+
+/**
+ * Determine whether this provider configuration routes to the OpenAI
+ * Responses API (/v1/responses). Mirrors the logic in resolveLanguageModel's
+ * shouldUseChatApi so providerOptions stay consistent with the actual
+ * HTTP endpoint being called.
+ */
+function usesResponsesApi(providerConfig: {
+  format?: string;
+  openai_api?: string;
+  preset?: string;
+  base_url?: string;
+}): boolean {
+  if (providerConfig.format !== 'openai') {
+    return false;
+  }
+
+  const choice = providerConfig.openai_api ?? 'auto';
+
+  if (choice === 'responses') {
+    return true;
+  }
+  if (choice === 'chat') {
+    return false;
+  }
+
+  // 'auto': check preset first, then fall back to base_url detection.
+  if (providerConfig.preset) {
+    const preset = getPreset(providerConfig.preset);
+    if (preset?.openai_api === 'responses') {
+      return true;
+    }
+    if (preset?.openai_api === 'chat') {
+      return false;
+    }
+  }
+
+  const baseUrl = providerConfig.base_url ?? '';
+  const normalized = baseUrl.toLowerCase().replace(/\/+$/, '');
+  return (
+    normalized === 'https://api.openai.com/v1' ||
+    normalized === 'https://api.openai.com' ||
+    normalized === ''
+  );
 }
