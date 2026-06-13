@@ -674,6 +674,9 @@ export function Chat({
     } catch (error) {
       console.warn('[chat] cancel workflow failed:', error);
     }
+
+    // Force update status ref to prevent stop button from staying visible
+    statusRef.current = 'ready';
   }, [id, stop]);
 
   const submitToolApproval = useCallback(
@@ -778,7 +781,8 @@ export function Chat({
             return current;
           }
 
-          return current.slice(0, targetIndex);
+          // Include the target message itself (targetIndex + 1)
+          return current.slice(0, targetIndex + 1);
         });
         activeRunIdRef.current = null;
         setActiveRunId(null);
