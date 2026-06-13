@@ -383,6 +383,13 @@ export function MessageEditor({
               createdAt:
                 message.metadata?.createdAt || new Date().toISOString(),
             };
+
+            console.log('[MessageEditor] Built metadata:', {
+              editHistoryLength: newEditHistory.length,
+              currentEditIndex: newEditIndex,
+              contentChanged,
+            });
+
             const updatedMessage: WorkflowUIMessage = {
               ...message,
               parts: updatedParts,
