@@ -1334,6 +1334,12 @@ export async function chatMain(
       editHistoryLength: messageMetadata.editHistory.length,
       currentEditIndex: messageMetadata.currentEditIndex,
     });
+  } else {
+    chatMainLogger.info('chatMain:no_edit_history', {
+      messageId: nextUiMessageId,
+      hasInputMetadata: !!messageMetadata,
+      inputMetadataKeys: messageMetadata ? Object.keys(messageMetadata) : [],
+    });
   }
 
   chatMainLogger.info('chatMain:upserting_user_message');
