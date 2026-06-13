@@ -77,7 +77,17 @@ export function getProvider({
 export function getLanguageModel(
   model: string,
   provider: ReturnType<typeof getProvider>,
+  useChatApi = false,
 ) {
+  // For OpenAI providers, the default provider() call routes to the
+  // Responses API (/v1/responses). Third-party OpenAI-compatible endpoints
+  // (e.g. GLM, DeepSeek) typically only implement Chat Completions
+  // (/v1/chat/completions) and return malformed tool_calls when sent
+  // Responses-format requests. When useChatApi is true, explicitly use
+  // provider.chat() to force the Chat Completions API.
+  if (useChatApi && 'chat' in provider && typeof provider.chat === 'function') {
+    return provider.chat(model);
+  }
   return provider(model);
 }
 

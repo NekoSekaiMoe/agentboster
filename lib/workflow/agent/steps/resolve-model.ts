@@ -28,7 +28,20 @@ export async function resolveAgentProviderOptions(
     return undefined;
   }
 
-  // OpenAI Responses HTTP can reject multi-step local tool loops when stored
-  // item references and function_call_output are replayed together.
+  // Third-party OpenAI-compatible endpoints are now routed to Chat
+  // Completions API (see resolveLanguageModel), so store:false doesn't
+  // apply. Only return it for the official OpenAI Responses API, where
+  // it prevents multi-step tool-loop replay issues.
+  const baseUrl = providerConfig.base_url ?? '';
+  const isOfficialOpenAI =
+    !baseUrl ||
+    baseUrl.replace(/\/+$/, '').toLowerCase() ===
+      'https://api.openai.com/v1' ||
+    baseUrl.replace(/\/+$/, '').toLowerCase() === 'https://api.openai.com';
+
+  if (!isOfficialOpenAI) {
+    return undefined;
+  }
+
   return { openai: { store: false } };
 }

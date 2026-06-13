@@ -90,11 +90,21 @@ export function resolveLanguageModel(modelId: string, config: AppConfig) {
     throw new Error(`Provider "${providerName}" not found in configuration`);
   }
 
+  // For format 'openai' with a non-OpenAI base_url, force Chat Completions
+  // API. The @ai-sdk/openai provider defaults to the Responses API
+  // (/v1/responses), which most third-party OpenAI-compatible endpoints
+  // do not implement — causing malformed tool_calls (empty names, missing
+  // ids) and breaking all tool-based agent loops.
+  const useChatApi =
+    providerConfig.format === 'openai' &&
+    !isOfficialOpenAIBaseUrl(providerConfig.base_url);
+
   logger.info('resolve:language_model', {
     modelId,
     providerName,
     providerModelId,
     providerFormat: providerConfig.format,
+    useChatApi,
   });
 
   const provider = getProvider({
@@ -105,7 +115,23 @@ export function resolveLanguageModel(modelId: string, config: AppConfig) {
     headers: providerConfig.headers,
   });
 
-  return getLanguageModel(providerModelId, provider);
+  return getLanguageModel(providerModelId, provider, useChatApi);
+}
+
+/**
+ * Check whether a base_url points to the official OpenAI API.
+ * When false, format='openai' providers are routed to Chat Completions
+ * instead of the Responses API for compatibility.
+ */
+function isOfficialOpenAIBaseUrl(baseUrl: string | undefined): boolean {
+  if (!baseUrl) {
+    return true; // default base_url is api.openai.com
+  }
+  const normalized = baseUrl.toLowerCase().replace(/\/+$/, '');
+  return (
+    normalized === 'https://api.openai.com/v1' ||
+    normalized === 'https://api.openai.com'
+  );
 }
 
 export function resolveEmbeddingModel(modelId: string, config: AppConfig) {

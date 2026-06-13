@@ -42,34 +42,35 @@ export const TOOL_NAME_ALIASES: Record<string, string> = {
   // memory tools (camelCase canonical)
   write_memory: 'writeMemory',
   'write-memory': 'writeMemory',
-  writememory: 'writeMemory',
   read_memory: 'readMemory',
   'read-memory': 'readMemory',
-  readmemory: 'readMemory',
   delete_memory: 'deleteMemory',
   'delete-memory': 'deleteMemory',
-  deletememory: 'deleteMemory',
 
   // skill tools (camelCase canonical)
   list_skills: 'listSkills',
   'list-skills': 'listSkills',
-  listskills: 'listSkills',
   get_skill: 'getSkill',
   'get-skill': 'getSkill',
-  getskill: 'getSkill',
   get_skill_file: 'getSkillFile',
   'get-skill-file': 'getSkillFile',
   get_skill_entrypoint: 'getSkillEntrypoint',
   'get-skill-entrypoint': 'getSkillEntrypoint',
   import_skill_repo: 'importSkillRepo',
+  'import-skill-repo': 'importSkillRepo',
   import_skill_from_clawhub: 'importSkillFromClawHub',
   upsert_skill: 'upsertSkill',
+  'upsert-skill': 'upsertSkill',
   update_skill_file: 'updateSkillFile',
+  'update-skill-file': 'updateSkillFile',
   delete_skill: 'deleteSkill',
+  'delete-skill': 'deleteSkill',
 
   // task tools (camelCase canonical)
   daily_task: 'dailyTask',
+  'daily-task': 'dailyTask',
   delay_task: 'delayTask',
+  'delay-task': 'delayTask',
   sub_agent: 'subAgent',
   'sub-agent': 'subAgent',
 
@@ -79,6 +80,7 @@ export const TOOL_NAME_ALIASES: Record<string, string> = {
   write_file: 'writeFile',
   'write-file': 'writeFile',
   open_port: 'openPort',
+  'open-port': 'openPort',
   download_file: 'downloadFile',
   'download-file': 'downloadFile',
 
@@ -225,23 +227,41 @@ export function suggestClosestName(
 
 /**
  * Return the trap-tool keys that should be registered for a given provider
- * format. Returns an empty array for well-behaved providers to avoid
- * polluting their tool list.
+ * format. Returns an empty array for well-behaved providers.
  *
- * Only the empty string is registered as a trap. Alias resolution
- * (write_memory -> writeMemory, etc.) is handled entirely by
- * `experimental_repairToolCall`, which fires when a tool name is not
- * found. Registering aliases as separate trap tools would bloat the
- * model's tool list with dozens of no-description entries and confuse
- * the model — exactly the opposite of what we want.
+ * Background: DurableAgent's executeTool throws `Tool "X" not found` when
+ * `tools[toolName]` is undefined, and this throw is NOT caught by
+ * `experimental_repairToolCall` (which only fires on schema-validation
+ * failure, not tool-not-found). So the ONLY way to prevent the workflow
+ * from crashing when the model emits an empty or hallucinated tool name
+ * is to register a trap tool under that exact key.
+ *
+ * We register:
+ *   - `''`  : catches the original "empty function.name" crash
+ *   - every key in TOOL_NAME_ALIASES whose canonical name does NOT
+ *     already exist in `knownNames` (otherwise we'd shadow a real tool)
+ *
+ * Cost: the model sees ~30 extra no-description tool entries in its
+ * tools array. This is preferable to crashing the entire workflow run.
+ * The trap tools all have an explicit description telling the model
+ * not to call them directly, so well-behaved models ignore them.
  */
 export function getTrapToolKeys(
   providerFormat: string | undefined,
-  _knownNames: string[],
+  knownNames: string[],
 ): string[] {
   if (providerFormat !== 'openai' && providerFormat !== 'openaicompatible') {
     return [];
   }
 
-  return [''];
+  const known = new Set(knownNames);
+  const keys: string[] = [''];
+
+  for (const alias of Object.keys(TOOL_NAME_ALIASES)) {
+    if (!known.has(alias)) {
+      keys.push(alias);
+    }
+  }
+
+  return keys;
 }
