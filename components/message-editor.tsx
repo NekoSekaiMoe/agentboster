@@ -70,6 +70,10 @@ export function MessageEditor({
   regenerate,
 }: MessageEditorProps) {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [shouldRegenerate, setShouldRegenerate] = useState<{
+    messageId: string;
+    parts: UserMessagePart[];
+  } | null>(null);
 
   const [draftContent, setDraftContent] = useState<string>(
     getTextFromParts(message),
@@ -85,6 +89,31 @@ export function MessageEditor({
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Trigger regenerate after messages state is updated
+  useEffect(() => {
+    if (!shouldRegenerate) return;
+
+    const doRegenerate = async () => {
+      try {
+        await regenerate({
+          messageId: shouldRegenerate.messageId,
+          body: {
+            input: {
+              parts: shouldRegenerate.parts,
+            },
+          },
+        });
+      } catch {
+        toast.error('Failed to regenerate response');
+      } finally {
+        setIsSubmitting(false);
+        setShouldRegenerate(null);
+      }
+    };
+
+    void doRegenerate();
+  }, [shouldRegenerate, regenerate]);
 
   const adjustHeight = useCallback(() => {
     if (textareaRef.current) {
@@ -404,21 +433,11 @@ export function MessageEditor({
               });
             });
 
-            try {
-              // Now regenerate will read the updated messages state
-              await regenerate({
-                messageId,
-                body: {
-                  input: {
-                    parts: updatedParts,
-                  },
-                },
-              });
-            } catch {
-              toast.error('Failed to regenerate response');
-            } finally {
-              setIsSubmitting(false);
-            }
+            // Trigger regenerate via useEffect after state update
+            setShouldRegenerate({
+              messageId,
+              parts: updatedParts,
+            });
           }}
         >
           {isSubmitting ? 'Sending...' : 'Send'}
