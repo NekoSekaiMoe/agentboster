@@ -318,7 +318,7 @@ AgentBoster 支持通过 IM 渠道（Telegram/Discord/Slack/Feishu/Teams）使�
 
 ### 2. 登录并配置
 
-打开部署链接 → 登录 → 进入「Config」→ 添加 Provider（OpenAI Compatible）→ 设置 `Default Model` 和 `Embedding Model`。
+打开部署链接 → 登录 → 进入「Config」→ 添加 Provider（OpenAI Legacy）→ 设置 `Default Model` 和 `Embedding Model`。
 
 ### 3. 配置 Agent Daemon
 

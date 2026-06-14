@@ -373,7 +373,7 @@ Deployment requires `AUTH_SECRET`, `USERNAME`, `PASSWORD`, and `BLOB_ACCESS`. **
 
 ### 2. Log In and Configure
 
-Open the deployment → Log in → Go to "Config" → Add a Provider (OpenAI Compatible) → Set `Default Model` and `Embedding Model`.
+Open the deployment → Log in → Go to "Config" → Add a Provider (OpenAI Legacy) → Set `Default Model` and `Embedding Model`.
 
 ### 3. Configure Agent Daemon
 

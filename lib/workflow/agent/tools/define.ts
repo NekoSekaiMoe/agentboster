@@ -49,6 +49,10 @@ export type BuildAgentToolsOptions = {
   // true for parent-agent tool sets; false for nested sub-agent tool sets.
   allowDelegation?: boolean;
   writable?: WritableStream<WorkflowUIMessageChunk>;
+  // The user initiating the session. Used by tools that persist
+  // user-scoped data (e.g. writeMemory) so queries in the UI can find it.
+  // Falls back to 'system' when unset (scheduled tasks, IM without userId).
+  userId?: string;
 };
 
 export type BuildInToolFactoryContext = {
@@ -58,6 +62,8 @@ export type BuildInToolFactoryContext = {
   agentName: string;
   // Mirrors BuildAgentToolsOptions.allowDelegation.
   allowDelegation: boolean;
+  // Mirrors BuildAgentToolsOptions.userId.
+  userId?: string;
   writable?: WritableStream<WorkflowUIMessageChunk>;
   buildNestedTools: (options?: BuildAgentToolsOptions) => Promise<ToolSet>;
 };

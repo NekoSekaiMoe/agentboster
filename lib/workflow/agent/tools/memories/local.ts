@@ -52,10 +52,11 @@ async function executeReadMemoryStep(input: {
   sessionId: string;
   appConfig: AppConfig;
   value: ReadMemoryInput;
+  userId?: string;
 }) {
   'use step';
 
-  const { sessionId, appConfig, value } = input;
+  const { sessionId, appConfig, value, userId } = input;
 
   switch (value.scope) {
     case 'builtin': {
@@ -100,6 +101,7 @@ async function executeReadMemoryStep(input: {
           minConfidence: value.minConfidence ?? 0.1,
           page,
           pageSize,
+          userId,
           config: appConfig,
         });
 
@@ -115,6 +117,7 @@ async function executeReadMemoryStep(input: {
       const items = await listLongTermMemories({
         page,
         pageSize,
+        userId,
       });
 
       return {
@@ -131,10 +134,11 @@ async function executeReadMemoryStep(input: {
 async function executeWriteMemoryStep(input: {
   appConfig: AppConfig;
   value: WriteMemoryInput;
+  userId?: string;
 }) {
   'use step';
 
-  const { appConfig, value } = input;
+  const { appConfig, value, userId } = input;
 
   switch (value.scope) {
     case 'builtin': {
@@ -174,6 +178,7 @@ async function executeWriteMemoryStep(input: {
         content: value.content,
         memoryType: value.memoryType,
         importance: value.importance,
+        userId,
         config: appConfig,
       });
 
@@ -187,10 +192,15 @@ async function executeWriteMemoryStep(input: {
   }
 }
 
-async function executeDeleteMemoryStep(input: { value: DeleteMemoryInput }) {
+async function executeDeleteMemoryStep(input: {
+  value: DeleteMemoryInput;
+  userId?: string;
+}) {
   'use step';
 
-  const deleted = await deleteLongTermMemory(input.value.memoryId);
+  const deleted = await deleteLongTermMemory(input.value.memoryId, {
+    userId: input.userId,
+  });
 
   return {
     scope: 'long_term',
@@ -203,7 +213,10 @@ export default defineBuildInTool({
   id: 'memory',
   description:
     'Read builtin/session/long-term memories, write builtin or long-term memories, and delete long-term memories.',
-  factory: async (_config, { appConfig, sessionId, allowDelegation }) => {
+  factory: async (
+    _config,
+    { appConfig, sessionId, allowDelegation, userId },
+  ) => {
     if (!allowDelegation) {
       return null;
     }
@@ -218,6 +231,7 @@ export default defineBuildInTool({
             sessionId,
             appConfig,
             value,
+            userId,
           }),
       }),
 
@@ -229,6 +243,7 @@ export default defineBuildInTool({
           executeWriteMemoryStep({
             appConfig,
             value,
+            userId,
           }),
       }),
 
@@ -240,6 +255,7 @@ export default defineBuildInTool({
         execute: async (value) =>
           executeDeleteMemoryStep({
             value,
+            userId,
           }),
       }),
     };

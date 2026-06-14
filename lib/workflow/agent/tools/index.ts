@@ -52,12 +52,14 @@ export async function buildAgentTools(
   const agentName = options.agentName ?? MAIN_AGENT_NAME;
   const allowDelegation = options.allowDelegation ?? true;
   const writable = options.writable;
+  const userId = options.userId;
   const buildNestedTools = (nestedOptions: BuildAgentToolsOptions = {}) =>
     buildAgentTools(config, sessionId, {
       runId,
       agentName,
       allowDelegation,
       writable,
+      userId,
       ...nestedOptions,
     });
 
@@ -69,6 +71,7 @@ export async function buildAgentTools(
       agentName,
       allowDelegation,
       writable,
+      userId,
       buildNestedTools,
     });
 
@@ -98,7 +101,11 @@ export async function buildAgentTools(
   // malformed call crashes the entire workflow run with "Tool \"\" not found".
   // Alias traps forward to the canonical tool; the empty-name trap returns
   // a model-facing error listing valid names so the agent can retry.
-  const trapTools = buildTrapTools(config, Object.keys(mergedTools), mergedTools);
+  const trapTools = buildTrapTools(
+    config,
+    Object.keys(mergedTools),
+    mergedTools,
+  );
   return {
     ...mergedTools,
     ...trapTools,
