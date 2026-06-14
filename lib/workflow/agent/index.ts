@@ -197,10 +197,6 @@ export async function chatWorkflow(
     agentName,
     allowDelegation: true,
     writable,
-    // Pass the session owner's userId so user-scoped tools (e.g. writeMemory)
-    // persist data under the right user. Without this, memories are written
-    // under 'system' and invisible in the memory tab.
-    userId: 'userId' in source ? (source.userId ?? undefined) : undefined,
   });
   const autoContextLimit = resolveModelContextLimit(
     modelId,
@@ -308,15 +304,6 @@ export async function chatWorkflow(
       preventClose: true,
       maxSteps,
       collectUIMessages: false,
-      // Note: The "stop finish reason despite tool calls" fix for
-      // third-party OpenAI-compatible APIs is applied via a language-model
-      // middleware in createModelResolver (see resolve-model.ts), NOT via
-      // experimental_transform. Passing a transform function here would
-      // crash the workflow with "Cannot stringify a function" because
-      // DurableAgent forwards experimental_transform into the `transforms`
-      // argument of the internal doStreamStep call, which is a 'use step'
-      // function and must be serializable. The middleware is applied
-      // inside the model resolver step, so it never needs to be serialized.
       experimental_repairToolCall: async ({ toolCall, tools }) => {
         // DurableAgent only invokes this hook on schema-validation failure,
         // not on "tool not found". The empty-name / unknown-name crash is
