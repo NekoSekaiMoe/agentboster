@@ -329,6 +329,10 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 	// Fetch SOUL content for this session
 	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
 
+	// P1.1/P1.2: fetch per-agent config so per-agent sandbox defaults,
+	// MCP enablement, and resource knobs are honored.
+	agentCtx.AgentConfig = m.fetchAgentConfig(ctx, agentCtx.AgentID)
+
 	// Build system prompt with project context and SOUL
 	agentCtx.SystemPrompt = buildSystemPrompt(agentCtx.ProjectID, "", agentCtx.SoulContent)
 
@@ -411,6 +415,8 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 
 	// Fetch SOUL and build system prompt
 	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
+	// P1.1/P1.2: fetch per-agent config (sandbox defaults, MCP enablement).
+	agentCtx.AgentConfig = m.fetchAgentConfig(ctx, agentCtx.AgentID)
 	agentCtx.SystemPrompt = buildDefaultSystemPrompt(agentCtx.SoulContent)
 	registry := NewToolRegistry(m.disabledTools)
 	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
@@ -663,6 +669,25 @@ func (m *Manager) fetchSoulContent(ctx context.Context, sessionID string) string
 
 	slog.Warn("no SOUL content available", "session_id", sessionID)
 	return ""
+}
+
+// fetchAgentConfig fetches the per-agent config from the web layer.
+// Returns nil on any failure — callers treat nil as "use daemon defaults".
+// The 5-second timeout is shorter than the dispatcher's 5-minute cache
+// because this path is hit per-message (not per-task-dispatch).
+func (m *Manager) fetchAgentConfig(ctx context.Context, agentID string) *clawless.AgentConfig {
+	if m.clawless == nil || agentID == "" {
+		return nil
+	}
+	cfgCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cfg, err := m.clawless.GetAgentConfig(cfgCtx, agentID)
+	if err != nil {
+		slog.Debug("agent-config fetch failed; using daemon defaults",
+			"agent_id", agentID, "error", err)
+		return nil
+	}
+	return cfg
 }
 
 // buildSystemPrompt generates the agent system prompt with optional project context and SOUL.

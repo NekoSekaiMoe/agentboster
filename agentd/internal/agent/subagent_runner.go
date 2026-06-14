@@ -283,6 +283,10 @@ func (m *Manager) runSubagentLoop(snap subagentParentSnapshot) {
 		BGTaskStore:     m.bgTaskStore,
 		ExecBus:         m.bus,
 		ExecCollector:   m.execCollector,
+		// Sub-agent inherits the parent's AgentConfig (for MCP enablement
+		// and per-agent resource limits). Fetched lazily; if the parent
+		// didn't have one, the sub-agent doesn't either.
+		AgentConfig: m.fetchAgentConfig(context.Background(), snap.agentID),
 	}
 	m.wireSessionRuntime(subCtx)
 
@@ -405,6 +409,14 @@ func registerSubagentToolset(
 
 	// CodeAct
 	registerCodeAct(registry, sbManager, clawlessClient, agentCtx)
+
+	// Browser automation (P1.3)
+	registerBrowserAct(registry, sbManager, agentCtx)
+
+	// MCP bridge (gated by agent config, same as parent).
+	if agentCtx.AgentConfig != nil && agentCtx.AgentConfig.MCPEnabled {
+		registerMCPCall(registry, clawlessClient, agentCtx, agentCtx.AgentConfig.MCPServers)
+	}
 
 	// DELIBERATELY OMITTED: registerSubagent, registerSubagentResult
 	// (no recursive sub-agent nesting).

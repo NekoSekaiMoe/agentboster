@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/clawless/agentd/internal/agent"
@@ -38,7 +39,21 @@ type Dispatcher struct {
 	tidyStop            chan struct{}
 	execCollector       *workers.BatchCollector
 	execCollectorCancel context.CancelFunc
+
+	// P1.1: per-agent config cache (5-minute TTL). Keyed by agentID.
+	// Empty agentID ("") falls through to a synthetic default config.
+	agentCfgMu sync.RWMutex
+	agentCfg   map[string]*agentCfgEntry
 }
+
+// agentCfgEntry is a single cached AgentConfig lookup.
+type agentCfgEntry struct {
+	cfg       *clawless.AgentConfig
+	fetchedAt time.Time
+}
+
+// agentCfgTTL is how long a cached AgentConfig entry is considered fresh.
+const agentCfgTTL = 5 * time.Minute
 
 // NewDispatcher creates a dispatcher with all worker pools and dependencies.
 func NewDispatcher(
@@ -69,10 +84,103 @@ func NewDispatcher(
 		tidyInterval:  tidyInterval,
 		tidyStop:      make(chan struct{}),
 		execCollector: collector,
+		agentCfg:      make(map[string]*agentCfgEntry),
 	}
 	agentManager.SetExecCollector(collector)
 	d.registerRoutes()
 	return d
+}
+
+// getAgentConfig returns the cached AgentConfig for the given agentID,
+// fetching from the web layer on miss or when the TTL has expired.
+//
+// P1.1: Previously the dispatcher passed nil to SelectSandbox, so the
+// agent-default sandbox selector was never honored. Now we cache the
+// per-agent config for 5 minutes and surface it to SelectSandbox and
+// SandboxSpec construction.
+//
+// Failures (network, 404) return nil — callers treat nil as "use
+// defaults" and continue. The cache stays empty so the next call retries.
+func (d *Dispatcher) getAgentConfig(ctx context.Context, agentID string) *clawless.AgentConfig {
+	if agentID == "" || d.clawless == nil {
+		return nil
+	}
+
+	d.agentCfgMu.RLock()
+	if entry, ok := d.agentCfg[agentID]; ok && time.Since(entry.fetchedAt) < agentCfgTTL {
+		d.agentCfgMu.RUnlock()
+		return entry.cfg
+	}
+	d.agentCfgMu.RUnlock()
+
+	fetchCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cfg, err := d.clawless.GetAgentConfig(fetchCtx, agentID)
+	if err != nil {
+		slog.Debug("agent-config fetch failed; using defaults",
+			"agent_id", agentID, "error", err)
+		return nil
+	}
+
+	d.agentCfgMu.Lock()
+	d.agentCfg[agentID] = &agentCfgEntry{cfg: cfg, fetchedAt: time.Now()}
+	d.agentCfgMu.Unlock()
+	return cfg
+}
+
+// applyAgentCfgToSpec populates the resource knobs on a SandboxSpec
+// from a (possibly nil) AgentConfig. Nil cfg → no-op (provider defaults).
+func applyAgentCfgToSpec(spec *sandbox.SandboxSpec, cfg *clawless.AgentConfig) {
+	if cfg == nil {
+		return
+	}
+	if cfg.SandboxCPU != nil {
+		spec.CPULimit = *cfg.SandboxCPU
+	}
+	if cfg.SandboxMem != "" {
+		// Parse "256m"/"1g" into bytes; ignore on parse error.
+		if bytes, ok := parseMemSpec(cfg.SandboxMem); ok {
+			spec.MemoryLimit = bytes
+		}
+	}
+	if cfg.SandboxPids != nil {
+		spec.PidsLimit = *cfg.SandboxPids
+	}
+	if cfg.SandboxDisk != "" {
+		spec.DiskLimit = cfg.SandboxDisk
+	}
+	if cfg.SandboxBlkioWeight != nil {
+		spec.BlkioWeight = *cfg.SandboxBlkioWeight
+	}
+	if len(cfg.EgressAllowlist) > 0 {
+		spec.EgressAllowlist = append(spec.EgressAllowlist, cfg.EgressAllowlist...)
+	}
+}
+
+// parseMemSpec parses memory strings like "256m", "1g", "1024" into bytes.
+func parseMemSpec(s string) (int64, bool) {
+	if s == "" {
+		return 0, false
+	}
+	last := s[len(s)-1]
+	mult := int64(1)
+	num := s
+	switch last {
+	case 'g', 'G':
+		mult = 1024 * 1024 * 1024
+		num = s[:len(s)-1]
+	case 'm', 'M':
+		mult = 1024 * 1024
+		num = s[:len(s)-1]
+	case 'k', 'K':
+		mult = 1024
+		num = s[:len(s)-1]
+	}
+	var n int64
+	if _, err := fmt.Sscanf(num, "%d", &n); err != nil {
+		return 0, false
+	}
+	return n * mult, true
 }
 
 func workerPoolFromExecPool(cfg config.ExecPoolConfig) config.WorkerPoolConfig {
@@ -244,11 +352,15 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 	// Set sandbox info — use SelectSandbox for auto-selection
 	agentCtx.SandboxID = task.SandboxID
 	if agentCtx.SandboxID == "" {
-		sbType := sandbox.SelectSandbox(task, nil)
+		// P1.1: fetch per-agent config so SelectSandbox honors the
+		// agent's default sandbox preference and resource overrides.
+		agentCfg := d.getAgentConfig(context.Background(), task.AgentID)
+		sbType := sandbox.SelectSandbox(task, agentCfg)
 		sbSpec := sandbox.SandboxSpec{
 			Type:    sbType,
 			AgentID: task.AgentID,
 		}
+		applyAgentCfgToSpec(&sbSpec, agentCfg)
 		sb, err := d.sbManager.CreateSandbox(sbSpec)
 		if err != nil {
 			slog.Error("sandbox creation failed", "task_id", task.ID, "error", err)
@@ -297,7 +409,10 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 // createWorkspace creates a workspace for the task via ClawLess API.
 func (d *Dispatcher) createWorkspace(ctx context.Context, task *clawless.Task, sandboxID string) (*clawless.Workspace, error) {
 	projectID := generateProjectID()
-	sbType := sandbox.SelectSandbox(task, nil)
+	// P1.1: pass agent config so workspace sandbox type matches the
+	// agent's actual selection (was previously a fresh nil-cfg pick).
+	agentCfg := d.getAgentConfig(ctx, task.AgentID)
+	sbType := sandbox.SelectSandbox(task, agentCfg)
 	ws := &clawless.Workspace{
 		ProjectID:   projectID,
 		AgentID:     task.AgentID,

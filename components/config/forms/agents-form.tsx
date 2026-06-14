@@ -187,6 +187,253 @@ export function AgentsForm() {
                 </Field>
               </div>
 
+              {/* P1.1: daemon-side knobs. Optional; omitted values fall back
+                  to daemon defaults. Kept on a separate visual block so the
+                  basic model/prompt fields stay uncluttered. */}
+              <details className="mt-4 rounded-lg border bg-muted/30 p-3 text-sm">
+                <summary className="cursor-pointer select-none font-medium">
+                  Daemon settings (sandbox, resources, MCP, egress)
+                </summary>
+
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <Field label="Sandbox type">
+                    <select
+                      className="w-full rounded border bg-background px-2 py-1"
+                      value={agentValue.sandbox_type ?? 'auto'}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            sandbox_type:
+                              event.target.value === 'auto'
+                                ? undefined
+                                : (event.target.value as
+                                    | 'docker'
+                                    | 'docker-strict'
+                                    | 'lxc'),
+                          },
+                        })
+                      }
+                    >
+                      <option value="auto">auto (daemon picks)</option>
+                      <option value="docker">docker (light)</option>
+                      <option value="docker-strict">docker-strict</option>
+                      <option value="lxc">lxc (persistent)</option>
+                    </select>
+                  </Field>
+
+                  <Field label="CPU cores">
+                    <Input
+                      type="number"
+                      min="0.1"
+                      step="0.25"
+                      placeholder="e.g. 0.5"
+                      value={agentValue.sandbox_cpu ?? ''}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            sandbox_cpu:
+                              parseOptionalNumber(event.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Memory">
+                    <Input
+                      type="text"
+                      placeholder='e.g. "256m", "1g"'
+                      value={agentValue.sandbox_mem ?? ''}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            sandbox_mem: event.target.value || undefined,
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="PIDs limit">
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="e.g. 128"
+                      value={agentValue.sandbox_pids ?? ''}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            sandbox_pids:
+                              parseOptionalNumber(event.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Max parallel subagents">
+                    <Input
+                      type="number"
+                      min="1"
+                      max="32"
+                      placeholder="default 3"
+                      value={agentValue.max_parallel_subagents ?? ''}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            max_parallel_subagents:
+                              parseOptionalNumber(event.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Allowed daemon nodes (comma-separated)">
+                    <Input
+                      type="text"
+                      placeholder="empty = any node"
+                      value={(agentValue.allowed_nodes ?? []).join(',')}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            allowed_nodes: event.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="MCP servers (comma-separated)">
+                    <Input
+                      type="text"
+                      placeholder="e.g. github, context7"
+                      value={(agentValue.mcp_servers ?? []).join(',')}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            mcp_servers: event.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Egress allowlist (glob, comma-separated)">
+                    <Input
+                      type="text"
+                      placeholder='e.g. "*.npmjs.org, github.com"'
+                      value={(agentValue.egress_allowlist ?? []).join(',')}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            egress_allowlist: event.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Disk quota">
+                    <Input
+                      type="text"
+                      placeholder='e.g. "1g"'
+                      value={agentValue.sandbox_disk ?? ''}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            sandbox_disk: event.target.value || undefined,
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Block IO weight (10-1000)">
+                    <Input
+                      type="number"
+                      min="10"
+                      max="1000"
+                      placeholder="default 500"
+                      value={agentValue.sandbox_blkio_weight ?? ''}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            sandbox_blkio_weight:
+                              parseOptionalNumber(event.target.value),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-6">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={agentValue.mcp_enabled ?? false}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            mcp_enabled: event.target.checked,
+                          },
+                        })
+                      }
+                    />
+                    Enable MCP tool bridge
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={agentValue.custom_l0_rules ?? false}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            custom_l0_rules: event.target.checked,
+                          },
+                        })
+                      }
+                    />
+                    Use agent-specific L0 rules
+                  </label>
+                </div>
+              </details>
+
               <div className="mt-4 flex justify-end">
                 <Button
                   type="button"

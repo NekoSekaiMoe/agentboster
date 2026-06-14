@@ -129,6 +129,11 @@ type KnowledgeSearchResult struct {
 }
 
 // AgentConfig represents agent configuration from ClawLess.
+//
+// P1.1: Extended with per-agent sandbox resource knobs, MCP bridge
+// toggle, multi-node filter, and egress allowlist. All new fields are
+// optional (pointer or empty-slice semantics) — a daemon that hasn't
+// been upgraded will simply ignore them when unmarshalling.
 type AgentConfig struct {
 	AgentID              string   `json:"agent_id"`
 	DefaultSandbox       string   `json:"default_sandbox"`
@@ -140,6 +145,29 @@ type AgentConfig struct {
 	AllowedPaths         []string `json:"allowed_paths"`
 	BlockedPaths         []string `json:"blocked_paths"`
 	MemoryEnabled        bool     `json:"memory_enabled"`
+
+	// P1.1: per-agent sandbox resource overrides.
+	SandboxCPU         *float64 `json:"sandbox_cpu,omitempty"`
+	SandboxMem         string   `json:"sandbox_mem,omitempty"`
+	SandboxPids        *int     `json:"sandbox_pids,omitempty"`
+	SandboxDisk        string   `json:"sandbox_disk,omitempty"`
+	SandboxBlkioWeight *uint16  `json:"sandbox_blkio_weight,omitempty"`
+
+	// P1.2: MCP bridge toggle and server allowlist.
+	MCPEnabled bool     `json:"mcp_enabled"`
+	MCPServers []string `json:"mcp_servers,omitempty"`
+
+	// P3.1: multi-node filter — restricts which daemon nodes this agent
+	// is allowed to run on. Empty = any node.
+	AllowedNodes []string `json:"allowed_nodes,omitempty"`
+
+	// P2.2: outbound egress allowlist (glob). Empty = unrestricted
+	// when sandbox network is on.
+	EgressAllowlist []string `json:"egress_allowlist,omitempty"`
+
+	// P1.1: use agent-specific L0 rules (sourced from agentL0Rules
+	// table) in addition to the global DefaultPresets.
+	CustomL0Rules bool `json:"custom_l0_rules"`
 }
 
 // SandboxMeta represents sandbox metadata.

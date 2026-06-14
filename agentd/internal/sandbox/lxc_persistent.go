@@ -22,12 +22,12 @@ import (
 // LXCPersistentProvider implements SandboxProvider using LXC containers.
 // Containers persist across sessions and support full init systems.
 type LXCPersistentProvider struct {
-	mu            sync.RWMutex
-	rootfsBase    string
-	defaultDistro string
+	mu             sync.RWMutex
+	rootfsBase     string
+	defaultDistro  string
 	defaultRelease string
-	sandboxes     map[string]*Sandbox
-	initialized   map[string]bool
+	sandboxes      map[string]*Sandbox
+	initialized    map[string]bool
 }
 
 // NewLXCPersistentProvider creates a new LXC persistent sandbox provider.

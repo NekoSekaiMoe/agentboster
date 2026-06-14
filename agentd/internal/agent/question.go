@@ -17,11 +17,11 @@ type QuestionOption struct {
 
 // QuestionPrompt is a single question to ask the user.
 type QuestionPrompt struct {
-	Question  string           `json:"question"`
-	Header    string           `json:"header"`
-	Options   []QuestionOption `json:"options"`
-	Multiple  bool             `json:"multiple"`
-	Custom    bool             `json:"custom"`
+	Question string           `json:"question"`
+	Header   string           `json:"header"`
+	Options  []QuestionOption `json:"options"`
+	Multiple bool             `json:"multiple"`
+	Custom   bool             `json:"custom"`
 }
 
 // QuestionService handles LLM-initiated questions via ClawLess API.

@@ -51,6 +51,18 @@ type SandboxSpec struct {
 	PermissionProfile string               // fixed permission profile requested by the model
 	UserSpecified     bool                 // true if user explicitly specified sandbox type
 	SecurityPolicy    *os_enforce.OSPolicy // OS-level enforcement (nil = skip)
+
+	// P1.1: per-spec resource knobs (populated from clawless.AgentConfig
+	// when set, otherwise provider defaults apply).
+	PidsLimit   int           // Docker --pids-limit; 0 = provider default (e.g. 128 for strict)
+	DiskLimit   string        // Quota (e.g. "1g"); empty = no quota
+	BlkioWeight uint16        // 10-1000; 0 = provider default
+	Timeout     time.Duration // Hard wall-clock cap; 0 = no cap (rely on caller's ctx)
+
+	// P2.2: outbound egress allowlist (glob). Empty = unrestricted when
+	// sandbox network is on. Applied by the provider after sandbox creation
+	// via iptables in the sandbox's network namespace.
+	EgressAllowlist []string
 }
 
 // Mount defines a bind mount.
@@ -397,6 +409,9 @@ func needsPersistence(command string) bool {
 		"headless browser", "browser automation", "rendered fetch",
 		"rendered web search", "js rendering", "javascript rendering",
 		"web_fetch_rendered", "web_search_rendered",
+		// P1.3: browser_act requires Chromium (heavy install) — route to
+		// LXC so the install survives across calls in the same session.
+		"browser_act",
 	}
 	for _, p := range persistPatterns {
 		if containsPattern(command, p) {

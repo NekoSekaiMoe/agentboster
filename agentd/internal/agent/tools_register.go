@@ -72,4 +72,16 @@ func RegisterAllTools(
 
 	// === CodeAct (1) ===
 	registerCodeAct(registry, sbManager, clawlessClient, agentCtx)
+
+	// === MCP bridge (1, gated) ===
+	// P1.2: only register when agent config has mcp_enabled=true. The
+	// daemon default is off so agents without explicit configuration
+	// do not expose this tool.
+	if agentCtx.AgentConfig != nil && agentCtx.AgentConfig.MCPEnabled {
+		registerMCPCall(registry, clawlessClient, agentCtx, agentCtx.AgentConfig.MCPServers)
+	}
+
+	// === Browser automation (1) ===
+	// P1.3: headless Chromium automation. Available to trusted users.
+	registerBrowserAct(registry, sbManager, agentCtx)
 }

@@ -248,4 +248,52 @@ export function getBuiltinMcpServers(options: BuiltinServerExportOptions = {}) {
   ) as unknown as Record<BuiltinServerName, BuiltinServerExport>;
 }
 
+/**
+ * P1.2: Direct-call helper for builtin MCP servers. Used by the daemon
+ * MCP bridge route (app/api/agentd/v1/tools/mcp-exec) so agentd can
+ * invoke builtin MCP tools without going through the AI SDK ToolSet
+ * machinery (which is bound to Vercel Workflow 'use step').
+ *
+ * Returns the raw BuiltinMcpToolResult. Callers should JSON-stringify
+ * it for return to the daemon.
+ */
+export async function executeBuiltinMcpTool(
+  serverName: string,
+  toolName: string,
+  input: Record<string, unknown>,
+  context?: BuiltinMcpServerContext,
+): Promise<{ ok: true; result: BuiltinMcpToolResult } | { ok: false; error: string }> {
+  const server = (builtinServers as Record<string, BuiltinServerDefinition | undefined>)[serverName];
+  if (!server) {
+    return {
+      ok: false,
+      error: `unknown builtin MCP server: ${serverName}`,
+    };
+  }
+  const known = server.tools.some((t) => t.name === toolName);
+  if (!known) {
+    return {
+      ok: false,
+      error: `builtin server "${serverName}" has no tool "${toolName}"`,
+    };
+  }
+  try {
+    const result = await server.execute(toolName, input, context);
+    return { ok: true, result };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * P1.2: List the names of all builtin MCP servers. Used by the daemon
+ * to validate mcp_servers allowlists in agent config.
+ */
+export function listBuiltinMcpServerNames(): string[] {
+  return Object.keys(builtinServers);
+}
+
 export type { BuiltinServerName };

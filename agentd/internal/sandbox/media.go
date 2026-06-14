@@ -35,9 +35,9 @@ type MediaFileInfo struct {
 
 // MediaManager manages media files within a sandbox workspace.
 type MediaManager struct {
-	mu          sync.RWMutex
-	workspace   string // absolute path to workspace root
-	manifest    map[string]string // filename → absolute path
+	mu           sync.RWMutex
+	workspace    string            // absolute path to workspace root
+	manifest     map[string]string // filename → absolute path
 	manifestPath string
 }
 

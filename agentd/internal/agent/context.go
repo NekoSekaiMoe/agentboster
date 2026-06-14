@@ -59,6 +59,13 @@ type AgentContext struct {
 
 	// SOUL content injected into system prompt
 	SoulContent string
+
+	// P1.2: Agent config fetched from the web layer. Currently used to:
+	//   - gate mcp_call tool registration (MCPEnabled)
+	//   - pass the MCP server allowlist to the mcp_call tool
+	//   - inform MaxParallelSubAgents (P0.1 already wires the default)
+	// Nil = use daemon defaults. Set by Manager before registering tools.
+	AgentConfig *clawless.AgentConfig
 }
 
 // TaskState holds execution state that survives context compaction.

@@ -27,11 +27,11 @@ type CodeActSession struct {
 
 // CodeActTurn records a single turn of CodeAct interaction.
 type CodeActTurn struct {
-	Turn        int       `json:"turn"`
-	Thinking    string    `json:"thinking"`
-	CodeBlocks  []CodeBlock `json:"code_blocks"`
-	Results     []CodeActResult `json:"results"`
-	Timestamp   time.Time `json:"timestamp"`
+	Turn       int             `json:"turn"`
+	Thinking   string          `json:"thinking"`
+	CodeBlocks []CodeBlock     `json:"code_blocks"`
+	Results    []CodeActResult `json:"results"`
+	Timestamp  time.Time       `json:"timestamp"`
 }
 
 // CodeBlock represents a parsed code block from LLM output.

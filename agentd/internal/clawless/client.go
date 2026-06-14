@@ -169,6 +169,33 @@ func (c *Client) UpdateTaskStatus(ctx context.Context, taskID string, status Tas
 	return doVoid(c, ctx, http.MethodPut, "/api/agentd/v1/tasks/"+taskID, map[string]string{"status": string(status)})
 }
 
+// MCPExecResult is the JSON response from the web layer's MCP bridge.
+type MCPExecResult struct {
+	Success bool   `json:"success"`
+	Data    string `json:"data,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// MCPExec invokes an MCP tool on the web layer.
+//
+// P1.2: agentd's mcp_call tool calls this to reach MCP servers hosted
+// on the web app (builtin servers: web/browser/firecrawl/github/context7).
+// The web layer gates access by agent config (mcp_enabled + allowlist).
+func (c *Client) MCPExec(ctx context.Context, serverName, toolName string, args map[string]any, agentID, sessionID string) (*MCPExecResult, error) {
+	body := map[string]any{
+		"server_name": serverName,
+		"tool_name":   toolName,
+		"args":        args,
+		"agent_id":    agentID,
+		"session_id":  sessionID,
+	}
+	resp, err := requestJSONPtr[MCPExecResult](c, ctx, http.MethodPost, "/api/agentd/v1/tools/mcp-exec", body)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 func (c *Client) CreateTask(ctx context.Context, task *Task) error {
 	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/tasks", task)
 }

@@ -34,12 +34,12 @@ func (m *poolMetrics) snapshot() map[string]any {
 
 // Pool manages a dynamic set of goroutine workers (from Asika).
 type Pool struct {
-	name  string
-	tasks chan func()
-	stop  chan struct{}
-	wg    sync.WaitGroup
+	name    string
+	tasks   chan func()
+	stop    chan struct{}
+	wg      sync.WaitGroup
 	metrics *poolMetrics
-	cfg   atomic.Value
+	cfg     atomic.Value
 
 	minWorkers   int
 	maxWorkers   int
