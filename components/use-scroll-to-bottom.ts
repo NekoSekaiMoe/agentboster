@@ -84,8 +84,14 @@ export function useScrollToBottom<T extends HTMLElement>(
     previousSecondarySignalRef.current = secondarySignal;
 
     if (!hasMountedRef.current) {
+      // First mount: pin to the bottom so opening a session shows the
+      // latest message. Defer one frame so layout is flushed first.
       hasMountedRef.current = true;
-      return;
+      isPinnedToBottomRef.current = true;
+      const frame = requestAnimationFrame(() => {
+        end.scrollIntoView({ behavior: 'instant', block: 'end' });
+      });
+      return () => cancelAnimationFrame(frame);
     }
 
     if (!hasRelevantChange || !isPinnedToBottomRef.current) {

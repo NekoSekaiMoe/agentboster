@@ -833,6 +833,7 @@ export function Chat({
           />
 
           <Messages
+            key={id}
             chatId={id}
             isLoading={isLoading}
             messages={messages}
