@@ -54,7 +54,7 @@ hooks/               — React hooks for config UI (draft, validation, debounce)
 # Web (Next.js)
 yarn install          # Install deps (uses yarn.lock)
 yarn dev              # Start dev server (http://localhost:3000)
-yarn run check        # Typecheck + Biome lint/format (run before committing)
+yarn run check        # Typecheck + Biome lint (run before committing)
 yarn build            # Production build
 yarn postbuild        # Vercel postbuild: ensures pgvector + Drizzle schema push
 yarn db:generate      # Drizzle generate migrations
@@ -73,6 +73,8 @@ go build -o agentd ./cmd/agentd/
 ```
 
 **Note**: This project does not have a test suite. There are no test commands or test files.
+
+**Important**: `yarn run check` does NOT auto-fix code (`--write` flag removed). It only reports issues. Use `yarn format` or `yarn lint:fix` for auto-fixing, but review the changes carefully before committing. Some Biome auto-fixes can be incorrect (e.g., changing `let` to `const` when the variable is mutated later).
 
 ## Important Conventions
 

@@ -90,7 +90,7 @@
     "push": "python3 push.py",
     "build": "next build",
     "build:agentd": "cd agentd && go build -o agentd ./cmd/agentd/main.go",
-    "check": "tsc --noEmit && biome check . --write",
+    "check": "tsc --noEmit && biome check .",
     "db:ensure-vector": "yarn run scripts/ensure-vector-extension.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
