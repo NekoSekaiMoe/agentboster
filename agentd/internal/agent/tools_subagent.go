@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/sandbox"
 )
 
 // subagentRegistry tracks running sub-agents.
@@ -49,6 +48,13 @@ const SubagentSystemPrompt = `You are an internal helper agent working on one as
 - Use available tools (bash, file read/write, web search) as needed.`
 
 // registerSubagent creates the subagent tool.
+//
+// P0.1: This tool previously only registered the task in an in-memory
+// map without ever launching a goroutine to run the sub-agent's
+// AgentLoop — so subagent_result would always return "still running".
+// It now delegates to the package-level subagentRunner (set by Manager
+// via SetSubagentLauncher). If the runner is nil the tool fails loudly
+// instead of silently creating a zombie entry.
 func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *AgentContext) {
 	registry.Register(ToolDefinition{
 		Name:        "subagent",
@@ -97,40 +103,57 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
 			return toolErr, nil
 		}
+		if params.Task == "" {
+			return &ToolResult{Success: false, Error: "task is required"}, nil
+		}
 		if params.SandboxType == "" {
 			params.SandboxType = "auto"
+		}
+
+		if subagentRunner == nil {
+			return &ToolResult{
+				Success: false,
+				Error:   "subagent launcher not wired (daemon misconfiguration); cannot spawn sub-agent",
+			}, nil
 		}
 
 		// Build isolated system prompt — no conversation history injected
 		sysPrompt := strings.ReplaceAll(SubagentSystemPrompt, "{{task}}", params.Task)
 		sysPrompt = strings.ReplaceAll(sysPrompt, "{{context}}", params.Context)
+		if params.ExpectedOutput != "" {
+			sysPrompt += "\n\n## Expected Output\n" + params.ExpectedOutput + "\n"
+		}
 
-		// Handle resume from state
+		// Handle resume from state (for crash recovery info only — the
+		// launcher generates a fresh ID and starts a new run; full
+		// state-resume is a future enhancement).
 		var resumeState *SubagentResumeState
 		if params.ResumeFrom != "" {
 			resumeState = loadSubagentResumeState(ctx.SandboxPath, params.ResumeFrom)
 		}
 
-		subTask := &clawless.Task{
-			AgentID:      ctx.AgentID,
-			SessionID:    ctx.SessionID,
-			Command:      params.Task,
-			SandboxType:  params.SandboxType,
-			SystemPrompt: sysPrompt,
+		// P0.1 fix: actually launch the sub-agent in a goroutine.
+		subID := subagentRunner.LaunchSubagent(ctx, SubagentRequest{
+			Task:           params.Task,
+			Context:        params.Context,
+			ExpectedOutput: params.ExpectedOutput,
+			SystemPrompt:   sysPrompt,
+			SandboxType:    params.SandboxType,
+			FileBoundaries: params.FileBoundaries,
+			ParentSandbox:  ctx.SandboxPath,
+		})
+
+		// Track state file in TaskState for persistence across compaction.
+		// The launcher has already written the state file; we re-read
+		// its path here so the parent TaskState matches what's on disk.
+		statePath := ""
+		if ctx.SandboxPath != "" {
+			statePath = filepath.Join(ctx.SandboxPath, "workspace", "sessions", fmt.Sprintf("subagent_%s.json", subID))
 		}
-
-		subagentRegistry.mu.Lock()
-		subagentRegistry.agents[subTask.ID] = subTask
-		subagentRegistry.mu.Unlock()
-
-		// Save initial state for crash recovery
-		statePath := saveSubagentState(ctx.SandboxPath, subTask.ID, params.Task, params.Context, ctx.SessionID, ctx.SandboxID, ctx.SandboxType)
-
-		// Track state file in TaskState for persistence across compaction
 		if ctx.TaskState.SubAgentStates == nil {
 			ctx.TaskState.SubAgentStates = make(map[string]string)
 		}
-		ctx.TaskState.SubAgentStates[subTask.ID] = statePath
+		ctx.TaskState.SubAgentStates[subID] = statePath
 
 		boundaryInfo := "none"
 		if len(params.FileBoundaries) > 0 {
@@ -143,7 +166,7 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 		}
 
 		slog.Info("subagent created",
-			"subagent_id", subTask.ID,
+			"subagent_id", subID,
 			"task", params.Task,
 			"file_boundaries", boundaryInfo,
 			"isolated", true,
@@ -155,7 +178,7 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 			Success: true,
 			Data: fmt.Sprintf(
 				"Sub-agent created (isolated context).\nID: %s\nTask: %s\nSandbox: %s\nFile boundaries: %s\nState: %s%s\nUse subagent_result to check the result.\nTo resume after crash: subagent(resume_from=%s, task=<original task>)",
-				subTask.ID, params.Task, params.SandboxType, boundaryInfo, statePath, resumeInfo, subTask.ID,
+				subID, params.Task, params.SandboxType, boundaryInfo, statePath, resumeInfo, subID,
 			),
 		}, nil
 	})
@@ -379,5 +402,3 @@ func updateSubagentState(sandboxPath, subagentID string, step int, status string
 	data, _ = json.MarshalIndent(state, "", "  ")
 	os.WriteFile(path, data, 0o640)
 }
-
-var _ = sandbox.DiscoverSkills // ensure sandbox import is used

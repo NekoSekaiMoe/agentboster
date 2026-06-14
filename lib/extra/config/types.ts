@@ -1,6 +1,7 @@
 import type { L2AuthorizationWindow } from '../auth/types';
 import type { DBConfig } from '../db/types';
 import type { SandboxType } from '../sandbox/types';
+import type { PollerConfig } from '../cron/types';
 
 export interface LocalScorerConfig {
   baseUrl: string;
@@ -51,9 +52,19 @@ export interface AgentBosterConfig {
   daemon: { enabled: boolean; endpoints: DaemonConfig[] };
 }
 
-import type { DaemonConfig } from '../agent/daemon/types';
-import type { PollerConfig } from '../cron/types';
-export type { PollerConfig, DaemonConfig };
+export type { PollerConfig };
+
+export interface DaemonConfig {
+  agentId: string;
+  host: string;
+  authType: 'jwt' | 'password';
+  credentials: {
+    webuiUsername: string;
+    webuiPassword: string;
+    systemUsername: string;
+    systemPassword: string;
+  };
+}
 
 export const DEFAULT_AGENT_BOSTER_CONFIG: AgentBosterConfig = {
   server: {

@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       timeoutAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
     };
 
-    const promoted = queue.enqueue(decision);
+    const promoted = await queue.enqueue(decision);
 
     logger.info('l2 request received', {
       taskId: parsed.data.task_id,

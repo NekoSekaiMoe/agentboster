@@ -12,9 +12,11 @@ agentd/
     │   ├── context.go
     │   ├── manager.go
     │   ├── question.go
+    │   ├── subagent_runner.go    P0.1: goroutine runner for sub-agents
     │   ├── tools.go, tools_register.go
     │   └── tools_*.go            one file per tool family
-    ├── cache/                    local session blob with periodic sync + retry
+    ├── cache/                    local session blob with periodic sync + retry,
+    │                             gzip compression, ClawLess upstream sync (P0.4)
     ├── certs/                    agentd -gen-certs CA + server + client
     ├── clawless/                 Web API client (REST) and L1 scorer client
     ├── config/                   Viper-backed TOML loader, defaults, validation, mTLS
@@ -39,9 +41,7 @@ agentd/
         ├── dispatcher.go         event -> pool routing
         ├── writer.go             buffered output writer
         └── workers/              per-event-type handlers
-            ├── task_worker.go
-            ├── review_worker.go
-            ├── sandbox_worker.go
-            ├── cleanup_worker.go
-            └── tidy_worker.go
+            ├── batch_collector.go  parallel exec batch
+            ├── exec_worker.go      single exec command handler
+            └── tidy_worker.go      periodic task summary tidy
 ```

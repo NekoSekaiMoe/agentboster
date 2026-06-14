@@ -79,6 +79,10 @@ func (m *Manager) QuestionService(sessionID string) *QuestionService {
 func (m *Manager) SetBus(bus *eventbus.Bus) {
 	m.bus = bus
 	m.questionSvc = NewQuestionService(bus, m.clawless)
+	// P0.1: wire the manager as the subagent launcher so the `subagent`
+	// tool can actually spawn sub-agent goroutines. Previously the tool
+	// only registered tasks in a map and never ran them.
+	SetSubagentLauncher(m)
 }
 
 // SetExecCollector wires the parallel exec batch collector into existing and

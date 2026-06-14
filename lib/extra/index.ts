@@ -5,7 +5,6 @@ export type { AgentBosterConfig } from './config';
 export * from './security';
 export * from './sandbox';
 export * from './agent/parallel';
-export * from './agent/daemon';
 export * from './agent/skills';
 export * from './channels';
 export * from './cron';

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -183,6 +184,11 @@ func (s *Server) handleGetTask(c *gin.Context) {
 }
 
 // handleUpdateTask updates a task.
+//
+// P0.4: Previously this only logged the update and returned success
+// without persisting anywhere, leaving the web layer's task status
+// stale. Now proxies through to the ClawLess web API so the DB row
+// is updated.
 func (s *Server) handleUpdateTask(c *gin.Context) {
 	id := c.Param("id")
 	var body struct {
@@ -193,7 +199,20 @@ func (s *Server) handleUpdateTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+
 	slog.Info("task updated", "task_id", id, "status", body.Status)
+
+	// Persist to the web layer so the task list reflects the new state.
+	if s.clawless != nil && body.Status != "" {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		defer cancel()
+		if err := s.clawless.UpdateTaskStatus(ctx, id, clawless.TaskStatus(body.Status)); err != nil {
+			slog.Warn("failed to persist task status update",
+				"task_id", id, "status", body.Status, "error", err)
+			// Continue — the local dispatch has already happened.
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 

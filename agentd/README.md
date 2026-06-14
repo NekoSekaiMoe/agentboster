@@ -346,13 +346,23 @@ The detailed package map lives in [LAYOUT.MD](LAYOUT.MD).
 
 ## Typical End-to-End Flow
 
+> **Note (P0)**: the asynchronous `POST /api/v1/tasks` flow described below
+> is the daemon's incoming-callback API. The Web app currently drives
+> the daemon primarily through the synchronous per-tool dispatch API
+> (`POST /api/v1/tools/exec` and friends), so a typical chat message
+> does not necessarily exercise this task-lifecycle path. The task
+> endpoints are still exercised by direct API callers and by the
+> dispatcher's internal events.
+
 1. User sends a message in the Web UI.
 2. Web validates, persists, and `POST`s a `Task` to the Daemon (`/api/v1/tasks`).
-3. Daemon publishes `EventTaskCreated`. `review` pool calls `Gatekeeper.Audit`:
+3. Daemon publishes `EventTaskCreated`. The dispatcher routes the event
+   through the `Gatekeeper`:
    - L0: regex match — `curl|bash` → blocked, publish `EventSecurityAlert`, abort.
 4. L0 passes; L1 scores `0.3` (medium) → allow + notify. `EventTaskApproved` fires.
-5. `task` pool picks it up: creates session, calls `SelectSandbox` (`lxc` because the command
-   contains `git clone`), creates the sandbox via `sandbox.Manager`, registers a workspace.
+5. The dispatcher's task handler creates a session, calls `SelectSandbox`
+   (`lxc` because the command contains `git clone`), creates the sandbox via
+   `sandbox.Manager`, registers a workspace.
 6. `AgentLoop.Run` starts:
    - Step 1: LLM decides to read a file. `file.read` tool runs in the LXC sandbox.
    - Output audit on the LLM's response → clean.

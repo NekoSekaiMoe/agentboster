@@ -172,20 +172,6 @@ Supports multiple questions in one call, each with options. The user's answers a
 	})
 }
 
-func formatAnswers(answers []string) string {
-	if len(answers) == 0 {
-		return "(no answer)"
-	}
-	result := ""
-	for i, a := range answers {
-		if i > 0 {
-			result += ", "
-		}
-		result += a
-	}
-	return result
-}
-
 func joinPackages(pkgs []string) string {
 	result := ""
 	for i, p := range pkgs {

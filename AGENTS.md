@@ -145,3 +145,52 @@ Schema source: `lib/core/db/schema/`. Export barrel: `lib/core/db/schema/index.t
 - `noExplicitAny` is `"warn"` (not error) in Biome config.
 - CI uses **Yarn** (not Bun) to run checks: `yarn run check`.
 - **Vercel Workflow constraints**: Node.js modules (`node:fs`, `node:path`, etc.) cannot be used in workflow functions. All file I/O must be wrapped in `'use step'` functions. Functions calling agentd (like `execToolOnAgentd`, `checkAgentdHealth`) use `'use step'` and read certificates inside the step.
+
+## Known Limitations / Unimplemented (as of P0)
+
+These are the agentd-related items that look implemented but aren't, or
+that have known sharp edges. Future work should consult this list
+before assuming a subsystem is functional.
+
+- **Subagent lifecycle**: as of P0 the `subagent` tool spawns a real
+  goroutine (`Manager.LaunchSubagent`) and results flow back through
+  `StoreSubagentResult`. Prior to P0 it was a stub. Concurrency is
+  capped at 3 (`DefaultMaxParallelSubagents`); the per-agent
+  `MaxParallelSubAgents` field on `clawless.AgentConfig` exists but is
+  not yet wired from the Web (P1.1).
+- **L2 decision queue persistence**: durable via the `l2_decisions`
+  table as of P0. The in-memory `DecisionQueue` is a hot cache in
+  front of the DB. Daemon → Web direction works (`/api/agentd/v1/l2/request`).
+  Web UI → daemon direction (`forwardL2Confirm`) was wired in P0.2.
+- **ask_question notifications**: persisted + enqueued in P0.3, but
+  the daemon's `QuestionService.Ask` is still fire-and-forget — the
+  agent does not block waiting for the user's answer. Awaiting the
+  user's reply requires the agent loop to either re-poll the queue or
+  be re-invoked on callback. Scheduled for P1.
+- **Per-agent config**: `clawless.AgentConfig` is defined and plumbed
+  through `SelectSandbox`, but the call sites pass `nil` and the Web
+  endpoints `/api/agentd/v1/agent-config/:id` and `/l0-rules/:id`
+  return the agent-instance config from KV but per-agent sandbox /
+  resource / MCP fields are not yet honored (P1.1).
+- **L0 rules**: the daemon always falls back to `DefaultPresets()`
+  because the Web endpoint it expects is satisfied with what KV
+  returns today; the L0 engine is process-global, keyed by
+  `"default"`. Per-agent L0 isolation requires per-agent `Engine`
+  instances (P1.1).
+- **SyncSession / CompressSession**: implemented in P0.4 as gzip +
+  upstream PUT to `/api/agentd/v1/sessions/:id`. The receiving Web
+  endpoint persists the session via `clawless.UpdateSession`; if the
+  local blob is not a `clawless.Session` JSON it is skipped silently.
+- **Streaming tool output**: not implemented. Long-running exec
+  results return as a single atomic JSON payload after completion
+  (P2.1).
+- **Network egress control**: `network_isolate` is a bool — when off,
+  the sandbox has unrestricted outbound network. Domain-level egress
+  allowlists are P2.2.
+- **No test suite on the Web side**: `lib/security/l2-decision-queue`,
+  `lib/extra/agent/agentd-tools-client`, and
+  `lib/workflow/agent/dispatch` are key paths without tests (P3.2).
+- **No multi-node coordination**: each daemon is independent. The Web
+  picks a node per tool call via `selectBestNode` but there is no
+  task migration, cross-node session handoff, or distributed lock
+  (P3.1).

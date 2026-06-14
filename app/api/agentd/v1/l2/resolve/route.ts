@@ -1,8 +1,13 @@
 /**
  * L2 Authorization Resolve Endpoint
- * Called by web UI when user approves or rejects an L2 request
+ * Called by web UI when user approves or rejects an L2 request.
+ *
+ * P0.2: Now persists resolution to DB and forwards the decision back
+ * to the originating agentd node via forwardL2Confirm. Previously
+ * this had a TODO that left the daemon hanging forever.
  */
 
+import { forwardL2Confirm } from '@/lib/extra/agent/agentd-client';
 import { getDecisionQueue } from '@/lib/security/l2-index';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
@@ -49,32 +54,58 @@ export async function POST(request: Request) {
       );
     }
 
-    if (parsed.data.action === 'pass') {
-      queue.resolve(
+    const action = parsed.data.action;
+    if (action === 'pass') {
+      await queue.resolve(
         parsed.data.decision_id,
         `pass:${parsed.data.duration}`,
         parsed.data.resolved_by,
       );
     } else {
-      queue.deny(parsed.data.decision_id, parsed.data.resolved_by);
+      await queue.deny(parsed.data.decision_id, parsed.data.resolved_by);
     }
 
     logger.info('l2 decision resolved', {
       decisionId: parsed.data.decision_id,
       taskId: decision.taskId,
-      action: parsed.data.action,
+      action,
       duration: parsed.data.duration,
       resolvedBy: parsed.data.resolved_by,
     });
 
-    // TODO: Push decision back to agentd via webhook
-    // await pushDecisionToAgentd(decision, parsed.data.action, parsed.data.duration);
+    // Forward to the originating daemon so it can unblock the task.
+    // Use the daemon action vocabulary the /api/v1/l2-confirm handler
+    // understands: pass_once | pass_until | reject_once | reject_until.
+    const daemonAction =
+      action === 'pass'
+        ? parsed.data.duration === 'always'
+          ? 'pass_until'
+          : 'pass_once'
+        : parsed.data.duration === 'always'
+          ? 'reject_until'
+          : 'reject_once';
+
+    try {
+      await forwardL2Confirm({
+        task_id: decision.taskId,
+        decision_id: decision.decisionId,
+        action: daemonAction,
+        duration: parsed.data.duration,
+      });
+    } catch (err) {
+      // Don't fail the whole request — the user has already seen
+      // success. The daemon will retry or time out on its own.
+      logger.warn('forward to daemon failed; decision still recorded', {
+        decisionId: decision.decisionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     return Response.json({
       success: true,
       data: {
         decisionId: parsed.data.decision_id,
-        action: parsed.data.action,
+        action,
       },
     });
   } catch (error) {

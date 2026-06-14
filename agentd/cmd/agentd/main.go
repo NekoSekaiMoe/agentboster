@@ -217,6 +217,7 @@ func main() {
 	agentMgr.SetBGTaskStore(bgTaskStore)
 
 	cacheMgr := cache.NewManager(cfg.Cache.Path, cfg.Cache.SessionMaxSize)
+	cacheMgr.SetClawlessClient(clawlessClient)
 	if err := cacheMgr.Init(); err != nil {
 		slog.Warn("cache init failed", "error", err)
 	}
