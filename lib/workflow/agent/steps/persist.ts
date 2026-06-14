@@ -98,6 +98,19 @@ export async function persistStepDeltaAndUsageStep(input: {
       })),
   ];
 
+  // All rows produced by a single step (assistant text + each tool call)
+  // share the same uiMessageId so that the loader can merge them back
+  // into one assistant message. Without this, a step that emits text
+  // followed by tool calls would render as two separate messages after
+  // a page refresh (the text card and the tool card each with its own
+  // action row), which is what users see as "tool card appearing below
+  // the regenerate/copy buttons".
+  const stepUiMessageId = createStableMessageId(
+    runId,
+    input.step.stepNumber,
+    'assistant',
+  );
+
   if (input.step.text.trim().length > 0) {
     rows.push({
       ...serializeAssistantMessage({
@@ -108,11 +121,7 @@ export async function persistStepDeltaAndUsageStep(input: {
         usage,
         createdAt: stepCreatedAt,
       }),
-      uiMessageId: createStableMessageId(
-        runId,
-        input.step.stepNumber,
-        'assistant',
-      ),
+      uiMessageId: stepUiMessageId,
     });
   }
 
@@ -158,7 +167,12 @@ export async function persistStepDeltaAndUsageStep(input: {
     await upsertPersistedMessage(
       serializeToolMessage({
         sessionId: input.sessionId,
-        uiMessageId: `tool:${toolCall.toolCallId}`,
+        // Tool rows share a prefix with the assistant text row of the same
+        // step (both start with "<stepUiMessageId>") so the loader can
+        // group them back together. The "#tool:<toolCallId>" suffix keeps
+        // the (sessionId, uiMessageId) unique constraint satisfied —
+        // otherwise two tool rows in the same step would collide.
+        uiMessageId: `${stepUiMessageId}#tool:${toolCall.toolCallId}`,
         stepNumber: input.step.stepNumber,
         finishReason: input.step.finishReason,
         toolCallId: toolCall.toolCallId,
