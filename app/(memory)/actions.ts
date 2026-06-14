@@ -177,10 +177,15 @@ export async function deleteLongTermMemoryAction(
     throw new Error('Memory id is required');
   }
 
-  const targetUserId =
-    access.isAdmin && options?.userId?.trim()
+  // Non-admins are always scoped to their own userId (security boundary).
+  // Admins can delete anyone's memory: by default they delete by id
+  // without a userId filter, and they can pass an explicit userId to
+  // further restrict the delete to a specific owner.
+  const targetUserId = !access.isAdmin
+    ? access.session.userId
+    : options?.userId?.trim()
       ? options.userId.trim()
-      : access.session.userId;
+      : undefined;
 
   const deleted = await deleteLongTermMemory(memoryId, {
     userId: targetUserId,
