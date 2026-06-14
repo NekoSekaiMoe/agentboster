@@ -6,6 +6,7 @@ import {
 } from '@/lib/auth/access';
 import { getSession } from '@/lib/core/db/chat';
 import { db, schema } from '@/lib/core/db';
+import { listUsers } from '@/lib/core/db/users';
 import {
   createLongTermMemory,
   deleteLongTermMemory,
@@ -33,6 +34,7 @@ export type BuiltinMemorySectionRecord = {
 
 export type LongTermMemoryRecord = {
   id: string;
+  userId: string | null;
   content: string;
   createdAt: string;
   updatedAt: string;
@@ -73,6 +75,24 @@ export async function updateBuiltinMemorySectionAction(input: unknown) {
   return setBuiltinMemorySection(parsed.data.key, parsed.data.content);
 }
 
+export async function listMemoryAuthorsAction() {
+  const access = await requireAuth();
+  if (!access.isAdmin) {
+    return { authors: [], isAdmin: false as const };
+  }
+
+  const users = await listUsers();
+  // Always include the synthetic 'system' owner so memories written by
+  // background tasks (no associated user) display a friendly label.
+  return {
+    authors: [
+      { id: 'system', username: 'system' },
+      ...users.map((u) => ({ id: u.id, username: u.username })),
+    ],
+    isAdmin: true as const,
+  };
+}
+
 export async function listLongTermMemoriesAction(input?: {
   page?: number;
   pageSize?: number;
@@ -90,10 +110,14 @@ export async function listLongTermMemoriesAction(input?: {
     throw new Error(parsed.error.issues[0]?.message ?? 'Validation failed');
   }
 
-  const targetUserId =
-    access.isAdmin && input?.userId?.trim()
+  // Admin sees memories from all users (aggregated view) unless they
+  // explicitly filter by a specific userId. Non-admins are always
+  // scoped to their own userId.
+  const targetUserId = !access.isAdmin
+    ? access.session.userId
+    : input?.userId?.trim()
       ? input.userId.trim()
-      : access.session.userId;
+      : undefined;
 
   const items = await listLongTermMemories({
     ...parsed.data,
@@ -104,6 +128,7 @@ export async function listLongTermMemoriesAction(input?: {
   return {
     items: items.map((item) => ({
       id: item.id,
+      userId: item.userId ?? null,
       content: item.content,
       createdAt: item.createdAt.toISOString(),
       updatedAt: item.updatedAt.toISOString(),
@@ -119,9 +144,25 @@ export async function createLongTermMemoryAction(input: unknown) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Validation failed');
   }
 
+  // Admins can target a different userId (e.g. write to 'system'). The
+  // userId field is read from the raw input because createLongTermMemorySchema
+  // is the user-facing shape and does not declare it.
+  const requestedUserId =
+    typeof input === 'object' &&
+    input !== null &&
+    'userId' in input &&
+    typeof (input as { userId: unknown }).userId === 'string'
+      ? (input as { userId: string }).userId.trim()
+      : '';
+
+  const targetUserId =
+    access.isAdmin && requestedUserId.length > 0
+      ? requestedUserId
+      : access.session.userId;
+
   return createLongTermMemory({
     ...parsed.data,
-    userId: access.session.userId,
+    userId: targetUserId,
   });
 }
 

@@ -10,6 +10,7 @@ import {
   getSessionSoulAction,
   listBuiltinMemorySectionsAction,
   listLongTermMemoriesAction,
+  listMemoryAuthorsAction,
   listSessionSummariesAction,
   setSessionSoulAction,
   updateBuiltinMemorySectionAction,
@@ -49,6 +50,7 @@ interface BuiltinMemory {
 
 interface LongTermMemory {
   id: string;
+  userId: string | null;
   content: string;
   createdAt: string;
   updatedAt: string;
@@ -423,6 +425,39 @@ function LongTermPanel() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authors, setAuthors] = useState<
+    Array<{ id: string; username: string }>
+  >([]);
+  const [createTargetUserId, setCreateTargetUserId] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await listMemoryAuthorsAction();
+        if (cancelled) return;
+        setIsAdmin(result.isAdmin);
+        if (result.isAdmin) {
+          setAuthors(result.authors);
+        }
+      } catch {
+        // Non-admin or fetch failed — stay in single-user mode silently.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const usernameById = useCallback(
+    (userId: string | null) => {
+      if (!userId) return 'unknown';
+      const found = authors.find((a) => a.id === userId);
+      return found?.username ?? userId;
+    },
+    [authors],
+  );
 
   const loadMemories = useCallback(async (search?: string) => {
     setLoading(true);
@@ -458,7 +493,11 @@ function LongTermPanel() {
     if (!content) return;
     setCreating(true);
     try {
-      const result = await createLongTermMemoryAction({ content });
+      const result = await createLongTermMemoryAction(
+        isAdmin && createTargetUserId
+          ? { content, userId: createTargetUserId }
+          : { content },
+      );
       setNewContent('');
       toast.success(
         result.indexing?.mode === 'embedded'
@@ -489,6 +528,14 @@ function LongTermPanel() {
 
   return (
     <div className="space-y-4">
+      {isAdmin ? (
+        <div className="rounded-lg border bg-muted/30 px-3 py-2 text-muted-foreground text-xs">
+          Admin view: showing memories from all users. Each card is tagged with
+          its owner. Use the “Owner” selector below to write to a specific user
+          (including <span className="font-mono">system</span>).
+        </div>
+      ) : null}
+
       <div className="flex gap-2">
         <Input
           value={searchQuery}
@@ -541,6 +588,25 @@ function LongTermPanel() {
             onChange={(e) => setNewContent(e.target.value)}
             placeholder="Memory content..."
           />
+          {isAdmin ? (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground text-sm">Owner:</span>
+              <select
+                value={createTargetUserId}
+                onChange={(e) => setCreateTargetUserId(e.target.value)}
+                className="rounded-md border bg-background px-2 py-1 text-sm"
+              >
+                <option value="">(myself)</option>
+                {authors.map((author) => (
+                  <option key={author.id} value={author.id}>
+                    {author.username === author.id
+                      ? author.username
+                      : `${author.username} (${author.id})`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="flex justify-end">
             <Button onClick={create} disabled={creating}>
               {creating ? (
@@ -578,9 +644,14 @@ function LongTermPanel() {
             <Card key={item.id}>
               <CardContent className="space-y-2 pt-4">
                 <p className="whitespace-pre-wrap text-sm">{item.content}</p>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <span className="text-muted-foreground text-xs">
                     {new Date(item.createdAt).toLocaleString()}
+                    {isAdmin ? (
+                      <span className="ml-2 rounded bg-muted px-1.5 py-0.5 font-mono">
+                        {usernameById(item.userId)}
+                      </span>
+                    ) : null}
                   </span>
                   <Button
                     variant="ghost"
