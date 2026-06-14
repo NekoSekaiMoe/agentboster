@@ -79,7 +79,8 @@ export async function buildPostSummaryConversationMessages(
   const { summaryText, rows } =
     await getConversationRowsAfterLatestSummary(sessionId);
   const uiMessageRows = rows.filter(
-    (row) => row.role === 'user' || row.role === 'assistant',
+    (row) =>
+      row.role === 'user' || row.role === 'assistant' || row.role === 'tool',
   );
   const modelMessages = rows.flatMap((row) => {
     if (row.role === 'tool' && typeof row.payload.toolName === 'string') {

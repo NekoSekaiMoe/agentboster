@@ -475,17 +475,14 @@ export function MessageEditor({
               });
 
               if (metadataToPersist) {
-                await fetch(
-                  `/api/messages/${messageId}/metadata`,
-                  {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      sessionId,
-                      metadata: metadataToPersist,
-                    }),
-                  },
-                );
+                await fetch(`/api/messages/${messageId}/metadata`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    sessionId,
+                    metadata: metadataToPersist,
+                  }),
+                });
               }
 
               // Now regenerate — backend will load metadata from database
@@ -549,17 +546,14 @@ export function MessageEditor({
 
                 // Persist the updated history with responseParts
                 if (sessionId) {
-                  fetch(
-                    `/api/messages/${message.id}/metadata`,
-                    {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        sessionId,
-                        metadata: updatedMeta,
-                      }),
-                    },
-                  ).catch(() => {});
+                  fetch(`/api/messages/${message.id}/metadata`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      sessionId,
+                      metadata: updatedMeta,
+                    }),
+                  }).catch(() => {});
                 }
 
                 return [
