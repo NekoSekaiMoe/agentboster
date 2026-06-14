@@ -39,7 +39,6 @@ import {
   getMainAgentTemperature,
 } from './utils/agent-config';
 import { estimatePromptTokens } from './utils/estimateTokens';
-import { fixFinishReasonWithToolCalls } from './utils/fix-finish-reason';
 import {
   resolveModelContextLimit,
   resolveModelMaxOutputTokens,
@@ -309,12 +308,15 @@ export async function chatWorkflow(
       preventClose: true,
       maxSteps,
       collectUIMessages: false,
-      // Some third-party OpenAI-compatible APIs return finish_reason "stop"
-      // even when the response contains tool_calls. Without this transform,
-      // DurableAgent sees "stop" and ends the loop without executing tools,
-      // leaving them stuck in "input-available" forever. The transform
-      // detects this mismatch and rewrites the finish reason to "tool-calls".
-      experimental_transform: fixFinishReasonWithToolCalls,
+      // Note: The "stop finish reason despite tool calls" fix for
+      // third-party OpenAI-compatible APIs is applied via a language-model
+      // middleware in createModelResolver (see resolve-model.ts), NOT via
+      // experimental_transform. Passing a transform function here would
+      // crash the workflow with "Cannot stringify a function" because
+      // DurableAgent forwards experimental_transform into the `transforms`
+      // argument of the internal doStreamStep call, which is a 'use step'
+      // function and must be serializable. The middleware is applied
+      // inside the model resolver step, so it never needs to be serialized.
       experimental_repairToolCall: async ({ toolCall, tools }) => {
         // DurableAgent only invokes this hook on schema-validation failure,
         // not on "tool not found". The empty-name / unknown-name crash is

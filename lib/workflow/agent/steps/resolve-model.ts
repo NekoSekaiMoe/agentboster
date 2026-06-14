@@ -5,12 +5,21 @@ import type {
   CompatibleLanguageModel,
   ProviderOptions,
 } from '@workflow/ai/agent';
+import { withFinishReasonFix } from '../utils/fix-finish-reason';
 
 export function createModelResolver(config: AppConfig, modelId: string) {
   return async function resolveModel(): Promise<CompatibleLanguageModel> {
     'use step';
 
-    return resolveLanguageModel(modelId, config) as CompatibleLanguageModel;
+    // The model is wrapped with the finish-reason-fix middleware *inside*
+    // this step. The wrapped model is the return value of the step, so the
+    // middleware never appears in any other step's serialized arguments.
+    // (Passing the same logic via DurableAgent's experimental_transform
+    // crashes the workflow because doStreamStep serializes its `transforms`
+    // argument and functions are not serializable.)
+    return withFinishReasonFix(
+      resolveLanguageModel(modelId, config),
+    ) as CompatibleLanguageModel;
   };
 }
 
