@@ -39,6 +39,7 @@ import {
   getMainAgentTemperature,
 } from './utils/agent-config';
 import { estimatePromptTokens } from './utils/estimateTokens';
+import { fixFinishReasonWithToolCalls } from './utils/fix-finish-reason';
 import {
   resolveModelContextLimit,
   resolveModelMaxOutputTokens,
@@ -313,38 +314,7 @@ export async function chatWorkflow(
       // DurableAgent sees "stop" and ends the loop without executing tools,
       // leaving them stuck in "input-available" forever. The transform
       // detects this mismatch and rewrites the finish reason to "tool-calls".
-      experimental_transform: (_options) => {
-        let sawToolCall = false;
-        return new TransformStream({
-          transform(chunk, controller) {
-            if (
-              chunk.type === 'tool-input-start' ||
-              chunk.type === 'tool-call'
-            ) {
-              sawToolCall = true;
-            }
-            if (chunk.type === 'finish') {
-              if (sawToolCall && chunk.finishReason.unified === 'stop') {
-                logger.warn('fix:stop_to_tool_calls', {
-                  rawFinishReason: chunk.finishReason.raw,
-                  sawToolCall,
-                  message:
-                    'Provider returned finish_reason "stop" despite emitting tool calls. Rewriting to "tool-calls" so DurableAgent executes the tools.',
-                });
-                controller.enqueue({
-                  ...chunk,
-                  finishReason: {
-                    ...chunk.finishReason,
-                    unified: 'tool-calls',
-                  },
-                });
-                return;
-              }
-            }
-            controller.enqueue(chunk);
-          },
-        });
-      },
+      experimental_transform: fixFinishReasonWithToolCalls,
       experimental_repairToolCall: async ({ toolCall, tools }) => {
         // DurableAgent only invokes this hook on schema-validation failure,
         // not on "tool not found". The empty-name / unknown-name crash is
