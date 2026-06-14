@@ -268,6 +268,12 @@ export async function writeStepEvent(input: {
   );
 }
 
+export async function writeStreamError(errorText: string): Promise<void> {
+  'use step';
+
+  await writeChunk({ type: 'error', errorText });
+}
+
 export async function writeStreamClose(): Promise<void> {
   'use step';
 

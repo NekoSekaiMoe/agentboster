@@ -5,6 +5,7 @@ import {
   serializeUserMessage,
   toModelMessage,
 } from '@/lib/chat/message-utils';
+import { parseProviderScopedModelId } from '@/lib/ai';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { ChatSource, UserMessagePart } from '@/types/workflow';
@@ -17,6 +18,7 @@ import {
   createWritable,
   writeMessageMetadata,
   writeStreamClose,
+  writeStreamError,
   writeUserMessageMarker,
 } from './sender/writers';
 import { buildSystemPrompt } from './steps/build-prompt';
@@ -219,6 +221,20 @@ export async function chatWorkflow(
   );
   const stepStartedAt = new Map<number, Date>();
 
+  // Resolve the configured provider key for the active model. Used in
+  // onStepFinish to build a user-facing error message when a third-party
+  // OpenAI-compatible endpoint misbehaves (returns finish_reason "stop"
+  // despite emitting tool calls). Falls back to the raw modelId if the
+  // provider cannot be resolved.
+  const providerName = (() => {
+    const parsed = parseProviderScopedModelId(modelId);
+    if (parsed.providerName) {
+      return parsed.providerName;
+    }
+    const keys = Object.keys(config.models?.providers ?? {});
+    return keys[0] ?? modelId;
+  })();
+
   await initializeRunSessionStep({
     sessionId,
     modelId,
@@ -398,6 +414,28 @@ export async function chatWorkflow(
       },
       onStepFinish: async (step) => {
         const startedAt = stepStartedAt.get(step.stepNumber) ?? new Date();
+
+        // Detect the third-party-OpenAI-compatible-API bug where the
+        // provider returns finish_reason "stop" even though it emitted
+        // tool calls. This means the endpoint is being driven through
+        // the Responses API (/v1/responses) but does not implement it
+        // correctly — tool calls will never execute and the agent loop
+        // silently stalls. Surface a back error so the user knows to
+        // switch this provider to the OpenAI Legacy (Chat Completions)
+        // API in Config > Models.
+        if (step.finishReason === 'stop' && step.toolCalls.length > 0) {
+          const errorText = `渠道 ${providerName} 不支持 OpenAI 接口，请切换到 OpenAI Legacy。`;
+          logger.error('stream:finish_reason_mismatch', {
+            sessionId,
+            runId,
+            providerName,
+            stepNumber: step.stepNumber,
+            finishReason: step.finishReason,
+            toolCallCount: step.toolCalls.length,
+          });
+          await writeStreamError(errorText);
+          throw new Error(errorText);
+        }
 
         try {
           await writeMessageMetadata({
