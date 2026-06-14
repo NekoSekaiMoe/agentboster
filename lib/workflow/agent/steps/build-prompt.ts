@@ -9,6 +9,11 @@ import type { BotLocale } from '@/types/config/language';
 import { BUILTIN_MEMORY_MAX_LENGTH } from '@/types/memory';
 import { getSkillFamilyLabel } from '@/types/skills';
 import { localeLabels } from '@/lib/i18n';
+import {
+  type FollowUpTemplate,
+  parseFollowUpTemplate,
+  renderFollowUpInstruction,
+} from '@/lib/chat/follow-up-template';
 import { DEFAULT_SYSTEM_PROMPT } from '../config';
 import { MAIN_AGENT_NAME } from '../utils/agent-config';
 
@@ -61,10 +66,19 @@ async function buildMCPSubsection(): Promise<string> {
   return createSubsection('Builtin MCP Tools', lines);
 }
 
-function buildFollowUpSection(enabled: boolean): string {
+function buildFollowUpSection(
+  enabled: boolean,
+  soulTemplate: FollowUpTemplate | null,
+): string {
   if (!enabled) {
     return createSection('Follow-up Suggestions', [
       'Do not end answers with "你要是愿意", "If you want", or generated follow-up suggestion buttons/questions unless the user explicitly asks for suggestions.',
+    ]);
+  }
+
+  if (soulTemplate) {
+    return createSection('Follow-up Suggestions', [
+      ...renderFollowUpInstruction(soulTemplate),
     ]);
   }
 
@@ -111,18 +125,8 @@ export async function buildSystemPrompt(
   const builtinSectionsList = await listBuiltinMemorySections();
   const skills = await listSkillMetas();
 
-  // Check for session-level SOUL override
-  const _sessionSoulContent: string | null = null;
-  if (options.sessionId) {
-    try {
-      const _sessionSoul = await getBuiltinMemorySection('SOUL');
-      // Session SOUL is stored in the session itself; we check if it differs from global
-      // For now, the SOUL section in builtin memories is the source of truth
-      // Session-level override is handled by the caller passing sessionId
-    } catch {
-      // ignore
-    }
-  }
+  const soulSection = await getBuiltinMemorySection('SOUL');
+  const soulTemplate = parseFollowUpTemplate(soulSection.content);
 
   const builtinMemorySections = builtinSectionsList.map((section) =>
     createSection(section.key.toUpperCase(), [
@@ -210,7 +214,7 @@ export async function buildSystemPrompt(
   ]);
 
   sections.push(summarySection);
-  sections.push(buildFollowUpSection(enableFollowUpSuggestions));
+  sections.push(buildFollowUpSection(enableFollowUpSuggestions, soulTemplate));
 
   return sections.join('\n\n');
 }
