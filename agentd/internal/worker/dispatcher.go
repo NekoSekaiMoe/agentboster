@@ -342,6 +342,7 @@ func (d *Dispatcher) handleTaskCompleted(e eventbus.Event) {
 		SessionID: task.SessionID,
 		AgentID:   task.AgentID,
 		Command:   task.Command,
+		UserID:    task.UserID,
 	}); err != nil {
 		slog.Warn("task memory extraction failed", "task_id", task.ID, "error", err)
 	}

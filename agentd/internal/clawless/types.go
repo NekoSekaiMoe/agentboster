@@ -246,6 +246,7 @@ type TaskMemoryRequest struct {
 	SessionID string `json:"session_id,omitempty"`
 	AgentID   string `json:"agent_id,omitempty"`
 	Command   string `json:"command,omitempty"`
+	UserID    string `json:"user_id,omitempty"`
 }
 
 // Workspace represents a project-level organization unit.

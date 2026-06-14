@@ -66,6 +66,7 @@ export async function createLongTermMemoryRow(
     memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
     importance?: number;
     userId?: string;
+    key?: string;
   },
 ) {
   const [row] = await db
@@ -75,10 +76,80 @@ export async function createLongTermMemoryRow(
       userId: options?.userId ?? 'system',
       memoryType: options?.memoryType ?? 'fact',
       importance: options?.importance ?? 5,
+      ...(options?.key ? { key: options.key } : {}),
     })
     .returning();
 
   return row;
+}
+
+/**
+ * Upsert a long-term memory by (userId, key).
+ *
+ * Used by the memory extractor: it always knows the semantic key for a
+ * fact (e.g. "user.location", "project.tech_stack") and wants to either
+ * create a new row or update the content of an existing one. Manual
+ * writes (UI / writeMemory tool) leave key=null and use createLongTermMemoryRow.
+ *
+ * Behavior:
+ * - key is null/empty → falls back to createLongTermMemoryRow (no upsert)
+ * - row with matching (userId, key) exists → updates content/type/importance
+ * - otherwise → inserts a new row
+ *
+ * Returns the row and whether it was created (vs updated).
+ */
+export async function upsertLongTermMemoryByKey(input: {
+  userId: string;
+  key: string;
+  content: string;
+  memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
+  importance?: number;
+}): Promise<{
+  row: Awaited<ReturnType<typeof createLongTermMemoryRow>>;
+  created: boolean;
+}> {
+  const trimmedKey = input.key.trim();
+  if (!trimmedKey) {
+    const row = await createLongTermMemoryRow(input.content, {
+      userId: input.userId,
+      memoryType: input.memoryType,
+      importance: input.importance,
+    });
+    return { row, created: true };
+  }
+
+  const [existing] = await db
+    .select({ id: schema.longTermMemories.id })
+    .from(schema.longTermMemories)
+    .where(
+      and(
+        eq(schema.longTermMemories.userId, input.userId),
+        eq(schema.longTermMemories.key, trimmedKey),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    const [row] = await db
+      .update(schema.longTermMemories)
+      .set({
+        content: input.content,
+        memoryType: input.memoryType ?? 'fact',
+        importance: input.importance ?? 5,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.longTermMemories.id, existing.id))
+      .returning();
+    return { row, created: false };
+  }
+
+  const row = await createLongTermMemoryRow(input.content, {
+    userId: input.userId,
+    memoryType: input.memoryType,
+    importance: input.importance,
+    key: trimmedKey,
+  });
+  return { row, created: true };
 }
 
 export async function getLongTermMemoryRow(

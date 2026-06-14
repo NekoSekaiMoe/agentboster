@@ -6,11 +6,13 @@ import {
   toModelMessage,
 } from '@/lib/chat/message-utils';
 import { parseProviderScopedModelId } from '@/lib/ai';
+import { extractMemoriesFromSession } from '@/lib/memory/extract';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { ChatSource, UserMessagePart } from '@/types/workflow';
 import { DurableAgent } from '@workflow/ai/agent';
 import type { ModelMessage, StepResult, ToolSet } from 'ai';
+import { after } from 'next/server';
 import { getWorkflowMetadata } from 'workflow';
 import { DEFAULT_MAIN_MAX_STEPS, DEFAULT_THRESHOLD_TO_SUMMARY } from './config';
 import { instructionHookBuilder } from './hooks';
@@ -484,6 +486,27 @@ export async function chatWorkflow(
       runId,
       status: 'completed',
     });
+
+    // Schedule post-conversation memory extraction to run after this
+    // workflow response fully closes. Uses next/server `after()` so the
+    // LLM extraction call doesn't extend the perceived workflow duration
+    // for the user. Failures are logged inside extractMemoriesFromSession
+    // and never bubble up — extraction is best-effort by design.
+    if ('userId' in source && source.userId) {
+      after(() =>
+        extractMemoriesFromSession({
+          sessionId,
+          userId: source.userId as string,
+          config,
+        }).catch((err) => {
+          logger.warn('memory:extract_failed', {
+            sessionId,
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }),
+      );
+    }
 
     try {
       await writeStreamClose();

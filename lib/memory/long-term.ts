@@ -11,6 +11,7 @@ import {
   replaceLongTermMemoryChunks,
   updateLastAccessedAt,
   updateLongTermMemoryRow,
+  upsertLongTermMemoryByKey,
 } from '@/lib/core/db/memory/long-term';
 import { getConfig } from '@/lib/core/kv/config';
 import {
@@ -137,12 +138,14 @@ export async function createLongTermMemory(input: {
   memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
   importance?: number;
   userId?: string;
+  key?: string;
   config?: AppConfig;
 }) {
   const memory = await createLongTermMemoryRow(input.content, {
     memoryType: input.memoryType,
     importance: input.importance,
     userId: input.userId,
+    key: input.key,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
@@ -151,6 +154,34 @@ export async function createLongTermMemory(input: {
   });
 
   return { memory, indexing };
+}
+
+/**
+ * Upsert a memory by (userId, key) for the extractor path.
+ * Re-indexes chunks when an existing row is updated.
+ */
+export async function upsertLongTermMemory(input: {
+  userId: string;
+  key: string;
+  content: string;
+  memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
+  importance?: number;
+  config?: AppConfig;
+}) {
+  const { row: memory, created } = await upsertLongTermMemoryByKey({
+    userId: input.userId,
+    key: input.key,
+    content: input.content,
+    memoryType: input.memoryType,
+    importance: input.importance,
+  });
+  const indexing = await indexLongTermMemoryContent({
+    memoryId: memory.id,
+    content: memory.content,
+    config: input.config,
+  });
+
+  return { memory, indexing, created };
 }
 
 export async function updateLongTermMemory(input: {

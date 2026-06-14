@@ -6,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -78,6 +79,12 @@ export const longTermMemories = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     userId: text('user_id').default('system'),
+    // Optional stable key for dedup during memory extraction. When set,
+    // (userId, key) is unique so the extractor can upsert by key. Manual
+    // memory writes (UI, writeMemory tool) leave this null — there is no
+    // unique constraint on null so multiple null keys coexist fine in
+    // Postgres.
+    key: text('memory_key'),
     content: text('content').notNull(),
     memoryType: text('memory_type', {
       enum: ['fact', 'preference', 'decision', 'conversation'],
@@ -99,6 +106,10 @@ export const longTermMemories = pgTable(
     ),
     memoryTypeIdx: index('long_term_memories_memory_type_idx').on(
       table.memoryType,
+    ),
+    userKeyIdx: uniqueIndex('long_term_memories_user_key_idx').on(
+      table.userId,
+      table.key,
     ),
   }),
 );
