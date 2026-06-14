@@ -199,6 +199,10 @@ export async function chatWorkflow(
     agentName,
     allowDelegation: true,
     writable,
+    // Pass the session owner's userId so user-scoped tools (e.g. writeMemory)
+    // persist data under the right user. Without this, memories are written
+    // under 'system' and invisible in the memory tab.
+    userId: 'userId' in source ? (source.userId ?? undefined) : undefined,
   });
   const autoContextLimit = resolveModelContextLimit(
     modelId,
