@@ -237,7 +237,7 @@ export default defineBuildInTool({
 
       writeMemory: tool({
         title: 'Write Memory',
-        description: `Create or update a long-term or built-in memory. Long-term memory content is scoped to the current user — do not include the user's name, role, or identifier in the content; refer to the subject as "the user" or omit the subject.`,
+        description: `Persist a fact worth remembering long-term. Call this proactively whenever the conversation reveals durable information about the user or the work — do not wait for the user to say "remember this". Worth persisting: user personal information (location, timezone, language, occupation), preferences (style, habits, constraints), project configuration (tech stack, conventions), and important decisions with their rationale. Not worth persisting: transient task execution details (use task_progress for those), one-off requests, pleasantries. Long-term memory content is scoped to the current user — do not include the user's name, role, or identifier in the content; refer to the subject as "the user" or omit the subject.`,
         inputSchema: writeMemoryInputSchema,
         execute: async (value) =>
           executeWriteMemoryStep({
