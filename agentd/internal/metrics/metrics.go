@@ -19,6 +19,26 @@ type Collector struct {
 	outputPath string
 	interval   time.Duration
 	stopCh     chan struct{}
+
+	// P2.3: optional source of per-agent sandbox stats. Set via
+	// SetAgentStatsFn by the agent manager before the collector's
+	// first tick. Returns a slice of {agent_id, sandbox_id, type}
+	// records for the metrics payload.
+	agentStatsFn func() []AgentStat
+}
+
+// AgentStat is a single per-agent sandbox record returned by the agent
+// manager for metrics collection.
+type AgentStat struct {
+	AgentID     string `json:"agent_id"`
+	SandboxID   string `json:"sandbox_id"`
+	SandboxType string `json:"sandbox_type"`
+}
+
+// SetAgentStatsFn wires the per-agent stats provider (called once at
+// startup, after the agent manager is constructed).
+func (c *Collector) SetAgentStatsFn(fn func() []AgentStat) {
+	c.agentStatsFn = fn
 }
 
 // New creates and starts a background metrics collector.
@@ -98,6 +118,25 @@ func (c *Collector) collect() {
 		avail := float64(stat.Bavail) * float64(stat.Bsize)
 		if total > 0 {
 			m["disk_avail"] = avail / total
+		}
+	}
+
+	// P2.3: per-agent sandbox snapshot for /metrics observability.
+	// The stats function returns one record per active sandbox; we
+	// also count them per agent for quick "is this agent using too
+	// many sandboxes?" diagnostics.
+	if c.agentStatsFn != nil {
+		stats := c.agentStatsFn()
+		if len(stats) > 0 {
+			perAgent := make(map[string]int)
+			for _, s := range stats {
+				perAgent[s.AgentID]++
+			}
+			m["sandboxes"] = stats
+			m["sandbox_count_per_agent"] = perAgent
+			m["sandbox_count_total"] = len(stats)
+		} else {
+			m["sandbox_count_total"] = 0
 		}
 	}
 

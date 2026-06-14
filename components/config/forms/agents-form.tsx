@@ -359,6 +359,60 @@ export function AgentsForm() {
                     />
                   </Field>
 
+                  {/* P2.2: quick presets for common package registries */}
+                  <div className="md:col-span-2 flex flex-wrap gap-2 text-xs">
+                    <span className="self-center text-muted-foreground">
+                      Presets:
+                    </span>
+                    {(
+                      [
+                        ['npm', ['*.npmjs.org', 'registry.npmjs.org']],
+                        ['pypi', ['*.pypi.org', 'files.pythonhosted.org']],
+                        ['github', ['github.com', '*.github.com', '*.githubusercontent.com']],
+                        ['docker hub', ['*.docker.com', '*.docker.io']],
+                      ] as const
+                    ).map(([label, hosts]) => (
+                      <button
+                        type="button"
+                        key={label}
+                        className="rounded border bg-background px-2 py-1 hover:bg-accent"
+                        onClick={() =>
+                          updateValue({
+                            ...agents,
+                            [agentKey]: {
+                              ...agentValue,
+                              egress_allowlist: Array.from(
+                                new Set([
+                                  ...(agentValue.egress_allowlist ?? []),
+                                  ...hosts,
+                                ]),
+                              ),
+                            },
+                          })
+                        }
+                      >
+                        + {label}
+                      </button>
+                    ))}
+                    {(agentValue.egress_allowlist ?? []).length > 0 && (
+                      <button
+                        type="button"
+                        className="rounded border bg-background px-2 py-1 text-destructive hover:bg-accent"
+                        onClick={() =>
+                          updateValue({
+                            ...agents,
+                            [agentKey]: {
+                              ...agentValue,
+                              egress_allowlist: [],
+                            },
+                          })
+                        }
+                      >
+                        clear
+                      </button>
+                    )}
+                  </div>
+
                   <Field label="Disk quota">
                     <Input
                       type="text"

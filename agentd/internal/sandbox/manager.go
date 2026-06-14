@@ -201,6 +201,12 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 	m.sandboxes[sb.ID] = sb
 	m.mu.Unlock()
 
+	// P2.2: apply egress allowlist if specified. Best-effort; logs but
+	// does not fail the sandbox creation when iptables is unavailable.
+	if len(spec.EgressAllowlist) > 0 {
+		m.applyEgressAllowlist(sb.ID, sb.Path, spec.EgressAllowlist)
+	}
+
 	slog.Info("sandbox created", "id", sb.ID, "type", sb.Type, "permission_profile", spec.PermissionProfile)
 	return sb, nil
 }

@@ -78,6 +78,20 @@ func (p *DockerLightProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		"--memory", mem,
 	}
 
+	// P2.3: apply per-spec resource overrides when set.
+	if spec.PidsLimit > 0 {
+		args = append(args, "--pids-limit", strconv.Itoa(spec.PidsLimit))
+	}
+	if spec.BlkioWeight > 0 {
+		args = append(args, "--blkio-weight", strconv.Itoa(int(spec.BlkioWeight)))
+	}
+	if spec.DiskLimit != "" {
+		// Docker doesn't have a single --disk-limit flag; use
+		// --storage-opt size for overlay2-backed filesystems. This is
+		// a best-effort apply — older docker/overlay2 setups ignore it.
+		args = append(args, "--storage-opt", "size="+spec.DiskLimit)
+	}
+
 	// Apply OS enforcement policy
 	if spec.SecurityPolicy != nil {
 		policy := spec.SecurityPolicy

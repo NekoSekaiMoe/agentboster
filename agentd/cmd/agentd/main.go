@@ -199,6 +199,20 @@ func main() {
 	agentMgr.SetBus(bus)
 	agentMgr.SetGatekeeper(gk)
 
+	// P2.3: wire per-agent stats into the metrics collector.
+	collector.SetAgentStatsFn(func() []metrics.AgentStat {
+		raw := agentMgr.GetAgentStats()
+		out := make([]metrics.AgentStat, len(raw))
+		for i, s := range raw {
+			out[i] = metrics.AgentStat{
+				AgentID:     s.AgentID,
+				SandboxID:   s.SandboxID,
+				SandboxType: s.SandboxType,
+			}
+		}
+		return out
+	})
+
 	dispatcher := worker.NewDispatcher(bus, cfg.WorkerPool, cfg.ExecPool, gk, sbManager, clawlessClient, agentMgr, l2Manager, cfg.TaskSummary.TidyInterval)
 	dispatcher.Start()
 	defer dispatcher.Stop()

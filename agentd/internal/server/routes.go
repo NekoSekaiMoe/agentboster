@@ -115,6 +115,8 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 
 		// Synchronous tool execution (called by ClawLess web when agentd is primary)
 		v1.POST("/tools/exec", s.handleToolExec)
+		// P2.1: Streaming exec output via SSE for long-running commands.
+		v1.POST("/tools/exec/stream", s.handleExecStream)
 		v1.POST("/tools/read", s.handleToolRead)
 		v1.POST("/tools/write", s.handleToolWrite)
 		v1.POST("/tools/edit", s.handleToolEdit)

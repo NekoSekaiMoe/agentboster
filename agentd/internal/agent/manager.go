@@ -116,6 +116,13 @@ func (m *Manager) GetBGTaskStore() *persistence.BackgroundTaskStore {
 	return m.bgTaskStore
 }
 
+// GetSandboxManager returns the sandbox manager.
+// P2.1: Exposed so the HTTP server's /api/v1/exec/stream route can call
+// sbManager.Exec directly without threading it through every handler.
+func (m *Manager) GetSandboxManager() *sandbox.Manager {
+	return m.sbManager
+}
+
 func (m *Manager) wireSessionRuntime(ctx *AgentContext) {
 	if ctx.QuestionService == nil {
 		ctx.QuestionService = m.questionSvc
@@ -509,6 +516,34 @@ func (m *Manager) GetAllSessionStatuses() []map[string]any {
 			"sandbox_id":       ctx.SandboxID,
 			"sandbox_type":     ctx.SandboxType,
 			"compaction_count": ctx.TaskState.CompactionCount,
+		})
+	}
+	return result
+}
+
+// AgentStat is one record in the per-agent metrics snapshot.
+// Mirrors metrics.AgentStat but defined here to avoid an import cycle
+// (the metrics package depends on a struct shape, not on this package).
+type AgentStat struct {
+	AgentID     string `json:"agent_id"`
+	SandboxID   string `json:"sandbox_id"`
+	SandboxType string `json:"sandbox_type"`
+}
+
+// GetAgentStats returns one record per active session's sandbox, for
+// the metrics collector to emit in /metrics. P2.3.
+func (m *Manager) GetAgentStats() []AgentStat {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make([]AgentStat, 0, len(m.sessions))
+	for _, ctx := range m.sessions {
+		if ctx.SandboxID == "" {
+			continue
+		}
+		result = append(result, AgentStat{
+			AgentID:     ctx.AgentID,
+			SandboxID:   ctx.SandboxID,
+			SandboxType: ctx.SandboxType,
 		})
 	}
 	return result

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -80,20 +81,33 @@ func (p *DockerProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		mem = fmt.Sprintf("%dm", spec.MemoryLimit/(1024*1024))
 	}
 
-	// Build docker run command
+	// Build docker run command.
+	// P2.3: --pids-limit defaults to 128 but can be overridden per-spec.
+	pidsLimit := 128
+	if spec.PidsLimit > 0 {
+		pidsLimit = spec.PidsLimit
+	}
 	args := []string{
 		"run", "-d",
 		"--name", containerName,
 		"--network", "none", // No network by default (strong isolation)
 		"--memory", mem, // Memory limit
 		"--cpus", fmt.Sprintf("%.2f", cpu), // CPU limit
-		"--pids-limit", "128", // Process limit
+		"--pids-limit", strconv.Itoa(pidsLimit), // Process limit
 		"--security-opt", "no-new-privileges",
 		"--cap-drop", "ALL", // Drop all capabilities
 		"--read-only",               // Read-only rootfs
 		"--tmpfs", "/tmp:size=256m", // Writable tmp
 		"--tmpfs", "/workspace:size=512m", // Writable workspace on read-only rootfs
 		"-w", "/workspace",
+	}
+
+	// P2.3: additional per-spec resource knobs.
+	if spec.BlkioWeight > 0 {
+		args = append(args, "--blkio-weight", strconv.Itoa(int(spec.BlkioWeight)))
+	}
+	if spec.DiskLimit != "" {
+		args = append(args, "--storage-opt", "size="+spec.DiskLimit)
 	}
 
 	if spec.SecurityPolicy != nil && spec.SecurityPolicy.Seccomp != nil {
