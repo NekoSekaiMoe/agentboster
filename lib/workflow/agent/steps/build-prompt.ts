@@ -177,6 +177,7 @@ export async function buildSystemPrompt(
 
       `Built-in memories determine your language style and characteristics. These memories are preloaded and only require \`tool\` invocation when modified. Built-in memories have only a few categories. They should be concise, not exceeding \`${BUILTIN_MEMORY_MAX_LENGTH} words\`.`,
       `Long-term memories are things you learn from previous conversations, such as user preferences. When asked about preferences, you must call the \`memory\` tool to read long-term memories. When asking, editing or deleting for a user's preference, you should first search for any relevant memories. If none exist, then create a new one.`,
+      `Long-term memories are already scoped to the current user — never include the user's name, role, username, or any identifier inside the content. Write content from the assistant's perspective, referring to the subject as "the user" or omitting the subject entirely. The same fact must remain reusable when the user's display name or role changes across sessions.`,
       `Session memories are things you learn during the current conversation. These memories are only valid within the current session. When performing a longer task, you need to read session memories. This prevents you from forgetting important details.`,
     ]),
 

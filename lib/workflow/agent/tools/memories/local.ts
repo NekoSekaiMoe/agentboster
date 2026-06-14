@@ -237,7 +237,7 @@ export default defineBuildInTool({
 
       writeMemory: tool({
         title: 'Write Memory',
-        description: `Create or update a memory.`,
+        description: `Create or update a long-term or built-in memory. Long-term memory content is scoped to the current user — do not include the user's name, role, or identifier in the content; refer to the subject as "the user" or omit the subject.`,
         inputSchema: writeMemoryInputSchema,
         execute: async (value) =>
           executeWriteMemoryStep({
