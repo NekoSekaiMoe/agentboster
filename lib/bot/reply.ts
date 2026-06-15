@@ -1,5 +1,8 @@
 import { getConfig } from '@/lib/core/kv/config';
-import { parseSuggestedFollowUps } from '@/lib/chat/suggested-follow-up';
+import {
+  parseSuggestedFollowUps,
+  stripFollowUpMarkers,
+} from '@/lib/chat/suggested-follow-up';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import {
@@ -118,18 +121,33 @@ function buildSuggestedFollowUpCard(text: string) {
       children: [
         CardText(cardText),
         Actions(
-          followUps.questions.map((question) =>
+          followUps.questions.map((question, index) =>
             Button({
               id: SUGGESTED_FOLLOW_UP_ACTION_ID,
               label: question,
-              value: question,
+              value: String(index),
             }),
           ),
         ),
       ],
     }),
-    fallbackText: text,
+    fallbackText: cardText,
+    questions: followUps.questions,
   };
+}
+
+/**
+ * Strip any follow-up marker block from text for display. Tries structured
+ * parsing first (keeps the body before the marker), falls back to a regex
+ * strip that removes any bare marker tokens. Guarantees no marker leakage even
+ * when the card path fails.
+ */
+function stripMarkersForDisplay(text: string): string {
+  const followUps = parseSuggestedFollowUps(text);
+  if (followUps) {
+    return followUps.textWithoutQuestions || text;
+  }
+  return stripFollowUpMarkers(text);
 }
 
 async function postAdapterReply(input: {
@@ -138,25 +156,34 @@ async function postAdapterReply(input: {
   text: string;
 }) {
   const suggestedFollowUpCard = buildSuggestedFollowUpCard(input.text);
+  const displayText = suggestedFollowUpCard
+    ? suggestedFollowUpCard.fallbackText
+    : stripMarkersForDisplay(input.text);
+  const questions = suggestedFollowUpCard?.questions;
   let sent: Awaited<ReturnType<typeof input.adapter.postMessage>>;
   if (suggestedFollowUpCard) {
     try {
       sent = await input.adapter.postMessage(input.source.threadId, {
         card: suggestedFollowUpCard.card,
-        fallbackText: input.text,
+        fallbackText: displayText,
       });
     } catch {
       sent = await input.adapter.postMessage(input.source.threadId, {
-        markdown: input.text,
+        markdown: displayText,
       });
     }
   } else {
     sent = await input.adapter.postMessage(input.source.threadId, {
-      markdown: input.text,
+      markdown: displayText,
     });
   }
 
-  await recordAdapterReplyContext(input.source, sent.id, input.text);
+  await recordAdapterReplyContext(
+    input.source,
+    sent.id,
+    displayText,
+    questions,
+  );
   return sent;
 }
 
@@ -251,11 +278,11 @@ export async function streamAdapterSourceReply(
 
     const tryEditMessage = async () => {
       if (!messageId) return;
-      const trimmed = fullText.trim();
-      if (!trimmed || trimmed === lastEditedText) return;
+      const displayText = stripMarkersForDisplay(fullText);
+      if (!displayText || displayText === lastEditedText) return;
 
       const now = Date.now();
-      const lengthDelta = trimmed.length - lastEditedText.length;
+      const lengthDelta = displayText.length - lastEditedText.length;
       const timeDelta = now - lastEditTime;
 
       if (lengthDelta < EDIT_MIN_DELTA && timeDelta < EDIT_MAX_INTERVAL_MS)
@@ -263,10 +290,10 @@ export async function streamAdapterSourceReply(
 
       try {
         await adapter.editMessage(source.threadId, messageId, {
-          markdown: trimmed,
+          markdown: displayText,
         });
-        await recordAdapterReplyContext(source, messageId, trimmed);
-        lastEditedText = trimmed;
+        await recordAdapterReplyContext(source, messageId, displayText);
+        lastEditedText = displayText;
         lastEditTime = now;
       } catch {
         // edit may fail if message unchanged or rate-limited; ignore
@@ -299,16 +326,17 @@ export async function streamAdapterSourceReply(
 
                 // First chunk → post initial message
                 if (!messageId) {
+                  const initialDisplay = stripMarkersForDisplay(fullText);
                   const posted = await adapter.postMessage(source.threadId, {
-                    markdown: fullText.trim(),
+                    markdown: initialDisplay,
                   });
                   messageId = posted.id;
                   await recordAdapterReplyContext(
                     source,
                     posted.id,
-                    fullText.trim(),
+                    initialDisplay,
                   );
-                  lastEditedText = fullText.trim();
+                  lastEditedText = initialDisplay;
                   lastEditTime = Date.now();
                 } else {
                   await tryEditMessage();
@@ -327,12 +355,13 @@ export async function streamAdapterSourceReply(
           fullText += chunkText;
 
           if (!messageId) {
+            const initialDisplay = stripMarkersForDisplay(fullText);
             const posted = await adapter.postMessage(source.threadId, {
-              markdown: fullText.trim(),
+              markdown: initialDisplay,
             });
             messageId = posted.id;
-            await recordAdapterReplyContext(source, posted.id, fullText.trim());
-            lastEditedText = fullText.trim();
+            await recordAdapterReplyContext(source, posted.id, initialDisplay);
+            lastEditedText = initialDisplay;
             lastEditTime = Date.now();
           } else {
             await tryEditMessage();
@@ -367,7 +396,12 @@ export async function streamAdapterSourceReply(
             card: suggestedFollowUpCard.card,
             fallbackText: suggestedFollowUpCard.fallbackText,
           });
-          await recordAdapterReplyContext(source, edited.id, finalText);
+          await recordAdapterReplyContext(
+            source,
+            edited.id,
+            suggestedFollowUpCard.fallbackText,
+            suggestedFollowUpCard.questions,
+          );
         } catch {
           await postAdapterReply({
             adapter,
@@ -375,14 +409,17 @@ export async function streamAdapterSourceReply(
             text: finalText,
           });
         }
-      } else if (messageId && finalText && finalText !== lastEditedText) {
-        try {
-          await adapter.editMessage(source.threadId, messageId, {
-            markdown: finalText,
-          });
-          await recordAdapterReplyContext(source, messageId, finalText);
-        } catch {
-          // ignore
+      } else if (messageId && finalText) {
+        const finalDisplay = stripMarkersForDisplay(finalText);
+        if (finalDisplay && finalDisplay !== lastEditedText) {
+          try {
+            await adapter.editMessage(source.threadId, messageId, {
+              markdown: finalDisplay,
+            });
+            await recordAdapterReplyContext(source, messageId, finalDisplay);
+          } catch {
+            // ignore
+          }
         }
       }
 

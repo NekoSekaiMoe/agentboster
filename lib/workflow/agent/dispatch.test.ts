@@ -37,7 +37,9 @@ vi.mock('@/lib/utils/logger', () => ({
 // Import after the mocks are in place.
 const { selectBestNode } = await import('./dispatch');
 
-function makeRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function makeRow(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     nodeID: 'node-1',
     ip: '10.0.0.1',

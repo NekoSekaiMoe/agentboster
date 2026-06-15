@@ -17,6 +17,7 @@ type ReplyContextRecord = {
   source: IMChatSource;
   sentMessageId: string;
   sentText?: string;
+  followUpQuestions?: string[];
   createdAt: string;
 };
 
@@ -52,6 +53,7 @@ export async function recordAdapterReplyContext(
   source: ChatSource,
   sentMessageId: string | null | undefined,
   sentText?: string,
+  followUpQuestions?: string[],
 ): Promise<void> {
   if (source.type !== 'im' || !sentMessageId) {
     return;
@@ -67,6 +69,10 @@ export async function recordAdapterReplyContext(
     source,
     sentMessageId,
     sentText: sentText?.trim() || undefined,
+    followUpQuestions:
+      Array.isArray(followUpQuestions) && followUpQuestions.length > 0
+        ? followUpQuestions
+        : undefined,
     createdAt: new Date().toISOString(),
   };
 
@@ -98,6 +104,9 @@ export async function getAdapterReplyContext(
       typeof parsed.sessionId !== 'string' ||
       typeof parsed.sentMessageId !== 'string' ||
       (parsed.sentText !== undefined && typeof parsed.sentText !== 'string') ||
+      (parsed.followUpQuestions !== undefined &&
+        (!Array.isArray(parsed.followUpQuestions) ||
+          parsed.followUpQuestions.some((q) => typeof q !== 'string'))) ||
       !parsed.source ||
       parsed.source.type !== 'im'
     ) {

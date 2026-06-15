@@ -57,9 +57,7 @@ export async function GET(
     const data = {
       agent_id: agentId,
       default_sandbox: instance.sandbox_type ?? '',
-      available_sandboxes: instance.sandbox_type
-        ? [instance.sandbox_type]
-        : [],
+      available_sandboxes: instance.sandbox_type ? [instance.sandbox_type] : [],
       max_parallel_sub_agents: instance.max_parallel_subagents ?? 3,
       memory_enabled: true,
       // Sandbox resource knobs (P1.1)

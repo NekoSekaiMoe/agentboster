@@ -12,7 +12,10 @@
  * out-of-band via this route.
  */
 
-import { requestAgentd } from '@/lib/extra/agent/agentd-http';
+import {
+  type AgentdHttpConfig,
+  requestAgentd,
+} from '@/lib/extra/agent/agentd-http';
 import { getAgentdClientConfig } from '@/lib/extra/agent/agentd-tools-client';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
@@ -32,7 +35,7 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request) {
-  let parsed;
+  let parsed: z.infer<typeof bodySchema>;
   try {
     parsed = bodySchema.parse(await request.json());
   } catch (err) {
@@ -42,7 +45,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let config;
+  let config: AgentdHttpConfig;
   try {
     config = await getAgentdClientConfig();
   } catch (err) {
@@ -101,7 +104,11 @@ export async function POST(request: Request) {
                 let errBody = '';
                 res.on('data', (chunk) => (errBody += chunk));
                 res.on('end', () => {
-                  stream.enqueue(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ type: 'error', error: errBody })}\n\n`));
+                  stream.enqueue(
+                    new TextEncoder().encode(
+                      `event: error\ndata: ${JSON.stringify({ type: 'error', error: errBody })}\n\n`,
+                    ),
+                  );
                   stream.close();
                   resolve();
                 });

@@ -127,3 +127,28 @@ export function parseSuggestedFollowUps(
 ): SuggestedFollowUpBlock | null {
   return parseCustomMarkerBlock(text) ?? parseLegacyMarkerBlock(text);
 }
+
+const STRIP_MARKER_BLOCK_RE = new RegExp(
+  `${escapeRegExp(FOLLOWUP_MARKER_START)}[\\s\\S]*?${escapeRegExp(
+    FOLLOWUP_MARKER_END,
+  )}`,
+  'g',
+);
+const STRIP_LEFTOVER_MARKER_RE = new RegExp(
+  `${escapeRegExp(FOLLOWUP_MARKER_START)}|${escapeRegExp(FOLLOWUP_MARKER_END)}`,
+  'g',
+);
+
+/**
+ * Best-effort strip of any follow-up marker block from text, used as a fallback
+ * when {@link parseSuggestedFollowUps} fails (e.g. malformed block, partial
+ * output). Removes the whole `MARKER_START ... MARKER_END` span first, then any
+ * leftover bare marker tokens, finally trims trailing whitespace.
+ */
+export function stripFollowUpMarkers(text: string): string {
+  if (!text) return text;
+  const stripped = text
+    .replace(STRIP_MARKER_BLOCK_RE, '')
+    .replace(STRIP_LEFTOVER_MARKER_RE, '');
+  return stripped.trim() === '' ? text : stripped.trim();
+}

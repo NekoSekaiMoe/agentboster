@@ -262,8 +262,12 @@ export async function executeBuiltinMcpTool(
   toolName: string,
   input: Record<string, unknown>,
   context?: BuiltinMcpServerContext,
-): Promise<{ ok: true; result: BuiltinMcpToolResult } | { ok: false; error: string }> {
-  const server = (builtinServers as Record<string, BuiltinServerDefinition | undefined>)[serverName];
+): Promise<
+  { ok: true; result: BuiltinMcpToolResult } | { ok: false; error: string }
+> {
+  const server = (
+    builtinServers as Record<string, BuiltinServerDefinition | undefined>
+  )[serverName];
   if (!server) {
     return {
       ok: false,

@@ -95,7 +95,8 @@ export async function selectBestNode(
       // penalty saturates at 10 active tasks.
       const activeLoad =
         Math.min((n.activeTasks ?? 0) + (n.activeSandboxes ?? 0), 10) / 10;
-      const score = (1 - cpu) * 0.35 + mem * 0.35 + disk * 0.2 + (1 - activeLoad) * 0.1;
+      const score =
+        (1 - cpu) * 0.35 + mem * 0.35 + disk * 0.2 + (1 - activeLoad) * 0.1;
       scored.push({ node: n, score });
     }
 

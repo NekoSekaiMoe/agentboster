@@ -462,8 +462,7 @@ export async function getBot(): Promise<Chat> {
   });
 
   bot.onAction(SUGGESTED_FOLLOW_UP_ACTION_ID, async (event) => {
-    const text = event.value?.trim();
-    if (!text || !event.threadId) {
+    if (!event.threadId) {
       return;
     }
 
@@ -478,6 +477,29 @@ export async function getBot(): Promise<Chat> {
       userName: event.user.userName ?? null,
     };
     const replyContext = await getAdapterReplyContext(adapter, event.messageId);
+
+    // Resolve the actual follow-up question text. New buttons carry an index
+    // ('0'|'1'|'2') into replyContext.followUpQuestions; legacy buttons (issued
+    // before the index refactor) carried the full text in value, so fall back
+    // to treating value as literal text for backward compatibility.
+    let text: string | undefined;
+    const rawValue = event.value?.trim();
+    if (rawValue && replyContext?.followUpQuestions) {
+      const idx = Number.parseInt(rawValue, 10);
+      if (
+        Number.isInteger(idx) &&
+        idx >= 0 &&
+        idx < replyContext.followUpQuestions.length
+      ) {
+        text = replyContext.followUpQuestions[idx]?.trim();
+      }
+    }
+    if (!text) {
+      text = rawValue;
+    }
+    if (!text) {
+      return;
+    }
 
     await routeAdapterMessage({
       adapter,

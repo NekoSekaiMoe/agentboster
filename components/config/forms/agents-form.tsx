@@ -235,8 +235,9 @@ export function AgentsForm() {
                           ...agents,
                           [agentKey]: {
                             ...agentValue,
-                            sandbox_cpu:
-                              parseOptionalNumber(event.target.value),
+                            sandbox_cpu: parseOptionalNumber(
+                              event.target.value,
+                            ),
                           },
                         })
                       }
@@ -271,8 +272,9 @@ export function AgentsForm() {
                           ...agents,
                           [agentKey]: {
                             ...agentValue,
-                            sandbox_pids:
-                              parseOptionalNumber(event.target.value),
+                            sandbox_pids: parseOptionalNumber(
+                              event.target.value,
+                            ),
                           },
                         })
                       }
@@ -291,8 +293,9 @@ export function AgentsForm() {
                           ...agents,
                           [agentKey]: {
                             ...agentValue,
-                            max_parallel_subagents:
-                              parseOptionalNumber(event.target.value),
+                            max_parallel_subagents: parseOptionalNumber(
+                              event.target.value,
+                            ),
                           },
                         })
                       }
@@ -368,7 +371,14 @@ export function AgentsForm() {
                       [
                         ['npm', ['*.npmjs.org', 'registry.npmjs.org']],
                         ['pypi', ['*.pypi.org', 'files.pythonhosted.org']],
-                        ['github', ['github.com', '*.github.com', '*.githubusercontent.com']],
+                        [
+                          'github',
+                          [
+                            'github.com',
+                            '*.github.com',
+                            '*.githubusercontent.com',
+                          ],
+                        ],
                         ['docker hub', ['*.docker.com', '*.docker.io']],
                       ] as const
                     ).map(([label, hosts]) => (
@@ -442,8 +452,9 @@ export function AgentsForm() {
                           ...agents,
                           [agentKey]: {
                             ...agentValue,
-                            sandbox_blkio_weight:
-                              parseOptionalNumber(event.target.value),
+                            sandbox_blkio_weight: parseOptionalNumber(
+                              event.target.value,
+                            ),
                           },
                         })
                       }

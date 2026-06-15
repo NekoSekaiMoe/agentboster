@@ -138,7 +138,10 @@ describe('DecisionQueue', () => {
 
       // Resolve one → the 4th should be promoted.
       await queue.resolve('d1', 'pass', 'u');
-      const sentIds = queue.getSent().map((d) => d.decisionId).sort();
+      const sentIds = queue
+        .getSent()
+        .map((d) => d.decisionId)
+        .sort();
       expect(sentIds).toEqual(['d2', 'd3', 'd4']);
     });
   });

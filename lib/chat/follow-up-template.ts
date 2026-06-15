@@ -3,8 +3,8 @@ export type FollowUpTemplate = {
   format: string;
 };
 
-export const FOLLOWUP_MARKER_START = '__FOLLOWUP_START__';
-export const FOLLOWUP_MARKER_END = '__FOLLOWUP_END__';
+export const FOLLOWUP_MARKER_START = '@@FOLLOWUP_START@@';
+export const FOLLOWUP_MARKER_END = '@@FOLLOWUP_END@@';
 
 export const LEGACY_FOLLOWUP_MARKER = '你要是愿意';
 

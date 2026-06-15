@@ -20,9 +20,7 @@ export const agentInstanceConfigSchema = z.object({
   // ── P1.1: daemon-side knobs ───────────────────────────────────────
 
   /** Default sandbox type for tasks this agent runs. */
-  sandbox_type: z
-    .enum(['docker', 'docker-strict', 'lxc', 'auto'])
-    .optional(),
+  sandbox_type: z.enum(['docker', 'docker-strict', 'lxc', 'auto']).optional(),
   /** CPU core limit (e.g., 0.5, 1.0, 2.0). */
   sandbox_cpu: z.number().positive().optional(),
   /** Memory limit, human-readable (e.g., "256m", "1g"). */
