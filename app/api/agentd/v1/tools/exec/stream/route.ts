@@ -68,7 +68,7 @@ export async function POST(request: Request) {
         const https = await import('node:https');
         const http = await import('node:http');
 
-        const url = new URL(config.baseUrl + '/api/v1/tools/exec/stream');
+        const url = new URL(`${config.baseUrl}/api/v1/tools/exec/stream`);
         const lib = url.protocol === 'https:' ? https : http;
 
         const reqBody = JSON.stringify({

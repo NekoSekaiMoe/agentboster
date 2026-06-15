@@ -302,11 +302,17 @@ export function KnowledgeManagement() {
   const [connectorUserId, setConnectorUserId] = useState('');
   const [connectorAgentId, setConnectorAgentId] = useState('');
   const [connectorHttpMethod, setConnectorHttpMethod] = useState('POST');
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: user-facing HTTP template example
+  const connectorHttpHeadersInitial =
+    '{\n  "Authorization": "Bearer ${API_KEY}"\n}';
   const [connectorHttpHeaders, setConnectorHttpHeaders] = useState(
-    '{\n  "Authorization": "Bearer ${API_KEY}"\n}',
+    connectorHttpHeadersInitial,
   );
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: user-facing HTTP template example
+  const connectorHttpBodyInitial =
+    '{\n  "query": "${QUERY}",\n  "limit": ${LIMIT}\n}';
   const [connectorHttpBody, setConnectorHttpBody] = useState(
-    '{\n  "query": "${QUERY}",\n  "limit": ${LIMIT}\n}',
+    connectorHttpBodyInitial,
   );
   const [connectorHttpResultsPath, setConnectorHttpResultsPath] =
     useState('results');
@@ -415,8 +421,8 @@ export function KnowledgeManagement() {
       setConnectorUserId('');
       setConnectorAgentId('');
       setConnectorHttpMethod('POST');
-      setConnectorHttpHeaders('{\n  "Authorization": "Bearer ${API_KEY}"\n}');
-      setConnectorHttpBody('{\n  "query": "${QUERY}",\n  "limit": ${LIMIT}\n}');
+      setConnectorHttpHeaders(connectorHttpHeadersInitial);
+      setConnectorHttpBody(connectorHttpBodyInitial);
       setConnectorHttpResultsPath('results');
       setConnectorHttpContentPath('content');
       setConnectorHttpScorePath('score');
@@ -912,7 +918,7 @@ export function KnowledgeManagement() {
                             </div>
                             <div className="grid gap-2">
                               <Label htmlFor="http-headers">
-                                Headers (JSON, supports ${'${API_KEY}'})
+                                {'Headers (JSON, supports ${API_KEY})'}
                               </Label>
                               <Textarea
                                 id="http-headers"
@@ -926,8 +932,7 @@ export function KnowledgeManagement() {
                             </div>
                             <div className="grid gap-2">
                               <Label htmlFor="http-body">
-                                Body (JSON, supports ${'${QUERY}'}, $
-                                {'${LIMIT}'})
+                                {'Body (JSON, supports ${QUERY}, ${LIMIT})'}
                               </Label>
                               <Textarea
                                 id="http-body"

@@ -1115,7 +1115,6 @@ async function executeCommand(input: {
         };
       }
       const text = await executeUnpairCommand(
-        input.args,
         imSource.adapter,
         imSource.userId ?? null,
       );

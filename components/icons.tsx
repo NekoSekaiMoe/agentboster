@@ -1190,13 +1190,7 @@ export const RefreshCwIcon = ({
   </svg>
 );
 
-export const FullscreenIcon = ({
-  size = 16,
-  className,
-}: {
-  size?: number;
-  className?: string;
-}) => (
+export const FullscreenIcon = ({ size = 16 }: { size?: number }) => (
   <svg
     height={size}
     strokeLinejoin="round"

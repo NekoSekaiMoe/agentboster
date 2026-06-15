@@ -122,8 +122,8 @@ export async function POST(request: Request) {
       .values({
         taskId: data.task_id || 'unknown',
         decisionId:
-          typeof metadata['decisionId'] === 'string'
-            ? (metadata['decisionId'] as string)
+          typeof metadata.decisionId === 'string'
+            ? (metadata.decisionId as string)
             : null,
         notificationType: 'decision',
         payload: {
@@ -134,16 +134,16 @@ export async function POST(request: Request) {
         },
         status: 'sent',
         channel:
-          typeof metadata['channel'] === 'string'
-            ? (metadata['channel'] as string)
+          typeof metadata.channel === 'string'
+            ? (metadata.channel as string)
             : 'in-app',
         targetChatId:
-          (metadata['chatId'] as string | undefined) ??
-          (metadata['session_id'] as string | undefined) ??
+          (metadata.chatId as string | undefined) ??
+          (metadata.session_id as string | undefined) ??
           'unknown',
         targetUserId:
-          (metadata['userId'] as string | undefined) ??
-          (metadata['user_id'] as string | undefined) ??
+          (metadata.userId as string | undefined) ??
+          (metadata.user_id as string | undefined) ??
           null,
       })
       .returning();
@@ -155,12 +155,12 @@ export async function POST(request: Request) {
       try {
         const queue = getDecisionQueue();
         const sessionId =
-          (metadata['session_id'] as string | undefined) ??
-          (metadata['sessionId'] as string | undefined) ??
+          (metadata.session_id as string | undefined) ??
+          (metadata.sessionId as string | undefined) ??
           '';
         const taskId =
-          (metadata['task_id'] as string | undefined) ?? data.task_id ?? '';
-        const prompts = (metadata['prompts'] as unknown) ?? undefined;
+          (metadata.task_id as string | undefined) ?? data.task_id ?? '';
+        const prompts = metadata.prompts ?? undefined;
 
         if (sessionId && taskId) {
           await queue.enqueue({

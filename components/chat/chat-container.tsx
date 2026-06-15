@@ -46,13 +46,6 @@ type SessionRuntimeSnapshot = {
   workflow?: { runId?: string | null; status?: string | null };
 };
 
-type SessionMessagesResponse = {
-  sessionId: string;
-  messages: WorkflowUIMessage[];
-  hasMore: boolean;
-  nextBefore: string | null;
-};
-
 type ComposerMessage = { text: string } | CreateUIMessage<WorkflowUIMessage>;
 type ToolApprovalInput = {
   toolCallId: string;

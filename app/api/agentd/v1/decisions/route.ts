@@ -55,8 +55,30 @@ export async function GET(request: Request) {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function decisionToSnake(d: any): Record<string, unknown> {
+interface DecisionInput {
+  decisionId?: string;
+  type?: string;
+  taskId?: string;
+  sessionId?: string;
+  agentId?: string;
+  nodeId?: string;
+  command?: string;
+  score?: number;
+  reason?: string;
+  question?: string;
+  options?: unknown;
+  prompts?: unknown;
+  conflict?: unknown;
+  branch?: unknown;
+  status?: string;
+  createdAt?: Date;
+  timeoutAt?: Date;
+  resolvedAt?: Date;
+  action?: string;
+  answers?: unknown;
+}
+
+function decisionToSnake(d: DecisionInput): Record<string, unknown> {
   return {
     decision_id: d.decisionId,
     type: d.type,

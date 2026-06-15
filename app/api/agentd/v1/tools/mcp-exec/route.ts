@@ -53,7 +53,7 @@ export async function POST(request: Request) {
   // hostile daemon shouldn't be able to bypass.
   try {
     const config = await getConfig();
-    const agentCfg = (config.agents ?? {})[agent_id];
+    const agentCfg = config.agents?.[agent_id];
     if (!agentCfg?.mcp_enabled) {
       logger.warn('mcp-exec denied: agent does not have MCP enabled', {
         agent_id,

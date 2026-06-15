@@ -61,9 +61,10 @@ export async function executePairCommand(
 
   // Upstash Redis auto-deserializes JSON values, so `raw` may already be an
   // object. Handle both object and string forms for robustness.
-  const parsed = (
-    typeof raw === 'string' ? JSON.parse(raw) : raw
-  ) as { adapter?: string; userId?: string };
+  const parsed = (typeof raw === 'string' ? JSON.parse(raw) : raw) as {
+    adapter?: string;
+    userId?: string;
+  };
 
   if (!parsed || typeof parsed !== 'object') {
     return 'Invalid pair code data.';
@@ -109,7 +110,6 @@ export async function executePairCommand(
 }
 
 export async function executeUnpairCommand(
-  args: string,
   adapter: AdapterName,
   userId: string | null,
 ): Promise<string> {
