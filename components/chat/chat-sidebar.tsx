@@ -2,6 +2,7 @@
 import {
   deleteSessionAction,
   listRecentSessionsAction,
+  toggleSessionPinAction,
 } from '@/app/(chat)/actions';
 import { useI18n } from '@/components/i18n-provider';
 import {
@@ -29,6 +30,7 @@ import {
   MessageSquare,
   Monitor,
   Moon,
+  Pin,
   Plus,
   Settings,
   Sun,
@@ -54,6 +56,7 @@ interface SessionItem {
   channel: string;
   createdAt: string;
   status?: SessionStatus;
+  pinned?: boolean;
 }
 
 export function ChatSidebar() {
@@ -132,6 +135,31 @@ export function ChatSidebar() {
     }
   }
 
+  async function handleTogglePin(session: SessionItem) {
+    const prevPinned = session.pinned;
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === session.id ? { ...s, pinned: !prevPinned } : s,
+      ),
+    );
+    try {
+      await toggleSessionPinAction({ id: session.id });
+    } catch {
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === session.id ? { ...s, pinned: prevPinned } : s,
+        ),
+      );
+      toast.error('Failed to pin session');
+    }
+  }
+
+  const sortedSessions = [...sessions].sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return 0;
+  });
+
   return (
     <>
       <Sidebar className="border-r-0">
@@ -174,12 +202,12 @@ export function ChatSidebar() {
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-              ) : sessions.length === 0 ? (
+              ) : sortedSessions.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground text-sm">
                   {t('chat.noConversations')}
                 </div>
               ) : (
-                sessions.map((session) => (
+                sortedSessions.map((session) => (
                   <div
                     key={session.id}
                     role="button"
@@ -205,6 +233,19 @@ export function ChatSidebar() {
                       <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                     )}
                     <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTogglePin(session);
+                        }}
+                      >
+                        <Pin
+                          className={`h-3 w-3 ${session.pinned ? 'fill-current' : ''}`}
+                        />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"

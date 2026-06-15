@@ -82,7 +82,40 @@ export async function listRecentSessionsAction(limit = 30) {
     title: session.title,
     channel: session.channel,
     createdAt: session.createdAt.toISOString(),
+    pinned: Boolean(
+      (session.metadata as Record<string, unknown> | null)?.pinned,
+    ),
   }));
+}
+
+export async function toggleSessionPinAction(input: { id: string }) {
+  const access = await requireAuth();
+
+  const id = input.id.trim();
+  if (!id) {
+    throw new Error('Missing session id');
+  }
+
+  const existing = await getSession(id);
+  if (!existing) {
+    throw new Error('Session not found');
+  }
+  assertCanAccessOwnedResource(access, existing.userId);
+
+  const currentPinned = Boolean(
+    (existing.metadata as Record<string, unknown> | null)?.pinned,
+  );
+  const nextMetadata = { ...(existing.metadata ?? {}), pinned: !currentPinned };
+
+  if (access.isAdmin) {
+    await updateSession(id, { metadata: nextMetadata });
+  } else {
+    await updateSessionForUser(id, access.session.userId, {
+      metadata: nextMetadata,
+    });
+  }
+
+  return { ok: true as const, pinned: !currentPinned };
 }
 
 export async function updateSessionTitleAction(input: {

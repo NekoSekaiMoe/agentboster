@@ -30,6 +30,7 @@ import {
   deleteSessionAction,
   isAgentdEnabled,
   listRecentSessionsAction,
+  toggleSessionPinAction,
 } from '@/app/(chat)/actions';
 import {
   AlertDialog,
@@ -282,8 +283,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       ),
     );
     try {
-      // Pinned feature requires schema update; best-effort only
-      await Promise.resolve();
+      await toggleSessionPinAction({ id: sessionItem.id });
     } catch {
       setSessions((prev) =>
         prev.map((s) =>
