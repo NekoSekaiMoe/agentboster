@@ -155,6 +155,7 @@ export async function POST(request: Request) {
     const knowledgeBase = await createKnowledgeBase({
       agentId: body.agent_id,
       visibility,
+      kind: body.kind === 'remote' ? 'remote' : 'local',
       ownerUserId:
         visibility === 'private'
           ? access.isAdmin && typeof body.owner_user_id === 'string'

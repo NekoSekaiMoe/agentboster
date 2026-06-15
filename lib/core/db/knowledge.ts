@@ -44,7 +44,7 @@ export type KnowledgeSearchRow = {
   finalScore: number;
 };
 
-type SearchCandidate = Omit<KnowledgeSearchRow, 'finalScore'>;
+export type SearchCandidate = Omit<KnowledgeSearchRow, 'finalScore'>;
 
 function containsCjk(value: string) {
   return /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/u.test(value);
@@ -57,9 +57,10 @@ function escapeLikePattern(value: string) {
     .replaceAll('_', '\\_');
 }
 
-function mergeKnowledgeCandidates(input: {
+export function mergeKnowledgeCandidates(input: {
   vectorRows: SearchCandidate[];
   keywordRows: SearchCandidate[];
+  remoteRows?: SearchCandidate[];
   minConfidence: number;
   limit: number;
   offset: number;
@@ -90,6 +91,19 @@ function mergeKnowledgeCandidates(input: {
     merged.set(row.chunkId, {
       ...row,
       vectorScore: 0,
+      rrfScore: 1 / (RRF_K + rank + 1),
+    });
+  }
+
+  for (const [rank, row] of (input.remoteRows ?? []).entries()) {
+    const existing = merged.get(row.chunkId);
+    if (existing) {
+      existing.rrfScore += 1 / (RRF_K + rank + 1);
+      continue;
+    }
+
+    merged.set(row.chunkId, {
+      ...row,
       rrfScore: 1 / (RRF_K + rank + 1),
     });
   }
@@ -205,6 +219,7 @@ export async function createKnowledgeBaseRow(input: {
   agentId?: string;
   ownerUserId?: string | null;
   visibility?: KnowledgeVisibility;
+  kind?: 'local' | 'remote';
   name: string;
   description?: string | null;
   emoji?: string | null;
@@ -226,6 +241,7 @@ export async function createKnowledgeBaseRow(input: {
       ownerUserId:
         visibility === 'private' ? (input.ownerUserId ?? null) : null,
       visibility,
+      kind: input.kind ?? 'local',
       name: input.name,
       description: input.description ?? null,
       emoji: input.emoji ?? 'book',
@@ -413,7 +429,7 @@ export async function getKnowledgeConnectorRow(input: {
 
 export async function createKnowledgeConnectorRow(input: {
   knowledgeBaseId: string;
-  provider?: 'url';
+  provider?: 'url' | 'mem0' | 'http';
   name: string;
   sourceUri: string;
   config?: Record<string, unknown> | null;

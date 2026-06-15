@@ -46,12 +46,33 @@ export async function POST(request: Request, { params }: RouteContext) {
     const access = await requireAuthAccess(cookieStore);
     const { id } = await params;
     const body = await request.json();
-    const sourceUri = String(body.source_uri ?? '').trim();
     const name = String(body.name ?? '').trim();
+    const rawProvider =
+      body.provider === 'mem0' ||
+      body.provider === 'http' ||
+      body.provider === 'url'
+        ? body.provider
+        : 'url';
+    const apiKey =
+      typeof body.api_key === 'string' && body.api_key.length > 0
+        ? body.api_key
+        : undefined;
+    const config =
+      typeof body.config === 'object' && body.config !== null
+        ? (body.config as Record<string, unknown>)
+        : null;
+    const sourceUri =
+      typeof body.source_uri === 'string' ? body.source_uri.trim() : '';
 
-    if (!sourceUri) {
+    if (rawProvider === 'url' && !sourceUri) {
       return Response.json(
         { success: false, error: 'source_uri is required' },
+        { status: 400 },
+      );
+    }
+    if ((rawProvider === 'mem0' || rawProvider === 'http') && !apiKey) {
+      return Response.json(
+        { success: false, error: 'api_key is required for remote providers' },
         { status: 400 },
       );
     }
@@ -60,6 +81,9 @@ export async function POST(request: Request, { params }: RouteContext) {
       knowledgeBaseId: id,
       name,
       sourceUri,
+      provider: rawProvider,
+      apiKey,
+      config,
       access: {
         userId: access.session.userId,
         isAdmin: access.isAdmin,

@@ -18,6 +18,7 @@ import {
   listKnowledgeBaseRows,
   listKnowledgeConnectorRows,
   listKnowledgeDocumentRows,
+  mergeKnowledgeCandidates,
   replaceKnowledgeDocumentChunks,
   resolveKnowledgeBaseRows,
   updateKnowledgeBasePriorityRow,
@@ -27,9 +28,13 @@ import {
   type KnowledgeVisibility,
   type KnowledgeChunkInput,
   type KnowledgeSearchRow,
+  type SearchCandidate,
 } from '@/lib/core/db/knowledge';
 import { getConfig } from '@/lib/core/kv/config';
 import { generateEmbedding, resolveEmbeddingModel } from '@/lib/ai';
+import { searchWithProvider } from '@/lib/knowledge/providers';
+import type { KnowledgeProviderName } from '@/lib/knowledge/providers';
+import { upsertVaultEntry } from '@/lib/vault';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 
@@ -408,6 +413,7 @@ export async function createKnowledgeBase(input: {
   agentId?: string;
   ownerUserId?: string | null;
   visibility?: KnowledgeVisibility;
+  kind?: 'local' | 'remote';
   name: string;
   description?: string | null;
   emoji?: string | null;
@@ -417,14 +423,20 @@ export async function createKnowledgeBase(input: {
   priority?: number;
   config?: AppConfig;
 }) {
-  const config = await getEffectiveConfig(input.config);
+  const effectiveConfig = await getEffectiveConfig(input.config);
+  const kind = input.kind ?? 'local';
   const embeddingModel =
-    input.embeddingModel ?? config.models?.embedding_model ?? null;
+    kind === 'remote'
+      ? null
+      : (input.embeddingModel ??
+        effectiveConfig.models?.embedding_model ??
+        null);
 
   return createKnowledgeBaseRow({
     agentId: input.agentId,
     ownerUserId: input.ownerUserId,
     visibility: input.visibility,
+    kind,
     name: input.name.trim(),
     description: input.description,
     emoji: input.emoji,
@@ -553,27 +565,118 @@ export async function listKnowledgeConnectors(
   return listKnowledgeConnectorRows(knowledgeBaseId);
 }
 
+type RemoteProviderConfig = {
+  endpoint?: string;
+  userId?: string;
+  agentId?: string;
+  runType?: string;
+  method?: string;
+  headersTemplate?: Record<string, string>;
+  bodyTemplate?: Record<string, unknown>;
+  responseMapping?: Record<string, string>;
+};
+
+function normalizeRemoteProviderConfig(
+  raw: Record<string, unknown> | null | undefined,
+): RemoteProviderConfig {
+  if (!raw) {
+    return {};
+  }
+  const picked: RemoteProviderConfig = {};
+  if (typeof raw.endpoint === 'string') picked.endpoint = raw.endpoint;
+  if (typeof raw.userId === 'string') picked.userId = raw.userId;
+  if (typeof raw.agentId === 'string') picked.agentId = raw.agentId;
+  if (typeof raw.runType === 'string') picked.runType = raw.runType;
+  if (typeof raw.method === 'string') picked.method = raw.method;
+  if (typeof raw.headersTemplate === 'object' && raw.headersTemplate) {
+    picked.headersTemplate = raw.headersTemplate as Record<string, string>;
+  }
+  if (typeof raw.bodyTemplate === 'object' && raw.bodyTemplate) {
+    picked.bodyTemplate = raw.bodyTemplate as Record<string, unknown>;
+  }
+  if (typeof raw.responseMapping === 'object' && raw.responseMapping) {
+    picked.responseMapping = raw.responseMapping as Record<string, string>;
+  }
+  return picked;
+}
+
+function buildVaultKey(provider: string, knowledgeBaseId: string) {
+  const safeId = knowledgeBaseId.replace(/[^a-zA-Z0-9_.:-]/g, '');
+  return `knowledge:provider:${provider}:${safeId}`;
+}
+
 export async function createKnowledgeConnector(input: {
   knowledgeBaseId: string;
   name: string;
-  sourceUri: string;
+  sourceUri?: string;
+  provider?: 'url' | 'mem0' | 'http';
+  apiKey?: string;
+  config?: Record<string, unknown> | null;
   access: KnowledgeAccessScope;
   includeAllPrivate?: boolean;
 }) {
-  await getManageableKnowledgeBase(input);
-  const sourceUri = await assertExternalUrlAllowed(input.sourceUri);
+  const knowledgeBase = await getManageableKnowledgeBase(input);
+  const provider = input.provider ?? 'url';
+
+  if (provider === 'url') {
+    if (!input.sourceUri) {
+      throw new Error('source_uri is required for url provider');
+    }
+    const sourceUri = await assertExternalUrlAllowed(input.sourceUri);
+    const connector = await createKnowledgeConnectorRow({
+      knowledgeBaseId: input.knowledgeBaseId,
+      provider,
+      name: input.name.trim() || sourceUri,
+      sourceUri,
+      config: input.config ?? null,
+    });
+
+    return syncKnowledgeConnector({
+      knowledgeBaseId: input.knowledgeBaseId,
+      connectorId: connector.id,
+      access: input.access,
+      includeAllPrivate: input.includeAllPrivate,
+    });
+  }
+
+  if (knowledgeBase.kind !== 'remote') {
+    throw new Error(
+      'Remote provider connectors can only be attached to a remote knowledge base',
+    );
+  }
+
+  const sourceUri = input.sourceUri?.trim() || '';
+  const vaultKey = buildVaultKey(provider, input.knowledgeBaseId);
+  if (input.apiKey) {
+    await upsertVaultEntry({
+      key: vaultKey,
+      value: input.apiKey,
+      userId: input.access.userId ?? null,
+    });
+  }
+
+  const providerConfig: Record<string, unknown> = {
+    ...normalizeRemoteProviderConfig(input.config),
+    vaultKey,
+  };
+  if (sourceUri) {
+    providerConfig.endpoint = sourceUri;
+  }
+
   const connector = await createKnowledgeConnectorRow({
     knowledgeBaseId: input.knowledgeBaseId,
-    name: input.name.trim() || sourceUri,
-    sourceUri,
+    provider,
+    name: input.name.trim() || provider,
+    sourceUri: sourceUri || provider,
+    config: providerConfig,
   });
 
-  return syncKnowledgeConnector({
-    knowledgeBaseId: input.knowledgeBaseId,
-    connectorId: connector.id,
-    access: input.access,
-    includeAllPrivate: input.includeAllPrivate,
-  });
+  return {
+    connector,
+    document: null,
+    chunkCount: 0,
+    indexing: null,
+  };
 }
 
 export async function syncKnowledgeConnector(input: {
@@ -589,6 +692,21 @@ export async function syncKnowledgeConnector(input: {
   });
   if (!connector) {
     throw new Error(`Knowledge connector ${input.connectorId} not found`);
+  }
+
+  if (connector.provider !== 'url') {
+    await updateKnowledgeConnectorSyncRow({
+      connectorId: connector.id,
+      status: 'idle',
+      lastError: null,
+      lastSyncedAt: new Date(),
+    });
+    return {
+      connector,
+      document: null,
+      chunkCount: 0,
+      indexing: null,
+    };
   }
 
   await updateKnowledgeConnectorSyncRow({
@@ -747,6 +865,86 @@ function selectSearchEmbeddingModel(input: {
   );
 }
 
+type RemoteProviderConnector = {
+  connectorId: string;
+  provider: 'mem0' | 'http';
+  config: Record<string, unknown> | null;
+};
+
+async function loadRemoteConnectorsForBases(
+  knowledgeBaseIds: string[],
+): Promise<Map<string, RemoteProviderConnector>> {
+  const result = new Map<string, RemoteProviderConnector>();
+  if (knowledgeBaseIds.length === 0) {
+    return result;
+  }
+  for (const knowledgeBaseId of knowledgeBaseIds) {
+    const rows = await listKnowledgeConnectorRows(knowledgeBaseId);
+    const enabled = rows.find(
+      (row) =>
+        row.enabled && (row.provider === 'mem0' || row.provider === 'http'),
+    );
+    if (!enabled) {
+      continue;
+    }
+    const provider: 'mem0' | 'http' =
+      enabled.provider === 'mem0' ? 'mem0' : 'http';
+    result.set(knowledgeBaseId, {
+      connectorId: enabled.id,
+      provider,
+      config: enabled.config ?? {},
+    });
+  }
+  return result;
+}
+
+async function searchRemoteKnowledge(input: {
+  query: string;
+  limit: number;
+  knowledgeBases: KnowledgeBaseRow[];
+  connectors: Map<string, RemoteProviderConnector>;
+}): Promise<SearchCandidate[]> {
+  const candidateLimit = Math.max(input.limit * 3, 10);
+  const results = await Promise.all(
+    input.knowledgeBases.map(async (kb) => {
+      const connector = input.connectors.get(kb.id);
+      if (!connector) {
+        return [];
+      }
+      const providerResults = await searchWithProvider(
+        connector.provider satisfies KnowledgeProviderName,
+        {
+          query: input.query,
+          limit: candidateLimit,
+          config: connector.config ?? {},
+        },
+      );
+      return providerResults.map((result) => {
+        const chunkId = `remote:${connector.connectorId}:${
+          result.remoteId ?? hashKnowledgeContent(result.content).slice(0, 16)
+        }`;
+        const score = typeof result.score === 'number' ? result.score : 0.5;
+        return {
+          chunkId,
+          knowledgeBaseId: kb.id,
+          knowledgeBaseName: kb.name,
+          knowledgeBasePriority: kb.priority,
+          knowledgeBaseVisibility: kb.visibility,
+          documentId: chunkId,
+          documentTitle: result.title ?? kb.name,
+          documentSourceType: 'import' as const,
+          documentSourceUri: result.sourceUri ?? null,
+          documentCreatedAt: new Date(),
+          content: result.content,
+          vectorScore: score,
+          keywordScore: 0,
+        } satisfies SearchCandidate;
+      });
+    }),
+  );
+  return results.flat();
+}
+
 export async function searchKnowledge(input: {
   query: string;
   agentId?: string;
@@ -780,58 +978,121 @@ export async function searchKnowledge(input: {
     return [];
   }
 
-  const knowledgeBaseIds = knowledgeBases.map(
-    (knowledgeBase) => knowledgeBase.id,
-  );
-  const embeddingModel = selectSearchEmbeddingModel({
-    knowledgeBases,
-    config,
-  });
   const limit = Math.max(1, Math.min(input.limit ?? 5, 20));
   const minConfidence = Math.max(0, input.minConfidence ?? 0);
 
-  if (!embeddingModel) {
-    return hybridSearchKnowledgeChunks({
-      searchText: query,
+  const localKbs = knowledgeBases.filter((kb) => kb.kind === 'local');
+  const remoteKbs = knowledgeBases.filter((kb) => kb.kind === 'remote');
+
+  const localBaseIds = localKbs.map((kb) => kb.id);
+  const embeddingModel = selectSearchEmbeddingModel({
+    knowledgeBases: localKbs,
+    config,
+  });
+
+  let localRows: KnowledgeSearchRow[] = [];
+  if (localKbs.length > 0) {
+    if (!embeddingModel) {
+      localRows = await hybridSearchKnowledgeChunks({
+        searchText: query,
+        minConfidence,
+        limit,
+        offset: 0,
+        agentId: input.agentId,
+        knowledgeBaseIds: localBaseIds,
+      });
+    } else {
+      try {
+        const queryEmbedding = await generateEmbedding(
+          query,
+          embeddingModel,
+          config,
+        );
+        localRows = await hybridSearchKnowledgeChunks({
+          searchText: query,
+          queryEmbedding: queryEmbedding.embedding,
+          queryEmbeddingModel: queryEmbedding.embeddingModel,
+          queryEmbeddingDimensions: queryEmbedding.embeddingDimensions,
+          minConfidence,
+          limit,
+          offset: 0,
+          agentId: input.agentId,
+          knowledgeBaseIds: localBaseIds,
+        });
+      } catch (error) {
+        logger.warn('search:embedding_failed', {
+          embeddingModel,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        localRows = await hybridSearchKnowledgeChunks({
+          searchText: query,
+          minConfidence,
+          limit,
+          offset: 0,
+          agentId: input.agentId,
+          knowledgeBaseIds: localBaseIds,
+        });
+      }
+    }
+  }
+
+  if (remoteKbs.length === 0) {
+    return localRows;
+  }
+
+  const remoteConnectors = await loadRemoteConnectorsForBases(
+    remoteKbs.map((kb) => kb.id),
+  );
+
+  if (remoteKbs.every((kb) => !remoteConnectors.has(kb.id))) {
+    return localRows;
+  }
+
+  const remoteCandidates = await searchRemoteKnowledge({
+    query,
+    limit,
+    knowledgeBases: remoteKbs,
+    connectors: remoteConnectors,
+  });
+
+  if (remoteCandidates.length === 0) {
+    return localRows;
+  }
+
+  if (localRows.length === 0) {
+    return mergeKnowledgeCandidates({
+      vectorRows: [],
+      keywordRows: [],
+      remoteRows: remoteCandidates,
       minConfidence,
       limit,
       offset: 0,
-      agentId: input.agentId,
-      knowledgeBaseIds,
     });
   }
 
-  try {
-    const queryEmbedding = await generateEmbedding(
-      query,
-      embeddingModel,
-      config,
-    );
+  const localCandidates: SearchCandidate[] = localRows.map((row) => ({
+    chunkId: row.chunkId,
+    knowledgeBaseId: row.knowledgeBaseId,
+    knowledgeBaseName: row.knowledgeBaseName,
+    knowledgeBasePriority: row.knowledgeBasePriority,
+    knowledgeBaseVisibility: row.knowledgeBaseVisibility,
+    documentId: row.documentId,
+    documentTitle: row.documentTitle,
+    documentSourceType: row.documentSourceType,
+    documentSourceUri: row.documentSourceUri,
+    documentCreatedAt: row.documentCreatedAt,
+    content: row.content,
+    vectorScore: row.vectorScore,
+    keywordScore: row.keywordScore,
+  }));
 
-    return hybridSearchKnowledgeChunks({
-      searchText: query,
-      queryEmbedding: queryEmbedding.embedding,
-      queryEmbeddingModel: queryEmbedding.embeddingModel,
-      queryEmbeddingDimensions: queryEmbedding.embeddingDimensions,
-      minConfidence,
-      limit,
-      offset: 0,
-      agentId: input.agentId,
-      knowledgeBaseIds,
-    });
-  } catch (error) {
-    logger.warn('search:embedding_failed', {
-      embeddingModel,
-      error: error instanceof Error ? error.message : String(error),
-    });
-
-    return hybridSearchKnowledgeChunks({
-      searchText: query,
-      minConfidence,
-      limit,
-      offset: 0,
-      agentId: input.agentId,
-      knowledgeBaseIds,
-    });
-  }
+  return mergeKnowledgeCandidates({
+    vectorRows: localCandidates,
+    keywordRows: [],
+    remoteRows: remoteCandidates,
+    minConfidence,
+    limit,
+    offset: 0,
+  });
 }

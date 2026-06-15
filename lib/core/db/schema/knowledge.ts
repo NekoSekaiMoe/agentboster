@@ -46,6 +46,9 @@ export const knowledgeBases = pgTable(
     visibility: text('visibility', { enum: ['team', 'private'] })
       .default('team')
       .notNull(),
+    kind: text('kind', { enum: ['local', 'remote'] })
+      .default('local')
+      .notNull(),
     priority: integer('priority').default(0).notNull(),
     name: text('name').notNull(),
     description: text('description'),
@@ -132,7 +135,7 @@ export const knowledgeConnectors = pgTable(
     knowledgeBaseId: uuid('knowledge_base_id')
       .references(() => knowledgeBases.id, { onDelete: 'cascade' })
       .notNull(),
-    provider: text('provider', { enum: ['url'] })
+    provider: text('provider', { enum: ['url', 'mem0', 'http'] })
       .default('url')
       .notNull(),
     name: text('name').notNull(),

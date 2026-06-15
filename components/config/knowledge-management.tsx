@@ -30,17 +30,27 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 type KnowledgeVisibility = 'team' | 'private';
+type KnowledgeKind = 'local' | 'remote';
+type KnowledgeProvider = 'url' | 'mem0' | 'http';
 
 type KnowledgeBase = {
   id: string;
   agentId: string;
   ownerUserId: string | null;
   visibility: KnowledgeVisibility;
+  kind?: KnowledgeKind;
   priority: number;
   name: string;
   description: string | null;
@@ -60,7 +70,7 @@ type KnowledgeDocument = {
 
 type KnowledgeConnector = {
   id: string;
-  provider: 'url';
+  provider: KnowledgeProvider;
   name: string;
   sourceUri: string;
   enabled: boolean;
@@ -118,6 +128,7 @@ async function createKnowledgeBase(input: {
   name: string;
   description?: string;
   visibility: KnowledgeVisibility;
+  kind?: KnowledgeKind;
 }) {
   const res = await fetch('/api/knowledge', {
     method: 'POST',
@@ -149,6 +160,9 @@ async function createKnowledgeConnector(input: {
   knowledgeBaseId: string;
   name: string;
   sourceUri: string;
+  provider?: KnowledgeProvider;
+  apiKey?: string;
+  config?: Record<string, unknown> | null;
 }) {
   const res = await fetch(
     `/api/knowledge/${encodeURIComponent(input.knowledgeBaseId)}/connectors`,
@@ -158,6 +172,9 @@ async function createKnowledgeConnector(input: {
       body: JSON.stringify({
         name: input.name,
         source_uri: input.sourceUri,
+        provider: input.provider ?? 'url',
+        api_key: input.apiKey,
+        config: input.config,
       }),
     },
   );
@@ -273,10 +290,29 @@ export function KnowledgeManagement() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<KnowledgeVisibility>('private');
+  const [kbKind, setKbKind] = useState<KnowledgeKind>('local');
   const [documentTitle, setDocumentTitle] = useState('');
   const [documentContent, setDocumentContent] = useState('');
   const [connectorName, setConnectorName] = useState('');
   const [connectorUrl, setConnectorUrl] = useState('');
+  const [connectorProvider, setConnectorProvider] =
+    useState<KnowledgeProvider>('url');
+  const [connectorApiKey, setConnectorApiKey] = useState('');
+  const [connectorEndpoint, setConnectorEndpoint] = useState('');
+  const [connectorUserId, setConnectorUserId] = useState('');
+  const [connectorAgentId, setConnectorAgentId] = useState('');
+  const [connectorHttpMethod, setConnectorHttpMethod] = useState('POST');
+  const [connectorHttpHeaders, setConnectorHttpHeaders] = useState(
+    '{\n  "Authorization": "Bearer ${API_KEY}"\n}',
+  );
+  const [connectorHttpBody, setConnectorHttpBody] = useState(
+    '{\n  "query": "${QUERY}",\n  "limit": ${LIMIT}\n}',
+  );
+  const [connectorHttpResultsPath, setConnectorHttpResultsPath] =
+    useState('results');
+  const [connectorHttpContentPath, setConnectorHttpContentPath] =
+    useState('content');
+  const [connectorHttpScorePath, setConnectorHttpScorePath] = useState('score');
   const [priorityValue, setPriorityValue] = useState('0');
 
   const { data, isLoading } = useQuery({
@@ -330,6 +366,7 @@ export function KnowledgeManagement() {
       await queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
       setName('');
       setDescription('');
+      setKbKind('local');
       setCreateOpen(false);
       toast.success('Knowledge base created');
     },
@@ -372,6 +409,17 @@ export function KnowledgeManagement() {
       ]);
       setConnectorName('');
       setConnectorUrl('');
+      setConnectorProvider('url');
+      setConnectorApiKey('');
+      setConnectorEndpoint('');
+      setConnectorUserId('');
+      setConnectorAgentId('');
+      setConnectorHttpMethod('POST');
+      setConnectorHttpHeaders('{\n  "Authorization": "Bearer ${API_KEY}"\n}');
+      setConnectorHttpBody('{\n  "query": "${QUERY}",\n  "limit": ${LIMIT}\n}');
+      setConnectorHttpResultsPath('results');
+      setConnectorHttpContentPath('content');
+      setConnectorHttpScorePath('score');
       setConnectorOpen(false);
       toast.success('External source synced');
     },
@@ -484,6 +532,30 @@ export function KnowledgeManagement() {
                   />
                 </div>
                 <div className="grid gap-2">
+                  <Label>Type</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={kbKind === 'local' ? 'default' : 'outline'}
+                      onClick={() => setKbKind('local')}
+                    >
+                      Local
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={kbKind === 'remote' ? 'default' : 'outline'}
+                      onClick={() => setKbKind('remote')}
+                    >
+                      Remote
+                    </Button>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {kbKind === 'local'
+                      ? 'Documents and external URLs are indexed in Postgres.'
+                      : 'Queries a remote knowledge service (e.g. Mem0) at search time. No indexing.'}
+                  </p>
+                </div>
+                <div className="grid gap-2">
                   <Label>Scope</Label>
                   <div className="grid grid-cols-2 gap-2">
                     <Button
@@ -512,6 +584,7 @@ export function KnowledgeManagement() {
                       name: name.trim(),
                       description: description.trim() || undefined,
                       visibility,
+                      kind: kbKind,
                     })
                   }
                 >
@@ -565,6 +638,14 @@ export function KnowledgeManagement() {
                       >
                         {base.visibility === 'team' ? 'Team' : 'Private'}
                       </Badge>
+                      {base.kind === 'remote' && (
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 rounded-md"
+                        >
+                          Remote
+                        </Badge>
+                      )}
                       <Badge variant="outline" className="shrink-0 rounded-md">
                         P {base.priority}
                       </Badge>
@@ -657,18 +738,50 @@ export function KnowledgeManagement() {
                         disabled={!selectedBase.canManage}
                       >
                         <Link2 className="mr-2 size-4" />
-                        Add External Source
+                        {selectedBase.kind === 'remote'
+                          ? 'Connect Provider'
+                          : 'Add External Source'}
                       </Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-lg">
                       <DialogHeader>
-                        <DialogTitle>Add External Source</DialogTitle>
+                        <DialogTitle>
+                          {selectedBase.kind === 'remote'
+                            ? 'Connect Remote Provider'
+                            : 'Add External Source'}
+                        </DialogTitle>
                         <DialogDescription>
-                          Add a public URL. AgentBoster will fetch, chunk, and
-                          index it into the selected knowledge base.
+                          {selectedBase.kind === 'remote'
+                            ? 'Real-time search against a remote knowledge service. API key is stored in the vault.'
+                            : 'Add a public URL. AgentBoster will fetch, chunk, and index it into the selected knowledge base.'}
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="grid gap-4 py-2">
+                      <div className="grid max-h-[60vh] gap-4 overflow-y-auto py-2">
+                        <div className="grid gap-2">
+                          <Label>Provider</Label>
+                          <Select
+                            value={connectorProvider}
+                            onValueChange={(value) =>
+                              setConnectorProvider(value as KnowledgeProvider)
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {selectedBase.kind === 'remote' ? (
+                                <>
+                                  <SelectItem value="mem0">Mem0</SelectItem>
+                                  <SelectItem value="http">
+                                    Custom HTTP
+                                  </SelectItem>
+                                </>
+                              ) : (
+                                <SelectItem value="url">URL (fetch)</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <div className="grid gap-2">
                           <Label htmlFor="connector-name">Name</Label>
                           <Input
@@ -677,44 +790,292 @@ export function KnowledgeManagement() {
                             onChange={(event) =>
                               setConnectorName(event.target.value)
                             }
-                            placeholder="Product docs"
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="connector-url">URL</Label>
-                          <Input
-                            id="connector-url"
-                            value={connectorUrl}
-                            onChange={(event) =>
-                              setConnectorUrl(event.target.value)
+                            placeholder={
+                              connectorProvider === 'mem0'
+                                ? 'My Mem0 memories'
+                                : connectorProvider === 'http'
+                                  ? 'Custom knowledge API'
+                                  : 'Product docs'
                             }
-                            placeholder="https://example.com/docs"
                           />
-                          <p className="text-muted-foreground text-xs">
-                            Local and private network URLs are blocked.
-                          </p>
                         </div>
+                        {connectorProvider === 'url' ? (
+                          <div className="grid gap-2">
+                            <Label htmlFor="connector-url">URL</Label>
+                            <Input
+                              id="connector-url"
+                              value={connectorUrl}
+                              onChange={(event) =>
+                                setConnectorUrl(event.target.value)
+                              }
+                              placeholder="https://example.com/docs"
+                            />
+                            <p className="text-muted-foreground text-xs">
+                              Local and private network URLs are blocked.
+                            </p>
+                          </div>
+                        ) : connectorProvider === 'mem0' ? (
+                          <>
+                            <div className="grid gap-2">
+                              <Label htmlFor="mem0-api-key">API Key</Label>
+                              <Input
+                                id="mem0-api-key"
+                                type="password"
+                                value={connectorApiKey}
+                                onChange={(event) =>
+                                  setConnectorApiKey(event.target.value)
+                                }
+                                placeholder="m0-xxx"
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="mem0-endpoint">
+                                Endpoint (optional)
+                              </Label>
+                              <Input
+                                id="mem0-endpoint"
+                                value={connectorEndpoint}
+                                onChange={(event) =>
+                                  setConnectorEndpoint(event.target.value)
+                                }
+                                placeholder="https://api.mem0.ai"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="grid gap-2">
+                                <Label htmlFor="mem0-user-id">
+                                  User ID (optional)
+                                </Label>
+                                <Input
+                                  id="mem0-user-id"
+                                  value={connectorUserId}
+                                  onChange={(event) =>
+                                    setConnectorUserId(event.target.value)
+                                  }
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <Label htmlFor="mem0-agent-id">
+                                  Agent ID (optional)
+                                </Label>
+                                <Input
+                                  id="mem0-agent-id"
+                                  value={connectorAgentId}
+                                  onChange={(event) =>
+                                    setConnectorAgentId(event.target.value)
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="grid gap-2">
+                              <Label htmlFor="http-endpoint">
+                                Search Endpoint
+                              </Label>
+                              <Input
+                                id="http-endpoint"
+                                value={connectorEndpoint}
+                                onChange={(event) =>
+                                  setConnectorEndpoint(event.target.value)
+                                }
+                                placeholder="https://api.openviking.example.com/search"
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="http-api-key">API Key</Label>
+                              <Input
+                                id="http-api-key"
+                                type="password"
+                                value={connectorApiKey}
+                                onChange={(event) =>
+                                  setConnectorApiKey(event.target.value)
+                                }
+                                placeholder="used as ${API_KEY}"
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="http-method">Method</Label>
+                              <Select
+                                value={connectorHttpMethod}
+                                onValueChange={setConnectorHttpMethod}
+                              >
+                                <SelectTrigger id="http-method">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="POST">POST</SelectItem>
+                                  <SelectItem value="GET">GET</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="http-headers">
+                                Headers (JSON, supports ${'${API_KEY}'})
+                              </Label>
+                              <Textarea
+                                id="http-headers"
+                                rows={3}
+                                className="font-mono text-xs"
+                                value={connectorHttpHeaders}
+                                onChange={(event) =>
+                                  setConnectorHttpHeaders(event.target.value)
+                                }
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="http-body">
+                                Body (JSON, supports ${'${QUERY}'}, $
+                                {'${LIMIT}'})
+                              </Label>
+                              <Textarea
+                                id="http-body"
+                                rows={4}
+                                className="font-mono text-xs"
+                                value={connectorHttpBody}
+                                onChange={(event) =>
+                                  setConnectorHttpBody(event.target.value)
+                                }
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="grid gap-2">
+                                <Label htmlFor="http-results-path">
+                                  Results path
+                                </Label>
+                                <Input
+                                  id="http-results-path"
+                                  value={connectorHttpResultsPath}
+                                  onChange={(event) =>
+                                    setConnectorHttpResultsPath(
+                                      event.target.value,
+                                    )
+                                  }
+                                  placeholder="data.items"
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <Label htmlFor="http-content-path">
+                                  Content path
+                                </Label>
+                                <Input
+                                  id="http-content-path"
+                                  value={connectorHttpContentPath}
+                                  onChange={(event) =>
+                                    setConnectorHttpContentPath(
+                                      event.target.value,
+                                    )
+                                  }
+                                  placeholder="text"
+                                />
+                              </div>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="http-score-path">
+                                Score path (optional)
+                              </Label>
+                              <Input
+                                id="http-score-path"
+                                value={connectorHttpScorePath}
+                                onChange={(event) =>
+                                  setConnectorHttpScorePath(event.target.value)
+                                }
+                                placeholder="relevance"
+                              />
+                            </div>
+                          </>
+                        )}
                       </div>
                       <DialogFooter>
                         <Button
                           disabled={
                             addConnectorMutation.isPending ||
-                            !connectorUrl.trim()
+                            (connectorProvider === 'url'
+                              ? !connectorUrl.trim()
+                              : !connectorApiKey.trim() ||
+                                (connectorProvider === 'http' &&
+                                  !connectorEndpoint.trim()))
                           }
-                          onClick={() =>
+                          onClick={() => {
+                            if (connectorProvider === 'url') {
+                              addConnectorMutation.mutate({
+                                knowledgeBaseId: selectedBase.id,
+                                name: connectorName.trim(),
+                                sourceUri: connectorUrl.trim(),
+                                provider: 'url',
+                              });
+                              return;
+                            }
+                            if (connectorProvider === 'mem0') {
+                              const config: Record<string, unknown> = {};
+                              if (connectorUserId.trim()) {
+                                config.userId = connectorUserId.trim();
+                              }
+                              if (connectorAgentId.trim()) {
+                                config.agentId = connectorAgentId.trim();
+                              }
+                              addConnectorMutation.mutate({
+                                knowledgeBaseId: selectedBase.id,
+                                name: connectorName.trim(),
+                                sourceUri: connectorEndpoint.trim(),
+                                provider: 'mem0',
+                                apiKey: connectorApiKey.trim(),
+                                config,
+                              });
+                              return;
+                            }
+                            let parsedHeaders: Record<string, string> = {};
+                            try {
+                              parsedHeaders = connectorHttpHeaders.trim()
+                                ? (JSON.parse(connectorHttpHeaders) as Record<
+                                    string,
+                                    string
+                                  >)
+                                : {};
+                            } catch {
+                              toast.error('Headers JSON is invalid');
+                              return;
+                            }
+                            let parsedBody: Record<string, unknown> = {};
+                            try {
+                              parsedBody = connectorHttpBody.trim()
+                                ? (JSON.parse(connectorHttpBody) as Record<
+                                    string,
+                                    unknown
+                                  >)
+                                : {};
+                            } catch {
+                              toast.error('Body JSON is invalid');
+                              return;
+                            }
                             addConnectorMutation.mutate({
                               knowledgeBaseId: selectedBase.id,
                               name: connectorName.trim(),
-                              sourceUri: connectorUrl.trim(),
-                            })
-                          }
+                              sourceUri: connectorEndpoint.trim(),
+                              provider: 'http',
+                              apiKey: connectorApiKey.trim(),
+                              config: {
+                                method: connectorHttpMethod,
+                                headersTemplate: parsedHeaders,
+                                bodyTemplate: parsedBody,
+                                responseMapping: {
+                                  resultsPath: connectorHttpResultsPath.trim(),
+                                  contentPath: connectorHttpContentPath.trim(),
+                                  scorePath: connectorHttpScorePath.trim(),
+                                },
+                              },
+                            });
+                          }}
                         >
                           {addConnectorMutation.isPending ? (
                             <Loader2 className="mr-2 size-4 animate-spin" />
                           ) : (
                             <Link2 className="mr-2 size-4" />
                           )}
-                          Add and Sync
+                          {connectorProvider === 'url'
+                            ? 'Add and Sync'
+                            : 'Connect'}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
