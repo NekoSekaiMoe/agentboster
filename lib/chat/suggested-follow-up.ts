@@ -1,8 +1,4 @@
-import {
-  FOLLOWUP_MARKER_END,
-  FOLLOWUP_MARKER_START,
-  LEGACY_FOLLOWUP_MARKER,
-} from './follow-up-template';
+import { LEGACY_FOLLOWUP_MARKER } from './follow-up-template';
 
 export type SuggestedFollowUpBlock = {
   questions: string[];
@@ -42,24 +38,31 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Tolerant marker matchers. The producer emits `@@FOLLOWUP_START@@` /
+ * `@@FOLLOWUP_END@@`, but models in the wild frequently drop or add `@`
+ * characters (e.g. `@@FOLLOWUP_START@`, `@@@FOLLOWUP_START@@@`). Using `@+`
+ * tolerates any non-zero run of `@` so neither shortage nor surplus defeats
+ * parsing or stripping.
+ */
+const START_MARKER_RE = /@+FOLLOWUP_START@+/;
+const END_MARKER_RE = /@+FOLLOWUP_END@+/;
+const ANY_MARKER_G_RE = /@+FOLLOWUP_(?:START|END)@+/g;
+
 function parseCustomMarkerBlock(text: string): SuggestedFollowUpBlock | null {
-  const startIdx = text.lastIndexOf(FOLLOWUP_MARKER_START);
-  if (startIdx < 0) {
+  const startMatch = START_MARKER_RE.exec(text);
+  if (!startMatch) {
     return null;
   }
 
-  const endIdx = text.indexOf(
-    FOLLOWUP_MARKER_END,
-    startIdx + FOLLOWUP_MARKER_START.length,
-  );
-  if (endIdx < 0) {
+  const afterStart = startMatch.index + startMatch[0].length;
+  const endMatch = END_MARKER_RE.exec(text);
+  if (!endMatch || endMatch.index < afterStart) {
     return null;
   }
 
-  const beforeMarker = text.slice(0, startIdx).trimEnd();
-  const inner = text
-    .slice(startIdx + FOLLOWUP_MARKER_START.length, endIdx)
-    .trim();
+  const beforeMarker = text.slice(0, startMatch.index).trimEnd();
+  const inner = text.slice(afterStart, endMatch.index).trim();
 
   const lines = inner
     .split(/\r?\n/)
@@ -128,14 +131,8 @@ export function parseSuggestedFollowUps(
   return parseCustomMarkerBlock(text) ?? parseLegacyMarkerBlock(text);
 }
 
-const STRIP_MARKER_BLOCK_RE = new RegExp(
-  `${escapeRegExp(FOLLOWUP_MARKER_START)}[\\s\\S]*?${escapeRegExp(
-    FOLLOWUP_MARKER_END,
-  )}`,
-  'g',
-);
-const STRIP_LEFTOVER_MARKER_RE = new RegExp(
-  `${escapeRegExp(FOLLOWUP_MARKER_START)}|${escapeRegExp(FOLLOWUP_MARKER_END)}`,
+const STRIP_MARKER_BLOCK_G_RE = new RegExp(
+  `${START_MARKER_RE.source}[\\s\\S]*?${END_MARKER_RE.source}`,
   'g',
 );
 
@@ -143,12 +140,13 @@ const STRIP_LEFTOVER_MARKER_RE = new RegExp(
  * Best-effort strip of any follow-up marker block from text, used as a fallback
  * when {@link parseSuggestedFollowUps} fails (e.g. malformed block, partial
  * output). Removes the whole `MARKER_START ... MARKER_END` span first, then any
- * leftover bare marker tokens, finally trims trailing whitespace.
+ * leftover bare marker tokens, finally trims trailing whitespace. Tolerates
+ * models dropping a `@` (matches `@{1,2}` on each side).
  */
 export function stripFollowUpMarkers(text: string): string {
   if (!text) return text;
   const stripped = text
-    .replace(STRIP_MARKER_BLOCK_RE, '')
-    .replace(STRIP_LEFTOVER_MARKER_RE, '');
+    .replace(STRIP_MARKER_BLOCK_G_RE, '')
+    .replace(ANY_MARKER_G_RE, '');
   return stripped.trim() === '' ? text : stripped.trim();
 }
