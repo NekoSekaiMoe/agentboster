@@ -266,6 +266,8 @@ export const COMMANDS = [
   'config',
   'memory',
   'pair',
+  'unpair',
+  'whoami',
   'start',
   'cancel',
   'reset',

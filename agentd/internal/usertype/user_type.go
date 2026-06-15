@@ -18,7 +18,9 @@ var rank = map[UserType]int{
 }
 
 // Resolve maps Web roles to the daemon guard level. owner/root are explicit
-// root roles; admin never promotes to root.
+// root roles; admin never promotes to root. "readonly" is intentionally
+// mapped to Unknown so readonly (viewer) users cannot execute any tools —
+// they may only observe task state via the Web UI.
 func Resolve(roles []string) UserType {
 	for _, role := range roles {
 		if role == "owner" || role == "root" {
@@ -35,6 +37,7 @@ func Resolve(roles []string) UserType {
 			return User
 		}
 	}
+	// "readonly" and any unrecognized role → Unknown (no tool access).
 	return Unknown
 }
 

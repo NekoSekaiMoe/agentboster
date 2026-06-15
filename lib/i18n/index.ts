@@ -416,6 +416,8 @@ const enUS = {
   'theme.system': 'System',
   'cmd.start.welcome':
     'Welcome to AgentBoster!\n\nAvailable commands:\n/help - Show help\n/new - Create new conversation\n/status - Show status\n/model <provider/model> - Switch model\n/provider - Manage providers\n/config - Manage config\n/session - Switch session\n/sessions - List sessions\n/compact - Compact context\n/stop - Stop current run\n/cancel - Cancel request\n/retry - Retry failed request\n/version - Show version\n/id - Show IDs\n/lang - Change language\n\nStart chatting with AI!',
+  'cmd.start.unpaired':
+    'Welcome to AgentBoster!\n\nYour IM account is not paired yet.\nPlease enter the 6-digit pairing code from the Web UI to bind your account, or send /pair <code>.',
   'cmd.version.text':
     'AgentBoster v{version}\nRuntime: Node.js {nodeVersion}\nPlatform: {platform}',
   'cmd.id.title': 'Current ID Information:',
@@ -825,6 +827,8 @@ const zhCN = {
   'theme.system': '跟随系统',
   'cmd.start.welcome':
     '欢迎使用 AgentBoster！\n\n可用命令：\n/help - 显示帮助\n/new - 创建新对话\n/status - 显示状态\n/model <provider/model> - 切换模型\n/provider - 管理提供商\n/config - 管理配置\n/session - 切换会话\n/sessions - 列出会话\n/compact - 压缩上下文\n/stop - 停止当前运行\n/cancel - 取消请求\n/retry - 重试失败请求\n/version - 显示版本\n/id - 显示 ID\n/lang - 切换语言\n\n开始与 AI 对话吧！',
+  'cmd.start.unpaired':
+    '欢迎使用 AgentBoster！\n\n你的 IM 账号尚未配对。\n请输入 Web UI 上的 6 位配对码绑定账号，或发送 /pair <code>。',
   'cmd.version.text':
     'AgentBoster v{version}\n运行环境：Node.js {nodeVersion}\n平台：{platform}',
   'cmd.id.title': '当前 ID 信息：',
@@ -1225,6 +1229,8 @@ const zhTW = {
   'theme.system': '跟隨系統',
   'cmd.start.welcome':
     '歡迎使用 AgentBoster！\n\n可用命令：\n/help - 顯示幫助\n/new - 創建新對話\n/status - 顯示狀態\n/model <provider/model> - 切換模型\n/provider - 管理提供商\n/config - 管理配置\n/session - 切換會話\n/sessions - 列出會話\n/compact - 壓縮上下文\n/stop - 停止當前運行\n/cancel - 取消請求\n/retry - 重試失敗請求\n/version - 顯示版本\n/id - 顯示 ID\n/lang - 切換語言\n\n開始與 AI 對話吧！',
+  'cmd.start.unpaired':
+    '歡迎使用 AgentBoster！\n\n你的 IM 帳號尚未配對。\n請輸入 Web UI 上的 6 位配對碼綁定帳號，或發送 /pair <code>。',
   'cmd.version.text':
     'AgentBoster v{version}\n運行環境：Node.js {nodeVersion}\n平台：{platform}',
   'cmd.id.title': '當前 ID 信息：',
@@ -1675,6 +1681,8 @@ const ja = {
   'theme.system': 'システム設定',
   'cmd.start.welcome':
     'AgentBoster へようこそ！\n\n利用可能なコマンド：\n/help - ヘルプを表示\n/new - 新しい会話を作成\n/status - ステータスを表示\n/model <provider/model> - モデルを切り替え\n/provider - プロバイダーを管理\n/config - 設定を管理\n/session - セッションを切り替え\n/sessions - セッションを一覧表示\n/compact - コンテキストを圧縮\n/stop - 現在の実行を停止\n/cancel - リクエストをキャンセル\n/retry - 失敗したリクエストを再試行\n/version - バージョンを表示\n/id - IDを表示\n/lang - 言語を切り替え\n\nAIとの会話を始めましょう！',
+  'cmd.start.unpaired':
+    'AgentBoster へようこそ！\n\nこの IM アカウントはまだペアリングされていません。\nWeb UI の 6 桁のペアリングコードを入力してアカウントをバインドするか、/pair <code> を送信してください。',
   'cmd.version.text':
     'AgentBoster v{version}\nランタイム：Node.js {nodeVersion}\nプラットフォーム：{platform}',
   'cmd.id.title': '現在のID情報：',
@@ -1857,6 +1865,8 @@ const ko = {
   'theme.system': '시스템',
   'cmd.start.welcome':
     'AgentBoster에 오신 것을 환영합니다!\n\n사용 가능한 명령어:\n/help - 도움말 표시\n/new - 새 대화 생성\n/status - 상태 표시\n/model <provider/model> - 모델 전환\n/provider - 제공자 관리\n/config - 설정 관리\n/session - 세션 전환\n/sessions - 세션 목록\n/compact - 컨텍스트 압축\n/stop - 현재 실행 중지\n/cancel - 요청 취소\n/retry - 실패한 요청 재시도\n/version - 버전 표시\n/id - ID 표시\n/lang - 언어 전환\n\nAI와 대화를 시작하세요!',
+  'cmd.start.unpaired':
+    'AgentBoster에 오신 것을 환영합니다!\n\n이 IM 계정은 아직 페어링되지 않았습니다.\nWeb UI의 6자리 페어링 코드를 입력하여 계정을 바인딩하거나, /pair <code>를 보내주세요.',
   'cmd.version.text':
     'AgentBoster v{version}\n런타임: Node.js {nodeVersion}\n플랫폼: {platform}',
   'cmd.id.title': '현재 ID 정보:',

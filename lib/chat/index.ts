@@ -14,6 +14,7 @@ import {
   updateSession,
   upsertUserMessage,
 } from '@/lib/core/db/chat';
+import { resolveClawLessUserId } from '@/lib/core/db/im-accounts';
 import { getConfig } from '@/lib/core/kv/config';
 import { getSessionRuntime } from '@/lib/core/sandbox/session-runtime';
 import { invalidateCurrentSessionSummary } from '@/lib/memory';
@@ -49,12 +50,13 @@ import { executeLangCommand } from './commands/lang';
 import { executeMemoryCommand } from './commands/memory';
 import { executeModelCommand } from './commands/model';
 import { executeModelsCommand } from './commands/models';
-import { executePairCommand } from './commands/pair';
+import { executePairCommand, executeUnpairCommand } from './commands/pair';
 import { executeProviderCommand } from './commands/provider';
 import { executeResetCommand } from './commands/reset';
 import { executeRetryCommand } from './commands/retry';
 import { executeStartCommand } from './commands/start';
 import { executeVersionCommand } from './commands/version';
+import { executeWhoamiCommand } from './commands/whoami';
 import {
   checkDuplicate,
   checkIdempotencyDuplicate,
@@ -159,6 +161,8 @@ const COMMAND_HELP_TEXT = [
   '/memory <query> - Search memories',
   '/memory builtin | search <q> | add <text>',
   '/pair <code> - Pair your IM account with a code',
+  '/unpair - Unbind your IM account from the current ClawLess user',
+  '/whoami - Show the ClawLess user this IM account is bound to',
 ].join('\n\n');
 
 function normalizeSource(options?: ChatMainOptions): ChatSource {
@@ -611,7 +615,31 @@ async function replyToAdapterCommandResult(
 export async function routeAdapterMessage(
   input: AdapterMessageInput,
 ): Promise<DispatchChatInputResult> {
-  const source = buildAdapterSource(input);
+  const rawSource = buildAdapterSource(input);
+
+  // Resolve the ClawLess user identity for this IM author. When a pairing
+  // exists, the resolved ClawLess userId substitutes the IM-platform id in
+  // the source so that sessions, tasks, tools, memory, and L2 cache are all
+  // scoped to the ClawLess user (multi-tenant isolation). When no pairing
+  // exists yet (e.g. during /pair), the IM-platform id is preserved so the
+  // allowlist path still works.
+  const imUserId = rawSource.userId ?? null;
+  let resolvedUserId = imUserId;
+  if (imUserId) {
+    const clawlessUserId = await resolveClawLessUserId(
+      rawSource.adapter,
+      imUserId,
+    );
+    if (clawlessUserId) {
+      resolvedUserId = clawlessUserId;
+    }
+  }
+
+  const source: ChatSource =
+    resolvedUserId === imUserId
+      ? rawSource
+      : { ...rawSource, userId: resolvedUserId };
+
   const dispatched = await chatMain(
     {
       sessionId: input.sessionId,
@@ -1069,6 +1097,27 @@ async function executeCommand(input: {
         input.args,
         imSource.adapter,
         imSource.userId ?? null,
+        imSource.userName ?? null,
+      );
+      return {
+        sessionId: currentSessionId,
+        text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'unpair': {
+      const imSource = input.source.type === 'im' ? input.source : null;
+      if (!imSource) {
+        return {
+          sessionId: currentSessionId,
+          text: '/unpair is only available in IM channels.',
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+      const text = await executeUnpairCommand(
+        input.args,
+        imSource.adapter,
+        imSource.userId ?? null,
       );
       return {
         sessionId: currentSessionId,
@@ -1077,7 +1126,11 @@ async function executeCommand(input: {
       };
     }
     case 'start': {
-      const result = executeStartCommand(locale);
+      const imSource = input.source.type === 'im' ? input.source : null;
+      const result = await executeStartCommand(locale, {
+        adapter: imSource?.adapter ?? null,
+        imUserId: imSource?.userId ?? null,
+      });
       return {
         sessionId: currentSessionId,
         text: result.text,
@@ -1108,6 +1161,18 @@ async function executeCommand(input: {
       return {
         sessionId: currentSessionId,
         text: result.text,
+        runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'whoami': {
+      const imSource = input.source.type === 'im' ? input.source : null;
+      const text = await executeWhoamiCommand(
+        imSource?.adapter ?? null,
+        imSource?.userId ?? null,
+      );
+      return {
+        sessionId: currentSessionId,
+        text,
         runId: session?.workflowRunId ?? null,
       };
     }

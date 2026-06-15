@@ -382,15 +382,18 @@ export async function getBot(): Promise<Chat> {
       replyText: replyReference?.text || replyContext?.sentText || '',
       text,
     });
-    const routedText =
-      routedParts[0]?.type === 'text' ? routedParts[0].text : text;
 
     if (!isAllowedAdapterAuthor(config?.channels, adapter, message)) {
-      const isPairCommand = text.startsWith('/pair ');
       const isPaired =
         userId.length > 0 && (await get(`pair:bound:${adapter}:${userId}`));
-      if (isPairCommand && !isPaired) {
-        // Unpaired users need /pair to complete authorization.
+      const isPairCommand = text.startsWith('/pair ');
+      const isStartCommand = text === '/start' || text.startsWith('/start ');
+      const isBarePairCode = /^\d{6}$/.test(text);
+
+      if (!isPaired && (isPairCommand || isStartCommand || isBarePairCode)) {
+        if (isBarePairCode && routedParts[0]?.type === 'text') {
+          routedParts[0] = { type: 'text', text: `/pair ${text}` };
+        }
       } else {
         await persistAccessDeniedSession({
           adapter,
@@ -411,6 +414,9 @@ export async function getBot(): Promise<Chat> {
     } else {
       await clearAccessDeniedSession(source);
     }
+
+    const routedText =
+      routedParts[0]?.type === 'text' ? routedParts[0].text : text;
 
     await routeAdapterMessage({
       adapter,

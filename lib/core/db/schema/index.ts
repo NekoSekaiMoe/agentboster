@@ -1,5 +1,6 @@
 export { messages, sessions } from './chat';
 export { users } from './users';
+export { imAccounts } from './im-accounts';
 export { files } from './files';
 export {
   builtinMemories,

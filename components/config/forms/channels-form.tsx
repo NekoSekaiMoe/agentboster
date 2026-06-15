@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  KeyRound,
   Loader2,
   X,
 } from 'lucide-react';
@@ -69,6 +70,12 @@ export function ChannelsForm() {
   const [expandedAdapters, setExpandedAdapters] = useState<
     ReadonlySet<AdapterName>
   >(() => new Set());
+  const [pairCode, setPairCode] = useState<
+    Record<string, { code: string; expiresIn: number } | null>
+  >({});
+  const [pairCodeLoading, setPairCodeLoading] = useState<
+    Record<string, boolean>
+  >({});
   const collapseTransition = reduceMotion
     ? { duration: 0 }
     : { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
@@ -130,6 +137,35 @@ export function ChannelsForm() {
         },
       }));
       toast.error(`${adapter}: ${t('config.common.networkError')}`);
+    }
+  }
+
+  async function generatePairCodeForAdapter(adapter: string) {
+    setPairCodeLoading((prev) => ({ ...prev, [adapter]: true }));
+    setPairCode((prev) => ({ ...prev, [adapter]: null }));
+    try {
+      const resp = await fetch('/api/pair/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adapter }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.error || 'Failed to generate pair code');
+      }
+      setPairCode((prev) => ({
+        ...prev,
+        [adapter]: { code: data.code, expiresIn: data.expiresIn },
+      }));
+      toast.success(
+        `Pair code generated for ${adapter}. Expires in ${Math.floor(data.expiresIn / 60)} min.`,
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to generate pair code',
+      );
+    } finally {
+      setPairCodeLoading((prev) => ({ ...prev, [adapter]: false }));
     }
   }
 
@@ -342,6 +378,57 @@ export function ChannelsForm() {
                       />
                       <p className="text-muted-foreground text-xs">
                         {t('config.forms.channels.allowHelp')}
+                      </p>
+
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={pairCodeLoading[adapter.key]}
+                          onClick={() =>
+                            generatePairCodeForAdapter(adapter.key)
+                          }
+                        >
+                          {pairCodeLoading[adapter.key] ? (
+                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                          ) : (
+                            <KeyRound className="mr-1.5 size-3.5" />
+                          )}
+                          Generate pair code
+                        </Button>
+                        {pairCode[adapter.key] ? (
+                          <div className="flex items-center gap-2">
+                            <code className="rounded bg-muted px-2 py-1 font-mono text-lg font-bold tracking-widest">
+                              {pairCode[adapter.key]?.code}
+                            </code>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                copyToClipboard(
+                                  pairCode[adapter.key]?.code ?? '',
+                                )
+                              }
+                            >
+                              <Copy className="mr-1 size-3.5" />
+                              Copy
+                            </Button>
+                            <span className="text-muted-foreground text-xs">
+                              Expires in{' '}
+                              {Math.floor(
+                                (pairCode[adapter.key]?.expiresIn ?? 0) / 60,
+                              )}{' '}
+                              min
+                            </span>
+                          </div>
+                        ) : null}
+                      </div>
+                      <p className="text-muted-foreground text-xs">
+                        Send this code to your IM as{' '}
+                        <code>/pair &lt;code&gt;</code> to bind your ClawLess
+                        account.
                       </p>
                     </Field>
 

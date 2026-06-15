@@ -16,6 +16,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  UserCircle2,
   Wand2,
   X,
 } from 'lucide-react';
@@ -126,6 +127,16 @@ const COMMAND_METADATA: Record<
     description: 'Pair your IM account with a code',
     hint: '/pair <code>',
     icon: KeyRound,
+  },
+  unpair: {
+    description: 'Unbind your IM account from the ClawLess user',
+    hint: '/unpair',
+    icon: KeyRound,
+  },
+  whoami: {
+    description: 'Show the bound ClawLess user for this IM account',
+    hint: '/whoami',
+    icon: UserCircle2,
   },
   start: {
     description: 'Show welcome message and available commands',
