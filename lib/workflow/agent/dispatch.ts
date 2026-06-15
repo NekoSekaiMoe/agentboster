@@ -1,3 +1,10 @@
+// P3 follow-up: must be the first import. Defines __dirname/__filename
+// on globalThis before the Workflow DevKit sandbox runs chatWorkflow,
+// which imports next/server, which pulls in an ncc bundle that reads
+// __dirname at init. Without this, workflow start fails with
+// "ReferenceError: __dirname is not defined".
+import './workflow-polyfills';
+
 import { db } from '@/lib/core/db';
 import { getSessionByWorkflowRunId, updateSession } from '@/lib/core/db/chat';
 import { agentdNodes } from '@/lib/core/db/schema';
