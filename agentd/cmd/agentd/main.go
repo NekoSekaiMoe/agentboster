@@ -170,7 +170,8 @@ func main() {
 	l2Manager.SetClawlessClient(clawlessClient)
 
 	lifecycle.RegisterNode(clawlessClient, nodeID, cfg, version)
-	lifecycle.StartHeartbeat(clawlessClient, nodeID, cfg.ClawLess.HeartbeatInterval, metricsPath)
+	// P3.1: heartbeat start is deferred until after agentMgr is created
+	// (below) so the counts callback can read live session counts.
 
 	l0Loader := l0_rules.NewLoader(l0Engine, clawlessClient, "default", 5*time.Minute)
 	l0Loader.Start()
@@ -211,6 +212,20 @@ func main() {
 			}
 		}
 		return out
+	})
+
+	// P3.1: now that agentMgr exists, start the heartbeat with live counts.
+	lifecycle.StartHeartbeat(clawlessClient, nodeID, cfg.ClawLess.HeartbeatInterval, metricsPath, func() (int, int) {
+		stats := agentMgr.GetAgentStats()
+		tasks := 0
+		seen := make(map[string]bool, len(stats))
+		for _, s := range stats {
+			if s.SandboxID != "" && !seen[s.SandboxID] {
+				seen[s.SandboxID] = true
+				tasks++
+			}
+		}
+		return tasks, len(stats)
 	})
 
 	dispatcher := worker.NewDispatcher(bus, cfg.WorkerPool, cfg.ExecPool, gk, sbManager, clawlessClient, agentMgr, l2Manager, cfg.TaskSummary.TidyInterval)

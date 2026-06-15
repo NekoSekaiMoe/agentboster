@@ -33,12 +33,18 @@ export interface AgentNodeStatus {
  * selectBestNode finds the best Agent Daemon node based on:
  * 1. Online status (heartbeat within 2 minutes)
  * 2. Required sandbox type availability
- * 3. Resource score: CPU (40%) + memory (40%) + disk (20%)
- * 4. Active tasks (tiebreaker)
+ * 3. Per-agent allowed_nodes filter (P3.1)
+ * 4. Resource score: CPU (35%) + memory (35%) + disk (20%) + active load (10%)
+ * 5. Active tasks (tiebreaker)
+ *
+ * P3.1: `allowedNodes` narrows the candidate pool to the agent's
+ * configured node allowlist. Empty/undefined = any node.
+ *
  * Returns null if no node is available → caller should fall back to Vercel Sandbox.
  */
 export async function selectBestNode(
   requiredSandbox?: string,
+  allowedNodes?: readonly string[],
 ): Promise<AgentNodeStatus | null> {
   try {
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
@@ -57,12 +63,21 @@ export async function selectBestNode(
 
     type Row = (typeof rows)[0];
 
-    const filtered: Row[] = requiredSandbox
-      ? rows.filter((n: Row) => {
+    // P3.1: apply per-agent allowed_nodes filter first.
+    let filtered: Row[] = rows;
+    if (allowedNodes && allowedNodes.length > 0) {
+      const allow = new Set(allowedNodes);
+      filtered = rows.filter((n: Row) => allow.has(n.nodeID));
+      if (filtered.length === 0) return null;
+    }
+
+    // Sandbox-type filter.
+    filtered = requiredSandbox
+      ? filtered.filter((n: Row) => {
           const sbs = n.sandboxes as string[] | null;
           return sbs ? sbs.includes(requiredSandbox) : false;
         })
-      : rows;
+      : filtered;
 
     if (filtered.length === 0) return null;
 
@@ -75,7 +90,12 @@ export async function selectBestNode(
       // Skip overloaded nodes
       if (cpu >= 0.9 || mem <= 0.1 || disk <= 0.1) continue;
 
-      const score = (1 - cpu) * 0.4 + mem * 0.4 + disk * 0.2;
+      // P3.1: add a small active-tasks penalty so a busy node loses
+      // to an idle one even when their CPU/mem look similar. The
+      // penalty saturates at 10 active tasks.
+      const activeLoad =
+        Math.min((n.activeTasks ?? 0) + (n.activeSandboxes ?? 0), 10) / 10;
+      const score = (1 - cpu) * 0.35 + mem * 0.35 + disk * 0.2 + (1 - activeLoad) * 0.1;
       scored.push({ node: n, score });
     }
 

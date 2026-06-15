@@ -134,15 +134,33 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 }
 
 // handleHealth returns daemon health status.
+//
+// P3.1: now includes capacity info (active sandboxes, per-agent counts)
+// so the web layer's /api/agentd/v1/nodes/status can show richer state
+// without waiting for the next heartbeat tick.
 func (s *Server) handleHealth(c *gin.Context) {
+	data := gin.H{
+		"status":    "ok",
+		"timestamp": time.Now().UTC(),
+		"version":   "0.1.0",
+		"uptime":    time.Since(s.startTime).String(),
+	}
+
+	// Capacity snapshot from the agent manager.
+	if s.agentMgr != nil {
+		stats := s.agentMgr.GetAgentStats()
+		perAgent := make(map[string]int)
+		for _, st := range stats {
+			perAgent[st.AgentID]++
+		}
+		data["active_sandboxes"] = len(stats)
+		data["active_tasks"] = len(stats)
+		data["per_agent"] = perAgent
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"status":    "ok",
-			"timestamp": time.Now().UTC(),
-			"version":   "0.1.0",
-			"uptime":    time.Since(s.startTime).String(),
-		},
+		"data":    data,
 	})
 }
 

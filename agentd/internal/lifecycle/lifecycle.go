@@ -93,8 +93,17 @@ func RegisterNode(client *clawless.Client, nodeID string, cfg *config.Config, ve
 	}()
 }
 
+// ActiveCountsFn returns the current active task/sandbox counts for
+// the heartbeat payload. Set by main.go after the agent manager is
+// constructed. P3.1: previously the heartbeat always sent 0/0.
+type ActiveCountsFn func() (activeTasks, activeSandboxes int)
+
 // StartHeartbeat starts a background heartbeat goroutine.
-func StartHeartbeat(client *clawless.Client, nodeID string, interval time.Duration, metricsPath string) {
+//
+// P3.1: the optional countsFn lets us forward real active-task and
+// active-sandbox counts so the web layer's selectBestNode can use
+// them in its load score.
+func StartHeartbeat(client *clawless.Client, nodeID string, interval time.Duration, metricsPath string, countsFn ActiveCountsFn) {
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
@@ -111,14 +120,26 @@ func StartHeartbeat(client *clawless.Client, nodeID string, interval time.Durati
 				continue
 			}
 
+			activeTasks, activeSandboxes := 0, 0
+			if countsFn != nil {
+				activeTasks, activeSandboxes = countsFn()
+			}
+
+			// P2.3: also forward the per-agent sandbox summary if present.
+			perAgent := map[string]int{}
+			if arr, ok := m["sandbox_count_per_agent"].(map[string]int); ok {
+				perAgent = arr
+			}
+
 			reqBody := map[string]any{
 				"node_id":          nodeID,
 				"cpu_model":        m["cpu_model"],
 				"cpu_usage":        m["cpu_usage"],
 				"mem_avail":        m["mem_avail"],
 				"disk_avail":       m["disk_avail"],
-				"active_tasks":     0,
-				"active_sandboxes": 0,
+				"active_tasks":     activeTasks,
+				"active_sandboxes": activeSandboxes,
+				"per_agent":        perAgent,
 				"timestamp":        time.Now().Unix(),
 			}
 

@@ -64,6 +64,7 @@ export async function execToolOnAgentd(
   toolName: string,
   toolInput: Record<string, unknown>,
   nodeId?: string,
+  allowedNodes?: readonly string[],
 ): Promise<{ success: boolean; data?: string; error?: string }> {
   'use step';
 
@@ -103,7 +104,8 @@ export async function execToolOnAgentd(
       activeTasks: rows[0].activeTasks || 0,
     };
   } else {
-    node = await selectBestNode();
+    // P3.1: pass per-agent allowedNodes filter to the node picker.
+    node = await selectBestNode(undefined, allowedNodes);
   }
 
   if (!node) {

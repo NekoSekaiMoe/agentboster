@@ -81,6 +81,7 @@
     "tailwindcss": "^3.4.19",
     "tsx": "^4.22.3",
     "typescript": "^6.0.2",
+    "vitest": "^3.0.0",
     "vercel": "latest"
   },
   "license": "MIT",
@@ -91,6 +92,8 @@
     "build": "next build",
     "build:agentd": "cd agentd && go build -o agentd ./cmd/agentd/main.go",
     "check": "tsc --noEmit && biome check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:ensure-vector": "yarn run scripts/ensure-vector-extension.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
