@@ -16,7 +16,7 @@
 
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
-import { sendAdapterSourceReply } from '@/lib/bot/reply';
+import { sendNotification } from '@/lib/extra/channels/send-notification';
 import {
   DecisionStatus,
   DecisionType,
@@ -137,22 +137,41 @@ export async function POST(request: Request) {
     });
   }
 
-  // 3. Push to IM channel if source is provided.
+  // 3. Push to IM channel if source is provided. Use the canonical
+  // sendNotification helper (was sendAdapterSourceReply in initial P0.3,
+  // which skipped preference/fallback handling). sendNotification
+  // already understands the 'decision' payload type via the
+  // NotificationManager.sendL2Decision path.
   let messageId = '';
+  let channel = isIM && source ? source.adapter : 'in-app';
   if (isIM && source) {
     try {
-      const text = formatL2PromptForIM({
-        title: data.title,
-        command: data.command,
-        reason: data.reason,
-        level: data.level,
-        options: data.options,
+      const result = await sendNotification({
+        source,
+        userId: source.userId ?? undefined,
+        payload: {
+          type: 'decision' as const,
+          taskId,
+          decisionId,
+          title: data.title,
+          body: data.body,
+          command: data.command,
+          commandReview: data.commandReview ?? '',
+          score: data.score ?? 0,
+          reason: data.reason ?? '',
+          options: (data.options ?? [
+            'pass_once',
+            'pass_until',
+            'reject_once',
+            'reject_until',
+          ]) as never,
+          expiresAt: expiresAt.toISOString(),
+        },
       });
-      const sent = await sendAdapterSourceReply(source, text);
-      if (sent) {
-        // We don't get the message id back from the adapter reply API.
-        // The daemon uses message_id for recall; if absent it skips
-        // recall, which is acceptable.
+      channel = result.channel;
+      if (result.success && result.messageId) {
+        messageId = result.messageId;
+      } else if (result.success) {
         messageId = `sent_${Date.now()}`;
       }
     } catch (err) {
@@ -167,25 +186,8 @@ export async function POST(request: Request) {
   return Response.json({
     success: true,
     data: {
-      channel: isIM && source ? source.adapter : 'in-app',
+      channel,
       message_id: messageId,
     },
   });
-}
-
-function formatL2PromptForIM(opts: {
-  title: string;
-  command: string;
-  reason?: string;
-  level: string;
-  options?: string[];
-}): string {
-  const lines: string[] = [`⚠️ ${opts.title}`];
-  if (opts.command) lines.push(``, `Command:`, '```', opts.command, '```');
-  if (opts.reason)
-    lines.push(``, `Reason: ${opts.reason}`, `Risk: ${opts.level}`);
-  if (opts.options && opts.options.length > 0) {
-    lines.push(``, `Open the dashboard to choose: ${opts.options.join(', ')}`);
-  }
-  return lines.join('\n');
 }

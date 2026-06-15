@@ -13,11 +13,16 @@
 
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
+import {
+  getNotificationPreferences,
+  upsertNotificationPreferences,
+} from '@/lib/core/db/notification';
+import { getNotificationManager } from '@/lib/extra/channels/notification-manager';
 import { getDecisionQueue } from '@/lib/security/l2-index';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
 
-const logger = createLogger('api.agentd.notifications.create');
+const logger = createLogger('api.agentd.notifications');
 
 const requestSchema = z.object({
   agent_id: z.string().default(''),
@@ -27,6 +32,70 @@ const requestSchema = z.object({
   message: z.string(),
   metadata: z.record(z.string(), z.unknown()).default({}).catch({}),
 });
+
+// GET returns either channel health (?type=health) or a user's
+// notification preferences (?user_id=...). Both were on the original
+// (chat)/api/agentd/v1/notifications route and got dropped during the
+// P0.4 (chat)→root merge.
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const userId = searchParams.get('user_id');
+  const type = searchParams.get('type');
+
+  if (type === 'health') {
+    try {
+      const mgr = getNotificationManager();
+      const health = mgr.getAllChannelHealth();
+      return Response.json({ success: true, data: health });
+    } catch (err) {
+      logger.error('channel health failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json(
+        { success: false, error: 'health failed' },
+        { status: 500 },
+      );
+    }
+  }
+
+  if (userId) {
+    const prefs = await getNotificationPreferences(userId);
+    return Response.json({ success: true, data: prefs });
+  }
+
+  return Response.json(
+    { success: false, error: 'Missing user_id or type=health' },
+    { status: 400 },
+  );
+}
+
+// PUT updates a user's notification preferences (preferred channel +
+// fallback list + enabled flag).
+export async function PUT(request: Request) {
+  const body = await request.json().catch(() => ({}));
+  const { userId, preferredChannel, fallbackChannels, enabled } = body as {
+    userId?: string;
+    preferredChannel?: string;
+    fallbackChannels?: string[];
+    enabled?: boolean;
+  };
+
+  if (!userId || !preferredChannel) {
+    return Response.json(
+      { success: false, error: 'Missing userId or preferredChannel' },
+      { status: 400 },
+    );
+  }
+
+  const prefs = await upsertNotificationPreferences({
+    userId,
+    preferredChannel,
+    fallbackChannels: fallbackChannels ?? [],
+    enabled: enabled ?? true,
+  });
+
+  return Response.json({ success: true, data: prefs });
+}
 
 export async function POST(request: Request) {
   const parsed = requestSchema.safeParse(
