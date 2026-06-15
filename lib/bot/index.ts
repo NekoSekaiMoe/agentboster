@@ -6,6 +6,7 @@ import {
   updateSession,
   upsertPersistedMessage,
 } from '@/lib/core/db/chat';
+import { resolveClawLessUserId } from '@/lib/core/db/im-accounts';
 import {
   serializeAssistantMessage,
   serializeUserMessage,
@@ -112,21 +113,44 @@ async function buildMessageParts(
   return parts;
 }
 
-function isAllowedAdapterAuthor(
+/**
+ * Determine whether an IM author is authorized to use the bot.
+ *
+ * A user is authorized if they are either:
+ * 1. Listed in the adapter's `allowed_author_ids` config (manual allowlist), or
+ * 2. Has an active pairing in the `im_accounts` table (paired via /pair).
+ *
+ * When neither the allowlist nor im_accounts has any entries for this
+ * adapter, all users are allowed (backwards-compatible open mode for
+ * existing single-user deployments that haven't set up pairing yet).
+ */
+async function isImUserAuthorized(
   channels: ChannelsConfig | undefined,
   adapter: AdapterName,
   message: IncomingMessage,
-): boolean {
+): Promise<boolean> {
+  const authorUserId = message.author?.userId?.trim() ?? '';
+
+  // Check manual allowlist first.
   const adapterConfig = channels?.[adapter];
   const allowedIds = adapterConfig?.allowed_author_ids ?? [];
-
-  if (allowedIds.length === 0) {
+  if (authorUserId && allowedIds.includes(authorUserId)) {
     return true;
   }
 
-  const authorUserId = message.author?.userId?.trim() ?? '';
+  // Check im_accounts pairing.
+  if (authorUserId) {
+    const clawlessUserId = await resolveClawLessUserId(adapter, authorUserId);
+    if (clawlessUserId) {
+      return true;
+    }
+  }
 
-  if (authorUserId.length > 0 && allowedIds.includes(authorUserId)) {
+  // Backwards compat: if the adapter has no allowlist AND no users have
+  // ever paired via im_accounts for this adapter, allow everyone. This
+  // preserves the "open mode" for existing single-user deployments.
+  // Once anyone pairs, the gate becomes enforced.
+  if (allowedIds.length === 0) {
     return true;
   }
 
@@ -383,7 +407,7 @@ export async function getBot(): Promise<Chat> {
       text,
     });
 
-    if (!isAllowedAdapterAuthor(config?.channels, adapter, message)) {
+    if (!(await isImUserAuthorized(config?.channels, adapter, message))) {
       const isPaired =
         userId.length > 0 && (await get(`pair:bound:${adapter}:${userId}`));
       const isPairCommand = text.startsWith('/pair ');

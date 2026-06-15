@@ -25,7 +25,7 @@ export async function generatePairCode(
   const code = generateCode();
   await set(
     `${PAIR_CODE_PREFIX}${code}`,
-    JSON.stringify({ adapter, userId: clawlessUserId }),
+    { adapter, userId: clawlessUserId },
     { ex: PAIR_CODE_TTL },
   );
   return { code, expiresIn: PAIR_CODE_TTL };
@@ -59,10 +59,13 @@ export async function executePairCommand(
     return 'Invalid or expired pair code. Generate a new one in the Web UI.';
   }
 
-  let parsed: { adapter: string; userId?: string };
-  try {
-    parsed = JSON.parse(raw as string);
-  } catch {
+  // Upstash Redis auto-deserializes JSON values, so `raw` may already be an
+  // object. Handle both object and string forms for robustness.
+  const parsed = (
+    typeof raw === 'string' ? JSON.parse(raw) : raw
+  ) as { adapter?: string; userId?: string };
+
+  if (!parsed || typeof parsed !== 'object') {
     return 'Invalid pair code data.';
   }
 
