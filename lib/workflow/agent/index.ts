@@ -12,7 +12,7 @@ import type { AppConfig } from '@/types/config';
 import type { ChatSource, UserMessagePart } from '@/types/workflow';
 import { DurableAgent } from '@workflow/ai/agent';
 import type { ModelMessage, StepResult, ToolSet } from 'ai';
-import { after } from 'next/server';
+import { afterResponse } from './after-response';
 import { getWorkflowMetadata } from 'workflow';
 import { DEFAULT_MAIN_MAX_STEPS, DEFAULT_THRESHOLD_TO_SUMMARY } from './config';
 import { instructionHookBuilder } from './hooks';
@@ -488,24 +488,30 @@ export async function chatWorkflow(
     });
 
     // Schedule post-conversation memory extraction to run after this
-    // workflow response fully closes. Uses next/server `after()` so the
-    // LLM extraction call doesn't extend the perceived workflow duration
-    // for the user. Failures are logged inside extractMemoriesFromSession
-    // and never bubble up — extraction is best-effort by design.
+    // workflow response fully closes. P3 follow-up: we previously used
+    // next/server's after() here, but importing next/server into the
+    // workflow bundle fails because the Workflow DevKit sandbox
+    // doesn't define __dirname (required by ncc-compiled ua-parser-js
+    // in next/server's user-agent spec extension). afterResponse()
+    // stashes the callback in a queue that the host drains when the
+    // readable stream closes — same semantic, no next/server import.
+    // Extraction is best-effort by design; failures are logged.
     if ('userId' in source && source.userId) {
-      after(() =>
-        extractMemoriesFromSession({
-          sessionId,
-          userId: source.userId as string,
-          config,
-        }).catch((err) => {
+      afterResponse(async () => {
+        try {
+          await extractMemoriesFromSession({
+            sessionId,
+            userId: source.userId as string,
+            config,
+          });
+        } catch (err) {
           logger.warn('memory:extract_failed', {
             sessionId,
             runId,
             error: err instanceof Error ? err.message : String(err),
           });
-        }),
-      );
+        }
+      });
     }
 
     try {

@@ -1,7 +1,3 @@
-// P3 follow-up: workflow polyfills must run before any start() call.
-// See lib/workflow/agent/workflow-polyfills.ts for the rationale.
-import '@/lib/workflow/agent/workflow-polyfills';
-
 import {
   createScheduledTask,
   updateScheduledTask,

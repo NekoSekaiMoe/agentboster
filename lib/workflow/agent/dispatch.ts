@@ -1,10 +1,3 @@
-// P3 follow-up: must be the first import. Defines __dirname/__filename
-// on globalThis before the Workflow DevKit sandbox runs chatWorkflow,
-// which imports next/server, which pulls in an ncc bundle that reads
-// __dirname at init. Without this, workflow start fails with
-// "ReferenceError: __dirname is not defined".
-import './workflow-polyfills';
-
 import { db } from '@/lib/core/db';
 import { getSessionByWorkflowRunId, updateSession } from '@/lib/core/db/chat';
 import { agentdNodes } from '@/lib/core/db/schema';
@@ -204,9 +197,40 @@ export async function startWorkflow(input: {
   });
   logger.info('startWorkflow:runtime_patched');
 
+  // P3 follow-up: drain afterResponse() callbacks when the workflow's
+  // readable stream closes. This replaces next/server's after(), which
+  // can't be imported into the workflow bundle (vm.Script sandbox
+  // doesn't define __dirname — see lib/workflow/agent/after-response.ts).
+  // The original stream is tee'd so we don't consume it: the caller
+  // still gets to read branch [0] (returned below), and our branch [1]
+  // is used only to detect close.
+  const [primaryStream, drainStream] = run.readable.tee();
+  // Fire-and-forget: when our branch closes, run the queued callbacks.
+  // Errors are caught inside drainPendingAfterCallbacks.
+  void (async () => {
+    try {
+      const reader = drainStream.getReader();
+      // Read until the stream closes (done becomes true). We discard
+      // the chunks — they're already going to the real consumer via
+      // primaryStream returned below.
+      for (;;) {
+        const { done } = await reader.read();
+        if (done) break;
+      }
+    } catch {
+      // Stream errored — still try to drain so callbacks aren't lost.
+    }
+    try {
+      const { drainPendingAfterCallbacks } = await import('./after-response');
+      await drainPendingAfterCallbacks();
+    } catch {
+      // Don't let drain failures escape into an unhandled promise.
+    }
+  })();
+
   return {
     runId: run.runId,
-    readable: run.readable,
+    readable: primaryStream,
   };
 }
 

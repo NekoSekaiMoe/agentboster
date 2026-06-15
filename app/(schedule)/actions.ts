@@ -1,8 +1,5 @@
 'use server';
 
-// P3 follow-up: workflow polyfills before any start() call.
-import '@/lib/workflow/agent/workflow-polyfills';
-
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import {
   type ScheduledTaskType,
