@@ -16,6 +16,10 @@ const baseAdapterConfigSchema = z.object({
   enabled: z.boolean().default(false),
   /** Author user IDs allowed to enter the main chat flow */
   allowed_author_ids: z.array(z.string().trim().min(1)).optional(),
+  /** Whether LLM replies should be sent as voice messages instead of (or alongside) text. Falls back to text on platforms that lack audio support. Defaults to false. */
+  tts_enabled: z.boolean().optional(),
+  /** Per-channel TTS voice override. If unset, falls back to the global tts.voice. */
+  tts_voice: z.string().optional(),
 });
 
 /**

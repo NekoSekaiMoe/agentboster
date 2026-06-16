@@ -11,6 +11,7 @@ import { mcpRemotesServersConfigSchema } from './mcp';
 import { sandboxConfigSchema } from './sandbox';
 import { securityConfigSchema } from './security';
 import { buildInToolConfigSchema } from './tools';
+import { ttsConfigSchema } from './tts';
 
 /**
  * Full application configuration schema.
@@ -50,6 +51,9 @@ export const appConfigSchema = z.object({
 
   /** Agent Daemon configuration. */
   agentd: agentdConfigSchema.optional(),
+
+  /** Text-to-Speech configuration (Web auto-play + IM voice replies). */
+  tts: ttsConfigSchema.optional(),
 });
 
 /**

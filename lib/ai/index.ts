@@ -2,7 +2,7 @@ import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { AIProviderConfig } from '@/types/config/ai';
 import { embed } from 'ai';
-import { getEmbeddingModel, getLanguageModel, getProvider } from './providers';
+import { getEmbeddingModel, getLanguageModel, getProvider, getSpeechModel } from './providers';
 import { getPreset } from './presets';
 
 type ParsedModelId =
@@ -229,4 +229,53 @@ export async function generateEmbedding(
     embeddingModel: modelId,
     embeddingDimensions: embedding.length,
   };
+}
+
+/**
+ * Resolve a SpeechModel from a model ID + AppConfig.
+ *
+ * Mirrors resolveEmbeddingModel's structure but routes through
+ * getSpeechModel, which throws if the resolved provider is not OpenAI.
+ * TTS only supports OpenAI's speech() API today.
+ */
+export function resolveSpeechModel(modelId: string, config: AppConfig) {
+  const logger = createLogger('ai.model');
+  const parsed = parseProviderScopedModelId(modelId);
+  const { providerName, providerModelId } = resolveProviderEntry(
+    parsed,
+    config,
+    modelId,
+  );
+
+  const providerConfig = config.models?.providers?.[providerName];
+  if (!providerConfig) {
+    throw new Error(`Provider "${providerName}" not found in configuration`);
+  }
+
+  if (providerConfig.format !== 'openai') {
+    logger.error('resolve:speech_provider_unsupported', {
+      modelId,
+      providerName,
+      providerFormat: providerConfig.format,
+    });
+    throw new Error(
+      `TTS currently supports OpenAI-format providers only (got format "${providerConfig.format}" for provider "${providerName}").`,
+    );
+  }
+
+  logger.info('resolve:speech_model', {
+    modelId,
+    providerName,
+    providerModelId,
+  });
+
+  const provider = getProvider({
+    provider: providerName,
+    format: providerConfig.format,
+    api_key: providerConfig.api_key,
+    base_url: providerConfig.base_url,
+    headers: providerConfig.headers,
+  });
+
+  return getSpeechModel(providerModelId, provider);
 }

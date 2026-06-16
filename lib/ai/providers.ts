@@ -2,6 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import type { experimental_generateSpeech as experimental_generateSpeechImport } from 'ai';
 import { getPreset } from './presets';
 
 type ProviderConfig = {
@@ -97,3 +98,37 @@ export function getEmbeddingModel(
 ) {
   return provider.embeddingModel(model);
 }
+
+/**
+ * Resolve a SpeechModel from a provider instance.
+ *
+ * TTS today only works against the OpenAI provider's speech() method
+ * (tts-1 / tts-1-hd / gpt-4o-mini-tts). Other provider formats
+ * (anthropic, google, openaicompatible) do not currently expose a
+ * stable SpeechModel in this codebase, so we throw rather than silently
+ * producing a runtime "speech is not a function" error.
+ *
+ * The error message is intentionally actionable so the user knows to
+ * reconfigure tts.model to point at an OpenAI provider.
+ */
+export function getSpeechModel(
+  model: string,
+  provider: ReturnType<typeof getProvider>,
+): SpeechModelLike {
+  const maybeOpenAI = provider as unknown as {
+    speech?: (id: string) => SpeechModelLike;
+  };
+  if (typeof maybeOpenAI.speech !== 'function') {
+    throw new Error(
+      'TTS currently supports the OpenAI provider only. Configure tts.model to route to an OpenAI provider (format: "openai").',
+    );
+  }
+  return maybeOpenAI.speech(model);
+}
+
+// Minimal structural type for a speech model. Avoids importing the full
+// SpeechModel from 'ai' into this low-level provider module just for a
+// type cast — the SDK runtime check is what actually matters.
+type SpeechModelLike = Parameters<
+  typeof experimental_generateSpeechImport
+>[0]['model'];
