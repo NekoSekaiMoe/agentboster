@@ -1,5 +1,13 @@
 # Agent Daemon Configuration Example
 # Copy to agentd.toml and edit as needed
+#
+# Runtime singleton locks (hardcoded paths, not configurable):
+#   /var/run/agentd.sock  — unix socket lock (primary mutex, OS-atomic)
+#   /var/run/agentd.pid   — pid file (fallback for stale-socket cleanup)
+# The daemon refuses to start if another instance holds either. On a
+# crash (kill -9 / OOM / power loss) the next launch detects leftover
+# artifacts via the pid file's liveness probe and cleans them up.
+# Additionally, server.listen is probed at startup as a backstop.
 version = "1"
 
 [server]

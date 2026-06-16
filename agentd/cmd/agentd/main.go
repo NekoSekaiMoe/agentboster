@@ -110,6 +110,14 @@ func main() {
 	}
 	defer releaseSingleton()
 
+	// Port probe: edge-case backstop for a rogue instance whose socket lock
+	// file was deleted out from under it but is still listening on server.listen.
+	// AcquireSingleton is the primary mutex; this catches what it can't.
+	if err := lifecycle.CheckPortAvailable(cfg.Server.Listen); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+
 	nodeID, err := identity.Resolve(cfg.ClawLess.NodeIDFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)

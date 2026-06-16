@@ -382,9 +382,12 @@ The detailed package map lives in [LAYOUT.MD](LAYOUT.MD).
 
 - **Heartbeat**: `clawlessClient.RegisterNode` + a 30s `StartHeartbeat` goroutine. The Web
   side surfaces node health in the dashboard.
-- **Singleton lock**: `lifecycle.AcquireSingleton` prevents two Daemons from racing on the
-  same `/var/run/agentd.node_id` and local cache directory. Add a `flock`-style lock file
-  there if you need to co-locate with another long-running service.
+- **Singleton lock**: `lifecycle.AcquireSingleton` uses a three-layer scheme to guarantee only one Daemon runs per host:
+  1. **Socket lock** at `/var/run/agentd.sock` (primary, OS-level atomic mutex — survives PID reuse and TOCTOU races that plague pure PID-file schemes).
+  2. **PID file** at `/var/run/agentd.pid` (fallback — on stale-socket cleanup, reads the recorded PID, probes `/proc/<pid>/exe` and `/proc/<pid>/cmdline` to confirm the holder is really an agentd before refusing).
+  3. **Port probe** on `server.listen` (edge-case backstop — catches a rogue instance whose socket file was deleted out from under it but is still serving).
+
+  Normal shutdown closes the listener (OS removes the socket file) and deletes the PID file. `kill -9` / OOM / power loss may leave stale artifacts; the next launch detects this via layer 2 and cleans up automatically.
 - **Node identity**: written to `clawless.node_id_file` (default `/var/run/agentd.node_id`)
   on first run. Reusing the same file preserves the node's identity across restarts.
 - **Background task store** (`internal/persistence/background_task_store.go`): the Daemon
