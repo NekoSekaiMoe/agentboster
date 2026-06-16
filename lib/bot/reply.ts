@@ -13,6 +13,7 @@ import {
 import type { ChatSource } from '@/types/workflow';
 import { Actions, Button, Card, CardText, type Chat } from 'chat';
 import { createBaseBotFromConfig, getBaseBot } from './core';
+import { postAdapterVoiceReply } from './voice';
 import { recordAdapterReplyContext } from './reply-context';
 
 const logger = createLogger('bot.reply');
@@ -187,6 +188,10 @@ async function postAdapterReply(input: {
   return sent;
 }
 
+// Exported for lib/bot/voice.ts to use as a text fallback when TTS
+// synthesis fails or the adapter does not support audio upload.
+export { postAdapterReply };
+
 export async function sendAdapterSourceReply(
   source: ChatSource,
   text: string,
@@ -194,6 +199,16 @@ export async function sendAdapterSourceReply(
   const content = text.trim();
   if (source.type !== 'im' || content.length === 0) {
     return false;
+  }
+
+  // TTS voice reply branch — when the channel has tts_enabled and the
+  // adapter supports audio upload, send a voice message instead of the
+  // plain markdown text. postAdapterVoiceReply handles per-adapter
+  // fallback to text on its own.
+  const config = await getConfig();
+  const channelCfg = config.channels?.[source.adapter];
+  if (channelCfg?.tts_enabled) {
+    return postAdapterVoiceReply(source, content);
   }
 
   try {
@@ -251,6 +266,18 @@ export async function streamAdapterSourceReply(
   stream: ReadableStream,
 ): Promise<boolean> {
   if (source.type !== 'im') return false;
+
+  // When TTS is enabled for this channel, prefer the non-streaming
+  // voice path: synthesize the complete text once the stream closes
+  // and send a single audio attachment. Streaming edits of partial
+  // text plus a final voice synthesis would double-send the message.
+  const config = await getConfig();
+  const channelCfg = config.channels?.[source.adapter];
+  if (channelCfg?.tts_enabled) {
+    const fullText = await drainStreamToText(stream);
+    if (!fullText.trim()) return false;
+    return postAdapterVoiceReply(source, fullText);
+  }
 
   try {
     const bot = await getBaseBot();
@@ -457,6 +484,63 @@ function extractTextFromChunk(chunk: unknown): string {
     return typeof payload.text === 'string' ? payload.text : '';
   }
   return '';
+}
+
+/**
+ * Drain a workflow UI message stream into plain text. Used by the TTS
+ * path when streaming edits are unwanted (we want a single voice clip
+ * of the complete reply, not progressive edits followed by a voice
+ * version of the same text).
+ */
+async function drainStreamToText(stream: ReadableStream): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffered = '';
+  let fullText = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      if (value instanceof Uint8Array) {
+        buffered += decoder.decode(value, { stream: true });
+        const lines = buffered.split(/\r?\n/);
+        buffered = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const rawData = trimmed.startsWith('data:')
+            ? trimmed.slice(5).trim()
+            : trimmed;
+          if (!rawData || rawData === '[DONE]') continue;
+          try {
+            fullText += extractTextFromChunk(JSON.parse(rawData));
+          } catch {
+            continue;
+          }
+        }
+        continue;
+      }
+      fullText += extractTextFromChunk(value);
+    }
+    buffered += decoder.decode();
+    for (const line of buffered.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const rawData = trimmed.startsWith('data:')
+        ? trimmed.slice(5).trim()
+        : trimmed;
+      if (!rawData || rawData === '[DONE]') continue;
+      try {
+        fullText += extractTextFromChunk(JSON.parse(rawData));
+      } catch {
+        continue;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return fullText;
 }
 
 export async function sendRoutedSourceReply(
