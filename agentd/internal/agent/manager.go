@@ -298,9 +298,10 @@ func (m *Manager) CloseSession(sessionID string) error {
 		slog.Warn("failed to save session on close", "session_id", sessionID, "error", err)
 	}
 
-	// Destroy sandbox
+	// Destroy sandbox (force-destroy: LXC rootfs is torn down too,
+	// not just stopped, because the session is going away permanently).
 	if ctx.SandboxID != "" {
-		if err := m.sbManager.DestroySandbox(ctx.SandboxID); err != nil {
+		if err := m.sbManager.DestroySandboxForce(ctx.SandboxID); err != nil {
 			slog.Warn("failed to destroy sandbox on session close",
 				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
 		}
@@ -588,7 +589,7 @@ func (m *Manager) DestroySession(sessionID string) error {
 	}
 
 	if agentCtx.SandboxID != "" {
-		if err := m.sbManager.DestroySandbox(agentCtx.SandboxID); err != nil {
+		if err := m.sbManager.DestroySandboxForce(agentCtx.SandboxID); err != nil {
 			slog.Warn("failed to destroy sandbox", "session_id", sessionID, "sandbox_id", agentCtx.SandboxID, "error", err)
 		}
 	}

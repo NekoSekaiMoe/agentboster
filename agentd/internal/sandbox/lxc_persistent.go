@@ -199,7 +199,29 @@ func (p *LXCPersistentProvider) Exec(sandboxID, cmd string, env map[string]strin
 }
 
 // Destroy stops and optionally destroys the LXC container.
+//
+// Behavior depends on the Sandbox.Persistent flag set at Create time:
+//   - Persistent=true  → lxc-stop only (rootfs preserved)
+//   - Persistent=false → lxc-destroy -f (rootfs removed)
+//
+// LXC persistent sandboxes are created with Persistent=true (see Create),
+// so the default Destroy path leaves rootfs intact for the next session.
+// Use DestroyForce to unconditionally remove the rootfs regardless of
+// the Persistent flag — this is the path taken by session deletion and
+// the user-facing sandbox_destroy tool.
 func (p *LXCPersistentProvider) Destroy(sandboxID string) error {
+	return p.destroyInternal(sandboxID, false)
+}
+
+// DestroyForce stops AND lxc-destroy's the container unconditionally.
+// Used when a session is permanently deleted or the user explicitly
+// requests sandbox teardown — in both cases the rootfs should not
+// survive, otherwise it leaks.
+func (p *LXCPersistentProvider) DestroyForce(sandboxID string) error {
+	return p.destroyInternal(sandboxID, true)
+}
+
+func (p *LXCPersistentProvider) destroyInternal(sandboxID string, force bool) error {
 	p.mu.Lock()
 	sb, ok := p.sandboxes[sandboxID]
 	if !ok {
@@ -215,7 +237,7 @@ func (p *LXCPersistentProvider) Destroy(sandboxID string) error {
 		slog.Warn("lxc-stop failed", "container", sb.Path, "error", err, "output", string(output))
 	}
 
-	if sb.Persistent {
+	if sb.Persistent && !force {
 		slog.Info("lxc sandbox stopped (persistent, rootfs preserved)", "id", sandboxID)
 		return nil
 	}
@@ -228,7 +250,7 @@ func (p *LXCPersistentProvider) Destroy(sandboxID string) error {
 	containerPath := filepath.Join(p.rootfsBase, sb.Path)
 	os.RemoveAll(containerPath)
 
-	slog.Info("lxc sandbox destroyed", "id", sandboxID)
+	slog.Info("lxc sandbox destroyed", "id", sandboxID, "force", force)
 	return nil
 }
 

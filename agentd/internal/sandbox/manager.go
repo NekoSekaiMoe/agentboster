@@ -360,6 +360,60 @@ func (m *Manager) DestroySandbox(sandboxID string) error {
 	return nil
 }
 
+// DestroySandboxForce destroys a sandbox, bypassing the Persistent flag
+// for LXC. Used by:
+//   - session deletion (CloseSession / DestroySession): when a user
+//     deletes a session, the LXC rootfs should be torn down too,
+//     otherwise the persistent workspace leaks indefinitely.
+//   - sandbox_destroy LLM tool: an explicit user request to nuke the
+//     sandbox should not leave rootfs behind.
+//
+// For docker / docker-strict providers this is identical to Destroy
+// (their Destroy already removes the container unconditionally).
+func (m *Manager) DestroySandboxForce(sandboxID string) error {
+	m.mu.Lock()
+	sb, ok := m.sandboxes[sandboxID]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("sandbox %q not found", sandboxID)
+	}
+
+	provider, err := m.GetProvider(sb.Type)
+	if err != nil {
+		return err
+	}
+
+	if forceProv, ok := provider.(ForceDestroyer); ok {
+		if err := forceProv.DestroyForce(sandboxID); err != nil {
+			return fmt.Errorf("destroy sandbox (force): %w", err)
+		}
+	} else {
+		if err := provider.Destroy(sandboxID); err != nil {
+			return fmt.Errorf("destroy sandbox: %w", err)
+		}
+	}
+
+	m.mu.Lock()
+	delete(m.sandboxes, sandboxID)
+	m.mu.Unlock()
+
+	if m.store != nil {
+		if err := m.store.Remove(sandboxID); err != nil {
+			slog.Warn("sandbox store: remove failed (force)", "id", sandboxID, "error", err)
+		}
+	}
+
+	slog.Info("sandbox force-destroyed", "id", sandboxID)
+	return nil
+}
+
+// ForceDestroyer is implemented by sandbox providers whose Destroy path
+// distinguishes "preserve rootfs" (Destroy) from "remove rootfs" (DestroyForce).
+// LXC is the only provider that needs this distinction today.
+type ForceDestroyer interface {
+	DestroyForce(sandboxID string) error
+}
+
 // Restore re-hydrates the in-memory sandbox map from the on-disk store
 // after a daemon restart. Records whose container has already vanished
 // (e.g. docker --rm cleaned up, or manually removed) are reconciled by

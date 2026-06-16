@@ -816,9 +816,10 @@ func (d *Dispatcher) handleSessionClosed(e eventbus.Event) {
 		slog.Warn("failed to delete session from store", "session_id", sessionID, "error", err)
 	}
 
-	// Release sandbox if exclusive to this session
+	// Release sandbox if exclusive to this session (force-destroy so
+	// LXC rootfs is torn down too — the session is gone for good).
 	if ctx, ok := d.agentManager.GetSession(sessionID); ok && ctx.SandboxID != "" {
-		if err := d.sbManager.DestroySandbox(ctx.SandboxID); err != nil {
+		if err := d.sbManager.DestroySandboxForce(ctx.SandboxID); err != nil {
 			slog.Warn("failed to release sandbox on session close",
 				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
 		} else {
@@ -845,9 +846,9 @@ func (d *Dispatcher) handleSessionArchived(e eventbus.Event) {
 	d.l2Mgr.ClearSession(sessionID)
 
 	// Keep session JSON but mark as archived (handled by session store if needed)
-	// Release sandbox resources
+	// Release sandbox resources (force-destroy so LXC rootfs is torn down).
 	if ctx, ok := d.agentManager.GetSession(sessionID); ok && ctx.SandboxID != "" {
-		if err := d.sbManager.DestroySandbox(ctx.SandboxID); err != nil {
+		if err := d.sbManager.DestroySandboxForce(ctx.SandboxID); err != nil {
 			slog.Warn("failed to release sandbox on session archive",
 				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
 		} else {
