@@ -146,6 +146,13 @@ type AgentConfig struct {
 	BlockedPaths         []string `json:"blocked_paths"`
 	MemoryEnabled        bool     `json:"memory_enabled"`
 
+	// SystemPrompt is the user-defined per-agent custom prompt, sourced
+	// from the web-side agents.<name>.system_prompt KV field. When non-
+	// empty, the daemon injects it as a "## Custom Instructions" section
+	// after "## Product Information" in buildSystemPrompt. It supplements
+	// — never replaces — the hardcoded safety/sandbox skeleton.
+	SystemPrompt string `json:"system_prompt,omitempty"`
+
 	// P1.1: per-agent sandbox resource overrides.
 	SandboxCPU         *float64 `json:"sandbox_cpu,omitempty"`
 	SandboxMem         string   `json:"sandbox_mem,omitempty"`

@@ -60,6 +60,11 @@ export async function GET(
       available_sandboxes: instance.sandbox_type ? [instance.sandbox_type] : [],
       max_parallel_sub_agents: instance.max_parallel_subagents ?? 3,
       memory_enabled: true,
+      // Per-agent custom prompt (P1.3) — injected into daemon's
+      // buildSystemPrompt as "## Custom Instructions" after Product
+      // Information. Supplements the hardcoded skeleton; never replaces
+      // safety rules.
+      system_prompt: instance.system_prompt ?? '',
       // Sandbox resource knobs (P1.1)
       sandbox_cpu: instance.sandbox_cpu,
       sandbox_mem: instance.sandbox_mem,
