@@ -308,6 +308,15 @@ func main() {
 
 	slog.Info("Agent Daemon shutting down...")
 
+	// Clean up containers: docker containers are destroyed, LXC containers
+	// are stopped (rootfs preserved). 30s budget — we don't want a stuck
+	// container to block shutdown indefinitely.
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := sbManager.CleanupOnShutdown(cleanupCtx); err != nil {
+		slog.Error("sandbox cleanup error", "error", err)
+	}
+	cleanupCancel()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {

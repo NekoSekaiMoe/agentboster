@@ -4,6 +4,7 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -416,6 +417,26 @@ func (m *Manager) Restore() {
 	}
 
 	slog.Info("sandbox manager restored from disk", "count", len(records))
+}
+
+// CleanupOnShutdown is invoked from the daemon's signal handler (after
+// DropPrivileges). It implements the LXC-vs-Docker split:
+//
+//   - LXC (persistent): lxc-stop, preserve rootfs. The next session can
+//     lxc-start the same container and resume work.
+//   - Docker / docker-strict (non-persistent): docker rm -f. docker-strict
+//     has no --rm flag and would leak in 'exited' state otherwise.
+//     docker light already self-cleans via --rm but the call is idempotent.
+//
+// Failures per-container are logged; the daemon proceeds to HTTP shutdown
+// regardless. Returns nil unless the whole sweep is fundamentally broken.
+func (m *Manager) CleanupOnShutdown(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	m.stopAllLXC(ctx)
+	m.destroyAllDocker(ctx)
+	return nil
 }
 
 // Status returns sandbox status.
