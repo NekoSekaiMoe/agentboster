@@ -9,4 +9,3 @@ export * from './agent/skills';
 export * from './channels';
 export * from './cron';
 export * from './memory';
-export * from './prompts';
