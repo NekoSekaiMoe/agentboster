@@ -187,6 +187,10 @@ func main() {
 
 	sbManager := sandbox.NewManager(cfg, l0Engine)
 
+	// Re-hydrate sandbox IDs from disk so crashed docker-strict / LXC
+	// containers can be reconciled by ReapOrphans below.
+	sbManager.Restore()
+
 	// Docker availability check and image pre-pull
 	if err := sandbox.CheckDockerAvailable(cfg.Sandbox.DockerSocket); err != nil {
 		slog.Warn("Docker not available, docker sandboxes will not work", "error", err)

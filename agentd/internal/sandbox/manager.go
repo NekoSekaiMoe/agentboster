@@ -6,6 +6,7 @@ package sandbox
 import (
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +98,7 @@ type Manager struct {
 	sandboxes map[string]*Sandbox
 	config    *config.Config
 	policy    *os_enforce.OSPolicy
+	store     *SandboxStore
 }
 
 // NewManager creates a new sandbox manager with all built-in providers.
@@ -105,6 +107,21 @@ func NewManager(cfg *config.Config, l0Engine *l0_rules.Engine) *Manager {
 		providers: make(map[string]SandboxProvider),
 		sandboxes: make(map[string]*Sandbox),
 		config:    cfg,
+	}
+
+	// Sandbox store for crash-recovery (persists sandbox IDs to disk so
+	// non-self-cleaning containers — docker-strict, LXC — can be reaped
+	// after a daemon restart). Failures here are non-fatal: a nil store
+	// becomes a no-op, the manager just loses recovery capability.
+	storeDir := ""
+	if cfg.Cache.Path != "" {
+		storeDir = filepath.Join(cfg.Cache.Path, "sandboxes")
+	}
+	store, err := NewSandboxStore(storeDir)
+	if err != nil {
+		slog.Warn("sandbox store init failed; crash recovery disabled", "error", err)
+	} else {
+		m.store = store
 	}
 
 	// Generate OS enforcement policy from L0 rules
@@ -200,6 +217,13 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 	m.mu.Lock()
 	m.sandboxes[sb.ID] = sb
 	m.mu.Unlock()
+
+	// Persist sandbox ID so a daemon crash can be reconciled on restart.
+	if m.store != nil {
+		if err := m.store.Save(sb); err != nil {
+			slog.Warn("sandbox store: save failed", "id", sb.ID, "error", err)
+		}
+	}
 
 	// P2.2: apply egress allowlist if specified. Best-effort; logs but
 	// does not fail the sandbox creation when iptables is unavailable.
@@ -325,8 +349,73 @@ func (m *Manager) DestroySandbox(sandboxID string) error {
 	delete(m.sandboxes, sandboxID)
 	m.mu.Unlock()
 
+	if m.store != nil {
+		if err := m.store.Remove(sandboxID); err != nil {
+			slog.Warn("sandbox store: remove failed", "id", sandboxID, "error", err)
+		}
+	}
+
 	slog.Info("sandbox destroyed", "id", sandboxID)
 	return nil
+}
+
+// Restore re-hydrates the in-memory sandbox map from the on-disk store
+// after a daemon restart. Records whose container has already vanished
+// (e.g. docker --rm cleaned up, or manually removed) are reconciled by
+// the reaper; this method only re-loads the metadata.
+//
+// The provider-side in-memory map is also repopulated so that subsequent
+// Exec/Destroy calls succeed. For LXC, the container itself is NOT
+// restarted here — ReapOrphans handles stop/start reconciliation.
+func (m *Manager) Restore() {
+	if m.store == nil {
+		return
+	}
+	records := m.store.List()
+	if len(records) == 0 {
+		return
+	}
+
+	m.mu.Lock()
+	for _, rec := range records {
+		sb := sandboxFromRecord(rec)
+		m.sandboxes[sb.ID] = sb
+	}
+	m.mu.Unlock()
+
+	// Repopulate per-provider maps so Destroy/Exec/Status route correctly.
+	// Each provider has its own in-memory `sandboxes` map that we must
+	// populate by hand; we use SetPersistent on Docker to mirror the
+	// pre-crash Persistent flag (though Docker sandboxes are recreated
+	// by the runtime as ephemeral — restore is best-effort).
+	for _, rec := range records {
+		sb := sandboxFromRecord(rec)
+		switch sb.Type {
+		case "docker":
+			if dp, ok := m.providers["docker"].(*DockerLightProvider); ok {
+				dp.mu.Lock()
+				dp.sandboxes[sb.ID] = sb
+				dp.mu.Unlock()
+			}
+		case "docker-strict":
+			if dp, ok := m.providers["docker-strict"].(*DockerProvider); ok {
+				dp.mu.Lock()
+				dp.sandboxes[sb.ID] = sb
+				dp.mu.Unlock()
+			}
+		case "lxc":
+			if lp, ok := m.providers["lxc"].(*LXCPersistentProvider); ok {
+				lp.mu.Lock()
+				lp.sandboxes[sb.ID] = sb
+				if sb.Persistent {
+					lp.initialized[sb.ID] = true
+				}
+				lp.mu.Unlock()
+			}
+		}
+	}
+
+	slog.Info("sandbox manager restored from disk", "count", len(records))
 }
 
 // Status returns sandbox status.
