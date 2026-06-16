@@ -1,12 +1,16 @@
 'use server';
 
-import { requireAdminAccess } from '@/lib/auth/access';
+import { requireAdminAccess, requireAuthAccess } from '@/lib/auth/access';
 import {
   getAppBaseUrl,
   getBotAuthSecret,
   getWebhookCallbackUrl,
   registerChannelWebhooks,
 } from '@/lib/bot/webhook';
+import {
+  listImAccountsForUser,
+  unpairImAccountByClawlessUser,
+} from '@/lib/core/db/im-accounts';
 import { getConfig, setConfig } from '@/lib/core/kv/config';
 import {
   type RuntimeHealthSnapshot,
@@ -24,6 +28,7 @@ import { cookies } from 'next/headers';
 export type ConfigLoadResponse = {
   config: AppConfig;
   runtimeHealth: RuntimeHealthSnapshot | null;
+  meta: { isAdmin: boolean };
 };
 
 export type WebhookConfigResponse = {
@@ -34,20 +39,22 @@ export type WebhookConfigResponse = {
 
 async function requireAuth() {
   const cookieStore = await cookies();
-  return requireAdminAccess(cookieStore);
+  return requireAuthAccess(cookieStore);
 }
 
 export async function loadConfigAction(): Promise<ConfigLoadResponse> {
-  await requireAuth();
+  const access = await requireAuth();
 
   return {
     config: await getConfig(),
     runtimeHealth: getRuntimeHealthSnapshot(),
+    meta: { isAdmin: access.isAdmin },
   };
 }
 
 export async function saveConfigAction(input: unknown): Promise<AppConfig> {
-  await requireAuth();
+  const cookieStore = await cookies();
+  await requireAdminAccess(cookieStore);
 
   const config = appConfigSchema.parse(input);
 
@@ -85,7 +92,8 @@ export async function saveConfigAction(input: unknown): Promise<AppConfig> {
 }
 
 export async function loadWebhookConfigAction(): Promise<WebhookConfigResponse> {
-  await requireAuth();
+  const cookieStore = await cookies();
+  await requireAdminAccess(cookieStore);
 
   const urls = Object.fromEntries(
     ADAPTER_NAMES.map((adapter) => [adapter, getWebhookCallbackUrl(adapter)]),
@@ -99,8 +107,40 @@ export async function loadWebhookConfigAction(): Promise<WebhookConfigResponse> 
 }
 
 export async function loadToolCatalogAction(): Promise<ToolCatalogResponse> {
-  await requireAuth();
+  const cookieStore = await cookies();
+  await requireAdminAccess(cookieStore);
 
   const config = await getConfig();
   return toolCatalogResponseSchema.parse(getBuildInToolCatalog(config));
+}
+
+export async function getImPairStatusAction(adapter: AdapterName): Promise<{
+  paired: boolean;
+  imUserId: string | null;
+  imUserName: string | null;
+  pairedAt: string | null;
+}> {
+  const access = await requireAuth();
+  const accounts = await listImAccountsForUser(access.session.userId);
+  const account = accounts.find((a) => a.adapter === adapter);
+  if (!account || account.unpairedAt) {
+    return { paired: false, imUserId: null, imUserName: null, pairedAt: null };
+  }
+  return {
+    paired: true,
+    imUserId: account.imUserId,
+    imUserName: account.imUserName,
+    pairedAt: account.pairedAt.toISOString(),
+  };
+}
+
+export async function unpairImAccountAction(
+  adapter: AdapterName,
+): Promise<{ ok: boolean }> {
+  const access = await requireAuth();
+  const removed = await unpairImAccountByClawlessUser({
+    clawlessUserId: access.session.userId,
+    adapter,
+  });
+  return { ok: removed };
 }

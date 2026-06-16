@@ -25,6 +25,7 @@ type ConfigDraft = Partial<AppConfig> & Record<string, unknown>;
 
 interface ConfigContextValue {
   draft: ConfigDraft;
+  isAdmin: boolean;
   isDirty: boolean;
   isLoading: boolean;
   isSaving: boolean;
@@ -66,6 +67,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [revision, setRevision] = useState(0);
 
   const validation = useConfigValidation(draft, 250);
@@ -80,8 +82,11 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
 
     try {
-      const { config, runtimeHealth: nextRuntimeHealth } =
-        await loadConfigAction();
+      const {
+        config,
+        runtimeHealth: nextRuntimeHealth,
+        meta,
+      } = await loadConfigAction();
 
       startTransition(() => {
         draftRef.current = config;
@@ -91,6 +96,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
         setJsonText(formatJson(config));
         setJsonSyntaxError(null);
         setIsDirty(false);
+        setIsAdmin(meta?.isAdmin ?? false);
         setRevision(0);
       });
     } catch (error) {
@@ -170,6 +176,10 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const saveConfig = useCallback(async () => {
+    if (!isAdmin) {
+      toast.error('Only admins can save global configuration.');
+      return;
+    }
     if (jsonSyntaxError || !validation.isValid) {
       return;
     }
@@ -209,6 +219,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<ConfigContextValue>(
     () => ({
       draft,
+      isAdmin,
       isDirty,
       isLoading,
       isSaving,
@@ -225,6 +236,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       draft,
+      isAdmin,
       isDirty,
       isLoading,
       isSaving,

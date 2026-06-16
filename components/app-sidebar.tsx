@@ -36,6 +36,7 @@ import { toast } from 'sonner';
 
 import { logoutAction } from '@/app/(auth)/actions';
 import { useI18n } from '@/components/i18n-provider';
+import { useConfigContext } from '@/components/config/config-provider';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
 import {
@@ -191,6 +192,19 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
 const settingsHref = '/config';
 const docsUrl = 'https://github.com/niapya/agentboster';
 
+const ADMIN_ONLY_CONFIG_HREFS = new Set([
+  '/config/monitoring',
+  '/config/models',
+  '/config/agents',
+  '/config/security',
+  '/config/tasks',
+  '/config/notifications',
+  '/config/agentd',
+  '/config/audit-logs',
+  '/config/users',
+  '/config/raw-json',
+]);
+
 function isItemActive(pathname: string, href: string) {
   if (href === '/') {
     return pathname === '/' || pathname.startsWith('/chat');
@@ -209,12 +223,28 @@ export function AppSidebar() {
   const { setOpenMobile, state } = useSidebar();
   const { theme = 'system', setTheme } = useTheme();
   const { t } = useI18n();
+  const { isAdmin } = useConfigContext();
   const [loggingOut, setLoggingOut] = useState(false);
   const isCollapsed = state === 'collapsed';
 
+  const visibleGroups = useMemo(
+    () =>
+      isAdmin
+        ? workspaceGroups
+        : workspaceGroups.map((group) => ({
+            ...group,
+            items: group.items.filter(
+              (item) =>
+                !item.href.startsWith('/config/') ||
+                !ADMIN_ONLY_CONFIG_HREFS.has(item.href),
+            ),
+          })),
+    [isAdmin],
+  );
+
   const flatItems = useMemo(
-    () => workspaceGroups.flatMap((group) => group.items),
-    [],
+    () => visibleGroups.flatMap((group) => group.items),
+    [visibleGroups],
   );
 
   const activeItem = flatItems.find((item) =>
@@ -281,7 +311,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-3">
-        {workspaceGroups.map((group) => (
+        {visibleGroups.map((group) => (
           <SidebarGroup key={group.labelKey} className="py-1">
             <SidebarGroupLabel>{t(group.labelKey)}</SidebarGroupLabel>
             <SidebarGroupContent>

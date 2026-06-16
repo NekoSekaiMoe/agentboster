@@ -16,6 +16,7 @@ import { useConfigContext } from '@/components/config/config-provider';
 import { useConfigSection } from '@/hooks/use-config-section';
 import type { AgentdConfig } from '@/types/config/agentd';
 import type { ChatConfig } from '@/types/config/chat';
+import { useEffect, useState } from 'react';
 import { SectionIssues } from './shared';
 
 const DEFAULT_CHAT_CONFIG: ChatConfig = {
@@ -25,25 +26,43 @@ const DEFAULT_CHAT_CONFIG: ChatConfig = {
 
 export function ChatForm() {
   const { issues, value, updateValue } = useConfigSection('chat');
-  const { draft } = useConfigContext();
+  const { draft, isAdmin } = useConfigContext();
   const { t } = useI18n();
   const legacyAgentdConfig = (draft.agentd ?? {}) as Partial<AgentdConfig>;
-  const chatConfig: ChatConfig = {
-    ...DEFAULT_CHAT_CONFIG,
-    follow_up_enabled:
-      value?.follow_up_enabled ??
-      legacyAgentdConfig.follow_up_enabled ??
-      DEFAULT_CHAT_CONFIG.follow_up_enabled,
-    ...value,
-  };
 
-  function updateChatConfig(patch: Partial<ChatConfig>) {
+  // enter_to_send is a per-user preference stored in localStorage.
+  const [enterToSend, setEnterToSend] = useState(true);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem('chat:enter_to_send');
+      if (stored !== null) {
+        setEnterToSend(stored === 'true');
+      } else if (value?.enter_to_send !== undefined) {
+        setEnterToSend(value.enter_to_send);
+      }
+    } catch {
+      // localStorage unavailable, use default
+    }
+  }, [value?.enter_to_send]);
+
+  function updateEnterToSend(checked: boolean) {
+    setEnterToSend(checked);
+    try {
+      window.localStorage.setItem('chat:enter_to_send', String(checked));
+    } catch {
+      // ignore
+    }
+  }
+
+  const followUpEnabled =
+    value?.follow_up_enabled ??
+    legacyAgentdConfig.follow_up_enabled ??
+    DEFAULT_CHAT_CONFIG.follow_up_enabled;
+
+  function updateFollowUp(patch: Partial<ChatConfig>) {
     updateValue((current) => ({
       ...DEFAULT_CHAT_CONFIG,
-      follow_up_enabled:
-        current?.follow_up_enabled ??
-        legacyAgentdConfig.follow_up_enabled ??
-        DEFAULT_CHAT_CONFIG.follow_up_enabled,
       ...current,
       ...patch,
     }));
@@ -70,10 +89,8 @@ export function ChatForm() {
           >
             <Checkbox
               id="chat-enter-to-send"
-              checked={chatConfig.enter_to_send}
-              onCheckedChange={(checked) =>
-                updateChatConfig({ enter_to_send: Boolean(checked) })
-              }
+              checked={enterToSend}
+              onCheckedChange={(checked) => updateEnterToSend(Boolean(checked))}
             />
             <span className="space-y-1">
               <span className="flex items-center gap-2 font-medium text-sm">
@@ -81,7 +98,7 @@ export function ChatForm() {
                 {t('config.forms.chat.enterToSendLabel')}
               </span>
               <span className="block text-muted-foreground text-xs">
-                {chatConfig.enter_to_send
+                {enterToSend
                   ? t('config.forms.chat.enterToSendOnHelp')
                   : t('config.forms.chat.enterToSendOffHelp')}
               </span>
@@ -100,39 +117,41 @@ export function ChatForm() {
         </CardContent>
       </Card>
 
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="size-4" />
-            {t('config.forms.chat.followUpTitle')}
-          </CardTitle>
-          <CardDescription>
-            {t('config.forms.chat.followUpDescription')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <label
-            htmlFor="chat-follow-up"
-            className="flex items-start gap-3 rounded-md border p-4"
-          >
-            <Checkbox
-              id="chat-follow-up"
-              checked={chatConfig.follow_up_enabled}
-              onCheckedChange={(checked) =>
-                updateChatConfig({ follow_up_enabled: Boolean(checked) })
-              }
-            />
-            <span className="space-y-1">
-              <span className="block font-medium text-sm">
-                {t('config.forms.chat.followUpLabel')}
+      {isAdmin ? (
+        <Card className="shadow-none">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="size-4" />
+              {t('config.forms.chat.followUpTitle')}
+            </CardTitle>
+            <CardDescription>
+              {t('config.forms.chat.followUpDescription')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <label
+              htmlFor="chat-follow-up"
+              className="flex items-start gap-3 rounded-md border p-4"
+            >
+              <Checkbox
+                id="chat-follow-up"
+                checked={followUpEnabled}
+                onCheckedChange={(checked) =>
+                  updateFollowUp({ follow_up_enabled: Boolean(checked) })
+                }
+              />
+              <span className="space-y-1">
+                <span className="block font-medium text-sm">
+                  {t('config.forms.chat.followUpLabel')}
+                </span>
+                <span className="block text-muted-foreground text-xs">
+                  {t('config.forms.chat.followUpHelp')}
+                </span>
               </span>
-              <span className="block text-muted-foreground text-xs">
-                {t('config.forms.chat.followUpHelp')}
-              </span>
-            </span>
-          </label>
-        </CardContent>
-      </Card>
+            </label>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

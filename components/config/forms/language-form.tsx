@@ -23,6 +23,7 @@ import {
   isBotLocale,
   type LanguageConfig,
 } from '@/types/config/language';
+import { useConfigContext } from '@/components/config/config-provider';
 import { useConfigSection } from '@/hooks/use-config-section';
 import { SectionIssues } from './shared';
 
@@ -43,6 +44,7 @@ const botLocaleLabels: Record<(typeof botLocales)[number], string> = {
 
 export function LanguageForm() {
   const { issues, value, updateValue } = useConfigSection('language');
+  const { isAdmin } = useConfigContext();
   const { locale, localeLabels, locales, setLocale, t } = useI18n();
   const languageConfig: LanguageConfig = {
     ...DEFAULT_LANGUAGE_CONFIG,
@@ -97,38 +99,43 @@ export function LanguageForm() {
         </CardContent>
       </Card>
 
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Bot className="size-4" />
-            {t('config.forms.language.botTitle')}
-          </CardTitle>
-          <CardDescription>
-            {t('config.forms.language.botDescription')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Select
-            value={languageConfig.bot_locale}
-            onValueChange={(botLocale) => {
-              if (isBotLocale(botLocale)) {
-                updateLanguageConfig({ bot_locale: botLocale });
-              }
-            }}
-          >
-            <SelectTrigger aria-label="Bot language" className="w-full sm:w-72">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="max-h-72 overflow-y-auto">
-              {botLocales.map((item) => (
-                <SelectItem key={item} value={item}>
-                  {botLocaleLabels[item]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
+      {isAdmin ? (
+        <Card className="shadow-none">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Bot className="size-4" />
+              {t('config.forms.language.botTitle')}
+            </CardTitle>
+            <CardDescription>
+              {t('config.forms.language.botDescription')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select
+              value={languageConfig.bot_locale}
+              onValueChange={(botLocale) => {
+                if (isBotLocale(botLocale)) {
+                  updateLanguageConfig({ bot_locale: botLocale });
+                }
+              }}
+            >
+              <SelectTrigger
+                aria-label="Bot language"
+                className="w-full sm:w-72"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-72 overflow-y-auto">
+                {botLocales.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {botLocaleLabels[item]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

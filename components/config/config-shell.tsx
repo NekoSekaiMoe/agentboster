@@ -6,6 +6,7 @@ import {
   type ConfigSectionKey,
   getConfigSectionMeta,
 } from '@/components/config/config-sections';
+import { useConfigContext } from '@/components/config/config-provider';
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { useConfigDraft } from '@/hooks/use-config-draft';
@@ -25,9 +26,11 @@ export function ConfigShell({
     saveConfig,
     validationPassed,
   } = useConfigDraft();
+  const { isAdmin } = useConfigContext();
   const { t } = useI18n();
   const sectionMeta = getConfigSectionMeta(section);
-  const showSaveButton = section !== 'users' && section !== 'knowledge';
+  const showSaveButton =
+    isAdmin && section !== 'users' && section !== 'knowledge';
   const runtimeIssues =
     runtimeHealth?.checks.filter((check) => check.status !== 'ready') ?? [];
 

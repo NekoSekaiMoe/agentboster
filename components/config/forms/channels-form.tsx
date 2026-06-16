@@ -12,7 +12,11 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 
-import { loadWebhookConfigAction } from '@/app/(config)/actions';
+import {
+  loadWebhookConfigAction,
+  getImPairStatusAction,
+  unpairImAccountAction,
+} from '@/app/(config)/actions';
 import { toast } from 'sonner';
 import { useCopyToClipboard } from 'usehooks-ts';
 
@@ -20,6 +24,7 @@ import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { useConfigContext } from '@/components/config/config-provider';
 import { useConfigSection } from '@/hooks/use-config-section';
 import type { AppConfig } from '@/types/config';
 import type {
@@ -52,6 +57,7 @@ type WebhookConfigResponse = {
 
 export function ChannelsForm() {
   const { issues, value, updateValue } = useConfigSection('channels');
+  const { isAdmin } = useConfigContext();
   const { t } = useI18n();
   const reduceMotion = useReducedMotion();
   const channels = (value ?? {}) as Partial<ChannelsConfig>;
@@ -76,6 +82,18 @@ export function ChannelsForm() {
   const [pairCodeLoading, setPairCodeLoading] = useState<
     Record<string, boolean>
   >({});
+  const [pairStatus, setPairStatus] = useState<
+    Record<
+      string,
+      {
+        paired: boolean;
+        imUserId: string | null;
+        imUserName: string | null;
+        pairedAt: string | null;
+      } | null
+    >
+  >({});
+  const [unpairing, setUnpairing] = useState<Record<string, boolean>>({});
   const collapseTransition = reduceMotion
     ? { duration: 0 }
     : { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
@@ -160,12 +178,50 @@ export function ChannelsForm() {
       toast.success(
         `Pair code generated for ${adapter}. Expires in ${Math.floor(data.expiresIn / 60)} min.`,
       );
+
+      // Poll pair status until paired or code expires.
+      const pollInterval = setInterval(async () => {
+        const status = await loadPairStatus(adapter);
+        if (status?.paired) {
+          clearInterval(pollInterval);
+          setPairCode((prev) => ({ ...prev, [adapter]: null }));
+          toast.success(`Paired successfully with ${adapter}!`);
+        }
+      }, 3000);
+      setTimeout(() => clearInterval(pollInterval), data.expiresIn * 1000);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : 'Failed to generate pair code',
       );
     } finally {
       setPairCodeLoading((prev) => ({ ...prev, [adapter]: false }));
+    }
+  }
+
+  async function loadPairStatus(adapter: string) {
+    try {
+      const status = await getImPairStatusAction(adapter as AdapterName);
+      setPairStatus((prev) => ({ ...prev, [adapter]: status }));
+      return status;
+    } catch {
+      return null;
+    }
+  }
+
+  async function handleUnpair(adapter: string) {
+    setUnpairing((prev) => ({ ...prev, [adapter]: true }));
+    try {
+      const result = await unpairImAccountAction(adapter as AdapterName);
+      if (result.ok) {
+        toast.success(`Unpaired from ${adapter}.`);
+        await loadPairStatus(adapter);
+      } else {
+        toast.error('No active pairing found.');
+      }
+    } catch {
+      toast.error('Failed to unpair.');
+    } finally {
+      setUnpairing((prev) => ({ ...prev, [adapter]: false }));
     }
   }
 
@@ -242,24 +298,149 @@ export function ChannelsForm() {
   useEffect(() => {
     let isMounted = true;
 
-    loadWebhookConfigAction()
-      .then((payload) => {
-        if (isMounted) {
-          setWebhookConfig(payload);
-          setWebhookConfigStatus('ready');
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setWebhookConfig(null);
-          setWebhookConfigStatus('error');
-        }
+    if (isAdmin) {
+      loadWebhookConfigAction()
+        .then((payload) => {
+          if (isMounted) {
+            setWebhookConfig(payload);
+            setWebhookConfigStatus('ready');
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setWebhookConfig(null);
+            setWebhookConfigStatus('error');
+          }
+        });
+    } else {
+      enabledAdapters.forEach((key) => {
+        loadPairStatus(key);
       });
+    }
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isAdmin]);
+
+  const enabledAdapters = adapters
+    .filter((a) => a.value?.enabled)
+    .map((a) => a.key);
+
+  // Non-admin view: only show pairing UI for enabled adapters.
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6">
+        {enabledAdapters.length === 0 ? (
+          <div className="rounded-xl border px-4 py-8 text-center text-muted-foreground text-sm">
+            No channels are currently enabled. Ask an administrator to enable a
+            channel first.
+          </div>
+        ) : (
+          enabledAdapters.map((adapterKey) => {
+            const status = pairStatus[adapterKey];
+            return (
+              <Card key={adapterKey} className="shadow-none">
+                <CardContent className="space-y-4 py-4">
+                  <div>
+                    <span className="block font-semibold text-base capitalize">
+                      {adapterKey}
+                    </span>
+                  </div>
+
+                  {status?.paired ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-green-800 text-sm">
+                        <Check className="size-4 shrink-0" />
+                        <span>
+                          Paired as{' '}
+                          <strong>
+                            {status.imUserName || status.imUserId}
+                          </strong>
+                        </span>
+                      </div>
+                      {status.pairedAt && (
+                        <p className="text-muted-foreground text-xs">
+                          Paired at {new Date(status.pairedAt).toLocaleString()}
+                        </p>
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={unpairing[adapterKey]}
+                        onClick={() => handleUnpair(adapterKey)}
+                      >
+                        {unpairing[adapterKey] ? (
+                          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                        ) : null}
+                        Unpair
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-muted-foreground text-sm">
+                        Your IM account is not paired yet. Generate a code and
+                        send it to the bot.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={pairCodeLoading[adapterKey]}
+                          onClick={() => generatePairCodeForAdapter(adapterKey)}
+                        >
+                          {pairCodeLoading[adapterKey] ? (
+                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                          ) : (
+                            <KeyRound className="mr-1.5 size-3.5" />
+                          )}
+                          Generate pair code
+                        </Button>
+                        {pairCode[adapterKey] ? (
+                          <div className="flex items-center gap-2">
+                            <code className="rounded bg-muted px-2 py-1 font-mono text-lg font-bold tracking-widest">
+                              {pairCode[adapterKey]?.code}
+                            </code>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                copyToClipboard(
+                                  pairCode[adapterKey]?.code ?? '',
+                                )
+                              }
+                            >
+                              <Copy className="mr-1 size-3.5" />
+                              Copy
+                            </Button>
+                            <span className="text-muted-foreground text-xs">
+                              Expires in{' '}
+                              {Math.floor(
+                                (pairCode[adapterKey]?.expiresIn ?? 0) / 60,
+                              )}{' '}
+                              min
+                            </span>
+                          </div>
+                        ) : null}
+                      </div>
+                      <p className="text-muted-foreground text-xs">
+                        Send this code to your IM as{' '}
+                        <code>/pair &lt;code&gt;</code> or just send the 6-digit
+                        number directly.
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
