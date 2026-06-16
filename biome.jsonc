@@ -26,6 +26,7 @@
       "!**/.next",
       "!**/public",
       "!**/ref",
+      "!**/memoh",
       "!**/.vercel",
       "!**/app/.well-known",
       "!**/.backup",

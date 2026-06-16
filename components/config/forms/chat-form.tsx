@@ -142,8 +142,8 @@ export function ChatForm() {
           </CardTitle>
           <CardDescription>
             Auto-play the latest assistant reply as audio in the Web chat.
-            Requires an admin to enable TTS globally and configure an
-            OpenAI speech model.
+            Requires an admin to enable TTS globally and configure an OpenAI
+            speech model.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -154,9 +154,7 @@ export function ChatForm() {
             <Checkbox
               id="chat-tts-autoplay"
               checked={ttsAutoplay}
-              onCheckedChange={(checked) =>
-                updateTtsAutoplay(Boolean(checked))
-              }
+              onCheckedChange={(checked) => updateTtsAutoplay(Boolean(checked))}
             />
             <span className="space-y-1">
               <span className="block font-medium text-sm">

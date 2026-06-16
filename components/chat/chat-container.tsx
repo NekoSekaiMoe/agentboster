@@ -394,14 +394,12 @@ export function Chat({
   const [ttsAutoplay, setTtsAutoplay] = useState(false);
 
   useEffect(() => {
-    setTtsAutoplay(
-      readTtsAutoplay(Boolean(appConfig?.chat?.tts_autoplay)),
-    );
+    setTtsAutoplay(readTtsAutoplay(Boolean(appConfig?.chat?.tts_autoplay)));
   }, [appConfig?.chat?.tts_autoplay]);
 
-  const [autoPlayMessageId, setAutoPlayMessageId] = useState<
-    string | null
-  >(null);
+  const [autoPlayMessageId, setAutoPlayMessageId] = useState<string | null>(
+    null,
+  );
 
   useTtsAutoplay({
     messages,

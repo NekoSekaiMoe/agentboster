@@ -131,7 +131,9 @@ function adapterSupportsAudioUpload(adapter: AdapterName): boolean {
   }
 }
 
-function filenameForFormat(format: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm'): string {
+function filenameForFormat(
+  format: 'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm',
+): string {
   return `reply.${format}`;
 }
 

@@ -1,4 +1,7 @@
-import { experimental_generateSpeech as generateSpeech, type SpeechModel } from 'ai';
+import {
+  experimental_generateSpeech as generateSpeech,
+  type SpeechModel,
+} from 'ai';
 
 import { resolveSpeechModel } from '@/lib/audio/speech';
 import { createLogger } from '@/lib/utils/logger';

@@ -145,7 +145,15 @@ export function AudioPlayer({
     } else {
       startPlayback();
     }
-  }, [error, loading, fetchAudio, startPlayback, playing, onPlayStart, onPlayEnd]);
+  }, [
+    error,
+    loading,
+    fetchAudio,
+    startPlayback,
+    playing,
+    onPlayStart,
+    onPlayEnd,
+  ]);
 
   // Auto-play hook.
   useEffect(() => {

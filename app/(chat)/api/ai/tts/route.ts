@@ -12,9 +12,7 @@ const requestSchema = z.object({
   text: z.string().min(1).max(4096),
   voice: z.string().optional(),
   model: z.string().optional(),
-  format: z
-    .enum(['mp3', 'opus', 'aac', 'flac', 'wav', 'pcm'])
-    .optional(),
+  format: z.enum(['mp3', 'opus', 'aac', 'flac', 'wav', 'pcm']).optional(),
 });
 
 /**
@@ -106,8 +104,7 @@ export async function POST(request: Request) {
     return Response.json(
       {
         success: false,
-        error:
-          error instanceof Error ? error.message : 'TTS synthesis failed',
+        error: error instanceof Error ? error.message : 'TTS synthesis failed',
       },
       { status: 500 },
     );

@@ -26,7 +26,10 @@ const DEFAULT_FORMAT = 'mp3' as const;
 
 export function resolveTtsSettings(input: {
   config: AppConfig;
-  source?: { type: 'im'; adapter: AdapterName } | { type: 'web' } | { type: 'scheduled' };
+  source?:
+    | { type: 'im'; adapter: AdapterName }
+    | { type: 'web' }
+    | { type: 'scheduled' };
   voiceOverride?: string;
   modelOverride?: string;
   formatOverride?: ResolvedTtsSettings['format'];

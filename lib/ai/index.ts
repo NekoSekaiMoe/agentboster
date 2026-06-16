@@ -2,7 +2,12 @@ import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { AIProviderConfig } from '@/types/config/ai';
 import { embed } from 'ai';
-import { getEmbeddingModel, getLanguageModel, getProvider, getSpeechModel } from './providers';
+import {
+  getEmbeddingModel,
+  getLanguageModel,
+  getProvider,
+  getSpeechModel,
+} from './providers';
 import { getPreset } from './presets';
 
 type ParsedModelId =
