@@ -84,4 +84,8 @@ func RegisterAllTools(
 	// === Browser automation (1) ===
 	// P1.3: headless Chromium automation. Available to trusted users.
 	registerBrowserAct(registry, sbManager, agentCtx)
+
+	// === Sandbox lifecycle (1) ===
+	// Explicit teardown when the user asks to destroy the project sandbox.
+	registerSandboxDestroy(registry, sbManager, agentCtx)
 }
