@@ -3,6 +3,7 @@ import { embedMany } from 'ai';
 import { generateEmbedding, resolveEmbeddingModel } from '@/lib/ai';
 import {
   createLongTermMemoryRow,
+  deleteLongTermMemoryByKey,
   deleteLongTermMemoryRow,
   getLongTermMemoryRow,
   hybridSearchLongTermMemoryChunks,
@@ -209,6 +210,8 @@ export async function deleteLongTermMemory(
 ) {
   return deleteLongTermMemoryRow(id, options);
 }
+
+export { deleteLongTermMemoryByKey } from '@/lib/core/db/memory/long-term';
 
 export async function getLongTermMemory(id: string) {
   return getLongTermMemoryRow(id);

@@ -25,6 +25,7 @@ import {
   type PersistedMessagePayload,
 } from '@/lib/chat/message-utils';
 import {
+  deleteLongTermMemoryByKey,
   listLongTermMemories,
   upsertLongTermMemory,
 } from '@/lib/memory/long-term';
@@ -53,6 +54,11 @@ const extractionItemSchema = z.object({
     ),
   memoryType: z.enum(['fact', 'preference', 'decision', 'conversation']),
   importance: z.number().int().min(1).max(10),
+  action: z
+    .enum(['ADD', 'UPDATE', 'DELETE', 'NOOP'])
+    .describe(
+      'Decision for this fact. ADD = new fact, use a brand-new key. UPDATE = refine/correct an existing fact, reuse its key with new content. DELETE = the existing fact is wrong/outdated/contradicted, reference its key to remove. NOOP = the existing fact already captures this, do nothing.',
+    ),
 });
 
 const extractionResultSchema = z.object({
@@ -186,7 +192,7 @@ export async function extractMemoriesFromSession(input: {
 
   const model = resolveLanguageModel(modelId, input.config);
 
-  const prompt = `You are a memory extractor. After a conversation ends, you scan the transcript and decide what durable facts to persist for this user.
+  const prompt = `You are a memory extractor. After a conversation ends, you scan the transcript and decide what durable facts to persist, update, or remove for this user.
 
 Worth persisting:
 - user personal info (location, timezone, language, occupation)
@@ -197,15 +203,22 @@ Worth persisting:
 Not worth persisting:
 - transient task execution details
 - one-off requests and chit-chat
-- information already captured in the existing memories list (unless you are correcting or refining it)
+- information already captured in the existing memories list (use NOOP)
 
 Conversation:
 ${conversationText}
 
-Existing memories for this user (avoid duplicates, update via same key if refining):
+Existing memories for this user (use the bracketed [key] to reference them):
 ${existingBlock}
 
-Emit an "items" array. Use the same dotted "key" as an existing memory when the new fact refines or corrects it; otherwise invent a new key. Leave the array empty if nothing is worth persisting.`;
+Emit an "items" array. For each item, choose one action:
+
+- ADD: a brand-new durable fact. Invent a new dotted key that does not appear above. Put the fact in "content".
+- UPDATE: a fact that refines, extends, or corrects an existing one. REUSE the existing memory's key. Put the merged/corrected content in "content".
+- DELETE: an existing memory that is now wrong, outdated, or contradicted by the conversation. Reference its existing key. The "content" field may be empty or a short reason for deletion.
+- NOOP: the conversation mentions a fact already captured accurately. Reference the existing key to skip it. The "content" field may be empty.
+
+Leave the array empty if nothing is worth changing.`;
 
   const result = await generateObject({
     model,
@@ -217,26 +230,64 @@ Emit an "items" array. Use the same dotted "key" as an existing memory when the 
   const items = result.object.items;
   let created = 0;
   let updated = 0;
+  let deleted = 0;
+  let noop = 0;
 
   for (const item of items) {
     try {
-      const upsert = await upsertLongTermMemory({
-        userId: input.userId,
-        key: item.key,
-        content: item.content,
-        memoryType: item.memoryType,
-        importance: item.importance,
-        config: input.config,
-      });
-      if (upsert.created) {
-        created += 1;
-      } else {
-        updated += 1;
+      switch (item.action) {
+        case 'ADD': {
+          await upsertLongTermMemory({
+            userId: input.userId,
+            key: item.key,
+            content: item.content,
+            memoryType: item.memoryType,
+            importance: item.importance,
+            config: input.config,
+          });
+          created += 1;
+          break;
+        }
+        case 'UPDATE': {
+          const result = await upsertLongTermMemory({
+            userId: input.userId,
+            key: item.key,
+            content: item.content,
+            memoryType: item.memoryType,
+            importance: item.importance,
+            config: input.config,
+          });
+          if (result.created) {
+            // Existing key not found despite UPDATE — treat as ADD to avoid losing info.
+            created += 1;
+          } else {
+            updated += 1;
+          }
+          break;
+        }
+        case 'DELETE': {
+          const removed = await deleteLongTermMemoryByKey({
+            userId: input.userId,
+            key: item.key,
+          });
+          if (removed) {
+            deleted += 1;
+          } else {
+            // Nothing to delete — silently skip.
+          }
+          break;
+        }
+        case 'NOOP':
+        default: {
+          noop += 1;
+          break;
+        }
       }
     } catch (err) {
-      logger.warn('extract:upsert_failed', {
+      logger.warn('extract:apply_failed', {
         sessionId: input.sessionId,
         key: item.key,
+        action: item.action,
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -248,6 +299,8 @@ Emit an "items" array. Use the same dotted "key" as an existing memory when the 
     total: items.length,
     created,
     updated,
+    deleted,
+    noop,
   });
 
   return { extracted: items.length, created, updated };

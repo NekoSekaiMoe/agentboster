@@ -265,6 +265,35 @@ export async function deleteLongTermMemoryRow(
   return row ?? null;
 }
 
+/**
+ * Delete a long-term memory row by (userId, key).
+ *
+ * Used by the memory extractor's DELETE action: when the LLM decides a
+ * previously-stored fact is wrong/outdated, it emits the existing key
+ * with action=DELETE. Returns the deleted row (or null if no match).
+ */
+export async function deleteLongTermMemoryByKey(input: {
+  userId: string;
+  key: string;
+}) {
+  const trimmedKey = input.key.trim();
+  if (!trimmedKey) {
+    return null;
+  }
+
+  const [row] = await db
+    .delete(schema.longTermMemories)
+    .where(
+      and(
+        eq(schema.longTermMemories.userId, input.userId),
+        eq(schema.longTermMemories.key, trimmedKey),
+      ),
+    )
+    .returning();
+
+  return row ?? null;
+}
+
 export async function replaceLongTermMemoryChunks(
   memoryId: string,
   chunks: LongTermChunkInput[],
