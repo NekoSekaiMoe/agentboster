@@ -1,6 +1,6 @@
 'use client';
 
-import { MessageSquareText, Send, Sparkles } from 'lucide-react';
+import { MessageSquareText, Send, Sparkles, Volume2 } from 'lucide-react';
 
 import { useI18n } from '@/components/i18n-provider';
 import {
@@ -22,6 +22,7 @@ import { SectionIssues } from './shared';
 const DEFAULT_CHAT_CONFIG: ChatConfig = {
   enter_to_send: true,
   follow_up_enabled: false,
+  tts_autoplay: false,
 };
 
 export function ChatForm() {
@@ -32,6 +33,7 @@ export function ChatForm() {
 
   // enter_to_send is a per-user preference stored in localStorage.
   const [enterToSend, setEnterToSend] = useState(true);
+  const [ttsAutoplay, setTtsAutoplay] = useState(false);
 
   useEffect(() => {
     try {
@@ -41,15 +43,30 @@ export function ChatForm() {
       } else if (value?.enter_to_send !== undefined) {
         setEnterToSend(value.enter_to_send);
       }
+      const ttsStored = window.localStorage.getItem('chat:tts_autoplay');
+      if (ttsStored !== null) {
+        setTtsAutoplay(ttsStored === 'true');
+      } else if (value?.tts_autoplay !== undefined) {
+        setTtsAutoplay(Boolean(value.tts_autoplay));
+      }
     } catch {
       // localStorage unavailable, use default
     }
-  }, [value?.enter_to_send]);
+  }, [value?.enter_to_send, value?.tts_autoplay]);
 
   function updateEnterToSend(checked: boolean) {
     setEnterToSend(checked);
     try {
       window.localStorage.setItem('chat:enter_to_send', String(checked));
+    } catch {
+      // ignore
+    }
+  }
+
+  function updateTtsAutoplay(checked: boolean) {
+    setTtsAutoplay(checked);
+    try {
+      window.localStorage.setItem('chat:tts_autoplay', String(checked));
     } catch {
       // ignore
     }
@@ -114,6 +131,44 @@ export function ChatForm() {
               <div>{t('config.forms.chat.shortcutsOff')}</div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Volume2 className="size-4" />
+            Text-to-Speech
+          </CardTitle>
+          <CardDescription>
+            Auto-play the latest assistant reply as audio in the Web chat.
+            Requires an admin to enable TTS globally and configure an
+            OpenAI speech model.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <label
+            htmlFor="chat-tts-autoplay"
+            className="flex items-start gap-3 rounded-md border p-4"
+          >
+            <Checkbox
+              id="chat-tts-autoplay"
+              checked={ttsAutoplay}
+              onCheckedChange={(checked) =>
+                updateTtsAutoplay(Boolean(checked))
+              }
+            />
+            <span className="space-y-1">
+              <span className="block font-medium text-sm">
+                Auto-play last reply
+              </span>
+              <span className="block text-muted-foreground text-xs">
+                {ttsAutoplay
+                  ? 'On — the most recent assistant message will play automatically when it finishes.'
+                  : 'Off — only the play button under each message is available.'}
+              </span>
+            </span>
+          </label>
         </CardContent>
       </Card>
 

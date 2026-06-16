@@ -32,6 +32,12 @@ import { deriveSessionTitle } from '@/lib/chat/session-title';
 import { buildInlineFollowUpText } from '@/lib/chat/follow-up';
 import { usePendingDecisions } from '@/lib/chat/use-pending-decisions';
 import { useStreamRecovery } from '@/lib/chat/use-stream-recovery';
+import { useAppConfig } from '@/hooks/use-app-config';
+import {
+  readTtsAutoplay,
+  useTtsAutoplay,
+  writeTtsAutoplay,
+} from '@/hooks/use-tts-autoplay';
 import { generateUUID } from '@/lib/utils';
 import {
   type WorkflowStatusData,
@@ -381,6 +387,33 @@ export function Chat({
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  // === TTS auto-play ===
+  const { config: appConfig } = useAppConfig();
+  const ttsGloballyEnabled = appConfig?.tts?.enabled === true;
+  const [ttsAutoplay, setTtsAutoplay] = useState(false);
+
+  useEffect(() => {
+    setTtsAutoplay(
+      readTtsAutoplay(Boolean(appConfig?.chat?.tts_autoplay)),
+    );
+  }, [appConfig?.chat?.tts_autoplay]);
+
+  const [autoPlayMessageId, setAutoPlayMessageId] = useState<
+    string | null
+  >(null);
+
+  useTtsAutoplay({
+    messages,
+    status,
+    enabled: ttsGloballyEnabled && ttsAutoplay,
+    onPlay: (_text, messageId) => {
+      // Telling the AudioPlayer for THIS message to auto-play. Any
+      // previous autoPlayMessageId is replaced, so concurrent assistant
+      // messages never play over each other.
+      setAutoPlayMessageId(messageId);
+    },
+  });
 
   const requestResumeStream = useCallback(async () => {
     if (!activeRunIdRef.current) {
@@ -843,6 +876,8 @@ export function Chat({
             }
             setMessages={setMessages}
             regenerate={regenerate}
+            ttsEnabled={ttsGloballyEnabled}
+            autoPlayMessageId={autoPlayMessageId}
           />
 
           {isAccessDeniedSession ? (

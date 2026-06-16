@@ -2,6 +2,7 @@ import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useCopyToClipboard } from 'usehooks-ts';
 
+import { AudioPlayer } from '@/components/audio-player';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { WorkflowUIMessage } from '@/types/workflow';
@@ -47,6 +48,8 @@ export function PureMessageActions({
   onEditVersionChange,
   onRegenerate,
   onGenerationVersionChange,
+  ttsEnabled = false,
+  autoPlay = false,
 }: {
   message: WorkflowUIMessage;
   isLoading: boolean;
@@ -55,6 +58,8 @@ export function PureMessageActions({
   onEditVersionChange?: (messageId: string, newIndex: number) => void;
   onRegenerate?: (messageId: string) => void;
   onGenerationVersionChange?: (messageId: string, newIndex: number) => void;
+  ttsEnabled?: boolean;
+  autoPlay?: boolean;
 }) {
   const [_, copyToClipboard] = useCopyToClipboard();
   const textContent = getTextFromParts(message);
@@ -197,6 +202,11 @@ export function PureMessageActions({
           </Tooltip>
         )}
 
+        {/* Text-to-Speech playback — only for assistant messages when TTS is configured */}
+        {!isUser && ttsEnabled && textContent.trim() && (
+          <AudioPlayer text={textContent} autoPlay={autoPlay} />
+        )}
+
         {/* Edit version navigation — only for user messages with edit history */}
         {isUser && hasEditHistory && (
           <>
@@ -274,6 +284,8 @@ export const MessageActions = memo(
     if (prevProps.message.id !== nextProps.message.id) return false;
     if (prevProps.message.role !== nextProps.message.role) return false;
     if (prevProps.message.parts !== nextProps.message.parts) return false;
+    if (prevProps.ttsEnabled !== nextProps.ttsEnabled) return false;
+    if (prevProps.autoPlay !== nextProps.autoPlay) return false;
     // Metadata carries editHistory / generationHistory and their current
     // indices. Without this check, version-switching UI (1/N counter and
     // arrow buttons) does not re-render when only metadata changes — e.g.
