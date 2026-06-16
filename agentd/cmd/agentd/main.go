@@ -191,6 +191,15 @@ func main() {
 	// containers can be reconciled by ReapOrphans below.
 	sbManager.Restore()
 
+	// Reconcile stale containers left over from a previous unclean shutdown.
+	// Orphan docker containers are destroyed; orphan LXC containers are
+	// stopped (rootfs preserved).
+	reapCtx, reapCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if err := sbManager.ReapOrphans(reapCtx); err != nil {
+		slog.Warn("sandbox reaper sweep failed", "error", err)
+	}
+	reapCancel()
+
 	// Docker availability check and image pre-pull
 	if err := sandbox.CheckDockerAvailable(cfg.Sandbox.DockerSocket); err != nil {
 		slog.Warn("Docker not available, docker sandboxes will not work", "error", err)
