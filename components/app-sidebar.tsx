@@ -223,7 +223,8 @@ export function AppSidebar() {
   const { setOpenMobile, state } = useSidebar();
   const { theme = 'system', setTheme } = useTheme();
   const { t } = useI18n();
-  const { isAdmin } = useConfigContext();
+  const configContext = useConfigContext();
+  const isAdmin = configContext?.isAdmin ?? false;
   const [loggingOut, setLoggingOut] = useState(false);
   const isCollapsed = state === 'collapsed';
 

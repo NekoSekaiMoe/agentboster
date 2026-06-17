@@ -1,7 +1,7 @@
 'use client';
 
-import { useConfigContext } from '@/components/config/config-provider';
+import { useConfigContextStrict } from '@/components/config/config-provider';
 
 export function useConfigDraft() {
-  return useConfigContext();
+  return useConfigContextStrict();
 }

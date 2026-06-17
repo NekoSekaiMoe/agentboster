@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { useConfigContext } from '@/components/config/config-provider';
+import { useConfigContextStrict } from '@/components/config/config-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -140,7 +140,7 @@ function formatHeartbeat(value: string | null) {
 }
 
 export function AgentDConfigPage() {
-  const { draft, updateSection } = useConfigContext();
+  const { draft, updateSection } = useConfigContextStrict();
   const agentdConfig = (draft.agentd ?? {}) as Partial<AgentdConfig>;
   const agentdEnabled = agentdConfig.enabled ?? false;
   const configuredNodes = agentdConfig.nodes ?? [];

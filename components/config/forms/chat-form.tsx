@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { useConfigContext } from '@/components/config/config-provider';
+import { useConfigContextStrict } from '@/components/config/config-provider';
 import { useConfigSection } from '@/hooks/use-config-section';
 import type { AgentdConfig } from '@/types/config/agentd';
 import type { ChatConfig } from '@/types/config/chat';
@@ -27,7 +27,7 @@ const DEFAULT_CHAT_CONFIG: ChatConfig = {
 
 export function ChatForm() {
   const { issues, value, updateValue } = useConfigSection('chat');
-  const { draft, isAdmin } = useConfigContext();
+  const { draft, isAdmin } = useConfigContextStrict();
   const { t } = useI18n();
   const legacyAgentdConfig = (draft.agentd ?? {}) as Partial<AgentdConfig>;
 

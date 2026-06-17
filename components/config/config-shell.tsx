@@ -6,7 +6,7 @@ import {
   type ConfigSectionKey,
   getConfigSectionMeta,
 } from '@/components/config/config-sections';
-import { useConfigContext } from '@/components/config/config-provider';
+import { useConfigContextStrict } from '@/components/config/config-provider';
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { useConfigDraft } from '@/hooks/use-config-draft';
@@ -26,7 +26,7 @@ export function ConfigShell({
     saveConfig,
     validationPassed,
   } = useConfigDraft();
-  const { isAdmin } = useConfigContext();
+  const { isAdmin } = useConfigContextStrict();
   const { t } = useI18n();
   const sectionMeta = getConfigSectionMeta(section);
   const showSaveButton =

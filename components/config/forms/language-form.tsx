@@ -23,7 +23,7 @@ import {
   isBotLocale,
   type LanguageConfig,
 } from '@/types/config/language';
-import { useConfigContext } from '@/components/config/config-provider';
+import { useConfigContextStrict } from '@/components/config/config-provider';
 import { useConfigSection } from '@/hooks/use-config-section';
 import { SectionIssues } from './shared';
 
@@ -44,7 +44,7 @@ const botLocaleLabels: Record<(typeof botLocales)[number], string> = {
 
 export function LanguageForm() {
   const { issues, value, updateValue } = useConfigSection('language');
-  const { isAdmin } = useConfigContext();
+  const { isAdmin } = useConfigContextStrict();
   const { locale, localeLabels, locales, setLocale, t } = useI18n();
   const languageConfig: LanguageConfig = {
     ...DEFAULT_LANGUAGE_CONFIG,

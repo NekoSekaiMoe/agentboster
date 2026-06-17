@@ -24,7 +24,7 @@ import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { useConfigContext } from '@/components/config/config-provider';
+import { useConfigContextStrict } from '@/components/config/config-provider';
 import { useConfigSection } from '@/hooks/use-config-section';
 import type { AppConfig } from '@/types/config';
 import type {
@@ -57,7 +57,7 @@ type WebhookConfigResponse = {
 
 export function ChannelsForm() {
   const { issues, value, updateValue } = useConfigSection('channels');
-  const { isAdmin } = useConfigContext();
+  const { isAdmin } = useConfigContextStrict();
   const { t } = useI18n();
   const reduceMotion = useReducedMotion();
   const channels = (value ?? {}) as Partial<ChannelsConfig>;

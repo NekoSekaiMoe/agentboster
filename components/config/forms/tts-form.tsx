@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useConfigContext } from '@/components/config/config-provider';
+import { useConfigContextStrict } from '@/components/config/config-provider';
 import { useConfigSection } from '@/hooks/use-config-section';
 import type { TtsConfig } from '@/types/config/tts';
 import { SectionIssues } from './shared';
@@ -44,7 +44,7 @@ const FORMAT_OPTIONS = ['mp3', 'opus', 'aac', 'flac', 'wav', 'pcm'] as const;
 
 export function TtsForm() {
   const { issues, value, updateValue } = useConfigSection('tts');
-  const { isAdmin } = useConfigContext();
+  const { isAdmin } = useConfigContextStrict();
 
   const current: TtsConfig = {
     ...DEFAULT_TTS_CONFIG,

@@ -214,7 +214,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsSaving(false);
     }
-  }, [draft, jsonSyntaxError, validation.isValid]);
+  }, [draft, jsonSyntaxError, validation.isValid, isAdmin]);
 
   const value = useMemo<ConfigContextValue>(
     () => ({
@@ -258,11 +258,25 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Hook to access config context. Returns null if used outside ConfigProvider.
+ * Use this in components that may render in routes without ConfigProvider (e.g., AppSidebar).
+ */
 export function useConfigContext() {
-  const value = useContext(ConfigContext);
+  return useContext(ConfigContext);
+}
+
+/**
+ * Hook to access config context. Throws if used outside ConfigProvider.
+ * Use this in components that MUST have ConfigProvider (e.g., config forms).
+ */
+export function useConfigContextStrict() {
+  const value = useConfigContext();
 
   if (!value) {
-    throw new Error('useConfigContext must be used within ConfigProvider');
+    throw new Error(
+      'useConfigContextStrict must be used within ConfigProvider',
+    );
   }
 
   return value;
