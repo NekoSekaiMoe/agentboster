@@ -88,6 +88,9 @@ export const zhCN = {
   'config.sections.security.title': '安全',
   'config.sections.tools.description': '开关内置工具并提供单工具配置。',
   'config.sections.tools.title': '工具',
+  'config.sections.preferences.description':
+    '选择你的个人默认模型。后台任务使用全局默认。',
+  'config.sections.preferences.title': '我的偏好',
   'config.agentd.agentbosterConnection': 'AgentBoster 连接',
   'config.agentd.agentbosterConnectionDescription':
     'Daemon 回连 AgentBoster 的方式。',
@@ -299,6 +302,21 @@ export const zhCN = {
   'config.forms.models.providers': 'Providers',
   'config.forms.models.removeProvider': '删除 Provider',
   'config.forms.models.selectProviderFormat': '选择 Provider 格式',
+  'config.forms.models.globalDefaultModel': '全局默认模型',
+  'config.forms.models.globalDefaultModelHelp':
+    '作为后台任务（记忆抽取、任务摘要、L1 评分、压缩）的兜底。用户侧聊天使用每个用户的个人偏好（我的偏好）。',
+  'config.forms.preferences.title': '我的偏好',
+  'config.forms.preferences.description':
+    '选择你的个人默认模型。未设置的字段会回退到全局默认。',
+  'config.forms.preferences.model': '默认模型',
+  'config.forms.preferences.usingPersonal': '正在使用你的个人偏好：{model}',
+  'config.forms.preferences.usingGlobal': '当前使用全局默认：{model}',
+  'config.forms.preferences.noModelSet':
+    '未设置模型。请选择一个，或联系管理员设置全局默认。',
+  'config.forms.preferences.save': '保存',
+  'config.forms.preferences.clear': '清除（使用全局默认）',
+  'config.forms.preferences.saved': '偏好已保存。',
+  'config.forms.preferences.cleared': '偏好已清除。将使用全局默认。',
   'config.forms.tools.builtinDescription':
     '每个内置工具都可以开关，并通过字符串键值对配置。',
   'config.forms.tools.builtinTools': '内置工具',
@@ -361,6 +379,7 @@ export const zhCN = {
   'nav.modelProviders': '模型 Provider',
   'nav.notifications': '通知',
   'nav.operations': '运维',
+  'nav.preferences': '我的偏好',
   'nav.rawJson': 'Raw JSON',
   'nav.schedule': '计划',
   'nav.security': '安全',

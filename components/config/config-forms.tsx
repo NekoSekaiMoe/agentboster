@@ -11,6 +11,7 @@ import { LanguageForm } from './forms/language-form';
 import { McpForm } from './forms/mcp-form';
 import { ModelsForm } from './forms/models/models-form';
 import { MonitoringForm } from './forms/monitoring-form';
+import { PreferencesForm } from './forms/preferences-form';
 import { SecurityForm } from './forms/security-form';
 import { ToolsForm } from './forms/tools-form';
 import { TtsForm } from './forms/tts-form';
@@ -48,6 +49,8 @@ export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
       return <UsersManagement />;
     case 'knowledge':
       return <KnowledgeManagement />;
+    case 'preferences':
+      return <PreferencesForm />;
     case 'audit-logs':
       return <AuditLogsForm />;
     case 'raw-json':

@@ -27,6 +27,11 @@ export const configSections = [
     titleKey: 'config.sections.knowledge.title',
   },
   {
+    key: 'preferences',
+    descriptionKey: 'config.sections.preferences.description',
+    titleKey: 'config.sections.preferences.title',
+  },
+  {
     key: 'channels',
     descriptionKey: 'config.sections.channels.description',
     titleKey: 'config.sections.channels.title',

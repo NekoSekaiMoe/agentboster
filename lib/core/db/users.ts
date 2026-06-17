@@ -164,7 +164,8 @@ export async function authenticateUser(
     id: row.id,
     username: row.username,
     roles: row.roles as string[],
-    modelPreferences: (row.modelPreferences ?? null) as UserModelPreferences | null,
+    modelPreferences: (row.modelPreferences ??
+      null) as UserModelPreferences | null,
     createdAt: row.createdAt,
   };
 }
@@ -183,7 +184,8 @@ export async function getUserById(userId: string): Promise<StoredUser | null> {
     id: row.id,
     username: row.username,
     roles: row.roles as string[],
-    modelPreferences: (row.modelPreferences ?? null) as UserModelPreferences | null,
+    modelPreferences: (row.modelPreferences ??
+      null) as UserModelPreferences | null,
     createdAt: row.createdAt,
   };
 }
@@ -194,7 +196,8 @@ export async function listUsers(): Promise<StoredUser[]> {
     id: row.id,
     username: row.username,
     roles: row.roles as string[],
-    modelPreferences: (row.modelPreferences ?? null) as UserModelPreferences | null,
+    modelPreferences: (row.modelPreferences ??
+      null) as UserModelPreferences | null,
     createdAt: row.createdAt,
   }));
 }

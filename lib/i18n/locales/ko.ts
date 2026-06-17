@@ -102,6 +102,9 @@ export const ko = {
   'config.sections.tools.description':
     '내장 도구를 켜거나 끄고 도구별 설정을 제공합니다.',
   'config.sections.tools.title': '도구',
+  'config.sections.preferences.description':
+    '개인 기본 모델을 선택하세요. 백그라운드 작업은 전역 기본값을 사용합니다.',
+  'config.sections.preferences.title': '내 환경설정',
   'config.agentd.agentbosterConnection': 'AgentBoster 연결',
   'config.agentd.agentbosterConnectionDescription':
     'Daemon이 AgentBoster에 연결하는 방법입니다.',
@@ -323,6 +326,22 @@ export const ko = {
   'config.forms.models.providers': '공급자',
   'config.forms.models.removeProvider': '공급자 제거',
   'config.forms.models.selectProviderFormat': '공급자 형식 선택',
+  'config.forms.models.globalDefaultModel': '전역 기본 모델',
+  'config.forms.models.globalDefaultModelHelp':
+    '백그라운드 작업(메모리 추출, 작업 요약, L1 채점, 압축)의 대체값으로 사용됩니다. 사용자 대면 채팅은 각 사용자의 개인 환경설정(내 환경설정)을 사용합니다.',
+  'config.forms.preferences.title': '내 환경설정',
+  'config.forms.preferences.description':
+    '개인 기본 모델을 선택하세요. 설정하지 않은 필드는 전역 기본값으로 대체됩니다.',
+  'config.forms.preferences.model': '기본 모델',
+  'config.forms.preferences.usingPersonal': '개인 환경설정을 사용 중: {model}',
+  'config.forms.preferences.usingGlobal': '현재 전역 기본값을 사용 중: {model}',
+  'config.forms.preferences.noModelSet':
+    '모델이 설정되지 않았습니다. 하나를 선택하거나 관리자에게 전역 기본값 설정을 요청하세요.',
+  'config.forms.preferences.save': '저장',
+  'config.forms.preferences.clear': '초기화(전역 기본값 사용)',
+  'config.forms.preferences.saved': '환경설정이 저장되었습니다.',
+  'config.forms.preferences.cleared':
+    '환경설정이 초기화되었습니다. 전역 기본값을 사용합니다.',
   'config.forms.tools.builtinDescription':
     '각 내장 도구는 토글할 수 있으며 문자열 키-값 쌍으로 설정할 수 있습니다.',
   'config.forms.tools.builtinTools': '내장 도구',
@@ -386,6 +405,7 @@ export const ko = {
   'nav.modelProviders': '모델 Provider',
   'nav.notifications': '알림',
   'nav.operations': '운영',
+  'nav.preferences': '내 환경설정',
   'nav.rawJson': '원본 JSON',
   'nav.schedule': '일정',
   'nav.security': '보안',

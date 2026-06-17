@@ -12,6 +12,7 @@ import {
   unpairImAccountByClawlessUser,
 } from '@/lib/core/db/im-accounts';
 import { getConfig, setConfig } from '@/lib/core/kv/config';
+import { getUserById, updateUserModelPreferences } from '@/lib/core/db/users';
 import {
   type RuntimeHealthSnapshot,
   getRuntimeHealthSnapshot,
@@ -143,4 +144,33 @@ export async function unpairImAccountAction(
     adapter,
   });
   return { ok: removed };
+}
+
+// ---- Per-user model preferences ----
+
+export async function getUserModelPreferencesAction(): Promise<{
+  model: string | null;
+  globalDefault: string | null;
+}> {
+  const access = await requireAuth();
+  const [user, config] = await Promise.all([
+    getUserById(access.session.userId),
+    getConfig(),
+  ]);
+  return {
+    model: user?.modelPreferences?.model ?? null,
+    globalDefault: config.models?.model ?? null,
+  };
+}
+
+export async function updateUserModelPreferencesAction(input: {
+  model: string | null;
+}): Promise<{ ok: true; model: string | null }> {
+  const access = await requireAuth();
+  const trimmed = input.model?.trim() || null;
+  await updateUserModelPreferences(
+    access.session.userId,
+    trimmed ? { model: trimmed } : null,
+  );
+  return { ok: true, model: trimmed };
 }

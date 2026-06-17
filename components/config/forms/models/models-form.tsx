@@ -220,7 +220,7 @@ export function ModelsForm() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
-          <Field label={t('config.forms.models.defaultModel')}>
+          <Field label={t('config.forms.models.globalDefaultModel')}>
             <SuggestionInput
               placeholder={defaultModelPlaceholder}
               suggestions={modelPredictions}
@@ -239,6 +239,9 @@ export function ModelsForm() {
                 } as AppConfig['models']);
               }}
             />
+            <p className="mt-1 text-muted-foreground text-xs">
+              {t('config.forms.models.globalDefaultModelHelp')}
+            </p>
             {acceptsBareModelNames && (
               <p className="mt-1 text-muted-foreground text-xs">
                 {t('config.forms.models.bareModelHelp')}
