@@ -1,4 +1,5 @@
 import type { AdapterName, ChannelsConfig } from '@/types/config/channels';
+import { locales, defaultLocale, type Locale, translate, type TranslationKey } from '@/lib/i18n';
 
 const LOCAL_BASE_URL = 'http://127.0.0.1:3000';
 
@@ -169,34 +170,118 @@ export async function registerTelegramWebhook(
   }
 }
 
-const TELEGRAM_BOT_COMMANDS = [
-  { command: 'help', description: 'Show available commands' },
-  { command: 'new', description: 'Start a new session' },
-  { command: 'sessions', description: 'List recent sessions' },
-  { command: 'session', description: 'Show or switch session' },
-  { command: 'switch', description: 'Switch session by number or ID' },
-  {
-    command: 'delete_session',
-    description: 'Delete current or selected session',
-  },
-  { command: 'status', description: 'Show current session status' },
-  { command: 'stop', description: 'Stop the active run' },
-  { command: 'compact', description: 'Compact conversation context' },
-  { command: 'model', description: 'Show current model config' },
-  { command: 'provider', description: 'List or update model providers' },
-];
+// Telegram command list — only the commands we register with setMyCommands.
+// The displayed description comes from the slash.command.* i18n namespace
+// so each user sees their Telegram client's locale (when we registered a
+// matching language_code) or the default (English).
+const TELEGRAM_REGISTERED_COMMANDS = [
+  'help',
+  'new',
+  'sessions',
+  'session',
+  'switch',
+  'delete_session',
+  'status',
+  'stop',
+  'compact',
+  'model',
+  'provider',
+] as const;
 
+// Map agentboster Locale → Telegram language_code (ISO 639-1).
+// Telegram does not distinguish zh-CN / zh-TW / zh-HK — collapse to "zh".
+// en-GB is dropped (handled by default + en override).
+const LOCALE_TO_LANGUAGE_CODE: Partial<Record<Locale, string>> = {
+  'en-US': 'en',
+  'zh-CN': 'zh',
+  'zh-TW': 'zh',
+  'zh-HK': 'zh',
+  ja: 'ja',
+  ko: 'ko',
+};
+
+interface TelegramCommand {
+  command: string;
+  description: string;
+}
+
+function buildTelegramCommands(locale: Locale): TelegramCommand[] {
+  return TELEGRAM_REGISTERED_COMMANDS.map((command) => {
+    const descriptionKey = `slash.command.${command}.description` as TranslationKey;
+    return {
+      command,
+      description: translate(locale, descriptionKey),
+    };
+  });
+}
+
+async function callSetMyCommands(
+  token: string,
+  commands: TelegramCommand[],
+  languageCode?: string,
+): Promise<void> {
+  const apiUrl = `https://api.telegram.org/bot${token}/setMyCommands`;
+  const body: Record<string, unknown> = { commands };
+  if (languageCode) {
+    body.language_code = languageCode;
+  }
+  const resp = await fetch(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await resp.json()) as { ok: boolean; description?: string };
+  if (!data.ok) {
+    console.warn(
+      `[registerTelegramCommands] failed${languageCode ? ` (${languageCode})` : ' (default)'}:`,
+      data.description,
+    );
+  }
+}
+
+/**
+ * Register Telegram bot commands in every supported locale.
+ *
+ * Telegram's setMyCommands API accepts an optional language_code — when
+ * a user's Telegram client is set to that language, Telegram serves the
+ * matching command list. Without language_code, the registration becomes
+ * the default shown to users whose client language has no specific match.
+ *
+ * We register:
+ *   - default (no language_code) → English (international fallback)
+ *   - en, zh, ja, ko → matching language_code
+ *
+ * Per-language failures are isolated — a single language failing to
+ * register does not abort the rest. This keeps the function idempotent
+ * and safe to call from webhook registration and connection-test paths.
+ */
 export async function registerTelegramCommands(token: string): Promise<void> {
   try {
-    const apiUrl = `https://api.telegram.org/bot${token}/setMyCommands`;
-    const resp = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commands: TELEGRAM_BOT_COMMANDS }),
-    });
-    const data = (await resp.json()) as { ok: boolean; description?: string };
-    if (!data.ok) {
-      console.warn('[registerTelegramCommands] failed:', data.description);
+    // Default: English (covers users whose Telegram language we don't
+    // have a specific match for — e.g. Russian, Spanish).
+    await callSetMyCommands(token, buildTelegramCommands(defaultLocale));
+
+    // Per-language registrations. Collapse duplicates (e.g. zh-CN/zh-TW
+    // both map to "zh"); the last write wins on Telegram's side.
+    const registered = new Set<string>();
+    for (const locale of locales) {
+      const code = LOCALE_TO_LANGUAGE_CODE[locale];
+      if (!code || registered.has(code)) continue;
+      registered.add(code);
+      // Pick the first locale that maps to this code as the translation source.
+      const sourceLocale = locale;
+      try {
+        await callSetMyCommands(
+          token,
+          buildTelegramCommands(sourceLocale),
+          code,
+        );
+      } catch (error) {
+        console.warn(
+          `[registerTelegramCommands] error (${code}):`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     }
   } catch (error) {
     console.warn(
