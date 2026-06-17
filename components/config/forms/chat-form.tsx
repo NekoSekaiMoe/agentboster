@@ -18,7 +18,6 @@ import { useConfigContextStrict } from '@/components/config/config-provider';
 import { useConfigSection } from '@/hooks/use-config-section';
 import type { AgentdConfig } from '@/types/config/agentd';
 import type { ChatConfig } from '@/types/config/chat';
-import { useEffect, useState } from 'react';
 import { SectionIssues } from './shared';
 
 const DEFAULT_CHAT_CONFIG: ChatConfig = {
