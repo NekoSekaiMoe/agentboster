@@ -114,6 +114,20 @@ func NewGatekeeper(
 	}
 }
 
+// L0 returns the underlying L0 rules engine.
+//
+// Used by tool-layer auditing paths that want the same L0 output rules
+// without going through the full Gatekeeper.AuditOutput pipeline. The
+// canonical caller is browser_evaluate (sees arbitrary in-page JS output
+// and must screen it for prompt/credential leakage). Returns nil if the
+// gatekeeper was constructed without an L0 engine (rare; mostly tests).
+func (g *Gatekeeper) L0() *l0_rules.Engine {
+	if g == nil {
+		return nil
+	}
+	return g.l0
+}
+
 func deterministicL2Reason(command string) (string, bool) {
 	for _, pattern := range deterministicL2Patterns {
 		if pattern.re.MatchString(command) {

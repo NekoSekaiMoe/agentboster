@@ -7,6 +7,7 @@ import (
 	"github.com/clawless/agentd/internal/clawless"
 	"github.com/clawless/agentd/internal/eventbus"
 	"github.com/clawless/agentd/internal/persistence"
+	"github.com/clawless/agentd/internal/security/l0_rules"
 	"github.com/clawless/agentd/internal/worker/workers"
 )
 
@@ -66,6 +67,13 @@ type AgentContext struct {
 	//   - inform MaxParallelSubAgents (P0.1 already wires the default)
 	// Nil = use daemon defaults. Set by Manager before registering tools.
 	AgentConfig *clawless.AgentConfig
+
+	// L0Engine enables tool-layer output auditing. Currently only
+	// browser_evaluate consults it (to block prompt/credential leakage
+	// through arbitrary in-page JS execution). The loop-level
+	// Gatekeeper.AuditOutput path is independent and always runs.
+	// Nil = no tool-layer L0 auditing (e.g. in tests).
+	L0Engine *l0_rules.Engine
 }
 
 // TaskState holds execution state that survives context compaction.

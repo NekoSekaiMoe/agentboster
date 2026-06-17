@@ -92,6 +92,7 @@
     "build": "next build",
     "build:agentd": "cd agentd && go build -o agentd ./cmd/agentd/main.go",
     "check": "tsc --noEmit && biome check .",
+    "check:sh": "shellcheck agentd/internal/agent/browser/node_install.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:ensure-vector": "yarn run scripts/ensure-vector-extension.ts",

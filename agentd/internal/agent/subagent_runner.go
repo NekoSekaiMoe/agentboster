@@ -410,8 +410,8 @@ func registerSubagentToolset(
 	// CodeAct
 	registerCodeAct(registry, sbManager, clawlessClient, agentCtx)
 
-	// Browser automation (P1.3)
-	registerBrowserAct(registry, sbManager, agentCtx)
+	// Browser automation (P2: tools_browser_v2)
+	registerBrowserToolsV2(registry, sbManager, agentCtx)
 
 	// MCP bridge (gated by agent config, same as parent).
 	if agentCtx.AgentConfig != nil && agentCtx.AgentConfig.MCPEnabled {

@@ -579,9 +579,12 @@ func needsPersistence(command string) bool {
 		"headless browser", "browser automation", "rendered fetch",
 		"rendered web search", "js rendering", "javascript rendering",
 		"web_fetch_rendered", "web_search_rendered",
-		// P1.3: browser_act requires Chromium (heavy install) — route to
-		// LXC so the install survives across calls in the same session.
-		"browser_act",
+	}
+	// P2: all browser_* tools (tools_browser_v2.go) want a persistent LXC
+	// sandbox so the in-sandbox Playwright helper survives across calls in
+	// the same session. Prefix match covers future additions.
+	if strings.Contains(command, "browser_") {
+		return true
 	}
 	for _, p := range persistPatterns {
 		if containsPattern(command, p) {

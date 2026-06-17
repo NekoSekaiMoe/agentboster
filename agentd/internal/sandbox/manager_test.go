@@ -62,7 +62,12 @@ func TestSelectSandbox_Persistence(t *testing.T) {
 		"git clone https://example.com/repo",
 		"npm install lodash",
 		"go build ./...",
-		"browser_act",
+		// P2: all browser_* tools (tools_browser_v2.go) route to LXC so the
+		// in-sandbox Playwright helper persists across calls in one session.
+		"browser_navigate https://example.com",
+		"browser_click",
+		"browser_evaluate",
+		"browser_act", // legacy name still matches the browser_ prefix
 	}
 	for _, cmd := range persist {
 		task := &clawless.Task{Command: cmd, SandboxType: "auto"}

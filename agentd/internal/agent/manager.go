@@ -107,6 +107,19 @@ func (m *Manager) SetGatekeeper(gk *security.Gatekeeper) {
 	m.gatekeeper = gk
 }
 
+// injectToolLayerDeps populates AgentContext fields that tools consult
+// directly (bypassing the Gatekeeper.Audit loop-level path). Currently
+// only the L0 engine is injected — browser_evaluate uses it to screen
+// arbitrary in-page JS output for prompt/credential leakage.
+//
+// Safe to call when gatekeeper is nil (L0Engine stays nil → tools skip
+// the audit).
+func (m *Manager) injectToolLayerDeps(agentCtx *AgentContext) {
+	if m.gatekeeper != nil {
+		agentCtx.L0Engine = m.gatekeeper.L0()
+	}
+}
+
 // SetBGTaskStore sets the background task store.
 func (m *Manager) SetBGTaskStore(store *persistence.BackgroundTaskStore) {
 	m.bgTaskStore = store
@@ -351,6 +364,7 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 
 	// Create tool registry with all MVP tools
 	registry := NewToolRegistry(m.disabledTools)
+	m.injectToolLayerDeps(agentCtx)
 	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
 
 	// Create agent loop
@@ -436,6 +450,7 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	}
 	agentCtx.SystemPrompt = buildDefaultSystemPrompt(agentCtx.SoulContent, customPrompt)
 	registry := NewToolRegistry(m.disabledTools)
+	m.injectToolLayerDeps(agentCtx)
 	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
 
 	// Execute the tool directly
