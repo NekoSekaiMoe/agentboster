@@ -1,6 +1,8 @@
 'use client';
 
 import { MessageSquareText, Send, Sparkles, Volume2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 import { useI18n } from '@/components/i18n-provider';
 import {
@@ -58,8 +60,9 @@ export function ChatForm() {
     setEnterToSend(checked);
     try {
       window.localStorage.setItem('chat:enter_to_send', String(checked));
+      toast.success('Settings saved to browser');
     } catch {
-      // ignore
+      toast.error('Failed to save settings');
     }
   }
 
@@ -67,8 +70,9 @@ export function ChatForm() {
     setTtsAutoplay(checked);
     try {
       window.localStorage.setItem('chat:tts_autoplay', String(checked));
+      toast.success('Settings saved to browser');
     } catch {
-      // ignore
+      toast.error('Failed to save settings');
     }
   }
 
@@ -97,6 +101,9 @@ export function ChatForm() {
           </CardTitle>
           <CardDescription>
             {t('config.forms.chat.composerDescription')}
+            <span className="mt-1 block text-muted-foreground/80 text-xs">
+              This setting is saved automatically to your browser.
+            </span>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -144,6 +151,9 @@ export function ChatForm() {
             Auto-play the latest assistant reply as audio in the Web chat.
             Requires an admin to configure a speech model under Config &gt;
             Text-to-Speech.
+            <span className="mt-1 block text-muted-foreground/80 text-xs">
+              This setting is saved automatically to your browser.
+            </span>
           </CardDescription>
         </CardHeader>
         <CardContent>
