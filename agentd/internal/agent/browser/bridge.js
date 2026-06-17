@@ -203,6 +203,90 @@ async function handleNavigate(req, res, body) {
   });
 }
 
+/**
+ * resolveLocator builds a Playwright Locator from one of several selector
+ * strategies the caller may pass. Priority order:
+ *
+ *   1. selector  — raw CSS / Playwright selector (most flexible, default)
+ *   2. role      — ARIA role + optional name (e.g. { role: 'button', role_name: 'Login' })
+ *                  Maps to page.getByRole(role, { name }). Robust against
+ *                  dynamic Tailwind classes.
+ *   3. label     — <label>/aria-label text (page.getByLabel). Best for inputs.
+ *   4. text      — exact or substring text (page.getByText). Use when the
+ *                  element has no good role/label.
+ *   5. placeholder — form placeholder (page.getByPlaceholder).
+ *
+ * Returns { locator, describe } where `describe` is a short string for the
+ * tool result so the LLM can see which strategy actually fired. Throws if
+ * none of the selector strategies is provided.
+ *
+ * `frameChain` is an optional array of selectors for nested iframes; each
+ * entry is resolved as a frameLocator inside the previous one. Helps with
+ * sites that wrap content in cross-origin iframes (the helper handles
+ * same-origin shadow DOM automatically via Playwright's CSS engine).
+ */
+function resolveLocator(page, options, frameChain) {
+  const opts = options || {};
+
+  let root = page;
+  if (Array.isArray(frameChain) && frameChain.length > 0) {
+    for (const frameSelector of frameChain) {
+      root = root.frameLocator(frameSelector);
+    }
+  }
+
+  if (typeof opts.selector === 'string' && opts.selector.trim() !== '') {
+    return {
+      locator: root.locator(opts.selector),
+      describe: `selector=${opts.selector}`,
+    };
+  }
+
+  if (typeof opts.role === 'string' && opts.role.trim() !== '') {
+    const roleOpts = {};
+    if (typeof opts.role_name === 'string' && opts.role_name.trim() !== '') {
+      roleOpts.name = opts.role_name;
+    }
+    if (typeof opts.role_exact === 'boolean') roleOpts.exact = opts.role_exact;
+    if (typeof opts.role_checked === 'boolean') roleOpts.checked = opts.role_checked;
+    if (typeof opts.role_pressed === 'boolean') roleOpts.pressed = opts.role_pressed;
+    if (typeof opts.role_level === 'number') roleOpts.level = opts.role_level;
+    return {
+      locator: root.getByRole(opts.role, roleOpts),
+      describe: `role=${opts.role}${roleOpts.name ? ` name=${JSON.stringify(roleOpts.name)}` : ''}`,
+    };
+  }
+
+  if (typeof opts.label === 'string' && opts.label.trim() !== '') {
+    const labelOpts = { exact: opts.label_exact === true };
+    return {
+      locator: root.getByLabel(opts.label, labelOpts),
+      describe: `label=${JSON.stringify(opts.label)}`,
+    };
+  }
+
+  if (typeof opts.placeholder === 'string' && opts.placeholder.trim() !== '') {
+    return {
+      locator: root.getByPlaceholder(opts.placeholder, { exact: opts.placeholder_exact === true }),
+      describe: `placeholder=${JSON.stringify(opts.placeholder)}`,
+    };
+  }
+
+  if (typeof opts.text === 'string' && opts.text.trim() !== '') {
+    const textOpts = { exact: opts.text_exact === true };
+    return {
+      locator: root.getByText(opts.text, textOpts),
+      describe: `text=${JSON.stringify(opts.text)}`,
+    };
+  }
+
+  const err = new Error(
+    'no selector strategy provided; pass one of: selector, role (+role_name), label, placeholder, text',
+  );
+  err.code = 'NO_SELECTOR';
+  throw err;
+}
+
 async function handleClick(req, res, body) {
   const profile = sanitizeFilename(resolveProfile(body));
   if (!profile) return sendJSON(res, 400, { ok: false, error: 'invalid profile' });
@@ -212,20 +296,31 @@ async function handleClick(req, res, body) {
   const button = body.button === 'middle' || body.button === 'right' ? body.button : 'left';
   const clickCount = Math.min(Math.max(positiveInt(body.click_count, 1), 1), 3);
 
-  if (body.selector && typeof body.selector === 'string') {
-    await session.page
-      .locator(body.selector)
-      .click({ button, clickCount, timeout });
+  // Selector strategies (selector / role / label / placeholder / text)
+  // take precedence over coordinate click.
+  const hasStrategy =
+    (typeof body.selector === 'string' && body.selector.trim() !== '') ||
+    (typeof body.role === 'string' && body.role.trim() !== '') ||
+    (typeof body.label === 'string' && body.label.trim() !== '') ||
+    (typeof body.placeholder === 'string' && body.placeholder.trim() !== '') ||
+    (typeof body.text === 'string' && body.text.trim() !== '');
+
+  if (hasStrategy) {
+    const { locator, describe } = resolveLocator(session.page, body, body.frame_chain);
+    await locator.click({ button, clickCount, timeout });
     return sendJSON(res, 200, {
       ok: true,
-      data: { clicked: body.selector, button, clickCount },
+      data: { clicked: describe, button, clickCount },
     });
   }
 
   const x = Number(body.x);
   const y = Number(body.y);
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    return sendJSON(res, 400, { ok: false, error: 'provide either selector, or both x and y' });
+    return sendJSON(res, 400, {
+      ok: false,
+      error: 'provide one of: selector, role (+role_name), label, placeholder, text, or both x and y',
+    });
   }
   await session.page.mouse.click(x, y, { button, clickCount });
   return sendJSON(res, 200, { ok: true, data: { clicked: [x, y], button, clickCount } });
@@ -243,25 +338,47 @@ async function handleType(req, res, body) {
   const timeout = positiveInt(body.timeout_ms, DEFAULT_TIMEOUT_MS);
   const delay = Math.min(Math.max(positiveInt(body.delay_ms, 0), 0), 1000);
 
-  if (body.selector && typeof body.selector === 'string') {
-    const locator = session.page.locator(body.selector);
+  // type() uses `text` as the value to type, so the locator-strategy
+  // `text` is intentionally skipped — use selector/role/label/placeholder
+  // to disambiguate the target. Falling back to focused-element when none
+  // of these is provided (matches the serverless-side semantics).
+  const locatorOpts = {
+    selector: body.selector,
+    role: body.role,
+    role_name: body.role_name,
+    label: body.label,
+    placeholder: body.placeholder,
+  };
+  const hasLocatorStrategy =
+    (typeof locatorOpts.selector === 'string' && locatorOpts.selector.trim() !== '') ||
+    (typeof locatorOpts.role === 'string' && locatorOpts.role.trim() !== '') ||
+    (typeof locatorOpts.label === 'string' && locatorOpts.label.trim() !== '') ||
+    (typeof locatorOpts.placeholder === 'string' && locatorOpts.placeholder.trim() !== '');
+
+  if (hasLocatorStrategy) {
+    const { locator, describe } = resolveLocator(session.page, locatorOpts, body.frame_chain);
     if (body.clear) {
       await locator.fill(body.text, { timeout });
     } else {
       await locator.click({ timeout });
       await locator.pressSequentially(body.text, { delay, timeout });
     }
-  } else {
-    await session.page.keyboard.type(body.text, { delay });
+    if (body.press_enter) {
+      await session.page.keyboard.press('Enter');
+    }
+    return sendJSON(res, 200, {
+      ok: true,
+      data: { typed_into: describe, chars: body.text.length, press_enter: Boolean(body.press_enter) },
+    });
   }
 
+  await session.page.keyboard.type(body.text, { delay });
   if (body.press_enter) {
     await session.page.keyboard.press('Enter');
   }
-
   return sendJSON(res, 200, {
     ok: true,
-    data: { typed: body.text.length, press_enter: Boolean(body.press_enter) },
+    data: { typed_into: 'focused', chars: body.text.length, press_enter: Boolean(body.press_enter) },
   });
 }
 
@@ -362,6 +479,182 @@ async function handleEvaluate(req, res, body) {
   }
 
   return sendJSON(res, 200, { ok: true, data: { result: safe } });
+}
+
+/**
+ * handleInspect scans the page for interactive elements (a, button, input,
+ * select, textarea, and elements with role= or onclick), returns a compact
+ * list with the most useful Playwright selector strategies for each.
+ *
+ * Designed to cut token cost when the LLM is asked to click/type on a page
+ * with dynamic class names — instead of guessing selectors from raw HTML,
+ * the model calls inspect and gets pre-computed { role, name, selector }.
+ *
+ * Output element shape:
+ *   { tag, role, name, text, selector, role_hint, label_hint, placeholder_hint }
+ * where:
+ *   - selector       = best CSS selector (id > [data-testid] > tag+name)
+ *   - role_hint      = { role, name } if get-by-role would work
+ *   - label_hint     = label text if findable
+ *   - placeholder_hint = placeholder attribute (for inputs)
+ *
+ * Body params:
+ *   - profile           (default: 'default')
+ *   - selector          CSS scope (default: 'body')
+ *   - limit             max items returned (default 200)
+ *   - include_hidden    include elements outside viewport (default false)
+ *   - filter_visible_only  alias of include_hidden=false
+ */
+async function handleInspect(req, res, body) {
+  const profile = sanitizeFilename(resolveProfile(body));
+  if (!profile) return sendJSON(res, 400, { ok: false, error: 'invalid profile' });
+  const session = requireSession(profile);
+
+  const scope = (typeof body.selector === 'string' && body.selector.trim()) || 'body';
+  const limit = Math.min(Math.max(positiveInt(body.limit, 200), 1), 500);
+  const includeHidden = body.include_hidden === true;
+
+  // Run inside the page so we can read layout/attributes directly.
+  const items = await session.page.evaluate(
+    ({ scopeSelector, includeHiddenFlag, maxItems }) => {
+      const INTERACTIVE_TAGS = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
+      const INTERACTIVE_ROLES = new Set([
+        'button', 'link', 'checkbox', 'radio', 'menuitem', 'menuitemcheckbox',
+        'menuitemradio', 'option', 'switch', 'tab', 'textbox', 'searchbox',
+        'combobox', 'listbox', 'spinbutton', 'slider',
+      ]);
+
+      /** Build a stable CSS selector for an element if possible. */
+      function buildSelector(el) {
+        if (el.id && /^[A-Za-z][\w-]*$/.test(el.id)) {
+          return '#' + CSS.escape(el.id);
+        }
+        const testId = el.getAttribute('data-testid') || el.getAttribute('data-test');
+        if (testId) return `[data-testid="${testId}"]`;
+
+        // name= attribute on form controls
+        const nameAttr = el.getAttribute('name');
+        if (nameAttr && INTERACTIVE_TAGS.has(el.tagName)) {
+          const tag = el.tagName.toLowerCase();
+          return `${tag}[name="${CSS.escape(nameAttr)}"]`;
+        }
+
+        // tag + nth-of-type within parent (last-resort positional)
+        const tag = el.tagName.toLowerCase();
+        const parent = el.parentElement;
+        if (!parent) return tag;
+        let index = 0;
+        let sibling = el;
+        while ((sibling = sibling.previousElementSibling) !== null) {
+          if (sibling.tagName === el.tagName) index++;
+        }
+        return `${tag}:nth-of-type(${index + 1})`;
+      }
+
+      function getAccessibleName(el) {
+        // aria-label wins, then aria-labelledby, then <label for>, then
+        // text content (truncated), then title attribute.
+        const ariaLabel = el.getAttribute('aria-label');
+        if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+
+        const labelledBy = el.getAttribute('aria-labelledby');
+        if (labelledBy) {
+          const target = document.getElementById(labelledBy);
+          if (target) {
+            const txt = (target.textContent || '').trim();
+            if (txt) return txt.slice(0, 200);
+          }
+        }
+
+        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+          const id = el.id;
+          if (id) {
+            const label = document.querySelector(`label[for="${CSS.escape(id)}"]`);
+            if (label) {
+              const txt = (label.textContent || '').trim();
+              if (txt) return txt.slice(0, 200);
+            }
+          }
+          // wrapping label
+          const wrapping = el.closest('label');
+          if (wrapping) {
+            const txt = (wrapping.textContent || '').trim();
+            if (txt) return txt.slice(0, 200);
+          }
+        }
+
+        const titleAttr = el.getAttribute('title');
+        if (titleAttr && titleAttr.trim()) return titleAttr.trim();
+
+        const txt = (el.textContent || '').trim();
+        if (txt && txt.length <= 200) return txt;
+        if (txt) return txt.slice(0, 200);
+        return '';
+      }
+
+      function isVisible(el) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        if (style.opacity === '0') return false;
+        return true;
+      }
+
+      const root = document.querySelector(scopeSelector) || document.body;
+      const all = root.querySelectorAll('*');
+      const out = [];
+      for (const el of all) {
+        if (out.length >= maxItems) break;
+
+        const tag = el.tagName.toUpperCase();
+        const roleAttr = el.getAttribute('role');
+        const isInteractive =
+          INTERACTIVE_TAGS.has(tag) ||
+          (roleAttr && INTERACTIVE_ROLES.has(roleAttr)) ||
+          el.hasAttribute('onclick') ||
+          el.tabIndex >= 0;
+        if (!isInteractive) continue;
+
+        if (!includeHiddenFlag && !isVisible(el)) continue;
+
+        const name = getAccessibleName(el);
+        const role =
+          roleAttr ||
+          (tag === 'A' ? 'link' : tag === 'BUTTON' ? 'button' : '');
+
+        // type attribute for inputs (helps the model pick the right one)
+        const typeAttr = tag === 'INPUT' ? el.getAttribute('type') || 'text' : null;
+
+        out.push({
+          tag: tag.toLowerCase(),
+          type: typeAttr,
+          role: role || null,
+          name: name || null,
+          text: ((el.textContent || '').trim()).slice(0, 100) || null,
+          selector: buildSelector(el),
+          // Hints that map 1:1 to Playwright getBy* — empty when not viable.
+          role_hint: role ? { role, name: name || undefined } : null,
+          label_hint:
+            tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+              ? name || null
+              : null,
+          placeholder_hint: el.getAttribute('placeholder') || null,
+        });
+      }
+      return out;
+    },
+    { scopeSelector: scope, includeHiddenFlag: includeHidden, maxItems: limit },
+  );
+
+  return sendJSON(res, 200, {
+    ok: true,
+    data: {
+      scope,
+      count: items.length,
+      items,
+    },
+  });
 }
 
 async function handleSaveState(req, res, body) {
@@ -489,6 +782,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/evaluate' && method === 'POST') {
       return await handleEvaluate(req, res, await parseBody(req));
+    }
+    if (pathname === '/inspect' && method === 'POST') {
+      return await handleInspect(req, res, await parseBody(req));
     }
     if (pathname === '/save-state' && method === 'POST') {
       return await handleSaveState(req, res, await parseBody(req));

@@ -37,6 +37,7 @@ const (
 // the legacy registerBrowserAct.
 func registerBrowserToolsV2(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
 	registerBrowserNavigate(registry, sbMgr, ctx)
+	registerBrowserInspect(registry, sbMgr, ctx)
 	registerBrowserClick(registry, sbMgr, ctx)
 	registerBrowserType(registry, sbMgr, ctx)
 	registerBrowserGetText(registry, sbMgr, ctx)
@@ -75,14 +76,32 @@ func clampTimeoutSec(v int) int {
 
 // helperResultToToolResult converts the helper envelope's inner data into a
 // success ToolResult. On error from CallBridge, returns a failure ToolResult.
+//
+// body may be nil (GET), []byte (pre-serialized JSON), or any json-marshalable
+// value (map/struct) which is marshalled here. This keeps call sites concise.
 func bridgeCallToToolResult(
 	sbMgr *sandbox.Manager,
 	ctx *AgentContext,
 	method, path string,
-	body []byte,
+	body any,
 	timeoutSec int,
 ) (*ToolResult, error) {
-	data, err := browser.CallBridge(sbMgr, ctx.SandboxID, method, path, body, timeoutSec)
+	var raw []byte
+	switch v := body.(type) {
+	case nil:
+		raw = nil
+	case []byte:
+		raw = v
+	case json.RawMessage:
+		raw = v
+	default:
+		buf, err := json.Marshal(v)
+		if err != nil {
+			return &ToolResult{Success: false, Error: fmt.Sprintf("marshal request body: %v", err)}, nil
+		}
+		raw = buf
+	}
+	data, err := browser.CallBridge(sbMgr, ctx.SandboxID, method, path, raw, timeoutSec)
 	if err != nil {
 		return &ToolResult{Success: false, Error: err.Error()}, nil
 	}
@@ -167,45 +186,137 @@ func registerBrowserNavigate(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx
 
 // ── Tool: browser_click ─────────────────────────────────────────────
 
+// locatorStrategyProperties is the shared JSON-Schema fragment describing
+// the selector-strategy parameters accepted by browser_click / browser_type
+// (and usable as a scope hint by browser_inspect). Mirrors the serverless
+// side so the model can reuse the same workflow on both sides.
+//
+// Priority order (handled by the helper):
+//   selector > role (+role_name) > label > placeholder > text
+func locatorStrategyProperties() map[string]any {
+	return map[string]any{
+		"selector": map[string]any{
+			"type":        "string",
+			"description": "CSS / Playwright selector. Highest priority when present. Use when you have a stable id, [data-testid], or tag+name.",
+		},
+		"role": map[string]any{
+			"type":        "string",
+			"description": "ARIA role (button, link, textbox, checkbox, ...). Maps to Playwright getByRole. Robust against dynamic class names.",
+			"enum":        []string{"button", "link", "textbox", "checkbox", "radio", "menuitem", "option", "switch", "tab", "combobox", "listbox", "slider", "searchbox", "spinbutton"},
+		},
+		"role_name": map[string]any{
+			"type":        "string",
+			"description": "Accessible name to disambiguate the role (e.g. role=button, role_name=Login).",
+		},
+		"role_exact": map[string]any{
+			"type":        "boolean",
+			"description": "Match role_name exactly (default: substring match).",
+		},
+		"label": map[string]any{
+			"type":        "string",
+			"description": "Form field label (visible <label> or aria-label). Best for inputs. Maps to getByLabel.",
+		},
+		"label_exact": map[string]any{"type": "boolean", "description": "Match label exactly."},
+		"placeholder": map[string]any{
+			"type":        "string",
+			"description": "Input placeholder text. Maps to getByPlaceholder.",
+		},
+		"placeholder_exact": map[string]any{"type": "boolean", "description": "Match placeholder exactly."},
+		"text": map[string]any{
+			"type":        "string",
+			"description": "Visible text content. Maps to getByText. Less precise than role+name (avoid if the page has duplicate strings).",
+		},
+		"text_exact": map[string]any{"type": "boolean", "description": "Match text exactly."},
+		"frame_chain": map[string]any{
+			"type":        "array",
+			"items":       map[string]any{"type": "string"},
+			"description": "Selectors for nested iframes, outer-to-inner. Each entry is resolved as a frameLocator inside the previous one. Same-origin shadow DOM is handled automatically by Playwright's CSS engine and does NOT need this.",
+		},
+	}
+}
+
+// locatorStrategyParams is the struct mirror of locatorStrategyProperties.
+// Fields are pointers where distinguishing "omitted" from "zero" matters.
+type locatorStrategyParams struct {
+	Selector         string   `json:"selector"`
+	Role             string   `json:"role"`
+	RoleName         string   `json:"role_name"`
+	RoleExact        *bool    `json:"role_exact"`
+	Label            string   `json:"label"`
+	LabelExact       *bool    `json:"label_exact"`
+	Placeholder      string   `json:"placeholder"`
+	PlaceholderExact *bool    `json:"placeholder_exact"`
+	Text             string   `json:"text"`
+	TextExact        *bool    `json:"text_exact"`
+	FrameChain       []string `json:"frame_chain"`
+}
+
+// toMap serializes non-empty strategy fields into a JSON body. Used by
+// browser_click/browser_type when calling the helper.
+func (p locatorStrategyParams) toMap() map[string]any {
+	m := map[string]any{
+		"selector":    p.Selector,
+		"role":        p.Role,
+		"role_name":   p.RoleName,
+		"label":       p.Label,
+		"placeholder": p.Placeholder,
+		"text":        p.Text,
+		"frame_chain": p.FrameChain,
+	}
+	if p.RoleExact != nil {
+		m["role_exact"] = *p.RoleExact
+	}
+	if p.LabelExact != nil {
+		m["label_exact"] = *p.LabelExact
+	}
+	if p.PlaceholderExact != nil {
+		m["placeholder_exact"] = *p.PlaceholderExact
+	}
+	if p.TextExact != nil {
+		m["text_exact"] = *p.TextExact
+	}
+	return m
+}
+
 func registerBrowserClick(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	props := locatorStrategyProperties()
+	props["x"] = map[string]any{"type": "number", "description": "X coordinate (used when no selector strategy is given)."}
+	props["y"] = map[string]any{"type": "number", "description": "Y coordinate (used when no selector strategy is given)."}
+	props["button"] = map[string]any{"type": "string", "enum": []string{"left", "middle", "right"}, "description": "Mouse button. Default: left."}
+	props["click_count"] = map[string]any{"type": "number", "description": "Number of clicks (1-3). Default: 1."}
+	props["timeout_ms"] = map[string]any{"type": "number", "description": "Wait timeout in ms. Default 30000."}
+	props["profile"] = map[string]any{"type": "string", "description": "Profile name (defaults to current agent profile)."}
+
 	registry.Register(ToolDefinition{
-		Name:        "browser_click",
-		Description: "Click an element by CSS selector, or click page coordinates (x, y). Requires browser_navigate first.",
+		Name: "browser_click",
+		Description: "Click an element. Provide ONE of these targeting strategies (priority: selector > role+role_name > label > placeholder > text), " +
+			"or page coordinates (x, y). Prefer role+role_name or label over selector when the page uses dynamic CSS classes (e.g. Tailwind). " +
+			"Run browser_inspect first to discover the recommended strategy for each element. Requires browser_navigate first.",
 		MinUserType: "trusted",
 		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"selector":    map[string]any{"type": "string", "description": "CSS selector of element to click."},
-				"x":           map[string]any{"type": "number", "description": "X coordinate (used when selector is empty)."},
-				"y":           map[string]any{"type": "number", "description": "Y coordinate (used when selector is empty)."},
-				"button":      map[string]any{"type": "string", "enum": []string{"left", "middle", "right"}, "description": "Mouse button. Default: left."},
-				"click_count": map[string]any{"type": "number", "description": "Number of clicks (1-3). Default: 1."},
-				"timeout_ms":  map[string]any{"type": "number", "description": "Wait timeout in ms. Default 30000."},
-				"profile":     map[string]any{"type": "string", "description": "Profile name (defaults to current agent profile)."},
-			},
+			"type":       "object",
+			"properties": props,
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
 		var params struct {
-			Selector   string `json:"selector"`
+			locatorStrategyParams
 			X          *float64 `json:"x"`
 			Y          *float64 `json:"y"`
-			Button     string `json:"button"`
-			ClickCount int    `json:"click_count"`
-			TimeoutMs  int    `json:"timeout_ms"`
-			Profile    string `json:"profile"`
+			Button     string   `json:"button"`
+			ClickCount int      `json:"click_count"`
+			TimeoutMs  int      `json:"timeout_ms"`
+			Profile    string   `json:"profile"`
 		}
 		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
 			return toolErr, nil
 		}
-		body, _ := json.Marshal(map[string]any{
-			"selector":     params.Selector,
-			"x":            params.X,
-			"y":            params.Y,
-			"button":       params.Button,
-			"click_count":  params.ClickCount,
-			"timeout_ms":   params.TimeoutMs,
-			"profile":      resolveProfile(params.Profile, ctx.AgentID),
-		})
+		body := params.locatorStrategyParams.toMap()
+		body["x"] = params.X
+		body["y"] = params.Y
+		body["button"] = params.Button
+		body["click_count"] = params.ClickCount
+		body["timeout_ms"] = params.TimeoutMs
+		body["profile"] = resolveProfile(params.Profile, ctx.AgentID)
 		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/click", body, clampTimeoutSec(params.TimeoutMs/1000))
 	})
 }
@@ -213,27 +324,33 @@ func registerBrowserClick(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *A
 // ── Tool: browser_type ──────────────────────────────────────────────
 
 func registerBrowserType(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	props := locatorStrategyProperties()
+	// type uses `text` for the value to type, so the locator-strategy `text`
+	// parameter is intentionally removed to avoid collision.
+	delete(props, "text")
+	delete(props, "text_exact")
+	props["text"] = map[string]any{"type": "string", "description": "Text to type into the target element."}
+	props["clear"] = map[string]any{"type": "boolean", "description": "Clear the field before typing."}
+	props["press_enter"] = map[string]any{"type": "boolean", "description": "Press Enter after typing."}
+	props["delay_ms"] = map[string]any{"type": "number", "description": "Delay between keystrokes (0-1000)."}
+	props["timeout_ms"] = map[string]any{"type": "number", "description": "Wait timeout in ms. Default 30000."}
+	props["profile"] = map[string]any{"type": "string", "description": "Profile name."}
+
 	registry.Register(ToolDefinition{
-		Name:        "browser_type",
-		Description: "Type text into a selector (or the focused element if no selector). Optionally clear first and press Enter.",
+		Name: "browser_type",
+		Description: "Type text into a target element. Provide ONE targeting strategy (selector > role+role_name > label > placeholder); " +
+			"if none given, types into the currently focused element. For form fields, prefer `label` or `placeholder` over `selector` " +
+			"(more robust against dynamic CSS). Run browser_inspect first to discover labels/placeholders.",
 		MinUserType: "trusted",
 		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"text":        map[string]any{"type": "string", "description": "Text to type."},
-				"selector":    map[string]any{"type": "string", "description": "CSS selector. If empty, types into focused element."},
-				"clear":       map[string]any{"type": "boolean", "description": "Clear the field before typing."},
-				"press_enter": map[string]any{"type": "boolean", "description": "Press Enter after typing."},
-				"delay_ms":    map[string]any{"type": "number", "description": "Delay between keystrokes (0-1000)."},
-				"timeout_ms":  map[string]any{"type": "number", "description": "Wait timeout in ms. Default 30000."},
-				"profile":     map[string]any{"type": "string", "description": "Profile name."},
-			},
-			"required": []string{"text"},
+			"type":       "object",
+			"properties": props,
+			"required":   []string{"text"},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
 		var params struct {
+			locatorStrategyParams
 			Text       string `json:"text"`
-			Selector   string `json:"selector"`
 			Clear      bool   `json:"clear"`
 			PressEnter bool   `json:"press_enter"`
 			DelayMs    int    `json:"delay_ms"`
@@ -246,15 +363,18 @@ func registerBrowserType(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Ag
 		if strings.TrimSpace(params.Text) == "" {
 			return &ToolResult{Success: false, Error: "text is required"}, nil
 		}
-		body, _ := json.Marshal(map[string]any{
-			"text":        params.Text,
-			"selector":    params.Selector,
-			"clear":       params.Clear,
-			"press_enter": params.PressEnter,
-			"delay_ms":    params.DelayMs,
-			"timeout_ms":  params.TimeoutMs,
-			"profile":     resolveProfile(params.Profile, ctx.AgentID),
-		})
+		// Strip the locator-strategy `text` field — type() reserves it for
+		// the value to type. The bridge's resolveLocator handles the other
+		// strategies (selector/role/label/placeholder) for target lookup.
+		body := params.locatorStrategyParams.toMap()
+		delete(body, "text")
+		delete(body, "text_exact")
+		body["text"] = params.Text
+		body["clear"] = params.Clear
+		body["press_enter"] = params.PressEnter
+		body["delay_ms"] = params.DelayMs
+		body["timeout_ms"] = params.TimeoutMs
+		body["profile"] = resolveProfile(params.Profile, ctx.AgentID)
 		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/type", body, clampTimeoutSec(params.TimeoutMs/1000))
 	})
 }
@@ -545,6 +665,63 @@ func registerBrowserListProfiles(registry *ToolRegistry, sbMgr *sandbox.Manager,
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
 		return bridgeCallToToolResult(sbMgr, ctx, "GET", "/list-profiles", nil, browserDefaultTimeoutSec)
+	})
+}
+
+// ── Tool: browser_inspect ───────────────────────────────────────────
+//
+// Cuts the token cost of "where do I click?" / "what's the selector?"
+// workflows. Instead of pulling the full HTML via browser_get_html and
+// parsing it mentally, the model calls browser_inspect and gets a compact
+// list of interactive elements with pre-computed selector strategies:
+// role+name, label, placeholder, and a CSS fallback. The recommended
+// strategy for each element is the most stable one available (id/testid
+// > name > role+name > label > placeholder > positional).
+
+func registerBrowserInspect(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	registry.Register(ToolDefinition{
+		Name: "browser_inspect",
+		Description: "List interactive elements on the current page (a, button, input, select, textarea, and elements with ARIA roles), " +
+			"with pre-computed targeting strategies for each: CSS selector, ARIA role+name, label, placeholder. " +
+			"Use this BEFORE browser_click/browser_type when you don't already know a stable selector — it dramatically reduces mis-clicks on " +
+			"pages with dynamic CSS classes (e.g. Tailwind). Output is compact (no HTML markup).",
+		MinUserType: "trusted",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"selector": map[string]any{
+					"type":        "string",
+					"description": "CSS scope to limit the scan (default: body). Useful for inspecting a specific dialog or section.",
+				},
+				"limit": map[string]any{
+					"type":        "number",
+					"description": "Max elements to return (default 200, hard cap 500).",
+				},
+				"include_hidden": map[string]any{
+					"type":        "boolean",
+					"description": "Include elements outside the viewport or hidden by CSS (default: false).",
+				},
+				"profile": map[string]any{"type": "string", "description": "Profile name."},
+			},
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		var params struct {
+			Selector      string `json:"selector"`
+			Limit         int    `json:"limit"`
+			IncludeHidden bool   `json:"include_hidden"`
+			Profile       string `json:"profile"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		body, _ := json.Marshal(map[string]any{
+			"selector":       params.Selector,
+			"limit":          params.Limit,
+			"include_hidden": params.IncludeHidden,
+			"profile":        resolveProfile(params.Profile, ctx.AgentID),
+		})
+		// Inspect runs a single in-page evaluate; default timeout is plenty.
+		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/inspect", body, browserDefaultTimeoutSec)
 	})
 }
 
