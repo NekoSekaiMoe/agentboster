@@ -35,6 +35,7 @@ import {
   type ChatInputEnvelope,
   type ChatMessageMetadata,
   type ChatSource,
+  COMMANDS,
   type Command,
   type WorkflowUIMessage,
   type WorkflowUIMessageChunk,
@@ -136,34 +137,22 @@ type AdapterMessageInput = {
 
 type SessionRecord = Awaited<ReturnType<typeof getSession>> | null;
 
-const COMMAND_HELP_TEXT = [
-  'Available slash commands:',
-  '/help - Show slash command help',
-  '/status - Show the current session status',
-  '/new - Create and switch to a new session',
-  '/init - Generate or update AGENTS.md for this repository',
-  '/sessions - List recent sessions available to this IM user',
-  '/session - Show the current bound session',
-  '/session <session-id> - Switch to an existing session',
-  '/switch <index|session-id> - Switch to a listed or existing session',
-  '/delete_session [index|session-id] - Delete the current or selected IM session',
-  '/stop - Stop the active workflow run',
-  '/compact - Request context compaction',
-  '/approve <toolCallId> [note] - Approve a pending tool call',
-  '/reject <toolCallId> [note] - Reject a pending tool call',
-  '/model - Show current model config',
-  '/model <model-id> - Switch model (use "provider/model-id" or bare model name)',
-  '/provider - List model providers',
-  '/provider add <name> <format> [base_url] - Add a model provider',
-  '/provider set <name> <field> <value> - Update a model provider',
-  '/config - Show config whitelist',
-  '/config <path> [value] - Get or set a config value',
-  '/memory <query> - Search memories',
-  '/memory builtin | search <q> | add <text>',
-  '/pair <code> - Pair your IM account with a code',
-  '/unpair - Unbind your IM account from the current ClawLess user',
-  '/whoami - Show the ClawLess user this IM account is bound to',
-].join('\n\n');
+/**
+ * Build the /help output for the given locale. Reuses the slash.command.*
+ * descriptions so /help and the Web slash menu stay in sync.
+ */
+function buildCommandHelpText(locale: Locale): string {
+  const header = t(locale, 'cmd.help.header');
+  const entries = COMMANDS.map((cmd) => {
+    const description = t(
+      locale,
+      `slash.command.${cmd}.description` as never,
+    );
+    const hint = t(locale, `slash.command.${cmd}.hint` as never);
+    return `${hint} - ${description}`;
+  });
+  return [header, ...entries].join('\n\n');
+}
 
 function normalizeSource(options?: ChatMainOptions): ChatSource {
   if (options?.source) {
@@ -678,14 +667,14 @@ async function executeCommand(input: {
     case 'help':
       return {
         sessionId: currentSessionId,
-        text: COMMAND_HELP_TEXT,
+        text: buildCommandHelpText(locale),
         runId: session?.workflowRunId ?? null,
       };
     case 'status': {
       if (!session) {
         return {
           sessionId: 'none',
-          text: 'No session is currently bound to this thread.',
+          text: t(locale, 'cmd.status.noSession'),
           runId: null,
         };
       }
@@ -735,7 +724,7 @@ async function executeCommand(input: {
       if (input.source.type !== 'im') {
         return {
           sessionId: currentSessionId,
-          text: 'Session switching is only available for IM threads.',
+          text: t(locale, 'cmd.session.switch.imOnly'),
           runId: session?.workflowRunId ?? null,
         };
       }
@@ -748,7 +737,7 @@ async function executeCommand(input: {
       if (!target) {
         return {
           sessionId: currentSessionId,
-          text: `No matching session found for "${input.args}". Use /sessions to list recent sessions.`,
+          text: t(locale, 'cmd.session.notFound', { args: input.args }),
           runId: session?.workflowRunId ?? null,
         };
       }
@@ -757,7 +746,7 @@ async function executeCommand(input: {
 
       return {
         sessionId: rebound?.id ?? target.id,
-        text: `Switched to session ${target.id}.`,
+        text: t(locale, 'cmd.session.switched', { sessionId: target.id }),
         runId: target.workflowRunId ?? null,
       };
     }
@@ -765,7 +754,7 @@ async function executeCommand(input: {
       if (input.source.type !== 'im') {
         return {
           sessionId: currentSessionId,
-          text: 'Session listing is only available for IM threads.',
+          text: t(locale, 'cmd.session.list.imOnly'),
           runId: session?.workflowRunId ?? null,
         };
       }
@@ -785,7 +774,7 @@ async function executeCommand(input: {
       if (input.source.type !== 'im') {
         return {
           sessionId: currentSessionId,
-          text: 'Session switching is only available for IM threads.',
+          text: t(locale, 'cmd.session.switch.imOnly'),
           runId: session?.workflowRunId ?? null,
         };
       }
@@ -811,7 +800,7 @@ async function executeCommand(input: {
       if (!target) {
         return {
           sessionId: currentSessionId,
-          text: `No matching session found for "${input.args}". Use /sessions to list recent sessions.`,
+          text: t(locale, 'cmd.session.notFound', { args: input.args }),
           runId: session?.workflowRunId ?? null,
         };
       }
@@ -820,7 +809,7 @@ async function executeCommand(input: {
 
       return {
         sessionId: rebound?.id ?? target.id,
-        text: `Switched to session ${target.id}.`,
+        text: t(locale, 'cmd.session.switched', { sessionId: target.id }),
         runId: target.workflowRunId ?? null,
       };
     }
@@ -828,7 +817,7 @@ async function executeCommand(input: {
       if (input.source.type !== 'im') {
         return {
           sessionId: currentSessionId,
-          text: 'Session deletion is only available for IM threads.',
+          text: t(locale, 'cmd.session.delete.imOnly'),
           runId: session?.workflowRunId ?? null,
         };
       }
@@ -845,8 +834,8 @@ async function executeCommand(input: {
         return {
           sessionId: currentSessionId,
           text: input.args.trim()
-            ? `No matching session found for "${input.args}". Use /sessions to list recent sessions.`
-            : 'No session is currently bound to this thread.',
+            ? t(locale, 'cmd.session.notFound', { args: input.args })
+            : t(locale, 'cmd.session.noActive'),
           runId: session?.workflowRunId ?? null,
         };
       }
@@ -854,7 +843,7 @@ async function executeCommand(input: {
       if (!canImSourceAccessSession(input.source, target)) {
         return {
           sessionId: currentSessionId,
-          text: 'You can only delete sessions that belong to this IM account.',
+          text: t(locale, 'cmd.session.deleteNotAllowed'),
           runId: session?.workflowRunId ?? null,
         };
       }
@@ -865,13 +854,7 @@ async function executeCommand(input: {
       return {
         sessionId:
           session?.id && session.id !== deletedSessionId ? session.id : 'none',
-        text: [
-          `Deleted session ${deletedSessionId}.`,
-          `workflow_cancelled=${cleanup.workflowCancelled}`,
-          `daemon_aborted=${cleanup.daemonAborted}`,
-          `sandbox_stopped=${cleanup.sandboxStopped}`,
-          `schedule_runs_cancelled=${cleanup.scheduleRunsCancelled}`,
-        ].join('\n'),
+        text: `${t(locale, 'cmd.session.deleted', { sessionId: deletedSessionId })}\n${t(locale, 'cmd.session.cleanupSummary', { workflowCancelled: String(cleanup.workflowCancelled), daemonAborted: String(cleanup.daemonAborted), sandboxStopped: String(cleanup.sandboxStopped), scheduleRunsCancelled: String(cleanup.scheduleRunsCancelled) })}`,
         runId: null,
       };
     }
@@ -879,7 +862,7 @@ async function executeCommand(input: {
       if (!session) {
         return {
           sessionId: 'none',
-          text: 'No session is currently bound to this thread.',
+          text: t(locale, 'cmd.status.noSession'),
           runId: null,
         };
       }
@@ -895,7 +878,9 @@ async function executeCommand(input: {
       await pauseWorkflow(runtime.workflow.runId);
       return {
         sessionId: session.id,
-        text: `Stopped workflow run ${runtime.workflow.runId}.`,
+        text: t(locale, 'cmd.stop.success', {
+          runId: runtime.workflow.runId,
+        }),
         runId: null,
       };
     }
@@ -910,7 +895,7 @@ async function executeCommand(input: {
       if (!session) {
         return {
           sessionId: 'none',
-          text: 'No session is currently bound to this thread.',
+          text: t(locale, 'cmd.status.noSession'),
           runId: null,
         };
       }
@@ -943,7 +928,7 @@ async function executeCommand(input: {
       if (!session) {
         return {
           sessionId: 'none',
-          text: 'No session is currently bound to this thread.',
+          text: t(locale, 'cmd.status.noSession'),
           runId: null,
         };
       }
@@ -1018,7 +1003,10 @@ async function executeCommand(input: {
 
       return {
         sessionId: session.id,
-        text: `${input.command === 'approve' ? 'Approved' : 'Rejected'} ${toolCallId}.`,
+        text:
+          input.command === 'approve'
+            ? t(locale, 'cmd.approve.ok', { toolCallId })
+            : t(locale, 'cmd.reject.ok', { toolCallId }),
         runId: session.workflowRunId ?? null,
       };
     }
@@ -1238,7 +1226,7 @@ async function executeCommand(input: {
     default:
       return {
         sessionId: currentSessionId,
-        text: `Unsupported command: /${input.command}`,
+        text: t(locale, 'cmd.unsupported', { command: input.command }),
         runId: session?.workflowRunId ?? null,
       };
   }
