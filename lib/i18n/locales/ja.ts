@@ -575,9 +575,12 @@ export const ja = {
   'notify.timeInput.youChose':
     '選択内容：{action}。時間を hhddmmyy 形式で送信してください（例：14212506 は 2025 年 6 月 14 日 21:25 を表します）。',
   'notify.timeInput.format': '形式：hhddmmyy',
-  'notify.timeInput.placeholder': '⏱ 時間を入力してください',  'toast.accessDenied': '管理者のみグローバル設定を保存できます。',
-  'toast.attachment.addFailed': '添付ファイルの追加に失敗しました。もう一度お試しください。',
-  'toast.attachment.uploadFailed': 'エラーが発生しました。もう一度お試しください!',
+  'notify.timeInput.placeholder': '⏱ 時間を入力してください',
+  'toast.accessDenied': '管理者のみグローバル設定を保存できます。',
+  'toast.attachment.addFailed':
+    '添付ファイルの追加に失敗しました。もう一度お試しください。',
+  'toast.attachment.uploadFailed':
+    'エラーが発生しました。もう一度お試しください!',
   'toast.audit.markAllRead.failed': 'すべての既読マークに失敗しました',
   'toast.audit.markAllRead.success': 'すべて既読にしました',
   'toast.audit.markRead.failed': '既読マークに失敗しました',
@@ -596,7 +599,8 @@ export const ja = {
   'toast.decision.conflict.timeout': '競合解決がタイムアウトしました',
   'toast.decision.handled': '処理しました',
   'toast.decision.ignored': '無視しました',
-  'toast.decision.needAllConflicts': 'すべての競合ファイルの解決方法を選択してください',
+  'toast.decision.needAllConflicts':
+    'すべての競合ファイルの解決方法を選択してください',
   'toast.decision.needChoice': 'オプションを選択してください',
   'toast.decision.paused': '決定がタイムアウトし、Agent を一時停止しました',
   'toast.decision.requestFailed': 'リクエストに失敗しました',
@@ -635,7 +639,8 @@ export const ja = {
   'toast.session.pinFailed': 'セッションのピン留めに失敗しました',
   'toast.skill.created': 'スキルを作成しました',
   'toast.skill.detailLoadFailed': 'スキル詳細の読み込みに失敗しました',
-  'toast.skill.importTimeout': 'インポートがタイムアウトしました — サーバーログを確認してください',
+  'toast.skill.importTimeout':
+    'インポートがタイムアウトしました — サーバーログを確認してください',
   'toast.skill.invalidInput': '名前と、内容を含むファイルが 1 つ以上必要です',
   'toast.skill.listLoadFailed': 'スキル一覧の読み込みに失敗しました',
   'toast.soul.cleared': 'セッション SOUL をクリアしました',
@@ -655,7 +660,8 @@ export const ja = {
   'toast.task.updated': 'タスクを更新しました',
   'toast.user.created': 'ユーザーを作成しました',
   'toast.user.rolesUpdated': 'ロールを更新しました',
-  'toast.auth.signOutFailed': 'サインアウトに失敗しました。もう一度お試しください。',
+  'toast.auth.signOutFailed':
+    'サインアウトに失敗しました。もう一度お試しください。',
   'toast.doc.deleted': 'ドキュメントを削除しました',
   'toast.doc.imported': 'ドキュメントをインポートしました',
   'toast.file.loadFailed': 'ファイルの読み込みに失敗しました',
@@ -665,5 +671,4 @@ export const ja = {
   'toast.body.jsonInvalid': 'Body JSON が無効です',
   'toast.external.deleted': '外部ソースを削除しました',
   'toast.external.synced': '外部ソースを同期しました',
-
 } satisfies Record<keyof typeof enUS, string>;

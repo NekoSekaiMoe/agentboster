@@ -525,7 +525,8 @@ export const zhTW = {
   'notify.timeInput.youChose':
     '您選擇了：{action}。請以 hhddmmyy 格式發送時間（例如 14212506 表示 2025 年 6 月 14 日 21:25）。',
   'notify.timeInput.format': '格式：hhddmmyy',
-  'notify.timeInput.placeholder': '⏱ 請輸入時間',  'toast.accessDenied': '僅管理員可儲存全域設定。',
+  'notify.timeInput.placeholder': '⏱ 請輸入時間',
+  'toast.accessDenied': '僅管理員可儲存全域設定。',
   'toast.attachment.addFailed': '新增附件失敗,請再試一次。',
   'toast.attachment.uploadFailed': '發生錯誤,請再試一次!',
   'toast.audit.markAllRead.failed': '全部標記為已讀失敗',
@@ -615,5 +616,4 @@ export const zhTW = {
   'toast.body.jsonInvalid': 'Body JSON 無效',
   'toast.external.deleted': '外部來源已刪除',
   'toast.external.synced': '外部來源已同步',
-
 } satisfies Record<keyof typeof enUS, string>;

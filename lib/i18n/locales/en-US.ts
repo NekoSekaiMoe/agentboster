@@ -588,7 +588,8 @@ export const enUS = {
   'toast.decision.conflict.timeout': 'Conflict resolution timed out',
   'toast.decision.handled': 'Handled',
   'toast.decision.ignored': 'Ignored',
-  'toast.decision.needAllConflicts': 'Please select a resolution for all conflicting files',
+  'toast.decision.needAllConflicts':
+    'Please select a resolution for all conflicting files',
   'toast.decision.needChoice': 'Please select an option',
   'toast.decision.paused': 'Decision timed out, agent paused',
   'toast.decision.requestFailed': 'Request failed',
@@ -628,7 +629,8 @@ export const enUS = {
   'toast.skill.created': 'Skill created',
   'toast.skill.detailLoadFailed': 'Failed to load skill detail',
   'toast.skill.importTimeout': 'Import timed out — check server logs',
-  'toast.skill.invalidInput': 'Name and at least one file with content are required',
+  'toast.skill.invalidInput':
+    'Name and at least one file with content are required',
   'toast.skill.listLoadFailed': 'Failed to load skills',
   'toast.soul.cleared': 'Session SOUL cleared',
   'toast.soul.clearFailed': 'Failed to clear session SOUL',

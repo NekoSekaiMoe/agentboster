@@ -523,7 +523,8 @@ export const zhCN = {
   'notify.timeInput.youChose':
     '您选择了：{action}。请以 hhddmmyy 格式发送时间（例如 14212506 表示 2025 年 6 月 14 日 21:25）。',
   'notify.timeInput.format': '格式：hhddmmyy',
-  'notify.timeInput.placeholder': '⏱ 请输入时间',  'toast.accessDenied': '仅管理员可保存全局配置。',
+  'notify.timeInput.placeholder': '⏱ 请输入时间',
+  'toast.accessDenied': '仅管理员可保存全局配置。',
   'toast.attachment.addFailed': '添加附件失败,请重试。',
   'toast.attachment.uploadFailed': '发生错误,请重试!',
   'toast.audit.markAllRead.failed': '全部标记为已读失败',
@@ -613,5 +614,4 @@ export const zhCN = {
   'toast.body.jsonInvalid': 'Body JSON 无效',
   'toast.external.deleted': '外部源已删除',
   'toast.external.synced': '外部源已同步',
-
 } satisfies Record<keyof typeof enUS, string>;

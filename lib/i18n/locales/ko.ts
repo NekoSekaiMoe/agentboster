@@ -559,8 +559,10 @@ export const ko = {
   'notify.timeInput.youChose':
     '선택하신 내용: {action}. 시간을 hhddmmyy 형식으로 보내주세요 (예: 14212506은 2025년 6월 14일 21:25를 의미합니다).',
   'notify.timeInput.format': '형식: hhddmmyy',
-  'notify.timeInput.placeholder': '⏱ 시간을 입력해 주세요',  'toast.accessDenied': '관리자만 전역 설정을 저장할 수 있습니다.',
-  'toast.attachment.addFailed': '첨부 파일 추가에 실패했습니다. 다시 시도해 주세요.',
+  'notify.timeInput.placeholder': '⏱ 시간을 입력해 주세요',
+  'toast.accessDenied': '관리자만 전역 설정을 저장할 수 있습니다.',
+  'toast.attachment.addFailed':
+    '첨부 파일 추가에 실패했습니다. 다시 시도해 주세요.',
   'toast.attachment.uploadFailed': '오류가 발생했습니다. 다시 시도해 주세요!',
   'toast.audit.markAllRead.failed': '모두 읽음 표시에 실패했습니다',
   'toast.audit.markAllRead.success': '모두 읽음으로 표시했습니다',
@@ -580,7 +582,8 @@ export const ko = {
   'toast.decision.conflict.timeout': '충돌 해결이 시간 초과되었습니다',
   'toast.decision.handled': '처리했습니다',
   'toast.decision.ignored': '무시했습니다',
-  'toast.decision.needAllConflicts': '모든 충돌 파일의 해결 방법을 선택해 주세요',
+  'toast.decision.needAllConflicts':
+    '모든 충돌 파일의 해결 방법을 선택해 주세요',
   'toast.decision.needChoice': '옵션을 선택해 주세요',
   'toast.decision.paused': '결정이 시간 초과되어 Agent 를 일시정지했습니다',
   'toast.decision.requestFailed': '요청에 실패했습니다',
@@ -619,7 +622,8 @@ export const ko = {
   'toast.session.pinFailed': '세션 고정에 실패했습니다',
   'toast.skill.created': '스킬을 생성했습니다',
   'toast.skill.detailLoadFailed': '스킬 상세 로드에 실패했습니다',
-  'toast.skill.importTimeout': '가져오기가 시간 초과되었습니다 — 서버 로그를 확인해 주세요',
+  'toast.skill.importTimeout':
+    '가져오기가 시간 초과되었습니다 — 서버 로그를 확인해 주세요',
   'toast.skill.invalidInput': '이름과 내용이 포함된 파일 1개 이상이 필요합니다',
   'toast.skill.listLoadFailed': '스킬 목록 로드에 실패했습니다',
   'toast.soul.cleared': '세션 SOUL 을 삭제했습니다',
@@ -649,5 +653,4 @@ export const ko = {
   'toast.body.jsonInvalid': 'Body JSON 이 유효하지 않습니다',
   'toast.external.deleted': '외부 소스를 삭제했습니다',
   'toast.external.synced': '외부 소스를 동기화했습니다',
-
 } satisfies Record<keyof typeof enUS, string>;
