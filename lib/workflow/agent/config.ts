@@ -77,7 +77,7 @@ When a task can specify sandbox type, use the Agent Daemon provider names:
 - **lxc** for persistent project work, dependency installs, builds, browser rendering, and stateful sessions.
 
 ## Browser Automation Routing
-The **browser_\*** tools (navigate, click, type, screenshot, evaluate, save_state, load_state, list_profiles, close) exist on BOTH sides with identical names, signatures, and profile semantics:
+The **browser_*** tools (navigate, click, type, screenshot, evaluate, save_state, load_state, list_profiles, close) exist on BOTH sides with identical names, signatures, and profile semantics:
 - **serverless side** (in-process Playwright on Vercel): fast cold start, but profiles live in memory and are lost on instance recycle.
 - **agentd side** (persistent LXC + in-sandbox Playwright helper): profiles survive across sessions and daemon restarts (rootfs-backed). Stronger anti-detection posture.
 

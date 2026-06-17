@@ -120,6 +120,227 @@ async function getSession(
   });
 }
 
+// ─── Locator-strategy helpers ───────────────────────────────────────
+//
+// Click/type/inspect support multiple targeting strategies beyond a raw CSS
+// selector. Priority (handled in resolveLocator): selector > role+name >
+// label > placeholder > text. This mirrors the agentd-side bridge.js so
+// the model can use the same workflow on both sides.
+
+type LocatorStrategyInput = {
+  selector?: string;
+  role?:
+    | 'button'
+    | 'link'
+    | 'textbox'
+    | 'checkbox'
+    | 'radio'
+    | 'menuitem'
+    | 'option'
+    | 'switch'
+    | 'tab'
+    | 'combobox'
+    | 'listbox'
+    | 'slider'
+    | 'searchbox'
+    | 'spinbutton';
+  role_name?: string;
+  role_exact?: boolean;
+  label?: string;
+  label_exact?: boolean;
+  placeholder?: string;
+  placeholder_exact?: boolean;
+  text?: string;
+  text_exact?: boolean;
+  frame_chain?: string[];
+};
+
+const locatorStrategyProperties: Record<string, object> = {
+  selector: {
+    type: 'string',
+    description:
+      'CSS / Playwright selector. Highest priority when present. Use when you have a stable id, [data-testid], or tag+name.',
+  },
+  role: {
+    type: 'string',
+    description:
+      'ARIA role. Maps to Playwright getByRole. Robust against dynamic class names (Tailwind, CSS-in-JS).',
+    enum: [
+      'button',
+      'link',
+      'textbox',
+      'checkbox',
+      'radio',
+      'menuitem',
+      'option',
+      'switch',
+      'tab',
+      'combobox',
+      'listbox',
+      'slider',
+      'searchbox',
+      'spinbutton',
+    ],
+  },
+  role_name: {
+    type: 'string',
+    description:
+      'Accessible name to disambiguate the role (e.g. role=button, role_name=Login).',
+  },
+  role_exact: {
+    type: 'boolean',
+    description: 'Match role_name exactly (default: substring).',
+  },
+  label: {
+    type: 'string',
+    description:
+      'Form field label (visible <label> or aria-label). Best for inputs.',
+  },
+  label_exact: { type: 'boolean', description: 'Match label exactly.' },
+  placeholder: {
+    type: 'string',
+    description: 'Input placeholder text. Maps to getByPlaceholder.',
+  },
+  placeholder_exact: {
+    type: 'boolean',
+    description: 'Match placeholder exactly.',
+  },
+  text: {
+    type: 'string',
+    description:
+      'Visible text content. Maps to getByText. Less precise than role+name (avoid if duplicate strings exist).',
+  },
+  text_exact: { type: 'boolean', description: 'Match text exactly.' },
+  frame_chain: {
+    type: 'array',
+    items: { type: 'string' },
+    description:
+      'Selectors for nested iframes, outer-to-inner. Same-origin shadow DOM is handled automatically by Playwright and does NOT need this.',
+  },
+};
+
+/**
+ * Resolve a Playwright locator from one of the supported strategies.
+ * Throws if no strategy is provided so callers can surface the error.
+ *
+ * `pageLike` accepts Page or FrameLocator (for frame_chain support).
+ */
+function resolveLocator(
+  page: import('playwright').Page,
+  input: LocatorStrategyInput,
+): { locator: import('playwright').Locator; describe: string } {
+  // Walk the frame chain first if present.
+  let root: import('playwright').Page | import('playwright').FrameLocator =
+    page;
+  if (input.frame_chain && input.frame_chain.length > 0) {
+    for (const sel of input.frame_chain) {
+      root = root.frameLocator(sel);
+    }
+  }
+
+  const sel = input.selector?.trim();
+  if (sel) {
+    return { locator: root.locator(sel), describe: `selector=${sel}` };
+  }
+
+  if (input.role) {
+    const opts: { name?: string | RegExp; exact?: boolean } = {};
+    if (input.role_name?.trim())
+      opts.name = input.role_exact ? input.role_name : input.role_name;
+    if (input.role_exact !== undefined) opts.exact = input.role_exact;
+    return {
+      locator: root.getByRole(
+        input.role,
+        opts as { name?: string; exact?: boolean },
+      ),
+      describe: `role=${input.role}${opts.name ? ` name=${JSON.stringify(opts.name)}` : ''}`,
+    };
+  }
+
+  const label = input.label?.trim();
+  if (label) {
+    return {
+      locator: root.getByLabel(label, { exact: input.label_exact === true }),
+      describe: `label=${JSON.stringify(label)}`,
+    };
+  }
+
+  const placeholder = input.placeholder?.trim();
+  if (placeholder) {
+    return {
+      locator: root.getByPlaceholder(placeholder, {
+        exact: input.placeholder_exact === true,
+      }),
+      describe: `placeholder=${JSON.stringify(placeholder)}`,
+    };
+  }
+
+  const text = input.text?.trim();
+  if (text) {
+    return {
+      locator: root.getByText(text, { exact: input.text_exact === true }),
+      describe: `text=${JSON.stringify(text)}`,
+    };
+  }
+
+  throw new Error(
+    'no selector strategy provided; pass one of: selector, role (+role_name), label, placeholder, text',
+  );
+}
+
+/** Returns true if any locator strategy is present in the input. */
+function hasLocatorStrategy(
+  input: LocatorStrategyInput,
+  opts?: { allowText?: boolean },
+): boolean {
+  if (opts?.allowText === false) {
+    return Boolean(
+      input.selector?.trim() ||
+        input.role ||
+        input.label?.trim() ||
+        input.placeholder?.trim(),
+    );
+  }
+  return Boolean(
+    input.selector?.trim() ||
+      input.role ||
+      input.label?.trim() ||
+      input.placeholder?.trim() ||
+      input.text?.trim(),
+  );
+}
+
+/** Extract the locator-strategy fields from the raw tool input map. */
+function locatorStrategyInput(
+  input: Record<string, unknown>,
+  opts?: { includeText?: boolean },
+): LocatorStrategyInput {
+  const includeText = opts?.includeText !== false;
+  const strategy: LocatorStrategyInput = {
+    selector: stringInput(input, 'selector') || undefined,
+    role: (stringInput(input, 'role') ||
+      undefined) as LocatorStrategyInput['role'],
+    role_name: stringInput(input, 'role_name') || undefined,
+    role_exact: booleanInput(input, 'role_exact') ? true : undefined,
+    label: stringInput(input, 'label') || undefined,
+    label_exact: booleanInput(input, 'label_exact') ? true : undefined,
+    placeholder: stringInput(input, 'placeholder') || undefined,
+    placeholder_exact: booleanInput(input, 'placeholder_exact')
+      ? true
+      : undefined,
+    frame_chain: Array.isArray(input.frame_chain)
+      ? input.frame_chain.filter((s): s is string => typeof s === 'string')
+      : undefined,
+  };
+  if (includeText) {
+    strategy.text = stringInput(input, 'text') || undefined;
+    strategy.text_exact = booleanInput(input, 'text_exact') ? true : undefined;
+  }
+  return strategy;
+}
+
+// ── Tool definitions ────────────────────────────────────────────────
+
 export const browserTools: BuiltinMcpToolDefinition[] = [
   {
     name: 'browser_navigate',
@@ -171,13 +392,19 @@ export const browserTools: BuiltinMcpToolDefinition[] = [
     name: 'browser_click',
     title: 'Browser Click',
     description:
-      'Click an element by CSS/text selector, or click page coordinates with x and y.',
+      'Click an element. Provide ONE targeting strategy (priority: selector > role+role_name > label > placeholder > text), or page coordinates (x, y). Prefer role+role_name or label over selector when the page uses dynamic CSS classes (e.g. Tailwind). Run browser_inspect first to discover the recommended strategy for each element.',
     inputSchema: {
       type: 'object',
       properties: {
-        selector: { type: 'string' },
-        x: { type: 'number' },
-        y: { type: 'number' },
+        ...locatorStrategyProperties,
+        x: {
+          type: 'number',
+          description: 'X coordinate (used when no strategy is given).',
+        },
+        y: {
+          type: 'number',
+          description: 'Y coordinate (used when no strategy is given).',
+        },
         button: { type: 'string', enum: ['left', 'middle', 'right'] },
         click_count: { type: 'number' },
         timeout_ms: { type: 'number' },
@@ -188,18 +415,50 @@ export const browserTools: BuiltinMcpToolDefinition[] = [
     name: 'browser_type',
     title: 'Browser Type',
     description:
-      'Type text into the focused element, or into a selector after focusing/clicking it.',
+      'Type text into a target element. Provide ONE targeting strategy (selector > role+role_name > label > placeholder); if none given, types into the currently focused element. For form fields, prefer label or placeholder over selector. Run browser_inspect first to discover labels/placeholders.',
     inputSchema: {
       type: 'object',
       properties: {
-        selector: { type: 'string' },
-        text: { type: 'string' },
+        text: {
+          type: 'string',
+          description: 'Text to type into the target element.',
+        },
+        ...Object.fromEntries(
+          Object.entries(locatorStrategyProperties).filter(
+            ([k]) => k !== 'text' && k !== 'text_exact',
+          ),
+        ),
         clear: { type: 'boolean' },
         press_enter: { type: 'boolean' },
         delay_ms: { type: 'number' },
         timeout_ms: { type: 'number' },
       },
       required: ['text'],
+    },
+  },
+  {
+    name: 'browser_inspect',
+    title: 'Browser Inspect',
+    description:
+      'List interactive elements on the current page (a, button, input, select, textarea, and elements with ARIA roles), with pre-computed targeting strategies for each: CSS selector, ARIA role+name, label, placeholder. Use BEFORE browser_click/browser_type when you do not already know a stable selector — it dramatically reduces mis-clicks on pages with dynamic CSS classes. Output is compact (no HTML markup).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description:
+            'CSS scope to limit the scan (default: body). Useful for inspecting a specific dialog or section.',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max elements to return (default 200, hard cap 500).',
+        },
+        include_hidden: {
+          type: 'boolean',
+          description:
+            'Include elements outside the viewport or hidden by CSS (default: false).',
+        },
+      },
     },
   },
   {
@@ -400,7 +659,7 @@ export async function executeBrowserTool(
 
     if (toolName === 'browser_click') {
       const session = await getSession(context);
-      const selector = stringInput(input, 'selector');
+      const strategy = locatorStrategyInput(input);
       const x = numberInput(input, 'x');
       const y = numberInput(input, 'y');
       const button = stringInput(input, 'button');
@@ -415,18 +674,18 @@ export async function executeBrowserTool(
             : 1,
       };
 
-      if (selector) {
-        await session.page.locator(selector).click({
-          ...clickOptions,
-          timeout: timeoutInput(input),
-        });
+      if (hasLocatorStrategy(strategy)) {
+        const { locator, describe } = resolveLocator(session.page, strategy);
+        await locator.click({ ...clickOptions, timeout: timeoutInput(input) });
         return {
-          content: [{ type: 'text', text: `Clicked selector: ${selector}` }],
+          content: [{ type: 'text', text: `Clicked ${describe}` }],
         };
       }
 
       if (x === null || y === null) {
-        return buildError('Provide either selector, or both x and y.');
+        return buildError(
+          'Provide one of: selector, role (+role_name), label, placeholder, text, or both x and y.',
+        );
       }
 
       await session.page.mouse.click(x, y, clickOptions);
@@ -442,38 +701,213 @@ export async function executeBrowserTool(
       }
 
       const session = await getSession(context);
-      const selector = stringInput(input, 'selector');
+      // type() reserves `text` for the value to type; the locator strategy
+      // `text` is intentionally excluded here (use selector/role/label/placeholder).
+      const strategy = locatorStrategyInput(input, { includeText: false });
       const delay = numberInput(input, 'delay_ms');
       const typeOptions = {
         delay: delay && delay > 0 ? Math.min(Math.floor(delay), 1000) : 0,
         timeout: timeoutInput(input),
       };
 
-      if (selector) {
-        const locator = session.page.locator(selector);
+      if (hasLocatorStrategy(strategy, { allowText: false })) {
+        const { locator, describe } = resolveLocator(session.page, strategy);
         if (booleanInput(input, 'clear')) {
           await locator.fill(text, { timeout: timeoutInput(input) });
         } else {
           await locator.click({ timeout: timeoutInput(input) });
           await locator.pressSequentially(text, typeOptions);
         }
-      } else {
-        await session.page.keyboard.type(text, { delay: typeOptions.delay });
+        if (booleanInput(input, 'press_enter')) {
+          await session.page.keyboard.press('Enter');
+        }
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Typed ${text.length} characters into ${describe}`,
+            },
+          ],
+        };
       }
 
+      await session.page.keyboard.type(text, { delay: typeOptions.delay });
       if (booleanInput(input, 'press_enter')) {
         await session.page.keyboard.press('Enter');
       }
-
       return {
         content: [
           {
             type: 'text',
-            text: selector
-              ? `Typed ${text.length} characters into selector: ${selector}`
-              : `Typed ${text.length} characters into the focused element.`,
+            text: `Typed ${text.length} characters into the focused element.`,
           },
         ],
+      };
+    }
+
+    if (toolName === 'browser_inspect') {
+      const session = await getSession(context);
+      const scope = stringInput(input, 'selector') || 'body';
+      const limitRaw = numberInput(input, 'limit');
+      const limit =
+        limitRaw && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 500) : 200;
+      const includeHidden = booleanInput(input, 'include_hidden');
+
+      const items = await session.page.evaluate(
+        ({ scopeSelector, includeHiddenFlag, maxItems }) => {
+          const INTERACTIVE_TAGS = new Set([
+            'A',
+            'BUTTON',
+            'INPUT',
+            'SELECT',
+            'TEXTAREA',
+          ]);
+          const INTERACTIVE_ROLES = new Set([
+            'button',
+            'link',
+            'checkbox',
+            'radio',
+            'menuitem',
+            'menuitemcheckbox',
+            'menuitemradio',
+            'option',
+            'switch',
+            'tab',
+            'textbox',
+            'searchbox',
+            'combobox',
+            'listbox',
+            'spinbutton',
+            'slider',
+          ]);
+
+          function buildSelector(el: Element): string {
+            if (el.id && /^[A-Za-z][\w-]*$/.test(el.id)) {
+              return '#' + CSS.escape(el.id);
+            }
+            const testId =
+              el.getAttribute('data-testid') || el.getAttribute('data-test');
+            if (testId) return `[data-testid="${testId}"]`;
+            const nameAttr = el.getAttribute('name');
+            const tag = el.tagName.toLowerCase();
+            if (nameAttr && INTERACTIVE_TAGS.has(el.tagName)) {
+              return `${tag}[name="${CSS.escape(nameAttr)}"]`;
+            }
+            const parent = el.parentElement;
+            if (!parent) return tag;
+            let index = 0;
+            let sibling: Element | null = el.previousElementSibling;
+            while (sibling !== null) {
+              if (sibling.tagName === el.tagName) index++;
+              sibling = sibling.previousElementSibling;
+            }
+            return `${tag}:nth-of-type(${index + 1})`;
+          }
+
+          function getAccessibleName(el: Element): string {
+            const ariaLabel = el.getAttribute('aria-label');
+            if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+            const labelledBy = el.getAttribute('aria-labelledby');
+            if (labelledBy) {
+              const target = document.getElementById(labelledBy);
+              if (target) {
+                const txt = (target.textContent || '').trim();
+                if (txt) return txt.slice(0, 200);
+              }
+            }
+            const tag = el.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+              const id = el.id;
+              if (id) {
+                const label = document.querySelector(
+                  `label[for="${CSS.escape(id)}"]`,
+                );
+                if (label) {
+                  const txt = (label.textContent || '').trim();
+                  if (txt) return txt.slice(0, 200);
+                }
+              }
+              const wrapping = (el as Element).closest('label');
+              if (wrapping) {
+                const txt = (wrapping.textContent || '').trim();
+                if (txt) return txt.slice(0, 200);
+              }
+            }
+            const titleAttr = el.getAttribute('title');
+            if (titleAttr && titleAttr.trim()) return titleAttr.trim();
+            const txt = (el.textContent || '').trim();
+            return txt ? txt.slice(0, 200) : '';
+          }
+
+          function isVisible(el: Element): boolean {
+            const rect = (el as HTMLElement).getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return false;
+            const style = window.getComputedStyle(el as HTMLElement);
+            if (style.display === 'none' || style.visibility === 'hidden')
+              return false;
+            if (style.opacity === '0') return false;
+            return true;
+          }
+
+          const root = document.querySelector(scopeSelector) || document.body;
+          const all = root.querySelectorAll('*');
+          const out: Array<{
+            tag: string;
+            type: string | null;
+            role: string | null;
+            name: string | null;
+            text: string | null;
+            selector: string;
+            role_hint: { role: string; name?: string } | null;
+            label_hint: string | null;
+            placeholder_hint: string | null;
+          }> = [];
+          for (const el of all) {
+            if (out.length >= maxItems) break;
+            const tag = el.tagName.toUpperCase();
+            const roleAttr = el.getAttribute('role');
+            const isInteractive =
+              INTERACTIVE_TAGS.has(tag) ||
+              Boolean(roleAttr && INTERACTIVE_ROLES.has(roleAttr)) ||
+              el.hasAttribute('onclick') ||
+              (el as HTMLElement).tabIndex >= 0;
+            if (!isInteractive) continue;
+            if (!includeHiddenFlag && !isVisible(el)) continue;
+
+            const name = getAccessibleName(el);
+            const role =
+              roleAttr ||
+              (tag === 'A' ? 'link' : tag === 'BUTTON' ? 'button' : '');
+            const typeAttr =
+              tag === 'INPUT' ? el.getAttribute('type') || 'text' : null;
+            out.push({
+              tag: tag.toLowerCase(),
+              type: typeAttr,
+              role: role || null,
+              name: name || null,
+              text: (el.textContent || '').trim().slice(0, 100) || null,
+              selector: buildSelector(el),
+              role_hint: role ? { role, name: name || undefined } : null,
+              label_hint:
+                tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+                  ? name || null
+                  : null,
+              placeholder_hint: el.getAttribute('placeholder') || null,
+            });
+          }
+          return out;
+        },
+        {
+          scopeSelector: scope,
+          includeHiddenFlag: includeHidden,
+          maxItems: limit,
+        },
+      );
+
+      const text = safeStringify({ scope, count: items.length, items }, 30000);
+      return {
+        content: [{ type: 'text', text }],
+        structuredContent: toJsonValue({ scope, count: items.length, items }),
       };
     }
 
