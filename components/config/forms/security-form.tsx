@@ -246,6 +246,9 @@ export function SecurityForm() {
             Manage deterministic command, path, and network rules loaded by
             agentd. Current agentd L0 blocks only when action is set to block;
             warn rules are stored for audit/future compatibility.
+            <span className="mt-1 block text-muted-foreground/80 text-xs">
+              Changes are saved automatically. No manual save required.
+            </span>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

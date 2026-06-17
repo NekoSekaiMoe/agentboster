@@ -102,7 +102,7 @@ export function ChatForm() {
           <CardDescription>
             {t('config.forms.chat.composerDescription')}
             <span className="mt-1 block text-muted-foreground/80 text-xs">
-              This setting is saved automatically to your browser.
+              Changes are saved automatically. No manual save required.
             </span>
           </CardDescription>
         </CardHeader>
@@ -152,7 +152,7 @@ export function ChatForm() {
             Requires an admin to configure a speech model under Config &gt;
             Text-to-Speech.
             <span className="mt-1 block text-muted-foreground/80 text-xs">
-              This setting is saved automatically to your browser.
+              Changes are saved automatically. No manual save required.
             </span>
           </CardDescription>
         </CardHeader>
