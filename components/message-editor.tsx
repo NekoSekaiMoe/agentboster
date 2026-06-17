@@ -12,6 +12,7 @@ import {
 import { toast } from 'sonner';
 
 import type { UserMessagePart, WorkflowUIMessage } from '@/types/workflow';
+import { useI18n } from '@/components/i18n-provider';
 import {
   AttachmentButton,
   AttachmentList,
@@ -70,6 +71,7 @@ export function MessageEditor({
   setMessages,
   regenerate,
 }: MessageEditorProps) {
+  const { t } = useI18n();
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const [draftContent, setDraftContent] = useState<string>(
@@ -196,7 +198,7 @@ export function MessageEditor({
       setUploadProgress((current) =>
         current.filter((progress) => !fileIds.has(progress.id)),
       );
-      toast.error('Failed to add attachment, please try again.');
+      toast.error(t('toast.attachment.addFailed'));
     }
   };
 
@@ -311,7 +313,7 @@ export function MessageEditor({
             ];
 
             if (!messageId) {
-              toast.error('Something went wrong, please try again!');
+              toast.error(t('toast.attachment.uploadFailed'));
               setIsSubmitting(false);
               return;
             }
@@ -566,7 +568,7 @@ export function MessageEditor({
               if (process.env.NODE_ENV === 'development') {
                 console.error('[message-editor] Error:', error);
               }
-              toast.error('Failed to regenerate response');
+              toast.error(t('toast.message.regenerateFailed'));
             } finally {
               setIsSubmitting(false);
             }

@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { WorkspacePageHeader } from '@/components/workspace-page-header';
+import { useI18n } from '@/components/i18n-provider';
 
 interface Notification {
   id: string;
@@ -60,6 +61,7 @@ async function markAllAsRead(): Promise<void> {
 }
 
 export default function NotificationsPage() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState<Filters>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -75,10 +77,10 @@ export default function NotificationsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       setSelected(new Set());
-      toast.success('Marked as read');
+      toast.success(t('toast.audit.markRead.success'));
     },
     onError: () => {
-      toast.error('Failed to mark as read');
+      toast.error(t('toast.audit.markRead.failed'));
     },
   });
 
@@ -86,10 +88,10 @@ export default function NotificationsPage() {
     mutationFn: markAllAsRead,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      toast.success('All marked as read');
+      toast.success(t('toast.audit.markAllRead.success'));
     },
     onError: () => {
-      toast.error('Failed to mark all as read');
+      toast.error(t('toast.audit.markAllRead.failed'));
     },
   });
 

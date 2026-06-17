@@ -30,6 +30,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkspacePageHeader } from '@/components/workspace-page-header';
+import { useI18n } from '@/components/i18n-provider';
 import {
   AlarmClock,
   CalendarClock,
@@ -141,6 +142,7 @@ function shortId(value: string | null): string {
 }
 
 export default function SchedulePage() {
+  const { t } = useI18n();
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [drafts, setDrafts] = useState<Record<string, TaskDraft>>({});
   const [loading, setLoading] = useState(true);
@@ -164,12 +166,12 @@ export default function SchedulePage() {
           : null,
       );
     } catch {
-      toast.error('Failed to load schedule tasks');
+      toast.error(t('toast.task.scheduleLoadFailed'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadTasks();
@@ -211,12 +213,12 @@ export default function SchedulePage() {
     }
 
     if (!draft.prompt.trim()) {
-      toast.error('Prompt cannot be empty');
+      toast.error(t('toast.notify.promptEmpty'));
       return;
     }
 
     if (draft.type === 'delay' && !draft.runAt) {
-      toast.error('Delay task requires a run time');
+      toast.error(t('toast.notify.runTimeRequired'));
       return;
     }
 
@@ -226,7 +228,7 @@ export default function SchedulePage() {
       if (draft.type === 'delay') {
         const runDate = new Date(draft.runAt);
         if (Number.isNaN(runDate.getTime())) {
-          toast.error('Invalid run date');
+          toast.error(t('toast.notify.runDateInvalid'));
           setSavingMap((prev) => ({ ...prev, [task.id]: false }));
           return;
         }
@@ -252,7 +254,7 @@ export default function SchedulePage() {
         id: task.id,
         task: body as Parameters<typeof updateScheduleTaskAction>[0]['task'],
       });
-      toast.success('Task updated');
+      toast.success(t('toast.task.updated'));
       await loadTasks();
     } catch (error) {
       toast.error(
@@ -274,9 +276,9 @@ export default function SchedulePage() {
         return next;
       });
       setExpandedTaskId((current) => (current === id ? null : current));
-      toast.success('Task deleted');
+      toast.success(t('toast.task.deleted'));
     } catch {
-      toast.error('Failed to delete task');
+      toast.error(t('toast.task.deleteFailed'));
     } finally {
       setDeletingMap((prev) => ({ ...prev, [id]: false }));
     }

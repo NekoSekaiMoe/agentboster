@@ -152,9 +152,9 @@ export function SecurityForm() {
     onSuccess: async () => {
       setNewRule(emptyRuleDraft);
       await queryClient.invalidateQueries({ queryKey: ['config-l0-rules'] });
-      toast.success('L0 rule created');
+      toast.success(t('toast.l0rule.created'));
     },
-    onError: () => toast.error('Failed to create L0 rule'),
+    onError: () => toast.error(t('toast.l0rule.failedCreate')),
   });
 
   const updateRuleMutation = useMutation({
@@ -162,18 +162,18 @@ export function SecurityForm() {
       updateL0Rule(id, patch),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['config-l0-rules'] });
-      toast.success('L0 rule updated');
+      toast.success(t('toast.l0rule.updated'));
     },
-    onError: () => toast.error('Failed to update L0 rule'),
+    onError: () => toast.error(t('toast.l0rule.failedUpdate')),
   });
 
   const deleteRuleMutation = useMutation({
     mutationFn: deleteL0Rule,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['config-l0-rules'] });
-      toast.success('L0 rule deleted');
+      toast.success(t('toast.l0rule.deleted'));
     },
-    onError: () => toast.error('Failed to delete L0 rule'),
+    onError: () => toast.error(t('toast.l0rule.failedDelete')),
   });
 
   useEffect(() => {

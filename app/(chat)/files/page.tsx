@@ -26,6 +26,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { WorkspacePageHeader } from '@/components/workspace-page-header';
+import { useI18n } from '@/components/i18n-provider';
 
 function formatBytes(size: number): string {
   if (!Number.isFinite(size) || size <= 0) {
@@ -62,6 +63,7 @@ function shortSessionId(value: string): string {
 }
 
 export default function FilesPage() {
+  const { t } = useI18n();
   const [items, setItems] = useState<FileRecord[]>([]);
   const [sessionFilterInput, setSessionFilterInput] = useState('');
   const [sessionFilter, setSessionFilter] = useState<string | null>(null);
@@ -83,12 +85,12 @@ export default function FilesPage() {
       setHasMore(Boolean(response.hasMore));
       setNextBefore(response.nextBefore ?? null);
     } catch {
-      toast.error('Failed to load files.');
+      toast.error(t('toast.file.listLoadFailed'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [sessionFilter]);
+  }, [sessionFilter, t]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || !nextBefore) {
@@ -112,11 +114,11 @@ export default function FilesPage() {
       setHasMore(Boolean(response.hasMore));
       setNextBefore(response.nextBefore ?? null);
     } catch {
-      toast.error('Failed to load more files.');
+      toast.error(t('toast.file.listLoadMoreFailed'));
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, nextBefore, sessionFilter]);
+  }, [hasMore, nextBefore, sessionFilter, t]);
 
   useEffect(() => {
     void loadFirstPage();

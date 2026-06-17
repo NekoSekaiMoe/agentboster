@@ -48,6 +48,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkspacePageHeader } from '@/components/workspace-page-header';
+import { useI18n } from '@/components/i18n-provider';
 
 let nextFileId = 0;
 
@@ -60,6 +61,7 @@ interface CreateFileEntry {
 type ViewMode = 'list' | 'create' | 'import' | 'detail';
 
 export default function SkillsPage() {
+  const { t } = useI18n();
   const [skills, setSkills] = useState<SkillMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -107,11 +109,11 @@ export default function SkillsPage() {
     try {
       setSkills(await listSkillsAction());
     } catch {
-      toast.error('Failed to load skills');
+      toast.error(t('toast.skill.listLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadActiveImportJobs = useCallback(async () => {
     // Skip if already importing (user initiated)
@@ -146,7 +148,7 @@ export default function SkillsPage() {
         importPollRef.current = null;
         setImportJob(null);
         setImporting(false);
-        toast.error('Import timed out — check server logs');
+        toast.error(t('toast.skill.importTimeout'));
         return;
       }
       try {
@@ -174,7 +176,7 @@ export default function SkillsPage() {
     return () => {
       if (importPollRef.current) clearInterval(importPollRef.current);
     };
-  }, [importJob, loadSkills]);
+  }, [importJob, loadSkills, t]);
 
   function resetCreateForm() {
     setCreateName('');
@@ -208,7 +210,7 @@ export default function SkillsPage() {
       (f) => f.path.trim() && f.content.trim(),
     );
     if (!createName.trim() || validFiles.length === 0) {
-      toast.error('Name and at least one file with content are required');
+      toast.error(t('toast.skill.invalidInput'));
       return;
     }
     try {
@@ -217,7 +219,7 @@ export default function SkillsPage() {
         description: createDescription.trim(),
         files: validFiles,
       });
-      toast.success('Skill created');
+      toast.success(t('toast.skill.created'));
       resetCreateForm();
       setViewMode('list');
       await loadSkills();
@@ -323,7 +325,7 @@ export default function SkillsPage() {
       setSelectedFilePath(null);
       setViewMode('detail');
     } catch {
-      toast.error('Failed to load skill detail');
+      toast.error(t('toast.skill.detailLoadFailed'));
     } finally {
       setLoadingDetail(false);
     }
@@ -340,7 +342,7 @@ export default function SkillsPage() {
       setSelectedFilePath(filePath);
       setEditingFileContent(null);
     } catch {
-      toast.error('Failed to load file');
+      toast.error(t('toast.file.loadFailed'));
     } finally {
       setLoadingFile(null);
     }

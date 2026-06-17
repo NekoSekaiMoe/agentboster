@@ -33,6 +33,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkspacePageHeader } from '@/components/workspace-page-header';
+import { useI18n } from '@/components/i18n-provider';
 import {
   BUILTIN_MEMORY_MAX_LENGTH,
   SOUL_MEMORY_MAX_LENGTH,
@@ -109,6 +110,7 @@ export default function MemoryPage() {
 /* ─── SOUL.md Panel ─────────────────────────────────────────────── */
 
 function SoulPanel() {
+  const { t } = useI18n();
   const [content, setContent] = useState('');
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,11 +125,11 @@ function SoulPanel() {
       setContent(soul?.content ?? '');
       setUpdatedAt(soul?.updatedAt ?? null);
     } catch {
-      toast.error('Failed to load SOUL');
+      toast.error(t('toast.soul.globalLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadSoul();
@@ -137,10 +139,10 @@ function SoulPanel() {
     setSaving(true);
     try {
       await updateBuiltinMemorySectionAction({ key: 'SOUL', content });
-      toast.success('SOUL.md saved');
+      toast.success(t('toast.soul.saved'));
       await loadSoul();
     } catch {
-      toast.error('Failed to save SOUL.md');
+      toast.error(t('toast.soul.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -151,7 +153,7 @@ function SoulPanel() {
     if (!file) return;
 
     if (!file.name.endsWith('.md')) {
-      toast.error('Please upload a .md file');
+      toast.error(t('toast.soul.invalidFile'));
       return;
     }
 
@@ -159,7 +161,7 @@ function SoulPanel() {
     reader.onload = (ev) => {
       const text = ev.target?.result as string;
       setContent(text);
-      toast.success('SOUL.md file loaded');
+      toast.success(t('toast.soul.fileLoaded'));
     };
     reader.readAsText(file);
 
@@ -284,6 +286,7 @@ function SoulPanel() {
 /* ─── Builtin Panel ─────────────────────────────────────────────── */
 
 function BuiltinPanel() {
+  const { t } = useI18n();
   const [memories, setMemories] = useState<Record<string, BuiltinMemory>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -304,11 +307,11 @@ function BuiltinPanel() {
       }
       setDrafts(d);
     } catch {
-      toast.error('Failed to load builtin memories');
+      toast.error(t('toast.memory.builtinLoadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadBuiltin();
@@ -417,6 +420,7 @@ function BuiltinPanel() {
 /* ─── Long-term Panel ───────────────────────────────────────────── */
 
 function LongTermPanel() {
+  const { t } = useI18n();
   const [memories, setMemories] = useState<LongTermMemory[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -459,21 +463,24 @@ function LongTermPanel() {
     [authors],
   );
 
-  const loadMemories = useCallback(async (search?: string) => {
-    setLoading(true);
-    try {
-      const data = await listLongTermMemoriesAction({
-        page: 1,
-        pageSize: 100,
-        search: search || undefined,
-      });
-      setMemories(data.items ?? []);
-    } catch {
-      toast.error('Failed to load long-term memories');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadMemories = useCallback(
+    async (search?: string) => {
+      setLoading(true);
+      try {
+        const data = await listLongTermMemoriesAction({
+          page: 1,
+          pageSize: 100,
+          search: search || undefined,
+        });
+        setMemories(data.items ?? []);
+      } catch {
+        toast.error(t('toast.memory.longTermLoadFailed'));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [t],
+  );
 
   const handleSearch = useCallback(async () => {
     setSearching(true);
@@ -506,7 +513,7 @@ function LongTermPanel() {
       );
       await loadMemories();
     } catch {
-      toast.error('Failed to create memory');
+      toast.error(t('toast.memory.createFailed'));
     } finally {
       setCreating(false);
     }
@@ -518,9 +525,9 @@ function LongTermPanel() {
     try {
       await deleteLongTermMemoryAction(id);
       setMemories((prev) => prev.filter((m) => m.id !== id));
-      toast.success('Memory deleted');
+      toast.success(t('toast.memory.deleted'));
     } catch {
-      toast.error('Failed to delete memory');
+      toast.error(t('toast.memory.deleteFailed'));
     } finally {
       setDeletingMap((prev) => ({ ...prev, [id]: false }));
     }
@@ -710,6 +717,7 @@ function LongTermPanel() {
 /* ─── Session Panel ─────────────────────────────────────────────── */
 
 function SessionPanel() {
+  const { t } = useI18n();
   const [sessionId, setSessionId] = useState('');
   const [summaries, setSummaries] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -723,7 +731,7 @@ function SessionPanel() {
   async function loadSummaries() {
     const sid = sessionId.trim();
     if (!sid) {
-      toast.error('Enter a session ID');
+      toast.error(t('toast.notification.needSessionId'));
       return;
     }
     setLoading(true);
@@ -731,7 +739,7 @@ function SessionPanel() {
       const data = await listSessionSummariesAction({ sessionId: sid });
       setSummaries(data.summaries ?? []);
     } catch {
-      toast.error('Failed to load session summaries');
+      toast.error(t('toast.summary.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -740,7 +748,7 @@ function SessionPanel() {
   async function loadSessionSoul() {
     const sid = sessionId.trim();
     if (!sid) {
-      toast.error('Enter a session ID');
+      toast.error(t('toast.notification.needSessionId'));
       return;
     }
     setLoadingSoul(true);
@@ -749,7 +757,7 @@ function SessionPanel() {
       setSessionSoul(data.content);
       setSessionSoulScope(data.scope);
     } catch {
-      toast.error('Failed to load session SOUL');
+      toast.error(t('toast.soul.sessionLoadFailed'));
     } finally {
       setLoadingSoul(false);
     }
@@ -761,10 +769,10 @@ function SessionPanel() {
     setSavingSoul(true);
     try {
       await setSessionSoulAction(sid, sessionSoul);
-      toast.success('Session SOUL saved');
+      toast.success(t('toast.soul.sessionSaved'));
       await loadSessionSoul();
     } catch {
-      toast.error('Failed to save session SOUL');
+      toast.error(t('toast.soul.sessionSaveFailed'));
     } finally {
       setSavingSoul(false);
     }
@@ -777,9 +785,9 @@ function SessionPanel() {
       await clearSessionSoulAction(sid);
       setSessionSoul('');
       setSessionSoulScope(null);
-      toast.success('Session SOUL cleared');
+      toast.success(t('toast.soul.cleared'));
     } catch {
-      toast.error('Failed to clear session SOUL');
+      toast.error(t('toast.soul.clearFailed'));
     }
   }
 

@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { logoutAction } from '@/app/(auth)/actions';
+import { useI18n } from '@/components/i18n-provider';
 import {
   deleteSessionAction,
   isAgentdEnabled,
@@ -98,6 +99,7 @@ interface SidebarCoreContentProps {
 }
 
 export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
+  const { t } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
   const { theme = 'system', setTheme } = useTheme();
@@ -275,46 +277,52 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     [pathname, router, onClose],
   );
 
-  const handleTogglePin = useCallback(async (sessionItem: SessionItem) => {
-    const newPinned = !sessionItem.pinned;
-    setSessions((prev) =>
-      prev.map((s) =>
-        s.id === sessionItem.id ? { ...s, pinned: newPinned } : s,
-      ),
-    );
-    try {
-      await toggleSessionPinAction({ id: sessionItem.id });
-    } catch {
+  const handleTogglePin = useCallback(
+    async (sessionItem: SessionItem) => {
+      const newPinned = !sessionItem.pinned;
       setSessions((prev) =>
         prev.map((s) =>
-          s.id === sessionItem.id ? { ...s, pinned: sessionItem.pinned } : s,
+          s.id === sessionItem.id ? { ...s, pinned: newPinned } : s,
         ),
       );
-      toast.error('Failed to pin session');
-    }
-  }, []);
-
-  const handleAbortSession = useCallback(async (sessionItem: SessionItem) => {
-    try {
-      const response = await fetch(
-        `/api/agentd/v1/sessions/${sessionItem.id}/abort`,
-        {
-          method: 'POST',
-        },
-      );
-      if (!response.ok) {
-        throw new Error('Abort request failed');
+      try {
+        await toggleSessionPinAction({ id: sessionItem.id });
+      } catch {
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === sessionItem.id ? { ...s, pinned: sessionItem.pinned } : s,
+          ),
+        );
+        toast.error(t('toast.session.pinFailed'));
       }
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === sessionItem.id ? { ...s, status: 'aborted' as const } : s,
-        ),
-      );
-      toast.success('Session aborted');
-    } catch {
-      toast.error('Failed to abort');
-    }
-  }, []);
+    },
+    [t],
+  );
+
+  const handleAbortSession = useCallback(
+    async (sessionItem: SessionItem) => {
+      try {
+        const response = await fetch(
+          `/api/agentd/v1/sessions/${sessionItem.id}/abort`,
+          {
+            method: 'POST',
+          },
+        );
+        if (!response.ok) {
+          throw new Error('Abort request failed');
+        }
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === sessionItem.id ? { ...s, status: 'aborted' as const } : s,
+          ),
+        );
+        toast.success(t('toast.session.aborted'));
+      } catch {
+        toast.error(t('toast.session.abortFailed'));
+      }
+    },
+    [t],
+  );
 
   const handleLogout = useCallback(async () => {
     setLoggingOut(true);
@@ -324,11 +332,11 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       router.push('/login');
       router.refresh();
     } catch {
-      toast.error('Failed to sign out. Please try again.');
+      toast.error(t('toast.auth.signOutFailed'));
     } finally {
       setLoggingOut(false);
     }
-  }, [router, onClose]);
+  }, [router, onClose, t]);
 
   const StatusDot = ({ status }: { status?: SessionStatus }) => {
     if (!status || status === 'idle') return null;

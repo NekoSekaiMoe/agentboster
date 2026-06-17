@@ -59,9 +59,9 @@ export function ChatForm() {
     setEnterToSend(checked);
     try {
       window.localStorage.setItem('chat:enter_to_send', String(checked));
-      toast.success('Settings saved to browser');
+      toast.success(t('toast.config.savedBrowser'));
     } catch {
-      toast.error('Failed to save settings');
+      toast.error(t('toast.config.saveFailed'));
     }
   }
 
@@ -69,9 +69,9 @@ export function ChatForm() {
     setTtsAutoplay(checked);
     try {
       window.localStorage.setItem('chat:tts_autoplay', String(checked));
-      toast.success('Settings saved to browser');
+      toast.success(t('toast.config.savedBrowser'));
     } catch {
-      toast.error('Failed to save settings');
+      toast.error(t('toast.config.saveFailed'));
     }
   }
 

@@ -15,6 +15,7 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { useI18n } from '@/components/i18n-provider';
 import {
   Card,
   CardContent,
@@ -137,6 +138,7 @@ export function DecisionCard({
   userId,
   onResolved,
 }: DecisionCardProps) {
+  const { t } = useI18n();
   // L2 state
   const [awaitingTimeInput, setAwaitingTimeInput] = useState(false);
   const [pendingAction, _setPendingAction] = useState<string | null>(null);
@@ -199,7 +201,7 @@ export function DecisionCard({
   const submitL2Action = useCallback(
     async (action: string, timeInput?: string) => {
       if (timedOut) {
-        toast.error('决策已超时，Agent 已暂停');
+        toast.error(t('toast.decision.paused'));
         return;
       }
       setLoading(true);
@@ -228,38 +230,38 @@ export function DecisionCard({
           setResolved(true);
           setResultMessage(resp.data?.message || 'Done');
           onResolved?.(decision.decision_id, action);
-          toast.success('已处理');
+          toast.success(t('toast.decision.handled'));
         } else {
-          toast.error(resp.error || '处理失败');
+          toast.error(resp.error || t('toast.generic.failed'));
         }
       } catch {
-        toast.error('请求失败');
+        toast.error(t('toast.decision.requestFailed'));
       } finally {
         setLoading(false);
       }
     },
-    [decision, chatId, userId, onResolved, timedOut],
+    [decision, chatId, userId, onResolved, timedOut, t],
   );
 
   const submitTimeInput = useCallback(() => {
     if (timedOut) {
-      toast.error('决策已超时');
+      toast.error(t('toast.decision.timeout'));
       return;
     }
     if (!pendingAction) return;
     const trimmed = timeValue.trim();
     if (!trimmed) {
-      toast.error('请输入时间');
+      toast.error(t('toast.decision.timeNeeded'));
       return;
     }
     submitL2Action(pendingAction, trimmed);
     setAwaitingTimeInput(false);
     setTimeValue('');
-  }, [pendingAction, timeValue, submitL2Action, timedOut]);
+  }, [pendingAction, timeValue, submitL2Action, timedOut, t]);
 
   const submitQuestionAnswers = useCallback(async () => {
     if (timedOut) {
-      toast.error('问题已超时');
+      toast.error(t('toast.decision.answer.timeout'));
       return;
     }
     setLoading(true);
@@ -275,9 +277,9 @@ export function DecisionCard({
       setResolved(true);
       setResultMessage('✓ 已回答');
       onResolved?.(decision.decision_id, 'answered');
-      toast.success('已回答');
+      toast.success(t('toast.decision.answered'));
     } catch {
-      toast.error('提交失败');
+      toast.error(t('toast.decision.submitFailed'));
     } finally {
       setLoading(false);
     }
@@ -287,18 +289,19 @@ export function DecisionCard({
     decision.decision_id,
     onResolved,
     timedOut,
+    t,
   ]);
 
   const submitConflictResolutions = useCallback(async () => {
     if (timedOut) {
-      toast.error('冲突解决已超时');
+      toast.error(t('toast.decision.conflict.timeout'));
       return;
     }
     const hasEmpty = conflictResolutions.some(
       (r, i) => !r && !conflictCustom[i]?.trim(),
     );
     if (hasEmpty) {
-      toast.error('请为所有冲突文件选择解决方式');
+      toast.error(t('toast.decision.needAllConflicts'));
       return;
     }
     setLoading(true);
@@ -314,9 +317,9 @@ export function DecisionCard({
       setResolved(true);
       setResultMessage('✓ 冲突已解决');
       onResolved?.(decision.decision_id, 'resolved');
-      toast.success('冲突已解决');
+      toast.success(t('toast.decision.conflict.resolved'));
     } catch {
-      toast.error('提交失败');
+      toast.error(t('toast.decision.submitFailed'));
     } finally {
       setLoading(false);
     }
@@ -326,15 +329,16 @@ export function DecisionCard({
     decision.decision_id,
     onResolved,
     timedOut,
+    t,
   ]);
 
   const submitBranchChoice = useCallback(async () => {
     if (timedOut) {
-      toast.error('分支决策已超时');
+      toast.error(t('toast.decision.branch.timeout'));
       return;
     }
     if (!branchChoice) {
-      toast.error('请选择方案');
+      toast.error(t('toast.decision.needChoice'));
       return;
     }
     setLoading(true);
@@ -350,13 +354,20 @@ export function DecisionCard({
         `✓ 已选择：${branchChoice === 'custom' ? '自定义方案' : branchChoice}`,
       );
       onResolved?.(decision.decision_id, branchChoice);
-      toast.success('方案已选择');
+      toast.success(t('toast.decision.branch.selected'));
     } catch {
-      toast.error('提交失败');
+      toast.error(t('toast.decision.submitFailed'));
     } finally {
       setLoading(false);
     }
-  }, [branchChoice, branchCustom, decision.decision_id, onResolved, timedOut]);
+  }, [
+    branchChoice,
+    branchCustom,
+    decision.decision_id,
+    onResolved,
+    timedOut,
+    t,
+  ]);
 
   // ── Resolved state ──
 
@@ -660,9 +671,9 @@ export function DecisionCard({
                       { method: 'POST' },
                     );
                     setResolved(true);
-                    toast.info('已忽略');
+                    toast.info(t('toast.decision.ignored'));
                   } catch {
-                    toast.error('操作失败');
+                    toast.error(t('toast.generic.failed'));
                   }
                 }}
               >

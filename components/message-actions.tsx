@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useCopyToClipboard } from 'usehooks-ts';
 
 import { AudioPlayer } from '@/components/audio-player';
+import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { WorkflowUIMessage } from '@/types/workflow';
@@ -61,13 +62,14 @@ export function PureMessageActions({
   ttsEnabled?: boolean;
   autoPlay?: boolean;
 }) {
+  const { t } = useI18n();
   const [_, copyToClipboard] = useCopyToClipboard();
   const textContent = getTextFromParts(message);
 
   const handleCopy = useCallback(async () => {
     await copyToClipboard(textContent);
-    toast.success('Copied to clipboard!');
-  }, [copyToClipboard, textContent]);
+    toast.success(t('toast.clipboard.copied'));
+  }, [copyToClipboard, textContent, t]);
 
   const handleRevert = useCallback(() => {
     if (!chatId) return;

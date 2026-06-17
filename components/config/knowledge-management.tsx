@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useI18n } from '@/components/i18n-provider';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
@@ -282,6 +283,7 @@ function connectorStatusVariant(status: KnowledgeConnector['syncStatus']) {
 }
 
 export function KnowledgeManagement() {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -374,7 +376,7 @@ export function KnowledgeManagement() {
       setDescription('');
       setKbKind('local');
       setCreateOpen(false);
-      toast.success('Knowledge base created');
+      toast.success(t('toast.kb.created'));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -388,7 +390,7 @@ export function KnowledgeManagement() {
       setDocumentTitle('');
       setDocumentContent('');
       setDocumentOpen(false);
-      toast.success('Document imported');
+      toast.success(t('toast.doc.imported'));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -397,7 +399,7 @@ export function KnowledgeManagement() {
     mutationFn: updateKnowledgeBasePriority,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
-      toast.success('Knowledge priority updated');
+      toast.success(t('toast.kb.priorityUpdated'));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -427,7 +429,7 @@ export function KnowledgeManagement() {
       setConnectorHttpContentPath('content');
       setConnectorHttpScorePath('score');
       setConnectorOpen(false);
-      toast.success('External source synced');
+      toast.success(t('toast.external.synced'));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -437,7 +439,7 @@ export function KnowledgeManagement() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['knowledge-bases'] });
       setSelectedId(null);
-      toast.success('Knowledge base deleted');
+      toast.success(t('toast.kb.deleted'));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -448,7 +450,7 @@ export function KnowledgeManagement() {
       await queryClient.invalidateQueries({
         queryKey: ['knowledge-documents', selectedBase?.id],
       });
-      toast.success('Document deleted');
+      toast.success(t('toast.doc.deleted'));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -464,7 +466,7 @@ export function KnowledgeManagement() {
           queryKey: ['knowledge-documents', variables.knowledgeBaseId],
         }),
       ]);
-      toast.success('External source synced');
+      toast.success(t('toast.external.synced'));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -480,7 +482,7 @@ export function KnowledgeManagement() {
           queryKey: ['knowledge-documents', variables.knowledgeBaseId],
         }),
       ]);
-      toast.success('External source deleted');
+      toast.success(t('toast.external.deleted'));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -1039,7 +1041,7 @@ export function KnowledgeManagement() {
                                   >)
                                 : {};
                             } catch {
-                              toast.error('Headers JSON is invalid');
+                              toast.error(t('toast.header.jsonInvalid'));
                               return;
                             }
                             let parsedBody: Record<string, unknown> = {};
@@ -1051,7 +1053,7 @@ export function KnowledgeManagement() {
                                   >)
                                 : {};
                             } catch {
-                              toast.error('Body JSON is invalid');
+                              toast.error(t('toast.body.jsonInvalid'));
                               return;
                             }
                             addConnectorMutation.mutate({
