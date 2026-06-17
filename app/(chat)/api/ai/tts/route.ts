@@ -51,12 +51,12 @@ export async function POST(request: Request) {
   }
 
   const config = await getConfig();
-  if (!config.tts?.enabled) {
+  if (!config.tts?.model) {
     return Response.json(
       {
         success: false,
         error:
-          'TTS is disabled. Enable it in Config > Text-to-Speech (requires an OpenAI provider).',
+          'TTS is not configured. An admin must set tts.model in Config > Text-to-Speech (must route to an OpenAI provider).',
       },
       { status: 403 },
     );

@@ -32,6 +32,11 @@ export const configSections = [
     titleKey: 'config.sections.channels.title',
   },
   {
+    key: 'tts',
+    descriptionKey: 'config.sections.tts.description',
+    titleKey: 'config.sections.tts.title',
+  },
+  {
     key: 'autonomy',
     descriptionKey: 'config.sections.autonomy.description',
     titleKey: 'config.sections.autonomy.title',

@@ -13,6 +13,7 @@ import { ModelsForm } from './forms/models/models-form';
 import { MonitoringForm } from './forms/monitoring-form';
 import { SecurityForm } from './forms/security-form';
 import { ToolsForm } from './forms/tools-form';
+import { TtsForm } from './forms/tts-form';
 import { KnowledgeManagement } from './knowledge-management';
 import { RawJsonEditor } from './raw-json-editor';
 import { UsersManagement } from './users-management';
@@ -29,6 +30,8 @@ export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
       return <LanguageForm />;
     case 'channels':
       return <ChannelsForm />;
+    case 'tts':
+      return <TtsForm />;
     case 'autonomy':
       return <AutonomyForm />;
     case 'security':

@@ -6,13 +6,19 @@ import type { AdapterName } from '@/types/config/channels';
  *
  * Resolution precedence (top wins):
  *   1. Call-site override (e.g. user-selected voice for this message)
- *   2. Per-channel settings (config.channels[adapter].tts_enabled / tts_voice)
+ *   2. Per-channel voice (config.channels[adapter].tts_voice)
  *      — only when source.adapter is set
- *   3. Global defaults (config.tts)
+ *   3. Global defaults (config.tts) — voice is a bot-wide personality
+ *      attribute, like locale
  *
- * `enabled` reflects whether voice output should be produced AT ALL for
- * this request. The Web client additionally honors a per-session
- * localStorage toggle (chat.tts_autoplay seeds its default).
+ * `enabled` reflects whether voice output should be produced for this
+ * request. It is NOT read from a global master switch (we removed that)
+ * — it is decided entirely by the call site:
+ *   - IM source:  config.channels[adapter].tts_enabled === true
+ *   - Web source: callers gate on their own per-user toggle before
+ *                 even calling synthesizeSpeech; resolver returns the
+ *                 user-controlled flag as-is via `webEnabled` input
+ *   - Scheduled:  never TTS
  */
 export interface ResolvedTtsSettings {
   enabled: boolean;
@@ -30,6 +36,8 @@ export function resolveTtsSettings(input: {
     | { type: 'im'; adapter: AdapterName }
     | { type: 'web' }
     | { type: 'scheduled' };
+  /** For Web requests, the caller passes its own per-user toggle. Ignored for non-web sources. */
+  webEnabled?: boolean;
   voiceOverride?: string;
   modelOverride?: string;
   formatOverride?: ResolvedTtsSettings['format'];
@@ -46,9 +54,7 @@ export function resolveTtsSettings(input: {
     perChannelVoice = adapterCfg?.tts_voice;
   }
 
-  // Web requests use the global enabled flag; scheduled broadcasts never TTS.
-  const webEnabled =
-    source?.type === 'web' ? globalTts?.enabled === true : false;
+  const webEnabled = source?.type === 'web' ? input.webEnabled === true : false;
 
   const enabled = perChannelEnabled || webEnabled;
 

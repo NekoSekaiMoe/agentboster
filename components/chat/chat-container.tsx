@@ -389,8 +389,11 @@ export function Chat({
   }, [status]);
 
   // === TTS auto-play ===
+  // Whether TTS can be used at all on the Web is gated by the admin
+  // having configured a speech model. The actual decision to auto-play
+  // is the user's (per-user localStorage toggle).
   const { config: appConfig } = useAppConfig();
-  const ttsGloballyEnabled = appConfig?.tts?.enabled === true;
+  const ttsAvailable = Boolean(appConfig?.tts?.model);
   const [ttsAutoplay, setTtsAutoplay] = useState(false);
 
   useEffect(() => {
@@ -404,7 +407,7 @@ export function Chat({
   useTtsAutoplay({
     messages,
     status,
-    enabled: ttsGloballyEnabled && ttsAutoplay,
+    enabled: ttsAvailable && ttsAutoplay,
     onPlay: (_text, messageId) => {
       // Telling the AudioPlayer for THIS message to auto-play. Any
       // previous autoPlayMessageId is replaced, so concurrent assistant
@@ -874,7 +877,7 @@ export function Chat({
             }
             setMessages={setMessages}
             regenerate={regenerate}
-            ttsEnabled={ttsGloballyEnabled}
+            ttsEnabled={ttsAvailable}
             autoPlayMessageId={autoPlayMessageId}
           />
 

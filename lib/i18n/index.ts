@@ -98,6 +98,9 @@ const enUS = {
   'config.sections.channels.description':
     'Set up Slack, Teams, Google Chat, and Telegram.',
   'config.sections.channels.title': 'Channels',
+  'config.sections.tts.description':
+    "Configure the bot's speaking voice, speech model, and audio format.",
+  'config.sections.tts.title': 'Text-to-Speech',
   'config.sections.mcp.description':
     'Manage MCP remote servers and authentication headers.',
   'config.sections.mcp.title': 'MCP',
@@ -525,6 +528,9 @@ const zhCN = {
   'config.sections.channels.description':
     '设置 Slack、Teams、Google Chat 和 Telegram。',
   'config.sections.channels.title': '渠道',
+  'config.sections.tts.description':
+    '配置机器人的发音语音、语音模型和音频格式。',
+  'config.sections.tts.title': '文字转语音',
   'config.sections.mcp.description': '管理 MCP 远程服务器和鉴权请求头。',
   'config.sections.mcp.title': 'MCP',
   'config.sections.models.description':
@@ -927,6 +933,9 @@ const zhTW = {
   'config.sections.channels.description':
     '設定 Slack、Teams、Google Chat 和 Telegram。',
   'config.sections.channels.title': '通道',
+  'config.sections.tts.description':
+    '設定機器人的發音語音、語音模型和音訊格式。',
+  'config.sections.tts.title': '文字轉語音',
   'config.sections.mcp.description': '管理 MCP 遠端伺服器和驗證標頭。',
   'config.sections.mcp.title': 'MCP',
   'config.sections.models.description':
@@ -1361,6 +1370,9 @@ const ja = {
   'config.sections.channels.description':
     'Slack、Teams、Google Chat、Telegram を設定します。',
   'config.sections.channels.title': 'チャンネル',
+  'config.sections.tts.description':
+    'ボットの音声、音声モデル、オーディオ形式を設定します。',
+  'config.sections.tts.title': 'テキスト読み上げ',
   'config.sections.mcp.description':
     'MCP リモートサーバーと認証ヘッダーを管理します。',
   'config.sections.mcp.title': 'MCP',
@@ -1791,6 +1803,9 @@ const ko = {
   'config.sections.channels.description':
     'Slack, Teams, Google Chat, Telegram을 설정합니다.',
   'config.sections.channels.title': '채널',
+  'config.sections.tts.description':
+    '봇의 음성, 음성 모델, 오디오 형식을 설정합니다.',
+  'config.sections.tts.title': '텍스트 음성 변환',
   'config.sections.mcp.description': 'MCP 원격 서버와 인증 헤더를 관리합니다.',
   'config.sections.mcp.title': 'MCP',
   'config.sections.models.description':

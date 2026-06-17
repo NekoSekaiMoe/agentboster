@@ -142,8 +142,8 @@ export function ChatForm() {
           </CardTitle>
           <CardDescription>
             Auto-play the latest assistant reply as audio in the Web chat.
-            Requires an admin to enable TTS globally and configure an OpenAI
-            speech model.
+            Requires an admin to configure a speech model under Config &gt;
+            Text-to-Speech.
           </CardDescription>
         </CardHeader>
         <CardContent>

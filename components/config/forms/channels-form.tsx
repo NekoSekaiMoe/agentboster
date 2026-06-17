@@ -506,6 +506,49 @@ export function ChannelsForm() {
                       }
                     />
 
+                    {adapterValue.enabled ? (
+                      <div className="rounded-xl border border-dashed p-4 space-y-3">
+                        <p className="font-medium text-sm">
+                          Text-to-Speech voice replies
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          When on, assistant replies to this channel are
+                          synthesized to audio and posted as a voice message.
+                          Falls back to plain text when the adapter does not
+                          support audio upload (Feishu / GChat / QQ) or when TTS
+                          synthesis fails.
+                        </p>
+                        <ToggleField
+                          checked={Boolean(adapterValue.tts_enabled)}
+                          label="Send voice replies"
+                          onCheckedChange={(checked) =>
+                            updateValue({
+                              ...channels,
+                              [adapter.key]: {
+                                ...adapterValue,
+                                tts_enabled: checked,
+                              },
+                            } as AppConfig['channels'])
+                          }
+                        />
+                        <Field label="Voice override (optional)">
+                          <Input
+                            value={String(adapterValue.tts_voice ?? '')}
+                            placeholder="Leave empty to use the global voice"
+                            onChange={(event) =>
+                              updateValue({
+                                ...channels,
+                                [adapter.key]: {
+                                  ...adapterValue,
+                                  tts_voice: event.target.value || undefined,
+                                },
+                              } as AppConfig['channels'])
+                            }
+                          />
+                        </Field>
+                      </div>
+                    ) : null}
+
                     <div className="grid gap-4 md:grid-cols-2">
                       {adapter.fields.map((field) => {
                         const preset = CHANNEL_PRESETS[adapter.key];
