@@ -6,6 +6,7 @@ import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useI18n } from '@/components/i18n-provider';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -186,6 +187,7 @@ const successBadgeClass: Record<string, string> = {
 };
 
 export function AuditLogsForm() {
+  const { t } = useI18n();
   const [filters, setFilters] = useState<Filters>({});
   const [commandSearch, setCommandSearch] = useState('');
   const [taskIdSearch, setTaskIdSearch] = useState('');
@@ -412,12 +414,12 @@ export function AuditLogsForm() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-8" />
-                    <TableHead>Time</TableHead>
-                    <TableHead>Level</TableHead>
-                    <TableHead>Decision</TableHead>
+                    <TableHead>{t('form.label.time')}</TableHead>
+                    <TableHead>{t('form.label.level')}</TableHead>
+                    <TableHead>{t('form.label.decision')}</TableHead>
                     <TableHead>Command</TableHead>
-                    <TableHead className="text-right">Score</TableHead>
-                    <TableHead>Agent</TableHead>
+                    <TableHead className="text-right">{t('form.label.score')}</TableHead>
+                    <TableHead>{t('form.label.agent')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -489,29 +491,29 @@ export function AuditLogsForm() {
 
               <div className="space-y-4 pt-2">
                 <DetailRow
-                  label="Time"
+                  label={t('form.label.time')}
                   value={new Date(selectedLog.createdAt).toLocaleString()}
                 />
                 <DetailRow
-                  label="Level"
+                  label={t('form.label.level')}
                   value={levelLabels[selectedLog.level] || selectedLog.level}
                 />
                 <DetailRow
-                  label="Decision"
+                  label={t('form.label.decision')}
                   value={
                     decisionLabels[selectedLog.decision] || selectedLog.decision
                   }
                 />
                 {selectedLog.score !== null && (
-                  <DetailRow label="Score" value={String(selectedLog.score)} />
+                  <DetailRow label={t('form.label.score')} value={String(selectedLog.score)} />
                 )}
-                <DetailRow label="Task ID" value={selectedLog.taskId} mono />
+                <DetailRow label={t('form.label.taskId')} value={selectedLog.taskId} mono />
                 {selectedLog.agentId && (
-                  <DetailRow label="Agent" value={selectedLog.agentId} mono />
+                  <DetailRow label={t('form.label.agent')} value={selectedLog.agentId} mono />
                 )}
                 {selectedLog.sessionId && (
                   <DetailRow
-                    label="Session"
+                    label={t('form.label.session')}
                     value={selectedLog.sessionId}
                     mono
                   />
@@ -546,6 +548,7 @@ export function AuditLogsForm() {
 }
 
 function ToolActivitySection() {
+  const { t } = useI18n();
   const [filters, setFilters] = useState<ToolActivityFilters>({});
   const [searchText, setSearchText] = useState('');
   const [toolNameSearch, setToolNameSearch] = useState('');
@@ -798,13 +801,13 @@ function ToolActivitySection() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-8" />
-                    <TableHead>Time</TableHead>
+                    <TableHead>{t('form.label.time')}</TableHead>
                     <TableHead>Action</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Tool</TableHead>
-                    <TableHead>Target</TableHead>
-                    <TableHead className="text-right">Duration</TableHead>
-                    <TableHead>Agent</TableHead>
+                    <TableHead>{t('form.label.status')}</TableHead>
+                    <TableHead>{t('form.label.tool')}</TableHead>
+                    <TableHead>{t('form.label.target')}</TableHead>
+                    <TableHead className="text-right">{t('form.label.duration')}</TableHead>
+                    <TableHead>{t('form.label.agent')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -876,52 +879,52 @@ function ToolActivitySection() {
 
               <div className="grid gap-4 pt-2 sm:grid-cols-2">
                 <DetailRow
-                  label="Started"
+                  label={t('form.label.started')}
                   value={new Date(selectedLog.startedAt).toLocaleString()}
                 />
                 <DetailRow
-                  label="Completed"
+                  label={t('form.label.completed')}
                   value={
                     selectedLog.completedAt
                       ? new Date(selectedLog.completedAt).toLocaleString()
                       : '-'
                   }
                 />
-                <DetailRow label="Tool" value={selectedLog.toolName} mono />
+                <DetailRow label={t('form.label.tool')} value={selectedLog.toolName} mono />
                 <DetailRow
-                  label="Duration"
+                  label={t('form.label.duration')}
                   value={formatDuration(selectedLog.durationMs)}
                 />
                 {selectedLog.target && (
-                  <DetailRow label="Target" value={selectedLog.target} mono />
+                  <DetailRow label={t('form.label.target')} value={selectedLog.target} mono />
                 )}
                 {selectedLog.model && (
-                  <DetailRow label="Model" value={selectedLog.model} mono />
+                  <DetailRow label={t('form.label.model')} value={selectedLog.model} mono />
                 )}
                 {selectedLog.step !== null && (
-                  <DetailRow label="Step" value={String(selectedLog.step)} />
+                  <DetailRow label={t('form.label.step')} value={String(selectedLog.step)} />
                 )}
                 {selectedLog.toolCallId && (
                   <DetailRow
-                    label="Tool Call ID"
+                    label={t('form.label.toolCallId')}
                     value={selectedLog.toolCallId}
                     mono
                   />
                 )}
                 {selectedLog.taskId && (
-                  <DetailRow label="Task ID" value={selectedLog.taskId} mono />
+                  <DetailRow label={t('form.label.taskId')} value={selectedLog.taskId} mono />
                 )}
                 {selectedLog.sessionId && (
                   <DetailRow
-                    label="Session"
+                    label={t('form.label.session')}
                     value={selectedLog.sessionId}
                     mono
                   />
                 )}
-                <DetailRow label="Agent" value={selectedLog.agentId} mono />
+                <DetailRow label={t('form.label.agent')} value={selectedLog.agentId} mono />
                 {selectedLog.sandboxId && (
                   <DetailRow
-                    label="Sandbox"
+                    label={t('form.label.sandbox')}
                     value={selectedLog.sandboxId}
                     mono
                   />
@@ -930,18 +933,18 @@ function ToolActivitySection() {
 
               <div className="space-y-4 pt-4">
                 <DetailBlock
-                  label="Arguments"
+                  label={t('form.label.arguments')}
                   value={formatStructuredValue(selectedLog.arguments)}
                 />
                 <DetailBlock
-                  label="Full Result"
+                  label={t('form.label.fullResult')}
                   value={
                     selectedLog.outputText ||
                     formatStructuredValue(selectedLog.result)
                   }
                 />
                 {selectedLog.error && (
-                  <DetailBlock label="Error" value={selectedLog.error} />
+                  <DetailBlock label={t('form.label.error')} value={selectedLog.error} />
                 )}
               </div>
             </>

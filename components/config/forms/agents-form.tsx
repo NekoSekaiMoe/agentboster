@@ -196,7 +196,7 @@ export function AgentsForm() {
                 </summary>
 
                 <div className="mt-3 grid gap-4 md:grid-cols-2">
-                  <Field label="Sandbox type">
+                  <Field label={t('form.label.sandboxType')}>
                     <select
                       className="w-full rounded border bg-background px-2 py-1"
                       value={agentValue.sandbox_type ?? 'auto'}
@@ -223,7 +223,7 @@ export function AgentsForm() {
                     </select>
                   </Field>
 
-                  <Field label="CPU cores">
+                  <Field label={t('form.label.cpuCores')}>
                     <Input
                       type="number"
                       min="0.1"
@@ -244,7 +244,7 @@ export function AgentsForm() {
                     />
                   </Field>
 
-                  <Field label="Memory">
+                  <Field label={t('form.label.memory')}>
                     <Input
                       type="text"
                       placeholder='e.g. "256m", "1g"'
@@ -261,7 +261,7 @@ export function AgentsForm() {
                     />
                   </Field>
 
-                  <Field label="PIDs limit">
+                  <Field label={t('form.label.pidsLimit')}>
                     <Input
                       type="number"
                       min="1"
@@ -281,7 +281,7 @@ export function AgentsForm() {
                     />
                   </Field>
 
-                  <Field label="Max parallel subagents">
+                  <Field label={t('form.label.maxParallelSubagents')}>
                     <Input
                       type="number"
                       min="1"
@@ -423,7 +423,7 @@ export function AgentsForm() {
                     )}
                   </div>
 
-                  <Field label="Disk quota">
+                  <Field label={t('form.label.diskQuota')}>
                     <Input
                       type="text"
                       placeholder='e.g. "1g"'

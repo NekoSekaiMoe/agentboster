@@ -20,6 +20,7 @@ import {
 import { toast } from 'sonner';
 
 import { useConfigContextStrict } from '@/components/config/config-provider';
+import { useI18n } from '@/components/i18n-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -141,6 +142,7 @@ function formatHeartbeat(value: string | null) {
 
 export function AgentDConfigPage() {
   const { draft, updateSection } = useConfigContextStrict();
+  const { t } = useI18n();
   const agentdConfig = (draft.agentd ?? {}) as Partial<AgentdConfig>;
   const agentdEnabled = agentdConfig.enabled ?? false;
   const configuredNodes = agentdConfig.nodes ?? [];
@@ -323,21 +325,21 @@ export function AgentDConfigPage() {
         <StatusCard
           description="Web server direct health check via saved URL or AGENTD_URL."
           icon={directOnline ? CheckCircle2 : WifiOff}
-          title="Direct daemon"
+          title={t('form.label.directDaemon')}
           value={directOnline ? 'Online' : 'Offline'}
           variant={directOnline ? 'online' : 'offline'}
         />
         <StatusCard
           description="Nodes that have registered and sent recent heartbeats."
           icon={onlineNodes.length > 0 ? Server : XCircle}
-          title="Registered nodes"
+          title={t('form.label.registeredNodes')}
           value={`${onlineNodes.length}/${registeredNodes?.length ?? 0}`}
           variant={onlineNodes.length > 0 ? 'online' : 'neutral'}
         />
         <StatusCard
           description="Execution is controlled by the saved Web config."
           icon={agentdEnabled ? Activity : Info}
-          title="Web execution"
+          title={t('form.label.webExecution')}
           value={agentdEnabled ? 'Enabled' : 'Disabled'}
           variant={agentdEnabled ? 'online' : 'neutral'}
         />
@@ -405,12 +407,12 @@ export function AgentDConfigPage() {
                     <div className="grid gap-2 text-xs sm:grid-cols-5 md:min-w-[520px]">
                       <Metric
                         icon={Cpu}
-                        label="CPU"
+                        label={t('form.label.cpu')}
                         value={formatPercent(node.cpu_usage)}
                       />
                       <Metric
                         icon={Activity}
-                        label="Mem"
+                        label={t('form.label.mem')}
                         value={formatPercent(
                           node.mem_avail != null
                             ? 1 - node.mem_avail / 100
@@ -419,16 +421,16 @@ export function AgentDConfigPage() {
                       />
                       <Metric
                         icon={HardDrive}
-                        label="Disk"
+                        label={t('form.label.disk')}
                         value={formatPercent(
                           node.disk_avail != null
                             ? 1 - node.disk_avail / 100
                             : null,
                         )}
                       />
-                      <Metric label="Tasks" value={String(node.active_tasks)} />
+                      <Metric label={t('form.label.tasks')} value={String(node.active_tasks)} />
                       <Metric
-                        label="Sandboxes"
+                        label={t('form.label.sandboxes')}
                         value={String(node.active_sandboxes)}
                       />
                     </div>
@@ -474,13 +476,13 @@ export function AgentDConfigPage() {
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
-          <Detail label="Status" value={daemon?.status ?? 'unknown'} />
+          <Detail label={t('form.label.systemStatus')} value={daemon?.status ?? 'unknown'} />
           <Detail
-            label="Version"
+            label={t('form.label.version')}
             value={daemon?.status === 'online' ? daemon.version || '-' : '-'}
           />
           <Detail
-            label="Uptime"
+            label={t('form.label.uptime')}
             value={daemon?.status === 'online' ? daemon.uptime || '-' : '-'}
           />
         </CardContent>

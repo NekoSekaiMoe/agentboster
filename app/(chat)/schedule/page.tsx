@@ -287,7 +287,7 @@ export default function SchedulePage() {
   return (
     <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
       <WorkspacePageHeader
-        title="Schedule"
+        title={t('form.label.schedule')}
         description="View, edit, and archive delayed or daily tasks."
         actions={
           <Button
@@ -310,22 +310,22 @@ export default function SchedulePage() {
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
           <div className="grid gap-4 md:grid-cols-4">
             <SummaryCard
-              title="Total Tasks"
+              title={t('form.label.totalTasks')}
               value={String(summary.total)}
               hint="All scheduled tasks"
             />
             <SummaryCard
-              title="Scheduled"
+              title={t('form.label.scheduled')}
               value={String(summary.scheduled)}
               hint="Visible active task cards"
             />
             <SummaryCard
-              title="Archived"
+              title={t('form.label.archived')}
               value={String(summary.archived)}
               hint="Completed or expired delay tasks"
             />
             <SummaryCard
-              title="Daily"
+              title={t('form.label.daily')}
               value={String(summary.daily)}
               hint="Recurring schedules"
             />
@@ -429,7 +429,7 @@ export default function SchedulePage() {
           ) : (
             <>
               <TaskSection
-                title="Scheduled"
+                title={t('form.label.scheduled')}
                 description="Click a card to expand and edit its details."
                 emptyText="No scheduled tasks."
                 tasks={scheduledTasks}
@@ -444,7 +444,7 @@ export default function SchedulePage() {
               />
 
               <TaskSection
-                title="Archived"
+                title={t('form.label.archived')}
                 description="Completed or expired delay tasks stay here as collapsed summaries."
                 emptyText="No archived tasks."
                 tasks={archivedTasks}
@@ -563,6 +563,7 @@ function TaskCard(input: {
     onDelete,
     onToggle,
   } = input;
+  const { t } = useI18n();
   const archived = task.archived;
   const readOnly = archived;
   const disabled = readOnly || saving || deleting;
@@ -620,17 +621,17 @@ function TaskCard(input: {
           </div>
 
           <div className="grid gap-3 text-muted-foreground text-xs sm:grid-cols-2 xl:grid-cols-4">
-            <MetaItem label="Next Run" value={formatDateTime(task.nextRunAt)} />
+            <MetaItem label={t('form.label.nextRun')} value={formatDateTime(task.nextRunAt)} />
             <MetaItem
-              label="Last Triggered"
+              label={t('form.label.lastTriggered')}
               value={formatDateTime(task.lastTriggeredAt)}
             />
             <MetaItem
-              label="Schedule Run"
+              label={t('form.label.scheduleRun')}
               value={shortId(task.scheduleWorkflowRunId)}
             />
             <MetaItem
-              label="Last Chat Run"
+              label={t('form.label.lastChatRun')}
               value={shortId(task.lastChatRunId)}
             />
           </div>
@@ -640,16 +641,16 @@ function TaskCard(input: {
       {expanded ? (
         <CardContent className="space-y-4 border-t pt-4">
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Title">
+            <Field label={t('form.label.title')}>
               <Input
                 disabled={disabled}
                 value={draft.title}
                 onChange={(event) => onChange({ title: event.target.value })}
-                placeholder="Morning brief"
+                placeholder={t('form.placeholder.morningBrief')}
               />
             </Field>
 
-            <Field label="Status">
+            <Field label={t('form.label.status')}>
               <Select
                 disabled={disabled}
                 value={draft.active ? 'active' : 'paused'}
@@ -667,7 +668,7 @@ function TaskCard(input: {
               </Select>
             </Field>
 
-            <Field label="Task Type">
+            <Field label={t('form.label.taskType')}>
               <Select
                 disabled={disabled}
                 value={draft.type}
@@ -684,7 +685,7 @@ function TaskCard(input: {
             </Field>
 
             {draft.type === 'delay' ? (
-              <Field label="Run At">
+              <Field label={t('form.label.runAt')}>
                 <Input
                   disabled={disabled}
                   type="datetime-local"
@@ -694,7 +695,7 @@ function TaskCard(input: {
               </Field>
             ) : (
               <>
-                <Field label="Daily Time">
+                <Field label={t('form.label.dailyTime')}>
                   <Input
                     disabled={disabled}
                     type="time"
@@ -704,7 +705,7 @@ function TaskCard(input: {
                     }
                   />
                 </Field>
-                <Field label="Timezone">
+                <Field label={t('form.label.timezone')}>
                   <Input
                     disabled={disabled}
                     value={draft.timezone}
@@ -718,7 +719,7 @@ function TaskCard(input: {
             )}
           </div>
 
-          <Field label="Prompt">
+          <Field label={t('form.label.prompt')}>
             <Textarea
               disabled={disabled}
               rows={5}
