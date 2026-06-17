@@ -11,6 +11,7 @@ import {
   serializeAssistantMessage,
   serializeUserMessage,
 } from '@/lib/chat/message-utils';
+import { resolveThreadLocale, resolveUserLocale } from '@/lib/chat/user-locale';
 import { get, set } from '@/lib/core/kv';
 import { getConfig } from '@/lib/core/kv/config';
 import type { AdapterName, ChannelsConfig } from '@/types/config/channels';
@@ -442,6 +443,27 @@ export async function getBot(): Promise<Chat> {
     const routedText =
       routedParts[0]?.type === 'text' ? routedParts[0].text : text;
 
+    // Resolve the IM user's locale BEFORE routing so every downstream
+    // consumer (system prompt Response Language, command executors,
+    // notification templates, channel renderers) sees the same value.
+    // Precedence (top wins):
+    //   1. The session this thread is bound to (set via /lang)
+    //   2. The user's most recent session's locale
+    //   3. The global config default (config.language?.bot_locale)
+    //   4. 'auto' (LLM falls back to "reply in user's language")
+    const threadExternalIds = getIncomingExternalThreadIds(source);
+    const threadLocale = threadExternalIds.length
+      ? await resolveThreadLocale(threadExternalIds)
+      : null;
+    const userLocale = userId
+      ? await resolveUserLocale(userId)
+      : null;
+    const resolvedLocale =
+      threadLocale ??
+      userLocale ??
+      config.language?.bot_locale ??
+      'auto';
+
     await routeAdapterMessage({
       adapter,
       origin: thread.channelId ?? thread.id,
@@ -450,7 +472,7 @@ export async function getBot(): Promise<Chat> {
       messageId: message.id?.trim() || null,
       userId: message.author?.userId ?? null,
       userName: message.author?.userName ?? null,
-      locale: config.language?.bot_locale ?? 'auto',
+      locale: resolvedLocale,
       text: routedText,
       parts: routedParts,
     });

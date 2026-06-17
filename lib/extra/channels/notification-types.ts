@@ -1,4 +1,5 @@
 import type { AdapterName } from '@/types/config';
+import type { Locale } from '@/lib/i18n';
 
 // ─── Notification Types ──────────────────────────────────────────────
 
@@ -33,6 +34,16 @@ export interface L2DecisionContext {
   createdAt: string;
 }
 
+/**
+ * Locale that channel renderers should use when localizing this
+ * notification's template text (button labels, field names, titles
+ * produced from `titleKey`). Resolved by send-notification.ts from
+ * the target user's most recent session.metadata.locale, falling
+ * back to the global default. Optional — when absent, renderers
+ * fall back to the global default locale.
+ */
+export type NotificationLocale = Locale;
+
 // ─── Decision Notification (L2 authorization) ────────────────────────
 
 export interface DecisionNotification {
@@ -47,6 +58,8 @@ export interface DecisionNotification {
   reason: string;
   options: L2Action[];
   expiresAt: string;
+  /** Locale for template localization; falls back to global default if absent. */
+  locale?: NotificationLocale;
 }
 
 // ─── L2 Time Input Notification ──────────────────────────────────────
@@ -59,6 +72,8 @@ export interface L2TimeInputNotification {
   title: string;
   command: string;
   promptMessage: string;
+  /** Locale for template localization; falls back to global default if absent. */
+  locale?: NotificationLocale;
 }
 
 // ─── Completion Notification ─────────────────────────────────────────
@@ -84,6 +99,8 @@ export interface CompletionNotification {
     deletions?: number;
   };
   channelFallback: string[];
+  /** Locale for template localization; falls back to global default if absent. */
+  locale?: NotificationLocale;
 }
 
 // ─── Task Summary Tidy Report ────────────────────────────────────────

@@ -1,10 +1,48 @@
 import { getNotificationPreferences } from '@/lib/core/db/notification';
+import { resolveUserLocale } from '@/lib/chat/user-locale';
+import { getConfig } from '@/lib/core/kv/config';
+import { normalizeLocale, defaultLocale } from '@/lib/i18n';
 import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';
 import { getNotificationManager } from './notification-manager';
-import type { NotificationPayload } from './notification-types';
+import type {
+  NotificationPayload,
+  DecisionNotification,
+  CompletionNotification,
+  L2TimeInputNotification,
+  NotificationLocale,
+} from './notification-types';
 
 const logger = createLogger('notification.send');
+
+/**
+ * Resolve the locale a notification should be rendered in.
+ *
+ * Precedence (top wins):
+ *   1. Locale already on the payload (set by an upstream caller)
+ *   2. The target user's most recent session.metadata.locale
+ *   3. config.language?.bot_locale (global bot default)
+ *   4. en-US (final fallback so templates always resolve)
+ */
+async function resolvePayloadLocale(
+  payload: NotificationPayload,
+  userId?: string,
+): Promise<NotificationLocale> {
+  if (payload.locale) return payload.locale;
+
+  if (userId) {
+    const userLocale = await resolveUserLocale(userId);
+    if (userLocale) return userLocale;
+  }
+
+  const config = await getConfig();
+  const configured = config.language?.bot_locale;
+  if (configured && configured !== 'auto') {
+    return normalizeLocale(configured);
+  }
+
+  return defaultLocale;
+}
 
 /**
  * Send a notification to the user via their preferred IM channel.
@@ -34,6 +72,13 @@ export async function sendNotification(params: {
   const fallbackChannels = prefs?.fallbackChannels?.length
     ? prefs.fallbackChannels
     : [source.adapter];
+
+  // Resolve and stamp the rendering locale onto the payload before
+  // dispatching. Channel renderers (Phase 2) read this instead of the
+  // hard-coded text. The stamp is idempotent — already-set locales win.
+  const locale = await resolvePayloadLocale(payload, userId);
+  (payload as NotificationPayload & { locale: NotificationLocale }).locale =
+    locale;
 
   const mgr = getNotificationManager();
 
