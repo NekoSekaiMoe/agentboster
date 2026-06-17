@@ -295,19 +295,17 @@ export function AppSidebar() {
           />
         </div>
 
-        {!isCollapsed ? (
-          <Button
-            asChild
-            size="sm"
-            variant="outline"
-            className="h-9 justify-start rounded-xl"
-          >
-            <Link href="/" onClick={() => setOpenMobile(false)}>
-              <MessageSquare className="size-4" />
-              {t('menu.backToChat')}
-            </Link>
-          </Button>
-        ) : null}
+        <Button
+          asChild
+          size="sm"
+          variant="outline"
+          className="h-9 justify-start rounded-xl"
+        >
+          <Link href="/" onClick={() => setOpenMobile(false)}>
+            <MessageSquare className="size-4" />
+            {!isCollapsed && <span>{t('menu.backToChat')}</span>}
+          </Link>
+        </Button>
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-3">

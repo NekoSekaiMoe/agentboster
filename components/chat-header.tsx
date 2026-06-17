@@ -129,23 +129,17 @@ function PureChatHeader({
               <span className="text-lg text-muted-foreground">ChatUI</span>
             </div>
 
-            <div className="ml-auto hidden rounded-xl bg-muted p-1 md:grid md:grid-cols-2">
-              <Button
-                asChild
-                size="sm"
-                variant="ghost"
-                className="h-8 rounded-lg"
-              >
-                <Link href="/config/monitoring">
-                  <Bot className="size-3.5" />
-                  {t('nav.bot')}
-                </Link>
-              </Button>
-              <Button size="sm" className="h-8 rounded-lg">
-                <MessageSquare className="size-3.5" />
-                {t('nav.chat')}
-              </Button>
-            </div>
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="ml-auto hidden h-8 md:inline-flex"
+            >
+              <Link href="/config/monitoring">
+                <Bot className="size-3.5" />
+                {t('nav.bot')}
+              </Link>
+            </Button>
           </div>
 
           <div className="mt-2 flex min-h-8 min-w-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-1 text-muted-foreground text-xs [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
