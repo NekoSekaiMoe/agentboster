@@ -295,6 +295,7 @@ and exposed to the LLM as OpenAI-compatible function-calling definitions:
 - `exec` (`tools_exec.go`) — sandboxed shell execution, gated through the Gatekeeper
 - `git` (`tools_git.go`) — clone, add, commit, push, diff, log
 - `web` (`tools_web.go`, `tools_web_rendered.go`) — fetch URL, web search, plus Chromium-rendered fetch/search for JavaScript-heavy pages
+- `browser` (`tools_browser_v2.go`) — full Playwright-backed browser automation: navigate, click, type, get_text, get_html, screenshot, evaluate, save_state, load_state, list_profiles, close. See "Browser Automation" below.
 - `memory` (`tools_memory.go`) — search, save
 - `skills` (`tools_skills.go`) — load a named skill
 - `subagent` (`tools_subagent.go`) — spawn a sub-agent with its own session
@@ -313,6 +314,36 @@ If Chromium is missing, the tool searches the sandbox package manager (`apk`, `a
 `dnf`, `yum`, `pacman`, or `zypper`) and installs a compatible browser package before
 rendering. The sandbox must have package-manager permissions and network access, so
 disable `sandbox.network_isolate` for tasks that need rendered web access.
+
+### Browser Automation
+
+The `browser_*` tools (`tools_browser_v2.go`) drive a long-lived **Playwright helper**
+inside an LXC sandbox. Tool names and signatures mirror the serverless-side browser
+MCP tools (`lib/mcp/tools/browser.ts`) so `storageState` profiles interop across sides.
+
+**Architecture**: the daemon spawns a node.js bridge (`internal/agent/browser/bridge.js`)
+inside the sandbox that holds a `chromium.launchPersistentContext`. The daemon
+communicates with it via `sbMgr.Exec("curl --unix-socket /workspace/browser.sock ...")`
+— no port forwarding required. node.js is bootstrapped on first call by
+`node_install.sh` (Tsinghua TUNA mirror by default, SHA256-verified against nodejs.org).
+
+**Profile persistence**: profiles live at `/workspace/browser-profiles/<name>/`. Both
+the chromium user-data-dir (cookies, localStorage) and an explicit `storageState.json`
+snapshot are kept on disk. LXC rootfs persistence means profiles survive across
+sessions and daemon restarts. Use `browser_save_state` to export the storageState blob
+for cross-side migration (e.g. hand off to the serverless browser via `memory_save`).
+
+**Anti-detection**: realistic Chrome UA (no AgentBoster token),
+`--disable-blink-features=AutomationControlled`, and `navigator.webdriver` masked
+via `addInitScript`. Matches the serverless-side strategy exactly.
+
+**Security**: `browser_evaluate` output is L0-audited (`Engine.CheckOutput`) to block
+prompt/credential leakage through arbitrary in-page JS. The tool layer consults the
+L0 engine directly via `AgentContext.L0Engine` (injected from `Gatekeeper.L0()`).
+
+**Routing**: `needsPersistence` matches the `browser_` prefix and routes these tools
+to LXC. Request `permission_profile=browser` for network access (the sandbox must be
+able to reach the public web). Available to `trusted` users only.
 
 ---
 

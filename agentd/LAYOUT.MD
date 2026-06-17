@@ -14,7 +14,13 @@ agentd/
     │   ├── question.go
     │   ├── subagent_runner.go    P0.1: goroutine runner for sub-agents
     │   ├── tools.go, tools_register.go
-    │   └── tools_*.go            one file per tool family
+    │   ├── tools_*.go            one file per tool family
+    │   │                           tools_browser_v2.go: Playwright-backed browser_*
+    │   │                           (mirrors serverless-side lib/mcp/tools/browser.ts)
+    │   └── browser/              in-sandbox Playwright bridge lifecycle
+    │       ├── browser.go          EnsureBridge / CallBridge / CloseBridge
+    │       ├── bridge.js           embedded node.js HTTP helper over unix socket
+    │       └── node_install.sh     bootstrap node.js (TUNA mirror, SHA256-verified)
     ├── cache/                    local session blob with periodic sync + retry,
     │                             gzip compression, ClawLess upstream sync (P0.4)
     ├── certs/                    agentd -gen-certs CA + server + client
