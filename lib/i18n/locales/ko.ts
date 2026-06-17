@@ -712,7 +712,8 @@ export const ko = {
   'form.label.pidsLimit': 'PID 한도',
   'form.label.maxParallelSubagents': '최대 병렬 하위 에이전트',
   'form.label.diskQuota': '디스크 할당량',
-  'form.placeholder.morningBrief': '아침 브리핑',  'form.label.action': '작업',
+  'form.placeholder.morningBrief': '아침 브리핑',
+  'form.label.action': '작업',
   'form.label.scope': '범위',
   'form.label.input': '입력',
   'form.label.output': '출력',
@@ -729,5 +730,4 @@ export const ko = {
   'form.placeholder.filterBySessionId': '세션 ID로 필터',
   'form.placeholder.whatSkillDoes': '이 스킬의 기능',
   'form.placeholder.leaveEmptyGlobalVoice': '비워두면 전역 음성 사용',
-
 } satisfies Record<keyof typeof enUS, string>;

@@ -673,7 +673,8 @@ export const zhCN = {
   'form.label.pidsLimit': 'PID 上限',
   'form.label.maxParallelSubagents': '最大并行子代理',
   'form.label.diskQuota': '磁盘配额',
-  'form.placeholder.morningBrief': '早间简报',  'form.label.action': '操作',
+  'form.placeholder.morningBrief': '早间简报',
+  'form.label.action': '操作',
   'form.label.scope': '范围',
   'form.label.input': '输入',
   'form.label.output': '输出',
@@ -690,5 +691,4 @@ export const zhCN = {
   'form.placeholder.filterBySessionId': '按会话 ID 筛选',
   'form.placeholder.whatSkillDoes': '这个技能做什么',
   'form.placeholder.leaveEmptyGlobalVoice': '留空则使用全局语音',
-
 } satisfies Record<keyof typeof enUS, string>;

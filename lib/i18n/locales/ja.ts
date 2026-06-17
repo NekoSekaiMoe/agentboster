@@ -730,7 +730,8 @@ export const ja = {
   'form.label.pidsLimit': 'PID 上限',
   'form.label.maxParallelSubagents': '最大並列サブエージェント',
   'form.label.diskQuota': 'ディスククォータ',
-  'form.placeholder.morningBrief': '朝のブリーフィング',  'form.label.action': 'アクション',
+  'form.placeholder.morningBrief': '朝のブリーフィング',
+  'form.label.action': 'アクション',
   'form.label.scope': 'スコープ',
   'form.label.input': '入力',
   'form.label.output': '出力',
@@ -747,5 +748,4 @@ export const ja = {
   'form.placeholder.filterBySessionId': 'セッション ID で絞り込み',
   'form.placeholder.whatSkillDoes': 'このスキルの機能',
   'form.placeholder.leaveEmptyGlobalVoice': '空欄ならグローバル音声を使用',
-
 } satisfies Record<keyof typeof enUS, string>;

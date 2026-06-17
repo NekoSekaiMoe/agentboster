@@ -527,7 +527,9 @@ function AstrBotAssistantMessageParts({
                           ) : null}
 
                           {hasApproval ? (
-                            <ToolDetailsSection label={t('form.label.approval')}>
+                            <ToolDetailsSection
+                              label={t('form.label.approval')}
+                            >
                               <ToolDetailsPre value={toolPart.approval} />
                             </ToolDetailsSection>
                           ) : null}

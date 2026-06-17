@@ -675,7 +675,8 @@ export const zhTW = {
   'form.label.pidsLimit': 'PID 上限',
   'form.label.maxParallelSubagents': '最大並行子代理',
   'form.label.diskQuota': '磁碟配額',
-  'form.placeholder.morningBrief': '早間簡報',  'form.label.action': '操作',
+  'form.placeholder.morningBrief': '早間簡報',
+  'form.label.action': '操作',
   'form.label.scope': '範圍',
   'form.label.input': '輸入',
   'form.label.output': '輸出',
@@ -692,5 +693,4 @@ export const zhTW = {
   'form.placeholder.filterBySessionId': '按工作階段 ID 篩選',
   'form.placeholder.whatSkillDoes': '這個技能做什麼',
   'form.placeholder.leaveEmptyGlobalVoice': '留空則使用全域語音',
-
 } satisfies Record<keyof typeof enUS, string>;

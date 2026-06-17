@@ -534,7 +534,9 @@ export function ChannelsForm() {
                         <Field label="Voice override (optional)">
                           <Input
                             value={String(adapterValue.tts_voice ?? '')}
-                            placeholder={t('form.placeholder.leaveEmptyGlobalVoice')}
+                            placeholder={t(
+                              'form.placeholder.leaveEmptyGlobalVoice',
+                            )}
                             onChange={(event) =>
                               updateValue({
                                 ...channels,
