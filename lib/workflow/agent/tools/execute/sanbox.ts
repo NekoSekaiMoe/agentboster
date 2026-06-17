@@ -130,6 +130,7 @@ interface SandboxDeniedOutput {
   reason?: string;
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: reserved public union type for sandbox tool results; intentionally kept exported even if currently unreferenced internally
 type SandboxToolResult =
   | SandboxExecOutput
   | SandboxReadOutput
@@ -504,7 +505,13 @@ async function waitForSandboxApproval(input: {
 }): Promise<SandboxApprovalResponse> {
   'use step';
 
-  const { sessionId, runId, toolCallId, toolName, toolInput } = input;
+  const {
+    sessionId: _sessionId,
+    runId: _runId,
+    toolCallId,
+    toolName,
+    toolInput,
+  } = input;
 
   await writeToolApprovalRequest({
     toolCallId,

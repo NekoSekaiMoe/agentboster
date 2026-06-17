@@ -4,7 +4,6 @@ import { getConfig } from '@/lib/core/kv/config';
 import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';
 import type { AdapterName } from '@/types/config/channels';
-import type { Chat } from 'chat';
 
 import { getBaseBot } from './core';
 import { postAdapterReply } from './reply';

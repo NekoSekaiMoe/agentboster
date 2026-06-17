@@ -851,7 +851,6 @@ const PurePreviewMessage = ({
     let userMessageIdToRegenerate: string | undefined;
     let snapshotHistory: NonNullable<ChatMessageMetadata['generationHistory']> =
       [];
-    let snapshotWasFirstRegen = false;
 
     setMessages((currentMessages) => {
       const assistantMsgIndex = currentMessages.findIndex(
@@ -889,7 +888,6 @@ const PurePreviewMessage = ({
           };
         });
 
-      snapshotWasFirstRegen = existingHistory.length === 0;
       if (existingHistory.length === 0) {
         // First regeneration: seed history with the current (original) parts
         snapshotHistory = [
