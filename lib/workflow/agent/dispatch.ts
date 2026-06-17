@@ -146,6 +146,9 @@ export async function startWorkflow(input: {
   initialMessages: ModelMessage[];
   config: AppConfig;
   source: ChatSource;
+  user?: {
+    modelPreferences?: { model?: string } | null;
+  } | null;
 }): Promise<{
   runId: string;
   readable: ReadableStream<WorkflowUIMessageChunk>;
@@ -162,6 +165,7 @@ export async function startWorkflow(input: {
       input.source,
       input.config,
       input.sessionId,
+      input.user,
     ]),
     new Promise<never>((_, reject) =>
       setTimeout(

@@ -39,8 +39,8 @@ import { sanitizeToolName } from './tools/tool-name-guard';
 import { getTokenUsageTotal } from './types';
 import {
   MAIN_AGENT_NAME,
-  getMainAgentModelId,
   getMainAgentTemperature,
+  resolveMainAgentModelId,
 } from './utils/agent-config';
 import { estimatePromptTokens } from './utils/estimateTokens';
 import {
@@ -177,12 +177,15 @@ export async function chatWorkflow(
   source: ChatSource,
   config: AppConfig,
   sessionId: string,
+  user?: {
+    modelPreferences?: { model?: string } | null;
+  } | null,
 ) {
   'use workflow';
 
   const { workflowRunId: runId } = getWorkflowMetadata();
   const agentName = MAIN_AGENT_NAME;
-  const modelId = getMainAgentModelId(config);
+  const modelId = resolveMainAgentModelId(config, user);
   const temperature = getMainAgentTemperature(config);
   const system = await buildSystemPrompt(config, {
     agentName,
@@ -503,6 +506,7 @@ export async function chatWorkflow(
             sessionId,
             userId: source.userId as string,
             config,
+            user,
           });
         } catch (err) {
           logger.warn('memory:extract_failed', {

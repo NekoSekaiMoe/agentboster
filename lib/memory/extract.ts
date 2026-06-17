@@ -158,6 +158,13 @@ export async function extractMemoriesFromSession(input: {
   sessionId: string;
   userId: string;
   config: AppConfig;
+  /**
+   * Optional caller user record (or just its model preferences). When
+   * provided, the per-user model override takes precedence over the
+   * global default. When omitted, the global default is used (and looked
+   * up lazily by the caller's host context if needed).
+   */
+  user?: { modelPreferences?: { model?: string } | null } | null;
 }): Promise<{ extracted: number; created: number; updated: number }> {
   const rows = await getVisibleSessionMessages(input.sessionId);
   if (rows.length === 0) {
@@ -169,7 +176,8 @@ export async function extractMemoriesFromSession(input: {
     return { extracted: 0, created: 0, updated: 0 };
   }
 
-  const modelId = input.config.models?.model;
+  const modelId =
+    input.user?.modelPreferences?.model ?? input.config.models?.model;
   if (!modelId) {
     logger.warn('extract:no_model', { sessionId: input.sessionId });
     return { extracted: 0, created: 0, updated: 0 };

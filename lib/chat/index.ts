@@ -15,6 +15,7 @@ import {
   upsertUserMessage,
 } from '@/lib/core/db/chat';
 import { resolveClawLessUserId } from '@/lib/core/db/im-accounts';
+import { getUserById } from '@/lib/core/db/users';
 import { getConfig } from '@/lib/core/kv/config';
 import { getSessionRuntime } from '@/lib/core/sandbox/session-runtime';
 import { invalidateCurrentSessionSummary } from '@/lib/memory';
@@ -1484,9 +1485,18 @@ export async function chatMain(
   const config = await getConfig();
   chatMainLogger.info('chatMain:config_fetched');
 
+  const userId =
+    envelope.source.type === 'web' || envelope.source.type === 'im'
+      ? (envelope.source.userId ?? null)
+      : null;
+  const user = userId ? await getUserById(userId) : null;
+
+  const effectiveModelId =
+    user?.modelPreferences?.model ?? config.models?.model ?? null;
+
   chatMainLogger.info('chatMain:building_initial_messages');
   const initialMessages = await buildInitialContextMessages(session.id, {
-    modelId: config.models?.model ?? null,
+    modelId: effectiveModelId,
   });
   chatMainLogger.info('chatMain:initial_messages_built', {
     messageCount: initialMessages.length,
@@ -1498,6 +1508,7 @@ export async function chatMain(
     initialMessages,
     config,
     source: envelope.source,
+    user,
   });
   chatMainLogger.info('chatMain:workflow_started', { runId });
 
@@ -1532,8 +1543,18 @@ async function runInitAgentsMdWorkflow(input: {
   );
 
   const config = await getConfig();
+
+  const userId =
+    input.source.type === 'web' || input.source.type === 'im'
+      ? (input.source.userId ?? null)
+      : null;
+  const user = userId ? await getUserById(userId) : null;
+
+  const effectiveModelId =
+    user?.modelPreferences?.model ?? config.models?.model ?? null;
+
   const initialMessages = await buildInitialContextMessages(session.id, {
-    modelId: config.models?.model ?? null,
+    modelId: effectiveModelId,
   });
 
   const { runId, readable } = await startWorkflow({
@@ -1541,6 +1562,7 @@ async function runInitAgentsMdWorkflow(input: {
     initialMessages,
     config,
     source: input.source,
+    user,
   });
 
   return {

@@ -1,5 +1,6 @@
 import { extractMemoriesFromSession } from '@/lib/memory/extract';
 import { getSession } from '@/lib/core/db/chat';
+import { getUserById } from '@/lib/core/db/users';
 import { getConfig } from '@/lib/core/kv/config';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
@@ -49,10 +50,12 @@ export async function POST(
     }
 
     const config = await getConfig();
+    const user = userId && userId !== 'agentd' ? await getUserById(userId) : null;
     const result = await extractMemoriesFromSession({
       sessionId,
       userId,
       config,
+      user,
     });
 
     logger.info('memory extracted', {
