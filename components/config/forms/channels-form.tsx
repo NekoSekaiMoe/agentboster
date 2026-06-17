@@ -312,16 +312,32 @@ export function ChannelsForm() {
             setWebhookConfigStatus('error');
           }
         });
-    } else {
-      enabledAdapters.forEach((key) => {
-        loadPairStatus(key);
-      });
     }
 
     return () => {
       isMounted = false;
     };
   }, [isAdmin]);
+
+  // Every user (admin or not) can pair their own IM account, so the pair
+  // status must always be loaded. Previously this only ran in the non-admin
+  // branch, which left admin users stuck on "Generate pair code" forever,
+  // even after a successful pairing.
+  useEffect(() => {
+    let isMounted = true;
+    adapters.forEach((a) => {
+      if (a.value?.enabled) {
+        loadPairStatus(a.key).catch(() => {
+          // loadPairStatus already swallows errors; this guards against
+          // any rejection surfaced after unmount.
+          if (!isMounted) return;
+        });
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const enabledAdapters = adapters
     .filter((a) => a.value?.enabled)
