@@ -144,10 +144,7 @@ type SessionRecord = Awaited<ReturnType<typeof getSession>> | null;
 function buildCommandHelpText(locale: Locale): string {
   const header = t(locale, 'cmd.help.header');
   const entries = COMMANDS.map((cmd) => {
-    const description = t(
-      locale,
-      `slash.command.${cmd}.description` as never,
-    );
+    const description = t(locale, `slash.command.${cmd}.description` as never);
     const hint = t(locale, `slash.command.${cmd}.hint` as never);
     return `${hint} - ${description}`;
   });

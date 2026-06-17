@@ -403,7 +403,8 @@ export const zhTW = {
   'cmd.models.failed': '切換模型失敗：{error}',
   'cmd.lang.prompt': '請選擇語言：',
   'cmd.lang.success': '語言已切換為 {language}',
-  'cmd.lang.failed': '切換語言失敗：{error}',  'slash.command.help.description': '顯示斜線指令說明',
+  'cmd.lang.failed': '切換語言失敗：{error}',
+  'slash.command.help.description': '顯示斜線指令說明',
   'slash.command.new.description': '建立並切換到新對話',
   'slash.command.compact.description': '強制壓縮上下文',
   'slash.command.init.description': '為此儲存庫產生或更新 AGENTS.md',
@@ -464,12 +465,14 @@ export const zhTW = {
   'cmd.session.switch.imOnly': '對話切換僅適用於 IM 執行緒。',
   'cmd.session.list.imOnly': '對話列表僅適用於 IM 執行緒。',
   'cmd.session.delete.imOnly': '對話刪除僅適用於 IM 執行緒。',
-  'cmd.session.notFound': '找不到符合「{args}」的對話。使用 /sessions 查看最近的對話。',
+  'cmd.session.notFound':
+    '找不到符合「{args}」的對話。使用 /sessions 查看最近的對話。',
   'cmd.session.switched': '已切換至對話 {sessionId}。',
   'cmd.session.noActive': '目前沒有對話綁定至此對話執行緒。',
   'cmd.session.deleteNotAllowed': '只能刪除屬於此 IM 帳號的對話。',
   'cmd.session.deleted': '已刪除對話 {sessionId}。',
-  'cmd.session.cleanupSummary': '工作流程已取消={workflowCancelled}\n常駐程式已中止={daemonAborted}\n沙盒已停止={sandboxStopped}\n排程執行已取消={scheduleRunsCancelled}',
+  'cmd.session.cleanupSummary':
+    '工作流程已取消={workflowCancelled}\n常駐程式已中止={daemonAborted}\n沙盒已停止={sandboxStopped}\n排程執行已取消={scheduleRunsCancelled}',
   'cmd.sessions.empty': '找不到此 IM 使用者的對話。',
   'cmd.stop.noRun': '沒有正在執行的工作流程可停止。',
   'cmd.stop.success': '已停止工作流程執行 {runId}。',
@@ -493,7 +496,8 @@ export const zhTW = {
   'pair.success': '已成功將此 IM 帳號綁定至 ClawLess 使用者「{userId}」。',
   'pair.failed': '綁定失敗：{error}',
   'pair.usage': '用法：/pair <code>',
-  'pair.unpairSuccess': '已將此 IM 帳號與 ClawLess 使用者「{userId}」解除綁定。',
+  'pair.unpairSuccess':
+    '已將此 IM 帳號與 ClawLess 使用者「{userId}」解除綁定。',
   'pair.unpairFailed': '解除綁定失敗：{error}',
   'pair.notBound': '此 IM 帳號未綁定任何 ClawLess 使用者。',
   'bot.accessDenied.text': '存取被拒絕：您的帳號無權使用此機器人。',
@@ -518,8 +522,8 @@ export const zhTW = {
   'notify.timeout.body': '任務已暫停。您上線後將自動處理。',
   'notify.reactivate.title': '⚠️ 高風險操作需要您的授權（重發）',
   'notify.timeInput.prompt': '⏱ 請發送時間',
-  'notify.timeInput.youChose': '您選擇了：{action}。請以 hhddmmyy 格式發送時間（例如 14212506 表示 2025 年 6 月 14 日 21:25）。',
+  'notify.timeInput.youChose':
+    '您選擇了：{action}。請以 hhddmmyy 格式發送時間（例如 14212506 表示 2025 年 6 月 14 日 21:25）。',
   'notify.timeInput.format': '格式：hhddmmyy',
   'notify.timeInput.placeholder': '⏱ 請輸入時間',
-
 } satisfies Record<keyof typeof enUS, string>;

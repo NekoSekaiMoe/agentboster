@@ -166,9 +166,7 @@ export function SlashCommandMenu({
     }
 
     const query = match.query.toLowerCase();
-    return allCommands.filter(({ command }) =>
-      command.startsWith(query),
-    );
+    return allCommands.filter(({ command }) => command.startsWith(query));
   }, [match, allCommands]);
 
   if (!match || items.length === 0) {
@@ -251,9 +249,7 @@ export function useSlashCommandNavigation(
     }
 
     const query = match.query.toLowerCase();
-    return allCommands.filter(({ command }) =>
-      command.startsWith(query),
-    );
+    return allCommands.filter(({ command }) => command.startsWith(query));
   }, [match, allCommands]);
   const [activeIndex, setActiveIndex] = useState(0);
   const boundedActiveIndex = activeIndex >= items.length ? 0 : activeIndex;

@@ -428,7 +428,8 @@ export const ko = {
   'cmd.models.failed': '모델 전환 실패: {error}',
   'cmd.lang.prompt': '언어를 선택하세요:',
   'cmd.lang.success': '언어가 {language}로 변경되었습니다',
-  'cmd.lang.failed': '언어 전환 실패: {error}',  'slash.command.help.description': '슬래시 명령 도움말 표시',
+  'cmd.lang.failed': '언어 전환 실패: {error}',
+  'slash.command.help.description': '슬래시 명령 도움말 표시',
   'slash.command.new.description': '새 세션을 생성하고 전환',
   'slash.command.compact.description': '컨텍스트 압축 강제 실행',
   'slash.command.init.description': '이 저장소의 AGENTS.md 생성 또는 업데이트',
@@ -486,15 +487,20 @@ export const ko = {
   'slash.command.lang.hint': '/lang [language-code]',
   'cmd.help.header': '사용 가능한 슬래시 명령어:',
   'cmd.status.noSession': '현재 이 스레드에 바인딩된 세션이 없습니다.',
-  'cmd.session.switch.imOnly': '세션 전환은 IM 스레드에서만 사용할 수 있습니다.',
+  'cmd.session.switch.imOnly':
+    '세션 전환은 IM 스레드에서만 사용할 수 있습니다.',
   'cmd.session.list.imOnly': '세션 목록은 IM 스레드에서만 사용할 수 있습니다.',
-  'cmd.session.delete.imOnly': '세션 삭제는 IM 스레드에서만 사용할 수 있습니다.',
-  'cmd.session.notFound': '"{args}"에 일치하는 세션이 없습니다. /sessions로 최근 세션을 확인하세요.',
+  'cmd.session.delete.imOnly':
+    '세션 삭제는 IM 스레드에서만 사용할 수 있습니다.',
+  'cmd.session.notFound':
+    '"{args}"에 일치하는 세션이 없습니다. /sessions로 최근 세션을 확인하세요.',
   'cmd.session.switched': '세션 {sessionId}(으)로 전환했습니다.',
   'cmd.session.noActive': '현재 이 스레드에 바인딩된 세션이 없습니다.',
-  'cmd.session.deleteNotAllowed': '이 IM 계정에 속한 세션만 삭제할 수 있습니다.',
+  'cmd.session.deleteNotAllowed':
+    '이 IM 계정에 속한 세션만 삭제할 수 있습니다.',
   'cmd.session.deleted': '세션 {sessionId}을(를) 삭제했습니다.',
-  'cmd.session.cleanupSummary': '워크플로 취소={workflowCancelled}\n데몬 중단={daemonAborted}\n샌드박스 중지={sandboxStopped}\n예약 실행 취소={scheduleRunsCancelled}',
+  'cmd.session.cleanupSummary':
+    '워크플로 취소={workflowCancelled}\n데몬 중단={daemonAborted}\n샌드박스 중지={sandboxStopped}\n예약 실행 취소={scheduleRunsCancelled}',
   'cmd.sessions.empty': '이 IM 사용자의 세션을 찾을 수 없습니다.',
   'cmd.stop.noRun': '중지할 활성 워크플로 실행이 없습니다.',
   'cmd.stop.success': '워크플로 실행 {runId}을(를) 중지했습니다.',
@@ -503,24 +509,30 @@ export const ko = {
   'cmd.compact.started': '압축을 요청했습니다. 다음 턴에 세션이 요약됩니다.',
   'cmd.compact.failed': '압축 요청에 실패했습니다: {error}',
   'cmd.approve.noCallId': '사용법: /approve <toolCallId> [note]',
-  'cmd.approve.notPending': 'ID가 "{toolCallId}"인 대기 중인 도구 호출이 없습니다.',
+  'cmd.approve.notPending':
+    'ID가 "{toolCallId}"인 대기 중인 도구 호출이 없습니다.',
   'cmd.approve.ok': '도구 호출 {toolCallId}을(를) 승인했습니다.',
   'cmd.reject.ok': '도구 호출 {toolCallId}을(를) 거절했습니다.',
   'cmd.new.created': '새 세션을 만들고 전환했습니다.',
   'cmd.unsupported': '지원되지 않는 명령어: {command}',
-  'pair.bound': '이 IM 계정은 이미 ClawLess 사용자 "{userId}"에 바인딩되어 있습니다.',
-  'pair.unbound': '이 IM 계정은 어떤 ClawLess 사용자에게도 바인딩되어 있지 않습니다.',
+  'pair.bound':
+    '이 IM 계정은 이미 ClawLess 사용자 "{userId}"에 바인딩되어 있습니다.',
+  'pair.unbound':
+    '이 IM 계정은 어떤 ClawLess 사용자에게도 바인딩되어 있지 않습니다.',
   'pair.prompt': '6자리 페어링 코드를 보내주세요:',
   'pair.invalid': '페어링 코드가 유효하지 않습니다. 코드는 6자리여야 합니다.',
   'pair.notFound': '페어링 코드를 찾을 수 없거나 만료되었습니다.',
   'pair.expired': '페어링 코드가 만료되었습니다. 새 코드를 생성해 주세요.',
   'pair.alreadyBound': '이 페어링 코드는 이미 사용 중입니다.',
-  'pair.success': '이 IM 계정을 ClawLess 사용자 "{userId}"에 성공적으로 바인딩했습니다.',
+  'pair.success':
+    '이 IM 계정을 ClawLess 사용자 "{userId}"에 성공적으로 바인딩했습니다.',
   'pair.failed': '바인딩에 실패했습니다: {error}',
   'pair.usage': '사용법: /pair <code>',
-  'pair.unpairSuccess': '이 IM 계정을 ClawLess 사용자 "{userId}"에서 바인딩 해제했습니다.',
+  'pair.unpairSuccess':
+    '이 IM 계정을 ClawLess 사용자 "{userId}"에서 바인딩 해제했습니다.',
   'pair.unpairFailed': '바인딩 해제에 실패했습니다: {error}',
-  'pair.notBound': '이 IM 계정은 어떤 ClawLess 사용자에게도 바인딩되어 있지 않습니다.',
+  'pair.notBound':
+    '이 IM 계정은 어떤 ClawLess 사용자에게도 바인딩되어 있지 않습니다.',
   'bot.accessDenied.text': '접근 거부: 계정은 이 봇을 사용할 권한이 없습니다.',
   'bot.accessDenied.title': '접근 거부',
   'notify.field.task': '작업',
@@ -540,11 +552,12 @@ export const ko = {
   'notify.l2.rejectOnce': '한 번 거부',
   'notify.l2.rejectUntil': '...까지 거부',
   'notify.timeout.title': '⏰ 결정 시간이 초과되었습니다',
-  'notify.timeout.body': '작업이 일시 정지되었습니다. 온라인으로 돌아오면 처리됩니다.',
+  'notify.timeout.body':
+    '작업이 일시 정지되었습니다. 온라인으로 돌아오면 처리됩니다.',
   'notify.reactivate.title': '⚠️ 고위험 작업에 대한 승인이 필요합니다 (재전송)',
   'notify.timeInput.prompt': '⏱ 시간을 보내주세요',
-  'notify.timeInput.youChose': '선택하신 내용: {action}. 시간을 hhddmmyy 형식으로 보내주세요 (예: 14212506은 2025년 6월 14일 21:25를 의미합니다).',
+  'notify.timeInput.youChose':
+    '선택하신 내용: {action}. 시간을 hhddmmyy 형식으로 보내주세요 (예: 14212506은 2025년 6월 14일 21:25를 의미합니다).',
   'notify.timeInput.format': '형식: hhddmmyy',
   'notify.timeInput.placeholder': '⏱ 시간을 입력해 주세요',
-
 } satisfies Record<keyof typeof enUS, string>;

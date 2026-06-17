@@ -402,7 +402,8 @@ export const zhCN = {
   'cmd.models.failed': '切换模型失败：{error}',
   'cmd.lang.prompt': '请选择语言：',
   'cmd.lang.success': '语言已切换为 {language}',
-  'cmd.lang.failed': '切换语言失败：{error}',  'slash.command.help.description': '显示斜杠命令帮助',
+  'cmd.lang.failed': '切换语言失败：{error}',
+  'slash.command.help.description': '显示斜杠命令帮助',
   'slash.command.new.description': '创建并切换到新会话',
   'slash.command.compact.description': '强制压缩上下文',
   'slash.command.init.description': '为本仓库生成或更新 AGENTS.md',
@@ -463,12 +464,14 @@ export const zhCN = {
   'cmd.session.switch.imOnly': '会话切换仅适用于 IM 线程。',
   'cmd.session.list.imOnly': '会话列表仅适用于 IM 线程。',
   'cmd.session.delete.imOnly': '会话删除仅适用于 IM 线程。',
-  'cmd.session.notFound': '未找到匹配 "{args}" 的会话。使用 /sessions 查看最近的会话。',
+  'cmd.session.notFound':
+    '未找到匹配 "{args}" 的会话。使用 /sessions 查看最近的会话。',
   'cmd.session.switched': '已切换到会话 {sessionId}。',
   'cmd.session.noActive': '当前没有会话绑定到此会话线程。',
   'cmd.session.deleteNotAllowed': '只能删除属于此 IM 账号的会话。',
   'cmd.session.deleted': '已删除会话 {sessionId}。',
-  'cmd.session.cleanupSummary': '工作流已取消={workflowCancelled}\n守护进程已中止={daemonAborted}\n沙箱已停止={sandboxStopped}\n计划任务已取消={scheduleRunsCancelled}',
+  'cmd.session.cleanupSummary':
+    '工作流已取消={workflowCancelled}\n守护进程已中止={daemonAborted}\n沙箱已停止={sandboxStopped}\n计划任务已取消={scheduleRunsCancelled}',
   'cmd.sessions.empty': '未找到此 IM 用户的会话。',
   'cmd.stop.noRun': '没有正在运行的工作流可停止。',
   'cmd.stop.success': '已停止工作流运行 {runId}。',
@@ -517,8 +520,8 @@ export const zhCN = {
   'notify.timeout.body': '任务已暂停。您上线后将自动处理。',
   'notify.reactivate.title': '⚠️ 高风险操作需要您的授权（重发）',
   'notify.timeInput.prompt': '⏱ 请发送时间',
-  'notify.timeInput.youChose': '您选择了：{action}。请以 hhddmmyy 格式发送时间（例如 14212506 表示 2025 年 6 月 14 日 21:25）。',
+  'notify.timeInput.youChose':
+    '您选择了：{action}。请以 hhddmmyy 格式发送时间（例如 14212506 表示 2025 年 6 月 14 日 21:25）。',
   'notify.timeInput.format': '格式：hhddmmyy',
   'notify.timeInput.placeholder': '⏱ 请输入时间',
-
 } satisfies Record<keyof typeof enUS, string>;

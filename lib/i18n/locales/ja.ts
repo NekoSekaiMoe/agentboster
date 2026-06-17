@@ -432,7 +432,8 @@ export const ja = {
   'cmd.models.failed': 'モデルの切り替えに失敗しました：{error}',
   'cmd.lang.prompt': '言語を選択してください：',
   'cmd.lang.success': '言語を {language} に切り替えました',
-  'cmd.lang.failed': '言語の切り替えに失敗しました：{error}',  'slash.command.help.description': 'スラッシュコマンドのヘルプを表示',
+  'cmd.lang.failed': '言語の切り替えに失敗しました：{error}',
+  'slash.command.help.description': 'スラッシュコマンドのヘルプを表示',
   'slash.command.new.description': '新しいセッションを作成して切替',
   'slash.command.compact.description': 'コンテキストの圧縮を強制',
   'slash.command.init.description': 'このリポジトリの AGENTS.md を生成・更新',
@@ -441,18 +442,24 @@ export const ja = {
   'slash.command.session.description': 'バインド中のセッションを表示・切替',
   'slash.command.sessions.description': '切替可能な最近のセッション一覧',
   'slash.command.switch.description': 'リスト内のセッションに切替',
-  'slash.command.delete_session.description': '現在または選択中のセッションを削除',
+  'slash.command.delete_session.description':
+    '現在または選択中のセッションを削除',
   'slash.command.approve.description': '保留中の tool call を承認',
   'slash.command.reject.description': '保留中の tool call を拒否',
-  'slash.command.decisions.description': '保留中の決定（L2 認可＋質問）を一覧表示',
+  'slash.command.decisions.description':
+    '保留中の決定（L2 認可＋質問）を一覧表示',
   'slash.command.model.description': '現在の model を表示・切替',
-  'slash.command.provider.description': 'model provider の一覧・追加・更新・削除',
+  'slash.command.provider.description':
+    'model provider の一覧・追加・更新・削除',
   'slash.command.config.description': 'config 値の表示・設定（ホワイトリスト）',
   'slash.command.memory.description': '記憶の検索・一覧・追加',
   'slash.command.pair.description': 'code で IM アカウントをペアリング',
-  'slash.command.unpair.description': 'IM アカウントを ClawLess ユーザーから解除',
-  'slash.command.whoami.description': 'この IM アカウントの ClawLess ユーザーを表示',
-  'slash.command.start.description': 'ウェルカムメッセージと利用可能コマンドを表示',
+  'slash.command.unpair.description':
+    'IM アカウントを ClawLess ユーザーから解除',
+  'slash.command.whoami.description':
+    'この IM アカウントの ClawLess ユーザーを表示',
+  'slash.command.start.description':
+    'ウェルカムメッセージと利用可能コマンドを表示',
   'slash.command.cancel.description': '現在実行中のリクエストをキャンセル',
   'slash.command.reset.description': 'セッション状態をリセットし保留承認を消去',
   'slash.command.retry.description': '最後に失敗したリクエストを再試行',
@@ -489,43 +496,60 @@ export const ja = {
   'slash.command.models.hint': '/models <provider/model>',
   'slash.command.lang.hint': '/lang [language-code]',
   'cmd.help.header': '利用可能なスラッシュコマンド：',
-  'cmd.status.noSession': '現在このスレッドにバインドされているセッションはありません。',
-  'cmd.session.switch.imOnly': 'セッションの切り替えは IM スレッドでのみ利用できます。',
+  'cmd.status.noSession':
+    '現在このスレッドにバインドされているセッションはありません。',
+  'cmd.session.switch.imOnly':
+    'セッションの切り替えは IM スレッドでのみ利用できます。',
   'cmd.session.list.imOnly': 'セッション一覧は IM スレッドでのみ利用できます。',
-  'cmd.session.delete.imOnly': 'セッションの削除は IM スレッドでのみ利用できます。',
-  'cmd.session.notFound': '"{args}" に一致するセッションが見つかりませんでした。/sessions で最近のセッションを確認してください。',
+  'cmd.session.delete.imOnly':
+    'セッションの削除は IM スレッドでのみ利用できます。',
+  'cmd.session.notFound':
+    '"{args}" に一致するセッションが見つかりませんでした。/sessions で最近のセッションを確認してください。',
   'cmd.session.switched': 'セッション {sessionId} に切り替えました。',
-  'cmd.session.noActive': '現在このスレッドにバインドされているセッションはありません。',
-  'cmd.session.deleteNotAllowed': 'この IM アカウントに属するセッションのみ削除できます。',
+  'cmd.session.noActive':
+    '現在このスレッドにバインドされているセッションはありません。',
+  'cmd.session.deleteNotAllowed':
+    'この IM アカウントに属するセッションのみ削除できます。',
   'cmd.session.deleted': 'セッション {sessionId} を削除しました。',
-  'cmd.session.cleanupSummary': 'ワークフロー中止={workflowCancelled}\nデーモン中止={daemonAborted}\nサンドボックス停止={sandboxStopped}\nスケジュール実行キャンセル={scheduleRunsCancelled}',
+  'cmd.session.cleanupSummary':
+    'ワークフロー中止={workflowCancelled}\nデーモン中止={daemonAborted}\nサンドボックス停止={sandboxStopped}\nスケジュール実行キャンセル={scheduleRunsCancelled}',
   'cmd.sessions.empty': 'この IM ユーザーのセッションは見つかりませんでした。',
   'cmd.stop.noRun': '停止するアクティブなワークフロー実行はありません。',
   'cmd.stop.success': 'ワークフロー実行 {runId} を停止しました。',
   'cmd.stop.failed': 'ワークフロー実行の停止に失敗しました：{error}',
   'cmd.compact.noSession': '圧縮するアクティブなセッションはありません。',
-  'cmd.compact.started': '圧縮を要求しました。次のターンでセッションが要約されます。',
+  'cmd.compact.started':
+    '圧縮を要求しました。次のターンでセッションが要約されます。',
   'cmd.compact.failed': '圧縮の要求に失敗しました：{error}',
   'cmd.approve.noCallId': '使い方：/approve <toolCallId> [note]',
-  'cmd.approve.notPending': 'ID "{toolCallId}" の保留中のツール呼び出しはありません。',
+  'cmd.approve.notPending':
+    'ID "{toolCallId}" の保留中のツール呼び出しはありません。',
   'cmd.approve.ok': 'ツール呼び出し {toolCallId} を承認しました。',
   'cmd.reject.ok': 'ツール呼び出し {toolCallId} を拒否しました。',
   'cmd.new.created': '新しいセッションを作成し、切り替えました。',
   'cmd.unsupported': '未対応のコマンド：{command}',
-  'pair.bound': 'この IM アカウントは既に ClawLess ユーザー "{userId}" にバインドされています。',
-  'pair.unbound': 'この IM アカウントはどの ClawLess ユーザーにもバインドされていません。',
+  'pair.bound':
+    'この IM アカウントは既に ClawLess ユーザー "{userId}" にバインドされています。',
+  'pair.unbound':
+    'この IM アカウントはどの ClawLess ユーザーにもバインドされていません。',
   'pair.prompt': '6 桁のペアリングコードを送信してください：',
-  'pair.invalid': 'ペアリングコードが無効です。コードは 6 桁である必要があります。',
+  'pair.invalid':
+    'ペアリングコードが無効です。コードは 6 桁である必要があります。',
   'pair.notFound': 'ペアリングコードが見つからないか、期限切れです。',
-  'pair.expired': 'ペアリングコードの有効期限が切れています。新しいコードを生成してください。',
+  'pair.expired':
+    'ペアリングコードの有効期限が切れています。新しいコードを生成してください。',
   'pair.alreadyBound': 'このペアリングコードは既に使用されています。',
-  'pair.success': 'この IM アカウントを ClawLess ユーザー "{userId}" に正常にバインドしました。',
+  'pair.success':
+    'この IM アカウントを ClawLess ユーザー "{userId}" に正常にバインドしました。',
   'pair.failed': 'バインドに失敗しました：{error}',
   'pair.usage': '使い方：/pair <code>',
-  'pair.unpairSuccess': 'この IM アカウントを ClawLess ユーザー "{userId}" からバインド解除しました。',
+  'pair.unpairSuccess':
+    'この IM アカウントを ClawLess ユーザー "{userId}" からバインド解除しました。',
   'pair.unpairFailed': 'バインド解除に失敗しました：{error}',
-  'pair.notBound': 'この IM アカウントはどの ClawLess ユーザーにもバインドされていません。',
-  'bot.accessDenied.text': 'アクセス拒否：アカウントはこのボットを使用する権限がありません。',
+  'pair.notBound':
+    'この IM アカウントはどの ClawLess ユーザーにもバインドされていません。',
+  'bot.accessDenied.text':
+    'アクセス拒否：アカウントはこのボットを使用する権限がありません。',
   'bot.accessDenied.title': 'アクセス拒否',
   'notify.field.task': 'タスク',
   'notify.field.command': 'コマンド',
@@ -544,11 +568,12 @@ export const ja = {
   'notify.l2.rejectOnce': '一度拒否',
   'notify.l2.rejectUntil': '...まで拒否',
   'notify.timeout.title': '⏰ 決策がタイムアウトしました',
-  'notify.timeout.body': 'タスクは一時停止しました。オンラインに復帰次第、処理されます。',
+  'notify.timeout.body':
+    'タスクは一時停止しました。オンラインに復帰次第、処理されます。',
   'notify.reactivate.title': '⚠️ 高リスク操作の承認が必要です（再送）',
   'notify.timeInput.prompt': '⏱ 時間を送信してください',
-  'notify.timeInput.youChose': '選択内容：{action}。時間を hhddmmyy 形式で送信してください（例：14212506 は 2025 年 6 月 14 日 21:25 を表します）。',
+  'notify.timeInput.youChose':
+    '選択内容：{action}。時間を hhddmmyy 形式で送信してください（例：14212506 は 2025 年 6 月 14 日 21:25 を表します）。',
   'notify.timeInput.format': '形式：hhddmmyy',
   'notify.timeInput.placeholder': '⏱ 時間を入力してください',
-
 } satisfies Record<keyof typeof enUS, string>;
