@@ -621,7 +621,10 @@ function TaskCard(input: {
           </div>
 
           <div className="grid gap-3 text-muted-foreground text-xs sm:grid-cols-2 xl:grid-cols-4">
-            <MetaItem label={t('form.label.nextRun')} value={formatDateTime(task.nextRunAt)} />
+            <MetaItem
+              label={t('form.label.nextRun')}
+              value={formatDateTime(task.nextRunAt)}
+            />
             <MetaItem
               label={t('form.label.lastTriggered')}
               value={formatDateTime(task.lastTriggeredAt)}

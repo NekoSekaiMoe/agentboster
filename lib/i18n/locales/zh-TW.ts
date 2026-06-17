@@ -621,7 +621,8 @@ export const zhTW = {
   'agentd.notify.l0Violation': 'L0 規則違規',
   'agentd.notify.l1HighRisk': '偵測到 L1 高風險',
   'agentd.notify.l2Required': '高風險操作需要授權',
-  'agentd.notify.default': '需要授權',  'form.label.time': '時間',
+  'agentd.notify.default': '需要授權',
+  'form.label.time': '時間',
   'form.label.level': '級別',
   'form.label.decision': '決策',
   'form.label.score': '分數',
@@ -674,5 +675,4 @@ export const zhTW = {
   'form.label.maxParallelSubagents': '最大並行子代理',
   'form.label.diskQuota': '磁碟配額',
   'form.placeholder.morningBrief': '早間簡報',
-
 } satisfies Record<keyof typeof enUS, string>;

@@ -619,7 +619,8 @@ export const zhCN = {
   'agentd.notify.l0Violation': 'L0 规则违规',
   'agentd.notify.l1HighRisk': '检测到 L1 高风险',
   'agentd.notify.l2Required': '高风险操作需要授权',
-  'agentd.notify.default': '需要授权',  'form.label.time': '时间',
+  'agentd.notify.default': '需要授权',
+  'form.label.time': '时间',
   'form.label.level': '级别',
   'form.label.decision': '决策',
   'form.label.score': '分数',
@@ -672,5 +673,4 @@ export const zhCN = {
   'form.label.maxParallelSubagents': '最大并行子代理',
   'form.label.diskQuota': '磁盘配额',
   'form.placeholder.morningBrief': '早间简报',
-
 } satisfies Record<keyof typeof enUS, string>;

@@ -428,7 +428,10 @@ export function AgentDConfigPage() {
                             : null,
                         )}
                       />
-                      <Metric label={t('form.label.tasks')} value={String(node.active_tasks)} />
+                      <Metric
+                        label={t('form.label.tasks')}
+                        value={String(node.active_tasks)}
+                      />
                       <Metric
                         label={t('form.label.sandboxes')}
                         value={String(node.active_sandboxes)}
@@ -476,7 +479,10 @@ export function AgentDConfigPage() {
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
-          <Detail label={t('form.label.systemStatus')} value={daemon?.status ?? 'unknown'} />
+          <Detail
+            label={t('form.label.systemStatus')}
+            value={daemon?.status ?? 'unknown'}
+          />
           <Detail
             label={t('form.label.version')}
             value={daemon?.status === 'online' ? daemon.version || '-' : '-'}

@@ -676,7 +676,8 @@ export const ja = {
   'agentd.notify.l0Violation': 'L0 ルール違反',
   'agentd.notify.l1HighRisk': 'L1 高リスクを検出',
   'agentd.notify.l2Required': '高リスク操作には承認が必要',
-  'agentd.notify.default': '承認が必要',  'form.label.time': '時間',
+  'agentd.notify.default': '承認が必要',
+  'form.label.time': '時間',
   'form.label.level': 'レベル',
   'form.label.decision': '決定',
   'form.label.score': 'スコア',
@@ -729,5 +730,4 @@ export const ja = {
   'form.label.maxParallelSubagents': '最大並列サブエージェント',
   'form.label.diskQuota': 'ディスククォータ',
   'form.placeholder.morningBrief': '朝のブリーフィング',
-
 } satisfies Record<keyof typeof enUS, string>;

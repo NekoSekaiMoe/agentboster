@@ -418,7 +418,9 @@ export function AuditLogsForm() {
                     <TableHead>{t('form.label.level')}</TableHead>
                     <TableHead>{t('form.label.decision')}</TableHead>
                     <TableHead>Command</TableHead>
-                    <TableHead className="text-right">{t('form.label.score')}</TableHead>
+                    <TableHead className="text-right">
+                      {t('form.label.score')}
+                    </TableHead>
                     <TableHead>{t('form.label.agent')}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -505,11 +507,22 @@ export function AuditLogsForm() {
                   }
                 />
                 {selectedLog.score !== null && (
-                  <DetailRow label={t('form.label.score')} value={String(selectedLog.score)} />
+                  <DetailRow
+                    label={t('form.label.score')}
+                    value={String(selectedLog.score)}
+                  />
                 )}
-                <DetailRow label={t('form.label.taskId')} value={selectedLog.taskId} mono />
+                <DetailRow
+                  label={t('form.label.taskId')}
+                  value={selectedLog.taskId}
+                  mono
+                />
                 {selectedLog.agentId && (
-                  <DetailRow label={t('form.label.agent')} value={selectedLog.agentId} mono />
+                  <DetailRow
+                    label={t('form.label.agent')}
+                    value={selectedLog.agentId}
+                    mono
+                  />
                 )}
                 {selectedLog.sessionId && (
                   <DetailRow
@@ -806,7 +819,9 @@ function ToolActivitySection() {
                     <TableHead>{t('form.label.status')}</TableHead>
                     <TableHead>{t('form.label.tool')}</TableHead>
                     <TableHead>{t('form.label.target')}</TableHead>
-                    <TableHead className="text-right">{t('form.label.duration')}</TableHead>
+                    <TableHead className="text-right">
+                      {t('form.label.duration')}
+                    </TableHead>
                     <TableHead>{t('form.label.agent')}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -890,19 +905,34 @@ function ToolActivitySection() {
                       : '-'
                   }
                 />
-                <DetailRow label={t('form.label.tool')} value={selectedLog.toolName} mono />
+                <DetailRow
+                  label={t('form.label.tool')}
+                  value={selectedLog.toolName}
+                  mono
+                />
                 <DetailRow
                   label={t('form.label.duration')}
                   value={formatDuration(selectedLog.durationMs)}
                 />
                 {selectedLog.target && (
-                  <DetailRow label={t('form.label.target')} value={selectedLog.target} mono />
+                  <DetailRow
+                    label={t('form.label.target')}
+                    value={selectedLog.target}
+                    mono
+                  />
                 )}
                 {selectedLog.model && (
-                  <DetailRow label={t('form.label.model')} value={selectedLog.model} mono />
+                  <DetailRow
+                    label={t('form.label.model')}
+                    value={selectedLog.model}
+                    mono
+                  />
                 )}
                 {selectedLog.step !== null && (
-                  <DetailRow label={t('form.label.step')} value={String(selectedLog.step)} />
+                  <DetailRow
+                    label={t('form.label.step')}
+                    value={String(selectedLog.step)}
+                  />
                 )}
                 {selectedLog.toolCallId && (
                   <DetailRow
@@ -912,7 +942,11 @@ function ToolActivitySection() {
                   />
                 )}
                 {selectedLog.taskId && (
-                  <DetailRow label={t('form.label.taskId')} value={selectedLog.taskId} mono />
+                  <DetailRow
+                    label={t('form.label.taskId')}
+                    value={selectedLog.taskId}
+                    mono
+                  />
                 )}
                 {selectedLog.sessionId && (
                   <DetailRow
@@ -921,7 +955,11 @@ function ToolActivitySection() {
                     mono
                   />
                 )}
-                <DetailRow label={t('form.label.agent')} value={selectedLog.agentId} mono />
+                <DetailRow
+                  label={t('form.label.agent')}
+                  value={selectedLog.agentId}
+                  mono
+                />
                 {selectedLog.sandboxId && (
                   <DetailRow
                     label={t('form.label.sandbox')}
@@ -944,7 +982,10 @@ function ToolActivitySection() {
                   }
                 />
                 {selectedLog.error && (
-                  <DetailBlock label={t('form.label.error')} value={selectedLog.error} />
+                  <DetailBlock
+                    label={t('form.label.error')}
+                    value={selectedLog.error}
+                  />
                 )}
               </div>
             </>

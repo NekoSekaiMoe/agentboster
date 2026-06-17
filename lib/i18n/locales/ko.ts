@@ -658,7 +658,8 @@ export const ko = {
   'agentd.notify.l0Violation': 'L0 규정 위반',
   'agentd.notify.l1HighRisk': 'L1 고위험 감지',
   'agentd.notify.l2Required': '고위험 작업에는 승인이 필요합니다',
-  'agentd.notify.default': '승인 필요',  'form.label.time': '시간',
+  'agentd.notify.default': '승인 필요',
+  'form.label.time': '시간',
   'form.label.level': '등급',
   'form.label.decision': '결정',
   'form.label.score': '점수',
@@ -711,5 +712,4 @@ export const ko = {
   'form.label.maxParallelSubagents': '최대 병렬 하위 에이전트',
   'form.label.diskQuota': '디스크 할당량',
   'form.placeholder.morningBrief': '아침 브리핑',
-
 } satisfies Record<keyof typeof enUS, string>;
