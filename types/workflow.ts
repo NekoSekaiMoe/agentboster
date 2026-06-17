@@ -307,7 +307,18 @@ export type IMChatSource = {
   origin: string;
   threadId: string;
   messageId?: string | null;
+  /**
+   * Resolved ClawLess user id when a pairing exists; otherwise the raw
+   * IM-platform id. Session, task, memory, and L2 scoping use this field
+   * for multi-tenant isolation.
+   */
   userId?: string | null;
+  /**
+   * Always the raw IM-platform id, even after a ClawLess user has been
+   * resolved. Commands that key off the IM account (e.g. /whoami, /unpair,
+   * /pair) must read this field, not {@link userId}.
+   */
+  rawImUserId?: string | null;
   userName?: string | null;
   locale?: BotLocale;
 };

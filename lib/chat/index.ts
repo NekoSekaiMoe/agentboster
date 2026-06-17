@@ -621,10 +621,14 @@ export async function routeAdapterMessage(
     }
   }
 
-  const source: ChatSource =
-    resolvedUserId === imUserId
-      ? rawSource
-      : { ...rawSource, userId: resolvedUserId };
+  // Always carry the raw IM-platform id on the source so commands that key
+  // off the IM account (/whoami, /unpair, /pair) keep working after the
+  // ClawLess user resolution above rewrites `userId`.
+  const source: ChatSource = {
+    ...rawSource,
+    userId: resolvedUserId,
+    rawImUserId: imUserId,
+  };
 
   const dispatched = await chatMain(
     {
@@ -1081,7 +1085,7 @@ async function executeCommand(input: {
       const text = await executePairCommand(
         input.args,
         imSource.adapter,
-        imSource.userId ?? null,
+        imSource.rawImUserId ?? null,
         imSource.userName ?? null,
       );
       return {
@@ -1101,7 +1105,7 @@ async function executeCommand(input: {
       }
       const text = await executeUnpairCommand(
         imSource.adapter,
-        imSource.userId ?? null,
+        imSource.rawImUserId ?? null,
       );
       return {
         sessionId: currentSessionId,
@@ -1113,7 +1117,7 @@ async function executeCommand(input: {
       const imSource = input.source.type === 'im' ? input.source : null;
       const result = await executeStartCommand(locale, {
         adapter: imSource?.adapter ?? null,
-        imUserId: imSource?.userId ?? null,
+        imUserId: imSource?.rawImUserId ?? null,
       });
       return {
         sessionId: currentSessionId,
@@ -1152,7 +1156,7 @@ async function executeCommand(input: {
       const imSource = input.source.type === 'im' ? input.source : null;
       const text = await executeWhoamiCommand(
         imSource?.adapter ?? null,
-        imSource?.userId ?? null,
+        imSource?.rawImUserId ?? null,
       );
       return {
         sessionId: currentSessionId,
