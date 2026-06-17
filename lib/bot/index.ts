@@ -455,14 +455,9 @@ export async function getBot(): Promise<Chat> {
     const threadLocale = threadExternalIds.length
       ? await resolveThreadLocale(threadExternalIds)
       : null;
-    const userLocale = userId
-      ? await resolveUserLocale(userId)
-      : null;
+    const userLocale = userId ? await resolveUserLocale(userId) : null;
     const resolvedLocale =
-      threadLocale ??
-      userLocale ??
-      config.language?.bot_locale ??
-      'auto';
+      threadLocale ?? userLocale ?? config.language?.bot_locale ?? 'auto';
 
     await routeAdapterMessage({
       adapter,

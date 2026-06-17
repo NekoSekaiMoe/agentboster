@@ -15,11 +15,11 @@ vi.mock('@/lib/utils/logger', () => ({
   }),
 }));
 
+import { resolveUserLocale, resolveThreadLocale } from '@/lib/chat/user-locale';
 import {
-  resolveUserLocale,
-  resolveThreadLocale,
-} from '@/lib/chat/user-locale';
-import { listSessions, listSessionsByExternalThreadIds } from '@/lib/core/db/chat';
+  listSessions,
+  listSessionsByExternalThreadIds,
+} from '@/lib/core/db/chat';
 
 describe('user-locale resolver', () => {
   beforeEach(() => {
