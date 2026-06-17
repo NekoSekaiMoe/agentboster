@@ -520,7 +520,7 @@ export function ChannelsForm() {
                         </p>
                         <ToggleField
                           checked={Boolean(adapterValue.tts_enabled)}
-                          label="Send voice replies"
+                          label={t('form.label.sendVoiceReplies')}
                           onCheckedChange={(checked) =>
                             updateValue({
                               ...channels,
@@ -534,7 +534,7 @@ export function ChannelsForm() {
                         <Field label="Voice override (optional)">
                           <Input
                             value={String(adapterValue.tts_voice ?? '')}
-                            placeholder="Leave empty to use the global voice"
+                            placeholder={t('form.placeholder.leaveEmptyGlobalVoice')}
                             onChange={(event) =>
                               updateValue({
                                 ...channels,

@@ -67,12 +67,13 @@ interface SessionSummary {
 }
 
 export default function MemoryPage() {
+  const { t } = useI18n();
   const [activeScope, setActiveScope] = useState<Scope>('builtin');
 
   return (
     <div className="flex h-dvh min-w-0 flex-col bg-background pb-16 md:pb-0">
       <WorkspacePageHeader
-        title="Memory"
+        title={t('form.label.memory')}
         description="Manage builtin, long-term, session, and SOUL memory."
       />
 
@@ -806,7 +807,7 @@ function SessionPanel() {
             <Input
               value={sessionId}
               onChange={(e) => setSessionId(e.target.value)}
-              placeholder="Session ID"
+              placeholder={t('form.placeholder.sessionId')}
               className="flex-1"
             />
             <Button onClick={loadSummaries} disabled={loading}>

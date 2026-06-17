@@ -22,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { WorkspacePageHeader } from '@/components/workspace-page-header';
+import { useI18n } from '@/components/i18n-provider';
 
 interface Task {
   id: string;
@@ -50,6 +51,7 @@ async function fetchTasks(filters: Filters): Promise<Task[]> {
 }
 
 export default function TasksPage() {
+  const { t } = useI18n();
   const [filters, setFilters] = useState<Filters>({});
 
   const { data: tasks, isLoading } = useQuery({
@@ -93,7 +95,7 @@ export default function TasksPage() {
   return (
     <div className="space-y-6">
       <WorkspacePageHeader
-        title="Task History"
+        title={t('form.label.taskHistory')}
         description="View and filter historical task execution records."
       />
 
@@ -146,7 +148,7 @@ export default function TasksPage() {
               }
             >
               <SelectTrigger id="tasks-filter-agent">
-                <SelectValue placeholder="All Agents" />
+                <SelectValue placeholder={t('form.placeholder.allAgents')} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Agents</SelectItem>

@@ -154,7 +154,7 @@ export default function NotificationsPage() {
   return (
     <div className="space-y-6">
       <WorkspacePageHeader
-        title="Notifications"
+        title={t('form.label.notifications')}
         description="View and manage notifications across all channels."
         actions={
           unreadCount > 0 ? (

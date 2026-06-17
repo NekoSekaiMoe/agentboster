@@ -197,7 +197,7 @@ export function McpForm() {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="URL">
+                <Field label={t('form.label.url')}>
                   <Input
                     placeholder="https://mcp.example.com"
                     value={serverValue.url}

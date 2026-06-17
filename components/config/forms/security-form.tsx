@@ -282,7 +282,7 @@ export function SecurityForm() {
               />
             </div>
             <RuleSelect
-              label="Type"
+              label={t('form.label.type')}
               value={newRule.type}
               values={['command', 'path', 'network']}
               onValueChange={(type) =>
@@ -293,7 +293,7 @@ export function SecurityForm() {
               }
             />
             <RuleSelect
-              label="Action"
+              label={t('form.label.action')}
               value={newRule.action}
               values={['block', 'warn']}
               onValueChange={(action) =>
@@ -304,7 +304,7 @@ export function SecurityForm() {
               }
             />
             <RuleSelect
-              label="Scope"
+              label={t('form.label.scope')}
               value={newRule.scope}
               values={['global', 'workspace']}
               onValueChange={(scope) =>

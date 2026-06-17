@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
+import { useI18n } from '@/components/i18n-provider';
 import { cn } from '@/lib/utils';
 import type { WorkflowUIMessage } from '@/types/workflow';
 
@@ -300,6 +301,7 @@ export function ToolCallSummaryButton({
 }
 
 export function ToolTimeline({ parts }: { parts: DynamicToolUIPart[] }) {
+  const { t } = useI18n();
   const reduceMotion = useReducedMotion();
   const [expandedToolCalls, setExpandedToolCalls] = useState<
     Record<string, boolean>
@@ -362,25 +364,25 @@ export function ToolTimeline({ parts }: { parts: DynamicToolUIPart[] }) {
                   <div className="mt-2 ml-6 rounded-lg border border-border/50 bg-muted/20 px-3 py-3">
                     <div className="space-y-3">
                       {hasInput ? (
-                        <ToolDetailsSection label="Input">
+                        <ToolDetailsSection label={t('form.label.input')}>
                           <ToolDetailsPre value={part.input} />
                         </ToolDetailsSection>
                       ) : null}
 
                       {hasOutput ? (
-                        <ToolDetailsSection label="Output">
+                        <ToolDetailsSection label={t('form.label.output')}>
                           <ToolDetailsPre value={part.output} />
                         </ToolDetailsSection>
                       ) : null}
 
                       {hasApproval ? (
-                        <ToolDetailsSection label="Approval">
+                        <ToolDetailsSection label={t('form.label.approval')}>
                           <ToolDetailsPre value={part.approval} />
                         </ToolDetailsSection>
                       ) : null}
 
                       {hasError ? (
-                        <ToolDetailsSection label="Error">
+                        <ToolDetailsSection label={t('form.label.error')}>
                           <ToolDetailsPre value={part.errorText} />
                         </ToolDetailsSection>
                       ) : null}

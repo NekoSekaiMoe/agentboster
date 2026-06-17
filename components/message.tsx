@@ -14,6 +14,7 @@ import type {
   WorkflowUIMessage,
   WorkflowUIPart,
 } from '@/types/workflow';
+import { useI18n } from '@/components/i18n-provider';
 import {
   getWorkflowDataAgentName,
   isWorkflowMessageUIPart,
@@ -244,6 +245,7 @@ function AstrBotAssistantMessageParts({
   onSuggestedFollowUpSelect?: (question: string) => void;
   showSuggestedFollowUps: boolean;
 }) {
+  const { t } = useI18n();
   const reduceMotion = useReducedMotion();
   const [expandedReasoningParts, setExpandedReasoningParts] = useState<
     Record<string, boolean>
@@ -513,25 +515,25 @@ function AstrBotAssistantMessageParts({
                       <div className="mt-2 ml-6 rounded-lg border border-border/50 bg-muted/20 px-3 py-3">
                         <div className="space-y-3">
                           {hasInput ? (
-                            <ToolDetailsSection label="Input">
+                            <ToolDetailsSection label={t('form.label.input')}>
                               <ToolDetailsPre value={toolPart.input} />
                             </ToolDetailsSection>
                           ) : null}
 
                           {hasOutput ? (
-                            <ToolDetailsSection label="Output">
+                            <ToolDetailsSection label={t('form.label.output')}>
                               <ToolDetailsPre value={toolPart.output} />
                             </ToolDetailsSection>
                           ) : null}
 
                           {hasApproval ? (
-                            <ToolDetailsSection label="Approval">
+                            <ToolDetailsSection label={t('form.label.approval')}>
                               <ToolDetailsPre value={toolPart.approval} />
                             </ToolDetailsSection>
                           ) : null}
 
                           {hasError ? (
-                            <ToolDetailsSection label="Error">
+                            <ToolDetailsSection label={t('form.label.error')}>
                               <ToolDetailsPre value={toolPart.errorText} />
                             </ToolDetailsSection>
                           ) : null}
@@ -631,7 +633,7 @@ function AstrBotAssistantMessageParts({
             onChange={(event) => {
               setApprovalComment(event.target.value);
             }}
-            placeholder="Optional note"
+            placeholder={t('form.placeholder.optionalNote')}
             maxLength={500}
           />
 

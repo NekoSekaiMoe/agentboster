@@ -408,7 +408,7 @@ export default function SkillsPage() {
       )}
 
       <WorkspacePageHeader
-        title="Skills"
+        title={t('form.label.skills')}
         description="Create, import, edit, and export agent skills."
         actions={
           <>
@@ -546,7 +546,7 @@ export default function SkillsPage() {
                   id="skill-description"
                   value={createDescription}
                   onChange={(e) => setCreateDescription(e.target.value)}
-                  placeholder="What this skill does"
+                  placeholder={t('form.placeholder.whatSkillDoes')}
                 />
               </div>
 
