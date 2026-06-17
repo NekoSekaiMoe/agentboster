@@ -1,5 +1,11 @@
 import type { AdapterName, ChannelsConfig } from '@/types/config/channels';
-import { locales, defaultLocale, type Locale, translate, type TranslationKey } from '@/lib/i18n';
+import {
+  locales,
+  defaultLocale,
+  type Locale,
+  translate,
+  type TranslationKey,
+} from '@/lib/i18n';
 
 const LOCAL_BASE_URL = 'http://127.0.0.1:3000';
 
@@ -207,7 +213,8 @@ interface TelegramCommand {
 
 function buildTelegramCommands(locale: Locale): TelegramCommand[] {
   return TELEGRAM_REGISTERED_COMMANDS.map((command) => {
-    const descriptionKey = `slash.command.${command}.description` as TranslationKey;
+    const descriptionKey =
+      `slash.command.${command}.description` as TranslationKey;
     return {
       command,
       description: translate(locale, descriptionKey),
