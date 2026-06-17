@@ -20,10 +20,10 @@ export default async function ConfigLayout({
   const defaultOpen = cookieStore.get('sidebar:state')?.value !== 'false';
 
   return (
-    <BotShell defaultOpen={defaultOpen}>
-      <ReactQueryProvider>
-        <ConfigProvider>{children}</ConfigProvider>
-      </ReactQueryProvider>
-    </BotShell>
+    <ConfigProvider>
+      <BotShell defaultOpen={defaultOpen}>
+        <ReactQueryProvider>{children}</ReactQueryProvider>
+      </BotShell>
+    </ConfigProvider>
   );
 }
