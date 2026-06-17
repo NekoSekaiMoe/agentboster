@@ -1043,7 +1043,12 @@ async function executeCommand(input: {
       };
     }
     case 'model': {
-      const text = await executeModelCommand(input.args);
+      const text = await executeModelCommand(input.args, {
+        userId:
+          input.source.type === 'im' || input.source.type === 'web'
+            ? (input.source.userId ?? null)
+            : null,
+      });
       return {
         sessionId: currentSessionId,
         text,

@@ -1,22 +1,37 @@
-import { patchConfig } from '@/lib/core/kv/config';
+import { getUserById, updateUserModelPreferences } from '@/lib/core/db/users';
 import { aiModelConfigSchema } from '@/types/config/ai';
 
-export async function executeModelCommand(args: string): Promise<string> {
+export async function executeModelCommand(
+  args: string,
+  options?: {
+    userId?: string | null;
+  },
+): Promise<string> {
   const trimmed = args.trim();
+  const userId = options?.userId ?? null;
 
   if (!trimmed) {
+    if (!userId) {
+      return 'Cannot show model: user ID not available.';
+    }
     const { getConfig } = await import('@/lib/core/kv/config');
-    const config = await getConfig();
-    const model = config.models?.model ?? 'not set';
-    const temperature = config.models?.temperature ?? 0.7;
-    const contextLimit = config.models?.context_limit ?? 'unset';
-    const maxOutput = config.models?.max_output_tokens ?? 'unset';
-    return [
-      `Current model: ${model}`,
-      `Temperature: ${temperature}`,
-      `Context limit: ${contextLimit}`,
-      `Max output tokens: ${maxOutput}`,
-    ].join('\n');
+    const [config, user] = await Promise.all([
+      getConfig(),
+      getUserById(userId),
+    ]);
+    const personalModel = user?.modelPreferences?.model;
+    const globalModel = config.models?.model;
+    if (personalModel) {
+      return [
+        `Your preferred model: ${personalModel}`,
+        globalModel
+          ? `(global default: ${globalModel})`
+          : '(no global default set)',
+      ].join('\n');
+    }
+    return globalModel
+      ? `Currently using global default: ${globalModel} (set a personal preference with /model <name>)`
+      : 'No model set. Set one with /model <name>.';
   }
 
   const parsed = aiModelConfigSchema.safeParse(trimmed);
@@ -24,14 +39,10 @@ export async function executeModelCommand(args: string): Promise<string> {
     return 'Invalid model format. Model ID must not be empty.';
   }
 
-  const { getConfig } = await import('@/lib/core/kv/config');
-  const current = await getConfig();
-  await patchConfig({
-    models: {
-      ...current.models,
-      model: parsed.data,
-    },
-  });
+  if (!userId) {
+    return 'Cannot set model: user ID not available.';
+  }
 
-  return `Model updated to: ${parsed.data}`;
+  await updateUserModelPreferences(userId, { model: parsed.data });
+  return `Your preferred model is now: ${parsed.data}`;
 }

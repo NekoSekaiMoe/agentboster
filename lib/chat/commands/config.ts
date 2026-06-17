@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { getConfig, patchConfig } from '@/lib/core/kv/config';
 import type { AppConfig } from '@/types/config';
-import { aiConfigSchema, aiModelConfigSchema } from '@/types/config/ai';
+import { aiConfigSchema } from '@/types/config/ai';
 import {
   autonomyConfigSchema,
   autonomyLevelEnum,
@@ -54,17 +54,7 @@ const CONFIG_PATHS: Record<string, ConfigPathDef> = {
         temperature: value,
       }),
     }),
-    display: (c) => String(c.models?.temperature ?? 0.7),
-  },
-  'models.model': {
-    schema: aiModelConfigSchema,
-    patch: (value, current) => ({
-      models: aiConfigSchema.parse({
-        ...current.models,
-        model: value,
-      }),
-    }),
-    display: (c) => c.models?.model ?? 'not set',
+    display: (c) => String(c.models?.temperature ?? 0.5),
   },
 };
 
