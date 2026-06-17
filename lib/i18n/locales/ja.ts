@@ -670,5 +670,11 @@ export const ja = {
   'toast.summary.loadFailed': 'セッションサマリーの読み込みに失敗しました',
   'toast.body.jsonInvalid': 'Body JSON が無効です',
   'toast.external.deleted': '外部ソースを削除しました',
-  'toast.external.synced': '外部ソースを同期しました',
+  'toast.external.synced': '外部ソースを同期しました',  'agentd.notify.task': 'タスク {status}',
+  'agentd.notify.securityAlert': 'セキュリティアラート',
+  'agentd.notify.l0Violation': 'L0 ルール違反',
+  'agentd.notify.l1HighRisk': 'L1 高リスクを検出',
+  'agentd.notify.l2Required': '高リスク操作には承認が必要',
+  'agentd.notify.default': '承認が必要',
+
 } satisfies Record<keyof typeof enUS, string>;

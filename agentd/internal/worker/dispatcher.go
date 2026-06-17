@@ -504,12 +504,14 @@ func (d *Dispatcher) sendCompletionNotification(ctx context.Context, task *clawl
 	}
 
 	notification := map[string]any{
-		"type":    "completion",
-		"task_id": task.ID,
-		"status":  status,
-		"title":   fmt.Sprintf("Task %s", status),
-		"summary": truncateStr(task.Result, 500),
-		"details": details,
+		"type":        "completion",
+		"task_id":     task.ID,
+		"status":      status,
+		"title":       fmt.Sprintf("Task %s", status),
+		"titleKey":    "agentd.notify.task",
+		"titleValues": map[string]any{"status": status},
+		"summary":     truncateStr(task.Result, 500),
+		"details":     details,
 	}
 
 	// POST to ClawLess notification API
@@ -670,6 +672,7 @@ func (d *Dispatcher) handleL2AuthRequired(e eventbus.Event) {
 		"taskId":         taskID,
 		"decisionId":     decisionID,
 		"title":          "High-risk operation needs authorization",
+		"titleKey":       "agentd.notify.l2Required",
 		"body":           command,
 		"command":        command,
 		"commandReview":  commandReview,

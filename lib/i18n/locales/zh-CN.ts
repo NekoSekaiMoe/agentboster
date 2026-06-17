@@ -613,5 +613,11 @@ export const zhCN = {
   'toast.summary.loadFailed': '加载会话摘要失败',
   'toast.body.jsonInvalid': 'Body JSON 无效',
   'toast.external.deleted': '外部源已删除',
-  'toast.external.synced': '外部源已同步',
+  'toast.external.synced': '外部源已同步',  'agentd.notify.task': '任务 {status}',
+  'agentd.notify.securityAlert': '安全警报',
+  'agentd.notify.l0Violation': 'L0 规则违规',
+  'agentd.notify.l1HighRisk': '检测到 L1 高风险',
+  'agentd.notify.l2Required': '高风险操作需要授权',
+  'agentd.notify.default': '需要授权',
+
 } satisfies Record<keyof typeof enUS, string>;

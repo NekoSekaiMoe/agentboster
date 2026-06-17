@@ -659,4 +659,10 @@ export const enUS = {
   'toast.body.jsonInvalid': 'Body JSON is invalid',
   'toast.external.deleted': 'External source deleted',
   'toast.external.synced': 'External source synced',
+  'agentd.notify.task': 'Task {status}',
+  'agentd.notify.securityAlert': 'Security Alert',
+  'agentd.notify.l0Violation': 'L0 Rule Violation',
+  'agentd.notify.l1HighRisk': 'L1 High Risk Detected',
+  'agentd.notify.l2Required': 'High-risk operation needs authorization',
+  'agentd.notify.default': 'Authorization required',
 } as const;

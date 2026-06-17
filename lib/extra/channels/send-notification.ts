@@ -1,7 +1,13 @@
 import { getNotificationPreferences } from '@/lib/core/db/notification';
 import { resolveUserLocale } from '@/lib/chat/user-locale';
 import { getConfig } from '@/lib/core/kv/config';
-import { normalizeLocale, defaultLocale } from '@/lib/i18n';
+import {
+  normalizeLocale,
+  defaultLocale,
+  translate,
+  type Locale,
+  type TranslationKey,
+} from '@/lib/i18n';
 import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';
 import { getNotificationManager } from './notification-manager';
@@ -45,6 +51,42 @@ async function resolvePayloadLocale(
 }
 
 /**
+ * If the payload carries a `titleKey` (set by agentd when it wants the
+ * title localized server-side rather than passing a hard-coded English
+ * string), translate it now that we know the rendering locale. The
+ * original English `title` is kept as a fallback if the key is missing
+ * from the locale table.
+ *
+ * Mutates `payload.title` only when a translation is available.
+ */
+function applyLocalizedTitle(
+  payload: NotificationPayload,
+  locale: Locale,
+): void {
+  const ext = payload as NotificationPayload & {
+    titleKey?: string;
+    titleValues?: Record<string, string | number>;
+  };
+  if (!ext.titleKey) return;
+  try {
+    const translated = translate(
+      locale,
+      ext.titleKey as TranslationKey,
+      ext.titleValues,
+    );
+    if (translated && translated !== ext.titleKey) {
+      payload.title = translated;
+    }
+  } catch (error) {
+    logger.warn('localize_title_failed', {
+      titleKey: ext.titleKey,
+      locale,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * Send a notification to the user via their preferred IM channel.
  * Automatically handles fallback to backup channels if the preferred one fails.
  */
@@ -79,6 +121,10 @@ export async function sendNotification(params: {
   const locale = await resolvePayloadLocale(payload, userId);
   (payload as NotificationPayload & { locale: NotificationLocale }).locale =
     locale;
+
+  // If agentd supplied a titleKey, localize the title now that we know
+  // the rendering locale. Skipped silently when titleKey is absent.
+  applyLocalizedTitle(payload, locale);
 
   const mgr = getNotificationManager();
 

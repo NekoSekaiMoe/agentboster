@@ -615,5 +615,11 @@ export const zhTW = {
   'toast.summary.loadFailed': '載入工作階段摘要失敗',
   'toast.body.jsonInvalid': 'Body JSON 無效',
   'toast.external.deleted': '外部來源已刪除',
-  'toast.external.synced': '外部來源已同步',
+  'toast.external.synced': '外部來源已同步',  'agentd.notify.task': '任務 {status}',
+  'agentd.notify.securityAlert': '安全警示',
+  'agentd.notify.l0Violation': 'L0 規則違規',
+  'agentd.notify.l1HighRisk': '偵測到 L1 高風險',
+  'agentd.notify.l2Required': '高風險操作需要授權',
+  'agentd.notify.default': '需要授權',
+
 } satisfies Record<keyof typeof enUS, string>;

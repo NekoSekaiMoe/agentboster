@@ -35,6 +35,13 @@ const requestSchema = z.object({
   taskId: z.string().optional(),
   decisionId: z.string().optional(),
   title: z.string().default('Authorization required'),
+  // Optional i18n key (e.g. 'agentd.notify.l2Required') — when set,
+  // send-notification translates it server-side using the resolved
+  // user locale. Falls back to `title` if the key is missing.
+  titleKey: z.string().optional(),
+  titleValues: z
+    .record(z.string(), z.union([z.string(), z.number()]))
+    .optional(),
   body: z.string().default(''),
   command: z.string().default(''),
   command_review: z.any().optional(),
@@ -166,7 +173,11 @@ export async function POST(request: Request) {
             'reject_until',
           ]) as never,
           expiresAt: expiresAt.toISOString(),
-        },
+          // Phase 4: forward optional titleKey for server-side localization
+          ...(data.titleKey
+            ? { titleKey: data.titleKey, titleValues: data.titleValues }
+            : {}),
+        } as never,
       });
       channel = result.channel;
       if (result.success && result.messageId) {
