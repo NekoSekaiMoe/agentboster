@@ -78,7 +78,7 @@ describe('registerTelegramCommands', () => {
 
   it('a single language failing does not abort the rest', async () => {
     vi.mocked(fetch).mockImplementation(
-      async (_url: string, init?: RequestInit) => {
+      async (_url: RequestInfo | URL, init?: RequestInit) => {
         const body = init?.body ? JSON.parse(String(init.body)) : {};
         if (body.language_code === 'zh') {
           return {
