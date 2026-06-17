@@ -23,6 +23,7 @@ import {
 import type React from 'react';
 import { useMemo, useState } from 'react';
 
+import { useI18n } from '@/components/i18n-provider';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { COMMANDS, type Command } from '@/types/workflow';
@@ -34,158 +35,60 @@ type SlashCommandDefinition = {
   icon: typeof Wand2;
 };
 
-const COMMAND_METADATA: Record<
-  Command,
-  Omit<SlashCommandDefinition, 'command'>
-> = {
-  new: {
-    description: 'Create and switch to a new session',
-    hint: '/new',
-    icon: Wand2,
-  },
-  compact: {
-    description: 'Force context compaction',
-    hint: '/compact',
-    icon: Hash,
-  },
-  init: {
-    description: 'Generate or update AGENTS.md for this repository',
-    hint: '/init',
-    icon: BookOpen,
-  },
-  help: {
-    description: 'Show slash command help',
-    hint: '/help',
-    icon: Search,
-  },
-  stop: {
-    description: 'Stop the current workflow run',
-    hint: '/stop',
-    icon: Square,
-  },
-  status: {
-    description: 'Show conversation status',
-    hint: '/status',
-    icon: Play,
-  },
-  session: {
-    description: 'Show or switch the bound session',
-    hint: '/session <session-id>',
-    icon: Hash,
-  },
-  sessions: {
-    description: 'List recent switchable sessions',
-    hint: '/sessions',
-    icon: Search,
-  },
-  switch: {
-    description: 'Switch to a listed session',
-    hint: '/switch <index|session-id>',
-    icon: Hash,
-  },
-  delete_session: {
-    description: 'Delete the current or selected session',
-    hint: '/delete_session [index|session-id]',
-    icon: Trash2,
-  },
-  approve: {
-    description: 'Approve a pending tool call',
-    hint: '/approve <toolCallId> [note]',
-    icon: ThumbsUp,
-  },
-  reject: {
-    description: 'Reject a pending tool call',
-    hint: '/reject <toolCallId> [note]',
-    icon: ThumbsDown,
-  },
-  decisions: {
-    description: 'List pending decisions (L2 auth + questions)',
-    hint: '/decisions',
-    icon: Search,
-  },
-  model: {
-    description: 'Show or switch the current model',
-    hint: '/model <model-id>',
-    icon: Hash,
-  },
-  provider: {
-    description: 'List, add, update, or remove model providers',
-    hint: '/provider <add|set|remove>',
-    icon: Settings,
-  },
-  config: {
-    description: 'Show or set config values (whitelist)',
-    hint: '/config <path> [value]',
-    icon: Settings,
-  },
-  memory: {
-    description: 'Search, list, or add memories',
-    hint: '/memory <query|builtin|search|add>',
-    icon: Database,
-  },
-  pair: {
-    description: 'Pair your IM account with a code',
-    hint: '/pair <code>',
-    icon: KeyRound,
-  },
-  unpair: {
-    description: 'Unbind your IM account from the ClawLess user',
-    hint: '/unpair',
-    icon: KeyRound,
-  },
-  whoami: {
-    description: 'Show the bound ClawLess user for this IM account',
-    hint: '/whoami',
-    icon: UserCircle2,
-  },
-  start: {
-    description: 'Show welcome message and available commands',
-    hint: '/start',
-    icon: Sparkles,
-  },
-  cancel: {
-    description: 'Cancel the current running request',
-    hint: '/cancel',
-    icon: X,
-  },
-  reset: {
-    description: 'Reset session state and clear pending approvals',
-    hint: '/reset',
-    icon: RotateCcw,
-  },
-  retry: {
-    description: 'Retry the last failed request',
-    hint: '/retry',
-    icon: RotateCcw,
-  },
-  version: {
-    description: 'Show AgentBoster version information',
-    hint: '/version',
-    icon: Info,
-  },
-  id: {
-    description: 'Show current session and user IDs',
-    hint: '/id',
-    icon: Hash,
-  },
-  models: {
-    description: 'Quick switch model with provider/model format',
-    hint: '/models <provider/model>',
-    icon: Hash,
-  },
-  lang: {
-    description: 'Change interface language',
-    hint: '/lang [language-code]',
-    icon: Languages,
-  },
+// Static metadata (icon only). description + hint come from i18n at
+// render time via useSlashCommands() so they pick up the active locale.
+const COMMAND_ICONS: Record<Command, typeof Wand2> = {
+  new: Wand2,
+  compact: Hash,
+  init: BookOpen,
+  help: Search,
+  stop: Square,
+  status: Play,
+  session: Hash,
+  sessions: Search,
+  switch: Hash,
+  delete_session: Trash2,
+  approve: ThumbsUp,
+  reject: ThumbsDown,
+  decisions: Search,
+  model: Hash,
+  provider: Settings,
+  config: Settings,
+  memory: Database,
+  pair: KeyRound,
+  unpair: KeyRound,
+  whoami: UserCircle2,
+  start: Sparkles,
+  cancel: X,
+  reset: RotateCcw,
+  retry: RotateCcw,
+  version: Info,
+  id: Hash,
+  models: Hash,
+  lang: Languages,
 };
 
-export const SLASH_COMMANDS: SlashCommandDefinition[] = COMMANDS.map(
-  (command) => ({
-    command,
-    ...COMMAND_METADATA[command],
-  }),
-);
+/**
+ * Build the localized slash command list. Re-runs whenever the locale
+ * changes (i18n provider falls back to en-US when a key is missing).
+ */
+export function useSlashCommands(): SlashCommandDefinition[] {
+  const { t } = useI18n();
+  return useMemo<SlashCommandDefinition[]>(
+    () =>
+      COMMANDS.map((command) => {
+        const descriptionKey = `slash.command.${command}.description`;
+        const hintKey = `slash.command.${command}.hint`;
+        return {
+          command,
+          description: t(descriptionKey as never),
+          hint: t(hintKey as never),
+          icon: COMMAND_ICONS[command],
+        };
+      }),
+    [t],
+  );
+}
 
 type SlashCommandMatch = {
   query: string;
@@ -252,6 +155,7 @@ export function SlashCommandMenu({
   onSelect,
   className,
 }: SlashCommandMenuProps) {
+  const allCommands = useSlashCommands();
   const match = useMemo(
     () => getSlashCommandMatch(value, cursor),
     [cursor, value],
@@ -262,8 +166,10 @@ export function SlashCommandMenu({
     }
 
     const query = match.query.toLowerCase();
-    return SLASH_COMMANDS.filter(({ command }) => command.startsWith(query));
-  }, [match]);
+    return allCommands.filter(({ command }) =>
+      command.startsWith(query),
+    );
+  }, [match, allCommands]);
 
   if (!match || items.length === 0) {
     return null;
@@ -334,6 +240,7 @@ export function useSlashCommandNavigation(
   cursor: number,
   onSelect: (command: Command) => void,
 ) {
+  const allCommands = useSlashCommands();
   const match = useMemo(
     () => getSlashCommandMatch(value, cursor),
     [cursor, value],
@@ -344,8 +251,10 @@ export function useSlashCommandNavigation(
     }
 
     const query = match.query.toLowerCase();
-    return SLASH_COMMANDS.filter(({ command }) => command.startsWith(query));
-  }, [match]);
+    return allCommands.filter(({ command }) =>
+      command.startsWith(query),
+    );
+  }, [match, allCommands]);
   const [activeIndex, setActiveIndex] = useState(0);
   const boundedActiveIndex = activeIndex >= items.length ? 0 : activeIndex;
 
