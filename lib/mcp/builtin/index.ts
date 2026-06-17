@@ -68,7 +68,7 @@ const builtinServers: Record<BuiltinServerName, BuiltinServerDefinition> = {
       title: 'AgentBoster Builtin Browser',
     },
     instructions:
-      'Use browser tools for JavaScript-rendered pages, screenshots, interaction, DOM inspection, and network request inspection. Close the browser with browser_close when done.',
+      'Use browser tools for JavaScript-rendered pages, screenshots, interaction, DOM inspection, and network request inspection. Close the browser with browser_close when done. To preserve a login across sessions: after completing login, call browser_save_state (this snapshots cookies + localStorage under a profile); on the next run pass the same profile to browser_navigate to resume logged-in. Profiles are in-process only and do not survive serverless restarts — for cross-restart persistence mirror the storageState blob from browser_save_state into durable storage and reload it with browser_load_state. Use browser_list_profiles to check what is currently cached.',
     tools: browserTools,
     execute: executeBrowserTool,
   },

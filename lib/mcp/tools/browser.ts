@@ -109,8 +109,15 @@ function toJsonValue(value: unknown): JSONValue {
   return JSON.parse(JSON.stringify(value ?? null)) as JSONValue;
 }
 
-async function getSession(context?: BuiltinMcpServerContext) {
-  return getBrowserPool().getSession(context?.sessionId);
+async function getSession(
+  context?: BuiltinMcpServerContext,
+  options?: { profile?: string; userAgent?: string },
+) {
+  return getBrowserPool().getSession(context?.sessionId, {
+    profile: options?.profile,
+    context: { agentName: context?.agentName },
+    userAgent: options?.userAgent,
+  });
 }
 
 export const browserTools: BuiltinMcpToolDefinition[] = [
@@ -118,7 +125,7 @@ export const browserTools: BuiltinMcpToolDefinition[] = [
     name: 'browser_navigate',
     title: 'Browser Navigate',
     description:
-      'Open an HTTP(S) URL in a reusable headless browser page. Use for JavaScript-rendered pages or interactive inspection.',
+      'Open an HTTP(S) URL in a reusable headless browser page. Use for JavaScript-rendered pages or interactive inspection. Pass `profile` to bind this page to an authenticated profile (cookies + localStorage persist across sessions within that profile).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -130,6 +137,16 @@ export const browserTools: BuiltinMcpToolDefinition[] = [
         timeout_ms: { type: 'number' },
         width: { type: 'number' },
         height: { type: 'number' },
+        profile: {
+          type: 'string',
+          description:
+            'Profile name to scope cookies/localStorage. Defaults to the current agent. Re-use the same profile name after `browser_save_state` to resume a logged-in session.',
+        },
+        user_agent: {
+          type: 'string',
+          description:
+            'Override the User-Agent string for this page. Defaults to a realistic desktop Chrome UA.',
+        },
       },
       required: ['url'],
     },
@@ -249,6 +266,53 @@ export const browserTools: BuiltinMcpToolDefinition[] = [
       properties: {},
     },
   },
+  {
+    name: 'browser_save_state',
+    title: 'Browser Save State',
+    description:
+      'Persist the current browser session cookies + localStorage under a profile name. Call this AFTER completing a login flow so subsequent `browser_navigate` calls with the same profile can resume logged-in without re-authenticating. In-process only — does not survive serverless restarts unless the returned state blob is mirrored to durable storage by the host.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        profile: {
+          type: 'string',
+          description:
+            "Profile name to save under. Defaults to the page's current profile.",
+        },
+      },
+    },
+  },
+  {
+    name: 'browser_load_state',
+    title: 'Browser Load State',
+    description:
+      'Hydrate a profile from a previously saved storage-state JSON blob. Use when the in-process profile cache has been lost (e.g. after a restart) and you have the state from external durable storage.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        profile: {
+          type: 'string',
+          description: 'Profile name to register the state under.',
+        },
+        state: {
+          type: 'string',
+          description:
+            'Playwright storageState JSON (as returned by browser_save_state). Must be the full serialized object.',
+        },
+      },
+      required: ['profile', 'state'],
+    },
+  },
+  {
+    name: 'browser_list_profiles',
+    title: 'Browser List Profiles',
+    description:
+      'List all browser profiles currently cached in-process with their last-updated timestamps. Use to check whether a saved login session is available before navigating.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];
 
 export async function executeBrowserTool(
@@ -263,7 +327,12 @@ export async function executeBrowserTool(
         return buildError('Missing or invalid HTTP(S) URL.');
       }
 
-      const session = await getSession(context);
+      const profile = stringInput(input, 'profile');
+      const userAgent = stringInput(input, 'user_agent');
+      const session = await getSession(context, {
+        ...(profile ? { profile } : {}),
+        ...(userAgent ? { userAgent } : {}),
+      });
       const width = numberInput(input, 'width');
       const height = numberInput(input, 'height');
       if (width && height && width > 0 && height > 0) {
@@ -496,6 +565,111 @@ export async function executeBrowserTool(
           },
         ],
         structuredContent: toJsonValue({ closed }),
+      };
+    }
+
+    if (toolName === 'browser_save_state') {
+      const profileOverride = stringInput(input, 'profile');
+      const result = await getBrowserPool().saveProfile(
+        context?.sessionId,
+        profileOverride || undefined,
+      );
+      if (!result) {
+        return buildError(
+          'No active browser session. Call browser_navigate first.',
+        );
+      }
+      const summary = {
+        profile: result.profile,
+        cookieCount: Array.isArray(
+          (result.storageState as { cookies?: unknown[] } | null)?.cookies,
+        )
+          ? (result.storageState as { cookies: unknown[] }).cookies.length
+          : 0,
+        originCount: Array.isArray(
+          (result.storageState as { origins?: unknown[] } | null)?.origins,
+        )
+          ? (result.storageState as { origins: unknown[] }).origins.length
+          : 0,
+      };
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Saved profile "${summary.profile}" (${summary.cookieCount} cookies, ${summary.originCount} origins).`,
+          },
+        ],
+        structuredContent: toJsonValue({
+          ...summary,
+          // Echo the full state so a host that wants durable persistence can
+          // capture it from the tool result without a second round-trip.
+          storageState: result.storageState,
+        }),
+      };
+    }
+
+    if (toolName === 'browser_load_state') {
+      const profile = stringInput(input, 'profile');
+      const rawState = stringInput(input, 'state');
+      if (!profile) {
+        return buildError('Missing required field: profile');
+      }
+      if (!rawState) {
+        return buildError('Missing required field: state');
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawState);
+      } catch {
+        return buildError(
+          '`state` must be valid JSON (a Playwright storageState object).',
+        );
+      }
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        !('cookies' in parsed)
+      ) {
+        return buildError(
+          '`state` must be a Playwright storageState object with at least a `cookies` field.',
+        );
+      }
+
+      getBrowserPool().setProfile(profile, parsed);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Loaded profile "${profile}" into the in-process cache.`,
+          },
+        ],
+        structuredContent: toJsonValue({ profile }),
+      };
+    }
+
+    if (toolName === 'browser_list_profiles') {
+      const profiles = getBrowserPool().listProfiles();
+      if (profiles.length === 0) {
+        return {
+          content: [
+            { type: 'text', text: 'No saved browser profiles in cache.' },
+          ],
+          structuredContent: toJsonValue({ profiles: [] }),
+        };
+      }
+      const lines = profiles.map(
+        (p) =>
+          `- ${p.profile} (updated ${new Date(p.updatedAt).toISOString()})`,
+      );
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Saved browser profiles:\n${lines.join('\n')}`,
+          },
+        ],
+        structuredContent: toJsonValue({ profiles }),
       };
     }
 

@@ -50,6 +50,7 @@ async function buildMCPSubsection(): Promise<string> {
     'Use `web_search` for search and `fetch_url` for lightweight static page reads.',
     'Use browser tools when a page is JavaScript-rendered, requires interaction, needs a screenshot, or when you need DOM/network inspection.',
     'For browser workflows, call `browser_navigate` first, inspect with `browser_get_text`, `browser_get_html`, `browser_screenshot`, or `browser_get_network_requests`, interact with `browser_click` and `browser_type`, and call `browser_close` when finished.',
+    'Login persistence: when a task requires authentication, call `browser_save_state` immediately after the login flow completes; on subsequent runs pass the same `profile` to `browser_navigate` to resume logged-in. If the saved profile is gone (serverless restart), use `browser_list_profiles` to confirm before re-authenticating.',
   ];
 
   const toolDescriptions: string[] = [];

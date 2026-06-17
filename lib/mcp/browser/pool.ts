@@ -12,6 +12,13 @@ const DEFAULT_IDLE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_SESSIONS = 8;
 const MAX_NETWORK_REQUESTS = 200;
 
+// Realistic Chrome UA on a common desktop Linux config. The previous UA
+// carried an `AgentBoster/1.0` token which loudly self-identified as a bot
+// to any fingerprinting / risk-control system. Keep this in sync with the
+// platform hinted at by the launch args below.
+const DEFAULT_USER_AGENT =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 export type BrowserNetworkRequest = {
   id: number;
   method: string;
@@ -25,6 +32,7 @@ export type BrowserNetworkRequest = {
 
 export type BrowserSession = {
   id: string;
+  profile: string;
   browser: Browser;
   context: BrowserContext;
   page: Page;
@@ -38,9 +46,21 @@ export type BrowserPoolOptions = {
   maxSessions?: number;
 };
 
+type ProfileState = {
+  // Serialized Playwright storage state (cookies + localStorage + indexedDB
+  // origins, depending on Playwright version). Captured via
+  // `context.storageState()` and replayed via `newContext({ storageState })`.
+  // Kept in-process only: Vercel serverless has no durable disk. Same scope
+  // as the existing page pool — callers who need cross-restart persistence
+  // must re-authenticate or pipe this blob through their own KV store.
+  storageState: unknown;
+  updatedAt: number;
+};
+
 export class BrowserPool {
   private readonly sessions = new Map<string, BrowserSession>();
   private readonly pendingSessions = new Map<string, Promise<BrowserSession>>();
+  private readonly profiles = new Map<string, ProfileState>();
   private readonly idleTtlMs: number;
   private readonly maxSessions: number;
   private cleanupTimer: NodeJS.Timeout | null = null;
@@ -50,8 +70,43 @@ export class BrowserPool {
     this.maxSessions = options.maxSessions ?? DEFAULT_MAX_SESSIONS;
   }
 
-  async getSession(sessionId?: string): Promise<BrowserSession> {
+  /**
+   * Resolve a profile key for a session.
+   *
+   * Profile is the unit of browser-state isolation (cookies, localStorage).
+   * It is intentionally independent of `sessionId` so a single agent can
+   * hold multiple authenticated profiles in parallel (e.g. logged-in vs.
+   * incognito), and so multiple agents can share one profile when intended.
+   *
+   * Resolution order: explicit `profile` arg → `agentName` → 'default'.
+   */
+  private resolveProfile(
+    profile: string | undefined,
+    context?: { agentName?: string },
+  ): string {
+    const explicit = profile?.trim();
+    if (explicit) {
+      return explicit;
+    }
+
+    const fromContext = context?.agentName?.trim();
+    if (fromContext) {
+      return `agent:${fromContext}`;
+    }
+
+    return 'default';
+  }
+
+  async getSession(
+    sessionId?: string,
+    options?: {
+      profile?: string;
+      context?: { agentName?: string };
+      userAgent?: string;
+    },
+  ): Promise<BrowserSession> {
     const key = this.normalizeSessionId(sessionId);
+    const profile = this.resolveProfile(options?.profile, options?.context);
     const current = this.sessions.get(key);
 
     if (current?.browser.isConnected()) {
@@ -74,7 +129,7 @@ export class BrowserPool {
       return pending;
     }
 
-    const created = this.createSession(key);
+    const created = this.createSession(key, profile, options?.userAgent);
     this.pendingSessions.set(key, created);
 
     try {
@@ -124,22 +179,114 @@ export class BrowserPool {
     return [...(this.sessions.get(key)?.networkRequests ?? [])];
   }
 
-  private async createSession(sessionId: string): Promise<BrowserSession> {
+  /**
+   * Persist the current context's cookies + localStorage under the profile
+   * key. Returns the captured state so callers (e.g. agentd) can mirror it
+   * to durable storage if they want cross-restart survival.
+   */
+  async saveProfile(
+    sessionId?: string,
+    profileOverride?: string,
+  ): Promise<{ profile: string; storageState: unknown } | null> {
+    const key = this.normalizeSessionId(sessionId);
+    const session = this.sessions.get(key);
+    if (!session) {
+      return null;
+    }
+
+    const profile = profileOverride?.trim() || session.profile;
+    const storageState = await session.context.storageState();
+    this.profiles.set(profile, {
+      storageState,
+      updatedAt: Date.now(),
+    });
+
+    logger.info('profile:save', { sessionId: key, profile });
+    return { profile, storageState };
+  }
+
+  /**
+   * Hydrate a profile from an externally-supplied storage state (e.g. a
+   * blob previously mirrored to KV by agentd). Useful when the in-process
+   * profile cache has been wiped by a serverless restart.
+   */
+  setProfile(profile: string, storageState: unknown): void {
+    const trimmed = profile.trim();
+    if (!trimmed) {
+      return;
+    }
+    this.profiles.set(trimmed, {
+      storageState,
+      updatedAt: Date.now(),
+    });
+  }
+
+  getProfile(profile: string): ProfileState | undefined {
+    return this.profiles.get(profile.trim());
+  }
+
+  listProfiles(): Array<{ profile: string; updatedAt: number }> {
+    return [...this.profiles.entries()].map(([profile, state]) => ({
+      profile,
+      updatedAt: state.updatedAt,
+    }));
+  }
+
+  deleteProfile(profile: string): boolean {
+    return this.profiles.delete(profile.trim());
+  }
+
+  private async createSession(
+    sessionId: string,
+    profile: string,
+    userAgentOverride?: string,
+  ): Promise<BrowserSession> {
     await this.evictIfNeeded();
 
     const { chromium } = await import('playwright');
     const browser = await chromium.launch({
       headless: true,
-      args: ['--disable-dev-shm-usage', '--disable-gpu', '--no-sandbox'],
+      args: [
+        '--disable-dev-shm-usage',
+        // NOTE: --disable-gpu and --no-sandbox were dropped. They are a
+        // well-known headless fingerprint combo and not required in the
+        // Vercel/serverless runtime we run in. Keep the list tight and
+        // only add flags that are actually necessary.
+        '--disable-blink-features=AutomationControlled',
+        '--no-first-run',
+        '--no-default-browser-check',
+      ],
     });
-    const context = await browser.newContext({
+
+    const storedProfile = this.profiles.get(profile);
+    const contextOptions: Parameters<Browser['newContext']>[0] = {
       viewport: DEFAULT_VIEWPORT,
-      userAgent:
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 AgentBoster/1.0',
+      userAgent: userAgentOverride?.trim() || DEFAULT_USER_AGENT,
+    };
+    if (storedProfile) {
+      contextOptions.storageState =
+        storedProfile.storageState as import('playwright').BrowserContextOptions['storageState'];
+    }
+
+    const context = await browser.newContext(contextOptions);
+
+    // Best-effort anti-detection: mask the `navigator.webdriver` flag that
+    // Cloudflare/Akamai look for. This runs after every navigation. It is
+    // not a full stealth plugin (no canvas/webGL spoofing) — it just removes
+    // the loudest signal. Full fingerprint randomization is out of scope for
+    // the builtin browser; users who need it should run their own browser
+    // MCP server.
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+        configurable: true,
+      });
     });
+
     const page = await context.newPage();
     const session: BrowserSession = {
       id: sessionId,
+      profile,
       browser,
       context,
       page,
@@ -152,7 +299,11 @@ export class BrowserPool {
     this.sessions.set(sessionId, session);
     this.ensureCleanupTimer();
 
-    logger.info('session:create', { sessionId });
+    logger.info('session:create', {
+      sessionId,
+      profile,
+      hydratedFromStorage: Boolean(storedProfile),
+    });
     return session;
   }
 
@@ -228,6 +379,17 @@ export class BrowserPool {
     );
 
     for (const session of staleSessions) {
+      // Capture the profile snapshot before the context dies so the next
+      // session on the same profile can resume logged-in. Best-effort — if
+      // it throws we still drop the session.
+      await this.saveProfile(session.id, session.profile).catch((error) => {
+        logger.warn('profile:save_on_cleanup_failed', {
+          sessionId: session.id,
+          profile: session.profile,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+
       this.sessions.delete(session.id);
       await this.closeSession(session).catch((error) => {
         logger.warn('session:cleanup_failed', {
@@ -251,6 +413,14 @@ export class BrowserPool {
       if (!oldest) {
         return;
       }
+
+      await this.saveProfile(oldest.id, oldest.profile).catch((error) => {
+        logger.warn('profile:save_on_evict_failed', {
+          sessionId: oldest.id,
+          profile: oldest.profile,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
 
       this.sessions.delete(oldest.id);
       await this.closeSession(oldest);
