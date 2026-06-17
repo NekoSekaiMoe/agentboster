@@ -260,6 +260,12 @@ const TYPING_REFRESH_MS = 4500;
 const EDIT_MIN_DELTA = 20;
 /** Maximum time (ms) between edits to keep the output feeling live */
 const EDIT_MAX_INTERVAL_MS = 3000;
+/**
+ * How often the consumer loop polls the shared text buffer for new content.
+ * Kept small so partial output is flushed to the IM channel promptly without
+ * putting backpressure on the workflow's writable side.
+ */
+const CONSUMER_POLL_INTERVAL_MS = 200;
 
 export async function streamAdapterSourceReply(
   source: ChatSource,
@@ -299,6 +305,8 @@ export async function streamAdapterSourceReply(
     let lastEditedText = '';
     let lastEditTime = 0;
     let fullText = '';
+    let streamClosed = false;
+    let producerError: unknown;
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffered = '';
@@ -327,142 +335,180 @@ export async function streamAdapterSourceReply(
       }
     };
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+    // Accumulate chunk text from a parsed value into `fullText`.
+    // Returns the extracted text (empty string if none).
+    const accumulateChunkText = (value: unknown): string => {
+      const chunkText = extractTextFromChunk(value);
+      if (chunkText) fullText += chunkText;
+      return chunkText;
+    };
 
-        if (value instanceof Uint8Array) {
-          buffered += decoder.decode(value, { stream: true });
-          const lines = buffered.split(/\r?\n/);
-          buffered = lines.pop() ?? '';
+    // Producer: continuously drains the workflow stream into `fullText`
+    // WITHOUT making any IM API calls. This keeps the reader pulling
+    // promptly so the workflow's writable side never blocks waiting for
+    // a slow IM API call (postMessage/editMessage). Without this
+    // decoupling, the workflow runtime's writeToStream aborts after 30s
+    // of idle time when the IM adapter is slow.
+    const producer = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
+          if (value instanceof Uint8Array) {
+            buffered += decoder.decode(value, { stream: true });
+            const lines = buffered.split(/\r?\n/);
+            buffered = lines.pop() ?? '';
 
-            const rawData = trimmed.startsWith('data:')
-              ? trimmed.slice(5).trim()
-              : trimmed;
-            if (!rawData || rawData === '[DONE]') continue;
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
 
-            try {
-              const chunkText = extractTextFromChunk(JSON.parse(rawData));
-              if (chunkText) {
-                fullText += chunkText;
+              const rawData = trimmed.startsWith('data:')
+                ? trimmed.slice(5).trim()
+                : trimmed;
+              if (!rawData || rawData === '[DONE]') continue;
 
-                // First chunk → post initial message
-                if (!messageId) {
-                  const initialDisplay = stripMarkersForDisplay(fullText);
-                  const posted = await adapter.postMessage(source.threadId, {
-                    markdown: initialDisplay,
-                  });
-                  messageId = posted.id;
-                  await recordAdapterReplyContext(
-                    source,
-                    posted.id,
-                    initialDisplay,
-                  );
-                  lastEditedText = initialDisplay;
-                  lastEditTime = Date.now();
-                } else {
-                  await tryEditMessage();
-                }
+              try {
+                accumulateChunkText(JSON.parse(rawData));
+              } catch {
+                continue;
               }
-            } catch {
-              continue;
             }
+            continue;
           }
-          continue;
+
+          // Non-Uint8Array chunks (already parsed objects)
+          accumulateChunkText(value);
         }
+      } catch (error) {
+        // Surface to the consumer via `producerError` so the final
+        // flush logic still runs (best-effort) before rejecting.
+        producerError = error;
+      } finally {
+        streamClosed = true;
+      }
+    };
 
-        // Non-Uint8Array chunks (already parsed objects)
-        const chunkText = extractTextFromChunk(value);
-        if (chunkText) {
-          fullText += chunkText;
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+    // Consumer: watches `fullText` for new content and flushes it to the
+    // IM channel via postMessage (first time) then editMessage (updates).
+    // Runs concurrently with the producer so IM API latency does not
+    // backpressure the workflow stream.
+    const consumer = async () => {
+      while (!streamClosed) {
+        if (fullText) {
           if (!messageId) {
+            // First appearance of text → post the initial message.
             const initialDisplay = stripMarkersForDisplay(fullText);
-            const posted = await adapter.postMessage(source.threadId, {
-              markdown: initialDisplay,
-            });
-            messageId = posted.id;
-            await recordAdapterReplyContext(source, posted.id, initialDisplay);
-            lastEditedText = initialDisplay;
-            lastEditTime = Date.now();
+            if (initialDisplay) {
+              try {
+                const posted = await adapter.postMessage(source.threadId, {
+                  markdown: initialDisplay,
+                });
+                messageId = posted.id;
+                await recordAdapterReplyContext(
+                  source,
+                  posted.id,
+                  initialDisplay,
+                );
+                lastEditedText = initialDisplay;
+                lastEditTime = Date.now();
+              } catch (error) {
+                logger.warn('stream_reply:post_failed', {
+                  adapter: source.adapter,
+                  threadId: source.threadId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+                // Don't bail: keep draining the stream so the workflow
+                // writable side stays unblocked; we'll retry on the
+                // final flush.
+              }
+            }
           } else {
             await tryEditMessage();
           }
         }
+        await sleep(CONSUMER_POLL_INTERVAL_MS);
       }
+    };
 
-      // Flush remaining buffered data
-      buffered += decoder.decode();
-      for (const line of buffered.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const rawData = trimmed.startsWith('data:')
-          ? trimmed.slice(5).trim()
-          : trimmed;
-        if (!rawData || rawData === '[DONE]') continue;
-        try {
-          const chunkText = extractTextFromChunk(JSON.parse(rawData));
-          if (chunkText) fullText += chunkText;
-        } catch {
-          continue;
-        }
+    try {
+      await Promise.all([producer(), consumer()]);
+    } finally {
+      clearInterval(typingTimer);
+    }
+
+    // Flush remaining buffered data (tail of the final Uint8Array chunk).
+    buffered += decoder.decode();
+    for (const line of buffered.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const rawData = trimmed.startsWith('data:')
+        ? trimmed.slice(5).trim()
+        : trimmed;
+      if (!rawData || rawData === '[DONE]') continue;
+      try {
+        const chunkText = extractTextFromChunk(JSON.parse(rawData));
+        if (chunkText) fullText += chunkText;
+      } catch {
+        continue;
       }
+    }
 
-      // Final edit with complete text
-      const finalText = fullText.trim();
-      const suggestedFollowUpCard = buildSuggestedFollowUpCard(finalText);
+    // Final edit with complete text
+    const finalText = fullText.trim();
+    const suggestedFollowUpCard = buildSuggestedFollowUpCard(finalText);
 
-      if (messageId && suggestedFollowUpCard) {
-        try {
-          const edited = await adapter.editMessage(source.threadId, messageId, {
-            card: suggestedFollowUpCard.card,
-            fallbackText: suggestedFollowUpCard.fallbackText,
-          });
-          await recordAdapterReplyContext(
-            source,
-            edited.id,
-            suggestedFollowUpCard.fallbackText,
-            suggestedFollowUpCard.questions,
-          );
-        } catch {
-          await postAdapterReply({
-            adapter,
-            source,
-            text: finalText,
-          });
-        }
-      } else if (messageId && finalText) {
-        const finalDisplay = stripMarkersForDisplay(finalText);
-        if (finalDisplay && finalDisplay !== lastEditedText) {
-          try {
-            await adapter.editMessage(source.threadId, messageId, {
-              markdown: finalDisplay,
-            });
-            await recordAdapterReplyContext(source, messageId, finalDisplay);
-          } catch {
-            // ignore
-          }
-        }
-      }
-
-      // If we never got any text, send a fallback
-      if (!messageId && finalText) {
+    if (messageId && suggestedFollowUpCard) {
+      try {
+        const edited = await adapter.editMessage(source.threadId, messageId, {
+          card: suggestedFollowUpCard.card,
+          fallbackText: suggestedFollowUpCard.fallbackText,
+        });
+        await recordAdapterReplyContext(
+          source,
+          edited.id,
+          suggestedFollowUpCard.fallbackText,
+          suggestedFollowUpCard.questions,
+        );
+      } catch {
         await postAdapterReply({
           adapter,
           source,
           text: finalText,
         });
       }
-    } finally {
-      clearInterval(typingTimer);
+    } else if (messageId && finalText) {
+      const finalDisplay = stripMarkersForDisplay(finalText);
+      if (finalDisplay && finalDisplay !== lastEditedText) {
+        try {
+          await adapter.editMessage(source.threadId, messageId, {
+            markdown: finalDisplay,
+          });
+          await recordAdapterReplyContext(source, messageId, finalDisplay);
+        } catch {
+          // ignore
+        }
+      }
     }
 
-    return true;
+    // If we never got any text, send a fallback
+    if (!messageId && finalText) {
+      await postAdapterReply({
+        adapter,
+        source,
+        text: finalText,
+      });
+    }
+
+    // If the producer failed (stream aborted), surface it after the
+    // best-effort final flush above has had its chance.
+    if (producerError) {
+      throw producerError;
+    }
   } catch (error) {
     logger.warn('stream_reply:failed', {
       adapter: source.adapter,
@@ -471,6 +517,8 @@ export async function streamAdapterSourceReply(
     });
     return false;
   }
+
+  return true;
 }
 
 function extractTextFromChunk(chunk: unknown): string {
