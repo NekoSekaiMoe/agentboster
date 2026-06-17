@@ -1,6 +1,6 @@
 export const DEFAULT_MAIN_MAX_STEPS = 30;
 
-export const DEFAULT_CONTEXT_LIMIT = 128_000;
+export const DEFAULT_CONTEXT_LIMIT = 200000;
 
 export const DEFAULT_SLIDING_WINDOW_ROUNDS = 5;
 

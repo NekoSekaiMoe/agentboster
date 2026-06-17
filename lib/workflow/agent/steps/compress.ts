@@ -167,8 +167,8 @@ export async function generateCompressedContext(input: {
     };
   }
 
-  const maxOutput = input.config.models?.max_output_tokens ?? 1024;
-  const contextLimit = input.config.models?.context_limit ?? 128_000;
+  const maxOutput = input.config.models?.max_output_tokens ?? 65536;
+  const contextLimit = input.config.models?.context_limit ?? 200000;
 
   let headMessages: ModelMessage[];
   let tailMessages: ModelMessage[];

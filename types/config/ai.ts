@@ -76,7 +76,7 @@ export const aiConfigSchema = z.object({
     .number()
     .min(0, 'Temperature must be >= 0')
     .max(2, 'Temperature must be <= 2')
-    .default(0.7),
+    .default(0.5),
   /** Default model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
   model: aiModelConfigSchema.optional(),
   /** Embedding model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
@@ -86,13 +86,13 @@ export const aiConfigSchema = z.object({
     .number()
     .int()
     .min(1, 'Context limit must be > 0')
-    .optional(),
+    .default(200000),
   /** Default max output length limit (tokens). */
   max_output_tokens: z
     .number()
     .int()
     .min(1, 'Output limit must be > 0')
-    .optional(),
+    .default(65536),
   providers: z
     .record(z.string(), aiProviderConfigSchema)
     .default({})
