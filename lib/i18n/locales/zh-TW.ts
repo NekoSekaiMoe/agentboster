@@ -219,6 +219,7 @@ export const zhTW = {
   'config.forms.autonomy.title': '自主策略',
   'config.forms.chat.composerDescription':
     '選擇 Web 聊天輸入框的鍵盤快捷鍵行為。',
+  'config.forms.chat.autoSaveNote': '修改後自動儲存。無需手動儲存。',
   'config.forms.chat.composerTitle': '輸入框',
   'config.forms.chat.enterToSendLabel': '按 Enter 自動傳送',
   'config.forms.chat.enterToSendOffHelp':

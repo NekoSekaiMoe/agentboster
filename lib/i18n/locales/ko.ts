@@ -238,6 +238,8 @@ export const ko = {
   'config.forms.autonomy.title': '자율 정책',
   'config.forms.chat.composerDescription':
     '웹 채팅 작성기에서 키보드 단축키가 작동하는 방식을 선택하세요.',
+  'config.forms.chat.autoSaveNote':
+    '변경 사항이 자동으로 저장됩니다. 수동 저장이 필요하지 않습니다.',
   'config.forms.chat.composerTitle': '작성기',
   'config.forms.chat.enterToSendLabel': 'Enter로 자동 전송',
   'config.forms.chat.enterToSendOffHelp':

@@ -241,6 +241,8 @@ export const ja = {
   'config.forms.autonomy.title': '自律ポリシー',
   'config.forms.chat.composerDescription':
     'Web チャット入力欄のキーボードショートカットを選択します。',
+  'config.forms.chat.autoSaveNote':
+    '変更は自動的に保存されます。手動保存は不要です。',
   'config.forms.chat.composerTitle': '入力欄',
   'config.forms.chat.enterToSendLabel': 'Enter で自動送信',
   'config.forms.chat.enterToSendOffHelp':

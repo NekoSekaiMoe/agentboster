@@ -218,6 +218,7 @@ export const zhCN = {
   'config.forms.autonomy.title': '自主策略',
   'config.forms.chat.composerDescription':
     '选择 Web 聊天输入框的键盘快捷键行为。',
+  'config.forms.chat.autoSaveNote': '修改后自动保存。无需手动保存。',
   'config.forms.chat.composerTitle': '输入框',
   'config.forms.chat.enterToSendLabel': '按回车键自动发送',
   'config.forms.chat.enterToSendOffHelp':

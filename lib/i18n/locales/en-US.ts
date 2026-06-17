@@ -236,6 +236,8 @@ export const enUS = {
   'config.forms.autonomy.title': 'Autonomy policy',
   'config.forms.chat.composerDescription':
     'Choose how keyboard shortcuts work in the Web chat composer.',
+  'config.forms.chat.autoSaveNote':
+    'Changes are saved automatically. No manual save required.',
   'config.forms.chat.composerTitle': 'Composer',
   'config.forms.chat.enterToSendLabel': 'Send automatically with Enter',
   'config.forms.chat.enterToSendOffHelp':
