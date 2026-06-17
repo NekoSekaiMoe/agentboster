@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { hashPassword, verifyPassword } from '@/lib/extra/auth/password';
 import { db } from '@/lib/core/db';
 import { users } from '@/lib/core/db/schema';
+import type { UserModelPreferences } from '@/types/config/user-preferences';
 
 export const ALL_ROLES = [
   'owner',
@@ -23,6 +24,11 @@ export interface StoredUser {
   id: string;
   username: string;
   roles: string[];
+  /**
+   * Per-user overrides for the user's own chat / memory runs. Background
+   * tasks ignore this field. `null`/undefined means "use global defaults".
+   */
+  modelPreferences: UserModelPreferences | null;
   createdAt: Date;
 }
 
@@ -131,6 +137,7 @@ export async function createUser(
       id: users.id,
       username: users.username,
       roles: users.roles,
+      modelPreferences: users.modelPreferences,
       createdAt: users.createdAt,
     });
 
@@ -157,6 +164,7 @@ export async function authenticateUser(
     id: row.id,
     username: row.username,
     roles: row.roles as string[],
+    modelPreferences: (row.modelPreferences ?? null) as UserModelPreferences | null,
     createdAt: row.createdAt,
   };
 }
@@ -175,6 +183,7 @@ export async function getUserById(userId: string): Promise<StoredUser | null> {
     id: row.id,
     username: row.username,
     roles: row.roles as string[],
+    modelPreferences: (row.modelPreferences ?? null) as UserModelPreferences | null,
     createdAt: row.createdAt,
   };
 }
@@ -185,6 +194,7 @@ export async function listUsers(): Promise<StoredUser[]> {
     id: row.id,
     username: row.username,
     roles: row.roles as string[],
+    modelPreferences: (row.modelPreferences ?? null) as UserModelPreferences | null,
     createdAt: row.createdAt,
   }));
 }
@@ -205,17 +215,38 @@ export async function updateUserRoles(
       id: users.id,
       username: users.username,
       roles: users.roles,
+      modelPreferences: users.modelPreferences,
       createdAt: users.createdAt,
     });
 
-  return row
-    ? {
-        id: row.id,
-        username: row.username,
-        roles: row.roles as string[],
-        createdAt: row.createdAt,
-      }
-    : null;
+  return row ?? null;
+}
+
+/**
+ * Replace the per-user model preferences for the given user. Pass `null` to
+ * clear (fall back to global defaults). Returns the updated user or null if
+ * no user matched.
+ */
+export async function updateUserModelPreferences(
+  userId: string,
+  preferences: UserModelPreferences | null,
+): Promise<StoredUser | null> {
+  const [row] = await db
+    .update(users)
+    .set({
+      modelPreferences: preferences,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId))
+    .returning({
+      id: users.id,
+      username: users.username,
+      roles: users.roles,
+      modelPreferences: users.modelPreferences,
+      createdAt: users.createdAt,
+    });
+
+  return row ?? null;
 }
 
 export async function deleteUser(userId: string): Promise<boolean> {
