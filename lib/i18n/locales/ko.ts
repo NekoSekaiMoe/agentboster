@@ -652,11 +652,11 @@ export const ko = {
   'toast.summary.loadFailed': '세션 요약 로드에 실패했습니다',
   'toast.body.jsonInvalid': 'Body JSON 이 유효하지 않습니다',
   'toast.external.deleted': '외부 소스를 삭제했습니다',
-  'toast.external.synced': '외부 소스를 동기화했습니다',  'agentd.notify.task': '작업 {status}',
+  'toast.external.synced': '외부 소스를 동기화했습니다',
+  'agentd.notify.task': '작업 {status}',
   'agentd.notify.securityAlert': '보안 경고',
   'agentd.notify.l0Violation': 'L0 규정 위반',
   'agentd.notify.l1HighRisk': 'L1 고위험 감지',
   'agentd.notify.l2Required': '고위험 작업에는 승인이 필요합니다',
   'agentd.notify.default': '승인 필요',
-
 } satisfies Record<keyof typeof enUS, string>;
