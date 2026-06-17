@@ -1,3 +1,5 @@
+import { defaultLocale, type Locale } from '@/lib/i18n';
+import { t } from '@/lib/i18n/server';
 import { createLogger } from '@/lib/utils/logger';
 import type { NotificationChannel } from '../notification-channel';
 import type {
@@ -95,6 +97,7 @@ export class SlackNotificationChannel implements NotificationChannel {
   }
 
   private renderPayload(payload: NotificationPayload): SlackRenderResult {
+    const locale: Locale = payload.locale ?? defaultLocale;
     if (payload.type === 'decision') {
       return {
         text: `⚠️ ${payload.title}: ${payload.command}`,
@@ -108,13 +111,15 @@ export class SlackNotificationChannel implements NotificationChannel {
             text: {
               type: 'mrkdwn',
               text: [
-                `任务：${payload.body}`,
-                `命令：\`${payload.command}\``,
+                `${t(locale, 'notify.field.task')}: ${payload.body}`,
+                `${t(locale, 'notify.field.command')}: \`${payload.command}\``,
                 ...(payload.commandReview
-                  ? [`命令审查：\n${payload.commandReview}`]
+                  ? [
+                      `${t(locale, 'notify.field.commandReview')}:\n${payload.commandReview}`,
+                    ]
                   : []),
-                `风险评分：${payload.score.toFixed(1)}/1.0`,
-                `原因：${payload.reason}`,
+                `${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}/1.0`,
+                `${t(locale, 'notify.field.reason')}: ${payload.reason}`,
               ].join('\n'),
             },
           },
@@ -145,27 +150,27 @@ export class SlackNotificationChannel implements NotificationChannel {
       if (payload.details.subAgents)
         fields.push({
           type: 'mrkdwn',
-          text: `*子 Agent:* ${payload.details.subAgents}`,
+          text: `*${t(locale, 'notify.field.subAgents')}:* ${payload.details.subAgents}`,
         });
       if (payload.details.filesChanged)
         fields.push({
           type: 'mrkdwn',
-          text: `*文件变更:* ${payload.details.filesChanged}`,
+          text: `*${t(locale, 'notify.field.filesChanged')}:* ${payload.details.filesChanged}`,
         });
       if (payload.details.commits)
         fields.push({
           type: 'mrkdwn',
-          text: `*提交数:* ${payload.details.commits}`,
+          text: `*${t(locale, 'notify.field.commits')}:* ${payload.details.commits}`,
         });
       if (payload.details.logsUrl)
         fields.push({
           type: 'mrkdwn',
-          text: `<${payload.details.logsUrl}|查看日志>`,
+          text: `<${payload.details.logsUrl}|${t(locale, 'notify.field.viewLogs')}>`,
         });
       if (payload.details.error)
         fields.push({
           type: 'mrkdwn',
-          text: `*错误:* ${payload.details.error}`,
+          text: `*${t(locale, 'notify.field.error')}:* ${payload.details.error}`,
         });
     }
 
@@ -188,31 +193,44 @@ export class SlackNotificationChannel implements NotificationChannel {
   private buildDecisionActions(
     payload: DecisionNotification,
   ): Array<Record<string, unknown>> {
+    const locale: Locale = payload.locale ?? defaultLocale;
     const taskId = payload.taskId;
     const decisionId = payload.decisionId;
 
     return [
       {
         type: 'button',
-        text: { type: 'plain_text', text: '✅ pass once' },
+        text: {
+          type: 'plain_text',
+          text: `✅ ${t(locale, 'notify.l2.passOnce')}`,
+        },
         action_id: `l2:pass_once:${taskId}:${decisionId}`,
         style: 'primary',
       },
       {
         type: 'button',
-        text: { type: 'plain_text', text: '⏱ pass until...' },
+        text: {
+          type: 'plain_text',
+          text: `⏱ ${t(locale, 'notify.l2.passUntil')}`,
+        },
         action_id: `l2:pass_until:${taskId}:${decisionId}`,
         style: 'primary',
       },
       {
         type: 'button',
-        text: { type: 'plain_text', text: '❌ reject once' },
+        text: {
+          type: 'plain_text',
+          text: `❌ ${t(locale, 'notify.l2.rejectOnce')}`,
+        },
         action_id: `l2:reject_once:${taskId}:${decisionId}`,
         style: 'danger',
       },
       {
         type: 'button',
-        text: { type: 'plain_text', text: '🔕 reject until...' },
+        text: {
+          type: 'plain_text',
+          text: `🔕 ${t(locale, 'notify.l2.rejectUntil')}`,
+        },
         action_id: `l2:reject_until:${taskId}:${decisionId}`,
         style: 'danger',
       },

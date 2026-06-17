@@ -1,3 +1,5 @@
+import { defaultLocale, type Locale } from '@/lib/i18n';
+import { t } from '@/lib/i18n/server';
 import { createLogger } from '@/lib/utils/logger';
 import type { AdapterName } from '@/types/config';
 import type { NotificationChannel } from '../notification-channel';
@@ -81,21 +83,24 @@ export class DiscordNotificationChannel implements NotificationChannel {
   }
 
   private buildBody(payload: NotificationPayload): Record<string, unknown> {
+    const locale: Locale = payload.locale ?? defaultLocale;
     if (payload.type === 'decision') {
       return {
         embeds: [
           {
             title: `⚠️ ${payload.title}`,
             description: [
-              `任务：${payload.body}`,
-              `命令：\`${payload.command}\``,
+              `${t(locale, 'notify.field.task')}: ${payload.body}`,
+              `${t(locale, 'notify.field.command')}: \`${payload.command}\``,
               ...(payload.commandReview
-                ? [`命令审查：\n${payload.commandReview}`]
+                ? [
+                    `${t(locale, 'notify.field.commandReview')}:\n${payload.commandReview}`,
+                  ]
                 : []),
-              `风险评分：${payload.score.toFixed(1)}/1.0`,
-              `原因：${payload.reason}`,
+              `${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}/1.0`,
+              `${t(locale, 'notify.field.reason')}: ${payload.reason}`,
               ``,
-              `请选择：`,
+              t(locale, 'notify.field.selectAction'),
             ].join('\n'),
             color: 0xffa500,
             timestamp: new Date().toISOString(),
@@ -123,29 +128,32 @@ export class DiscordNotificationChannel implements NotificationChannel {
     if (payload.details) {
       if (payload.details.subAgents)
         fields.push({
-          name: '子 Agent',
+          name: t(locale, 'notify.field.subAgents'),
           value: String(payload.details.subAgents),
           inline: true,
         });
       if (payload.details.filesChanged)
         fields.push({
-          name: '文件变更',
+          name: t(locale, 'notify.field.filesChanged'),
           value: String(payload.details.filesChanged),
           inline: true,
         });
       if (payload.details.commits)
         fields.push({
-          name: '提交数',
+          name: t(locale, 'notify.field.commits'),
           value: String(payload.details.commits),
           inline: true,
         });
       if (payload.details.logsUrl)
         fields.push({
-          name: '日志',
-          value: `[点击查看](${payload.details.logsUrl})`,
+          name: t(locale, 'notify.field.viewLogs'),
+          value: `[${t(locale, 'notify.field.viewLogs')}](${payload.details.logsUrl})`,
         });
       if (payload.details.error)
-        fields.push({ name: '错误', value: payload.details.error });
+        fields.push({
+          name: t(locale, 'notify.field.error'),
+          value: payload.details.error,
+        });
     }
 
     return {
@@ -164,6 +172,7 @@ export class DiscordNotificationChannel implements NotificationChannel {
   private buildDecisionComponents(
     payload: DecisionNotification,
   ): Array<Record<string, unknown>> {
+    const locale: Locale = payload.locale ?? defaultLocale;
     const taskId = payload.taskId;
     const decisionId = payload.decisionId;
 
@@ -174,13 +183,13 @@ export class DiscordNotificationChannel implements NotificationChannel {
           {
             type: 2,
             style: 1, // primary (blue)
-            label: 'pass once',
+            label: t(locale, 'notify.l2.passOnce'),
             custom_id: `l2:pass_once:${taskId}:${decisionId}`,
           },
           {
             type: 2,
             style: 1, // primary (blue)
-            label: 'pass until...',
+            label: t(locale, 'notify.l2.passUntil'),
             custom_id: `l2:pass_until:${taskId}:${decisionId}`,
           },
         ],
@@ -191,13 +200,13 @@ export class DiscordNotificationChannel implements NotificationChannel {
           {
             type: 2,
             style: 4, // danger (red)
-            label: 'reject once',
+            label: t(locale, 'notify.l2.rejectOnce'),
             custom_id: `l2:reject_once:${taskId}:${decisionId}`,
           },
           {
             type: 2,
             style: 4, // danger (red)
-            label: 'reject until...',
+            label: t(locale, 'notify.l2.rejectUntil'),
             custom_id: `l2:reject_until:${taskId}:${decisionId}`,
           },
         ],

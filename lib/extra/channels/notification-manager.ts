@@ -1,3 +1,5 @@
+import { defaultLocale } from '@/lib/i18n';
+import { t } from '@/lib/i18n/server';
 import { getKV } from '@/lib/core/kv';
 import { createLogger } from '@/lib/utils/logger';
 import type { AdapterName } from '@/types/config';
@@ -364,8 +366,8 @@ class NotificationManager {
         type: 'decision',
         taskId,
         decisionId,
-        title: '⏰ 决策已超时',
-        body: '任务已暂停，等待您重新上线后处理。',
+        title: t(defaultLocale, 'notify.timeout.title'),
+        body: t(defaultLocale, 'notify.timeout.body'),
         command: '',
         score: 0,
         reason: 'timeout',
@@ -412,7 +414,7 @@ class NotificationManager {
       await this.sendL2Decision({
         taskId: d.taskId,
         decisionId: d.decisionId,
-        title: '⚠️ 高风险操作需要您的授权（重新发送）',
+        title: t(defaultLocale, 'notify.reactivate.title'),
         body: d.command,
         command: d.command,
         score: d.score,
@@ -444,29 +446,21 @@ class NotificationManager {
       ctx.action = action;
     }
 
-    const actionLabel = action === 'pass_until' ? '放行' : '拒绝';
+    const actionLabel =
+      action === 'pass_until'
+        ? t(defaultLocale, 'notify.l2.passUntil')
+        : t(defaultLocale, 'notify.l2.rejectUntil');
 
-    const promptMessage = [
-      `⏱️ 请回复时间`,
-      ``,
-      `您选择对 \`${command}\` ${actionLabel}至指定时间。`,
-      ``,
-      `格式：hhddmmyy（时-日-月-年，不足两位补零）`,
-      `或输入 always = 本次会话有效`,
-      ``,
-      `示例：`,
-      `\`01000000\` = 1小时`,
-      `\`00010000\` = 1天`,
-      `\`00000100\` = 1月`,
-      `always  = 本次会话内有效`,
-    ].join('\n');
+    const promptMessage = t(defaultLocale, 'notify.timeInput.youChose', {
+      action: actionLabel,
+    });
 
     const payload: NotificationPayload = {
       type: 'l2_time_input',
       taskId,
       decisionId,
       action,
-      title: '⏱ 请输入时间',
+      title: t(defaultLocale, 'notify.timeInput.placeholder'),
       command,
       promptMessage,
     };

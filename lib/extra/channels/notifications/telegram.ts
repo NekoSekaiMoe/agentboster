@@ -1,3 +1,5 @@
+import { defaultLocale, type Locale } from '@/lib/i18n';
+import { t } from '@/lib/i18n/server';
 import { createLogger } from '@/lib/utils/logger';
 import type { NotificationChannel } from '../notification-channel';
 import type {
@@ -94,19 +96,22 @@ export class TelegramNotificationChannel implements NotificationChannel {
   }
 
   private renderText(payload: NotificationPayload): string {
+    const locale: Locale = payload.locale ?? defaultLocale;
     if (payload.type === 'decision') {
       return [
         `⚠️ *${this.escape(payload.title)}*`,
         ``,
-        `任务：${this.escape(payload.body)}`,
-        `命令：\`${this.escape(payload.command)}\``,
+        `${t(locale, 'notify.field.task')}: ${this.escape(payload.body)}`,
+        `${t(locale, 'notify.field.command')}: \`${this.escape(payload.command)}\``,
         ...(payload.commandReview
-          ? [`命令审查：\n${this.escape(payload.commandReview)}`]
+          ? [
+              `${t(locale, 'notify.field.commandReview')}:\n${this.escape(payload.commandReview)}`,
+            ]
           : []),
-        `风险评分：${payload.score.toFixed(1)}/1.0`,
-        `原因：${this.escape(payload.reason)}`,
+        `${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}/1.0`,
+        `${t(locale, 'notify.field.reason')}: ${this.escape(payload.reason)}`,
         ``,
-        `请选择：`,
+        t(locale, 'notify.field.selectAction'),
       ].join('\n');
     }
 
@@ -129,15 +134,25 @@ export class TelegramNotificationChannel implements NotificationChannel {
     if (payload.details) {
       lines.push('');
       if (payload.details.subAgents)
-        lines.push(`子 Agent: ${payload.details.subAgents}`);
+        lines.push(
+          `${t(locale, 'notify.field.subAgents')}: ${payload.details.subAgents}`,
+        );
       if (payload.details.filesChanged)
-        lines.push(`文件变更: ${payload.details.filesChanged}`);
+        lines.push(
+          `${t(locale, 'notify.field.filesChanged')}: ${payload.details.filesChanged}`,
+        );
       if (payload.details.commits)
-        lines.push(`提交数: ${payload.details.commits}`);
+        lines.push(
+          `${t(locale, 'notify.field.commits')}: ${payload.details.commits}`,
+        );
       if (payload.details.logsUrl)
-        lines.push(`[查看日志](${payload.details.logsUrl})`);
+        lines.push(
+          `[${t(locale, 'notify.field.viewLogs')}](${payload.details.logsUrl})`,
+        );
       if (payload.details.error)
-        lines.push(`错误: ${this.escape(payload.details.error)}`);
+        lines.push(
+          `${t(locale, 'notify.field.error')}: ${this.escape(payload.details.error)}`,
+        );
     }
 
     return lines.join('\n');
@@ -146,27 +161,28 @@ export class TelegramNotificationChannel implements NotificationChannel {
   private buildDecisionKeyboard(
     payload: DecisionNotification,
   ): Array<Array<{ text: string; callback_data: string }>> {
+    const locale: Locale = payload.locale ?? defaultLocale;
     const taskId = payload.taskId;
     const decisionId = payload.decisionId;
 
     return [
       [
         {
-          text: '✅ pass once',
+          text: `✅ ${t(locale, 'notify.l2.passOnce')}`,
           callback_data: `l2:pass_once:${taskId}:${decisionId}`,
         },
         {
-          text: '⏱ pass until...',
+          text: `⏱ ${t(locale, 'notify.l2.passUntil')}`,
           callback_data: `l2:pass_until:${taskId}:${decisionId}`,
         },
       ],
       [
         {
-          text: '❌ reject once',
+          text: `❌ ${t(locale, 'notify.l2.rejectOnce')}`,
           callback_data: `l2:reject_once:${taskId}:${decisionId}`,
         },
         {
-          text: '🔕 reject until...',
+          text: `🔕 ${t(locale, 'notify.l2.rejectUntil')}`,
           callback_data: `l2:reject_until:${taskId}:${decisionId}`,
         },
       ],

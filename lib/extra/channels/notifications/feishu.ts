@@ -1,3 +1,5 @@
+import { defaultLocale, type Locale } from '@/lib/i18n';
+import { t } from '@/lib/i18n/server';
 import { createLogger } from '@/lib/utils/logger';
 import type { AdapterName } from '@/types/config';
 import type { NotificationChannel } from '../notification-channel';
@@ -136,6 +138,7 @@ export class FeishuNotificationChannel implements NotificationChannel {
   }
 
   private renderPayload(payload: NotificationPayload): Record<string, unknown> {
+    const locale: Locale = payload.locale ?? defaultLocale;
     if (payload.type === 'decision') {
       const taskId = payload.taskId;
       const decisionId = payload.decisionId;
@@ -151,13 +154,15 @@ export class FeishuNotificationChannel implements NotificationChannel {
             text: {
               tag: 'lark_md',
               content: [
-                `任务：${payload.body}`,
-                `命令：${payload.command}`,
+                `${t(locale, 'notify.field.task')}: ${payload.body}`,
+                `${t(locale, 'notify.field.command')}: ${payload.command}`,
                 ...(payload.commandReview
-                  ? [`命令审查：\n${payload.commandReview}`]
+                  ? [
+                      `${t(locale, 'notify.field.commandReview')}:\n${payload.commandReview}`,
+                    ]
                   : []),
-                `风险评分：${payload.score.toFixed(1)}/1.0`,
-                `原因：${payload.reason}`,
+                `${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}/1.0`,
+                `${t(locale, 'notify.field.reason')}: ${payload.reason}`,
               ].join('\n'),
             },
           },
@@ -167,13 +172,19 @@ export class FeishuNotificationChannel implements NotificationChannel {
             actions: [
               {
                 tag: 'button',
-                text: { tag: 'lark_md', content: '✅ pass once' },
+                text: {
+                  tag: 'lark_md',
+                  content: `✅ ${t(locale, 'notify.l2.passOnce')}`,
+                },
                 type: 'default',
                 value: { action: `l2:pass_once:${taskId}:${decisionId}` },
               },
               {
                 tag: 'button',
-                text: { tag: 'lark_md', content: '⏱ pass until...' },
+                text: {
+                  tag: 'lark_md',
+                  content: `⏱ ${t(locale, 'notify.l2.passUntil')}`,
+                },
                 type: 'default',
                 value: { action: `l2:pass_until:${taskId}:${decisionId}` },
               },
@@ -184,13 +195,19 @@ export class FeishuNotificationChannel implements NotificationChannel {
             actions: [
               {
                 tag: 'button',
-                text: { tag: 'lark_md', content: '❌ reject once' },
+                text: {
+                  tag: 'lark_md',
+                  content: `❌ ${t(locale, 'notify.l2.rejectOnce')}`,
+                },
                 type: 'danger',
                 value: { action: `l2:reject_once:${taskId}:${decisionId}` },
               },
               {
                 tag: 'button',
-                text: { tag: 'lark_md', content: '🔕 reject until...' },
+                text: {
+                  tag: 'lark_md',
+                  content: `🔕 ${t(locale, 'notify.l2.rejectUntil')}`,
+                },
                 type: 'danger',
                 value: { action: `l2:reject_until:${taskId}:${decisionId}` },
               },
@@ -203,7 +220,10 @@ export class FeishuNotificationChannel implements NotificationChannel {
     if (payload.type === 'l2_time_input') {
       return {
         header: {
-          title: { tag: 'plain_text', content: '⏱ 请输入时间' },
+          title: {
+            tag: 'plain_text',
+            content: t(locale, 'notify.timeInput.placeholder'),
+          },
           template: 'orange',
         },
         elements: [
@@ -233,15 +253,25 @@ export class FeishuNotificationChannel implements NotificationChannel {
       elements.push({ tag: 'hr' });
       const fields: string[] = [];
       if (payload.details.subAgents)
-        fields.push(`**子 Agent:** ${payload.details.subAgents}`);
+        fields.push(
+          `**${t(locale, 'notify.field.subAgents')}:** ${payload.details.subAgents}`,
+        );
       if (payload.details.filesChanged)
-        fields.push(`**文件变更:** ${payload.details.filesChanged}`);
+        fields.push(
+          `**${t(locale, 'notify.field.filesChanged')}:** ${payload.details.filesChanged}`,
+        );
       if (payload.details.commits)
-        fields.push(`**提交数:** ${payload.details.commits}`);
+        fields.push(
+          `**${t(locale, 'notify.field.commits')}:** ${payload.details.commits}`,
+        );
       if (payload.details.logsUrl)
-        fields.push(`[点击查看日志](${payload.details.logsUrl})`);
+        fields.push(
+          `[${t(locale, 'notify.field.viewLogs')}](${payload.details.logsUrl})`,
+        );
       if (payload.details.error)
-        fields.push(`**错误:** ${payload.details.error}`);
+        fields.push(
+          `**${t(locale, 'notify.field.error')}:** ${payload.details.error}`,
+        );
 
       if (fields.length > 0) {
         elements.push({
