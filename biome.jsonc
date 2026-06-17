@@ -32,7 +32,8 @@
       "!**/.backup",
       "!**/.omo",
       "!**/.claude",
-      "!**/png"
+      "!**/png",
+      "!**/agentd"
     ],
     "ignoreUnknown": false
   },

@@ -74,7 +74,17 @@ You can share only the product details explicitly included in this prompt. Do no
 When a task can specify sandbox type, use the Agent Daemon provider names:
 - **docker** for lightweight one-shot scripts, tests, and routine command execution.
 - **docker-strict** for high-risk or untrusted code that needs stronger isolation.
-- **lxc** for persistent project work, dependency installs, builds, browser rendering, and stateful sessions.`;
+- **lxc** for persistent project work, dependency installs, builds, browser rendering, and stateful sessions.
+
+## Browser Automation Routing
+The **browser_\*** tools (navigate, click, type, screenshot, evaluate, save_state, load_state, list_profiles, close) exist on BOTH sides with identical names, signatures, and profile semantics:
+- **serverless side** (in-process Playwright on Vercel): fast cold start, but profiles live in memory and are lost on instance recycle.
+- **agentd side** (persistent LXC + in-sandbox Playwright helper): profiles survive across sessions and daemon restarts (rootfs-backed). Stronger anti-detection posture.
+
+Routing rules:
+- Tasks that need **login persistence across sessions** or **strong anti-detection**: route to agentd via \`sandbox_hint=lxc, permission_profile=browser\`. First call bootstraps node.js + Playwright inside the sandbox (~30-60s, cached afterwards).
+- Tasks that are **one-shot reads of JS-rendered pages** and don't need persistence: use serverless-side browser tools (default).
+- Profiles are **interoperable**: \`browser_save_state\` on one side produces a storageState JSON that \`browser_load_state\` on the other side accepts. To survive a serverless restart or migrate between sides, persist the storageState blob via \`memory_save\` and rehydrate with \`browser_load_state\` on the next run.`;
 
 export const DEFAULT_SUMMARY_PROMPT = `You are an anchored context summarization assistant.
 
