@@ -32,7 +32,7 @@ Other things an agent would misread:
 yarn dev                 # next dev (Turbopack)
 yarn build               # next build (also runs postbuild, which is a no-op outside Vercel prod)
 yarn start               # serve built app
-yarn check               # tsc --noEmit && biome check .   <- run this before pushing
+yarn lint:check          # tsc --noEmit && biome check .   <- run this before pushing
 yarn lint:fix            # biome lint . --write --unsafe
 yarn format              # biome format . --write
 yarn test                # vitest run
