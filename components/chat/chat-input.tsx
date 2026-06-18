@@ -322,6 +322,7 @@ function PureMultimodalInput({
     attachments,
     chatId,
     input,
+    selectedModel,
     sendMessage,
     setInput,
     setLocalStorageInput,
@@ -422,7 +423,7 @@ function PureMultimodalInput({
           }}
         />
 
-        <div className="absolute left-0 bottom-0 flex w-fit flex-row items-center gap-2 p-3">
+        <div className="absolute bottom-0 left-0 flex w-fit flex-row items-center gap-2 p-3">
           <ModelPicker
             allowedModels={allowedModels}
             onSelectModel={onSelectModel}

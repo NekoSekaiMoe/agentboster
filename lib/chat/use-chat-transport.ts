@@ -5,6 +5,7 @@ import { ofetch } from 'ofetch';
 import { useMemo, useRef, useState } from 'react';
 
 import { invalidateSessionList } from '@/lib/chat/session-events';
+import { buildChatSendRequestBody } from '@/lib/chat/transport-request';
 import type { WorkflowUIMessage } from '@/types/workflow';
 
 type TransportOptions = {
@@ -44,75 +45,7 @@ export function useChatTransport(options: TransportOptions = {}) {
           invalidateSessionList();
           return response;
         },
-        prepareSendMessagesRequest: ({
-          id: chatId,
-          messages,
-          trigger,
-          messageId,
-          body,
-        }) => {
-          const bodyRecord: Record<string, unknown> =
-            typeof body === 'object' && body !== null
-              ? (body as Record<string, unknown>)
-              : {};
-          // Per-message model override from the chat-box picker. The caller
-          // (chat-input.tsx) passes { body: { model: selectedModel } } via
-          // sendMessage options. When unset, falls through to the user/global
-          // resolution chain on the server.
-          const requestModel =
-            typeof bodyRecord.model === 'string' && bodyRecord.model.trim()
-              ? bodyRecord.model.trim()
-              : undefined;
-          const rawInput = bodyRecord.input;
-          const bodyInput: Record<string, unknown> | null =
-            typeof rawInput === 'object' && rawInput !== null
-              ? (rawInput as Record<string, unknown>)
-              : null;
-          const editedParts = Array.isArray(bodyInput?.parts)
-            ? (bodyInput.parts as WorkflowUIMessage['parts'])
-            : null;
-
-          const targetMessage =
-            (messageId
-              ? messages.find((message) => message.id === messageId)
-              : undefined) ?? messages.at(-1);
-          const targetParts =
-            editedParts ??
-            (targetMessage?.role === 'user'
-              ? JSON.parse(JSON.stringify(targetMessage.parts))
-              : []);
-
-          return {
-            body: {
-              id: chatId,
-              trigger,
-              messageId,
-              model: requestModel,
-              input: {
-                parts: targetParts,
-                text: targetParts
-                  .filter(
-                    (
-                      part: WorkflowUIMessage['parts'][number],
-                    ): part is Extract<
-                      WorkflowUIMessage['parts'][number],
-                      { type: 'text' }
-                    > => part.type === 'text',
-                  )
-                  .map(
-                    (
-                      part: Extract<
-                        WorkflowUIMessage['parts'][number],
-                        { type: 'text' }
-                      >,
-                    ) => part.text,
-                  )
-                  .join('')
-                  .trim(),
-              },
-            },
-          };
-        },
+        prepareSendMessagesRequest: buildChatSendRequestBody,
         prepareReconnectToStreamRequest: () => {
           const runId = activeRunIdRef.current;
           return {

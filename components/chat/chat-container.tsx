@@ -30,16 +30,17 @@ import {
   invalidateSessionList,
   upsertSessionListItem,
 } from '@/lib/chat/session-events';
+import {
+  buildChatSendRequestBody,
+  cloneUIParts,
+  extractTextFromParts,
+} from '@/lib/chat/transport-request';
 import { deriveSessionTitle } from '@/lib/chat/session-title';
 import { buildInlineFollowUpText } from '@/lib/chat/follow-up';
 import { usePendingDecisions } from '@/lib/chat/use-pending-decisions';
 import { useStreamRecovery } from '@/lib/chat/use-stream-recovery';
 import { useAppConfig } from '@/hooks/use-app-config';
-import {
-  readTtsAutoplay,
-  useTtsAutoplay,
-  writeTtsAutoplay,
-} from '@/hooks/use-tts-autoplay';
+import { readTtsAutoplay, useTtsAutoplay } from '@/hooks/use-tts-autoplay';
 import { generateUUID } from '@/lib/utils';
 import {
   type WorkflowStatusData,
@@ -95,29 +96,27 @@ function _extractLatestUserInput(messages: WorkflowUIMessage[]): {
   throw new Error('Missing latest user input for chat request.');
 }
 
-function cloneUIParts(
-  parts: WorkflowUIMessage['parts'],
-): WorkflowUIMessage['parts'] {
-  return JSON.parse(JSON.stringify(parts)) as WorkflowUIMessage['parts'];
-}
-
 function cloneMessages(messages: WorkflowUIMessage[]): WorkflowUIMessage[] {
   return JSON.parse(JSON.stringify(messages)) as WorkflowUIMessage[];
 }
 
-function extractTextFromParts(parts: WorkflowUIMessage['parts']): string {
-  return parts
-    .filter(
-      (
-        part,
-      ): part is Extract<
-        WorkflowUIMessage['parts'][number],
-        { type: 'text' }
-      > => part.type === 'text',
-    )
-    .map((part) => part.text)
-    .join('')
-    .trim();
+function applySelectedModelOption(
+  options: ChatRequestOptions | undefined,
+  selectedModel: string | null,
+): ChatRequestOptions | undefined {
+  if (!selectedModel) {
+    return options;
+  }
+
+  const bodyRecord = isRecord(options?.body) ? options.body : {};
+
+  return {
+    ...options,
+    body: {
+      ...bodyRecord,
+      model: selectedModel,
+    },
+  };
 }
 
 export function Chat({
@@ -300,43 +299,7 @@ export function Chat({
           invalidateSessionList();
           return response;
         },
-        prepareSendMessagesRequest: ({
-          id: chatId,
-          messages,
-          trigger,
-          messageId,
-          body,
-        }) => {
-          const bodyRecord = isRecord(body) ? body : {};
-          const bodyInput = isRecord(bodyRecord.input)
-            ? bodyRecord.input
-            : null;
-          const editedParts = Array.isArray(bodyInput?.parts)
-            ? (bodyInput.parts as WorkflowUIMessage['parts'])
-            : null;
-
-          const targetMessage =
-            (messageId
-              ? messages.find((message) => message.id === messageId)
-              : undefined) ?? messages.at(-1);
-          const targetParts =
-            editedParts ??
-            (targetMessage?.role === 'user'
-              ? cloneUIParts(targetMessage.parts)
-              : []);
-
-          return {
-            body: {
-              id: chatId,
-              trigger,
-              messageId,
-              input: {
-                parts: targetParts,
-                text: extractTextFromParts(targetParts),
-              },
-            },
-          };
-        },
+        prepareSendMessagesRequest: buildChatSendRequestBody,
         prepareReconnectToStreamRequest: () => {
           const runId = activeRunIdRef.current;
           return {
@@ -646,7 +609,10 @@ export function Chat({
       }
 
       try {
-        await sendComposerMessage(message, options);
+        await sendComposerMessage(
+          message,
+          applySelectedModelOption(options, selectedModel),
+        );
       } catch (error) {
         if (isFirstMessage) {
           shouldBootstrapSessionStatusRef.current = false;
@@ -669,10 +635,18 @@ export function Chat({
       ensureSessionTitleFromText,
       id,
       messages,
+      selectedModel,
       sendComposerMessage,
       session,
       sessionState,
     ],
+  );
+
+  const regenerateWithSelectedModel = useCallback(
+    async (options?: { messageId?: string } & ChatRequestOptions) => {
+      await regenerate(applySelectedModelOption(options, selectedModel));
+    },
+    [regenerate, selectedModel],
   );
 
   const submitInlineFollowUp = useCallback(
@@ -902,7 +876,7 @@ export function Chat({
               isAccessDeniedSession ? undefined : submitSuggestedFollowUp
             }
             setMessages={setMessages}
-            regenerate={regenerate}
+            regenerate={regenerateWithSelectedModel}
             ttsEnabled={ttsAvailable}
             autoPlayMessageId={autoPlayMessageId}
           />
