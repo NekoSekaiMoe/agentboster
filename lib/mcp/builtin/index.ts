@@ -56,8 +56,7 @@ const builtinServers: Record<BuiltinServerName, BuiltinServerDefinition> = {
       version: '1.0.0',
       title: 'AgentBoster Builtin Web',
     },
-    instructions:
-      'Use web_search for public web search and fetch_url for reading page content.',
+    instructions: 'Public web search and HTTP page fetching.',
     tools: builtinWebTools,
     execute: executeBuiltinWebTool,
   },
@@ -68,7 +67,7 @@ const builtinServers: Record<BuiltinServerName, BuiltinServerDefinition> = {
       title: 'AgentBoster Builtin Browser',
     },
     instructions:
-      'Use browser tools for JavaScript-rendered pages, screenshots, interaction, DOM inspection, and network request inspection. Close the browser with browser_close when done. To preserve a login across sessions: after completing login, call browser_save_state (this snapshots cookies + localStorage under a profile); on the next run pass the same profile to browser_navigate to resume logged-in. Profiles are in-process only and do not survive serverless restarts — for cross-restart persistence mirror the storageState blob from browser_save_state into durable storage and reload it with browser_load_state. Use browser_list_profiles to check what is currently cached. Targeting elements: call browser_inspect first when you do not have a stable CSS selector — it returns a compact list of interactive elements with pre-computed strategies (role+name, label, placeholder). Prefer role+role_name or label over selector on pages with dynamic CSS classes. NOTE: these are the serverless-side (in-process Playwright) tools. The agentd side exposes browser_* tools with identical names, signatures, and profile semantics — storageState JSON interop works across sides. For tasks needing persistent login or stronger anti-detection, route the task to agentd (sandbox_hint=lxc, permission_profile=browser).',
+      'Headless browser automation (Playwright). The agent system prompt covers cross-side routing, profile persistence, and element-targeting strategies.',
     tools: browserTools,
     execute: executeBrowserTool,
   },

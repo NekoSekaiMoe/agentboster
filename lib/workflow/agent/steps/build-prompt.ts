@@ -47,12 +47,10 @@ async function buildMCPSubsection(): Promise<string> {
 
   const lines: string[] = [
     'Use builtin MCP tools for live information, web content, documentation lookup, and repository operations.',
-    'Use `web_search` for search and `fetch_url` for lightweight static page reads.',
-    'Use browser tools when a page is JavaScript-rendered, requires interaction, needs a screenshot, or when you need DOM/network inspection.',
-    'For browser workflows, call `browser_navigate` first, inspect with `browser_get_text`, `browser_get_html`, `browser_screenshot`, or `browser_get_network_requests`, interact with `browser_click` and `browser_type`, and call `browser_close` when finished.',
-    'Targeting elements: when you do not have a stable CSS selector, call `browser_inspect` first — it returns a compact list of interactive elements with pre-computed strategies (role+name, label, placeholder, CSS fallback). Prefer `role` + `role_name` or `label` over raw `selector` on pages with dynamic CSS (Tailwind, CSS-in-JS). The strategies work across open Shadow DOM and iframes (via `frame_chain`) without extra effort.',
-    'Login persistence: when a task requires authentication, call `browser_save_state` immediately after the login flow completes; on subsequent runs pass the same `profile` to `browser_navigate` to resume logged-in. If the saved profile is gone (serverless restart), use `browser_list_profiles` to confirm before re-authenticating.',
-    'Cross-side routing: `browser_*` tools exist on BOTH serverless (in-process Playwright, profiles lost on instance recycle) AND agentd (persistent LXC, profiles survive across sessions). For tasks needing login persistence or stronger anti-detection, route via `sandbox_hint=lxc, permission_profile=browser`. storageState blobs from `browser_save_state` interop across sides — use `memory_save` + `browser_load_state` to migrate or survive restarts.',
+    'Pick `web_search` for search, `fetch_url` for static page reads, and the `browser_*` tools for JavaScript-rendered or interactive pages.',
+    'Browser workflow: call `browser_navigate` first, inspect with `browser_get_text` / `browser_get_html` / `browser_screenshot` / `browser_get_network_requests`, interact via `browser_click` / `browser_type`, then `browser_close`.',
+    'Targeting elements: when you lack a stable CSS selector, call `browser_inspect` first — it returns interactive elements with pre-computed strategies (role+name, label, placeholder, CSS fallback). Prefer `role`+`role_name` or `label` over raw `selector` on pages with dynamic CSS. Strategies work across open Shadow DOM and iframes (via `frame_chain`).',
+    'For sandbox-side routing (serverless vs agentd) and login-state persistence across sessions, see the `Sandbox Routing` section of this prompt.',
   ];
 
   const toolDescriptions: string[] = [];
