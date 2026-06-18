@@ -310,6 +310,7 @@ export const zhTW = {
   'config.forms.models.catalogDescription':
     '定義使用者可在聊天框選擇的模型。每個模型可單獨覆蓋 temperature、上下文上限、最大輸出 token。某項留空則使用全域預設。',
   'config.forms.models.catalogAddModel': '新增模型',
+  'config.forms.models.catalogToggleParams': '切換參數覆蓋',
   'config.forms.models.catalogModelPlaceholder':
     'anthropic/claude-sonnet-4-20250514',
   'config.forms.models.catalogUseGlobal': '使用全域預設',

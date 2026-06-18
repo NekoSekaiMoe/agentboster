@@ -332,6 +332,7 @@ export const enUS = {
   'config.forms.models.catalogDescription':
     'Define the models users can pick from in the chat box. Each model can override temperature, context limit, and max output tokens. Leave a field empty to use the global default.',
   'config.forms.models.catalogAddModel': 'Add model',
+  'config.forms.models.catalogToggleParams': 'Toggle parameter overrides',
   'config.forms.models.catalogModelPlaceholder':
     'anthropic/claude-sonnet-4-20250514',
   'config.forms.models.catalogUseGlobal': 'Use global default',

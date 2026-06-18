@@ -335,6 +335,7 @@ export const ja = {
   'config.forms.models.catalogDescription':
     'チャットボックスでユーザーが選択可能なモデルを定義します。各モデルは temperature・コンテキスト上限・最大出力トークンを個別に上書き可能。空欄はグローバル既定を使用します。',
   'config.forms.models.catalogAddModel': 'モデルを追加',
+  'config.forms.models.catalogToggleParams': 'パラメータ上書きを切り替え',
   'config.forms.models.catalogModelPlaceholder':
     'anthropic/claude-sonnet-4-20250514',
   'config.forms.models.catalogUseGlobal': 'グローバル既定を使用',

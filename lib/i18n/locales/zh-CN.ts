@@ -309,6 +309,7 @@ export const zhCN = {
   'config.forms.models.catalogDescription':
     '定义用户可在聊天框选择的模型。每个模型可单独覆盖 temperature、上下文上限、最大输出 token。某项留空则使用全局默认。',
   'config.forms.models.catalogAddModel': '添加模型',
+  'config.forms.models.catalogToggleParams': '切换参数覆盖',
   'config.forms.models.catalogModelPlaceholder':
     'anthropic/claude-sonnet-4-20250514',
   'config.forms.models.catalogUseGlobal': '使用全局默认',

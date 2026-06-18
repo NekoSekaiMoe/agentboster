@@ -7,7 +7,7 @@ describe('i18n all-locale completeness', () => {
   it('en-US has the canonical key count (update when adding namespace)', () => {
     // Snapshot-style guard: every locale must match en-US exactly (tested below).
     // This assertion catches accidental key removals from en-US itself.
-    expect(enKeys.length).toBe(645);
+    expect(enKeys.length).toBe(646);
   });
 
   it.each(locales)('%s has full key set', (locale) => {

@@ -93,10 +93,24 @@ export function ModelsForm() {
   const [modelsCatalog, setModelsCatalog] = useState<ModelsDevCatalog | null>(
     null,
   );
-  // Stable row IDs for the model_catalog editor rows. Keyed by index because
-  // catalog entries are stored as a Record but rendered as an ordered list;
-  // createStableId avoids reusing DOM nodes across add/remove cycles.
-  const [catalogRowIds, setCatalogRowIds] = useState<string[]>([]);
+  // Catalog editor is maintained as an ordered local draft to allow
+  // intermediate states (empty id, duplicate id while typing, rename in
+  // flight) that the Record<string, ...> shape can't represent directly.
+  // On every change we reconcile to a Record and call updateModels; rows
+  // with empty/whitespace id are skipped during reconciliation.
+  type CatalogDraftEntry = {
+    rowId: string;
+    id: string;
+    overrides: {
+      temperature?: number;
+      context_limit?: number;
+      max_output_tokens?: number;
+    };
+  };
+  const [catalogDraft, setCatalogDraft] = useState<CatalogDraftEntry[]>([]);
+  const [expandedCatalogRowIds, setExpandedCatalogRowIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
 
   const updateModels = (
     updater: (current: Partial<AIConfig>) => Partial<AIConfig>,
@@ -106,6 +120,35 @@ export function ModelsForm() {
       return updater(current) as AppConfig['models'];
     });
   };
+
+  // Sync the local draft from the canonical store value. Only re-syncs when
+  // the store's catalog content actually differs from what the draft would
+  // produce — avoids clobbering in-flight edits (empty id, focus, etc).
+  useEffect(() => {
+    const storeCatalog = models.model_catalog ?? {};
+    const storeKeys = Object.keys(storeCatalog);
+    const draftKeys = catalogDraft
+      .map((e) => e.id.trim())
+      .filter((id) => id.length > 0);
+    const sameLength = storeKeys.length === draftKeys.length;
+    const sameContent =
+      sameLength &&
+      draftKeys.every(
+        (k, i) =>
+          k === storeKeys[i] &&
+          JSON.stringify(catalogDraft[i].overrides) ===
+            JSON.stringify(storeCatalog[k]),
+      );
+    if (sameContent) return;
+
+    setCatalogDraft(
+      storeKeys.map((id) => ({
+        rowId: createStableId('catalog-row'),
+        id,
+        overrides: { ...storeCatalog[id] },
+      })),
+    );
+  }, [models.model_catalog]);
 
   useEffect(() => {
     let disposed = false;
@@ -211,23 +254,6 @@ export function ModelsForm() {
     });
   }, [providers]);
 
-  // Keep catalogRowIds length in sync with models.model_catalog so each row
-  // has a stable React key across edits. Existing IDs are reused in order;
-  // new rows get fresh stable IDs.
-  useEffect(() => {
-    const count = Object.keys(models.model_catalog ?? {}).length;
-    setCatalogRowIds((current) => {
-      if (current.length === count) return current;
-      if (current.length < count) {
-        const additions = Array.from({ length: count - current.length }, () =>
-          createStableId('catalog-row'),
-        );
-        return [...current, ...additions];
-      }
-      return current.slice(0, count);
-    });
-  }, [models.model_catalog]);
-
   function toggleProviderExpanded(providerKey: string) {
     setExpandedProviderKeys((current) => {
       const next = new Set(current);
@@ -238,6 +264,35 @@ export function ModelsForm() {
       }
       return next;
     });
+  }
+
+  function toggleCatalogRowExpanded(rowId: string) {
+    setExpandedCatalogRowIds((current) => {
+      const next = new Set(current);
+      if (next.has(rowId)) {
+        next.delete(rowId);
+      } else {
+        next.add(rowId);
+      }
+      return next;
+    });
+  }
+
+  // Reconcile the local draft array to the canonical model_catalog Record.
+  // Empty/whitespace ids are dropped. Duplicate ids keep the last write.
+  function commitCatalogDraft(next: CatalogDraftEntry[]) {
+    setCatalogDraft(next);
+    const reconciled: Record<string, CatalogDraftEntry['overrides']> = {};
+    for (const entry of next) {
+      const id = entry.id.trim();
+      if (!id) continue;
+      reconciled[id] = entry.overrides;
+    }
+    updateModels((current) => ({
+      ...current,
+      model_catalog:
+        Object.keys(reconciled).length > 0 ? reconciled : undefined,
+    }));
   }
 
   return (
@@ -367,183 +422,175 @@ export function ModelsForm() {
             {t('config.forms.models.catalogDescription')}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {Object.entries(models.model_catalog ?? {}).map(
-            ([modelId, overrides], index) => {
-              const updateEntry = (
-                updater: (current: typeof overrides) => typeof overrides,
-              ) => {
-                updateModels((current) => {
-                  const currentCatalog = current.model_catalog ?? {};
-                  const existing = currentCatalog[modelId] ?? {};
-                  return {
-                    ...current,
-                    model_catalog: {
-                      ...currentCatalog,
-                      [modelId]: updater(existing),
-                    },
-                  };
-                });
-              };
+        <CardContent className="space-y-3">
+          {catalogDraft.map((entry, index) => {
+            const isExpanded = expandedCatalogRowIds.has(entry.rowId);
 
-              const renameEntry = (nextId: string) => {
-                const trimmed = nextId.trim();
-                if (!trimmed || trimmed === modelId) return;
-                updateModels((current) => {
-                  const currentCatalog = current.model_catalog ?? {};
-                  if (trimmed in currentCatalog) return current; // dedup guard
-                  const { [modelId]: removed, ...rest } = currentCatalog;
-                  return {
-                    ...current,
-                    model_catalog: { ...rest, [trimmed]: removed ?? {} },
-                  };
-                });
-              };
-
-              const removeEntry = () => {
-                updateModels((current) => {
-                  const currentCatalog = current.model_catalog ?? {};
-                  const { [modelId]: _removed, ...rest } = currentCatalog;
-                  return {
-                    ...current,
-                    model_catalog:
-                      Object.keys(rest).length > 0 ? rest : undefined,
-                  };
-                });
-              };
-
-              return (
-                <div
-                  key={catalogRowIds[index] ?? `catalog-row-${index}`}
-                  className="space-y-2 rounded-2xl border p-3"
-                >
-                  <div className="grid gap-2 md:grid-cols-[1fr_auto]">
-                    <SuggestionInput
-                      placeholder={t(
-                        'config.forms.models.catalogModelPlaceholder',
-                      )}
-                      suggestions={catalogPredictions}
-                      value={modelId}
-                      onChange={renameEntry}
-                    />
-                    <Button
-                      className="md:self-start"
-                      size="icon"
-                      type="button"
-                      variant="outline"
-                      onClick={removeEntry}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <Field label={t('config.forms.agents.temperature')}>
-                        <Input
-                          max="2"
-                          min="0"
-                          placeholder={t(
-                            'config.forms.models.catalogUseGlobal',
-                          )}
-                          step="0.1"
-                          type="number"
-                          value={
-                            overrides.temperature != null
-                              ? String(overrides.temperature)
-                              : ''
-                          }
-                          onChange={(event) =>
-                            updateEntry((current) => ({
-                              ...current,
-                              temperature: parseOptionalNumber(
-                                event.target.value,
-                              ),
-                            }))
-                          }
-                        />
-                      </Field>
-                      <p className="text-muted-foreground text-xs">
-                        {t('config.forms.models.catalogOverrideHint')}
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Field
-                        label={t('config.forms.models.defaultContextLimit')}
-                      >
-                        <Input
-                          min="1"
-                          placeholder={t(
-                            'config.forms.models.catalogUseGlobal',
-                          )}
-                          type="number"
-                          value={
-                            overrides.context_limit != null
-                              ? String(overrides.context_limit)
-                              : ''
-                          }
-                          onChange={(event) =>
-                            updateEntry((current) => ({
-                              ...current,
-                              context_limit: parseOptionalNumber(
-                                event.target.value,
-                              ),
-                            }))
-                          }
-                        />
-                      </Field>
-                      <p className="text-muted-foreground text-xs">
-                        {t('config.forms.models.catalogOverrideHint')}
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Field label={t('config.forms.models.maxOutputTokens')}>
-                        <Input
-                          min="1"
-                          placeholder={t(
-                            'config.forms.models.catalogUseGlobal',
-                          )}
-                          type="number"
-                          value={
-                            overrides.max_output_tokens != null
-                              ? String(overrides.max_output_tokens)
-                              : ''
-                          }
-                          onChange={(event) =>
-                            updateEntry((current) => ({
-                              ...current,
-                              max_output_tokens: parseOptionalNumber(
-                                event.target.value,
-                              ),
-                            }))
-                          }
-                        />
-                      </Field>
-                      <p className="text-muted-foreground text-xs">
-                        {t('config.forms.models.catalogOverrideHint')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+            const updateEntryId = (nextId: string) => {
+              const next = catalogDraft.map((e, i) =>
+                i === index ? { ...e, id: nextId } : e,
               );
-            },
-          )}
+              commitCatalogDraft(next);
+            };
+
+            const updateEntryOverrides = (
+              overrides: CatalogDraftEntry['overrides'],
+            ) => {
+              const next = catalogDraft.map((e, i) =>
+                i === index ? { ...e, overrides } : e,
+              );
+              commitCatalogDraft(next);
+            };
+
+            const removeEntry = () => {
+              const next = catalogDraft.filter((_, i) => i !== index);
+              commitCatalogDraft(next);
+            };
+
+            return (
+              <div
+                key={entry.rowId}
+                className="overflow-hidden rounded-2xl border"
+              >
+                <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
+                  <SuggestionInput
+                    placeholder={t(
+                      'config.forms.models.catalogModelPlaceholder',
+                    )}
+                    showChevron={false}
+                    suggestions={catalogPredictions}
+                    value={entry.id}
+                    onChange={updateEntryId}
+                  />
+                  <Button
+                    aria-expanded={isExpanded}
+                    aria-label={t('config.forms.models.catalogToggleParams')}
+                    className="md:self-start"
+                    onClick={() => toggleCatalogRowExpanded(entry.rowId)}
+                    size="icon"
+                    type="button"
+                    variant="outline"
+                  >
+                    <ChevronDown
+                      className={`size-4 transition-transform ${
+                        isExpanded ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </Button>
+                  <Button
+                    className="md:self-start"
+                    onClick={removeEntry}
+                    size="icon"
+                    type="button"
+                    variant="outline"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+
+                <AnimatePresence initial={false}>
+                  {isExpanded ? (
+                    <motion.div
+                      animate={{ height: 'auto', opacity: 1 }}
+                      className="border-t"
+                      exit={{ height: 0, opacity: 0 }}
+                      initial={{ height: 0, opacity: 0 }}
+                      transition={collapseTransition}
+                    >
+                      <div className="grid gap-3 p-3 md:grid-cols-3">
+                        <Field label={t('config.forms.agents.temperature')}>
+                          <Input
+                            max="2"
+                            min="0"
+                            placeholder={t(
+                              'config.forms.models.catalogUseGlobal',
+                            )}
+                            step="0.1"
+                            type="number"
+                            value={
+                              entry.overrides.temperature != null
+                                ? String(entry.overrides.temperature)
+                                : ''
+                            }
+                            onChange={(event) =>
+                              updateEntryOverrides({
+                                ...entry.overrides,
+                                temperature: parseOptionalNumber(
+                                  event.target.value,
+                                ),
+                              })
+                            }
+                          />
+                        </Field>
+                        <Field
+                          label={t('config.forms.models.defaultContextLimit')}
+                        >
+                          <Input
+                            min="1"
+                            placeholder={t(
+                              'config.forms.models.catalogUseGlobal',
+                            )}
+                            type="number"
+                            value={
+                              entry.overrides.context_limit != null
+                                ? String(entry.overrides.context_limit)
+                                : ''
+                            }
+                            onChange={(event) =>
+                              updateEntryOverrides({
+                                ...entry.overrides,
+                                context_limit: parseOptionalNumber(
+                                  event.target.value,
+                                ),
+                              })
+                            }
+                          />
+                        </Field>
+                        <Field label={t('config.forms.models.maxOutputTokens')}>
+                          <Input
+                            min="1"
+                            placeholder={t(
+                              'config.forms.models.catalogUseGlobal',
+                            )}
+                            type="number"
+                            value={
+                              entry.overrides.max_output_tokens != null
+                                ? String(entry.overrides.max_output_tokens)
+                                : ''
+                            }
+                            onChange={(event) =>
+                              updateEntryOverrides({
+                                ...entry.overrides,
+                                max_output_tokens: parseOptionalNumber(
+                                  event.target.value,
+                                ),
+                              })
+                            }
+                          />
+                        </Field>
+                      </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
+            );
+          })}
 
           <Button
             size="sm"
             type="button"
             variant="secondary"
             onClick={() => {
-              // Insert a placeholder key. Use createStableId to avoid colliding
-              // with real model ids while the admin types; renameEntry swaps
-              // it for the real id on first input change.
-              const placeholderKey = `__new_${createStableId('m')}`;
-              updateModels((current) => ({
-                ...current,
-                model_catalog: {
-                  ...(current.model_catalog ?? {}),
-                  [placeholderKey]: {},
-                },
-              }));
+              const newRow: CatalogDraftEntry = {
+                rowId: createStableId('catalog-row'),
+                id: '',
+                overrides: {},
+              };
+              const next = [...catalogDraft, newRow];
+              setCatalogDraft(next);
+              setExpandedCatalogRowIds((current) =>
+                new Set(current).add(newRow.rowId),
+              );
             }}
           >
             <Plus className="size-4" />

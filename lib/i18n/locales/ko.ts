@@ -333,6 +333,7 @@ export const ko = {
   'config.forms.models.catalogDescription':
     '채팅 상자에서 사용자가 선택 가능한 모델을 정의합니다. 각 모델은 temperature·컨텍스트 상한·최대 출력 토큰을 개별적으로 덮어쓸 수 있습니다. 비워두면 전역 기본값을 사용합니다.',
   'config.forms.models.catalogAddModel': '모델 추가',
+  'config.forms.models.catalogToggleParams': '매개변수 재정의 토글',
   'config.forms.models.catalogModelPlaceholder':
     'anthropic/claude-sonnet-4-20250514',
   'config.forms.models.catalogUseGlobal': '전역 기본값 사용',
