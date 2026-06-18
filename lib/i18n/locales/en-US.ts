@@ -328,12 +328,15 @@ export const enUS = {
   'config.forms.models.globalDefaultModel': 'Global default model',
   'config.forms.models.globalDefaultModelHelp':
     "Used as a fallback for background tasks (memory extraction, task summaries, L1 scoring, compression). User-facing chat uses each user's personal preference (My Preferences).",
-  'config.forms.models.allowedModelsTitle': 'Allowed models for users',
-  'config.forms.models.allowedModelsDescription':
-    'When set, users pick from this list in My Preferences. Leave empty to expose all configured-provider models.',
-  'config.forms.models.allowedModelsAddLabel': 'Add model',
-  'config.forms.models.allowedModelsPlaceholder':
+  'config.forms.models.catalogTitle': 'Model catalog',
+  'config.forms.models.catalogDescription':
+    'Define the models users can pick from in the chat box. Each model can override temperature, context limit, and max output tokens. Leave a field empty to use the global default.',
+  'config.forms.models.catalogAddModel': 'Add model',
+  'config.forms.models.catalogModelPlaceholder':
     'anthropic/claude-sonnet-4-20250514',
+  'config.forms.models.catalogUseGlobal': 'Use global default',
+  'config.forms.models.catalogOverrideHint':
+    'Leave empty to use the global default.',
   'config.forms.preferences.title': 'My Preferences',
   'config.forms.preferences.description':
     'Choose your personal default model. Unset fields fall back to the global default.',

@@ -80,15 +80,28 @@ export const aiConfigSchema = z.object({
   /** Default model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
   model: aiModelConfigSchema.optional(),
   /**
-   * Optional whitelist of model IDs that users can pick from in their
-   * preferences UI. When unset or empty, users can pick from any model
-   * exposed by the configured providers (via models.dev catalog).
+   * Per-model catalog of parameter overrides. Keys are model IDs
+   * ("provider/model-id" or bare, same format as `model`). Values are
+   * partial overrides — any field left `undefined` falls back to the
+   * top-level `temperature` / `context_limit` / `max_output_tokens`.
    *
-   * Each entry follows the same format as `model` ("provider/model-id"
-   * or bare). Not enforced server-side — this is a UI hint, not an
-   * authorization boundary; free-form input remains allowed.
+   * The set of keys also serves as the "allowed models" list surfaced
+   * to users in the chat-box picker. An empty object (`{}`) means
+   * "whitelist this model but use global defaults for all parameters".
+   *
+   * Not enforced server-side — this is a UI hint, not an authorization
+   * boundary; free-form model input remains allowed.
    */
-  allowed_models: z.array(z.string().min(1)).optional(),
+  model_catalog: z
+    .record(
+      z.string(),
+      z.object({
+        temperature: z.number().min(0).max(2).optional(),
+        context_limit: z.number().int().min(1).optional(),
+        max_output_tokens: z.number().int().min(1).optional(),
+      }),
+    )
+    .optional(),
   /** Embedding model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
   embedding_model: aiModelConfigSchema.optional(),
   /** Default context length limit (tokens). */

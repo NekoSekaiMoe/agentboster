@@ -161,12 +161,13 @@ export async function getUserModelPreferencesAction(): Promise<{
   return {
     model: user?.modelPreferences?.model ?? null,
     globalDefault: config.models?.model ?? null,
-    // null = admin has not set a whitelist; the client falls back to
+    // null = admin has not set a catalog; the client falls back to
     // the full configured-provider model list. An empty array would
-    // be ambiguous with "no whitelist", so we normalize both to null.
-    allowedModels: config.models?.allowed_models?.length
-      ? config.models.allowed_models
-      : null,
+    // be ambiguous with "no catalog", so we normalize both to null.
+    allowedModels: (() => {
+      const catalogKeys = Object.keys(config.models?.model_catalog ?? {});
+      return catalogKeys.length > 0 ? catalogKeys : null;
+    })(),
   };
 }
 

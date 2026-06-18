@@ -305,12 +305,14 @@ export const zhCN = {
   'config.forms.models.globalDefaultModel': '全局默认模型',
   'config.forms.models.globalDefaultModelHelp':
     '作为后台任务（记忆抽取、任务摘要、L1 评分、压缩）的兜底。用户侧聊天使用每个用户的个人偏好（我的偏好）。',
-  'config.forms.models.allowedModelsTitle': '允许用户选择的模型',
-  'config.forms.models.allowedModelsDescription':
-    '设置后，用户在「我的偏好」中只能从此列表选择。留空则暴露所有已配置 Provider 的模型。',
-  'config.forms.models.allowedModelsAddLabel': '添加模型',
-  'config.forms.models.allowedModelsPlaceholder':
+  'config.forms.models.catalogTitle': '模型目录',
+  'config.forms.models.catalogDescription':
+    '定义用户可在聊天框选择的模型。每个模型可单独覆盖 temperature、上下文上限、最大输出 token。某项留空则使用全局默认。',
+  'config.forms.models.catalogAddModel': '添加模型',
+  'config.forms.models.catalogModelPlaceholder':
     'anthropic/claude-sonnet-4-20250514',
+  'config.forms.models.catalogUseGlobal': '使用全局默认',
+  'config.forms.models.catalogOverrideHint': '留空则使用全局默认。',
   'config.forms.preferences.title': '我的偏好',
   'config.forms.preferences.description':
     '选择你的个人默认模型。未设置的字段会回退到全局默认。',

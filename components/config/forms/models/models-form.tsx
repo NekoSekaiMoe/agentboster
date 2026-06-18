@@ -93,10 +93,10 @@ export function ModelsForm() {
   const [modelsCatalog, setModelsCatalog] = useState<ModelsDevCatalog | null>(
     null,
   );
-  // Stable row IDs for the allowed-models editor rows. Keyed by index because
-  // allowed_models is an array (no stable identity per entry). Using createStableId
-  // avoids reusing DOM nodes across add/remove cycles.
-  const [allowedModelRowIds, setAllowedModelRowIds] = useState<string[]>([]);
+  // Stable row IDs for the model_catalog editor rows. Keyed by index because
+  // catalog entries are stored as a Record but rendered as an ordered list;
+  // createStableId avoids reusing DOM nodes across add/remove cycles.
+  const [catalogRowIds, setCatalogRowIds] = useState<string[]>([]);
 
   const updateModels = (
     updater: (current: Partial<AIConfig>) => Partial<AIConfig>,
@@ -173,10 +173,10 @@ export function ModelsForm() {
     [configuredProviderNames, models.embedding_model, modelsCatalog],
   );
 
-  // Suggestion source for the allowed-models editor. Returns every model
+  // Suggestion source for the model_catalog editor. Returns every model
   // the configured providers expose via models.dev — the admin picks a
-  // subset from this list to expose to end users in their preferences.
-  const allowedModelPredictions = useMemo(
+  // subset from this list to expose to end users in the chat-box picker.
+  const catalogPredictions = useMemo(
     () =>
       buildConfiguredProviderModelSuggestions(
         configuredProviderNames,
@@ -211,22 +211,22 @@ export function ModelsForm() {
     });
   }, [providers]);
 
-  // Keep allowedModelRowIds length in sync with models.allowed_models so
-  // each row has a stable React key across edits. Existing IDs are reused
-  // in order; new rows get fresh stable IDs.
+  // Keep catalogRowIds length in sync with models.model_catalog so each row
+  // has a stable React key across edits. Existing IDs are reused in order;
+  // new rows get fresh stable IDs.
   useEffect(() => {
-    const count = models.allowed_models?.length ?? 0;
-    setAllowedModelRowIds((current) => {
+    const count = Object.keys(models.model_catalog ?? {}).length;
+    setCatalogRowIds((current) => {
       if (current.length === count) return current;
       if (current.length < count) {
         const additions = Array.from({ length: count - current.length }, () =>
-          createStableId('allowed-model'),
+          createStableId('catalog-row'),
         );
         return [...current, ...additions];
       }
       return current.slice(0, count);
     });
-  }, [models.allowed_models]);
+  }, [models.model_catalog]);
 
   function toggleProviderExpanded(providerKey: string) {
     setExpandedProviderKeys((current) => {
@@ -361,69 +361,193 @@ export function ModelsForm() {
       <Card className="shadow-none">
         <CardHeader>
           <CardTitle className="text-base">
-            {t('config.forms.models.allowedModelsTitle')}
+            {t('config.forms.models.catalogTitle')}
           </CardTitle>
           <CardDescription>
-            {t('config.forms.models.allowedModelsDescription')}
+            {t('config.forms.models.catalogDescription')}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {(models.allowed_models ?? []).map((modelId, index) => (
-            <div
-              key={allowedModelRowIds[index] ?? `allowed-model-${index}`}
-              className="grid gap-2 md:grid-cols-[1fr_auto]"
-            >
-              <SuggestionInput
-                placeholder={t('config.forms.models.allowedModelsPlaceholder')}
-                suggestions={allowedModelPredictions}
-                value={modelId}
-                onChange={(nextValue) => {
-                  updateModels((current) => {
-                    const nextList = [...(current.allowed_models ?? [])];
-                    const safeIndex = Math.min(index, nextList.length);
-                    nextList[safeIndex] = nextValue;
-                    return { ...current, allowed_models: nextList };
-                  });
-                }}
-              />
-              <Button
-                className="md:self-start"
-                size="icon"
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  updateModels((current) => {
-                    const currentList = current.allowed_models ?? [];
-                    const nextList = currentList.filter(
-                      (_, itemIndex) => itemIndex !== index,
-                    );
-                    // Empty array → undefined so the schema-level optional
-                    // stays the source of truth for "no whitelist set".
-                    return {
-                      ...current,
-                      allowed_models: nextList.length ? nextList : undefined,
-                    };
-                  });
-                }}
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            </div>
-          ))}
+        <CardContent className="space-y-4">
+          {Object.entries(models.model_catalog ?? {}).map(
+            ([modelId, overrides], index) => {
+              const updateEntry = (
+                updater: (current: typeof overrides) => typeof overrides,
+              ) => {
+                updateModels((current) => {
+                  const currentCatalog = current.model_catalog ?? {};
+                  const existing = currentCatalog[modelId] ?? {};
+                  return {
+                    ...current,
+                    model_catalog: {
+                      ...currentCatalog,
+                      [modelId]: updater(existing),
+                    },
+                  };
+                });
+              };
+
+              const renameEntry = (nextId: string) => {
+                const trimmed = nextId.trim();
+                if (!trimmed || trimmed === modelId) return;
+                updateModels((current) => {
+                  const currentCatalog = current.model_catalog ?? {};
+                  if (trimmed in currentCatalog) return current; // dedup guard
+                  const { [modelId]: removed, ...rest } = currentCatalog;
+                  return {
+                    ...current,
+                    model_catalog: { ...rest, [trimmed]: removed ?? {} },
+                  };
+                });
+              };
+
+              const removeEntry = () => {
+                updateModels((current) => {
+                  const currentCatalog = current.model_catalog ?? {};
+                  const { [modelId]: _removed, ...rest } = currentCatalog;
+                  return {
+                    ...current,
+                    model_catalog:
+                      Object.keys(rest).length > 0 ? rest : undefined,
+                  };
+                });
+              };
+
+              return (
+                <div
+                  key={catalogRowIds[index] ?? `catalog-row-${index}`}
+                  className="space-y-2 rounded-2xl border p-3"
+                >
+                  <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                    <SuggestionInput
+                      placeholder={t(
+                        'config.forms.models.catalogModelPlaceholder',
+                      )}
+                      suggestions={catalogPredictions}
+                      value={modelId}
+                      onChange={renameEntry}
+                    />
+                    <Button
+                      className="md:self-start"
+                      size="icon"
+                      type="button"
+                      variant="outline"
+                      onClick={removeEntry}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="space-y-2">
+                      <Field label={t('config.forms.agents.temperature')}>
+                        <Input
+                          max="2"
+                          min="0"
+                          placeholder={t(
+                            'config.forms.models.catalogUseGlobal',
+                          )}
+                          step="0.1"
+                          type="number"
+                          value={
+                            overrides.temperature != null
+                              ? String(overrides.temperature)
+                              : ''
+                          }
+                          onChange={(event) =>
+                            updateEntry((current) => ({
+                              ...current,
+                              temperature: parseOptionalNumber(
+                                event.target.value,
+                              ),
+                            }))
+                          }
+                        />
+                      </Field>
+                      <p className="text-muted-foreground text-xs">
+                        {t('config.forms.models.catalogOverrideHint')}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Field
+                        label={t('config.forms.models.defaultContextLimit')}
+                      >
+                        <Input
+                          min="1"
+                          placeholder={t(
+                            'config.forms.models.catalogUseGlobal',
+                          )}
+                          type="number"
+                          value={
+                            overrides.context_limit != null
+                              ? String(overrides.context_limit)
+                              : ''
+                          }
+                          onChange={(event) =>
+                            updateEntry((current) => ({
+                              ...current,
+                              context_limit: parseOptionalNumber(
+                                event.target.value,
+                              ),
+                            }))
+                          }
+                        />
+                      </Field>
+                      <p className="text-muted-foreground text-xs">
+                        {t('config.forms.models.catalogOverrideHint')}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Field label={t('config.forms.models.maxOutputTokens')}>
+                        <Input
+                          min="1"
+                          placeholder={t(
+                            'config.forms.models.catalogUseGlobal',
+                          )}
+                          type="number"
+                          value={
+                            overrides.max_output_tokens != null
+                              ? String(overrides.max_output_tokens)
+                              : ''
+                          }
+                          onChange={(event) =>
+                            updateEntry((current) => ({
+                              ...current,
+                              max_output_tokens: parseOptionalNumber(
+                                event.target.value,
+                              ),
+                            }))
+                          }
+                        />
+                      </Field>
+                      <p className="text-muted-foreground text-xs">
+                        {t('config.forms.models.catalogOverrideHint')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            },
+          )}
 
           <Button
             size="sm"
             type="button"
             variant="secondary"
             onClick={() => {
+              // Insert a placeholder key. Use createStableId to avoid colliding
+              // with real model ids while the admin types; renameEntry swaps
+              // it for the real id on first input change.
+              const placeholderKey = `__new_${createStableId('m')}`;
               updateModels((current) => ({
                 ...current,
-                allowed_models: [...(current.allowed_models ?? []), ''],
+                model_catalog: {
+                  ...(current.model_catalog ?? {}),
+                  [placeholderKey]: {},
+                },
               }));
             }}
           >
             <Plus className="size-4" />
-            {t('config.forms.models.allowedModelsAddLabel')}
+            {t('config.forms.models.catalogAddModel')}
           </Button>
         </CardContent>
       </Card>
