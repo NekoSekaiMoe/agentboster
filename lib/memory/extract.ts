@@ -226,6 +226,9 @@ Emit an "items" array. For each item, choose one action:
 - DELETE: an existing memory that is now wrong, outdated, or contradicted by the conversation. Reference its existing key. The "content" field may be empty or a short reason for deletion.
 - NOOP: the conversation mentions a fact already captured accurately. Reference the existing key to skip it. The "content" field may be empty.
 
+CRITICAL — deduplication across write paths:
+The existing memories list may contain rows whose [key] is \`null\` or a placeholder like \`__manual__\` — these were written by the user or by the in-conversation writeMemory tool without a stable key. Before emitting ADD, scan the content of ALL existing rows (including keyless ones) for semantic overlap with the fact you are about to add. If the same fact is already present under a keyless row, emit UPDATE with a fresh dotted key you invent for it (e.g. \`user.location\`) rather than ADD — this migrates the fact into the stable-key domain so future writes deduplicate cleanly. Reserve ADD strictly for facts that are not already captured in any form.
+
 Leave the array empty if nothing is worth changing.`;
 
   const result = await generateObject({

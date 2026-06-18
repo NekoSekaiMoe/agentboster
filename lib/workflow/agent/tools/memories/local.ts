@@ -12,6 +12,7 @@ import {
   searchLongTermMemories,
   setBuiltinMemorySection,
   updateLongTermMemory,
+  upsertLongTermMemory,
 } from '@/lib/memory';
 import type { AppConfig } from '@/types/config';
 import { builtinMemoryKeySchema } from '@/types/memory';
@@ -36,6 +37,26 @@ const writeMemoryInputSchema = z.object({
   key: builtinMemoryKeySchema.optional(),
   content: z.string().min(1),
   memoryId: z.string().uuid().optional(),
+  /**
+   * Stable dotted key for long-term memories (e.g. `user.location`,
+   * `project.stack`). When provided, the write goes through upsert-by-key
+   * — reusing an existing row with the same key instead of creating a
+   * duplicate. This matches the async extractor's write path, keeping
+   * both paths in the same key domain so the same fact doesn't pile up
+   * as multiple rows.
+   *
+   * Omit when the caller has no meaningful stable id; falls back to a
+   * plain insert (key = null, no dedup).
+   */
+  stableKey: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(
+      /^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)+$/i,
+      "stableKey must be dotted, e.g. 'user.location'",
+    )
+    .optional(),
   memoryType: z
     .enum(['fact', 'preference', 'decision', 'conversation'])
     .optional(),
@@ -159,6 +180,8 @@ async function executeWriteMemoryStep(input: {
     }
 
     case 'long_term': {
+      // 1. Explicit memoryId: update an existing row by id (highest priority,
+      //    preserves the original key whether null or dotted).
       if (value.memoryId) {
         const updated = await updateLongTermMemory({
           id: value.memoryId,
@@ -177,6 +200,38 @@ async function executeWriteMemoryStep(input: {
         };
       }
 
+      // 2. stableKey: upsert by (userId, key). This is the same write path
+      //    the async extractor uses, so tool-written and extractor-written
+      //    rows for the same fact land on the same row instead of piling
+      //    up as duplicates.
+      if (value.stableKey) {
+        if (!userId) {
+          throw new Error(
+            'stableKey requires a resolved user id (write must be scoped)',
+          );
+        }
+
+        const upserted = await upsertLongTermMemory({
+          userId,
+          key: value.stableKey,
+          content: value.content,
+          memoryType: value.memoryType,
+          importance: value.importance,
+          config: appConfig,
+        });
+
+        return {
+          scope: 'long_term',
+          action: upserted.created ? 'created' : 'updated',
+          memory: upserted.memory,
+          indexing: upserted.indexing,
+        };
+      }
+
+      // 3. No key, no memoryId: plain insert. Backwards-compatible with
+      //    callers that have no meaningful stable id. Resulting row has
+      //    key = null and won't dedup against extractor-written rows —
+      //    the tool description nudges the agent toward providing stableKey.
       const created = await createLongTermMemory({
         content: value.content,
         memoryType: value.memoryType,
@@ -240,7 +295,9 @@ export default defineBuildInTool({
 
       writeMemory: tool({
         title: 'Write Memory',
-        description: `Persist a fact worth remembering long-term. Call this proactively whenever the conversation reveals durable information about the user or the work — do not wait for the user to say "remember this". Worth persisting: user personal information (location, timezone, language, occupation), preferences (style, habits, constraints), project configuration (tech stack, conventions), and important decisions with their rationale. Not worth persisting: transient task execution details (use task_progress for those), one-off requests, pleasantries. Long-term memory content is scoped to the current user — do not include the user's name, role, or identifier in the content; refer to the subject as "the user" or omit the subject.`,
+        description: `Persist a fact worth remembering long-term. Call this proactively whenever the conversation reveals durable information about the user or the work — do not wait for the user to say "remember this". Worth persisting: user personal information (location, timezone, language, occupation), preferences (style, habits, constraints), project configuration (tech stack, conventions), and important decisions with their rationale. Not worth persisting: transient task execution details (use task_progress for those), one-off requests, pleasantries. Long-term memory content is scoped to the current user — do not include the user's name, role, or identifier in the content; refer to the subject as "the user" or omit the subject.
+
+When writing long-term memories, ALWAYS provide a \`stableKey\` in dotted format (e.g. \`user.location\`, \`user.timezone\`, \`project.stack\`, \`decision.architecture\`). The same fact rewritten later MUST reuse the same \`stableKey\` so the prior row is updated in place rather than duplicated. Pick keys that are stable across rewording: prefer topic-based nouns (\`user.location\`) over phrasing that mirrors a specific conversation. Omit \`stableKey\` only when no meaningful stable id exists. A parallel async extractor writes with the same key domain, so consistent keying keeps tool-written and extractor-written memories deduplicated.`,
         inputSchema: writeMemoryInputSchema,
         execute: async (value) =>
           executeWriteMemoryStep({
