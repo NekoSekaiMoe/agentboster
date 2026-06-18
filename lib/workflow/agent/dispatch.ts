@@ -1,5 +1,9 @@
 import { db } from '@/lib/core/db';
-import { getSessionByWorkflowRunId, updateSession } from '@/lib/core/db/chat';
+import {
+  getSession,
+  getSessionByWorkflowRunId,
+  updateSession,
+} from '@/lib/core/db/chat';
 import { agentdNodes } from '@/lib/core/db/schema';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
 import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
@@ -194,6 +198,12 @@ export async function startWorkflow(input: {
     workflowRunId: run.runId,
     status: 'active',
     metadata: {
+      // Merge with existing metadata — updateSession overwrites the whole
+      // jsonb column, so a bare `{ source }` would wipe `locale` (set via
+      // /lang) and other fields (contextUsage, latestApproval, …). This
+      // was the root cause of IM users' language resetting to English
+      // after every message (which calls startWorkflow).
+      ...(await getSession(input.sessionId)).metadata,
       source: input.source,
     },
   });

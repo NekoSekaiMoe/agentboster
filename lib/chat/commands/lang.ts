@@ -1,4 +1,4 @@
-import { updateSession } from '@/lib/core/db/chat';
+import { getSession, updateSession } from '@/lib/core/db/chat';
 import { t, locales, localeLabels, type Locale } from '@/lib/i18n/server';
 
 export async function executeLangCommand(
@@ -41,8 +41,13 @@ export async function executeLangCommand(
   }
 
   try {
+    // Merge with existing metadata — updateSession overwrites the whole
+    // jsonb column, so `{ locale }` alone would wipe `source`,
+    // `contextUsage`, `latestApproval`, etc. Read first, then merge.
+    const existing = await getSession(input.sessionId);
     await updateSession(input.sessionId, {
       metadata: {
+        ...(existing?.metadata ?? {}),
         locale: newLocale,
       },
     });
