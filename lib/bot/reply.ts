@@ -310,6 +310,10 @@ export async function streamAdapterSourceReply(
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffered = '';
+    // Track tool calls we've already emitted a divider for, so a single
+    // tool-input-available chunk (and any follow-up tool-* chunks for the
+    // same call) only produces one visible break in the IM message.
+    const emittedToolCallIds = new Set<string>();
 
     const tryEditMessage = async () => {
       if (!messageId) return;
@@ -335,9 +339,18 @@ export async function streamAdapterSourceReply(
       }
     };
 
-    // Accumulate chunk text from a parsed value into `fullText`.
-    // Returns the extracted text (empty string if none).
+    // Fold a parsed chunk into `fullText`. Text deltas accumulate as before;
+    // tool-input-available chunks inject a divider so that the text before
+    // and after a tool call don't get glued together in the IM message.
+    // Returns the text that was appended (empty string if none).
     const accumulateChunkText = (value: unknown): string => {
+      const divider = extractToolDivider(value);
+      if (divider) {
+        if (emittedToolCallIds.has(divider.toolCallId)) return '';
+        emittedToolCallIds.add(divider.toolCallId);
+        fullText += divider.text;
+        return divider.text;
+      }
       const chunkText = extractTextFromChunk(value);
       if (chunkText) fullText += chunkText;
       return chunkText;
@@ -532,6 +545,54 @@ function extractTextFromChunk(chunk: unknown): string {
     return typeof payload.text === 'string' ? payload.text : '';
   }
   return '';
+}
+
+/**
+ * Turn a raw tool name (e.g. "web_search", "readFile", "mcp__server__tool")
+ * into a human-readable label ("Web Search", "Read File", "Mcp Server Tool").
+ * Mirrors the formatting in lib/workflow/agent/sender/bots.ts but lives here
+ * so the IM streaming path doesn't pull workflow bundle code into its scope.
+ */
+function formatToolLabel(toolName: string): string {
+  return toolName
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((segment) =>
+      segment.length > 0
+        ? `${segment[0].toUpperCase()}${segment.slice(1)}`
+        : segment,
+    )
+    .join(' ');
+}
+
+/**
+ * IM channels have no native "tool call" affordance, so when the model
+ * invokes a tool between two text segments, both segments get concatenated
+ * into a single streaming message and the user can't tell where the model
+ * paused to call a tool. To keep tool calls visible (and to give the two
+ * text segments a natural break), we synthesize a short divider line that
+ * gets inserted into the streamed text at the point a tool starts.
+ *
+ * Returns the divider text (or '' for unsupported/unknown chunks), and
+ * yields the toolCallId so the caller can de-dupe per call.
+ */
+function extractToolDivider(chunk: unknown): {
+  text: string;
+  toolCallId: string;
+} | null {
+  if (!chunk || typeof chunk !== 'object') return null;
+  const payload = chunk as Record<string, unknown>;
+  if (payload.type !== 'tool-input-available') return null;
+  const toolCallId =
+    typeof payload.toolCallId === 'string' ? payload.toolCallId : '';
+  if (!toolCallId) return null;
+  const rawName = typeof payload.toolName === 'string' ? payload.toolName : '';
+  const label = rawName ? formatToolLabel(rawName) : 'tool';
+  return {
+    text: `\n\n🔧 ${label}...\n\n`,
+    toolCallId,
+  };
 }
 
 /**
