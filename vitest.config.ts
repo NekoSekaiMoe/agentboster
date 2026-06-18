@@ -18,7 +18,13 @@ export default defineConfig({
   test: {
     // Server environment — these tests touch DB/HTTP code, not React.
     environment: 'node',
-    include: ['lib/**/*.test.ts', 'app/**/*.test.ts', 'hooks/**/*.test.ts'],
+    include: [
+      'lib/**/*.test.ts',
+      'app/**/*.test.ts',
+      'hooks/**/*.test.ts',
+      'components/**/*.test.ts',
+      'components/**/*.test.tsx',
+    ],
     // The Next/Vercel modules reference Node builtins; tell vitest to
     // not polyfill them.
     server: {

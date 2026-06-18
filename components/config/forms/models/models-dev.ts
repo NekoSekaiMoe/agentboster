@@ -192,6 +192,58 @@ export async function loadModelsDevCatalog() {
   return modelsDevCatalogPromise;
 }
 
+/**
+ * Build the full list of `provider/model-id` strings for every configured
+ * provider, using the models.dev catalog as the source of truth for each
+ * provider's model list.
+ *
+ * Used in two places:
+ *  - Admin "allowed models" editor: as the suggestion source while typing.
+ *  - User preferences combobox: as the fallback suggestion source when the
+ *    admin has NOT set `models.allowed_models` (so users still get a
+ *    useful list derived from whatever providers the admin configured).
+ *
+ * Provider names are matched case-insensitively against the catalog
+ * (catalog keys are cased; configured provider keys may differ). Output
+ * keeps the configured provider key as the prefix so the IDs round-trip
+ * through the rest of the config system unchanged.
+ *
+ * Returns an empty array when the catalog is missing or none of the
+ * configured providers appear in it.
+ */
+export function buildConfiguredProviderModelSuggestions(
+  configuredProviderNames: string[],
+  modelsCatalog: ModelsDevCatalog | null,
+): string[] {
+  if (!modelsCatalog || configuredProviderNames.length === 0) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const configuredName of configuredProviderNames) {
+    const catalogName = resolveCatalogProviderName(
+      configuredName,
+      modelsCatalog,
+    );
+    if (!catalogName) continue;
+
+    const providerModels = modelsCatalog[catalogName]?.models;
+    if (!providerModels) continue;
+
+    for (const modelId of Object.keys(providerModels)) {
+      const scoped = `${configuredName}/${modelId}`;
+      if (!seen.has(scoped)) {
+        seen.add(scoped);
+        result.push(scoped);
+      }
+    }
+  }
+
+  return result.sort((left, right) => left.localeCompare(right));
+}
+
 export function autoFillModelLimits(
   models: Partial<AIConfig>,
   modelsCatalog: ModelsDevCatalog | null,

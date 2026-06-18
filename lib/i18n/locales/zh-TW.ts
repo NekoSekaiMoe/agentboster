@@ -306,6 +306,12 @@ export const zhTW = {
   'config.forms.models.globalDefaultModel': '全域預設模型',
   'config.forms.models.globalDefaultModelHelp':
     '作為背景任務（記憶抽取、任務摘要、L1 評分、壓縮）的備援。使用者端聊天使用每位使用者的個人偏好（我的偏好）。',
+  'config.forms.models.allowedModelsTitle': '允許使用者選擇的模型',
+  'config.forms.models.allowedModelsDescription':
+    '設定後，使用者在「我的偏好」中只能從此清單選擇。留空則暴露所有已設定 Provider 的模型。',
+  'config.forms.models.allowedModelsAddLabel': '新增模型',
+  'config.forms.models.allowedModelsPlaceholder':
+    'anthropic/claude-sonnet-4-20250514',
   'config.forms.preferences.title': '我的偏好',
   'config.forms.preferences.description':
     '選擇你的個人預設模型。未設定的欄位會回退到全域預設。',

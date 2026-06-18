@@ -79,6 +79,16 @@ export const aiConfigSchema = z.object({
     .default(0.5),
   /** Default model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
   model: aiModelConfigSchema.optional(),
+  /**
+   * Optional whitelist of model IDs that users can pick from in their
+   * preferences UI. When unset or empty, users can pick from any model
+   * exposed by the configured providers (via models.dev catalog).
+   *
+   * Each entry follows the same format as `model` ("provider/model-id"
+   * or bare). Not enforced server-side — this is a UI hint, not an
+   * authorization boundary; free-form input remains allowed.
+   */
+  allowed_models: z.array(z.string().min(1)).optional(),
   /** Embedding model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
   embedding_model: aiModelConfigSchema.optional(),
   /** Default context length limit (tokens). */

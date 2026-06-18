@@ -329,6 +329,12 @@ export const ko = {
   'config.forms.models.globalDefaultModel': '전역 기본 모델',
   'config.forms.models.globalDefaultModelHelp':
     '백그라운드 작업(메모리 추출, 작업 요약, L1 채점, 압축)의 대체값으로 사용됩니다. 사용자 대면 채팅은 각 사용자의 개인 환경설정(내 환경설정)을 사용합니다.',
+  'config.forms.models.allowedModelsTitle': '사용자가 선택 가능한 모델',
+  'config.forms.models.allowedModelsDescription':
+    '설정하면 사용자가 「내 환경설정」에서 이 목록에서만 선택할 수 있습니다. 비워두면 설정된 모든 Provider의 모델을 노출합니다.',
+  'config.forms.models.allowedModelsAddLabel': '모델 추가',
+  'config.forms.models.allowedModelsPlaceholder':
+    'anthropic/claude-sonnet-4-20250514',
   'config.forms.preferences.title': '내 환경설정',
   'config.forms.preferences.description':
     '개인 기본 모델을 선택하세요. 설정하지 않은 필드는 전역 기본값으로 대체됩니다.',

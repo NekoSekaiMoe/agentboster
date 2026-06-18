@@ -41,7 +41,7 @@ yarn publish             # check + build + git push (the canonical "ship it" pat
 yarn deploy              # vercel --prod
 ```
 
-Run a single test file: `yarn test <path>` or `yarn test:watch <path>`. Vitest only picks up `lib/**/*.test.ts`, `app/**/*.test.ts`, `hooks/**/*.test.ts` — anything outside those globs is silently ignored.
+Run a single test file: `yarn test <path>` or `yarn test:watch <path>`. Vitest picks up `lib/**/*.test.ts`, `app/**/*.test.ts`, `hooks/**/*.test.ts`, and `components/**/*.test.{ts,tsx}` (see `vitest.config.ts`). Anything outside those globs is silently ignored.
 
 ### Build gotchas
 

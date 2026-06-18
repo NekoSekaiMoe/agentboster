@@ -56,6 +56,7 @@ import {
 import {
   type ModelsDevCatalog,
   autoFillModelLimits,
+  buildConfiguredProviderModelSuggestions,
   buildModelPredictions,
   createStableId,
   findModelLimit,
@@ -92,6 +93,10 @@ export function ModelsForm() {
   const [modelsCatalog, setModelsCatalog] = useState<ModelsDevCatalog | null>(
     null,
   );
+  // Stable row IDs for the allowed-models editor rows. Keyed by index because
+  // allowed_models is an array (no stable identity per entry). Using createStableId
+  // avoids reusing DOM nodes across add/remove cycles.
+  const [allowedModelRowIds, setAllowedModelRowIds] = useState<string[]>([]);
 
   const updateModels = (
     updater: (current: Partial<AIConfig>) => Partial<AIConfig>,
@@ -168,6 +173,18 @@ export function ModelsForm() {
     [configuredProviderNames, models.embedding_model, modelsCatalog],
   );
 
+  // Suggestion source for the allowed-models editor. Returns every model
+  // the configured providers expose via models.dev — the admin picks a
+  // subset from this list to expose to end users in their preferences.
+  const allowedModelPredictions = useMemo(
+    () =>
+      buildConfiguredProviderModelSuggestions(
+        configuredProviderNames,
+        modelsCatalog,
+      ),
+    [configuredProviderNames, modelsCatalog],
+  );
+
   const predictedModelLimit = useMemo(() => {
     if (!modelsCatalog || !models.model) {
       return null;
@@ -193,6 +210,23 @@ export function ModelsForm() {
       return unchanged ? current : next;
     });
   }, [providers]);
+
+  // Keep allowedModelRowIds length in sync with models.allowed_models so
+  // each row has a stable React key across edits. Existing IDs are reused
+  // in order; new rows get fresh stable IDs.
+  useEffect(() => {
+    const count = models.allowed_models?.length ?? 0;
+    setAllowedModelRowIds((current) => {
+      if (current.length === count) return current;
+      if (current.length < count) {
+        const additions = Array.from({ length: count - current.length }, () =>
+          createStableId('allowed-model'),
+        );
+        return [...current, ...additions];
+      }
+      return current.slice(0, count);
+    });
+  }, [models.allowed_models]);
 
   function toggleProviderExpanded(providerKey: string) {
     setExpandedProviderKeys((current) => {
@@ -321,6 +355,76 @@ export function ModelsForm() {
               </p>
             ) : null}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-none">
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t('config.forms.models.allowedModelsTitle')}
+          </CardTitle>
+          <CardDescription>
+            {t('config.forms.models.allowedModelsDescription')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {(models.allowed_models ?? []).map((modelId, index) => (
+            <div
+              key={allowedModelRowIds[index] ?? `allowed-model-${index}`}
+              className="grid gap-2 md:grid-cols-[1fr_auto]"
+            >
+              <SuggestionInput
+                placeholder={t('config.forms.models.allowedModelsPlaceholder')}
+                suggestions={allowedModelPredictions}
+                value={modelId}
+                onChange={(nextValue) => {
+                  updateModels((current) => {
+                    const nextList = [...(current.allowed_models ?? [])];
+                    const safeIndex = Math.min(index, nextList.length);
+                    nextList[safeIndex] = nextValue;
+                    return { ...current, allowed_models: nextList };
+                  });
+                }}
+              />
+              <Button
+                className="md:self-start"
+                size="icon"
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  updateModels((current) => {
+                    const currentList = current.allowed_models ?? [];
+                    const nextList = currentList.filter(
+                      (_, itemIndex) => itemIndex !== index,
+                    );
+                    // Empty array → undefined so the schema-level optional
+                    // stays the source of truth for "no whitelist set".
+                    return {
+                      ...current,
+                      allowed_models: nextList.length ? nextList : undefined,
+                    };
+                  });
+                }}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          ))}
+
+          <Button
+            size="sm"
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              updateModels((current) => ({
+                ...current,
+                allowed_models: [...(current.allowed_models ?? []), ''],
+              }));
+            }}
+          >
+            <Plus className="size-4" />
+            {t('config.forms.models.allowedModelsAddLabel')}
+          </Button>
         </CardContent>
       </Card>
 

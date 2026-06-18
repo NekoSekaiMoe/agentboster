@@ -328,6 +328,12 @@ export const enUS = {
   'config.forms.models.globalDefaultModel': 'Global default model',
   'config.forms.models.globalDefaultModelHelp':
     "Used as a fallback for background tasks (memory extraction, task summaries, L1 scoring, compression). User-facing chat uses each user's personal preference (My Preferences).",
+  'config.forms.models.allowedModelsTitle': 'Allowed models for users',
+  'config.forms.models.allowedModelsDescription':
+    'When set, users pick from this list in My Preferences. Leave empty to expose all configured-provider models.',
+  'config.forms.models.allowedModelsAddLabel': 'Add model',
+  'config.forms.models.allowedModelsPlaceholder':
+    'anthropic/claude-sonnet-4-20250514',
   'config.forms.preferences.title': 'My Preferences',
   'config.forms.preferences.description':
     'Choose your personal default model. Unset fields fall back to the global default.',

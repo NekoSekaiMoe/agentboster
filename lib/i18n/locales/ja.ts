@@ -331,6 +331,12 @@ export const ja = {
   'config.forms.models.globalDefaultModel': 'グローバル既定モデル',
   'config.forms.models.globalDefaultModelHelp':
     'バックグラウンドタスク（記憶抽出、タスク要約、L1 スコアリング、圧縮）のフォールバックとして使用されます。ユーザー向けチャットは各ユーザーの個人設定（マイ設定）を使用します。',
+  'config.forms.models.allowedModelsTitle': 'ユーザーが選択可能なモデル',
+  'config.forms.models.allowedModelsDescription':
+    '設定すると、ユーザーは「マイ設定」でこのリストからのみ選択できます。空の場合は設定済みの全 Provider のモデルを公開します。',
+  'config.forms.models.allowedModelsAddLabel': 'モデルを追加',
+  'config.forms.models.allowedModelsPlaceholder':
+    'anthropic/claude-sonnet-4-20250514',
   'config.forms.preferences.title': 'マイ設定',
   'config.forms.preferences.description':
     '個人の既定モデルを選択します。未設定のフィールドはグローバル既定にフォールバックします。',
