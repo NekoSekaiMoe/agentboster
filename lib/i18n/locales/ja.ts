@@ -345,6 +345,10 @@ export const ja = {
   'config.forms.preferences.usingGlobal': '現在グローバル既定を使用中：{model}',
   'config.forms.preferences.noModelSet':
     'モデルが未設定です。選択するか、管理者にグローバル既定の設定を依頼してください。',
+  'config.forms.preferences.allowedModelsHint':
+    'リストから選択するか、任意のモデル id を入力してください。',
+  'config.forms.preferences.allowedModelsEmpty':
+    'プリセットリストはありません——任意のモデル id を入力できます。',
   'config.forms.preferences.save': '保存',
   'config.forms.preferences.clear': 'クリア（グローバル既定を使用）',
   'config.forms.preferences.saved': '設定を保存しました。',

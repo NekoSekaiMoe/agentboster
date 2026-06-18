@@ -319,6 +319,10 @@ export const zhCN = {
   'config.forms.preferences.usingGlobal': '当前使用全局默认：{model}',
   'config.forms.preferences.noModelSet':
     '未设置模型。请选择一个，或联系管理员设置全局默认。',
+  'config.forms.preferences.allowedModelsHint':
+    '从列表中选择，或输入任意模型 id。',
+  'config.forms.preferences.allowedModelsEmpty':
+    '未设置预设列表——可输入任意模型 id。',
   'config.forms.preferences.save': '保存',
   'config.forms.preferences.clear': '清除（使用全局默认）',
   'config.forms.preferences.saved': '偏好已保存。',

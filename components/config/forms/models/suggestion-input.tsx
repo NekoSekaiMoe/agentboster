@@ -1,5 +1,6 @@
 'use client';
 
+import { ChevronDown } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -24,6 +25,7 @@ export function SuggestionInput({
   suggestions,
   onSelect,
   onBlurCommit,
+  showChevron = true,
 }: {
   id?: string;
   value: string;
@@ -32,6 +34,13 @@ export function SuggestionInput({
   suggestions: string[];
   onSelect?: (value: string) => void;
   onBlurCommit?: (value: string) => void;
+  /**
+   * When true (default), renders a decorative ChevronDown on the right
+   * to signal that the input opens a suggestion list. Intended for the
+   * combobox-style usage where users can either type or click open.
+   * Disable for plain autocomplete inputs that should look like a text field.
+   */
+  showChevron?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -108,6 +117,7 @@ export function SuggestionInput({
     <div ref={containerRef} className="relative">
       <Input
         autoComplete="off"
+        className={showChevron ? 'pr-9' : undefined}
         id={id}
         placeholder={placeholder}
         value={value}
@@ -121,6 +131,12 @@ export function SuggestionInput({
         }}
         onFocus={() => setIsOpen(true)}
       />
+      {showChevron ? (
+        <ChevronDown
+          aria-hidden
+          className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+        />
+      ) : null}
 
       {isOpen && filteredSuggestions.length > 0 && floatingPosition
         ? createPortal(

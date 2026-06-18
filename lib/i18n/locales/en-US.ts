@@ -344,6 +344,10 @@ export const enUS = {
     'Currently using the global default: {model}',
   'config.forms.preferences.noModelSet':
     'No model set. Pick one or ask the administrator to set a global default.',
+  'config.forms.preferences.allowedModelsHint':
+    'Pick from the list, or type any model id.',
+  'config.forms.preferences.allowedModelsEmpty':
+    'No preset list — type any model id.',
   'config.forms.preferences.save': 'Save',
   'config.forms.preferences.clear': 'Clear (use global default)',
   'config.forms.preferences.saved': 'Preference saved.',

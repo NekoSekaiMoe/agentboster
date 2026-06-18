@@ -320,6 +320,10 @@ export const zhTW = {
   'config.forms.preferences.usingGlobal': '目前使用全域預設：{model}',
   'config.forms.preferences.noModelSet':
     '未設定模型。請選擇一個，或聯絡管理員設定全域預設。',
+  'config.forms.preferences.allowedModelsHint':
+    '從清單中選擇，或輸入任意模型 id。',
+  'config.forms.preferences.allowedModelsEmpty':
+    '未設定預設清單——可輸入任意模型 id。',
   'config.forms.preferences.save': '儲存',
   'config.forms.preferences.clear': '清除（使用全域預設）',
   'config.forms.preferences.saved': '偏好已儲存。',

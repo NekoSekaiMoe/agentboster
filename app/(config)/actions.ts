@@ -151,6 +151,7 @@ export async function unpairImAccountAction(
 export async function getUserModelPreferencesAction(): Promise<{
   model: string | null;
   globalDefault: string | null;
+  allowedModels: string[] | null;
 }> {
   const access = await requireAuth();
   const [user, config] = await Promise.all([
@@ -160,6 +161,12 @@ export async function getUserModelPreferencesAction(): Promise<{
   return {
     model: user?.modelPreferences?.model ?? null,
     globalDefault: config.models?.model ?? null,
+    // null = admin has not set a whitelist; the client falls back to
+    // the full configured-provider model list. An empty array would
+    // be ambiguous with "no whitelist", so we normalize both to null.
+    allowedModels: config.models?.allowed_models?.length
+      ? config.models.allowed_models
+      : null,
   };
 }
 

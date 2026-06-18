@@ -17,7 +17,7 @@ import {
 } from '@/app/(config)/actions';
 import {
   type ModelsDevCatalog,
-  buildModelPredictions,
+  buildConfiguredProviderModelSuggestions,
   listProviderNames,
   loadModelsDevCatalog,
 } from '@/components/config/forms/models/models-dev';
@@ -37,6 +37,7 @@ export function PreferencesForm() {
   const [catalog, setCatalog] = useState<ModelsDevCatalog | null>(null);
   const [model, setModel] = useState<string>('');
   const [globalDefault, setGlobalDefault] = useState<string | null>(null);
+  const [allowedModels, setAllowedModels] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -50,6 +51,7 @@ export function PreferencesForm() {
         if (!isMounted) return;
         setModel(prefs.model ?? '');
         setGlobalDefault(prefs.globalDefault);
+        setAllowedModels(prefs.allowedModels);
       })
       .catch(() => {
         // toast handled below — leave empty here to avoid double toasts
@@ -62,10 +64,16 @@ export function PreferencesForm() {
     };
   }, []);
 
-  const suggestions = useMemo(
-    () => buildModelPredictions(model, providers, catalog),
-    [model, providers, catalog],
-  );
+  const suggestions = useMemo(() => {
+    // Admin whitelist wins when set; otherwise fall back to every model
+    // the configured providers expose via the models.dev catalog. The
+    // fallback keeps the combobox useful even when the admin hasn't
+    // curated a list yet.
+    if (allowedModels && allowedModels.length) {
+      return [...allowedModels].sort((a, b) => a.localeCompare(b));
+    }
+    return buildConfiguredProviderModelSuggestions(providers, catalog);
+  }, [allowedModels, providers, catalog]);
 
   const effectiveModel = model.trim() || globalDefault;
 
@@ -132,6 +140,11 @@ export function PreferencesForm() {
                         model: effectiveModel,
                       })
                   : t('config.forms.preferences.noModelSet')}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {allowedModels && allowedModels.length
+                  ? t('config.forms.preferences.allowedModelsHint')
+                  : t('config.forms.preferences.allowedModelsEmpty')}
               </p>
             </Field>
 

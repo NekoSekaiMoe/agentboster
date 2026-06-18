@@ -343,6 +343,10 @@ export const ko = {
   'config.forms.preferences.usingGlobal': '현재 전역 기본값을 사용 중: {model}',
   'config.forms.preferences.noModelSet':
     '모델이 설정되지 않았습니다. 하나를 선택하거나 관리자에게 전역 기본값 설정을 요청하세요.',
+  'config.forms.preferences.allowedModelsHint':
+    '목록에서 선택하거나, 임의의 모델 id를 입력하세요.',
+  'config.forms.preferences.allowedModelsEmpty':
+    '프리셋 목록이 없습니다 — 임의의 모델 id를 입력할 수 있습니다.',
   'config.forms.preferences.save': '저장',
   'config.forms.preferences.clear': '초기화(전역 기본값 사용)',
   'config.forms.preferences.saved': '환경설정이 저장되었습니다.',
