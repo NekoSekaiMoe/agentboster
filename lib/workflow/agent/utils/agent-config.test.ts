@@ -80,6 +80,32 @@ describe('resolveMainAgentModelId (per-user override)', () => {
       resolveMainAgentModelId(config, { modelPreferences: { model: 'x' } }),
     ).not.toThrow();
   });
+
+  it('honors per-message requestModel over user preference and global default', () => {
+    const config = makeConfig('global-default');
+    const user = { modelPreferences: { model: 'personal-pick' } };
+    expect(resolveMainAgentModelId(config, user, 'request-pick')).toBe(
+      'request-pick',
+    );
+  });
+
+  it('falls through to user preference when requestModel is empty/whitespace', () => {
+    const config = makeConfig('global-default');
+    const user = { modelPreferences: { model: 'personal-pick' } };
+    expect(resolveMainAgentModelId(config, user, undefined)).toBe(
+      'personal-pick',
+    );
+    expect(resolveMainAgentModelId(config, user, null)).toBe('personal-pick');
+    expect(resolveMainAgentModelId(config, user, '   ')).toBe('personal-pick');
+    expect(resolveMainAgentModelId(config, user, '')).toBe('personal-pick');
+  });
+
+  it('trims requestModel before use', () => {
+    const config = makeConfig('global-default');
+    expect(
+      resolveMainAgentModelId(config, null, '  free-chat/gemini-3  '),
+    ).toBe('free-chat/gemini-3');
+  });
 });
 
 describe('MAIN_AGENT_NAME', () => {
@@ -221,5 +247,48 @@ describe('resolveMainAgentModelParams (catalog overrides)', () => {
     expect(result.temperature).toBe(0.7);
     expect(result.contextLimit).toBe(50000);
     expect(result.outputLimit).toBe(2048);
+  });
+
+  it('per-message requestModel wins over user preference and looks up its catalog entry', () => {
+    const config = {
+      models: {
+        model: 'gpt-4o',
+        temperature: 0.5,
+        context_limit: 100000,
+        max_output_tokens: 4096,
+        model_catalog: {
+          'claude-sonnet-4': {
+            temperature: 0.2,
+            context_limit: 200000,
+            max_output_tokens: 16384,
+          },
+        },
+      },
+    } as AppConfig;
+
+    // User has a persistent preference for gpt-4o, but the chat-box picker
+    // asked for claude-sonnet-4 on this message. Resolver should pick the
+    // request and apply claude-sonnet-4's catalog overrides.
+    const user = { modelPreferences: { model: 'gpt-4o' } };
+    const result = resolveMainAgentModelParams(config, user, 'claude-sonnet-4');
+    expect(result.modelId).toBe('claude-sonnet-4');
+    expect(result.temperature).toBe(0.2);
+    expect(result.contextLimit).toBe(200000);
+    expect(result.outputLimit).toBe(16384);
+  });
+
+  it('falls through to user/global when requestModel is undefined (memory-extraction path)', () => {
+    const config = {
+      models: {
+        model: 'gpt-4o',
+        temperature: 0.5,
+        context_limit: 100000,
+        max_output_tokens: 4096,
+      },
+    } as AppConfig;
+
+    const user = { modelPreferences: { model: 'personal-pick' } };
+    const result = resolveMainAgentModelParams(config, user);
+    expect(result.modelId).toBe('personal-pick');
   });
 });

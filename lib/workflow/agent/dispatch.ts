@@ -149,6 +149,11 @@ export async function startWorkflow(input: {
   user?: {
     modelPreferences?: { model?: string } | null;
   } | null;
+  /**
+   * Per-message model override from the chat-box picker. Forwarded as the
+   * last positional arg to `chatWorkflow`. See `chatWorkflow`'s param docs.
+   */
+  requestModel?: string | null;
 }): Promise<{
   runId: string;
   readable: ReadableStream<WorkflowUIMessageChunk>;
@@ -166,6 +171,7 @@ export async function startWorkflow(input: {
       input.config,
       input.sessionId,
       input.user,
+      input.requestModel,
     ]),
     new Promise<never>((_, reject) =>
       setTimeout(

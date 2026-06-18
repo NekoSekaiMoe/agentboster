@@ -18,16 +18,28 @@ type UserLike =
   | undefined;
 
 /**
- * Resolve the model id for the main agent, honoring the caller's per-user
- * override when present. Used by chat runs and memory extraction (paths
- * that have an owning user). Background tasks (task-summary, task-memory,
- * compress, L1 scorer) deliberately use {@link getMainAgentModelId} which
- * only reads the global config.
+ * Resolve the model id for the main agent, honoring (in order):
+ *  1. The per-message `requestModel` from the chat-box picker (when set,
+ *     this wins over everything for this single run).
+ *  2. The caller's per-user persistent preference (`user.modelPreferences.model`).
+ *  3. The global default (`config.models.model`).
+ *
+ * Used by chat runs and memory extraction (paths that have an owning user).
+ * Background tasks (task-summary, task-memory, compress, L1 scorer) deliberately
+ * use {@link getMainAgentModelId} which only reads the global config.
+ *
+ * @param requestModel Per-message override from the chat-box picker. Callers
+ *   that don't have a per-message context (memory extraction, sub-agents)
+ *   should pass `undefined`/`null` to fall through to user/global.
  */
 export function resolveMainAgentModelId(
   config: AppConfig,
   user: UserLike,
+  requestModel?: string | null,
 ): string {
+  if (requestModel?.trim()) {
+    return requestModel.trim();
+  }
   const override = user?.modelPreferences?.model;
   if (override) {
     return override;
@@ -87,7 +99,8 @@ export function getDelegatableAgentNames(
  * from `config.models.model_catalog` when the resolved model id has an entry.
  *
  * Resolution order for each field:
- *  - `modelId`: per-user preference → global default (see {@link resolveMainAgentModelId}).
+ *  - `modelId`: per-message `requestModel` → per-user preference → global
+ *    default (see {@link resolveMainAgentModelId}).
  *  - `temperature`: catalog override → `config.models.temperature`.
  *  - `contextLimit`: catalog override → `config.models.context_limit` →
  *    built-in per-model table (see {@link resolveModelContextLimit}).
@@ -98,17 +111,22 @@ export function getDelegatableAgentNames(
  * keep using {@link getMainAgentModelId} + the global fields directly — they
  * have no owning user and no per-message model pick, so catalog overrides
  * don't apply to them.
+ *
+ * @param requestModel Per-message override from the chat-box picker. Pass
+ *   `undefined`/`null` for paths without a per-message context (memory
+ *   extraction, sub-agents, etc.) to fall through to user/global.
  */
 export function resolveMainAgentModelParams(
   config: AppConfig,
   user: UserLike,
+  requestModel?: string | null,
 ): {
   modelId: string;
   temperature: number | undefined;
   contextLimit: number;
   outputLimit: number;
 } {
-  const modelId = resolveMainAgentModelId(config, user);
+  const modelId = resolveMainAgentModelId(config, user, requestModel);
   const catalogEntry = config.models?.model_catalog?.[modelId];
 
   const temperature = catalogEntry?.temperature ?? config.models?.temperature;

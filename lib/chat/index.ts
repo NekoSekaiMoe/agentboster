@@ -1521,6 +1521,11 @@ export async function chatMain(
     config,
     source: envelope.source,
     user,
+    // Forward only the per-message pick, not the resolved effective id.
+    // user-pref / global are already consulted inside chatWorkflow's
+    // resolver, so passing effectiveModelId here would be redundant and
+    // would mask the "request actually came from picker" intent in logs.
+    requestModel: request.requestModel,
   });
   chatMainLogger.info('chatMain:workflow_started', { runId });
 

@@ -175,13 +175,21 @@ export async function chatWorkflow(
   user?: {
     modelPreferences?: { model?: string } | null;
   } | null,
+  /**
+   * Per-message model override from the chat-box picker. When set, the main
+   * agent uses this model id for this run only; subsequent runs fall back
+   * to the user preference / global default unless the picker passes it
+   * again. Memory extraction inside this workflow deliberately ignores it
+   * (passes `undefined` to its own model resolution).
+   */
+  requestModel?: string | null,
 ) {
   'use workflow';
 
   const { workflowRunId: runId } = getWorkflowMetadata();
   const agentName = MAIN_AGENT_NAME;
   const { modelId, temperature, contextLimit, outputLimit } =
-    resolveMainAgentModelParams(config, user);
+    resolveMainAgentModelParams(config, user, requestModel);
   const system = await buildSystemPrompt(config, {
     agentName,
     enableFollowUpSuggestions:
