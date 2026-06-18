@@ -15,6 +15,7 @@ import {
   fileToComposerAttachment,
 } from '@/components/attachments';
 import { ArrowUpIcon, StopIcon } from '@/components/icons';
+import { ModelPicker } from '@/components/chat/model-picker';
 import {
   SlashCommandMenu,
   applySlashCommand,
@@ -52,6 +53,9 @@ function PureMultimodalInput({
   stop,
   sendMessage,
   className,
+  selectedModel,
+  allowedModels,
+  onSelectModel,
 }: {
   chatId: string;
   focusTrigger?: number;
@@ -65,6 +69,12 @@ function PureMultimodalInput({
     options?: ChatRequestOptions,
   ) => Promise<void>;
   className?: string;
+  /** Currently selected model id from the chat-box picker, or null for global default. */
+  selectedModel: string | null;
+  /** Models the user is allowed to pick (admin catalog or fallback). Empty list disables the picker. */
+  allowedModels: string[];
+  /** Called when the user picks a model (or null for "Use global default"). */
+  onSelectModel: (model: string | null) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -286,9 +296,12 @@ function PureMultimodalInput({
     resetHeight(textareaRef);
 
     try {
-      await sendMessage({
-        parts: nextParts,
-      });
+      await sendMessage(
+        {
+          parts: nextParts,
+        },
+        selectedModel ? { body: { model: selectedModel } } : undefined,
+      );
 
       if (width && width > 768) {
         textareaRef.current?.focus();
@@ -409,6 +422,14 @@ function PureMultimodalInput({
           }}
         />
 
+        <div className="absolute left-0 bottom-0 flex w-fit flex-row items-center gap-2 p-3">
+          <ModelPicker
+            allowedModels={allowedModels}
+            onSelectModel={onSelectModel}
+            selectedModel={selectedModel}
+          />
+        </div>
+
         <div className="absolute right-0 bottom-0 flex w-fit flex-row justify-end gap-2 p-3">
           <AttachmentButton onClick={() => fileInputRef.current?.click()} />
           {isLoading ? (
@@ -435,6 +456,9 @@ export const MultimodalInput = memo(
     if (prevProps.input !== nextProps.input) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
     if (prevProps.enterToSend !== nextProps.enterToSend) return false;
+    if (prevProps.selectedModel !== nextProps.selectedModel) return false;
+    if (prevProps.allowedModels !== nextProps.allowedModels) return false;
+    if (prevProps.onSelectModel !== nextProps.onSelectModel) return false;
 
     return true;
   },

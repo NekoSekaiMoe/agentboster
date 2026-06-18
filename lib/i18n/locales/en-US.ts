@@ -21,6 +21,9 @@ export const enUS = {
   'chat.followUp.placeholder': 'Ask a follow-up...',
   'chat.followUp.send': 'Send',
   'chat.followUp.title': 'Follow-up',
+  'chat.modelPicker.title': 'Model',
+  'chat.modelPicker.useDefault': 'Default',
+  'chat.modelPicker.moreAvailable': '{count} more available',
   'chat.newChat': 'New Chat',
   'chat.newConversation': 'New conversation',
   'chat.noConversations': 'No conversations yet',
@@ -101,9 +104,6 @@ export const enUS = {
   'config.sections.tools.description':
     'Toggle built-in tools and provide per-tool config.',
   'config.sections.tools.title': 'Tools',
-  'config.sections.preferences.description':
-    'Choose your personal default model. Background tasks use the global default.',
-  'config.sections.preferences.title': 'My Preferences',
   'config.agentd.agentbosterConnection': 'AgentBoster Connection',
   'config.agentd.agentbosterConnectionDescription':
     'How the Daemon connects back to AgentBoster.',
@@ -337,25 +337,6 @@ export const enUS = {
   'config.forms.models.catalogUseGlobal': 'Use global default',
   'config.forms.models.catalogOverrideHint':
     'Leave empty to use the global default.',
-  'config.forms.preferences.title': 'My Preferences',
-  'config.forms.preferences.description':
-    'Choose your personal default model. Unset fields fall back to the global default.',
-  'config.forms.preferences.model': 'Default model',
-  'config.forms.preferences.usingPersonal':
-    'Using your personal preference: {model}',
-  'config.forms.preferences.usingGlobal':
-    'Currently using the global default: {model}',
-  'config.forms.preferences.noModelSet':
-    'No model set. Pick one or ask the administrator to set a global default.',
-  'config.forms.preferences.allowedModelsHint':
-    'Pick from the list, or type any model id.',
-  'config.forms.preferences.allowedModelsEmpty':
-    'No preset list — type any model id.',
-  'config.forms.preferences.save': 'Save',
-  'config.forms.preferences.clear': 'Clear (use global default)',
-  'config.forms.preferences.saved': 'Preference saved.',
-  'config.forms.preferences.cleared':
-    'Preference cleared. Will use the global default.',
   'config.forms.tools.builtinDescription':
     'Each built-in tool can be toggled and configured with string key-value pairs.',
   'config.forms.tools.builtinTools': 'Built-in tools',
@@ -419,7 +400,6 @@ export const enUS = {
   'nav.modelProviders': 'Model Providers',
   'nav.notifications': 'Notifications',
   'nav.operations': 'Operations',
-  'nav.preferences': 'My Preferences',
   'nav.rawJson': 'Raw JSON',
   'nav.schedule': 'Schedule',
   'nav.security': 'Security',

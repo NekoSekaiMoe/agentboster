@@ -112,6 +112,13 @@ type LegacyChatMainRequest = {
   messages?: WorkflowUIMessage[];
   sessionId?: string;
   uiMessageId?: string;
+  /**
+   * Per-message model override from the chat-box picker. When set, takes
+   * precedence over the user's persistent preference and the global default
+   * for this single run. The next run falls back to the normal chain
+   * unless the caller passes it again.
+   */
+  requestModel?: string;
 };
 
 type ChatMainOptions = {
@@ -1497,9 +1504,21 @@ export async function chatMain(
   const user = userId ? await getUserById(userId) : null;
 
   const effectiveModelId =
-    user?.modelPreferences?.model ?? config.models?.model ?? null;
+    request.requestModel ??
+    user?.modelPreferences?.model ??
+    config.models?.model ??
+    null;
 
-  chatMainLogger.info('chatMain:building_initial_messages');
+  chatMainLogger.info('chatMain:building_initial_messages', {
+    effectiveModelId,
+    modelSource: request.requestModel
+      ? 'request'
+      : user?.modelPreferences?.model
+        ? 'user-pref'
+        : config.models?.model
+          ? 'global'
+          : 'none',
+  });
   const initialMessages = await buildInitialContextMessages(session.id, {
     modelId: effectiveModelId,
   });

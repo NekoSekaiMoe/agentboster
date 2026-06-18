@@ -23,6 +23,9 @@ export const ja = {
   'chat.followUp.placeholder': 'フォローアップを入力...',
   'chat.followUp.send': '送信',
   'chat.followUp.title': 'フォローアップ',
+  'chat.modelPicker.title': 'モデル',
+  'chat.modelPicker.useDefault': '既定',
+  'chat.modelPicker.moreAvailable': '他 {count} 個利用可能',
   'chat.newChat': '新規チャット',
   'chat.newConversation': '新しい会話',
   'chat.noConversations': '会話はまだありません',
@@ -104,9 +107,6 @@ export const ja = {
   'config.sections.tools.description':
     '組み込みツールの有効化とツール別設定を行います。',
   'config.sections.tools.title': 'ツール',
-  'config.sections.preferences.description':
-    '個人の既定モデルを選択します。バックグラウンドタスクはグローバル既定を使用します。',
-  'config.sections.preferences.title': 'マイ設定',
   'config.agentd.agentbosterConnection': 'AgentBoster 接続',
   'config.agentd.agentbosterConnectionDescription':
     'Daemon が AgentBoster に接続し直す方法です。',
@@ -340,23 +340,6 @@ export const ja = {
   'config.forms.models.catalogUseGlobal': 'グローバル既定を使用',
   'config.forms.models.catalogOverrideHint':
     '空欄ならグローバル既定を使用します。',
-  'config.forms.preferences.title': 'マイ設定',
-  'config.forms.preferences.description':
-    '個人の既定モデルを選択します。未設定のフィールドはグローバル既定にフォールバックします。',
-  'config.forms.preferences.model': '既定モデル',
-  'config.forms.preferences.usingPersonal': '個人の設定を使用中：{model}',
-  'config.forms.preferences.usingGlobal': '現在グローバル既定を使用中：{model}',
-  'config.forms.preferences.noModelSet':
-    'モデルが未設定です。選択するか、管理者にグローバル既定の設定を依頼してください。',
-  'config.forms.preferences.allowedModelsHint':
-    'リストから選択するか、任意のモデル id を入力してください。',
-  'config.forms.preferences.allowedModelsEmpty':
-    'プリセットリストはありません——任意のモデル id を入力できます。',
-  'config.forms.preferences.save': '保存',
-  'config.forms.preferences.clear': 'クリア（グローバル既定を使用）',
-  'config.forms.preferences.saved': '設定を保存しました。',
-  'config.forms.preferences.cleared':
-    '設定をクリアしました。グローバル既定を使用します。',
   'config.forms.tools.builtinDescription':
     '各組み込みツールは切り替え可能で、文字列のキー値ペアで設定できます。',
   'config.forms.tools.builtinTools': '組み込みツール',
@@ -422,7 +405,6 @@ export const ja = {
   'nav.modelProviders': 'モデル Provider',
   'nav.notifications': '通知',
   'nav.operations': '運用',
-  'nav.preferences': 'マイ設定',
   'nav.rawJson': 'Raw JSON',
   'nav.schedule': 'スケジュール',
   'nav.security': 'セキュリティ',

@@ -20,6 +20,9 @@ export const zhCN = {
   'chat.followUp.placeholder': '输入追问...',
   'chat.followUp.send': '发送',
   'chat.followUp.title': '追问',
+  'chat.modelPicker.title': '模型',
+  'chat.modelPicker.useDefault': '默认',
+  'chat.modelPicker.moreAvailable': '还有 {count} 个可用',
   'chat.newChat': '新建对话',
   'chat.newConversation': '新对话',
   'chat.noConversations': '暂无对话',
@@ -88,9 +91,6 @@ export const zhCN = {
   'config.sections.security.title': '安全',
   'config.sections.tools.description': '开关内置工具并提供单工具配置。',
   'config.sections.tools.title': '工具',
-  'config.sections.preferences.description':
-    '选择你的个人默认模型。后台任务使用全局默认。',
-  'config.sections.preferences.title': '我的偏好',
   'config.agentd.agentbosterConnection': 'AgentBoster 连接',
   'config.agentd.agentbosterConnectionDescription':
     'Daemon 回连 AgentBoster 的方式。',
@@ -313,22 +313,6 @@ export const zhCN = {
     'anthropic/claude-sonnet-4-20250514',
   'config.forms.models.catalogUseGlobal': '使用全局默认',
   'config.forms.models.catalogOverrideHint': '留空则使用全局默认。',
-  'config.forms.preferences.title': '我的偏好',
-  'config.forms.preferences.description':
-    '选择你的个人默认模型。未设置的字段会回退到全局默认。',
-  'config.forms.preferences.model': '默认模型',
-  'config.forms.preferences.usingPersonal': '正在使用你的个人偏好：{model}',
-  'config.forms.preferences.usingGlobal': '当前使用全局默认：{model}',
-  'config.forms.preferences.noModelSet':
-    '未设置模型。请选择一个，或联系管理员设置全局默认。',
-  'config.forms.preferences.allowedModelsHint':
-    '从列表中选择，或输入任意模型 id。',
-  'config.forms.preferences.allowedModelsEmpty':
-    '未设置预设列表——可输入任意模型 id。',
-  'config.forms.preferences.save': '保存',
-  'config.forms.preferences.clear': '清除（使用全局默认）',
-  'config.forms.preferences.saved': '偏好已保存。',
-  'config.forms.preferences.cleared': '偏好已清除。将使用全局默认。',
   'config.forms.tools.builtinDescription':
     '每个内置工具都可以开关，并通过字符串键值对配置。',
   'config.forms.tools.builtinTools': '内置工具',
@@ -391,7 +375,6 @@ export const zhCN = {
   'nav.modelProviders': '模型 Provider',
   'nav.notifications': '通知',
   'nav.operations': '运维',
-  'nav.preferences': '我的偏好',
   'nav.rawJson': 'Raw JSON',
   'nav.schedule': '计划',
   'nav.security': '安全',

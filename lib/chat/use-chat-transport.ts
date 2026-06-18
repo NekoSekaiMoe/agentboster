@@ -55,6 +55,14 @@ export function useChatTransport(options: TransportOptions = {}) {
             typeof body === 'object' && body !== null
               ? (body as Record<string, unknown>)
               : {};
+          // Per-message model override from the chat-box picker. The caller
+          // (chat-input.tsx) passes { body: { model: selectedModel } } via
+          // sendMessage options. When unset, falls through to the user/global
+          // resolution chain on the server.
+          const requestModel =
+            typeof bodyRecord.model === 'string' && bodyRecord.model.trim()
+              ? bodyRecord.model.trim()
+              : undefined;
           const rawInput = bodyRecord.input;
           const bodyInput: Record<string, unknown> | null =
             typeof rawInput === 'object' && rawInput !== null
@@ -79,6 +87,7 @@ export function useChatTransport(options: TransportOptions = {}) {
               id: chatId,
               trigger,
               messageId,
+              model: requestModel,
               input: {
                 parts: targetParts,
                 text: targetParts

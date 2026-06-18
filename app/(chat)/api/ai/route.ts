@@ -30,6 +30,9 @@ const requestSchema = z.object({
   id: z.string(),
   trigger: z.enum(['submit-message', 'regenerate-message', 'route-message']),
   messageId: z.string().optional(),
+  // Per-message model override from the chat-box picker. Optional; when
+  // absent the server falls back to the user preference / global default.
+  model: z.string().optional(),
   input: z
     .object({
       text: z.string().optional(),
@@ -173,6 +176,7 @@ export async function POST(request: Request) {
         trigger: body.trigger,
         sessionId: body.id,
         uiMessageId: body.messageId,
+        requestModel: body.model,
         input,
         messages,
       },

@@ -23,6 +23,9 @@ export const ko = {
   'chat.followUp.placeholder': '후속 질문 입력...',
   'chat.followUp.send': '보내기',
   'chat.followUp.title': '후속 질문',
+  'chat.modelPicker.title': '모델',
+  'chat.modelPicker.useDefault': '기본',
+  'chat.modelPicker.moreAvailable': '추가 {count}개 사용 가능',
   'chat.newChat': '새 채팅',
   'chat.newConversation': '새 대화',
   'chat.noConversations': '아직 대화가 없습니다',
@@ -102,9 +105,6 @@ export const ko = {
   'config.sections.tools.description':
     '내장 도구를 켜거나 끄고 도구별 설정을 제공합니다.',
   'config.sections.tools.title': '도구',
-  'config.sections.preferences.description':
-    '개인 기본 모델을 선택하세요. 백그라운드 작업은 전역 기본값을 사용합니다.',
-  'config.sections.preferences.title': '내 환경설정',
   'config.agentd.agentbosterConnection': 'AgentBoster 연결',
   'config.agentd.agentbosterConnectionDescription':
     'Daemon이 AgentBoster에 연결하는 방법입니다.',
@@ -338,23 +338,6 @@ export const ko = {
   'config.forms.models.catalogUseGlobal': '전역 기본값 사용',
   'config.forms.models.catalogOverrideHint':
     '비워두면 전역 기본값을 사용합니다.',
-  'config.forms.preferences.title': '내 환경설정',
-  'config.forms.preferences.description':
-    '개인 기본 모델을 선택하세요. 설정하지 않은 필드는 전역 기본값으로 대체됩니다.',
-  'config.forms.preferences.model': '기본 모델',
-  'config.forms.preferences.usingPersonal': '개인 환경설정을 사용 중: {model}',
-  'config.forms.preferences.usingGlobal': '현재 전역 기본값을 사용 중: {model}',
-  'config.forms.preferences.noModelSet':
-    '모델이 설정되지 않았습니다. 하나를 선택하거나 관리자에게 전역 기본값 설정을 요청하세요.',
-  'config.forms.preferences.allowedModelsHint':
-    '목록에서 선택하거나, 임의의 모델 id를 입력하세요.',
-  'config.forms.preferences.allowedModelsEmpty':
-    '프리셋 목록이 없습니다 — 임의의 모델 id를 입력할 수 있습니다.',
-  'config.forms.preferences.save': '저장',
-  'config.forms.preferences.clear': '초기화(전역 기본값 사용)',
-  'config.forms.preferences.saved': '환경설정이 저장되었습니다.',
-  'config.forms.preferences.cleared':
-    '환경설정이 초기화되었습니다. 전역 기본값을 사용합니다.',
   'config.forms.tools.builtinDescription':
     '각 내장 도구는 토글할 수 있으며 문자열 키-값 쌍으로 설정할 수 있습니다.',
   'config.forms.tools.builtinTools': '내장 도구',
@@ -418,7 +401,6 @@ export const ko = {
   'nav.modelProviders': '모델 Provider',
   'nav.notifications': '알림',
   'nav.operations': '운영',
-  'nav.preferences': '내 환경설정',
   'nav.rawJson': '원본 JSON',
   'nav.schedule': '일정',
   'nav.security': '보안',

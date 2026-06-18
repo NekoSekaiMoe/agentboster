@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
+import { useLocalStorage } from 'usehooks-ts';
 
 import { ChatHeader } from '@/components/chat-header';
 import { useI18n } from '@/components/i18n-provider';
@@ -24,6 +25,7 @@ import { MobileDrawerBridge } from '@/components/mobile-drawer-bridge';
 import { SessionRuntimePanel } from '@/components/session-runtime-panel';
 import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { getUserModelPreferencesAction } from '@/app/(config)/actions';
 import {
   invalidateSessionList,
   upsertSessionListItem,
@@ -154,6 +156,30 @@ export function Chat({
   const [bootstrapStatusRunId, setBootstrapStatusRunId] = useState<
     string | null
   >(null);
+
+  // Chat-box model picker state. Persisted to localStorage so the user's
+  // last selection survives across refreshes / sessions (per ChatGPT-style
+  // UX). null = "Use global default".
+  const [selectedModel, setSelectedModel] = useLocalStorage<string | null>(
+    'chat-selected-model',
+    null,
+  );
+  const [allowedModels, setAllowedModels] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUserModelPreferencesAction()
+      .then((prefs) => {
+        if (cancelled) return;
+        setAllowedModels(prefs.allowedModels ?? []);
+      })
+      .catch(() => {
+        // Non-critical: picker stays disabled on empty list.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const lastWorkflowEventKeyRef = useRef<string | null>(null);
   const [shouldResumeStream, setShouldResumeStream] = useState(false);
   const [runtimePollingResumeKey, setRuntimePollingResumeKey] = useState(0);
@@ -915,6 +941,9 @@ export function Chat({
                     void cancelWorkflow();
                   }}
                   sendMessage={submitChatMessage}
+                  allowedModels={allowedModels}
+                  onSelectModel={setSelectedModel}
+                  selectedModel={selectedModel}
                 />
               </div>
             </form>

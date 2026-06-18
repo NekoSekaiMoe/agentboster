@@ -21,6 +21,9 @@ export const zhTW = {
   'chat.followUp.placeholder': '輸入追問...',
   'chat.followUp.send': '傳送',
   'chat.followUp.title': '追問',
+  'chat.modelPicker.title': '模型',
+  'chat.modelPicker.useDefault': '預設',
+  'chat.modelPicker.moreAvailable': '尚有 {count} 個可用',
   'chat.newChat': '新增對話',
   'chat.newConversation': '新對話',
   'chat.noConversations': '尚無對話',
@@ -89,9 +92,6 @@ export const zhTW = {
   'config.sections.security.title': '安全',
   'config.sections.tools.description': '開關內建工具並提供個別工具設定。',
   'config.sections.tools.title': '工具',
-  'config.sections.preferences.description':
-    '選擇你的個人預設模型。背景任務使用全域預設。',
-  'config.sections.preferences.title': '我的偏好',
   'config.agentd.agentbosterConnection': 'AgentBoster 連線',
   'config.agentd.agentbosterConnectionDescription':
     'Daemon 回連 AgentBoster 的方式。',
@@ -314,22 +314,6 @@ export const zhTW = {
     'anthropic/claude-sonnet-4-20250514',
   'config.forms.models.catalogUseGlobal': '使用全域預設',
   'config.forms.models.catalogOverrideHint': '留空則使用全域預設。',
-  'config.forms.preferences.title': '我的偏好',
-  'config.forms.preferences.description':
-    '選擇你的個人預設模型。未設定的欄位會回退到全域預設。',
-  'config.forms.preferences.model': '預設模型',
-  'config.forms.preferences.usingPersonal': '正在使用你的個人偏好：{model}',
-  'config.forms.preferences.usingGlobal': '目前使用全域預設：{model}',
-  'config.forms.preferences.noModelSet':
-    '未設定模型。請選擇一個，或聯絡管理員設定全域預設。',
-  'config.forms.preferences.allowedModelsHint':
-    '從清單中選擇，或輸入任意模型 id。',
-  'config.forms.preferences.allowedModelsEmpty':
-    '未設定預設清單——可輸入任意模型 id。',
-  'config.forms.preferences.save': '儲存',
-  'config.forms.preferences.clear': '清除（使用全域預設）',
-  'config.forms.preferences.saved': '偏好已儲存。',
-  'config.forms.preferences.cleared': '偏好已清除。將使用全域預設。',
   'config.forms.tools.builtinDescription':
     '每個內建工具都可以開關，並透過字串鍵值對設定。',
   'config.forms.tools.builtinTools': '內建工具',
@@ -392,7 +376,6 @@ export const zhTW = {
   'nav.modelProviders': '模型 Provider',
   'nav.notifications': '通知',
   'nav.operations': '維運',
-  'nav.preferences': '我的偏好',
   'nav.rawJson': 'Raw JSON',
   'nav.schedule': '排程',
   'nav.security': '安全',

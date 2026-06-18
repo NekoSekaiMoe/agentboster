@@ -24,7 +24,6 @@ import {
   Sparkles,
   SquareTerminal,
   Sun,
-  UserCircle,
   Users,
   Wrench,
 } from 'lucide-react';
@@ -126,11 +125,6 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
   {
     labelKey: 'nav.workspace',
     items: [
-      {
-        labelKey: 'nav.preferences',
-        href: '/config/preferences',
-        icon: UserCircle,
-      },
       {
         labelKey: 'nav.memory',
         href: '/memory',
