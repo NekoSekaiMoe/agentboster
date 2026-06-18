@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 
     const results = await searchLongTermMemories({
       query: keywordList.join(' '),
-      minConfidence: 0.1,
+      minConfidence: 0.005,
       pageSize: limit,
     });
 

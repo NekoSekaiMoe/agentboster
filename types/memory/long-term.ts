@@ -74,7 +74,7 @@ export type LongTermMemoryListQuery = z.infer<
 
 export const longTermMemorySearchQuerySchema = z.object({
   query: z.string().trim().min(1).optional(),
-  minConfidence: z.coerce.number().min(0).max(1).default(0.1),
+  minConfidence: z.coerce.number().min(0).max(1).default(0.005),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
 });

@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
         const query = (params?.query as string) || '';
         const results = await searchLongTermMemories({
           query,
-          minConfidence: (params?.min_confidence as number) || 0.2,
+          minConfidence: (params?.min_confidence as number) || 0.005,
           page: 1,
           pageSize: 10,
         });
