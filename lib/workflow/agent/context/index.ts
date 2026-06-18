@@ -4,7 +4,11 @@ import {
   toModelMessage,
 } from '@/lib/chat/message-utils';
 import { getSessionMessages } from '@/lib/core/db/chat';
-import { getCurrentSessionSummary } from '@/lib/memory';
+import {
+  formatRecalledMemoriesForContext,
+  getCurrentSessionSummary,
+  recallRelevantMemories,
+} from '@/lib/memory';
 import type { WorkflowUIMessage } from '@/types/workflow';
 import type { ModelMessage } from 'ai';
 
@@ -116,19 +120,61 @@ export async function buildPostSummaryConversationMessages(
   };
 }
 
+/**
+ * Build the initial ModelMessage[] for a chat run.
+ *
+ * Optionally retrieves the top-K most relevant long-term memories for the
+ * user's latest message and injects them as a system-prefixed user message
+ * at the start. This auto-RAG path is the primary mechanism by which
+ * personal context (location, preferences, schedule) reaches the model —
+ * it does not rely on the agent proactively calling readMemory, which
+ * small/mid models frequently skip even when prompted.
+ *
+ * Auto-RAG is opt-in via the `recallUserId` + `recallQuery` options. When
+ * either is absent (e.g. anonymous chat, /init-agents-md path, compression
+ * re-runs), no recall happens and the output matches the prior behavior.
+ */
 export async function buildInitialContextMessages(
   sessionId: string,
   options?: {
     modelId?: string | null;
     allowFileParts?: boolean;
+    /**
+     * User id to scope the long-term memory recall. When null/undefined,
+     * no auto-recall happens.
+     */
+    recallUserId?: string | null;
+    /**
+     * The user's latest message text, used as the semantic query for
+     * memory recall. When null/undefined/empty, no auto-recall happens.
+     */
+    recallQuery?: string | null;
   },
 ): Promise<ModelMessage[]> {
-  const { summaryText, modelMessages } =
-    await buildPostSummaryConversationMessages(sessionId, options);
+  const [{ summaryText, modelMessages }, recalledMemories] = await Promise.all([
+    buildPostSummaryConversationMessages(sessionId, options),
+    options?.recallUserId && options?.recallQuery
+      ? recallRelevantMemories({
+          userId: options.recallUserId,
+          query: options.recallQuery,
+        })
+      : Promise.resolve([]),
+  ]);
 
-  return summaryText
-    ? [createSummaryModelMessage(summaryText), ...modelMessages]
-    : modelMessages;
+  const recalledContext = formatRecalledMemoriesForContext(recalledMemories);
+
+  const prefix: ModelMessage[] = [];
+  if (recalledContext) {
+    prefix.push({
+      role: 'user',
+      content: recalledContext,
+    });
+  }
+  if (summaryText) {
+    prefix.push(createSummaryModelMessage(summaryText));
+  }
+
+  return [...prefix, ...modelMessages];
 }
 
 export async function buildCompressionConversationMessages(sessionId: string) {

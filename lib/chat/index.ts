@@ -1509,6 +1509,8 @@ export async function chatMain(
   });
   const initialMessages = await buildInitialContextMessages(session.id, {
     modelId: effectiveModelId,
+    recallUserId: userId,
+    recallQuery: request.input.text ?? null,
   });
   chatMainLogger.info('chatMain:initial_messages_built', {
     messageCount: initialMessages.length,
