@@ -31,6 +31,15 @@ const MAX_CANDIDATE_POOL = 200;
 /** RRF constant k — controls how quickly rank position diminishes score contribution. */
 const RRF_K = 60;
 
+/**
+ * Theoretical maximum RRF score: a chunk ranked #0 in BOTH the vector and
+ * keyword lists contributes `1/(RRF_K+1)` from each, so
+ * `MAX_RRF_SCORE = 2 / (RRF_K + 1)`. Used to normalise `finalScore` to the
+ * 0-1 range so `minConfidence` thresholds read as intuitive percentages
+ * (0.5 ≈ "very strong match", 0.1 ≈ "weak but above noise").
+ */
+const MAX_RRF_SCORE = 2 / (RRF_K + 1);
+
 /** Default decay rate for memory aging. Higher = faster decay. */
 const DEFAULT_DECAY_RATE = 0.05;
 
@@ -191,7 +200,8 @@ export function mergeHybridSearchCandidates(input: {
       content: entry.content,
       vectorScore: entry.vectorScore,
       keywordScore: entry.keywordScore,
-      finalScore: entry.rrfScore * decayFactor,
+      // Normalise to 0-1: a perfect double-rank-0 match with no decay = 1.0.
+      finalScore: (entry.rrfScore * decayFactor) / MAX_RRF_SCORE,
     });
   }
 

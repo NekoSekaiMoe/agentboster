@@ -52,7 +52,7 @@ export async function executeMemoryCommand(args: string): Promise<string> {
       if (!restText) return 'Usage: /memory search <query>';
       const results = await searchLongTermMemories({
         query: restText,
-        minConfidence: 0.005,
+        minConfidence: 0.05,
         pageSize: 5,
       });
       return `**Search results:**\n${formatSearchResults(results)}`;
@@ -62,7 +62,7 @@ export async function executeMemoryCommand(args: string): Promise<string> {
       const query = trimmed;
       const [sections, results] = await Promise.all([
         listBuiltinMemorySections(),
-        searchLongTermMemories({ query, minConfidence: 0.005, pageSize: 5 }),
+        searchLongTermMemories({ query, minConfidence: 0.05, pageSize: 5 }),
       ]);
 
       const builtinMatch = sections

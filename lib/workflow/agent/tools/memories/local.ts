@@ -23,10 +23,10 @@ const readMemoryInputSchema = z.object({
   sessionId: z.string().uuid().optional(),
   query: z.string().min(1).optional(),
   keywords: z.array(z.string()).optional(),
-  // Default 0.005: search.ts merges vector + keyword candidates via Reciprocal
-  // Rank Fusion with RRF_K=60, so finalScore is at most ~2/61 ≈ 0.033 (perfect
-  // double-rank-0 match). The previous default 0.1 filtered out everything.
-  minConfidence: z.number().min(0).max(1).default(0.005).optional(),
+  // Default 0.05: search.ts normalises RRF scores to 0-1 (perfect double-rank-0
+  // match = 1.0), so 0.05 ≈ "weak but above noise" — single-list rank-0 is 0.5,
+  // single-list rank-10 ≈ 0.16, double-list rank-10 ≈ 0.32.
+  minConfidence: z.number().min(0).max(1).default(0.05).optional(),
   page: z.number().int().min(1).default(1).optional(),
   pageSize: z.number().int().min(1).max(50).default(10).optional(),
 });
@@ -101,7 +101,7 @@ async function executeReadMemoryStep(input: {
         const results = await searchLongTermMemories({
           query: value.query,
           keywords: value.keywords,
-          minConfidence: value.minConfidence ?? 0.005,
+          minConfidence: value.minConfidence ?? 0.05,
           page,
           pageSize,
           userId,

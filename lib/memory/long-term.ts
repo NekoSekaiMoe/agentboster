@@ -230,7 +230,7 @@ export async function listLongTermMemories(input?: {
   if (input?.search) {
     const results = await searchLongTermMemories({
       query: input.search,
-      minConfidence: 0.005,
+      minConfidence: 0.05,
       page,
       pageSize,
       userId: input.userId,
