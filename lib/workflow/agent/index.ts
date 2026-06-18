@@ -39,14 +39,9 @@ import { sanitizeToolName } from './tools/tool-name-guard';
 import { getTokenUsageTotal } from './types';
 import {
   MAIN_AGENT_NAME,
-  getMainAgentTemperature,
-  resolveMainAgentModelId,
+  resolveMainAgentModelParams,
 } from './utils/agent-config';
 import { estimatePromptTokens } from './utils/estimateTokens';
-import {
-  resolveModelContextLimit,
-  resolveModelMaxOutputTokens,
-} from './utils/model-context';
 import { evaluateCompactionNeed } from './utils/shouldCompress';
 
 const logger = createLogger('workflow.agent');
@@ -185,8 +180,8 @@ export async function chatWorkflow(
 
   const { workflowRunId: runId } = getWorkflowMetadata();
   const agentName = MAIN_AGENT_NAME;
-  const modelId = resolveMainAgentModelId(config, user);
-  const temperature = getMainAgentTemperature(config);
+  const { modelId, temperature, contextLimit, outputLimit } =
+    resolveMainAgentModelParams(config, user);
   const system = await buildSystemPrompt(config, {
     agentName,
     enableFollowUpSuggestions:
@@ -209,16 +204,6 @@ export async function chatWorkflow(
     // under 'system' and invisible in the memory tab.
     userId: 'userId' in source ? (source.userId ?? undefined) : undefined,
   });
-  const autoContextLimit = resolveModelContextLimit(
-    modelId,
-    config.models?.context_limit,
-  );
-  const contextLimit = autoContextLimit;
-  const configuredOutputLimit = config.models?.max_output_tokens;
-  const outputLimit = resolveModelMaxOutputTokens(
-    modelId,
-    configuredOutputLimit,
-  );
   const maxSteps = Math.max(
     1,
     config.autonomy?.max_steps ?? DEFAULT_MAIN_MAX_STEPS,

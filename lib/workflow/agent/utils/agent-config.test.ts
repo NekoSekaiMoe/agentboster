@@ -5,6 +5,7 @@ import {
   getAgentModelId,
   getMainAgentModelId,
   resolveMainAgentModelId,
+  resolveMainAgentModelParams,
 } from './agent-config';
 
 function makeConfig(model?: string): AppConfig {
@@ -84,5 +85,141 @@ describe('resolveMainAgentModelId (per-user override)', () => {
 describe('MAIN_AGENT_NAME', () => {
   it('is the string "main"', () => {
     expect(MAIN_AGENT_NAME).toBe('main');
+  });
+});
+
+describe('resolveMainAgentModelParams (catalog overrides)', () => {
+  it('returns global defaults when no catalog entry exists for the resolved model', () => {
+    const config = {
+      models: {
+        model: 'gpt-4o',
+        temperature: 0.5,
+        context_limit: 100000,
+        max_output_tokens: 4096,
+      },
+    } as AppConfig;
+
+    const result = resolveMainAgentModelParams(config, null);
+    expect(result.modelId).toBe('gpt-4o');
+    expect(result.temperature).toBe(0.5);
+    expect(result.contextLimit).toBe(100000);
+    expect(result.outputLimit).toBe(4096);
+  });
+
+  it('applies catalog overrides for the resolved model', () => {
+    const config = {
+      models: {
+        model: 'gpt-4o',
+        temperature: 0.5,
+        context_limit: 100000,
+        max_output_tokens: 4096,
+        model_catalog: {
+          'gpt-4o': {
+            temperature: 0.9,
+            context_limit: 50000,
+            max_output_tokens: 8192,
+          },
+        },
+      },
+    } as AppConfig;
+
+    const result = resolveMainAgentModelParams(config, null);
+    expect(result.modelId).toBe('gpt-4o');
+    expect(result.temperature).toBe(0.9);
+    expect(result.contextLimit).toBe(50000);
+    expect(result.outputLimit).toBe(8192);
+  });
+
+  it('falls back to global default for any field the catalog entry leaves unset', () => {
+    const config = {
+      models: {
+        model: 'gpt-4o',
+        temperature: 0.5,
+        context_limit: 100000,
+        max_output_tokens: 4096,
+        model_catalog: {
+          'gpt-4o': {
+            temperature: 0.9,
+            // context_limit and max_output_tokens intentionally absent
+          },
+        },
+      },
+    } as AppConfig;
+
+    const result = resolveMainAgentModelParams(config, null);
+    expect(result.temperature).toBe(0.9);
+    expect(result.contextLimit).toBe(100000);
+    expect(result.outputLimit).toBe(4096);
+  });
+
+  it('honors per-user preference when looking up the catalog entry', () => {
+    const config = {
+      models: {
+        model: 'gpt-4o',
+        temperature: 0.5,
+        context_limit: 100000,
+        max_output_tokens: 4096,
+        model_catalog: {
+          'claude-sonnet-4': {
+            temperature: 0.2,
+            context_limit: 200000,
+            max_output_tokens: 16384,
+          },
+        },
+      },
+    } as AppConfig;
+
+    const user = { modelPreferences: { model: 'claude-sonnet-4' } };
+    const result = resolveMainAgentModelParams(config, user);
+    expect(result.modelId).toBe('claude-sonnet-4');
+    expect(result.temperature).toBe(0.2);
+    expect(result.contextLimit).toBe(200000);
+    expect(result.outputLimit).toBe(16384);
+  });
+
+  it('falls back to built-in per-model context table when neither catalog nor config set context_limit', () => {
+    const config = {
+      models: {
+        model: 'gpt-4o',
+        // no context_limit, no catalog
+      },
+    } as AppConfig;
+
+    const result = resolveMainAgentModelParams(config, null);
+    // gpt-4o has a built-in 128_000 entry in MODEL_CONTEXT_SIZES
+    expect(result.contextLimit).toBe(128_000);
+  });
+
+  it('falls back to built-in per-model output heuristics when neither catalog nor config set max_output_tokens', () => {
+    const config = {
+      models: {
+        model: 'claude-sonnet-4',
+        // no max_output_tokens, no catalog
+      },
+    } as AppConfig;
+
+    const result = resolveMainAgentModelParams(config, null);
+    // claude* models have a built-in 8_192 heuristic
+    expect(result.outputLimit).toBe(8_192);
+  });
+
+  it('empty catalog object ({}) means "use global defaults for this model"', () => {
+    const config = {
+      models: {
+        model: 'gpt-4o',
+        temperature: 0.7,
+        context_limit: 50000,
+        max_output_tokens: 2048,
+        model_catalog: {
+          'gpt-4o': {},
+        },
+      },
+    } as AppConfig;
+
+    const result = resolveMainAgentModelParams(config, null);
+    expect(result.modelId).toBe('gpt-4o');
+    expect(result.temperature).toBe(0.7);
+    expect(result.contextLimit).toBe(50000);
+    expect(result.outputLimit).toBe(2048);
   });
 });

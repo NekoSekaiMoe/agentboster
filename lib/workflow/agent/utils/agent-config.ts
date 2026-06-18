@@ -1,4 +1,8 @@
 import type { AppConfig } from '@/types/config';
+import {
+  resolveModelContextLimit,
+  resolveModelMaxOutputTokens,
+} from './model-context';
 
 export const MAIN_AGENT_NAME = 'main';
 
@@ -76,4 +80,46 @@ export function getDelegatableAgentNames(
   return Object.keys(config.agents ?? {}).filter(
     (agentName) => agentName !== currentAgentName,
   );
+}
+
+/**
+ * Resolved model parameters for the main agent, honoring per-model overrides
+ * from `config.models.model_catalog` when the resolved model id has an entry.
+ *
+ * Resolution order for each field:
+ *  - `modelId`: per-user preference → global default (see {@link resolveMainAgentModelId}).
+ *  - `temperature`: catalog override → `config.models.temperature`.
+ *  - `contextLimit`: catalog override → `config.models.context_limit` →
+ *    built-in per-model table (see {@link resolveModelContextLimit}).
+ *  - `outputLimit`: catalog override → `config.models.max_output_tokens` →
+ *    built-in per-model heuristics (see {@link resolveModelMaxOutputTokens}).
+ *
+ * Background tasks (task-summary, task-memory, compress, L1 scorer) deliberately
+ * keep using {@link getMainAgentModelId} + the global fields directly — they
+ * have no owning user and no per-message model pick, so catalog overrides
+ * don't apply to them.
+ */
+export function resolveMainAgentModelParams(
+  config: AppConfig,
+  user: UserLike,
+): {
+  modelId: string;
+  temperature: number | undefined;
+  contextLimit: number;
+  outputLimit: number;
+} {
+  const modelId = resolveMainAgentModelId(config, user);
+  const catalogEntry = config.models?.model_catalog?.[modelId];
+
+  const temperature = catalogEntry?.temperature ?? config.models?.temperature;
+  const contextLimit = resolveModelContextLimit(
+    modelId,
+    catalogEntry?.context_limit ?? config.models?.context_limit,
+  );
+  const outputLimit = resolveModelMaxOutputTokens(
+    modelId,
+    catalogEntry?.max_output_tokens ?? config.models?.max_output_tokens,
+  );
+
+  return { modelId, temperature, contextLimit, outputLimit };
 }
