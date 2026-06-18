@@ -261,7 +261,6 @@ export const COMMANDS = [
   'compact',
   'decisions',
   'model',
-  'models',
   'provider',
   'config',
   'memory',

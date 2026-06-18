@@ -438,13 +438,6 @@ export const ja = {
   'cmd.retry.noSession': 'アクティブなセッションがありません。',
   'cmd.retry.retrying': '最後のメッセージを再試行しています...',
   'cmd.retry.failed': '再試行に失敗しました',
-  'cmd.models.usage':
-    '使い方：/models provider/model\n例：/models anthropic/claude-opus-4',
-  'cmd.models.noSession': 'アクティブなセッションがありません。',
-  'cmd.models.invalidFormat':
-    'フォーマットエラー。使い方：/models provider/model\n例：/models anthropic/claude-opus-4',
-  'cmd.models.success': '{provider}/{model} に切り替えました',
-  'cmd.models.failed': 'モデルの切り替えに失敗しました：{error}',
   'cmd.lang.prompt': '言語を選択してください：',
   'cmd.lang.success': '言語を {language} に切り替えました',
   'cmd.lang.failed': '言語の切り替えに失敗しました：{error}',
@@ -480,7 +473,6 @@ export const ja = {
   'slash.command.retry.description': '最後に失敗したリクエストを再試行',
   'slash.command.version.description': 'AgentBoster のバージョン情報を表示',
   'slash.command.id.description': '現在のセッション ID とユーザー ID を表示',
-  'slash.command.models.description': 'provider/model 形式で model を迅速切替',
   'slash.command.lang.description': 'インターフェース言語を変更',
   'slash.command.help.hint': '/help',
   'slash.command.new.hint': '/new',
@@ -508,7 +500,6 @@ export const ja = {
   'slash.command.retry.hint': '/retry',
   'slash.command.version.hint': '/version',
   'slash.command.id.hint': '/id',
-  'slash.command.models.hint': '/models <provider/model>',
   'slash.command.lang.hint': '/lang [language-code]',
   'cmd.help.header': '利用可能なスラッシュコマンド：',
   'cmd.status.noSession':

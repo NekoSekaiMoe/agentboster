@@ -64,7 +64,6 @@ const COMMAND_ICONS: Record<Command, typeof Wand2> = {
   retry: RotateCcw,
   version: Info,
   id: Hash,
-  models: Hash,
   lang: Languages,
 };
 

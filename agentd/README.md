@@ -39,7 +39,7 @@ syncs with the Web API.
 **IM Commands** — Users interact with AgentBoster via IM channels (Telegram/Discord/Slack/Feishu/Teams).
 All IM traffic is handled by AgentBoster Web; the daemon only receives task execution requests via mTLS.
 
-Common commands: `/start`, `/new`, `/session`, `/stop`, `/cancel`, `/retry`, `/model`, `/models`,
+Common commands: `/start`, `/new`, `/session`, `/stop`, `/cancel`, `/retry`, `/model`,
 `/approve`, `/reject`, `/reset`, `/lang`, `/help`. See [main README](../README.md#im-commands) for the full list.
 
 ---

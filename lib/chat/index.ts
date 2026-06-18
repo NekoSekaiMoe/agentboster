@@ -51,7 +51,6 @@ import { executeIdCommand } from './commands/id';
 import { executeLangCommand } from './commands/lang';
 import { executeMemoryCommand } from './commands/memory';
 import { executeModelCommand } from './commands/model';
-import { executeModelsCommand } from './commands/models';
 import { executePairCommand, executeUnpairCommand } from './commands/pair';
 import { executeProviderCommand } from './commands/provider';
 import { executeResetCommand } from './commands/reset';
@@ -1212,17 +1211,6 @@ async function executeCommand(input: {
       return {
         sessionId: currentSessionId,
         text: result.text ?? t(locale, 'cmd.retry.failed'),
-        runId: session?.workflowRunId ?? null,
-      };
-    }
-    case 'models': {
-      const result = await executeModelsCommand(locale, {
-        args: input.args,
-        sessionId: session?.id ?? null,
-      });
-      return {
-        sessionId: currentSessionId,
-        text: result.text,
         runId: session?.workflowRunId ?? null,
       };
     }

@@ -286,7 +286,6 @@ AgentBoster 支持通过 IM 渠道（Telegram/Discord/Slack/Feishu/Teams）使�
 
 ### 配置管理
 - `/model [model-id]` - 显示或切换模型
-- `/models <provider/model>` - 快速切换模型（如 `/models anthropic/claude-opus-4`）
 - `/provider` - 管理模型提供商
 - `/config [path] [value]` - 显示或设置配置
 - `/lang [code]` - 切换语言（支持 en-US/zh-CN/zh-TW/ja/ko 等）

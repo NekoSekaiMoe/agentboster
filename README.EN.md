@@ -341,7 +341,6 @@ AgentBoster supports the following commands via IM channels (Telegram/Discord/Sl
 
 ### Configuration Management
 - `/model [model-id]` - Show or switch model
-- `/models <provider/model>` - Quick switch model (e.g., `/models anthropic/claude-opus-4`)
 - `/provider` - Manage model providers
 - `/config [path] [value]` - Show or set configuration
 - `/lang [code]` - Switch language (supports en-US/zh-CN/zh-TW/ja/ko, etc.)

@@ -432,13 +432,6 @@ export const enUS = {
   'cmd.retry.noSession': 'No active session.',
   'cmd.retry.retrying': 'Retrying last message...',
   'cmd.retry.failed': 'Retry failed',
-  'cmd.models.usage':
-    'Usage: /models provider/model\nExample: /models anthropic/claude-opus-4',
-  'cmd.models.noSession': 'No active session.',
-  'cmd.models.invalidFormat':
-    'Invalid format. Usage: /models provider/model\nExample: /models anthropic/claude-opus-4',
-  'cmd.models.success': 'Switched to {provider}/{model}',
-  'cmd.models.failed': 'Failed to switch model: {error}',
   'cmd.lang.prompt': 'Please select your language:',
   'cmd.lang.success': 'Language changed to {language}',
   'cmd.lang.failed': 'Failed to change language: {error}',
@@ -502,9 +495,6 @@ export const enUS = {
   'slash.command.version.hint': '/version',
   'slash.command.id.description': 'Show current session and user IDs',
   'slash.command.id.hint': '/id',
-  'slash.command.models.description':
-    'Quick switch model with provider/model format',
-  'slash.command.models.hint': '/models <provider/model>',
   'slash.command.lang.description': 'Change interface language',
   'slash.command.lang.hint': '/lang [language-code]',
   'cmd.help.header': 'Available slash commands:',
