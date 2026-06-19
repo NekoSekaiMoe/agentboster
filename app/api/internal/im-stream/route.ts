@@ -197,6 +197,7 @@ async function drainStream(args: DrainArgs): Promise<void> {
   let fullText = '';
   let lastEditedText = '';
   let lastEditAt = 0;
+  let editInFlight: Promise<void> | null = null;
   const emittedToolCallIds = new Set<string>();
   let typingTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -218,11 +219,16 @@ async function drainStream(args: DrainArgs): Promise<void> {
         return;
       }
     }
+    // Snapshot the text we're sending — fullText can keep growing
+    // while this HTTP call is in flight (more text-delta chunks
+    // arriving). We commit lastEditedText to THIS snapshot so the
+    // next edit only fires when there's something newer.
+    const textBeingSent = fullText;
     try {
       await adapter.editMessage(source.threadId, messageId, {
-        markdown: fullText,
+        markdown: textBeingSent,
       });
-      lastEditedText = fullText;
+      lastEditedText = textBeingSent;
       lastEditAt = Date.now();
     } catch (error) {
       logger.warn('edit_failed', {
@@ -232,6 +238,21 @@ async function drainStream(args: DrainArgs): Promise<void> {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  };
+
+  // Serialize edits: never let two editMessage calls race on the same
+  // message. Telegram rejects overlapping edits ("message is not
+  // modified" / rate limit), and the last-writer-wins semantics of
+  // lastEditedText break under concurrency. Each edit awaits the
+  // previous one, then re-checks whether there's still new text to
+  // send (more may have arrived during the wait).
+  const scheduleEdit = (force: boolean): Promise<void> => {
+    const prev = editInFlight ?? Promise.resolve();
+    const next = prev.then(() => tryEdit(force));
+    editInFlight = next.catch(() => {
+      // swallow — tryEdit already logged; keep the chain alive
+    });
+    return editInFlight;
   };
 
   try {
@@ -269,8 +290,9 @@ async function drainStream(args: DrainArgs): Promise<void> {
               });
             }
           } else {
-            // Throttled edits; the helper checks delta + interval.
-            void tryEdit(false);
+            // Throttled edits; scheduleEdit serializes them so we
+            // never race two editMessage calls on the same message.
+            void scheduleEdit(false);
           }
         }
       } else if (type === 'tool-input-available' || type === 'tool-call') {
@@ -287,7 +309,7 @@ async function drainStream(args: DrainArgs): Promise<void> {
                 .join(' ')
             : 'tool';
           fullText += `\n\n🔧 ${label}...\n\n`;
-          if (messageId) void tryEdit(false);
+          if (messageId) void scheduleEdit(false);
         }
       }
     }
@@ -296,7 +318,11 @@ async function drainStream(args: DrainArgs): Promise<void> {
     if (typingTimer) clearInterval(typingTimer);
   }
 
-  // Final flush: ensure the complete text is reflected.
+  // Final flush: wait for any in-flight edit, then force one last
+  // edit so the message reflects the complete text. Without waiting
+  // for the in-flight edit, we'd race two edits on the same message
+  // and one could clobber the final content (causing truncation).
+  if (editInFlight) await editInFlight;
   if (messageId && fullText && fullText !== lastEditedText) {
     await tryEdit(true);
   }
