@@ -21,6 +21,18 @@ function isAlwaysBypassPath(pathname: string): boolean {
     return true;
   }
 
+  // Internal IM stream-consumer endpoint. Triggered fire-and-forget by
+  // routeAdapterMessage right after startWorkflow. Carries a workflow
+  // runId (unguessable ULID, wrun_...) + IM threadId; both values
+  // originated from an already-authenticated webhook callback. There is
+  // no user session to check (this is a server-to-server fetch), and
+  // the endpoint is idempotent w.r.t. an unknown runId (the workflow
+  // readable just closes empty). Authenticated via the unguessable
+  // runId rather than a session cookie.
+  if (pathname === '/api/internal/im-stream') {
+    return true;
+  }
+
   return isPublicAssetPath(pathname);
 }
 
