@@ -1,7 +1,4 @@
-import { assertBotAuthSecret, getAppBaseUrl } from '@/lib/bot/webhook';
-import { getScheduledTask, updateScheduledTask } from '@/lib/core/db/scheduled';
 import { createLogger } from '@/lib/utils/logger';
-import { ofetch } from 'ofetch';
 import { sleep } from 'workflow';
 import { computeNextDailyRunAt, getDefaultScheduleTimezone } from './utils';
 
@@ -10,18 +7,24 @@ const logger = createLogger('workflow.scheduled');
 async function readScheduledTask(taskId: string) {
   'use step';
 
+  const { getScheduledTask } = await import('@/lib/core/db/scheduled');
   return getScheduledTask(taskId);
 }
 
 async function persistNextRunAt(taskId: string, nextRunAt: Date | null) {
   'use step';
 
+  const { updateScheduledTask } = await import('@/lib/core/db/scheduled');
   await updateScheduledTask(taskId, { nextRunAt });
 }
 
 async function postScheduledTrigger(taskId: string, scheduledFor: string) {
   'use step';
 
+  const { assertBotAuthSecret, getAppBaseUrl } = await import(
+    '@/lib/bot/webhook'
+  );
+  const { ofetch } = await import('ofetch');
   const response = await ofetch.raw(
     `${getAppBaseUrl()}/api/bot/${assertBotAuthSecret()}/schedule`,
     {

@@ -363,7 +363,7 @@ export function AgentsForm() {
                   </Field>
 
                   {/* P2.2: quick presets for common package registries */}
-                  <div className="md:col-span-2 flex flex-wrap gap-2 text-xs">
+                  <div className="flex flex-wrap gap-2 text-xs md:col-span-2">
                     <span className="self-center text-muted-foreground">
                       Presets:
                     </span>

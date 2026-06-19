@@ -1,24 +1,3 @@
-import {
-  readFile as readLocalFile,
-  rm as removeLocalFile,
-} from 'node:fs/promises';
-import { put } from '@/lib/core/blob';
-import { createFileRecord } from '@/lib/core/db/files';
-import {
-  downloadSandboxFileAction,
-  readSandboxFileAction,
-  resolveSandboxPublicPortAction,
-  runSandboxCommandAction,
-  writeSandboxFileAction,
-} from '@/lib/core/sandbox';
-import {
-  SANDBOX_MAX_OUTPUT_LENGTH,
-  SANDBOX_PUBLIC_PORTS,
-  SANDBOX_TIMEOUT_MS,
-  nowIso,
-  patchSandboxRuntime,
-  truncateStreamOutput,
-} from '@/lib/core/sandbox/runtime';
 import { approvalHookBuilder } from '@/lib/workflow/agent/hooks';
 import { sendApprovalRequestReminderStep } from '@/lib/workflow/agent/sender/bot-steps';
 import {
@@ -29,6 +8,10 @@ import {
 import { tool } from 'ai';
 import { z } from 'zod';
 import { defineBuildInTool } from '../define';
+
+const SANDBOX_TIMEOUT_MS = 5 * 60 * 1000;
+const SANDBOX_MAX_OUTPUT_LENGTH = 30_000;
+const SANDBOX_PUBLIC_PORTS = [3000, 4173, 5173] as const;
 
 const execInputSchema = z.object({
   command: z.string().min(1),
@@ -199,6 +182,26 @@ function parseAgentdResult(raw: string): {
   }
 }
 
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function truncateStreamOutput(
+  output: string,
+  maxLength: number,
+  streamName: 'stdout' | 'stderr',
+): string {
+  if (output.length <= maxLength) {
+    return output;
+  }
+
+  const truncatedLength = output.length - maxLength;
+  return `${output.slice(
+    0,
+    maxLength,
+  )}\n\n[${streamName} truncated: ${truncatedLength} characters removed]`;
+}
+
 // ── Vercel Sandbox execution (fallback) ─────────────────────────────
 
 async function executeSandboxCommandStep(
@@ -209,6 +212,8 @@ async function executeSandboxCommandStep(
 ) {
   'use step';
 
+  const { runSandboxCommandAction } = await import('@/lib/core/sandbox');
+  const { patchSandboxRuntime } = await import('@/lib/core/sandbox/runtime');
   const { sessionId, runId, command, args, cwd, env, sudo } = input;
   const shellCommand =
     args && args.length > 0 ? [command, ...args].join(' ') : command;
@@ -355,6 +360,7 @@ async function readSandboxFileStep(
 ) {
   'use step';
 
+  const { readSandboxFileAction } = await import('@/lib/core/sandbox');
   const { sessionId, runId, path, cwd } = input;
 
   try {
@@ -384,6 +390,7 @@ async function writeSandboxFileStep(
 ) {
   'use step';
 
+  const { writeSandboxFileAction } = await import('@/lib/core/sandbox');
   const { sessionId, runId, path, content, cwd } = input;
 
   try {
@@ -418,6 +425,7 @@ async function resolveSandboxPublicPortStep(
 ) {
   'use step';
 
+  const { resolveSandboxPublicPortAction } = await import('@/lib/core/sandbox');
   const { sessionId, runId, port } = input;
 
   try {
@@ -448,6 +456,17 @@ async function exportSandboxFileStep(
 ) {
   'use step';
 
+  const [
+    { readFile: readLocalFile, rm: removeLocalFile },
+    { put },
+    { createFileRecord },
+    { downloadSandboxFileAction },
+  ] = await Promise.all([
+    import('node:fs/promises'),
+    import('@/lib/core/blob'),
+    import('@/lib/core/db/files'),
+    import('@/lib/core/sandbox'),
+  ]);
   const { sessionId, runId, path, cwd } = input;
 
   try {

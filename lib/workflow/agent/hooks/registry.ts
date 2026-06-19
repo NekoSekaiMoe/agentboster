@@ -9,8 +9,6 @@ import type {
 
 const logger = createLogger('workflow.agent.hooks');
 
-type BeforePayload = HookPayloads[HookNode] | undefined;
-
 export class HookRegistry {
   private hooks: Map<HookNode, HookRegistration[]> = new Map();
 

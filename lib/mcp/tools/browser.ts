@@ -783,7 +783,7 @@ export async function executeBrowserTool(
 
           function buildSelector(el: Element): string {
             if (el.id && /^[A-Za-z][\w-]*$/.test(el.id)) {
-              return '#' + CSS.escape(el.id);
+              return `#${CSS.escape(el.id)}`;
             }
             const testId =
               el.getAttribute('data-testid') || el.getAttribute('data-test');
@@ -806,7 +806,7 @@ export async function executeBrowserTool(
 
           function getAccessibleName(el: Element): string {
             const ariaLabel = el.getAttribute('aria-label');
-            if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim();
+            if (ariaLabel?.trim()) return ariaLabel.trim();
             const labelledBy = el.getAttribute('aria-labelledby');
             if (labelledBy) {
               const target = document.getElementById(labelledBy);
@@ -834,7 +834,7 @@ export async function executeBrowserTool(
               }
             }
             const titleAttr = el.getAttribute('title');
-            if (titleAttr && titleAttr.trim()) return titleAttr.trim();
+            if (titleAttr?.trim()) return titleAttr.trim();
             const txt = (el.textContent || '').trim();
             return txt ? txt.slice(0, 200) : '';
           }

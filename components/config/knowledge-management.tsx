@@ -81,6 +81,12 @@ type KnowledgeConnector = {
   createdAt: string;
 };
 
+const TEMPLATE_DOLLAR = '$';
+const TEMPLATE_OPEN_BRACE = '{';
+const HTTP_API_KEY_PLACEHOLDER = `${TEMPLATE_DOLLAR}${TEMPLATE_OPEN_BRACE}API_KEY}`;
+const HTTP_QUERY_PLACEHOLDER = `${TEMPLATE_DOLLAR}${TEMPLATE_OPEN_BRACE}QUERY}`;
+const HTTP_LIMIT_PLACEHOLDER = `${TEMPLATE_DOLLAR}${TEMPLATE_OPEN_BRACE}LIMIT}`;
+
 type KnowledgeListResponse = {
   data: KnowledgeBase[];
   meta?: { isAdmin?: boolean };
@@ -304,15 +310,11 @@ export function KnowledgeManagement() {
   const [connectorUserId, setConnectorUserId] = useState('');
   const [connectorAgentId, setConnectorAgentId] = useState('');
   const [connectorHttpMethod, setConnectorHttpMethod] = useState('POST');
-  // biome-ignore lint/suspicious/noTemplateCurlyInString: user-facing HTTP template example
-  const connectorHttpHeadersInitial =
-    '{\n  "Authorization": "Bearer ${API_KEY}"\n}';
+  const connectorHttpHeadersInitial = `{\n  "Authorization": "Bearer ${HTTP_API_KEY_PLACEHOLDER}"\n}`;
   const [connectorHttpHeaders, setConnectorHttpHeaders] = useState(
     connectorHttpHeadersInitial,
   );
-  // biome-ignore lint/suspicious/noTemplateCurlyInString: user-facing HTTP template example
-  const connectorHttpBodyInitial =
-    '{\n  "query": "${QUERY}",\n  "limit": ${LIMIT}\n}';
+  const connectorHttpBodyInitial = `{\n  "query": "${HTTP_QUERY_PLACEHOLDER}",\n  "limit": ${HTTP_LIMIT_PLACEHOLDER}\n}`;
   const [connectorHttpBody, setConnectorHttpBody] = useState(
     connectorHttpBodyInitial,
   );
@@ -920,7 +922,7 @@ export function KnowledgeManagement() {
                             </div>
                             <div className="grid gap-2">
                               <Label htmlFor="http-headers">
-                                {'Headers (JSON, supports ${API_KEY})'}
+                                {`Headers (JSON, supports ${HTTP_API_KEY_PLACEHOLDER})`}
                               </Label>
                               <Textarea
                                 id="http-headers"
@@ -934,7 +936,7 @@ export function KnowledgeManagement() {
                             </div>
                             <div className="grid gap-2">
                               <Label htmlFor="http-body">
-                                {'Body (JSON, supports ${QUERY}, ${LIMIT})'}
+                                {`Body (JSON, supports ${HTTP_QUERY_PLACEHOLDER}, ${HTTP_LIMIT_PLACEHOLDER})`}
                               </Label>
                               <Textarea
                                 id="http-body"

@@ -2,7 +2,7 @@
 
 import { ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/components/i18n-provider';
@@ -108,6 +108,7 @@ export function ModelsForm() {
     };
   };
   const [catalogDraft, setCatalogDraft] = useState<CatalogDraftEntry[]>([]);
+  const catalogDraftRef = useRef<CatalogDraftEntry[]>([]);
   const [expandedCatalogRowIds, setExpandedCatalogRowIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -121,13 +122,18 @@ export function ModelsForm() {
     });
   };
 
+  useEffect(() => {
+    catalogDraftRef.current = catalogDraft;
+  }, [catalogDraft]);
+
   // Sync the local draft from the canonical store value. Only re-syncs when
   // the store's catalog content actually differs from what the draft would
   // produce — avoids clobbering in-flight edits (empty id, focus, etc).
   useEffect(() => {
     const storeCatalog = models.model_catalog ?? {};
     const storeKeys = Object.keys(storeCatalog);
-    const draftKeys = catalogDraft
+    const currentCatalogDraft = catalogDraftRef.current;
+    const draftKeys = currentCatalogDraft
       .map((e) => e.id.trim())
       .filter((id) => id.length > 0);
     const sameLength = storeKeys.length === draftKeys.length;
@@ -136,18 +142,18 @@ export function ModelsForm() {
       draftKeys.every(
         (k, i) =>
           k === storeKeys[i] &&
-          JSON.stringify(catalogDraft[i].overrides) ===
+          JSON.stringify(currentCatalogDraft[i].overrides) ===
             JSON.stringify(storeCatalog[k]),
       );
     if (sameContent) return;
 
-    setCatalogDraft(
-      storeKeys.map((id) => ({
-        rowId: createStableId('catalog-row'),
-        id,
-        overrides: { ...storeCatalog[id] },
-      })),
-    );
+    const nextCatalogDraft = storeKeys.map((id) => ({
+      rowId: createStableId('catalog-row'),
+      id,
+      overrides: { ...storeCatalog[id] },
+    }));
+    catalogDraftRef.current = nextCatalogDraft;
+    setCatalogDraft(nextCatalogDraft);
   }, [models.model_catalog]);
 
   useEffect(() => {

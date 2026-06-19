@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   loadWebhookConfigAction,
@@ -198,7 +198,7 @@ export function ChannelsForm() {
     }
   }
 
-  async function loadPairStatus(adapter: string) {
+  const loadPairStatus = useCallback(async (adapter: string) => {
     try {
       const status = await getImPairStatusAction(adapter as AdapterName);
       setPairStatus((prev) => ({ ...prev, [adapter]: status }));
@@ -206,7 +206,7 @@ export function ChannelsForm() {
     } catch {
       return null;
     }
-  }
+  }, []);
 
   async function handleUnpair(adapter: string) {
     setUnpairing((prev) => ({ ...prev, [adapter]: true }));
@@ -225,75 +225,93 @@ export function ChannelsForm() {
     }
   }
 
-  const adapters: Array<{
-    description: string;
-    fields: string[];
-    key: AdapterName;
-    value:
-      | DiscordAdapterConfig
-      | FeishuAdapterConfig
-      | GChatAdapterConfig
-      | QQAdapterConfig
-      | SlackAdapterConfig
-      | TeamsAdapterConfig
-      | TelegramAdapterConfig
-      | undefined;
-  }> = [
-    {
-      key: 'telegram',
-      description: CHANNEL_PRESETS.telegram.description,
-      value: channels.telegram,
-      fields: ['bot_token', 'secret_token', 'bot_username', 'api_base_url'],
-    },
-    {
-      key: 'discord',
-      description: CHANNEL_PRESETS.discord.description,
-      value: channels.discord,
-      fields: ['bot_token', 'application_id', 'public_key'],
-    },
-    {
-      key: 'slack',
-      description: CHANNEL_PRESETS.slack.description,
-      value: channels.slack,
-      fields: [
-        'bot_token',
-        'signing_secret',
-        'client_id',
-        'client_secret',
-        'encryption_key',
-      ],
-    },
-    {
-      key: 'gchat',
-      description: CHANNEL_PRESETS.gchat.description,
-      value: channels.gchat,
-      fields: ['project_id', 'credentials_json'],
-    },
-    {
-      key: 'teams',
-      description: CHANNEL_PRESETS.teams.description,
-      value: channels.teams,
-      fields: ['app_id', 'app_password'],
-    },
-    {
-      key: 'feishu',
-      description: CHANNEL_PRESETS.feishu.description,
-      value: channels.feishu,
-      fields: [
-        'app_id',
-        'app_secret',
-        'encrypt_key',
-        'verification_token',
-        'domain',
-      ],
-    },
-    {
-      key: 'qq',
-      description: CHANNEL_PRESETS.qq.description,
-      value: channels.qq,
-      fields: ['appid', 'secret', 'sandbox', 'intents'],
-    },
-  ];
+  const adapters = useMemo<
+    Array<{
+      description: string;
+      fields: string[];
+      key: AdapterName;
+      value:
+        | DiscordAdapterConfig
+        | FeishuAdapterConfig
+        | GChatAdapterConfig
+        | QQAdapterConfig
+        | SlackAdapterConfig
+        | TeamsAdapterConfig
+        | TelegramAdapterConfig
+        | undefined;
+    }>
+  >(
+    () => [
+      {
+        key: 'telegram',
+        description: CHANNEL_PRESETS.telegram.description,
+        value: channels.telegram,
+        fields: ['bot_token', 'secret_token', 'bot_username', 'api_base_url'],
+      },
+      {
+        key: 'discord',
+        description: CHANNEL_PRESETS.discord.description,
+        value: channels.discord,
+        fields: ['bot_token', 'application_id', 'public_key'],
+      },
+      {
+        key: 'slack',
+        description: CHANNEL_PRESETS.slack.description,
+        value: channels.slack,
+        fields: [
+          'bot_token',
+          'signing_secret',
+          'client_id',
+          'client_secret',
+          'encryption_key',
+        ],
+      },
+      {
+        key: 'gchat',
+        description: CHANNEL_PRESETS.gchat.description,
+        value: channels.gchat,
+        fields: ['project_id', 'credentials_json'],
+      },
+      {
+        key: 'teams',
+        description: CHANNEL_PRESETS.teams.description,
+        value: channels.teams,
+        fields: ['app_id', 'app_password'],
+      },
+      {
+        key: 'feishu',
+        description: CHANNEL_PRESETS.feishu.description,
+        value: channels.feishu,
+        fields: [
+          'app_id',
+          'app_secret',
+          'encrypt_key',
+          'verification_token',
+          'domain',
+        ],
+      },
+      {
+        key: 'qq',
+        description: CHANNEL_PRESETS.qq.description,
+        value: channels.qq,
+        fields: ['appid', 'secret', 'sandbox', 'intents'],
+      },
+    ],
+    [
+      channels.discord,
+      channels.feishu,
+      channels.gchat,
+      channels.qq,
+      channels.slack,
+      channels.teams,
+      channels.telegram,
+    ],
+  );
+
+  const enabledAdapters = useMemo(
+    () => adapters.filter((a) => a.value?.enabled).map((a) => a.key),
+    [adapters],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -325,23 +343,17 @@ export function ChannelsForm() {
   // even after a successful pairing.
   useEffect(() => {
     let isMounted = true;
-    adapters.forEach((a) => {
-      if (a.value?.enabled) {
-        loadPairStatus(a.key).catch(() => {
-          // loadPairStatus already swallows errors; this guards against
-          // any rejection surfaced after unmount.
-          if (!isMounted) return;
-        });
-      }
+    enabledAdapters.forEach((adapter) => {
+      loadPairStatus(adapter).catch(() => {
+        // loadPairStatus already swallows errors; this guards against
+        // any rejection surfaced after unmount.
+        if (!isMounted) return;
+      });
     });
     return () => {
       isMounted = false;
     };
-  }, []);
-
-  const enabledAdapters = adapters
-    .filter((a) => a.value?.enabled)
-    .map((a) => a.key);
+  }, [enabledAdapters, loadPairStatus]);
 
   // Non-admin view: only show pairing UI for enabled adapters.
   if (!isAdmin) {
@@ -416,7 +428,7 @@ export function ChannelsForm() {
                         </Button>
                         {pairCode[adapterKey] ? (
                           <div className="flex items-center gap-2">
-                            <code className="rounded bg-muted px-2 py-1 font-mono text-lg font-bold tracking-widest">
+                            <code className="rounded bg-muted px-2 py-1 font-bold font-mono text-lg tracking-widest">
                               {pairCode[adapterKey]?.code}
                             </code>
                             <Button
@@ -523,7 +535,7 @@ export function ChannelsForm() {
                     />
 
                     {adapterValue.enabled ? (
-                      <div className="rounded-xl border border-dashed p-4 space-y-3">
+                      <div className="space-y-3 rounded-xl border border-dashed p-4">
                         <p className="font-medium text-sm">
                           Text-to-Speech voice replies
                         </p>
@@ -641,7 +653,7 @@ export function ChannelsForm() {
                         </Button>
                         {pairCode[adapter.key] ? (
                           <div className="flex items-center gap-2">
-                            <code className="rounded bg-muted px-2 py-1 font-mono text-lg font-bold tracking-widest">
+                            <code className="rounded bg-muted px-2 py-1 font-bold font-mono text-lg tracking-widest">
                               {pairCode[adapter.key]?.code}
                             </code>
                             <Button

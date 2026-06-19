@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { getTaskSummary, upsertTaskSummary } from '@/lib/core/db/agentd';
 import type { Decision } from '@/lib/core/db/schema';
 import { tool } from 'ai';
 import { z } from 'zod';
@@ -32,6 +30,7 @@ function removeItems(items: string[], removals: string[]) {
 async function readTaskSummaryStep(sessionId: string) {
   'use step';
 
+  const { getTaskSummary } = await import('@/lib/core/db/agentd');
   return {
     summary: await getTaskSummary(sessionId),
   };
@@ -44,6 +43,10 @@ async function updateTaskProgressStep(input: {
 }) {
   'use step';
 
+  const { randomUUID } = await import('node:crypto');
+  const { getTaskSummary, upsertTaskSummary } = await import(
+    '@/lib/core/db/agentd'
+  );
   const { sessionId, agentName, value } = input;
   const existing = await getTaskSummary(sessionId);
   const decisions: Decision[] = existing?.decisions ?? [];

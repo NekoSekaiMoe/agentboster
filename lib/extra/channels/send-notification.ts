@@ -13,9 +13,6 @@ import type { ChatSource } from '@/types/workflow';
 import { getNotificationManager } from './notification-manager';
 import type {
   NotificationPayload,
-  DecisionNotification,
-  CompletionNotification,
-  L2TimeInputNotification,
   NotificationLocale,
 } from './notification-types';
 

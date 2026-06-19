@@ -1,6 +1,6 @@
 'use client';
 
-import { Bot, MessageSquare } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { memo, useCallback, useEffect, useState } from 'react';

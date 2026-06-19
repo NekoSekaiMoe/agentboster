@@ -1,5 +1,3 @@
-import type { AdapterPostableMessage } from 'chat';
-
 import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';
 
@@ -90,7 +88,7 @@ export async function flushImReplyStep(input: {
     const { getBaseBot } = await import('@/lib/bot/core');
     const bot = await getBaseBot();
     const adapter = bot.getAdapter(input.source.adapter);
-    const message: AdapterPostableMessage = { markdown: input.text };
+    const message = { markdown: input.text };
 
     if (input.action === 'edit' && input.messageId) {
       await adapter.editMessage(

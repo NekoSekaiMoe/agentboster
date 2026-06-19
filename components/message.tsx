@@ -751,7 +751,7 @@ const PurePreviewMessage = ({
         },
       };
 
-      let newMessages = [
+      const newMessages = [
         ...messages.slice(0, index),
         updatedMessage,
         ...messages.slice(index + 1),

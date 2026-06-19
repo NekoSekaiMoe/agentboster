@@ -3,7 +3,6 @@ import { embedMany } from 'ai';
 import { generateEmbedding, resolveEmbeddingModel } from '@/lib/ai';
 import {
   createLongTermMemoryRow,
-  deleteLongTermMemoryByKey,
   deleteLongTermMemoryRow,
   getLongTermMemoryRow,
   hybridSearchLongTermMemoryChunks,

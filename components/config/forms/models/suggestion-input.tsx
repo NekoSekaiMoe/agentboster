@@ -134,7 +134,7 @@ export function SuggestionInput({
       {showChevron ? (
         <ChevronDown
           aria-hidden
-          className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground"
         />
       ) : null}
 

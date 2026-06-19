@@ -119,7 +119,6 @@ export class DecisionQueue {
   private decisions = new Map<string, Decision>();
   private pendingOrder: string[] = [];
   private checkInterval: NodeJS.Timeout | null = null;
-  private hydrated = false;
 
   constructor(private timeoutMs: number = DEFAULT_TIMEOUT) {
     this.startTimeoutMonitor();
@@ -147,7 +146,6 @@ export class DecisionQueue {
       this.decisions.set(decision.decisionId, decision);
       this.pendingOrder.push(decision.decisionId);
     }
-    this.hydrated = true;
     if (rows.length > 0) {
       logger.info('rehydrated decisions from db', { count: rows.length });
     }

@@ -38,6 +38,7 @@ export function AudioPlayer({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const startedRef = useRef(false);
+  const lastTextRef = useRef(text);
 
   const [loading, setLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -65,6 +66,8 @@ export function AudioPlayer({
 
   // If text changes (e.g. regenerate), reset.
   useEffect(() => {
+    if (lastTextRef.current === text) return;
+    lastTextRef.current = text;
     cleanup();
     setError(null);
   }, [text, cleanup]);
