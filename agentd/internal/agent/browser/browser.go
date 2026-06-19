@@ -128,7 +128,7 @@ cd %s
 [ -f package.json ] || %s init -y
 # Load Playwright binary mirror env if node_install.sh wrote it.
 [ -f "$HOME/.agentd-browser.env" ] && . "$HOME/.agentd-browser.env"
-%s install playwright
+%s install playwright@1.60.0
 `,
 		helperDir,
 		helperDir,
