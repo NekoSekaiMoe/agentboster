@@ -10,6 +10,7 @@ import { getMCPTools } from './mcp';
 import {
   TOOL_NAME_ALIASES,
   getTrapToolKeys,
+  isValidToolName,
   suggestClosestName,
 } from './tool-name-guard';
 export {
@@ -97,19 +98,53 @@ export async function buildAgentTools(
   };
 
   // Defensive trap tools for OpenAI-compatible providers that occasionally
-  // emit tool calls with an empty or aliased name. Without these, a single
-  // malformed call crashes the entire workflow run with "Tool \"\" not found".
-  // Alias traps forward to the canonical tool; the empty-name trap returns
-  // a model-facing error listing valid names so the agent can retry.
+  // emit tool calls with an aliased name (e.g. write_memory instead of
+  // writeMemory). Without these, a single malformed call crashes the entire
+  // workflow run with "Tool \"X\" not found". Alias traps forward to the
+  // canonical tool. The original "empty function.name" trap was removed
+  // because the empty-string key itself violates provider tool-name rules
+  // (see getTrapToolKeys for the full rationale).
   const trapTools = buildTrapTools(
     config,
     Object.keys(mergedTools),
     mergedTools,
   );
-  return {
+  const finalTools: ToolSet = {
     ...mergedTools,
     ...trapTools,
   };
+
+  // Last-mile guard: drop any tool whose key fails provider tool-name
+  // validation. This catches two classes of problems:
+  //   1. MCP servers (especially remote ones) that expose tools with names
+  //      starting with a digit, containing non-ASCII characters, or
+  //      otherwise outside [A-Za-z_][A-Za-z0-9_.:-]{0,127}.
+  //   2. Defensive belt-and-suspenders for the trap registration: if a
+  //      future alias gets added that happens to be invalid, it gets
+  //      filtered here before reaching the model.
+  //
+  // Without this filter, a single bad key causes Gemini to reject the
+  // ENTIRE tools array with `function_declarations[N].name: Invalid
+  // function name`, taking down the whole workflow run.
+  const dropped: string[] = [];
+  for (const key of Object.keys(finalTools)) {
+    if (!isValidToolName(key)) {
+      delete finalTools[key];
+      dropped.push(key);
+    }
+  }
+  if (dropped.length > 0) {
+    createLogger('workflow.agent.tools').warn('tools:dropped_invalid_names', {
+      count: dropped.length,
+      // Avoid logging the full list — keys could be empty strings or
+      // contain noise. Truncate each to 40 chars for log readability.
+      names: dropped.map((n) =>
+        n.length > 40 ? `${n.slice(0, 37)}...` : n.length === 0 ? '<empty>' : n,
+      ),
+    });
+  }
+
+  return finalTools;
 }
 
 /**

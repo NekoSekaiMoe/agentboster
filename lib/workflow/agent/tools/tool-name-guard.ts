@@ -226,6 +226,37 @@ export function suggestClosestName(
 }
 
 /**
+ * Maximum length permitted for a tool/function name. Mirrors Gemini's
+ * documented 128-char cap, which is the strictest limit among the
+ * providers we support.
+ */
+export const MAX_TOOL_NAME_LENGTH = 128;
+
+/**
+ * Regex describing a provider-safe tool name.
+ *
+ * Gemini enforces the strictest rules among the providers we target:
+ *   - first character must be a letter or underscore
+ *   - subsequent characters must be in [a-zA-Z0-9_.:-]
+ *   - max length 128 chars
+ *
+ * OpenAI's rules are looser (allows nearly anything), but a name that
+ * satisfies Gemini also satisfies OpenAI/Anthropic, so this is the
+ * conservative gate.
+ */
+const VALID_TOOL_NAME = /^[A-Za-z_][A-Za-z0-9_.:-]{0,127}$/;
+
+/**
+ * Returns true if {@link name} is a valid tool/function name for every
+ * supported provider. The empty string, names starting with a digit or
+ * dash/dot/colon, names containing characters outside the allowed set,
+ * and names longer than 128 chars all return false.
+ */
+export function isValidToolName(name: string): boolean {
+  return VALID_TOOL_NAME.test(name);
+}
+
+/**
  * Return the trap-tool keys that should be registered for a given provider
  * format. Returns an empty array for well-behaved providers.
  *
@@ -236,10 +267,21 @@ export function suggestClosestName(
  * from crashing when the model emits an empty or hallucinated tool name
  * is to register a trap tool under that exact key.
  *
- * We register:
- *   - `''`  : catches the original "empty function.name" crash
- *   - every key in TOOL_NAME_ALIASES whose canonical name does NOT
- *     already exist in `knownNames` (otherwise we'd shadow a real tool)
+ * We register every key in TOOL_NAME_ALIASES whose canonical name does NOT
+ * already exist in `knownNames` (otherwise we'd shadow a real tool). The
+ * keys are all snake_case identifiers like `write_memory` and are valid
+ * tool names for every provider we support.
+ *
+ * IMPORTANT: we deliberately do NOT register the empty-string key `''`
+ * any more. It used to be registered to catch the "model emitted a
+ * tool_call with no function.name" case, but `''` is itself an invalid
+ * function name — Gemini rejects the entire request with
+ * `function_declarations[N].name: Invalid function name ... Must start
+ * with a letter or an underscore`. The empty-name failure mode is now
+ * accepted as a rare, low-severity crash confined to misbehaving
+ * OpenAI-compatible endpoints, in exchange for not breaking Gemini
+ * globally. The named aliases below are sufficient to catch the vast
+ * majority of hallucinated-name calls.
  *
  * Cost: the model sees ~30 extra no-description tool entries in its
  * tools array. This is preferable to crashing the entire workflow run.
@@ -255,12 +297,19 @@ export function getTrapToolKeys(
   }
 
   const known = new Set(knownNames);
-  const keys: string[] = [''];
+  const keys: string[] = [];
 
   for (const alias of Object.keys(TOOL_NAME_ALIASES)) {
-    if (!known.has(alias)) {
-      keys.push(alias);
+    if (known.has(alias)) {
+      continue;
     }
+    // Defensive: never register a trap under a key that would itself be
+    // rejected by provider tool-name validation (e.g. an alias that
+    // happens to start with a digit or contain an unsupported char).
+    if (!isValidToolName(alias)) {
+      continue;
+    }
+    keys.push(alias);
   }
 
   return keys;
