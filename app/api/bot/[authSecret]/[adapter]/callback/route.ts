@@ -6,6 +6,14 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const CHAT_SDK_ADAPTERS = ['slack', 'teams', 'gchat', 'telegram', 'discord'];
 
+// IM webhook handlers process the agent's full streamed reply in the
+// background via `after()`. The agent run can take much longer than the
+// default function maxDuration (10s), which would abort the stream
+// consumer mid-flight and truncate the IM message. Raise the ceiling so
+// the after-task has room to drain the stream. On Hobby this clamps to
+// 10s, Pro to 60s (or 300s with Fluid compute), Enterprise to 900s.
+export const maxDuration = 300;
+
 async function handleChatSdkWebhook(
   adapterName: AdapterName,
   request: NextRequest,
@@ -58,15 +66,29 @@ async function handleFeishuWebhook(
       const event = body.event;
       if (event?.message) {
         const { routeAdapterMessage } = await import('@/lib/chat/index');
-        await routeAdapterMessage({
-          adapter: 'feishu',
+        // Fire-and-forget: routeAdapterMessage → streamAdapterSourceReply
+        // can take longer than the webhook function's maxDuration (the
+        // agent may run for minutes). Run it in the background via
+        // after() and ack the webhook immediately. This mirrors how the
+        // chat-sdk path already behaves (its adapter handleWebhook does
+        // not await processMessage, which is registered via waitUntil).
+        const payload = {
+          adapter: 'feishu' as const,
           origin: event.message.chat_id,
           threadId: event.message.message_id,
           userId: event.sender?.sender_id?.open_id || null,
           userName: event.sender?.sender_id?.open_id || null,
           text: event.message.content || '',
           parts: [],
-        });
+        };
+        after(() =>
+          routeAdapterMessage(payload).catch((error) => {
+            console.error(
+              '[bot/webhook] feishu message processing error:',
+              error,
+            );
+          }),
+        );
       }
     }
 
@@ -95,15 +117,21 @@ async function handleQQWebhook(request: NextRequest): Promise<NextResponse> {
       if (d?.content && d?.author) {
         const { routeAdapterMessage } = await import('@/lib/chat/index');
         const isGroup = !!d.group_openid;
-        await routeAdapterMessage({
-          adapter: 'qq',
+        // Fire-and-forget — see the feishu branch above for rationale.
+        const payload = {
+          adapter: 'qq' as const,
           origin: isGroup ? d.group_openid : d.author.id,
           threadId: d.id,
           userId: d.author.id,
           userName: d.author.username || d.author.id,
           text: d.content || '',
           parts: [],
-        });
+        };
+        after(() =>
+          routeAdapterMessage(payload).catch((error) => {
+            console.error('[bot/webhook] qq message processing error:', error);
+          }),
+        );
       }
     }
 
