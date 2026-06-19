@@ -1,11 +1,7 @@
 import { getBotCapabilities } from '@/lib/bot/capabilities';
 import type { ChatSource } from '@/types/workflow';
 import { createLogger } from '@/lib/utils/logger';
-import {
-  flushImReplyStep,
-  startImTypingStep,
-  stopImTypingStep,
-} from './bot-steps';
+import { flushImReplyStep } from './bot-steps';
 
 const imReplyLogger = createLogger('workflow.sender.bots');
 
@@ -36,6 +32,11 @@ function formatToolName(toolName: string): string {
  * function, and the workflow runtime serializes every step argument,
  * rejecting functions with "Cannot stringify a function".
  *
+ * The typing indicator is intentionally NOT driven from here: periodic
+ * refresh needs setInterval, which the workflow runtime forbids
+ * (determinism). Typing refresh lives in the webhook function's
+ * after() task instead — see lib/bot/typing-pump.ts.
+ *
  * - `messageId`: id of the growing IM message. null until the first
  *   text-bearing step posts it. Stays null between calls for adapters
  *   that cannot edit (feishu/qq), so every step posts a fresh message.
@@ -43,19 +44,13 @@ function formatToolName(toolName: string): string {
  *   editMessage replaces the whole message body, so we track the
  *   complete text rather than per-step deltas.
  * - `canEdit` / `ttsEnabled`: cached capability/config flags.
- * - `typingTimer`: handle of the typing-indicator refresh interval.
- *   Telegram's typing indicator expires after ~5s; we refresh it on a
- *   cadence so the indicator stays on for the whole run.
  */
 export interface ImReplyHolder {
   messageId: string | null;
   accumulatedText: string;
   canEdit: boolean | null;
   ttsEnabled: boolean | null;
-  typingTimer: ReturnType<typeof setInterval> | null;
 }
-
-const TYPING_REFRESH_MS = 4500;
 
 export function createImReplyHolder(options?: {
   adapter?: string;
@@ -66,32 +61,7 @@ export function createImReplyHolder(options?: {
     accumulatedText: '',
     canEdit: options?.adapter ? getBotCapabilities(options.adapter).edit : null,
     ttsEnabled: options?.ttsEnabled ?? false,
-    typingTimer: null,
   };
-}
-
-/**
- * Start the IM typing indicator for the run. Call once at the start of
- * chatWorkflow for IM sources. The indicator auto-expires (~5s on
- * Telegram); we refresh it on an interval until stopImReplyPump clears
- * the timer. Best-effort — failures (unsupported adapter, transient
- * API error) are swallowed.
- */
-export async function startImTyping(
-  holder: ImReplyHolder,
-  source: Extract<ChatSource, { type: 'im' }>,
-): Promise<void> {
-  const refresh = () => {
-    void startImTypingStep(source).catch((error) => {
-      imReplyLogger.warn('im_typing:refresh_failed', {
-        adapter: source.adapter,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-  };
-
-  refresh();
-  holder.typingTimer = setInterval(refresh, TYPING_REFRESH_MS);
 }
 
 /**
@@ -167,20 +137,14 @@ export async function streamImStepReplyStep(input: {
 }
 
 /**
- * Stop the pump: clear the typing indicator and (for TTS channels)
- * leave accumulatedText in place so the caller can synthesize a voice
- * clip from it. Call once at the end of chatWorkflow for IM sources.
+ * No-op end-of-run hook. Kept as a stable call site in chatWorkflow so
+ * future run-end cleanup has an obvious home. The typing indicator is
+ * driven from the webhook function's after() task, not here — see
+ * lib/bot/typing-pump.ts.
  */
 export async function stopImReplyPump(
-  holder: ImReplyHolder,
-  source: Extract<ChatSource, { type: 'im' }>,
+  _holder: ImReplyHolder,
+  _source: Extract<ChatSource, { type: 'im' }>,
 ): Promise<void> {
-  if (holder.typingTimer) {
-    clearInterval(holder.typingTimer);
-    holder.typingTimer = null;
-  }
-  // Best-effort final typing clear (some adapters accept this).
-  await stopImTypingStep(source).catch(() => {
-    // not all adapters support stopping typing; ignore
-  });
+  // intentionally empty — see JSDoc
 }

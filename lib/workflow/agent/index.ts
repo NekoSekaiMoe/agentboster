@@ -25,7 +25,6 @@ import {
 } from './sender/writers';
 import {
   createImReplyHolder,
-  startImTyping,
   stopImReplyPump,
   streamImStepReplyStep,
   type ImReplyHolder,
@@ -247,13 +246,6 @@ export async function chatWorkflow(
           ttsEnabled: config.channels?.[source.adapter]?.tts_enabled === true,
         })
       : null;
-
-  // Start the typing indicator for the whole run. Telegram's expires
-  // after ~5s; startImTyping refreshes it on an interval until
-  // stopImReplyPump clears the timer at run end.
-  if (imReplyHolder && source.type === 'im') {
-    await startImTyping(imReplyHolder, source);
-  }
 
   // Resolve the configured provider key for the active model. Used in
   // onStepFinish to build a user-facing error message when a third-party

@@ -653,6 +653,23 @@ export async function routeAdapterMessage(
   );
 
   await replyToAdapterCommandResult(dispatched, source);
+
+  // Drive the typing indicator from this (webhook function) context
+  // for the duration of the workflow run. The workflow runtime itself
+  // forbids setInterval, so refresh must live in the webhook layer.
+  // Fire-and-forget: it must not block the routeAdapterMessage caller
+  // (chat-sdk's processMessage waits on this) or depend on the HTTP
+  // request outliving the run — the pump self-terminates on workflow
+  // completion or its bounded max-duration safety net.
+  if (
+    source.type === 'im' &&
+    (dispatched.kind === 'message' || dispatched.kind === 'resume-run-message')
+  ) {
+    void import('@/lib/bot/typing-pump').then((m) =>
+      m.runTypingPumpUntilDone({ source, runId: dispatched.result.runId }),
+    );
+  }
+
   return dispatched;
 }
 
