@@ -654,20 +654,28 @@ export async function routeAdapterMessage(
 
   await replyToAdapterCommandResult(dispatched, source);
 
-  // Drive the typing indicator from this (webhook function) context
-  // for the duration of the workflow run. The workflow runtime itself
-  // forbids setInterval, so refresh must live in the webhook layer.
-  // Fire-and-forget: it must not block the routeAdapterMessage caller
-  // (chat-sdk's processMessage waits on this) or depend on the HTTP
-  // request outliving the run — the pump self-terminates on workflow
-  // completion or its bounded max-duration safety net.
+  // Drive the typing indicator from this (webhook function) context for
+  // the duration of the workflow run. The workflow runtime forbids
+  // setInterval, so refresh must live in the webhook layer.
+  //
+  // We AWAIT the pump (not fire-and-forget): routeAdapterMessage's
+  // returned promise is what chat-sdk's processMessage registers via
+  // waitUntil, and that registration is what keeps the webhook
+  // function's after() task alive. If we fire-and-forget the pump, the
+  // after() task completes as soon as routeAdapterMessage returns, the
+  // function is reclaimed, and the pump's promise chain is orphaned —
+  // the indicator disappears after a few seconds (the bug we're fixing).
+  // Awaiting ties the pump's lifetime to the after() task, which after()
+  // happily extends up to maxDuration.
   if (
     source.type === 'im' &&
     (dispatched.kind === 'message' || dispatched.kind === 'resume-run-message')
   ) {
-    void import('@/lib/bot/typing-pump').then((m) =>
-      m.runTypingPumpUntilDone({ source, runId: dispatched.result.runId }),
-    );
+    const { runTypingPumpUntilDone } = await import('@/lib/bot/typing-pump');
+    await runTypingPumpUntilDone({
+      source,
+      runId: dispatched.result.runId,
+    });
   }
 
   return dispatched;
