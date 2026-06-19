@@ -146,9 +146,17 @@ function hasAllConfiguredPublicPorts(ports: number[]): boolean {
 }
 
 async function ensureWorkspace(sandbox: Sandbox): Promise<void> {
+  // The @vercel/sandbox mkDir API creates a single directory level only
+  // (no -p / recursive flag), so creating nested paths like
+  // /vercel/sandbox/workspace/downloads/photos would fail when the
+  // intermediate "downloads" doesn't exist yet. Running `mkdir -p` via
+  // runCommand handles all levels in one shot, is idempotent on
+  // existing dirs, and sidesteps the per-dir error-swallowing loop
+  // below (which masked real failures behind "file exists").
   const dirs = [
     SANDBOX_WORKSPACE_DIR,
     SANDBOX_DIRS.skills,
+    SANDBOX_DIRS.downloads,
     SANDBOX_DIRS.photos,
     SANDBOX_DIRS.videos,
     SANDBOX_DIRS.documents,
@@ -158,17 +166,33 @@ async function ensureWorkspace(sandbox: Sandbox): Promise<void> {
     SANDBOX_DIRS.outputs,
     SANDBOX_DIRS.projects,
     SANDBOX_DIRS.bin,
+    SANDBOX_DIRS.local,
     SANDBOX_DIRS.localBin,
   ];
 
-  for (const dir of dirs) {
-    try {
-      await sandbox.mkDir(dir);
-    } catch (error) {
-      if (isSandboxDirectoryAlreadyExistsError(error)) {
-        continue;
+  try {
+    const finished = await sandbox.runCommand({
+      cmd: 'mkdir',
+      args: ['-p', ...dirs],
+    });
+    if (finished.exitCode !== 0) {
+      throw new Error(`mkdir -p exited with code ${finished.exitCode}`);
+    }
+  } catch (error) {
+    // Fall back to mkDir API one-by-one if runCommand somehow fails —
+    // preserves the original behavior as a safety net.
+    logger.warn('sandbox:ensure_workspace_runcommand_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    for (const dir of dirs) {
+      try {
+        await sandbox.mkDir(dir);
+      } catch (mkErr) {
+        if (isSandboxDirectoryAlreadyExistsError(mkErr)) {
+          continue;
+        }
+        throw mkErr;
       }
-      throw error;
     }
   }
 }
