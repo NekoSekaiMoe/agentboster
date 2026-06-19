@@ -9,20 +9,27 @@ export const SANDBOX_WORKSPACE_DIR = '/vercel/sandbox/workspace';
 export const SANDBOX_MAX_OUTPUT_LENGTH = 30_000;
 export const SANDBOX_PUBLIC_PORTS = [3000, 4173, 5173] as const;
 
+// All subdirectories MUST live under SANDBOX_WORKSPACE_DIR. Earlier
+// these used a bare "/workspace/..." prefix, but Vercel Sandbox's
+// actual working directory is "/vercel/sandbox/workspace" (per
+// https://vercel.com/docs/sandbox/system-specifications). mkdir would
+// fail with "cannot create directory '/workspace/skills': No such file
+// or directory" because /workspace itself didn't exist.
+const W = SANDBOX_WORKSPACE_DIR;
 export const SANDBOX_DIRS = {
-  skills: '/workspace/skills',
-  downloads: '/workspace/downloads',
-  photos: '/workspace/downloads/photos',
-  videos: '/workspace/downloads/videos',
-  documents: '/workspace/downloads/documents',
-  media: '/workspace/media',
-  sessions: '/workspace/sessions',
-  memory: '/workspace/memory',
-  outputs: '/workspace/outputs',
-  projects: '/workspace/projects',
-  bin: '/workspace/bin',
-  local: '/workspace/.local',
-  localBin: '/workspace/.local/bin',
+  skills: `${W}/skills`,
+  downloads: `${W}/downloads`,
+  photos: `${W}/downloads/photos`,
+  videos: `${W}/downloads/videos`,
+  documents: `${W}/downloads/documents`,
+  media: `${W}/media`,
+  sessions: `${W}/sessions`,
+  memory: `${W}/memory`,
+  outputs: `${W}/outputs`,
+  projects: `${W}/projects`,
+  bin: `${W}/bin`,
+  local: `${W}/.local`,
+  localBin: `${W}/.local/bin`,
 } as const;
 
 export type WorkflowRuntimePhase =
