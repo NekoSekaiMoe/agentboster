@@ -575,11 +575,69 @@ async function readTextFromReadableStream(
         continue;
       }
     }
-
-    return text.trim();
   } finally {
     reader.releaseLock();
   }
+  return text;
+}
+
+/**
+ * Fire-and-forget trigger for the IM stream-consumer endpoint.
+ *
+ * Builds a GET URL on this deployment's own origin carrying the runId
+ * + a serialized IM source, then fetches it without awaiting. The
+ * endpoint returns a streaming Response whose body stays open for the
+ * duration of the workflow run; we discard that body — its sole
+ * purpose is to keep the consumer function alive past maxDuration.
+ *
+ * Errors are swallowed: this runs in the webhook function's stack and
+ * must not propagate (the webhook has already returned 200 to the IM
+ * platform by the time this fetch resolves).
+ */
+function triggerImStreamConsumer(input: {
+  source: Extract<ChatSource, { type: 'im' }>;
+  runId: string;
+}): void {
+  const { source, runId } = input;
+  const params = new URLSearchParams({
+    runId,
+    adapter: source.adapter,
+    threadId: source.threadId,
+  });
+  if (source.userId) params.set('userId', source.userId);
+  if (source.locale) params.set('locale', source.locale);
+
+  // Lazy import so lib/chat stays loadable in non-bot test contexts.
+  void import('@/lib/bot/webhook')
+    .then(({ getAppBaseUrl }) => {
+      const url = `${getAppBaseUrl()}/api/internal/im-stream?${params}`;
+      // no-store: this is an internal trigger, never a cache hit.
+      return fetch(url, { method: 'GET', cache: 'no-store' });
+    })
+    .then((resp) => {
+      // We must not read the body — doing so would block on the stream
+      // staying open (which is the whole point — it stays open to keep
+      // the consumer alive). Discard the response and let the consumer
+      // run server-side. Best-effort: surface only network errors.
+      if (!resp.ok) {
+        // Non-streaming error response — safe to read for diagnostics.
+        resp.text().then((body) => {
+          console.warn('[triggerImStreamConsumer] non-ok response', {
+            status: resp.status,
+            body: body.slice(0, 200),
+            runId,
+            adapter: source.adapter,
+          });
+        });
+      }
+    })
+    .catch((error) => {
+      console.warn('[triggerImStreamConsumer] fetch failed', {
+        runId,
+        adapter: source.adapter,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 }
 
 async function replyToAdapterCommandResult(
@@ -587,13 +645,13 @@ async function replyToAdapterCommandResult(
   source: Extract<ChatSource, { type: 'im' }>,
 ): Promise<void> {
   if (dispatched.kind === 'message') {
-    // IM replies are now posted/edited from inside the workflow runtime
-    // (streamImStepReplyStep in lib/workflow/agent/sender/bots.ts), which
-    // outlives this webhook function. Consuming run.readable here would
-    // bind the IM stream to the HTTP request lifetime and truncate the
-    // message when the function hits its maxDuration. We deliberately
-    // drop the readable on the floor — the workflow's tee'd drain branch
-    // (lib/workflow/agent/dispatch.ts) still fires afterResponse hooks.
+    // IM replies are streamed by the dedicated stream-consumer endpoint
+    // (app/api/internal/im-stream/route.ts), triggered fire-and-forget
+    // from routeAdapterMessage below. Consuming run.readable here would
+    // bind the stream to the webhook function's HTTP request lifetime
+    // and truncate the message when the function hits maxDuration. Drop
+    // it — the consumer endpoint drains a fresh copy via
+    // getWorkflowRun(runId).readable.
     return;
   }
 
@@ -654,25 +712,30 @@ export async function routeAdapterMessage(
 
   await replyToAdapterCommandResult(dispatched, source);
 
-  // Drive the typing indicator from this (webhook function) context for
-  // the duration of the workflow run. The workflow runtime forbids
-  // setInterval, so refresh must live in the webhook layer.
+  // Trigger the IM stream-consumer endpoint fire-and-forget. This is
+  // the core of the IM streaming architecture (see stream.md):
   //
-  // We AWAIT the pump (not fire-and-forget): routeAdapterMessage's
-  // returned promise is what chat-sdk's processMessage registers via
-  // waitUntil, and that registration is what keeps the webhook
-  // function's after() task alive. If we fire-and-forget the pump, the
-  // after() task completes as soon as routeAdapterMessage returns, the
-  // function is reclaimed, and the pump's promise chain is orphaned —
-  // the indicator disappears after a few seconds (the bug we're fixing).
-  // Awaiting ties the pump's lifetime to the after() task, which after()
-  // happily extends up to maxDuration.
+  // - The webhook function must return a fast 200 ACK so the IM
+  //   platform doesn't retry, so it cannot host the stream consumer.
+  // - The workflow runtime forbids setInterval and can't serialize
+  //   experimental_transform, so it can't host it either.
+  // - The stream-consumer endpoint is a plain Node.js function whose
+  //   HTTP Response body is itself a ReadableStream — that streaming
+  //   response keeps the function alive past Vercel's maxDuration (the
+  //   same trick the web chat route uses), letting it drain the whole
+  //   workflow readable, post + editMessage on a throttled cadence,
+  //   and refresh typing for the entire run.
+  //
+  // We DO NOT await this fetch — awaiting would block routeAdapterMessage,
+  // which chat-sdk's processMessage awaits in turn, which would block
+  // the webhook ACK. The fetch resolves quickly (the stream-consumer
+  // returns a streaming Response immediately); the actual work continues
+  // server-side for as long as the stream is open.
   if (
     source.type === 'im' &&
     (dispatched.kind === 'message' || dispatched.kind === 'resume-run-message')
   ) {
-    const { runTypingPumpUntilDone } = await import('@/lib/bot/typing-pump');
-    await runTypingPumpUntilDone({
+    triggerImStreamConsumer({
       source,
       runId: dispatched.result.runId,
     });

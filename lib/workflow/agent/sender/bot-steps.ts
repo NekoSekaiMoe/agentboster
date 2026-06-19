@@ -1,9 +1,4 @@
-import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';
-
-const logger = createLogger('workflow.sender.bot_steps');
-
-type ImReplyAction = 'post' | 'edit';
 
 function formatToolName(toolName: string): string {
   return toolName
@@ -59,56 +54,4 @@ export async function sendApprovalRequestReminderStep(input: {
       toolCallId: input.toolCallId,
     }),
   );
-}
-
-export async function postAdapterVoiceReplyStep(input: {
-  source: Extract<ChatSource, { type: 'im' }>;
-  text: string;
-}): Promise<boolean> {
-  'use step';
-
-  const { postAdapterVoiceReply } = await import('@/lib/bot/voice');
-  return postAdapterVoiceReply(input.source, input.text);
-}
-
-export async function flushImReplyStep(input: {
-  source: Extract<ChatSource, { type: 'im' }>;
-  action: ImReplyAction;
-  messageId?: string | null;
-  text: string;
-}): Promise<{ ok: boolean; messageId: string | null }> {
-  'use step';
-
-  const content = input.text.trim();
-  if (!content) {
-    return { ok: false, messageId: input.messageId ?? null };
-  }
-
-  try {
-    const { getBaseBot } = await import('@/lib/bot/core');
-    const bot = await getBaseBot();
-    const adapter = bot.getAdapter(input.source.adapter);
-    const message = { markdown: input.text };
-
-    if (input.action === 'edit' && input.messageId) {
-      await adapter.editMessage(
-        input.source.threadId,
-        input.messageId,
-        message,
-      );
-      return { ok: true, messageId: input.messageId };
-    }
-
-    const posted = await adapter.postMessage(input.source.threadId, message);
-    return { ok: true, messageId: posted.id };
-  } catch (error) {
-    logger.warn('im_reply:flush_failed', {
-      adapter: input.source.adapter,
-      threadId: input.source.threadId,
-      messageId: input.messageId,
-      action: input.action,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return { ok: false, messageId: input.messageId ?? null };
-  }
 }

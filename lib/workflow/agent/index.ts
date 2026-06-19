@@ -23,13 +23,6 @@ import {
   writeStreamError,
   writeUserMessageMarker,
 } from './sender/writers';
-import {
-  createImReplyHolder,
-  stopImReplyPump,
-  streamImStepReplyStep,
-  type ImReplyHolder,
-} from './sender/bots';
-import { postAdapterVoiceReplyStep } from './sender/bot-steps';
 import { buildSystemPrompt } from './steps/build-prompt';
 import {
   compactAndPersistSummaryStep,
@@ -229,23 +222,6 @@ export async function chatWorkflow(
     modelMessagesToPrompt(initialMessages),
   );
   const stepStartedAt = new Map<number, Date>();
-
-  // IM replies are posted/edited from inside the workflow at each
-  // onStepFinish. The earlier experimental_transform approach (chunk-
-  // level interception) is incompatible with durable workflows: the
-  // transform is a function, but the workflow runtime serializes every
-  // step argument with Devalue, which rejects functions. onStepFinish
-  // gives us step.text (a plain string, fully serializable) and fires
-  // at durable step boundaries, so the post/edit calls survive
-  // workflow pause/resume and outlive the webhook function that started
-  // the run (no more maxDuration truncation).
-  const imReplyHolder: ImReplyHolder | null =
-    source.type === 'im'
-      ? createImReplyHolder({
-          adapter: source.adapter,
-          ttsEnabled: config.channels?.[source.adapter]?.tts_enabled === true,
-        })
-      : null;
 
   // Resolve the configured provider key for the active model. Used in
   // onStepFinish to build a user-facing error message when a third-party
@@ -483,31 +459,6 @@ export async function chatWorkflow(
           });
           pendingPersistedInstructions = [];
 
-          // Post/edit the IM reply at each step boundary. step.text is
-          // a plain string (fully serializable); onStepFinish fires at
-          // durable step boundaries, so this survives pause/resume and
-          // runs inside the workflow runtime (independent of the
-          // webhook function's maxDuration). Tool-bearing steps inject
-          // a divider so the user sees where the agent paused.
-          if (imReplyHolder && source.type === 'im' && step.text.trim()) {
-            try {
-              await streamImStepReplyStep({
-                source,
-                holder: imReplyHolder,
-                stepText: step.text,
-                toolNames: step.toolCalls.map((tc) => tc.toolName),
-              });
-            } catch (imError) {
-              logger.warn('stream:im_step_reply_failed', {
-                sessionId,
-                runId,
-                stepNumber: step.stepNumber,
-                error:
-                  imError instanceof Error ? imError.message : String(imError),
-              });
-            }
-          }
-
           const actualTokens = getTokenUsageTotal(usage);
           if (actualTokens > 0) {
             totalTokensUsed = actualTokens;
@@ -559,45 +510,6 @@ export async function chatWorkflow(
           });
         }
       });
-    }
-
-    // Finalize the IM reply: stop the throttled pump and force one last
-    // edit so the IM message reflects the complete text. For TTS-enabled
-    // channels the pump skipped text posting entirely, so we synthesize a
-    // single voice clip from the accumulated reply instead. This replaces
-    // the old drainStreamToText + postAdapterVoiceReply path that lived
-    // in the webhook function's streamAdapterSourceReply.
-    if (imReplyHolder && source.type === 'im') {
-      try {
-        await stopImReplyPump(imReplyHolder, source);
-      } catch (imError) {
-        logger.warn('im:stop_pump_failed', {
-          sessionId,
-          runId,
-          adapter: source.adapter,
-          error: imError instanceof Error ? imError.message : String(imError),
-        });
-      }
-
-      if (imReplyHolder.accumulatedText.trim().length > 0) {
-        const channelCfg = config.channels?.[source.adapter];
-        if (channelCfg?.tts_enabled) {
-          try {
-            await postAdapterVoiceReplyStep({
-              source,
-              text: imReplyHolder.accumulatedText,
-            });
-          } catch (ttsError) {
-            logger.warn('tts:voice_reply_failed', {
-              sessionId,
-              runId,
-              adapter: source.adapter,
-              error:
-                ttsError instanceof Error ? ttsError.message : String(ttsError),
-            });
-          }
-        }
-      }
     }
 
     try {

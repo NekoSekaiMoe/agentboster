@@ -243,9 +243,9 @@ export async function persistStepDeltaAndUsageStep(input: {
     messageIds: savedMessageIds,
   });
 
-  // IM replies are posted/edited from inside the workflow via
-  // streamImStepReplyStep in lib/workflow/agent/index.ts's onStepFinish.
-  // Only send for non-IM sources (e.g. 'scheduled') here.
+  // IM replies are streamed by the dedicated stream-consumer endpoint
+  // (app/api/internal/im-stream/route.ts) that drains run.readable —
+  // not by this step. Only send for non-IM sources (e.g. 'scheduled').
   const source = session?.metadata?.source as ChatSource | undefined;
   if (input.step.text.trim().length > 0 && source && source.type !== 'im') {
     await sendSourceReplyStep({
