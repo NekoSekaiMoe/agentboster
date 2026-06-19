@@ -206,7 +206,13 @@ func sandboxExtras(v *viper.Viper) {
 	v.SetDefault("sandbox.lxc.init_commands", []string{
 		"apk add --no-cache git curl bash ca-certificates xz",
 		"mkdir -p /workspace",
-		"echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
+		// Only write a fallback resolver on alpine (where stock images
+		// sometimes ship with a broken/empty resolv.conf), and only if
+		// the existing one is missing or empty. On systemd-resolved
+		// distros (ubuntu/debian) /etc/resolv.conf is a symlink managed
+		// by the resolver daemon — overwriting it breaks DNS, so the
+		// `command -v apk` guard skips them entirely.
+		"command -v apk >/dev/null 2>&1 && [ ! -s /etc/resolv.conf ] && echo 'nameserver 8.8.8.8' > /etc/resolv.conf || true",
 	})
 }
 
@@ -453,7 +459,7 @@ allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "alpine:edge"
 init_commands = [
     "apk add --no-cache git curl bash ca-certificates xz",
     "mkdir -p /workspace",
-    "echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
+    "command -v apk >/dev/null 2>&1 && [ ! -s /etc/resolv.conf ] && echo 'nameserver 8.8.8.8' > /etc/resolv.conf || true",
 ]
 `)
 }

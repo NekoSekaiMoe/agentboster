@@ -82,14 +82,18 @@ network_isolate = true
 # Init commands executed on first LXC container creation.
 # web_fetch_rendered/web_search_rendered auto-install Chromium on first use if it is missing.
 #
-# NOTE: the defaults below assume the default alpine distro. If you set
-# lxc_default_distro to ubuntu/debian/etc., `apk` won't exist and these
-# will fail silently (InitCommand failures are logged at WARN, not fatal).
-# For non-alpine distros, replace `apk add` with the matching command:
+# The defaults below are tuned for alpine (the default distro). If you
+# set lxc_default_distro to ubuntu/debian/etc., `apk` won't exist and
+# the first command will fail (logged at WARN, not fatal); replace it
+# with the matching command:
 #   - ubuntu/debian: "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git curl bash ca-certificates xz-utils"
 #   - RHEL/Fedora:   "dnf install -y git curl bash ca-certificates xz"
-# Also drop the resolv.conf line on systemd-resolved distros — it
-# overrides the resolver manager and breaks DNS.
+#
+# The resolv.conf line is gated on `command -v apk` so it only fires on
+# alpine (where stock images sometimes ship with an empty resolv.conf).
+# On systemd-resolved distros /etc/resolv.conf is a daemon-managed
+# symlink and overwriting it breaks DNS — the apk guard skips them.
+#
 # As a safety net, the browser bridge's node_install.sh runs a tool
 # preflight on every invocation and emits an AGENTD_NODE_INSTALL_HINT
 # line with the exact install command for the detected package manager,
@@ -97,7 +101,7 @@ network_isolate = true
 init_commands = [
     "apk add --no-cache git curl bash ca-certificates xz",
     "mkdir -p /workspace",
-    "echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
+    "command -v apk >/dev/null 2>&1 && [ ! -s /etc/resolv.conf ] && echo 'nameserver 8.8.8.8' > /etc/resolv.conf || true",
 ]
 
 [cache]
