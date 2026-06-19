@@ -204,7 +204,7 @@ func sandboxExtras(v *viper.Viper) {
 		"golang:1.22", "node:20", "python:3.12",
 	})
 	v.SetDefault("sandbox.lxc.init_commands", []string{
-		"apk add --no-cache git curl bash ca-certificates",
+		"apk add --no-cache git curl bash ca-certificates xz",
 		"mkdir -p /workspace",
 		"echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
 	})
@@ -451,7 +451,7 @@ allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "alpine:edge"
 
 [sandbox.lxc]
 init_commands = [
-    "apk add --no-cache git curl bash ca-certificates",
+    "apk add --no-cache git curl bash ca-certificates xz",
     "mkdir -p /workspace",
     "echo 'nameserver 8.8.8.8' > /etc/resolv.conf",
 ]

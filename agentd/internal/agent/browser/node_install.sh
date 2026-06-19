@@ -27,6 +27,128 @@ if [ -x "$INSTALL_DIR/bin/node" ]; then
   exit 0
 fi
 
+# Toolchain preflight. The default LXC InitCommands install this set via
+# `apk add --no-cache git curl bash ca-certificates xz`, but the script
+# also runs in user-supplied sandbox images (custom LXC distros, docker
+# strict with arbitrary base images, custom docker_image values) that
+# may NOT have the baseline. Rather than failing mid-way with an opaque
+# `tar: invalid option -- 'J'` or a truncated download, enumerate every
+# required tool up front and report ALL missing ones in a single
+# AGENTD_NODE_MISSING_TOOLS line plus an AGENTD_NODE_INSTALL_HINT line
+# that gives a copy-pasteable fix command for the detected package
+# manager. This error is consumed by browser.go's EnsureBridge, which
+# surfaces it as a tool-result error to the LLM — so the LLM can
+# self-recover by running the hint via sandbox.exec and retrying.
+#
+# Two pairs have an either/or contract:
+#   - curl OR wget  (download clients)
+#   - sha256sum OR shasum  (integrity check)
+# Any other tool is strictly required.
+check_required_tools() {
+  missing=""
+  require() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+      missing="$missing $1"
+    fi
+  }
+  require tar
+  require xz
+  require awk
+  require grep
+  require mktemp
+  require mv
+  require mkdir
+  require uname
+  # Either curl or wget is fine (the download block below handles both).
+  if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    missing="$missing curl-or-wget"
+  fi
+  # Either sha256sum (coreutils) or shasum (perl) is fine.
+  if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+    missing="$missing sha256sum-or-shasum"
+  fi
+  if [ -n "$missing" ]; then
+    # Trim leading space.
+    missing="${missing# }"
+    echo "AGENTD_NODE_MISSING_TOOLS=$missing" >&2
+    # Emit a package-manager-aware install hint so the LLM (or operator)
+    # can recover in one exec call. Translate each missing item to its
+    # package name per the detected manager. `ca-certificates` is pulled
+    # in unconditionally because HTTPS downloads will fail without it
+    # even if the http client binary is present.
+    pkgs=""
+    add_pkg() {
+      pkgs="$pkgs $1"
+    }
+    emit_hint() {
+      # $1 = manager command prefix (e.g. "apk add --no-cache")
+      # Build the package list, then trim and print.
+      pkgs="${pkgs# }"
+      if [ -n "$pkgs" ]; then
+        echo "AGENTD_NODE_INSTALL_HINT=$1 $pkgs" >&2
+      fi
+    }
+    case "$(uname -s 2>/dev/null)" in
+      Linux)
+        if command -v apk >/dev/null 2>&1; then
+          # alpine
+          for t in $missing; do
+            case "$t" in
+              tar) add_pkg tar ;;
+              xz) add_pkg xz ;;
+              awk) add_pkg busybox 2>/dev/null || add_pkg gawk ;;
+              grep) add_pkg grep ;;
+              curl-or-wget) add_pkg curl ;;
+              sha256sum-or-shasum) add_pkg busybox 2>/dev/null || add_pkg perl-utils ;;
+            esac
+          done
+          add_pkg ca-certificates
+          emit_hint "apk add --no-cache"
+        elif command -v apt-get >/dev/null 2>&1; then
+          # debian / ubuntu
+          for t in $missing; do
+            case "$t" in
+              tar) add_pkg tar ;;
+              xz) add_pkg xz-utils ;;
+              awk) add_pkg gawk ;;
+              grep) add_pkg grep ;;
+              curl-or-wget) add_pkg curl ;;
+              sha256sum-or-shasum) add_pkg coreutils 2>/dev/null || add_pkg perl ;;
+            esac
+          done
+          add_pkg ca-certificates
+          emit_hint "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends"
+        elif command -v yum >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1; then
+          # RHEL / Fedora
+          pm="yum install -y"
+          if command -v dnf >/dev/null 2>&1; then
+            pm="dnf install -y"
+          fi
+          for t in $missing; do
+            case "$t" in
+              tar) add_pkg tar ;;
+              xz) add_pkg xz ;;
+              awk) add_pkg gawk ;;
+              grep) add_pkg grep ;;
+              curl-or-wget) add_pkg curl ;;
+              sha256sum-or-shasum) add_pkg coreutils 2>/dev/null || add_pkg perl-Digest-SHA ;;
+            esac
+          done
+          add_pkg ca-certificates
+          emit_hint "$pm"
+        else
+          echo "AGENTD_NODE_INSTALL_HINT=(unknown package manager — no apk/apt/yum/dnf detected; install the missing tools manually)" >&2
+        fi
+        ;;
+      *)
+        echo "AGENTD_NODE_INSTALL_HINT=(unsupported OS — install the missing tools manually)" >&2
+        ;;
+    esac
+    exit 1
+  fi
+}
+check_required_tools
+
 # Arch detection (Linux only — agentd is Linux-only too)
 case "$(uname -m)" in
   x86_64)  ARCH="x64" ;;
