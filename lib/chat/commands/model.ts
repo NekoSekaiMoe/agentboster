@@ -43,6 +43,19 @@ export async function executeModelCommand(
     return 'Cannot set model: user ID not available.';
   }
 
+  // Enforce the admin-configured model allowlist (models.model_catalog).
+  // When the admin has set a catalog, only its keys are accepted. This
+  // matches the web chat-box picker, which restricts selection to the
+  // same list. An absent/empty catalog means "no restriction" — free-form
+  // input remains allowed (mirrors the web fallback).
+  const { getConfig } = await import('@/lib/core/kv/config');
+  const config = await getConfig();
+  const allowed = Object.keys(config.models?.model_catalog ?? {});
+  if (allowed.length > 0 && !allowed.includes(parsed.data)) {
+    const suggestion = allowed.slice().sort().join(', ');
+    return `Model "${parsed.data}" is not in the allowed list. Allowed models: ${suggestion}`;
+  }
+
   await updateUserModelPreferences(userId, { model: parsed.data });
   return `Your preferred model is now: ${parsed.data}`;
 }

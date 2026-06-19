@@ -85,6 +85,9 @@ describe('executeModelCommand', () => {
 
   describe('with args — write personal preference', () => {
     it('writes the personal preference via updateUserModelPreferences', async () => {
+      vi.mocked(getConfig).mockResolvedValueOnce({
+        models: { model: GLOBAL_MODEL },
+      } as never);
       vi.mocked(updateUserModelPreferences).mockResolvedValueOnce({
         id: USER_ID,
         username: 'alice',
@@ -104,6 +107,9 @@ describe('executeModelCommand', () => {
     });
 
     it('trims whitespace before saving', async () => {
+      vi.mocked(getConfig).mockResolvedValueOnce({
+        models: {},
+      } as never);
       vi.mocked(updateUserModelPreferences).mockResolvedValueOnce(
         null as never,
       );
@@ -142,7 +148,40 @@ describe('executeModelCommand', () => {
       expect(updateUserModelPreferences).not.toHaveBeenCalled();
     });
 
+    it('rejects a model not in the admin allowlist (model_catalog)', async () => {
+      const ALLOWED = 'gpt-4o';
+      vi.mocked(getConfig).mockResolvedValueOnce({
+        models: { model_catalog: { [ALLOWED]: {} } },
+      } as never);
+
+      const text = await executeModelCommand(PERSONAL_MODEL, {
+        userId: USER_ID,
+      });
+
+      expect(updateUserModelPreferences).not.toHaveBeenCalled();
+      expect(text).toContain('not in the allowed list');
+      expect(text).toContain(ALLOWED);
+    });
+
+    it('accepts a model that is a key of model_catalog', async () => {
+      vi.mocked(getConfig).mockResolvedValueOnce({
+        models: { model_catalog: { [PERSONAL_MODEL]: {} } },
+      } as never);
+      vi.mocked(updateUserModelPreferences).mockResolvedValueOnce(
+        null as never,
+      );
+
+      await executeModelCommand(PERSONAL_MODEL, { userId: USER_ID });
+
+      expect(updateUserModelPreferences).toHaveBeenCalledWith(USER_ID, {
+        model: PERSONAL_MODEL,
+      });
+    });
+
     it('never touches the global config (regression)', async () => {
+      vi.mocked(getConfig).mockResolvedValueOnce({
+        models: {},
+      } as never);
       vi.mocked(updateUserModelPreferences).mockResolvedValueOnce(
         null as never,
       );
