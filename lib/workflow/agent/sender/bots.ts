@@ -1,7 +1,11 @@
 import { getBotCapabilities } from '@/lib/bot/capabilities';
 import type { ChatSource } from '@/types/workflow';
 import { createLogger } from '@/lib/utils/logger';
-import { flushImReplyStep } from './bot-steps';
+import {
+  flushImReplyStep,
+  startImTypingStep,
+  stopImTypingStep,
+} from './bot-steps';
 
 const imReplyLogger = createLogger('workflow.sender.bots');
 
@@ -19,47 +23,39 @@ function formatToolName(toolName: string): string {
 }
 
 /**
- * Per-run state for streaming IM replies from inside the workflow.
+ * Per-run state for IM replies driven from inside the workflow.
  *
  * The workflow runtime outlives the webhook function that started it,
- * so the IM stream consumer must live inside the workflow. We intercept
- * the agent's text stream via experimental_transform and post/edit an
- * IM message on a throttled cadence — users see the message grow
- * roughly every FLUSH_INTERVAL_MS rather than only at step boundaries
- * (important for slow large models that emit tokens across many seconds
- * within a single step).
+ * so the IM message lifecycle must live inside the workflow. We post/
+ * edit the IM message at each onStepFinish (durable step boundary) —
+ * step.text is a plain string, fully serializable, so this model is
+ * compatible with the workflow runtime's Devalue-based persistence.
  *
- * - `messageId`: id of the growing IM message, once the first text has
- *   been posted. Stays null for non-edit adapters (feishu/qq), which
- *   must post a fresh message each flush.
- * - `accumulatedText`: full reply text accumulated across ALL chunks
- *   since the run started. editMessage replaces the whole message body,
- *   so we must track the complete text, not deltas.
- * - `pendingFlush`: true when a flush is scheduled but not yet run.
- *   Prevents stacking multiple timers.
- * - `inFlight`: true while a post/edit HTTP call is in progress. The
- *   next flush waits rather than issuing concurrent edits (IM platforms
- *   reject overlapping edits on the same message).
- * - `closed`: set by stopImReplyPump once the stream has ended; the
- *   final forced flush runs and no further timers are scheduled.
- * - `lastFlushedText`: the text body as of the last successful edit.
- *   Used by the throttle check and the "more text arrived since" guard.
+ * The earlier experimental_transform approach (intercepting text-delta
+ * chunks) does NOT work in durable workflows: the transform is a
+ * function, and the workflow runtime serializes every step argument,
+ * rejecting functions with "Cannot stringify a function".
+ *
+ * - `messageId`: id of the growing IM message. null until the first
+ *   text-bearing step posts it. Stays null between calls for adapters
+ *   that cannot edit (feishu/qq), so every step posts a fresh message.
+ * - `accumulatedText`: full reply text accumulated across all steps.
+ *   editMessage replaces the whole message body, so we track the
+ *   complete text rather than per-step deltas.
  * - `canEdit` / `ttsEnabled`: cached capability/config flags.
+ * - `typingTimer`: handle of the typing-indicator refresh interval.
+ *   Telegram's typing indicator expires after ~5s; we refresh it on a
+ *   cadence so the indicator stays on for the whole run.
  */
 export interface ImReplyHolder {
   messageId: string | null;
   accumulatedText: string;
-  lastFlushedText: string;
-  pendingFlush: boolean;
-  inFlight: boolean;
-  closed: boolean;
   canEdit: boolean | null;
   ttsEnabled: boolean | null;
+  typingTimer: ReturnType<typeof setInterval> | null;
 }
 
-/** Min text length change OR time gap before we issue an editMessage. */
-const FLUSH_INTERVAL_MS = 500;
-const FLUSH_MIN_DELTA_CHARS = 20;
+const TYPING_REFRESH_MS = 4500;
 
 export function createImReplyHolder(options?: {
   adapter?: string;
@@ -68,201 +64,123 @@ export function createImReplyHolder(options?: {
   return {
     messageId: null,
     accumulatedText: '',
-    lastFlushedText: '',
-    pendingFlush: false,
-    inFlight: false,
-    closed: false,
     canEdit: options?.adapter ? getBotCapabilities(options.adapter).edit : null,
     ttsEnabled: options?.ttsEnabled ?? false,
+    typingTimer: null,
   };
 }
 
-async function ensureHolderFlags(
+/**
+ * Start the IM typing indicator for the run. Call once at the start of
+ * chatWorkflow for IM sources. The indicator auto-expires (~5s on
+ * Telegram); we refresh it on an interval until stopImReplyPump clears
+ * the timer. Best-effort — failures (unsupported adapter, transient
+ * API error) are swallowed.
+ */
+export async function startImTyping(
   holder: ImReplyHolder,
-  adapter: string,
+  source: Extract<ChatSource, { type: 'im' }>,
 ): Promise<void> {
-  if (holder.canEdit === null) {
-    holder.canEdit = getBotCapabilities(adapter).edit;
-  }
-  holder.ttsEnabled ??= false;
+  const refresh = () => {
+    void startImTypingStep(source).catch((error) => {
+      imReplyLogger.warn('im_typing:refresh_failed', {
+        adapter: source.adapter,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
+
+  refresh();
+  holder.typingTimer = setInterval(refresh, TYPING_REFRESH_MS);
 }
 
 /**
- * Issue (or schedule) an IM post/edit for the current accumulatedText.
+ * Append a step's text to the growing IM reply. Called from
+ * chatWorkflow's onStepFinish — `stepText` is the model's text output
+ * for that step (a string, fully serializable).
  *
- * `force` is used by stopImReplyPump for the final flush — it bypasses
- * the throttle and waits for any in-flight edit to land first. Mid-run
- * calls (from the transform's text-delta observer) are throttled:
- * - if an edit is already in flight, do nothing (the next chunk will
- *   re-arm a timer)
- * - if the text delta since the last edit is small AND the last edit
- *   was recent, arm a timer instead of editing immediately
+ * For edit-capable adapters (telegram/discord/slack/teams/gchat): the
+ * first text-bearing step posts the message and captures its id;
+ * subsequent steps editMessage the same id with the full accumulated
+ * text. When a step also invoked tools, a divider is inserted so the
+ * user sees where the agent paused to call a tool.
+ *
+ * For non-edit-capable adapters (feishu/qq): every text-bearing step
+ * posts a new message containing the full accumulated reply. messageId
+ * stays null between calls.
+ *
+ * TTS-enabled channels are skipped here — one voice clip is synthesized
+ * from the accumulated text at end-of-run instead.
  */
-function scheduleFlush(
-  holder: ImReplyHolder,
-  source: Extract<ChatSource, { type: 'im' }>,
-  force = false,
-): void {
-  if (holder.closed && !force) return;
-  if (holder.ttsEnabled) return; // voice clip posted once at end-of-run
-  if (holder.pendingFlush) return;
-  if (holder.inFlight && !force) return;
+export async function streamImStepReplyStep(input: {
+  source: Extract<ChatSource, { type: 'im' }>;
+  holder: ImReplyHolder;
+  stepText: string;
+  toolNames?: string[];
+}): Promise<void> {
+  'use step';
 
-  const delay = force ? 0 : FLUSH_INTERVAL_MS;
-  holder.pendingFlush = true;
-  setTimeout(() => {
-    void runFlush(holder, source, force);
-  }, delay);
-}
-
-async function runFlush(
-  holder: ImReplyHolder,
-  source: Extract<ChatSource, { type: 'im' }>,
-  force: boolean,
-): Promise<void> {
-  holder.pendingFlush = false;
-  if (holder.inFlight) {
-    // Another flush is mid-flight; re-arm if forced or there's pending text.
-    if (force || holder.accumulatedText !== holder.lastFlushedText) {
-      scheduleFlush(holder, source, force);
-    }
-    return;
-  }
-
-  const text = holder.accumulatedText;
+  const text = input.stepText.trim();
   if (!text) return;
+  if (input.holder.ttsEnabled) return;
 
-  // Throttle (non-forced) edits: skip if too little new text arrived.
-  if (!force) {
-    const delta = text.length - holder.lastFlushedText.length;
-    if (delta < FLUSH_MIN_DELTA_CHARS) return;
+  if (input.holder.canEdit === null) {
+    input.holder.canEdit = getBotCapabilities(input.source.adapter).edit;
   }
 
-  holder.inFlight = true;
+  // Append this step's text to the accumulated body. When the step
+  // also invoked tools, separate the previous content from the new
+  // text with a visible divider (IM channels have no native tool-call
+  // affordance).
+  const divider =
+    input.toolNames && input.toolNames.length > 0
+      ? `\n\n🔧 ${input.toolNames.map(formatToolName).join(', ')}...\n\n`
+      : '';
+  const newBlock = divider + text;
+  input.holder.accumulatedText =
+    input.holder.accumulatedText.length > 0
+      ? `${input.holder.accumulatedText}${newBlock}`
+      : text;
+
   try {
-    await ensureHolderFlags(holder, source.adapter);
     const result = await flushImReplyStep({
-      source,
-      action: holder.canEdit && holder.messageId ? 'edit' : 'post',
-      messageId: holder.messageId,
-      text,
+      source: input.source,
+      action: input.holder.canEdit && input.holder.messageId ? 'edit' : 'post',
+      messageId: input.holder.messageId,
+      text: input.holder.accumulatedText,
     });
 
     if (result.ok) {
-      if (holder.canEdit) holder.messageId = result.messageId;
-      // non-edit adapters: leave messageId null, next flush posts again.
-      holder.lastFlushedText = text;
+      if (input.holder.canEdit) {
+        input.holder.messageId = result.messageId;
+      }
+      // non-edit adapters: leave messageId null → next step posts again.
     }
   } catch (error) {
-    imReplyLogger.warn('im_reply:flush_failed', {
-      adapter: source.adapter,
-      threadId: source.threadId,
-      messageId: holder.messageId,
-      forced: force,
+    imReplyLogger.warn('im_step_reply:failed', {
+      adapter: input.source.adapter,
+      threadId: input.source.threadId,
+      messageId: input.holder.messageId,
       error: error instanceof Error ? error.message : String(error),
     });
-  } finally {
-    holder.inFlight = false;
-    // If more text arrived during the edit, schedule another flush.
-    if (!holder.closed && holder.accumulatedText !== holder.lastFlushedText) {
-      scheduleFlush(holder, source, false);
-    }
   }
 }
 
 /**
- * Build an experimental_transform that observes the agent's text stream
- * and drives the IM reply pump. Each text-delta chunk is accumulated
- * into the holder; every other chunk passes through untouched. A
- * tool-call chunk injects a visible divider so text emitted across a
- * tool boundary doesn't get glued together in the IM message.
- *
- * Returns null when the source isn't an IM channel we should stream to
- * (web sources use the web UI's own stream consumer; TTS-enabled IM
- * channels get a single voice clip at end-of-run instead of mid-run
- * text edits).
- *
- * The transform must preserve the TextStreamPart shape end-to-end:
- * streamText pipes our output through its own output/event transforms,
- * which expect well-formed chunks. We always enqueue the original chunk
- * unchanged; the IM-specific accumulation is a side effect.
- *
- * Typed as `unknown` here — the @workflow/ai StreamTextTransform
- * signature uses LanguageModelV3StreamPart while the runtime delivers
- * ai's TextStreamPart (a workflow SDK type mismatch). The caller casts
- * to whatever DurableAgent.stream expects.
- */
-export function createImReplyTransform(
-  holder: ImReplyHolder,
-  source: ChatSource,
-):
-  | ((options: {
-      tools: unknown;
-      stopStream: () => void;
-    }) => TransformStream<unknown, unknown>)
-  | null {
-  if (source.type !== 'im') return null;
-
-  const seenToolCalls = new Set<string>();
-  // Chunk shape is TextStreamPart<ToolSet> at runtime — a discriminated
-  // union. Narrow by .type and read known fields via a minimal local
-  // type; the full union is ToolSet-generic and not needed here.
-  type ChunkLike = {
-    type: string;
-    text?: string;
-    delta?: string;
-    toolCallId?: string;
-    toolName?: string;
-  };
-
-  return () =>
-    new TransformStream({
-      transform(chunk: ChunkLike, controller) {
-        // Pass through unchanged so the workflow writable and the web UI
-        // still see the complete stream.
-        controller.enqueue(chunk);
-
-        const textDelta =
-          typeof chunk.text === 'string'
-            ? chunk.text
-            : typeof chunk.delta === 'string'
-              ? chunk.delta
-              : null;
-
-        if (chunk.type === 'text-delta' && textDelta) {
-          holder.accumulatedText += textDelta;
-          scheduleFlush(holder, source, false);
-        } else if (
-          chunk.type === 'tool-call' &&
-          chunk.toolCallId &&
-          !seenToolCalls.has(chunk.toolCallId)
-        ) {
-          seenToolCalls.add(chunk.toolCallId);
-          const label = chunk.toolName
-            ? formatToolName(chunk.toolName)
-            : 'tool';
-          holder.accumulatedText += `\n\n🔧 ${label}...\n\n`;
-          scheduleFlush(holder, source, false);
-        }
-      },
-    });
-}
-
-/**
- * Stop the pump and run a final flush. Call this once the agent stream
- * has produced its last chunk. Waits for any in-flight edit to complete
- * (best-effort), then forces one more edit so the IM message reflects
- * the final full text.
+ * Stop the pump: clear the typing indicator and (for TTS channels)
+ * leave accumulatedText in place so the caller can synthesize a voice
+ * clip from it. Call once at the end of chatWorkflow for IM sources.
  */
 export async function stopImReplyPump(
   holder: ImReplyHolder,
   source: Extract<ChatSource, { type: 'im' }>,
 ): Promise<void> {
-  holder.closed = true;
-  await ensureHolderFlags(holder, source.adapter);
-  if (!holder.accumulatedText.trim() || holder.ttsEnabled) return;
-  // Force the final flush and wait for it.
-  holder.inFlight = false;
-  holder.pendingFlush = false;
-  await runFlush(holder, source, true);
+  if (holder.typingTimer) {
+    clearInterval(holder.typingTimer);
+    holder.typingTimer = null;
+  }
+  // Best-effort final typing clear (some adapters accept this).
+  await stopImTypingStep(source).catch(() => {
+    // not all adapters support stopping typing; ignore
+  });
 }

@@ -112,3 +112,43 @@ export async function flushImReplyStep(input: {
     return { ok: false, messageId: input.messageId ?? null };
   }
 }
+
+/**
+ * Trigger the IM typing indicator for one tick. Telegram's indicator
+ * expires after ~5s, so the caller (lib/workflow/agent/sender/bots.ts)
+ * refreshes it on an interval for the whole run. Best-effort: some
+ * adapters don't support typing at all and reject the call silently.
+ */
+export async function startImTypingStep(
+  source: Extract<ChatSource, { type: 'im' }>,
+): Promise<void> {
+  'use step';
+
+  const { getBaseBot } = await import('@/lib/bot/core');
+  const bot = await getBaseBot();
+  const adapter = bot.getAdapter(source.adapter);
+  await adapter.startTyping(source.threadId);
+}
+
+/**
+ * Best-effort stop-typing hint. Not all adapters expose this; failures
+ * are swallowed by the caller.
+ */
+export async function stopImTypingStep(
+  source: Extract<ChatSource, { type: 'im' }>,
+): Promise<void> {
+  'use step';
+
+  try {
+    const { getBaseBot } = await import('@/lib/bot/core');
+    const bot = await getBaseBot();
+    const adapter = bot.getAdapter(source.adapter);
+    // chat SDK doesn't have a universal stopTyping; some adapters alias
+    // it, others ignore it. Call defensively.
+    await (
+      adapter as { stopTyping?: (threadId: string) => Promise<void> }
+    ).stopTyping?.(source.threadId);
+  } catch {
+    // best-effort
+  }
+}

@@ -25,8 +25,9 @@ import {
 } from './sender/writers';
 import {
   createImReplyHolder,
-  createImReplyTransform,
+  startImTyping,
   stopImReplyPump,
+  streamImStepReplyStep,
   type ImReplyHolder,
 } from './sender/bots';
 import { postAdapterVoiceReplyStep } from './sender/bot-steps';
@@ -230,13 +231,15 @@ export async function chatWorkflow(
   );
   const stepStartedAt = new Map<number, Date>();
 
-  // IM replies are streamed from inside the workflow via a chunk-level
-  // transform attached to agent.stream (experimental_transform). Each
-  // text-delta accumulates into the holder and a throttled pump posts/
-  // edits the IM message roughly every 500ms — so users see progress
-  // even within a long single step (large slow models). The webhook
-  // function no longer consumes run.readable for IM sources, so its
-  // maxDuration can no longer truncate the reply.
+  // IM replies are posted/edited from inside the workflow at each
+  // onStepFinish. The earlier experimental_transform approach (chunk-
+  // level interception) is incompatible with durable workflows: the
+  // transform is a function, but the workflow runtime serializes every
+  // step argument with Devalue, which rejects functions. onStepFinish
+  // gives us step.text (a plain string, fully serializable) and fires
+  // at durable step boundaries, so the post/edit calls survive
+  // workflow pause/resume and outlive the webhook function that started
+  // the run (no more maxDuration truncation).
   const imReplyHolder: ImReplyHolder | null =
     source.type === 'im'
       ? createImReplyHolder({
@@ -244,9 +247,13 @@ export async function chatWorkflow(
           ttsEnabled: config.channels?.[source.adapter]?.tts_enabled === true,
         })
       : null;
-  const imTransform = imReplyHolder
-    ? createImReplyTransform(imReplyHolder, source)
-    : null;
+
+  // Start the typing indicator for the whole run. Telegram's expires
+  // after ~5s; startImTyping refreshes it on an interval until
+  // stopImReplyPump clears the timer at run end.
+  if (imReplyHolder && source.type === 'im') {
+    await startImTyping(imReplyHolder, source);
+  }
 
   // Resolve the configured provider key for the active model. Used in
   // onStepFinish to build a user-facing error message when a third-party
@@ -347,22 +354,6 @@ export async function chatWorkflow(
       preventClose: true,
       maxSteps,
       collectUIMessages: false,
-      // Attach the IM reply pump as a stream transform. The transform
-      // observes text-delta chunks to drive throttled IM post/edit
-      // calls from inside the workflow runtime (durable, not bound to
-      // the webhook function's HTTP lifetime). Undefined for non-IM
-      // sources (web UI consumes run.readable directly).
-      //
-      // Cast: @workflow/ai's StreamTextTransform signature uses
-      // LanguageModelV3StreamPart while the runtime delivers ai's
-      // TextStreamPart — a known workflow SDK type mismatch. Our
-      // transform passes chunks through unchanged, so the shape is
-      // preserved regardless of which type the SDK declares.
-      ...(imTransform
-        ? {
-            experimental_transform: imTransform as never,
-          }
-        : {}),
       experimental_repairToolCall: async ({ toolCall, tools }) => {
         // DurableAgent only invokes this hook on schema-validation failure,
         // not on "tool not found". The empty-name / unknown-name crash is
@@ -499,6 +490,31 @@ export async function chatWorkflow(
             ...buildStepDebugLog(step),
           });
           pendingPersistedInstructions = [];
+
+          // Post/edit the IM reply at each step boundary. step.text is
+          // a plain string (fully serializable); onStepFinish fires at
+          // durable step boundaries, so this survives pause/resume and
+          // runs inside the workflow runtime (independent of the
+          // webhook function's maxDuration). Tool-bearing steps inject
+          // a divider so the user sees where the agent paused.
+          if (imReplyHolder && source.type === 'im' && step.text.trim()) {
+            try {
+              await streamImStepReplyStep({
+                source,
+                holder: imReplyHolder,
+                stepText: step.text,
+                toolNames: step.toolCalls.map((tc) => tc.toolName),
+              });
+            } catch (imError) {
+              logger.warn('stream:im_step_reply_failed', {
+                sessionId,
+                runId,
+                stepNumber: step.stepNumber,
+                error:
+                  imError instanceof Error ? imError.message : String(imError),
+              });
+            }
+          }
 
           const actualTokens = getTokenUsageTotal(usage);
           if (actualTokens > 0) {
