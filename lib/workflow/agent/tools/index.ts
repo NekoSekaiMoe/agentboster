@@ -1,16 +1,14 @@
-import { parseProviderScopedModelId } from '@/lib/ai';
 import type { AppConfig } from '@/types/config';
 import type { ToolCatalogResponse } from '@/types/config/tools';
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { createLogger } from '@/lib/utils/logger';
-import { MAIN_AGENT_NAME, getMainAgentModelId } from '../utils/agent-config';
+import { MAIN_AGENT_NAME } from '../utils/agent-config';
 import type { BuildAgentToolsOptions, BuildInToolDefinition } from './define';
 import { getMCPTools } from './mcp';
 import {
-  TOOL_NAME_ALIASES,
-  getTrapToolKeys,
   isValidToolName,
+  sanitizeToolName,
   suggestClosestName,
 } from './tool-name-guard';
 export {
@@ -97,44 +95,22 @@ export async function buildAgentTools(
     ...mcpTools,
   };
 
-  // Defensive trap tools for OpenAI-compatible providers that occasionally
-  // emit tool calls with an aliased name (e.g. write_memory instead of
-  // writeMemory). Without these, a single malformed call crashes the entire
-  // workflow run with "Tool \"X\" not found". Alias traps forward to the
-  // canonical tool. The original "empty function.name" trap was removed
-  // because the empty-string key itself violates provider tool-name rules
-  // (see getTrapToolKeys for the full rationale).
-  const trapTools = buildTrapTools(
-    config,
-    Object.keys(mergedTools),
-    mergedTools,
-  );
-  const finalTools: ToolSet = {
-    ...mergedTools,
-    ...trapTools,
-  };
-
   // Last-mile guard: drop any tool whose key fails provider tool-name
-  // validation. This catches two classes of problems:
-  //   1. MCP servers (especially remote ones) that expose tools with names
-  //      starting with a digit, containing non-ASCII characters, or
-  //      otherwise outside [A-Za-z_][A-Za-z0-9_.:-]{0,127}.
-  //   2. Defensive belt-and-suspenders for the trap registration: if a
-  //      future alias gets added that happens to be invalid, it gets
-  //      filtered here before reaching the model.
-  //
-  // Without this filter, a single bad key causes Gemini to reject the
-  // ENTIRE tools array with `function_declarations[N].name: Invalid
-  // function name`, taking down the whole workflow run.
+  // validation. Without this filter, a single bad key (e.g. an MCP server
+  // exposing a tool whose name starts with a digit or contains non-ASCII
+  // chars) causes Gemini to reject the ENTIRE tools array with
+  // `function_declarations[N].name: Invalid function name`, taking down
+  // the whole workflow run.
+  const logger = createLogger('workflow.agent.tools');
   const dropped: string[] = [];
-  for (const key of Object.keys(finalTools)) {
+  for (const key of Object.keys(mergedTools)) {
     if (!isValidToolName(key)) {
-      delete finalTools[key];
+      delete mergedTools[key];
       dropped.push(key);
     }
   }
   if (dropped.length > 0) {
-    createLogger('workflow.agent.tools').warn('tools:dropped_invalid_names', {
+    logger.warn('tools:dropped_invalid_names', {
       count: dropped.length,
       // Avoid logging the full list — keys could be empty strings or
       // contain noise. Truncate each to 40 chars for log readability.
@@ -144,125 +120,229 @@ export async function buildAgentTools(
     });
   }
 
-  return finalTools;
+  // Wrap the merged toolset in a resilient Proxy that synthesizes a
+  // fallback tool for any unknown key. DurableAgent's executeTool
+  // hard-throws `Tool "X" not found` on unknown names and that throw is
+  // NOT caught by experimental_repairToolCall — the Proxy ensures
+  // `tools[anything]` is always truthy so the throw is never reached.
+  // See createResilientToolSet for the full rationale and the fallback
+  // resolution strategy (alias → edit-distance → structured error).
+  return createResilientToolSet(mergedTools, logger);
 }
 
 /**
- * Resolve the provider format for the main agent's configured model.
+ * Wrap a ToolSet in a Proxy that catches unknown tool-name lookups.
  *
- * Mirrors the resolution logic in `lib/ai/index.ts` but returns only the
- * format string, defaulting to `undefined` when resolution fails. We avoid
- * throwing here because trap registration is a best-effort defense.
+ * Background: DurableAgent's executeTool (in @workflow/ai) does
+ *   const tool = tools[toolCall.toolName];
+ *   if (!tool) throw new Error(`Tool "${toolCall.toolName}" not found`);
+ * and this throw is NOT caught by `experimental_repairToolCall` (which
+ * only fires on schema-validation failure) nor by `onError` (which is a
+ * log-only hook followed by an immediate re-throw). The throw kills the
+ * entire workflow run.
+ *
+ * The Proxy intercepts `tools[toolCall.toolName]` reads. For real tool
+ * names it returns the actual tool. For any other key — including the
+ * empty string, snake_case hallucinations (`write_memory`), or fully
+ * unknown names (`do_thing`) — it returns a fallback tool whose
+ * `execute`:
+ *   1. resolves the requested name via `sanitizeToolName` (alias map)
+ *      and, if a canonical real tool exists, forwards the call to it;
+ *   2. otherwise tries `suggestClosestName` (edit distance ≤ 2) and, if
+ *      a close real tool exists, forwards the call to it — silently
+ *      recovering single-character typos and casing mistakes;
+ *   3. otherwise returns a structured error listing the available tools
+ *      so the model can self-correct on the next turn.
+ *
+ * Crucially, the Proxy is invisible to provider serialization:
+ *   - `Object.keys` / `Object.entries` / `getOwnPropertyNames` only
+ *     enumerate the real tools (via ownKeys + getOwnPropertyDescriptor
+ *     traps), so the model's tools list stays clean — no Gemini
+ *     rejection, no alias clutter;
+ *   - the `get` trap refuses to synthesize fallbacks for non-string
+ *     keys, well-known Symbol keys, and `then` (so the Proxy is not
+ *     accidentally treated as a thenable by Promise resolution);
+ *   - the fallback tool is memoized per requested name so repeated
+ *     calls reuse the same closure.
+ *
+ * Unlike the previous trap-based approach (which pre-registered ~30
+ * alias keys in the ToolSet), this mechanism catches an UNBOUNDED set
+ * of hallucinated names with zero noise in the model-visible tools list,
+ * and works uniformly across all providers (OpenAI, OpenAI-compatible,
+ * Anthropic, Google).
  */
-function resolveMainProviderFormat(config: AppConfig): string | undefined {
-  try {
-    const modelId = getMainAgentModelId(config);
-    const parsed = parseProviderScopedModelId(modelId);
-    const providers = config.models?.providers ?? {};
-    const providerKeys = Object.keys(providers);
-    const providerName = parsed.providerName ?? providerKeys[0];
-    return providers[providerName]?.format;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Build the set of trap tools for the current provider.
- *
- * Each trap is registered under a key the model is known to hallucinate
- * (empty string, snake_case variants of camelCase tools, etc.). When the
- * model emits one of these names, the trap either:
- *   - forwards the call to the canonical tool (alias trap), or
- *   - returns a structured error listing valid names (empty-name trap)
- *
- * This is necessary because DurableAgent's executeTool throws on
- * tool-not-found, and that throw is NOT recoverable via
- * experimental_repairToolCall. Without these traps the whole workflow
- * crashes on a single hallucinated tool name.
- *
- * The traps carry an explicit description so well-behaved models do not
- * call them directly; they exist purely as a safety net.
- */
-function buildTrapTools(
-  config: AppConfig,
-  knownNames: string[],
-  allTools: ToolSet,
+export function createResilientToolSet(
+  realTools: ToolSet,
+  logger: ReturnType<typeof createLogger>,
 ): ToolSet {
-  const format = resolveMainProviderFormat(config);
-  const trapKeys = getTrapToolKeys(format, knownNames);
-  if (trapKeys.length === 0) {
-    return {};
-  }
+  const knownNames = Object.keys(realTools);
+  const knownSet = new Set(knownNames);
 
-  const logger = createLogger('workflow.agent.tools.trap');
-  const known = new Set(knownNames);
-  const traps: ToolSet = {};
+  // Cache of synthesized fallback tools keyed by the requested name.
+  // The closure captures `requestedName` so the fallback knows which
+  // alias / closest-match to resolve against — `tool.execute`'s second
+  // argument does NOT include the tool name, so this is the only path
+  // to recover it.
+  const fallbackCache = new Map<string, ToolSet[string]>();
 
-  for (const key of trapKeys) {
-    const trapKey = key;
-    const canonicalName = TOOL_NAME_ALIASES[trapKey];
-    const canonicalTool = canonicalName ? allTools[canonicalName] : undefined;
+  const buildFallback = (requestedName: string): ToolSet[string] => {
+    const cached = fallbackCache.get(requestedName);
+    if (cached) {
+      return cached;
+    }
 
-    traps[trapKey] = tool({
+    const fallback = tool({
       description:
-        'Internal fallback. Do not call directly — invoked automatically when the model emits a malformed tool name.',
+        'Internal fallback. Do not call directly — invoked automatically when the model emits a malformed or unknown tool name.',
       inputSchema: z.record(z.string(), z.unknown()),
       execute: async (input, options) => {
         const toolCallId = options?.toolCallId ?? '<unknown>';
-        logger.warn('trap:invoked', {
-          trapKey: trapKey.length === 0 ? '<empty>' : trapKey,
-          canonicalName: canonicalName ?? null,
+        logger.warn('fallback:invoked', {
+          requestedName: requestedName.length === 0 ? '<empty>' : requestedName,
           toolCallId,
         });
 
-        // Alias trap with a known canonical tool: forward the call.
-        if (canonicalTool && typeof canonicalTool.execute === 'function') {
-          try {
-            const result = await canonicalTool.execute(input, options);
-            logger.info('trap:forwarded', {
-              from: trapKey,
-              to: canonicalName,
-              toolCallId,
-            });
-            return result;
-          } catch (forwardError) {
-            logger.error('trap:forward_failed', {
-              from: trapKey,
-              to: canonicalName,
-              toolCallId,
-              error:
-                forwardError instanceof Error
-                  ? forwardError.message
-                  : String(forwardError),
-            });
-            return {
-              ok: false,
-              error: `Forwarded call to "${canonicalName}" failed: ${
-                forwardError instanceof Error
-                  ? forwardError.message
-                  : String(forwardError)
-              }`,
-            };
+        // 1) Alias resolution (snake_case / kebab-case / casing).
+        const aliased = sanitizeToolName(requestedName, knownSet);
+        if (aliased && aliased.reason !== 'exact') {
+          const canonical = realTools[aliased.name];
+          if (canonical && typeof canonical.execute === 'function') {
+            try {
+              const result = await canonical.execute(input, options);
+              logger.info('fallback:forwarded', {
+                from: requestedName,
+                to: aliased.name,
+                reason: aliased.reason,
+                toolCallId,
+              });
+              return result;
+            } catch (forwardError) {
+              logger.error('fallback:forward_failed', {
+                from: requestedName,
+                to: aliased.name,
+                toolCallId,
+                error:
+                  forwardError instanceof Error
+                    ? forwardError.message
+                    : String(forwardError),
+              });
+              return {
+                ok: false,
+                error: `Forwarded call to "${aliased.name}" failed: ${
+                  forwardError instanceof Error
+                    ? forwardError.message
+                    : String(forwardError)
+                }`,
+              };
+            }
           }
         }
 
-        // Empty-name trap or alias without a matching canonical tool:
-        // return a structured error so the model can retry with a valid name.
-        const suggestion = suggestClosestName(trapKey, known);
+        // 2) Edit-distance fallback (≤ 2). Catches single-char typos
+        //    and casing mistakes for names not covered by the alias
+        //    table. Must reject the suggestion if it equals the
+        //    requested name (would otherwise cause infinite recursion
+        //    via the Proxy for unknown names that happen to look close
+        //    to themselves — e.g. an empty string).
+        const closest = suggestClosestName(requestedName, knownSet);
+        if (closest && closest !== requestedName) {
+          const canonical = realTools[closest];
+          if (canonical && typeof canonical.execute === 'function') {
+            try {
+              const result = await canonical.execute(input, options);
+              logger.info('fallback:forwarded', {
+                from: requestedName,
+                to: closest,
+                reason: 'edit-distance',
+                toolCallId,
+              });
+              return result;
+            } catch (forwardError) {
+              logger.error('fallback:forward_failed', {
+                from: requestedName,
+                to: closest,
+                toolCallId,
+                error:
+                  forwardError instanceof Error
+                    ? forwardError.message
+                    : String(forwardError),
+              });
+              return {
+                ok: false,
+                error: `Forwarded call to "${closest}" failed: ${
+                  forwardError instanceof Error
+                    ? forwardError.message
+                    : String(forwardError)
+                }`,
+              };
+            }
+          }
+        }
+
+        // 3) Structured error. DurableAgent wraps this in a
+        //    tool-result and returns it to the model, which can then
+        //    retry with a valid name on the next turn.
         return {
           ok: false,
           error:
-            trapKey.length === 0
+            requestedName.length === 0
               ? 'Tool name was empty. The model emitted a tool_call without a function name.'
-              : `Tool name "${trapKey}" is not a valid tool.`,
-          suggestion,
-          availableTools: knownNames.filter((n) => n.length > 0),
+              : `Tool name "${requestedName}" is not a valid tool.`,
+          suggestion: closest,
+          availableTools: knownNames,
           hint: 'Please retry the action using one of the available tool names listed in "availableTools".',
         };
       },
     });
-  }
 
-  return traps;
+    fallbackCache.set(requestedName, fallback);
+    return fallback;
+  };
+
+  return new Proxy(realTools, {
+    // Read trap: real tools pass through; unknown string keys get a
+    // synthesized fallback; everything else (Symbols, `then`, prototype
+    // methods) returns the underlying value verbatim to avoid
+    // breaking Reflect / Promise resolution / instanceof checks.
+    get(target, key, receiver) {
+      const value = Reflect.get(target, key, receiver);
+      if (value !== undefined) {
+        return value;
+      }
+      if (typeof key !== 'string') {
+        return undefined;
+      }
+      // Never synthesize a fallback for `then` — otherwise the Proxy
+      // is treated as a thenable and gets silently awaited by Promise
+      // resolution machinery, corrupting control flow.
+      if (key === 'then') {
+        return undefined;
+      }
+      return buildFallback(key);
+    },
+
+    // Enumeration traps: ensure Object.keys / Object.entries /
+    // getOwnPropertyNames on the Proxy surface ONLY the real tools.
+    // This is what keeps the model-visible tools list clean and
+    // prevents Gemini / OpenAI / Anthropic from ever seeing a
+    // synthesized fallback name in the function_declarations array.
+    // The default Proxy behavior already forwards these to the target,
+    // but declaring them explicitly documents the invariant and locks
+    // it in against future Proxy spec drift.
+    ownKeys(target) {
+      return Reflect.ownKeys(target);
+    },
+    getOwnPropertyDescriptor(target, key) {
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
+    has(target, key) {
+      // DurableAgent / ai SDK occasionally use `key in tools` to gate
+      // behavior. Unknown string keys report as present so the lookup
+      // path falls through to `get` and hits the fallback.
+      if (typeof key === 'string' && key !== 'then') {
+        return true;
+      }
+      return Reflect.has(target, key);
+    },
+  });
 }

@@ -1,23 +1,29 @@
 /**
  * Unified tool-name guard.
  *
- * Some OpenAI-compatible providers (notably non-OpenAI models exposed via the
- * OpenAI function-calling schema) occasionally emit tool calls with an empty
- * or malformed `function.name`. When that reaches DurableAgent's executeTool,
- * the lookup `tools[toolName]` returns undefined and the whole workflow run
- * crashes with `Error: Tool "" not found`.
+ * DurableAgent's `executeTool` hard-throws `Tool "X" not found` when
+ * `tools[toolName]` is undefined, and that throw is NOT caught by
+ * `experimental_repairToolCall` (which only fires on schema-validation
+ * failure). To keep the workflow run alive when the model emits an empty
+ * or hallucinated tool name, the toolset returned by `buildAgentTools`
+ * is wrapped in a Proxy (see `createResilientToolSet` in `./index.ts`)
+ * that synthesizes a fallback tool for any unknown key — so
+ * `tools[anything]` is always truthy and executeTool's hard throw is
+ * never reached.
  *
- * This module is the single source of truth for normalizing tool names.
- * It is consumed by:
- *   1. `buildAgentTools` — registers trap tools whose keys are the empty
- *      string plus known hallucinated aliases, so DurableAgent finds *some*
- *      tool and lets us return a model-facing error instead of crashing.
- *   2. `chatWorkflow` — wires `experimental_repairToolCall`, which reuses the
- *      same sanitizer to fix schema-failure cases where the model got the
- *      name subtly wrong.
+ * This module is the single source of truth for normalizing tool names
+ * and is consumed by:
+ *   1. `createResilientToolSet` — its fallback tool uses
+ *      `sanitizeToolName` (alias resolution) and `suggestClosestName`
+ *      (edit-distance fallback) to either forward the call to the
+ *      canonical real tool or return a structured error telling the
+ *      model which tools exist.
+ *   2. `chatWorkflow` — wires `experimental_repairToolCall`, which
+ *      reuses `sanitizeToolName` to fix schema-failure cases where the
+ *      model got the name subtly wrong.
  *
- * Both paths share `sanitizeToolName`, so adding a new alias or fuzzy rule
- * only requires editing this file.
+ * Both paths share `sanitizeToolName`, so adding a new alias or fuzzy
+ * rule only requires editing this file.
  */
 
 /**
@@ -254,63 +260,4 @@ const VALID_TOOL_NAME = /^[A-Za-z_][A-Za-z0-9_.:-]{0,127}$/;
  */
 export function isValidToolName(name: string): boolean {
   return VALID_TOOL_NAME.test(name);
-}
-
-/**
- * Return the trap-tool keys that should be registered for a given provider
- * format. Returns an empty array for well-behaved providers.
- *
- * Background: DurableAgent's executeTool throws `Tool "X" not found` when
- * `tools[toolName]` is undefined, and this throw is NOT caught by
- * `experimental_repairToolCall` (which only fires on schema-validation
- * failure, not tool-not-found). So the ONLY way to prevent the workflow
- * from crashing when the model emits an empty or hallucinated tool name
- * is to register a trap tool under that exact key.
- *
- * We register every key in TOOL_NAME_ALIASES whose canonical name does NOT
- * already exist in `knownNames` (otherwise we'd shadow a real tool). The
- * keys are all snake_case identifiers like `write_memory` and are valid
- * tool names for every provider we support.
- *
- * IMPORTANT: we deliberately do NOT register the empty-string key `''`
- * any more. It used to be registered to catch the "model emitted a
- * tool_call with no function.name" case, but `''` is itself an invalid
- * function name — Gemini rejects the entire request with
- * `function_declarations[N].name: Invalid function name ... Must start
- * with a letter or an underscore`. The empty-name failure mode is now
- * accepted as a rare, low-severity crash confined to misbehaving
- * OpenAI-compatible endpoints, in exchange for not breaking Gemini
- * globally. The named aliases below are sufficient to catch the vast
- * majority of hallucinated-name calls.
- *
- * Cost: the model sees ~30 extra no-description tool entries in its
- * tools array. This is preferable to crashing the entire workflow run.
- * The trap tools all have an explicit description telling the model
- * not to call them directly, so well-behaved models ignore them.
- */
-export function getTrapToolKeys(
-  providerFormat: string | undefined,
-  knownNames: string[],
-): string[] {
-  if (providerFormat !== 'openai' && providerFormat !== 'openaicompatible') {
-    return [];
-  }
-
-  const known = new Set(knownNames);
-  const keys: string[] = [];
-
-  for (const alias of Object.keys(TOOL_NAME_ALIASES)) {
-    if (known.has(alias)) {
-      continue;
-    }
-    // Defensive: never register a trap under a key that would itself be
-    // rejected by provider tool-name validation (e.g. an alias that
-    // happens to start with a digit or contain an unsupported char).
-    if (!isValidToolName(alias)) {
-      continue;
-    }
-    keys.push(alias);
-  }
-
-  return keys;
 }

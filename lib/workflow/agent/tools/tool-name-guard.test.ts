@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  TOOL_NAME_ALIASES,
-  getTrapToolKeys,
   isValidToolName,
   sanitizeToolName,
   suggestClosestName,
@@ -49,57 +47,6 @@ describe('isValidToolName', () => {
     const tooLong = 'a'.repeat(129);
     expect(isValidToolName(long)).toBe(true);
     expect(isValidToolName(tooLong)).toBe(false);
-  });
-});
-
-describe('getTrapToolKeys', () => {
-  it('returns an empty array for non-openai-compatible providers', () => {
-    // Gemini, Anthropic and unknown formats must not register any traps —
-    // the trap mechanism targets a specific OpenAI-compat failure mode.
-    expect(getTrapToolKeys('google', ['readFile'])).toEqual([]);
-    expect(getTrapToolKeys('anthropic', ['readFile'])).toEqual([]);
-    expect(getTrapToolKeys(undefined, ['readFile'])).toEqual([]);
-  });
-
-  it('returns alias keys for openai-compatible providers', () => {
-    const known = ['writeMemory', 'readMemory'];
-    const traps = getTrapToolKeys('openaicompatible', known);
-    expect(traps).toContain('write_memory');
-    expect(traps).toContain('read_memory');
-    expect(traps).toContain('write-memory');
-  });
-
-  it('NEVER returns the empty-string key', () => {
-    // Regression guard: the empty key was previously registered to catch
-    // "model emitted a tool_call with no function.name", but `''` is itself
-    // an invalid tool name — Gemini rejects the entire tools[] array with
-    // `function_declarations[N].name: Invalid function name ... Must start
-    // with a letter or an underscore`, taking down the whole workflow run.
-    const traps = getTrapToolKeys('openai', []);
-    const trapsCompat = getTrapToolKeys('openaicompatible', []);
-    expect(traps).not.toContain('');
-    expect(trapsCompat).not.toContain('');
-    expect(traps.every(isValidToolName)).toBe(true);
-    expect(trapsCompat.every(isValidToolName)).toBe(true);
-  });
-
-  it('skips alias keys that are already real tools (avoid shadowing)', () => {
-    // `write_memory` is a registered alias -> canonical `writeMemory`. If
-    // `write_memory` were itself registered as a real tool, we must NOT
-    // overwrite it with a trap.
-    const traps = getTrapToolKeys('openai', ['write_memory']);
-    expect(traps).not.toContain('write_memory');
-  });
-
-  it('every returned key maps to an alias whose canonical tool exists in TOOL_NAME_ALIASES', () => {
-    // Defense for future edits: any alias added to TOOL_NAME_ALIASES must
-    // remain a valid tool name, otherwise the trap would be filtered out
-    // by the last-mile guard in buildAgentTools and silently do nothing.
-    const traps = getTrapToolKeys('openai', []);
-    for (const key of traps) {
-      expect(TOOL_NAME_ALIASES[key]).toBeDefined();
-      expect(isValidToolName(key)).toBe(true);
-    }
   });
 });
 
