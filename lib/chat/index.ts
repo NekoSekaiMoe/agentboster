@@ -594,10 +594,10 @@ async function readTextFromReadableStream(
  * must not propagate (the webhook has already returned 200 to the IM
  * platform by the time this fetch resolves).
  */
-function triggerImStreamConsumer(input: {
+async function triggerImStreamConsumer(input: {
   source: Extract<ChatSource, { type: 'im' }>;
   runId: string;
-}): void {
+}): Promise<void> {
   const { source, runId } = input;
   const params = new URLSearchParams({
     runId,
@@ -607,37 +607,38 @@ function triggerImStreamConsumer(input: {
   if (source.userId) params.set('userId', source.userId);
   if (source.locale) params.set('locale', source.locale);
 
-  // Lazy import so lib/chat stays loadable in non-bot test contexts.
-  void import('@/lib/bot/webhook')
-    .then(({ getAppBaseUrl }) => {
-      const url = `${getAppBaseUrl()}/api/internal/im-stream?${params}`;
-      // no-store: this is an internal trigger, never a cache hit.
-      return fetch(url, { method: 'GET', cache: 'no-store' });
-    })
-    .then((resp) => {
-      // We must not read the body — doing so would block on the stream
-      // staying open (which is the whole point — it stays open to keep
-      // the consumer alive). Discard the response and let the consumer
-      // run server-side. Best-effort: surface only network errors.
-      if (!resp.ok) {
-        // Non-streaming error response — safe to read for diagnostics.
-        resp.text().then((body) => {
-          console.warn('[triggerImStreamConsumer] non-ok response', {
-            status: resp.status,
-            body: body.slice(0, 200),
-            runId,
-            adapter: source.adapter,
-          });
-        });
-      }
-    })
-    .catch((error) => {
-      console.warn('[triggerImStreamConsumer] fetch failed', {
+  // We AWAIT the fetch headers but NOT the body. Awaiting the headers
+  // guarantees the request is actually dispatched — a detached
+  // `void fetch()` chain gets GC'd when the event loop drains, and the
+  // fetch may never be sent. routeAdapterMessage (our caller) runs in
+  // chat-sdk's waitUntil task, so awaiting here is fine — Vercel keeps
+  // the function alive for the whole waitUntil task.
+  //
+  // We do NOT read the response body: the stream-consumer keeps its
+  // streaming Response body open for the whole workflow run. Reading it
+  // would block this task (and thus the webhook function) until the run
+  // finishes. Detaching lets the consumer run independently server-side.
+  try {
+    const { getAppBaseUrl } = await import('@/lib/bot/webhook');
+    const url = `${getAppBaseUrl()}/api/internal/im-stream?${params}`;
+    const resp = await fetch(url, { method: 'GET', cache: 'no-store' });
+    if (!resp.ok) {
+      const body = await resp.text();
+      console.warn('[triggerImStreamConsumer] non-ok response', {
+        status: resp.status,
+        body: body.slice(0, 200),
         runId,
         adapter: source.adapter,
-        error: error instanceof Error ? error.message : String(error),
       });
+    }
+    // Body intentionally not read on success — see comment above.
+  } catch (error) {
+    console.warn('[triggerImStreamConsumer] fetch failed', {
+      runId,
+      adapter: source.adapter,
+      error: error instanceof Error ? error.message : String(error),
     });
+  }
 }
 
 async function replyToAdapterCommandResult(
@@ -735,7 +736,7 @@ export async function routeAdapterMessage(
     source.type === 'im' &&
     (dispatched.kind === 'message' || dispatched.kind === 'resume-run-message')
   ) {
-    triggerImStreamConsumer({
+    await triggerImStreamConsumer({
       source,
       runId: dispatched.result.runId,
     });
