@@ -179,6 +179,118 @@ func TestEnsureBridge_ColdPath_InstallsAndStarts(t *testing.T) {
 	}
 }
 
+// TestEnsureBridge_PlaywrightUpgrade_ReinstallOnVersionMismatch verifies
+// the idempotency short-circuit keys on the *installed* version, not on
+// the directory's existence. When the sandbox has a stale playwright
+// (e.g. 1.59.0 cached from a previous deploy), bumping playwrightVersion
+// on the daemon side must trigger a re-install.
+//
+// This is a regression guard for a real bug: the previous check used
+// `[ -d node_modules/playwright ] && exit 0`, so persistent LXC sandboxes
+// with a cached older version would never pick up version bumps and fail
+// at runtime with "browser binary not found" because the chromium
+// revision baked into each playwright release differs.
+func TestEnsureBridge_PlaywrightUpgrade_ReinstallOnVersionMismatch(t *testing.T) {
+	defer resetExecFunc()
+
+	var callLog []string
+	healthOK := false
+	ExecFunc = func(sandboxID, cmd string, env map[string]string, timeout int) (*sandbox.ExecResult, error) {
+		callLog = append(callLog, cmd)
+		switch {
+		case strings.Contains(cmd, "nohup"):
+			healthOK = true
+			return &sandbox.ExecResult{ExitCode: 0, Stdout: "12345"}, nil
+		case strings.Contains(cmd, "/health"):
+			if healthOK {
+				return &sandbox.ExecResult{ExitCode: 0, Stdout: `OK`}, nil
+			}
+			return &sandbox.ExecResult{ExitCode: 0, Stdout: "FAIL"}, nil
+		case strings.Contains(cmd, `-p "require`):
+			// Simulate a stale playwright install: the helper dir exists
+			// but the version reported by package.json is older than
+			// playwrightVersion. The shell will fall through to re-install.
+			return &sandbox.ExecResult{ExitCode: 0, Stdout: "1.59.0"}, nil
+		default:
+			return &sandbox.ExecResult{ExitCode: 0}, nil
+		}
+	}
+
+	prev := healthPollInterval
+	healthPollInterval = 5 * time.Millisecond
+	defer func() { healthPollInterval = prev }()
+
+	if err := EnsureBridge(nil, sbID); err != nil {
+		t.Fatalf("EnsureBridge failed on version-mismatch path: %v", err)
+	}
+
+	// Must have run `node -p` to read the installed version AND followed
+	// through with `npm install playwright@<version>` because the version
+	// did not match. Both substrings must appear in the call log.
+	var sawVersionProbe, sawReinstall bool
+	for _, c := range callLog {
+		if strings.Contains(c, `-p "require`) {
+			sawVersionProbe = true
+		}
+		if strings.Contains(c, "install playwright@") {
+			sawReinstall = true
+		}
+	}
+	if !sawVersionProbe {
+		t.Errorf("expected `node -p` version probe; calls: %v", callLog)
+	}
+	if !sawReinstall {
+		t.Errorf("expected re-install because installed version 1.59.0 != playwrightVersion %q; calls: %v",
+			playwrightVersion, callLog)
+	}
+}
+
+// TestEnsureBridge_PlaywrightSameVersion_SkipInstall is the complementary
+// case: when the installed version matches playwrightVersion exactly, the
+// install step is skipped entirely — no `npm install` invocation should
+// appear in the call log.
+func TestEnsureBridge_PlaywrightSameVersion_SkipInstall(t *testing.T) {
+	defer resetExecFunc()
+
+	var callLog []string
+	healthOK := false
+	ExecFunc = func(sandboxID, cmd string, env map[string]string, timeout int) (*sandbox.ExecResult, error) {
+		callLog = append(callLog, cmd)
+		switch {
+		case strings.Contains(cmd, "nohup"):
+			healthOK = true
+			return &sandbox.ExecResult{ExitCode: 0, Stdout: "12345"}, nil
+		case strings.Contains(cmd, "/health"):
+			if healthOK {
+				return &sandbox.ExecResult{ExitCode: 0, Stdout: `OK`}, nil
+			}
+			return &sandbox.ExecResult{ExitCode: 0, Stdout: "FAIL"}, nil
+		case strings.Contains(cmd, `-p "require`):
+			// Report a matching version: short-circuit should fire.
+			return &sandbox.ExecResult{ExitCode: 0, Stdout: playwrightVersion}, nil
+		default:
+			return &sandbox.ExecResult{ExitCode: 0}, nil
+		}
+	}
+
+	prev := healthPollInterval
+	healthPollInterval = 5 * time.Millisecond
+	defer func() { healthPollInterval = prev }()
+
+	if err := EnsureBridge(nil, sbID); err != nil {
+		t.Fatalf("EnsureBridge failed on same-version path: %v", err)
+	}
+
+	// Must NOT see an install command. Other steps (nohup, write bridge)
+	// still run because the helper dir layout may have changed.
+	for _, c := range callLog {
+		if strings.Contains(c, "install playwright") {
+			t.Errorf("expected install to be skipped (version matches %q), but saw: %s",
+				playwrightVersion, c)
+		}
+	}
+}
+
 func TestEnsureBridge_StartupFailure_DumpsLog(t *testing.T) {
 	defer resetExecFunc()
 	ExecFunc = func(sandboxID, cmd string, env map[string]string, timeout int) (*sandbox.ExecResult, error) {

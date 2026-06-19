@@ -61,6 +61,15 @@ const (
 	// nodeBinary is where node_install.sh unpacks node.js.
 	nodeBinary = "$HOME/.local/node/bin/node"
 
+	// playwrightVersion is the exact version installed inside the sandbox
+	// helper dir. It MUST stay in sync with the app side (package.json);
+	// a mismatch causes "browser binary not found" because the chromium
+	// revision baked into each playwright release differs.
+	// The idempotency short-circuit in EnsureBridge reads the installed
+	// version back and re-installs if this constant has been bumped, so
+	// persistent LXC sandboxes auto-upgrade on next browser_* call.
+	playwrightVersion = "1.60.0"
+
 	// callTimeoutOverhead is added on top of each CallBridge curl call to
 	// give the helper room to finish its own Playwright work.
 	callTimeoutOverhead = 10
@@ -120,24 +129,47 @@ func EnsureBridge(sbMgr *sandbox.Manager, sandboxID string) error {
 		return fmt.Errorf("browser: node bootstrap failed: %w", err)
 	}
 
-	// Step 3: install playwright (idempotent — check node_modules).
-	installPlaywright := fmt.Sprintf(`set -e
-[ -d %s/node_modules/playwright ] && exit 0
-mkdir -p %s
-cd %s
-[ -f package.json ] || %s init -y
-# Load Playwright binary mirror env if node_install.sh wrote it.
-[ -f "$HOME/.agentd-browser.env" ] && . "$HOME/.agentd-browser.env"
-%s install playwright@1.60.0
+	// Step 3: install playwright if the sandbox doesn't already have the
+	// exact required version. The probe runs as a separate exec so the
+	// caller (and tests) can distinguish "checked version" from
+	// "ran npm install". This matters for persistent LXC sandboxes:
+	// a previous deploy may have cached an older playwright whose baked-in
+	// chromium revision differs from the daemon's current playwrightVersion,
+	// causing "browser binary not found" at runtime. Reading the installed
+	// version back and comparing forces a re-install on version drift.
+	probeVersion := fmt.Sprintf(`if [ -d %[1]s/node_modules/playwright ]; then
+  %[2]s -p "require('%[1]s/node_modules/playwright/package.json').version" 2>/dev/null || echo ""
+else
+  echo ""
+fi
 `,
 		helperDir,
-		helperDir,
-		helperDir,
-		nodeBinary,
 		nodeBinary,
 	)
-	if err := runScript(sbMgr, sandboxID, installPlaywright, 600); err != nil {
-		return fmt.Errorf("browser: playwright install failed: %w", err)
+	probeOut, probeErr := runScriptRaw(sbMgr, sandboxID, probeVersion, 30)
+	if probeErr != nil {
+		return fmt.Errorf("browser: playwright version probe failed: %w", probeErr)
+	}
+	installedVersion := strings.TrimSpace(probeOut)
+	if installedVersion != playwrightVersion {
+		installPlaywright := fmt.Sprintf(`set -e
+helperDir=%s
+nodeBin=%s
+wantVersion=%s
+mkdir -p "$helperDir"
+cd "$helperDir"
+[ -f package.json ] || $nodeBin init -y
+# Load Playwright binary mirror env if node_install.sh wrote it.
+[ -f "$HOME/.agentd-browser.env" ] && . "$HOME/.agentd-browser.env"
+$nodeBin install playwright@"$wantVersion"
+`,
+			helperDir,
+			nodeBinary,
+			playwrightVersion,
+		)
+		if err := runScript(sbMgr, sandboxID, installPlaywright, 600); err != nil {
+			return fmt.Errorf("browser: playwright install failed: %w", err)
+		}
 	}
 
 	// Step 4: write bridge.js.
