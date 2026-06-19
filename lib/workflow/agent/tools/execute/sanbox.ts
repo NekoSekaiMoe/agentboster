@@ -5,9 +5,12 @@ import {
   writeToolApprovalRequest,
   writeToolOutputDenied,
 } from '@/lib/workflow/agent/sender/writers';
+import { createLogger } from '@/lib/utils/logger';
 import { tool } from 'ai';
 import { z } from 'zod';
 import { defineBuildInTool } from '../define';
+
+const logger = createLogger('workflow.agent.tools.execute');
 
 const SANDBOX_TIMEOUT_MS = 5 * 60 * 1000;
 const SANDBOX_MAX_OUTPUT_LENGTH = 30_000;
@@ -334,6 +337,44 @@ async function executeSandboxCommandStep(
     return finalResult;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    // @vercel/sandbox's APIError carries the HTTP response, JSON body,
+    // and raw text — but the default Error.message is just "Status code
+    // 400 is not ok", which is useless for diagnosing why the Sandbox
+    // API rejected the command. Extract those fields here so the
+    // workflow log shows the real cause (auth, invalid params, quota,
+    // etc.).
+    const apiError = error as Error & {
+      response?: { status: number; statusText: string; url: string };
+      json?: unknown;
+      text?: string;
+      sandboxId?: string;
+    };
+    const detail: Record<string, unknown> = {
+      message,
+    };
+    if (apiError.sandboxId) detail.sandboxId = apiError.sandboxId;
+    if (apiError.response) {
+      detail.httpStatus = apiError.response.status;
+      detail.httpStatusText = apiError.response.statusText;
+      detail.requestUrl = apiError.response.url;
+    }
+    if (apiError.json) {
+      const errPayload = (apiError.json as Record<string, unknown>)?.error;
+      if (errPayload && typeof errPayload === 'object') {
+        detail.apiError = errPayload;
+      } else {
+        detail.apiError = apiError.json;
+      }
+    } else if (typeof apiError.text === 'string' && apiError.text.trim()) {
+      detail.apiResponseBody = apiError.text.trim().slice(0, 1000);
+    }
+
+    logger.error('sandbox:command_failed', {
+      sessionId,
+      runId,
+      command: shellCommand,
+      ...detail,
+    });
     await patchSandboxRuntime(sessionId, {
       status: 'error',
       lastActiveAt: nowIso(),
