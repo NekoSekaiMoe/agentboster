@@ -1,10 +1,7 @@
-import { getBotCapabilities } from '@/lib/bot/adaptor';
-import { sendRoutedSourceReply } from '@/lib/bot/reply';
-import { getConfig } from '@/lib/core/kv/config';
-import { getBaseBot } from '@/lib/bot/core';
-import { createLogger } from '@/lib/utils/logger';
+import { getBotCapabilities } from '@/lib/bot/capabilities';
 import type { ChatSource } from '@/types/workflow';
-import type { AdapterName } from '@/types/config/channels';
+import { createLogger } from '@/lib/utils/logger';
+import { flushImReplyStep } from './bot-steps';
 
 const imReplyLogger = createLogger('workflow.sender.bots');
 
@@ -19,47 +16,6 @@ function formatToolName(toolName: string): string {
         : segment,
     )
     .join(' ');
-}
-
-function buildApprovalReminderText(input: {
-  toolName: string;
-  toolCallId: string;
-}): string {
-  const toolLabel = formatToolName(input.toolName);
-
-  return [
-    'A tool action is waiting for your approval.',
-    `Tool: ${toolLabel}`,
-    `Call ID: ${input.toolCallId}`,
-    '',
-    `Approve: /approve ${input.toolCallId}`,
-    `Reject: /reject ${input.toolCallId}`,
-  ].join('\n');
-}
-
-export async function sendSourceReplyStep(input: {
-  source: ChatSource;
-  text: string;
-}): Promise<boolean> {
-  'use step';
-
-  return sendRoutedSourceReply(input.source, input.text);
-}
-
-export async function sendApprovalRequestReminderStep(input: {
-  source: ChatSource;
-  toolName: string;
-  toolCallId: string;
-}): Promise<boolean> {
-  'use step';
-
-  return sendRoutedSourceReply(
-    input.source,
-    buildApprovalReminderText({
-      toolName: input.toolName,
-      toolCallId: input.toolCallId,
-    }),
-  );
 }
 
 /**
@@ -105,7 +61,10 @@ export interface ImReplyHolder {
 const FLUSH_INTERVAL_MS = 500;
 const FLUSH_MIN_DELTA_CHARS = 20;
 
-export function createImReplyHolder(): ImReplyHolder {
+export function createImReplyHolder(options?: {
+  adapter?: string;
+  ttsEnabled?: boolean;
+}): ImReplyHolder {
   return {
     messageId: null,
     accumulatedText: '',
@@ -113,8 +72,8 @@ export function createImReplyHolder(): ImReplyHolder {
     pendingFlush: false,
     inFlight: false,
     closed: false,
-    canEdit: null,
-    ttsEnabled: null,
+    canEdit: options?.adapter ? getBotCapabilities(options.adapter).edit : null,
+    ttsEnabled: options?.ttsEnabled ?? false,
   };
 }
 
@@ -125,15 +84,7 @@ async function ensureHolderFlags(
   if (holder.canEdit === null) {
     holder.canEdit = getBotCapabilities(adapter).edit;
   }
-  if (holder.ttsEnabled === null) {
-    try {
-      const config = await getConfig();
-      holder.ttsEnabled =
-        config.channels?.[adapter as AdapterName]?.tts_enabled === true;
-    } catch {
-      holder.ttsEnabled = false;
-    }
-  }
+  holder.ttsEnabled ??= false;
 }
 
 /**
@@ -190,21 +141,18 @@ async function runFlush(
   holder.inFlight = true;
   try {
     await ensureHolderFlags(holder, source.adapter);
-    const bot = await getBaseBot();
-    const adapter = bot.getAdapter(source.adapter);
+    const result = await flushImReplyStep({
+      source,
+      action: holder.canEdit && holder.messageId ? 'edit' : 'post',
+      messageId: holder.messageId,
+      text,
+    });
 
-    if (holder.canEdit && holder.messageId) {
-      await adapter.editMessage(source.threadId, holder.messageId, {
-        markdown: text,
-      });
-    } else {
-      const posted = await adapter.postMessage(source.threadId, {
-        markdown: text,
-      });
-      if (holder.canEdit) holder.messageId = posted.id;
-      // non-edit adapters: leave messageId null → next flush posts again
+    if (result.ok) {
+      if (holder.canEdit) holder.messageId = result.messageId;
+      // non-edit adapters: leave messageId null, next flush posts again.
+      holder.lastFlushedText = text;
     }
-    holder.lastFlushedText = text;
   } catch (error) {
     imReplyLogger.warn('im_reply:flush_failed', {
       adapter: source.adapter,
@@ -262,6 +210,7 @@ export function createImReplyTransform(
   type ChunkLike = {
     type: string;
     text?: string;
+    delta?: string;
     toolCallId?: string;
     toolName?: string;
   };
@@ -273,8 +222,15 @@ export function createImReplyTransform(
         // still see the complete stream.
         controller.enqueue(chunk);
 
-        if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
-          holder.accumulatedText += chunk.text;
+        const textDelta =
+          typeof chunk.text === 'string'
+            ? chunk.text
+            : typeof chunk.delta === 'string'
+              ? chunk.delta
+              : null;
+
+        if (chunk.type === 'text-delta' && textDelta) {
+          holder.accumulatedText += textDelta;
           scheduleFlush(holder, source, false);
         } else if (
           chunk.type === 'tool-call' &&

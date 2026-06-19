@@ -24,7 +24,7 @@ import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { ChatSource } from '@/types/workflow';
 
-import { sendSourceReplyStep } from '../sender/bots';
+import { sendSourceReplyStep } from '../sender/bot-steps';
 import {
   writeStepEvent,
   writeSystemEvent,

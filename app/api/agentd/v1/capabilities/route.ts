@@ -1,4 +1,4 @@
-import { getBotCapabilities } from '@/lib/bot/adaptor';
+import { getBotCapabilities } from '@/lib/bot/capabilities';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);

@@ -20,7 +20,7 @@ import {
   truncateStreamOutput,
 } from '@/lib/core/sandbox/runtime';
 import { approvalHookBuilder } from '@/lib/workflow/agent/hooks';
-import { sendApprovalRequestReminderStep } from '@/lib/workflow/agent/sender/bots';
+import { sendApprovalRequestReminderStep } from '@/lib/workflow/agent/sender/bot-steps';
 import {
   writeRuntimeEvent,
   writeToolApprovalRequest,

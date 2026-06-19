@@ -29,7 +29,7 @@ import {
   stopImReplyPump,
   type ImReplyHolder,
 } from './sender/bots';
-import { postAdapterVoiceReply } from '@/lib/bot/voice';
+import { postAdapterVoiceReplyStep } from './sender/bot-steps';
 import { buildSystemPrompt } from './steps/build-prompt';
 import {
   compactAndPersistSummaryStep,
@@ -238,7 +238,12 @@ export async function chatWorkflow(
   // function no longer consumes run.readable for IM sources, so its
   // maxDuration can no longer truncate the reply.
   const imReplyHolder: ImReplyHolder | null =
-    source.type === 'im' ? createImReplyHolder() : null;
+    source.type === 'im'
+      ? createImReplyHolder({
+          adapter: source.adapter,
+          ttsEnabled: config.channels?.[source.adapter]?.tts_enabled === true,
+        })
+      : null;
   const imTransform = imReplyHolder
     ? createImReplyTransform(imReplyHolder, source)
     : null;
@@ -570,7 +575,10 @@ export async function chatWorkflow(
         const channelCfg = config.channels?.[source.adapter];
         if (channelCfg?.tts_enabled) {
           try {
-            await postAdapterVoiceReply(source, imReplyHolder.accumulatedText);
+            await postAdapterVoiceReplyStep({
+              source,
+              text: imReplyHolder.accumulatedText,
+            });
           } catch (ttsError) {
             logger.warn('tts:voice_reply_failed', {
               sessionId,
