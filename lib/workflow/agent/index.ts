@@ -23,6 +23,13 @@ import {
   writeStreamError,
   writeUserMessageMarker,
 } from './sender/writers';
+import {
+  createImReplyHolder,
+  createImReplyTransform,
+  stopImReplyPump,
+  type ImReplyHolder,
+} from './sender/bots';
+import { postAdapterVoiceReply } from '@/lib/bot/voice';
 import { buildSystemPrompt } from './steps/build-prompt';
 import {
   compactAndPersistSummaryStep,
@@ -223,6 +230,19 @@ export async function chatWorkflow(
   );
   const stepStartedAt = new Map<number, Date>();
 
+  // IM replies are streamed from inside the workflow via a chunk-level
+  // transform attached to agent.stream (experimental_transform). Each
+  // text-delta accumulates into the holder and a throttled pump posts/
+  // edits the IM message roughly every 500ms — so users see progress
+  // even within a long single step (large slow models). The webhook
+  // function no longer consumes run.readable for IM sources, so its
+  // maxDuration can no longer truncate the reply.
+  const imReplyHolder: ImReplyHolder | null =
+    source.type === 'im' ? createImReplyHolder() : null;
+  const imTransform = imReplyHolder
+    ? createImReplyTransform(imReplyHolder, source)
+    : null;
+
   // Resolve the configured provider key for the active model. Used in
   // onStepFinish to build a user-facing error message when a third-party
   // OpenAI-compatible endpoint misbehaves (returns finish_reason "stop"
@@ -322,6 +342,22 @@ export async function chatWorkflow(
       preventClose: true,
       maxSteps,
       collectUIMessages: false,
+      // Attach the IM reply pump as a stream transform. The transform
+      // observes text-delta chunks to drive throttled IM post/edit
+      // calls from inside the workflow runtime (durable, not bound to
+      // the webhook function's HTTP lifetime). Undefined for non-IM
+      // sources (web UI consumes run.readable directly).
+      //
+      // Cast: @workflow/ai's StreamTextTransform signature uses
+      // LanguageModelV3StreamPart while the runtime delivers ai's
+      // TextStreamPart — a known workflow SDK type mismatch. Our
+      // transform passes chunks through unchanged, so the shape is
+      // preserved regardless of which type the SDK declares.
+      ...(imTransform
+        ? {
+            experimental_transform: imTransform as never,
+          }
+        : {}),
       experimental_repairToolCall: async ({ toolCall, tools }) => {
         // DurableAgent only invokes this hook on schema-validation failure,
         // not on "tool not found". The empty-name / unknown-name crash is
@@ -458,6 +494,7 @@ export async function chatWorkflow(
             ...buildStepDebugLog(step),
           });
           pendingPersistedInstructions = [];
+
           const actualTokens = getTokenUsageTotal(usage);
           if (actualTokens > 0) {
             totalTokensUsed = actualTokens;
@@ -509,6 +546,42 @@ export async function chatWorkflow(
           });
         }
       });
+    }
+
+    // Finalize the IM reply: stop the throttled pump and force one last
+    // edit so the IM message reflects the complete text. For TTS-enabled
+    // channels the pump skipped text posting entirely, so we synthesize a
+    // single voice clip from the accumulated reply instead. This replaces
+    // the old drainStreamToText + postAdapterVoiceReply path that lived
+    // in the webhook function's streamAdapterSourceReply.
+    if (imReplyHolder && source.type === 'im') {
+      try {
+        await stopImReplyPump(imReplyHolder, source);
+      } catch (imError) {
+        logger.warn('im:stop_pump_failed', {
+          sessionId,
+          runId,
+          adapter: source.adapter,
+          error: imError instanceof Error ? imError.message : String(imError),
+        });
+      }
+
+      if (imReplyHolder.accumulatedText.trim().length > 0) {
+        const channelCfg = config.channels?.[source.adapter];
+        if (channelCfg?.tts_enabled) {
+          try {
+            await postAdapterVoiceReply(source, imReplyHolder.accumulatedText);
+          } catch (ttsError) {
+            logger.warn('tts:voice_reply_failed', {
+              sessionId,
+              runId,
+              adapter: source.adapter,
+              error:
+                ttsError instanceof Error ? ttsError.message : String(ttsError),
+            });
+          }
+        }
+      }
     }
 
     try {

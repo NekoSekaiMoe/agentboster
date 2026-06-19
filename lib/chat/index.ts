@@ -1,7 +1,4 @@
-import {
-  sendAdapterSourceReply,
-  streamAdapterSourceReply,
-} from '@/lib/bot/reply';
+import { sendAdapterSourceReply } from '@/lib/bot/reply';
 import {
   createSession,
   deleteMessagesAfterUiMessageId,
@@ -590,7 +587,13 @@ async function replyToAdapterCommandResult(
   source: Extract<ChatSource, { type: 'im' }>,
 ): Promise<void> {
   if (dispatched.kind === 'message') {
-    await streamAdapterSourceReply(source, dispatched.result.readable);
+    // IM replies are now posted/edited from inside the workflow runtime
+    // (streamImStepReplyStep in lib/workflow/agent/sender/bots.ts), which
+    // outlives this webhook function. Consuming run.readable here would
+    // bind the IM stream to the HTTP request lifetime and truncate the
+    // message when the function hits its maxDuration. We deliberately
+    // drop the readable on the floor — the workflow's tee'd drain branch
+    // (lib/workflow/agent/dispatch.ts) still fires afterResponse hooks.
     return;
   }
 
