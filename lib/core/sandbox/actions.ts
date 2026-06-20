@@ -3,12 +3,45 @@ import path from 'node:path';
 
 import type { Sandbox } from '@vercel/sandbox';
 
+import { createLogger } from '@/lib/utils/logger';
 import { withSessionSandbox } from './manager';
 import {
   SANDBOX_EXEC_WAIT_TIMEOUT_MS,
   SANDBOX_PUBLIC_PORTS,
   SANDBOX_WORKSPACE_DIR,
 } from './runtime';
+
+const logger = createLogger('sandbox.actions');
+
+// Absolute paths outside the workspace that we still allow as cwd.
+// Everything else (most notably `/home/sbx_userXXX`, which is the
+// Vercel Sandbox user's nominal home but does NOT exist on disk) is
+// rewritten to SANDBOX_WORKSPACE_DIR. Without this guard the sandbox
+// API fails with `chdir /home/sbx_userXXX: no such file or directory`
+// whenever the LLM picks up the username from `whoami`/`id` and tries
+// to use it as cwd.
+//
+// `/` and `/tmp` are allowed because they exist on every sandbox image
+// and are legitimate working directories for some commands (e.g.
+// package installs, system inspection). Add to this set sparingly —
+// each entry is a hole in the workspace isolation.
+const ALLOWED_ABSOLUTE_CWD_PREFIXES = new Set<string>([
+  '/',
+  '/tmp',
+  SANDBOX_WORKSPACE_DIR,
+]);
+
+function isAllowedAbsoluteCwd(cwd: string): boolean {
+  if (cwd === SANDBOX_WORKSPACE_DIR) {
+    return true;
+  }
+  // Anything under the workspace tree is fine.
+  if (cwd.startsWith(`${SANDBOX_WORKSPACE_DIR}/`)) {
+    return true;
+  }
+  // Small allowlist of common system paths that always exist.
+  return ALLOWED_ABSOLUTE_CWD_PREFIXES.has(cwd);
+}
 
 export interface SandboxActionContext {
   sandboxId: string;
@@ -25,14 +58,33 @@ function resolveSandboxPath(targetPath: string, cwd?: string): string {
   return `${base.replace(/\/+$/, '')}/${targetPath.replace(/^\/+/, '')}`;
 }
 
-function normalizeCwd(cwd?: string): string {
+export function normalizeCwd(cwd?: string): string {
   if (!cwd) {
     return SANDBOX_WORKSPACE_DIR;
   }
 
-  return cwd.startsWith('/')
-    ? cwd.replace(/\/+$/, '') || '/'
-    : resolveSandboxPath(cwd);
+  if (!cwd.startsWith('/')) {
+    // Relative path — resolve against the workspace root.
+    return resolveSandboxPath(cwd);
+  }
+
+  const trimmed = cwd.replace(/\/+$/, '') || '/';
+
+  // Reject absolute paths that point outside the workspace tree AND
+  // aren't on the system allowlist. This guards against the LLM
+  // inferring a cwd like `/home/sbx_user1051` from `whoami` output —
+  // that directory does not exist on Vercel Sandbox, and passing it
+  // through makes the entire command fail at chdir time with
+  // `no such file or directory`.
+  if (!isAllowedAbsoluteCwd(trimmed)) {
+    logger.warn('cwd:rewrote_outside_workspace', {
+      requested: cwd,
+      fallback: SANDBOX_WORKSPACE_DIR,
+    });
+    return SANDBOX_WORKSPACE_DIR;
+  }
+
+  return trimmed;
 }
 
 function toShellArg(value: string): string {
