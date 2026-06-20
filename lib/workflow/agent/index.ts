@@ -35,6 +35,38 @@ import {
   resolveAgentProviderOptions,
 } from './steps/resolve-model';
 import { buildAgentTools } from './tools';
+import { selectToolsForInput, extractLatestUserText } from './tools/select';
+
+// Names of tools that are NOT MCP-sourced. Used to identify MCP tool
+// names for the dynamic tool selector (any registered name outside this
+// set is treated as an MCP tool and exposed only when browsing is
+// mentioned). Kept in sync with lib/workflow/agent/tools/select.ts.
+const BUILTIN_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'readMemory',
+  'writeMemory',
+  'deleteMemory',
+  'listSkills',
+  'getSkill',
+  'getSkillFile',
+  'getSkillEntrypoint',
+  'importSkillRepo',
+  'importSkillFromClawHub',
+  'upsertSkill',
+  'updateSkillFile',
+  'deleteSkill',
+  'task_summary',
+  'task_progress',
+  'dailyTask',
+  'delayTask',
+  'exec',
+  'readFile',
+  'writeFile',
+  'openPort',
+  'downloadFile',
+  'subAgent',
+  'listNodes',
+  'getBestNode',
+]);
 import { sanitizeToolName } from './tools/tool-name-guard';
 import { getTokenUsageTotal } from './types';
 import {
@@ -305,6 +337,30 @@ export async function chatWorkflow(
     toolNames: Object.keys(tools),
   });
 
+  // Tool-selection config. The whole toolset is built above (every tool
+  // registered), but per-step we may hand the SDK a smaller `activeTools`
+  // list to skip serialising tools the current turn won't use. See
+  // lib/workflow/agent/tools/select.ts for the strategy.
+  const agentConfig = config.agents?.[agentName];
+  const toolSelectionStrategy =
+    agentConfig?.tool_selection_strategy ?? 'dynamic';
+  const availableToolNames = new Set(Object.keys(tools));
+  // Pull MCP tool names out so the selector can expose them when the user
+  // mentions browsing. buildAgentTools merges MCP tools into the same
+  // ToolSet under their own keys, so we identify them by namespace here.
+  const mcpToolNames = new Set<string>();
+  for (const name of availableToolNames) {
+    // MCP tools are registered with their server namespace prefix
+    // (e.g. 'web_search', 'browser_navigate'). We don't have a clean
+    // marker at this layer, so we include any name that doesn't match
+    // the built-in tool catalogue. This is a coarse heuristic —
+    // over-inclusion just means MCP tools are exposed when browsing is
+    // mentioned, which is the intent.
+    if (!BUILTIN_TOOL_NAMES.has(name)) {
+      mcpToolNames.add(name);
+    }
+  }
+
   const providerOptions = await resolveAgentProviderOptions(config, modelId);
   const agent = new DurableAgent({
     model: createModelResolver(config, modelId),
@@ -348,7 +404,7 @@ export async function chatWorkflow(
         }
         return null;
       },
-      prepareStep: async ({ messages, stepNumber }) => {
+      prepareStep: async ({ messages, stepNumber, steps }) => {
         const startedAt = new Date();
         stepStartedAt.set(stepNumber, startedAt);
         await writeMessageMetadata({
@@ -410,8 +466,45 @@ export async function chatWorkflow(
           throw new Error('Run cancelled by instruction hook.');
         }
 
+        // Dynamic tool selection. For 'all' strategy selectToolsForInput
+        // returns the full set, so the activeTools line below is a no-op.
+        // For 'dynamic' it returns a smaller list and the SDK filters out
+        // every other tool's schema from this step's prompt — saving up to
+        // ~4k tokens/turn in chat scenarios.
+        const latestUserText = extractLatestUserText(
+          // The SDK's messages type is LanguageModelV3Prompt, whose shape
+          // is { prompt: messages } in some versions and a bare array in
+          // others. Handle both by normalising here.
+          (Array.isArray(messages)
+            ? messages
+            : ((messages as { prompt?: unknown }).prompt ?? [])) as Array<{
+            role: string;
+            content: unknown;
+          }>,
+        );
+        const activeTools = selectToolsForInput({
+          userInput: latestUserText,
+          steps,
+          availableTools: availableToolNames,
+          mcpTools: mcpToolNames,
+          strategy: toolSelectionStrategy,
+        });
+
+        if (toolSelectionStrategy === 'dynamic') {
+          logger.info('tools:select', {
+            sessionId,
+            runId,
+            stepNumber,
+            strategy: toolSelectionStrategy,
+            activeToolCount: activeTools.length,
+            availableToolCount: availableToolNames.size,
+            inputChars: latestUserText.length,
+          });
+        }
+
         return {
           messages: nextMessages,
+          activeTools,
         };
       },
       onStepFinish: async (step) => {
