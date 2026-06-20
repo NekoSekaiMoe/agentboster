@@ -291,6 +291,73 @@ func TestEnsureBridge_PlaywrightSameVersion_SkipInstall(t *testing.T) {
 	}
 }
 
+// TestEnsureBridge_ProbeFailure_ContinuesToInstall verifies the probe
+// error path degrades gracefully: if the version probe (runScriptRaw)
+// returns an error — e.g. sandbox overloaded, ctx timeout, transient
+// lxc-attach failure — EnsureBridge must NOT hard-fail. It should
+// treat the installed version as unknown ("") and fall through to the
+// install path. The install is idempotent: `npm install playwright@X`
+// is a no-op when X is already installed, and runs normally otherwise.
+//
+// This is a regression guard for a real production failure mode where
+// transient sandbox hiccups would disable the entire browser bridge
+// until the user retried.
+func TestEnsureBridge_ProbeFailure_ContinuesToInstall(t *testing.T) {
+	defer resetExecFunc()
+
+	var callLog []string
+	healthOK := false
+	ExecFunc = func(sandboxID, cmd string, env map[string]string, timeout int) (*sandbox.ExecResult, error) {
+		callLog = append(callLog, cmd)
+		switch {
+		case strings.Contains(cmd, "nohup"):
+			healthOK = true
+			return &sandbox.ExecResult{ExitCode: 0, Stdout: "12345"}, nil
+		case strings.Contains(cmd, "/health"):
+			if healthOK {
+				return &sandbox.ExecResult{ExitCode: 0, Stdout: `OK`}, nil
+			}
+			return &sandbox.ExecResult{ExitCode: 0, Stdout: "FAIL"}, nil
+		case strings.Contains(cmd, `-p "require`):
+			// Simulate probe failure: the sandbox returned a non-zero
+			// exit code (runScriptRaw treats ExitCode != 0 as an error).
+			// In production this happens on ctx timeout, sandbox
+			// overload, or transient lxc-attach errors.
+			return &sandbox.ExecResult{
+				ExitCode: -1,
+				Stdout:   "",
+				Stderr:   "command timed out",
+			}, nil
+		default:
+			// node_install.sh, install playwright, write bridge.js —
+			// all succeed.
+			return &sandbox.ExecResult{ExitCode: 0}, nil
+		}
+	}
+
+	prev := healthPollInterval
+	healthPollInterval = 5 * time.Millisecond
+	defer func() { healthPollInterval = prev }()
+
+	if err := EnsureBridge(nil, sbID); err != nil {
+		t.Fatalf("EnsureBridge should not fail when probe fails (should fall through to install): %v", err)
+	}
+
+	// Must have fallen through to the install branch despite the probe
+	// failure. Without the fix, EnsureBridge would return immediately
+	// at the probe step and never invoke install.
+	var sawInstall bool
+	for _, c := range callLog {
+		if strings.Contains(c, "install playwright@") {
+			sawInstall = true
+			break
+		}
+	}
+	if !sawInstall {
+		t.Errorf("expected install to run after probe failure (degrade gracefully); calls: %v", callLog)
+	}
+}
+
 func TestEnsureBridge_StartupFailure_DumpsLog(t *testing.T) {
 	defer resetExecFunc()
 	ExecFunc = func(sandboxID, cmd string, env map[string]string, timeout int) (*sandbox.ExecResult, error) {

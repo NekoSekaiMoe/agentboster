@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	_ "embed"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -147,10 +148,22 @@ fi
 		nodeBinary,
 	)
 	probeOut, probeErr := runScriptRaw(sbMgr, sandboxID, probeVersion, 30)
+	var installedVersion string
 	if probeErr != nil {
-		return fmt.Errorf("browser: playwright version probe failed: %w", probeErr)
+		// Probe is best-effort. Common failure modes (sandbox overloaded,
+		// node cold-start, transient lxc-attach error, ctx timeout) must
+		// NOT take down the entire browser bridge — treat as "unknown
+		// version" and fall through to the install path, which is
+		// idempotent: `npm install playwright@X` no-ops if X is already
+		// present, and runs normally if it isn't. Hard-failing here was
+		// the previous behaviour and caused transient sandbox hiccups
+		// to disable browser functionality entirely until retry.
+		slog.Warn("browser: playwright version probe failed, falling back to install",
+			"sandbox", sandboxID, "error", probeErr)
+		installedVersion = ""
+	} else {
+		installedVersion = strings.TrimSpace(probeOut)
 	}
-	installedVersion := strings.TrimSpace(probeOut)
 	if installedVersion != playwrightVersion {
 		installPlaywright := fmt.Sprintf(`set -e
 helperDir=%s

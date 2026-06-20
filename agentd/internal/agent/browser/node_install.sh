@@ -58,7 +58,12 @@ check_required_tools() {
   require mktemp
   require mv
   require mkdir
-  require uname
+  # uname is intentionally NOT required here: the OS-detection branch
+  # below calls `uname -s` to decide which package manager hint to emit,
+  # so requiring uname would create a circular dependency (the fix
+  # branch needs the very tool it's trying to install). In practice any
+  # image capable of running node.js already has uname — node itself
+  # reads it at startup — so skipping the require is safe.
   # Either curl or wget is fine (the download block below handles both).
   if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
     missing="$missing curl-or-wget"
@@ -82,10 +87,23 @@ check_required_tools() {
     }
     emit_hint() {
       # $1 = manager command prefix (e.g. "apk add --no-cache")
-      # Build the package list, then trim and print.
+      # Build the package list, then dedupe (multiple missing tools often
+      # map to the same package — e.g. mktemp + mv + mkdir all map to
+      # `busybox` on alpine, `coreutils` on debian). Without dedupe the
+      # hint reads `apk add busybox busybox busybox`, which works but is
+      # confusing for the LLM and noisy in logs.
       pkgs="${pkgs# }"
       if [ -n "$pkgs" ]; then
-        echo "AGENTD_NODE_INSTALL_HINT=$1 $pkgs" >&2
+        deduped=""
+        seen=""
+        for p in $pkgs; do
+          case " $seen " in
+            *" $p "*) ;;  # already seen, skip
+            *) deduped="$deduped $p"; seen="$seen $p" ;;
+          esac
+        done
+        deduped="${deduped# }"
+        echo "AGENTD_NODE_INSTALL_HINT=$1 $deduped" >&2
       fi
     }
     case "$(uname -s 2>/dev/null)" in
@@ -96,10 +114,22 @@ check_required_tools() {
             case "$t" in
               tar) add_pkg tar ;;
               xz) add_pkg xz ;;
-              awk) add_pkg busybox 2>/dev/null || add_pkg gawk ;;
+              # awk: recommend both busybox (default alpine provider,
+              # tiny) and gawk (full-featured). apk will install busybox
+              # if missing and skip gawk if the user doesn't want it;
+              # either way `awk` ends up on PATH. The previous form
+              # `add_pkg busybox 2>/dev/null || add_pkg gawk` was a bug
+              # — assignment always succeeds so gawk was never reached.
+              awk) add_pkg busybox; add_pkg gawk ;;
               grep) add_pkg grep ;;
+              mktemp) add_pkg busybox ;;
+              mv) add_pkg busybox ;;
+              mkdir) add_pkg busybox ;;
               curl-or-wget) add_pkg curl ;;
-              sha256sum-or-shasum) add_pkg busybox 2>/dev/null || add_pkg perl-utils ;;
+              # sha256sum: busybox provides it on alpine; perl-utils is
+              # the standalone fallback. Both recommended for the same
+              # reason as awk — see comment above.
+              sha256sum-or-shasum) add_pkg busybox; add_pkg perl-utils ;;
             esac
           done
           add_pkg ca-certificates
@@ -112,8 +142,14 @@ check_required_tools() {
               xz) add_pkg xz-utils ;;
               awk) add_pkg gawk ;;
               grep) add_pkg grep ;;
+              mktemp) add_pkg coreutils ;;
+              mv) add_pkg coreutils ;;
+              mkdir) add_pkg coreutils ;;
               curl-or-wget) add_pkg curl ;;
-              sha256sum-or-shasum) add_pkg coreutils 2>/dev/null || add_pkg perl ;;
+              # coreutils provides sha256sum on debian/ubuntu; perl is
+              # the fallback providing shasum. Both recommended — see
+              # the alpine awk comment for why `||` was replaced.
+              sha256sum-or-shasum) add_pkg coreutils; add_pkg perl ;;
             esac
           done
           add_pkg ca-certificates
@@ -130,8 +166,14 @@ check_required_tools() {
               xz) add_pkg xz ;;
               awk) add_pkg gawk ;;
               grep) add_pkg grep ;;
+              mktemp) add_pkg coreutils ;;
+              mv) add_pkg coreutils ;;
+              mkdir) add_pkg coreutils ;;
               curl-or-wget) add_pkg curl ;;
-              sha256sum-or-shasum) add_pkg coreutils 2>/dev/null || add_pkg perl-Digest-SHA ;;
+              # coreutils provides sha256sum on RHEL/Fedora; perl-Digest-SHA
+              # provides shasum. Both recommended — see the alpine awk
+              # comment for why `||` was replaced.
+              sha256sum-or-shasum) add_pkg coreutils; add_pkg perl-Digest-SHA ;;
             esac
           done
           add_pkg ca-certificates
