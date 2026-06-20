@@ -55,25 +55,6 @@ export const agentInstanceConfigSchema = z.object({
    * Default: false (use daemon DefaultPresets only).
    */
   custom_l0_rules: z.boolean().optional(),
-
-  /**
-   * How the agent picks which tools to expose to the LLM per step.
-   *
-   * - 'all' (legacy): always expose every registered tool. Maximum
-   *   capability, but every tool's full JSON schema is paid for on
-   *   every turn — even simple chat pays for the ~3.5k-token sandbox
-   *   schema it will never invoke.
-   * - 'dynamic' (default): expose a small base set (memory / skill
-   *   reads / task summary / scheduling) plus any tool family the
-   *   user's latest input mentions, plus every tool called in a
-   *   previous step of this run (historical dependency). Long inputs
-   *   (>= 500 chars) or code-fenced inputs fall back to 'all' to
-   *   avoid mis-routing complex tasks.
-   *
-   * Implemented via the SDK's per-step `activeTools` mechanism in
-   * chatWorkflow's prepareStep. See lib/workflow/agent/tools/select.ts.
-   */
-  tool_selection_strategy: z.enum(['dynamic', 'all']).optional(),
 });
 
 export type AgentInstanceConfig = z.infer<typeof agentInstanceConfigSchema>;
