@@ -1,11 +1,14 @@
 import type { JSONValue } from '@ai-sdk/provider';
 
 import { getBrowserPool } from '@/lib/mcp/browser/pool';
+import { createLogger } from '@/lib/utils/logger';
 import type {
   BuiltinMcpServerContext,
   BuiltinMcpToolDefinition,
   BuiltinMcpToolResult,
 } from '@/lib/mcp/builtin/types';
+
+const logger = createLogger('browser-tools');
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 60_000;
@@ -465,7 +468,7 @@ export const browserTools: BuiltinMcpToolDefinition[] = [
     name: 'browser_get_text',
     title: 'Browser Get Text',
     description:
-      'Return visible text from the current page body, or from a selected element.',
+      'Return visible text from the current page body, or from a selected element. Use this (NOT fetch_url) to read content after browser_navigate — the browser session is already running and reusable.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -586,6 +589,13 @@ export async function executeBrowserTool(
         return buildError('Missing or invalid HTTP(S) URL.');
       }
 
+      logger.info('browser_navigate called', {
+        url,
+        profile: stringInput(input, 'profile') || 'default',
+        sessionId: context?.sessionId,
+        agentName: context?.agentName,
+      });
+
       const profile = stringInput(input, 'profile');
       const userAgent = stringInput(input, 'user_agent');
       const session = await getSession(context, {
@@ -612,6 +622,12 @@ export async function executeBrowserTool(
         status: response?.status() ?? null,
         ok: response?.ok() ?? null,
       };
+
+      logger.info('browser_navigate succeeded', {
+        url: result.url,
+        title,
+        status: result.status,
+      });
 
       return {
         content: [{ type: 'text', text: safeStringify(result) }],
@@ -915,6 +931,13 @@ export async function executeBrowserTool(
       const session = await getSession(context);
       const selector = stringInput(input, 'selector');
       const limit = limitInput(input, 'max_length', DEFAULT_TEXT_LIMIT);
+
+      logger.info('browser_get_text called', {
+        selector: selector || 'body',
+        sessionId: context?.sessionId,
+        agentName: context?.agentName,
+      });
+
       const text = selector
         ? await session.page.locator(selector).innerText({
             timeout: timeoutInput(input),
@@ -922,6 +945,12 @@ export async function executeBrowserTool(
         : await session.page.locator('body').innerText({
             timeout: timeoutInput(input),
           });
+
+      logger.info('browser_get_text succeeded', {
+        selector: selector || 'body',
+        textLength: text.length,
+        truncated: text.length > limit,
+      });
 
       return {
         content: [{ type: 'text', text: truncate(text, limit) }],
@@ -988,7 +1017,18 @@ export async function executeBrowserTool(
     }
 
     if (toolName === 'browser_close') {
+      logger.info('browser_close called', {
+        sessionId: context?.sessionId,
+        agentName: context?.agentName,
+      });
+
       const closed = await getBrowserPool().close(context?.sessionId);
+
+      logger.info('browser_close completed', {
+        sessionId: context?.sessionId,
+        closed,
+      });
+
       return {
         content: [
           {

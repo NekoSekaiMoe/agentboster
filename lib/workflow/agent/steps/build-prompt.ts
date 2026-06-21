@@ -49,6 +49,7 @@ async function buildMCPSubsection(): Promise<string> {
     'Use builtin MCP tools for live information, web content, documentation lookup, and repository operations.',
     'Pick `web_search` for search, `fetch_url` for static page reads, and the `browser_*` tools for JavaScript-rendered or interactive pages.',
     'Browser workflow: call `browser_navigate` first, inspect with `browser_get_text` / `browser_get_html` / `browser_screenshot` / `browser_get_network_requests`, interact via `browser_click` / `browser_type`, then `browser_close`.',
+    'CRITICAL: Once you call `browser_navigate`, the browser session stays alive. Do NOT call `fetch_url` for subsequent page reads — use `browser_get_text` or `browser_get_html` instead. Browser startup is expensive (~30-60s cold start); maximize its use by completing ALL browser-related tasks before closing. Only call `browser_close` when done with all web tasks.',
     'Targeting elements: when you lack a stable CSS selector, call `browser_inspect` first — it returns interactive elements with pre-computed strategies (role+name, label, placeholder, CSS fallback). Prefer `role`+`role_name` or `label` over raw `selector` on pages with dynamic CSS. Strategies work across open Shadow DOM and iframes (via `frame_chain`).',
     'For sandbox-side routing (serverless vs agentd) and login-state persistence across sessions, see the `Sandbox Routing` section of this prompt.',
   ];

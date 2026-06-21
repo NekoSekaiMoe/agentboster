@@ -5,8 +5,11 @@ import {
   writeSandboxFileAction,
 } from '@/lib/core/sandbox/actions';
 import { SANDBOX_WORKSPACE_DIR } from '@/lib/core/sandbox/runtime';
+import { createLogger } from '@/lib/utils/logger';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+
+const logger = createLogger('sandbox-tools');
 
 export async function POST(request: NextRequest) {
   const cookieStore = await cookies();
@@ -32,6 +35,12 @@ export async function POST(request: NextRequest) {
   try {
     switch (tool) {
       case 'exec': {
+        logger.info('sandbox exec called', {
+          sessionId,
+          command: (params?.command as string) || '',
+          cwd: (params?.cwd as string) || undefined,
+        });
+
         const result = await runSandboxCommandAction({
           sessionId,
           command: (params?.command as string) || '',
@@ -40,10 +49,26 @@ export async function POST(request: NextRequest) {
           env: (params?.env as Record<string, string>) || undefined,
           sudo: (params?.sudo as boolean) || undefined,
         });
+
+        logger.info('sandbox exec completed', {
+          sessionId,
+          command: (params?.command as string) || '',
+          kind: result.kind,
+          exitCode: result.kind === 'completed' ? result.exitCode : undefined,
+          success:
+            result.kind === 'completed' ? result.exitCode === 0 : undefined,
+        });
+
         return NextResponse.json({ ok: true, result });
       }
 
       case 'exec_background': {
+        logger.info('sandbox exec_background called', {
+          sessionId,
+          command: (params?.command as string) || '',
+          cwd: (params?.cwd as string) || undefined,
+        });
+
         const result = await runSandboxCommandAction({
           sessionId,
           command: (params?.command as string) || '',
@@ -51,6 +76,14 @@ export async function POST(request: NextRequest) {
           cwd: (params?.cwd as string) || undefined,
           env: (params?.env as Record<string, string>) || undefined,
         });
+
+        logger.info('sandbox exec_background completed', {
+          sessionId,
+          command: (params?.command as string) || '',
+          kind: result.kind,
+          exitCode: result.kind === 'completed' ? result.exitCode : undefined,
+        });
+
         return NextResponse.json({ ok: true, result });
       }
 

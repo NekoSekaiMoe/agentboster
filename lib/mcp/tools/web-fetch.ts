@@ -1,10 +1,13 @@
 import type { JSONValue } from '@ai-sdk/provider';
 
+import { createLogger } from '@/lib/utils/logger';
 import type {
   BuiltinMcpServerContext,
   BuiltinMcpToolDefinition,
   BuiltinMcpToolResult,
 } from '@/lib/mcp/builtin/types';
+
+const logger = createLogger('web-fetch');
 
 const BING_SEARCH_URL = 'https://www.bing.com/search';
 const DUCKDUCKGO_SEARCH_URL = 'https://html.duckduckgo.com/html/';
@@ -638,7 +641,7 @@ export const builtinWebTools: BuiltinMcpToolDefinition[] = [
     name: 'fetch_url',
     title: 'Fetch URL',
     description:
-      'Fetch a URL with plain HTTP and return extracted text. Includes a hint when JavaScript rendering is likely required.',
+      'Fetch a URL with plain HTTP and return extracted text. Includes a hint when JavaScript rendering is likely required. WARNING: Do NOT use this after calling browser_navigate — use browser_get_text instead to reuse the browser session.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -682,6 +685,12 @@ export async function executeBuiltinWebTool(
         return buildError('Missing or invalid HTTP(S) URL.');
       }
 
+      logger.info('fetch_url called', {
+        url,
+        sessionId: _context?.sessionId,
+        agentName: _context?.agentName,
+      });
+
       const proxyUrl = process.env.HTTP_PROXY_URL?.trim();
       const response = await fetchUrlWithRetry(
         url,
@@ -693,8 +702,15 @@ export async function executeBuiltinWebTool(
       const body = await response.text();
 
       if (!response.ok) {
+        logger.warn('fetch_url failed', { url, status: response.status });
         return buildError(`Fetch failed with status ${response.status}`);
       }
+
+      logger.info('fetch_url succeeded', {
+        url,
+        status: response.status,
+        contentLength: body.length,
+      });
 
       const contentType = response.headers.get('content-type') ?? '';
       const rawHtml = input.raw_html === true;
