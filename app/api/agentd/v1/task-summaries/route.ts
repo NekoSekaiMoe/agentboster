@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { listActiveTaskSummaries } from '@/lib/core/db/agentd';
 
 export async function GET(request: Request) {

@@ -14,6 +14,8 @@
  *      the daemon can recall it later (dispatcher.go:583).
  */
 
+export const dynamic = 'force-dynamic';
+
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
 import { sendNotification } from '@/lib/extra/channels/send-notification';

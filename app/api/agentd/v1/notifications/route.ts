@@ -11,6 +11,8 @@
  * the user can answer inline in the chat UI (DecisionCard).
  */
 
+export const dynamic = 'force-dynamic';
+
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
 import {

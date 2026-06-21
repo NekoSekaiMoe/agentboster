@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { updateSandboxStatus } from '@/lib/core/db/agentd';
 
 export async function PUT(

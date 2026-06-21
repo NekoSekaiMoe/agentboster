@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { db } from '@/lib/core/db';
 import * as schema from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';

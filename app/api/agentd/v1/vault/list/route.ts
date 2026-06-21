@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { listVaultKeyNames } from '@/lib/vault';
 
 export async function GET() {

@@ -3,6 +3,8 @@
  * Returns all pending L2 decisions for the web UI
  */
 
+export const dynamic = 'force-dynamic';
+
 import { inArray } from 'drizzle-orm';
 import { awaitRehydrated, getDecisionQueue } from '@/lib/security/l2-index';
 import { createLogger } from '@/lib/utils/logger';

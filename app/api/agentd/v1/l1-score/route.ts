@@ -3,6 +3,8 @@
  * Called by agentd to score commands and outputs for safety risks
  */
 
+export const dynamic = 'force-dynamic';
+
 import { getConfig } from '@/lib/core/kv/config';
 import { resolveL1ScorerModelId } from '@/lib/security/l1-model';
 import {

@@ -16,6 +16,8 @@
  * still does its own server allowlist check as defense in depth.
  */
 
+export const dynamic = 'force-dynamic';
+
 import { executeBuiltinMcpTool } from '@/lib/mcp/builtin';
 import { getConfig } from '@/lib/core/kv/config';
 import { createLogger } from '@/lib/utils/logger';

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { put } from '@/lib/core/blob';
 import {
   getResourceErrorMessage,

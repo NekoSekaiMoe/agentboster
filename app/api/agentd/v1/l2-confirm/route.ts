@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { updateTaskStatus } from '@/lib/core/db/agentd';
 import { getKV } from '@/lib/core/kv';
 import { getNotificationManager } from '@/lib/extra/channels/notification-manager';

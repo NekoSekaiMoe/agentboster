@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { requireAuthAccess } from '@/lib/auth/access';
 import { db, schema } from '@/lib/core/db';
 import { and, eq } from 'drizzle-orm';

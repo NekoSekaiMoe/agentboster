@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { writeToolActivityLogs } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 

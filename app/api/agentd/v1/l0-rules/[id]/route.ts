@@ -10,6 +10,8 @@
  * poller (every 5 minutes) or on-demand.
  */
 
+export const dynamic = 'force-dynamic';
+
 import { getL0Rules } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { deleteAdapterSourceMessage } from '@/lib/bot/reply';
 import { chatSourceSchema } from '@/types/workflow';
 import { z } from 'zod';

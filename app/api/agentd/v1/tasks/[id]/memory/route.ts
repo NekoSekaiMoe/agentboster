@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { extractMemoriesFromSession } from '@/lib/memory/extract';
 import { getSession } from '@/lib/core/db/chat';
 import { getUserById } from '@/lib/core/db/users';

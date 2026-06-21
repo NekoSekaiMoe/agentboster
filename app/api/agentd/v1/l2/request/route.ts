@@ -3,6 +3,8 @@
  * Called by agentd when L1 high-risk command needs user authorization
  */
 
+export const dynamic = 'force-dynamic';
+
 import type { Decision } from '@/lib/security/l2-decision-queue';
 import { DecisionStatus, DecisionType } from '@/lib/security/l2-decision-queue';
 import { getDecisionQueue } from '@/lib/security/l2-index';

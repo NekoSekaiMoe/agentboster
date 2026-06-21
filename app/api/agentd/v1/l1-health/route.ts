@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { getConfig } from '@/lib/core/kv/config';
 import { resolveLanguageModel } from '@/lib/ai';
 import { resolveL1ScorerModelId } from '@/lib/security/l1-model';

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { writeReviewLogs } from '@/lib/core/db/agentd';
 
 export async function POST(request: Request) {

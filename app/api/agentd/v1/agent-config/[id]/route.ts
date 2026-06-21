@@ -12,6 +12,8 @@
  * /api/agentd/v1/* so middleware covers it.
  */
 
+export const dynamic = 'force-dynamic';
+
 import { getConfig } from '@/lib/core/kv/config';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';

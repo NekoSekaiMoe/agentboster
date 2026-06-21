@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { deleteSession, getSession, updateSession } from '@/lib/core/db/chat';
 import { deriveSessionIdentity } from '@/lib/core/db/agentd';
 

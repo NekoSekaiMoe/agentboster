@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.llm-proxy');

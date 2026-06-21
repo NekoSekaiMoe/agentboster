@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { getRun } from 'workflow/api';
 import { getSession, updateSession } from '@/lib/core/db/chat';
 import { abortAgentdSession } from '@/lib/extra/agent/agentd-tools-client';

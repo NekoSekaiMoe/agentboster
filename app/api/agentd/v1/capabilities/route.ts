@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { getBotCapabilities } from '@/lib/bot/capabilities';
 
 export async function GET(request: Request) {

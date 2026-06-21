@@ -17,6 +17,8 @@
  * forwardL2Confirm so the agent loop unblocks.
  */
 
+export const dynamic = 'force-dynamic';
+
 import { forwardL2Confirm } from '@/lib/extra/agent/agentd-client';
 import { getDecisionQueue } from '@/lib/security/l2-index';
 import { createLogger } from '@/lib/utils/logger';

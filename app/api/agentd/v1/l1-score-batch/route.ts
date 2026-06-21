@@ -3,6 +3,8 @@
  * Called by agentd when exec_batch needs a single cross-command review.
  */
 
+export const dynamic = 'force-dynamic';
+
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { resolveLanguageModel } from '@/lib/ai';

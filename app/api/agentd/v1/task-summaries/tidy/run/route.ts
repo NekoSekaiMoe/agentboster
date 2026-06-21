@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { listActiveTaskSummaries } from '@/lib/core/db/agentd';
 import { createNotification } from '@/lib/core/db/notification';
 import { generateTaskTidyReport } from '@/lib/extra/task-summary-tidy';

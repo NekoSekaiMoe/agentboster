@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { getAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
 
 export async function GET() {

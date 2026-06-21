@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { registerSandbox } from '@/lib/core/db/agentd';
 
 export async function POST(request: Request) {
