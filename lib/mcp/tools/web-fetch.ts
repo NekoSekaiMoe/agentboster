@@ -11,10 +11,16 @@ const DUCKDUCKGO_SEARCH_URL = 'https://html.duckduckgo.com/html/';
 const BRAVE_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search';
 const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
 
-const DEFAULT_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 AgentBoster/1.0';
+const USER_AGENT_POOL = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+];
 const SEARCH_TIMEOUT_MS = 15_000;
 const FETCH_TIMEOUT_MS = 20_000;
+const FETCH_MAX_RETRIES = 2;
 const DEFAULT_FETCH_TEXT_LIMIT = 20_000;
 const DEFAULT_RAW_HTML_LIMIT = 50_000;
 
@@ -136,6 +142,112 @@ function maxLengthInput(
   return Math.min(Math.floor(value), fallback);
 }
 
+let uaIndex = 0;
+function rotateUserAgent(): string {
+  const ua = USER_AGENT_POOL[uaIndex % USER_AGENT_POOL.length];
+  uaIndex++;
+  return ua;
+}
+
+function buildBrowserHeaders(url: string, ua: string): Record<string, string> {
+  let origin: string | undefined;
+  try {
+    origin = new URL(url).origin;
+  } catch {}
+
+  return {
+    'user-agent': ua,
+    accept:
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'accept-language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+    'accept-encoding': 'gzip, deflate, br',
+    'cache-control': 'no-cache',
+    pragma: 'no-cache',
+    'sec-ch-ua': '"Chromium";v="131", "Not_A Brand";v="24"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'document',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'none',
+    'sec-fetch-user': '?1',
+    'upgrade-insecure-requests': '1',
+    ...(origin ? { referer: origin } : {}),
+  };
+}
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
+async function fetchUrlWithRetry(
+  url: string,
+  timeoutMs: number,
+  maxRetries: number,
+  proxyUrl?: string,
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const ua = rotateUserAgent();
+      const headers = buildBrowserHeaders(url, ua);
+      const fetchUrl = proxyUrl
+        ? `${proxyUrl}?url=${encodeURIComponent(url)}`
+        : url;
+
+      const response = await fetchWithTimeout(
+        fetchUrl,
+        {
+          method: 'GET',
+          headers,
+          redirect: 'follow',
+        },
+        timeoutMs,
+      );
+
+      if (response.ok || response.status === 404 || response.status === 403) {
+        return response;
+      }
+
+      if (attempt < maxRetries && response.status >= 500) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000 * (attempt + 1)),
+        );
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < maxRetries) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000 * (attempt + 1)),
+        );
+        continue;
+      }
+    }
+  }
+
+  throw lastError ?? new Error('Fetch failed after retries');
+}
+
 function extractTitle(html: string): string {
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '';
   return stripHtml(title);
@@ -216,12 +328,14 @@ async function fetchText(
   response: Response;
   text: string;
 }> {
+  const ua = rotateUserAgent();
   const response = await fetch(url, {
     ...init,
     headers: {
-      'user-agent': DEFAULT_USER_AGENT,
+      'user-agent': ua,
       accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'accept-language': 'en-US,en;q=0.9',
+      'accept-encoding': 'gzip, deflate, br',
       ...init.headers,
     },
     signal: init.signal ?? AbortSignal.timeout(SEARCH_TIMEOUT_MS),
@@ -568,9 +682,16 @@ export async function executeBuiltinWebTool(
         return buildError('Missing or invalid HTTP(S) URL.');
       }
 
-      const { response, text: body } = await fetchText(url, {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
+      const proxyUrl = process.env.HTTP_PROXY_URL?.trim();
+      const response = await fetchUrlWithRetry(
+        url,
+        FETCH_TIMEOUT_MS,
+        FETCH_MAX_RETRIES,
+        proxyUrl,
+      );
+
+      const body = await response.text();
+
       if (!response.ok) {
         return buildError(`Fetch failed with status ${response.status}`);
       }

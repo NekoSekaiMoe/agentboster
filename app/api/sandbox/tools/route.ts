@@ -228,7 +228,13 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ ok: false, error: 'url is required' });
         }
         const fetchResult = await fetch(url, {
-          headers: { 'User-Agent': 'AgentBoster/1.0' },
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            Accept:
+              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
           signal: AbortSignal.timeout(30000),
         });
         const text = await fetchResult.text();
@@ -248,7 +254,13 @@ export async function POST(request: NextRequest) {
         }
         const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
         const searchResult = await fetch(searchUrl, {
-          headers: { 'User-Agent': 'AgentBoster/1.0' },
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            Accept:
+              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
           signal: AbortSignal.timeout(15000),
         });
         const html = await searchResult.text();
