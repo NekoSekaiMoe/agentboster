@@ -1,6 +1,5 @@
 import { type JSONRPCMessage, type MCPTransport } from '@ai-sdk/mcp';
 
-import { browserTools, executeBrowserTool } from '../tools/browser';
 import { builtinContext7Tools, executeBuiltinContext7Tool } from './context7';
 import {
   builtinFirecrawlTools,
@@ -16,7 +15,6 @@ import { builtinWebTools, executeBuiltinWebTool } from './web';
 
 type BuiltinServerName =
   | 'web'
-  | 'browser'
   | 'firecrawl'
   | 'github'
   | 'context7';
@@ -59,17 +57,6 @@ const builtinServers: Record<BuiltinServerName, BuiltinServerDefinition> = {
     instructions: 'Public web search and HTTP page fetching.',
     tools: builtinWebTools,
     execute: executeBuiltinWebTool,
-  },
-  browser: {
-    serverInfo: {
-      name: 'agentboster-builtin-browser',
-      version: '1.0.0',
-      title: 'AgentBoster Builtin Browser',
-    },
-    instructions:
-      'Headless browser automation (Playwright). The agent system prompt covers cross-side routing, profile persistence, and element-targeting strategies.',
-    tools: browserTools,
-    execute: executeBrowserTool,
   },
   firecrawl: {
     serverInfo: {

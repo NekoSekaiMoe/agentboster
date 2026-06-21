@@ -39,9 +39,6 @@ const nextConfig: NextConfig = {
     '@vercel/queue',
     'discord-interactions',
     'discord.js',
-    'playwright',
-    'playwright-core',
-    'chromium-bidi',
     'zlib-sync',
   ],
   async headers() {
