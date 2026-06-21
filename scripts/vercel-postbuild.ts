@@ -45,6 +45,16 @@ async function main() {
   console.log('[postbuild] pushing Drizzle schema');
   await runCommand('npx', ['drizzle-kit', 'push']);
 
+  console.log('[postbuild] installing Playwright browsers');
+  await runCommand('npx', [
+    'playwright',
+    'install',
+    'chromium',
+    '--with-deps',
+  ]).catch((error) => {
+    console.warn('[postbuild] playwright install failed (non-fatal):', error);
+  });
+
   console.log('[postbuild] database schema is up to date');
 }
 
