@@ -247,6 +247,19 @@ export async function startWorkflow(input: {
     } catch {
       // Don't let drain failures escape into an unhandled promise.
     }
+    // Cleanup resources after workflow completes.
+    // Browser is always closed (prevents process leaks).
+    // Sandbox is kept running (allows reuse in subsequent messages).
+    try {
+      const { cleanupWorkflowResources } = await import('./cleanup');
+      await cleanupWorkflowResources({
+        sessionId: input.sessionId,
+        closeBrowser: true,
+        stopSandbox: false,
+      });
+    } catch {
+      // Don't let cleanup failures escape into an unhandled promise.
+    }
   })();
 
   return {
