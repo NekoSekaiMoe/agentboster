@@ -130,6 +130,12 @@ flowchart TB
 - **Multi-Channel Notification** — 统一通知路由到各 IM 平台
 - **Workflow** — Vercel Workflow DevKit 驱动的持久化 Agent 执行
 - **MCP** — 内置 MCP 工具（Context7、Firecrawl、GitHub、Web）
+  - `web_search`：搜索实时信息（需配置 `TAVILY_API_KEY`，否则依赖不稳定的 HTML 爬取）
+  - `fetch_url`：抓取网页内容
+  - **无浏览器自动化工具**：Playwright 已从 serverless 端移除（-18MB bundle，-10-20s 构建时间）
+    - Serverless 环境限制（10-60s 超时、冷启动慢）使浏览器自动化体验很差
+    - 查资讯场景 `web_search` + `fetch_url` 完全够用
+    - 未来可在 agentd daemon 实现浏览器工具（常驻进程，无超时限制）
 - **Security** — L1 AI 评分、L2 用户授权决策队列
 - **Audit & Monitoring** — 审计日志、运行时监控、Daemon 节点状态
 - **Daemon Pairing** — 一键配对密钥，安全注册 Daemon
@@ -239,7 +245,7 @@ AgentBoster 不是从零开始的创新，而是站在多个优秀项目的肩�
 - 点击下方按钮部署
 
 <p align="center">
-	<a href=https://vercel.com/new/clone?repository-url=https://github.com/NekoSekaiMoe/agentboster&stores=[{"type":"blob"},{"type":"integration","productSlug":"upstash-kv","integrationSlug":"upstash"},{"type":"integration","protocol":"storage","productSlug":"neon","integrationSlug":"neon"}]&env=AUTH_SECRET,USERNAME,PASSWORD,BLOB_ACCESS&envDescription=Do_not_disclose_AUTH_SECRET_USERNAME_PASSWORD._Set_BLOB_ACCESS_to_private_for_Vercel_Blob_private_stores.&project-name=agentboster&repository-name=agentboster target="_blank">
+	<a href=https://vercel.com/new/clone?repository-url=https://github.com/NekoSekaiMoe/agentboster&stores=[{"type":"blob"},{"type":"integration","productSlug":"upstash-kv","integrationSlug":"upstash"},{"type":"integration","protocol":"storage","productSlug":"neon","integrationSlug":"neon"}]&env=AUTH_SECRET,USERNAME,PASSWORD,BLOB_ACCESS,TAVILY_API_KEY&envDescription=Required:_AUTH_SECRET_USERNAME_PASSWORD_BLOB_ACCESS._Optional:_TAVILY_API_KEY_(for_web_search,_1000_free_searches/month_at_tavily.com)&project-name=agentboster&repository-name=agentboster target="_blank">
 		<img src="https://vercel.com/button" alt="Deploy with Vercel" width="120" />
 	</a>
 </p>
@@ -313,7 +319,16 @@ AgentBoster 支持通过 IM 渠道（Telegram/Discord/Slack/Feishu/Teams）使�
 
 ### 1. 配置环境变量
 
-部署时需要 `AUTH_SECRET`、`USERNAME`、`PASSWORD`、`BLOB_ACCESS` 环境变量。`AUTH_SECRET`、`USERNAME`、`PASSWORD` **不要泄漏**；`BLOB_ACCESS` 推荐填写 `private`。
+部署时需要以下环境变量：
+
+**必需**：
+- `AUTH_SECRET`、`USERNAME`、`PASSWORD` — 认证凭据（**不要泄漏**）
+- `BLOB_ACCESS` — Vercel Blob 访问模式，推荐填写 `private`
+
+**可选（推荐）**：
+- `TAVILY_API_KEY` — 用于 web_search 工具（免费 1000 次/月）
+  - 不配置此项会导致 LLM 无法使用搜索功能（DuckDuckGo/Bing HTML 爬取不稳定）
+  - 获取方式：访问 https://app.tavily.com/sign-up 注册并获取 API Key
 
 ### 2. 登录并配置
 
