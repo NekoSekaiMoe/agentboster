@@ -711,7 +711,16 @@ export async function routeAdapterMessage(
     { source },
   );
 
-  await replyToAdapterCommandResult(dispatched, source);
+  try {
+    await replyToAdapterCommandResult(dispatched, source);
+  } catch (error) {
+    const logger = createLogger('chat.routeAdapterMessage');
+    logger.error('reply:command_result_failed', {
+      adapter: source.adapter,
+      threadId: source.threadId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   // Trigger the IM stream-consumer endpoint fire-and-forget. This is
   // the core of the IM streaming architecture (see stream.md):
