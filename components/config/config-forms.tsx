@@ -1,5 +1,6 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import type { ConfigSectionKey } from '@/components/config/config-sections';
 import { AgentDConfigPage } from './agentd-config';
 import { AgentsForm } from './forms/agents-form';
@@ -15,8 +16,13 @@ import { SecurityForm } from './forms/security-form';
 import { ToolsForm } from './forms/tools-form';
 import { TtsForm } from './forms/tts-form';
 import { KnowledgeManagement } from './knowledge-management';
-import { RawJsonEditor } from './raw-json-editor';
 import { UsersManagement } from './users-management';
+
+// Lazy load RawJsonEditor (CodeMirror ~80KB) - only loaded when user clicks "Raw JSON" tab
+const RawJsonEditor = dynamic(() => import('./raw-json-editor').then(mod => ({ default: mod.RawJsonEditor })), {
+  ssr: false,
+  loading: () => <div className="p-4 text-muted-foreground">Loading editor...</div>,
+});
 
 export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
   switch (section) {
