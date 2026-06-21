@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import { redis } from './index';
 
 const DEFAULT_LOCK_TTL_MS = 30_000;
@@ -41,6 +39,7 @@ async function acquireKvLock(
   options: Required<KvLockOptions>,
 ): Promise<{ key: string; token: string }> {
   const normalizedKey = normalizeLockKey(key);
+  const { randomUUID } = await import('node:crypto');
   const token = randomUUID();
   const deadline = Date.now() + options.acquireTimeoutMs;
 

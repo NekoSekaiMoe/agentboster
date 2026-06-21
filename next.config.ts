@@ -35,6 +35,8 @@ const nextConfig: NextConfig = {
     'discord-interactions',
     'discord.js',
     'playwright',
+    'playwright-core',
+    'chromium-bidi',
     'zlib-sync',
   ],
   async headers() {

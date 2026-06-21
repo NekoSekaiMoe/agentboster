@@ -41,6 +41,7 @@
     "ai": "^6.0.197",
     "bcryptjs": "^3.0.3",
     "chat": "^4.29.0",
+    "chromium-bidi": "^1.0.6",
     "class-variance-authority": "^0.7.1",
     "classnames": "^2.5.1",
     "clsx": "^2.1.1",
