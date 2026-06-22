@@ -13,11 +13,7 @@ import type {
 } from './types';
 import { builtinWebTools, executeBuiltinWebTool } from './web';
 
-type BuiltinServerName =
-  | 'web'
-  | 'firecrawl'
-  | 'github'
-  | 'context7';
+type BuiltinServerName = 'web' | 'firecrawl' | 'github' | 'context7';
 
 type BuiltinServerDefinition = {
   serverInfo: { name: string; version: string; title?: string };

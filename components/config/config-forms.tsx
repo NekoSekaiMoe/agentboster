@@ -19,10 +19,16 @@ import { KnowledgeManagement } from './knowledge-management';
 import { UsersManagement } from './users-management';
 
 // Lazy load RawJsonEditor (CodeMirror ~80KB) - only loaded when user clicks "Raw JSON" tab
-const RawJsonEditor = dynamic(() => import('./raw-json-editor').then(mod => ({ default: mod.RawJsonEditor })), {
-  ssr: false,
-  loading: () => <div className="p-4 text-muted-foreground">Loading editor...</div>,
-});
+const RawJsonEditor = dynamic(
+  () =>
+    import('./raw-json-editor').then((mod) => ({ default: mod.RawJsonEditor })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="p-4 text-muted-foreground">Loading editor...</div>
+    ),
+  },
+);
 
 export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
   switch (section) {
