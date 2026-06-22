@@ -167,3 +167,139 @@ export async function scoreOutput(
 
   return object;
 }
+
+// ─── Memory relevance scoring (long-term recall) ────────────────────
+//
+// Used when `memory_recall_strategy === 'scorer'` to replace vector
+// similarity with a small-LLM relevance judgment. The LLM sees the
+// user's latest message plus a list of candidate memories and returns
+// the subset that is directly useful for formulating the reply. This
+// is the same pattern as `scoreCommand`/`scoreOutput`: a focused
+// yes/no judgment delegated to a cheap model.
+
+/**
+ * One candidate memory passed to the relevance scorer.
+ *
+ * `id` is opaque to the scorer — it is echoed back in the response so
+ * the caller can map judgments back to the original rows.
+ */
+export type MemoryRelevanceCandidate = {
+  id: string;
+  content: string;
+};
+
+export type MemoryRelevanceResult = {
+  /** Ids of memories the scorer judged useful for the reply. */
+  relevantIds: string[];
+  /** Optional short reasons, keyed by candidate id. Stable for logging. */
+  reasons: Record<string, string>;
+};
+
+export const memoryRelevanceResultSchema = z.object({
+  relevant: z.array(
+    z.object({
+      id: z.string().describe('The candidate id, copied verbatim.'),
+      reason: z
+        .string()
+        .describe(
+          'Short phrase (<= 12 words) explaining why this memory helps answer the user message. Required even if obvious — forces a self-check.',
+        ),
+    }),
+  ),
+});
+
+/**
+ * Prompt body for the memory relevance scorer.
+ *
+ * Judgement criterion: "would a human assistant drawing on this memory
+ * give a better reply?" — NOT mere topical overlap. A memory about
+ * "user likes Italian food" is topically related to "what's for
+ * dinner?" but does not by itself let the assistant answer, so it
+ * should be marked irrelevant unless the user is asking about their
+ * own preferences.
+ *
+ * The bar is intentionally high to keep the injected context lean.
+ */
+export const MEMORY_RELEVANCE_SCORER_PROMPT = `You are a strict memory relevance judge for a conversational assistant.
+
+You will receive:
+- USER_MESSAGE: the user's latest message.
+- CANDIDATES: a list of stored long-term memories, one per line, formatted as \`<id>: <content>\`.
+
+Decide which candidates are **directly useful for replying** to USER_MESSAGE. The bar is "would a human assistant give a noticeably better reply if they had this fact in mind?" — not merely "is this topically related".
+
+Mark as relevant:
+- Facts the message implicitly depends on (location/timezone/language when the user says "weather / news near me / translate this", preferences when the user references "my usual / the way I like", prior decisions when the user references "what we decided / last time", contacts/identifiers when the user references "my pair / my server").
+
+Mark as NOT relevant:
+- Topically nearby but unused facts (a memory about Italian food is NOT relevant to "what's for dinner?" unless the user is asking about their own food preferences).
+- Transient task details from unrelated past work.
+- Anything the user did not reference and the reply does not need.
+
+Be conservative: when uncertain, skip. A lean, precise injection beats a noisy one.
+
+Return JSON in this shape:
+{
+  "relevant": [
+    { "id": "<candidate id>", "reason": "<short reason>" }
+  ]
+}
+
+USER_MESSAGE:
+{{user_message}}
+
+CANDIDATES:
+{{candidates}}`;
+
+/**
+ * Score which stored memories are useful for replying to a user message.
+ *
+ * Mirrors the calling convention of {@link scoreCommand}: caller passes
+ * a resolved `modelId` (the L1 scorer if configured, else the main
+ * chat model) plus the live config. Never throws — on any LLM error
+ * returns an empty result so the caller can fall back to the keyword
+ * candidate list as-is.
+ */
+export async function scoreMemoryRelevance(input: {
+  userMessage: string;
+  candidates: MemoryRelevanceCandidate[];
+  modelId: string;
+  config: AppConfig;
+}): Promise<MemoryRelevanceResult> {
+  if (input.candidates.length === 0) {
+    return { relevantIds: [], reasons: {} };
+  }
+
+  const model = resolveLanguageModel(input.modelId, input.config);
+  const candidatesBlock = input.candidates
+    .map((c) => `${c.id}: ${c.content}`)
+    .join('\n');
+
+  const prompt = MEMORY_RELEVANCE_SCORER_PROMPT.replace(
+    '{{user_message}}',
+    input.userMessage,
+  ).replace('{{candidates}}', candidatesBlock);
+
+  try {
+    const { object } = await generateObject({
+      model,
+      schema: memoryRelevanceResultSchema,
+      prompt,
+    });
+
+    const validIds = new Set(input.candidates.map((c) => c.id));
+    const relevantIds: string[] = [];
+    const reasons: Record<string, string> = {};
+
+    for (const item of object.relevant) {
+      if (validIds.has(item.id)) {
+        relevantIds.push(item.id);
+        reasons[item.id] = item.reason;
+      }
+    }
+
+    return { relevantIds, reasons };
+  } catch {
+    return { relevantIds: [], reasons: {} };
+  }
+}

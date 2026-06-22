@@ -104,6 +104,23 @@ export const aiConfigSchema = z.object({
     .optional(),
   /** Embedding model ID. Supports "provider/model-id" or bare model names (see aiModelConfigSchema). */
   embedding_model: aiModelConfigSchema.optional(),
+  /**
+   * Long-term memory recall strategy.
+   *
+   * - 'vector': hybrid vector + keyword search. Requires `embedding_model`
+   *   to be configured; falls back to keyword-only when it's missing.
+   * - 'scorer': LLM-based relevance scoring. Works without an embedding
+   *   model — each new message triggers one small-LLM call to judge which
+   *   stored memories are useful for the reply. Costs one extra LLM call
+   *   per message but produces stable semantic recall for deployments
+   *   where users typically don't configure an embedding model.
+   *
+   * When unset, the runtime resolves the effective strategy:
+   *   `embedding_model` configured → 'vector', otherwise → 'scorer'.
+   *   This protects existing users from a behavior change while giving
+   *   new users (who usually skip embedding) sane defaults.
+   */
+  memory_recall_strategy: z.enum(['vector', 'scorer']).optional(),
   /** Default context length limit (tokens). */
   context_limit: z
     .number()
