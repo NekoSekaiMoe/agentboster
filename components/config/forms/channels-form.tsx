@@ -634,56 +634,94 @@ export function ChannelsForm() {
                         {t('config.forms.channels.allowHelp')}
                       </p>
 
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={pairCodeLoading[adapter.key]}
-                          onClick={() =>
-                            generatePairCodeForAdapter(adapter.key)
-                          }
-                        >
-                          {pairCodeLoading[adapter.key] ? (
-                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-                          ) : (
-                            <KeyRound className="mr-1.5 size-3.5" />
-                          )}
-                          Generate pair code
-                        </Button>
-                        {pairCode[adapter.key] ? (
-                          <div className="flex items-center gap-2">
-                            <code className="rounded bg-muted px-2 py-1 font-bold font-mono text-lg tracking-widest">
-                              {pairCode[adapter.key]?.code}
-                            </code>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                copyToClipboard(
-                                  pairCode[adapter.key]?.code ?? '',
-                                )
-                              }
-                            >
-                              <Copy className="mr-1 size-3.5" />
-                              Copy
-                            </Button>
-                            <span className="text-muted-foreground text-xs">
-                              Expires in{' '}
-                              {Math.floor(
-                                (pairCode[adapter.key]?.expiresIn ?? 0) / 60,
-                              )}{' '}
-                              min
+                      {pairStatus[adapter.key]?.paired ? (
+                        <div className="mt-2 space-y-3">
+                          <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-green-800 text-sm">
+                            <Check className="size-4 shrink-0" />
+                            <span>
+                              Paired as{' '}
+                              <strong>
+                                {pairStatus[adapter.key]?.imUserName ||
+                                  pairStatus[adapter.key]?.imUserId}
+                              </strong>
                             </span>
                           </div>
-                        ) : null}
-                      </div>
-                      <p className="text-muted-foreground text-xs">
-                        Send this code to your IM as{' '}
-                        <code>/pair &lt;code&gt;</code> to bind your ClawLess
-                        account.
-                      </p>
+                          {pairStatus[adapter.key]?.pairedAt && (
+                            <p className="text-muted-foreground text-xs">
+                              Paired at{' '}
+                              {new Date(
+                                pairStatus[adapter.key]?.pairedAt ?? '',
+                              ).toLocaleString()}
+                            </p>
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={unpairing[adapter.key]}
+                            onClick={() => handleUnpair(adapter.key)}
+                          >
+                            {unpairing[adapter.key] ? (
+                              <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                            ) : null}
+                            Unpair
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={pairCodeLoading[adapter.key]}
+                              onClick={() =>
+                                generatePairCodeForAdapter(adapter.key)
+                              }
+                            >
+                              {pairCodeLoading[adapter.key] ? (
+                                <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                              ) : (
+                                <KeyRound className="mr-1.5 size-3.5" />
+                              )}
+                              Generate pair code
+                            </Button>
+                            {pairCode[adapter.key] ? (
+                              <div className="flex items-center gap-2">
+                                <code className="rounded bg-muted px-2 py-1 font-bold font-mono text-lg tracking-widest">
+                                  {pairCode[adapter.key]?.code}
+                                </code>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    copyToClipboard(
+                                      pairCode[adapter.key]?.code ?? '',
+                                    )
+                                  }
+                                >
+                                  <Copy className="mr-1 size-3.5" />
+                                  Copy
+                                </Button>
+                                <span className="text-muted-foreground text-xs">
+                                  Expires in{' '}
+                                  {Math.floor(
+                                    (pairCode[adapter.key]?.expiresIn ?? 0) /
+                                      60,
+                                  )}{' '}
+                                  min
+                                </span>
+                              </div>
+                            ) : null}
+                          </div>
+                          <p className="text-muted-foreground text-xs">
+                            Send this code to your IM as{' '}
+                            <code>/pair &lt;code&gt;</code> to bind your
+                            ClawLess account.
+                          </p>
+                        </div>
+                      )}
                     </Field>
 
                     {adapterValue.enabled ? (
