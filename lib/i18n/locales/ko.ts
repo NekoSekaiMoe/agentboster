@@ -320,6 +320,17 @@ export const ko = {
   'config.forms.models.keepBelowLimit':
     '예상 한도인 {limit} 이하로 유지하세요.',
   'config.forms.models.maxOutputTokens': '최대 출력 토큰',
+  'config.forms.models.memoryRecallStrategy': '장기 기억 리콜 전략',
+  'config.forms.models.memoryRecallStrategyAuto':
+    '자동 (권장) —— embedding 모델이 설정되어 있으면 벡터 검색, 그렇지 않으면 L1 스코어링 모델을 사용합니다.',
+  'config.forms.models.memoryRecallStrategyHelp':
+    '각 턴의 시작에 저장된 장기 기억을 어떻게 가져올지 제어합니다. 「벡터」는 저렴하지만 embedding 모델이 필요합니다. 「스코어링」은 메시지마다 소규모 LLM 호출을 한 번 추가해 관련성을 판단합니다 —— embedding 없이도 동작하며 안정적인 의미 리콜을 제공합니다.',
+  'config.forms.models.memoryRecallStrategyScorer':
+    '스코어링 —— L1 스코어링 모델로 기억 관련성을 판단. 메시지마다 LLM 호출이 한 번 추가되지만 embedding은 필요 없습니다.',
+  'config.forms.models.memoryRecallStrategyVector':
+    '벡터 —— 벡터 + 키워드 하이브리드 검색. embedding 모델이 필요합니다.',
+  'config.forms.models.memoryRecallStrategyVectorRequiresEmbedding':
+    '이 전략은 위의 embedding 모델 설정이 필요합니다. 「자동」 또는 「스코어링」으로 전환하거나 embedding 모델을 설정하세요.',
   'config.forms.models.providerDescription':
     '공급자 설정을 통해 여러 AI 공급자에 연결하여 사용할 수 있습니다.',
   'config.forms.models.providerId': '공급자 ID',

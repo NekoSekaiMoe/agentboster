@@ -319,6 +319,18 @@ export const enUS = {
   'config.forms.models.keepBelowLimit':
     'Keep this at or below the predicted limit of {limit}.',
   'config.forms.models.maxOutputTokens': 'Max output tokens',
+  'config.forms.models.memoryRecallStrategy':
+    'Long-term memory recall strategy',
+  'config.forms.models.memoryRecallStrategyAuto':
+    'Auto (recommended) — uses vector search when an embedding model is configured, otherwise uses the L1 scorer model.',
+  'config.forms.models.memoryRecallStrategyHelp':
+    'Controls how stored long-term memories are retrieved at the start of each turn. "Vector" is cheaper but requires an embedding model. "Scorer" makes one extra small-LLM call per message to judge relevance — works without embeddings and produces stable semantic recall.',
+  'config.forms.models.memoryRecallStrategyScorer':
+    'Scorer — uses the L1 scorer model to judge memory relevance. Costs one extra LLM call per message but works without embeddings.',
+  'config.forms.models.memoryRecallStrategyVector':
+    'Vector — hybrid vector + keyword search. Requires an embedding model.',
+  'config.forms.models.memoryRecallStrategyVectorRequiresEmbedding':
+    'This strategy requires an embedding model configured above. Switch to "Auto" or "Scorer", or set an embedding model.',
   'config.forms.models.providerDescription':
     'Provider configurations allow you to connect to multiple AI providers and use them.',
   'config.forms.models.providerId': 'Provider id',

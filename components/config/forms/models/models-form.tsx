@@ -356,6 +356,45 @@ export function ModelsForm() {
               }
             />
           </Field>
+          <Field label={t('config.forms.models.memoryRecallStrategy')}>
+            <Select
+              value={models.memory_recall_strategy ?? 'auto'}
+              onValueChange={(next) => {
+                const resolved =
+                  next === 'auto' ? undefined : (next as 'vector' | 'scorer');
+                updateValue({
+                  ...models,
+                  memory_recall_strategy: resolved,
+                } as AppConfig['models']);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">
+                  {t('config.forms.models.memoryRecallStrategyAuto')}
+                </SelectItem>
+                <SelectItem value="vector">
+                  {t('config.forms.models.memoryRecallStrategyVector')}
+                </SelectItem>
+                <SelectItem value="scorer">
+                  {t('config.forms.models.memoryRecallStrategyScorer')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-muted-foreground text-xs">
+              {t('config.forms.models.memoryRecallStrategyHelp')}
+            </p>
+            {models.memory_recall_strategy === 'vector' &&
+            !models.embedding_model ? (
+              <p className="text-amber-600 text-xs dark:text-amber-500">
+                {t(
+                  'config.forms.models.memoryRecallStrategyVectorRequiresEmbedding',
+                )}
+              </p>
+            ) : null}
+          </Field>
           <div className="text-muted-foreground text-xs md:col-span-2">
             {t('config.forms.models.embeddingWarning')}
           </div>

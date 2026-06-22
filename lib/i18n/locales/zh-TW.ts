@@ -297,6 +297,17 @@ export const zhTW = {
   'config.forms.models.format': '格式',
   'config.forms.models.keepBelowLimit': '保持在預測限制 {limit} 以下。',
   'config.forms.models.maxOutputTokens': '最大輸出 tokens',
+  'config.forms.models.memoryRecallStrategy': '長期記憶召回策略',
+  'config.forms.models.memoryRecallStrategyAuto':
+    '自動（推薦）—— 設定了 embedding 模型時用向量檢索，否則用 L1 評分模型。',
+  'config.forms.models.memoryRecallStrategyHelp':
+    '控制每輪對話開始時如何召回長期記憶。「向量」便宜，但需要 embedding 模型。「評分」每則訊息會多一次小模型呼叫，判斷記憶相關性 —— 不依賴 embedding，語意召回品質穩定。',
+  'config.forms.models.memoryRecallStrategyScorer':
+    '評分 —— 用 L1 評分模型判斷記憶相關性。每則訊息多一次 LLM 呼叫，但不依賴 embedding。',
+  'config.forms.models.memoryRecallStrategyVector':
+    '向量 —— 向量 + 關鍵字混合檢索。需要 embedding 模型。',
+  'config.forms.models.memoryRecallStrategyVectorRequiresEmbedding':
+    '此策略需要在上方設定 embedding 模型。可切換到「自動」或「評分」，或先設定 embedding 模型。',
   'config.forms.models.providerDescription':
     'Provider 設定允許連接和使用多個 AI providers。',
   'config.forms.models.providerId': 'Provider ID',

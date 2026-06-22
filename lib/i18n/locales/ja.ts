@@ -322,6 +322,17 @@ export const ja = {
   'config.forms.models.format': '形式',
   'config.forms.models.keepBelowLimit': '予測上限 {limit} 以下にしてください。',
   'config.forms.models.maxOutputTokens': '最大出力 tokens',
+  'config.forms.models.memoryRecallStrategy': '長期記憶のリコール戦略',
+  'config.forms.models.memoryRecallStrategyAuto':
+    '自動（推奨）—— embedding モデルが設定済みならベクトル検索、 otherwise L1 スコアリングモデルを使用します。',
+  'config.forms.models.memoryRecallStrategyHelp':
+    '各ターンの開始時に保存された長期記憶をどう取得するかを制御します。「ベクトル」は安価ですが embedding モデルが必要です。「スコアリング」はメッセージごとに小規模 LLM 呼び出しを 1 回追加で関連性を判定します —— embedding 不要、安定した意味リコールが得られます。',
+  'config.forms.models.memoryRecallStrategyScorer':
+    'スコアリング —— L1 スコアリングモデルで記憶の関連性を判定。メッセージごとに LLM 呼び出しが 1 回増えますが、embedding は不要です。',
+  'config.forms.models.memoryRecallStrategyVector':
+    'ベクトル —— ベクトル + キーワードのハイブリッド検索。embedding モデルが必要です。',
+  'config.forms.models.memoryRecallStrategyVectorRequiresEmbedding':
+    'この戦略では上記の embedding モデルの設定が必要です。「自動」または「スコアリング」に切り替えるか、embedding モデルを設定してください。',
   'config.forms.models.providerDescription':
     'Provider 設定により複数の AI providers へ接続して利用できます。',
   'config.forms.models.providerId': 'Provider ID',
