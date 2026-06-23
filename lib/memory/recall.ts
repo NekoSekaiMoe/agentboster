@@ -2,6 +2,11 @@ import { listLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { scoreMemoryRelevance } from '@/lib/security/l1-scorer';
 import type { AppConfig } from '@/types/config';
 import { createLogger } from '@/lib/utils/logger';
+import {
+  type CrossRerankConfig,
+  crossRerankCandidates,
+  resolveCrossRerankConfig,
+} from './cross-reranker';
 import { searchLongTermMemories } from './long-term';
 
 const logger = createLogger('memory.recall');
@@ -39,6 +44,13 @@ export const SCORER_KEYWORD_CANDIDATE_LIMIT = 10;
  * resolved by the LLM's semantic judgment.
  */
 export const SCORER_RECENCY_CANDIDATE_LIMIT = 20;
+
+/**
+ * Multiplier applied to `topK` to size the RRF candidate pool fed into
+ * cross-rerank. Pulling more rows from RRF gives the reranker a wider
+ * pool to cull from; the reranker then cuts it back down to `topK`.
+ */
+const CROSS_RERANK_POOL_MULTIPLIER = 4;
 
 export interface RecalledMemory {
   content: string;
@@ -113,7 +125,13 @@ export async function recallRelevantMemories(input: {
     if (strategy === 'scorer' && config) {
       return await recallViaScorer({ userId, query, topK, config });
     }
-    return await recallViaVector({ userId, query, topK, minConfidence });
+    return await recallViaVector({
+      userId,
+      query,
+      topK,
+      minConfidence,
+      config,
+    });
   } catch (error) {
     logger.warn('recall:failed', {
       strategy,
@@ -125,24 +143,55 @@ export async function recallRelevantMemories(input: {
 
 /**
  * Vector + keyword hybrid recall. Existing behavior preserved for
- * deployments that have `embedding_model` configured.
+ * deployments that have `embedding_model` configured. When
+ * `cross_rerank` is enabled, the RRF candidate pool (sized at
+ * `topK * CROSS_RERANK_POOL_MULTIPLIER`) is passed through a dedicated
+ * cross-encoder service before the final top-K cut. Failures of the
+ * reranker are silent: the RRF order is returned unchanged.
  */
 async function recallViaVector(input: {
   userId: string;
   query: string;
   topK: number;
   minConfidence: number;
+  config?: AppConfig;
 }): Promise<RecalledMemory[]> {
+  const rerankConfig = resolveCrossRerankConfig(input.config);
+  const poolSize = rerankConfig?.enabled
+    ? Math.max(input.topK * CROSS_RERANK_POOL_MULTIPLIER, input.topK + 5)
+    : input.topK;
+
   const results = await searchLongTermMemories({
     query: input.query,
     minConfidence: input.minConfidence,
-    pageSize: input.topK,
+    pageSize: poolSize,
     userId: input.userId,
   });
 
-  return results.map((row) => ({
+  if (!rerankConfig?.enabled || results.length <= input.topK) {
+    return results
+      .slice(0, input.topK)
+      .map((row) => ({ content: row.content, score: row.finalScore }));
+  }
+
+  const reranked = await crossRerankCandidates({
+    query: input.query,
+    candidates: results.map((row) => ({
+      id: row.chunkId,
+      content: row.content,
+      rrfScore: row.finalScore,
+    })),
+    config: rerankConfig as CrossRerankConfig,
+    topN: input.topK,
+  });
+
+  return reranked.map((row) => ({
     content: row.content,
-    score: row.finalScore,
+    // Preserve original RRF score on the output — the reranker's score
+    // is exposed via `rerankScore` for observability but downstream
+    // consumers (logs, threshold checks) keep working against the RRF
+    // scale they already understand.
+    score: row.rrfScore,
   }));
 }
 

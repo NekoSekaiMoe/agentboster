@@ -121,6 +121,45 @@ export const aiConfigSchema = z.object({
    *   new users (who usually skip embedding) sane defaults.
    */
   memory_recall_strategy: z.enum(['vector', 'scorer']).optional(),
+  /**
+   * Cross-encoder reranker configuration.
+   *
+   * When enabled, the 'vector' recall strategy inserts a dedicated
+   * cross-encoder rerank pass between RRF fusion and the top-K cut. This
+   * is cheaper and finer-grained than LLM-as-reranker (the 'scorer'
+   * strategy): a single small HTTP call to a dedicated relevance model
+   * (Qwen3-Reranker-8B, bge-reranker-v2-m3, Jina/Cohere rerank APIs, …)
+   * outputs continuous relevance scores in ~300ms-3s with zero token
+   * cost. The 'scorer' strategy already uses an LLM for precision
+   * ranking, so cross-rerank is not applied there to avoid double cost.
+   *
+   * All failure modes are fail-open: network errors, malformed
+   * responses, and short candidate pools return the RRF order unchanged.
+   */
+  cross_rerank: z
+    .object({
+      enabled: z.boolean().default(false),
+      /** Provider preset for protocol selection. */
+      protocol: z.enum(['jina', 'dashscope']).default('jina'),
+      /** Model id, e.g. "Qwen3-Reranker-8B" / "bge-reranker-v2-m3". */
+      model: z.string().optional(),
+      /** Base URL of the rerank HTTP service. */
+      api_url: z.string().optional(),
+      /** Bearer token for the rerank service. */
+      api_key: z.string().optional(),
+      /** Number of candidates to keep after reranking. Default = topK of the recall call. */
+      top_n: z.number().int().min(1).optional(),
+      /** Request timeout in seconds. Default 10. */
+      timeout_seconds: z.number().min(1).max(60).default(10),
+    })
+    .optional(),
+  /**
+   * @deprecated Alias kept for backward compatibility — prefer setting
+   * `cross_rerank.enabled` via the structured object above. When this
+   * scalar is `true` and `cross_rerank` is absent, the runtime still
+   * honors it by constructing a default object.
+   */
+  cross_rerank_enabled: z.boolean().optional(),
   /** Default context length limit (tokens). */
   context_limit: z
     .number()
