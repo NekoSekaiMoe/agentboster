@@ -25,6 +25,11 @@ import {
 } from '@/components/ui/sidebar';
 import { generateUUID } from '@/lib/utils';
 import {
+  SESSION_LIST_INVALIDATED_EVENT,
+  SESSION_LIST_UPSERTED_EVENT,
+  type SessionListItemEventDetail,
+} from '@/lib/chat/session-events';
+import {
   ChevronLeft,
   Loader2,
   MessageSquare,
@@ -93,6 +98,43 @@ export function ChatSidebar() {
 
   useEffect(() => {
     loadSessions();
+  }, [loadSessions]);
+
+  // Keep the sidebar in sync with session mutations dispatched from the chat
+  // container (new conversation created lazily on first message, title
+  // updated, session deleted elsewhere, etc.). Without this the sidebar only
+  // refreshes on mount, so a freshly-created conversation wouldn't appear
+  // until the user navigated or reloaded.
+  useEffect(() => {
+    const handleInvalidated = () => {
+      void loadSessions();
+    };
+    const handleUpserted = (event: Event) => {
+      const detail = (event as CustomEvent<SessionListItemEventDetail>).detail;
+      if (!detail) return;
+      setSessions((current) => {
+        const next = [
+          {
+            id: detail.id,
+            title: detail.title,
+            channel: detail.channel,
+            createdAt: detail.createdAt,
+          } satisfies SessionItem,
+          ...current.filter((s) => s.id !== detail.id),
+        ];
+        return next.slice(0, 30);
+      });
+    };
+
+    window.addEventListener(SESSION_LIST_INVALIDATED_EVENT, handleInvalidated);
+    window.addEventListener(SESSION_LIST_UPSERTED_EVENT, handleUpserted);
+    return () => {
+      window.removeEventListener(
+        SESSION_LIST_INVALIDATED_EVENT,
+        handleInvalidated,
+      );
+      window.removeEventListener(SESSION_LIST_UPSERTED_EVENT, handleUpserted);
+    };
   }, [loadSessions]);
 
   // 新建会话

@@ -230,7 +230,22 @@ export function Chat({
           ignoreResponseError: true,
         });
 
-        if (!response.ok || cancelled) {
+        if (cancelled) {
+          return;
+        }
+
+        // A 404 means the workflow run was finalized and its workflowRunId
+        // cleared from the session (typical when the model provider returned
+        // an error and finalizeRunStep ran). Stop polling — otherwise we'd
+        // hammer this endpoint every 1.5s and flood the Vercel logs with
+        // "Run not found" 404s. The chat status effect will have already
+        // flipped to 'error'/'ready' and cleared activeRunId.
+        if (response.status === 404) {
+          setBootstrapStatusRunId(null);
+          return;
+        }
+
+        if (!response.ok) {
           return;
         }
 
@@ -375,6 +390,18 @@ export function Chat({
 
   useEffect(() => {
     statusRef.current = status;
+
+    // When the chat leaves a loading state (stream completed, errored out,
+    // or was aborted), the workflow run is no longer active. Clearing
+    // activeRunId here is the catch-all path that covers streams which
+    // return 200 + x-workflow-run-id but then fail mid-flight (e.g. model
+    // provider 400). In those cases the transport's `else if (!response.ok)`
+    // branch never runs, so without this the composer would stay locked
+    // (StopButton instead of SendButton) until a page refresh.
+    if (status === 'ready' || status === 'error') {
+      activeRunIdRef.current = null;
+      setActiveRunId(null);
+    }
   }, [status]);
 
   // === TTS auto-play ===
