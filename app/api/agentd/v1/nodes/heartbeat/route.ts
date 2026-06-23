@@ -8,6 +8,78 @@ import { NextRequest } from 'next/server';
 
 const logger = createLogger('api.agentd.nodes.heartbeat');
 
+interface CgroupStat {
+  sandbox_id?: string;
+  cpu_usec?: number;
+  memory_current?: number;
+  memory_peak?: number;
+  pids_current?: number;
+}
+
+/**
+ * Aggregate per-sandbox cgroup samples into per-node totals.
+ *
+ *   - sandbox_mem_current_total = Σ memory.current (excluding -1)
+ *   - sandbox_mem_peak_total    = Σ memory.peak (excluding -1)
+ *   - sandbox_cpu_usec_total    = Σ cpu.stat usage_usec (monotonic counter)
+ *
+ * Samples with sentinel -1 (cgroup v1 host / unreadable path) are
+ * skipped so they don't drag the totals to a meaningless value. When
+ * every sample is sentinel we return null for all three —
+ * NodeSelector treats null as "no cgroup data" and falls back to
+ * host-level metrics.
+ */
+function aggregateCgroupStats(
+  samples: CgroupStat[] | null | undefined,
+): {
+  sandboxMemCurrentTotal: number | null;
+  sandboxMemPeakTotal: number | null;
+  sandboxCpuUsecTotal: number | null;
+} {
+  if (!Array.isArray(samples) || samples.length === 0) {
+    return {
+      sandboxMemCurrentTotal: null,
+      sandboxMemPeakTotal: null,
+      sandboxCpuUsecTotal: null,
+    };
+  }
+
+  let memCurrentTotal = 0;
+  let memPeakTotal = 0;
+  let cpuUsecTotal = 0;
+  let sawAny = false;
+
+  for (const s of samples) {
+    if (!s) continue;
+    if (typeof s.memory_current === 'number' && s.memory_current >= 0) {
+      memCurrentTotal += s.memory_current;
+      sawAny = true;
+    }
+    if (typeof s.memory_peak === 'number' && s.memory_peak >= 0) {
+      memPeakTotal += s.memory_peak;
+      sawAny = true;
+    }
+    if (typeof s.cpu_usec === 'number' && s.cpu_usec >= 0) {
+      cpuUsecTotal += s.cpu_usec;
+      sawAny = true;
+    }
+  }
+
+  if (!sawAny) {
+    return {
+      sandboxMemCurrentTotal: null,
+      sandboxMemPeakTotal: null,
+      sandboxCpuUsecTotal: null,
+    };
+  }
+
+  return {
+    sandboxMemCurrentTotal: memCurrentTotal,
+    sandboxMemPeakTotal: memPeakTotal,
+    sandboxCpuUsecTotal: cpuUsecTotal,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -19,6 +91,7 @@ export async function POST(req: NextRequest) {
       disk_avail,
       active_tasks,
       active_sandboxes,
+      cgroup_stats,
     } = body;
 
     if (!node_id) {
@@ -27,6 +100,8 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+
+    const cgroupAggregates = aggregateCgroupStats(cgroup_stats);
 
     await db
       .update(agentdNodes)
@@ -37,6 +112,9 @@ export async function POST(req: NextRequest) {
         diskAvail: disk_avail != null ? Math.round(disk_avail * 100) : null,
         activeTasks: active_tasks ?? 0,
         activeSandboxes: active_sandboxes ?? 0,
+        sandboxMemCurrentTotal: cgroupAggregates.sandboxMemCurrentTotal,
+        sandboxMemPeakTotal: cgroupAggregates.sandboxMemPeakTotal,
+        sandboxCpuUsecTotal: cgroupAggregates.sandboxCpuUsecTotal,
         lastHeartbeat: new Date(),
         status: 'online',
       })

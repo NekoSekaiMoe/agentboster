@@ -31,6 +31,14 @@ export interface AgentNodeStatus {
   memAvail: number | null;
   diskAvail: number | null;
   activeTasks: number;
+  /**
+   * P3.3: aggregated peak memory across all active sandboxes on the
+   * node (bytes). Null when no cgroup data was reported (cgroup v1
+   * host, no active sandboxes). Used by selectBestNode as a soft
+   * signal that a node is closer to its memory ceiling than
+   * memAvail alone suggests.
+   */
+  sandboxMemPeakTotal: number | null;
 }
 
 /**
@@ -97,8 +105,19 @@ export async function selectBestNode(
       // P3.1: add a small active-tasks penalty so a busy node loses
       // to an idle one even when their CPU/mem look similar. The
       // penalty saturates at 10 active tasks.
-      const activeLoad =
+      const baseLoad =
         Math.min((n.activeTasks ?? 0) + (n.activeSandboxes ?? 0), 10) / 10;
+
+      // P3.3: per-sandbox memory pressure from cgroup v2 samples.
+      // peak >= 1GB starts penalizing, peak >= 8GB saturates. This
+      // catches the case where a node reports healthy host-level
+      // memAvail but its sandboxes are sitting near the cgroup memory
+      // limit — the next allocation is more likely to push them into
+      // reclaim. Null (no cgroup data) = no penalty.
+      const peakBytes = n.sandboxMemPeakTotal ?? 0;
+      const memPressure = Math.min(Math.max(peakBytes / (8 * 1024 ** 3), 0), 1);
+
+      const activeLoad = Math.min(baseLoad + memPressure * 0.5, 1);
       const score =
         (1 - cpu) * 0.35 + mem * 0.35 + disk * 0.2 + (1 - activeLoad) * 0.1;
       scored.push({ node: n, score });
@@ -121,6 +140,7 @@ export async function selectBestNode(
       memAvail: best.memAvail,
       diskAvail: best.diskAvail,
       activeTasks: best.activeTasks || 0,
+      sandboxMemPeakTotal: best.sandboxMemPeakTotal,
     };
   } catch {
     return null;

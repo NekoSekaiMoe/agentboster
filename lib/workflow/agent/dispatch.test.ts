@@ -149,4 +149,36 @@ describe('selectBestNode', () => {
     const result = await selectBestNode(undefined, []);
     expect(result?.nodeID).toBe('a');
   });
+
+  it('P3.3: node with high sandbox memory peak loses to a peer', async () => {
+    mockRows.push(
+      makeRow({ nodeID: 'pressured', sandboxMemPeakTotal: 10 * 1024 ** 3 }),
+      makeRow({ nodeID: 'idle', sandboxMemPeakTotal: 0 }),
+    );
+    const result = await selectBestNode();
+    expect(result?.nodeID).toBe('idle');
+  });
+
+  it('P3.3: null sandboxMemPeakTotal is treated as zero (no penalty)', async () => {
+    mockRows.push(
+      makeRow({ nodeID: 'nodata', sandboxMemPeakTotal: null }),
+      makeRow({ nodeID: 'idle', sandboxMemPeakTotal: 0 }),
+    );
+    const result = await selectBestNode();
+    // Both equally scored; tiebreak by activeTasks (both 0), so it
+    // falls back to insertion order — nodata comes first.
+    expect(result?.nodeID).toBe('nodata');
+  });
+
+  it('P3.3: sub-1GB sandbox memory peak applies only marginal penalty', async () => {
+    mockRows.push(
+      makeRow({ nodeID: 'small-load', sandboxMemPeakTotal: 500 * 1024 ** 2 }),
+      makeRow({ nodeID: 'idle', sandboxMemPeakTotal: 0 }),
+    );
+    const result = await selectBestNode();
+    // 500MB / 8GB ≈ 0.0625 pressure → 0.03 score impact. Other
+    // dimensions are identical so 'idle' still wins, but 'small-load'
+    // is not skipped (would be the case under hard cutoff).
+    expect(result?.nodeID).toBe('idle');
+  });
 });

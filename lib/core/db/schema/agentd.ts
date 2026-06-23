@@ -289,6 +289,22 @@ export const agentdNodes = pgTable('agentd_nodes', {
   diskAvail: integer('disk_avail'),
   activeTasks: integer('active_tasks').default(0),
   activeSandboxes: integer('active_sandboxes').default(0),
+  /**
+   * P3.3: aggregates rolled up from per-sandbox cgroup v2 samples
+   * received in the heartbeat. -1 (or null when no sandboxes are
+   * active) means "no cgroup data" — NodeSelector should fall back
+   * to host-level metrics.
+   *
+   *   sandboxMemCurrentTotal = Σ memory.current across active sandboxes
+   *   sandboxMemPeakTotal    = max(Σ memory.peak) — high-water mark
+   *   sandboxCpuUsecTotal    = Σ cpu.stat usage_usec (cumulative counter)
+   *
+   * The CPU counter is monotonic; NodeSelector diffs it across two
+   * heartbeats and divides by the elapsed time to get a percentage.
+   */
+  sandboxMemCurrentTotal: integer('sandbox_mem_current_total'),
+  sandboxMemPeakTotal: integer('sandbox_mem_peak_total'),
+  sandboxCpuUsecTotal: integer('sandbox_cpu_usec_total'),
   lastHeartbeat: timestamp('last_heartbeat', { withTimezone: true }),
   registeredAt: timestamp('registered_at', { withTimezone: true })
     .defaultNow()

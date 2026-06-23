@@ -342,6 +342,10 @@ func (m *Manager) DestroySandbox(sandboxID string) error {
 		return err
 	}
 
+	// Stop the egress refresher before destroying so we don't race
+	// against an in-flight iptables re-apply on a dead container.
+	m.StopEgressRefresher(sandboxID)
+
 	if err := provider.Destroy(sandboxID); err != nil {
 		return fmt.Errorf("destroy sandbox: %w", err)
 	}
@@ -382,6 +386,9 @@ func (m *Manager) DestroySandboxForce(sandboxID string) error {
 	if err != nil {
 		return err
 	}
+
+	// Stop the egress refresher before force-destroying too.
+	m.StopEgressRefresher(sandboxID)
 
 	if forceProv, ok := provider.(ForceDestroyer); ok {
 		if err := forceProv.DestroyForce(sandboxID); err != nil {

@@ -200,6 +200,14 @@ func main() {
 	}
 	reapCancel()
 
+	// Continuous sandbox health checker: probes every active sandbox
+	// and reaps any that died on the host (OOM kill, docker daemon
+	// restart, container crash-loop) so the in-memory sandbox map
+	// doesn't lie about what's actually running.
+	healthChecker := sandbox.NewHealthChecker(sbManager, 0, 0)
+	healthChecker.Start()
+	defer healthChecker.Stop()
+
 	// Docker availability check and image pre-pull
 	if err := sandbox.CheckDockerAvailable(cfg.Sandbox.DockerSocket); err != nil {
 		slog.Warn("Docker not available, docker sandboxes will not work", "error", err)
@@ -231,6 +239,27 @@ func main() {
 				SandboxID:   s.SandboxID,
 				SandboxType: s.SandboxType,
 			}
+		}
+		return out
+	})
+
+	// P3.3: wire per-sandbox cgroup v2 resource counters into the
+	// metrics collector. Sandbox manager reads cpu.stat / memory.current
+	// / pids.current for each active sandbox. Sentinel -1 on cgroup v1.
+	collector.SetCgroupStatsFn(func() []metrics.AgentCgroupStat {
+		samples := sbManager.SampleAllCgroups()
+		if len(samples) == 0 {
+			return nil
+		}
+		out := make([]metrics.AgentCgroupStat, 0, len(samples))
+		for _, s := range samples {
+			out = append(out, metrics.AgentCgroupStat{
+				SandboxID:   s.SandboxID,
+				CPUUsec:     s.CPUUsec,
+				MemoryCur:   s.MemoryCurrent,
+				MemoryPeak:  s.MemoryMax,
+				PidsCurrent: s.PidsCurrent,
+			})
 		}
 		return out
 	})

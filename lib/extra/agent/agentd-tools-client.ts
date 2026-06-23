@@ -82,6 +82,7 @@ export async function execToolOnAgentd(
     memAvail: number | null;
     diskAvail: number | null;
     activeTasks: number;
+    sandboxMemPeakTotal?: number | null;
   } | null = null;
 
   if (nodeId) {
@@ -102,6 +103,7 @@ export async function execToolOnAgentd(
       memAvail: rows[0].memAvail,
       diskAvail: rows[0].diskAvail,
       activeTasks: rows[0].activeTasks || 0,
+      sandboxMemPeakTotal: rows[0].sandboxMemPeakTotal,
     };
   } else {
     // P3.1: pass per-agent allowedNodes filter to the node picker.

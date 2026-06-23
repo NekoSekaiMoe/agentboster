@@ -25,6 +25,11 @@ type Collector struct {
 	// first tick. Returns a slice of {agent_id, sandbox_id, type}
 	// records for the metrics payload.
 	agentStatsFn func() []AgentStat
+
+	// P3.3: optional source of per-sandbox cgroup v2 resource counters
+	// (CPU/memory/pids). Set via SetCgroupStatsFn by main.go after
+	// the sandbox manager is constructed.
+	cgroupStatsFn func() []AgentCgroupStat
 }
 
 // AgentStat is a single per-agent sandbox record returned by the agent
@@ -35,10 +40,31 @@ type AgentStat struct {
 	SandboxType string `json:"sandbox_type"`
 }
 
+// AgentCgroupStat extends AgentStat with cgroup v2 resource counters
+// for the sandbox. All CgroupSample fields default to -1 on cgroup v1
+// hosts or when the path can't be resolved — consumers should treat
+// -1 as "no data" and skip scoring.
+type AgentCgroupStat struct {
+	AgentID     string `json:"agent_id"`
+	SandboxID   string `json:"sandbox_id"`
+	SandboxType string `json:"sandbox_type"`
+	CPUUsec     int64  `json:"cpu_usec"`
+	MemoryCur   int64  `json:"memory_current"`
+	MemoryPeak  int64  `json:"memory_peak"`
+	PidsCurrent int64  `json:"pids_current"`
+}
+
 // SetAgentStatsFn wires the per-agent stats provider (called once at
 // startup, after the agent manager is constructed).
 func (c *Collector) SetAgentStatsFn(fn func() []AgentStat) {
 	c.agentStatsFn = fn
+}
+
+// SetCgroupStatsFn wires the cgroup resource sampler. Called once at
+// startup. When unset, cgroup_stats is omitted from the metrics
+// payload entirely (cgroup v1 hosts, sandboxes without accounting).
+func (c *Collector) SetCgroupStatsFn(fn func() []AgentCgroupStat) {
+	c.cgroupStatsFn = fn
 }
 
 // New creates and starts a background metrics collector.
@@ -137,6 +163,17 @@ func (c *Collector) collect() {
 			m["sandbox_count_total"] = len(stats)
 		} else {
 			m["sandbox_count_total"] = 0
+		}
+	}
+
+	// P3.3: per-sandbox cgroup v2 resource counters. The sampler
+	// returns -1 across the board on cgroup v1 hosts, so we skip the
+	// payload entirely when every entry is sentinel-valued — avoids
+	// shipping a useless blob of -1s every tick.
+	if c.cgroupStatsFn != nil {
+		samples := c.cgroupStatsFn()
+		if len(samples) > 0 {
+			m["cgroup_stats"] = samples
 		}
 	}
 

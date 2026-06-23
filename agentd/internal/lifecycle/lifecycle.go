@@ -343,6 +343,13 @@ func StartHeartbeat(client *clawless.Client, nodeID string, interval time.Durati
 				perAgent = arr
 			}
 
+			// P3.3: forward per-sandbox cgroup v2 samples when present.
+			// Web side aggregates into per-node totals for NodeSelector.
+			var cgroupStats any
+			if cs, ok := m["cgroup_stats"]; ok {
+				cgroupStats = cs
+			}
+
 			reqBody := map[string]any{
 				"node_id":          nodeID,
 				"cpu_model":        m["cpu_model"],
@@ -352,6 +359,7 @@ func StartHeartbeat(client *clawless.Client, nodeID string, interval time.Durati
 				"active_tasks":     activeTasks,
 				"active_sandboxes": activeSandboxes,
 				"per_agent":        perAgent,
+				"cgroup_stats":     cgroupStats,
 				"timestamp":        time.Now().Unix(),
 			}
 
