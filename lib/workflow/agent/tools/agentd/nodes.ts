@@ -6,6 +6,57 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { defineBuildInTool } from '../define';
 
+/**
+ * Online-node count probe for factory-time gating.
+ *
+ * Why a `'use step'` function: this code path is reached from inside the
+ * Workflow DevKit vm sandbox (`@workflow/core/dist/vm/index.js`
+ * `createContext()`), which deliberately injects only "stateless +
+ * synchronous Web APIs" — there is NO `fetch`. The neon-http driver used
+ * by `db` (`@neondatabase/serverless`) ends up calling the bare `fetch`
+ * identifier (`(fetchFunction ?? fetch)(...)` in its query path), which
+ * throws `ReferenceError: fetch is not defined`. Drizzle wraps that as
+ * `Error: Failed query: <sql>` with no underlying Postgres message,
+ * aborting the whole workflow run.
+ *
+ * The Workflow DevKit marshals `'use step'` functions back to the host
+ * Node.js process to execute, where `fetch` is available. Other tools
+ * in this tree already rely on this contract — see
+ * `lib/workflow/agent/tools/tasks/summary.ts` `readTaskSummaryStep`.
+ */
+async function listOnlineNodesStep(
+  requiredSandbox?: 'docker' | 'docker-strict' | 'lxc',
+) {
+  'use step';
+
+  const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+
+  const rows = await db
+    .select()
+    .from(agentdNodes)
+    .where(
+      and(
+        eq(agentdNodes.status, 'online'),
+        gte(agentdNodes.lastHeartbeat, twoMinutesAgo),
+      ),
+    );
+
+  if (requiredSandbox) {
+    return rows.filter((n) => {
+      const sbs = n.sandboxes as string[] | null;
+      return sbs ? sbs.includes(requiredSandbox) : false;
+    });
+  }
+  return rows;
+}
+
+async function hasMultipleOnlineNodesStep() {
+  'use step';
+
+  const rows = await listOnlineNodesStep();
+  return rows.length >= 2;
+}
+
 export default defineBuildInTool({
   id: 'agentd-nodes',
   description: `Query available agentd nodes and their resource status. Use this to inspect node capacity before delegating compute-intensive tasks.`,
@@ -15,29 +66,12 @@ export default defineBuildInTool({
       return null;
     }
 
-    // Pre-check whether the agentd_nodes table has any online rows, so this
-    // tool is only registered when it has a chance of being useful. This query
-    // runs in the workflow DevKit vm sandbox, where @neondatabase/serverless's
-    // HTTP fetch path occasionally throws without surfacing a Postgres error
-    // message (drizzle wraps it as "Failed query: <sql>"). Treat any failure
-    // as "no nodes available" and skip registration rather than aborting the
-    // whole workflow — the agent simply won't see this tool.
-    try {
-      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-      const onlineNodes = await db
-        .select()
-        .from(agentdNodes)
-        .where(
-          and(
-            eq(agentdNodes.status, 'online'),
-            gte(agentdNodes.lastHeartbeat, twoMinutesAgo),
-          ),
-        );
-
-      if (onlineNodes.length < 2) {
-        return null;
-      }
-    } catch {
+    // Gated by an online-node count probe. `hasMultipleOnlineNodesStep`
+    // is a `'use step'` function, so it runs on the host where `fetch`
+    // exists — not inside the vm sandbox. See its docstring for why
+    // this matters.
+    const hasMulti = await hasMultipleOnlineNodesStep().catch(() => false);
+    if (!hasMulti) {
       return null;
     }
 
@@ -54,27 +88,9 @@ export default defineBuildInTool({
             ),
         }),
         execute: async (input) => {
-          const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+          const rows = await listOnlineNodesStep(input.requiredSandbox);
 
-          const rows = await db
-            .select()
-            .from(agentdNodes)
-            .where(
-              and(
-                eq(agentdNodes.status, 'online'),
-                gte(agentdNodes.lastHeartbeat, twoMinutesAgo),
-              ),
-            );
-
-          let filtered = rows;
-          if (input.requiredSandbox) {
-            filtered = rows.filter((n) => {
-              const sbs = n.sandboxes as string[] | null;
-              return sbs ? sbs.includes(input.requiredSandbox!) : false;
-            });
-          }
-
-          const nodes = filtered.map((n) => ({
+          const nodes = rows.map((n) => ({
             nodeId: n.nodeID,
             ip: n.ip,
             port: n.port,
@@ -104,6 +120,12 @@ export default defineBuildInTool({
             .describe('Required sandbox type'),
         }),
         execute: async (input) => {
+          // `selectBestNode` lives in dispatch.ts and calls `db` directly.
+          // It is safe to call from inside a `'use step'` execute body
+          // because tool execute callbacks are themselves run on the host
+          // (the DevKit marshals the tool-execution channel back to the
+          // Node.js process). If selectBestNode is ever invoked from
+          // factory-time code instead, it must be lifted into a step.
           const node = await selectBestNode(input.requiredSandbox);
           if (!node) {
             return {
