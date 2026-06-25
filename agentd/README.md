@@ -72,6 +72,168 @@ you need broader static checks or build validation.
 
 ---
 
+## First-Time Deployment
+
+End-to-end setup, in order. The daemon talks back to the Web (Next.js on Vercel) over mTLS,
+so the Web side must be reachable **before** you start agentd — otherwise every heartbeat,
+L1 score, and L0-rule sync will log `connection refused` (non-fatal, but nothing will work).
+
+### Prerequisites
+
+- **Linux amd64 host** (build tags forbid other OSes; cross-compiling to other architectures
+  is unsupported — build on the same arch you deploy on).
+- **Go 1.26.2** on the build host.
+- **Root at startup** (needed for cgroups / namespaces; drops to `run_as_user` afterwards).
+- **Docker** (rootless recommended) — required for `docker` / `docker-strict` sandboxes.
+- **LXC** (`lxc-create`, `lxc-start`, `lxc-attach`) — only if you enable the `lxc` provider.
+- **Web deployed and reachable** — the daemon calls back to `[clawless].base_url` on boot.
+
+### 1. Build the binary
+
+```bash
+cd agentd
+go build -o agentd ./cmd/agentd/
+file agentd       # MUST read: ELF 64-bit LSB executable, x86-64
+```
+
+If `file` reports `ARM aarch64` or anything else, you're on the wrong host — move to an
+amd64 Linux machine and rebuild. Don't try to cross-compile; the `//go:build linux` tags
+plus CGO dependencies make it unreliable.
+
+### 2. Generate the API key (Web ↔ Daemon shared secret)
+
+Web and Daemon authenticate each other with a single shared key. Generate it once, then set
+**the identical value** on both sides:
+
+```bash
+openssl rand -hex 32
+```
+
+| Side | Where it goes | Name |
+|---|---|---|
+| Web (Vercel) | Environment variable | `AGENTD_API_KEY` |
+| Daemon | `agentd.toml` → `[server]` | `clawless_api_key` |
+
+Both strings must match byte-for-byte. Mismatch → all callbacks (`/api/agentd/v1/*`) get
+rejected by `middleware.ts` / `APIKeyMiddleware`.
+
+### 3. Generate the mTLS certificate bundle
+
+```bash
+sudo ./agentd -gen-certs ./certs
+# → ca-cert.pem / ca-key.pem
+#   server-cert.pem / server-key.pem   (Daemon presents these)
+#   client-cert.pem / client-key.pem   (Daemon uses these to call Web; copy to Web side)
+```
+
+Certs are ECDSA P-384, 1-year validity (10y for the CA), loopback SANs only
+(`127.0.0.1`, `::1`, `localhost`, `agentd-server`). For non-loopback deployment, edit
+`internal/certs/certs.go` to add the right `IPAddresses` / `DNSNames` and regenerate.
+
+### 4. Configure the Web side (Vercel)
+
+Set these environment variables on the Web deployment:
+
+| Variable | Required | Value |
+|---|---|---|
+| `AGENTD_API_KEY` | **yes** | The key from step 2 |
+| `AGENTD_URL` | no | Daemon's reachable URL (e.g. `https://daemon.example.com:18732`). Leave empty if the daemon sits behind a tunnel / has no public listener — the daemon-side heartbeat still works outbound. |
+| `AGENTD_CLIENT_CERT_PATH` | no | Path to `client-cert.pem` (for Daemon → Web mTLS) |
+| `AGENTD_CLIENT_KEY_PATH` | no | Path to `client-key.pem` |
+| `AGENTD_CA_PATH` | no | Path to `ca-cert.pem` |
+
+```bash
+vercel env add AGENTD_API_KEY
+vercel --prod
+```
+
+### 5. Configure the daemon (`agentd.toml`)
+
+```bash
+cp agentd.toml.example agentd.toml
+```
+
+Minimum fields to fill (see the annotated template for the rest):
+
+```toml
+[server]
+listen = ":18732"
+tls_cert_path   = "./certs/server-cert.pem"
+tls_key_path    = "./certs/server-key.pem"
+ca_path         = "./certs/ca-cert.pem"
+clawless_api_key = "<same value as AGENTD_API_KEY>"   # MUST match the Web side
+
+[clawless]
+base_url          = "https://your-agentboster.vercel.app"   # Web deployment URL
+client_cert_path  = "./certs/client-cert.pem"
+client_key_path   = "./certs/client-key.pem"
+ca_path           = "./certs/ca-cert.pem"
+
+[sandbox]
+default            = "docker"
+# Rootless recommended: unix:///run/user/<uid>/docker.sock
+# Rootful: unix:///var/run/docker.sock + allow_rootful_docker = true
+docker_socket      = "unix:///run/user/1001/docker.sock"
+allow_rootful_docker = false
+
+[security]
+run_as_user = "agentd"   # unprivileged user to drop to after root setup
+```
+
+### 6. Run
+
+```bash
+sudo ./agentd -config agentd.toml
+```
+
+Must be root at start (privilege drop happens after cgroup / namespace setup). Verify:
+
+```bash
+curl -k https://127.0.0.1:18732/health    # → { "success": true, "data": { "status": "ok", ... } }
+```
+
+If you see `connection refused` to `[::1]:3000` in the logs, that's the daemon trying to
+reach the Web — your `base_url` is wrong or the Web isn't deployed yet. Other startup
+warnings (`docker socket not accessible`, `lxc-create not found`) are non-fatal — the daemon
+will simply refuse to create the corresponding sandbox type until you install the runtime.
+
+### 7. (Recommended) systemd unit
+
+```ini
+# /etc/systemd/system/agentd.service
+[Unit]
+Description=Agent Daemon
+After=network.target docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/agentd -config /etc/agentd/agentd.toml
+WorkingDirectory=/etc/agentd
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now agentd
+journalctl -u agentd -f
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `./agentd: 1: Syntax error: ")" unexpected` | Binary is the wrong architecture (e.g. ARM64 on an amd64 host) → shell tries to parse it as a script | Rebuild on an amd64 host; verify with `file agentd` |
+| `reflect.Value.Addr of unaddressable value` at boot | Fixed in current source — rebuild | `git pull && go build -o agentd ./cmd/agentd/` |
+| `panic: handlers are already registered for path '/api/v1/sessions/:id'` | Fixed in current source — rebuild | same |
+| `dial tcp [::1]:3000: connect: connection refused` | Web isn't running / `base_url` points at `localhost` | Set `clawless.base_url` to the real Web URL |
+| `docker socket not accessible at /run/user/1001/docker.sock` | Rootless Docker not installed or running under a different UID | Install Docker rootless, or switch to rootful + `allow_rootful_docker = true` |
+| `lxc-create not found in PATH` | LXC not installed | `apt install lxc` / skip if you only use `docker` |
+| `node register failed` repeatedly | Web rejecting the daemon (wrong API key, mTLS mismatch, or base_url unreachable) | Re-check `AGENTD_API_KEY` parity and cert paths |
+
+---
+
 ## CLI
 
 ```
@@ -168,7 +330,8 @@ All routes return JSON of the form `{ "success": bool, "data": ..., "error": ...
 | `GET` | `/api/v1/sessions` | List recent sessions |
 | `POST` | `/api/v1/sessions/switch` | Switch active session |
 | `POST` | `/api/v1/sessions/close` | Close a session |
-| `DELETE` | `/api/v1/sessions/:id` | Destroy session |
+| `DELETE` | `/api/v1/sessions/:id` | Delete session record |
+| `POST` | `/api/v1/sessions/:id/destroy` | Destroy a running session's runtime state |
 | `GET` | `/api/v1/sessions/status` | Status of one or all sessions |
 | `POST` | `/api/v1/sessions/:id/abort` | Abort a running session |
 | `POST` | `/api/v1/l2-confirm` | Web → Daemon callback for L2 user decisions (`pass_once` / `pass_until` / `reject_once` / `reject_until`) |

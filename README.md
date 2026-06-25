@@ -336,7 +336,44 @@ AgentBoster 支持通过 IM 渠道（Telegram/Discord/Slack/Feishu/Teams）使�
 
 ### 3. 配置 Agent Daemon
 
-在 `agentd.toml` 中配置：
+> 完整流程与排错见 [`agentd/README.md`](agentd/README.md#first-time-deployment)。下面是最小化步骤。
+
+**前置：** Web 端必须先部署可访问（agentd 启动后会回连 Web 做心跳、L1 评分、L0 规则同步）；目标主机必须是 Linux + amd64，已安装 Docker（rootless 推荐）。
+
+#### a. 生成配对的 API Key 与 mTLS 证书
+
+Web 与 Daemon 双向鉴权靠同一个 API Key。任选一侧生成强随机串，两侧必须**完全一致**：
+
+```bash
+openssl rand -hex 32        # 产出如 7c3a...（64 个十六进制字符）
+```
+
+mTLS 证书由 agentd 生成：
+
+```bash
+cd agentd
+sudo ./agentd -gen-certs ./certs
+# → ca-cert.pem / server-cert.pem / client-cert.pem（及对应 key）
+```
+
+把 `client-cert.pem`、`client-key.pem`、`ca-cert.pem` 三份文件交给 Web 侧（用于 Daemon → Web 回调的 mTLS 客户端认证）。
+
+#### b. 在 Vercel 设置 Web 端环境变量
+
+| 变量 | 值 | 说明 |
+|---|---|---|
+| `AGENTD_API_KEY` | 上一步生成的随机串 | **必须与下方 `clawless_api_key` 完全一致** |
+| `AGENTD_URL` | `https://your-daemon-host:18732` | 可选；Web 主动调 daemon 时的地址（无公网监听时留空，由 daemon 单向回连） |
+| `AGENTD_CLIENT_CERT_PATH` | client-cert.pem 路径 | 可选；mTLS 客户端证书 |
+| `AGENTD_CLIENT_KEY_PATH` | client-key.pem 路径 | 可选；mTLS 客户端密钥 |
+| `AGENTD_CA_PATH` | ca-cert.pem 路径 | 可选；CA 证书 |
+
+```bash
+vercel env add AGENTD_API_KEY
+vercel --prod                 # 重新部署生效
+```
+
+#### c. 在 `agentd.toml` 中配置
 
 ```toml
 [server]
@@ -344,16 +381,19 @@ listen = ":18732"
 tls_cert_path = "./certs/server-cert.pem"
 tls_key_path = "./certs/server-key.pem"
 ca_path = "./certs/ca-cert.pem"
-clawless_api_key = "sk-clawless-xxx"
+# 必须与 Vercel 的 AGENTD_API_KEY 完全一致
+clawless_api_key = "<同上生成的随机串>"
 
 [clawless]
-base_url = "https://your-agentboster.vercel.app"
+base_url = "https://your-agentboster.vercel.app"   # Web 部署地址
 client_cert_path = "./certs/client-cert.pem"
 client_key_path = "./certs/client-key.pem"
 ca_path = "./certs/ca-cert.pem"
 
 [sandbox]
 default = "docker"
+# rootless 推荐：unix:///run/user/<uid>/docker.sock
+# rootful 时改为 unix:///var/run/docker.sock 并把 allow_rootful_docker = true
 docker_socket = "unix:///var/run/docker.sock"
 docker_image = "alpine:edge"
 allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "golang:1.22", "node:20", "python:3.12"]

@@ -15,18 +15,29 @@ export default defineBuildInTool({
       return null;
     }
 
-    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-    const onlineNodes = await db
-      .select()
-      .from(agentdNodes)
-      .where(
-        and(
-          eq(agentdNodes.status, 'online'),
-          gte(agentdNodes.lastHeartbeat, twoMinutesAgo),
-        ),
-      );
+    // Pre-check whether the agentd_nodes table has any online rows, so this
+    // tool is only registered when it has a chance of being useful. This query
+    // runs in the workflow DevKit vm sandbox, where @neondatabase/serverless's
+    // HTTP fetch path occasionally throws without surfacing a Postgres error
+    // message (drizzle wraps it as "Failed query: <sql>"). Treat any failure
+    // as "no nodes available" and skip registration rather than aborting the
+    // whole workflow — the agent simply won't see this tool.
+    try {
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+      const onlineNodes = await db
+        .select()
+        .from(agentdNodes)
+        .where(
+          and(
+            eq(agentdNodes.status, 'online'),
+            gte(agentdNodes.lastHeartbeat, twoMinutesAgo),
+          ),
+        );
 
-    if (onlineNodes.length < 2) {
+      if (onlineNodes.length < 2) {
+        return null;
+      }
+    } catch {
       return null;
     }
 
