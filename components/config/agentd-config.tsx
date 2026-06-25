@@ -118,8 +118,12 @@ lxc_rootfs_base = "/var/lib/agentd/lxc"
 os_enforce = true
 network_isolate = true`;
 
+// The /api/agentd/v1/nodes/heartbeat handler already normalizes daemon
+// samples (which are 0..1 floats) to 0..100 integer percentages, so by
+// the time values reach this UI they are already in percent units.
+// mem/disk columns render "used", so they invert the avail value.
 function formatPercent(value: number | null) {
-  return value == null ? 'N/A' : `${(value * 100).toFixed(0)}%`;
+  return value == null ? 'N/A' : `${value.toFixed(0)}%`;
 }
 
 function formatHeartbeat(value: string | null) {
@@ -414,9 +418,7 @@ export function AgentDConfigPage() {
                         icon={Activity}
                         label={t('form.label.mem')}
                         value={formatPercent(
-                          node.mem_avail != null
-                            ? 1 - node.mem_avail / 100
-                            : null,
+                          node.mem_avail != null ? 100 - node.mem_avail : null,
                         )}
                       />
                       <Metric
@@ -424,7 +426,7 @@ export function AgentDConfigPage() {
                         label={t('form.label.disk')}
                         value={formatPercent(
                           node.disk_avail != null
-                            ? 1 - node.disk_avail / 100
+                            ? 100 - node.disk_avail
                             : null,
                         )}
                       />

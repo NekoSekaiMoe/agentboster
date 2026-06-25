@@ -104,7 +104,6 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		v1.GET("/sessions", s.handleListSessions)
 		v1.POST("/sessions/switch", s.handleSwitchSession)
 		v1.POST("/sessions/close", s.handleCloseSession)
-		v1.DELETE("/sessions/:id", s.handleDestroySession)
 
 		// L2 authorization confirm (called by ClawLess when user clicks a button)
 		v1.POST("/l2-confirm", s.handleL2Confirm)
@@ -112,6 +111,7 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		// Session runtime control
 		v1.GET("/sessions/status", s.handleSessionStatus)
 		v1.POST("/sessions/:id/abort", s.handleAbortSession)
+		v1.POST("/sessions/:id/destroy", s.handleDestroySession)
 
 		// Synchronous tool execution (called by ClawLess web when agentd is primary)
 		v1.POST("/tools/exec", s.handleToolExec)
