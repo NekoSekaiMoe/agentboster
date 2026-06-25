@@ -42,27 +42,64 @@ func NewClient(baseURL, apiKey string, tlsCfg *tls.Config) *Client {
 }
 
 // NewClientFromConfig creates a client from the app config.
+//
+// The three optional cert paths are independent:
+//   - clientCertPath / clientKeyPath: a client certificate to present
+//     (mutual TLS). Only meaningful when the server actually requests a
+//     client cert — Vercel does NOT, so leaving these empty on Vercel
+//     deployments is correct and expected.
+//   - caPath: PEM bundle of extra CAs to trust in addition to the
+//     system root store. We deliberately AUGMENT the system pool rather
+//     than replace it: if a user sets caPath to their self-signed CA on
+//     a deployment whose server presents a public cert (e.g. Vercel +
+//     Let's Encrypt), the system roots must still validate it. The
+//     previous implementation used `x509.NewCertPool()` which dropped
+//     every system CA, breaking Daemon → Web calls with
+//     `x509: certificate signed by unknown authority` even though the
+//     server cert was perfectly valid.
 func NewClientFromConfig(clawLessURL, apiKey, clientCertPath, clientKeyPath, caPath string) (*Client, error) {
 	var tlsCfg *tls.Config
-	if clientCertPath != "" && clientKeyPath != "" {
+
+	if clientCertPath != "" || clientKeyPath != "" || caPath != "" {
+		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+
+	if clientCertPath != "" || clientKeyPath != "" {
+		if clientCertPath == "" || clientKeyPath == "" {
+			return nil, fmt.Errorf("client_cert_path and client_key_path must be set together (got cert=%q key=%q)", clientCertPath, clientKeyPath)
+		}
 		cert, err := tls.LoadX509KeyPair(clientCertPath, clientKeyPath)
 		if err != nil {
 			return nil, fmt.Errorf("load client cert: %w", err)
 		}
-		tlsCfg = &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
-		}
-		if caPath != "" {
-			caCert, err := os.ReadFile(caPath)
-			if err != nil {
-				return nil, fmt.Errorf("read CA cert: %w", err)
-			}
-			pool := x509.NewCertPool()
-			pool.AppendCertsFromPEM(caCert)
-			tlsCfg.RootCAs = pool
-		}
+		tlsCfg.Certificates = []tls.Certificate{cert}
 	}
+
+	if caPath != "" {
+		caCert, err := os.ReadFile(caPath)
+		if err != nil {
+			return nil, fmt.Errorf("read CA cert: %w", err)
+		}
+		// Start from the system root store so public CAs (Let's Encrypt,
+		// DigiCert, ...) still validate. AppendCertsFromPEM returns false
+		// only when the PEM contained zero certs — treat that as an error
+		// so a misconfigured ca_path doesn't silently degrade to the
+		// system pool alone.
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			// SystemCertPool is unsupported on some platforms (e.g.
+			// certain WASM builds); fall back to an empty pool rather
+			// than failing hard. On Linux (the only platform this
+			// binary supports per its build tags) this branch is
+			// unreachable.
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("parse CA cert: no certificates found in %s", caPath)
+		}
+		tlsCfg.RootCAs = pool
+	}
+
 	return NewClient(clawLessURL, apiKey, tlsCfg), nil
 }
 

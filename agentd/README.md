@@ -74,9 +74,25 @@ you need broader static checks or build validation.
 
 ## First-Time Deployment
 
-End-to-end setup, in order. The daemon talks back to the Web (Next.js on Vercel) over mTLS,
-so the Web side must be reachable **before** you start agentd — otherwise every heartbeat,
-L1 score, and L0-rule sync will log `connection refused` (non-fatal, but nothing will work).
+End-to-end setup, in order. The daemon talks back to the Web (Next.js on Vercel) over
+HTTPS + shared API key, so the Web side must be reachable **before** you start agentd —
+otherwise every heartbeat, L1 score, and L0-rule sync will log `connection refused`
+(non-fatal, but nothing will work).
+
+> **Direction matters.** Two directions, two different security stories:
+>
+> - **Daemon → Web (heartbeat, register, L1, tool callbacks)** — always HTTPS + `X-API-Key`.
+>   **No mTLS on this direction** when the Web is on Vercel: Vercel's edge does not request
+>   a client cert, and setting `[clawless].ca_path` to your self-signed CA **replaces** the
+>   system root store that validates Vercel's Let's Encrypt cert → `x509: certificate signed
+>   by unknown authority` → every outbound call fails. Keep `[clawless] client_cert_path` /
+>   `client_key_path` / `ca_path` **empty** on Vercel deployments. They exist only for
+>   self-hosted Web deployments where you control the Web's TLS stack.
+> - **Web → Daemon (tool exec, when the Web actively drives a sandbox)** — mTLS goes here,
+>   *if* the daemon is reachable from the Web (public IP or frp tunnel). Daemon's
+>   `[server]` TLS config + Web's `AGENTD_CLIENT_CERT_PATH` family. If the daemon is
+>   firewalled / not exposed (the common case), the Web simply won't drive it and only the
+>   heartbeat direction is active.
 
 ### Prerequisites
 
@@ -117,18 +133,24 @@ openssl rand -hex 32
 Both strings must match byte-for-byte. Mismatch → all callbacks (`/api/agentd/v1/*`) get
 rejected by `middleware.ts` / `APIKeyMiddleware`.
 
-### 3. Generate the mTLS certificate bundle
+### 3. (Optional) Generate the mTLS certificate bundle
+
+Only needed if the **Web will actively drive the daemon** (i.e. daemon is exposed via a
+public IP or frp tunnel). Skip this section entirely for "heartbeat-only" deployments —
+the daemon → Web direction uses plain HTTPS + API key.
 
 ```bash
 sudo ./agentd -gen-certs ./certs
-# → ca-cert.pem / ca-key.pem
-#   server-cert.pem / server-key.pem   (Daemon presents these)
-#   client-cert.pem / client-key.pem   (Daemon uses these to call Web; copy to Web side)
+# → ca-cert.pem / ca-key.pem                 CA (10y)
+#   server-cert.pem / server-key.pem         Daemon presents these  (1y)
+#   client-cert.pem / client-key.pem         Web presents these     (1y)
 ```
 
-Certs are ECDSA P-384, 1-year validity (10y for the CA), loopback SANs only
-(`127.0.0.1`, `::1`, `localhost`, `agentd-server`). For non-loopback deployment, edit
-`internal/certs/certs.go` to add the right `IPAddresses` / `DNSNames` and regenerate.
+Certs are ECDSA P-384, loopback SANs only (`127.0.0.1`, `::1`, `localhost`, `agentd-server`).
+For non-loopback deployment, edit `internal/certs/certs.go` to add the right `IPAddresses`
+/ `DNSNames` (e.g. your frp public hostname) and regenerate. Vercel holds the client pair +
+CA via the `AGENTD_CLIENT_*` env vars; the daemon holds the server pair + CA via
+`[server] tls_*_path` / `ca_path`.
 
 ### 4. Configure the Web side (Vercel)
 
@@ -137,15 +159,31 @@ Set these environment variables on the Web deployment:
 | Variable | Required | Value |
 |---|---|---|
 | `AGENTD_API_KEY` | **yes** | The key from step 2 |
-| `AGENTD_URL` | no | Daemon's reachable URL (e.g. `https://daemon.example.com:18732`). Leave empty if the daemon sits behind a tunnel / has no public listener — the daemon-side heartbeat still works outbound. |
-| `AGENTD_CLIENT_CERT_PATH` | no | Path to `client-cert.pem` (for Daemon → Web mTLS) |
-| `AGENTD_CLIENT_KEY_PATH` | no | Path to `client-key.pem` |
-| `AGENTD_CA_PATH` | no | Path to `ca-cert.pem` |
+| `AGENTD_CLIENT_CERT_PATH` | mTLS only | Path to `client-cert.pem` (Web → Daemon mTLS) |
+| `AGENTD_CLIENT_KEY_PATH` | mTLS only | Path to `client-key.pem` |
+| `AGENTD_CA_PATH` | mTLS only | Path to `ca-cert.pem` |
 
 ```bash
 vercel env add AGENTD_API_KEY
 vercel --prod
 ```
+
+> **Do NOT set `AGENTD_CLIENT_*` for Vercel→Vercel or daemon→Web mTLS.** Those env vars are
+> read by `lib/extra/agent/agentd-tools-client.ts` and only attach a client cert on the
+> **Web → Daemon** outbound request. The Daemon → Web direction never reads them.
+
+Additionally, if the daemon is reachable via a public URL or frp tunnel, register it in the
+dashboard under **Config → AgentD → Nodes**:
+
+```yaml
+nodes:
+  - id: node-fnnas-1782410757917033429   # MUST match the daemon's node_id (read from /var/run/agentd.node_id on the daemon host)
+    url: https://frp.example.com:18732    # the PUBLIC entry point (frp server, not the daemon's LAN IP)
+    name: fnnas
+```
+
+Without this entry the Web will fall back to the daemon's self-reported LAN `ip:port`, which
+is unreachable from Vercel.
 
 ### 5. Configure the daemon (`agentd.toml`)
 
@@ -153,32 +191,75 @@ vercel --prod
 cp agentd.toml.example agentd.toml
 ```
 
-Minimum fields to fill (see the annotated template for the rest):
+**Minimum config (heartbeat-only mode — daemon is NOT reachable from the Web):**
 
 ```toml
 [server]
-listen = ":18732"
-tls_cert_path   = "./certs/server-cert.pem"
-tls_key_path    = "./certs/server-key.pem"
-ca_path         = "./certs/ca-cert.pem"
+listen           = ":18732"
 clawless_api_key = "<same value as AGENTD_API_KEY>"   # MUST match the Web side
+# tls_cert_path / tls_key_path / ca_path all empty — daemon listens on plain HTTP locally.
+# Fine for LAN-only / heartbeat-only deployments.
 
 [clawless]
 base_url          = "https://your-agentboster.vercel.app"   # Web deployment URL
-client_cert_path  = "./certs/client-cert.pem"
-client_key_path   = "./certs/client-key.pem"
-ca_path           = "./certs/ca-cert.pem"
+# IMPORTANT: leave all three empty on Vercel deployments. Setting ca_path replaces the
+# system root store and breaks validation of Vercel's Let's Encrypt cert.
+client_cert_path  = ""
+client_key_path   = ""
+ca_path           = ""
 
 [sandbox]
-default            = "docker"
+default              = "docker"
 # Rootless recommended: unix:///run/user/<uid>/docker.sock
 # Rootful: unix:///var/run/docker.sock + allow_rootful_docker = true
-docker_socket      = "unix:///run/user/1001/docker.sock"
+docker_socket        = "unix:///run/user/1001/docker.sock"
 allow_rootful_docker = false
 
 [security]
 run_as_user = "agentd"   # unprivileged user to drop to after root setup
 ```
+
+**Full config (daemon exposed via frp — Web actively drives it):**
+
+```toml
+[server]
+listen           = ":18732"
+tls_cert_path    = "./certs/server-cert.pem"   # mTLS server (Web authenticates to daemon)
+tls_key_path     = "./certs/server-key.pem"
+ca_path          = "./certs/ca-cert.pem"        # daemon validates Web's client cert
+clawless_api_key = "<same value as AGENTD_API_KEY>"
+
+[clawless]
+base_url          = "https://your-agentboster.vercel.app"
+# STILL empty — daemon → Web never uses mTLS on Vercel deployments.
+client_cert_path  = ""
+client_key_path   = ""
+ca_path           = ""
+
+[sandbox]
+default              = "docker"
+docker_socket        = "unix:///run/user/1001/docker.sock"
+allow_rootful_docker = false
+
+[security]
+run_as_user = "agentd"
+```
+
+> **frp example (frpc.ini on the daemon host):**
+> ```ini
+> [common]
+> server_addr = YOUR_PUBLIC_FRPS_HOST
+> server_port = 7000
+>
+> [agentd]
+> type = tcp
+> local_ip = 127.0.0.1
+> local_port = 18732
+> remote_port = 18732
+> ```
+> Then expose `YOUR_PUBLIC_FRPS_HOST:18732` and point the Web dashboard node entry's `url`
+> at it. If you front it with HTTPS (recommended), regenerate `server-cert.pem` with the
+> frp hostname as a SAN — see `internal/certs/certs.go`.
 
 ### 6. Run
 
@@ -190,6 +271,7 @@ Must be root at start (privilege drop happens after cgroup / namespace setup). V
 
 ```bash
 curl -k https://127.0.0.1:18732/health    # → { "success": true, "data": { "status": "ok", ... } }
+# (use http:// if [server] tls_*_path is empty)
 ```
 
 If you see `connection refused` to `[::1]:3000` in the logs, that's the daemon trying to
@@ -228,9 +310,13 @@ journalctl -u agentd -f
 | `reflect.Value.Addr of unaddressable value` at boot | Fixed in current source — rebuild | `git pull && go build -o agentd ./cmd/agentd/` |
 | `panic: handlers are already registered for path '/api/v1/sessions/:id'` | Fixed in current source — rebuild | same |
 | `dial tcp [::1]:3000: connect: connection refused` | Web isn't running / `base_url` points at `localhost` | Set `clawless.base_url` to the real Web URL |
+| `x509: certificate signed by unknown authority` on heartbeat | `[clawless].ca_path` is set to your self-signed CA, which replaced the system root store that validates Vercel's Let's Encrypt cert | **Clear `[clawless].ca_path` / `client_cert_path` / `client_key_path`** — Daemon → Web never uses mTLS on Vercel |
+| "Setting cert made it fail, removing cert fixed it" | Same as above — Vercel doesn't accept client certs on inbound TLS | Don't set the `[clawless]` cert family on Vercel deployments |
 | `docker socket not accessible at /run/user/1001/docker.sock` | Rootless Docker not installed or running under a different UID | Install Docker rootless, or switch to rootful + `allow_rootful_docker = true` |
 | `lxc-create not found in PATH` | LXC not installed | `apt install lxc` / skip if you only use `docker` |
-| `node register failed` repeatedly | Web rejecting the daemon (wrong API key, mTLS mismatch, or base_url unreachable) | Re-check `AGENTD_API_KEY` parity and cert paths |
+| `node register failed` repeatedly | Web rejecting the daemon (wrong API key or base_url unreachable) | Re-check `AGENTD_API_KEY` parity and `clawless.base_url` |
+| Web dashboard shows node but `cpu_usage=N/A`, `heartbeat: never` | Daemon registered once but heartbeat is failing — usually the cert regression above | Same fix: clear `[clawless]` cert family |
+| Tool execution falls back to Vercel Sandbox instead of using the daemon | Daemon not reachable from Web (LAN IP / not exposed) | Expose daemon via frp, then register the public URL in Config → AgentD → Nodes |
 
 ---
 

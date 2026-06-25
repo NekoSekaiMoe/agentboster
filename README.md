@@ -336,11 +336,16 @@ AgentBoster 支持通过 IM 渠道（Telegram/Discord/Slack/Feishu/Teams）使�
 
 ### 3. 配置 Agent Daemon
 
-> 完整流程与排错见 [`agentd/README.md`](agentd/README.md#first-time-deployment)。下面是最小化步骤。
+> 完整流程见 [`agentd/README.md`](agentd/README.md#first-time-deployment)。下面是最小化步骤。
 
 **前置：** Web 端必须先部署可访问（agentd 启动后会回连 Web 做心跳、L1 评分、L0 规则同步）；目标主机必须是 Linux + amd64，已安装 Docker（rootless 推荐）。
 
-#### a. 生成配对的 API Key 与 mTLS 证书
+> **方向很关键** —— 两个方向用不同的安全模型：
+>
+> - **Daemon → Web（心跳/注册/L1）**：永远 HTTPS + API key，**不要配 mTLS**。Vercel 的边缘不索取 client cert，且 `[clawless].ca_path` 一旦设成自签 CA，会**覆盖**校验 Vercel Let's Encrypt 证书的系统 root store → `x509: certificate signed by unknown authority` → 所有出站请求挂掉。
+> - **Web → Daemon（任务执行时）**：mTLS 在这里才有用，前提是 daemon 通过公网 IP 或 frp 隧道可达。如果 daemon 仅在 LAN 内（只跑心跳），这个方向根本不发生。
+
+#### a. 生成配对的 API Key
 
 Web 与 Daemon 双向鉴权靠同一个 API Key。任选一侧生成强随机串，两侧必须**完全一致**：
 
@@ -348,7 +353,25 @@ Web 与 Daemon 双向鉴权靠同一个 API Key。任选一侧生成强随机串
 openssl rand -hex 32        # 产出如 7c3a...（64 个十六进制字符）
 ```
 
-mTLS 证书由 agentd 生成：
+#### b. 在 Vercel 设置 Web 端环境变量
+
+| 变量 | 必填 | 值 |
+|---|---|---|
+| `AGENTD_API_KEY` | **是** | 上一步生成的随机串（**必须与下方 `clawless_api_key` 完全一致**） |
+| `AGENTD_CLIENT_CERT_PATH` | 仅 mTLS | `client-cert.pem` 路径（**仅** Web → Daemon 主动调时用） |
+| `AGENTD_CLIENT_KEY_PATH` | 仅 mTLS | `client-key.pem` 路径 |
+| `AGENTD_CA_PATH` | 仅 mTLS | `ca-cert.pem` 路径 |
+
+```bash
+vercel env add AGENTD_API_KEY
+vercel --prod                 # 重新部署生效
+```
+
+> **注意：** `AGENTD_CLIENT_*` 系列**只在 Web 主动调 daemon 时才设**。Daemon → Web 方向永远不要用。Vercel 不接受 inbound client cert。
+
+#### c. （可选）生成 mTLS 证书
+
+仅当 daemon 通过 frp / 公网 IP 暴露给 Web 时才需要：
 
 ```bash
 cd agentd
@@ -356,49 +379,70 @@ sudo ./agentd -gen-certs ./certs
 # → ca-cert.pem / server-cert.pem / client-cert.pem（及对应 key）
 ```
 
-把 `client-cert.pem`、`client-key.pem`、`ca-cert.pem` 三份文件交给 Web 侧（用于 Daemon → Web 回调的 mTLS 客户端认证）。
+证书 SAN 默认只有 loopback。如果用真实域名（如 frp 公网入口），需要改 `internal/certs/certs.go` 加 `DNSNames` 后重新生成。
 
-#### b. 在 Vercel 设置 Web 端环境变量
-
-| 变量 | 值 | 说明 |
-|---|---|---|
-| `AGENTD_API_KEY` | 上一步生成的随机串 | **必须与下方 `clawless_api_key` 完全一致** |
-| `AGENTD_URL` | `https://your-daemon-host:18732` | 可选；Web 主动调 daemon 时的地址（无公网监听时留空，由 daemon 单向回连） |
-| `AGENTD_CLIENT_CERT_PATH` | client-cert.pem 路径 | 可选；mTLS 客户端证书 |
-| `AGENTD_CLIENT_KEY_PATH` | client-key.pem 路径 | 可选；mTLS 客户端密钥 |
-| `AGENTD_CA_PATH` | ca-cert.pem 路径 | 可选；CA 证书 |
+#### d. 在 `agentd.toml` 中配置
 
 ```bash
-vercel env add AGENTD_API_KEY
-vercel --prod                 # 重新部署生效
+cp agentd.toml.example agentd.toml
 ```
 
-#### c. 在 `agentd.toml` 中配置
+**最小化（仅心跳，daemon 不被 Web 调）：**
 
 ```toml
 [server]
-listen = ":18732"
-tls_cert_path = "./certs/server-cert.pem"
-tls_key_path = "./certs/server-key.pem"
-ca_path = "./certs/ca-cert.pem"
-# 必须与 Vercel 的 AGENTD_API_KEY 完全一致
-clawless_api_key = "<同上生成的随机串>"
+listen           = ":18732"
+clawless_api_key = "<同上生成的随机串>"   # 必须与 AGENTD_API_KEY 完全一致
+# tls_*_path / ca_path 全部留空 —— 本地 HTTP 即可
 
 [clawless]
-base_url = "https://your-agentboster.vercel.app"   # Web 部署地址
-client_cert_path = "./certs/client-cert.pem"
-client_key_path = "./certs/client-key.pem"
-ca_path = "./certs/ca-cert.pem"
+base_url          = "https://your-agentboster.vercel.app"   # Web 部署地址
+# 重要：Vercel 部署下这三个必须留空！设了 ca_path 会覆盖系统 root store，
+# 导致 Vercel 的 Let's Encrypt 证书校验失败：
+client_cert_path  = ""
+client_key_path   = ""
+ca_path           = ""
 
 [sandbox]
-default = "docker"
-# rootless 推荐：unix:///run/user/<uid>/docker.sock
-# rootful 时改为 unix:///var/run/docker.sock 并把 allow_rootful_docker = true
-docker_socket = "unix:///var/run/docker.sock"
-docker_image = "alpine:edge"
-allowed_images = ["ubuntu:22.04", "ubuntu:24.04", "alpine:latest", "golang:1.22", "node:20", "python:3.12"]
-os_enforce = true
-network_isolate = true
+default              = "docker"
+docker_socket        = "unix:///var/run/docker.sock"
+allow_rootful_docker = true
+os_enforce           = true
+network_isolate      = true
+```
+
+**完整（frp 暴露 daemon 给 Web 主动调）：**
+
+```toml
+[server]
+listen           = ":18732"
+tls_cert_path    = "./certs/server-cert.pem"   # mTLS server
+tls_key_path     = "./certs/server-key.pem"
+ca_path          = "./certs/ca-cert.pem"        # daemon 校验 Web 的 client cert
+clawless_api_key = "<同 AGENTD_API_KEY>"
+
+[clawless]
+base_url          = "https://your-agentboster.vercel.app"
+# 仍然全部留空 —— Daemon → Web 在 Vercel 部署下不用 mTLS：
+client_cert_path  = ""
+client_key_path   = ""
+ca_path           = ""
+
+[sandbox]
+default              = "docker"
+docker_socket        = "unix:///var/run/docker.sock"
+allow_rootful_docker = true
+os_enforce           = true
+network_isolate      = true
+```
+
+然后在 Web Dashboard → Config → AgentD → Nodes 注册节点的**公网入口**（不是 daemon 自报的内网 IP）：
+
+```yaml
+nodes:
+  - id: node-fnnas-1782410757917033429   # 必须与 daemon 的 node_id 一致
+    url: https://frp.example.com:18732    # frp 公网入口
+    name: fnnas
 ```
 
 ### 4. 连接 IM
