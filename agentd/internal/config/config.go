@@ -316,7 +316,7 @@ func isPrivilegedDockerEndpoint(endpoint string) bool {
 func Load(path string) (*Config, error) {
 	v := viper.New()
 
-	registerDefaults(v, "", Config{})
+	registerDefaults(v, "", &Config{})
 	sandboxExtras(v)
 
 	v.SetConfigType("toml")
