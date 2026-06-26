@@ -211,6 +211,9 @@ export async function chatWorkflow(
     // persist data under the right user. Without this, memories are written
     // under 'system' and invisible in the memory tab.
     userId: 'userId' in source ? (source.userId ?? undefined) : undefined,
+    // Propagate source so tools can register source-specific capabilities
+    // (e.g. local_* tools only when source.type === 'cli').
+    source,
   });
   const maxSteps = Math.max(
     1,

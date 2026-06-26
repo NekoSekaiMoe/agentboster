@@ -5,7 +5,7 @@ import type {
   ToolCatalogItem,
   ToolEntryConfig,
 } from '@/types/config/tools';
-import type { WorkflowUIMessageChunk } from '@/types/workflow';
+import type { ChatSource, WorkflowUIMessageChunk } from '@/types/workflow';
 import type { Tool, ToolSet } from 'ai';
 import { hookRegistry } from '../hooks';
 import type {
@@ -53,6 +53,11 @@ export type BuildAgentToolsOptions = {
   // user-scoped data (e.g. writeMemory) so queries in the UI can find it.
   // Falls back to 'system' when unset (scheduled tasks, IM without userId).
   userId?: string;
+  // The originating ChatSource. Tools gate on this to register source-
+  // specific capabilities — e.g. local_* tools only register when
+  // source.type === 'cli', because only the CLI host has the user's
+  // filesystem. Undefined for legacy callers; tools must tolerate that.
+  source?: ChatSource;
 };
 
 export type BuildInToolFactoryContext = {
@@ -64,6 +69,8 @@ export type BuildInToolFactoryContext = {
   allowDelegation: boolean;
   // Mirrors BuildAgentToolsOptions.userId.
   userId?: string;
+  // Mirrors BuildAgentToolsOptions.source.
+  source?: ChatSource;
   writable?: WritableStream<WorkflowUIMessageChunk>;
   buildNestedTools: (options?: BuildAgentToolsOptions) => Promise<ToolSet>;
 };

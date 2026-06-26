@@ -52,6 +52,7 @@ export async function buildAgentTools(
   const allowDelegation = options.allowDelegation ?? true;
   const writable = options.writable;
   const userId = options.userId;
+  const source = options.source;
   const buildNestedTools = (nestedOptions: BuildAgentToolsOptions = {}) =>
     buildAgentTools(config, sessionId, {
       runId,
@@ -59,6 +60,7 @@ export async function buildAgentTools(
       allowDelegation,
       writable,
       userId,
+      source,
       ...nestedOptions,
     });
 
@@ -71,6 +73,7 @@ export async function buildAgentTools(
       allowDelegation,
       writable,
       userId,
+      source,
       buildNestedTools,
     });
 
