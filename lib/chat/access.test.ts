@@ -24,6 +24,12 @@ const imSource = (
   userId,
 });
 
+const cliSource = (clientId = 'laptop-1', userId = 'user-1'): ChatSource => ({
+  type: 'cli',
+  clientId,
+  userId,
+});
+
 const session = (overrides: { userId?: string | null; channel: string }) => ({
   userId: overrides.userId === undefined ? 'user-1' : overrides.userId,
   channel: overrides.channel,
@@ -40,6 +46,10 @@ describe('currentChannelName', () => {
 
   it('returns "scheduled" for scheduled source', () => {
     expect(currentChannelName({ type: 'scheduled' })).toBe('scheduled');
+  });
+
+  it('returns "cli:<clientId>" for cli source', () => {
+    expect(currentChannelName(cliSource('my-laptop'))).toBe('cli:my-laptop');
   });
 });
 
@@ -162,6 +172,70 @@ describe('evaluateSessionAccess', () => {
       expect(result).toEqual({ accessible: true, readOnly: false });
     });
   });
+
+  describe('cli source', () => {
+    it('grants write access when channel matches cli:<clientId>', () => {
+      const result = evaluateSessionAccess(
+        cliSource('laptop-1'),
+        session({ channel: 'cli:laptop-1' }),
+      );
+      expect(result).toEqual({ accessible: true, readOnly: false });
+    });
+
+    it('denies access when channel is a different cli client (cross-machine)', () => {
+      const result = evaluateSessionAccess(
+        cliSource('laptop-1'),
+        session({ channel: 'cli:laptop-2' }),
+      );
+      expect(result.accessible).toBe(false);
+      if (!result.accessible) {
+        expect(result.reason).toBe('cross-channel-strict');
+        expect(result.sessionChannel).toBe('cli:laptop-2');
+        expect(result.currentChannel).toBe('cli:laptop-1');
+      }
+    });
+
+    it('denies access when session channel is web', () => {
+      const result = evaluateSessionAccess(
+        cliSource('laptop-1'),
+        session({ channel: 'web' }),
+      );
+      expect(result.accessible).toBe(false);
+      if (!result.accessible) {
+        expect(result.reason).toBe('cross-channel-strict');
+      }
+    });
+
+    it('denies access when session channel is an IM adapter', () => {
+      const result = evaluateSessionAccess(
+        cliSource('laptop-1'),
+        session({ channel: 'telegram' }),
+      );
+      expect(result.accessible).toBe(false);
+      if (!result.accessible) {
+        expect(result.reason).toBe('cross-channel-strict');
+      }
+    });
+
+    it('denies access when userId does not match', () => {
+      const result = evaluateSessionAccess(
+        cliSource('laptop-1', 'user-1'),
+        session({ userId: 'user-2', channel: 'cli:laptop-1' }),
+      );
+      expect(result.accessible).toBe(false);
+      if (!result.accessible) {
+        expect(result.reason).toBe('forbidden');
+      }
+    });
+
+    it('denies access when cli source has no userId', () => {
+      const result = evaluateSessionAccess(
+        { type: 'cli', clientId: 'laptop-1' },
+        session({ channel: 'cli:laptop-1' }),
+      );
+      expect(result.accessible).toBe(false);
+    });
+  });
 });
 
 describe('assertSessionWritable', () => {
@@ -221,6 +295,26 @@ describe('assertSessionWritable', () => {
         expect(error.message).toContain('web');
       }
     }
+  });
+
+  it('does not throw when cli source matches its own channel', () => {
+    expect(() =>
+      assertSessionWritable(cliSource('laptop-1'), {
+        id: 's1',
+        userId: 'user-1',
+        channel: 'cli:laptop-1',
+      }),
+    ).not.toThrow();
+  });
+
+  it('throws plain Error when cli source accesses a different cli client', () => {
+    expect(() =>
+      assertSessionWritable(cliSource('laptop-1'), {
+        id: 's1',
+        userId: 'user-1',
+        channel: 'cli:laptop-2',
+      }),
+    ).toThrow();
   });
 });
 

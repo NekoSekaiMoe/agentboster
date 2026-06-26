@@ -36,6 +36,14 @@ function buildAttachmentSource(source: ChatSource): ClawlessAttachmentSource {
     };
   }
 
+  if (source.type === 'cli') {
+    return {
+      type: 'cli',
+      userId: source.userId ?? null,
+      clientId: source.clientId,
+    };
+  }
+
   return {
     type: source.type,
   };

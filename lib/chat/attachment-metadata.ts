@@ -4,12 +4,13 @@ import type { JSONObject } from '@ai-sdk/provider';
 export const CLAWLESS_ATTACHMENT_PROVIDER = 'clawless';
 
 export type ClawlessAttachmentSource = {
-  type: 'web' | 'scheduled' | 'im';
+  type: 'web' | 'scheduled' | 'im' | 'cli';
   adapter?: string;
   origin?: string;
   threadId?: string;
   userId?: string | null;
   userName?: string | null;
+  clientId?: string;
 };
 
 export type ClawlessAttachmentMetadata = {

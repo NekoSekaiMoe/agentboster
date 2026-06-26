@@ -27,6 +27,7 @@ const CLI_CHANNEL_PREFIX = 'cli:';
 export function currentChannelName(source: ChatSource): string {
   if (source.type === 'web') return 'web';
   if (source.type === 'im') return source.adapter;
+  if (source.type === 'cli') return `${CLI_CHANNEL_PREFIX}${source.clientId}`;
   return 'scheduled';
 }
 
@@ -68,6 +69,24 @@ export function evaluateSessionAccess(
     }
 
     if (session.channel === source.adapter) {
+      return { accessible: true, readOnly: false };
+    }
+
+    return {
+      accessible: false,
+      readOnly: false,
+      reason: 'cross-channel-strict',
+      sessionChannel: session.channel,
+      currentChannel,
+    };
+  }
+
+  if (source.type === 'cli') {
+    if (!source.userId || session.userId !== source.userId) {
+      return { accessible: false, readOnly: false, reason: 'forbidden' };
+    }
+
+    if (session.channel === currentChannel) {
       return { accessible: true, readOnly: false };
     }
 

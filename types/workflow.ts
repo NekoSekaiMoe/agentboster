@@ -322,7 +322,42 @@ export type IMChatSource = {
   locale?: BotLocale;
 };
 
-export type ChatSource = WebChatSource | ScheduledChatSource | IMChatSource;
+/**
+ * Source emitted by the agentboster CLI client. Each CLI installation has
+ * a stable `clientId` (typically a machine-id-derived UUID generated on
+ * first run and stored under `~/.agentboster/cli.json`). The session
+ * channel for CLI-originated sessions is `cli:<clientId>`, which keeps
+ * cross-machine CLI sessions isolated from each other (a CLI session
+ * started on laptop-A cannot be continued from laptop-B).
+ *
+ * `local_*` file/exec tools are only registered when the source is `cli`,
+ * because only the CLI host actually has the user's filesystem.
+ */
+export type CLIChatSource = {
+  type: 'cli';
+  /**
+   * Resolved ClawLess user id. Always present after pairing / login,
+   * since CLI sessions require authentication against the web app.
+   */
+  userId?: string | null;
+  /**
+   * Stable per-machine identifier. Two CLI processes on the same host
+   * share the same clientId and therefore can continue each other's
+   * sessions; a CLI on a different host cannot.
+   */
+  clientId: string;
+  /**
+   * Best-effort human-readable label for logging/UI (hostname, OS, etc.).
+   * Not used for security decisions.
+   */
+  label?: string | null;
+};
+
+export type ChatSource =
+  | WebChatSource
+  | ScheduledChatSource
+  | IMChatSource
+  | CLIChatSource;
 
 const adapterNameSchema = z.custom<AdapterName>(
   (value): value is AdapterName => typeof value === 'string',
@@ -347,10 +382,18 @@ const imChatSourceSchema = z.object({
   locale: botLocaleSchema.optional(),
 });
 
+const cliChatSourceSchema = z.object({
+  type: z.literal('cli'),
+  userId: z.string().nullable().optional(),
+  clientId: z.string().min(1),
+  label: z.string().nullable().optional(),
+});
+
 export const chatSourceSchema = z.discriminatedUnion('type', [
   webChatSourceSchema,
   scheduledChatSourceSchema,
   imChatSourceSchema,
+  cliChatSourceSchema,
 ]);
 
 export function parseChatSource(value: unknown): ChatSource | null {
@@ -360,6 +403,10 @@ export function parseChatSource(value: unknown): ChatSource | null {
 
 export function isImChatSource(value: unknown): value is IMChatSource {
   return imChatSourceSchema.safeParse(value).success;
+}
+
+export function isCliChatSource(value: unknown): value is CLIChatSource {
+  return cliChatSourceSchema.safeParse(value).success;
 }
 
 export function getChatSourceFromSessionMetadata(
