@@ -19,7 +19,11 @@ import type { ModelMessage } from 'ai';
 import { and, eq, gte } from 'drizzle-orm';
 import { getRun, start } from 'workflow/api';
 import { ACTIVE_RUN_STATUSES } from './config';
-import { approvalHookBuilder, instructionHookBuilder } from './hooks';
+import {
+  approvalHookBuilder,
+  instructionHookBuilder,
+  localToolResultHookBuilder,
+} from './hooks';
 import { chatWorkflow } from './index';
 
 export interface AgentNodeStatus {
@@ -333,6 +337,19 @@ export async function resumeToolApproval(
   payload: ToolApprovalPayload,
 ): Promise<void> {
   await approvalHookBuilder.resume(toolCallId, payload);
+}
+
+/**
+ * Resume a `local_*` tool execute that is blocked on
+ * `localToolResultHookBuilder.create({ token: toolCallId })`. Called by
+ * the POST /api/ai/[runId]/tool-result route after the CLI client
+ * finishes executing the tool against the user's filesystem.
+ */
+export async function resumeLocalToolResult(
+  toolCallId: string,
+  payload: { ok: boolean; output?: unknown; error?: string },
+): Promise<void> {
+  await localToolResultHookBuilder.resume(toolCallId, payload);
 }
 
 export function getWorkflowRun(runId: string) {
