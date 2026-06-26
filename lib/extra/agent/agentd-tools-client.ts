@@ -114,7 +114,30 @@ export async function execToolOnAgentd(
     throw new Error('No Agent Daemon nodes available');
   }
 
-  const nodeUrl = `https://${node.ip}:${node.port}`;
+  // Resolve the daemon's reachable URL.
+  //
+  // `node.ip` / `node.port` are what the daemon itself reported at
+  // registration time — typically a LAN address (e.g. 192.168.1.28).
+  // When the Web runs on Vercel and the daemon sits behind a frp /
+  // reverse-tunnel public entry, the LAN address is unreachable.
+  //
+  // The dashboard-configured `agentd.nodes[].url` (matched by node id)
+  // is the public entry point and takes precedence. If no per-node URL
+  // is configured, fall back to `AGENTD_URL` env var, then to the
+  // raw `node.ip:port` (works only when the Web can actually reach
+  // the daemon on its LAN IP, e.g. self-hosted Web on the same
+  // network).
+  //
+  // The protocol comes from the configured URL (http or https) rather
+  // than being hardcoded, because the daemon may legitimately run
+  // plain HTTP behind a TLS-terminating frp proxy.
+  const appConfig = await getAppConfig();
+  const configuredNodes = appConfig.agentd?.nodes ?? [];
+  const matchedUrl = configuredNodes.find((n) => n.id === node?.nodeID)?.url;
+
+  const nodeUrl =
+    matchedUrl || process.env.AGENTD_URL || `http://${node.ip}:${node.port}`;
+
   const apiKey = process.env.AGENTD_API_KEY ?? '';
 
   const config: AgentdHttpConfig = {
