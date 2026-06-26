@@ -236,6 +236,34 @@ export async function writeToolOutputDenied(input: {
   });
 }
 
+/**
+ * Emit a request chunk asking the CLI client to execute a `local_*` tool
+ * against its own filesystem. The tool's execute body is blocked on
+ * localToolResultHookBuilder at this point; the CLI POSTs the result to
+ * /api/ai/[runId]/tool-result, which resumes the hook and unblocks the
+ * workflow loop. The chunk is a transient data-workflow status event so
+ * it passes through guardWorkflowChunks and AI SDK streaming untouched.
+ */
+export async function writeLocalToolRequest(input: {
+  toolCallId: string;
+  toolName: string;
+  toolInput: unknown;
+}): Promise<void> {
+  'use step';
+
+  await writeChunk({
+    type: 'data-workflow',
+    data: {
+      kind: 'status',
+      type: 'local-tool-request',
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      toolInput: input.toolInput,
+    },
+    transient: true,
+  });
+}
+
 export async function writeMessageMetadata(
   metadata: ChatMessageMetadata,
 ): Promise<void> {

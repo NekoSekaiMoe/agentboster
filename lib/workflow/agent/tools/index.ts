@@ -19,6 +19,7 @@ export {
 
 import agentdNodesTool from './agentd/nodes';
 import sandboxTool from './execute/sanbox';
+import localCliTool from './local';
 import memoryTool from './memories/local';
 import localSkillTool from './skills/local';
 import scheduleTool from './tasks/schedule';
@@ -33,6 +34,7 @@ const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   taskSummaryTool,
   subAgentTool,
   agentdNodesTool,
+  localCliTool,
 ];
 
 export function getBuildInToolCatalog(config: AppConfig): ToolCatalogResponse {

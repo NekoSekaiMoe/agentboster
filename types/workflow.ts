@@ -177,6 +177,21 @@ export const workflowStatusDataSchema = z.discriminatedUnion('type', [
     uiMessageId: z.string().nullable().optional(),
     internal: z.literal(true),
   }),
+  z.object({
+    kind: z.literal('status'),
+    type: z.literal('local-tool-request'),
+    agentName: z.string().optional(),
+    /**
+     * The toolCallId the LLM emitted. The CLI uses this as the hook
+     * resume token when POSTing the result back to
+     * /api/ai/[runId]/tool-result.
+     */
+    toolCallId: z.string(),
+    /** Tool name as the model emitted it (e.g. "local_read_file"). */
+    toolName: z.string(),
+    /** The validated input object the model passed to the tool. */
+    toolInput: z.unknown(),
+  }),
 ]);
 
 export const workflowDataSchema = z.discriminatedUnion('kind', [
