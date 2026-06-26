@@ -15,6 +15,9 @@ export const zhCN = {
   'chat.deleteSuccess': '会话已删除',
   'chat.accessDenied.delete': '删除会话',
   'chat.accessDenied.description': '此外部用户无权使用此 bot。',
+  'chat.crossChannel.description':
+    '此会话渠道与当前渠道不同（会话渠道 {sessionChannel}，当前渠道 web）。',
+  'chat.crossChannel.newSession': '新建会话',
   'chat.followUp.cancel': '取消',
   'chat.followUp.close': '关闭追问',
   'chat.followUp.placeholder': '输入追问...',
@@ -483,6 +486,8 @@ export const zhCN = {
   'cmd.session.delete.imOnly': '会话删除仅适用于 IM 线程。',
   'cmd.session.notFound':
     '未找到匹配 "{args}" 的会话。使用 /sessions 查看最近的会话。',
+  'cmd.session.crossChannel':
+    '此会话渠道与当前渠道不同（会话渠道 {sessionChannel}，当前渠道 {currentChannel}）。使用 /new 在当前渠道开新会话。',
   'cmd.session.switched': '已切换到会话 {sessionId}。',
   'cmd.session.noActive': '当前没有会话绑定到此会话线程。',
   'cmd.session.deleteNotAllowed': '只能删除属于此 IM 账号的会话。',

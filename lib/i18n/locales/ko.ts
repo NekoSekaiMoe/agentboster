@@ -18,6 +18,9 @@ export const ko = {
   'chat.accessDenied.delete': '대화 삭제',
   'chat.accessDenied.description':
     '이 외부 사용자는 이 bot을 사용할 권한이 없습니다.',
+  'chat.crossChannel.description':
+    '이 세션은 다른 채널에 속해 있습니다(세션 채널 {sessionChannel}, 현재 채널 web).',
+  'chat.crossChannel.newSession': '새 세션',
   'chat.followUp.cancel': '취소',
   'chat.followUp.close': '후속 질문 닫기',
   'chat.followUp.placeholder': '후속 질문 입력...',
@@ -512,6 +515,8 @@ export const ko = {
     '세션 삭제는 IM 스레드에서만 사용할 수 있습니다.',
   'cmd.session.notFound':
     '"{args}"에 일치하는 세션이 없습니다. /sessions로 최근 세션을 확인하세요.',
+  'cmd.session.crossChannel':
+    '이 세션은 다른 채널에 속해 있습니다(세션 채널 {sessionChannel}, 현재 채널 {currentChannel}). /new로 현재 채널의 새 세션을 시작하세요.',
   'cmd.session.switched': '세션 {sessionId}(으)로 전환했습니다.',
   'cmd.session.noActive': '현재 이 스레드에 바인딩된 세션이 없습니다.',
   'cmd.session.deleteNotAllowed':

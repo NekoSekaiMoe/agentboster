@@ -1,5 +1,6 @@
 import { Chat } from '@/components/chat/chat-container';
 import { canAccessOwnedResource, requireAuthAccess } from '@/lib/auth/access';
+import { evaluateSessionAccess } from '@/lib/chat/access';
 import { deserializePersistedMessages } from '@/lib/chat/persistence';
 import { getSession, getVisibleSessionMessages } from '@/lib/core/db/chat';
 import { cookies } from 'next/headers';
@@ -30,6 +31,21 @@ export default async function Page({
   const visibleMessages = session ? await getVisibleSessionMessages(id) : [];
   const initialMessages = deserializePersistedMessages(visibleMessages);
 
+  let readOnlyChannel: { sessionChannel: string } | null = null;
+  if (session) {
+    const result = evaluateSessionAccess(
+      { type: 'web', userId: access.session.userId },
+      { userId: session.userId, channel: session.channel },
+    );
+    if (
+      result.accessible &&
+      result.readOnly &&
+      result.reason === 'cross-channel'
+    ) {
+      readOnlyChannel = { sessionChannel: result.sessionChannel };
+    }
+  }
+
   return (
     <Chat
       key={id}
@@ -42,6 +58,7 @@ export default async function Page({
               channel: session.channel,
               externalThreadId: session.externalThreadId ?? null,
               accessDenied: hasAccessDeniedMetadata(session.metadata),
+              readOnlyChannel,
             }
           : null
       }

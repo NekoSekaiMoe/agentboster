@@ -2,6 +2,7 @@ console.log('[api/ai] Module loading...');
 
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import { chatMain } from '@/lib/chat';
+import { CrossChannelReadonlyError } from '@/lib/chat/access';
 import { createStaticAssistantStream } from '@/lib/chat/stream';
 import { guardWorkflowChunks } from '@/lib/chat/stream-guard';
 import { createLogger } from '@/lib/utils/logger';
@@ -189,6 +190,23 @@ export async function POST(request: Request) {
     result = await Promise.race([chatMainPromise, timeoutPromise]);
     logger.info('post:chat_main_success', { kind: result.kind });
   } catch (error) {
+    if (error instanceof CrossChannelReadonlyError) {
+      logger.info('post:cross_channel_readonly', {
+        sessionId: error.sessionId,
+        sessionChannel: error.sessionChannel,
+        currentChannel: error.currentChannel,
+      });
+      return Response.json(
+        {
+          success: false,
+          error: 'cross_channel_readonly',
+          message: error.message,
+          sessionChannel: error.sessionChannel,
+          currentChannel: error.currentChannel,
+        },
+        { status: 403 },
+      );
+    }
     logger.error('post:chat_main_failed', {
       sessionId: body.id,
       error: error instanceof Error ? error.message : String(error),

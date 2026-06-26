@@ -1,5 +1,9 @@
 import { sendAdapterSourceReply } from '@/lib/bot/reply';
 import {
+  assertSessionWritable,
+  evaluateSessionAccess,
+} from '@/lib/chat/access';
+import {
   createSession,
   deleteMessagesAfterUiMessageId,
   getFirstVisibleSessionMessage,
@@ -427,25 +431,30 @@ function canSourceAccessSession(
   source: ChatSource,
   session: NonNullable<SessionRecord>,
 ) {
-  if (source.type === 'web') {
-    return Boolean(source.userId) && session.userId === source.userId;
-  }
-
-  if (source.type === 'im') {
-    return canImSourceAccessSession(source, session);
-  }
-
-  return true;
+  return evaluateSessionAccess(source, {
+    userId: session.userId,
+    channel: session.channel,
+  }).accessible;
 }
+
+type SwitchResolveResult =
+  | { kind: 'found'; session: NonNullable<SessionRecord> }
+  | {
+      kind: 'cross-channel';
+      session: NonNullable<SessionRecord>;
+      sessionChannel: string;
+      currentChannel: string;
+    }
+  | { kind: 'not-found' };
 
 async function resolveSwitchTarget(input: {
   args: string;
   currentSession: SessionRecord;
   source: ChatSource;
-}) {
+}): Promise<SwitchResolveResult> {
   const trimmed = input.args.trim();
   if (!trimmed) {
-    return null;
+    return { kind: 'not-found' };
   }
 
   const candidates = await listSwitchableSessions({
@@ -459,25 +468,47 @@ async function resolveSwitchTarget(input: {
     asNumber >= 1 &&
     asNumber <= candidates.length
   ) {
-    return candidates[asNumber - 1] ?? null;
+    const byIndex = candidates[asNumber - 1];
+    if (byIndex) {
+      return { kind: 'found', session: byIndex };
+    }
+    return { kind: 'not-found' };
   }
 
   const exact =
     input.source.type === 'im' && trimmed.length >= 32
       ? await getSession(trimmed)
       : null;
-  if (
-    exact &&
-    (input.source.type !== 'im' ||
-      canImSourceAccessSession(input.source, exact))
-  ) {
-    return exact;
+
+  if (exact && input.source.type === 'im') {
+    const access = evaluateSessionAccess(input.source, {
+      userId: exact.userId,
+      channel: exact.channel,
+    });
+    if (access.accessible) {
+      return { kind: 'found', session: exact };
+    }
+    if (
+      !access.accessible &&
+      access.reason === 'cross-channel-strict' &&
+      exact.userId === input.source.userId
+    ) {
+      return {
+        kind: 'cross-channel',
+        session: exact,
+        sessionChannel: access.sessionChannel ?? exact.channel,
+        currentChannel: access.currentChannel ?? input.source.adapter,
+      };
+    }
   }
 
   const prefixMatches = candidates.filter((session) =>
     session.id.startsWith(trimmed),
   );
-  return prefixMatches.length === 1 ? prefixMatches[0] : null;
+  if (prefixMatches.length === 1) {
+    return { kind: 'found', session: prefixMatches[0] };
+  }
+  return { kind: 'not-found' };
 }
 
 async function maybeAssignSessionTitle(input: {
@@ -843,20 +874,35 @@ async function executeCommand(input: {
         currentSession: session,
         source: input.source,
       });
-      if (!target) {
+      if (target.kind === 'not-found') {
         return {
           sessionId: currentSessionId,
           text: t(locale, 'cmd.session.notFound', { args: input.args }),
           runId: session?.workflowRunId ?? null,
         };
       }
+      if (target.kind === 'cross-channel') {
+        return {
+          sessionId: currentSessionId,
+          text: t(locale, 'cmd.session.crossChannel', {
+            sessionChannel: target.sessionChannel,
+            currentChannel: target.currentChannel,
+          }),
+          runId: session?.workflowRunId ?? null,
+        };
+      }
 
-      const rebound = await bindImSourceToSession(input.source, target.id);
+      const rebound = await bindImSourceToSession(
+        input.source,
+        target.session.id,
+      );
 
       return {
-        sessionId: rebound?.id ?? target.id,
-        text: t(locale, 'cmd.session.switched', { sessionId: target.id }),
-        runId: target.workflowRunId ?? null,
+        sessionId: rebound?.id ?? target.session.id,
+        text: t(locale, 'cmd.session.switched', {
+          sessionId: target.session.id,
+        }),
+        runId: target.session.workflowRunId ?? null,
       };
     }
     case 'sessions': {
@@ -906,7 +952,7 @@ async function executeCommand(input: {
         source: input.source,
       });
 
-      if (!target) {
+      if (target.kind === 'not-found') {
         return {
           sessionId: currentSessionId,
           text: t(locale, 'cmd.session.notFound', { args: input.args }),
@@ -914,12 +960,28 @@ async function executeCommand(input: {
         };
       }
 
-      const rebound = await bindImSourceToSession(input.source, target.id);
+      if (target.kind === 'cross-channel') {
+        return {
+          sessionId: currentSessionId,
+          text: t(locale, 'cmd.session.crossChannel', {
+            sessionChannel: target.sessionChannel,
+            currentChannel: target.currentChannel,
+          }),
+          runId: session?.workflowRunId ?? null,
+        };
+      }
+
+      const rebound = await bindImSourceToSession(
+        input.source,
+        target.session.id,
+      );
 
       return {
-        sessionId: rebound?.id ?? target.id,
-        text: t(locale, 'cmd.session.switched', { sessionId: target.id }),
-        runId: target.workflowRunId ?? null,
+        sessionId: rebound?.id ?? target.session.id,
+        text: t(locale, 'cmd.session.switched', {
+          sessionId: target.session.id,
+        }),
+        runId: target.session.workflowRunId ?? null,
       };
     }
     case 'delete_session': {
@@ -931,13 +993,21 @@ async function executeCommand(input: {
         };
       }
 
-      const target = input.args.trim()
+      const resolved = input.args.trim()
         ? await resolveSwitchTarget({
             args: input.args,
             currentSession: session,
             source: input.source,
           })
-        : session;
+        : null;
+      const target =
+        resolved === null
+          ? (session ?? null)
+          : resolved.kind === 'found'
+            ? resolved.session
+            : resolved.kind === 'cross-channel'
+              ? resolved.session
+              : null;
 
       if (!target) {
         return {
@@ -949,7 +1019,20 @@ async function executeCommand(input: {
         };
       }
 
-      if (!canImSourceAccessSession(input.source, target)) {
+      if (
+        resolved?.kind === 'cross-channel' ||
+        !canImSourceAccessSession(input.source, target)
+      ) {
+        if (resolved?.kind === 'cross-channel') {
+          return {
+            sessionId: currentSessionId,
+            text: t(locale, 'cmd.session.crossChannel', {
+              sessionChannel: resolved.sessionChannel,
+              currentChannel: resolved.currentChannel,
+            }),
+            runId: session?.workflowRunId ?? null,
+          };
+        }
         return {
           sessionId: currentSessionId,
           text: t(locale, 'cmd.session.deleteNotAllowed'),
@@ -1439,6 +1522,14 @@ export async function chatMain(
     source: envelope.source,
   });
   chatMainLogger.info('chatMain:session_ready', { sessionId: session.id });
+
+  if (envelope.kind === 'message' && envelope.sessionId) {
+    assertSessionWritable(source, {
+      id: session.id,
+      userId: session.userId,
+      channel: session.channel,
+    });
+  }
 
   if (envelope.kind === 'message' && source.type === 'im') {
     await recordMessage(source, envelope.text, session.id, {

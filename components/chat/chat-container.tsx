@@ -16,7 +16,7 @@ import { ofetch } from 'ofetch';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Plus } from 'lucide-react';
 import { useLocalStorage } from 'usehooks-ts';
 
 import { ChatHeader } from '@/components/chat-header';
@@ -131,6 +131,7 @@ export function Chat({
     channel: string;
     externalThreadId: string | null;
     accessDenied?: boolean;
+    readOnlyChannel?: { sessionChannel: string } | null;
   } | null;
 }) {
   const router = useRouter();
@@ -266,6 +267,7 @@ export function Chat({
                 channel,
                 externalThreadId: session?.externalThreadId ?? null,
                 accessDenied: session?.accessDenied ?? false,
+                readOnlyChannel: session?.readOnlyChannel ?? null,
               },
         );
         invalidateSessionList();
@@ -290,6 +292,7 @@ export function Chat({
     session?.accessDenied,
     session?.channel,
     session?.externalThreadId,
+    session?.readOnlyChannel,
   ]);
 
   const transport = useMemo(
@@ -309,6 +312,45 @@ export function Chat({
           } else if (!response.ok) {
             activeRunIdRef.current = null;
             setActiveRunId(null);
+          }
+
+          if (response.status === 403) {
+            try {
+              const cloned = response.clone();
+              const body = (await cloned.json()) as {
+                error?: string;
+                message?: string;
+                sessionChannel?: string;
+                currentChannel?: string;
+              };
+              if (
+                body.error === 'cross_channel_readonly' &&
+                body.sessionChannel
+              ) {
+                const sessionChannel = body.sessionChannel;
+                setSessionState((current) =>
+                  current
+                    ? {
+                        ...current,
+                        readOnlyChannel: {
+                          sessionChannel,
+                        },
+                      }
+                    : {
+                        title: null,
+                        channel: sessionChannel,
+                        externalThreadId: null,
+                        accessDenied: false,
+                        readOnlyChannel: {
+                          sessionChannel,
+                        },
+                      },
+                );
+                toast.error(body.message ?? 'Cross-channel access blocked');
+              }
+            } catch {
+              // Body wasn't JSON or didn't match; let upstream handle the error.
+            }
           }
 
           invalidateSessionList();
@@ -587,6 +629,7 @@ export function Chat({
               channel: session?.channel ?? 'web',
               externalThreadId: session?.externalThreadId ?? null,
               accessDenied: false,
+              readOnlyChannel: null,
             },
       );
       upsertSessionListItem({
@@ -626,6 +669,7 @@ export function Chat({
           channel: session?.channel ?? 'web',
           externalThreadId: session?.externalThreadId ?? null,
           accessDenied: false,
+          readOnlyChannel: null,
         });
         upsertSessionListItem({
           id,
@@ -852,6 +896,7 @@ export function Chat({
   );
 
   const isAccessDeniedSession = sessionState?.accessDenied === true;
+  const isReadOnlyChannelSession = Boolean(sessionState?.readOnlyChannel);
   const isRuntimePanelEnabled =
     !isAccessDeniedSession &&
     (Boolean(session) || initialMessages.length > 0 || Boolean(activeRunId));
@@ -897,10 +942,14 @@ export function Chat({
             onRevert={handleRevert}
             onDecisionResolved={handleDecisionResolved}
             onFollowUpSubmit={
-              isAccessDeniedSession ? undefined : submitInlineFollowUp
+              isAccessDeniedSession || isReadOnlyChannelSession
+                ? undefined
+                : submitInlineFollowUp
             }
             onSuggestedFollowUpSelect={
-              isAccessDeniedSession ? undefined : submitSuggestedFollowUp
+              isAccessDeniedSession || isReadOnlyChannelSession
+                ? undefined
+                : submitSuggestedFollowUp
             }
             setMessages={setMessages}
             regenerate={regenerateWithSelectedModel}
@@ -925,6 +974,30 @@ export function Chat({
                 >
                   <Trash2 className="size-4" />
                   {t('chat.accessDenied.delete')}
+                </Button>
+              </div>
+            </div>
+          ) : isReadOnlyChannelSession ? (
+            <div className="relative z-20 shrink-0 border-t bg-background/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-[0_-12px_30px_rgba(15,23,42,0.06)] backdrop-blur md:pb-6">
+              <div className="mx-auto flex w-full flex-col gap-3 md:max-w-4xl md:flex-row md:items-center md:justify-between">
+                <p className="text-muted-foreground text-sm">
+                  {t('chat.crossChannel.description', {
+                    sessionChannel:
+                      sessionState?.readOnlyChannel?.sessionChannel ??
+                      sessionState?.channel ??
+                      '',
+                  })}
+                </p>
+                <Button
+                  type="button"
+                  variant="default"
+                  className="gap-2 md:shrink-0"
+                  onClick={() => {
+                    router.push('/');
+                  }}
+                >
+                  <Plus className="size-4" />
+                  {t('chat.crossChannel.newSession')}
                 </Button>
               </div>
             </div>

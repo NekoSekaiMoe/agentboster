@@ -16,6 +16,9 @@ export const enUS = {
   'chat.accessDenied.delete': 'Delete conversation',
   'chat.accessDenied.description':
     'This external user is not allowed to use this bot.',
+  'chat.crossChannel.description':
+    'This session belongs to a different channel (session channel {sessionChannel}, current channel web).',
+  'chat.crossChannel.newSession': 'New session',
   'chat.followUp.cancel': 'Cancel',
   'chat.followUp.close': 'Close follow-up',
   'chat.followUp.placeholder': 'Ask a follow-up...',
@@ -520,6 +523,8 @@ export const enUS = {
     'Session deletion is only available for IM threads.',
   'cmd.session.notFound':
     'No matching session found for "{args}". Use /sessions to list recent sessions.',
+  'cmd.session.crossChannel':
+    'This session belongs to a different channel (session channel {sessionChannel}, current channel {currentChannel}). Use /new to start a new session in this channel.',
   'cmd.session.switched': 'Switched to session {sessionId}.',
   'cmd.session.noActive': 'No session is currently bound to this thread.',
   'cmd.session.deleteNotAllowed':

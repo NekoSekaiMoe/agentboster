@@ -16,6 +16,9 @@ export const zhTW = {
   'chat.deleteSuccess': '對話已刪除',
   'chat.accessDenied.delete': '刪除對話',
   'chat.accessDenied.description': '此外部使用者無權使用此 bot。',
+  'chat.crossChannel.description':
+    '此對話頻道與目前頻道不同（對話頻道 {sessionChannel}，目前頻道 web）。',
+  'chat.crossChannel.newSession': '建立對話',
   'chat.followUp.cancel': '取消',
   'chat.followUp.close': '關閉追問',
   'chat.followUp.placeholder': '輸入追問...',
@@ -484,6 +487,8 @@ export const zhTW = {
   'cmd.session.delete.imOnly': '對話刪除僅適用於 IM 執行緒。',
   'cmd.session.notFound':
     '找不到符合「{args}」的對話。使用 /sessions 查看最近的對話。',
+  'cmd.session.crossChannel':
+    '此對話頻道與目前頻道不同（對話頻道 {sessionChannel}，目前頻道 {currentChannel}）。使用 /new 在目前頻道開新對話。',
   'cmd.session.switched': '已切換至對話 {sessionId}。',
   'cmd.session.noActive': '目前沒有對話綁定至此對話執行緒。',
   'cmd.session.deleteNotAllowed': '只能刪除屬於此 IM 帳號的對話。',

@@ -18,6 +18,9 @@ export const ja = {
   'chat.accessDenied.delete': '会話を削除',
   'chat.accessDenied.description':
     'この外部ユーザーはこの bot を使用できません。',
+  'chat.crossChannel.description':
+    'このセッションは別のチャネルに属しています（セッションチャネル {sessionChannel}、現在のチャネル web）。',
+  'chat.crossChannel.newSession': '新しいセッション',
   'chat.followUp.cancel': 'キャンセル',
   'chat.followUp.close': 'フォローアップを閉じる',
   'chat.followUp.placeholder': 'フォローアップを入力...',
@@ -523,6 +526,8 @@ export const ja = {
     'セッションの削除は IM スレッドでのみ利用できます。',
   'cmd.session.notFound':
     '"{args}" に一致するセッションが見つかりませんでした。/sessions で最近のセッションを確認してください。',
+  'cmd.session.crossChannel':
+    'このセッションは別のチャネルに属しています（セッションチャネル {sessionChannel}、現在のチャネル {currentChannel}）。/new で現在のチャネルに新しいセッションを開始してください。',
   'cmd.session.switched': 'セッション {sessionId} に切り替えました。',
   'cmd.session.noActive':
     '現在このスレッドにバインドされているセッションはありません。',

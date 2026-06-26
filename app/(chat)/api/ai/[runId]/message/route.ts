@@ -2,6 +2,7 @@ import {
   assertCanAccessOwnedResource,
   requireAuthAccess,
 } from '@/lib/auth/access';
+import { assertSessionWritable } from '@/lib/chat/access';
 import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
 import { createLogger } from '@/lib/utils/logger';
 import { resumeWithMessage } from '@/lib/workflow/agent/dispatch';
@@ -32,6 +33,29 @@ export async function POST(
     );
   }
   assertCanAccessOwnedResource(access, session.userId);
+
+  try {
+    assertSessionWritable(
+      { type: 'web', userId: access.session.userId },
+      {
+        id: session.id,
+        userId: session.userId,
+        channel: session.channel,
+      },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Forbidden';
+    return Response.json(
+      {
+        ok: false,
+        error: 'cross_channel_readonly',
+        message,
+        sessionChannel: session.channel,
+        currentChannel: 'web',
+      },
+      { status: 403 },
+    );
+  }
 
   let payload: z.infer<typeof chatHookPayloadSchema>;
   try {
