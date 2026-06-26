@@ -13,6 +13,13 @@ function isLoginPath(pathname: string): boolean {
     return true;
   }
 
+  // REST login endpoint — must be reachable before authentication.
+  // The route handler performs its own credential validation and issues
+  // a token; middleware auth would create a chicken-and-egg.
+  if (pathname === '/api/auth/login') {
+    return true;
+  }
+
   return false;
 }
 
@@ -113,7 +120,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+  // CLI and other programmatic clients authenticate with a user auth
+  // token carried in the Authorization: Bearer header. The token format
+  // is identical to the cookie value (base64url(payload).base64url(hmac)),
+  // so verifyAuthToken handles both. This does NOT apply to /api/agentd/v1/*
+  // and /api/soul/* — those routes are bypassed above and use AGENTD_API_KEY.
+  const token =
+    request.cookies.get(AUTH_COOKIE_NAME)?.value ||
+    readBearerToken(request.headers.get('authorization'));
+
   const session = await verifyAuthToken(token);
 
   if (session) {
