@@ -9,12 +9,21 @@ import {
   type MarkdownTheme,
   matchesKey,
   ProcessTerminal,
+  type SelectItem,
+  SelectList,
+  type SelectListTheme,
   Spacer,
   Text,
   TUI,
 } from '@earendil-works/pi-tui';
 import { ensureConfig, getActiveDeployment, loadConfig } from '../lib/config';
-import { createStreamFetcher } from '../lib/api';
+import {
+  createApiClient,
+  createStreamFetcher,
+  type ListModelsResponse,
+  type ListSessionsResponse,
+  type SessionListItem,
+} from '../lib/api';
 import { executeLocalTool } from '../lib/local-tools';
 import { readSseStream, type UiMessageChunk } from '../lib/sse';
 
@@ -69,6 +78,14 @@ const markdownTheme: MarkdownTheme = {
   underline: (s) => chalk.underline(s),
 };
 
+const selectListTheme: SelectListTheme = {
+  selectedPrefix: (s) => chalk.cyan(s),
+  selectedText: (s) => chalk.cyan.bold(s),
+  description: (s) => chalk.gray(s),
+  scrollInfo: (s) => chalk.gray(s),
+  noMatch: (s) => chalk.gray(s),
+};
+
 export async function chatTuiCommand(options: {
   sessionId?: string;
   deployment?: string;
@@ -91,7 +108,12 @@ export async function chatTuiCommand(options: {
     process.exit(1);
   }
 
-  const sessionId = options.sessionId ?? randomUUID();
+  // Mutable sessionId holder so switchToSession can change it. The TUI
+  // session can be swapped at runtime via Ctrl+P; without a holder the
+  // const binding would shadow the new value.
+  const activeSessionIdHolder: { value: string } = {
+    value: options.sessionId ?? randomUUID(),
+  };
   const streamFetch = createStreamFetcher(active.deployment);
 
   const terminal = new ProcessTerminal();
@@ -100,10 +122,12 @@ export async function chatTuiCommand(options: {
   const turns: Turn[] = [];
   let streamingText = '';
   let state: AppState = { kind: 'ready' };
+  let currentModel = options.model ?? null;
 
   const messagesContainer = new Container();
   const statusText = new Text('', 0, 0, (s: string) => chalk.gray(s));
   const editor = new Editor(tui, editorTheme);
+  const apiClient = createApiClient(active.deployment);
 
   function rebuildMessages(): void {
     messagesContainer.clear();
@@ -147,12 +171,12 @@ export async function chatTuiCommand(options: {
           'X-Idempotency-Key': randomUUID(),
         },
         body: JSON.stringify({
-          id: sessionId,
+          id: activeSessionIdHolder.value,
           trigger: 'submit-message',
           input: { text },
           clientId: config.clientId,
           label: config.label,
-          ...(options.model ? { model: options.model } : {}),
+          ...(currentModel ? { model: currentModel } : {}),
         }),
       });
 
@@ -290,7 +314,132 @@ export async function chatTuiCommand(options: {
     void sendMessage(text);
   };
 
-  // Ctrl+C twice to quit (pi-tui runs in raw mode).
+  // ── Session + Model pickers (Ctrl+P / Ctrl+L) ────────────────────────
+  // Both load their list from the /api/cli/* REST routes, show a pi-tui
+  // overlay with SelectList, and apply the choice.
+
+  async function loadSessionsList(): Promise<SessionListItem[]> {
+    const params = new URLSearchParams({ limit: '50' });
+    const res = await apiClient<ListSessionsResponse>(
+      `/api/cli/sessions?${params}`,
+    );
+    return res.ok ? res.sessions : [];
+  }
+
+  async function loadModelsList(): Promise<
+    Array<{ id: string; isDefault: boolean }>
+  > {
+    const res = await apiClient<ListModelsResponse>('/api/cli/models');
+    if (!res.ok) return [];
+    return res.models.map((m) => ({
+      id: m.id,
+      isDefault: m.id === res.defaultModel,
+    }));
+  }
+
+  function showSessionPicker(): void {
+    if (state.kind === 'streaming') {
+      setStatus(chalk.yellow('Wait for the current turn to finish.'));
+      return;
+    }
+    setStatus(chalk.gray('Loading sessions…'));
+    void (async () => {
+      let sessions: SessionListItem[];
+      try {
+        sessions = await loadSessionsList();
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        setStatus(chalk.red(`Failed to load sessions: ${msg}`));
+        return;
+      }
+      if (sessions.length === 0) {
+        setStatus(chalk.gray('No sessions found on this machine.'));
+        return;
+      }
+      const items: SelectItem[] = sessions.map((s) => ({
+        value: s.id,
+        label: s.title?.trim() || '(untitled)',
+        description: `${s.channel} · ${s.id.slice(0, 8)}… · ${new Date(s.updatedAt).toLocaleString()}`,
+      }));
+      const list = new SelectList(items, 10, selectListTheme);
+      list.onSelect = (item: SelectItem) => {
+        tui.hideOverlay();
+        void switchToSession(item.value);
+      };
+      list.onCancel = () => {
+        tui.hideOverlay();
+        setStatus(chalk.gray('ready'));
+      };
+      tui.showOverlay(list, {
+        width: '80%',
+        maxHeight: 20,
+        anchor: 'top-center',
+      });
+      setStatus('');
+    })();
+  }
+
+  function showModelPicker(): void {
+    setStatus(chalk.gray('Loading models…'));
+    void (async () => {
+      let models: Array<{ id: string; isDefault: boolean }>;
+      try {
+        models = await loadModelsList();
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        setStatus(chalk.red(`Failed to load models: ${msg}`));
+        return;
+      }
+      if (models.length === 0) {
+        setStatus(
+          chalk.gray(
+            'No model catalog on server; pass --model <id> on startup instead.',
+          ),
+        );
+        return;
+      }
+      const items: SelectItem[] = models.map((m) => ({
+        value: m.id,
+        label: m.id,
+        description: m.isDefault ? 'server default' : '',
+      }));
+      const list = new SelectList(items, 10, selectListTheme);
+      list.onSelect = (item: SelectItem) => {
+        currentModel = item.value;
+        tui.hideOverlay();
+        setStatus(chalk.gray(`model: ${currentModel}`));
+      };
+      list.onCancel = () => {
+        tui.hideOverlay();
+        setStatus(
+          chalk.gray(currentModel ? `model: ${currentModel}` : 'ready'),
+        );
+      };
+      tui.showOverlay(list, {
+        width: '60%',
+        maxHeight: 15,
+        anchor: 'top-center',
+      });
+      setStatus('');
+    })();
+  }
+
+  async function switchToSession(newSessionId: string): Promise<void> {
+    setStatus(chalk.gray(`Loading session ${newSessionId.slice(0, 8)}…`));
+    // Reset local state — future turns POST against the new sessionId.
+    turns.length = 0;
+    streamingText = '';
+    activeSessionIdHolder.value = newSessionId;
+    rebuildMessages();
+    setStatus(
+      chalk.gray(
+        `switched to ${newSessionId.slice(0, 8)}… — history not loaded yet; ask a question to continue`,
+      ),
+    );
+  }
+
+  // Ctrl+C twice to quit (pi-tui runs in raw mode). Ctrl+P opens the
+  // session picker, Ctrl+L the model picker.
   let ctrlCCount = 0;
   let ctrlCResetTimer: ReturnType<typeof setTimeout> | null = null;
   tui.addInputListener((data: string) => {
@@ -307,6 +456,14 @@ export async function chatTuiCommand(options: {
       }, 1500);
       return { consume: true };
     }
+    if (matchesKey(data, Key.ctrl('p'))) {
+      showSessionPicker();
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.ctrl('l'))) {
+      showModelPicker();
+      return { consume: true };
+    }
     return undefined;
   });
 
@@ -317,7 +474,7 @@ export async function chatTuiCommand(options: {
   tui.setFocus(editor);
   setStatus(
     chalk.gray(
-      'ready — type a message and press Enter to send (Ctrl+C twice to quit)',
+      'ready — Enter to send · Ctrl+P sessions · Ctrl+L models · Ctrl+C twice to quit',
     ),
   );
   tui.start();
