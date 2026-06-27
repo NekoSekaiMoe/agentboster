@@ -47,13 +47,19 @@ export type LocalToolResultPayload = {
 export function createApiClient(baseUrl: string, token?: string) {
   const root = baseUrl.replace(/\/$/, '');
 
+  function buildAuthHeaders(init?: RequestInit): HeadersInit {
+    const headers = new Headers(init?.headers ?? {});
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+      headers.set('cookie', `clawless-auth=${token}`);
+    }
+    return headers;
+  }
+
   async function request(path: string, init?: RequestInit): Promise<Response> {
     return fetch(`${root}${path}`, {
       ...init,
-      headers: {
-        ...(init?.headers ?? {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: buildAuthHeaders(init),
     });
   }
 

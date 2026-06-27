@@ -37,6 +37,97 @@ function resolvePath(path: unknown, cwd = process.cwd()): string {
   return isAbsolute(path) ? path : resolve(cwd, path);
 }
 
+function splitLines(text: string): string[] {
+  return text === '' ? [] : text.split('\n');
+}
+
+function parseHunkHeader(
+  line: string,
+): { oldStart: number; newStart: number } | null {
+  const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    oldStart: Number.parseInt(match[1] ?? '1', 10),
+    newStart: Number.parseInt(match[2] ?? '1', 10),
+  };
+}
+
+function applyUnifiedPatch(current: string, patch: string): string {
+  const currentLines = splitLines(current);
+  const patchLines = patch.split('\n');
+  const output: string[] = [];
+  let currentIndex = 0;
+  let inHunk = false;
+
+  for (let i = 0; i < patchLines.length; i += 1) {
+    const line = patchLines[i] ?? '';
+
+    if (line.startsWith('diff --git') || line.startsWith('index ')) {
+      continue;
+    }
+    if (line.startsWith('--- ') || line.startsWith('+++ ')) {
+      continue;
+    }
+
+    if (line.startsWith('@@')) {
+      const hunk = parseHunkHeader(line);
+      if (!hunk) {
+        continue;
+      }
+
+      inHunk = true;
+      while (
+        currentIndex < hunk.oldStart - 1 &&
+        currentIndex < currentLines.length
+      ) {
+        output.push(currentLines[currentIndex] ?? '');
+        currentIndex += 1;
+      }
+      continue;
+    }
+
+    if (!inHunk) {
+      continue;
+    }
+
+    if (line.startsWith('\\')) {
+      continue;
+    }
+
+    const marker = line.charAt(0);
+    const text = line.slice(1);
+
+    if (marker === ' ') {
+      if (currentLines[currentIndex] !== undefined) {
+        output.push(currentLines[currentIndex] ?? '');
+      } else {
+        output.push(text);
+      }
+      currentIndex += 1;
+      continue;
+    }
+
+    if (marker === '-') {
+      currentIndex += 1;
+      continue;
+    }
+
+    if (marker === '+') {
+      output.push(text);
+    }
+  }
+
+  while (currentIndex < currentLines.length) {
+    output.push(currentLines[currentIndex] ?? '');
+    currentIndex += 1;
+  }
+
+  return output.join('\n');
+}
+
 export async function executeLocalTool(
   toolName: string,
   toolInput: unknown,
@@ -67,8 +158,9 @@ export async function executeLocalTool(
       if (typeof patch !== 'string' || patch.length === 0) {
         return { ok: false, error: 'patch must be a non-empty string.' };
       }
-      const next = patch.startsWith('@@')
-        ? patch.replace(/^@@[\s\S]*?\n/, '')
+      const current = await readFile(path, 'utf8').catch(() => '');
+      const next = patch.includes('@@')
+        ? applyUnifiedPatch(current, patch)
         : patch;
       await mkdir(dirname(path), { recursive: true });
       writeFileSync(path, next, 'utf8');

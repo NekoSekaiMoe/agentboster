@@ -10,6 +10,7 @@ import {
 } from './lib/api';
 import { readJson } from './lib/store';
 import { loginCommand } from './commands/login';
+import { pairCommand } from './commands/pair';
 import { executeLocalTool, evaluateLocalCommand } from './lib/local-security';
 
 type TuiState = {
@@ -157,7 +158,7 @@ function render(state: TuiState, messageLines: string[] = []): void {
     output.write(`${line}\n`);
   }
   output.write(
-    '\nCommands: /login /sessions /models /new /use <n|id> /model <id> /send <text> /refresh /quit\n',
+    '\nCommands: /login /pair /sessions /models /new /use <n|id> /model <id> /send <text> /refresh /quit\n',
   );
 }
 
@@ -388,6 +389,12 @@ export async function runCliTui(): Promise<void> {
         await loginCommand({ url, username, password });
         state = await loadState();
         transcript.push(`logged in as ${username}`);
+        continue;
+      }
+
+      if (command === '/pair') {
+        await pairCommand({ url: state.baseUrl, adapter: 'slack' });
+        transcript.push('pair code generated');
         continue;
       }
 

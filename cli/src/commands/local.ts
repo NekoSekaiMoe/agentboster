@@ -14,8 +14,12 @@ async function confirm(promptText: string): Promise<boolean> {
   }
 }
 
-async function requireApproval(command: string): Promise<void> {
-  const decision = await evaluateLocalCommand(command);
+async function execWithApproval(
+  toolName: 'local_write_file' | 'local_patch_file' | 'local_exec',
+  input: Record<string, unknown>,
+  approvalCommand: string,
+): Promise<void> {
+  const decision = await evaluateLocalCommand(approvalCommand);
   if (!decision.ok) {
     throw new Error(decision.message);
   }
@@ -27,6 +31,15 @@ async function requireApproval(command: string): Promise<void> {
     if (!approved) {
       throw new Error('Operation cancelled by user.');
     }
+  }
+
+  const result = await executeLocalTool(toolName, input);
+  if (!result.ok) {
+    throw new Error(result.error ?? `${toolName} failed`);
+  }
+
+  if (result.output !== undefined) {
+    process.stdout.write(`${String(result.output)}\n`);
   }
 }
 
@@ -52,15 +65,14 @@ export async function localCommand(args: string[]): Promise<void> {
     if (!path || !content) {
       throw new Error('Usage: local write <path> <content>');
     }
-    await requireApproval(`write ${path}`);
-    const result = await executeLocalTool('local_write_file', {
-      path,
-      content,
-    });
-    if (!result.ok) {
-      throw new Error(result.error ?? 'write failed');
-    }
-    process.stdout.write(`${String(result.output ?? '')}\n`);
+    await execWithApproval(
+      'local_write_file',
+      {
+        path,
+        content,
+      },
+      `write ${path}`,
+    );
     return;
   }
 
@@ -70,12 +82,11 @@ export async function localCommand(args: string[]): Promise<void> {
     if (!path || !patch) {
       throw new Error('Usage: local patch <path> <patch>');
     }
-    await requireApproval(`patch ${path}`);
-    const result = await executeLocalTool('local_patch_file', { path, patch });
-    if (!result.ok) {
-      throw new Error(result.error ?? 'patch failed');
-    }
-    process.stdout.write(`${String(result.output ?? '')}\n`);
+    await execWithApproval(
+      'local_patch_file',
+      { path, patch },
+      `patch ${path}`,
+    );
     return;
   }
 
@@ -84,12 +95,7 @@ export async function localCommand(args: string[]): Promise<void> {
     if (!command) {
       throw new Error('Usage: local exec <command>');
     }
-    await requireApproval(command);
-    const result = await executeLocalTool('local_exec', { command });
-    if (!result.ok) {
-      throw new Error(result.error ?? 'exec failed');
-    }
-    process.stdout.write(`${String(result.output ?? '')}\n`);
+    await execWithApproval('local_exec', { command }, command);
     return;
   }
 
