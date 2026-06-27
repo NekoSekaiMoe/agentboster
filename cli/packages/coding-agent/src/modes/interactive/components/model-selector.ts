@@ -94,7 +94,14 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			this.scopeHintText = new Text(this.getScopeHintText(), 0, 0);
 			this.addChild(this.scopeHintText);
 		} else {
-			const hintText = "Only showing models from configured providers. Use /login to add providers.";
+			// Agentboster: when not logged in the registry is empty — point
+			// the user at /login. When logged in, the catalog comes from
+			// /api/cli/models and every entry is from the same provider.
+			const allModels = this.modelRegistry.getAll();
+			const hintText =
+				allModels.length === 0
+					? "Not logged in. Use /login to authenticate."
+					: "Showing models from the Agentboster server.";
 			this.addChild(new Text(theme.fg("warning", hintText), 0, 0));
 		}
 		this.addChild(new Spacer(1));
