@@ -141,12 +141,12 @@ export async function runLogin(opts: LoginOptions): Promise<void> {
 	}
 }
 
-interface LoginResult {
+export interface LoginResult {
 	token: string;
 	username?: string;
 }
 
-async function loginWithPassword(
+export async function loginWithPassword(
 	url: string,
 	username: string,
 	password: string,
@@ -172,7 +172,7 @@ async function loginWithPassword(
 	return { token: payload.token, username: payload.user?.username };
 }
 
-async function exchangePairCode(
+export async function exchangePairCode(
 	url: string,
 	pairCode: string,
 	label: string,

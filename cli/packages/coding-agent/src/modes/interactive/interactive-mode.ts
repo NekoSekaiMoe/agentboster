@@ -8,7 +8,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { clearStoredAuth } from "@agentboster/adapter";
+import { clearStoredAuth, createAgentbosterStreamFn, fetchRemoteModels, getStoredAuth, remoteModelsToPiModels, writeStoredConfig } from "@agentboster/adapter";
+import { exchangePairCode, loginWithPassword } from "../../cli/login.ts";
 import {
 	type AssistantMessage,
 	getProviders,
@@ -2618,15 +2619,13 @@ export class InteractiveMode {
 				return;
 			}
 			if (text === "/login") {
-				this.showStatus(
-					"Run `agentboster login` from your shell to authenticate. The TUI cannot prompt for credentials without conflicting with the input box.",
-				);
 				this.editor.setText("");
+				void this.runAgentbosterLogin();
 				return;
 			}
 			if (text === "/logout") {
 				clearStoredAuth();
-				this.showStatus("Logged out. Run `agentboster login` from your shell to authenticate again.");
+				this.showStatus("Logged out. Run `/login` to log in again.");
 				this.editor.setText("");
 				return;
 			}
@@ -5755,5 +5754,75 @@ export class InteractiveMode {
 			this.isInitialized = false;
 		}
 		this.unregisterSignalHandlers();
+	}
+
+	/**
+	 * In-TUI login flow for the Agentboster web backend.
+	 *
+	 * Prompts for server URL → username → password (or pair code), calls
+	 * /api/auth/login or /api/auth/pair-exchange, writes the result to
+	 * ~/.agentboster/config.json, then hot-swaps the running session's
+	 * streamFn + model registry so the user can immediately keep
+	 * chatting — no restart needed.
+	 */
+	private async runAgentbosterLogin(): Promise<void> {
+		try {
+			const existing = getStoredAuth();
+			const urlHint = existing?.url ?? "https://";
+			const url = await this.showExtensionInput("Server URL", urlHint);
+			if (!url) return;
+			const method = await this.showExtensionInput(
+				"Login method (1=password, 2=pair code)",
+				"1",
+			);
+			if (method === undefined) return;
+
+			let token: string;
+			let username: string | undefined;
+
+			if (method.trim() === "2") {
+				const code = await this.showExtensionInput("Pair code");
+				if (!code) return;
+				const r = await exchangePairCode(url, code, "agentboster-cli");
+				token = r.token;
+				username = r.username;
+			} else {
+				const user = await this.showExtensionInput("Username");
+				if (!user) return;
+				const pw = await this.showExtensionInput("Password");
+				if (pw === undefined) return;
+				const r = await loginWithPassword(url, user, pw);
+				token = r.token;
+				username = r.username;
+			}
+
+			writeStoredConfig({ url, token, username });
+
+			// Hot-swap streamFn on the live session.
+			const sessionId =
+				process.env["AGENTBOSTER_SESSION_ID"] ??
+				globalThis.crypto.randomUUID();
+			this.session.agent.streamFn = createAgentbosterStreamFn({
+				getAuth: () => ({ baseUrl: url, token }),
+				getSessionId: () => sessionId,
+				clientId: process.env["AGENTBOSTER_CLIENT_ID"] ?? "local-cli",
+				label: "agentboster-cli",
+				model: process.env["AGENTBOSTER_MODEL"] ?? null,
+			});
+
+			// Hot-swap the model catalog so the picker reflects the server.
+			const remote = await fetchRemoteModels(url, token);
+			if (remote && remote.models.length > 0) {
+				this.session.modelRegistry.setRemoteModels(remoteModelsToPiModels(remote));
+			}
+
+			this.showStatus(
+				`Logged in${username ? ` as ${username}` : ""}. Models reloaded from ${url}.`,
+			);
+		} catch (error) {
+			this.showStatus(
+				`Login failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 	}
 }
