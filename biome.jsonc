@@ -24,6 +24,7 @@
       "!**/yarn.lock",
       "!**/node_modules",
       "!**/.next",
+      "!cli/**",
       "!**/public",
       "!**/ref",
       "!**/memoh",

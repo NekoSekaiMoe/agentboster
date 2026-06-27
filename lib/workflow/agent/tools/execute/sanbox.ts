@@ -607,7 +607,15 @@ async function waitForSandboxApproval(input: {
 export default defineBuildInTool({
   id: 'sandbox',
   description: `Run shell commands and read/write files inside a session-scoped sandbox. When Agent Daemon is online, tools are executed on Agent Daemon with full security review (L0/L1/L2) and sandbox management (docker/docker-strict/lxc). When Agent Daemon is offline, falls back to Vercel Sandbox with limited isolation.`,
-  factory: async (_config, { sessionId, runId, appConfig }) => {
+  factory: async (_config, { sessionId, runId, appConfig, source }) => {
+    // CLI sessions use local_* tools (local_exec/local_read_file/
+    // local_write_file) instead of the sandbox. Registering both
+    // confuses the LLM and causes "Tool exec not found" when the
+    // CLI host has no agentd.
+    if (source?.type === 'cli') {
+      return null;
+    }
+
     const requiresApproval = appConfig.autonomy?.level === 'supervised';
 
     return {
