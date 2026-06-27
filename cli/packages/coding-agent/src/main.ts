@@ -888,6 +888,13 @@ async function injectRemoteModels(modelRegistry: ModelRegistry): Promise<void> {
 	const remote = await fetchRemoteModels(auth.url, auth.token);
 	if (!remote || remote.models.length === 0) return;
 	modelRegistry.setRemoteModels(remoteModelsToPiModels(remote));
+	// Mark AuthStorage as having agentboster credentials so pi's
+	// internal is-authed checks (footer, model picker auth status,
+	// hasConfiguredAuth) all pass without prompting for OAuth.
+	modelRegistry.authStorage.set("agentboster", {
+		type: "api_key",
+		key: "agentboster-adapter",
+	} as never);
 }
 
 /**

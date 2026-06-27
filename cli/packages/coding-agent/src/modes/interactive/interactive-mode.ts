@@ -5366,16 +5366,16 @@ export class InteractiveMode {
 			const urlHint = existing?.url ?? "https://";
 			const url = await this.showExtensionInput("Server URL", urlHint);
 			if (!url) return;
-			const method = await this.showExtensionInput(
-				"Login method (1=password, 2=pair code)",
-				"1",
+			const method = await this.showExtensionSelector(
+				"Login method",
+				["Username + password", "Pair code"],
 			);
-			if (method === undefined) return;
+			if (!method) return;
 
 			let token: string;
 			let username: string | undefined;
 
-			if (method.trim() === "2") {
+			if (method === "Pair code") {
 				const code = await this.showExtensionInput("Pair code");
 				if (!code) return;
 				const r = await exchangePairCode(url, code, "agentboster-cli");

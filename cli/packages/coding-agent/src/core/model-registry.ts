@@ -351,6 +351,7 @@ export const clearApiKeyCache = clearConfigValueCache;
  */
 export class ModelRegistry {
 	private models: Model<Api>[] = [];
+	private remoteModelsLocked = false;
 	private providerRequestConfigs: Map<string, ProviderRequestConfig> = new Map();
 	private modelRequestHeaders: Map<string, Record<string, string>> = new Map();
 	private registeredProviders: Map<string, ProviderConfigInput> = new Map();
@@ -376,6 +377,11 @@ export class ModelRegistry {
 	 * Reload models from disk (built-in + custom from models.json).
 	 */
 	refresh(): void {
+		// Agentboster: once remote models are injected, never reload the
+		// local builtin/google/anthropic/openai catalog — the server is
+		// the single source of truth.
+		if (this.remoteModelsLocked) return;
+
 		this.providerRequestConfigs.clear();
 		this.modelRequestHeaders.clear();
 		this.loadError = undefined;
@@ -661,6 +667,7 @@ export class ModelRegistry {
 	 */
 	setRemoteModels(models: Model<Api>[]): void {
 		this.models = models;
+		this.remoteModelsLocked = true;
 		// Mark the agentboster provider as authed so getAvailable()
 		// includes these models — the real auth (bearer token) lives
 		// on the adapter, not in AuthStorage.
