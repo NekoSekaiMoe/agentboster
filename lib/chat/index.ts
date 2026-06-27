@@ -1,6 +1,7 @@
 import { sendAdapterSourceReply } from '@/lib/bot/reply';
 import {
   assertSessionWritable,
+  currentChannelName,
   evaluateSessionAccess,
 } from '@/lib/chat/access';
 import {
@@ -282,6 +283,19 @@ async function bindImSourceToSession(
   );
 }
 
+/**
+ * Resolve the user id that should own a new session created from the
+ * given source. Web and IM sources always carry userId when authenticated;
+ * CLI sources carry it after the login handshake. Scheduled tasks have
+ * no user. Returning the actual userId (instead of hardcoding null for
+ * anything that isn't web/im) is required so the channel-lock check
+ * doesn't immediately reject the freshly created session.
+ */
+function sourceUserId(source: ChatSource): string | null {
+  if (source.type === 'scheduled') return null;
+  return source.userId ?? null;
+}
+
 async function ensureMessageSession(input: {
   sessionId?: string;
   source: ChatSource;
@@ -317,13 +331,9 @@ async function ensureMessageSession(input: {
 
     return createSession({
       id: input.sessionId,
-      channel:
-        input.source.type === 'im' ? input.source.adapter : input.source.type,
+      channel: currentChannelName(input.source),
       externalThreadId,
-      userId:
-        input.source.type === 'im' || input.source.type === 'web'
-          ? (input.source.userId ?? null)
-          : null,
+      userId: sourceUserId(input.source),
       metadata: {
         source: input.source,
       },
@@ -338,13 +348,9 @@ async function ensureMessageSession(input: {
   }
 
   return createSession({
-    channel:
-      input.source.type === 'im' ? input.source.adapter : input.source.type,
+    channel: currentChannelName(input.source),
     externalThreadId,
-    userId:
-      input.source.type === 'im' || input.source.type === 'web'
-        ? (input.source.userId ?? null)
-        : null,
+    userId: sourceUserId(input.source),
     metadata: {
       source: input.source,
     },
