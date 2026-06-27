@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { chatCommand } from './commands/chat';
 import { loginCommand } from './commands/login';
 
 const program = new Command();
@@ -33,9 +34,23 @@ program
     },
   );
 
-// `chat` command is added in a later stage. For now login is the only
-// subcommand so users can verify the CLI <-> web auth path before the
-// full TUI is wired up.
+program
+  .command('chat [message]')
+  .description('Send a one-shot message and stream the response to stdout')
+  .option('-s, --session <sessionId>', 'resume an existing session id')
+  .option('-d, --deployment <name>', 'deployment name (default: "default")')
+  .action(
+    async (
+      message: string | undefined,
+      opts: { session?: string; deployment?: string },
+    ) => {
+      await chatCommand({
+        message,
+        sessionId: opts.session,
+        deployment: opts.deployment,
+      });
+    },
+  );
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
