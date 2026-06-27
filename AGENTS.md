@@ -7,18 +7,18 @@ Compact guide for OpenCode sessions working in this repo. The codebase has two i
 - **Path alias**: `@/*` maps to repo root (`tsconfig.json`).
 - **shadcn/ui**: Components in `components/`, UI primitives in `components/ui/`. Aliases: `@/components`, `@/components/ui`, `@/lib/utils`, `@/hooks`.
 - **Styling**: Tailwind CSS 3 + `tailwindcss-animate`. Dark mode via `next-themes` (`class` strategy). Colors use CSS custom properties (HSL vars).
-- **Linting**: Biome (not ESLint/Prettier). Config: `biome.jsonc`. Run `yarn run check` before committing. However, `yarn run check` does NOT auto-fix code (`--write` flag removed). It only reports issues because it cause many unsafe changes. Use `yarn format` or `yarn lint:fix` for auto-fixing, but review the changes carefully before committing. Many Biome auto-fixes can be incorrect (e.g., changing `let` to `const` when the variable is mutated later).
+- **Linting**: Biome (not ESLint/Prettier). Config: `biome.jsonc`. Run `yarn lint:check` before committing — it runs `tsc --noEmit && biome check .` (read-only, no auto-fix). Use `yarn format` or `yarn lint:fix` for auto-fixing, but review changes carefully: Biome auto-fixes can be incorrect (e.g., changing `let` to `const` when the variable is mutated later).
 - **Logging**: Use `createLogger` from `lib/utils/logger.ts` for server-side logging (Vercel logs). Never use `console.log` in server code — it won't appear in Vercel logs properly. For client-side debugging, `console.log` is fine.
 - **DB**: Neon Postgres via Drizzle ORM. Schema in `lib/core/db/schema/`. Migrations output to `lib/core/db/migrations/`.
-- **Auth**: Cookie-based. Requires `AUTH_SECRET`, `USERNAME`, `PASSWORD` env vars. Middleware in `middleware.ts` protects all routes except `/login`, `/api/auth/login`, `/.well-known/workflow/*`, and public assets (`.*` file extensions).
-- **Bot webhooks**: Auth secret is embedded in the callback URL path (`/api/bot/{AUTH_SECRET}/{adapter}/callback`). CI uses Yarn (`yarn run check`).
+- **Auth**: Cookie-based. Requires `AUTH_SECRET`, `USERNAME`, `PASSWORD` env vars. Middleware in `middleware.ts` protects all routes except: login paths, bot webhook paths (`/api/bot/{AUTH_SECRET}/...`), daemon callbacks (`/api/agentd/v1/*`, `/api/soul/*` — require `AGENTD_API_KEY`), server-to-server IM stream (`/api/internal/im-stream`), workflow webhooks (`/.well-known/workflow/*`), and public assets (any path ending in a file extension).
+- **Bot webhooks**: Auth secret is embedded in the callback URL path (`/api/bot/{AUTH_SECRET}/{adapter}/callback`).
 
 ## Repository layout
 
 Two components, no shared code or build system:
 
 - **Web app (this repo root)** — Next.js 15.5 App Router on Vercel. TypeScript 6, React 19, Biome, Drizzle ORM, Vercel Workflow DevKit. Yarn is the package manager (lockfile is `yarn.lock`, not `package-lock.json`).
-- **`agentd/`** — separate Go 1.26 module (`agentd/go.mod`). Linux-only daemon, runs on user servers, talks to the Web over mTLS. Build/test with `go`, not the root toolchain. See `agentd/README.md` and `agentd/LAYOUT.MD`.
+- **`agentd/`** — separate Go 1.26 module (`agentd/go.mod`). Linux-only daemon, runs on user servers, talks to the Web over mTLS. Build/test with `go`, not the root toolchain. See `agentd/AGENTS.md`, `agentd/README.md`, and `agentd/LAYOUT.MD`.
 
 Other things an agent would misread:
 - `CLAUDE.md` is a symlink to this file — keep this file as the source of truth.
@@ -37,7 +37,9 @@ yarn lint:fix            # biome lint . --write --unsafe
 yarn format              # biome format . --write
 yarn test                # vitest run
 yarn test:watch
-yarn publish             # check + build + git push (the canonical "ship it" path)
+yarn publish             # lint:check + build + git push (canonical "ship it" path)
+                         # NOTE: `publish` references `yarn run check` in package.json
+                         # but the script is named `lint:check`. Run `yarn lint:check` manually.
 yarn deploy              # vercel --prod
 ```
 
@@ -45,7 +47,7 @@ Run a single test file: `yarn test <path>` or `yarn test:watch <path>`. Vitest p
 
 ### Build gotchas
 
-- `next.config.ts` sets `eslint.ignoreDuringBuilds` and `typescript.ignoreBuildErrors: true`. **`next build` will not catch type or lint errors.** Always run `yarn check` separately — it is the only thing enforcing types.
+- `next.config.ts` sets `eslint.ignoreDuringBuilds` and `typescript.ignoreBuildErrors: true`. **`next build` will not catch type or lint errors.** Always run `yarn lint:check` separately — it is the only thing enforcing types.
 - The build wraps the config in `withWorkflow` from `workflow/next`; the Workflow DevKit is a hard dependency, not optional.
 - `postbuild` (`scripts/vercel-postbuild.ts`) only runs DB operations when `VERCEL=1` and `VERCEL_ENV=production`. Locally it exits early — do not expect local builds to touch the DB.
 
@@ -94,7 +96,7 @@ Non-obvious constraints:
 ## Workflow / skills / opencode
 
 - `.agents/skills/` contains repo-local OpenCode skills (ai-sdk, bug-hunter, chat-sdk, workflow, etc.). The skills are intended for OpenCode sessions in this repo — load them when a task matches, don't reimplement what they encode.
-- `MULTI-NODE-SCHEDULING.md`, `security-level.md`, `gatekeeper-diff.md`, `SECURITY.md` carry operational/security context for the Web↔Daemon gatekeeper and L0/L1/L2 model. Read them before touching `lib/security/`, `lib/workflow/`, or any L2-decision code.
+- `MULTI-NODE-SCHEDULING.md` and `BUILD_OPTIMIZATION.md` carry operational context. Read `MULTI-NODE-SCHEDULING.md` before touching multi-node dispatch code.
 
 ## Things that look like bugs but aren't
 
