@@ -10,7 +10,9 @@ program
 
 program
   .command('login')
-  .description('Authenticate against a web deployment and save credentials locally')
+  .description(
+    'Authenticate against a web deployment and save credentials locally',
+  )
   .requiredOption('--url <url>', 'agentboster web deployment base URL')
   .option('--username <username>', 'username (prompted if omitted)')
   .option('--password <password>', 'password (prompted if omitted)')

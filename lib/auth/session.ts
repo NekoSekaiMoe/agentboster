@@ -190,3 +190,27 @@ export async function readAuthSessionFromCookies(
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   return verifyAuthToken(token);
 }
+
+/**
+ * Resolve the auth session from a raw Request, accepting either the
+ * clawless-auth cookie OR an Authorization: Bearer <token> header. CLI
+ * clients use the Bearer form because they don't run in a browser and
+ * don't have a cookie jar. Mirrors middleware.ts auth resolution.
+ */
+export async function readAuthSessionFromRequest(
+  request: Request,
+): Promise<AuthSession | null> {
+  const cookieToken = request.headers
+    .get('cookie')
+    ?.split(';')
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${AUTH_COOKIE_NAME}=`))
+    ?.slice(AUTH_COOKIE_NAME.length + 1);
+
+  const bearerHeader = request.headers.get('authorization');
+  const bearerToken = bearerHeader?.startsWith('Bearer ')
+    ? bearerHeader.slice('Bearer '.length)
+    : null;
+
+  return verifyAuthToken(cookieToken ?? bearerToken ?? undefined);
+}

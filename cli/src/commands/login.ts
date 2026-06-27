@@ -42,13 +42,17 @@ export async function loginCommand(options: {
       body: { username, password: userPassword },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'request failed';
+    const message = error instanceof Error ? error.message : 'request failed';
     console.error(`Login request failed: ${message}`);
     process.exit(1);
   }
 
-  if (!response.ok || !response.token || !response.expiresAt || !response.user) {
+  if (
+    !response.ok ||
+    !response.token ||
+    !response.expiresAt ||
+    !response.user
+  ) {
     console.error(
       `Login failed: ${response.error ?? 'server returned no token'}`,
     );
@@ -65,8 +69,7 @@ export async function loginCommand(options: {
 
   const config = ensureConfig();
   config.deployments[deploymentName] = deployment;
-  config.defaultDeployment =
-    config.defaultDeployment ?? deploymentName;
+  config.defaultDeployment = config.defaultDeployment ?? deploymentName;
   saveConfig(config);
 
   const expiryDate = new Date(deployment.expiresAt).toLocaleString();
