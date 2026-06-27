@@ -33,7 +33,9 @@
       "!**/.omo",
       "!**/.claude",
       "!**/png",
-      "!**/agentd"
+      "!**/agentd",
+      "!**/cli/node_modules",
+      "!**/cli/dist"
     ],
     "ignoreUnknown": false
   },
