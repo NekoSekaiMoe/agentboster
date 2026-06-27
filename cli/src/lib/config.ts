@@ -34,6 +34,11 @@ export type CliConfig = {
   deployments: Record<string, CliDeployment>;
   /** Which deployment name to use by default. */
   defaultDeployment?: string;
+  /**
+   * Theme name (matches a file at ~/.agentboster/themes/<name>.json).
+   * Falls back to 'default' (built-in) when unset or missing.
+   */
+  theme?: string;
 };
 
 const CONFIG_DIR = join(homedir(), '.agentboster');
@@ -85,6 +90,7 @@ export function ensureConfig(): CliConfig {
     clientId: randomUUID(),
     label: hostname() || 'cli-host',
     deployments: {},
+    theme: 'default',
   };
   saveConfig(fresh);
   return fresh;

@@ -26,6 +26,7 @@ import {
 } from '../lib/api';
 import { executeLocalTool } from '../lib/local-tools';
 import { readSseStream, type UiMessageChunk } from '../lib/sse';
+import { loadTheme, type ResolvedTheme } from '../lib/theme';
 
 /**
  * Interactive TUI chat. Renders an editor for input + a scrolling list
@@ -50,41 +51,47 @@ type AppState =
   | { kind: 'streaming'; runId?: string }
   | { kind: 'error'; message: string };
 
-const editorTheme: EditorTheme = {
-  borderColor: (s) => chalk.cyan(s),
-  selectList: {
-    selectedPrefix: (s) => chalk.cyan(s),
-    selectedText: (s) => chalk.cyan.bold(s),
+function buildEditorTheme(theme: ResolvedTheme): EditorTheme {
+  return {
+    borderColor: theme.border,
+    selectList: {
+      selectedPrefix: theme.selectedPrefix,
+      selectedText: (s) => chalk.bold(s),
+      description: (s) => chalk.gray(s),
+      scrollInfo: (s) => chalk.gray(s),
+      noMatch: (s) => chalk.gray(s),
+    },
+  };
+}
+
+function buildMarkdownTheme(theme: ResolvedTheme): MarkdownTheme {
+  return {
+    heading: theme.heading,
+    link: theme.link,
+    linkUrl: (s) => chalk.gray(s),
+    code: theme.code,
+    codeBlock: (s) => chalk.dim(s),
+    codeBlockBorder: (s) => chalk.dim(s),
+    quote: (s) => chalk.italic(s),
+    quoteBorder: (s) => chalk.dim(s),
+    hr: (s) => chalk.dim(s),
+    listBullet: theme.selectedPrefix,
+    bold: theme.bold,
+    italic: theme.italic,
+    strikethrough: (s) => chalk.strikethrough(s),
+    underline: (s) => chalk.underline(s),
+  };
+}
+
+function buildSelectListTheme(theme: ResolvedTheme): SelectListTheme {
+  return {
+    selectedPrefix: theme.selectedPrefix,
+    selectedText: (s) => chalk.bold(s),
     description: (s) => chalk.gray(s),
     scrollInfo: (s) => chalk.gray(s),
     noMatch: (s) => chalk.gray(s),
-  },
-};
-
-const markdownTheme: MarkdownTheme = {
-  heading: (s) => chalk.bold(s),
-  link: (s) => chalk.blue(s),
-  linkUrl: (s) => chalk.gray(s),
-  code: (s) => chalk.yellow(s),
-  codeBlock: (s) => chalk.dim(s),
-  codeBlockBorder: (s) => chalk.dim(s),
-  quote: (s) => chalk.italic(s),
-  quoteBorder: (s) => chalk.dim(s),
-  hr: (s) => chalk.dim(s),
-  listBullet: (s) => chalk.cyan(s),
-  bold: (s) => chalk.bold(s),
-  italic: (s) => chalk.italic(s),
-  strikethrough: (s) => chalk.strikethrough(s),
-  underline: (s) => chalk.underline(s),
-};
-
-const selectListTheme: SelectListTheme = {
-  selectedPrefix: (s) => chalk.cyan(s),
-  selectedText: (s) => chalk.cyan.bold(s),
-  description: (s) => chalk.gray(s),
-  scrollInfo: (s) => chalk.gray(s),
-  noMatch: (s) => chalk.gray(s),
-};
+  };
+}
 
 export async function chatTuiCommand(options: {
   sessionId?: string;
@@ -124,8 +131,14 @@ export async function chatTuiCommand(options: {
   let state: AppState = { kind: 'ready' };
   let currentModel = options.model ?? null;
 
+  const theme = loadTheme(config.theme);
+  const editorTheme = buildEditorTheme(theme);
+  const markdownTheme = buildMarkdownTheme(theme);
+  const selectListTheme = buildSelectListTheme(theme);
+
   const messagesContainer = new Container();
-  const statusText = new Text('', 0, 0, (s: string) => chalk.gray(s));
+  // Status text uses identity — callers pass already-styled chalk output.
+  const statusText = new Text('', 0, 0);
   const editor = new Editor(tui, editorTheme);
   const apiClient = createApiClient(active.deployment);
 
@@ -133,13 +146,17 @@ export async function chatTuiCommand(options: {
     messagesContainer.clear();
     for (const turn of turns) {
       const prefix =
-        turn.role === 'user' ? chalk.cyan('you:') : chalk.magenta('assistant:');
+        turn.role === 'user'
+          ? theme.userPrefix('you:')
+          : theme.assistantPrefix('assistant:');
       messagesContainer.addChild(new Text(prefix, 0, 0));
       messagesContainer.addChild(new Markdown(turn.text, 1, 1, markdownTheme));
       messagesContainer.addChild(new Spacer(1));
     }
     if (streamingText) {
-      messagesContainer.addChild(new Text(chalk.magenta('assistant:'), 0, 0));
+      messagesContainer.addChild(
+        new Text(theme.assistantPrefix('assistant:'), 0, 0),
+      );
       messagesContainer.addChild(
         new Markdown(streamingText, 1, 1, markdownTheme),
       );
@@ -159,7 +176,7 @@ export async function chatTuiCommand(options: {
     turns.push({ id: randomUUID(), role: 'user', text });
     streamingText = '';
     state = { kind: 'streaming' };
-    setStatus(chalk.cyan('thinking…'));
+    setStatus(theme.statusStreaming('thinking…'));
     rebuildMessages();
 
     let runId: string | undefined;
@@ -192,7 +209,7 @@ export async function chatTuiCommand(options: {
           // ignore json parse failure
         }
         state = { kind: 'error', message: errorText };
-        setStatus(chalk.red(`error: ${errorText}`));
+        setStatus(theme.statusError(`error: ${errorText}`));
         return;
       }
 
@@ -212,12 +229,12 @@ export async function chatTuiCommand(options: {
         streamingText = '';
       }
       state = { kind: 'ready' };
-      setStatus(chalk.gray('ready'));
+      setStatus(theme.status('ready'));
       rebuildMessages();
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       state = { kind: 'error', message: msg };
-      setStatus(chalk.red(`error: ${msg}`));
+      setStatus(theme.statusError(`error: ${msg}`));
     }
   }
 
@@ -233,7 +250,7 @@ export async function chatTuiCommand(options: {
 
     if (chunk.type === 'error') {
       const text = (chunk as { errorText?: string }).errorText;
-      if (text) setStatus(chalk.red(`stream error: ${text}`));
+      if (text) setStatus(theme.statusError(`stream error: ${text}`));
       return;
     }
 
@@ -262,13 +279,13 @@ export async function chatTuiCommand(options: {
     toolInput: unknown;
   }): Promise<void> {
     setStatus(
-      chalk.gray(`[local tool] ${req.toolName} — executing on this machine…`),
+      theme.status(`[local tool] ${req.toolName} — executing on this machine…`),
     );
 
     const result = await executeLocalTool(req.toolName, req.toolInput);
 
     setStatus(
-      chalk.gray(
+      theme.status(
         `[local tool] ${req.toolName} — ${result.ok ? 'ok' : 'failed'}, posting result…`,
       ),
     );
@@ -278,7 +295,7 @@ export async function chatTuiCommand(options: {
       // practice — the SSE stream always starts with a runId response —
       // but bail cleanly if it does.
       setStatus(
-        chalk.red(
+        theme.statusError(
           `[local tool] ${req.toolName} — cannot post result (no active runId)`,
         ),
       );
@@ -299,14 +316,16 @@ export async function chatTuiCommand(options: {
       if (!res.ok) {
         const text = await res.text();
         setStatus(
-          chalk.red(
+          theme.statusError(
             `[local tool] ${req.toolName} — POST failed: ${res.status} ${text.slice(0, 200)}`,
           ),
         );
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      setStatus(chalk.red(`[local tool] ${req.toolName} — POST error: ${msg}`));
+      setStatus(
+        theme.statusError(`[local tool] ${req.toolName} — POST error: ${msg}`),
+      );
     }
   }
 
@@ -342,18 +361,18 @@ export async function chatTuiCommand(options: {
       setStatus(chalk.yellow('Wait for the current turn to finish.'));
       return;
     }
-    setStatus(chalk.gray('Loading sessions…'));
+    setStatus(theme.status('Loading sessions…'));
     void (async () => {
       let sessions: SessionListItem[];
       try {
         sessions = await loadSessionsList();
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        setStatus(chalk.red(`Failed to load sessions: ${msg}`));
+        setStatus(theme.statusError(`Failed to load sessions: ${msg}`));
         return;
       }
       if (sessions.length === 0) {
-        setStatus(chalk.gray('No sessions found on this machine.'));
+        setStatus(theme.status('No sessions found on this machine.'));
         return;
       }
       const items: SelectItem[] = sessions.map((s) => ({
@@ -368,7 +387,7 @@ export async function chatTuiCommand(options: {
       };
       list.onCancel = () => {
         tui.hideOverlay();
-        setStatus(chalk.gray('ready'));
+        setStatus(theme.status('ready'));
       };
       tui.showOverlay(list, {
         width: '80%',
@@ -380,14 +399,14 @@ export async function chatTuiCommand(options: {
   }
 
   function showModelPicker(): void {
-    setStatus(chalk.gray('Loading models…'));
+    setStatus(theme.status('Loading models…'));
     void (async () => {
       let models: Array<{ id: string; isDefault: boolean }>;
       try {
         models = await loadModelsList();
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        setStatus(chalk.red(`Failed to load models: ${msg}`));
+        setStatus(theme.statusError(`Failed to load models: ${msg}`));
         return;
       }
       if (models.length === 0) {
@@ -407,7 +426,7 @@ export async function chatTuiCommand(options: {
       list.onSelect = (item: SelectItem) => {
         currentModel = item.value;
         tui.hideOverlay();
-        setStatus(chalk.gray(`model: ${currentModel}`));
+        setStatus(theme.status(`model: ${currentModel}`));
       };
       list.onCancel = () => {
         tui.hideOverlay();
@@ -425,14 +444,14 @@ export async function chatTuiCommand(options: {
   }
 
   async function switchToSession(newSessionId: string): Promise<void> {
-    setStatus(chalk.gray(`Loading session ${newSessionId.slice(0, 8)}…`));
+    setStatus(theme.status(`Loading session ${newSessionId.slice(0, 8)}…`));
     // Reset local state — future turns POST against the new sessionId.
     turns.length = 0;
     streamingText = '';
     activeSessionIdHolder.value = newSessionId;
     rebuildMessages();
     setStatus(
-      chalk.gray(
+      theme.status(
         `switched to ${newSessionId.slice(0, 8)}… — history not loaded yet; ask a question to continue`,
       ),
     );
@@ -473,7 +492,7 @@ export async function chatTuiCommand(options: {
 
   tui.setFocus(editor);
   setStatus(
-    chalk.gray(
+    theme.status(
       'ready — Enter to send · Ctrl+P sessions · Ctrl+L models · Ctrl+C twice to quit',
     ),
   );

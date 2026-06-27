@@ -4,6 +4,7 @@ import { chatTuiCommand } from './commands/chat-tui';
 import { loginCommand } from './commands/login';
 import { modelsCommand } from './commands/models';
 import { sessionsCommand } from './commands/sessions';
+import { themesCommand } from './commands/themes';
 
 const program = new Command();
 
@@ -92,6 +93,17 @@ program
   .option('-d, --deployment <name>', 'deployment name')
   .action(async (opts: { deployment?: string }) => {
     await modelsCommand({ deployment: opts.deployment });
+  });
+
+program
+  .command('themes [name]')
+  .description('List themes or set the active theme (saved to config)')
+  .option(
+    '-s, --set <name>',
+    'set theme and save (alternative to positional arg)',
+  )
+  .action(async (name: string | undefined, opts: { set?: string }) => {
+    await themesCommand({ set: opts.set ?? name });
   });
 
 program.parseAsync(process.argv).catch((error) => {
