@@ -1,112 +1,71 @@
-import { Command } from 'commander';
-import { chatCommand } from './commands/chat';
 import { loginCommand } from './commands/login';
+import { pairCommand } from './commands/pair';
 import { modelsCommand } from './commands/models';
 import { sessionsCommand } from './commands/sessions';
-import { themesCommand } from './commands/themes';
-import { runTui } from './tui/tui';
+import { chatCommand } from './commands/chat';
+import { localCommand } from './commands/local';
+import { runCliTui } from './tui';
 
-const program = new Command();
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const command = args[0];
 
-program
-  .name('agentboster')
-  .description('Terminal client for agentboster')
-  .version('0.1.0')
-  .argument(
-    '[message]',
-    'if provided, run a one-shot chat (print mode) and exit',
-  )
-  .option('-s, --session <sessionId>', 'resume an existing session id')
-  .option('-d, --deployment <name>', 'deployment name (default: "default")')
-  .option('-m, --model <modelId>', 'override the model for this run')
-  .action(
-    async (
-      message: string | undefined,
-      opts: {
-        session?: string;
-        deployment?: string;
-        model?: string;
-      },
-    ) => {
-      // No message arg → interactive TUI. With a message → one-shot print.
-      if (message === undefined) {
-        await runTui({
-          sessionId: opts.session,
-          deployment: opts.deployment,
-          model: opts.model,
-        });
-      } else {
-        await chatCommand({
-          message,
-          sessionId: opts.session,
-          deployment: opts.deployment,
-          model: opts.model,
-        });
-      }
-    },
-  );
+  if (!command || command === '-h' || command === '--help') {
+    await runCliTui();
+    return;
+  }
 
-program
-  .command('login')
-  .description(
-    'Authenticate against a web deployment and save credentials locally',
-  )
-  .requiredOption('--url <url>', 'agentboster web deployment base URL')
-  .option('--username <username>', 'username (prompted if omitted)')
-  .option('--password <password>', 'password (prompted if omitted)')
-  .option('--name <name>', 'deployment name to save as (default: "default")')
-  .action(
-    async (opts: {
-      url: string;
-      username?: string;
-      password?: string;
-      name?: string;
-    }) => {
-      await loginCommand({
-        baseUrl: opts.url,
-        username: opts.username,
-        password: opts.password,
-        name: opts.name,
-      });
-    },
-  );
+  if (command === 'login') {
+    await loginCommand({
+      url: getFlag(args, '--url') ?? '',
+      username: getFlag(args, '--username'),
+      password: getFlag(args, '--password'),
+    });
+    return;
+  }
 
-program
-  .command('sessions')
-  .description('List your sessions (default: only this machine)')
-  .option('-a, --all', 'include web/IM sessions (read-only for those)')
-  .option('-d, --deployment <name>', 'deployment name')
-  .option('-n, --limit <n>', 'max sessions to fetch', '50')
-  .action(
-    async (opts: { all?: boolean; deployment?: string; limit?: string }) => {
-      await sessionsCommand({
-        deployment: opts.deployment,
-        all: opts.all,
-        limit: opts.limit ? Number.parseInt(opts.limit, 10) : undefined,
-      });
-    },
-  );
+  if (command === 'pair') {
+    await pairCommand({
+      url: getFlag(args, '--url'),
+      adapter: getFlag(args, '--adapter'),
+    });
+    return;
+  }
 
-program
-  .command('models')
-  .description('List models configured on the server')
-  .option('-d, --deployment <name>', 'deployment name')
-  .action(async (opts: { deployment?: string }) => {
-    await modelsCommand({ deployment: opts.deployment });
+  if (command === 'models') {
+    await modelsCommand({ url: getFlag(args, '--url') ?? '' });
+    return;
+  }
+
+  if (command === 'sessions') {
+    await sessionsCommand({ url: getFlag(args, '--url') ?? '' });
+    return;
+  }
+
+  if (command === 'local') {
+    await localCommand(args.slice(1));
+    return;
+  }
+
+  await chatCommand({
+    url: getFlag(args, '--url'),
+    sessionId: getFlag(args, '--session'),
+    model: getFlag(args, '--model'),
+    message: args.join(' '),
   });
+}
 
-program
-  .command('themes [name]')
-  .description('List themes or set the active theme (saved to config)')
-  .option(
-    '-s, --set <name>',
-    'set theme and save (alternative to positional arg)',
-  )
-  .action(async (name: string | undefined, opts: { set?: string }) => {
-    await themesCommand({ set: opts.set ?? name });
-  });
+function getFlag(args: string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  if (index === -1) return undefined;
+  return args[index + 1] && !args[index + 1].startsWith('-')
+    ? args[index + 1]
+    : '';
+}
 
-program.parseAsync(process.argv).catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+main().catch((error) => {
+  process.stderr.write(
+    `${error instanceof Error ? error.message : String(error)}\n`,
+  );
   process.exit(1);
 });

@@ -1,211 +1,45 @@
-import { randomUUID } from 'node:crypto';
-import { ensureConfig, getActiveDeployment, loadConfig } from '../lib/config';
-import { createStreamFetcher } from '../lib/api';
-import { executeLocalTool } from '../lib/local-tools';
-import { readSseStream, type UiMessageChunk } from '../lib/sse';
+import { CLI_CONFIG_FILE } from '../lib/config';
+import { createApiClient } from '../lib/api';
+import { readJson } from '../lib/store';
 
-/**
- * Print-only chat command. Sends a single user message to /api/cli/chat
- * and prints the streaming response to stdout. No TUI yet (that's the
- * next stage).
- *
- * This exists as the minimum-viable end-to-end proof: login → POST →
- * SSE → tokens on the terminal. Once the TUI is in place, the
- * streaming logic here gets reused verbatim.
- */
-export async function chatCommand(options: {
-  message?: string;
+function createClientSessionId(): string {
+  return `cli_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function chatCommand(input: {
+  url?: string;
   sessionId?: string;
-  deployment?: string;
   model?: string;
+  message?: string;
 }): Promise<void> {
-  const config = loadConfig();
-  if (!config) {
-    console.error(
-      'Not logged in. Run `agentboster login --url <your-web-url>` first.',
-    );
-    process.exit(1);
-  }
-
-  const ensure = ensureConfig();
-  const active = getActiveDeployment(ensure, options.deployment);
-  if (!active) {
-    console.error(
-      'No configured deployment. Run `agentboster login --url <your-web-url>` first.',
-    );
-    process.exit(1);
-  }
-
-  let message = options.message;
+  const message = input.message?.trim();
   if (!message) {
-    // Read from stdin if no inline message.
-    const stdin = await readStdin();
-    message = stdin.trim();
-  }
-  if (!message) {
-    console.error('Error: a message is required (pass as arg or via stdin).');
-    process.exit(1);
-  }
-
-  const sessionId = options.sessionId ?? randomUUID();
-  const streamFetch = createStreamFetcher(active.deployment);
-
-  const response = await streamFetch('/api/cli/chat', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'X-Idempotency-Key': randomUUID(),
-    },
-    body: JSON.stringify({
-      id: sessionId,
-      trigger: 'submit-message',
-      input: { text: message },
-      clientId: ensure.clientId,
-      label: ensure.label,
-      ...(options.model ? { model: options.model } : {}),
-    }),
-  });
-
-  if (!response.ok) {
-    let errorText = `${response.status} ${response.statusText}`;
-    try {
-      const body = (await response.json()) as {
-        error?: string;
-        message?: string;
-      };
-      errorText = body.message ?? body.error ?? errorText;
-    } catch {
-      // ignore parse failure
-    }
-    console.error(`Request failed: ${errorText}`);
-    process.exit(1);
-  }
-
-  const newSessionId = response.headers.get('x-session-id') ?? sessionId;
-  const runId = response.headers.get('x-workflow-run-id');
-  process.stderr.write(
-    `[session: ${newSessionId}${runId ? ` | run: ${runId}` : ''}]\n`,
-  );
-
-  try {
-    for await (const chunk of readSseStream(response)) {
-      await printChunk(chunk, {
-        runId,
-        streamFetch,
-      });
-    }
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`\nStream error: ${msg}`);
-    process.exit(1);
-  }
-}
-
-function printChunk(
-  chunk: UiMessageChunk,
-  context: {
-    runId: string | null;
-    streamFetch: (path: string, init?: RequestInit) => Promise<Response>;
-  },
-): Promise<void> {
-  if (chunk.type === 'text-delta') {
-    const delta = (chunk as { delta?: string }).delta;
-    if (typeof delta === 'string') {
-      process.stdout.write(delta);
-    }
-    return Promise.resolve();
-  }
-
-  if (chunk.type === 'error') {
-    const text = (chunk as { errorText?: string }).errorText;
-    if (text) process.stderr.write(`\n[error] ${text}\n`);
-    return Promise.resolve();
-  }
-
-  if (chunk.type === 'data-workflow') {
-    const data = (chunk as { data?: { kind: string; type: string } }).data;
-    if (data?.kind === 'status' && data.type === 'local-tool-request') {
-      const req = (
-        chunk as unknown as {
-          data: {
-            toolCallId: string;
-            toolName: string;
-            toolInput: unknown;
-          };
-        }
-      ).data;
-      return handleLocalToolRequest(req, context);
-    }
-  }
-
-  return Promise.resolve();
-}
-
-async function handleLocalToolRequest(
-  req: {
-    toolCallId: string;
-    toolName: string;
-    toolInput: unknown;
-  },
-  context: {
-    runId: string | null;
-    streamFetch: (path: string, init?: RequestInit) => Promise<Response>;
-  },
-): Promise<void> {
-  process.stderr.write(
-    `\n[local-tool] ${req.toolName} (call ${req.toolCallId.slice(0, 8)}…) — executing…\n`,
-  );
-
-  const result = await executeLocalTool(req.toolName, req.toolInput);
-
-  process.stderr.write(
-    `[local-tool] ${req.toolName} — ${result.ok ? 'ok' : 'failed'}\n`,
-  );
-
-  if (!context.runId) {
-    process.stderr.write(
-      '[local-tool] cannot post result — no runId in response headers\n',
-    );
+    console.log('Interactive TUI is not implemented yet.');
     return;
   }
 
-  try {
-    const res = await context.streamFetch(
-      `/api/ai/${context.runId}/tool-result`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          toolCallId: req.toolCallId,
-          ok: result.ok,
-          output: result.output,
-          error: result.error,
-        }),
-      },
-    );
-    if (!res.ok) {
-      const text = await res.text();
-      process.stderr.write(
-        `[local-tool] POST failed: ${res.status} ${text.slice(0, 200)}\n`,
-      );
-    }
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`[local-tool] POST error: ${msg}\n`);
+  const stored = readJson<{ url?: string; token?: string }>(CLI_CONFIG_FILE);
+  const baseUrl = input.url ?? stored?.url;
+  if (!baseUrl) {
+    throw new Error('missing url');
   }
-}
 
-function readStdin(): Promise<string> {
-  return new Promise((resolve) => {
-    let data = '';
-    if (process.stdin.isTTY) {
-      resolve('');
-      return;
-    }
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => {
-      data += chunk;
-    });
-    process.stdin.on('end', () => resolve(data));
+  const api = createApiClient(baseUrl, stored?.token);
+  const sessionId = input.sessionId?.trim() || createClientSessionId();
+  const response = await api.sendMessage({
+    sessionId,
+    message,
+    model: input.model,
   });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  const detail = await api.getSessionMessages(sessionId);
+  const lastAssistant = detail.messages
+    .filter((message) => message.role === 'assistant')
+    .at(-1)?.content;
+
+  console.log(lastAssistant ?? '(no assistant reply yet)');
 }

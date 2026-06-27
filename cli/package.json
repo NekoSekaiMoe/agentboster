@@ -1,7 +1,7 @@
 {
   "name": "@agentboster/cli",
   "version": "0.1.0",
-  "description": "Terminal client for agentboster — claude-code style TUI that talks to your web deployment.",
+  "private": true,
   "type": "module",
   "bin": {
     "agentboster": "./dist/cli.js"
@@ -9,24 +9,13 @@
   "scripts": {
     "build": "esbuild src/cli.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/cli.js --banner:js=\"#!/usr/bin/env node\" --target=node22 && chmod +x dist/cli.js",
     "dev": "tsx src/cli.ts",
-    "lint": "tsc --noEmit -p tsconfig.json",
-    "start": "node dist/cli.js"
-  },
-  "engines": {
-    "node": ">=22.19.0"
-  },
-  "dependencies": {
-    "@earendil-works/pi-tui": "^0.80.2",
-    "@inquirer/prompts": "^7.5.0",
-    "chalk": "^5.6.2",
-    "commander": "^13.0.0",
-    "ofetch": "^1.5.1",
-    "zod": "^4.3.6"
+    "start": "node dist/cli.js",
+    "lint": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^25.6.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.22.3",
-    "typescript": "^5.9.0"
+    "typescript": "^6.0.2"
   }
 }
