@@ -68,6 +68,35 @@ export async function saveModelId(model: string) {
   cookieStore.set('model-id', model);
 }
 
+export async function saveSessionModelAction(input: {
+  sessionId: string;
+  model: string | null;
+}): Promise<{ ok: boolean }> {
+  const access = await requireAuth();
+
+  const sessionId = input.sessionId.trim();
+  if (!sessionId) {
+    throw new Error('Missing session id');
+  }
+
+  const existing = await getSession(sessionId);
+  if (!existing) {
+    throw new Error('Session not found');
+  }
+
+  assertCanAccessOwnedResource(access, existing.userId);
+
+  if (access.isAdmin) {
+    await updateSession(sessionId, { model: input.model });
+  } else {
+    await updateSessionForUser(sessionId, access.session.userId, {
+      model: input.model,
+    });
+  }
+
+  return { ok: true };
+}
+
 export async function listRecentSessionsAction(limit = 30) {
   const access = await requireAuth();
 

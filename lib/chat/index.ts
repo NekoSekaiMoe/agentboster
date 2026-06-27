@@ -1244,6 +1244,7 @@ async function executeCommand(input: {
           input.source.type === 'im' || input.source.type === 'web'
             ? (input.source.userId ?? null)
             : null,
+        sessionId: session?.id ?? null,
       });
       return {
         sessionId: currentSessionId,
@@ -1691,6 +1692,7 @@ export async function chatMain(
 
   const effectiveModelId =
     request.requestModel ??
+    session.model ??
     user?.modelPreferences?.model ??
     config.models?.model ??
     null;
@@ -1699,11 +1701,13 @@ export async function chatMain(
     effectiveModelId,
     modelSource: request.requestModel
       ? 'request'
-      : user?.modelPreferences?.model
-        ? 'user-pref'
-        : config.models?.model
-          ? 'global'
-          : 'none',
+      : session.model
+        ? 'session'
+        : user?.modelPreferences?.model
+          ? 'user-pref'
+          : config.models?.model
+            ? 'global'
+            : 'none',
   });
   const initialMessages = await buildInitialContextMessages(session.id, {
     modelId: effectiveModelId,

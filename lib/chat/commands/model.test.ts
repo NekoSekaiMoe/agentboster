@@ -5,6 +5,10 @@ vi.mock('@/lib/core/db/users', () => ({
   updateUserModelPreferences: vi.fn(),
 }));
 
+vi.mock('@/lib/core/db/chat', () => ({
+  updateSession: vi.fn(),
+}));
+
 vi.mock('@/lib/core/kv/config', () => ({
   getConfig: vi.fn(),
   patchConfig: vi.fn(),
@@ -12,6 +16,7 @@ vi.mock('@/lib/core/kv/config', () => ({
 
 import { executeModelCommand } from './model';
 import { getUserById, updateUserModelPreferences } from '@/lib/core/db/users';
+import { updateSession } from '@/lib/core/db/chat';
 import { getConfig } from '@/lib/core/kv/config';
 
 const USER_ID = 'user-uuid-1';
@@ -104,6 +109,29 @@ describe('executeModelCommand', () => {
         model: PERSONAL_MODEL,
       });
       expect(text).toContain(`Your preferred model is now: ${PERSONAL_MODEL}`);
+    });
+
+    it('also writes the current session model when sessionId is present', async () => {
+      vi.mocked(getConfig).mockResolvedValueOnce({
+        models: { model: GLOBAL_MODEL },
+      } as never);
+      vi.mocked(updateUserModelPreferences).mockResolvedValueOnce({
+        id: USER_ID,
+        username: 'alice',
+        roles: ['user'],
+        modelPreferences: { model: PERSONAL_MODEL },
+        createdAt: new Date(),
+      });
+      vi.mocked(updateSession).mockResolvedValueOnce(null as never);
+
+      await executeModelCommand(PERSONAL_MODEL, {
+        userId: USER_ID,
+        sessionId: 'ses_123',
+      });
+
+      expect(updateSession).toHaveBeenCalledWith('ses_123', {
+        model: PERSONAL_MODEL,
+      });
     });
 
     it('trims whitespace before saving', async () => {

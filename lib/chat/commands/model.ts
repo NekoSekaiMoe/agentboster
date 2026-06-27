@@ -1,3 +1,4 @@
+import { updateSession } from '@/lib/core/db/chat';
 import { getUserById, updateUserModelPreferences } from '@/lib/core/db/users';
 import { aiModelConfigSchema } from '@/types/config/ai';
 
@@ -5,10 +6,12 @@ export async function executeModelCommand(
   args: string,
   options?: {
     userId?: string | null;
+    sessionId?: string | null;
   },
 ): Promise<string> {
   const trimmed = args.trim();
   const userId = options?.userId ?? null;
+  const sessionId = options?.sessionId ?? null;
 
   if (!trimmed) {
     if (!userId) {
@@ -57,5 +60,10 @@ export async function executeModelCommand(
   }
 
   await updateUserModelPreferences(userId, { model: parsed.data });
+
+  if (sessionId) {
+    await updateSession(sessionId, { model: parsed.data });
+  }
+
   return `Your preferred model is now: ${parsed.data}`;
 }

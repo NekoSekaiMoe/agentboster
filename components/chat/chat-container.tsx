@@ -4,6 +4,7 @@ import {
   controlSessionRuntimeAction,
   deleteSessionAction,
   getChatUiSettingsAction,
+  saveSessionModelAction,
   updateSessionTitleAction,
 } from '@/app/(chat)/actions';
 import { useChat } from '@ai-sdk/react';
@@ -54,6 +55,16 @@ import { Messages } from './message-list';
 type SessionRuntimeSnapshot = {
   workflow?: { runId?: string | null; status?: string | null };
 };
+
+type ChatSession = {
+  id: string;
+  title: string | null;
+  channel: string;
+  externalThreadId: string | null;
+  model: string | null;
+  accessDenied?: boolean;
+  readOnlyChannel?: { sessionChannel: string } | null;
+} | null;
 
 type ComposerMessage = { text: string } | CreateUIMessage<WorkflowUIMessage>;
 type ToolApprovalInput = {
@@ -126,13 +137,7 @@ export function Chat({
 }: {
   id: string;
   initialMessages?: WorkflowUIMessage[];
-  session?: {
-    title: string | null;
-    channel: string;
-    externalThreadId: string | null;
-    accessDenied?: boolean;
-    readOnlyChannel?: { sessionChannel: string } | null;
-  } | null;
+  session?: ChatSession;
 }) {
   const router = useRouter();
   const { t } = useI18n();
@@ -145,7 +150,9 @@ export function Chat({
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [composerFocusKey, setComposerFocusKey] = useState(0);
-  const [sessionState, setSessionState] = useState(session);
+  const [sessionState, setSessionState] = useState<ChatSession>(
+    session ?? null,
+  );
   const [tokenUsage, setTokenUsage] = useState<{
     input: number;
     output: number;
@@ -157,10 +164,9 @@ export function Chat({
     string | null
   >(null);
 
-  // Chat-box model picker state. Persisted to localStorage so the user's
-  // last selection survives across refreshes / sessions (per ChatGPT-style
-  // UX). null = "Use global default".
-  const [selectedModel, setSelectedModel] = useLocalStorage<string | null>(
+  // Chat-box model picker state. Keep the active session model as the source
+  // of truth and only fall back to the last local pick when the session is new.
+  const [draftModel, setDraftModel] = useLocalStorage<string | null>(
     'chat-selected-model',
     null,
   );
@@ -194,8 +200,32 @@ export function Chat({
   }, [activeRunId]);
 
   useEffect(() => {
-    setSessionState(session);
+    setSessionState(session ?? null);
   }, [session]);
+
+  const [sessionModel, setSessionModel] = useState<string | null>(
+    session?.model ?? null,
+  );
+  const selectedModel = session ? sessionModel : draftModel;
+  const setSelectedModel = useCallback(
+    (model: string | null) => {
+      if (session) {
+        setSessionModel(model);
+        void saveSessionModelAction({ sessionId: id, model }).catch((error) => {
+          console.warn('[chat] save session model failed:', error);
+          toast.error('Failed to save session model.');
+        });
+        return;
+      }
+
+      setDraftModel(model);
+    },
+    [id, session, setDraftModel],
+  );
+
+  useEffect(() => {
+    setSessionModel(session?.model ?? null);
+  }, [session?.model]);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,9 +293,11 @@ export function Chat({
                 channel,
               }
             : {
+                id,
                 title: null,
                 channel,
                 externalThreadId: session?.externalThreadId ?? null,
+                model: session?.model ?? null,
                 accessDenied: session?.accessDenied ?? false,
                 readOnlyChannel: session?.readOnlyChannel ?? null,
               },
@@ -289,9 +321,11 @@ export function Chat({
     };
   }, [
     bootstrapStatusRunId,
+    id,
     session?.accessDenied,
     session?.channel,
     session?.externalThreadId,
+    session?.model,
     session?.readOnlyChannel,
   ]);
 
@@ -337,9 +371,11 @@ export function Chat({
                         },
                       }
                     : {
+                        id,
                         title: null,
                         channel: sessionChannel,
                         externalThreadId: null,
+                        model: session?.model ?? null,
                         accessDenied: false,
                         readOnlyChannel: {
                           sessionChannel,
@@ -364,7 +400,7 @@ export function Chat({
           };
         },
       }),
-    [],
+    [id, session?.model],
   );
 
   const {
@@ -625,9 +661,11 @@ export function Chat({
               title,
             }
           : {
+              id,
               title,
               channel: session?.channel ?? 'web',
               externalThreadId: session?.externalThreadId ?? null,
+              model: session?.model ?? null,
               accessDenied: false,
               readOnlyChannel: null,
             },
@@ -646,7 +684,13 @@ export function Chat({
         console.warn('[chat] update session title failed:', error);
       }
     },
-    [id, session?.channel, session?.externalThreadId, sessionState?.title],
+    [
+      id,
+      session?.channel,
+      session?.externalThreadId,
+      session?.model,
+      sessionState?.title,
+    ],
   );
 
   const submitChatMessage = useCallback(
@@ -665,9 +709,11 @@ export function Chat({
       if (isFirstMessage) {
         shouldBootstrapSessionStatusRef.current = true;
         setSessionState({
+          id,
           title: optimisticTitle,
           channel: session?.channel ?? 'web',
           externalThreadId: session?.externalThreadId ?? null,
+          model: session?.model ?? null,
           accessDenied: false,
           readOnlyChannel: null,
         });
