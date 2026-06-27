@@ -45,3 +45,12 @@ artifacts/
 agentd/agentd
 .atomcode/
 .qoder/
+
+# CLI (pi-coding-agent fork at cli/) — local-only artifacts
+cli/dist/
+cli/yarn.lock
+cli/packages/*/dist/
+*.tsbuildinfo
+
+# vendored reference repos (not project code, see AGENTS.md)
+ref/

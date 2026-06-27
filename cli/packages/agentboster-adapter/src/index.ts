@@ -1,0 +1,28 @@
+/**
+ * Public API of @agentboster/adapter.
+ *
+ * This package adapts pi-coding-agent's StreamFn contract to the
+ * Agentboster web backend (POST /api/cli/chat → SSE → pi events).
+ */
+
+export {
+	type AgentbosterAuth,
+	type AgentbosterStoredConfig,
+	clearStoredAuth,
+	getAgentbosterHome,
+	getConfigPath,
+	getStoredAuth,
+	readStoredConfig,
+	writeStoredConfig,
+} from "./auth.ts";
+
+export {
+	type CreateStreamFnOptions,
+	createAgentbosterStreamFn,
+} from "./stream-fn.ts";
+export {
+	type LocalToolRequestHandler,
+	openAgentbosterStream,
+	type WebStreamChunk,
+	type WebStreamOptions,
+} from "./web-stream.ts";

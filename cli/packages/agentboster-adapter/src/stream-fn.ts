@@ -1,0 +1,68 @@
+/**
+ * Wrap the web stream as a pi `StreamFn`.
+ *
+ * Returns a function that satisfies `@earendil-works/pi-agent`'s StreamFn
+ * contract — pi's agent loop calls it with (model, context, options) and
+ * expects an `AssistantMessageEventStream` back.
+ *
+ * The implementation ignores the local model selection (the web backend
+ * owns model choice) and forwards only the latest user message to the
+ * server, since the server maintains full conversation history.
+ */
+
+import type { StreamFn } from "@earendil-works/pi-agent-core";
+import {
+	type AssistantMessageEventStream,
+	createAssistantMessageEventStream,
+} from "@earendil-works/pi-ai/utils/event-stream";
+import type { Api, Context, Model } from "@earendil-works/pi-ai";
+
+import { openAgentbosterStream, type WebStreamOptions } from "./web-stream.ts";
+
+export interface CreateStreamFnOptions extends Omit<WebStreamOptions, "baseUrl" | "token" | "sessionId"> {
+	/** Resolve the current session id (called each turn so the host can rotate). */
+	getSessionId: () => string;
+	/** Resolve the current server URL + token (called each turn). */
+	getAuth: () => { baseUrl: string; token: string } | null;
+}
+
+/**
+ * Build a StreamFn that talks to the Agentboster web backend.
+ *
+ * The returned function ignores pi's `model` argument (the server picks
+ * the model from session state) and ignores pi's `context.tools` (the
+ * server owns tool execution). It only forwards the latest user text.
+ */
+export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn {
+	return (_model: Model<Api>, context: Context): ReturnType<StreamFn> => {
+		const auth = opts.getAuth();
+		if (!auth) {
+			const stream = createAssistantMessageEventStream();
+			stream.push({
+				type: "error",
+				reason: "error",
+				error: {
+					role: "assistant",
+					content: [
+						{
+							type: "text",
+							text: "Not logged in. Run `agentboster login` first.",
+						},
+					],
+					stopReason: "error",
+				} as never,
+			});
+			return stream;
+		}
+		const sessionId = opts.getSessionId();
+		return openAgentbosterStream(_model, context, {
+			baseUrl: auth.baseUrl,
+			token: auth.token,
+			sessionId,
+			clientId: opts.clientId,
+			label: opts.label,
+			model: opts.model,
+			onLocalToolRequest: opts.onLocalToolRequest,
+		});
+	};
+}
