@@ -15,7 +15,7 @@ import {
 	type AssistantMessageEventStream,
 	createAssistantMessageEventStream,
 } from "@earendil-works/pi-ai/utils/event-stream";
-import type { Api, Context, Model } from "@earendil-works/pi-ai";
+import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 
 import { openAgentbosterStream, type WebStreamOptions } from "./web-stream.ts";
 
@@ -34,7 +34,7 @@ export interface CreateStreamFnOptions extends Omit<WebStreamOptions, "baseUrl" 
  * server owns tool execution). It only forwards the latest user text.
  */
 export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn {
-	return (_model: Model<Api>, context: Context): ReturnType<StreamFn> => {
+	return (_model: Model<Api>, context: Context, options?: SimpleStreamOptions): ReturnType<StreamFn> => {
 		const auth = opts.getAuth();
 		if (!auth) {
 			const stream = createAssistantMessageEventStream();
@@ -63,6 +63,7 @@ export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn
 			label: opts.label,
 			model: opts.model,
 			onLocalToolRequest: opts.onLocalToolRequest,
+			signal: options?.signal,
 		});
 	};
 }

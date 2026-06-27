@@ -3343,6 +3343,7 @@ export class InteractiveMode {
 		} else {
 			this.clearEditor();
 			this.lastSigintTime = now;
+			this.showStatus("Press Ctrl+C again to quit.");
 		}
 	}
 

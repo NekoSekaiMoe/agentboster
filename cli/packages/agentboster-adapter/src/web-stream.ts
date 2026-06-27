@@ -37,6 +37,8 @@ export interface WebStreamOptions {
 	label?: string;
 	model?: string | null;
 	onLocalToolRequest?: LocalToolRequestHandler;
+	/** Abort signal from pi's agent loop. When aborted, the fetch is cancelled. */
+	signal?: AbortSignal;
 }
 
 function lastUserText(messages: Context["messages"]): string {
@@ -149,6 +151,7 @@ async function driveStream(
 			label: options.label ?? "agentboster-cli",
 			model: options.model ?? undefined,
 		}),
+		signal: options.signal,
 	});
 
 	if (!response.ok) {
