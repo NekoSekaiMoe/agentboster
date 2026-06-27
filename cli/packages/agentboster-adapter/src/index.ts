@@ -26,3 +26,5 @@ export {
 	type WebStreamChunk,
 	type WebStreamOptions,
 } from "./web-stream.ts";
+
+export { fetchRemoteModels, remoteModelsToPiModels, type RemoteModel, type RemoteModelsResponse } from "./models.ts";

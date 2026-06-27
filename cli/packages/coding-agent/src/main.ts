@@ -9,7 +9,9 @@ import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import {
 	createAgentbosterStreamFn,
+	fetchRemoteModels,
 	getStoredAuth,
+	remoteModelsToPiModels,
 } from "@agentboster/adapter";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
@@ -682,6 +684,7 @@ export async function main(args: string[], options?: MainOptions) {
 			},
 		});
 		const { settingsManager, modelRegistry, resourceLoader } = services;
+		await injectRemoteModels(modelRegistry);
 		const diagnostics: AgentSessionRuntimeDiagnostic[] = [
 			...projectTrustDiagnostics,
 			...services.diagnostics,
@@ -862,6 +865,19 @@ export async function main(args: string[], options?: MainOptions) {
 		}
 		return;
 	}
+}
+
+/**
+ * Pull the model catalog from the web backend and inject it into pi's
+ * ModelRegistry. No-op when not logged in (falls back to pi's local
+ * provider registry).
+ */
+async function injectRemoteModels(modelRegistry: ModelRegistry): Promise<void> {
+	const auth = getStoredAuth();
+	if (!auth) return;
+	const remote = await fetchRemoteModels(auth.url, auth.token);
+	if (!remote || remote.models.length === 0) return;
+	modelRegistry.setRemoteModels(remoteModelsToPiModels(remote));
 }
 
 /**

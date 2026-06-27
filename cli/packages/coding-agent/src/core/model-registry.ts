@@ -653,6 +653,28 @@ export class ModelRegistry {
 	}
 
 	/**
+	 * Replace the model catalog with remote-sourced entries.
+	 *
+	 * Used by the Agentboster adapter: when the CLI logs in to a web
+	 * backend, the model catalog is fetched from /api/cli/models and
+	 * injected here, bypassing the local provider registry entirely.
+	 */
+	setRemoteModels(models: Model<Api>[]): void {
+		this.models = models;
+		// Mark the agentboster provider as authed so getAvailable()
+		// includes these models — the real auth (bearer token) lives
+		// on the adapter, not in AuthStorage.
+		for (const m of models) {
+			if (m.provider === "agentboster") {
+				this.providerRequestConfigs.set("agentboster", {
+					apiKey: "agentboster-adapter",
+					type: "api_key",
+				} as never);
+			}
+		}
+	}
+
+	/**
 	 * Get API key for a model.
 	 */
 	hasConfiguredAuth(model: Model<Api>): boolean {
