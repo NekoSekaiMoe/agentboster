@@ -16,7 +16,6 @@ import {
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
-import { createBashToolDefinition } from "./core/tools/bash.ts";
 import type { ToolDefinition } from "./core/extensions/types.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
@@ -734,7 +733,6 @@ export async function main(args: string[], options?: MainOptions) {
 			}
 		}
 
-		const agentbosterTools = resolveAgentbosterToolConfig();
 		const created = await createAgentSessionFromServices({
 			services,
 			sessionManager,
@@ -742,14 +740,10 @@ export async function main(args: string[], options?: MainOptions) {
 			model: sessionOptions.model,
 			thinkingLevel: sessionOptions.thinkingLevel,
 			scopedModels: sessionOptions.scopedModels,
-			tools: agentbosterTools.tools.length > 0 ? agentbosterTools.tools : sessionOptions.tools,
-			excludeTools: agentbosterTools.excludeTools.length > 0
-				? agentbosterTools.excludeTools
-				: sessionOptions.excludeTools,
+			tools: sessionOptions.tools,
+			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
-			customTools: agentbosterTools.customTools.length > 0
-				? agentbosterTools.customTools
-				: sessionOptions.customTools,
+			customTools: sessionOptions.customTools,
 			streamFnOverride: await resolveStreamFnOverride(sessionManager),
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
@@ -885,33 +879,101 @@ export async function main(args: string[], options?: MainOptions) {
 }
 
 /**
- * When logged in to an Agentboster server, restrict the agent to three
- * local-execution tools: read, write, and exec. The bash tool is
- * re-registered under the name "exec" (matching the web backend's
- * system-prompt vocabulary); read/write reuse pi's built-ins. All
- * other pi tools (edit, grep, find, ls) are excluded — the web LLM
- * should only see exec/read/write, and they all execute on the CLI
- * host, never on the server.
+ * Execute a local-tool-request from the web backend and POST the
+ * result back. The web workflow blocks on localToolResultHookBuilder
+ * until we respond at /api/ai/[runId]/tool-result.
+ *
+ * Tool names match the web backend's local_* vocabulary:
+ *   local_read_file  → read a local file
+ *   local_write_file → write a local file
+ *   local_exec       → run a shell command locally
  */
-function resolveAgentbosterToolConfig(): {
-	tools: string[];
-	excludeTools: string[];
-	customTools: ToolDefinition[];
-} {
-	if (!getStoredAuth()) return { tools: [], excludeTools: [], customTools: [] };
+async function handleLocalToolRequest(
+	auth: { url: string; token: string },
+	runId: string,
+	toolCallId: string,
+	toolName: string,
+	toolInput: unknown,
+): Promise<void> {
+	const input = toolInput as Record<string, unknown>;
+	let result: { ok: boolean; output?: unknown; error?: string };
 
-	// Re-register bash as "exec" so the web LLM's tool name matches.
-	const execTool = createBashToolDefinition(process.cwd(), {});
-	(execTool as { name: string }).name = "exec";
-	(execTool as { label: string }).label = "exec";
+	try {
+		switch (toolName) {
+			case "local_read_file": {
+				const path = String(input["path"] ?? "");
+				const fs = await import("node:fs/promises");
+				result = { ok: true, output: await fs.readFile(path, "utf8") };
+				break;
+			}
+			case "local_write_file": {
+				const path = String(input["path"] ?? "");
+				const content = String(input["content"] ?? "");
+				const fs = await import("node:fs/promises");
+				const { dirname } = await import("node:path");
+				await fs.mkdir(dirname(path), { recursive: true });
+				await fs.writeFile(path, content, "utf8");
+				result = { ok: true, output: `Wrote ${content.length} bytes to ${path}` };
+				break;
+			}
+			case "local_exec": {
+				const command = String(input["command"] ?? "");
+				const cwd = typeof input["cwd"] === "string" ? input["cwd"] : process.cwd();
+				const { spawn } = await import("node:child_process");
+				result = await new Promise((resolve) => {
+					const child = spawn(command, {
+						shell: process.env["SHELL"] ?? "/bin/sh",
+						cwd: typeof cwd === "string" ? cwd : process.cwd(),
+						env: process.env,
+					});
+					let stdout = "";
+					let stderr = "";
+					const MAX = 100_000;
+					child.stdout?.on("data", (chunk: Buffer) => {
+						if (stdout.length < MAX) stdout += chunk.toString("utf8").slice(0, MAX - stdout.length);
+					});
+					child.stderr?.on("data", (chunk: Buffer) => {
+						if (stderr.length < MAX) stderr += chunk.toString("utf8").slice(0, MAX - stderr.length);
+					});
+					child.on("error", (err) => resolve({ ok: false, error: err.message }));
+					child.on("close", (code) => {
+						if (code === 0) {
+							resolve({ ok: true, output: stderr ? `${stdout}\n[stderr]\n${stderr}` : stdout });
+						} else {
+							resolve({ ok: false, error: `Exit ${code}.\n[stdout]\n${stdout}\n[stderr]\n${stderr}` });
+						}
+					});
+				});
+				break;
+			}
+			default:
+				result = { ok: false, error: `Unknown local tool: ${toolName}` };
+		}
+	} catch (error) {
+		result = {
+			ok: false,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	}
 
-	return {
-		// Only these three are active. Order matters for the picker.
-		tools: ["read", "write"],
-		// Drop the rest of pi's built-ins.
-		excludeTools: ["bash", "edit", "grep", "find", "ls"],
-		customTools: [execTool as unknown as ToolDefinition],
-	};
+	const root = auth.url.replace(/\/$/, "");
+	await fetch(`${root}/api/ai/${encodeURIComponent(runId)}/tool-result`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			authorization: `Bearer ${auth.token}`,
+			cookie: `clawless-auth=${auth.token}`,
+		},
+		body: JSON.stringify({
+			toolCallId,
+			ok: result.ok,
+			output: result.output,
+			error: result.error,
+		}),
+	}).catch(() => {
+		// Best-effort: if POST fails the web backend will time out on its
+		// own. Don't crash the CLI.
+	});
 }
 
 /**
@@ -947,8 +1009,6 @@ async function resolveStreamFnOverride(
 ): Promise<StreamFn | undefined> {
 	const auth = getStoredAuth();
 	if (!auth) {
-		// Not logged in to Agentboster. Fall back to pi's built-in
-		// provider SDKs (requires separate `pi auth login`).
 		return undefined;
 	}
 	const sessionId =
@@ -960,5 +1020,8 @@ async function resolveStreamFnOverride(
 		clientId: process.env["AGENTBOSTER_CLIENT_ID"] ?? "local-cli",
 		label: "agentboster-cli",
 		model: process.env["AGENTBOSTER_MODEL"] ?? null,
+		onLocalToolRequest: async ({ runId, toolCallId, toolName, toolInput }) => {
+			await handleLocalToolRequest(auth, runId, toolCallId, toolName, toolInput);
+		},
 	});
 }
