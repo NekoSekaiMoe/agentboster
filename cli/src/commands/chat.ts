@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ensureConfig, getActiveDeployment, loadConfig } from '../lib/config';
 import { createStreamFetcher } from '../lib/api';
+import { executeLocalTool } from '../lib/local-tools';
 import { readSseStream, type UiMessageChunk } from '../lib/sse';
 
 /**
@@ -86,7 +87,10 @@ export async function chatCommand(options: {
 
   try {
     for await (const chunk of readSseStream(response)) {
-      printChunk(chunk);
+      await printChunk(chunk, {
+        runId,
+        streamFetch,
+      });
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -95,42 +99,98 @@ export async function chatCommand(options: {
   }
 }
 
-function printChunk(chunk: UiMessageChunk): void {
+function printChunk(
+  chunk: UiMessageChunk,
+  context: {
+    runId: string | null;
+    streamFetch: (path: string, init?: RequestInit) => Promise<Response>;
+  },
+): Promise<void> {
   if (chunk.type === 'text-delta') {
     const delta = (chunk as { delta?: string }).delta;
     if (typeof delta === 'string') {
       process.stdout.write(delta);
     }
-    return;
+    return Promise.resolve();
   }
 
   if (chunk.type === 'error') {
     const text = (chunk as { errorText?: string }).errorText;
     if (text) process.stderr.write(`\n[error] ${text}\n`);
-    return;
+    return Promise.resolve();
   }
 
   if (chunk.type === 'data-workflow') {
     const data = (chunk as { data?: { kind: string; type: string } }).data;
     if (data?.kind === 'status' && data.type === 'local-tool-request') {
-      // Stage D will execute these; for now just log that one was received.
-      const req = chunk as unknown as {
-        data: {
-          toolCallId: string;
-          toolName: string;
-          toolInput: unknown;
-        };
-      };
-      process.stderr.write(
-        `\n[local-tool-request] ${req.data.toolName} (call ${req.data.toolCallId.slice(0, 8)}…) — not executed (stage D pending)\n`,
-      );
+      const req = (
+        chunk as unknown as {
+          data: {
+            toolCallId: string;
+            toolName: string;
+            toolInput: unknown;
+          };
+        }
+      ).data;
+      return handleLocalToolRequest(req, context);
     }
+  }
+
+  return Promise.resolve();
+}
+
+async function handleLocalToolRequest(
+  req: {
+    toolCallId: string;
+    toolName: string;
+    toolInput: unknown;
+  },
+  context: {
+    runId: string | null;
+    streamFetch: (path: string, init?: RequestInit) => Promise<Response>;
+  },
+): Promise<void> {
+  process.stderr.write(
+    `\n[local-tool] ${req.toolName} (call ${req.toolCallId.slice(0, 8)}…) — executing…\n`,
+  );
+
+  const result = await executeLocalTool(req.toolName, req.toolInput);
+
+  process.stderr.write(
+    `[local-tool] ${req.toolName} — ${result.ok ? 'ok' : 'failed'}\n`,
+  );
+
+  if (!context.runId) {
+    process.stderr.write(
+      '[local-tool] cannot post result — no runId in response headers\n',
+    );
     return;
   }
 
-  // Other chunk types (tool-input-*, tool-output-*, message-metadata,
-  // step-finish, etc.) are ignored in print mode — they matter for the
-  // TUI but not for streaming tokens to stdout.
+  try {
+    const res = await context.streamFetch(
+      `/api/ai/${context.runId}/tool-result`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          toolCallId: req.toolCallId,
+          ok: result.ok,
+          output: result.output,
+          error: result.error,
+        }),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text();
+      process.stderr.write(
+        `[local-tool] POST failed: ${res.status} ${text.slice(0, 200)}\n`,
+      );
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[local-tool] POST error: ${msg}\n`);
+  }
 }
 
 function readStdin(): Promise<string> {

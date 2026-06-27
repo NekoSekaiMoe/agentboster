@@ -15,6 +15,7 @@ import {
 } from '@earendil-works/pi-tui';
 import { ensureConfig, getActiveDeployment, loadConfig } from '../lib/config';
 import { createStreamFetcher } from '../lib/api';
+import { executeLocalTool } from '../lib/local-tools';
 import { readSseStream, type UiMessageChunk } from '../lib/sse';
 
 /**
@@ -220,12 +221,66 @@ export async function chatTuiCommand(options: {
             toolInput: unknown;
           };
         };
+        // Don't await — fire-and-forget so the SSE loop keeps reading.
+        // The workflow will pause on the localToolResultHookBuilder until
+        // we POST the result; meanwhile we need to keep draining the
+        // stream for any subsequent chunks (e.g. another tool call).
+        void executeAndPostLocalTool(req.data);
+      }
+    }
+  }
+
+  async function executeAndPostLocalTool(req: {
+    toolCallId: string;
+    toolName: string;
+    toolInput: unknown;
+  }): Promise<void> {
+    setStatus(
+      chalk.gray(`[local tool] ${req.toolName} — executing on this machine…`),
+    );
+
+    const result = await executeLocalTool(req.toolName, req.toolInput);
+
+    setStatus(
+      chalk.gray(
+        `[local tool] ${req.toolName} — ${result.ok ? 'ok' : 'failed'}, posting result…`,
+      ),
+    );
+
+    if (state.kind !== 'streaming' || !state.runId) {
+      // No runId means we never got the header. Should not happen in
+      // practice — the SSE stream always starts with a runId response —
+      // but bail cleanly if it does.
+      setStatus(
+        chalk.red(
+          `[local tool] ${req.toolName} — cannot post result (no active runId)`,
+        ),
+      );
+      return;
+    }
+
+    try {
+      const res = await streamFetch(`/api/ai/${state.runId}/tool-result`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          toolCallId: req.toolCallId,
+          ok: result.ok,
+          output: result.output,
+          error: result.error,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
         setStatus(
-          chalk.gray(
-            `[local tool: ${req.data.toolName}] — stage D will execute`,
+          chalk.red(
+            `[local tool] ${req.toolName} — POST failed: ${res.status} ${text.slice(0, 200)}`,
           ),
         );
       }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      setStatus(chalk.red(`[local tool] ${req.toolName} — POST error: ${msg}`));
     }
   }
 
