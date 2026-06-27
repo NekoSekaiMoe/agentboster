@@ -17,6 +17,7 @@ export async function chatCommand(options: {
   message?: string;
   sessionId?: string;
   deployment?: string;
+  model?: string;
 }): Promise<void> {
   const config = loadConfig();
   if (!config) {
@@ -61,6 +62,7 @@ export async function chatCommand(options: {
       input: { text: message },
       clientId: ensure.clientId,
       label: ensure.label,
+      ...(options.model ? { model: options.model } : {}),
     }),
   });
 

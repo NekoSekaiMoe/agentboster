@@ -72,6 +72,7 @@ const markdownTheme: MarkdownTheme = {
 export async function chatTuiCommand(options: {
   sessionId?: string;
   deployment?: string;
+  model?: string;
 }): Promise<void> {
   const loaded = loadConfig();
   if (!loaded) {
@@ -151,6 +152,7 @@ export async function chatTuiCommand(options: {
           input: { text },
           clientId: config.clientId,
           label: config.label,
+          ...(options.model ? { model: options.model } : {}),
         }),
       });
 

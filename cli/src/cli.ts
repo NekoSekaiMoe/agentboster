@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { chatCommand } from './commands/chat';
 import { chatTuiCommand } from './commands/chat-tui';
 import { loginCommand } from './commands/login';
+import { modelsCommand } from './commands/models';
+import { sessionsCommand } from './commands/sessions';
 
 const program = new Command();
 
@@ -15,22 +17,29 @@ program
   )
   .option('-s, --session <sessionId>', 'resume an existing session id')
   .option('-d, --deployment <name>', 'deployment name (default: "default")')
+  .option('-m, --model <modelId>', 'override the model for this run')
   .action(
     async (
       message: string | undefined,
-      opts: { session?: string; deployment?: string },
+      opts: {
+        session?: string;
+        deployment?: string;
+        model?: string;
+      },
     ) => {
       // No message arg → interactive TUI. With a message → one-shot print.
       if (message === undefined) {
         await chatTuiCommand({
           sessionId: opts.session,
           deployment: opts.deployment,
+          model: opts.model,
         });
       } else {
         await chatCommand({
           message,
           sessionId: opts.session,
           deployment: opts.deployment,
+          model: opts.model,
         });
       }
     },
@@ -60,6 +69,30 @@ program
       });
     },
   );
+
+program
+  .command('sessions')
+  .description('List your sessions (default: only this machine)')
+  .option('-a, --all', 'include web/IM sessions (read-only for those)')
+  .option('-d, --deployment <name>', 'deployment name')
+  .option('-n, --limit <n>', 'max sessions to fetch', '50')
+  .action(
+    async (opts: { all?: boolean; deployment?: string; limit?: string }) => {
+      await sessionsCommand({
+        deployment: opts.deployment,
+        all: opts.all,
+        limit: opts.limit ? Number.parseInt(opts.limit, 10) : undefined,
+      });
+    },
+  );
+
+program
+  .command('models')
+  .description('List models configured on the server')
+  .option('-d, --deployment <name>', 'deployment name')
+  .action(async (opts: { deployment?: string }) => {
+    await modelsCommand({ deployment: opts.deployment });
+  });
 
 program.parseAsync(process.argv).catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));

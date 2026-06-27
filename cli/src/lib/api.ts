@@ -33,6 +33,34 @@ export type LoginResponse = {
   error?: string;
 };
 
+export type SessionListItem = {
+  id: string;
+  title: string | null;
+  channel: string;
+  model: string | null;
+  totalTokens: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ListSessionsResponse = {
+  ok: boolean;
+  sessions: SessionListItem[];
+};
+
+export type ModelCatalogEntry = {
+  id: string;
+  contextLimit?: number;
+  maxOutputTokens?: number;
+  temperature?: number;
+};
+
+export type ListModelsResponse = {
+  ok: boolean;
+  defaultModel: string | null;
+  models: ModelCatalogEntry[];
+};
+
 /**
  * Native fetch wrapper for streaming SSE — ofetch buffers responses,
  * which is the wrong behavior for /api/ai. Use this for SSE endpoints.
