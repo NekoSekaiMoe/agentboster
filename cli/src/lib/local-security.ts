@@ -101,16 +101,22 @@ function applyUnifiedPatch(current: string, patch: string): string {
     const text = line.slice(1);
 
     if (marker === ' ') {
-      if (currentLines[currentIndex] !== undefined) {
-        output.push(currentLines[currentIndex] ?? '');
-      } else {
-        output.push(text);
+      if (currentLines[currentIndex] !== text) {
+        throw new Error(
+          `Patch context mismatch at line ${currentIndex + 1}: expected "${currentLines[currentIndex] ?? ''}" but got "${text}".`,
+        );
       }
+      output.push(text);
       currentIndex += 1;
       continue;
     }
 
     if (marker === '-') {
+      if (currentLines[currentIndex] !== text) {
+        throw new Error(
+          `Patch deletion mismatch at line ${currentIndex + 1}: expected "${currentLines[currentIndex] ?? ''}" but got "${text}".`,
+        );
+      }
       currentIndex += 1;
       continue;
     }
@@ -158,13 +164,20 @@ export async function executeLocalTool(
       if (typeof patch !== 'string' || patch.length === 0) {
         return { ok: false, error: 'patch must be a non-empty string.' };
       }
-      const current = await readFile(path, 'utf8').catch(() => '');
-      const next = patch.includes('@@')
-        ? applyUnifiedPatch(current, patch)
-        : patch;
-      await mkdir(dirname(path), { recursive: true });
-      writeFileSync(path, next, 'utf8');
-      return { ok: true, output: `Patched ${path}` };
+      try {
+        const current = await readFile(path, 'utf8').catch(() => '');
+        const next = patch.includes('@@')
+          ? applyUnifiedPatch(current, patch)
+          : patch;
+        await mkdir(dirname(path), { recursive: true });
+        writeFileSync(path, next, 'utf8');
+        return { ok: true, output: `Patched ${path}` };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
     case 'local_exec': {
       const command = input.command;

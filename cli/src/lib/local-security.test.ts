@@ -55,4 +55,30 @@ describe('executeLocalTool', () => {
     expect(result.ok).toBe(true);
     expect(readFileSync(file, 'utf8')).toBe('one\nTWO\nthree\n');
   });
+
+  it('fails when patch context does not match', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agentboster-cli-'));
+    dirs.push(dir);
+    const file = join(dir, 'mismatch.txt');
+    writeFileSync(file, 'alpha\nbeta\n', 'utf8');
+
+    const patch = [
+      'diff --git a/mismatch.txt b/mismatch.txt',
+      '--- a/mismatch.txt',
+      '+++ b/mismatch.txt',
+      '@@ -1,2 +1,2 @@',
+      ' alpha',
+      '-wrong',
+      '+right',
+      '',
+    ].join('\n');
+
+    const result = await executeLocalTool('local_patch_file', {
+      path: file,
+      patch,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Patch deletion mismatch');
+    expect(readFileSync(file, 'utf8')).toBe('alpha\nbeta\n');
+  });
 });

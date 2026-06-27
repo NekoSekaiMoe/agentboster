@@ -12,12 +12,10 @@ export async function pairCommand(opts: {
     throw new Error('missing url');
   }
 
-  if (!stored?.token) {
-    throw new Error('login first, then run pair');
-  }
-
   const adapter = opts.adapter ?? 'slack';
   const api = createApiClient(baseUrl, stored?.token);
   const result = await api.generatePairCode(adapter);
-  console.log(`${result.code} (expires in ${result.expiresIn}s)`);
+  console.log(
+    `Pair code: ${result.code} (expires in ${result.expiresIn}s)\nUse /pair <code> in the paired channel.`,
+  );
 }
