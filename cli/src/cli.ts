@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { chatCommand } from './commands/chat';
+import { chatTuiCommand } from './commands/chat-tui';
 import { loginCommand } from './commands/login';
 
 const program = new Command();
@@ -7,7 +8,33 @@ const program = new Command();
 program
   .name('agentboster')
   .description('Terminal client for agentboster')
-  .version('0.1.0');
+  .version('0.1.0')
+  .argument(
+    '[message]',
+    'if provided, run a one-shot chat (print mode) and exit',
+  )
+  .option('-s, --session <sessionId>', 'resume an existing session id')
+  .option('-d, --deployment <name>', 'deployment name (default: "default")')
+  .action(
+    async (
+      message: string | undefined,
+      opts: { session?: string; deployment?: string },
+    ) => {
+      // No message arg → interactive TUI. With a message → one-shot print.
+      if (message === undefined) {
+        await chatTuiCommand({
+          sessionId: opts.session,
+          deployment: opts.deployment,
+        });
+      } else {
+        await chatCommand({
+          message,
+          sessionId: opts.session,
+          deployment: opts.deployment,
+        });
+      }
+    },
+  );
 
 program
   .command('login')
@@ -30,24 +57,6 @@ program
         username: opts.username,
         password: opts.password,
         name: opts.name,
-      });
-    },
-  );
-
-program
-  .command('chat [message]')
-  .description('Send a one-shot message and stream the response to stdout')
-  .option('-s, --session <sessionId>', 'resume an existing session id')
-  .option('-d, --deployment <name>', 'deployment name (default: "default")')
-  .action(
-    async (
-      message: string | undefined,
-      opts: { session?: string; deployment?: string },
-    ) => {
-      await chatCommand({
-        message,
-        sessionId: opts.session,
-        deployment: opts.deployment,
       });
     },
   );
