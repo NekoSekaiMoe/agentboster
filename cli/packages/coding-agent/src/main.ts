@@ -512,6 +512,16 @@ export async function main(args: string[], options?: MainOptions) {
 		return;
 	}
 
+	// Auth gate: every primary mode (interactive, -p, --list-models, etc.)
+	// requires an Agentboster auth token. Subcommands (login/install/...)
+	// are dispatched above and exit before reaching here.
+	if (!getStoredAuth()) {
+		console.error(
+			"Not logged in. Run `agentboster login` first, then re-run this command.",
+		);
+		process.exit(1);
+	}
+
 	const parsed = parseArgs(args);
 	if (parsed.diagnostics.length > 0) {
 		for (const d of parsed.diagnostics) {

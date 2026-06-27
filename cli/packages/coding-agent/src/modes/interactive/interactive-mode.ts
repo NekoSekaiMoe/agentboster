@@ -8,6 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { clearStoredAuth } from "@agentboster/adapter";
 import {
 	type AssistantMessage,
 	getProviders,
@@ -2617,12 +2618,15 @@ export class InteractiveMode {
 				return;
 			}
 			if (text === "/login") {
-				this.showOAuthSelector("login");
+				this.showStatus(
+					"Run `agentboster login` from your shell to authenticate. The TUI cannot prompt for credentials without conflicting with the input box.",
+				);
 				this.editor.setText("");
 				return;
 			}
 			if (text === "/logout") {
-				this.showOAuthSelector("logout");
+				clearStoredAuth();
+				this.showStatus("Logged out. Run `agentboster login` from your shell to authenticate again.");
 				this.editor.setText("");
 				return;
 			}
