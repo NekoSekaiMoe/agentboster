@@ -16,6 +16,8 @@ import {
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
+import { createBashToolDefinition } from "./core/tools/bash.ts";
+import type { ToolDefinition } from "./core/extensions/types.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listModels } from "./cli/list-models.ts";
@@ -732,6 +734,7 @@ export async function main(args: string[], options?: MainOptions) {
 			}
 		}
 
+		const agentbosterTools = resolveAgentbosterToolConfig();
 		const created = await createAgentSessionFromServices({
 			services,
 			sessionManager,
@@ -739,10 +742,14 @@ export async function main(args: string[], options?: MainOptions) {
 			model: sessionOptions.model,
 			thinkingLevel: sessionOptions.thinkingLevel,
 			scopedModels: sessionOptions.scopedModels,
-			tools: sessionOptions.tools,
-			excludeTools: sessionOptions.excludeTools,
+			tools: agentbosterTools.tools.length > 0 ? agentbosterTools.tools : sessionOptions.tools,
+			excludeTools: agentbosterTools.excludeTools.length > 0
+				? agentbosterTools.excludeTools
+				: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
-			customTools: sessionOptions.customTools,
+			customTools: agentbosterTools.customTools.length > 0
+				? agentbosterTools.customTools
+				: sessionOptions.customTools,
 			streamFnOverride: await resolveStreamFnOverride(sessionManager),
 		});
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
@@ -875,6 +882,36 @@ export async function main(args: string[], options?: MainOptions) {
 		}
 		return;
 	}
+}
+
+/**
+ * When logged in to an Agentboster server, restrict the agent to three
+ * local-execution tools: read, write, and exec. The bash tool is
+ * re-registered under the name "exec" (matching the web backend's
+ * system-prompt vocabulary); read/write reuse pi's built-ins. All
+ * other pi tools (edit, grep, find, ls) are excluded — the web LLM
+ * should only see exec/read/write, and they all execute on the CLI
+ * host, never on the server.
+ */
+function resolveAgentbosterToolConfig(): {
+	tools: string[];
+	excludeTools: string[];
+	customTools: ToolDefinition[];
+} {
+	if (!getStoredAuth()) return { tools: [], excludeTools: [], customTools: [] };
+
+	// Re-register bash as "exec" so the web LLM's tool name matches.
+	const execTool = createBashToolDefinition(process.cwd(), {});
+	(execTool as { name: string }).name = "exec";
+	(execTool as { label: string }).label = "exec";
+
+	return {
+		// Only these three are active. Order matters for the picker.
+		tools: ["read", "write"],
+		// Drop the rest of pi's built-ins.
+		excludeTools: ["bash", "edit", "grep", "find", "ls"],
+		customTools: [execTool as unknown as ToolDefinition],
+	};
 }
 
 /**
