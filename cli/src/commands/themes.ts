@@ -1,5 +1,11 @@
-import chalk from 'chalk';
-import { DEFAULT_THEME_NAME, listCustomThemes, loadTheme } from '../lib/theme';
+import { existsSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { ensureConfig, saveConfig } from '../lib/config';
+import { loadUserTheme } from '../tui/theme';
+
+const THEMES_DIR = join(homedir(), '.agentboster', 'themes');
+const DEFAULT_THEME_NAME = 'default';
 
 /**
  * `agentboster themes [name]`
@@ -7,8 +13,8 @@ import { DEFAULT_THEME_NAME, listCustomThemes, loadTheme } from '../lib/theme';
  * Without args: lists installed themes (built-in default + any custom
  * files under ~/.agentboster/themes/*.json).
  *
- * With a name argument: sets that theme as the active one by writing
- * it to ~/.agentboster/cli.json. The next TUI invocation picks it up.
+ * With a name: sets it as the active theme (validated by loading) and
+ * persists to config. The next TUI invocation picks it up.
  */
 export async function themesCommand(options: { set?: string }): Promise<void> {
   if (options.set) {
@@ -16,33 +22,38 @@ export async function themesCommand(options: { set?: string }): Promise<void> {
   }
 
   const customs = listCustomThemes();
-  console.log(chalk.bold('Available themes:'));
+  const star = '\u2713';
+  console.log('Available themes:');
   console.log();
   console.log(
-    `  ${chalk.green('*')} ${chalk.cyan(DEFAULT_THEME_NAME)} ${chalk.gray('(built-in)')}`,
+    `  ${star} ${DEFAULT_THEME_NAME} (built-in dark; light available as 'light')`,
   );
   for (const name of customs) {
-    console.log(
-      `    ${chalk.cyan(name)} ${chalk.gray(`(~/.agentboster/themes/${name}.json)`)}`,
-    );
+    console.log(`    ${name}  (~/.agentboster/themes/${name}.json)`);
   }
   if (customs.length === 0) {
     console.log();
     console.log(
-      chalk.gray(
-        'No custom themes installed. Drop a JSON file at ~/.agentboster/themes/<name>.json — see the README for the schema.',
-      ),
+      'No custom themes installed. Drop a JSON file at ~/.agentboster/themes/<name>.json',
+    );
+    console.log(
+      'Schema: { "kind": "dark" | "light", "overrides": { "primary": "#hex", ... } }',
     );
   }
 }
 
-async function setTheme(name: string): Promise<void> {
-  // Validate by trying to load it. Defaults to built-in if missing.
-  loadTheme(name);
+function listCustomThemes(): string[] {
+  if (!existsSync(THEMES_DIR)) return [];
+  return readdirSync(THEMES_DIR)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => f.slice(0, -5));
+}
 
-  const { ensureConfig, saveConfig } = await import('../lib/config');
+async function setTheme(name: string): Promise<void> {
+  // Validate by loading. Falls back with a stderr warning if missing.
+  loadUserTheme(name);
   const config = ensureConfig();
   config.theme = name;
   saveConfig(config);
-  console.log(chalk.green(`Active theme set to '${name}'.`));
+  console.log(`Active theme set to '${name}'.`);
 }

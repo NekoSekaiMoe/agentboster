@@ -1,10 +1,10 @@
 import { Command } from 'commander';
 import { chatCommand } from './commands/chat';
-import { chatTuiCommand } from './commands/chat-tui';
 import { loginCommand } from './commands/login';
 import { modelsCommand } from './commands/models';
 import { sessionsCommand } from './commands/sessions';
 import { themesCommand } from './commands/themes';
+import { runTui } from './tui/tui';
 
 const program = new Command();
 
@@ -30,7 +30,7 @@ program
     ) => {
       // No message arg → interactive TUI. With a message → one-shot print.
       if (message === undefined) {
-        await chatTuiCommand({
+        await runTui({
           sessionId: opts.session,
           deployment: opts.deployment,
           model: opts.model,
