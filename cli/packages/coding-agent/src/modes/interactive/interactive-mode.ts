@@ -2556,7 +2556,7 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
-			if (text === "/quit") {
+			if (text === "/exit" || text === "/quit") {
 				this.editor.setText("");
 				await this.shutdown();
 				return;
@@ -2976,19 +2976,19 @@ export class InteractiveMode {
 	 * If multiple status messages are emitted back-to-back (without anything else being added to the chat),
 	 * we update the previous status line instead of appending new ones to avoid log spam.
 	 */
-	private showStatus(message: string): void {
+	private showStatus(message: string, color: ThemeColor = "dim"): void {
 		const children = this.chatContainer.children;
 		const last = children.length > 0 ? children[children.length - 1] : undefined;
 		const secondLast = children.length > 1 ? children[children.length - 2] : undefined;
 
 		if (last && secondLast && last === this.lastStatusText && secondLast === this.lastStatusSpacer) {
-			this.lastStatusText.setText(theme.fg("dim", message));
+			this.lastStatusText.setText(theme.fg(color, message));
 			this.ui.requestRender();
 			return;
 		}
 
 		const spacer = new Spacer(1);
-		const text = new Text(theme.fg("dim", message), 1, 0);
+		const text = new Text(theme.fg(color, message), 1, 0);
 		this.chatContainer.addChild(spacer);
 		this.chatContainer.addChild(text);
 		this.lastStatusSpacer = spacer;
@@ -3229,12 +3229,21 @@ export class InteractiveMode {
 
 	private handleCtrlC(): void {
 		const now = Date.now();
-		if (now - this.lastSigintTime < 500) {
+		if (now - this.lastSigintTime < 5000) {
 			void this.shutdown();
 		} else {
 			this.clearEditor();
 			this.lastSigintTime = now;
-			this.showStatus("Press Ctrl+C again to quit.");
+			this.showStatus("Press Ctrl+C again to exit.", "accent");
+			setTimeout(() => {
+				if (Date.now() - this.lastSigintTime >= 5000) {
+					this.lastSigintTime = 0;
+					if (this.lastStatusText) {
+						this.lastStatusText.setText("");
+						this.ui.requestRender();
+					}
+				}
+			}, 5000);
 		}
 	}
 
@@ -3272,7 +3281,7 @@ export class InteractiveMode {
 			process.exit(0);
 		}
 
-		// Interactive quit (Ctrl+D, Ctrl+C, /quit, extension shutdown()). Stop the
+		// Interactive exit (Ctrl+D, Ctrl+C, /exit, /quit, extension shutdown()). Stop the
 		// TUI before emitting shutdown events so extension UI cleanup cannot repaint
 		// the final frame while the process is exiting.
 		// Drain any in-flight Kitty key release events before stopping.
