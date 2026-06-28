@@ -1,6 +1,6 @@
 # AGENTS.md — cli/
 
-Compact guide for OpenCode sessions working in the `cli/` workspace. This is a separate npm monorepo from the root web app.
+Compact guide for OpenCode sessions working in the `cli/` workspace. This is a separate Yarn Classic (`yarn@1.22.22`) monorepo from the root web app.
 
 ## Read first
 
@@ -10,11 +10,12 @@ Compact guide for OpenCode sessions working in the `cli/` workspace. This is a s
 
 ## Commands
 
-- `npm install` in `cli/` installs the workspace.
-- `npm run build` builds packages in this order: `ai` → `agent` → `agentboster-adapter` → `coding-agent`.
-- `npm run check` runs `biome check --write --error-on-warnings . && tsgo --noEmit`; it is not read-only.
-- `npm run bundle` creates `dist/agentboster.cjs` for the CLI package.
-- `npm run test` exists on individual packages such as `packages/agent`, `packages/ai`, and `packages/coding-agent`.
+- Use Yarn Classic only in `cli/`; do not switch this workspace to Yarn Berry/PnP semantics.
+- `yarn install` in `cli/` installs the workspace.
+- `yarn build` builds packages in this order: `ai` → `agent` → `agentboster-adapter` → `coding-agent`.
+- `yarn check` runs `biome check --write --error-on-warnings . && tsgo --noEmit`; it is not read-only.
+- `yarn bundle` creates `dist/agentboster.cjs` for the CLI package.
+- `yarn workspace <pkg> test` exists on individual packages such as `packages/agent`, `packages/ai`, and `packages/coding-agent`.
 - `agentboster --help` is the authoritative CLI flag list after a build.
 
 ## Package boundaries
@@ -29,4 +30,4 @@ Compact guide for OpenCode sessions working in the `cli/` workspace. This is a s
 - `agentboster login` writes `~/.agentboster/config.json`; login is required before normal use.
 - The model catalog comes from the Web backend, so selecting an unknown model should fail fast.
 - `--print` skips the TUI and writes only final output to stdout.
-- Keep changes aligned with Node `>=22.19.0` and the npm workspace scripts in `cli/package.json`.
+- Keep changes aligned with Node `>=22.19.0` and the Yarn Classic workspace scripts in `cli/package.json`.

@@ -48,7 +48,6 @@ agentd/agentd
 
 # CLI (pi-coding-agent fork at cli/) — local-only artifacts
 cli/dist/
-cli/yarn.lock
 cli/packages/*/dist/
 *.tsbuildinfo
 

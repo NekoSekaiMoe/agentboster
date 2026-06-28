@@ -2,12 +2,13 @@
 	"name": "agentboster-cli-monorepo",
 	"private": true,
 	"type": "module",
+	"packageManager": "yarn@1.22.22",
 	"workspaces": [
 		"packages/*"
 	],
 	"scripts": {
-		"clean": "npm run clean --workspaces",
-		"build": "tsgo -p packages/ai/tsconfig.build.json && tsgo -p packages/agent/tsconfig.build.json && tsgo -p packages/agentboster-adapter/tsconfig.build.json && tsgo -p packages/coding-agent/tsconfig.build.json && shx chmod +x packages/coding-agent/dist/cli.js packages/coding-agent/dist/rpc-entry.js && npm run copy-assets --workspace @agentboster-cli/core",
+		"clean": "yarn workspaces run clean",
+		"build": "tsgo -p packages/ai/tsconfig.build.json && tsgo -p packages/agent/tsconfig.build.json && tsgo -p packages/agentboster-adapter/tsconfig.build.json && tsgo -p packages/coding-agent/tsconfig.build.json && shx chmod +x packages/coding-agent/dist/cli.js packages/coding-agent/dist/rpc-entry.js && yarn workspace @agentboster-cli/core copy-assets",
 		"bundle": "node scripts/bundle.mjs && shx chmod +x packages/coding-agent/dist/agentboster.cjs",
 		"package": "node scripts/package.mjs",
 		"check": "biome check --write --error-on-warnings . && tsgo --noEmit",
@@ -29,13 +30,7 @@
 		"node": ">=22.19.0"
 	},
 	"version": "0.1.0",
-	"overrides": {
-		"rimraf": "6.1.2",
-		"gaxios": {
-			"rimraf": "6.1.2"
-		}
-	},
-	"allowScripts": {
-		"esbuild@0.28.1": true
+	"resolutions": {
+		"**/rimraf": "6.1.2"
 	}
 }
