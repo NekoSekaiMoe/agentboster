@@ -117,6 +117,7 @@ import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
+import { WorkflowSubagentMessageComponent } from "./components/workflow-subagent-message.ts";
 import { getModelSearchText } from "./model-search.ts";
 import {
 	getAvailableThemes,
@@ -3014,8 +3015,14 @@ export class InteractiveMode {
 			}
 			case "custom": {
 				if (message.display) {
-					const renderer = this.session.extensionRunner.getMessageRenderer(message.customType);
-					const component = new CustomMessageComponent(message, renderer, this.getMarkdownThemeWithSettings());
+					const component =
+						message.customType === "workflow.subagent"
+							? new WorkflowSubagentMessageComponent(message, this.getMarkdownThemeWithSettings())
+							: new CustomMessageComponent(
+									message,
+									this.session.extensionRunner.getMessageRenderer(message.customType),
+									this.getMarkdownThemeWithSettings(),
+								);
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
 				}

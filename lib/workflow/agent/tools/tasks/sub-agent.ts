@@ -59,6 +59,45 @@ async function mapWithConcurrencyLimit<T, R>(
   return results;
 }
 
+function summarizeBatchResults(
+  results: Array<
+    | {
+        ok: true;
+        task: string;
+        subagentId: string;
+        agentName: string;
+        modelId: string;
+        steps: number;
+        response: string;
+      }
+    | {
+        ok: false;
+        task: string;
+        agentName: string;
+        error: string;
+      }
+  >,
+): string {
+  return results
+    .map((item, index) => {
+      if (item.ok) {
+        return [
+          `${index + 1}. [ok] ${item.agentName}`,
+          `Task: ${item.task}`,
+          `Steps: ${item.steps}`,
+          `Summary: ${item.response}`,
+        ].join('\n');
+      }
+
+      return [
+        `${index + 1}. [failed] ${item.agentName}`,
+        `Task: ${item.task}`,
+        `Error: ${item.error}`,
+      ].join('\n');
+    })
+    .join('\n\n');
+}
+
 function getMessageText(message: ModelMessage): string {
   if (typeof message.content === 'string') {
     return message.content;
@@ -290,6 +329,7 @@ export default defineBuildInTool({
               concurrencyLimit,
               succeeded,
               failed,
+              response: summarizeBatchResults(settled),
               results: settled,
             };
           }
