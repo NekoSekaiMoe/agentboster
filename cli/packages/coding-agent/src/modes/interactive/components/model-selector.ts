@@ -1,3 +1,4 @@
+import { getStoredAuth, patchUserPreferences } from "@agentboster/adapter";
 import { type Model, modelsAreEqual } from "@agentboster-cli/ai";
 import {
 	Container,
@@ -333,8 +334,13 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	}
 
 	private handleSelect(model: Model<any>): void {
-		// Save as new default
-		this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		// Persist as the user's default on the web backend so web chat,
+		// IM, and other CLI sessions pick it up. Best-effort: failures
+		// (offline / server down) don't block the local switch.
+		const auth = getStoredAuth();
+		if (auth) {
+			void patchUserPreferences(auth.url, auth.token, { model: model.id }).catch(() => {});
+		}
 		this.onSelectCallback(model);
 	}
 

@@ -50,6 +50,25 @@ async function patchRemoteSessionTitle(sessionId: string, title: string): Promis
 	if (!auth) return;
 	await patchRemoteSession(auth, sessionId, { title }).catch(() => {});
 }
+
+// Persist a model change to the user's web preferences (best-effort).
+// The CLI no longer keeps a local default — see /api/cli/preferences.
+async function patchRemoteModelPref(modelId: string): Promise<void> {
+	const { getStoredAuth, patchUserPreferences } = await import("@agentboster/adapter");
+	const auth = getStoredAuth();
+	if (!auth) return;
+	await patchUserPreferences(auth.url, auth.token, { model: modelId }).catch(() => {});
+}
+
+// Persist a thinking-level change to the user's web preferences.
+async function patchRemoteThinkingPref(
+	level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
+): Promise<void> {
+	const { getStoredAuth, patchUserPreferences } = await import("@agentboster/adapter");
+	const auth = getStoredAuth();
+	if (!auth) return;
+	await patchUserPreferences(auth.url, auth.token, { thinkingLevel: level }).catch(() => {});
+}
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
 	type CompactionResult,
@@ -1471,7 +1490,7 @@ export class AgentSession {
 		const thinkingLevel = this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = model;
 		this.sessionManager.appendModelChange(model.provider, model.id);
-		this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		void patchRemoteModelPref(model.id);
 
 		// Re-clamp thinking level for new model's capabilities
 		this.setThinkingLevel(thinkingLevel);
@@ -1508,7 +1527,7 @@ export class AgentSession {
 		// Apply model
 		this.agent.state.model = next.model;
 		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
-		this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);
+		void patchRemoteModelPref(next.model.id);
 
 		// Apply thinking level.
 		// - Explicit scoped model thinking level overrides current session level
@@ -1536,7 +1555,7 @@ export class AgentSession {
 		const thinkingLevel = this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = nextModel;
 		this.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
-		this.settingsManager.setDefaultModelAndProvider(nextModel.provider, nextModel.id);
+		void patchRemoteModelPref(nextModel.id);
 
 		// Re-clamp thinking level for new model's capabilities
 		this.setThinkingLevel(thinkingLevel);
@@ -1568,7 +1587,7 @@ export class AgentSession {
 		if (isChanging) {
 			this.sessionManager.appendThinkingLevelChange(effectiveLevel);
 			if (this.supportsThinking() || effectiveLevel !== "off") {
-				this.settingsManager.setDefaultThinkingLevel(effectiveLevel);
+				void patchRemoteThinkingPref(effectiveLevel);
 			}
 			this._emit({ type: "thinking_level_changed", level: effectiveLevel });
 			void this._extensionRunner.emit({

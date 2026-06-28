@@ -30,6 +30,14 @@ export {
 export { fetchRemoteModels, remoteModelsToPiModels, type RemoteModel, type RemoteModelsResponse } from "./models.ts";
 
 export {
+	fetchUserPreferences,
+	patchUserPreferences,
+	type PreferencesResponse,
+	type ThinkingLevel as AdapterThinkingLevel,
+	type UserPreferences,
+} from "./preferences.ts";
+
+export {
 	evaluateLocalCommand,
 	formatToolRequest,
 	type SecurityDecision,

@@ -12,6 +12,7 @@ import {
 	createAgentbosterStreamFn,
 	evaluateLocalCommand,
 	fetchRemoteModels,
+	fetchUserPreferences,
 	formatToolRequest,
 	getStoredAuth,
 	remoteModelsToPiModels,
@@ -390,7 +391,7 @@ function buildSessionOptions(
 	scopedModels: ScopedModel[],
 	hasExistingSession: boolean,
 	modelRegistry: ModelRegistry,
-	settingsManager: SettingsManager,
+	remoteDefaults: { model?: string | null; thinkingLevel?: string | null } | null,
 ): {
 	options: CreateAgentSessionOptions;
 	cliThinkingFromModel: boolean;
@@ -427,28 +428,39 @@ function buildSessionOptions(
 	}
 
 	if (!options.model && scopedModels.length > 0 && !hasExistingSession) {
-		// Check if saved default is in scoped models - use it if so, otherwise first scoped model
-		const savedProvider = settingsManager.getDefaultProvider();
-		const savedModelId = settingsManager.getDefaultModel();
-		const savedModel = savedProvider && savedModelId ? modelRegistry.find(savedProvider, savedModelId) : undefined;
-		const savedInScope = savedModel ? scopedModels.find((sm) => modelsAreEqual(sm.model, savedModel)) : undefined;
+		// Default model comes from the web backend's per-user preferences
+		// (shared with web chat + IM). The CLI no longer stores a default
+		// locally — see /api/cli/preferences. If the server preference is
+		// set and matches one of the scoped models, use it; otherwise fall
+		// back to the first scoped model.
+		const savedModelId = remoteDefaults?.model ?? null;
+		const savedInScope = savedModelId
+			? scopedModels.find((sm) => modelsAreEqual(sm.model, { id: savedModelId } as never) || sm.model.id === savedModelId)
+			: undefined;
 
 		if (savedInScope) {
 			options.model = savedInScope.model;
-			// Use thinking level from scoped model config if explicitly set
 			if (!parsed.thinking && savedInScope.thinkingLevel) {
 				options.thinkingLevel = savedInScope.thinkingLevel;
 			}
 		} else {
 			options.model = scopedModels[0].model;
-			// Use thinking level from first scoped model if explicitly set
 			if (!parsed.thinking && scopedModels[0].thinkingLevel) {
 				options.thinkingLevel = scopedModels[0].thinkingLevel;
 			}
 		}
 	}
 
-	// Thinking level from CLI (takes precedence over scoped model thinking levels set above)
+	// Default thinking level from the web backend (only applies when the
+	// CLI flag --thinking wasn't passed and no scoped model pinned one).
+	if (!parsed.thinking && remoteDefaults?.thinkingLevel) {
+		const tl = remoteDefaults.thinkingLevel;
+		if (tl === "off" || tl === "minimal" || tl === "low" || tl === "medium" || tl === "high" || tl === "xhigh") {
+			options.thinkingLevel = tl;
+		}
+	}
+
+	// Thinking level from CLI (takes precedence over server default)
 	if (parsed.thinking) {
 		options.thinkingLevel = parsed.thinking;
 	}
@@ -737,17 +749,25 @@ export async function main(args: string[], options?: MainOptions) {
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
 		const scopedModels =
 			modelPatterns && modelPatterns.length > 0 ? await resolveModelScope(modelPatterns, modelRegistry) : [];
-		const {
-			options: sessionOptions,
-			cliThinkingFromModel,
-			diagnostics: sessionOptionDiagnostics,
-		} = buildSessionOptions(
-			parsed,
-			scopedModels,
-			sessionManager.buildSessionContext().messages.length > 0,
-			modelRegistry,
-			settingsManager,
-		);
+	// Pull the user's model preferences from the web backend so the
+	// initial model + thinking level match what the user picked in the
+	// web UI (and vice versa). The CLI no longer keeps a local default.
+	const authForPrefs = getStoredAuth();
+	const remoteDefaults = authForPrefs
+		? await fetchUserPreferences(authForPrefs.url, authForPrefs.token).catch(() => null)
+		: null;
+
+	const {
+		options: sessionOptions,
+		cliThinkingFromModel,
+		diagnostics: sessionOptionDiagnostics,
+	} = buildSessionOptions(
+		parsed,
+		scopedModels,
+		sessionManager.buildSessionContext().messages.length > 0,
+		modelRegistry,
+		remoteDefaults,
+	);
 		diagnostics.push(...sessionOptionDiagnostics);
 
 		// Validate the chosen model against the server catalog when
