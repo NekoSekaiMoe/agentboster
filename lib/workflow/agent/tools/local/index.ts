@@ -21,17 +21,20 @@ type LocalToolResult = {
  * /api/ai/[runId]/tool-result.
  *
  * Mirrors the approval flow (waitForSandboxApproval in
- * lib/workflow/agent/tools/execute/sanbox.ts). All host-only work (the
- * chunk write and the hook iterator) is wrapped in `'use step'` so it
- * marshalls back to the host Node process inside the Workflow DevKit.
+ * lib/workflow/agent/tools/execute/sanbox.ts), but **deliberately omits
+ * the `'use step'` directive**. AGENTS.md documents that tool
+ * `execute` callbacks already run on the host (marshalled via the
+ * events channel), so anything they call is also host-side — wrapping
+ * them as a workflow step makes the DevKit try to re-enter the vm and
+ * `defineHook().create()` fails with "can only be called inside a
+ * workflow function" because the step is dispatched outside the
+ * workflow function's invocation context.
  */
 async function waitForLocalToolResult(input: {
   toolCallId: string;
   toolName: string;
   toolInput: unknown;
 }): Promise<LocalToolResult> {
-  'use step';
-
   await writeLocalToolRequest({
     toolCallId: input.toolCallId,
     toolName: input.toolName,
