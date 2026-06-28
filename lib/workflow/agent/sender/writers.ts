@@ -264,6 +264,29 @@ export async function writeLocalToolRequest(input: {
   });
 }
 
+export async function writeSubagentEvent(input: {
+  subagentId: string;
+  subagentName: string;
+  event: 'started' | 'completed' | 'failed';
+  task: string;
+  summary?: string;
+  error?: string;
+  steps?: number;
+  modelId?: string;
+}): Promise<void> {
+  'use step';
+
+  await writeChunk({
+    type: 'data-workflow',
+    data: {
+      kind: 'status',
+      type: 'subagent-event',
+      ...input,
+    },
+    transient: true,
+  });
+}
+
 export async function writeMessageMetadata(
   metadata: ChatMessageMetadata,
 ): Promise<void> {

@@ -111,7 +111,11 @@ import {
 	wrapRegisteredTools,
 } from "./extensions/index.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
-import type { BashExecutionMessage, CustomMessage } from "./messages.ts";
+import type {
+	BashExecutionMessage,
+	CustomMessage,
+	WorkflowSubagentEventDetails,
+} from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
@@ -1373,6 +1377,36 @@ export class AgentSession {
 			this._emit({ type: "message_start", message: appMessage });
 			this._emit({ type: "message_end", message: appMessage });
 		}
+	}
+
+	async addWorkflowSubagentEvent(event: WorkflowSubagentEventDetails): Promise<void> {
+		const lines = [
+			`Sub-agent: ${event.subagentName}`,
+			`State: ${event.event}`,
+			`Task: ${event.task}`,
+		];
+		if (event.modelId) {
+			lines.push(`Model: ${event.modelId}`);
+		}
+		if (typeof event.steps === "number") {
+			lines.push(`Steps: ${event.steps}`);
+		}
+		if (event.summary) {
+			lines.push("", "Summary:", event.summary);
+		}
+		if (event.error) {
+			lines.push("", "Error:", event.error);
+		}
+
+		await this.sendCustomMessage<WorkflowSubagentEventDetails>(
+			{
+				customType: "workflow.subagent",
+				content: lines.join("\n"),
+				display: true,
+				details: event,
+			},
+			{ triggerTurn: false },
+		);
 	}
 
 	/**

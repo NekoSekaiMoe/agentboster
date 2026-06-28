@@ -22,6 +22,7 @@ export {
 } from "./stream-fn.ts";
 export {
 	type LocalToolRequestHandler,
+	type SubagentEventHandler,
 	openAgentbosterStream,
 	type WebStreamChunk,
 	type WebStreamOptions,

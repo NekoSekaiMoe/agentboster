@@ -17,13 +17,19 @@ import {
 } from "@agentboster-cli/ai/utils/event-stream";
 import type { Api, Context, Model, SimpleStreamOptions } from "@agentboster-cli/ai";
 
-import { openAgentbosterStream, type WebStreamOptions } from "./web-stream.ts";
+import {
+	openAgentbosterStream,
+	type SubagentEventHandler,
+	type WebStreamOptions,
+} from "./web-stream.ts";
 
 export interface CreateStreamFnOptions extends Omit<WebStreamOptions, "baseUrl" | "token" | "sessionId"> {
 	/** Resolve the current session id (called each turn so the host can rotate). */
 	getSessionId: () => string;
 	/** Resolve the current server URL + token (called each turn). */
 	getAuth: () => { baseUrl: string; token: string } | null;
+	/** Observe workflow-level subagent lifecycle updates from the server. */
+	onSubagentEvent?: SubagentEventHandler;
 }
 
 /**
@@ -63,6 +69,7 @@ export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn
 			label: opts.label,
 			model: opts.model,
 			onLocalToolRequest: opts.onLocalToolRequest,
+			onSubagentEvent: opts.onSubagentEvent,
 			signal: options?.signal,
 		});
 	};

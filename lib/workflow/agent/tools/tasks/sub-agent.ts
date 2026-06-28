@@ -12,7 +12,7 @@ import {
 import { DurableAgent } from '@workflow/ai/agent';
 import { type ModelMessage, tool } from 'ai';
 import { z } from 'zod';
-import { createWritable } from '../../sender/writers';
+import { createWritable, writeSubagentEvent } from '../../sender/writers';
 import { defineBuildInTool } from '../define';
 
 const SUB_AGENT_MAX_STEPS = 12;
@@ -71,6 +71,7 @@ export default defineBuildInTool({
           task: z.string().min(1),
         }),
         execute: async ({ agentName, task }) => {
+          const subagentId = `wf-subagent-${Math.random().toString(36).slice(2, 10)}`;
           const modelId = getAgentModelId(context.appConfig, agentName);
           const temperature = getAgentTemperature(context.appConfig, agentName);
           const system = await buildSystemPrompt(context.appConfig, {
@@ -96,6 +97,13 @@ export default defineBuildInTool({
             context.appConfig,
             modelId,
           );
+          await writeSubagentEvent({
+            subagentId,
+            subagentName: agentName,
+            event: 'started',
+            task,
+            modelId,
+          });
           const agent = new DurableAgent({
             model: createModelResolver(context.appConfig, modelId),
             system,
@@ -105,38 +113,62 @@ export default defineBuildInTool({
           });
           const writable = context.writable ?? createWritable();
 
-          const result = await agent.stream({
-            messages: [
-              {
-                role: 'user',
-                content: `Caller agent: ${context.agentName}
+          try {
+            const result = await agent.stream({
+              messages: [
+                {
+                  role: 'user',
+                  content: `Caller agent: ${context.agentName}
 
 Delegated task:
 ${task}
 
 Return a concise result with findings, actions taken, and any blockers or assumptions.`,
-              },
-            ],
-            writable,
-            sendStart: false,
-            sendFinish: false,
-            collectUIMessages: false,
-            maxSteps: SUB_AGENT_MAX_STEPS,
-          });
-          const response =
-            getFinalAssistantText(result.messages) ||
-            result.steps
-              .map((step) => step.text.trim())
-              .filter((text) => text.length > 0)
-              .join('\n\n');
+                },
+              ],
+              writable,
+              sendStart: false,
+              sendFinish: false,
+              collectUIMessages: false,
+              maxSteps: SUB_AGENT_MAX_STEPS,
+            });
+            const response =
+              getFinalAssistantText(result.messages) ||
+              result.steps
+                .map((step) => step.text.trim())
+                .filter((text) => text.length > 0)
+                .join('\n\n');
 
-          return {
-            ok: true,
-            agentName,
-            modelId,
-            steps: result.steps.length,
-            response,
-          };
+            await writeSubagentEvent({
+              subagentId,
+              subagentName: agentName,
+              event: 'completed',
+              task,
+              summary: response,
+              steps: result.steps.length,
+              modelId,
+            });
+
+            return {
+              ok: true,
+              agentName,
+              modelId,
+              steps: result.steps.length,
+              response,
+            };
+          } catch (error) {
+            const errorMessage =
+              error instanceof Error ? error.message : String(error);
+            await writeSubagentEvent({
+              subagentId,
+              subagentName: agentName,
+              event: 'failed',
+              task,
+              error: errorMessage,
+              modelId,
+            });
+            throw error;
+          }
         },
       }),
     };

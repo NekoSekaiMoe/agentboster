@@ -192,6 +192,19 @@ export const workflowStatusDataSchema = z.discriminatedUnion('type', [
     /** The validated input object the model passed to the tool. */
     toolInput: z.unknown(),
   }),
+  z.object({
+    kind: z.literal('status'),
+    type: z.literal('subagent-event'),
+    agentName: z.string().optional(),
+    subagentId: z.string(),
+    subagentName: z.string(),
+    event: z.enum(['started', 'completed', 'failed']),
+    task: z.string(),
+    summary: z.string().optional(),
+    error: z.string().optional(),
+    steps: z.number().finite().optional(),
+    modelId: z.string().optional(),
+  }),
 ]);
 
 export const workflowDataSchema = z.discriminatedUnion('kind', [

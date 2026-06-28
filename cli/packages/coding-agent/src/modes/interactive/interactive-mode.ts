@@ -5149,6 +5149,9 @@ export class InteractiveMode {
 				clientId: process.env["AGENTBOSTER_CLIENT_ID"] ?? "local-cli",
 				label: "agentboster-cli",
 				model: process.env["AGENTBOSTER_MODEL"] ?? null,
+				onSubagentEvent: (event) => {
+					void this.session.addWorkflowSubagentEvent(event);
+				},
 			});
 
 			// Hot-swap the model catalog so the picker reflects the server.

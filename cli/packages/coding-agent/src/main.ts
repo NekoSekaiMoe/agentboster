@@ -809,6 +809,12 @@ export async function main(args: string[], options?: MainOptions) {
 			customTools: sessionOptions.customTools,
 			streamFnOverride: await resolveStreamFnOverride(sessionManager),
 		});
+		const overrideWithEvents = await resolveStreamFnOverride(sessionManager, (event) => {
+			void created.session.addWorkflowSubagentEvent(event);
+		});
+		if (overrideWithEvents) {
+			created.session.agent.streamFn = overrideWithEvents;
+		}
 		const cliThinkingOverride = parsed.thinking !== undefined || cliThinkingFromModel;
 		if (created.session.model && cliThinkingOverride) {
 			created.session.setThinkingLevel(created.session.thinkingLevel);
@@ -1156,6 +1162,16 @@ async function injectRemoteModels(modelRegistry: ModelRegistry): Promise<void> {
  */
 async function resolveStreamFnOverride(
 	_sessionManager: { getSessionId: () => string },
+	onSubagentEvent?: (event: {
+		subagentId: string;
+		subagentName: string;
+		event: "started" | "completed" | "failed";
+		task: string;
+		summary?: string;
+		error?: string;
+		steps?: number;
+		modelId?: string;
+	}) => void,
 ): Promise<StreamFn | undefined> {
 	const auth = getStoredAuth();
 	if (!auth) {
@@ -1173,6 +1189,7 @@ async function resolveStreamFnOverride(
 		clientId: process.env["AGENTBOSTER_CLIENT_ID"] ?? "local-cli",
 		label: "agentboster-cli",
 		model: process.env["AGENTBOSTER_MODEL"] ?? null,
+		onSubagentEvent,
 		onLocalToolRequest: async ({ runId, toolCallId, toolName, toolInput }) => {
 			await handleLocalToolRequest(auth, runId, toolCallId, toolName, toolInput);
 		},

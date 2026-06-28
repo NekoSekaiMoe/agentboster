@@ -52,6 +52,17 @@ export interface CustomMessage<T = unknown> {
 	timestamp: number;
 }
 
+export interface WorkflowSubagentEventDetails {
+	subagentId: string;
+	subagentName: string;
+	event: "started" | "completed" | "failed";
+	task: string;
+	summary?: string;
+	error?: string;
+	steps?: number;
+	modelId?: string;
+}
+
 export interface BranchSummaryMessage {
 	role: "branchSummary";
 	summary: string;
@@ -160,6 +171,9 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 						timestamp: m.timestamp,
 					};
 				case "custom": {
+					if (m.customType === "workflow.subagent") {
+						return undefined;
+					}
 					const content = typeof m.content === "string" ? [{ type: "text" as const, text: m.content }] : m.content;
 					return {
 						role: "user",

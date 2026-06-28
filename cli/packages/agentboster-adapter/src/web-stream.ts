@@ -29,6 +29,17 @@ export type LocalToolRequestHandler = (input: {
 	toolInput: unknown;
 }) => Promise<void>;
 
+export type SubagentEventHandler = (input: {
+	subagentId: string;
+	subagentName: string;
+	event: "started" | "completed" | "failed";
+	task: string;
+	summary?: string;
+	error?: string;
+	steps?: number;
+	modelId?: string;
+}) => void;
+
 export interface WebStreamOptions {
 	baseUrl: string;
 	token: string;
@@ -37,6 +48,7 @@ export interface WebStreamOptions {
 	label?: string;
 	model?: string | null;
 	onLocalToolRequest?: LocalToolRequestHandler;
+	onSubagentEvent?: SubagentEventHandler;
 	/** Abort signal from pi's agent loop. When aborted, the fetch is cancelled. */
 	signal?: AbortSignal;
 }
@@ -382,6 +394,35 @@ function handleChunk(
 						toolCallId: detail.toolCallId,
 						toolName: detail.toolName,
 						toolInput: detail.toolInput,
+					});
+				}
+			}
+			if (data?.type === "subagent-event" && options.onSubagentEvent) {
+				const detail = data as {
+					subagentId?: string;
+					subagentName?: string;
+					event?: "started" | "completed" | "failed";
+					task?: string;
+					summary?: string;
+					error?: string;
+					steps?: number;
+					modelId?: string;
+				};
+				if (
+					typeof detail.subagentId === "string" &&
+					typeof detail.subagentName === "string" &&
+					(detail.event === "started" || detail.event === "completed" || detail.event === "failed") &&
+					typeof detail.task === "string"
+				) {
+					options.onSubagentEvent({
+						subagentId: detail.subagentId,
+						subagentName: detail.subagentName,
+						event: detail.event,
+						task: detail.task,
+						summary: typeof detail.summary === "string" ? detail.summary : undefined,
+						error: typeof detail.error === "string" ? detail.error : undefined,
+						steps: typeof detail.steps === "number" ? detail.steps : undefined,
+						modelId: typeof detail.modelId === "string" ? detail.modelId : undefined,
 					});
 				}
 			}
