@@ -1,43 +1,32 @@
-# Repository Guidelines
+# AGENTS.md — cli/
 
-## Project Structure & Module Organization
-This is an npm workspaces monorepo under `packages/`.
+Compact guide for OpenCode sessions working in the `cli/` workspace. This is a separate npm monorepo from the root web app.
 
-- `packages/ai`: shared AI provider abstraction and model utilities.
-- `packages/agent`: core agent primitives and orchestration.
-- `packages/agentboster-adapter`: adapter layer for CLI agent runtime.
-- `packages/tui`: terminal UI rendering primitives.
-- `packages/coding-agent`: CLI application (`agentboster`), composed from the above packages.
-- `scripts/`: build/package scripts for release workflows.
-- `dist/` outputs are generated per package and should not be edited manually.
+## Read first
 
-## Build, Test, and Development Commands
-- `npm run build`: builds all packages in dependency order.
-- `npm run clean`: runs package clean scripts.
-- `npm run check`: runs formatting/linting/verification checks, including `tsgo --noEmit`.
-- `npm run bundle`: creates distributable bundle artifacts.
-- `npm run package`: packages release artifacts.
-- Per package: run `npm run build`, `npm run test`, and `npm run clean` in the relevant `packages/*` folder.
+- `cli/README.md` is the best map for the workspace boundaries and runtime flow.
+- The CLI is a thin client: Web owns models, auth, tool routing, session persistence, and workflow execution.
+- There is no direct provider mode; every model call goes through the Web backend.
 
-## Coding Style & Naming Conventions
-- TypeScript with native ESM (`"type": "module"`) and Node >= 22.19.0.
-- Keep existing project style: 2-space indentation, semicolons, single quotes, trailing commas.
-- Name files/functions/types descriptively and package-scoped.
-- Use Biome as the formatter/linter; avoid mixing additional formatters.
-- Prefer existing import style and avoid large import rewrites.
+## Commands
 
-## Testing Guidelines
-- Test framework is Vitest in core packages (`npm run test`).
-- TUI-specific modules use Node test (`node --test`) in their package.
-- Keep tests adjacent to changed behavior and prioritize regression coverage for CLI commands, parsing, and workflow paths.
+- `npm install` in `cli/` installs the workspace.
+- `npm run build` builds packages in this order: `ai` → `agent` → `agentboster-adapter` → `coding-agent`.
+- `npm run check` runs `biome check --write --error-on-warnings . && tsgo --noEmit`; it is not read-only.
+- `npm run bundle` creates `dist/agentboster.cjs` for the CLI package.
+- `npm run test` exists on individual packages such as `packages/agent`, `packages/ai`, and `packages/coding-agent`.
+- `agentboster --help` is the authoritative CLI flag list after a build.
 
-## Commit & Pull Request Guidelines
-Recent commits use Conventional Commits (e.g., `feat(cli): ...`, `fix(cli): ...`, `chore(cli): ...`).
-- PRs should include a summary of changes and package scope.
-- List verification steps and key outputs (`npm run check`, package tests).
-- Note any behavior or CLI compatibility impact.
+## Package boundaries
 
-## Security & Configuration Tips
-- Keep secrets out of source control; configure them via environment.
-- Keep dependency changes intentional and review lockfile changes.
-- For packaging-sensitive changes, verify release outputs before sharing artifacts.
+- `packages/coding-agent` owns the `agentboster` binary, TUI, login flow, session management, and local tools.
+- `packages/agentboster-adapter` owns stored auth, remote model lookup, and Web stream plumbing.
+- `packages/agent` contains the agent loop primitives.
+- `packages/ai` is the type surface and compatibility layer; it intentionally does not ship provider SDKs.
+
+## CLI-specific gotchas
+
+- `agentboster login` writes `~/.agentboster/config.json`; login is required before normal use.
+- The model catalog comes from the Web backend, so selecting an unknown model should fail fast.
+- `--print` skips the TUI and writes only final output to stdout.
+- Keep changes aligned with Node `>=22.19.0` and the npm workspace scripts in `cli/package.json`.
