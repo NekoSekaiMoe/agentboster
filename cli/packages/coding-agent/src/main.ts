@@ -19,6 +19,7 @@ import {
 } from "@agentboster/adapter";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
+import { listRemoteSessions, patchRemoteSession } from "./core/remote-sessions.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import type { ToolDefinition } from "./core/extensions/types.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
@@ -50,7 +51,7 @@ import {
 	MissingSessionCwdError,
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
-import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
+import { assertValidSessionId, type SessionInfo, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
@@ -332,9 +333,32 @@ async function createSessionManager(
 
 	if (parsed.resume) {
 		try {
+			// When logged in, hide sessions that have been deleted on the web
+			// backend by intersecting the local list with the remote catalog.
+			// Failures (offline / server down) fall back to the full local list
+			// so resume still works.
+			const auth = getStoredAuth();
+			const remoteIds = auth
+				? await listRemoteSessions(auth).then(
+						(rows) => new Set(rows.map((r) => r.id)),
+						() => null,
+					)
+				: null;
+
+			const filterFn = (sessions: SessionInfo[]) =>
+				remoteIds === null
+					? sessions
+					: sessions.filter((s) => remoteIds.has(s.id));
+
 			const selectedPath = await selectSession(
-				(onProgress) => SessionManager.list(cwd, sessionDir, onProgress),
-				(onProgress) => SessionManager.listAll(sessionDir, onProgress),
+				async (onProgress) => {
+					const list = await SessionManager.list(cwd, sessionDir, onProgress);
+					return filterFn(list);
+				},
+				async (onProgress) => {
+					const list = await SessionManager.listAll(sessionDir, onProgress);
+					return filterFn(list);
+				},
 				settingsManager,
 			);
 			if (!selectedPath) {
@@ -613,6 +637,11 @@ export async function main(args: string[], options?: MainOptions) {
 			process.exit(1);
 		}
 		sessionManager.appendSessionInfo(name);
+		// Mirror to the web DB so the title shows up in /resume and the web UI.
+		const auth = getStoredAuth();
+		if (auth) {
+			await patchRemoteSession(auth, sessionManager.getSessionId(), { title: name }).catch(() => {});
+		}
 	}
 	time("createSessionManager");
 
@@ -1092,18 +1121,21 @@ async function injectRemoteModels(modelRegistry: ModelRegistry): Promise<void> {
  * is absent, returns undefined and pi uses its built-in provider SDKs.
  */
 async function resolveStreamFnOverride(
-	_sessionManager: unknown,
+	_sessionManager: { getSessionId: () => string },
 ): Promise<StreamFn | undefined> {
 	const auth = getStoredAuth();
 	if (!auth) {
 		return undefined;
 	}
-	const sessionId =
-		process.env["AGENTBOSTER_SESSION_ID"] ??
-		globalThis.crypto.randomUUID();
+	// Use the SessionManager's id as the remote session identifier so
+	// the Web DB row and the local jsonl file stay correlated. Allow
+	// override via AGENTBOSTER_SESSION_ID for one-off debugging.
+	const envOverride = process.env["AGENTBOSTER_SESSION_ID"];
+	const sessionId = envOverride ?? _sessionManager.getSessionId();
 	return createAgentbosterStreamFn({
 		getAuth: () => ({ baseUrl: auth.url, token: auth.token }),
-		getSessionId: () => sessionId,
+		getSessionId: () =>
+			envOverride ?? _sessionManager.getSessionId(),
 		clientId: process.env["AGENTBOSTER_CLIENT_ID"] ?? "local-cli",
 		label: "agentboster-cli",
 		model: process.env["AGENTBOSTER_MODEL"] ?? null,

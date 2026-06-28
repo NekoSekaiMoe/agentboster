@@ -832,6 +832,23 @@ export class SessionSelectorComponent extends Container implements Focusable {
 		this.sessionList.onDeleteSession = async (sessionPath: string) => {
 			const result = await deleteSessionFile(sessionPath);
 
+			// Mirror to remote: open the jsonl just enough to read the id,
+			// then ask the web backend to delete the session row + related
+			// workflow / sandbox state. Best-effort — failures don't affect
+			// the local delete.
+			try {
+				const { SessionManager } = await import("../../../core/session-manager.ts");
+				const { getStoredAuth } = await import("@agentboster/adapter");
+				const { deleteRemoteSession } = await import("../../../core/remote-sessions.ts");
+				const mgr = SessionManager.open(sessionPath);
+				const auth = getStoredAuth();
+				if (auth) {
+					await deleteRemoteSession(auth, mgr.getSessionId()).catch(() => {});
+				}
+			} catch {
+				// ignore — local delete already succeeded
+			}
+
 			if (result.ok) {
 				if (this.currentSessions) {
 					this.currentSessions = this.currentSessions.filter((s) => s.path !== sessionPath);

@@ -39,6 +39,17 @@ import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
+
+// Lazy helper to avoid a static import cycle (remote-sessions → adapter
+// → nothing, but the wrapper keeps agent-session decoupled from auth
+// availability).
+async function patchRemoteSessionTitle(sessionId: string, title: string): Promise<void> {
+	const { getStoredAuth } = await import("@agentboster/adapter");
+	const { patchRemoteSession } = await import("./remote-sessions.ts");
+	const auth = getStoredAuth();
+	if (!auth) return;
+	await patchRemoteSession(auth, sessionId, { title }).catch(() => {});
+}
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
 	type CompactionResult,
@@ -2690,6 +2701,8 @@ export class AgentSession {
 	setSessionName(name: string): void {
 		this.sessionManager.appendSessionInfo(name);
 		this._emit({ type: "session_info_changed", name: this.sessionManager.getSessionName() });
+		// Mirror to the web DB so the title is consistent across CLI / web UI.
+		void patchRemoteSessionTitle(this.sessionManager.getSessionId(), name);
 	}
 
 	// =========================================================================

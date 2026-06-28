@@ -81,7 +81,7 @@ import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScop
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
-import { type SessionContext, SessionManager } from "../../core/session-manager.ts";
+import { type SessionContext, type SessionInfo, SessionManager } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
@@ -189,6 +189,27 @@ function isAnthropicSubscriptionAuthKey(apiKey: string | undefined): boolean {
 
 function isUnknownModel(model: Model<any> | undefined): boolean {
 	return !!model && model.provider === "unknown" && model.id === "unknown" && model.api === "unknown";
+}
+
+/**
+ * Filter the local session list by remote presence. When the CLI is
+ * logged in, sessions deleted on the web should not show up in the
+ * /resume picker. On any error (offline, server down) the local list
+ * is returned unchanged so resume keeps working.
+ */
+async function filterByRemotePresence(
+	sessions: SessionInfo[],
+): Promise<SessionInfo[]> {
+	const { getStoredAuth } = await import("@agentboster/adapter");
+	const auth = getStoredAuth();
+	if (!auth) return sessions;
+	const { listRemoteSessions } = await import("../../core/remote-sessions.ts");
+	const ids = await listRemoteSessions(auth).then(
+		(rows) => new Set(rows.map((r) => r.id)),
+		() => null,
+	);
+	if (ids === null) return sessions;
+	return sessions.filter((s) => ids.has(s.id));
 }
 
 function quoteIfNeeded(value: string): string {
@@ -4390,12 +4411,12 @@ export class InteractiveMode {
 	private showSessionSelector(): void {
 		this.showSelector((done) => {
 			const selector = new SessionSelectorComponent(
-				(onProgress) =>
-					SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
-				(onProgress) =>
+				async (onProgress) => filterByRemotePresence(await SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress)),
+				async (onProgress) => filterByRemotePresence(
 					this.sessionManager.usesDefaultSessionDir()
-						? SessionManager.listAll(onProgress)
-						: SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
+						? await SessionManager.listAll(onProgress)
+						: await SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
+				),
 				async (sessionPath) => {
 					done();
 					await this.handleResumeSession(sessionPath);
@@ -4414,6 +4435,13 @@ export class InteractiveMode {
 						if (!next) return;
 						const mgr = SessionManager.open(sessionFilePath);
 						mgr.appendSessionInfo(next);
+						// Mirror rename to remote so web UI stays in sync.
+						const { getStoredAuth } = await import("@agentboster/adapter");
+						const { patchRemoteSession } = await import("../../core/remote-sessions.ts");
+						const auth = getStoredAuth();
+						if (auth) {
+							await patchRemoteSession(auth, mgr.getSessionId(), { title: next }).catch(() => {});
+						}
 					},
 					showRenameHint: true,
 					keybindings: this.keybindings,
