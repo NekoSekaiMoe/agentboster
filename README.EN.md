@@ -32,37 +32,37 @@ Web owns UX and orchestration, the daemon owns execution isolation and safety, a
 
 ```mermaid
 flowchart TB
-  subgraph clients["Clients"]
-    Browser["Web browser"]
-    IM["IM bots\nTelegram / Slack / …"]
-    CLI["agentboster CLI"]
-  end
-
-  subgraph vercel["Web (Next.js 15 + Vercel)"]
+  subgraph tier1["① Web — Next.js 15 / Vercel"]
+    direction TB
     UI["App Router UI"]
     API["app/api/*"]
-    WF["Workflow DevKit\nlib/workflow"]
-    DB[("Neon Postgres\n+ pgvector")]
-    Blob["Vercel Blob"]
-    UI --> API
-    API --> WF
-    WF --> DB
-    API --> DB
-    API --> Blob
+    WF["Workflow DevKit"]
+    DB[("Postgres + pgvector")]
+    UI --> API --> WF --> DB
   end
 
-  subgraph linux["Linux host(s)"]
+  subgraph tier2["② agentd — Linux daemon (multi-node)"]
+    direction TB
     AD["agentd"]
-    SB["Sandboxes\ndocker / lxc"]
+    SB["Sandboxes docker / lxc"]
     AD --> SB
+  end
+
+  subgraph tier3["③ CLI — agentboster terminal"]
+    CLI["coding-agent + adapter"]
+  end
+
+  subgraph clients["User entry"]
+    Browser["Browser"]
+    IM["IM bots"]
   end
 
   Browser --> UI
   IM --> API
-  CLI --> API
+  CLI -->|"login + AGENTBOSTER_URL\nstreaming API"| API
 
-  AD -->|"HTTPS + X-API-Key\nregister, heartbeat, callbacks"| API
-  API -->|"optional mTLS\nWeb → Daemon"| AD
+  AD -->|"always HTTPS + API Key"| API
+  API -->|"optional mTLS tools"| AD
 ```
 
 ### Responsibility split
@@ -94,28 +94,48 @@ sequenceDiagram
 - **Daemon → Web**: always `HTTPS` + `AGENTD_API_KEY` (same as `clawless_api_key`). On Vercel, **do not** set `[clawless].ca_path` or other custom CA on this path — TLS validation will fail.
 - **Web → Daemon**: only when the node URL is reachable; Web uses `AGENTD_CLIENT_*` env vars for mTLS client certificates.
 
-### Typical chat path (Web UI)
+### Typical path: Web chat
 
 ```mermaid
 sequenceDiagram
   participant U as User
   participant UI as Chat UI
-  participant API as /api/chat
-  participant WF as Agent workflow
-  participant D as agentd (optional)
+  participant API as Web API
+  participant WF as Workflow
+  participant D as agentd
 
   U->>UI: Send message
-  UI->>API: Streaming request
-  API->>WF: Start / resume workflow
+  UI->>API: Stream request
+  API->>WF: Start / resume
   loop Tool loop
-    WF->>D: exec / read … (when node selected)
-    D-->>WF: Tool result
+    WF->>D: Tools (selected node)
+    D-->>WF: Result
   end
-  WF-->>UI: SSE / token stream
-  UI-->>U: Render reply
+  WF-->>UI: Token stream
 ```
 
-CLI remote mode skips the browser UI but hits the same Web APIs; workflows decide whether to dispatch work to agentd. See [`cli/README.md`](./cli/README.md).
+### Typical path: CLI remote mode
+
+```mermaid
+sequenceDiagram
+  participant U as Developer
+  participant CLI as agentboster CLI
+  participant API as Web API
+  participant WF as Workflow
+  participant D as agentd
+
+  U->>CLI: TUI / --print prompt
+  CLI->>API: Adapter stream
+  API->>WF: Same orchestration as Web
+  loop Tool loop
+    WF->>D: Sandbox tools when needed
+    D-->>WF: Result
+  end
+  WF-->>CLI: Token stream
+  CLI-->>U: Terminal output
+```
+
+Browser, IM, and CLI all converge on **Web API + Workflow**; **agentd** is used when orchestration dispatches sandbox tools. See [`cli/README.md`](./cli/README.md).
 
 ---
 

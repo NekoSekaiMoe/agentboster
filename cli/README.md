@@ -8,26 +8,32 @@ The `cli/` workspace ships the **`agentboster`** terminal coding agent: an npm m
 
 ```mermaid
 flowchart TB
-  subgraph local["Developer machine"]
-    BIN["agentboster binary"]
-    CFG["~/.agentboster/config.json"]
-    SESS["Local session files"]
+  subgraph tier1["① Web"]
+    API["HTTPS API + Workflow"]
+    IM["IM bots"]
+    UI["Browser UI"]
+    UI --> API
+    IM --> API
+  end
+
+  subgraph tier2["② agentd"]
+    AD["Linux sandbox exec"]
+  end
+
+  subgraph tier3["③ CLI (this repo)"]
+    BIN["agentboster"]
+    CFG["~/.agentboster/"]
     BIN --> CFG
-    BIN --> SESS
   end
 
-  subgraph remote["AgentBoster Web optional"]
-    API["HTTPS API"]
-    CHAT["Chat / workflow stream"]
+  subgraph local["Optional: direct providers"]
+    G["OpenAI / Google / …"]
   end
 
-  subgraph providers["LLM providers"]
-    G["Google / OpenAI / …"]
-  end
-
-  BIN -->|"AGENTBOSTER_URL + login token"| API
-  API --> CHAT
-  BIN -->|"direct API keys"| G
+  BIN -->|"login + AGENTBOSTER_URL"| API
+  API -->|"dispatch tools"| AD
+  AD -->|"heartbeat"| API
+  BIN -.->|"local API keys only"| G
 ```
 
 Use **local providers** for offline or bring-your-own-key workflows. Use **`agentboster login`** when the server should own models, policy, and tool routing.

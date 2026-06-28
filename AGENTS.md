@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Compact guide for OpenCode sessions working in this repo. The codebase has two independent components that talk over mTLS — read the section relevant to your task.
+Compact guide for OpenCode sessions working in this repo. The codebase has three deployable parts — **Web** (repo root), **`agentd/`** (Go daemon), and **`cli/`** (terminal client) — that talk over HTTPS (and optional mTLS for Web→daemon). Read the section relevant to your task.
 
 ## Important: After coding before committing
 
@@ -15,10 +15,11 @@ Compact guide for OpenCode sessions working in this repo. The codebase has two i
 
 ## Repository layout
 
-Two components, no shared code or build system:
+Three parts, separate build toolchains (Web/cli use npm/yarn ecosystems; agentd uses Go):
 
-- **Web app (this repo root)** — Next.js 15.5 App Router on Vercel. TypeScript 6, React 19, Biome, Drizzle ORM, Vercel Workflow DevKit. Yarn is the package manager (lockfile is `yarn.lock`, not `package-lock.json`).
-- **`agentd/`** — separate Go 1.26 module (`agentd/go.mod`). Linux-only daemon, runs on user servers, talks to the Web over mTLS. Build/test with `go`, not the root toolchain. See `agentd/AGENTS.md`, `agentd/README.md`, and `agentd/LAYOUT.MD`.
+- **Web app (repo root)** — Next.js 15.5 App Router on Vercel. TypeScript 6, React 19, Biome, Drizzle ORM, Vercel Workflow DevKit. Yarn (`yarn.lock`).
+- **`agentd/`** — Go 1.26 module (`agentd/go.mod`). Linux-only daemon; Daemon→Web uses HTTPS + API key; Web→daemon may use mTLS. See `agentd/AGENTS.md`, `agentd/README.md`.
+- **`cli/`** — npm workspaces; `agentboster` CLI and `@agentboster/adapter`. See `cli/README.md`, `cli/AGENTS.md`.
 
 Other things an agent would misread:
 - `CLAUDE.md` is a symlink to this file — keep this file as the source of truth.

@@ -32,37 +32,37 @@ Web 负责体验与编排，Daemon 负责执行隔离与安全边界，CLI 负�
 
 ```mermaid
 flowchart TB
-  subgraph clients["接入端"]
-    Browser["浏览器"]
-    IM["IM 机器人\nTelegram / Slack / …"]
-    CLI["agentboster CLI"]
-  end
-
-  subgraph vercel["Web（Next.js 15 + Vercel）"]
+  subgraph tier1["① Web — Next.js 15 / Vercel"]
+    direction TB
     UI["App Router 页面"]
     API["app/api/*"]
-    WF["Workflow DevKit\nlib/workflow"]
-    DB[("Neon Postgres\n+ pgvector")]
-    Blob["Vercel Blob"]
-    UI --> API
-    API --> WF
-    WF --> DB
-    API --> DB
-    API --> Blob
+    WF["Workflow DevKit"]
+    DB[("Postgres + pgvector")]
+    UI --> API --> WF --> DB
   end
 
-  subgraph linux["Linux 主机（可多台）"]
+  subgraph tier2["② agentd — Linux 守护进程（可多节点）"]
+    direction TB
     AD["agentd"]
-    SB["沙箱\ndocker / lxc"]
+    SB["沙箱 docker / lxc"]
     AD --> SB
+  end
+
+  subgraph tier3["③ CLI — agentboster 终端"]
+    CLI["coding-agent + adapter"]
+  end
+
+  subgraph clients["用户接入"]
+    Browser["浏览器"]
+    IM["IM 机器人"]
   end
 
   Browser --> UI
   IM --> API
-  CLI --> API
+  CLI -->|"login + AGENTBOSTER_URL\n流式 API"| API
 
-  AD -->|"HTTPS + X-API-Key\n注册、心跳、回调"| API
-  API -->|"可选 mTLS\nWeb → Daemon"| AD
+  AD -->|"始终 HTTPS + API Key"| API
+  API -->|"可选 mTLS 下发工具"| AD
 ```
 
 ### 职责划分
@@ -94,28 +94,48 @@ sequenceDiagram
 - **Daemon → Web**：始终 `HTTPS` + `AGENTD_API_KEY`（与 `clawless_api_key` 一致）。部署在 Vercel 时，**不要**给该方向配置 `[clawless].ca_path` 等自定义 CA，否则会校验失败。
 - **Web → Daemon**：仅当节点 URL 可达时；Web 侧使用 `AGENTD_CLIENT_*` 环境变量做 mTLS 客户端证书。
 
-### 典型聊天路径（Web UI）
+### 典型路径：Web 聊天
 
 ```mermaid
 sequenceDiagram
   participant U as 用户
   participant UI as 聊天页
-  participant API as /api/chat
-  participant WF as Agent Workflow
-  participant D as agentd（可选）
+  participant API as Web API
+  participant WF as Workflow
+  participant D as agentd
 
   U->>UI: 发送消息
   UI->>API: 流式请求
-  API->>WF: 启动/恢复 Workflow
+  API->>WF: 启动/恢复
   loop 工具循环
-    WF->>D: exec / read …（选中节点时）
-    D-->>WF: 工具结果
+    WF->>D: 工具调用（选中节点）
+    D-->>WF: 结果
   end
-  WF-->>UI: SSE / token 流
-  UI-->>U: 展示回复
+  WF-->>UI: token 流
 ```
 
-CLI 远程模式跳过浏览器 UI，但同样请求 Web API，由 Workflow 决定是否调度到 agentd。详见 [`cli/README.md`](./cli/README.md)。
+### 典型路径：CLI 远程模式
+
+```mermaid
+sequenceDiagram
+  participant U as 开发者
+  participant CLI as agentboster CLI
+  participant API as Web API
+  participant WF as Workflow
+  participant D as agentd
+
+  U->>CLI: TUI / --print 提示
+  CLI->>API: adapter 流式请求
+  API->>WF: 同 Web 会话编排
+  loop 工具循环
+    WF->>D: 需沙箱时调度节点
+    D-->>WF: 结果
+  end
+  WF-->>CLI: token 流
+  CLI-->>U: 终端输出
+```
+
+Web、IM、CLI 三条入口均汇聚到 **Web API + Workflow**；是否调用 **agentd** 由编排与节点调度决定。详见 [`cli/README.md`](./cli/README.md)。
 
 ---
 

@@ -8,27 +8,28 @@
 
 ```mermaid
 flowchart TB
-  subgraph web["AgentBoster Web"]
-    WF["Workflows / chat"]
-    Nodes["Node registry\n(Postgres)"]
-    L1W["L1 scorer UI"]
+  subgraph web["① Web"]
+    WF["Workflow / chat / IM"]
+    Nodes["Node registry"]
+    CLIin["CLI streams via API"]
     WF --> Nodes
   end
 
-  subgraph daemon["agentd on Linux"]
-    HTTP["Gin HTTP server"]
-    GK["Gatekeeper\nL0 → L1 → L2"]
-    AM["Agent manager\nCodeAct loop"]
-    WP["Worker pools"]
-    SB["Sandbox providers"]
-    HTTP --> GK
-    GK --> AM
-    AM --> WP --> SB
+  subgraph daemon["② agentd (this repo)"]
+    HTTP["Gin /api/v1"]
+    GK["L0 → L1 → L2"]
+    AM["Agent + tools"]
+    SB["Sandboxes"]
+    HTTP --> GK --> AM --> SB
   end
 
-  web -->|"optional mTLS\nPOST /api/v1/tools/*"| HTTP
-  daemon -->|"always HTTPS + API key\nregister, heartbeat, callbacks"| web
-  L1W -.->|"score request"| GK
+  subgraph cli["③ CLI"]
+    AB["agentboster"]
+  end
+
+  AB --> CLIin
+  web -->|"optional mTLS tools"| HTTP
+  daemon -->|"HTTPS + API key"| web
 ```
 
 The Web owns durable chat history, IM, and configuration. The daemon owns **process isolation**, **command execution**, and **host-side policy** before and after each tool invocation.

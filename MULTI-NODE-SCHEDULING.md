@@ -4,6 +4,29 @@
 
 AgentBoster 现已支持**基于资源的多节点智能调度**。当配置多个 agentd 节点时，系统会自动根据 CPU 使用率、内存可用量、磁盘空间等指标选择最佳节点执行任务。
 
+```mermaid
+flowchart LR
+  subgraph entry["接入"]
+    Web["Web / IM"]
+    CLI["CLI"]
+  end
+  subgraph orchestrate["Web 编排"]
+    WF["Workflow"]
+    SEL["selectBestNode()"]
+    WF --> SEL
+  end
+  subgraph nodes["② agentd 多节点"]
+    N1["node A"]
+    N2["node B"]
+    N3["node C"]
+  end
+  Web --> WF
+  CLI --> WF
+  SEL --> N1
+  SEL --> N2
+  SEL --> N3
+```
+
 ## 功能特性
 
 ### 1. 资源监控
