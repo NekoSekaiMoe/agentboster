@@ -98,6 +98,25 @@ export const ja = {
   'config.sections.users.description':
     'ユーザー、ロール、会話、ファイル、メモリを管理します。',
   'config.sections.users.title': 'ユーザー',
+  'config.sections.devices.description':
+    'CLI クライアントのペア設定とペア済みデバイスの取り消し。',
+  'config.sections.devices.title': 'CLI デバイス',
+  'config.devices.generateTitle': 'CLI クライアントをペア設定',
+  'config.devices.generateDescription':
+    '一回限りのペアコードを生成し、CLI で `agentboster login --pair-code <code>` を実行してください。コードは 5 分間有効です。',
+  'config.devices.generate': 'コード生成',
+  'config.devices.labelPlaceholder': 'ラベル（例: laptop、ci）',
+  'config.devices.codeGenerated': 'ペアコードを生成しました',
+  'config.devices.codeRevoked': 'ペアコードを取り消しました',
+  'config.devices.deviceRevoked': 'デバイスを取り消しました',
+  'config.devices.expiresIn': '{seconds} 秒で期限切れ',
+  'config.devices.devicesTitle': 'ペア済みデバイス',
+  'config.devices.unlabeled': 'ラベルなし',
+  'config.devices.active': 'アクティブ',
+  'config.devices.revoked': '取り消し済み',
+  'config.devices.pairedAt': 'ペア設定',
+  'config.devices.lastSeen': '最終アクセス',
+  'config.devices.noDevices': 'ペア済みの CLI デバイスはありません。',
   'config.sections.knowledge.description':
     'チームと個人のナレッジベースを管理します。',
   'config.sections.knowledge.title': 'ナレッジ',

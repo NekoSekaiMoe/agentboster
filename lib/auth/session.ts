@@ -7,6 +7,12 @@ export interface AuthSession {
   username: string;
   issuedAt: number;
   expiresAt: number;
+  /**
+   * Device id (jti). Present on tokens issued via CLI pairing.
+   * Absent on legacy tokens and on web cookie sessions (which are
+   * not bound to a device row).
+   */
+  jti?: string;
 }
 
 const encoder = new TextEncoder();
@@ -112,6 +118,7 @@ function decodePayload(payload: string): AuthSession | null {
       username: parsed.username,
       issuedAt: parsed.issuedAt,
       expiresAt: parsed.expiresAt,
+      jti: typeof parsed.jti === 'string' ? parsed.jti : undefined,
     };
   } catch {
     return null;
@@ -121,15 +128,31 @@ function decodePayload(payload: string): AuthSession | null {
 export async function createAuthToken(
   userId: string,
   username: string,
+  options?: { jti?: string },
 ): Promise<string> {
   const secret = readAuthSecret();
   const issuedAt = Date.now();
   const expiresAt = issuedAt + AUTH_TTL_SECONDS * 1000;
-  const payload = encodePayload({ userId, username, issuedAt, expiresAt });
+  const payload = encodePayload({
+    userId,
+    username,
+    issuedAt,
+    expiresAt,
+    ...(options?.jti ? { jti: options.jti } : {}),
+  });
   const signature = await sign(payload, secret);
   return `${payload}.${signature}`;
 }
 
+/**
+ * Verify a token's signature and expiry. Pure crypto check — no DB
+ * lookup, so this is safe to call in the edge middleware.
+ *
+ * Revocation of CLI devices (tokens with a jti) is enforced separately
+ * in `lib/cli/auth`'s `requireCliAuth`, which has Node.js runtime DB
+ * access. The middleware cannot perform revocation checks because it
+ * runs in the edge runtime.
+ */
 export async function verifyAuthToken(
   token: string | null | undefined,
 ): Promise<AuthSession | null> {

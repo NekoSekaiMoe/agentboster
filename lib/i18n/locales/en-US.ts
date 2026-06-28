@@ -95,6 +95,25 @@ export const enUS = {
   'config.sections.users.description':
     'Manage users, roles, conversations, files, and memories.',
   'config.sections.users.title': 'Users',
+  'config.sections.devices.description':
+    'Pair CLI clients and revoke paired devices.',
+  'config.sections.devices.title': 'CLI Devices',
+  'config.devices.generateTitle': 'Pair a CLI Client',
+  'config.devices.generateDescription':
+    'Generate a one-time code, then run `agentboster login --pair-code <code>` on your CLI. The code expires in 5 minutes.',
+  'config.devices.generate': 'Generate Code',
+  'config.devices.labelPlaceholder': 'Label (e.g. laptop, ci)',
+  'config.devices.codeGenerated': 'Pair code generated',
+  'config.devices.codeRevoked': 'Pair code revoked',
+  'config.devices.deviceRevoked': 'Device revoked',
+  'config.devices.expiresIn': 'Expires in {seconds}s',
+  'config.devices.devicesTitle': 'Paired Devices',
+  'config.devices.unlabeled': 'Unlabeled',
+  'config.devices.active': 'Active',
+  'config.devices.revoked': 'Revoked',
+  'config.devices.pairedAt': 'Paired',
+  'config.devices.lastSeen': 'last seen',
+  'config.devices.noDevices': 'No paired CLI devices.',
   'config.sections.knowledge.description':
     'Manage team and private knowledge bases.',
   'config.sections.knowledge.title': 'Knowledge',

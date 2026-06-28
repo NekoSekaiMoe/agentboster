@@ -96,6 +96,25 @@ export const ko = {
   'config.sections.users.description':
     '사용자, 역할, 대화, 파일, 메모리를 관리합니다.',
   'config.sections.users.title': '사용자',
+  'config.sections.devices.description':
+    'CLI 클라이언트 페어링 및 페어링된 기기를 취소합니다.',
+  'config.sections.devices.title': 'CLI 기기',
+  'config.devices.generateTitle': 'CLI 클라이언트 페어링',
+  'config.devices.generateDescription':
+    '일회용 페어 코드를 생성한 후 CLI에서 `agentboster login --pair-code <code>`를 실행하세요. 코드는 5분간 유효합니다.',
+  'config.devices.generate': '코드 생성',
+  'config.devices.labelPlaceholder': '레이블(예: laptop, ci)',
+  'config.devices.codeGenerated': '페어 코드가 생성되었습니다',
+  'config.devices.codeRevoked': '페어 코드가 취소되었습니다',
+  'config.devices.deviceRevoked': '기기가 취소되었습니다',
+  'config.devices.expiresIn': '{seconds}초 후 만료',
+  'config.devices.devicesTitle': '페어링된 기기',
+  'config.devices.unlabeled': '레이블 없음',
+  'config.devices.active': '활성',
+  'config.devices.revoked': '취소됨',
+  'config.devices.pairedAt': '페어링',
+  'config.devices.lastSeen': '최근 접속',
+  'config.devices.noDevices': '페어링된 CLI 기기가 없습니다.',
   'config.sections.knowledge.description':
     '팀 및 개인 지식 베이스를 관리합니다.',
   'config.sections.knowledge.title': '지식 베이스',

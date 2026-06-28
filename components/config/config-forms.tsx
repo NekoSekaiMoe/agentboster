@@ -7,6 +7,7 @@ import { AgentsForm } from './forms/agents-form';
 import { AuditLogsForm } from './forms/audit-logs-form';
 import { AutonomyForm } from './forms/autonomy-form';
 import { ChatForm } from './forms/chat-form';
+import { DevicesForm } from './forms/devices-form';
 import { ChannelsForm } from './forms/channels-form';
 import { LanguageForm } from './forms/language-form';
 import { McpForm } from './forms/mcp-form';
@@ -38,6 +39,8 @@ export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
       return <AgentsForm />;
     case 'chat':
       return <ChatForm />;
+    case 'devices':
+      return <DevicesForm />;
     case 'language':
       return <LanguageForm />;
     case 'channels':

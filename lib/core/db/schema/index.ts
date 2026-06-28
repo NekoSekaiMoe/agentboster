@@ -1,4 +1,5 @@
 export { messages, sessions } from './chat';
+export { cliDevices } from './cli-devices';
 export { users } from './users';
 export { imAccounts } from './im-accounts';
 export { files } from './files';

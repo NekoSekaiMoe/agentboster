@@ -19,9 +19,11 @@ import {
   set as kvSet,
   del as kvDel,
   expire as kvExpire,
+  redis,
 } from '@/lib/core/kv';
 
 const PAIR_CODE_PREFIX = 'pair-code:';
+const PAIR_CODE_USER_PREFIX = 'pair-codes-by-user:';
 const PAIR_CODE_TTL_SECONDS = 300; // 5 minutes
 
 export interface PairCodeEntry {
@@ -49,6 +51,10 @@ export async function generatePairCode(input: {
   };
   await kvSet(`${PAIR_CODE_PREFIX}${code}`, JSON.stringify(entry));
   await kvExpire(`${PAIR_CODE_PREFIX}${code}`, PAIR_CODE_TTL_SECONDS);
+  // Track this code under the user so listPairCodesForUser can find it.
+  const setKey = `${PAIR_CODE_USER_PREFIX}${input.userId}`;
+  await redis.sadd(setKey, code);
+  await redis.expire(setKey, PAIR_CODE_TTL_SECONDS + 10);
   return code;
 }
 
@@ -65,10 +71,76 @@ export async function consumePairCode(
   // Delete immediately (one-shot).
   await kvDel(key);
   try {
-    return JSON.parse(raw as string) as PairCodeEntry;
+    const entry = JSON.parse(raw as string) as PairCodeEntry;
+    if (entry.userId) {
+      await redis.srem(`${PAIR_CODE_USER_PREFIX}${entry.userId}`, code);
+    }
+    return entry;
   } catch {
     return null;
   }
+}
+
+export interface PairCodeListing {
+  code: string;
+  label?: string;
+  createdAt: number;
+  expiresInSeconds: number;
+}
+
+/**
+ * List active (unconsumed) pair codes for a user. Codes that have
+ * already been consumed or expired won't appear because they are
+ * removed from the user set on consume and TTL'd from KV otherwise.
+ */
+export async function listPairCodesForUser(
+  userId: string,
+): Promise<PairCodeListing[]> {
+  const members = (await redis.smembers(
+    `${PAIR_CODE_USER_PREFIX}${userId}`,
+  )) as string[];
+  const listings: PairCodeListing[] = [];
+  for (const code of members) {
+    const raw = await kvGet(`${PAIR_CODE_PREFIX}${code}`);
+    if (raw === null || raw === undefined) {
+      // Stale member; clean up.
+      await redis.srem(`${PAIR_CODE_USER_PREFIX}${userId}`, code);
+      continue;
+    }
+    try {
+      const entry = JSON.parse(raw as string) as PairCodeEntry;
+      const ttl = (await redis.ttl(`${PAIR_CODE_PREFIX}${code}`)) as number;
+      listings.push({
+        code,
+        label: entry.label,
+        createdAt: entry.createdAt,
+        expiresInSeconds: ttl > 0 ? ttl : 0,
+      });
+    } catch {
+      await redis.srem(`${PAIR_CODE_USER_PREFIX}${userId}`, code);
+    }
+  }
+  return listings;
+}
+
+/**
+ * Revoke (cancel) an unconsumed pair code. Idempotent.
+ * Returns true if the code existed and was removed.
+ */
+export async function revokePairCode(code: string): Promise<boolean> {
+  const key = `${PAIR_CODE_PREFIX}${code}`;
+  const raw = await kvGet(key);
+  if (raw === null || raw === undefined) return false;
+  try {
+    const entry = JSON.parse(raw as string) as PairCodeEntry;
+    if (entry.userId) {
+      await redis.srem(`${PAIR_CODE_USER_PREFIX}${entry.userId}`, code);
+    }
+  } catch {
+    // ignore parse error; still delete the key
+  }
+  await kvDel(key);
+  return true;
 }
 
 function generateCodeString(): string {

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { createCliDevice } from '@/lib/core/db/cli-devices';
 import { consumePairCode } from '@/lib/auth/pair-code';
 import { createAuthToken } from '@/lib/auth/session';
 
@@ -7,6 +9,9 @@ import { createAuthToken } from '@/lib/auth/session';
  * Exchange a pair code for a full auth token. Called by the CLI
  * (`agentboster login --pair-code <code>`). The pair code is
  * one-shot — consumed on first use.
+ *
+ * On success a `cli_devices` row is created, and the token's payload
+ * carries its id as `jti` so the web UI can later revoke the device.
  *
  * No cookie/session required: the pair code itself is the proof
  * of identity (issued by an authenticated web UI user).
@@ -32,7 +37,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const token = await createAuthToken(entry.userId, entry.username);
+  const jti = randomUUID();
+  await createCliDevice({
+    clawlessUserId: entry.userId,
+    label: body.label ?? entry.label ?? null,
+    tokenJti: jti,
+  });
+
+  const token = await createAuthToken(entry.userId, entry.username, { jti });
 
   return Response.json({
     ok: true,
