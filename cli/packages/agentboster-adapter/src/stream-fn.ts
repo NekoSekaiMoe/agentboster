@@ -19,6 +19,7 @@ import type { Api, Context, Model, SimpleStreamOptions } from "@agentboster-cli/
 
 import {
 	openAgentbosterStream,
+	type SubagentBatchEventHandler,
 	type SubagentEventHandler,
 	type WebStreamOptions,
 } from "./web-stream.ts";
@@ -30,6 +31,8 @@ export interface CreateStreamFnOptions extends Omit<WebStreamOptions, "baseUrl" 
 	getAuth: () => { baseUrl: string; token: string } | null;
 	/** Observe workflow-level subagent lifecycle updates from the server. */
 	onSubagentEvent?: SubagentEventHandler;
+	/** Observe workflow-level subagent batch updates from the server. */
+	onSubagentBatchEvent?: SubagentBatchEventHandler;
 }
 
 /**
@@ -70,6 +73,7 @@ export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn
 			model: opts.model,
 			onLocalToolRequest: opts.onLocalToolRequest,
 			onSubagentEvent: opts.onSubagentEvent,
+			onSubagentBatchEvent: opts.onSubagentBatchEvent,
 			signal: options?.signal,
 		});
 	};

@@ -287,6 +287,29 @@ export async function writeSubagentEvent(input: {
   });
 }
 
+export async function writeSubagentBatchEvent(input: {
+  batchId: string;
+  event: 'spawned' | 'completed' | 'cancelled';
+  concurrencyLimit: number;
+  total: number;
+  succeeded?: number;
+  failed?: number;
+  cancelled?: number;
+  summary?: string;
+}): Promise<void> {
+  'use step';
+
+  await writeChunk({
+    type: 'data-workflow',
+    data: {
+      kind: 'status',
+      type: 'subagent-batch-event',
+      ...input,
+    },
+    transient: true,
+  });
+}
+
 export async function writeMessageMetadata(
   metadata: ChatMessageMetadata,
 ): Promise<void> {

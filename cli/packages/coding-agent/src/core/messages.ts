@@ -63,6 +63,17 @@ export interface WorkflowSubagentEventDetails {
 	modelId?: string;
 }
 
+export interface WorkflowSubagentBatchEventDetails {
+	batchId: string;
+	event: "spawned" | "completed" | "cancelled";
+	concurrencyLimit: number;
+	total: number;
+	succeeded?: number;
+	failed?: number;
+	cancelled?: number;
+	summary?: string;
+}
+
 export interface BranchSummaryMessage {
 	role: "branchSummary";
 	summary: string;
@@ -171,7 +182,10 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 						timestamp: m.timestamp,
 					};
 				case "custom": {
-					if (m.customType === "workflow.subagent") {
+					if (
+						m.customType === "workflow.subagent" ||
+						m.customType === "workflow.subagent.batch"
+					) {
 						return undefined;
 					}
 					const content = typeof m.content === "string" ? [{ type: "text" as const, text: m.content }] : m.content;

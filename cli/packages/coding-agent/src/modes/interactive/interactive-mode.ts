@@ -3080,7 +3080,8 @@ export class InteractiveMode {
 			case "custom": {
 				if (message.display) {
 					const component =
-						message.customType === "workflow.subagent"
+						message.customType === "workflow.subagent" ||
+						message.customType === "workflow.subagent.batch"
 							? new WorkflowSubagentMessageComponent(message, this.getMarkdownThemeWithSettings())
 							: new CustomMessageComponent(
 									message,
@@ -5222,6 +5223,9 @@ export class InteractiveMode {
 				model: process.env["AGENTBOSTER_MODEL"] ?? null,
 				onSubagentEvent: (event) => {
 					void this.session.addWorkflowSubagentEvent(event);
+				},
+				onSubagentBatchEvent: (event) => {
+					void this.session.addWorkflowSubagentBatchEvent(event);
 				},
 			});
 

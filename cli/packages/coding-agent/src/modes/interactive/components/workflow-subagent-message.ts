@@ -1,26 +1,56 @@
 import { Box, Markdown, type MarkdownTheme, Spacer, Text } from "@agentboster-cli/tui";
-import type { CustomMessage, WorkflowSubagentEventDetails } from "../../../core/messages.ts";
+import type {
+	CustomMessage,
+	WorkflowSubagentBatchEventDetails,
+	WorkflowSubagentEventDetails,
+} from "../../../core/messages.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 import { keyText } from "./keybinding-hints.ts";
 
-type SubagentMessage = CustomMessage<WorkflowSubagentEventDetails>;
+type WorkflowSubagentDetails = WorkflowSubagentEventDetails | WorkflowSubagentBatchEventDetails;
+type SubagentMessage = CustomMessage<WorkflowSubagentDetails>;
 
-function getBackground(event: WorkflowSubagentEventDetails | undefined) {
+function isBatchEvent(
+	event: WorkflowSubagentDetails | undefined,
+): event is WorkflowSubagentBatchEventDetails {
+	return Boolean(event && "batchId" in event);
+}
+
+function getBackground(event: WorkflowSubagentDetails | undefined) {
 	if (!event) return "customMessageBg" as const;
+	if (isBatchEvent(event)) {
+		if (event.event === "spawned") return "toolPendingBg" as const;
+		if (event.event === "completed") return "toolSuccessBg" as const;
+		return "toolErrorBg" as const;
+	}
 	if (event.event === "started") return "toolPendingBg" as const;
 	if (event.event === "completed") return "toolSuccessBg" as const;
 	return "toolErrorBg" as const;
 }
 
-function getTitle(event: WorkflowSubagentEventDetails | undefined): string {
+function getTitle(event: WorkflowSubagentDetails | undefined): string {
 	if (!event) return "Sub-agent";
+	if (isBatchEvent(event)) {
+		if (event.event === "spawned") return `batch ${event.batchId} spawned`;
+		if (event.event === "completed") return `batch ${event.batchId} completed`;
+		return `batch ${event.batchId} cancelled`;
+	}
 	if (event.event === "started") return `${event.subagentName} started`;
 	if (event.event === "completed") return `${event.subagentName} completed`;
 	return `${event.subagentName} failed`;
 }
 
-function getCollapsedSummary(event: WorkflowSubagentEventDetails | undefined): string {
+function getCollapsedSummary(event: WorkflowSubagentDetails | undefined): string {
 	if (!event) return "Sub-agent event";
+	if (isBatchEvent(event)) {
+		if (event.event === "spawned") {
+			return `Spawned ${event.total} sub-agents at concurrency ${event.concurrencyLimit}`;
+		}
+		if (event.event === "completed") {
+			return `${event.succeeded ?? 0} completed, ${event.failed ?? 0} failed`;
+		}
+		return `${event.cancelled ?? event.total} cancelled`;
+	}
 	if (event.event === "started") return `Running task: ${event.task}`;
 	if (event.event === "completed") return event.summary?.trim() || "Completed";
 	return event.error?.trim() || "Failed";
@@ -65,6 +95,33 @@ export class WorkflowSubagentMessageComponent extends Box {
 		}
 
 		if (this.expanded) {
+			if (isBatchEvent(event)) {
+				const detailLines = [
+					`**Batch:** ${event.batchId}`,
+					`**State:** ${event.event}`,
+					`**Concurrency:** ${event.concurrencyLimit}`,
+					`**Total:** ${event.total}`,
+				];
+				if (typeof event.succeeded === "number") {
+					detailLines.push(`**Succeeded:** ${event.succeeded}`);
+				}
+				if (typeof event.failed === "number") {
+					detailLines.push(`**Failed:** ${event.failed}`);
+				}
+				if (typeof event.cancelled === "number") {
+					detailLines.push(`**Cancelled:** ${event.cancelled}`);
+				}
+				if (event.summary) {
+					detailLines.push("", "**Summary**", "", event.summary);
+				}
+				this.addChild(
+					new Markdown(detailLines.join("\n"), 0, 0, this.markdownTheme, {
+						color: (text: string) => theme.fg("customMessageText", text),
+					}),
+				);
+				return;
+			}
+
 			const detailLines = [
 				`**Agent:** ${event.subagentName}`,
 				`**State:** ${event.event}`,

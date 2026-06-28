@@ -811,6 +811,8 @@ export async function main(args: string[], options?: MainOptions) {
 		});
 		const overrideWithEvents = await resolveStreamFnOverride(sessionManager, (event) => {
 			void created.session.addWorkflowSubagentEvent(event);
+		}, (event) => {
+			void created.session.addWorkflowSubagentBatchEvent(event);
 		});
 		if (overrideWithEvents) {
 			created.session.agent.streamFn = overrideWithEvents;
@@ -1172,6 +1174,16 @@ async function resolveStreamFnOverride(
 		steps?: number;
 		modelId?: string;
 	}) => void,
+	onSubagentBatchEvent?: (event: {
+		batchId: string;
+		event: "spawned" | "completed" | "cancelled";
+		concurrencyLimit: number;
+		total: number;
+		succeeded?: number;
+		failed?: number;
+		cancelled?: number;
+		summary?: string;
+	}) => void,
 ): Promise<StreamFn | undefined> {
 	const auth = getStoredAuth();
 	if (!auth) {
@@ -1190,6 +1202,7 @@ async function resolveStreamFnOverride(
 		label: "agentboster-cli",
 		model: process.env["AGENTBOSTER_MODEL"] ?? null,
 		onSubagentEvent,
+		onSubagentBatchEvent,
 		onLocalToolRequest: async ({ runId, toolCallId, toolName, toolInput }) => {
 			await handleLocalToolRequest(auth, runId, toolCallId, toolName, toolInput);
 		},

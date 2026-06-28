@@ -40,6 +40,17 @@ export type SubagentEventHandler = (input: {
 	modelId?: string;
 }) => void;
 
+export type SubagentBatchEventHandler = (input: {
+	batchId: string;
+	event: "spawned" | "completed" | "cancelled";
+	concurrencyLimit: number;
+	total: number;
+	succeeded?: number;
+	failed?: number;
+	cancelled?: number;
+	summary?: string;
+}) => void;
+
 export interface WebStreamOptions {
 	baseUrl: string;
 	token: string;
@@ -49,6 +60,7 @@ export interface WebStreamOptions {
 	model?: string | null;
 	onLocalToolRequest?: LocalToolRequestHandler;
 	onSubagentEvent?: SubagentEventHandler;
+	onSubagentBatchEvent?: SubagentBatchEventHandler;
 	/** Abort signal from pi's agent loop. When aborted, the fetch is cancelled. */
 	signal?: AbortSignal;
 }
@@ -423,6 +435,35 @@ function handleChunk(
 						error: typeof detail.error === "string" ? detail.error : undefined,
 						steps: typeof detail.steps === "number" ? detail.steps : undefined,
 						modelId: typeof detail.modelId === "string" ? detail.modelId : undefined,
+					});
+				}
+			}
+			if (data?.type === "subagent-batch-event" && options.onSubagentBatchEvent) {
+				const detail = data as {
+					batchId?: string;
+					event?: "spawned" | "completed" | "cancelled";
+					concurrencyLimit?: number;
+					total?: number;
+					succeeded?: number;
+					failed?: number;
+					cancelled?: number;
+					summary?: string;
+				};
+				if (
+					typeof detail.batchId === "string" &&
+					(detail.event === "spawned" || detail.event === "completed" || detail.event === "cancelled") &&
+					typeof detail.concurrencyLimit === "number" &&
+					typeof detail.total === "number"
+				) {
+					options.onSubagentBatchEvent({
+						batchId: detail.batchId,
+						event: detail.event,
+						concurrencyLimit: detail.concurrencyLimit,
+						total: detail.total,
+						succeeded: typeof detail.succeeded === "number" ? detail.succeeded : undefined,
+						failed: typeof detail.failed === "number" ? detail.failed : undefined,
+						cancelled: typeof detail.cancelled === "number" ? detail.cancelled : undefined,
+						summary: typeof detail.summary === "string" ? detail.summary : undefined,
 					});
 				}
 			}

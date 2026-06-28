@@ -114,6 +114,7 @@ import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type {
 	BashExecutionMessage,
 	CustomMessage,
+	WorkflowSubagentBatchEventDetails,
 	WorkflowSubagentEventDetails,
 } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
@@ -1401,6 +1402,37 @@ export class AgentSession {
 		await this.sendCustomMessage<WorkflowSubagentEventDetails>(
 			{
 				customType: "workflow.subagent",
+				content: lines.join("\n"),
+				display: true,
+				details: event,
+			},
+			{ triggerTurn: false },
+		);
+	}
+
+	async addWorkflowSubagentBatchEvent(event: WorkflowSubagentBatchEventDetails): Promise<void> {
+		const lines = [
+			`Batch: ${event.batchId}`,
+			`State: ${event.event}`,
+			`Concurrency: ${event.concurrencyLimit}`,
+			`Total: ${event.total}`,
+		];
+		if (typeof event.succeeded === "number") {
+			lines.push(`Succeeded: ${event.succeeded}`);
+		}
+		if (typeof event.failed === "number") {
+			lines.push(`Failed: ${event.failed}`);
+		}
+		if (typeof event.cancelled === "number") {
+			lines.push(`Cancelled: ${event.cancelled}`);
+		}
+		if (event.summary) {
+			lines.push("", "Summary:", event.summary);
+		}
+
+		await this.sendCustomMessage<WorkflowSubagentBatchEventDetails>(
+			{
+				customType: "workflow.subagent.batch",
 				content: lines.join("\n"),
 				display: true,
 				details: event,

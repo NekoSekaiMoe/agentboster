@@ -205,6 +205,19 @@ export const workflowStatusDataSchema = z.discriminatedUnion('type', [
     steps: z.number().finite().optional(),
     modelId: z.string().optional(),
   }),
+  z.object({
+    kind: z.literal('status'),
+    type: z.literal('subagent-batch-event'),
+    agentName: z.string().optional(),
+    batchId: z.string(),
+    event: z.enum(['spawned', 'completed', 'cancelled']),
+    concurrencyLimit: z.number().finite(),
+    total: z.number().finite(),
+    succeeded: z.number().finite().optional(),
+    failed: z.number().finite().optional(),
+    cancelled: z.number().finite().optional(),
+    summary: z.string().optional(),
+  }),
 ]);
 
 export const workflowDataSchema = z.discriminatedUnion('kind', [
