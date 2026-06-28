@@ -13,8 +13,8 @@
 			"@agentboster-cli/core/hooks": ["./packages/coding-agent/src/core/hooks/index.ts"],
 			"@agentboster-cli/core/*": ["./packages/coding-agent/src/*"],
 			"typebox": ["./node_modules/typebox"],
-			"@agentboster-cli/tui": ["./packages/tui/src/index.ts"],
-			"@agentboster-cli/tui/*": ["./packages/tui/src/*"],
+			"@agentboster-cli/tui": ["./node_modules/@agentboster-cli/tui/dist/index.d.ts"],
+			"@agentboster-cli/tui/*": ["./node_modules/@agentboster-cli/tui/dist/*"],
 			"@agentboster/adapter": ["./packages/agentboster-adapter/src/index.ts"],
 			"@agentboster/adapter/*": ["./packages/agentboster-adapter/src/*.ts"]
 		}

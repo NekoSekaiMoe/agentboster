@@ -29,6 +29,11 @@ const SETTINGS_SUBMENU_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 	maxPrimaryColumnWidth: 32,
 };
 
+function str(value: unknown): string {
+	if (value === null || value === undefined) return "";
+	return String(value);
+}
+
 const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 	off: "No reasoning",
 	minimal: "Very brief reasoning (~1k tokens)",
@@ -347,7 +352,7 @@ class ThemeSubmenu extends Container {
 				id: "light-theme",
 				label: "Light theme",
 				description: "Theme to use in automatic mode when the terminal is light",
-				currentValue: this.lightTheme,
+				currentValue: str(this.lightTheme),
 				submenu: (currentValue, done) =>
 					this.createThemeSelect(
 						"Light Theme",
@@ -365,7 +370,7 @@ class ThemeSubmenu extends Container {
 				id: "dark-theme",
 				label: "Dark theme",
 				description: "Theme to use in automatic mode when the terminal is dark",
-				currentValue: this.darkTheme,
+				currentValue: str(this.darkTheme),
 				submenu: (currentValue, done) =>
 					this.createThemeSelect(
 						"Dark Theme",
@@ -487,21 +492,21 @@ export class SettingsSelectorComponent extends Container {
 				label: "Steering mode",
 				description:
 					"Enter while streaming queues steering messages. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once.",
-				currentValue: config.steeringMode,
+				currentValue: str(config.steeringMode),
 				values: ["one-at-a-time", "all"],
 			},
 			{
 				id: "follow-up-mode",
 				label: "Follow-up mode",
 				description: `${followUpKey} queues follow-up messages until agent stops. 'one-at-a-time': deliver one, wait for response. 'all': deliver all at once.`,
-				currentValue: config.followUpMode,
+				currentValue: str(config.followUpMode),
 				values: ["one-at-a-time", "all"],
 			},
 			{
 				id: "transport",
 				label: "Transport",
 				description: "Preferred transport for providers that support multiple transports",
-				currentValue: config.transport,
+				currentValue: str(config.transport),
 				values: ["sse", "websocket", "websocket-cached", "auto"],
 			},
 			{
@@ -544,21 +549,21 @@ export class SettingsSelectorComponent extends Container {
 				id: "default-project-trust",
 				label: "Default project trust",
 				description: "Fallback behavior when no extension or saved trust decision decides project trust",
-				currentValue: DEFAULT_PROJECT_TRUST_LABELS[config.defaultProjectTrust],
+				currentValue: str(DEFAULT_PROJECT_TRUST_LABELS[config.defaultProjectTrust]),
 				values: Object.values(DEFAULT_PROJECT_TRUST_LABELS),
 			},
 			{
 				id: "double-escape-action",
 				label: "Double-escape action",
 				description: "Action when pressing Escape twice with empty editor",
-				currentValue: config.doubleEscapeAction,
+				currentValue: str(config.doubleEscapeAction),
 				values: ["tree", "fork", "none"],
 			},
 			{
 				id: "tree-filter-mode",
 				label: "Tree filter mode",
 				description: "Default filter when opening /tree",
-				currentValue: config.treeFilterMode,
+				currentValue: str(config.treeFilterMode),
 				values: ["default", "no-tools", "user-only", "labeled-only", "all"],
 			},
 			{
@@ -580,7 +585,7 @@ export class SettingsSelectorComponent extends Container {
 				id: "thinking",
 				label: "Thinking level",
 				description: "Reasoning depth for thinking-capable models",
-				currentValue: config.thinkingLevel,
+				currentValue: str(config.thinkingLevel),
 				submenu: (currentValue, done) =>
 					new SelectSubmenu(
 						"Thinking Level",
@@ -602,7 +607,7 @@ export class SettingsSelectorComponent extends Container {
 				id: "theme",
 				label: "Theme",
 				description: "Color theme for the interface",
-				currentValue: config.currentTheme,
+				currentValue: str(config.currentTheme),
 				submenu: (currentValue, done) =>
 					new ThemeSubmenu(currentValue, config.terminalTheme, config.availableThemes, callbacks, done),
 			},

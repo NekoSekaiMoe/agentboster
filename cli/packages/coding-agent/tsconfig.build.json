@@ -7,8 +7,8 @@
 			"@agentboster-cli/agent/*": ["../agent/dist/*.d.ts"],
 			"@agentboster-cli/ai": ["../ai/dist/index.d.ts"],
 			"@agentboster-cli/ai/*": ["../ai/dist/*.d.ts"],
-			"@agentboster-cli/tui": ["../tui/dist/index.d.ts"],
-			"@agentboster-cli/tui/*": ["../tui/dist/*.d.ts", "../tui/dist/components/*.d.ts"],
+			"@agentboster-cli/tui": ["../../node_modules/@agentboster-cli/tui/dist/index.d.ts"],
+			"@agentboster-cli/tui/*": ["../../node_modules/@agentboster-cli/tui/dist/*.d.ts", "../../node_modules/@agentboster-cli/tui/dist/components/*.d.ts"],
 			"@agentboster/adapter": ["../agentboster-adapter/dist/index.d.ts"],
 			"@agentboster/adapter/*": ["../agentboster-adapter/dist/*.d.ts"]
 		},
