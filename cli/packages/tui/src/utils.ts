@@ -49,6 +49,7 @@ export const cjkBreakRegex =
 	/[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}\p{Script_Extensions=Bopomofo}]/u;
 
 function isPrintableAscii(str: string): boolean {
+	if (typeof str !== "string") return false;
 	for (let i = 0; i < str.length; i++) {
 		const code = str.charCodeAt(i);
 		if (code < 0x20 || code > 0x7e) {
@@ -214,6 +215,7 @@ function graphemeWidth(segment: string): number {
  * Calculate the visible width of a string in terminal columns.
  */
 export function visibleWidth(str: string): number {
+	if (typeof str !== "string") return 0;
 	if (str.length === 0) {
 		return 0;
 	}
@@ -918,6 +920,9 @@ export function truncateToWidth(
 	ellipsis: string = "...",
 	pad: boolean = false,
 ): string {
+	if (typeof text !== "string") {
+		text = text === null || text === undefined ? "" : String(text);
+	}
 	if (maxWidth <= 0) {
 		return "";
 	}
