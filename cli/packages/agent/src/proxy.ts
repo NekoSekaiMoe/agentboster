@@ -10,11 +10,21 @@ import {
 	type Context,
 	EventStream,
 	type Model,
-	parseStreamingJson,
 	type SimpleStreamOptions,
 	type StopReason,
 	type ToolCall,
 } from "@earendil-works/pi-ai";
+
+// Stub: parseStreamingJson was a pi-ai util that parsed streaming
+// JSON tool arguments. Inline a minimal version here since we
+// removed the util from ai/src.
+function parseStreamingJson(s: string): Record<string, unknown> | null {
+	try {
+		return JSON.parse(s);
+	} catch {
+		return null;
+	}
+}
 
 // Create stream class matching ProxyMessageEventStream
 class ProxyMessageEventStream extends EventStream<AssistantMessageEvent, AssistantMessage> {

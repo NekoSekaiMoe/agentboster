@@ -12,39 +12,24 @@
 	],
 	"exports": {
 		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js"
+			"types": "./src/index.ts",
+			"import": "./src/index.ts"
 		},
 		"./compat": {
-			"types": "./dist/compat.d.ts",
-			"import": "./dist/compat.js"
-		},
-		"./providers/*": {
-			"types": "./dist/providers/*.d.ts",
-			"import": "./dist/providers/*.js"
-		},
-		"./api/*": {
-			"types": "./dist/api/*.d.ts",
-			"import": "./dist/api/*.js"
-		},
-		"./oauth": {
-			"types": "./dist/oauth.d.ts",
-			"import": "./dist/oauth.js"
+			"types": "./src/compat.ts",
+			"import": "./src/compat.ts"
 		},
 		"./utils/*": {
-			"types": "./dist/utils/*.d.ts",
-			"import": "./dist/utils/*.js"
+			"types": "./src/utils/*.ts",
+			"import": "./src/utils/*.ts"
 		},
-		"./bedrock-provider": {
-			"types": "./dist/bedrock-provider.d.ts",
-			"import": "./dist/bedrock-provider.js"
+		"./oauth": {
+			"types": "./src/compat.ts",
+			"import": "./src/compat.ts"
 		}
 	},
-	"bin": {
-		"pi-ai": "./dist/cli.js"
-	},
 	"files": [
-		"dist",
+		"src",
 		"README.md"
 	],
 	"scripts": {

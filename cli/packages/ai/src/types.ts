@@ -1,13 +1,3 @@
-import type { AnthropicOptions } from "./api/anthropic-messages.ts";
-import type { AzureOpenAIResponsesOptions } from "./api/azure-openai-responses.ts";
-import type { BedrockOptions } from "./api/bedrock-converse-stream.ts";
-import type { GoogleOptions } from "./api/google-generative-ai.ts";
-import type { GoogleVertexOptions } from "./api/google-vertex.ts";
-import type { MistralOptions } from "./api/mistral-conversations.ts";
-import type { OpenAICodexResponsesOptions } from "./api/openai-codex-responses.ts";
-import type { OpenAICompletionsOptions } from "./api/openai-completions.ts";
-import type { OpenAIResponsesOptions } from "./api/openai-responses.ts";
-import type { AssistantMessageDiagnostic } from "./utils/diagnostics.ts";
 import type { AssistantMessageEventStream } from "./utils/event-stream.ts";
 
 export type { AssistantMessageEventStream } from "./utils/event-stream.ts";
@@ -192,15 +182,15 @@ export type ProviderStreamOptions = StreamOptions & Record<string, unknown>;
  * this is tree-shake safe.
  */
 export interface ApiOptionsMap {
-	"anthropic-messages": AnthropicOptions;
-	"openai-completions": OpenAICompletionsOptions;
-	"openai-responses": OpenAIResponsesOptions;
-	"openai-codex-responses": OpenAICodexResponsesOptions;
-	"azure-openai-responses": AzureOpenAIResponsesOptions;
-	"google-generative-ai": GoogleOptions;
-	"google-vertex": GoogleVertexOptions;
-	"mistral-conversations": MistralOptions;
-	"bedrock-converse-stream": BedrockOptions;
+	"anthropic-messages": Record<string, unknown>;
+	"openai-completions": Record<string, unknown>;
+	"openai-responses": Record<string, unknown>;
+	"openai-codex-responses": Record<string, unknown>;
+	"azure-openai-responses": Record<string, unknown>;
+	"google-generative-ai": Record<string, unknown>;
+	"google-vertex": Record<string, unknown>;
+	"mistral-conversations": Record<string, unknown>;
+	"bedrock-converse-stream": Record<string, unknown>;
 }
 
 /**
@@ -388,7 +378,7 @@ export interface AssistantMessage {
 	model: string;
 	responseModel?: string; // Concrete `chunk.model` when different from the requested `model` (e.g. OpenRouter `auto` -> `anthropic/...`)
 	responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
-	diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime diagnostics for failures and recoveries.
+	diagnostics?: unknown[];
 	usage: Usage;
 	stopReason: StopReason;
 	errorMessage?: string;
