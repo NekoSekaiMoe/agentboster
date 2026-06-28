@@ -8,6 +8,7 @@
  * @agentboster/adapter's writeStoredConfig.
  */
 
+import { hostname } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
@@ -17,6 +18,15 @@ import {
 } from "@agentboster/adapter";
 
 const DEFAULT_CLIENT_LABEL = "agentboster-cli";
+
+/**
+ * Default device label combines the CLI binary name with the host's
+ * hostname so paired devices show up distinguishable in the web UI
+ * (e.g. `agentboster-cli@build-host-01`).
+ */
+export function defaultClientLabel(): string {
+	return `${DEFAULT_CLIENT_LABEL}@${hostname()}`;
+}
 
 export interface LoginOptions {
 	/** Server URL (e.g. https://claw.example.com). Required. */
@@ -100,7 +110,7 @@ export async function runLogin(opts: LoginOptions): Promise<void> {
 		const url = (opts.url ?? (await rl.question("Server URL: "))).trim();
 		if (!url) throw new Error("Server URL is required.");
 
-		const label = opts.label ?? DEFAULT_CLIENT_LABEL;
+		const label = opts.label ?? defaultClientLabel();
 
 		let token: string;
 		let username: string | undefined;

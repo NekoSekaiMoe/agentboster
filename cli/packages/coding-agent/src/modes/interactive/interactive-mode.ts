@@ -9,7 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { clearStoredAuth, createAgentbosterStreamFn, fetchRemoteModels, getStoredAuth, remoteModelsToPiModels, writeStoredConfig } from "@agentboster/adapter";
-import { exchangePairCode, loginWithPassword } from "../../cli/login.ts";
+import { defaultClientLabel, exchangePairCode, loginWithPassword } from "../../cli/login.ts";
 import {
 	type AssistantMessage,
 	getProviders,
@@ -5374,12 +5374,12 @@ export class InteractiveMode {
 			let token: string;
 			let username: string | undefined;
 
-			if (method === "Pair code") {
-				const code = await this.showExtensionInput("Pair code");
-				if (!code) return;
-				const r = await exchangePairCode(url, code, "agentboster-cli");
-				token = r.token;
-				username = r.username;
+		if (method === "Pair code") {
+			const code = await this.showExtensionInput("Pair code");
+			if (!code) return;
+			const r = await exchangePairCode(url, code, defaultClientLabel());
+			token = r.token;
+			username = r.username;
 			} else {
 				const user = await this.showExtensionInput("Username");
 				if (!user) return;
