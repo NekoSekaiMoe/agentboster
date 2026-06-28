@@ -74,7 +74,10 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
-import { createCompactionSummaryMessage } from "../../core/messages.ts";
+import {
+	createCompactionSummaryMessage,
+	type WorkflowSubagentEventDetails,
+} from "../../core/messages.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
@@ -381,6 +384,7 @@ export class InteractiveMode {
 
 	// Custom header from extension (undefined = use built-in header)
 	private customHeader: (Component & { dispose?(): void }) | undefined = undefined;
+	private activeWorkflowSubagents = new Map<string, WorkflowSubagentEventDetails>();
 
 	private options: InteractiveModeOptions;
 	private autoTrustOnReloadCwd: string | undefined;
@@ -2732,6 +2736,14 @@ export class InteractiveMode {
 				break;
 
 			case "message_end":
+				if (
+					event.message.role === "custom" &&
+					event.message.customType === "workflow.subagent" &&
+					event.message.details &&
+					typeof event.message.details === "object"
+				) {
+					this.updateWorkflowSubagentStatus(event.message.details as WorkflowSubagentEventDetails);
+				}
 				if (event.message.role === "user") break;
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
@@ -2995,6 +3007,31 @@ export class InteractiveMode {
 		this.lastStatusSpacer = spacer;
 		this.lastStatusText = text;
 		this.ui.requestRender();
+	}
+
+	private updateWorkflowSubagentStatus(event: WorkflowSubagentEventDetails): void {
+		if (event.event === "started") {
+			this.activeWorkflowSubagents.set(event.subagentId, event);
+		} else {
+			this.activeWorkflowSubagents.delete(event.subagentId);
+		}
+
+		const running = this.activeWorkflowSubagents.size;
+		if (running === 0) {
+			this.footerDataProvider.setExtensionStatus("workflow.subagents", undefined);
+			this.footer.invalidate();
+			return;
+		}
+
+		const labels = Array.from(this.activeWorkflowSubagents.values())
+			.slice(0, 3)
+			.map((item) => item.subagentName);
+		const suffix = running > labels.length ? ` +${running - labels.length}` : "";
+		this.footerDataProvider.setExtensionStatus(
+			"workflow.subagents",
+			`subagents ${running} running: ${labels.join(", ")}${suffix}`,
+		);
+		this.footer.invalidate();
 	}
 
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
