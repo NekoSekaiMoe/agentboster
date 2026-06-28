@@ -93,16 +93,25 @@ export class FooterComponent implements Component {
 
 		for (const entry of this.session.sessionManager.getEntries()) {
 			if (entry.type === "message" && entry.message.role === "assistant") {
-				totalInput += entry.message.usage.input;
-				totalOutput += entry.message.usage.output;
-				totalCacheRead += entry.message.usage.cacheRead;
-				totalCacheWrite += entry.message.usage.cacheWrite;
-				totalCost += entry.message.usage.cost.total;
+				// Defensive: historical session files may have partial or
+				// differently-shaped usage (e.g. cost as a number from an
+				// older adapter version). Treat missing fields as 0.
+				const usage = entry.message.usage ?? {};
+				totalInput += usage.input ?? 0;
+				totalOutput += usage.output ?? 0;
+				totalCacheRead += usage.cacheRead ?? 0;
+				totalCacheWrite += usage.cacheWrite ?? 0;
+				const cost = usage.cost;
+				if (typeof cost === "number") {
+					totalCost += cost;
+				} else if (cost && typeof cost === "object") {
+					totalCost += cost.total ?? 0;
+				}
 
 				const latestPromptTokens =
-					entry.message.usage.input + entry.message.usage.cacheRead + entry.message.usage.cacheWrite;
+					(usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
 				latestCacheHitRate =
-					latestPromptTokens > 0 ? (entry.message.usage.cacheRead / latestPromptTokens) * 100 : undefined;
+					latestPromptTokens > 0 ? ((usage.cacheRead ?? 0) / latestPromptTokens) * 100 : undefined;
 			}
 		}
 

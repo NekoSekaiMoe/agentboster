@@ -2946,11 +2946,18 @@ export class AgentSession {
 			if (message.role === "assistant") {
 				const assistantMsg = message as AssistantMessage;
 				toolCalls += assistantMsg.content.filter((c) => c.type === "toolCall").length;
-				totalInput += assistantMsg.usage.input;
-				totalOutput += assistantMsg.usage.output;
-				totalCacheRead += assistantMsg.usage.cacheRead;
-				totalCacheWrite += assistantMsg.usage.cacheWrite;
-				totalCost += assistantMsg.usage.cost.total;
+				// Defensive: historical sessions may have partial usage.
+				const usage = assistantMsg.usage ?? {};
+				totalInput += usage.input ?? 0;
+				totalOutput += usage.output ?? 0;
+				totalCacheRead += usage.cacheRead ?? 0;
+				totalCacheWrite += usage.cacheWrite ?? 0;
+				const cost = usage.cost;
+				if (typeof cost === "number") {
+					totalCost += cost;
+				} else if (cost && typeof cost === "object") {
+					totalCost += cost.total ?? 0;
+				}
 			}
 		}
 
