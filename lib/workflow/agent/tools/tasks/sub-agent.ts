@@ -60,6 +60,11 @@ async function mapWithConcurrencyLimit<T, R>(
 }
 
 function summarizeBatchResults(
+  input: {
+    concurrencyLimit: number;
+    succeeded: number;
+    failed: number;
+  },
   results: Array<
     | {
         ok: true;
@@ -78,7 +83,14 @@ function summarizeBatchResults(
       }
   >,
 ): string {
-  return results
+  const header = [
+    `Batch sub-agent run complete.`,
+    `Concurrency limit: ${input.concurrencyLimit}`,
+    `Succeeded: ${input.succeeded}`,
+    `Failed: ${input.failed}`,
+  ].join('\n');
+
+  const body = results
     .map((item, index) => {
       if (item.ok) {
         return [
@@ -96,6 +108,8 @@ function summarizeBatchResults(
       ].join('\n');
     })
     .join('\n\n');
+
+  return `${header}\n\n${body}`;
 }
 
 function getMessageText(message: ModelMessage): string {
@@ -329,7 +343,14 @@ export default defineBuildInTool({
               concurrencyLimit,
               succeeded,
               failed,
-              response: summarizeBatchResults(settled),
+              response: summarizeBatchResults(
+                {
+                  concurrencyLimit,
+                  succeeded,
+                  failed,
+                },
+                settled,
+              ),
               results: settled,
             };
           }
