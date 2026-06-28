@@ -1,6 +1,8 @@
 # AgentBoster CLI
 
-The `cli/` workspace ships the **`agentboster`** terminal coding agent: an npm monorepo that composes LLM providers, agent orchestration, terminal UI, and an optional **AgentBoster server adapter** for remote sessions.
+The `cli/` workspace ships the **`agentboster`** terminal coding agent. It is a **thin client** of the AgentBoster platform: the Web backend owns models, API keys, tool routing, session persistence, and the workflow runtime; the CLI renders the TUI and executes `local_*` tools (shell / file I/O) on the user's machine.
+
+There is **no direct provider mode** — every LLM call goes through `POST /api/cli/chat` on the Web backend. The provider SDKs (Anthropic / OpenAI / Google / Bedrock / Mistral / …) are intentionally absent from `packages/ai` (~90 MB of npm deps stripped).
 
 ---
 
@@ -26,17 +28,10 @@ flowchart TB
     BIN --> CFG
   end
 
-  subgraph local["Optional: direct providers"]
-    G["OpenAI / Google / …"]
-  end
-
-  BIN -->|"login + AGENTBOSTER_URL"| API
-  API -->|"dispatch tools"| AD
+  BIN -->|"login + stream\n+ local_* tool results"| API
+  API -->|"dispatch sandboxed tools"| AD
   AD -->|"heartbeat"| API
-  BIN -.->|"local API keys only"| G
 ```
-
-Use **local providers** for offline or bring-your-own-key workflows. Use **`agentboster login`** when the server should own models, policy, and tool routing.
 
 ---
 
@@ -47,7 +42,7 @@ flowchart BT
   CA["packages/coding-agent\nCLI entry + TUI"]
   AD["packages/agentboster-adapter\nauth + web stream"]
   AG["packages/agent"]
-  AI["packages/ai"]
+  AI["packages/ai (types only)"]
   TUI["packages/tui"]
   CA --> AD
   CA --> AG
@@ -61,34 +56,38 @@ flowchart BT
 | Package | Responsibility |
 |---------|----------------|
 | `@earendil-works/pi-coding-agent` | `agentboster` bin, interactive mode, extensions, export |
-| `@agentboster/adapter` | Stored auth, `createAgentbosterStreamFn`, remote models |
+| `@agentboster/adapter` | Stored auth, `createAgentbosterStreamFn`, remote models, remote sessions |
 | `@earendil-works/pi-agent-core` | Agent session primitives |
-| `@earendil-works/pi-ai` | Provider registry, streaming |
+| `@earendil-works/pi-ai` | Type surface + `compat` stubs (no provider SDKs) |
 | `@earendil-works/pi-tui` | Terminal rendering |
 
 Build order is enforced by the root `package.json` `build` script (tui → ai → agent → adapter → coding-agent).
 
 ---
 
-## Request paths (interactive)
+## Request path
 
 ```mermaid
 sequenceDiagram
   participant U as User
   participant CLI as agentboster
-  participant AD as adapter
-  participant S as Server or provider
+  participant API as Web API
+  participant WF as Workflow
+  participant D as agentd
 
   U->>CLI: Prompt in TUI
-  alt Remote mode
-    CLI->>AD: createAgentbosterStreamFn
-    AD->>S: SSE / stream HTTP
-    S-->>AD: tokens + tool requests
-    AD-->>CLI: chunks
-  else Local mode
-    CLI->>S: provider SDK stream
-    S-->>CLI: tokens
+  CLI->>API: POST /api/cli/chat (auth + sessionId + text)
+  API->>WF: chatMain → workflow run
+  loop tool loop
+    WF-->>CLI: SSE 'local-tool-request' (local_exec/read/write)
+    CLI->>CLI: spawn shell / read|write file
+    CLI->>API: POST /api/ai/[runId]/tool-result
+    opt sandboxed tool
+      WF->>D: dispatch to agentd node
+      D-->>WF: result
+    end
   end
+  WF-->>CLI: SSE tokens (AssistantMessageEvent stream)
   CLI-->>U: Rendered output
 ```
 
@@ -114,61 +113,87 @@ npm run build
 ### Run
 
 ```bash
-cd packages/coding-agent
-node dist/cli.js --help
-node dist/cli.js --version
-```
+# Direct from compiled dist
+node packages/coding-agent/dist/cli.js --help
 
-Development (TypeScript direct):
+# Single-file bundle (no node_modules needed at runtime)
+npm run bundle
+node packages/coding-agent/dist/agentboster.cjs --help
 
-```bash
+# TypeScript direct (dev)
 npx tsx src/cli.ts --help
 ```
 
 ### Quality gate
 
 ```bash
-npm run check
+npm run check    # tsgo --noEmit + Biome lint
 ```
-
-Runs Biome, pinned-deps checks, `tsgo --noEmit`, and browser smoke tests.
 
 ---
 
 ## End-user usage
 
-### Interactive session
+### 1. Log in (required)
+
+Pair the CLI with your AgentBoster Web deployment:
+
+```bash
+# Interactive
+agentboster login
+
+# Username + password
+agentboster login -u https://your-app.vercel.app --username you --password '***'
+
+# One-shot pair code (issued by the Web UI under /config/devices)
+agentboster login -u https://your-app.vercel.app --pair-code ABCD-1234
+```
+
+Writes `~/.agentboster/config.json` via `@agentboster/adapter`. The token's device id (`jti`) is recorded in the Web DB so the user can revoke it from the Web UI.
+
+### 2. Pick a model
+
+The model catalog is fetched from `GET /api/cli/models`. Only models the Web backend has configured are selectable.
+
+```bash
+# Choose at startup
+agentboster --model openai/gpt-4o-mini
+agentboster --model anthropic/claude-sonnet-4:high
+
+# Or inside the TUI
+/model
+Ctrl+P                       # cycle scoped models
+
+# List what the server offers
+agentboster --list-models
+agentboster --list-models sonnet
+```
+
+Passing a model id that is not in the server catalog fails fast with `Model "X" is not in the server catalog. Allowed models: …` — the same restriction the IM `/model` command enforces.
+
+### 3. Interactive session
 
 ```bash
 agentboster
-agentboster --model openai/gpt-4o-mini
-agentboster --thinking medium
+agentboster "List top-level directories"
+agentboster @prompt.md "Implement this"
 ```
 
-### One-shot (print mode)
+### 4. One-shot (print mode)
 
 ```bash
 agentboster -p "list top-level directories"
 agentboster --print "explain package.json workspaces"
 ```
 
-### Login (server mode)
+### 5. Resume / fork / export
 
 ```bash
-agentboster login
-agentboster login -u https://your-app.vercel.app --username you --password '***'
-agentboster login -u https://your-app.vercel.app --pair-code ABCD1234
-```
-
-Writes `~/.agentboster/config.json` via `@agentboster/adapter` (`writeStoredConfig`).
-
-### Environment for remote backend
-
-```bash
-export AGENTBOSTER_URL=https://your-app.vercel.app
-export AGENTBOSTER_CLIENT_ID=my-laptop
-export AGENTBOSTER_SESSION_ID=optional-fixed-id
-agentboster
+agentboster --continue              # continue last session (synced with Web)
+agentboster --resume                # picker (Web-deleted sessions are hidden)
+agentboster --session <id|path>     # exact session
+agentboster --fork <id|path>        # branch off a previous turn
+agentboster --export session.jsonl  # HTML export
 ```
 
 ---
@@ -179,38 +204,33 @@ agentboster
 |------|-------|-------------|
 | `--help` | `-h` | Usage |
 | `--version` | `-v` | Package version |
-| `--provider` | | Default provider (often `google`) |
-| `--model` | | Model id or `provider/model` |
-| `--api-key` | | Inline API key (prefer login/config) |
+| `--model <provider/model[:thinking]>` | | Model from server catalog |
+| `--models <patterns>` | | Comma-separated patterns for `Ctrl+P` cycling |
 | `--print` | `-p` | Non-interactive; stdout only |
-| `--offline` | | No network (`PI_OFFLINE=1`) |
-| `--session` | | Session id |
-| `--continue` | | Continue last session |
-| `--resume` | | Resume named session |
-| `--tools` | `-t` | Allow-list tools |
-| `--exclude-tools` | `-xt` | Deny-list tools |
-| `--thinking` | | off / minimal / low / medium / high / xhigh |
-| `--theme` | | Built-in or custom theme JSON |
-| `--skill` | | Load skill definitions |
-| `--extension` | | Load extension modules |
+| `--continue` | `-c` | Continue last session |
+| `--resume` | `-r` | Resume named session |
+| `--session <id\|path>` | | Use specific session |
+| `--session-id <id>` | | Use exact session id, creating it if missing |
+| `--fork <id\|path>` | | Fork at a previous turn |
+| `--session-dir <dir>` | | Override session storage directory |
+| `--no-session` | | Ephemeral session (not persisted) |
+| `--name <name>` | `-n` | Set session display name |
+| `--thinking <level>` | | off / minimal / low / medium / high / xhigh |
+| `--tools <list>` | `-t` | Allow-list of tools |
+| `--exclude-tools <list>` | `-xt` | Deny-list of tools |
+| `--no-tools` | `-nt` | Disable all tools |
+| `--no-builtin-tools` | `-nbt` | Disable built-in tools only |
+| `--extension <path>` | `-e` | Load an extension |
+| `--skill <path>` | | Load a skill |
+| `--theme <path>` | | Load a theme |
+| `--export <file>` | | Export session to HTML |
+| `--list-models [search]` | | List server models |
+| `--offline` | | Skip startup network ops |
+| `--approve` / `--no-approve` | `-a` / `-na` | Trust project-local files |
 
 Run `agentboster --help` for the authoritative list (extensions add more flags).
 
-```mermaid
-mindmap
-  root((agentboster))
-    Modes
-      Interactive TUI
-      Print CI
-      RPC entry dist/rpc-entry.js
-    Auth
-      login subcommand
-      ~/.agentboster
-    Runtime
-      tools
-      skills
-      extensions
-```
+> **Removed flags:** `--provider` and `--api-key` no longer exist. Provider selection happens via `--model <provider>/<id>`; API keys live exclusively on the Web backend.
 
 ---
 
@@ -218,21 +238,10 @@ mindmap
 
 | Path | Content |
 |------|---------|
-| `~/.agentboster/config.json` | Server URL, bearer token, client metadata |
-| `~/.agentboster/agent/auth.json` | Provider credentials (when used) |
-| Project cwd | Session artifacts, local overrides |
+| `~/.agentboster/config.json` | Server URL, bearer token, username |
+| `~/.agentboster/agent/sessions/` | Local session jsonl (tree state + LLM context mirror) |
 
-`getStoredAuth()` / `clearStoredAuth()` live in `packages/agentboster-adapter/src/auth.ts`. OAuth flows in upstream pi are replaced with **`agentboster login`** in this fork.
-
-```mermaid
-flowchart LR
-  LOGIN["agentboster login"]
-  WRITE["writeStoredConfig"]
-  READ["getStoredAuth"]
-  STREAM["createAgentbosterStreamFn"]
-  LOGIN --> WRITE
-  READ --> STREAM
-```
+`getStoredAuth()` / `clearStoredAuth()` live in `packages/agentboster-adapter/src/auth.ts`. The upstream pi OAuth flow is replaced with **`agentboster login`**.
 
 ---
 
@@ -242,10 +251,26 @@ Exports (see `packages/agentboster-adapter/src/index.ts`):
 
 - **Auth:** `readStoredConfig`, `writeStoredConfig`, `getStoredAuth`, `clearStoredAuth`
 - **Models:** `fetchRemoteModels`, `remoteModelsToPiModels`
-- **Streaming:** `createAgentbosterStreamFn`, `openAgentbosterStream`
+- **Streaming:** `createAgentbosterStreamFn`, `openAgentbosterStream` (SSE → pi `AssistantMessageEvent`)
 - **Security helpers:** `evaluateLocalCommand`, `formatToolRequest` (local policy hints)
 
-When `AGENTBOSTER_URL` is set and stored auth exists, `main.ts` registers the `agentboster` provider in the model registry so pi-core routes streams through the Web API instead of a raw vendor key.
+---
+
+## Local tools (`local_*`)
+
+These are the only tools the CLI executes on the user's machine. The Web workflow emits a `local-tool-request` SSE chunk; the CLI runs the command and POSTs the result back.
+
+| Tool | Action |
+|------|--------|
+| `local_exec` | Run a shell command (user's `$SHELL`, cwd, env) |
+| `local_read_file` | Read a file (absolute or cwd-relative) |
+| `local_write_file` | Write/overwrite a file (creates parent dirs) |
+
+Other tools (`readMemory`, `writeMemory`, sandbox `exec`, MCP tools, …) run on the Web workflow runtime or agentd — the CLI never touches them.
+
+### Security gating
+
+Each `local_*` invocation passes through `evaluateLocalCommand` in the adapter before executing. L0 blocks known-dangerous patterns; L2 asks for confirmation in the TUI when the command looks risky. Headless `--print` mode refuses anything that would require confirmation.
 
 ---
 
@@ -257,28 +282,18 @@ When `AGENTBOSTER_URL` is set and stored auth exists, `main.ts` registers the `a
 |--------|--------|
 | `npm run build` | Per-package `dist/` |
 | `npm run clean` | Remove build artifacts |
-| `npm run bundle` | `packages/coding-agent/dist/agentboster.cjs` |
-| `npm run package` | `agentboster-cli-<version>.tar.gz` |
-
-### Bundle flow
-
-```mermaid
-flowchart LR
-  ES["esbuild bundle.mjs"]
-  CJS["agentboster.cjs"]
-  PKG["package.mjs tarball"]
-  ES --> CJS --> PKG
-```
+| `npm run bundle` | `packages/coding-agent/dist/agentboster.cjs` (single file, all assets inlined) |
+| `npm run package` | `agentboster-cli-<version>.tar.gz` (2 files: `agentboster` wrapper + `agentboster.cjs`) |
 
 ```bash
 cd cli
 npm run bundle
 npm run package
 tar xzf agentboster-cli-*.tar.gz
-./agentboster --version
+./agentboster-cli-*/agentboster --version
 ```
 
-The bundle embeds themes, WASM (photon), export-html templates, and docs copies per `copy-binary-assets` in coding-agent.
+The bundle embeds themes, export-HTML templates, vendored libs (marked/highlight), and the announcement PNG via esbuild loaders. The tarball is fully self-contained — target machine only needs Node.js >= 22.
 
 ---
 
@@ -286,66 +301,43 @@ The bundle embeds themes, WASM (photon), export-html templates, and docs copies 
 
 | Variable | Purpose |
 |----------|---------|
-| `AGENTBOSTER_URL` | Base URL for server-backed streaming |
-| `AGENTBOSTER_SESSION_ID` | Pin session id |
-| `AGENTBOSTER_CLIENT_ID` | Client label (default `local-cli`) |
-| `AGENTBOSTER_MODEL` | Default remote model override |
-| `PI_OFFLINE=1` | Disable network initialization |
-| `PI_PACKAGE_DIR` | Override packaged asset root (Nix) |
+| `AGENTBOSTER_HOME` | Override `~/.agentboster` (config + sessions root) |
+| `AGENTBOSTER_SESSION_ID` | Pin session id (debugging) |
+| `AGENTBOSTER_CLIENT_ID` | Override device label |
+| `AGENTBOSTER_MODEL` | Default model override |
+| `PI_OFFLINE=1` | Disable startup network ops |
+| `PI_PACKAGE_DIR` | Override asset root (Nix/Guix) |
 | `PI_TIMING=1` | Log timing diagnostics |
 
-Provider-specific keys may still use pi conventions when not using server auth.
+> Provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) are **not used** by this fork. Configure them in the Web backend instead.
 
 ---
 
-## Interactive mode features (overview)
+## Session lifecycle (Web sync)
 
-The coding-agent interactive layer (`modes/interactive/`) includes:
-
-- Multi-turn chat with tool execution UI
-- Model picker and mid-session **re-login** (hot-swap stream function)
-- Themes (`theme/*.json`), markdown rendering via tui
-- Skills and extensions discovery
-- Session export to HTML (`core/export-html`)
-- Optional doom/easter-egg assets shipped in bundle
-
-Server re-login path refreshes `createAgentbosterStreamFn` when credentials change without restarting the binary.
+- **List / resume / delete:** mirrored via `/api/cli/sessions` — sessions deleted on the Web disappear from the CLI's `--resume` / `/resume` picker.
+- **Title renames:** `--name`, `/name`, and the rename action in the session picker PATCH the Web session row.
+- **Messages:** written by the Web workflow (`chatMain`) into the Postgres `messages` table. The CLI also keeps a local jsonl mirror for tree state (branch / rewind) and LLM context window.
+- **Compaction:** the CLI summarizes locally (through the adapter stream) and POSTs the result to `/api/cli/sessions/[id]/compact` so the Web DB stays consistent.
 
 ---
 
-## Security notes (local CLI)
+## RPC and automation
 
-- Tool execution on the **developer machine** is powerful: use `--tools` / `--exclude-tools` to limit surface
-- `evaluateLocalCommand` in the adapter can pre-classify risky shell proposals (L0-style hints); server mode defers to Web/daemon policy
-- Do not commit `~/.agentboster` contents or `--api-key` values into repos
-
-```mermaid
-flowchart TD
-  T["Tool proposal"]
-  L{"Local policy"}
-  R{"Remote policy"}
-  T --> L
-  L -->|server mode| R
-  L -->|local only| E["Execute locally"]
-  R --> E
-```
+`packages/coding-agent/dist/rpc-entry.js` supports programmatic control (build marks it executable). Use for editor integrations or headless automation where TUI is not wanted.
 
 ---
 
-## Testing
+## Troubleshooting
 
-| Package | Runner |
-|---------|--------|
-| ai, agent, coding-agent (most) | Vitest `npm run test` |
-| tui | Node `node --test` |
-
-From repo root of `cli/`:
-
-```bash
-npm run check
-```
-
-Add tests next to changed modules; prefer regression tests for CLI parsing and stream adapters.
+| Issue | Fix |
+|-------|-----|
+| `command not found` | Build (`npm run build`), use the tarball `./agentboster`, or run `node …/agentboster.cjs` |
+| `Not logged in` | `agentboster login` (the CLI cannot run without the Web backend) |
+| `Model "X" is not in the server catalog` | Run `agentboster --list-models`; the id must match exactly |
+| Empty model list | Check Web backend `/api/cli/models` and your token |
+| `Tool <name> not found` | Internal error — the CLI no longer dispatches tools locally; report if seen |
+| Bundle missing assets | `npm run build` before `npm run bundle` |
 
 ---
 
@@ -353,32 +345,10 @@ Add tests next to changed modules; prefer regression tests for CLI parsing and s
 
 | Component | Runs where | Role |
 |-----------|------------|------|
-| **CLI** | User laptop / CI | UX, local tools, optional Web stream |
+| **CLI** | User laptop / CI | UX, `local_*` tool execution |
 | **agentd** | Linux server | Sandboxed exec, L0–L2, long-running agents |
 
-The CLI does **not** replace the daemon. Server-mediated tasks that need Docker/LXC/browser sandboxes execute on registered nodes after the Web workflow dispatches them.
-
-```mermaid
-flowchart LR
-  CLI["agentboster CLI"]
-  WEB["Web API"]
-  AD["agentd"]
-  CLI --> WEB
-  WEB --> AD
-```
-
----
-
-## Troubleshooting
-
-| Issue | Check |
-|-------|--------|
-| `command not found` | Build (`npm run build`) or use tarball `./agentboster` |
-| `Not logged in` | Run `agentboster login`; verify `config.json` |
-| Empty model list (remote) | `fetchRemoteModels` needs valid token and URL |
-| Slow startup | Node version; disable accidental `PI_OFFLINE` |
-| Wrong assets in bundle | Run full `npm run build` before `bundle` |
-| Biome failures | `npm run check` from `cli/` root |
+The CLI does **not** replace the daemon. Server-mediated tasks that need Docker/LXC/browser sandboxes execute on registered agentd nodes after the Web workflow dispatches them.
 
 ---
 
@@ -392,52 +362,8 @@ See [`AGENTS.md`](AGENTS.md):
 
 ---
 
-## RPC and automation
-
-`packages/coding-agent/dist/rpc-entry.js` supports programmatic control (build marks it executable). Use for editor integrations or headless automation where TUI is not wanted.
-
----
-
-## Examples directory
-
-Packaged examples ship under `packages/coding-agent/examples/` (copied into release tarball). Use them as templates for extensions and custom tools.
-
----
-
-## Versioning
-
-Workspace `version` in `cli/package.json` is monorepo metadata; user-facing CLI version comes from **coding-agent** package (`agentboster --version`). Keep tarball name and `package.mjs` version in sync when releasing.
-
----
-
-## Roadmap / fork notes
-
-This tree is a **fork** of the pi coding-agent stack with AgentBoster-specific adapter and login flows:
-
-- OAuth provider login paths are disabled in favor of `agentboster login`
-- `agentboster` binary name replaces upstream `pi` branding in dist
-- Remote streaming integrates with AgentBoster Web rather than only vendor APIs
-
----
-
 ## Related documentation
 
-- [Root README](../README.EN.md) — platform architecture
+- [Root README](../README.md) — platform architecture
 - [`agentd/README.md`](../agentd/README.md) — Linux execution daemon
 - [`AGENTS.md`](AGENTS.md) — monorepo dev guide
-
----
-
-## FAQ
-
-**Can I use only OpenAI locally?** Yes — set provider API keys in auth storage or flags without `AGENTBOSTER_URL`.
-
-**Does print mode run tools?** Yes, when tools are enabled; ensure cwd and permissions are safe for CI.
-
-**Where is the bin defined?** `packages/coding-agent/package.json` `bin` field → `dist/cli.js` (chmod +x in build).
-
-**Nix users?** Set `PI_PACKAGE_DIR` so themes and README assets resolve outside node_modules layout.
-
----
-
-*Target length: ~400 lines including diagrams.*

@@ -338,25 +338,22 @@ export interface ResolveCliModelResult {
  * return a thinking level from "<pattern>:<thinking>" so the caller can apply it.
  */
 export function resolveCliModel(options: {
-	cliProvider?: string;
 	cliModel?: string;
 	cliThinking?: ThinkingLevel;
 	modelRegistry: ModelRegistry;
 }): ResolveCliModelResult {
-	const { cliProvider, cliModel, cliThinking, modelRegistry } = options;
+	const { cliModel, cliThinking, modelRegistry } = options;
 
 	if (!cliModel) {
 		return { model: undefined, warning: undefined, error: undefined };
 	}
 
-	// Important: use *all* models here, not just models with pre-configured auth.
-	// This allows "--api-key" to be used for first-time setup.
 	const availableModels = modelRegistry.getAll();
 	if (availableModels.length === 0) {
 		return {
 			model: undefined,
 			warning: undefined,
-			error: "No models available. Check your installation or add models to models.json.",
+			error: "No models available. Run `agentboster login` first; the model catalog is fetched from the server.",
 		};
 	}
 
@@ -366,38 +363,26 @@ export function resolveCliModel(options: {
 		providerMap.set(m.provider.toLowerCase(), m.provider);
 	}
 
-	let provider = cliProvider ? providerMap.get(cliProvider.toLowerCase()) : undefined;
-	if (cliProvider && !provider) {
-		return {
-			model: undefined,
-			warning: undefined,
-			error: `Unknown provider "${cliProvider}". Use --list-models to see available providers/models.`,
-		};
-	}
-
-	// If no explicit --provider, try to interpret "provider/model" format first.
-	// When the prefix before the first slash matches a known provider, prefer that
-	// interpretation over matching models whose IDs literally contain slashes
-	// (e.g. "zai/glm-5" should resolve to provider=zai, model=glm-5, not to a
-	// vercel-ai-gateway model with id "zai/glm-5").
+	// Interpret "provider/model" format: when the prefix before the
+	// first slash matches a known provider, split it. Otherwise treat
+	// the whole string as the model id (handles OpenRouter-style ids
+	// that legitimately contain slashes).
+	let provider: string | undefined;
 	let pattern = cliModel;
 	let inferredProvider = false;
 
-	if (!provider) {
-		const slashIndex = cliModel.indexOf("/");
-		if (slashIndex !== -1) {
-			const maybeProvider = cliModel.substring(0, slashIndex);
-			const canonical = providerMap.get(maybeProvider.toLowerCase());
-			if (canonical) {
-				provider = canonical;
-				pattern = cliModel.substring(slashIndex + 1);
-				inferredProvider = true;
-			}
+	const slashIndex = cliModel.indexOf("/");
+	if (slashIndex !== -1) {
+		const maybeProvider = cliModel.substring(0, slashIndex);
+		const canonical = providerMap.get(maybeProvider.toLowerCase());
+		if (canonical) {
+			provider = canonical;
+			pattern = cliModel.substring(slashIndex + 1);
+			inferredProvider = true;
 		}
 	}
 
-	// If no provider was inferred from the slash, try exact matches without provider inference.
-	// This handles models whose IDs naturally contain slashes (e.g. OpenRouter-style IDs).
+	// If no provider was inferred from the slash, try exact matches.
 	if (!provider) {
 		const lower = cliModel.toLowerCase();
 		const exact = availableModels.find(
@@ -405,14 +390,6 @@ export function resolveCliModel(options: {
 		);
 		if (exact) {
 			return { model: exact, warning: undefined, thinkingLevel: undefined, error: undefined };
-		}
-	}
-
-	if (cliProvider && provider) {
-		// If both were provided, tolerate --model <provider>/<pattern> by stripping the provider prefix
-		const prefix = `${provider}/`;
-		if (cliModel.toLowerCase().startsWith(prefix.toLowerCase())) {
-			pattern = cliModel.substring(prefix.length);
 		}
 	}
 
@@ -525,7 +502,6 @@ export interface InitialModelResult {
  * 5. First available model with valid API key
  */
 export async function findInitialModel(options: {
-	cliProvider?: string;
 	cliModel?: string;
 	scopedModels: ScopedModel[];
 	isContinuing: boolean;
@@ -535,7 +511,6 @@ export async function findInitialModel(options: {
 	modelRegistry: ModelRegistry;
 }): Promise<InitialModelResult> {
 	const {
-		cliProvider,
 		cliModel,
 		scopedModels,
 		isContinuing,
@@ -548,10 +523,9 @@ export async function findInitialModel(options: {
 	let model: Model<Api> | undefined;
 	let thinkingLevel: ThinkingLevel = DEFAULT_THINKING_LEVEL;
 
-	// 1. CLI args take priority
-	if (cliProvider && cliModel) {
+	// 1. CLI args take priority (--model <provider>/<id>)
+	if (cliModel) {
 		const resolved = resolveCliModel({
-			cliProvider,
 			cliModel,
 			modelRegistry,
 		});

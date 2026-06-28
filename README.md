@@ -22,7 +22,7 @@ AgentBoster 是多端协作的 AI 平台，由 **三个可独立部署/安装的
 
 - **Web（Next.js 15）**：浏览器 UI、会话与配置、IM 接入、Workflow 持久化编排、L2 审批与节点注册（Postgres）
 - **agentd（Go）**：Linux 守护进程，沙箱内执行工具、L0/L1/L2 安全、本地会话运行时与多节点心跳
-- **CLI（`agentboster`）**：终端编码 Agent；可直连厂商模型，也可通过 `login` + `AGENTBOSTER_URL` 走同一套 Web 后端流式接口
+- **CLI（`agentboster`）**：终端编码 Agent；通过 `agentboster login` 配对到 Web 后端，所有模型调用、工具执行、会话持久化都由 Web 编排，CLI 仅作为瘦客户端负责本地 TUI 与 `local_*` 工具（在本机执行 shell/读写文件）
 
 Web 负责体验与编排，Daemon 负责执行隔离与安全边界，CLI 负责开发者本机终端场景；三者通过 HTTPS API 协作，部署环境可分开升级。
 
@@ -59,7 +59,7 @@ flowchart TB
 
   Browser --> UI
   IM --> API
-  CLI -->|"login + AGENTBOSTER_URL\n流式 API"| API
+  CLI -->|"login 配对\n流式 API + local_* 工具结果"| API
 
   AD -->|"始终 HTTPS + API Key"| API
   API -->|"可选 mTLS 下发工具"| AD
@@ -71,7 +71,7 @@ flowchart TB
 |------|----------|--------|
 | **Web** | 会话、IM 路由、配置 UI、Workflow 状态、L2 交互、节点表 | 用户 VPC 内长期 shell（除非下发给 agentd） |
 | **agentd** | 沙箱内 exec/文件/浏览器等工具、主机侧 L0/L1、本地缓存与指标 | 主库持久化（经 API 与 Web 同步） |
-| **CLI** | TUI/打印模式、本机 Provider Key、`agentboster login` 远程流 | 服务端 IM、Workflow 权威状态 |
+| **CLI** | TUI/打印模式、`agentboster login` 配对、本机 `local_*` 工具执行 | 服务端 IM、模型/工具编排、Workflow 权威状态 |
 
 ### 通信方向（必读）
 
@@ -114,7 +114,7 @@ sequenceDiagram
   WF-->>UI: token 流
 ```
 
-### 典型路径：CLI 远程模式
+### 典型路径：CLI 会话
 
 ```mermaid
 sequenceDiagram
@@ -128,14 +128,17 @@ sequenceDiagram
   CLI->>API: adapter 流式请求
   API->>WF: 同 Web 会话编排
   loop 工具循环
+    WF->>CLI: local-tool-request（local_exec/read/write）
+    CLI->>CLI: 本机执行 shell / 读写文件
+    CLI-->>WF: 工具结果 POST
     WF->>D: 需沙箱时调度节点
     D-->>WF: 结果
   end
-  WF-->>CLI: token 流
+  WF-->>CLI: token 流（SSE）
   CLI-->>U: 终端输出
 ```
 
-Web、IM、CLI 三条入口均汇聚到 **Web API + Workflow**；是否调用 **agentd** 由编排与节点调度决定。详见 [`cli/README.md`](./cli/README.md)。
+Web、IM、CLI 三条入口均汇聚到 **Web API + Workflow**；CLI 既是消费端，也是 `local_*` 工具的执行端。详见 [`cli/README.md`](./cli/README.md)。
 
 ---
 
@@ -187,8 +190,8 @@ cli/                    # agentboster CLI monorepo
 ### CLI 侧
 
 - 交互 TUI 与 `--print` 非交互
-- `agentboster login` 写入 `~/.agentboster/config.json`
-- 环境变量 `AGENTBOSTER_URL` 等对接 Web；亦可仅用本地 API Key 调厂商
+- `agentboster login` 写入 `~/.agentboster/config.json`，配对到 Web 后端
+- 所有 LLM 调用、模型/工具编排、会话持久化都由 Web 负责；CLI 仅运行 `local_*` 工具（本机 shell / 读写文件）
 - 打包：`cli/` 下 `npm run bundle` / `npm run package`
 
 ---
@@ -240,7 +243,7 @@ agentboster login   # 使用 Web 时
 | `AGENTD_CLIENT_CERT_PATH` 等 | 仅 Web 主动访问 daemon 时需要 |
 | `TAVILY_API_KEY` | 可选 |
 
-CLI 常用：`AGENTBOSTER_URL`、`AGENTBOSTER_SESSION_ID`、`AGENTBOSTER_CLIENT_ID`（见 cli README）。
+CLI 端无需 env 变量；登录信息写入 `~/.agentboster/config.json`。调试可设 `AGENTBOSTER_SESSION_ID`、`AGENTBOSTER_CLIENT_ID`（见 cli README）。
 
 ---
 

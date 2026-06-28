@@ -405,7 +405,6 @@ function buildSessionOptions(
 	// - supports --model <provider>/<pattern>
 	if (parsed.model) {
 		const resolved = resolveCliModel({
-			cliProvider: parsed.provider,
 			cliModel: parsed.model,
 			cliThinking: parsed.thinking,
 			modelRegistry,
@@ -751,14 +750,29 @@ export async function main(args: string[], options?: MainOptions) {
 		);
 		diagnostics.push(...sessionOptionDiagnostics);
 
-		if (parsed.apiKey) {
-			if (!sessionOptions.model) {
-				diagnostics.push({
-					type: "error",
-					message: "--api-key requires a model to be specified via --model, --provider/--model, or --models",
-				});
-			} else {
-				authStorage.setRuntimeApiKey(sessionOptions.model.provider, parsed.apiKey);
+		// Validate the chosen model against the server catalog when
+		// logged in. Mirrors the IM /model command's allowlist check so
+		// the user gets a friendly "not in the allowed list" message
+		// instead of a 500 from the backend later.
+		if (sessionOptions.model) {
+			const auth = getStoredAuth();
+			if (auth) {
+				const catalogIds = await fetchRemoteModels(auth.url, auth.token).then(
+					(rows) => rows?.models.map((m) => m.id) ?? null,
+					() => null,
+				);
+				if (catalogIds && catalogIds.length > 0) {
+					const wanted = sessionOptions.model.id;
+					if (!catalogIds.includes(wanted)) {
+						const suggestion = catalogIds.slice().sort().join(", ");
+						console.error(
+							chalk.red(
+								`Model "${wanted}" is not in the server catalog. Allowed models: ${suggestion}`,
+							),
+						);
+						process.exit(1);
+					}
+				}
 			}
 		}
 
