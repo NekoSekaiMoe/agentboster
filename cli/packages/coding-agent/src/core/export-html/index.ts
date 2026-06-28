@@ -1,12 +1,13 @@
 import type { AgentState } from "@earendil-works/pi-agent-core";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, writeFileSync } from "fs";
 import { basename, join } from "path";
-import { APP_NAME, getExportTemplateDir } from "../../config.ts";
+import { APP_NAME } from "../../config.ts";
 import { getResolvedThemeColors, getThemeExportColors } from "../../modes/interactive/theme/theme.ts";
 import { normalizePath, resolvePath } from "../../utils/paths.ts";
 import type { ToolDefinition } from "../extensions/types.ts";
 import type { SessionEntry } from "../session-manager.ts";
 import { SessionManager } from "../session-manager.ts";
+import { EXPORT_TEMPLATES } from "./templates.ts";
 
 /**
  * Interface for rendering custom tools to HTML.
@@ -141,12 +142,7 @@ interface SessionData {
  * Core HTML generation logic shared by both export functions.
  */
 function generateHtml(sessionData: SessionData, themeName?: string): string {
-	const templateDir = getExportTemplateDir();
-	const template = readFileSync(join(templateDir, "template.html"), "utf-8");
-	const templateCss = readFileSync(join(templateDir, "template.css"), "utf-8");
-	const templateJs = readFileSync(join(templateDir, "template.js"), "utf-8");
-	const markedJs = readFileSync(join(templateDir, "vendor", "marked.min.js"), "utf-8");
-	const hljsJs = readFileSync(join(templateDir, "vendor", "highlight.min.js"), "utf-8");
+	const { html: template, css: templateCss, js: templateJs, markedJs, hljsJs } = EXPORT_TEMPLATES;
 
 	const themeVars = generateThemeVars(themeName);
 	const colors = getResolvedThemeColors(themeName);

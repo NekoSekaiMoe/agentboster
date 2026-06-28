@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, readFileSync, realpathSync } from "fs";
+import { accessSync, constants, existsSync, realpathSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join, resolve, sep, win32 } from "path";
 import { fileURLToPath } from "url";
@@ -476,13 +476,11 @@ interface PackageJson {
 	};
 }
 
-let pkg: PackageJson = {};
-try {
-	pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8")) as PackageJson;
-} catch (e: unknown) {
-	const err = e as NodeJS.ErrnoException;
-	if (err.code !== "ENOENT") throw e;
-}
+// Statically imported so esbuild inlines it into the bundle. In tsx
+// (dev) mode this resolves to the real package.json on disk.
+import packageJsonInline from "../package.json";
+
+let pkg: PackageJson = packageJsonInline as PackageJson;
 
 const piConfigName: string | undefined = pkg.piConfig?.name;
 export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";

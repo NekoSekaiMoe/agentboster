@@ -1,4 +1,6 @@
 import * as esbuild from "esbuild";
+import * as path from "node:path";
+import * as fs from "node:fs";
 
 /**
  * Bundle agentboster CLI into a single JS file.
@@ -56,6 +58,48 @@ try {
 		define: {
 			"import.meta.url": "__agentboster_import_meta_url",
 		},
+		// Inline non-TS assets as modules so source code can `import`
+		// them and have esbuild fold the contents into the bundle.
+		loader: {
+			".json": "json",
+			".html": "text",
+			".css": "text",
+			".base64": "text",
+		},
+		plugins: [
+			{
+				name: "vendor-js-as-text",
+				// The export-html templates import template.js and the
+				// marked/highlight vendor JS as *text* (string content),
+				// not as executable modules — they get embedded into the
+				// generated HTML at runtime. Without this override esbuild
+				// would parse and inline them as JS modules, polluting the
+				// bundle scope. We re-resolve matching paths to a custom
+				// namespace and serve their raw contents as text.
+				setup(build) {
+					const textSuffixes = [
+						"template.js",
+						"marked.min.js",
+						"highlight.min.js",
+					];
+					const ns = "vendor-js-text";
+					build.onResolve({ filter: /\.js$/ }, (args) => {
+						if (textSuffixes.some((s) => args.path.endsWith(s))) {
+							const resolved = path.resolve(
+								path.dirname(args.importer),
+								args.path,
+							);
+							return { path: resolved, namespace: ns };
+						}
+						return null;
+					});
+					build.onLoad({ filter: /.*/, namespace: ns }, (args) => {
+						const contents = fs.readFileSync(args.path, "utf8");
+						return { contents, loader: "text" };
+					});
+				},
+			},
+		],
 		external,
 		logLevel: "info",
 	});

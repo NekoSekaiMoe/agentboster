@@ -100,7 +100,7 @@ const ThemeJsonSchema = Type.Object({
 	),
 });
 
-type ThemeJson = Static<typeof ThemeJsonSchema>;
+export type ThemeJson = Static<typeof ThemeJsonSchema>;
 
 const validateThemeJson = Compile(ThemeJsonSchema);
 
@@ -425,18 +425,11 @@ export class Theme {
 // Theme Loading
 // ============================================================================
 
-let BUILTIN_THEMES: Record<string, ThemeJson> | undefined;
+// Built-in themes are imported statically (inlined by esbuild) via
+// builtin-themes.ts. `path`/`fs` remain used for custom-theme loading.
+import { BUILTIN_THEMES } from "./builtin-themes.ts";
 
 function getBuiltinThemes(): Record<string, ThemeJson> {
-	if (!BUILTIN_THEMES) {
-		const themesDir = getThemesDir();
-		const darkPath = path.join(themesDir, "dark.json");
-		const lightPath = path.join(themesDir, "light.json");
-		BUILTIN_THEMES = {
-			dark: JSON.parse(fs.readFileSync(darkPath, "utf-8")) as ThemeJson,
-			light: JSON.parse(fs.readFileSync(lightPath, "utf-8")) as ThemeJson,
-		};
-	}
 	return BUILTIN_THEMES;
 }
 
