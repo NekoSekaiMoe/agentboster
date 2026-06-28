@@ -55,11 +55,9 @@ import {
 	APP_NAME,
 	APP_TITLE,
 	CONFIG_DIR_NAME,
-	getAgentDir,
 	getAuthPath,
 	getDebugLogPath,
 	getDocsPath,
-	getShareViewerUrl,
 	VERSION,
 } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
@@ -80,25 +78,20 @@ import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/htt
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage } from "../../core/messages.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
-import { DefaultPackageManager } from "../../core/package-manager.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { type SessionContext, SessionManager } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
-import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
-import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
 import { parseGitUrl } from "../../utils/git.ts";
 import { getCwdRelativePath } from "../../utils/paths.ts";
-import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
-import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -294,7 +287,6 @@ export class InteractiveMode {
 
 	private lastSigintTime = 0;
 	private lastEscapeTime = 0;
-	private changelogMarkdown: string | undefined = undefined;
 	private startupNoticesShown = false;
 	private anthropicSubscriptionWarningShown = false;
 
@@ -585,38 +577,12 @@ export class InteractiveMode {
 			return;
 		}
 		this.startupNoticesShown = true;
-
-		if (!this.changelogMarkdown) {
-			return;
-		}
-
-		if (this.chatContainer.children.length > 0) {
-			this.chatContainer.addChild(new Spacer(1));
-		}
-		this.chatContainer.addChild(new DynamicBorder());
-		if (this.settingsManager.getCollapseChangelog()) {
-			const versionMatch = this.changelogMarkdown.match(/##\s+\[?(\d+\.\d+\.\d+)\]?/);
-			const latestVersion = versionMatch ? versionMatch[1] : this.version;
-			const condensedText = `Updated to v${latestVersion}. Use ${theme.bold("/changelog")} to view full changelog.`;
-			this.chatContainer.addChild(new Text(condensedText, 1, 0));
-		} else {
-			this.chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "What's New")), 1, 0));
-			this.chatContainer.addChild(new Spacer(1));
-			this.chatContainer.addChild(
-				new Markdown(this.changelogMarkdown.trim(), 1, 0, this.getMarkdownThemeWithSettings()),
-			);
-			this.chatContainer.addChild(new Spacer(1));
-		}
-		this.chatContainer.addChild(new DynamicBorder());
 	}
 
 	async init(): Promise<void> {
 		if (this.isInitialized) return;
 
 		this.registerSignalHandlers();
-
-		// Load changelog (only show new entries, skip for resumed sessions)
-		this.changelogMarkdown = this.getChangelogForDisplay();
 
 		// Ensure fd and rg are available (downloads if missing, adds to PATH via getBinDir)
 		// Both are needed: fd for autocomplete, rg for grep tool and bash commands
@@ -766,20 +732,6 @@ export class InteractiveMode {
 	async run(): Promise<void> {
 		await this.init();
 
-		// Start version check asynchronously
-		checkForNewPiVersion(this.version).then((newRelease) => {
-			if (newRelease) {
-				this.showNewVersionNotification(newRelease);
-			}
-		});
-
-		// Start package update check asynchronously
-		this.checkForPackageUpdates().then((updates) => {
-			if (updates.length > 0) {
-				this.showPackageUpdateNotification(updates);
-			}
-		});
-
 		// Check tmux keyboard setup asynchronously
 		this.checkTmuxKeyboardSetup().then((warning) => {
 			if (warning) {
@@ -838,24 +790,6 @@ export class InteractiveMode {
 		}
 	}
 
-	private async checkForPackageUpdates(): Promise<string[]> {
-		if (process.env.PI_OFFLINE) {
-			return [];
-		}
-
-		try {
-			const packageManager = new DefaultPackageManager({
-				cwd: this.sessionManager.getCwd(),
-				agentDir: getAgentDir(),
-				settingsManager: this.settingsManager,
-			});
-			const updates = await packageManager.checkForAvailableUpdates();
-			return updates.map((update) => update.displayName);
-		} catch {
-			return [];
-		}
-	}
-
 	private async checkTmuxKeyboardSetup(): Promise<string | undefined> {
 		if (!process.env.TMUX) return undefined;
 
@@ -901,56 +835,6 @@ export class InteractiveMode {
 		}
 
 		return undefined;
-	}
-
-	/**
-	 * Get changelog entries to display on startup.
-	 * Only shows new entries since last seen version, skips for resumed sessions.
-	 */
-	private getChangelogForDisplay(): string | undefined {
-		// Skip changelog for resumed/continued sessions (already have messages)
-		if (this.session.state.messages.length > 0) {
-			return undefined;
-		}
-
-		const lastVersion = this.settingsManager.getLastChangelogVersion();
-		const changelogPath = getChangelogPath();
-		const entries = parseChangelog(changelogPath);
-
-		if (!lastVersion) {
-			// Fresh install - record the version, send telemetry, don't show changelog
-			this.settingsManager.setLastChangelogVersion(VERSION);
-			this.reportInstallTelemetry(VERSION);
-			return undefined;
-		}
-
-		const newEntries = getNewEntries(entries, lastVersion);
-		if (newEntries.length > 0) {
-			this.settingsManager.setLastChangelogVersion(VERSION);
-			this.reportInstallTelemetry(VERSION);
-			return newEntries.map((e) => normalizeChangelogLinks(e.content, e)).join("\n\n");
-		}
-
-		return undefined;
-	}
-
-	private reportInstallTelemetry(version: string): void {
-		if (process.env.PI_OFFLINE) {
-			return;
-		}
-
-		if (!isInstallTelemetryEnabled(this.settingsManager)) {
-			return;
-		}
-
-		void fetch(`https://pi.dev/api/report-install?version=${encodeURIComponent(version)}`, {
-			headers: {
-				"User-Agent": getPiUserAgent(version),
-			},
-			signal: AbortSignal.timeout(5000),
-		})
-			.then(() => undefined)
-			.catch(() => undefined);
 	}
 
 	private getMarkdownThemeWithSettings(): MarkdownTheme {
@@ -2566,11 +2450,6 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
-			if (text === "/share") {
-				await this.handleShareCommand();
-				this.editor.setText("");
-				return;
-			}
 			if (text === "/copy") {
 				await this.handleCopyCommand();
 				this.editor.setText("");
@@ -2583,11 +2462,6 @@ export class InteractiveMode {
 			}
 			if (text === "/session") {
 				this.handleSessionCommand();
-				this.editor.setText("");
-				return;
-			}
-			if (text === "/changelog") {
-				this.handleChangelogCommand();
 				this.editor.setText("");
 				return;
 			}
@@ -3725,53 +3599,6 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
-	showNewVersionNotification(release: LatestPiRelease): void {
-		const action = theme.fg("accent", `${APP_NAME} update`);
-		const updateInstruction = theme.fg("muted", `New version ${release.version} is available. Run `) + action;
-		const changelogUrl = "https://pi.dev/changelog";
-		const changelogLink = getCapabilities().hyperlinks
-			? hyperlink(theme.fg("accent", changelogUrl), changelogUrl)
-			: theme.fg("accent", changelogUrl);
-		const changelogLine = theme.fg("muted", "Changelog: ") + changelogLink;
-		const note = release.note?.trim();
-
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
-		this.chatContainer.addChild(
-			new Text(`${theme.bold(theme.fg("warning", "Update Available"))}\n${updateInstruction}`, 1, 0),
-		);
-		if (note) {
-			this.chatContainer.addChild(new Spacer(1));
-			this.chatContainer.addChild(
-				new Markdown(note, 1, 0, this.getMarkdownThemeWithSettings(), {
-					color: (text) => theme.fg("muted", text),
-				}),
-			);
-			this.chatContainer.addChild(new Spacer(1));
-		}
-		this.chatContainer.addChild(new Text(changelogLine, 1, 0));
-		this.chatContainer.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
-		this.ui.requestRender();
-	}
-
-	showPackageUpdateNotification(packages: string[]): void {
-		const action = theme.fg("accent", `${APP_NAME} update --extensions`);
-		const updateInstruction = theme.fg("muted", "Package updates are available. Run ") + action;
-		const packageLines = packages.map((pkg) => `- ${pkg}`).join("\n");
-
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
-		this.chatContainer.addChild(
-			new Text(
-				`${theme.bold(theme.fg("warning", "Package Updates Available"))}\n${updateInstruction}\n${theme.fg("muted", "Packages:")}\n${packageLines}`,
-				1,
-				0,
-			),
-		);
-		this.chatContainer.addChild(new DynamicBorder((text) => theme.fg("warning", text)));
-		this.ui.requestRender();
-	}
-
 	/**
 	 * Get all queued messages (read-only).
 	 * Combines session queue and compaction queue.
@@ -4831,100 +4658,6 @@ export class InteractiveMode {
 		}
 	}
 
-	private async handleShareCommand(): Promise<void> {
-		// Check if gh is available and logged in
-		try {
-			const authResult = spawnSync("gh", ["auth", "status"], { encoding: "utf-8" });
-			if (authResult.status !== 0) {
-				this.showError("GitHub CLI is not logged in. Run 'gh auth login' first.");
-				return;
-			}
-		} catch {
-			this.showError("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
-			return;
-		}
-
-		// Export to a temp file
-		const tmpFile = path.join(os.tmpdir(), "session.html");
-		try {
-			await this.session.exportToHtml(tmpFile);
-		} catch (error: unknown) {
-			this.showError(`Failed to export session: ${error instanceof Error ? error.message : "Unknown error"}`);
-			return;
-		}
-
-		// Show cancellable loader, replacing the editor
-		const loader = new BorderedLoader(this.ui, theme, "Creating gist...");
-		this.editorContainer.clear();
-		this.editorContainer.addChild(loader);
-		this.ui.setFocus(loader);
-		this.ui.requestRender();
-
-		const restoreEditor = () => {
-			loader.dispose();
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
-			this.ui.setFocus(this.editor);
-			try {
-				fs.unlinkSync(tmpFile);
-			} catch {
-				// Ignore cleanup errors
-			}
-		};
-
-		// Create a secret gist asynchronously
-		let proc: ReturnType<typeof spawn> | null = null;
-
-		loader.onAbort = () => {
-			proc?.kill();
-			restoreEditor();
-			this.showStatus("Share cancelled");
-		};
-
-		try {
-			const result = await new Promise<{ stdout: string; stderr: string; code: number | null }>((resolve) => {
-				proc = spawn("gh", ["gist", "create", "--public=false", tmpFile]);
-				let stdout = "";
-				let stderr = "";
-				proc.stdout?.on("data", (data) => {
-					stdout += data.toString();
-				});
-				proc.stderr?.on("data", (data) => {
-					stderr += data.toString();
-				});
-				proc.on("close", (code) => resolve({ stdout, stderr, code }));
-			});
-
-			if (loader.signal.aborted) return;
-
-			restoreEditor();
-
-			if (result.code !== 0) {
-				const errorMsg = result.stderr?.trim() || "Unknown error";
-				this.showError(`Failed to create gist: ${errorMsg}`);
-				return;
-			}
-
-			// Extract gist ID from the URL returned by gh
-			// gh returns something like: https://gist.github.com/username/GIST_ID
-			const gistUrl = result.stdout?.trim();
-			const gistId = gistUrl?.split("/").pop();
-			if (!gistId) {
-				this.showError("Failed to parse gist ID from gh output");
-				return;
-			}
-
-			// Create the preview URL
-			const previewUrl = getShareViewerUrl(gistId);
-			this.showStatus(`Share URL: ${previewUrl}\nGist: ${gistUrl}`);
-		} catch (error: unknown) {
-			if (!loader.signal.aborted) {
-				restoreEditor();
-				this.showError(`Failed to create gist: ${error instanceof Error ? error.message : "Unknown error"}`);
-			}
-		}
-	}
-
 	private async handleCopyCommand(): Promise<void> {
 		const text = this.session.getLastAssistantText();
 		if (!text) {
@@ -4998,27 +4731,6 @@ export class InteractiveMode {
 
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(info, 1, 0));
-		this.ui.requestRender();
-	}
-
-	private handleChangelogCommand(): void {
-		const changelogPath = getChangelogPath();
-		const allEntries = parseChangelog(changelogPath);
-
-		const changelogMarkdown =
-			allEntries.length > 0
-				? allEntries
-						.reverse()
-						.map((e) => normalizeChangelogLinks(e.content, e))
-						.join("\n\n")
-				: "No changelog entries found.";
-
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new DynamicBorder());
-		this.chatContainer.addChild(new Text(theme.bold(theme.fg("accent", "What's New")), 1, 0));
-		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new Markdown(changelogMarkdown, 1, 1, this.getMarkdownThemeWithSettings()));
-		this.chatContainer.addChild(new DynamicBorder());
 		this.ui.requestRender();
 	}
 

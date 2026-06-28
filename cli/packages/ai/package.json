@@ -6,9 +6,7 @@
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"sideEffects": [
-		"./dist/compat.js",
-		"./dist/images.js",
-		"./dist/providers/images/register-builtins.js"
+		"./dist/compat.js"
 	],
 	"exports": {
 		".": {
@@ -22,10 +20,6 @@
 		"./utils/*": {
 			"types": "./src/utils/*.ts",
 			"import": "./src/utils/*.ts"
-		},
-		"./oauth": {
-			"types": "./src/compat.ts",
-			"import": "./src/compat.ts"
 		}
 	},
 	"files": [
@@ -39,25 +33,11 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@anthropic-ai/sdk": "0.91.1",
-		"@aws-sdk/client-bedrock-runtime": "3.1048.0",
-		"@google/genai": "1.52.0",
-		"@mistralai/mistralai": "2.2.6",
-		"@opentelemetry/api": "1.9.0",
-		"@smithy/node-http-handler": "4.7.3",
-		"http-proxy-agent": "7.0.2",
-		"https-proxy-agent": "7.0.6",
-		"openai": "6.26.0",
-		"partial-json": "0.1.7",
 		"typebox": "1.1.38"
 	},
 	"keywords": [
 		"ai",
 		"llm",
-		"openai",
-		"anthropic",
-		"gemini",
-		"bedrock",
 		"unified",
 		"api"
 	],
@@ -73,7 +53,6 @@
 	},
 	"devDependencies": {
 		"@types/node": "24.12.4",
-		"canvas": "3.2.3",
 		"vitest": "4.1.9"
 	}
 }

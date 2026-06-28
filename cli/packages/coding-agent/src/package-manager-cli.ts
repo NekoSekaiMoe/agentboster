@@ -1,18 +1,11 @@
-import { Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { selectConfig } from "./cli/config-selector.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
 import {
 	APP_NAME,
 	CONFIG_DIR_NAME,
-	detectInstallMethod,
 	getAgentDir,
-	getPackageDir,
-	getSelfUpdateCommand,
-	getSelfUpdateUnavailableInstruction,
 	PACKAGE_NAME,
-	type SelfUpdateCommand,
-	type SelfUpdatePackageTarget,
 	VERSION,
 } from "./config.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
@@ -21,41 +14,13 @@ import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
 import { DefaultResourceLoader } from "./core/resource-loader.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
-import { spawnProcess } from "./utils/child-process.ts";
-import { getLatestPiRelease, isNewerPackageVersion } from "./utils/version-check.ts";
-import {
-	cleanupWindowsSelfUpdateQuarantine,
-	quarantineWindowsNativeDependencies,
-} from "./utils/windows-self-update.ts";
 
-export type PackageCommand = "install" | "remove" | "update" | "list";
-
-type UpdateTarget = { type: "all" } | { type: "self" } | { type: "extensions"; source?: string };
-
-const SELF_UPDATE_NOTE_MARKDOWN_THEME: MarkdownTheme = {
-	heading: (text) => chalk.bold(chalk.yellow(text)),
-	link: (text) => chalk.cyan(text),
-	linkUrl: (text) => chalk.dim(text),
-	code: (text) => chalk.yellow(text),
-	codeBlock: (text) => chalk.dim(text),
-	codeBlockBorder: (text) => chalk.dim(text),
-	quote: (text) => chalk.dim(text),
-	quoteBorder: (text) => chalk.dim(text),
-	hr: (text) => chalk.dim(text),
-	listBullet: (text) => chalk.yellow(text),
-	bold: (text) => chalk.bold(text),
-	italic: (text) => chalk.italic(text),
-	strikethrough: (text) => chalk.strikethrough(text),
-	underline: (text) => chalk.underline(text),
-};
+export type PackageCommand = "install" | "remove" | "list";
 
 interface PackageCommandOptions {
 	command: PackageCommand;
 	source?: string;
-	updateTarget?: UpdateTarget;
-	showExtensionsSkippedNote: boolean;
 	local: boolean;
-	force: boolean;
 	projectTrustOverride?: boolean;
 	help: boolean;
 	invalidOption?: string;
@@ -80,8 +45,6 @@ function getPackageCommandUsage(command: PackageCommand): string {
 			return `${APP_NAME} install <source> [-l] [--approve|--no-approve]`;
 		case "remove":
 			return `${APP_NAME} remove <source> [-l] [--approve|--no-approve]`;
-		case "update":
-			return `${APP_NAME} update [source|self|pi] [--self|--extensions|--all] [--extension <source>] [--approve|--no-approve] [--force]`;
 		case "list":
 			return `${APP_NAME} list [--approve|--no-approve]`;
 	}
@@ -128,29 +91,6 @@ Examples:
 `);
 			return;
 
-		case "update":
-			console.log(`${chalk.bold("Usage:")}
-  ${getPackageCommandUsage("update")}
-
-Update pi and installed packages.
-
-Options:
-  --self                  Update pi only (default when no target is given)
-  --extensions            Update installed packages only
-  --all                   Update pi and installed packages
-  --extension <source>    Update one package only
-  -a, --approve           Trust project-local files for this command
-  -na, --no-approve       Ignore project-local files for this command
-  --force                 Reinstall pi even if the current version is latest
-
-Short forms:
-  ${APP_NAME} update                Update pi only
-  ${APP_NAME} update --all          Update pi and all extensions
-  ${APP_NAME} update <source>       Update one package
-  ${APP_NAME} update pi             Update pi only (self works as alias to pi)
-`);
-			return;
-
 		case "list":
 			console.log(`${chalk.bold("Usage:")}
   ${getPackageCommandUsage("list")}
@@ -170,7 +110,7 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 	let command: PackageCommand | undefined;
 	if (rawCommand === "uninstall") {
 		command = "remove";
-	} else if (rawCommand === "install" || rawCommand === "remove" || rawCommand === "update" || rawCommand === "list") {
+	} else if (rawCommand === "install" || rawCommand === "remove" || rawCommand === "list") {
 		command = rawCommand;
 	}
 	if (!command) {
@@ -178,7 +118,6 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 	}
 
 	let local = false;
-	let force = false;
 	let projectTrustOverride: boolean | undefined;
 	let help = false;
 	let invalidOption: string | undefined;
@@ -186,10 +125,6 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 	let missingOptionValue: string | undefined;
 	let conflictingOptions: string | undefined;
 	let source: string | undefined;
-	let selfFlag = false;
-	let extensionsFlag = false;
-	let allFlag = false;
-	let extensionFlagSource: string | undefined;
 
 	for (let index = 0; index < rest.length; index++) {
 		const arg = rest[index];
@@ -207,33 +142,6 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 			continue;
 		}
 
-		if (arg === "--self") {
-			if (command === "update") {
-				selfFlag = true;
-			} else {
-				invalidOption = invalidOption ?? arg;
-			}
-			continue;
-		}
-
-		if (arg === "--extensions") {
-			if (command === "update") {
-				extensionsFlag = true;
-			} else {
-				invalidOption = invalidOption ?? arg;
-			}
-			continue;
-		}
-
-		if (arg === "--all") {
-			if (command === "update") {
-				allFlag = true;
-			} else {
-				invalidOption = invalidOption ?? arg;
-			}
-			continue;
-		}
-
 		if (arg === "--approve" || arg === "-a") {
 			projectTrustOverride = true;
 			continue;
@@ -241,34 +149,6 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 
 		if (arg === "--no-approve" || arg === "-na") {
 			projectTrustOverride = false;
-			continue;
-		}
-
-		if (arg === "--force") {
-			if (command === "update") {
-				force = true;
-			} else {
-				invalidOption = invalidOption ?? arg;
-			}
-			continue;
-		}
-
-		if (arg === "--extension") {
-			if (command !== "update") {
-				invalidOption = invalidOption ?? arg;
-				continue;
-			}
-
-			const value = rest[index + 1];
-			if (!value || value.startsWith("-")) {
-				missingOptionValue = missingOptionValue ?? arg;
-			} else if (extensionFlagSource) {
-				conflictingOptions = conflictingOptions ?? "--extension can only be provided once";
-				index++;
-			} else {
-				extensionFlagSource = value;
-				index++;
-			}
 			continue;
 		}
 
@@ -284,59 +164,10 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 		}
 	}
 
-	let updateTarget: UpdateTarget | undefined;
-	let showExtensionsSkippedNote = false;
-	if (command === "update") {
-		if (allFlag && (selfFlag || extensionsFlag || extensionFlagSource)) {
-			conflictingOptions =
-				conflictingOptions ?? "--all cannot be combined with --self, --extensions, or --extension";
-		}
-		if (allFlag && source) {
-			conflictingOptions = conflictingOptions ?? "--all cannot be combined with a positional source";
-		}
-
-		if (extensionFlagSource) {
-			if (selfFlag || extensionsFlag || allFlag) {
-				conflictingOptions =
-					conflictingOptions ?? "--extension cannot be combined with --self, --extensions, or --all";
-			}
-			if (source) {
-				conflictingOptions = conflictingOptions ?? "--extension cannot be combined with a positional source";
-			}
-			updateTarget = { type: "extensions", source: extensionFlagSource };
-		} else if (source) {
-			const sourceIsSelf = source === "self" || source === "pi";
-			if (sourceIsSelf) {
-				updateTarget = extensionsFlag ? { type: "all" } : { type: "self" };
-			} else {
-				if (extensionsFlag || selfFlag || allFlag) {
-					conflictingOptions =
-						conflictingOptions ??
-						"positional update targets cannot be combined with --self, --extensions, or --all";
-				}
-				updateTarget = { type: "extensions", source };
-			}
-		} else if (allFlag) {
-			updateTarget = { type: "all" };
-		} else if (selfFlag && extensionsFlag) {
-			updateTarget = { type: "all" };
-		} else if (selfFlag) {
-			updateTarget = { type: "self" };
-		} else if (extensionsFlag) {
-			updateTarget = { type: "extensions" };
-		} else {
-			updateTarget = { type: "self" };
-			showExtensionsSkippedNote = true;
-		}
-	}
-
 	return {
 		command,
 		source,
-		updateTarget,
-		showExtensionsSkippedNote,
 		local,
-		force,
 		projectTrustOverride,
 		help,
 		invalidOption,
@@ -344,121 +175,6 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 		missingOptionValue,
 		conflictingOptions,
 	};
-}
-
-function updateTargetIncludesSelf(target: UpdateTarget): boolean {
-	return target.type === "all" || target.type === "self";
-}
-
-function updateTargetIncludesExtensions(target: UpdateTarget): boolean {
-	return target.type === "all" || target.type === "extensions";
-}
-
-function printSelfUpdateUnavailable(
-	npmCommand?: string[],
-	updatePackageTarget: SelfUpdatePackageTarget = PACKAGE_NAME,
-): void {
-	console.error(`error: ${APP_NAME} cannot self-update this installation.`);
-	console.error(getSelfUpdateUnavailableInstruction(PACKAGE_NAME, npmCommand, updatePackageTarget));
-
-	const entrypoint = process.argv[1];
-	if (entrypoint) {
-		console.error("");
-		console.error(`Location of pi executable: ${entrypoint}`);
-	}
-}
-
-function printSelfUpdateFallback(command: SelfUpdateCommand): void {
-	console.error(chalk.dim(`If this keeps failing, run this command yourself: ${command.display}`));
-}
-
-function printSelfUpdateNote(note: string): void {
-	const trimmedNote = note.trim();
-	if (!trimmedNote) {
-		return;
-	}
-
-	console.log();
-	console.log(chalk.bold(chalk.yellow("Update note")));
-	try {
-		const width = Math.max(20, process.stdout.columns ?? 80);
-		const renderedLines = new Markdown(trimmedNote, 0, 0, SELF_UPDATE_NOTE_MARKDOWN_THEME)
-			.render(width)
-			.map((line) => line.trimEnd());
-		console.log(renderedLines.join("\n"));
-	} catch {
-		console.log(trimmedNote);
-	}
-	console.log();
-}
-
-interface SelfUpdatePlan {
-	packageName: string;
-	installSpec: string;
-	version: string;
-	shouldRun: boolean;
-	note?: string;
-}
-
-async function getSelfUpdatePlan(force: boolean): Promise<SelfUpdatePlan> {
-	let latestRelease: Awaited<ReturnType<typeof getLatestPiRelease>>;
-	try {
-		latestRelease = await getLatestPiRelease(VERSION);
-	} catch (error: unknown) {
-		const message = error instanceof Error ? error.message : String(error);
-		throw new Error(`Could not determine latest ${APP_NAME} version: ${message}`);
-	}
-	if (!latestRelease) {
-		throw new Error(`Could not determine latest ${APP_NAME} version.`);
-	}
-
-	const packageName = latestRelease.packageName ?? PACKAGE_NAME;
-	const installSpec = `${packageName}@${latestRelease.version}`;
-	if (force || packageName !== PACKAGE_NAME || isNewerPackageVersion(latestRelease.version, VERSION)) {
-		return {
-			packageName,
-			installSpec,
-			version: latestRelease.version,
-			...(latestRelease.note ? { note: latestRelease.note } : {}),
-			shouldRun: true,
-		};
-	}
-
-	console.log(chalk.green(`${APP_NAME} is already up to date (v${VERSION})`));
-	return { packageName, installSpec, version: latestRelease.version, shouldRun: false };
-}
-
-async function runSelfUpdate(command: SelfUpdateCommand): Promise<void> {
-	console.log(chalk.dim(`Updating ${APP_NAME} with ${command.display}...`));
-	for (const step of command.steps ?? [command]) {
-		await new Promise<void>((resolve, reject) => {
-			const child = spawnProcess(step.command, step.args, {
-				stdio: "inherit",
-			});
-			child.on("error", (error) => {
-				reject(error);
-			});
-			child.on("close", (code, signal) => {
-				if (code === 0) {
-					resolve();
-				} else if (signal) {
-					reject(new Error(`${step.display} terminated by signal ${signal}`));
-				} else {
-					reject(new Error(`${step.display} exited with code ${code ?? "unknown"}`));
-				}
-			});
-		});
-	}
-}
-
-function prepareWindowsNpmSelfUpdate(): void {
-	if (process.platform !== "win32") {
-		return;
-	}
-
-	const packageDir = getPackageDir();
-	cleanupWindowsSelfUpdateQuarantine(packageDir);
-	quarantineWindowsNativeDependencies(packageDir);
 }
 
 function parseProjectTrustOverride(args: readonly string[]): boolean | undefined {
@@ -628,7 +344,7 @@ export async function handlePackageCommand(
 		cwd,
 		agentDir,
 		projectTrustOverride: options.projectTrustOverride,
-		useSavedProjectTrustOnly: options.command === "update",
+		useSavedProjectTrustOnly: false,
 		extensionFactories: runtimeOptions.extensionFactories,
 	});
 	reportProjectTrustWarnings(projectTrustWarnings);
@@ -699,66 +415,6 @@ export async function handlePackageCommand(
 					}
 				}
 
-				return true;
-			}
-
-			case "update": {
-				const target = options.updateTarget ?? { type: "self" };
-				if (options.showExtensionsSkippedNote) {
-					console.log(
-						chalk.dim(`Extensions are skipped. Run ${APP_NAME} update --extensions to update extensions.`),
-					);
-				}
-				if (updateTargetIncludesExtensions(target)) {
-					const updateSource = target.type === "extensions" ? target.source : undefined;
-					await packageManager.update(updateSource);
-					if (updateSource) {
-						console.log(chalk.green(`Updated ${updateSource}`));
-					} else {
-						console.log(chalk.green("Updated packages"));
-					}
-				}
-				if (updateTargetIncludesSelf(target)) {
-					const selfUpdatePlan = await getSelfUpdatePlan(options.force);
-					if (!selfUpdatePlan.shouldRun) {
-						return true;
-					}
-					const installMethod = detectInstallMethod();
-					if (process.platform === "win32" && installMethod !== "npm" && installMethod !== "pnpm") {
-						console.error(
-							chalk.red(`${APP_NAME} self-update on Windows is only supported for npm and pnpm installs.`),
-						);
-						console.error(chalk.dim(`Detected install method: ${installMethod}. Update ${APP_NAME} manually.`));
-						process.exitCode = 1;
-						return true;
-					}
-					const selfUpdateTarget = {
-						packageName: selfUpdatePlan.packageName,
-						installSpec: selfUpdatePlan.installSpec,
-					};
-					const selfUpdateCommand = getSelfUpdateCommand(PACKAGE_NAME, selfUpdateNpmCommand, selfUpdateTarget);
-					if (!selfUpdateCommand) {
-						printSelfUpdateUnavailable(selfUpdateNpmCommand, selfUpdateTarget);
-						process.exitCode = 1;
-						return true;
-					}
-					if (selfUpdatePlan.note) {
-						printSelfUpdateNote(selfUpdatePlan.note);
-					}
-					try {
-						if (installMethod === "npm") {
-							prepareWindowsNpmSelfUpdate();
-						}
-						await runSelfUpdate(selfUpdateCommand);
-					} catch (error: unknown) {
-						const message = error instanceof Error ? error.message : "Unknown package command error";
-						console.error(chalk.red(`Error: ${message}`));
-						printSelfUpdateFallback(selfUpdateCommand);
-						process.exitCode = 1;
-						return true;
-					}
-					console.log(chalk.green(`Updated ${APP_NAME} from ${VERSION} to ${selfUpdatePlan.version}`));
-				}
 				return true;
 			}
 		}

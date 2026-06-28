@@ -60,7 +60,6 @@ import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts"
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { handleLoginCommand } from "./cli/login.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
-import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
 
 const EXTENSION_LOAD_FAILURE_HINT = 'Hint: Start without extensions using "pi -ne".';
 
@@ -486,9 +485,6 @@ export async function main(args: string[], options?: MainOptions) {
 		process.env.PI_SKIP_VERSION_CHECK = "1";
 	}
 
-	if (process.platform === "win32") {
-		cleanupWindowsSelfUpdateQuarantine(getPackageDir());
-	}
 
 	const cwd = process.cwd();
 	const agentDir = getAgentDir();

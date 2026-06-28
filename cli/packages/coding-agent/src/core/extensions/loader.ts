@@ -9,7 +9,10 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as _bundledPiAgentCore from "@earendil-works/pi-agent-core";
 import * as _bundledPiAiCompat from "@earendil-works/pi-ai/compat";
-import * as _bundledPiAiOauth from "@earendil-works/pi-ai/oauth";
+// OAuth stubs live in compat in this fork — re-export under the
+// "@earendil-works/pi-ai/oauth" alias so extensions that import it
+// keep working.
+const _bundledPiAiOauth = _bundledPiAiCompat;
 import type { KeyId } from "@earendil-works/pi-tui";
 import * as _bundledPiTui from "@earendil-works/pi-tui";
 import { createJiti } from "jiti/static";
@@ -100,7 +103,6 @@ function getAliases(): Record<string, string> {
 	// superset of the core entrypoint): existing extensions using the old
 	// global API keep working at runtime until compat is removed.
 	const piAiCompatEntry = resolveWorkspaceOrImport("ai/dist/compat.js", "@earendil-works/pi-ai/compat");
-	const piAiOauthEntry = resolveWorkspaceOrImport("ai/dist/oauth.js", "@earendil-works/pi-ai/oauth");
 
 	_aliases = {
 		"@earendil-works/pi-coding-agent": piCodingAgentEntry,
@@ -108,13 +110,13 @@ function getAliases(): Record<string, string> {
 		"@earendil-works/pi-tui": piTuiEntry,
 		"@earendil-works/pi-ai": piAiCompatEntry,
 		"@earendil-works/pi-ai/compat": piAiCompatEntry,
-		"@earendil-works/pi-ai/oauth": piAiOauthEntry,
+		"@earendil-works/pi-ai/oauth": piAiCompatEntry,
 		"@mariozechner/pi-coding-agent": piCodingAgentEntry,
 		"@mariozechner/pi-agent-core": piAgentCoreEntry,
 		"@mariozechner/pi-tui": piTuiEntry,
 		"@mariozechner/pi-ai": piAiCompatEntry,
 		"@mariozechner/pi-ai/compat": piAiCompatEntry,
-		"@mariozechner/pi-ai/oauth": piAiOauthEntry,
+		"@mariozechner/pi-ai/oauth": piAiCompatEntry,
 		typebox: typeboxEntry,
 		"typebox/compile": typeboxCompileEntry,
 		"typebox/value": typeboxValueEntry,
