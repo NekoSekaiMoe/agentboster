@@ -56,3 +56,5 @@ cli/packages/*/dist/
 ref/
 cli/packages/coding-agent/dist/agentboster.cjs
 cli/agentboster.cjs
+cli/agentboster-cli-*.tar.gz
+cli/.pkg-staging/
