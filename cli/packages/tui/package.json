@@ -1,6 +1,6 @@
 {
-	"name": "@earendil-works/pi-tui",
-	"version": "0.80.2",
+	"name": "@agentboster-cli/tui",
+	"version": "0.1.0",
 	"description": "Terminal User Interface library with differential rendering for efficient text-based applications",
 	"type": "module",
 	"main": "dist/index.js",
@@ -25,12 +25,12 @@
 		"typescript",
 		"cli"
 	],
-	"author": "Mario Zechner",
+	"author": "AgentBoster",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
-		"directory": "packages/tui"
+		"url": "git+https://github.com/anomalyco/agentboster.git",
+		"directory": "cli/packages/tui"
 	},
 	"engines": {
 		"node": ">=22.19.0"

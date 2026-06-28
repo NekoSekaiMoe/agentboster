@@ -1,6 +1,6 @@
 {
   "name": "@agentboster/adapter",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -16,7 +16,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.80.2",
-    "@earendil-works/pi-ai": "^0.80.2"
+    "@agentboster-cli/agent": "^0.1.0",
+    "@agentboster-cli/ai": "^0.1.0"
   }
 }

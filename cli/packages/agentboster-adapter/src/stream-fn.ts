@@ -10,12 +10,12 @@
  * server, since the server maintains full conversation history.
  */
 
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { StreamFn } from "@agentboster-cli/agent";
 import {
 	type AssistantMessageEventStream,
 	createAssistantMessageEventStream,
-} from "@earendil-works/pi-ai/utils/event-stream";
-import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+} from "@agentboster-cli/ai/utils/event-stream";
+import type { Api, Context, Model, SimpleStreamOptions } from "@agentboster-cli/ai";
 
 import { openAgentbosterStream, type WebStreamOptions } from "./web-stream.ts";
 

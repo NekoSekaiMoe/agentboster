@@ -11,7 +11,7 @@ import type {
 	TextContent,
 	Tool,
 	ToolResultMessage,
-} from "@earendil-works/pi-ai";
+} from "@agentboster-cli/ai";
 import type { Static, TSchema } from "typebox";
 
 /**
@@ -284,7 +284,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 /**
  * Thinking/reasoning level for models that support it.
  * Note: "xhigh" is only supported by selected model families. Use model thinking-level metadata
- * from @earendil-works/pi-ai to detect support for a concrete model.
+ * from @agentboster-cli/ai to detect support for a concrete model.
  */
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 

@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-coding-agent",
-	"version": "0.80.2",
-	"description": "Coding agent CLI with read, bash, edit, write tools and session management",
+	"name": "@agentboster-cli/core",
+	"version": "0.1.0",
+	"description": "agentboster CLI: terminal coding agent that proxies all model and tool execution through the agentboster web backend.",
 	"type": "module",
 	"piConfig": {
 		"name": "agentboster",
@@ -22,22 +22,20 @@
 		}
 	},
 	"files": [
-		"dist",
-		"npm-shrinkwrap.json"
+		"dist"
 	],
 	"scripts": {
 		"clean": "shx rm -rf dist",
 		"build": "tsgo -p tsconfig.build.json && shx chmod +x dist/cli.js dist/rpc-entry.js && npm run copy-assets",
 		"copy-assets": "shx mkdir -p dist/modes/interactive/theme && shx cp src/modes/interactive/theme/*.json dist/modes/interactive/theme/ && shx mkdir -p dist/modes/interactive/assets && shx cp src/modes/interactive/assets/*.png dist/modes/interactive/assets/ && shx mkdir -p dist/core/export-html/vendor && shx cp src/core/export-html/template.html src/core/export-html/template.css src/core/export-html/template.js dist/core/export-html/ && shx cp src/core/export-html/vendor/*.js dist/core/export-html/vendor/",
 		"test": "vitest --run",
-		"shrinkwrap": "node ../../scripts/generate-coding-agent-shrinkwrap.mjs",
-		"prepublishOnly": "npm run clean && npm run build && npm run shrinkwrap"
+		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
 		"@agentboster/adapter": "file:../agentboster-adapter",
-		"@earendil-works/pi-agent-core": "^0.80.2",
-		"@earendil-works/pi-ai": "^0.80.2",
-		"@earendil-works/pi-tui": "^0.80.2",
+		"@agentboster-cli/agent": "^0.1.0",
+		"@agentboster-cli/ai": "^0.1.0",
+		"@agentboster-cli/tui": "^0.1.0",
 		"@silvia-odwyer/photon-node": "0.3.4",
 		"chalk": "5.6.2",
 		"cross-spawn": "7.0.6",
@@ -83,12 +81,12 @@
 		"tui",
 		"agent"
 	],
-	"author": "Mario Zechner",
+	"author": "AgentBoster",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
-		"directory": "packages/coding-agent"
+		"url": "git+https://github.com/anomalyco/agentboster.git",
+		"directory": "cli/packages/coding-agent"
 	},
 	"engines": {
 		"node": ">=22.19.0"

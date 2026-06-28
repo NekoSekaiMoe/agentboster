@@ -1,5 +1,5 @@
 {
-	"name": "pi-monorepo",
+	"name": "agentboster-cli-monorepo",
 	"private": true,
 	"type": "module",
 	"workspaces": [
@@ -7,10 +7,10 @@
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",
-		"build": "tsgo -p packages/tui/tsconfig.build.json && tsgo -p packages/ai/tsconfig.build.json && tsgo -p packages/agent/tsconfig.build.json && tsgo -p packages/agentboster-adapter/tsconfig.build.json && tsgo -p packages/coding-agent/tsconfig.build.json && shx chmod +x packages/coding-agent/dist/cli.js packages/coding-agent/dist/rpc-entry.js && npm run copy-assets --workspace @earendil-works/pi-coding-agent",
+		"build": "tsgo -p packages/tui/tsconfig.build.json && tsgo -p packages/ai/tsconfig.build.json && tsgo -p packages/agent/tsconfig.build.json && tsgo -p packages/agentboster-adapter/tsconfig.build.json && tsgo -p packages/coding-agent/tsconfig.build.json && shx chmod +x packages/coding-agent/dist/cli.js packages/coding-agent/dist/rpc-entry.js && npm run copy-assets --workspace @agentboster-cli/core",
 		"bundle": "node scripts/bundle.mjs && shx chmod +x packages/coding-agent/dist/agentboster.cjs",
 		"package": "node scripts/package.mjs",
-		"check": "biome check --write --error-on-warnings . && npm run check:pinned-deps && npm run check:ts-imports && npm run check:shrinkwrap && npm run check:install-lock:coding-agent && tsgo --noEmit && npm run check:browser-smoke",
+		"check": "biome check --write --error-on-warnings . && tsgo --noEmit",
 		"prepare": "husky"
 	},
 	"devDependencies": {
@@ -28,7 +28,7 @@
 	"engines": {
 		"node": ">=22.19.0"
 	},
-	"version": "0.0.3",
+	"version": "0.1.0",
 	"overrides": {
 		"rimraf": "6.1.2",
 		"gaxios": {

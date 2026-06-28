@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-ai",
-	"version": "0.80.2",
-	"description": "Unified LLM API with automatic model discovery and provider configuration",
+	"name": "@agentboster-cli/ai",
+	"version": "0.1.0",
+	"description": "LLM API type surface and event-stream primitives for the agentboster CLI (thin-client fork of pi-ai).",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -39,12 +39,12 @@
 		"unified",
 		"api"
 	],
-	"author": "Mario Zechner",
+	"author": "AgentBoster",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
-		"directory": "packages/ai"
+		"url": "git+https://github.com/anomalyco/agentboster.git",
+		"directory": "cli/packages/ai"
 	},
 	"engines": {
 		"node": ">=22.19.0"

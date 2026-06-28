@@ -13,7 +13,7 @@ import {
 	type SimpleStreamOptions,
 	type StopReason,
 	type ToolCall,
-} from "@earendil-works/pi-ai";
+} from "@agentboster-cli/ai";
 
 // Stub: parseStreamingJson was a pi-ai util that parsed streaming
 // JSON tool arguments. Inline a minimal version here since we

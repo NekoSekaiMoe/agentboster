@@ -8,7 +8,7 @@
  * logic is gone.
  */
 
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@agentboster-cli/ai";
 import { AuthStorage } from "./auth-storage.ts";
 
 export type { Model };

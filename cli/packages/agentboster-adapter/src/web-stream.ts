@@ -11,11 +11,11 @@ import type {
 	Context,
 	Model,
 	ToolCall,
-} from "@earendil-works/pi-ai";
+} from "@agentboster-cli/ai";
 import {
 	type AssistantMessageEventStream,
 	createAssistantMessageEventStream,
-} from "@earendil-works/pi-ai/utils/event-stream";
+} from "@agentboster-cli/ai/utils/event-stream";
 
 export type WebStreamChunk = {
 	type: string;

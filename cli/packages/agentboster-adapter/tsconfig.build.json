@@ -2,6 +2,12 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"outDir": "./dist",
+		"paths": {
+			"@agentboster-cli/ai": ["../ai/dist/index.d.ts"],
+			"@agentboster-cli/ai/*": ["../ai/dist/*.d.ts"],
+			"@agentboster-cli/agent": ["../agent/dist/index.d.ts"],
+			"@agentboster-cli/agent/*": ["../agent/dist/*.d.ts"]
+		},
 		"rootDir": "./src"
 	},
 	"include": ["src/**/*.ts"],

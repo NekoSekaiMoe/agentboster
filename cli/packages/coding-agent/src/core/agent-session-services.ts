@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Model } from "@earendil-works/pi-ai";
+import type { ThinkingLevel } from "@agentboster-cli/agent";
+import type { Model } from "@agentboster-cli/ai";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AuthStorage } from "./auth-storage.ts";
@@ -13,7 +13,7 @@ import {
 	type ResourceLoaderReloadOptions,
 } from "./resource-loader.ts";
 import { type CreateAgentSessionOptions, type CreateAgentSessionResult, createAgentSession } from "./sdk.ts";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { StreamFn } from "@agentboster-cli/agent";
 import type { SessionManager } from "./session-manager.ts";
 import { SettingsManager } from "./settings-manager.ts";
 

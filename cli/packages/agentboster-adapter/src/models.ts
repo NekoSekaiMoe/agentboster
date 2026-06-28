@@ -6,7 +6,7 @@
  * the catalog without knowing about the web backend.
  */
 
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@agentboster-cli/ai";
 
 export interface RemoteModel {
 	id: string;

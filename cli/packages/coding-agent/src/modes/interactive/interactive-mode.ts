@@ -7,7 +7,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@agentboster-cli/agent";
 import { clearStoredAuth, createAgentbosterStreamFn, fetchRemoteModels, getStoredAuth, remoteModelsToPiModels, writeStoredConfig } from "@agentboster/adapter";
 import { defaultClientLabel, exchangePairCode, loginWithPassword } from "../../cli/login.ts";
 import {
@@ -16,7 +16,7 @@ import {
 	type ImageContent,
 	type Message,
 	type Model,
-} from "@earendil-works/pi-ai/compat";
+} from "@agentboster-cli/ai/compat";
 import type {
 	AutocompleteItem,
 	AutocompleteProvider,
@@ -27,7 +27,7 @@ import type {
 	OverlayHandle,
 	OverlayOptions,
 	SlashCommand,
-} from "@earendil-works/pi-tui";
+} from "@agentboster-cli/tui";
 import {
 	CombinedAutocompleteProvider,
 	type Component,
@@ -46,7 +46,7 @@ import {
 	TruncatedText,
 	TUI,
 	visibleWidth,
-} from "@earendil-works/pi-tui";
+} from "@agentboster-cli/tui";
 import chalk from "chalk";
 import { spawn, spawnSync } from "child_process";
 import {

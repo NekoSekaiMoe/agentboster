@@ -1,4 +1,4 @@
-import { Container, Image, Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, Image, Spacer, Text } from "@agentboster-cli/tui";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { getClankolasBase64 } from "../assets/clankolas.ts";

@@ -1,7 +1,7 @@
 {
-	"name": "@earendil-works/pi-agent-core",
-	"version": "0.80.2",
-	"description": "General-purpose agent with transport abstraction, state management, and attachment support",
+	"name": "@agentboster-cli/agent",
+	"version": "0.1.0",
+	"description": "Agent loop primitives for the agentboster CLI (thin-client fork of pi-agent-core).",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -23,7 +23,7 @@
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {
-		"@earendil-works/pi-ai": "^0.80.2",
+		"@agentboster-cli/ai": "^0.1.0",
 		"typebox": "1.1.38"
 	},
 	"keywords": [
@@ -33,12 +33,12 @@
 		"transport",
 		"state-management"
 	],
-	"author": "Mario Zechner",
+	"author": "AgentBoster",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/earendil-works/pi.git",
-		"directory": "packages/agent"
+		"url": "git+https://github.com/anomalyco/agentboster.git",
+		"directory": "cli/packages/agent"
 	},
 	"engines": {
 		"node": ">=22.19.0"

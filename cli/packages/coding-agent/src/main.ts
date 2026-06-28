@@ -7,7 +7,7 @@
 
 import { createInterface } from "node:readline";
 import { createInterface as createInterfacePromises } from "node:readline/promises";
-import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
+import { type ImageContent, modelsAreEqual } from "@agentboster-cli/ai";
 import {
 	createAgentbosterStreamFn,
 	evaluateLocalCommand,
@@ -17,7 +17,7 @@ import {
 	remoteModelsToPiModels,
 	writeStoredConfig,
 } from "@agentboster/adapter";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
+import type { StreamFn } from "@agentboster-cli/agent";
 import chalk from "chalk";
 import { listRemoteSessions, patchRemoteSession } from "./core/remote-sessions.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";

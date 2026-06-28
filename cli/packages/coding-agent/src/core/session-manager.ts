@@ -1,5 +1,5 @@
-import { type AgentMessage, uuidv7 } from "@earendil-works/pi-agent-core";
-import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
+import { type AgentMessage, uuidv7 } from "@agentboster-cli/agent";
+import type { ImageContent, Message, TextContent } from "@agentboster-cli/ai";
 import { randomUUID } from "crypto";
 import {
 	appendFileSync,
