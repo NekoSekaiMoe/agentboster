@@ -3012,8 +3012,16 @@ export class InteractiveMode {
 	private updateWorkflowSubagentStatus(event: WorkflowSubagentEventDetails): void {
 		if (event.event === "started") {
 			this.activeWorkflowSubagents.set(event.subagentId, event);
+			if (this.activeWorkflowSubagents.size === 1) {
+				this.showStatus(`Sub-agent started: ${event.subagentName}`, "accent");
+			}
 		} else {
 			this.activeWorkflowSubagents.delete(event.subagentId);
+			if (event.event === "completed") {
+				this.showStatus(`Sub-agent completed: ${event.subagentName}`, "success");
+			} else {
+				this.showStatus(`Sub-agent failed: ${event.subagentName}`, "error");
+			}
 		}
 
 		const running = this.activeWorkflowSubagents.size;
