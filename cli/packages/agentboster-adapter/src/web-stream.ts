@@ -450,7 +450,15 @@ function handleChunk(
 
 function mapFinishReason(reason: unknown): "stop" | "length" | "toolUse" {
 	if (reason === "length") return "length";
-	if (reason === "tool-calls" || reason === "toolUse") return "toolUse";
+	// Tool calls are executed on the web backend (local_* tools via the
+	// CLI's local-tool-request handler, all other tools by the workflow
+	// runtime). The CLI's own pi-agent loop has no tool registry for
+	// these names, so reporting "toolUse" would make it try to dispatch
+	// them locally and fail with "Tool <name> not found". Map toolUse
+	// to "stop" so the agent loop ends the turn cleanly; the web SSE
+	// stream keeps pushing subsequent assistant messages (one per
+	// backend-side loop iteration) as separate turns.
+	if (reason === "tool-calls" || reason === "toolUse") return "stop";
 	return "stop";
 }
 
