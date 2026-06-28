@@ -14,6 +14,4 @@ export * from "./utils/event-stream.ts";
 export type {
 	OAuthCredentials,
 	OAuthLoginCallbacks,
-	OAuthProviderId,
-	OAuthProviderInterface,
 } from "./compat.ts";

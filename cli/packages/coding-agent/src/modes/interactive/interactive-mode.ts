@@ -16,8 +16,6 @@ import {
 	type ImageContent,
 	type Message,
 	type Model,
-	type OAuthProviderId,
-	type OAuthSelectPrompt,
 } from "@earendil-works/pi-ai/compat";
 import type {
 	AutocompleteItem,
