@@ -12,7 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsgo -p tsconfig.build.json"
+    "build": "tsgo -p tsconfig.build.json",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.2",
