@@ -18,12 +18,104 @@
 > [!NOTE]
 > 在 1.0 发布前，功能与接口仍可能变化，升级兼容性不作保证。
 
-AgentBoster 是由两个独立模块协作的 AI 平台：
+AgentBoster 是多端协作的 AI 平台，由 **三个可独立部署/安装的部分** 组成：
 
-- **Web（Next.js 15）**：前端、会话管理、IM 适配、配置、任务编排与持久化执行
-- **agentd（Go）**：Linux 守护进程，负责沙箱执行、工具调用安全与任务调度
+- **Web（Next.js 15）**：浏览器 UI、会话与配置、IM 接入、Workflow 持久化编排、L2 审批与节点注册（Postgres）
+- **agentd（Go）**：Linux 守护进程，沙箱内执行工具、L0/L1/L2 安全、本地会话运行时与多节点心跳
+- **CLI（`agentboster`）**：终端编码 Agent；可直连厂商模型，也可通过 `login` + `AGENTBOSTER_URL` 走同一套 Web 后端流式接口
 
-Web 负责 IM 与展示，Daemon 负责执行与安全边界，因此两端的部署和运行环境可独立调整。
+Web 负责体验与编排，Daemon 负责执行隔离与安全边界，CLI 负责开发者本机终端场景；三者通过 HTTPS API 协作，部署环境可分开升级。
+
+---
+
+## 平台架构
+
+```mermaid
+flowchart TB
+  subgraph clients["接入端"]
+    Browser["浏览器"]
+    IM["IM 机器人\nTelegram / Slack / …"]
+    CLI["agentboster CLI"]
+  end
+
+  subgraph vercel["Web（Next.js 15 + Vercel）"]
+    UI["App Router 页面"]
+    API["app/api/*"]
+    WF["Workflow DevKit\nlib/workflow"]
+    DB[("Neon Postgres\n+ pgvector")]
+    Blob["Vercel Blob"]
+    UI --> API
+    API --> WF
+    WF --> DB
+    API --> DB
+    API --> Blob
+  end
+
+  subgraph linux["Linux 主机（可多台）"]
+    AD["agentd"]
+    SB["沙箱\ndocker / lxc"]
+    AD --> SB
+  end
+
+  Browser --> UI
+  IM --> API
+  CLI --> API
+
+  AD -->|"HTTPS + X-API-Key\n注册、心跳、回调"| API
+  API -->|"可选 mTLS\nWeb → Daemon"| AD
+```
+
+### 职责划分
+
+| 层级 | 主要负责 | 不负责 |
+|------|----------|--------|
+| **Web** | 会话、IM 路由、配置 UI、Workflow 状态、L2 交互、节点表 | 用户 VPC 内长期 shell（除非下发给 agentd） |
+| **agentd** | 沙箱内 exec/文件/浏览器等工具、主机侧 L0/L1、本地缓存与指标 | 主库持久化（经 API 与 Web 同步） |
+| **CLI** | TUI/打印模式、本机 Provider Key、`agentboster login` 远程流 | 服务端 IM、Workflow 权威状态 |
+
+### 通信方向（必读）
+
+```mermaid
+sequenceDiagram
+  participant D as agentd
+  participant W as Web
+
+  Note over D,W: 始终：Daemon → Web
+  D->>W: POST /api/agentd/v1/nodes/register
+  D->>W: POST /api/agentd/v1/nodes/heartbeat
+  D->>W: L1 / 审查 / 工具回调
+  Note right of D: 仅 HTTPS + API Key<br/>连 Vercel 勿配出站 mTLS 客户端证书
+
+  Note over D,W: 可选：Web → Daemon
+  W->>D: POST /api/v1/tools/exec
+  Note right of W: daemon 有公网 URL 或 frp 时 mTLS
+```
+
+- **Daemon → Web**：始终 `HTTPS` + `AGENTD_API_KEY`（与 `clawless_api_key` 一致）。部署在 Vercel 时，**不要**给该方向配置 `[clawless].ca_path` 等自定义 CA，否则会校验失败。
+- **Web → Daemon**：仅当节点 URL 可达时；Web 侧使用 `AGENTD_CLIENT_*` 环境变量做 mTLS 客户端证书。
+
+### 典型聊天路径（Web UI）
+
+```mermaid
+sequenceDiagram
+  participant U as 用户
+  participant UI as 聊天页
+  participant API as /api/chat
+  participant WF as Agent Workflow
+  participant D as agentd（可选）
+
+  U->>UI: 发送消息
+  UI->>API: 流式请求
+  API->>WF: 启动/恢复 Workflow
+  loop 工具循环
+    WF->>D: exec / read …（选中节点时）
+    D-->>WF: 工具结果
+  end
+  WF-->>UI: SSE / token 流
+  UI-->>U: 展示回复
+```
+
+CLI 远程模式跳过浏览器 UI，但同样请求 Web API，由 Workflow 决定是否调度到 agentd。详见 [`cli/README.md`](./cli/README.md)。
 
 ---
 
@@ -32,21 +124,24 @@ Web 负责 IM 与展示，Daemon 负责执行与安全边界，因此两端的�
 ```
 app/                    # Next.js App Router（页面与 API）
   (auth)/              # 登录
-  (chat)/              # 聊天、文件相关页面
+  (chat)/              # 聊天、文件
   (config)/            # 系统配置
-  (memory)/            # 记忆与 RAG 管理
+  (memory)/            # 记忆与 RAG
   (schedule)/          # 任务/日程
-  (skill)/             # 技能管理
-  api/                 # Web 侧 API
-  .well-known/workflow/ # Workflow 回调免鉴权路径
-components/             # React UI 与 shadcn 组件
-hooks/                  # 共享 Hook
-lib/                    # 核心业务与基础设施代码
-types/                  # 类型定义
-scripts/                # 工具脚本
-agentd/                 # Go 守护进程源码（Linux-only）
-  cmd/agentd            # 运行入口
-  internal/             # 核心子模块（agent/sandbox/security 等）
+  (skill)/             # 技能
+  api/                 # Web API（含 agentd 回调、IM webhook）
+  .well-known/workflow/ # Workflow 回调免鉴权
+components/             # React + shadcn
+hooks/
+lib/                    # 业务与基础设施（workflow、chat、db…）
+types/
+scripts/
+agentd/                 # Go 守护进程（仅 Linux）
+  cmd/agentd
+  internal/
+cli/                    # agentboster CLI monorepo
+  packages/coding-agent   # 命令入口
+  packages/agentboster-adapter  # 对接 Web
 ```
 
 ---
@@ -54,18 +149,27 @@ agentd/                 # Go 守护进程源码（Linux-only）
 ## 核心能力（精简）
 
 ### Web 侧
-- 多会话流式聊天、会话搜索、历史回溯
-- 多渠道 Bot（Telegram/Discord/Slack/Feishu/Teams）与统一通知路由
-- Skills、Provider、工具、MCP、Soul、审计与监控配置
-- Workflow 持久化执行与 L1/L2 安全审批流
-- RAG/内置记忆管理
+
+- 多会话流式聊天、搜索与斜杠命令
+- 多渠道 Bot（Telegram/Discord/Slack/Feishu/Teams）与统一通知
+- Skills、Provider、工具、MCP、Soul、审计与监控
+- Workflow 持久化与 L1/L2 安全流
+- RAG / 内置记忆；多节点调度（见 `MULTI-NODE-SCHEDULING.md`）
 
 ### Daemon 侧
-- 文件与终端类工具执行（含会话化多步 Agent）
-- 沙箱调度：`docker`、`docker-strict`、`lxc`
-- 三层安全：L0 规则、L1 打分、L2 用户授权
-- 多节点注册、心跳与资源上报
-- 任务事件总线与 worker pool
+
+- 多步 Agent 与 CodeAct 式工具循环
+- 沙箱：`docker`、`docker-strict`、`lxc`
+- L0 规则 → L1 打分 → L2 用户授权
+- 节点注册、心跳、资源指标上报
+- 事件总线与动态 worker pool
+
+### CLI 侧
+
+- 交互 TUI 与 `--print` 非交互
+- `agentboster login` 写入 `~/.agentboster/config.json`
+- 环境变量 `AGENTBOSTER_URL` 等对接 Web；亦可仅用本地 API Key 调厂商
+- 打包：`cli/` 下 `npm run bundle` / `npm run package`
 
 ---
 
@@ -73,9 +177,11 @@ agentd/                 # Go 守护进程源码（Linux-only）
 
 ### 1) Web（Vercel）
 
-1. 准备 `AUTH_SECRET`、`USERNAME`、`PASSWORD`、`BLOB_ACCESS`
-2. 需要联网搜索可选填 `TAVILY_API_KEY`
-3. 部署到 Vercel（按项目 README 内按钮或手动部署）
+1. 配置 `AUTH_SECRET`、`USERNAME`、`PASSWORD`、`BLOB_ACCESS`
+2. 生产环境配置 `DATABASE_URL`（Neon 等）
+3. 使用 agentd 时设置 `AGENTD_API_KEY`
+4. 可选 `TAVILY_API_KEY`（联网搜索）
+5. 部署到 Vercel
 
 ### 2) Daemon（Linux）
 
@@ -83,48 +189,65 @@ agentd/                 # Go 守护进程源码（Linux-only）
 cd agentd
 go build -o agentd ./cmd/agentd/
 cp agentd.toml.example agentd.toml
-cp agentd.toml /etc/agentd/agentd.toml   # 示例
-sudo ./agentd -config /etc/agentd/agentd.toml
+# 编辑 base_url、clawless_api_key、sandbox
+sudo ./agentd -config agentd.toml
 ```
 
-Linux 环境、Docker/LXC 可按需安装；如需浏览器/GUI 类工具，需通过 daemon 配置启用相应 sandbox。
+完整说明：[`agentd/README.md`](./agentd/README.md)。
 
-> 方向分离：  
-> **Daemon → Web** 始终走 HTTPS + API Key；  
-> **Web → Daemon** 才走 mTLS（当 daemon 可被公网访问时）。
+### 3) CLI（本机）
 
-完整部署细节请见 [`agentd/README.md`](./agentd/README.md)。
+```bash
+cd cli
+npm install
+npm run build
+node packages/coding-agent/dist/cli.js --help
+agentboster login   # 使用 Web 时
+```
+
+完整说明：[`cli/README.md`](./cli/README.md)。
 
 ---
 
 ## 环境变量（Web）
 
-- `AUTH_SECRET`、`USERNAME`、`PASSWORD`
-- `DATABASE_URL`（生产运行时必填）
-- `BLOB_ACCESS`
-- `BLOB_READ_WRITE_TOKEN`（如用 Vercel Blob）
-- `TAVILY_API_KEY`（可选）
-- `AGENTD_API_KEY`（与 daemon 配置中的 `clawless_api_key` 一致）
-- `AGENTD_CLIENT_CERT_PATH` / `AGENTD_CLIENT_KEY_PATH` / `AGENTD_CA_PATH`（仅在 Web 需要主动访问 daemon 时）
+| 变量 | 说明 |
+|------|------|
+| `AUTH_SECRET`、`USERNAME`、`PASSWORD` | 登录与 Cookie |
+| `DATABASE_URL` | 生产必填 |
+| `BLOB_ACCESS` / `BLOB_READ_WRITE_TOKEN` | 附件存储 |
+| `AGENTD_API_KEY` | 与 daemon `clawless_api_key` 一致 |
+| `AGENTD_CLIENT_CERT_PATH` 等 | 仅 Web 主动访问 daemon 时需要 |
+| `TAVILY_API_KEY` | 可选 |
+
+CLI 常用：`AGENTBOSTER_URL`、`AGENTBOSTER_SESSION_ID`、`AGENTBOSTER_CLIENT_ID`（见 cli README）。
 
 ---
 
 ## 常用命令
 
-- `yarn dev`：启动 Web 开发环境
-- `yarn build`：构建 Web
-- `yarn lint:check`：提交前必跑（`tsc --noEmit && biome check .`）
-- `yarn test`：运行全部 Web 测试
-- `yarn db:generate`：生成 Drizzle 变更
-- `yarn db:push`：推送 schema 到数据库
-- `go test ./...`：运行 daemon 测试（在 `agentd/` 下）
-- `go build -o agentd ./cmd/agentd/`：构建 daemon
+| 范围 | 命令 |
+|------|------|
+| Web | `yarn dev`、`yarn build`、`yarn lint:check`、`yarn test`、`yarn db:push` |
+| agentd | `go test ./...`、`go build -o agentd ./cmd/agentd/`（在 `agentd/`） |
+| CLI | `npm run build`、`npm run check`（在 `cli/`） |
 
 ---
 
 ## IM 命令（节选）
 
 `/start`、`/new`、`/session`、`/stop`、`/cancel`、`/retry`、`/model`、`/approve`、`/reject`、`/compact`、`/help`、`/memory`
+
+---
+
+## 相关文档
+
+| 文档 | 内容 |
+|------|------|
+| [`README.EN.md`](./README.EN.md) | 英文 README（与本文同结构） |
+| [`agentd/README.md`](./agentd/README.md) | 守护进程 |
+| [`cli/README.md`](./cli/README.md) | 终端 CLI |
+| [`AGENTS.md`](./AGENTS.md) | 贡献者与 OpenCode 说明 |
 
 ---
 
