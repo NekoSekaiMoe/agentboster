@@ -385,6 +385,8 @@ export class InteractiveMode {
 	// Custom header from extension (undefined = use built-in header)
 	private customHeader: (Component & { dispose?(): void }) | undefined = undefined;
 	private activeWorkflowSubagents = new Map<string, WorkflowSubagentEventDetails>();
+	private currentWorkflowSubagentCompleted = 0;
+	private currentWorkflowSubagentFailed = 0;
 
 	private options: InteractiveModeOptions;
 	private autoTrustOnReloadCwd: string | undefined;
@@ -3011,6 +3013,10 @@ export class InteractiveMode {
 
 	private updateWorkflowSubagentStatus(event: WorkflowSubagentEventDetails): void {
 		if (event.event === "started") {
+			if (this.activeWorkflowSubagents.size === 0) {
+				this.currentWorkflowSubagentCompleted = 0;
+				this.currentWorkflowSubagentFailed = 0;
+			}
 			this.activeWorkflowSubagents.set(event.subagentId, event);
 			if (this.activeWorkflowSubagents.size === 1) {
 				this.showStatus(`Sub-agent started: ${event.subagentName}`, "accent");
@@ -3018,8 +3024,10 @@ export class InteractiveMode {
 		} else {
 			this.activeWorkflowSubagents.delete(event.subagentId);
 			if (event.event === "completed") {
+				this.currentWorkflowSubagentCompleted += 1;
 				this.showStatus(`Sub-agent completed: ${event.subagentName}`, "success");
 			} else {
+				this.currentWorkflowSubagentFailed += 1;
 				this.showStatus(`Sub-agent failed: ${event.subagentName}`, "error");
 			}
 		}
@@ -3028,6 +3036,17 @@ export class InteractiveMode {
 		if (running === 0) {
 			this.footerDataProvider.setExtensionStatus("workflow.subagents", undefined);
 			this.footer.invalidate();
+			const total = this.currentWorkflowSubagentCompleted + this.currentWorkflowSubagentFailed;
+			if (total > 0) {
+				const failedSuffix =
+					this.currentWorkflowSubagentFailed > 0
+						? `, ${this.currentWorkflowSubagentFailed} failed`
+						: "";
+				this.showStatus(
+					`All sub-agents finished (${this.currentWorkflowSubagentCompleted} completed${failedSuffix})`,
+					this.currentWorkflowSubagentFailed > 0 ? "warning" : "success",
+				);
+			}
 			return;
 		}
 
