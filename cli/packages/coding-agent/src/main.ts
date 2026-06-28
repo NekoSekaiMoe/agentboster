@@ -6,12 +6,16 @@
  */
 
 import { createInterface } from "node:readline";
+import { createInterface as createInterfacePromises } from "node:readline/promises";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import {
 	createAgentbosterStreamFn,
+	evaluateLocalCommand,
 	fetchRemoteModels,
+	formatToolRequest,
 	getStoredAuth,
 	remoteModelsToPiModels,
+	writeStoredConfig,
 } from "@agentboster/adapter";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
@@ -898,6 +902,45 @@ async function handleLocalToolRequest(
 	const input = toolInput as Record<string, unknown>;
 	let result: { ok: boolean; output?: unknown; error?: string };
 
+	// Security gate: L0 blocks immediately, L2 requires user confirmation.
+	const command = toolName === "local_exec"
+		? String(input["command"] ?? "")
+		: formatToolRequest(toolName, toolInput);
+	const decision = evaluateLocalCommand(command);
+
+	if (!decision.ok) {
+		// L0 block — reject immediately.
+		await postToolResult(auth, runId, toolCallId, {
+			ok: false,
+			error: `Security blocked: ${decision.message}`,
+		});
+		return;
+	}
+
+	if (!decision.autoApprove) {
+		// L2 — ask the user. In -p (headless) mode there's no TUI; auto-allow
+		// would be unsafe, so block with a clear message.
+		if (process.stdin.isTTY !== true) {
+			await postToolResult(auth, runId, toolCallId, {
+				ok: false,
+				error: `Requires confirmation but no TTY available: ${command}`,
+			});
+			return;
+		}
+		const rl = createInterfacePromises({ input: process.stdin, output: process.stdout });
+		const answer = await rl.question(
+			`\n[security] ${decision.message}\n  ${command}\nAllow? [y/N] `,
+		);
+		rl.close();
+		if (answer.trim().toLowerCase() !== "y") {
+			await postToolResult(auth, runId, toolCallId, {
+				ok: false,
+				error: "Denied by user",
+			});
+			return;
+		}
+	}
+
 	try {
 		switch (toolName) {
 			case "local_read_file": {
@@ -956,6 +999,19 @@ async function handleLocalToolRequest(
 		};
 	}
 
+	await postToolResult(auth, runId, toolCallId, result);
+}
+
+/**
+ * POST a tool result back to the web backend. Best-effort: if the
+ * request fails, the server will time out on its own.
+ */
+async function postToolResult(
+	auth: { url: string; token: string },
+	runId: string,
+	toolCallId: string,
+	result: { ok: boolean; output?: unknown; error?: string },
+): Promise<void> {
 	const root = auth.url.replace(/\/$/, "");
 	await fetch(`${root}/api/ai/${encodeURIComponent(runId)}/tool-result`, {
 		method: "POST",
@@ -971,8 +1027,7 @@ async function handleLocalToolRequest(
 			error: result.error,
 		}),
 	}).catch(() => {
-		// Best-effort: if POST fails the web backend will time out on its
-		// own. Don't crash the CLI.
+		// Best-effort.
 	});
 }
 

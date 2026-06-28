@@ -55,3 +55,4 @@ cli/packages/*/dist/
 # vendored reference repos (not project code, see AGENTS.md)
 ref/
 cli/packages/coding-agent/dist/agentboster.cjs
+cli/agentboster.cjs
