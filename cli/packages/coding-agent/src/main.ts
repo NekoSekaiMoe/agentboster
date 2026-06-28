@@ -746,7 +746,7 @@ export async function main(args: string[], options?: MainOptions) {
 			scopedModels: sessionOptions.scopedModels,
 			tools: sessionOptions.tools,
 			excludeTools: sessionOptions.excludeTools,
-			noTools: sessionOptions.noTools,
+			noTools: getStoredAuth() ? "builtin" as const : sessionOptions.noTools,
 			customTools: sessionOptions.customTools,
 			streamFnOverride: await resolveStreamFnOverride(sessionManager),
 		});

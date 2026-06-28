@@ -358,7 +358,7 @@ function handleChunk(
 			return false;
 
 		case "data-workflow": {
-			const data = chunk.data as { type?: string } | undefined;
+			const data = chunk.data as { type?: string; kind?: string } | undefined;
 			if (data?.type === "local-tool-request") {
 				const detail = data as {
 					toolCallId?: string;
@@ -377,6 +377,20 @@ function handleChunk(
 						toolName: detail.toolName,
 						toolInput: detail.toolInput,
 					});
+				}
+			}
+			// Update usage stats from token-usage chunks.
+			if (data?.type === "token-usage" || data?.kind === "status") {
+				const usage = (data as { usage?: Record<string, number> }).usage;
+				if (usage) {
+					state.partial.usage = {
+						input: usage["input"] ?? usage["promptTokens"] ?? 0,
+						output: usage["output"] ?? usage["completionTokens"] ?? 0,
+						cacheRead: usage["cacheRead"] ?? 0,
+						cacheWrite: usage["cacheWrite"] ?? 0,
+						totalTokens: usage["totalTokens"],
+						cost: usage["cost"],
+					} as never;
 				}
 			}
 			return false;

@@ -14,8 +14,8 @@ export const GET = withCliAuth(async () => {
   const catalog = config.models?.model_catalog ?? {};
   const entries = Object.entries(catalog).map(([id, spec]) => ({
     id,
-    contextLimit: spec?.context_limit,
-    maxOutputTokens: spec?.max_output_tokens,
+    contextLimit: spec?.context_limit ?? 128000,
+    maxOutputTokens: spec?.max_output_tokens ?? 8192,
     temperature: spec?.temperature,
   }));
 

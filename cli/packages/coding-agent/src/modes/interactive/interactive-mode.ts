@@ -5415,6 +5415,7 @@ export class InteractiveMode {
 			this.showStatus(
 				`Logged in${username ? ` as ${username}` : ""}. Models reloaded from ${url}.`,
 			);
+			this.ui.requestRender();
 		} catch (error) {
 			this.showStatus(
 				`Login failed: ${error instanceof Error ? error.message : String(error)}`,
