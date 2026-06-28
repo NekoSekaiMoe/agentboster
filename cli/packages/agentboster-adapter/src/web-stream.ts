@@ -73,8 +73,14 @@ function emptyAssistant(): AssistantMessage {
 			cacheRead: 0,
 			cacheWrite: 0,
 			totalTokens: 0,
-			cost: 0,
-		} as never,
+			cost: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				total: 0,
+			},
+		},
 		stopReason: "stop",
 		timestamp: Date.now(),
 	};
@@ -383,14 +389,38 @@ function handleChunk(
 			if (data?.type === "token-usage" || data?.kind === "status") {
 				const usage = (data as { usage?: Record<string, number> }).usage;
 				if (usage) {
+					const input = usage["input"] ?? usage["promptTokens"] ?? 0;
+					const output = usage["output"] ?? usage["completionTokens"] ?? 0;
+					const cacheRead = usage["cacheRead"] ?? 0;
+					const cacheWrite = usage["cacheWrite"] ?? 0;
+					// Web may send cost as a number (legacy) or as an
+					// object matching pi-ai's Usage.cost shape. Normalize.
+					const rawCost = usage["cost"];
+					const costNum = typeof rawCost === "number" ? rawCost : 0;
+					const costObj =
+						typeof rawCost === "object" && rawCost !== null
+							? {
+									input: (rawCost as Record<string, number>).input ?? 0,
+									output: (rawCost as Record<string, number>).output ?? 0,
+									cacheRead: (rawCost as Record<string, number>).cacheRead ?? 0,
+									cacheWrite: (rawCost as Record<string, number>).cacheWrite ?? 0,
+									total: (rawCost as Record<string, number>).total ?? costNum,
+								}
+							: {
+									input: 0,
+									output: 0,
+									cacheRead: 0,
+									cacheWrite: 0,
+									total: costNum,
+								};
 					state.partial.usage = {
-						input: usage["input"] ?? usage["promptTokens"] ?? 0,
-						output: usage["output"] ?? usage["completionTokens"] ?? 0,
-						cacheRead: usage["cacheRead"] ?? 0,
-						cacheWrite: usage["cacheWrite"] ?? 0,
+						input,
+						output,
+						cacheRead,
+						cacheWrite,
 						totalTokens: usage["totalTokens"],
-						cost: usage["cost"],
-					} as never;
+						cost: costObj,
+					};
 				}
 			}
 			return false;
