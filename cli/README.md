@@ -1,153 +1,437 @@
 # AgentBoster CLI
 
-`cli/` 目录是 AgentBoster 的终端客户端（coding agent）工作区，执行的是 `agentboster` CLI，本质上是 `agentboster` 命令的源码工程与构建产物。
+The `cli/` workspace ships the **`agentboster`** terminal coding agent: an npm monorepo that composes LLM providers, agent orchestration, terminal UI, and an optional **AgentBoster server adapter** for remote sessions.
 
 ---
 
-## 目录与职责
+## Position in the platform
 
-- `packages/ai`：LLM 适配层（模型与 provider 抽象）
-- `packages/agent`：核心 Agent 会话/执行能力
-- `packages/agentboster-adapter`：接入 AgentBoster 后端接口的 adapter
-- `packages/tui`：终端交互 UI
-- `packages/coding-agent`：CLI 本体（`agentboster` 命令）
+```mermaid
+flowchart TB
+  subgraph local["Developer machine"]
+    BIN["agentboster binary"]
+    CFG["~/.agentboster/config.json"]
+    SESS["Local session files"]
+    BIN --> CFG
+    BIN --> SESS
+  end
+
+  subgraph remote["AgentBoster Web optional"]
+    API["HTTPS API"]
+    CHAT["Chat / workflow stream"]
+  end
+
+  subgraph providers["LLM providers"]
+    G["Google / OpenAI / …"]
+  end
+
+  BIN -->|"AGENTBOSTER_URL + login token"| API
+  API --> CHAT
+  BIN -->|"direct API keys"| G
+```
+
+Use **local providers** for offline or bring-your-own-key workflows. Use **`agentboster login`** when the server should own models, policy, and tool routing.
 
 ---
 
-## 快速开始（开发者）
+## Monorepo architecture
 
-### 1. 安装依赖
+```mermaid
+flowchart BT
+  CA["packages/coding-agent\nCLI entry + TUI"]
+  AD["packages/agentboster-adapter\nauth + web stream"]
+  AG["packages/agent"]
+  AI["packages/ai"]
+  TUI["packages/tui"]
+  CA --> AD
+  CA --> AG
+  CA --> AI
+  CA --> TUI
+  AD --> AG
+  AD --> AI
+  AG --> AI
+```
+
+| Package | Responsibility |
+|---------|----------------|
+| `@earendil-works/pi-coding-agent` | `agentboster` bin, interactive mode, extensions, export |
+| `@agentboster/adapter` | Stored auth, `createAgentbosterStreamFn`, remote models |
+| `@earendil-works/pi-agent-core` | Agent session primitives |
+| `@earendil-works/pi-ai` | Provider registry, streaming |
+| `@earendil-works/pi-tui` | Terminal rendering |
+
+Build order is enforced by the root `package.json` `build` script (tui → ai → agent → adapter → coding-agent).
+
+---
+
+## Request paths (interactive)
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant CLI as agentboster
+  participant AD as adapter
+  participant S as Server or provider
+
+  U->>CLI: Prompt in TUI
+  alt Remote mode
+    CLI->>AD: createAgentbosterStreamFn
+    AD->>S: SSE / stream HTTP
+    S-->>AD: tokens + tool requests
+    AD-->>CLI: chunks
+  else Local mode
+    CLI->>S: provider SDK stream
+    S-->>CLI: tokens
+  end
+  CLI-->>U: Rendered output
+```
+
+Non-interactive `--print` skips TUI and writes final text to stdout (suitable for scripts and CI).
+
+---
+
+## Quick start (developers)
+
+### Requirements
+
+- **Node.js >= 22.19.0** (`engines` in `cli/package.json`)
+- npm (workspaces)
+
+### Install and build
 
 ```bash
 cd cli
 npm install
-```
-
-> 依赖要求：Node.js >= 22.19.0
-
-### 2. 构建
-
-```bash
 npm run build
 ```
 
-该命令会按依赖顺序构建 `tui`、`ai`、`agent`、`agentboster-adapter`、`coding-agent`，并生成 `packages/coding-agent/dist/*`。
-
-### 3. 快速执行（源码方式）
+### Run
 
 ```bash
-cd cli/packages/coding-agent
+cd packages/coding-agent
 node dist/cli.js --help
 node dist/cli.js --version
-node dist/cli.js
 ```
 
-也可直接从源码运行（开发阶段）：
+Development (TypeScript direct):
 
 ```bash
 npx tsx src/cli.ts --help
 ```
 
+### Quality gate
+
+```bash
+npm run check
+```
+
+Runs Biome, pinned-deps checks, `tsgo --noEmit`, and browser smoke tests.
+
 ---
 
-## 使用 `agentboster` 命令（对接方式）
+## End-user usage
 
-`coding-agent` 包的 `bin` 输出：
+### Interactive session
 
-```text
+```bash
+agentboster
+agentboster --model openai/gpt-4o-mini
+agentboster --thinking medium
+```
+
+### One-shot (print mode)
+
+```bash
+agentboster -p "list top-level directories"
+agentboster --print "explain package.json workspaces"
+```
+
+### Login (server mode)
+
+```bash
+agentboster login
+agentboster login -u https://your-app.vercel.app --username you --password '***'
+agentboster login -u https://your-app.vercel.app --pair-code ABCD1234
+```
+
+Writes `~/.agentboster/config.json` via `@agentboster/adapter` (`writeStoredConfig`).
+
+### Environment for remote backend
+
+```bash
+export AGENTBOSTER_URL=https://your-app.vercel.app
+export AGENTBOSTER_CLIENT_ID=my-laptop
+export AGENTBOSTER_SESSION_ID=optional-fixed-id
 agentboster
 ```
 
-发布后的可执行文件可直接运行：
+---
 
-```bash
-agentboster --help
-agentboster login
-agentboster "修复一下这个 TypeScript 报错"
-agentboster -p "请输出该仓库的依赖树"
-agentboster --print "请列出 src 下的 .ts 文件"
-agentboster --provider openai --model gpt-4o-mini "帮我重构这段代码"
-```
+## CLI flags (reference)
 
-常用 flags（摘要）：
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--help` | `-h` | Usage |
+| `--version` | `-v` | Package version |
+| `--provider` | | Default provider (often `google`) |
+| `--model` | | Model id or `provider/model` |
+| `--api-key` | | Inline API key (prefer login/config) |
+| `--print` | `-p` | Non-interactive; stdout only |
+| `--offline` | | No network (`PI_OFFLINE=1`) |
+| `--session` | | Session id |
+| `--continue` | | Continue last session |
+| `--resume` | | Resume named session |
+| `--tools` | `-t` | Allow-list tools |
+| `--exclude-tools` | `-xt` | Deny-list tools |
+| `--thinking` | | off / minimal / low / medium / high / xhigh |
+| `--theme` | | Built-in or custom theme JSON |
+| `--skill` | | Load skill definitions |
+| `--extension` | | Load extension modules |
 
-- `--help/-h`：帮助
-- `--version/-v`：版本
-- `--provider`：指定 provider（默认 google）
-- `--model`：模型（支持 provider/model 形式）
-- `--api-key`：手动注入 API key（通常由登录流程写入配置）
-- `--print/-p`：非交互模式
-- `--offline`：禁用启动网络（同 `PI_OFFLINE=1`）
-- `--session` / `--continue` / `--resume`：会话管理
-- `--tools/-t` / `--exclude-tools/-xt`：工具白名单与黑名单
-- `--thinking`：off/minimal/low/medium/high/xhigh
-- `--theme`、`--skill`、`--extension`：资源与扩展
+Run `agentboster --help` for the authoritative list (extensions add more flags).
 
-如需完整选项说明，可执行：
-
-```bash
-agentboster --help
+```mermaid
+mindmap
+  root((agentboster))
+    Modes
+      Interactive TUI
+      Print CI
+      RPC entry dist/rpc-entry.js
+    Auth
+      login subcommand
+      ~/.agentboster
+    Runtime
+      tools
+      skills
+      extensions
 ```
 
 ---
 
-## 打包与本地安装
+## Configuration and auth storage
 
-### 打包成单文件（内置脚本）
+| Path | Content |
+|------|---------|
+| `~/.agentboster/config.json` | Server URL, bearer token, client metadata |
+| `~/.agentboster/agent/auth.json` | Provider credentials (when used) |
+| Project cwd | Session artifacts, local overrides |
+
+`getStoredAuth()` / `clearStoredAuth()` live in `packages/agentboster-adapter/src/auth.ts`. OAuth flows in upstream pi are replaced with **`agentboster login`** in this fork.
+
+```mermaid
+flowchart LR
+  LOGIN["agentboster login"]
+  WRITE["writeStoredConfig"]
+  READ["getStoredAuth"]
+  STREAM["createAgentbosterStreamFn"]
+  LOGIN --> WRITE
+  READ --> STREAM
+```
+
+---
+
+## Adapter package (`@agentboster/adapter`)
+
+Exports (see `packages/agentboster-adapter/src/index.ts`):
+
+- **Auth:** `readStoredConfig`, `writeStoredConfig`, `getStoredAuth`, `clearStoredAuth`
+- **Models:** `fetchRemoteModels`, `remoteModelsToPiModels`
+- **Streaming:** `createAgentbosterStreamFn`, `openAgentbosterStream`
+- **Security helpers:** `evaluateLocalCommand`, `formatToolRequest` (local policy hints)
+
+When `AGENTBOSTER_URL` is set and stored auth exists, `main.ts` registers the `agentboster` provider in the model registry so pi-core routes streams through the Web API instead of a raw vendor key.
+
+---
+
+## Build, bundle, release
+
+### Workspace scripts
+
+| Script | Output |
+|--------|--------|
+| `npm run build` | Per-package `dist/` |
+| `npm run clean` | Remove build artifacts |
+| `npm run bundle` | `packages/coding-agent/dist/agentboster.cjs` |
+| `npm run package` | `agentboster-cli-<version>.tar.gz` |
+
+### Bundle flow
+
+```mermaid
+flowchart LR
+  ES["esbuild bundle.mjs"]
+  CJS["agentboster.cjs"]
+  PKG["package.mjs tarball"]
+  ES --> CJS --> PKG
+```
 
 ```bash
 cd cli
-npm run bundle   # 输出 packages/coding-agent/dist/agentboster.cjs
-npm run package  # 生成 agentboster-cli-<version>.tar.gz
+npm run bundle
+npm run package
+tar xzf agentboster-cli-*.tar.gz
+./agentboster --version
 ```
 
-解压后：
+The bundle embeds themes, WASM (photon), export-html templates, and docs copies per `copy-binary-assets` in coding-agent.
+
+---
+
+## Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `AGENTBOSTER_URL` | Base URL for server-backed streaming |
+| `AGENTBOSTER_SESSION_ID` | Pin session id |
+| `AGENTBOSTER_CLIENT_ID` | Client label (default `local-cli`) |
+| `AGENTBOSTER_MODEL` | Default remote model override |
+| `PI_OFFLINE=1` | Disable network initialization |
+| `PI_PACKAGE_DIR` | Override packaged asset root (Nix) |
+| `PI_TIMING=1` | Log timing diagnostics |
+
+Provider-specific keys may still use pi conventions when not using server auth.
+
+---
+
+## Interactive mode features (overview)
+
+The coding-agent interactive layer (`modes/interactive/`) includes:
+
+- Multi-turn chat with tool execution UI
+- Model picker and mid-session **re-login** (hot-swap stream function)
+- Themes (`theme/*.json`), markdown rendering via tui
+- Skills and extensions discovery
+- Session export to HTML (`core/export-html`)
+- Optional doom/easter-egg assets shipped in bundle
+
+Server re-login path refreshes `createAgentbosterStreamFn` when credentials change without restarting the binary.
+
+---
+
+## Security notes (local CLI)
+
+- Tool execution on the **developer machine** is powerful: use `--tools` / `--exclude-tools` to limit surface
+- `evaluateLocalCommand` in the adapter can pre-classify risky shell proposals (L0-style hints); server mode defers to Web/daemon policy
+- Do not commit `~/.agentboster` contents or `--api-key` values into repos
+
+```mermaid
+flowchart TD
+  T["Tool proposal"]
+  L{"Local policy"}
+  R{"Remote policy"}
+  T --> L
+  L -->|server mode| R
+  L -->|local only| E["Execute locally"]
+  R --> E
+```
+
+---
+
+## Testing
+
+| Package | Runner |
+|---------|--------|
+| ai, agent, coding-agent (most) | Vitest `npm run test` |
+| tui | Node `node --test` |
+
+From repo root of `cli/`:
 
 ```bash
-tar xzf agentboster-cli-0.80.2.tar.gz
-cd agentboster-cli-0.80.2
-./agentboster --version
-./agentboster "你好"
+npm run check
+```
+
+Add tests next to changed modules; prefer regression tests for CLI parsing and stream adapters.
+
+---
+
+## Relationship to `agentd`
+
+| Component | Runs where | Role |
+|-----------|------------|------|
+| **CLI** | User laptop / CI | UX, local tools, optional Web stream |
+| **agentd** | Linux server | Sandboxed exec, L0–L2, long-running agents |
+
+The CLI does **not** replace the daemon. Server-mediated tasks that need Docker/LXC/browser sandboxes execute on registered nodes after the Web workflow dispatches them.
+
+```mermaid
+flowchart LR
+  CLI["agentboster CLI"]
+  WEB["Web API"]
+  AD["agentd"]
+  CLI --> WEB
+  WEB --> AD
 ```
 
 ---
 
-## 常用环境变量（按重要程度）
+## Troubleshooting
 
-- `AGENTBOSTER_URL`：启用 AgentBoster 后端接入（如配置）
-- `AGENTBOSTER_SESSION_ID`：固定会话 ID
-- `AGENTBOSTER_CLIENT_ID`：客户端标识（默认 `local-cli`）
-- `AGENTBOSTER_MODEL`：默认模型（覆盖模型选择）
-- `PI_OFFLINE=1`：启动时禁用网络
-- `PI_PACKAGE_DIR`：Nix/特殊环境下覆盖运行期资源路径
-- `PI_TIMING=1`：输出运行时计时日志
-
-此外，`cli` 通过 `login` 子命令保存 provider token 到用户配置目录，优先使用配置文件进行鉴权。
-
----
-
-## 常见问题
-
-### 1. 命令找不到
-
-- 确认已执行 `npm run build`，并从 `dist` 路径或打包目录运行
-- 若使用全局命令，确认 `agentboster` 可执行文件在 PATH 中
-
-### 2. 执行缓慢 / 无法联网
-
-- 检查 Node 版本（>=22.19）
-- 检查是否误开启 `--offline`/`PI_OFFLINE=1`
-- 检查 `AGENTBOSTER_URL` 与鉴权状态是否正确
-
-### 3. 登录/鉴权失败
-
-- 先执行 `agentboster login`
-- 检查 `~/.agentboster/config.json` 与 `~/.agentboster/agent/auth.json` 是否可写
+| Issue | Check |
+|-------|--------|
+| `command not found` | Build (`npm run build`) or use tarball `./agentboster` |
+| `Not logged in` | Run `agentboster login`; verify `config.json` |
+| Empty model list (remote) | `fetchRemoteModels` needs valid token and URL |
+| Slow startup | Node version; disable accidental `PI_OFFLINE` |
+| Wrong assets in bundle | Run full `npm run build` before `bundle` |
+| Biome failures | `npm run check` from `cli/` root |
 
 ---
 
-## 关联文档
+## Project conventions
 
-- 根仓库说明：`README.md`
-- `agentd/README.md`：daemon 使用说明
-- `cli/AGENTS.md`：仓库内开发规范与依赖要求
+See [`AGENTS.md`](AGENTS.md):
+
+- TypeScript ESM, Biome formatter, Conventional Commits (`feat(cli):`, `fix(cli):`)
+- Do not hand-edit `dist/` outputs
+- Keep dependency changes intentional (review lockfile)
+
+---
+
+## RPC and automation
+
+`packages/coding-agent/dist/rpc-entry.js` supports programmatic control (build marks it executable). Use for editor integrations or headless automation where TUI is not wanted.
+
+---
+
+## Examples directory
+
+Packaged examples ship under `packages/coding-agent/examples/` (copied into release tarball). Use them as templates for extensions and custom tools.
+
+---
+
+## Versioning
+
+Workspace `version` in `cli/package.json` is monorepo metadata; user-facing CLI version comes from **coding-agent** package (`agentboster --version`). Keep tarball name and `package.mjs` version in sync when releasing.
+
+---
+
+## Roadmap / fork notes
+
+This tree is a **fork** of the pi coding-agent stack with AgentBoster-specific adapter and login flows:
+
+- OAuth provider login paths are disabled in favor of `agentboster login`
+- `agentboster` binary name replaces upstream `pi` branding in dist
+- Remote streaming integrates with AgentBoster Web rather than only vendor APIs
+
+---
+
+## Related documentation
+
+- [Root README](../README.EN.md) — platform architecture
+- [`agentd/README.md`](../agentd/README.md) — Linux execution daemon
+- [`AGENTS.md`](AGENTS.md) — monorepo dev guide
+
+---
+
+## FAQ
+
+**Can I use only OpenAI locally?** Yes — set provider API keys in auth storage or flags without `AGENTBOSTER_URL`.
+
+**Does print mode run tools?** Yes, when tools are enabled; ensure cwd and permissions are safe for CI.
+
+**Where is the bin defined?** `packages/coding-agent/package.json` `bin` field → `dist/cli.js` (chmod +x in build).
+
+**Nix users?** Set `PI_PACKAGE_DIR` so themes and README assets resolve outside node_modules layout.
+
+---
+
+*Target length: ~400 lines including diagrams.*
