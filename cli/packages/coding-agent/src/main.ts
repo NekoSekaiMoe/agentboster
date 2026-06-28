@@ -755,6 +755,18 @@ export async function main(args: string[], options?: MainOptions) {
 			created.session.setThinkingLevel(created.session.thinkingLevel);
 		}
 
+		// When logged in, wrap session.compact so compaction results are
+		// POSTed back to the web server after local summarization.
+		const auth = getStoredAuth();
+		if (auth) {
+			const originalCompact = created.session.compact.bind(created.session);
+			created.session.compact = async (customInstructions?: string) => {
+				const result = await originalCompact(customInstructions);
+				await postCompactionResult(auth, created.session.sessionId, result).catch(() => {});
+				return result;
+			};
+		}
+
 		return {
 			...created,
 			services,
@@ -880,6 +892,30 @@ export async function main(args: string[], options?: MainOptions) {
 		}
 		return;
 	}
+}
+
+/**
+ * POST a compaction result to the web backend so the server-side
+ * session history is kept in sync with the CLI's local compaction.
+ */
+async function postCompactionResult(
+	auth: { url: string; token: string },
+	sessionId: string,
+	result: { summary: string; firstKeptEntryId: string },
+): Promise<void> {
+	const root = auth.url.replace(/\/$/, "");
+	await fetch(`${root}/api/cli/sessions/${encodeURIComponent(sessionId)}/compact`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/json",
+			authorization: `Bearer ${auth.token}`,
+			cookie: `clawless-auth=${auth.token}`,
+		},
+		body: JSON.stringify({
+			summary: result.summary,
+			firstKeptUiMessageId: result.firstKeptEntryId,
+		}),
+	});
 }
 
 /**
