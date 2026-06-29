@@ -92,6 +92,16 @@ export interface SessionEntryBase {
 export interface SessionMessageEntry extends SessionEntryBase {
 	type: "message";
 	message: AgentMessage;
+	/** Version metadata from the remote backend (editHistory/regenerate versions).
+	 *  Present when the entry was built by fromRemote(); undefined for locally-created messages. */
+	remoteMetadata?: {
+		versions?: Array<{
+			parts: Array<{ type: string; text?: string }>;
+			createdAt: string;
+			response?: Array<{ type: string; text?: string }>;
+		}>;
+		currentVersionIndex?: number;
+	};
 }
 
 export interface ThinkingLevelChangeEntry extends SessionEntryBase {
@@ -1457,6 +1467,7 @@ export class SessionManager {
 		}>,
 	): SessionManager {
 		const manager = SessionManager.create(cwd, undefined, { id: sessionId });
+		const entryIds: string[] = [];
 		for (const msg of messages) {
 			const text = (() => {
 				if (msg.metadata?.versions && msg.metadata.versions.length > 0) {
@@ -1466,14 +1477,9 @@ export class SessionManager {
 				}
 				return msg.parts.filter((p) => p.type === "text" && typeof p.text === "string").map((p) => p.text!).join("\n");
 			})();
-			if (msg.role === "user") {
-				manager.appendMessage({
-					role: "user",
-					content: text,
-					timestamp: Date.now(),
-				});
-			} else {
-				manager.appendMessage({
+			const entryId = msg.role === "user"
+				? manager.appendMessage({ role: "user", content: text, timestamp: Date.now() })
+				: manager.appendMessage({
 					role: "assistant",
 					content: [{ type: "text", text }],
 					api: "openai-responses" as any,
@@ -1483,6 +1489,16 @@ export class SessionManager {
 					stopReason: "stop",
 					timestamp: Date.now(),
 				});
+			entryIds.push(entryId);
+			// Attach version metadata to the just-created entry.
+			if (msg.metadata?.versions) {
+				const entry = manager.byId.get(entryId);
+				if (entry && entry.type === "message") {
+					(entry as SessionMessageEntry).remoteMetadata = {
+						versions: msg.metadata.versions,
+						currentVersionIndex: msg.metadata.currentVersionIndex,
+					};
+				}
 			}
 		}
 		return manager;
