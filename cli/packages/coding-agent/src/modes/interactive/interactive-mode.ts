@@ -7,7 +7,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMessage } from "@agentboster-cli/agent";
+import type { AgentMessage, ThinkingLevel } from "@agentboster-cli/agent";
 import { clearStoredAuth, createAgentbosterStreamFn, fetchRemoteModels, getStoredAuth, remoteModelsToPiModels, writeStoredConfig } from "@agentboster/adapter";
 import { defaultClientLabel, exchangePairCode, loginWithPassword } from "../../cli/login.ts";
 import {
@@ -2591,6 +2591,12 @@ export class InteractiveMode {
 				await this.handleCompactCommand(customInstructions);
 				return;
 			}
+			if (text === "/effort" || text.startsWith("/effort ")) {
+				const arg = text.startsWith("/effort ") ? text.slice(8).trim() : undefined;
+				this.editor.setText("");
+				this.handleEffortCommand(arg);
+				return;
+			}
 			if (text === "/reload") {
 				this.editor.setText("");
 				await this.handleReloadCommand();
@@ -3681,6 +3687,37 @@ export class InteractiveMode {
 			this.updateEditorBorderColor();
 			this.showStatus(`Thinking level: ${newLevel}`);
 		}
+	}
+
+	/**
+	 * Handle `/effort [level]`. With no arg, opens the settings selector on
+	 * the thinking section. With a valid level (off/minimal/low/medium/high/
+	 * xhigh), sets it directly. Replaces the old Shift+Tab cycle.
+	 */
+	private handleEffortCommand(arg?: string): void {
+		const levels = this.session.getAvailableThinkingLevels();
+		if (!arg) {
+			if (levels.length === 0 || !this.session.supportsThinking()) {
+				this.showStatus("Current model does not support thinking");
+				return;
+			}
+			this.showStatus(`Effort: ${this.session.thinkingLevel} (available: ${levels.join(", ")})`);
+			return;
+		}
+		const normalized = arg.toLowerCase();
+		const valid: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+		if (!valid.includes(normalized as ThinkingLevel)) {
+			this.showStatus(`Unknown effort level: ${arg}. Valid: ${valid.join(", ")}`);
+			return;
+		}
+		if (!levels.includes(normalized as ThinkingLevel)) {
+			this.showStatus(`Effort ${normalized} not available for this model. Available: ${levels.join(", ")}`);
+			return;
+		}
+		this.session.setThinkingLevel(normalized as ThinkingLevel);
+		this.footer.invalidate();
+		this.updateEditorBorderColor();
+		this.showStatus(`Effort: ${normalized}`);
 	}
 
 	private async cycleModel(direction: "forward" | "backward"): Promise<void> {
