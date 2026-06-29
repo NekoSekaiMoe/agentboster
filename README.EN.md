@@ -197,7 +197,7 @@ Full guide: [`cli/README.md`](./cli/README.md).
 | `AUTH_SECRET`, `USERNAME`, `PASSWORD` | Login and cookies |
 | `DATABASE_URL` | Required in production |
 | `BLOB_ACCESS` / `BLOB_READ_WRITE_TOKEN` | Attachments |
-| `AGENTD_API_KEY` | Must match daemon `clawless_api_key` |
+| `AGENTD_API_KEY` | Must match daemon `clawless_api_key`; accepts a comma-separated list (e.g. `key1,key2`) for multiple daemons or key rotation |
 | `AGENTD_CLIENT_CERT_PATH`, etc. | Only when Web calls daemon directly |
 | `TAVILY_API_KEY` | Optional |
 

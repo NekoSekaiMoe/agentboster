@@ -197,7 +197,7 @@ agentboster login   # 使用 Web 时
 | `AUTH_SECRET`、`USERNAME`、`PASSWORD` | 登录与 Cookie |
 | `DATABASE_URL` | 生产必填 |
 | `BLOB_ACCESS` / `BLOB_READ_WRITE_TOKEN` | 附件存储 |
-| `AGENTD_API_KEY` | 与 daemon `clawless_api_key` 一致 |
+| `AGENTD_API_KEY` | 与 daemon `clawless_api_key` 一致；支持逗号分隔多个值（如 `key1,key2`），用于多 daemon 或密钥轮换 |
 | `AGENTD_CLIENT_CERT_PATH` 等 | 仅 Web 主动访问 daemon 时需要 |
 | `TAVILY_API_KEY` | 可选 |
 

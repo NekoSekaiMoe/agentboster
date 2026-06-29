@@ -5,6 +5,7 @@
  */
 
 import { eq } from 'drizzle-orm';
+import { timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import {
@@ -36,7 +37,19 @@ function hasValidAgentdApiKey(request: Request): boolean {
     request.headers.get('x-api-key') ||
     readBearerToken(request.headers.get('authorization'));
 
-  return provided === expected;
+  if (!provided) return false;
+
+  // AGENTD_API_KEY supports a comma-separated list (e.g. for key rotation
+  // or multiple daemons). Constant-time compare each candidate.
+  const candidates = expected.split(',').map((k) => k.trim()).filter(Boolean);
+  for (const candidate of candidates) {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(candidate);
+    if (a.length === b.length && timingSafeEqual(a, b)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export async function GET(
