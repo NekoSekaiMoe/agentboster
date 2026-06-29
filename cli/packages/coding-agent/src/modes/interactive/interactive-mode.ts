@@ -347,6 +347,13 @@ export class InteractiveMode {
 
 	// Track if editor is in bash mode (text starts with !)
 	private isBashMode = false;
+	/** When in bash mode, whether the command is excluded from context (!! prefix). */
+	private bashExcluded = false;
+	/** Container for the colored mode banner shown below the editor
+	 *  (e.g. "shell mode") when a prefix trigger is consumed. */
+	private modeBannerContainer: Container;
+	/** Guard to prevent recursive onChange when we rewrite editor text. */
+	private suppressChangeEvent = false;
 
 	// Track current bash execution component
 	private bashComponent: BashExecutionComponent | undefined = undefined;
@@ -445,6 +452,7 @@ export class InteractiveMode {
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
+		this.modeBannerContainer = new Container();
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
 		this.footer = new FooterComponent(this.session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
@@ -652,6 +660,7 @@ export class InteractiveMode {
 		this.renderWidgets(); // Initialize with default spacer
 		this.ui.addChild(this.widgetContainerAbove);
 		this.ui.addChild(this.editorContainer);
+		this.ui.addChild(this.modeBannerContainer);
 		this.ui.addChild(this.widgetContainerBelow);
 		this.ui.addChild(this.footer);
 		this.ui.setFocus(this.editor);
@@ -2378,6 +2387,7 @@ export class InteractiveMode {
 			} else if (this.isBashMode) {
 				this.editor.setText("");
 				this.isBashMode = false;
+				this.bashExcluded = false;
 				this.updateEditorBorderColor();
 			} else if (!this.editor.getText().trim()) {
 				// Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
@@ -2420,9 +2430,28 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.session.resume", () => this.showSessionSelector());
 
 		this.defaultEditor.onChange = (text: string) => {
-			const wasBashMode = this.isBashMode;
-			this.isBashMode = text.trimStart().startsWith("!");
-			if (wasBashMode !== this.isBashMode) {
+			if (this.suppressChangeEvent) return;
+			// Consume a single leading `!` to enter bash mode. `!!` keeps one
+			// `!` in the editor (the excluded-from-context marker) — only the
+			// first `!` is swallowed. A colored "shell mode" banner below the
+			// editor indicates the active mode; Esc exits.
+			const trimmed = text.trimStart();
+			if (!this.isBashMode && trimmed.startsWith("!")) {
+				// Strip exactly one leading `!`.
+				const idx = text.indexOf("!");
+				const rest = idx === 0 ? text.slice(1) : text.slice(0, idx) + text.slice(idx + 1);
+				this.suppressChangeEvent = true;
+				this.editor.setText(rest);
+				this.suppressChangeEvent = false;
+				this.isBashMode = true;
+				this.bashExcluded = trimmed.startsWith("!!");
+				this.updateEditorBorderColor();
+				return;
+			}
+			// Exit bash mode if the editor is cleared (e.g. user backspaces everything).
+			if (this.isBashMode && text.length === 0) {
+				this.isBashMode = false;
+				this.bashExcluded = false;
 				this.updateEditorBorderColor();
 			}
 		};
@@ -2592,8 +2621,28 @@ export class InteractiveMode {
 				return;
 			}
 
-			// Handle bash command (! for normal, !! for excluded from context)
-			if (text.startsWith("!")) {
+			// Handle bash command. Two entry paths converge here:
+			// 1. Bash mode entered via the `!` prefix trigger (consumed): the
+			//    editor text is already the command, and `isBashMode` is true.
+			//    `!`-prefixed text in excluded mode keeps a leading `!`.
+			// 2. Legacy: user pasted/typed `!cmd` and submitted in one go.
+			if (this.isBashMode) {
+				const isExcluded = this.bashExcluded || text.startsWith("!");
+				const command = (isExcluded && text.startsWith("!") ? text.slice(1) : text).trim();
+				if (command) {
+					if (this.session.isBashRunning) {
+						this.showWarning("A bash command is already running. Press Esc to cancel it first.");
+						this.editor.setText(text);
+						return;
+					}
+					this.editor.addToHistory?.(text);
+					await this.handleBashCommand(command, isExcluded);
+					this.isBashMode = false;
+					this.bashExcluded = false;
+					this.updateEditorBorderColor();
+					return;
+				}
+			} else if (text.startsWith("!")) {
 				const isExcluded = text.startsWith("!!");
 				const command = isExcluded ? text.slice(2).trim() : text.slice(1).trim();
 				if (command) {
@@ -2605,6 +2654,7 @@ export class InteractiveMode {
 					this.editor.addToHistory?.(text);
 					await this.handleBashCommand(command, isExcluded);
 					this.isBashMode = false;
+					this.bashExcluded = false;
 					this.updateEditorBorderColor();
 					return;
 				}
@@ -3579,11 +3629,23 @@ export class InteractiveMode {
 	private updateEditorBorderColor(): void {
 		if (this.isBashMode) {
 			this.editor.borderColor = theme.getBashModeBorderColor();
+			this.renderModeBanner();
 		} else {
 			const level = this.session.thinkingLevel || "off";
 			this.editor.borderColor = theme.getThinkingBorderColor(level);
+			this.modeBannerContainer.clear();
 		}
 		this.ui.requestRender();
+	}
+
+	/** Render the colored mode banner below the editor. Currently only bash
+	 *  mode produces a banner. */
+	private renderModeBanner(): void {
+		this.modeBannerContainer.clear();
+		if (!this.isBashMode) return;
+		const label = this.bashExcluded ? "shell mode (excluded)" : "shell mode";
+		const line = theme.fg("accent", `› ${label}`);
+		this.modeBannerContainer.addChild(new Text(line, 1, 0));
 	}
 
 	private cycleThinkingLevel(): void {
