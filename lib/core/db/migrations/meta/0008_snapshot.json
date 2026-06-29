@@ -1,6 +1,6 @@
 {
-  "id": "cac9bb63-aa7b-4e95-8ddb-529e7398c38d",
-  "prevId": "0be6675e-251a-430b-835a-9611af95dd44",
+  "id": "fa858732-4b44-4dd3-8a39-894b1bf0044b",
+  "prevId": "2a41ab92-29cc-4e7a-ad76-ecb1b9aefe3c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -780,12 +780,6 @@
           "notNull": true,
           "default": "'online'"
         },
-        "cpu_model": {
-          "name": "cpu_model",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "cpu_usage": {
           "name": "cpu_usage",
           "type": "integer",
@@ -817,24 +811,6 @@
           "primaryKey": false,
           "notNull": false,
           "default": 0
-        },
-        "sandbox_mem_current_total": {
-          "name": "sandbox_mem_current_total",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sandbox_mem_peak_total": {
-          "name": "sandbox_mem_peak_total",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sandbox_cpu_usec_total": {
-          "name": "sandbox_cpu_usec_total",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
         },
         "last_heartbeat": {
           "name": "last_heartbeat",
@@ -1046,122 +1022,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.cli_devices": {
-      "name": "cli_devices",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clawless_user_id": {
-          "name": "clawless_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "token_jti": {
-          "name": "token_jti",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "paired_at": {
-          "name": "paired_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "last_seen_at": {
-          "name": "last_seen_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "cli_devices_token_jti_idx": {
-          "name": "cli_devices_token_jti_idx",
-          "columns": [
-            {
-              "expression": "token_jti",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "cli_devices_clawless_user_id_idx": {
-          "name": "cli_devices_clawless_user_id_idx",
-          "columns": [
-            {
-              "expression": "clawless_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "cli_devices_clawless_user_id_users_id_fk": {
-          "name": "cli_devices_clawless_user_id_users_id_fk",
-          "tableFrom": "cli_devices",
-          "tableTo": "users",
-          "columnsFrom": [
-            "clawless_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.files": {
       "name": "files",
       "schema": "",
@@ -1321,134 +1181,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.im_accounts": {
-      "name": "im_accounts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clawless_user_id": {
-          "name": "clawless_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "adapter": {
-          "name": "adapter",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "im_user_id": {
-          "name": "im_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "im_user_name": {
-          "name": "im_user_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "paired_at": {
-          "name": "paired_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "unpaired_at": {
-          "name": "unpaired_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "im_accounts_adapter_im_user_id_idx": {
-          "name": "im_accounts_adapter_im_user_id_idx",
-          "columns": [
-            {
-              "expression": "adapter",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "im_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "im_accounts_clawless_user_adapter_idx": {
-          "name": "im_accounts_clawless_user_adapter_idx",
-          "columns": [
-            {
-              "expression": "clawless_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "adapter",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "im_accounts_clawless_user_id_users_id_fk": {
-          "name": "im_accounts_clawless_user_id_users_id_fk",
-          "tableFrom": "im_accounts",
-          "tableTo": "users",
-          "columnsFrom": [
-            "clawless_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.knowledge_bases": {
       "name": "knowledge_bases",
       "schema": "",
@@ -1479,20 +1211,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'team'"
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'local'"
-        },
-        "priority": {
-          "name": "priority",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "name": {
           "name": "name",
@@ -1665,33 +1383,6 @@
           "columns": [
             {
               "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "enabled",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "knowledge_bases_agent_priority_idx": {
-          "name": "knowledge_bases_agent_priority_idx",
-          "columns": [
-            {
-              "expression": "agent_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "priority",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2212,173 +1903,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.l2_decisions": {
-      "name": "l2_decisions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "decision_id": {
-          "name": "decision_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "task_id": {
-          "name": "task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "session_id": {
-          "name": "session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "agent_id": {
-          "name": "agent_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "payload": {
-          "name": "payload",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "resolution": {
-          "name": "resolution",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resolved_by": {
-          "name": "resolved_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "node_id": {
-          "name": "node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {
-        "l2_decisions_status_created_idx": {
-          "name": "l2_decisions_status_created_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "l2_decisions_session_idx": {
-          "name": "l2_decisions_session_idx",
-          "columns": [
-            {
-              "expression": "session_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "l2_decisions_task_idx": {
-          "name": "l2_decisions_task_idx",
-          "columns": [
-            {
-              "expression": "task_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "l2_decisions_decision_id_unique": {
-          "name": "l2_decisions_decision_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "decision_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.long_term_memories": {
       "name": "long_term_memories",
       "schema": "",
@@ -2396,12 +1920,6 @@
           "primaryKey": false,
           "notNull": false,
           "default": "'system'"
-        },
-        "memory_key": {
-          "name": "memory_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "content": {
           "name": "content",
@@ -2471,27 +1989,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "long_term_memories_user_key_idx": {
-          "name": "long_term_memories_user_key_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "memory_key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3402,12 +2899,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{\"user\"}'"
-        },
-        "model_preferences": {
-          "name": "model_preferences",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
