@@ -770,58 +770,35 @@ export class SessionManager {
 
 	private constructor(
 		cwd: string,
-		sessionDir: string,
+		_sessionDir: string,
 		sessionFile: string | undefined,
-		persist: boolean,
+		_persist: boolean,
 		newSessionOptions?: NewSessionOptions,
 	) {
 		this.cwd = resolvePath(cwd);
-		this.sessionDir = normalizePath(sessionDir);
-		this.persist = persist;
-		if (persist && this.sessionDir && !existsSync(this.sessionDir)) {
-			mkdirSync(this.sessionDir, { recursive: true });
-		}
+		// Thin-client: no local persistence. SessionManager is a pure
+		// in-memory object; session content lives on the Web backend and
+		// is fetched on demand. The legacy jsonl read path is kept only
+		// so existing on-disk files can still be opened during the
+		// transition — no new files are ever written.
+		this.sessionDir = "";
+		this.persist = false;
 
 		if (sessionFile) {
-			this.setSessionFile(sessionFile);
+			this.sessionFile = resolvePath(sessionFile);
+			this.fileEntries = loadEntriesFromFile(this.sessionFile);
+			this._buildIndex();
 		} else {
 			this.newSession(newSessionOptions);
 		}
 	}
 
-	/** Switch to a different session file (used for resume and branching) */
+	/** Switch to a different session file (used for resume and branching). */
 	setSessionFile(sessionFile: string): void {
 		this.sessionFile = resolvePath(sessionFile);
 		if (existsSync(this.sessionFile)) {
 			this.fileEntries = loadEntriesFromFile(this.sessionFile);
-
-			// If file was empty, initialize it with a valid session header. If it was
-			// non-empty but did not parse as a pi session, fail without modifying it.
-			if (this.fileEntries.length === 0) {
-				const explicitPath = this.sessionFile;
-				if (statSync(explicitPath).size > 0) {
-					throw new Error(`Session file is not a valid pi session: ${explicitPath}`);
-				}
-				this.newSession();
-				this.sessionFile = explicitPath;
-				this._rewriteFile();
-				this.flushed = true;
-				return;
-			}
-
-			const header = this.fileEntries.find((e) => e.type === "session") as SessionHeader | undefined;
-			this.sessionId = header?.id ?? createSessionId();
-
-			if (migrateToCurrentVersion(this.fileEntries)) {
-				this._rewriteFile();
-			}
-
 			this._buildIndex();
-			this.flushed = true;
-		} else {
-			const explicitPath = this.sessionFile;
-			this.newSession();
-			this.sessionFile = explicitPath; // preserve explicit path from --session flag
 		}
 	}
 
@@ -873,20 +850,17 @@ export class SessionManager {
 		}
 	}
 
+	/**
+	 * Thin-client: persistence is a no-op. SessionManager is in-memory only;
+	 * the Web backend owns durable state. Kept as a no-op rather than removed
+	 * so call sites (`_appendEntry`, migrations) keep compiling.
+	 */
 	private _rewriteFile(): void {
-		if (!this.persist || !this.sessionFile) return;
-		const fd = openSync(this.sessionFile, "w");
-		try {
-			for (const entry of this.fileEntries) {
-				writeFileSync(fd, `${JSON.stringify(entry)}\n`);
-			}
-		} finally {
-			closeSync(fd);
-		}
+		// no-op — remote is the source of truth.
 	}
 
 	isPersisted(): boolean {
-		return this.persist;
+		return false;
 	}
 
 	getCwd(): string {
@@ -894,11 +868,11 @@ export class SessionManager {
 	}
 
 	getSessionDir(): string {
-		return this.sessionDir;
+		return "";
 	}
 
 	usesDefaultSessionDir(): boolean {
-		return this.sessionDir === getDefaultSessionDirPath(this.cwd);
+		return false;
 	}
 
 	getSessionId(): string {
@@ -909,33 +883,8 @@ export class SessionManager {
 		return this.sessionFile;
 	}
 
-	_persist(entry: SessionEntry): void {
-		if (!this.persist || !this.sessionFile) return;
-
-		const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
-		if (!hasAssistant) {
-			if (this.flushed) {
-				appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
-			} else {
-				// Mark as not flushed so when assistant arrives, all entries get written
-				this.flushed = false;
-			}
-			return;
-		}
-
-		if (!this.flushed) {
-			const fd = openSync(this.sessionFile, "wx");
-			try {
-				for (const e of this.fileEntries) {
-					writeFileSync(fd, `${JSON.stringify(e)}\n`);
-				}
-			} finally {
-				closeSync(fd);
-			}
-			this.flushed = true;
-		} else {
-			appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
-		}
+	_persist(_entry: SessionEntry): void {
+		// no-op — remote is the source of truth.
 	}
 
 	private _appendEntry(entry: SessionEntry): void {
@@ -1446,56 +1395,14 @@ export class SessionManager {
 	 * @param sessionDir Optional session directory. If omitted, uses default for targetCwd.
 	 */
 	static forkFrom(
-		sourcePath: string,
-		targetCwd: string,
-		sessionDir?: string,
-		options?: NewSessionOptions,
+		_sourcePath: string,
+		_targetCwd: string,
+		_sessionDir?: string,
+		_options?: NewSessionOptions,
 	): SessionManager {
-		const resolvedSourcePath = resolvePath(sourcePath);
-		const resolvedTargetCwd = resolvePath(targetCwd);
-		const sourceEntries = loadEntriesFromFile(resolvedSourcePath);
-		if (sourceEntries.length === 0) {
-			throw new Error(`Cannot fork: source session file is empty or invalid: ${resolvedSourcePath}`);
-		}
-
-		const sourceHeader = sourceEntries.find((e) => e.type === "session") as SessionHeader | undefined;
-		if (!sourceHeader) {
-			throw new Error(`Cannot fork: source session has no header: ${resolvedSourcePath}`);
-		}
-
-		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(resolvedTargetCwd);
-		if (!existsSync(dir)) {
-			mkdirSync(dir, { recursive: true });
-		}
-
-		// Create new session file with new ID but forked content
-		if (options?.id !== undefined) {
-			assertValidSessionId(options.id);
-		}
-		const newSessionId = options?.id ?? createSessionId();
-		const timestamp = new Date().toISOString();
-		const fileTimestamp = timestamp.replace(/[:.]/g, "-");
-		const newSessionFile = join(dir, `${fileTimestamp}_${newSessionId}.jsonl`);
-
-		// Write new header pointing to source as parent, with updated cwd
-		const newHeader: SessionHeader = {
-			type: "session",
-			version: CURRENT_SESSION_VERSION,
-			id: newSessionId,
-			timestamp,
-			cwd: resolvedTargetCwd,
-			parentSession: resolvedSourcePath,
-		};
-		writeFileSync(newSessionFile, `${JSON.stringify(newHeader)}\n`, { flag: "wx" });
-
-		// Copy all non-header entries from source
-		for (const entry of sourceEntries) {
-			if (entry.type !== "session") {
-				appendFileSync(newSessionFile, `${JSON.stringify(entry)}\n`);
-			}
-		}
-
-		return new SessionManager(resolvedTargetCwd, dir, newSessionFile, true);
+		throw new Error(
+			"forkFrom is not available in thin-client mode. Session forking requires the remote backend.",
+		);
 	}
 
 	/**
