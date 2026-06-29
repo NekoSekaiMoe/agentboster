@@ -923,6 +923,7 @@ export async function main(args: string[], options?: MainOptions) {
 			initialImages,
 			initialMessages: parsed.messages,
 			verbose: parsed.verbose,
+			permissionMode: parsed.yolo === true ? "yolo" : "manual",
 		});
 		if (startupBenchmark) {
 			await interactiveMode.init();

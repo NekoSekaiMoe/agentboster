@@ -276,6 +276,8 @@ export interface InteractiveModeOptions {
 	initialMessages?: string[];
 	/** Force verbose startup (overrides quietStartup setting) */
 	verbose?: boolean;
+	/** Permission posture reflected in the footer badge. */
+	permissionMode?: "manual" | "yolo";
 }
 
 export class InteractiveMode {
@@ -440,6 +442,9 @@ export class InteractiveMode {
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
 		this.footer = new FooterComponent(this.session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
+		if (options.permissionMode) {
+			this.footer.setPermissionMode(options.permissionMode);
+		}
 
 		// Load hide thinking block setting
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();

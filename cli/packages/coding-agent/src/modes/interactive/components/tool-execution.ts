@@ -1,7 +1,9 @@
 import { Box, type Component, Container, getCapabilities, Image, Spacer, Text, type TUI } from "@agentboster-cli/tui";
 import type { ToolDefinition, ToolRenderContext } from "../../../core/extensions/types.ts";
 import { createAllToolDefinitions, type ToolName } from "../../../core/tools/index.ts";
-import { getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.ts";
+import { getToolChip } from "../../../core/tools/chip.ts";
+import { getTextOutput as getRenderedTextOutput, shortenPath } from "../../../core/tools/render-utils.ts";
+import { FAILURE_MARK, RUNNING_MARK, SUCCESS_MARK } from "../../../utils/symbols.ts";
 import { convertToPng } from "../../../utils/image-convert.ts";
 import { theme } from "../theme/theme.ts";
 
@@ -363,15 +365,50 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private formatToolExecution(): string {
-		let text = theme.fg("toolTitle", theme.bold(this.toolName));
-		const content = JSON.stringify(this.args, null, 2);
-		if (content) {
-			text += `\n\n${content}`;
+		// Status symbol prefix (● running, ✓ success, ✗ error) — mirrors the
+		// kimi-code STATUS_BULLET set so local_* tool cards visually match.
+		const symbol = this.isPartial
+			? theme.fg("toolTitle", RUNNING_MARK)
+			: this.result?.isError
+				? theme.fg("error", FAILURE_MARK)
+				: theme.fg("success", SUCCESS_MARK);
+
+		// Compact key-argument preview instead of raw JSON dump.
+		const keyArg = this.extractKeyArgument();
+
+		const toolLabel = theme.fg("toolTitle", theme.bold(this.toolName));
+		const argStr = keyArg ? theme.fg("dim", ` ${keyArg}`) : "";
+		let header = `${symbol}${toolLabel}${argStr}`;
+
+		// Quantitative chip from the registry (exit N / N lines / N files …).
+		if (this.result) {
+			const chip = getToolChip(this.toolName, this.result, {
+				isPartial: this.isPartial,
+				isError: this.result.isError,
+			});
+			if (chip) {
+				header += theme.fg("dim", ` · ${chip}`);
+			}
 		}
+
+		let text = header;
 		const output = this.getTextOutput();
 		if (output) {
 			text += `\n${output}`;
 		}
 		return text;
+	}
+
+	/**
+	 * Pull a one-line argument preview for local_* tools (command / path),
+	 * falling back to a compact JSON form for anything else.
+	 */
+	private extractKeyArgument(): string {
+		const args = this.args as Record<string, unknown> | undefined;
+		if (!args) return "";
+		if (typeof args["command"] === "string") return args["command"];
+		if (typeof args["path"] === "string") return shortenPath(args["path"]);
+		const json = JSON.stringify(args);
+		return json === "{}" ? "" : json;
 	}
 }

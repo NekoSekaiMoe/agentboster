@@ -5,6 +5,9 @@ import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
 import { theme } from "../theme/theme.ts";
 
+/** Permission posture shown as a colored badge in the footer's first line. */
+export type FooterPermissionMode = "manual" | "yolo";
+
 /**
  * Sanitize text for display in a single-line status.
  * Removes newlines, tabs, carriage returns, and other control characters.
@@ -50,6 +53,7 @@ export class FooterComponent implements Component {
 	private autoCompactEnabled = true;
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
+	private permissionMode: FooterPermissionMode = "manual";
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -62,6 +66,10 @@ export class FooterComponent implements Component {
 
 	setAutoCompactEnabled(enabled: boolean): void {
 		this.autoCompactEnabled = enabled;
+	}
+
+	setPermissionMode(mode: FooterPermissionMode): void {
+		this.permissionMode = mode;
 	}
 
 	/**
@@ -124,6 +132,11 @@ export class FooterComponent implements Component {
 
 		// Replace home directory with ~
 		let pwd = formatCwdForFooter(this.session.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE);
+
+		// Prepend permission-mode badge so the active posture is visible at a glance.
+		if (this.permissionMode === "yolo") {
+			pwd = `${theme.bold(theme.fg("warning", "[yolo]"))} ${pwd}`;
+		}
 
 		// Add git branch if available
 		const branch = this.footerData.getGitBranch();
