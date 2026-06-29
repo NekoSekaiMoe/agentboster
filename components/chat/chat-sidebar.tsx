@@ -2,6 +2,7 @@
 import {
   deleteSessionAction,
   listRecentSessionsAction,
+  searchSessionsAction,
   toggleSessionPinAction,
 } from '@/app/(chat)/actions';
 import { useI18n } from '@/components/i18n-provider';
@@ -16,6 +17,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Sidebar,
   SidebarContent,
@@ -30,15 +32,23 @@ import {
   type SessionListItemEventDetail,
 } from '@/lib/chat/session-events';
 import {
+  Calendar,
   ChevronLeft,
+  Globe,
+  Hash,
   Loader2,
   MessageSquare,
+  MessagesSquare,
   Monitor,
   Moon,
   Pin,
+  PinOff,
   Plus,
+  Search,
+  Send,
   Settings,
   Sun,
+  Terminal,
   Trash2,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -64,6 +74,26 @@ interface SessionItem {
   pinned?: boolean;
 }
 
+function getChannelIcon(channel: string) {
+  if (channel === 'web') return Globe;
+  if (channel === 'scheduled') return Calendar;
+  if (channel.startsWith('cli:')) return Terminal;
+  switch (channel) {
+    case 'telegram':
+      return Send;
+    case 'discord':
+    case 'slack':
+    case 'gchat':
+    case 'teams':
+    case 'qq':
+      return MessagesSquare;
+    case 'feishu':
+      return Hash;
+    default:
+      return MessageSquare;
+  }
+}
+
 export function ChatSidebar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -79,6 +109,9 @@ export function ChatSidebar() {
   const [pendingDeleteSession, setPendingDeleteSession] =
     useState<SessionItem | null>(null);
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchedIds, setSearchedIds] = useState<Set<string> | null>(null);
+  const [searching, setSearching] = useState(false);
 
   const currentSessionId = pathname.split('/').pop();
   const isCollapsed = !open && !isMobile;
@@ -136,6 +169,27 @@ export function ChatSidebar() {
       window.removeEventListener(SESSION_LIST_UPSERTED_EVENT, handleUpserted);
     };
   }, [loadSessions]);
+
+  // Debounced server-side search across session titles + message content
+  // (including branched versions). Falls back to client-side title/id
+  // filtering for short queries — the server action only runs for queries
+  // long enough to be worth a DB ILIKE.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchedIds(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const handle = setTimeout(() => {
+      searchSessionsAction(q)
+        .then((ids) => setSearchedIds(new Set(ids)))
+        .catch(() => setSearchedIds(null))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [searchQuery]);
 
   // 新建会话
   function handleNewChat() {
@@ -202,6 +256,22 @@ export function ChatSidebar() {
     return 0;
   });
 
+  // Client-side filter for the sidebar search input. Title/id match is
+  // instant; message-content matches are fetched via the server action
+  // and merged in (see searchSessionsAction). When a remote search has
+  // returned a result set, we filter to those ids.
+  const q = searchQuery.trim().toLowerCase();
+  const visibleSessions =
+    q && searchedIds
+      ? sortedSessions.filter((s) => searchedIds.has(s.id))
+      : q
+        ? sortedSessions.filter(
+            (s) =>
+              (s.title ?? '').toLowerCase().includes(q) ||
+              s.id.toLowerCase().includes(q),
+          )
+        : sortedSessions;
+
   return (
     <>
       <Sidebar className="border-r-0">
@@ -240,16 +310,47 @@ export function ChatSidebar() {
         <SidebarContent className="px-3 py-3">
           {!isCollapsed && (
             <div className="flex-1 space-y-1">
+              {/* Search input */}
+              <div className="relative mb-2">
+                <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={t('chat.searchSessions') ?? 'Search sessions…'}
+                  className="h-8 pr-7 pl-8 text-sm"
+                />
+                {(searching || searchQuery) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setSearchedIds(null);
+                    }}
+                    className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {searching ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <span className="text-xs">×</span>
+                    )}
+                  </button>
+                )}
+              </div>
+
               {loadingSessions ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
-              ) : sortedSessions.length === 0 ? (
+              ) : visibleSessions.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground text-sm">
-                  {t('chat.noConversations')}
+                  {searchQuery
+                    ? (t('chat.noSearchResults') ?? 'No matching sessions')
+                    : t('chat.noConversations')}
                 </div>
               ) : (
-                sortedSessions.map((session) => (
+                visibleSessions.map((session) => {
+                  const ChannelIcon = getChannelIcon(session.channel);
+                  return (
                   <div
                     key={session.id}
                     role="button"
@@ -267,46 +368,56 @@ export function ChatSidebar() {
                       }
                     }}
                   >
-                    <MessageSquare className="h-4 w-4 shrink-0" />
+                    <ChannelIcon
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                      aria-label={session.channel}
+                    />
                     <span className="flex-1 truncate text-sm">
                       {session.title || t('chat.newConversation')}
                     </span>
                     {session.status === 'running' && (
                       <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                     )}
-                    <div className="flex shrink-0 gap-1 opacity-0 group-hover:opacity-100">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleTogglePin(session);
-                        }}
-                      >
-                        <Pin
-                          className={`h-3 w-3 ${session.pinned ? 'fill-current' : ''}`}
-                        />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        disabled={deletingSessionId === session.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteSession(session);
-                        }}
-                      >
-                        {deletingSessionId === session.id ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3 w-3" />
-                        )}
-                      </Button>
-                    </div>
+                    {/* Pin button: always visible when pinned, otherwise on hover. */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={`h-6 w-6 shrink-0 ${
+                        session.pinned
+                          ? 'opacity-100'
+                          : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTogglePin(session);
+                      }}
+                    >
+                      {session.pinned ? (
+                        <PinOff className="h-3 w-3" />
+                      ) : (
+                        <Pin className="h-3 w-3" />
+                      )}
+                    </Button>
+                    {/* Delete only on hover to avoid accidents. */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
+                      disabled={deletingSessionId === session.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteSession(session);
+                      }}
+                    >
+                      {deletingSessionId === session.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3 w-3" />
+                      )}
+                    </Button>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           )}

@@ -14,6 +14,8 @@ import {
 import { cleanupChatSession } from '@/lib/chat/session-cleanup';
 import { stopSessionSandbox } from '@/lib/core/sandbox';
 import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
+import { db } from '@/lib/core/db';
+import { sql } from 'drizzle-orm';
 import {
   type SessionRuntimeResponse,
   getSessionRuntime,
@@ -115,6 +117,42 @@ export async function listRecentSessionsAction(limit = 30) {
       (session.metadata as Record<string, unknown> | null)?.pinned,
     ),
   }));
+}
+
+/**
+ * Server-side session search. Matches session titles OR any message payload
+ * (which includes all branched `versions[].parts[].text`). Returns the
+ * matching session ids so the client can intersect with its loaded list.
+ *
+ * The payload::text ILIKE naturally covers every text fragment stored in the
+ * jsonb — top-level parts, tool-call descriptions, and all alternate
+ * versions — because it stringifies the whole payload before matching.
+ */
+export async function searchSessionsAction(query: string): Promise<string[]> {
+  const access = await requireAuth();
+  const q = query.trim();
+  if (q.length < 2) return [];
+
+  const escaped = q.replace(/[%_\\]/g, (m) => `\\${m}`);
+  const pattern = `%${escaped}%`;
+  const userId = access.session.userId;
+  const userFilter = access.isAdmin ? sql`` : sql`AND s.user_id = ${userId}`;
+
+  const rows = await db.execute<{ id: string }>(sql`
+    SELECT DISTINCT s.id
+    FROM sessions s
+    LEFT JOIN messages m ON m.session_id = s.id
+    WHERE s.archived = false
+      ${userFilter}
+      AND (
+        s.title ILIKE ${pattern} ESCAPE '\\'
+        OR m.payload::text ILIKE ${pattern} ESCAPE '\\'
+      )
+    ORDER BY s.updated_at DESC
+    LIMIT 30
+  `);
+
+  return rows.rows.map((r) => r.id);
 }
 
 export async function toggleSessionPinAction(input: { id: string }) {

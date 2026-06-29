@@ -29,6 +29,8 @@ export const zhCN = {
   'chat.newChat': '新建对话',
   'chat.newConversation': '新对话',
   'chat.noConversations': '暂无对话',
+  'chat.searchSessions': '搜索会话…',
+  'chat.noSearchResults': '没有匹配的会话',
   'chat.settings': '设置',
   'chat.theme': '主题',
   'chatHeader.abort': '停止',

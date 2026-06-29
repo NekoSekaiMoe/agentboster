@@ -32,6 +32,8 @@ export const ja = {
   'chat.newChat': '新規チャット',
   'chat.newConversation': '新しい会話',
   'chat.noConversations': '会話はまだありません',
+  'chat.searchSessions': 'セッションを検索…',
+  'chat.noSearchResults': '一致するセッションがありません',
   'chat.settings': '設定',
   'chat.theme': 'テーマ',
   'chatHeader.abort': '中止',

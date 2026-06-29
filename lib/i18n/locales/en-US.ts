@@ -30,6 +30,8 @@ export const enUS = {
   'chat.newChat': 'New Chat',
   'chat.newConversation': 'New conversation',
   'chat.noConversations': 'No conversations yet',
+  'chat.searchSessions': 'Search sessions…',
+  'chat.noSearchResults': 'No matching sessions',
   'chat.settings': 'Settings',
   'chat.theme': 'Theme',
   'chatHeader.abort': 'Abort',

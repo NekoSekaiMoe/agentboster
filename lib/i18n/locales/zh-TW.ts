@@ -30,6 +30,8 @@ export const zhTW = {
   'chat.newChat': '新增對話',
   'chat.newConversation': '新對話',
   'chat.noConversations': '尚無對話',
+  'chat.searchSessions': '搜尋會話…',
+  'chat.noSearchResults': '沒有符合的會話',
   'chat.settings': '設定',
   'chat.theme': '主題',
   'chatHeader.abort': '停止',

@@ -32,6 +32,8 @@ export const ko = {
   'chat.newChat': '새 채팅',
   'chat.newConversation': '새 대화',
   'chat.noConversations': '아직 대화가 없습니다',
+  'chat.searchSessions': '세션 검색…',
+  'chat.noSearchResults': '일치하는 세션이 없습니다',
   'chat.settings': '설정',
   'chat.theme': '테마',
   'chatHeader.abort': '중지',

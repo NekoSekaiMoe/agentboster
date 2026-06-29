@@ -8,6 +8,8 @@ export const zhHK = {
   'auth.signOutError': '登出失敗，請再試。',
   'chat.delete.description': '確定要刪除對話「{title}」嗎？此操作無法復原。',
   'chat.noConversations': '暫無對話',
+  'chat.searchSessions': '搜尋會話…',
+  'chat.noSearchResults': '沒有符合的會話',
   'chatHeader.agentdOnlineTitle': 'Agent Daemon 在線 - 已啟用完整安全審查',
   'common.openNavigation': '開啟導覽選單',
   'config.runtime.description':
