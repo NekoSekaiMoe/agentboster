@@ -259,6 +259,17 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	toolExecution?: ToolExecutionMode;
 
 	/**
+	 * When true, tool calls whose name is not in the local tool registry are
+	 * silently skipped instead of producing a "Tool <name> not found" error
+	 * result. Used by thin-client setups where tools execute on a remote
+	 * backend (e.g. a web workflow runtime) and their results arrive via a
+	 * separate SSE channel rather than the local agent loop.
+	 *
+	 * Default: false (unknown tools surface as errors).
+	 */
+	skipUnknownTools?: boolean;
+
+	/**
 	 * Called before a tool is executed, after arguments have been validated.
 	 *
 	 * Return `{ block: true }` to prevent execution. The loop emits an error tool result instead.

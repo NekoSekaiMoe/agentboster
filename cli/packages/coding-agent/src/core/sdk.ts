@@ -307,6 +307,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		streamFn: options.streamFnOverride ?? ((_model, _context, _options) => {
 			throw new Error("No streamFn configured. Agentboster mode requires streamFnOverride.");
 		}),
+		// In thin-client mode (streamFnOverride talks to the Web backend),
+		// tool calls are executed remotely (local_* on the CLI host via SSE,
+		// everything else on the Web workflow / agentd). Their results arrive
+		// over SSE, not via the local agent loop, so unknown tool names must
+		// be skipped rather than reported as "Tool <name> not found" errors.
+		skipUnknownTools: options.streamFnOverride !== undefined,
 		onPayload: async (payload, _model) => {
 			const runner = extensionRunnerRef.current;
 			if (!runner?.hasHandlers("before_provider_request")) {
