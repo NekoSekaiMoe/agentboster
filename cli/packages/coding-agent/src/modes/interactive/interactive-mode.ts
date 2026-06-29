@@ -3390,6 +3390,10 @@ export class InteractiveMode {
 	private handleCtrlC(): void {
 		const now = Date.now();
 		if (now - this.lastSigintTime < 5000) {
+			// Clear the editor before shutdown so any partially-arriving
+			// Kitty key bytes (e.g. the trailing 'u' of Ctrl+C's CSI sequence)
+			// don't render into the editor frame during the drain/stop window.
+			this.clearEditor();
 			void this.shutdown();
 		} else {
 			this.clearEditor();
