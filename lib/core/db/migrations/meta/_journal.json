@@ -82,8 +82,36 @@
     {
       "idx": 11,
       "version": "7",
+      "when": 1781407200000,
+      "tag": "0011_remote_knowledge_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1781493600000,
+      "tag": "0012_im_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1781580000000,
+      "tag": "0013_user_model_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
       "when": 1782202619132,
       "tag": "0014_sandbox_cgroup_aggregates",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1782701210894,
+      "tag": "0015_cli_devices",
       "breakpoints": true
     }
   ]
