@@ -84,7 +84,7 @@ import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScop
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
-import { type SessionContext, type SessionInfo, SessionManager, type SessionMessageEntry } from "../../core/session-manager.ts";
+import { type SessionContext, type SessionInfo, SessionManager, type SessionListProgress, type SessionMessageEntry } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
@@ -4704,13 +4704,41 @@ export class InteractiveMode {
 
 	private showSessionSelector(): void {
 		this.showSelector((done) => {
-			const selector = new SessionSelectorComponent(
-				async (onProgress) => filterByRemotePresence(await SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress)),
-				async (onProgress) => filterByRemotePresence(
+			const auth = getStoredAuth();
+			// When logged in, the Web backend is the source of truth: list
+			// remote sessions (adapted to SessionInfo) so sessions that only
+			// exist on the server show up. Otherwise fall back to local files.
+			const remoteLoader = async (): Promise<SessionInfo[]> => {
+				if (!auth) return [];
+				const { listRemoteSessions } = await import("../../core/remote-sessions.ts");
+				const rows = await listRemoteSessions(auth).catch(() => [] as Awaited<ReturnType<typeof listRemoteSessions>>);
+				return rows.map((s) => ({
+					id: s.id,
+					path: s.id,
+					cwd: "",
+					name: s.title ?? undefined,
+					parentSessionPath: undefined,
+					created: new Date(s.createdAt),
+					modified: new Date(s.updatedAt),
+					messageCount: 0,
+					firstMessage: "",
+					allMessagesText: "",
+				}));
+			};
+			const localCurrentLoader = async (onProgress?: SessionListProgress) =>
+				filterByRemotePresence(await SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress));
+			const localAllLoader = async (onProgress?: SessionListProgress) =>
+				filterByRemotePresence(
 					this.sessionManager.usesDefaultSessionDir()
 						? await SessionManager.listAll(onProgress)
 						: await SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
-				),
+				);
+			const currentLoader = auth ? remoteLoader : localCurrentLoader;
+			const allLoader = auth ? remoteLoader : localAllLoader;
+
+			const selector = new SessionSelectorComponent(
+				currentLoader,
+				allLoader,
 				async (sessionPath) => {
 					done();
 					await this.handleResumeSession(sessionPath);
@@ -4727,14 +4755,17 @@ export class InteractiveMode {
 					renameSession: async (sessionFilePath: string, nextName: string | undefined) => {
 						const next = (nextName ?? "").trim();
 						if (!next) return;
-						const mgr = SessionManager.open(sessionFilePath);
-						mgr.appendSessionInfo(next);
-						// Mirror rename to remote so web UI stays in sync.
-						const { getStoredAuth } = await import("@agentboster/adapter");
 						const { patchRemoteSession } = await import("../../core/remote-sessions.ts");
-						const auth = getStoredAuth();
-						if (auth) {
-							await patchRemoteSession(auth, mgr.getSessionId(), { title: next }).catch(() => {});
+						// Remote sessions are renamed via the Web API; local ones
+						// also mirror the rename so both stay in sync.
+						if (auth && !fs.existsSync(sessionFilePath)) {
+							await patchRemoteSession(auth, sessionFilePath, { title: next }).catch(() => {});
+						} else {
+							const mgr = SessionManager.open(sessionFilePath);
+							mgr.appendSessionInfo(next);
+							if (auth) {
+								await patchRemoteSession(auth, mgr.getSessionId(), { title: next }).catch(() => {});
+							}
 						}
 					},
 					showRenameHint: true,
@@ -4757,10 +4788,19 @@ export class InteractiveMode {
 		}
 		this.statusContainer.clear();
 		try {
-			const result = await this.runtimeHost.switchSession(sessionPath, {
-				withSession: options?.withSession,
-				projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
-			});
+			// Remote session (path is the session id, no local file): load
+			// via the Web backend instead of opening a local jsonl.
+			const auth = getStoredAuth();
+			const isRemote = !!auth && !fs.existsSync(sessionPath);
+			const result = isRemote
+				? await this.runtimeHost.switchSessionRemote(sessionPath, {
+					withSession: options?.withSession,
+					projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
+				})
+				: await this.runtimeHost.switchSession(sessionPath, {
+					withSession: options?.withSession,
+					projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
+				});
 			if (result.cancelled) {
 				return result;
 			}

@@ -220,6 +220,48 @@ export class AgentSessionRuntime {
 		return { cancelled: false };
 	}
 
+	/**
+	 * Switch to a remote session by id. Fetches messages from the Web backend
+	 * and builds the runtime via `SessionManager.fromRemote`. Used by the TUI
+	 * `/resume` picker when logged in (the Web is the source of truth, so the
+	 * picker lists remote sessions rather than local files).
+	 */
+	async switchSessionRemote(
+		sessionId: string,
+		options?: {
+			withSession?: (ctx: ReplacedSessionContext) => Promise<void>;
+			projectTrustContextFactory?: (cwd: string) => ProjectTrustContext;
+		},
+	): Promise<{ cancelled: boolean }> {
+		const beforeResult = await this.emitBeforeSwitch("resume", sessionId);
+		if (beforeResult.cancelled) {
+			return beforeResult;
+		}
+
+		const { getStoredAuth } = await import("@agentboster/adapter");
+		const { fetchRemoteMessages } = await import("./remote-sessions.ts");
+		const auth = getStoredAuth();
+		if (!auth) {
+			throw new Error("Not logged in. Run `agentboster login` first.");
+		}
+		const { session, messages } = await fetchRemoteMessages(auth, sessionId);
+		const previousSessionFile = this.session.sessionFile;
+		const sessionManager = SessionManager.fromRemote(this.cwd, session.id, messages);
+
+		await this.teardownCurrent("resume", sessionManager.getSessionFile());
+		this.apply(
+			await this.createRuntime({
+				cwd: sessionManager.getCwd(),
+				agentDir: this.services.agentDir,
+				sessionManager,
+				sessionStartEvent: { type: "session_start", reason: "resume", previousSessionFile },
+				projectTrustContext: options?.projectTrustContextFactory?.(sessionManager.getCwd()),
+			}),
+		);
+		await this.finishSessionReplacement(options?.withSession);
+		return { cancelled: false };
+	}
+
 	async newSession(options?: {
 		parentSession?: string;
 		setup?: (sessionManager: SessionManager) => Promise<void>;
