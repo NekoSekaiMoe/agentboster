@@ -73,96 +73,57 @@ flowchart TB
 | **agentd** | Sandbox exec/file/browser tools, host L0/L1, local cache and metrics | Primary DB persistence (syncs via Web APIs) |
 | **CLI** | TUI / print mode, local provider keys, `agentboster login` remote stream | Server-side IM or authoritative workflow state |
 
-### Communication directions (required reading)
+### Platform pillars
 
-```mermaid
-sequenceDiagram
-  participant D as agentd
-  participant W as Web
+AgentBoster's engineering trade-offs revolve around four axes that span the Web / agentd / CLI tiers.
 
-  Note over D,W: Always: Daemon → Web
-  D->>W: POST /api/agentd/v1/nodes/register
-  D->>W: POST /api/agentd/v1/nodes/heartbeat
-  D->>W: L1 / review / tool callbacks
-  Note right of D: HTTPS + API Key only<br/>No outbound mTLS client cert to Vercel
+#### Hard layering — Web is the sole authority, exec tiers only execute
 
-  Note over D,W: Optional: Web → Daemon
-  W->>D: POST /api/v1/tools/exec
-  Note right of W: mTLS when daemon has public URL or frp
-```
+Session state, model orchestration, tool routing, the Workflow runtime, credentials and audit logs all belong to the **Web** (Next.js + Postgres + pgvector + Workflow DevKit). Neither `agentd` nor the CLI carries authoritative local state:
 
-- **Daemon → Web**: always `HTTPS` + `AGENTD_API_KEY` (same as `clawless_api_key`). On Vercel, **do not** set `[clawless].ca_path` or other custom CA on this path — TLS validation will fail.
-- **Web → Daemon**: only when the node URL is reachable; Web uses `AGENTD_CLIENT_*` env vars for mTLS client certificates.
+- **agentd** is a stateless exec node — registration, heartbeat and tool results are all POSTed to Web; it keeps only the sandbox plus local caches/metrics and re-pulls node identity from Web after a restart.
+- **CLI** is a thin client — no model inference, no session persistence; the local session file is only a temporary mirror of Web data (`SessionManager` writes to tmpdir and is wiped on exit). `--resume` / `/resume` rebuilds context directly from `GET /api/cli/sessions/[id]/messages`.
 
-### Typical path: Web chat
+This "exec tiers are disposable" constraint lets agentd nodes and CLI processes scale and restart freely without breaking session continuity.
 
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant UI as Chat UI
-  participant API as Web API
-  participant WF as Workflow
-  participant D as agentd
+#### Strong async — Workflow-driven, event stream reflow
 
-  U->>UI: Send message
-  UI->>API: Stream request
-  API->>WF: Start / resume
-  loop Tool loop
-    WF->>D: Tools (selected node)
-    D-->>WF: Result
-  end
-  WF-->>UI: Token stream
-```
+Every LLM call, tool loop and sub-agent orchestration runs not on the request thread but as a **resumable Workflow DevKit step**:
 
-### Typical path: CLI remote mode
+- User submit → `chatMain` starts/resumes a workflow run → every step delta is persisted (`persistStepDeltaAndUsageStep`) to the `messages` table.
+- Tool calls pass through L0/L1/L2 security and are dispatched via the event bus (agentd `POST /api/agentd/v1/*` callbacks, or CLI `local-tool-request` SSE).
+- If any exec tier dies, the workflow pauses and waits for the next `route-message` / agentd callback; on recovery it resumes from the breakpoint instead of restarting.
 
-```mermaid
-sequenceDiagram
-  participant U as Developer
-  participant CLI as agentboster CLI
-  participant API as Web API
-  participant WF as Workflow
-  participant D as agentd
+CLI's `trigger: 'regenerate-message'` reuses the same chatMain: Web truncates downstream messages via `deleteMessagesAfterUiMessageId` → re-runs, while the CLI only PATCHes the edited text and `versions[]` metadata upstream.
 
-  U->>CLI: TUI / --print prompt
-  CLI->>API: Adapter stream
-  API->>WF: Same orchestration as Web
-  loop Tool loop
-    WF->>D: Sandbox tools when needed
-    D-->>WF: Result
-  end
-  WF-->>CLI: Token stream
-  CLI-->>U: Terminal output
-```
+#### Loose coupling — three tiers evolve independently, narrow contracts
 
-Browser, IM, and CLI all converge on **Web API + Workflow**; **agentd** is used when orchestration dispatches sandbox tools. See [`cli/README.md`](./cli/README.md).
+The three tiers communicate only through **narrow HTTP contracts** — no shared code paths, shared DB schema or shared in-process state:
 
----
+| Direction | Contract | Auth |
+|-----------|----------|------|
+| CLI → Web | `POST /api/cli/chat` + `GET/PATCH /api/cli/{sessions,messages}/*` | Bearer `clawless-auth` + device revocation check |
+| agentd → Web | `POST /api/agentd/v1/nodes/{register,heartbeat}` + tool callbacks | `AGENTD_API_KEY` (HTTPS) |
+| Web → agentd | `POST /api/v1/tools/exec` (optional, only when node URL is reachable) | `AGENTD_CLIENT_*` mTLS |
 
-## Repository layout
+- Web does not need to know agentd / CLI internals — it only speaks HTTP bodies and event schemas.
+- agentd is an independent Go module (`agentd/`), CLI is an independent Yarn Classic monorepo (`cli/`); each has its own `AGENTS.md`, toolchain and release cycle.
+- The model context window size (`resolveModelContextLimit`) is resolved in one place on Web and shipped to CLI and IM via `/api/cli/models`, so the three tiers never maintain divergent context tables.
 
-```
-app/                    # Next.js App Router (pages + API)
-  (auth)/              # Login
-  (chat)/              # Chat, files
-  (config)/            # System config
-  (memory)/            # Memory & RAG
-  (schedule)/          # Schedules / tasks
-  (skill)/             # Skills
-  api/                 # Web API (agentd callbacks, IM webhooks)
-  .well-known/workflow/ # Workflow callbacks (auth bypass)
-components/             # React + shadcn
-hooks/
-lib/                    # Core logic (workflow, chat, db, …)
-types/
-scripts/
-agentd/                 # Go daemon (Linux only)
-  cmd/agentd
-  internal/
-cli/                    # agentboster CLI monorepo
-  packages/coding-agent       # Command entry
-  packages/agentboster-adapter # Web adapter
-```
+#### Strong security — three defense lines + mutual auth
+
+Tool execution always crosses **three independent security checks**, any one of which can veto:
+
+| Layer | Where | Purpose |
+|-------|-------|---------|
+| **L0** | Rule blacklist (exec tier) | Statically blocks known-dangerous patterns like `rm -rf /`, fork bombs |
+| **L1** | LLM scoring (agentd / Web) | Scores command risk; above threshold it reports up or escalates to L2 |
+| **L2** | User approval (Web UI / CLI TUI) | High-risk operations require human approve/deny |
+
+- **CLI `--yolo`** skips all three (for trusted CI / `--print` runs) but only affects the CLI's local `local_*` tools; tools dispatched to agentd via Web still run the full pipeline.
+- **Web ↔ agentd** is HTTPS + API Key by default; when a node has a public URL or frp tunnel, mTLS is added (`AGENTD_CLIENT_*`) so Web verifies the daemon cert and the daemon verifies the Web client cert.
+- **Web ↔ CLI** uses a device-paired token from `agentboster login`, with server-side revocation (`withCliAuth` checks device state on every request); the CLI never touches the user's master password or session cookie.
+- agentd sandbox isolation supports three tiers — `docker` / `docker-strict` / `lxc` — with progressively tightened filesystem, network and capabilities.
 
 ---
 
