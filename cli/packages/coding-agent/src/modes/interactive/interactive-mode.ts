@@ -84,7 +84,7 @@ import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScop
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
-import { type SessionContext, type SessionInfo, SessionManager } from "../../core/session-manager.ts";
+import { type SessionContext, type SessionInfo, SessionManager, type SessionMessageEntry } from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
@@ -4496,11 +4496,60 @@ export class InteractiveMode {
 					this.sessionManager.appendLabelChange(entryId, label);
 					this.ui.requestRender();
 				},
-				initialSelectedId,
-				initialFilterMode,
-			);
-			return { component: selector, focus: selector };
-		});
+			initialSelectedId,
+			initialFilterMode,
+		);
+		selector.onVersionChange = (entryId, newVersionIndex) => {
+			const entry = this.sessionManager.getEntry(entryId) as
+				| (SessionMessageEntry & {
+						remoteMetadata?: {
+							versions?: Array<{ parts: Array<{ type: string; text?: string }> }>;
+							currentVersionIndex?: number;
+							response?: Array<{ type: string; text?: string }>;
+						};
+				  })
+				| undefined;
+			if (!entry?.remoteMetadata?.versions) return;
+			const version = entry.remoteMetadata.versions[newVersionIndex];
+			if (!version) return;
+
+			entry.remoteMetadata.currentVersionIndex = newVersionIndex;
+			const newText = version.parts
+				.filter((p) => p.type === "text" && typeof p.text === "string")
+				.map((p) => (p as { text: string }).text)
+				.join("\n");
+			if (entry.message.role === "user") {
+				(entry.message as { content: string }).content = newText;
+			} else if (entry.message.role === "assistant") {
+				(entry.message as { content: Array<{ type: string; text?: string }> }).content = [
+					{ type: "text", text: newText },
+				];
+			}
+
+			const sessionId = this.sessionManager.getSessionId();
+			const auth = getStoredAuth();
+			if (auth) {
+				void fetch(
+					`${auth.url.replace(/\/$/, "")}/api/cli/messages/${encodeURIComponent(entryId)}/metadata`,
+					{
+						method: "PATCH",
+						headers: {
+							"content-type": "application/json",
+							authorization: `Bearer ${auth.token}`,
+							cookie: `clawless-auth=${auth.token}`,
+						},
+						body: JSON.stringify({
+							sessionId,
+							metadata: entry.remoteMetadata,
+						}),
+					},
+				).catch(() => {});
+			}
+
+			this.ui.requestRender();
+		};
+		return { component: selector, focus: selector };
+	});
 	}
 
 	private showSessionSelector(): void {

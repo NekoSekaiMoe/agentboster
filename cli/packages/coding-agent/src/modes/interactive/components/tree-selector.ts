@@ -123,6 +123,9 @@ class TreeList implements Component {
 	public onSelect?: (entryId: string) => void;
 	public onCancel?: () => void;
 	public onLabelEdit?: (entryId: string, currentLabel: string | undefined) => void;
+	/** Called when the user cycles a message's version (Shift+Left/Right on a
+	 *  node whose remoteMetadata.versions has 2+ entries). */
+	public onVersionChange?: (entryId: string, newVersionIndex: number) => void;
 
 	constructor(
 		tree: SessionTreeNode[],
@@ -769,23 +772,28 @@ class TreeList implements Component {
 			case "message": {
 				const msg = entry.message;
 				const role = msg.role;
+				// Version indicator suffix for messages with multiple versions.
+				const remoteMeta = (entry as { remoteMetadata?: { versions?: unknown[]; currentVersionIndex?: number } }).remoteMetadata;
+				const versionSuffix = remoteMeta?.versions && remoteMeta.versions.length > 1
+					? theme.fg("dim", ` (${(remoteMeta.currentVersionIndex ?? 0) + 1}/${remoteMeta.versions.length})`)
+					: "";
 				if (role === "user") {
 					const msgWithContent = msg as { content?: unknown };
 					const content = normalize(this.extractContent(msgWithContent.content));
-					result = theme.fg("accent", "user: ") + content;
+					result = theme.fg("accent", "user: ") + content + versionSuffix;
 				} else if (role === "assistant") {
-					const msgWithContent = msg as { content?: unknown; stopReason?: string; errorMessage?: string };
-					const textContent = normalize(this.extractContent(msgWithContent.content));
-					if (textContent) {
-						result = theme.fg("success", "assistant: ") + textContent;
-					} else if (msgWithContent.stopReason === "aborted") {
-						result = theme.fg("success", "assistant: ") + theme.fg("muted", "(aborted)");
-					} else if (msgWithContent.errorMessage) {
-						const errMsg = normalize(msgWithContent.errorMessage).slice(0, 80);
-						result = theme.fg("success", "assistant: ") + theme.fg("error", errMsg);
-					} else {
-						result = theme.fg("success", "assistant: ") + theme.fg("muted", "(no content)");
-					}
+				const msgWithContent = msg as { content?: unknown; stopReason?: string; errorMessage?: string };
+				const textContent = normalize(this.extractContent(msgWithContent.content));
+				if (textContent) {
+					result = theme.fg("success", "assistant: ") + textContent + versionSuffix;
+				} else if (msgWithContent.stopReason === "aborted") {
+					result = theme.fg("success", "assistant: ") + theme.fg("muted", "(aborted)") + versionSuffix;
+				} else if (msgWithContent.errorMessage) {
+					const errMsg = normalize(msgWithContent.errorMessage).slice(0, 80);
+					result = theme.fg("success", "assistant: ") + theme.fg("error", errMsg) + versionSuffix;
+				} else {
+					result = theme.fg("success", "assistant: ") + theme.fg("muted", "(no content)") + versionSuffix;
+				}
 				} else if (role === "toolResult") {
 					const toolMsg = msg as { toolCallId?: string; toolName?: string };
 					const toolCall = toolMsg.toolCallId ? this.toolCallMap.get(toolMsg.toolCallId) : undefined;
@@ -1050,6 +1058,21 @@ class TreeList implements Component {
 			}
 		} else if (kb.matches(keyData, "app.tree.toggleLabelTimestamp")) {
 			this.showLabelTimestamps = !this.showLabelTimestamps;
+		} else if (kb.matches(keyData, "app.tree.versionPrev") || kb.matches(keyData, "app.tree.versionNext")) {
+			const selected = this.filteredNodes[this.selectedIndex];
+			if (selected && this.onVersionChange) {
+				const entry = selected.node.entry as { remoteMetadata?: { versions?: unknown[]; currentVersionIndex?: number } };
+				const meta = entry.remoteMetadata;
+				if (meta?.versions && meta.versions.length > 1) {
+					const cur = meta.currentVersionIndex ?? 0;
+					const next = kb.matches(keyData, "app.tree.versionNext")
+						? Math.min(meta.versions.length - 1, cur + 1)
+						: Math.max(0, cur - 1);
+					if (next !== cur) {
+						this.onVersionChange(selected.node.entry.id, next);
+					}
+				}
+			}
 		} else {
 			const hasControlChars = [...keyData].some((ch) => {
 				const code = ch.charCodeAt(0);
@@ -1293,6 +1316,11 @@ export class TreeSelectorComponent extends Container implements Focusable {
 	private treeContainer: Container;
 	private onLabelChangeCallback?: (entryId: string, label: string | undefined) => void;
 
+	/** Called when the user cycles a message's version (`[`/`]` on a node
+	 *  whose remoteMetadata.versions has 2+ entries). Forwarded to the inner
+	 *  TreeList. */
+	public onVersionChange?: (entryId: string, newVersionIndex: number) => void;
+
 	// Focusable implementation - propagate to labelInput when active for IME cursor positioning
 	private _focused = false;
 	get focused(): boolean {
@@ -1325,6 +1353,8 @@ export class TreeSelectorComponent extends Container implements Focusable {
 		this.treeList.onSelect = onSelect;
 		this.treeList.onCancel = onCancel;
 		this.treeList.onLabelEdit = (entryId, currentLabel) => this.showLabelInput(entryId, currentLabel);
+		// Forward version cycling to the inner TreeList.
+		this.treeList.onVersionChange = (entryId, newVersionIndex) => this.onVersionChange?.(entryId, newVersionIndex);
 
 		this.treeContainer = new Container();
 		this.treeContainer.addChild(this.treeList);
