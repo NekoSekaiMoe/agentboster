@@ -3644,7 +3644,7 @@ export class InteractiveMode {
 		this.modeBannerContainer.clear();
 		if (!this.isBashMode) return;
 		const label = this.bashExcluded ? "shell mode (excluded)" : "shell mode";
-		const line = theme.fg("accent", `› ${label}`);
+		const line = theme.fg("accent", label);
 		this.modeBannerContainer.addChild(new Text(line, 1, 0));
 	}
 
