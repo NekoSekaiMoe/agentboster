@@ -4,6 +4,8 @@ The `cli/` workspace ships the **`agentboster`** terminal coding agent. It is a 
 
 There is **no direct provider mode** — every LLM call goes through `POST /api/cli/chat` on the Web backend. The provider SDKs (Anthropic / OpenAI / Google / Bedrock / Mistral / …) are intentionally absent from `packages/ai` (~90 MB of npm deps stripped).
 
+This CLI is **based on [pi](https://github.com/earendil-works/pi)** (`@earendil-works/pi-coding-agent` and companion packages `pi-ai` / `pi-agent-core` / `pi-tui`).
+
 ---
 
 ## Position in the platform

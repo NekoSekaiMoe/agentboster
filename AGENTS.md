@@ -4,9 +4,10 @@ Compact guide for OpenCode sessions in this repo. Keep it short: only include fa
 
 ## Repo shape
 
-- Root is the Web app (`Next.js 15.5` + `React 19` + `TypeScript 6`) and uses `yarn`.
-- `agentd/` is a separate Go 1.26 module with its own `AGENTS.md`; `cli/` is a separate npm workspace with its own docs and scripts.
+- Root is the Web app (`Next.js 15.5` + `React 19` + `TypeScript 6`) and uses `yarn`. It is **not** a yarn workspace root — `cli/` is a separate, self-contained repo with its own `package.json`, `biome 2.3.5`, `tsgo` (native TS preview), and `engines.node >=22.19.0`; do not assume root toolchain versions apply there.
+- `agentd/` is a separate Go 1.26.2 module with its own `AGENTS.md`; `cli/` likewise has its own docs and scripts.
 - `@/*` maps to the repo root (`tsconfig.json` and `vitest.config.ts`); prefer it over long relative imports.
+- Root `tsconfig.json` excludes `node_modules`, `ref`, `memoh`, and `cli`, so root `tsc --noEmit` does not typecheck the CLI; run checks inside `cli/` separately.
 - `ref/` is vendored reference material and is ignored by root TypeScript/Biome; do not edit it as app code.
 
 ## Commands
@@ -15,9 +16,10 @@ Compact guide for OpenCode sessions in this repo. Keep it short: only include fa
 - `yarn build` runs `next build`; it does **not** enforce type or lint correctness.
 - `yarn lint:check` is the real gate before shipping: `tsc --noEmit && biome check .`.
 - `yarn test` runs Vitest; a single file can be targeted with `yarn test <path>` or `yarn test:watch <path>`.
-- Vitest only picks up `lib/**/*.test.ts`, `app/**/*.test.ts`, `hooks/**/*.test.ts`, `components/**/*.test.{ts,tsx}`, and `cli/src/**/*.test.ts`.
-- `yarn publish` is the canonical ship script, but `package.json` still points it at `yarn run check`; run `yarn lint:check` manually instead.
+- Vitest only picks up `lib/**/*.test.ts`, `app/**/*.test.ts`, `hooks/**/*.test.ts`, `components/**/*.test.{ts,tsx}`, and `cli/src/**/*.test.ts` (root Vitest configures `@/*` alias; run `cli/` tests from the `cli/` workspace, not root, because the include path is the only overlap).
+- `yarn publish` runs `yarn run check` first, which is **not** a defined script — treat it as broken; run `yarn lint:check` manually before shipping.
 - DB commands need `DATABASE_URL`: `yarn db:generate`, `yarn db:push`, `yarn db:studio`, `yarn db:ensure-vector`.
+- `yarn check:sh` runs `shellcheck` on the agentd node-install script; `yarn workflow:inspect` opens Workflow runs in a web UI (`workflow:inspect`).
 
 ## Web gotchas
 
@@ -33,7 +35,7 @@ Compact guide for OpenCode sessions in this repo. Keep it short: only include fa
 
 - Biome is the only formatter/linter here (`biome.jsonc`); do not run import sorters because `organizeImports` is off.
 - The repo intentionally tolerates some Biome rules as warnings/off; do not “fix” disabled a11y or style rules unless the code itself needs it.
-- `next.config.ts` keeps several packages external to avoid bundle breakage, including `playwright`, `zlib-sync`, and chat adapters.
+- `next.config.ts` keeps several packages external via `serverExternalPackages` to avoid bundle breakage: `@chat-adapter/discord`, `@discordjs/ws`, `@vercel/queue`, `discord-interactions`, `discord.js`, and `zlib-sync`.
 - The custom SVG icons exist for coverage gaps; use `lucide-react` for new icons unless the repo already has a bespoke asset.
 
 ## Useful pointers

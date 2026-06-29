@@ -22,7 +22,7 @@ AgentBoster 是多端协作的 AI 平台，由 **三个可独立部署/安装的
 
 - **Web（Next.js 15）**：浏览器 UI、会话与配置、IM 接入、Workflow 持久化编排、L2 审批与节点注册（Postgres）
 - **agentd（Go）**：Linux 守护进程，沙箱内执行工具、L0/L1/L2 安全、本地会话运行时与多节点心跳
-- **CLI（`agentboster`）**：终端编码 Agent；通过 `agentboster login` 配对到 Web 后端，所有模型调用、工具执行、会话持久化都由 Web 编排，CLI 仅作为瘦客户端负责本地 TUI 与 `local_*` 工具（在本机执行 shell/读写文件）
+- **CLI（`agentboster`，[agentboster-cli](./cli)，基于 [pi](https://github.com/earendil-works/pi)）**：终端编码 Agent；通过 `agentboster login` 配对到 Web 后端，所有模型调用、工具执行、会话持久化都由 Web 编排，CLI 仅作为瘦客户端负责本地 TUI 与 `local_*` 工具（在本机执行 shell/读写文件）
 
 Web 负责体验与编排，Daemon 负责执行隔离与安全边界，CLI 负责开发者本机终端场景；三者通过 HTTPS API 协作，部署环境可分开升级。
 
