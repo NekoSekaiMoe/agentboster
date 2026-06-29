@@ -33,6 +33,10 @@ export interface CreateStreamFnOptions extends Omit<WebStreamOptions, "baseUrl" 
 	onSubagentEvent?: SubagentEventHandler;
 	/** Observe workflow-level subagent batch updates from the server. */
 	onSubagentBatchEvent?: SubagentBatchEventHandler;
+	/** If set, the next stream call will POST as `regenerate-message` with
+	 *  this intent and then clear it (one-shot). The host sets this when the
+	 *  user edits a historical version and resends. */
+	consumeRegenerateIntent?: () => { messageId: string; metadata?: unknown } | null;
 }
 
 /**
@@ -64,6 +68,7 @@ export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn
 			return stream;
 		}
 		const sessionId = opts.getSessionId();
+		const regenerate = opts.consumeRegenerateIntent?.() ?? undefined;
 		return openAgentbosterStream(_model, context, {
 			baseUrl: auth.baseUrl,
 			token: auth.token,
@@ -75,6 +80,7 @@ export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn
 			onSubagentEvent: opts.onSubagentEvent,
 			onSubagentBatchEvent: opts.onSubagentBatchEvent,
 			signal: options?.signal,
+			regenerate,
 		});
 	};
 }

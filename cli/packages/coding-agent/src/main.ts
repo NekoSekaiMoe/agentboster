@@ -784,7 +784,7 @@ export async function main(args: string[], options?: MainOptions) {
 			void created.session.addWorkflowSubagentEvent(event);
 		}, (event) => {
 			void created.session.addWorkflowSubagentBatchEvent(event);
-		}, parsed.yolo === true);
+		}, parsed.yolo === true, () => created.session.consumeRegenerateIntent());
 		if (overrideWithEvents) {
 			created.session.agent.streamFn = overrideWithEvents;
 		}
@@ -1161,6 +1161,7 @@ async function resolveStreamFnOverride(
 		summary?: string;
 	}) => void,
 	yolo: boolean = false,
+	consumeRegenerateIntent?: () => { messageId: string; metadata?: unknown } | null,
 ): Promise<StreamFn | undefined> {
 	const auth = getStoredAuth();
 	if (!auth) {
@@ -1178,6 +1179,7 @@ async function resolveStreamFnOverride(
 		clientId: process.env["AGENTBOSTER_CLIENT_ID"] ?? "local-cli",
 		label: "agentboster-cli",
 		model: process.env["AGENTBOSTER_MODEL"] ?? null,
+		consumeRegenerateIntent,
 		onSubagentEvent,
 		onSubagentBatchEvent,
 		onLocalToolRequest: async ({ runId, toolCallId, toolName, toolInput }) => {

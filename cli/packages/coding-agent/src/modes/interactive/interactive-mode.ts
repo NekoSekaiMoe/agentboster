@@ -304,6 +304,10 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private pendingUserInputs: string[] = [];
+	/** When set, the next editor submit builds a new version on this user
+	 *  message and regenerates instead of sending a brand-new turn. Set by
+	 *  the tree-selector `e` (editVersion) affordance. */
+	private pendingEditVersion: { entryId: string; originalText: string } | null = null;
 	private loadingAnimation: Loader | undefined = undefined;
 	private workingMessage: string | undefined = undefined;
 	private workingVisible = true;
@@ -2456,6 +2460,18 @@ export class InteractiveMode {
 			text = text.trim();
 			if (!text) return;
 
+			// Edit-and-resend from a historical version (tree selector `e`).
+			// Build the new versions[], PATCH metadata, set the one-shot
+			// regenerate intent, then fall through into the normal submit
+			// path so the agent loop calls streamFn (which consumes the intent).
+			if (this.pendingEditVersion) {
+				const edit = this.pendingEditVersion;
+				this.pendingEditVersion = null;
+				await this.submitVersionEdit(edit.entryId, edit.originalText, text);
+				this.editor.setText("");
+				return;
+			}
+
 			// Handle commands
 			if (text === "/settings") {
 				this.showSettingsSelector();
@@ -4374,6 +4390,114 @@ export class InteractiveMode {
 		}
 	}
 
+	/**
+	 * Build a new `versions[]` for an edited user message, PATCH the metadata
+	 * to the backend, and arm the one-shot regenerate intent so the next
+	 * `streamFn` call POSTs with `trigger: 'regenerate-message'`. Called from
+	 * `defaultEditor.onSubmit` when `pendingEditVersion` is set.
+	 */
+	private async submitVersionEdit(entryId: string, _originalText: string, editedText: string): Promise<void> {
+		const entry = this.sessionManager.getEntry(entryId) as
+			| (SessionMessageEntry & {
+					remoteMetadata?: {
+						versions?: Array<{ parts: Array<{ type: string; text?: string }>; response?: Array<{ type: string; text?: string }>; createdAt?: string }>;
+						currentVersionIndex?: number;
+					};
+			  })
+			| undefined;
+		if (!entry?.remoteMetadata?.versions) {
+			this.showError("Cannot edit this message: no version history.");
+			return;
+		}
+
+		const versions = entry.remoteMetadata.versions;
+		const curIdx = entry.remoteMetadata.currentVersionIndex ?? 0;
+		const now = new Date().toISOString();
+
+		// Snapshot the paired assistant reply (the next entry in the tree)
+		// onto the current version before truncating, so the old reply is
+		// preserved when chatMain deletes subsequent messages. Skip if the
+		// version already carries a response snapshot.
+		const currentVersion = versions[curIdx];
+		let versionsWithResponse = versions;
+		if (currentVersion && !currentVersion.response) {
+			const children = this.sessionManager.getChildren(entryId);
+			const assistantChild = children.find(
+				(c) => c.type === "message" && (c as { message?: { role?: string } }).message?.role === "assistant",
+			) as (SessionMessageEntry & { message?: { role?: string; content?: unknown } }) | undefined;
+			if (assistantChild) {
+				const content = assistantChild.message?.content;
+				const responseParts: Array<{ type: string; text?: string }> = [];
+				if (typeof content === "string") {
+					responseParts.push({ type: "text", text: content });
+				} else if (Array.isArray(content)) {
+					for (const part of content) {
+						if (typeof part === "object" && part !== null && (part as { type?: string }).type === "text") {
+							responseParts.push({ type: "text", text: (part as { text?: string }).text ?? "" });
+						}
+					}
+				}
+				if (responseParts.length > 0) {
+					versionsWithResponse = versions.map((v, i) =>
+						i === curIdx ? { ...v, response: responseParts } : v,
+					);
+				}
+			}
+		}
+
+		// Truncate any versions after the current one, then append the edit.
+		const truncated = versionsWithResponse.slice(0, curIdx + 1);
+		const newVersions = [
+			...truncated,
+			{ parts: [{ type: "text", text: editedText }], createdAt: now },
+		];
+		const newIndex = newVersions.length - 1;
+		const newMetadata = {
+			...(entry.remoteMetadata as Record<string, unknown>),
+			versions: newVersions,
+			currentVersionIndex: newIndex,
+		};
+
+		// Update the in-memory entry so a re-render shows the edited text.
+		entry.remoteMetadata.versions = newVersions;
+		entry.remoteMetadata.currentVersionIndex = newIndex;
+		(entry.message as { content: string }).content = editedText;
+
+		// Arm the regenerate intent (consumed by the next streamFn call).
+		this.session.setPendingRegenerateIntent({
+			messageId: entryId,
+			metadata: newMetadata,
+		});
+
+		// PATCH metadata first so the backend has it when regenerate fires.
+		const auth = getStoredAuth();
+		if (auth) {
+			await fetch(
+				`${auth.url.replace(/\/$/, "")}/api/cli/messages/${encodeURIComponent(entryId)}/metadata`,
+				{
+					method: "PATCH",
+					headers: {
+						"content-type": "application/json",
+						authorization: `Bearer ${auth.token}`,
+						cookie: `clawless-auth=${auth.token}`,
+					},
+					body: JSON.stringify({
+						sessionId: this.sessionManager.getSessionId(),
+						metadata: newMetadata,
+					}),
+				},
+			).catch(() => {});
+		}
+
+		// Push the edited text through the normal submit path so the agent
+		// loop runs and calls streamFn (which consumes the intent).
+		if (this.onInputCallback) {
+			this.onInputCallback(editedText);
+		} else {
+			this.pendingUserInputs.push(editedText);
+		}
+	}
+
 	private showTreeSelector(initialSelectedId?: string): void {
 		const tree = this.sessionManager.getTree();
 		const realLeafId = this.sessionManager.getLeafId();
@@ -4546,6 +4670,32 @@ export class InteractiveMode {
 				).catch(() => {});
 			}
 
+			this.ui.requestRender();
+		};
+		selector.onEditVersion = (entryId) => {
+			const entry = this.sessionManager.getEntry(entryId) as
+				| (SessionMessageEntry & {
+						remoteMetadata?: {
+							versions?: Array<{ parts: Array<{ type: string; text?: string }> }>;
+							currentVersionIndex?: number;
+						};
+				  })
+				| undefined;
+			if (!entry?.remoteMetadata?.versions) return;
+			const idx = entry.remoteMetadata.currentVersionIndex ?? 0;
+			const version = entry.remoteMetadata.versions[idx];
+			if (!version) return;
+			const versionText = version.parts
+				.filter((p) => p.type === "text" && typeof p.text === "string")
+				.map((p) => (p as { text: string }).text)
+				.join("\n");
+
+			// Close the selector and seed the editor with the version text.
+			done();
+			this.pendingEditVersion = { entryId, originalText: versionText };
+			this.editor.setText(versionText);
+			this.ui.setFocus(this.editor);
+			this.showStatus("Editing version — submit to regenerate from here");
 			this.ui.requestRender();
 		};
 		return { component: selector, focus: selector };
@@ -5286,6 +5436,7 @@ export class InteractiveMode {
 				clientId: process.env["AGENTBOSTER_CLIENT_ID"] ?? "local-cli",
 				label: "agentboster-cli",
 				model: process.env["AGENTBOSTER_MODEL"] ?? null,
+				consumeRegenerateIntent: () => this.session.consumeRegenerateIntent(),
 				onSubagentEvent: (event) => {
 					void this.session.addWorkflowSubagentEvent(event);
 				},

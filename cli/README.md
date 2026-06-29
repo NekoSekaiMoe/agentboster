@@ -331,6 +331,8 @@ Both the Web and the CLI use a **unified version model**: each message carries `
 
 In the TUI tree selector, press `[` / `]` on a message with 2+ versions to cycle. The CLI updates its in-memory entry, re-renders, and PATCHes `/api/cli/messages/[id]/metadata` so the switch persists on the backend.
 
+To **edit a historical user-message version and resend**: select the user message, cycle to the version you want with `[`/`]`, then press `e`. The version text fills the editor; on submit the CLI snapshots the paired assistant reply onto the old version, appends the edited text as a new version, PATCHes metadata, and POSTs the chat with `trigger: 'regenerate-message'`. The backend truncates the downstream messages and reruns — no separate endpoint.
+
 ---
 
 ## RPC and automation

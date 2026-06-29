@@ -63,6 +63,13 @@ export interface WebStreamOptions {
 	onSubagentBatchEvent?: SubagentBatchEventHandler;
 	/** Abort signal from pi's agent loop. When aborted, the fetch is cancelled. */
 	signal?: AbortSignal;
+	/** When set, POST with `trigger: 'regenerate-message'` and this messageId
+	 *  instead of `submit-message`. Used by the tree-selector edit-and-resend
+	 *  flow to ask the backend to truncate + rerun from the given message. */
+	regenerate?: {
+		messageId: string;
+		metadata?: unknown;
+	};
 }
 
 function lastUserText(messages: Context["messages"]): string {
@@ -172,10 +179,12 @@ async function driveStream(
 		},
 		body: JSON.stringify({
 			id: options.sessionId,
-			trigger: "submit-message",
+			trigger: options.regenerate ? "regenerate-message" : "submit-message",
+			...(options.regenerate ? { messageId: options.regenerate.messageId } : {}),
 			input: {
 				parts: [{ type: "text", text }],
 				text,
+				...(options.regenerate?.metadata ? { metadata: options.regenerate.metadata } : {}),
 			},
 			clientId: options.clientId,
 			label: options.label ?? "agentboster-cli",

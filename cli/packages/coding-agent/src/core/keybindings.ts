@@ -36,6 +36,7 @@ export interface AppKeybindings {
 	"app.tree.toggleLabelTimestamp": true;
 	"app.tree.versionPrev": true;
 	"app.tree.versionNext": true;
+	"app.tree.editVersion": true;
 	"app.session.togglePath": true;
 	"app.session.toggleSort": true;
 	"app.session.rename": true;
@@ -136,6 +137,10 @@ export const KEYBINDINGS = {
 	"app.tree.versionNext": {
 		defaultKeys: "]",
 		description: "Switch to next version of selected message",
+	},
+	"app.tree.editVersion": {
+		defaultKeys: "e",
+		description: "Edit the current version of the selected user message and resend",
 	},
 	"app.session.togglePath": {
 		defaultKeys: "ctrl+p",

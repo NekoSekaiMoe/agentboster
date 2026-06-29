@@ -126,6 +126,10 @@ class TreeList implements Component {
 	/** Called when the user cycles a message's version (Shift+Left/Right on a
 	 *  node whose remoteMetadata.versions has 2+ entries). */
 	public onVersionChange?: (entryId: string, newVersionIndex: number) => void;
+	/** Called when the user presses the editVersion key (default `e`) on a
+	 *  user-message node. The host should seed the editor with the current
+	 *  version's text and, on submit, build a new version + regenerate. */
+	public onEditVersion?: (entryId: string) => void;
 
 	constructor(
 		tree: SessionTreeNode[],
@@ -1073,6 +1077,15 @@ class TreeList implements Component {
 					}
 				}
 			}
+		} else if (kb.matches(keyData, "app.tree.editVersion")) {
+			const selected = this.filteredNodes[this.selectedIndex];
+			if (selected && this.onEditVersion) {
+				const entry = selected.node.entry as { type?: string; message?: { role?: string }; remoteMetadata?: { versions?: unknown[] } };
+				const isUserMessage = entry.type === "message" && entry.message?.role === "user";
+				if (isUserMessage) {
+					this.onEditVersion(selected.node.entry.id);
+				}
+			}
 		} else {
 			const hasControlChars = [...keyData].some((ch) => {
 				const code = ch.charCodeAt(0);
@@ -1205,6 +1218,8 @@ const TREE_HELP_ITEMS: Array<{ keys: Keybinding[]; label: string; labelFirst?: b
 	{ keys: ["app.tree.foldOrUp", "app.tree.unfoldOrDown"], label: "branch" },
 	{ keys: ["app.tree.editLabel"], label: "label" },
 	{ keys: ["app.tree.toggleLabelTimestamp"], label: "label time" },
+	{ keys: ["app.tree.versionPrev", "app.tree.versionNext"], label: "version" },
+	{ keys: ["app.tree.editVersion"], label: "edit+resend" },
 	{
 		keys: [
 			"app.tree.filter.default",
@@ -1320,6 +1335,10 @@ export class TreeSelectorComponent extends Container implements Focusable {
 	 *  whose remoteMetadata.versions has 2+ entries). Forwarded to the inner
 	 *  TreeList. */
 	public onVersionChange?: (entryId: string, newVersionIndex: number) => void;
+	/** Called when the user presses `e` on a user-message node. Forwarded to
+	 *  the inner TreeList. The host seeds the editor and arranges a
+	 *  regenerate on submit. */
+	public onEditVersion?: (entryId: string) => void;
 
 	// Focusable implementation - propagate to labelInput when active for IME cursor positioning
 	private _focused = false;
@@ -1355,6 +1374,8 @@ export class TreeSelectorComponent extends Container implements Focusable {
 		this.treeList.onLabelEdit = (entryId, currentLabel) => this.showLabelInput(entryId, currentLabel);
 		// Forward version cycling to the inner TreeList.
 		this.treeList.onVersionChange = (entryId, newVersionIndex) => this.onVersionChange?.(entryId, newVersionIndex);
+		// Forward edit-and-resend to the inner TreeList.
+		this.treeList.onEditVersion = (entryId) => this.onEditVersion?.(entryId);
 
 		this.treeContainer = new Container();
 		this.treeContainer.addChild(this.treeList);

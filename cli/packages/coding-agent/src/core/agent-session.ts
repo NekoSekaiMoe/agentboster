@@ -328,6 +328,12 @@ export class AgentSession {
 	private _retryAbortController: AbortController | undefined = undefined;
 	private _retryAttempt = 0;
 
+	/** One-shot regenerate intent. When set, the next `streamFn` call POSTs
+	 *  to /api/cli/chat with `trigger: 'regenerate-message'` + this messageId
+	 *  + metadata, then clears itself. Set by the tree-selector edit-and-resend
+	 *  flow; consumed by `createAgentbosterStreamFn`. */
+	private _pendingRegenerateIntent: { messageId: string; metadata?: unknown } | null = null;
+
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
 	private _pendingBashMessages: BashExecutionMessage[] = [];
@@ -812,6 +818,18 @@ export class AgentSession {
 	/** Current retry attempt (0 if not retrying) */
 	get retryAttempt(): number {
 		return this._retryAttempt;
+	}
+
+	/** Set the one-shot regenerate intent (consumed by the next streamFn call). */
+	setPendingRegenerateIntent(intent: { messageId: string; metadata?: unknown }): void {
+		this._pendingRegenerateIntent = intent;
+	}
+
+	/** Pop and return the pending regenerate intent (one-shot). */
+	consumeRegenerateIntent(): { messageId: string; metadata?: unknown } | null {
+		const intent = this._pendingRegenerateIntent;
+		this._pendingRegenerateIntent = null;
+		return intent;
 	}
 
 	/**
