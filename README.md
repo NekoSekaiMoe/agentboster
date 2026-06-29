@@ -73,99 +73,57 @@ flowchart TB
 | **agentd** | 沙箱内 exec/文件/浏览器等工具、主机侧 L0/L1、本地缓存与指标 | 主库持久化（经 API 与 Web 同步） |
 | **CLI** | TUI/打印模式、`agentboster login` 配对、本机 `local_*` 工具执行 | 服务端 IM、模型/工具编排、Workflow 权威状态 |
 
-### 通信方向（必读）
+### 平台特性
 
-```mermaid
-sequenceDiagram
-  participant D as agentd
-  participant W as Web
+AgentBoster 的工程取舍围绕四个主轴展开,贯穿 Web / agentd / CLI 三层。
 
-  Note over D,W: 始终：Daemon → Web
-  D->>W: POST /api/agentd/v1/nodes/register
-  D->>W: POST /api/agentd/v1/nodes/heartbeat
-  D->>W: L1 / 审查 / 工具回调
-  Note right of D: 仅 HTTPS + API Key<br/>连 Vercel 勿配出站 mTLS 客户端证书
+#### 硬分层 —— Web 是唯一权威,执行端只做执行
 
-  Note over D,W: 可选：Web → Daemon
-  W->>D: POST /api/v1/tools/exec
-  Note right of W: daemon 有公网 URL 或 frp 时 mTLS
-```
+会话状态、模型编排、工具路由、Workflow 运行时、凭证与审计日志全部归 **Web**(Next.js + Postgres + pgvector + Workflow DevKit)。`agentd` 与 CLI 都不带本地权威状态:
 
-- **Daemon → Web**：始终 `HTTPS` + `AGENTD_API_KEY`（与 `clawless_api_key` 一致）。部署在 Vercel 时，**不要**给该方向配置 `[clawless].ca_path` 等自定义 CA，否则会校验失败。
-- **Web → Daemon**：仅当节点 URL 可达时；Web 侧使用 `AGENTD_CLIENT_*` 环境变量做 mTLS 客户端证书。
+- **agentd** 是无状态执行节点 —— 注册、心跳、工具结果全部 POST 给 Web;自身只保留沙箱与本地缓存/指标,重启后从 Web 重新拉取节点身份。
+- **CLI** 是瘦客户端 —— 不做模型推理、不持久化会话;本地 session 文件仅是 Web 数据的临时镜像(`SessionManager` 写 tmpdir,退出即清)。`--resume` / `/resume` 直接从 `GET /api/cli/sessions/[id]/messages` 拉远程消息重建上下文。
 
-### 典型路径：Web 聊天
+这种"执行端可丢弃"的约束,使得 agentd 节点和 CLI 进程都能水平扩缩、随时重启,而不影响会话连续性。
 
-```mermaid
-sequenceDiagram
-  participant U as 用户
-  participant UI as 聊天页
-  participant API as Web API
-  participant WF as Workflow
-  participant D as agentd
+#### 强异步 —— Workflow 驱动,事件流回灌
 
-  U->>UI: 发送消息
-  UI->>API: 流式请求
-  API->>WF: 启动/恢复
-  loop 工具循环
-    WF->>D: 工具调用（选中节点）
-    D-->>WF: 结果
-  end
-  WF-->>UI: token 流
-```
+所有 LLM 调用、工具循环、子代理编排都不直接跑在请求线程上,而是落地为 **Workflow DevKit 的可恢复步骤**:
 
-### 典型路径：CLI 会话
+- 用户提交 → `chatMain` 启动/恢复 workflow run → 持久化每一步 delta(`persistStepDeltaAndUsageStep`)到 `messages` 表。
+- 工具调用经 L0/L1/L2 安全流后,通过事件总线派发(节点 `POST /api/agentd/v1/*` 回调,或 CLI 的 `local-tool-request` SSE)。
+- 任一执行端宕机,wf 暂停等下一次 `route-message` / agentd 回调;恢复后从中断点续跑,而非重头开始。
 
-```mermaid
-sequenceDiagram
-  participant U as 开发者
-  participant CLI as agentboster CLI
-  participant API as Web API
-  participant WF as Workflow
-  participant D as agentd
+CLI 的 `trigger: 'regenerate-message'` 复用同一条 chatMain:Web 侧 `deleteMessagesAfterUiMessageId` 截断下游 → 重跑,CLI 只负责把编辑后的文本和 `versions[]` 元数据 PATCH 上去。
 
-  U->>CLI: TUI / --print 提示
-  CLI->>API: adapter 流式请求
-  API->>WF: 同 Web 会话编排
-  loop 工具循环
-    WF->>CLI: local-tool-request（local_exec/read/write）
-    CLI->>CLI: 本机执行 shell / 读写文件
-    CLI-->>WF: 工具结果 POST
-    WF->>D: 需沙箱时调度节点
-    D-->>WF: 结果
-  end
-  WF-->>CLI: token 流（SSE）
-  CLI-->>U: 终端输出
-```
+#### 低耦合 —— 三层独立演进,契约窄
 
-Web、IM、CLI 三条入口均汇聚到 **Web API + Workflow**；CLI 既是消费端，也是 `local_*` 工具的执行端。详见 [`cli/README.md`](./cli/README.md)。
+三层之间只通过**窄 HTTP 契约**通信,没有共享代码路径、共享 DB schema 或共享进程内状态:
 
----
+| 方向 | 契约 | 鉴权 |
+|------|------|------|
+| CLI → Web | `POST /api/cli/chat` + `GET/PATCH /api/cli/{sessions,messages}/*` | Bearer `clawless-auth` + 设备吊销检查 |
+| agentd → Web | `POST /api/agentd/v1/nodes/{register,heartbeat}` + 工具回调 | `AGENTD_API_KEY`(HTTPS) |
+| Web → agentd | `POST /api/v1/tools/exec`(可选,仅当节点 URL 可达) | `AGENTD_CLIENT_*` mTLS |
 
-## 当前仓库结构
+- Web 不需要知道 agentd / CLI 的内部实现,只认 HTTP body 与事件 schema。
+- agentd 是独立 Go module(`agentd/`),CLI 是独立 Yarn Classic monorepo(`cli/`),两者各有自己的 `AGENTS.md`、工具链与发版周期。
+- 模型上下文窗口大小(`resolveModelContextLimit`)在 Web 一处解析后,经 `/api/cli/models` 下发给 CLI 与 IM,避免三层各自维护一份上下文表。
 
-```
-app/                    # Next.js App Router（页面与 API）
-  (auth)/              # 登录
-  (chat)/              # 聊天、文件
-  (config)/            # 系统配置
-  (memory)/            # 记忆与 RAG
-  (schedule)/          # 任务/日程
-  (skill)/             # 技能
-  api/                 # Web API（含 agentd 回调、IM webhook）
-  .well-known/workflow/ # Workflow 回调免鉴权
-components/             # React + shadcn
-hooks/
-lib/                    # 业务与基础设施（workflow、chat、db…）
-types/
-scripts/
-agentd/                 # Go 守护进程（仅 Linux）
-  cmd/agentd
-  internal/
-cli/                    # agentboster CLI monorepo
-  packages/coding-agent   # 命令入口
-  packages/agentboster-adapter  # 对接 Web
-```
+#### 强安全 —— 三层防线 + 双向鉴权
+
+工具执行永远穿过**三层独立的安全评估**,任一层可独立否决:
+
+| 层 | 位置 | 作用 |
+|----|------|------|
+| **L0** | 规则黑名单(执行端) | 静态拦截 `rm -rf /`、fork bomb 等已知危险模式 |
+| **L1** | LLM 打分(agentd / Web) | 对命令做风险评分,超阈值上报或转 L2 |
+| **L2** | 用户授权(Web UI / CLI TUI) | 高风险操作要求人工 approve/deny |
+
+- **CLI `--yolo`** 跳过三层(用于可信 CI/`--print` 场景),但仅在 CLI 本机 `local_*` 工具上生效;经 Web 派发到 agentd 的工具仍走完整流程。
+- **Web ↔ agentd** 默认 HTTPS + API Key;当节点具备公网 URL 或 frp 通道时,额外启用 mTLS 双向证书(`AGENTD_CLIENT_*`),Web 侧校验 daemon 证书、daemon 侧校验 Web 客户端证书。
+- **Web ↔ CLI** 通过 `agentboster login` 设备配对颁发 token,支持服务端吊销(`withCliAuth` 每次请求校验设备状态);CLI 不接触用户主密码或 session cookie。
+- agentd 沙箱隔离支持 `docker` / `docker-strict` / `lxc` 三档,文件系统、网络、能力位按档位收紧。
 
 ---
 
