@@ -208,19 +208,11 @@ function asChatMessageMetadata(value: unknown): ChatMessageMetadata {
       typeof metadata.toolName === 'string' ? metadata.toolName : undefined,
     agentName:
       typeof metadata.agentName === 'string' ? metadata.agentName : undefined,
-    editHistory: Array.isArray(metadata.editHistory)
-      ? metadata.editHistory
-      : undefined,
-    currentEditIndex:
-      typeof metadata.currentEditIndex === 'number'
-        ? metadata.currentEditIndex
-        : undefined,
-    generationHistory: Array.isArray(metadata.generationHistory)
-      ? metadata.generationHistory
-      : undefined,
-    currentGenerationIndex:
-      typeof metadata.currentGenerationIndex === 'number'
-        ? metadata.currentGenerationIndex
+    versions: Array.isArray(metadata.versions) ? metadata.versions : undefined,
+    currentVersionIndex:
+      typeof metadata.currentVersionIndex === 'number' &&
+      Number.isFinite(metadata.currentVersionIndex)
+        ? metadata.currentVersionIndex
         : undefined,
   };
 }
@@ -236,11 +228,11 @@ export function serializeUserMessage(input: {
   metadata?: ChatMessageMetadata;
 }): SerializedMessageForDB {
   // Debug: log metadata when saving
-  if (input.metadata?.editHistory) {
-    logger.info('serializeUserMessage:edit_history', {
+  if (input.metadata?.versions) {
+    logger.info('serializeUserMessage:versions', {
       messageId: input.uiMessageId,
-      editHistoryLength: input.metadata.editHistory.length,
-      currentEditIndex: input.metadata.currentEditIndex,
+      versionsLength: input.metadata.versions.length,
+      currentVersionIndex: input.metadata.currentVersionIndex,
     });
   }
 
@@ -552,11 +544,11 @@ export function toUIMessage(
   const metadata = asChatMessageMetadata(row.payload.metadata);
 
   // Debug: log metadata for user messages
-  if (row.role === 'user' && metadata.editHistory) {
-    logger.info('toUIMessage:edit_history', {
+  if (row.role === 'user' && metadata.versions) {
+    logger.info('toUIMessage:versions', {
       messageId: row.uiMessageId ?? row.id,
-      editHistoryLength: metadata.editHistory.length,
-      currentEditIndex: metadata.currentEditIndex,
+      versionsLength: metadata.versions.length,
+      currentVersionIndex: metadata.currentVersionIndex,
     });
   }
 

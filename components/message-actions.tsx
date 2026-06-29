@@ -77,22 +77,22 @@ export function PureMessageActions({
   }, [chatId, message.id, onRevert]);
 
   const handlePreviousVersion = useCallback(() => {
-    const currentIndex = message.metadata?.currentEditIndex ?? 0;
+    const currentIndex = message.metadata?.currentVersionIndex ?? 0;
     if (currentIndex > 0) {
       onEditVersionChange?.(message.id, currentIndex - 1);
     }
-  }, [message.id, message.metadata?.currentEditIndex, onEditVersionChange]);
+  }, [message.id, message.metadata?.currentVersionIndex, onEditVersionChange]);
 
   const handleNextVersion = useCallback(() => {
-    const editHistory = message.metadata?.editHistory || [];
-    const currentIndex = message.metadata?.currentEditIndex ?? 0;
-    if (currentIndex < editHistory.length - 1) {
+    const versions = message.metadata?.versions || [];
+    const currentIndex = message.metadata?.currentVersionIndex ?? 0;
+    if (currentIndex < versions.length - 1) {
       onEditVersionChange?.(message.id, currentIndex + 1);
     }
   }, [
     message.id,
-    message.metadata?.currentEditIndex,
-    message.metadata?.editHistory,
+    message.metadata?.currentVersionIndex,
+    message.metadata?.versions,
     onEditVersionChange,
   ]);
 
@@ -101,26 +101,26 @@ export function PureMessageActions({
   }, [message.id, onRegenerate]);
 
   const handlePreviousGeneration = useCallback(() => {
-    const currentIndex = message.metadata?.currentGenerationIndex ?? 0;
+    const currentIndex = message.metadata?.currentVersionIndex ?? 0;
     if (currentIndex > 0) {
       onGenerationVersionChange?.(message.id, currentIndex - 1);
     }
   }, [
     message.id,
-    message.metadata?.currentGenerationIndex,
+    message.metadata?.currentVersionIndex,
     onGenerationVersionChange,
   ]);
 
   const handleNextGeneration = useCallback(() => {
-    const generationHistory = message.metadata?.generationHistory || [];
-    const currentIndex = message.metadata?.currentGenerationIndex ?? 0;
-    if (currentIndex < generationHistory.length - 1) {
+    const versions = message.metadata?.versions || [];
+    const currentIndex = message.metadata?.currentVersionIndex ?? 0;
+    if (currentIndex < versions.length - 1) {
       onGenerationVersionChange?.(message.id, currentIndex + 1);
     }
   }, [
     message.id,
-    message.metadata?.currentGenerationIndex,
-    message.metadata?.generationHistory,
+    message.metadata?.currentVersionIndex,
+    message.metadata?.versions,
     onGenerationVersionChange,
   ]);
 
@@ -129,19 +129,11 @@ export function PureMessageActions({
 
   const isUser = message.role === 'user';
   const timestamp = formatMessageTime(message.metadata?.createdAt);
-  const editHistory = message.metadata?.editHistory || [];
-  const currentEditIndex = message.metadata?.currentEditIndex ?? 0;
-  const hasEditHistory = editHistory.length > 1; // Only show if there are 2+ versions
-  const canGoPrevious = currentEditIndex > 0;
-  const canGoNext = currentEditIndex < editHistory.length - 1;
-
-  // Generation history for assistant messages
-  const generationHistory = message.metadata?.generationHistory || [];
-  const currentGenerationIndex = message.metadata?.currentGenerationIndex ?? 0;
-  const hasGenerationHistory = generationHistory.length > 1; // Only show if there are 2+ versions
-  const canGoPreviousGeneration = currentGenerationIndex > 0;
-  const canGoNextGeneration =
-    currentGenerationIndex < generationHistory.length - 1;
+  const versions = message.metadata?.versions || [];
+  const currentVersionIndex = message.metadata?.currentVersionIndex ?? 0;
+  const hasMultipleVersions = versions.length > 1; // Only show if there are 2+ versions
+  const canGoPrevious = currentVersionIndex > 0;
+  const canGoNext = currentVersionIndex < versions.length - 1;
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -153,8 +145,8 @@ export function PureMessageActions({
       >
         {timestamp ? <span className="leading-7">{timestamp}</span> : null}
 
-        {/* Generation version navigation — only for assistant messages with generation history */}
-        {!isUser && hasGenerationHistory && (
+        {/* Generation version navigation — only for assistant messages with multiple versions */}
+        {!isUser && hasMultipleVersions && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -162,7 +154,7 @@ export function PureMessageActions({
                   className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground disabled:opacity-30"
                   variant="ghost"
                   onClick={handlePreviousGeneration}
-                  disabled={!canGoPreviousGeneration}
+                  disabled={!canGoPrevious}
                 >
                   <ChevronLeft className="size-4" />
                 </Button>
@@ -170,7 +162,7 @@ export function PureMessageActions({
               <TooltipContent>Previous generation</TooltipContent>
             </Tooltip>
             <span className="text-xs leading-7">
-              {currentGenerationIndex + 1}/{generationHistory.length}
+              {currentVersionIndex + 1}/{versions.length}
             </span>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -178,7 +170,7 @@ export function PureMessageActions({
                   className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground disabled:opacity-30"
                   variant="ghost"
                   onClick={handleNextGeneration}
-                  disabled={!canGoNextGeneration}
+                  disabled={!canGoNext}
                 >
                   <ChevronRight className="size-4" />
                 </Button>
@@ -209,8 +201,8 @@ export function PureMessageActions({
           <AudioPlayer text={textContent} autoPlay={autoPlay} />
         )}
 
-        {/* Edit version navigation — only for user messages with edit history */}
-        {isUser && hasEditHistory && (
+        {/* Edit version navigation — only for user messages with multiple versions */}
+        {isUser && hasMultipleVersions && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -226,7 +218,7 @@ export function PureMessageActions({
               <TooltipContent>Previous version</TooltipContent>
             </Tooltip>
             <span className="text-xs leading-7">
-              {currentEditIndex + 1}/{editHistory.length}
+              {currentVersionIndex + 1}/{versions.length}
             </span>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -288,11 +280,11 @@ export const MessageActions = memo(
     if (prevProps.message.parts !== nextProps.message.parts) return false;
     if (prevProps.ttsEnabled !== nextProps.ttsEnabled) return false;
     if (prevProps.autoPlay !== nextProps.autoPlay) return false;
-    // Metadata carries editHistory / generationHistory and their current
-    // indices. Without this check, version-switching UI (1/N counter and
-    // arrow buttons) does not re-render when only metadata changes — e.g.
-    // after handleRegenerate's setTimeout setMessages, which keeps the same
-    // parts reference while appending to generationHistory.
+    // Metadata carries versions and currentVersionIndex. Without this check,
+    // version-switching UI (1/N counter and arrow buttons) does not re-render
+    // when only metadata changes — e.g. after handleRegenerate's setTimeout
+    // setMessages, which keeps the same parts reference while appending to
+    // versions.
     if (prevProps.message.metadata !== nextProps.message.metadata) {
       return false;
     }

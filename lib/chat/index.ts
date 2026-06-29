@@ -1600,14 +1600,14 @@ export async function chatMain(
     }
   }
 
-  if (messageMetadata?.editHistory) {
-    chatMainLogger.info('chatMain:found_edit_history', {
+  if (messageMetadata?.versions) {
+    chatMainLogger.info('chatMain:found_versions', {
       messageId: nextUiMessageId,
-      editHistoryLength: messageMetadata.editHistory.length,
-      currentEditIndex: messageMetadata.currentEditIndex,
+      versionsLength: messageMetadata.versions.length,
+      currentVersionIndex: messageMetadata.currentVersionIndex,
     });
   } else {
-    chatMainLogger.info('chatMain:no_edit_history', {
+    chatMainLogger.info('chatMain:no_versions', {
       messageId: nextUiMessageId,
       hasInputMetadata: !!request.input.metadata,
       hasLoadedMetadata: !!messageMetadata,

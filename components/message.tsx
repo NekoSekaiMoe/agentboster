@@ -720,11 +720,11 @@ const PurePreviewMessage = ({
       if (index === -1) return messages;
 
       const msg = messages[index];
-      const editHistory = msg.metadata?.editHistory || [];
+      const versions = msg.metadata?.versions || [];
 
-      if (newIndex < 0 || newIndex >= editHistory.length) return messages;
+      if (newIndex < 0 || newIndex >= versions.length) return messages;
 
-      const selectedVersion = editHistory[newIndex];
+      const selectedVersion = versions[newIndex];
 
       // Convert back to full UI parts
       const convertedParts = selectedVersion.parts.map((p): WorkflowUIPart => {
@@ -747,7 +747,7 @@ const PurePreviewMessage = ({
         parts: convertedParts,
         metadata: {
           ...msg.metadata,
-          currentEditIndex: newIndex,
+          currentVersionIndex: newIndex,
         },
       };
 
@@ -758,7 +758,7 @@ const PurePreviewMessage = ({
       ];
 
       // Also restore the corresponding assistant reply if available
-      if (selectedVersion.responseParts) {
+      if (selectedVersion.response) {
         let assistantIdx = -1;
         for (let i = index + 1; i < newMessages.length; i++) {
           if (newMessages[i].role === 'assistant') {
@@ -768,7 +768,7 @@ const PurePreviewMessage = ({
         }
 
         if (assistantIdx !== -1) {
-          const convertedResponseParts = selectedVersion.responseParts.map(
+          const convertedResponseParts = selectedVersion.response.map(
             (p): WorkflowUIPart => {
               if (p.type === 'text') {
                 return { type: 'text', text: p.text };
@@ -806,11 +806,11 @@ const PurePreviewMessage = ({
       if (index === -1) return messages;
 
       const msg = messages[index];
-      const generationHistory = msg.metadata?.generationHistory || [];
+      const versions = msg.metadata?.versions || [];
 
-      if (newIndex < 0 || newIndex >= generationHistory.length) return messages;
+      if (newIndex < 0 || newIndex >= versions.length) return messages;
 
-      const selectedVersion = generationHistory[newIndex];
+      const selectedVersion = versions[newIndex];
 
       // Convert back to full UI parts
       const convertedParts = selectedVersion.parts.map((p): WorkflowUIPart => {
@@ -833,7 +833,7 @@ const PurePreviewMessage = ({
         parts: convertedParts,
         metadata: {
           ...msg.metadata,
-          currentGenerationIndex: newIndex,
+          currentVersionIndex: newIndex,
         },
       };
 
@@ -847,14 +847,13 @@ const PurePreviewMessage = ({
 
   const handleRegenerate = async (messageId: string) => {
     // messageId is the assistant message id. We need to:
-    // 1. Snapshot the current assistant parts + existing generationHistory
+    // 1. Snapshot the current assistant parts + existing versions
     // 2. Find the preceding user message to regenerate from
     // 3. After regenerate completes, locate the NEW assistant message
     //    (which has a different id because backend deleted the old one)
-    //    and attach the accumulated generationHistory to it.
+    //    and attach the accumulated versions to it.
     let userMessageIdToRegenerate: string | undefined;
-    let snapshotHistory: NonNullable<ChatMessageMetadata['generationHistory']> =
-      [];
+    let snapshotHistory: NonNullable<ChatMessageMetadata['versions']> = [];
 
     setMessages((currentMessages) => {
       const assistantMsgIndex = currentMessages.findIndex(
@@ -871,12 +870,11 @@ const PurePreviewMessage = ({
         }
       }
 
-      const existingHistory =
-        assistantMessageToSave.metadata?.generationHistory || [];
+      const existingHistory = assistantMessageToSave.metadata?.versions || [];
       const existingIndex =
-        assistantMessageToSave.metadata?.currentGenerationIndex ?? -1;
+        assistantMessageToSave.metadata?.currentVersionIndex ?? -1;
 
-      // Snapshot current parts as a history entry
+      // Snapshot current parts as a version entry
       const currentPartsSnapshot = assistantMessageToSave.parts
         .filter((p) => p.type === 'text' || p.type === 'file')
         .map((p) => {
@@ -893,7 +891,7 @@ const PurePreviewMessage = ({
         });
 
       if (existingHistory.length === 0) {
-        // First regeneration: seed history with the current (original) parts
+        // First regeneration: seed versions with the current (original) parts
         snapshotHistory = [
           {
             parts: currentPartsSnapshot,
@@ -909,7 +907,7 @@ const PurePreviewMessage = ({
         snapshotHistory = [...existingHistory];
       }
 
-      // Don't modify the message here — we'll attach history to the NEW
+      // Don't modify the message here — we'll attach versions to the NEW
       // assistant message after regenerate completes. Just return as-is.
       return currentMessages;
     });
@@ -920,7 +918,7 @@ const PurePreviewMessage = ({
       await regenerate({ messageId: userMessageIdToRegenerate });
 
       // After regenerate, find the NEW assistant message (it has a new id)
-      // and attach the generation history. The new assistant message is
+      // and attach the version history. The new assistant message is
       // the one right after the user message we regenerated from.
       setMessages((msgs) => {
         const userIdx = msgs.findIndex(
@@ -964,8 +962,8 @@ const PurePreviewMessage = ({
 
         const finalMetadata = {
           ...newAssistant.metadata,
-          generationHistory: finalHistory,
-          currentGenerationIndex: finalHistory.length - 1,
+          versions: finalHistory,
+          currentVersionIndex: finalHistory.length - 1,
         };
 
         // Persist to DB so it survives page refresh

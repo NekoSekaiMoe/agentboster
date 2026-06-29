@@ -15,80 +15,63 @@ const tokenUsageBucketSchema = z.union([
   }),
 ]);
 
+/** A single message part — text or file. Shared across all message versions. */
+export type MessagePart =
+  | { type: 'text'; text: string }
+  | {
+      type: 'file';
+      filename?: string;
+      mediaType: string;
+      url: string;
+      providerMetadata?: unknown;
+    };
+
+/**
+ * A versioned snapshot of a message.
+ *
+ * Every message (user or assistant) carries an optional `versions` array:
+ * each entry is one historical version of that message's content. The
+ * currently-displayed version is `versions[currentVersionIndex]`.
+ *
+ * For user messages, `response` optionally holds the assistant reply that
+ * was produced when this user version was last sent. This preserves the
+ * edit → regenerate pairing for older conversations where the assistant
+ * rows have since been truncated from the DB. Assistant messages do not
+ * use `response`.
+ */
+export interface MessageVersion {
+  parts: MessagePart[];
+  createdAt: string;
+  response?: MessagePart[];
+}
+
 export type ChatMessageMetadata = {
   stepNumber?: number;
   finishReason?: string;
   createdAt?: string;
   toolName?: string;
   agentName?: string;
-  editHistory?: Array<{
-    parts: Array<
-      | { type: 'text'; text: string }
-      | {
-          type: 'file';
-          filename?: string;
-          mediaType: string;
-          url: string;
-          providerMetadata?: unknown;
-        }
-    >;
-    responseParts?: Array<
-      | { type: 'text'; text: string }
-      | {
-          type: 'file';
-          filename?: string;
-          mediaType: string;
-          url: string;
-          providerMetadata?: unknown;
-        }
-    >;
-    createdAt: string;
-  }>;
-  currentEditIndex?: number;
-  generationHistory?: Array<{
-    parts: Array<
-      | { type: 'text'; text: string }
-      | {
-          type: 'file';
-          filename?: string;
-          mediaType: string;
-          url: string;
-          providerMetadata?: unknown;
-        }
-    >;
-    createdAt: string;
-  }>;
-  currentGenerationIndex?: number;
+  /** Versioned snapshots of this message. Unified across user/assistant roles. */
+  versions?: MessageVersion[];
+  /** Index into `versions` of the currently-displayed version. */
+  currentVersionIndex?: number;
 };
 
-const editHistoryEntrySchema = z.object({
-  parts: z.array(
-    z.union([
-      z.object({ type: z.literal('text'), text: z.string() }),
-      z.object({
-        type: z.literal('file'),
-        filename: z.string().optional(),
-        mediaType: z.string(),
-        url: z.string(),
-        providerMetadata: z.unknown().optional(),
-      }),
-    ]),
-  ),
-  responseParts: z
-    .array(
-      z.union([
-        z.object({ type: z.literal('text'), text: z.string() }),
-        z.object({
-          type: z.literal('file'),
-          filename: z.string().optional(),
-          mediaType: z.string(),
-          url: z.string(),
-          providerMetadata: z.unknown().optional(),
-        }),
-      ]),
-    )
-    .optional(),
+const messagePartSchema = z.union([
+  z.object({ type: z.literal('text'), text: z.string() }),
+  z.object({
+    type: z.literal('file'),
+    filename: z.string().optional(),
+    mediaType: z.string(),
+    url: z.string(),
+    providerMetadata: z.unknown().optional(),
+  }),
+]);
+
+export const messageVersionSchema = z.object({
+  parts: z.array(messagePartSchema),
   createdAt: z.string(),
+  response: z.array(messagePartSchema).optional(),
 });
 
 export const chatMessageMetadataSchema = z.object({
@@ -97,10 +80,8 @@ export const chatMessageMetadataSchema = z.object({
   createdAt: z.string().optional(),
   toolName: z.string().optional(),
   agentName: z.string().optional(),
-  editHistory: z.array(editHistoryEntrySchema).optional(),
-  currentEditIndex: z.number().finite().optional(),
-  generationHistory: z.array(editHistoryEntrySchema).optional(),
-  currentGenerationIndex: z.number().finite().optional(),
+  versions: z.array(messageVersionSchema).optional(),
+  currentVersionIndex: z.number().finite().optional(),
 });
 
 const tokenUsageSchema = z.object({

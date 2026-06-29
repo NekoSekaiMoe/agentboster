@@ -318,9 +318,9 @@ export function MessageEditor({
               return;
             }
 
-            // Build edit history BEFORE updating state
-            const editHistory = message.metadata?.editHistory || [];
-            const currentEditIndex = message.metadata?.currentEditIndex ?? -1;
+            // Build version history BEFORE updating state
+            const versions = message.metadata?.versions || [];
+            const currentVersionIndex = message.metadata?.currentVersionIndex ?? -1;
 
             // Only add to history if content actually changed
             const currentText = getTextFromParts(message);
@@ -328,7 +328,7 @@ export function MessageEditor({
             const contentChanged = currentText !== newText;
 
             // Capture current assistant response parts so switching back to
-            // a previous edit version also restores the matching response.
+            // a previous version also restores the matching response.
             // We snapshot inside setMessages (which has the full message list)
             // below — here we just prepare the user-side parts.
             const messageCreatedAt =
@@ -373,11 +373,11 @@ export function MessageEditor({
                 }
               }
 
-              let newEditHistory = editHistory;
-              let newEditIndex = currentEditIndex;
+              let newVersions = versions;
+              let newIndex = currentVersionIndex;
 
               if (contentChanged) {
-                if (editHistory.length === 0) {
+                if (versions.length === 0) {
                   // First edit: snapshot original user parts + assistant reply
                   const originalParts = message.parts
                     .filter(
@@ -397,10 +397,10 @@ export function MessageEditor({
                       };
                     });
 
-                  newEditHistory = [
+                  newVersions = [
                     {
                       parts: originalParts,
-                      responseParts: assistantResponseParts,
+                      response: assistantResponseParts,
                       createdAt: messageCreatedAt,
                     },
                     {
@@ -408,45 +408,45 @@ export function MessageEditor({
                       createdAt: new Date().toISOString(),
                     },
                   ];
-                  newEditIndex = newEditHistory.length - 1;
+                  newIndex = newVersions.length - 1;
                 } else {
                   // Subsequent edit: attach assistant reply to the CURRENT
                   // version (before truncation), then append the new version.
-                  if (currentEditIndex < newEditHistory.length - 1) {
-                    newEditHistory = newEditHistory.slice(
+                  if (currentVersionIndex < newVersions.length - 1) {
+                    newVersions = newVersions.slice(
                       0,
-                      currentEditIndex + 1,
+                      currentVersionIndex + 1,
                     );
                   }
 
                   // Attach the captured assistant response to the entry at
-                  // currentEditIndex (which is the version the user was viewing).
+                  // currentVersionIndex (which is the version the user was viewing).
                   if (
                     assistantResponseParts &&
-                    newEditHistory[currentEditIndex]
+                    newVersions[currentVersionIndex]
                   ) {
-                    newEditHistory = newEditHistory.map((entry, i) =>
-                      i === currentEditIndex
-                        ? { ...entry, responseParts: assistantResponseParts }
+                    newVersions = newVersions.map((entry, i) =>
+                      i === currentVersionIndex
+                        ? { ...entry, response: assistantResponseParts }
                         : entry,
                     );
                   }
 
-                  newEditHistory = [
-                    ...newEditHistory,
+                  newVersions = [
+                    ...newVersions,
                     {
                       parts: updatedParts,
                       createdAt: new Date().toISOString(),
                     },
                   ];
-                  newEditIndex = newEditHistory.length - 1;
+                  newIndex = newVersions.length - 1;
                 }
               }
 
               const updatedMetadata = {
                 ...message.metadata,
-                editHistory: newEditHistory,
-                currentEditIndex: newEditIndex,
+                versions: newVersions,
+                currentVersionIndex: newIndex,
                 createdAt: messageCreatedAt,
               };
 
@@ -465,7 +465,7 @@ export function MessageEditor({
 
             setMode('view');
 
-            // Persist the updated metadata (including responseParts) so it
+            // Persist the updated metadata (including response) so it
             // survives page refresh and is available when switching versions.
             try {
               // Read the latest metadata from the just-updated message
@@ -498,7 +498,7 @@ export function MessageEditor({
               });
 
               // After regenerate completes, attach the NEW assistant reply
-              // to the current edit version so it shows up when switching
+              // to the current version so it shows up when switching
               // back to this version later.
               setMessages((msgs) => {
                 const userIdx = msgs.findIndex((m) => m.id === message.id);
@@ -530,23 +530,23 @@ export function MessageEditor({
                   });
 
                 const userMsg = msgs[userIdx];
-                const hist = userMsg.metadata?.editHistory || [];
-                const curIdx = userMsg.metadata?.currentEditIndex ?? 0;
+                const hist = userMsg.metadata?.versions || [];
+                const curIdx = userMsg.metadata?.currentVersionIndex ?? 0;
 
                 if (curIdx < 0 || curIdx >= hist.length) return msgs;
 
                 const updatedHist = hist.map((entry, i) =>
                   i === curIdx
-                    ? { ...entry, responseParts: newResponseParts }
+                    ? { ...entry, response: newResponseParts }
                     : entry,
                 );
 
                 const updatedMeta = {
                   ...userMsg.metadata,
-                  editHistory: updatedHist,
+                  versions: updatedHist,
                 };
 
-                // Persist the updated history with responseParts
+                // Persist the updated history with response
                 if (sessionId) {
                   fetch(`/api/messages/${message.id}/metadata`, {
                     method: 'PATCH',

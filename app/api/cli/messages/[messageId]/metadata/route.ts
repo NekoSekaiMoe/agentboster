@@ -22,9 +22,8 @@ function getMessageIdFromUrl(request: Request): string | null {
  * PATCH /api/cli/messages/[messageId]/metadata
  *
  * CLI mirror of the web's `PATCH /api/messages/[messageId]/metadata`.
- * Writes `metadata` (editHistory / generationHistory / currentEditIndex /
- * currentGenerationIndex) into the messages.payload jsonb, identified by
- * `uiMessageId`.
+ * Writes `metadata` (versions / currentVersionIndex) into the
+ * messages.payload jsonb, identified by `uiMessageId`.
  *
  * Unlike the web route (cookie auth, no ownership check), this verifies
  * the message's owning session belongs to the authenticated CLI user.

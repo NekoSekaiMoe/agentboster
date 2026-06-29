@@ -45,6 +45,9 @@ async function main() {
   console.log('[postbuild] pushing Drizzle schema');
   await runCommand('npx', ['drizzle-kit', 'push']);
 
+  console.log('[postbuild] migrating message versions to unified model');
+  await runCommand('npx', ['tsx', 'scripts/migrate-message-versions.ts']);
+
   console.log('[postbuild] database schema is up to date');
 }
 
