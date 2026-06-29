@@ -322,8 +322,14 @@ The bundle embeds themes, export-HTML templates, vendored libs (marked/highlight
 
 - **List / resume / delete:** mirrored via `/api/cli/sessions` — sessions deleted on the Web disappear from the CLI's `--resume` / `/resume` picker.
 - **Title renames:** `--name`, `/name`, and the rename action in the session picker PATCH the Web session row.
-- **Messages:** written by the Web workflow (`chatMain`) into the Postgres `messages` table. The CLI also keeps a local jsonl mirror for tree state (branch / rewind) and LLM context window.
+- **Messages:** written by the Web workflow (`chatMain`) into the Postgres `messages` table. The CLI keeps an **ephemeral** jsonl mirror under `$(tmpdir)/agentboster-sessions/` (never under `~/.agentboster/`) for tree state (branch / rewind) and LLM context window. The mirror is deleted on exit; stale files from a crashed run are cleaned up at startup.
 - **Compaction:** the CLI summarizes locally (through the adapter stream) and POSTs the result to `/api/cli/sessions/[id]/compact` so the Web DB stays consistent.
+
+### Message versions (edit + regenerate)
+
+Both the Web and the CLI use a **unified version model**: each message carries `metadata.versions[]` + `metadata.currentVersionIndex`, replacing the older split `editHistory` / `generationHistory`. The first time a `versions`-unaware client connects, the Web postbuild runs `scripts/migrate-message-versions.ts` (idempotent) to convert legacy fields and snapshot the paired assistant reply into `version.response`.
+
+In the TUI tree selector, press `[` / `]` on a message with 2+ versions to cycle. The CLI updates its in-memory entry, re-renders, and PATCHes `/api/cli/messages/[id]/metadata` so the switch persists on the backend.
 
 ---
 
