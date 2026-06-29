@@ -75,7 +75,9 @@ import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import {
+	type CustomMessage,
 	createCompactionSummaryMessage,
+	type WorkflowSubagentBatchEventDetails,
 	type WorkflowSubagentEventDetails,
 } from "../../core/messages.ts";
 import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScope } from "../../core/model-resolver.ts";
@@ -3084,15 +3086,24 @@ export class InteractiveMode {
 			}
 			case "custom": {
 				if (message.display) {
-					const component =
+					const isSubagent =
 						message.customType === "workflow.subagent" ||
-						message.customType === "workflow.subagent.batch"
-							? new WorkflowSubagentMessageComponent(message, this.getMarkdownThemeWithSettings())
-							: new CustomMessageComponent(
-									message,
-									this.session.extensionRunner.getMessageRenderer(message.customType),
-									this.getMarkdownThemeWithSettings(),
-								);
+						message.customType === "workflow.subagent.batch";
+					const component = isSubagent
+						? new WorkflowSubagentMessageComponent(
+								// `message` is CustomMessage<unknown> by the time it reaches the
+								// dispatcher; narrow to the subagent-details shape the component
+								// expects once the customType discriminator has matched.
+								message as CustomMessage<
+									WorkflowSubagentEventDetails | WorkflowSubagentBatchEventDetails
+								>,
+								this.getMarkdownThemeWithSettings(),
+							)
+						: new CustomMessageComponent(
+								message,
+								this.session.extensionRunner.getMessageRenderer(message.customType),
+								this.getMarkdownThemeWithSettings(),
+							);
 					component.setExpanded(this.toolOutputExpanded);
 					this.chatContainer.addChild(component);
 				}
