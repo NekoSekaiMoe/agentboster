@@ -20,7 +20,7 @@ import {
 } from "@agentboster/adapter";
 import type { StreamFn } from "@agentboster-cli/agent";
 import chalk from "chalk";
-import { listRemoteSessions, patchRemoteSession } from "./core/remote-sessions.ts";
+import { fetchRemoteMessages, listRemoteSessions, patchRemoteSession, type RemoteSession } from "./core/remote-sessions.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import type { ToolDefinition } from "./core/extensions/types.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
@@ -52,7 +52,7 @@ import {
 	MissingSessionCwdError,
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
-import { assertValidSessionId, type SessionInfo, SessionManager } from "./core/session-manager.ts";
+import { assertValidSessionId, cleanStaleTempSessions, type SessionInfo, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
@@ -286,105 +286,74 @@ async function createSessionManager(
 	}
 
 	if (parsed.fork) {
-		if (parsed.sessionId) {
-			const existingTarget = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir);
-			if (existingTarget) {
-				console.error(chalk.red(`Session already exists with id '${parsed.sessionId}'`));
-				process.exit(1);
-			}
-		}
-
-		const resolved = await resolveSessionPath(parsed.fork, cwd, sessionDir);
-
-		switch (resolved.type) {
-			case "path":
-			case "local":
-			case "global":
-				return forkSessionOrExit(resolved.path, cwd, sessionDir, parsed.sessionId);
-
-			case "not_found":
-				console.error(chalk.red(`No session found matching '${resolved.arg}'`));
-				process.exit(1);
-		}
+		console.error(chalk.red("--fork is not available in thin-client mode."));
+		process.exit(1);
 	}
 
 	if (parsed.session) {
-		const resolved = await resolveSessionPath(parsed.session, cwd, sessionDir);
-
-		switch (resolved.type) {
-			case "path":
-			case "local":
-				return openSessionOrExit(resolved.path, sessionDir);
-
-			case "global": {
-				console.log(chalk.yellow(`Session found in different project: ${resolved.cwd}`));
-				const shouldFork = await promptConfirm("Fork this session into current directory?");
-				if (!shouldFork) {
-					console.log(chalk.dim("Aborted."));
-					process.exit(0);
-				}
-				return forkSessionOrExit(resolved.path, cwd, sessionDir);
-			}
-
-			case "not_found":
-				console.error(chalk.red(`No session found matching '${resolved.arg}'`));
-				process.exit(1);
-		}
+		const auth = getStoredAuth();
+		if (auth) return await loadRemoteSessionOrExit(auth, parsed.session, cwd);
+		console.error(chalk.red("--session requires login."));
+		process.exit(1);
 	}
 
 	if (parsed.resume) {
 		try {
-			// When logged in, hide sessions that have been deleted on the web
-			// backend by intersecting the local list with the remote catalog.
-			// Failures (offline / server down) fall back to the full local list
-			// so resume still works.
 			const auth = getStoredAuth();
-			const remoteIds = auth
-				? await listRemoteSessions(auth).then(
-						(rows) => new Set(rows.map((r) => r.id)),
-						() => null,
-					)
-				: null;
-
-			const filterFn = (sessions: SessionInfo[]) =>
-				remoteIds === null
-					? sessions
-					: sessions.filter((s) => remoteIds.has(s.id));
-
-			const selectedPath = await selectSession(
-				async (onProgress) => {
-					const list = await SessionManager.list(cwd, sessionDir, onProgress);
-					return filterFn(list);
-				},
-				async (onProgress) => {
-					const list = await SessionManager.listAll(sessionDir, onProgress);
-					return filterFn(list);
-				},
-				settingsManager,
-			);
-			if (!selectedPath) {
-				console.log(chalk.dim("No session selected"));
-				process.exit(0);
-			}
-			return SessionManager.open(selectedPath, sessionDir);
-		} finally {
-			stopThemeWatcher();
-		}
+			if (!auth) { console.error(chalk.red("--resume requires login.")); process.exit(1); }
+			const remoteSessions = await listRemoteSessions(auth).catch((e) => {
+				console.error(chalk.red(`Failed to list sessions: ${e.message}`)); process.exit(1);
+			});
+			if (remoteSessions.length === 0) { console.log(chalk.dim("No sessions found.")); process.exit(0); }
+			const selected = await selectRemoteSession(remoteSessions, settingsManager);
+			if (!selected) { console.log(chalk.dim("No session selected")); process.exit(0); }
+			return await loadRemoteSessionOrExit(auth, selected.id, cwd);
+		} finally { stopThemeWatcher(); }
 	}
 
 	if (parsed.continue) {
-		return SessionManager.continueRecent(cwd, sessionDir);
+		const auth = getStoredAuth();
+		if (!auth) { console.error(chalk.red("--continue requires login.")); process.exit(1); }
+		const remoteSessions = await listRemoteSessions(auth).catch((e) => {
+			console.error(chalk.red(`Failed to list sessions: ${e.message}`)); process.exit(1);
+		});
+		if (remoteSessions.length === 0) { console.error(chalk.red("No previous session.")); process.exit(1); }
+		return await loadRemoteSessionOrExit(auth, remoteSessions[0].id, cwd);
 	}
 
 	if (parsed.sessionId) {
-		const existingSession = await findLocalSessionByExactId(parsed.sessionId, cwd, sessionDir);
-		if (existingSession) {
-			return SessionManager.open(existingSession.path, sessionDir);
-		}
+		const auth = getStoredAuth();
+		if (auth) return await loadRemoteSessionOrExit(auth, parsed.sessionId, cwd);
 	}
 
 	return SessionManager.create(cwd, sessionDir, { id: parsed.sessionId });
 }
+
+async function loadRemoteSessionOrExit(
+	auth: { url: string; token: string }, sessionId: string, cwd: string,
+): Promise<SessionManager> {
+	try {
+		const { session, messages } = await fetchRemoteMessages(auth, sessionId);
+		return SessionManager.fromRemote(cwd, session.id, messages);
+	} catch (err) {
+		console.error(chalk.red(`Failed to load session '${sessionId}': ${err instanceof Error ? err.message : String(err)}`));
+		process.exit(1);
+	}
+}
+
+async function selectRemoteSession(
+	sessions: RemoteSession[], settingsManager: SettingsManager,
+): Promise<RemoteSession | undefined> {
+	const { selectSession } = await import("./cli/session-picker.ts");
+	const indexById = new Map(sessions.map((s) => [s.id, s] as const));
+	const adapted = sessions.map((s) => ({
+		id: s.id, path: s.id, created: new Date(s.createdAt),
+		parentSessionPath: undefined, cwd: undefined, messageCount: 0, title: s.title ?? undefined,
+	})) as any;
+	const selectedPath = await selectSession(async () => adapted, async () => adapted, settingsManager);
+	return selectedPath ? indexById.get(selectedPath) : undefined;
+}
+
 
 function buildSessionOptions(
 	parsed: Args,
@@ -559,6 +528,8 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	const parsed = parseArgs(args);
+	// Clean up temp session files left by a previous crashed run.
+	cleanStaleTempSessions();
 	if (parsed.diagnostics.length > 0) {
 		for (const d of parsed.diagnostics) {
 			const color = d.type === "error" ? chalk.red : chalk.yellow;

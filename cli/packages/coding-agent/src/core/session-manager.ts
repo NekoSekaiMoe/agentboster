@@ -11,8 +11,10 @@ import {
 	readdirSync,
 	readSync,
 	statSync,
+	unlinkSync,
 	writeFileSync,
 } from "fs";
+import { tmpdir } from "os";
 import { readdir, stat } from "fs/promises";
 import { join, resolve } from "path";
 import { createInterface } from "readline";
@@ -28,6 +30,43 @@ import {
 } from "./messages.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
+
+const TMP_SESSION_PREFIX = "agentboster-session-";
+
+function getTmpSessionDir(): string {
+	return join(tmpdir(), "agentboster-sessions");
+}
+
+export function cleanStaleTempSessions(): void {
+	const dir = getTmpSessionDir();
+	if (!existsSync(dir)) return;
+	try {
+		for (const name of readdirSync(dir)) {
+			if (name.startsWith(TMP_SESSION_PREFIX)) {
+				try { unlinkSync(join(dir, name)); } catch {}
+			}
+		}
+	} catch {}
+}
+
+const registeredCleanups = new Set<string>();
+let exitHandlerRegistered = false;
+function registerTempSessionCleanup(filePath: string): void {
+	if (registeredCleanups.has(filePath)) return;
+	registeredCleanups.add(filePath);
+	if (!exitHandlerRegistered) {
+		exitHandlerRegistered = true;
+		const cleanup = () => {
+			for (const p of registeredCleanups) {
+				try { unlinkSync(p); } catch {}
+			}
+		};
+		process.on("exit", cleanup);
+		process.on("SIGINT", () => { cleanup(); process.exit(130); });
+		process.on("SIGTERM", () => { cleanup(); process.exit(143); });
+	}
+}
+
 
 export interface SessionHeader {
 	type: "session";
@@ -770,24 +809,23 @@ export class SessionManager {
 
 	private constructor(
 		cwd: string,
-		_sessionDir: string,
+		sessionDir: string | undefined,
 		sessionFile: string | undefined,
-		_persist: boolean,
+		persist: boolean,
 		newSessionOptions?: NewSessionOptions,
 	) {
 		this.cwd = resolvePath(cwd);
-		// Thin-client: no local persistence. SessionManager is a pure
-		// in-memory object; session content lives on the Web backend and
-		// is fetched on demand. The legacy jsonl read path is kept only
-		// so existing on-disk files can still be opened during the
-		// transition — no new files are ever written.
-		this.sessionDir = "";
-		this.persist = false;
+		// Session files go to the OS tmpdir, not ~/.agentboster/. They are
+		// ephemeral working copies — the Web backend owns durable state.
+		// registerTempSessionCleanup() deletes them on process exit.
+		this.sessionDir = sessionDir ?? getTmpSessionDir();
+		this.persist = persist;
+		if (persist && this.sessionDir && !existsSync(this.sessionDir)) {
+			mkdirSync(this.sessionDir, { recursive: true });
+		}
 
 		if (sessionFile) {
-			this.sessionFile = resolvePath(sessionFile);
-			this.fileEntries = loadEntriesFromFile(this.sessionFile);
-			this._buildIndex();
+			this.setSessionFile(sessionFile);
 		} else {
 			this.newSession(newSessionOptions);
 		}
@@ -798,7 +836,28 @@ export class SessionManager {
 		this.sessionFile = resolvePath(sessionFile);
 		if (existsSync(this.sessionFile)) {
 			this.fileEntries = loadEntriesFromFile(this.sessionFile);
+			if (this.fileEntries.length === 0) {
+				const explicitPath = this.sessionFile;
+				if (statSync(explicitPath).size > 0) {
+					throw new Error(`Session file is not a valid pi session: ${explicitPath}`);
+				}
+				this.newSession();
+				this.sessionFile = explicitPath;
+				this._rewriteFile();
+				this.flushed = true;
+				return;
+			}
+			const header = this.fileEntries.find((e) => e.type === "session") as SessionHeader | undefined;
+			this.sessionId = header?.id ?? createSessionId();
+			if (migrateToCurrentVersion(this.fileEntries)) {
+				this._rewriteFile();
+			}
 			this._buildIndex();
+			this.flushed = true;
+		} else {
+			const explicitPath = this.sessionFile;
+			this.newSession();
+			this.sessionFile = explicitPath;
 		}
 	}
 
@@ -850,17 +909,20 @@ export class SessionManager {
 		}
 	}
 
-	/**
-	 * Thin-client: persistence is a no-op. SessionManager is in-memory only;
-	 * the Web backend owns durable state. Kept as a no-op rather than removed
-	 * so call sites (`_appendEntry`, migrations) keep compiling.
-	 */
 	private _rewriteFile(): void {
-		// no-op — remote is the source of truth.
+		if (!this.persist || !this.sessionFile) return;
+		const fd = openSync(this.sessionFile, "w");
+		try {
+			for (const entry of this.fileEntries) {
+				writeFileSync(fd, `${JSON.stringify(entry)}\n`);
+			}
+		} finally {
+			closeSync(fd);
+		}
 	}
 
 	isPersisted(): boolean {
-		return false;
+		return this.persist;
 	}
 
 	getCwd(): string {
@@ -868,7 +930,7 @@ export class SessionManager {
 	}
 
 	getSessionDir(): string {
-		return "";
+		return this.sessionDir;
 	}
 
 	usesDefaultSessionDir(): boolean {
@@ -883,8 +945,33 @@ export class SessionManager {
 		return this.sessionFile;
 	}
 
-	_persist(_entry: SessionEntry): void {
-		// no-op — remote is the source of truth.
+	_persist(entry: SessionEntry): void {
+		if (!this.persist || !this.sessionFile) return;
+
+		const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
+		if (!hasAssistant) {
+			if (this.flushed) {
+				appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
+			} else {
+				this.flushed = false;
+			}
+			return;
+		}
+
+		if (!this.flushed) {
+			const fd = openSync(this.sessionFile, "wx");
+			try {
+				for (const e of this.fileEntries) {
+					writeFileSync(fd, `${JSON.stringify(e)}\n`);
+				}
+			} finally {
+				closeSync(fd);
+			}
+			this.flushed = true;
+			registerTempSessionCleanup(this.sessionFile);
+		} else {
+			appendFileSync(this.sessionFile, `${JSON.stringify(entry)}\n`);
+		}
 	}
 
 	private _appendEntry(entry: SessionEntry): void {
@@ -1347,7 +1434,58 @@ export class SessionManager {
 	 */
 	static create(cwd: string, sessionDir?: string, options?: NewSessionOptions): SessionManager {
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
-		return new SessionManager(cwd, dir, undefined, true, options);
+		return new SessionManager(cwd, undefined, undefined, true, options);
+	}
+
+	/**
+	 * Build a SessionManager from remote UI messages (fetched via
+	 * GET /api/cli/sessions/[id]/messages). Each UIMessage becomes a
+	 * chained SessionMessageEntry. The resulting manager persists to a
+	 * temp file (so memory stays bounded) which is deleted on exit.
+	 */
+	static fromRemote(
+		cwd: string,
+		sessionId: string,
+		messages: Array<{
+			id: string;
+			role: "user" | "assistant";
+			parts: Array<{ type: string; text?: string }>;
+			metadata?: {
+				versions?: Array<{ parts: Array<{ type: string; text?: string }>; createdAt: string; response?: Array<{ type: string; text?: string }> }>;
+				currentVersionIndex?: number;
+			};
+		}>,
+	): SessionManager {
+		const manager = SessionManager.create(cwd, undefined, { id: sessionId });
+		for (const msg of messages) {
+			const text = (() => {
+				if (msg.metadata?.versions && msg.metadata.versions.length > 0) {
+					const idx = msg.metadata.currentVersionIndex ?? 0;
+					const v = msg.metadata.versions[Math.min(idx, msg.metadata.versions.length - 1)];
+					return v.parts.filter((p) => p.type === "text" && typeof p.text === "string").map((p) => p.text!).join("\n");
+				}
+				return msg.parts.filter((p) => p.type === "text" && typeof p.text === "string").map((p) => p.text!).join("\n");
+			})();
+			if (msg.role === "user") {
+				manager.appendMessage({
+					role: "user",
+					content: text,
+					timestamp: Date.now(),
+				});
+			} else {
+				manager.appendMessage({
+					role: "assistant",
+					content: [{ type: "text", text }],
+					api: "openai-responses" as any,
+					provider: "agentboster" as any,
+					model: "remote",
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+					stopReason: "stop",
+					timestamp: Date.now(),
+				});
+			}
+		}
+		return manager;
 	}
 
 	/**
@@ -1384,7 +1522,7 @@ export class SessionManager {
 
 	/** Create an in-memory session (no file persistence) */
 	static inMemory(cwd: string = process.cwd(), options?: NewSessionOptions): SessionManager {
-		return new SessionManager(cwd, "", undefined, false, options);
+		return new SessionManager(cwd, undefined, undefined, false, options);
 	}
 
 	/**
