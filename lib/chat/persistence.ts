@@ -30,6 +30,27 @@ import {
 export function deserializePersistedMessages(
   rows: PersistedMessageRecord[],
 ): WorkflowUIMessage[] {
+  // The DB query orders by (created_at, id). Rows produced by one agent
+  // step share a single stepCreatedAt (millisecond precision), so the
+  // tiebreak falls to the random UUID primary key — making row order
+  // non-deterministic. That breaks the sequential grouping below
+  // (orphan tool rows land at random positions, appearing to "jump to
+  // the bottom" on reload). Pre-sort by a stable key so rows of the
+  // same step are adjacent and in the right internal order before we
+  // walk them. This is migration-free; a proper `position` column is
+  // the long-term fix.
+  const stepRank = (r: PersistedMessageRecord) =>
+    r.role === 'assistant' ? 0 : r.role === 'tool' ? 1 : 2;
+  const orderedRows = [...rows].sort((a, b) => {
+    const aStep = a.stepNumber ?? Number.MAX_SAFE_INTEGER;
+    const bStep = b.stepNumber ?? Number.MAX_SAFE_INTEGER;
+    if (aStep !== bStep) return aStep - bStep;
+    const aTime = a.createdAt?.getTime() ?? 0;
+    const bTime = b.createdAt?.getTime() ?? 0;
+    if (aTime !== bTime) return aTime - bTime;
+    return stepRank(a) - stepRank(b);
+  });
+
   const messages: WorkflowUIMessage[] = [];
   let currentKey: string | null = null;
   let currentGroup: PersistedMessageRecord[] = [];
@@ -42,7 +63,7 @@ export function deserializePersistedMessages(
     currentGroup = [];
   };
 
-  for (const row of rows) {
+  for (const row of orderedRows) {
     if (!row.visibleInChat) {
       continue;
     }

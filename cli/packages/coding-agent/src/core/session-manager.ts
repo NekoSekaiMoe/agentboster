@@ -1459,7 +1459,7 @@ export class SessionManager {
 		messages: Array<{
 			id: string;
 			role: "user" | "assistant";
-			parts: Array<{ type: string; text?: string }>;
+			parts: Array<{ type: string; text?: string; toolName?: string; toolCallId?: string; input?: unknown; state?: string; output?: unknown; errorText?: string }>;
 			metadata?: {
 				versions?: Array<{ parts: Array<{ type: string; text?: string }>; createdAt: string; response?: Array<{ type: string; text?: string }> }>;
 				currentVersionIndex?: number;
@@ -1469,19 +1469,46 @@ export class SessionManager {
 		const manager = SessionManager.create(cwd, undefined, { id: sessionId });
 		const entryIds: string[] = [];
 		for (const msg of messages) {
-			const text = (() => {
+			// Pick the effective parts: current version if versioned, else the message's own parts.
+			type RemotePart = { type: string; text?: string; toolName?: string; toolCallId?: string; input?: unknown; state?: string; output?: unknown; errorText?: string };
+			const effectiveParts: RemotePart[] = (() => {
 				if (msg.metadata?.versions && msg.metadata.versions.length > 0) {
 					const idx = msg.metadata.currentVersionIndex ?? 0;
-					const v = msg.metadata.versions[Math.min(idx, msg.metadata.versions.length - 1)];
-					return v.parts.filter((p) => p.type === "text" && typeof p.text === "string").map((p) => p.text!).join("\n");
+					return msg.metadata.versions[Math.min(idx, msg.metadata.versions.length - 1)].parts as RemotePart[];
 				}
-				return msg.parts.filter((p) => p.type === "text" && typeof p.text === "string").map((p) => p.text!).join("\n");
+				return msg.parts as RemotePart[];
 			})();
-			const entryId = msg.role === "user"
-				? manager.appendMessage({ role: "user", content: text, timestamp: Date.now() })
-				: manager.appendMessage({
+
+			const text = effectiveParts
+				.filter((p) => p.type === "text" && typeof p.text === "string")
+				.map((p) => p.text!)
+				.join("\n");
+
+			if (msg.role === "user") {
+				const entryId = manager.appendMessage({ role: "user", content: text, timestamp: Date.now() });
+				entryIds.push(entryId);
+			} else {
+				// Build assistant content: text block first, then a toolCall
+				// block for each dynamic-tool part so the TUI renders tool
+				// executions that happened during this step. Without this,
+				// /resume of a remote session drops all tool history.
+				const content: Array<{ type: string; text?: string } | { type: string; id: string; name: string; arguments: Record<string, unknown> }> = [];
+				if (text) {
+					content.push({ type: "text", text });
+				}
+				for (const part of effectiveParts) {
+					if (part.type === "dynamic-tool" && part.toolCallId && part.toolName) {
+						content.push({
+							type: "toolCall",
+							id: part.toolCallId,
+							name: part.toolName,
+							arguments: (part.input as Record<string, unknown>) ?? {},
+						});
+					}
+				}
+				const entryId = manager.appendMessage({
 					role: "assistant",
-					content: [{ type: "text", text }],
+					content: content.length > 0 ? content as any : [{ type: "text", text: "" }],
 					api: "openai-responses" as any,
 					provider: "agentboster" as any,
 					model: "remote",
@@ -1489,10 +1516,13 @@ export class SessionManager {
 					stopReason: "stop",
 					timestamp: Date.now(),
 				});
-			entryIds.push(entryId);
+				entryIds.push(entryId);
+			}
+
 			// Attach version metadata to the just-created entry.
+			const lastEntryId = entryIds[entryIds.length - 1];
 			if (msg.metadata?.versions) {
-				const entry = manager.byId.get(entryId);
+				const entry = manager.byId.get(lastEntryId);
 				if (entry && entry.type === "message") {
 					(entry as SessionMessageEntry).remoteMetadata = {
 						versions: msg.metadata.versions,
