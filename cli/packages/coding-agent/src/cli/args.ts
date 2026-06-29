@@ -45,6 +45,8 @@ export interface Args {
 	offline?: boolean;
 	verbose?: boolean;
 	projectTrustOverride?: boolean;
+	/** Skip L0/L1/L2 security scoring and user confirmation on local_* tools. */
+	yolo?: boolean;
 	messages: string[];
 	fileArgs: string[];
 	/** Unknown flags (potentially extension flags) - map of flag name to value */
@@ -175,6 +177,8 @@ export function parseArgs(args: string[]): Args {
 			result.projectTrustOverride = true;
 		} else if (arg === "--no-approve" || arg === "-na") {
 			result.projectTrustOverride = false;
+		} else if (arg === "--yolo") {
+			result.yolo = true;
 		} else if (arg === "--offline") {
 			result.offline = true;
 		} else if (arg.startsWith("@")) {
@@ -266,6 +270,7 @@ ${chalk.bold("Options:")}
   --verbose                      Force verbose startup (overrides quietStartup setting)
   --approve, -a                  Trust project-local files for this run
   --no-approve, -na              Ignore project-local files for this run
+  --yolo                         Skip L0/L1/L2 security scoring and confirmation on local_* tools
   --offline                      Disable startup network operations (same as PI_OFFLINE=1)
   --help, -h                     Show this help
   --version, -v                  Show version number

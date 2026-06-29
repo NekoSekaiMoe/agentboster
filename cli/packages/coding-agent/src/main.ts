@@ -807,13 +807,13 @@ export async function main(args: string[], options?: MainOptions) {
 			excludeTools: sessionOptions.excludeTools,
 			noTools: getStoredAuth() ? "builtin" as const : sessionOptions.noTools,
 			customTools: sessionOptions.customTools,
-			streamFnOverride: await resolveStreamFnOverride(sessionManager),
+			streamFnOverride: await resolveStreamFnOverride(sessionManager, undefined, undefined, parsed.yolo === true),
 		});
 		const overrideWithEvents = await resolveStreamFnOverride(sessionManager, (event) => {
 			void created.session.addWorkflowSubagentEvent(event);
 		}, (event) => {
 			void created.session.addWorkflowSubagentBatchEvent(event);
-		});
+		}, parsed.yolo === true);
 		if (overrideWithEvents) {
 			created.session.agent.streamFn = overrideWithEvents;
 		}
@@ -1001,15 +1001,19 @@ async function handleLocalToolRequest(
 	toolCallId: string,
 	toolName: string,
 	toolInput: unknown,
+	yolo: boolean,
 ): Promise<void> {
 	const input = toolInput as Record<string, unknown>;
 	let result: { ok: boolean; output?: unknown; error?: string };
 
 	// Security gate: L0 blocks immediately, L2 requires user confirmation.
+	// --yolo skips both tiers (auto-approve every local_* invocation).
 	const command = toolName === "local_exec"
 		? String(input["command"] ?? "")
 		: formatToolRequest(toolName, toolInput);
-	const decision = evaluateLocalCommand(command);
+	const decision = yolo
+		? { ok: true, autoApprove: true, level: "l0" as const, message: "yolo (skipped)" }
+		: evaluateLocalCommand(command);
 
 	if (!decision.ok) {
 		// L0 block — reject immediately.
@@ -1184,6 +1188,7 @@ async function resolveStreamFnOverride(
 		cancelled?: number;
 		summary?: string;
 	}) => void,
+	yolo: boolean = false,
 ): Promise<StreamFn | undefined> {
 	const auth = getStoredAuth();
 	if (!auth) {
@@ -1204,7 +1209,7 @@ async function resolveStreamFnOverride(
 		onSubagentEvent,
 		onSubagentBatchEvent,
 		onLocalToolRequest: async ({ runId, toolCallId, toolName, toolInput }) => {
-			await handleLocalToolRequest(auth, runId, toolCallId, toolName, toolInput);
+			await handleLocalToolRequest(auth, runId, toolCallId, toolName, toolInput, yolo);
 		},
 	});
 }

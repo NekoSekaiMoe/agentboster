@@ -229,6 +229,7 @@ agentboster --export session.jsonl  # HTML export
 | `--list-models [search]` | | List server models |
 | `--offline` | | Skip startup network ops |
 | `--approve` / `--no-approve` | `-a` / `-na` | Trust project-local files |
+| `--yolo` | | Skip L0/L1/L2 security scoring and user confirmation on `local_*` tools |
 
 Run `agentboster --help` for the authoritative list (extensions add more flags).
 
@@ -273,6 +274,8 @@ Other tools (`readMemory`, `writeMemory`, sandbox `exec`, MCP tools, …) run on
 ### Security gating
 
 Each `local_*` invocation passes through `evaluateLocalCommand` in the adapter before executing. L0 blocks known-dangerous patterns; L2 asks for confirmation in the TUI when the command looks risky. Headless `--print` mode refuses anything that would require confirmation.
+
+`--yolo` skips both tiers — every `local_*` invocation auto-approves with no scoring and no prompt. Useful for trusted `-p`/CI runs where the L2 prompt would otherwise auto-reject.
 
 ---
 
