@@ -244,6 +244,9 @@ export interface PromptOptions {
 	source?: InputSource;
 	/** Internal hook used by RPC mode to observe prompt preflight acceptance or rejection. */
 	preflightResult?: (success: boolean) => void;
+	/** When true, all tools are disabled for this single turn (e.g. plan mode).
+	 *  The agent can only reason and produce prose, no tool calls. Restored after. */
+	disableTools?: boolean;
 }
 
 /** Result from cycleModel() */
@@ -1198,7 +1201,29 @@ export class AgentSession {
 		}
 
 		preflightResult?.(true);
-		await this._runAgentPrompt(messages);
+
+		// Plan mode: temporarily strip all tools so the agent can only plan.
+		const disableTools = options?.disableTools;
+		let savedTools: AgentTool[] | undefined;
+		let savedSystemPrompt: string | undefined;
+		if (disableTools && this.agent.state.tools.length > 0) {
+			savedTools = this.agent.state.tools;
+			savedSystemPrompt = this.agent.state.systemPrompt;
+			this.agent.state.tools = [];
+			// Augment the system prompt to steer the model toward producing a plan.
+			const planSuffix = "\n\n## Plan mode\nYou are in plan mode. Do NOT call any tools. Produce a clear, structured plan for how to accomplish the user's request. Outline the steps, files to touch, and any clarifying questions. The user will review the plan before execution begins.";
+			this.agent.state.systemPrompt = (this._baseSystemPrompt ?? this.agent.state.systemPrompt) + planSuffix;
+		}
+		try {
+			await this._runAgentPrompt(messages);
+		} finally {
+			if (savedTools !== undefined) {
+				this.agent.state.tools = savedTools;
+			}
+			if (savedSystemPrompt !== undefined) {
+				this.agent.state.systemPrompt = savedSystemPrompt;
+			}
+		}
 	}
 
 	/**

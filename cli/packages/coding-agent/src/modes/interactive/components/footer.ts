@@ -54,6 +54,8 @@ export class FooterComponent implements Component {
 	private session: AgentSession;
 	private footerData: ReadonlyFooterDataProvider;
 	private permissionMode: FooterPermissionMode = "manual";
+	/** Active input mode: "normal"(build) | "plan" | "shell"(bash). */
+	private inputMode: "normal" | "plan" | "shell" = "normal";
 
 	constructor(session: AgentSession, footerData: ReadonlyFooterDataProvider) {
 		this.session = session;
@@ -70,6 +72,10 @@ export class FooterComponent implements Component {
 
 	setPermissionMode(mode: FooterPermissionMode): void {
 		this.permissionMode = mode;
+	}
+
+	setInputMode(mode: "normal" | "plan" | "shell"): void {
+		this.inputMode = mode;
 	}
 
 	/**
@@ -133,9 +139,18 @@ export class FooterComponent implements Component {
 		// Replace home directory with ~
 		let pwd = formatCwdForFooter(this.session.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE);
 
-		// Prepend permission-mode badge so the active posture is visible at a glance.
+		// Prepend the input-mode badge so the active posture is visible at a glance.
+		// [yolo] takes precedence over mode badges (yolo skips all checks, plan is moot).
+		// [build]=normal(blue/accent), [plan]=green, [shell]=orange, [yolo]=red.
 		if (this.permissionMode === "yolo") {
-			pwd = `${theme.bold(theme.fg("warning", "[yolo]"))} ${pwd}`;
+			pwd = `${theme.bold(theme.fg("error", "[yolo]"))} ${pwd}`;
+		} else {
+			const badge = this.inputMode === "plan"
+				? theme.bold(theme.fg("success", "[plan]"))
+				: this.inputMode === "shell"
+					? theme.bold(theme.fg("warning", "[shell]"))
+					: theme.bold(theme.fg("accent", "[build]"));
+			pwd = `${badge} ${pwd}`;
 		}
 
 		// Add git branch if available

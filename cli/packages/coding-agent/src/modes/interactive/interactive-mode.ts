@@ -302,6 +302,8 @@ export class InteractiveMode {
 	private keybindings: KeybindingsManager;
 	private version: string;
 	private isInitialized = false;
+	/** Permission posture: when "yolo", mode cycling (Ctrl+T) is disabled. */
+	private permissionMode: "manual" | "yolo" = "manual";
 	private onInputCallback?: (text: string) => void;
 	private pendingUserInputs: string[] = [];
 	/** When set, the next editor submit builds a new version on this user
@@ -349,9 +351,8 @@ export class InteractiveMode {
 	private isBashMode = false;
 	/** When in bash mode, whether the command is excluded from context (!! prefix). */
 	private bashExcluded = false;
-	/** Container for the colored mode banner shown below the editor
-	 *  (e.g. "shell mode") when a prefix trigger is consumed. */
-	private modeBannerContainer: Container;
+	/** Plan mode: tools disabled, agent produces a plan only. Toggled via Ctrl+T. */
+	private isPlanMode = false;
 	/** Guard to prevent recursive onChange when we rewrite editor text. */
 	private suppressChangeEvent = false;
 
@@ -452,11 +453,11 @@ export class InteractiveMode {
 		this.editor = this.defaultEditor;
 		this.editorContainer = new Container();
 		this.editorContainer.addChild(this.editor as Component);
-		this.modeBannerContainer = new Container();
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
 		this.footer = new FooterComponent(this.session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		if (options.permissionMode) {
+			this.permissionMode = options.permissionMode;
 			this.footer.setPermissionMode(options.permissionMode);
 		}
 
@@ -660,7 +661,6 @@ export class InteractiveMode {
 		this.renderWidgets(); // Initialize with default spacer
 		this.ui.addChild(this.widgetContainerAbove);
 		this.ui.addChild(this.editorContainer);
-		this.ui.addChild(this.modeBannerContainer);
 		this.ui.addChild(this.widgetContainerBelow);
 		this.ui.addChild(this.footer);
 		this.ui.setFocus(this.editor);
@@ -828,7 +828,7 @@ export class InteractiveMode {
 		while (true) {
 			const userInput = await this.getUserInput();
 			try {
-				await this.session.prompt(userInput);
+				await this.session.prompt(userInput, { disableTools: this.isPlanMode });
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
@@ -2412,6 +2412,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.clear", () => this.handleCtrlC());
 		this.defaultEditor.onCtrlD = () => this.handleCtrlD();
 		this.defaultEditor.onAction("app.suspend", () => this.handleCtrlZ());
+		this.defaultEditor.onAction("app.mode.cycle", () => this.cycleInputMode());
 		this.defaultEditor.onAction("app.thinking.cycle", () => this.cycleThinkingLevel());
 		this.defaultEditor.onAction("app.model.cycleForward", () => this.cycleModel("forward"));
 		this.defaultEditor.onAction("app.model.cycleBackward", () => this.cycleModel("backward"));
@@ -2693,6 +2694,11 @@ export class InteractiveMode {
 				this.pendingUserInputs.push(text);
 			}
 			this.editor.addToHistory?.(text);
+			// Plan mode is a one-shot: after submitting, return to normal.
+			if (this.isPlanMode) {
+				this.isPlanMode = false;
+				this.updateEditorBorderColor();
+			}
 		};
 	}
 
@@ -3629,23 +3635,37 @@ export class InteractiveMode {
 	private updateEditorBorderColor(): void {
 		if (this.isBashMode) {
 			this.editor.borderColor = theme.getBashModeBorderColor();
-			this.renderModeBanner();
+		} else if (this.isPlanMode) {
+			this.editor.borderColor = (str: string) => theme.fg("success", str);
 		} else {
 			const level = this.session.thinkingLevel || "off";
 			this.editor.borderColor = theme.getThinkingBorderColor(level);
-			this.modeBannerContainer.clear();
 		}
+		this.updateFooterInputMode();
 		this.ui.requestRender();
 	}
 
-	/** Render the colored mode banner below the editor. Currently only bash
-	 *  mode produces a banner. */
-	private renderModeBanner(): void {
-		this.modeBannerContainer.clear();
-		if (!this.isBashMode) return;
-		const label = this.bashExcluded ? "shell mode (excluded)" : "shell mode";
-		const line = theme.fg("accent", label);
-		this.modeBannerContainer.addChild(new Text(line, 1, 0));
+	/** Push the current input mode (normal/plan/shell) into the footer badge. */
+	private updateFooterInputMode(): void {
+		const mode = this.isBashMode ? "shell" : this.isPlanMode ? "plan" : "normal";
+		this.footer.setInputMode(mode);
+	}
+
+	/** Cycle normal ↔ plan via Ctrl+T. Disabled in yolo mode (plan is moot
+	 *  when all checks are already skipped). Shell mode is entered via `!`
+	 *  and is not part of this cycle. */
+	private cycleInputMode(): void {
+		if (this.permissionMode === "yolo") {
+			this.showStatus("Mode switching is disabled in yolo mode");
+			return;
+		}
+		if (this.isBashMode) {
+			// Don't cycle out of shell mode via Ctrl+T; use Esc.
+			return;
+		}
+		this.isPlanMode = !this.isPlanMode;
+		this.updateEditorBorderColor();
+		this.showStatus(this.isPlanMode ? "Plan mode: tools disabled, agent will outline a plan" : "Normal mode");
 	}
 
 	private cycleThinkingLevel(): void {

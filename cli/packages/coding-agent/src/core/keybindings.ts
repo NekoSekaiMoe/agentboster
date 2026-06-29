@@ -15,6 +15,7 @@ export interface AppKeybindings {
 	"app.clear": true;
 	"app.exit": true;
 	"app.suspend": true;
+	"app.mode.cycle": true;
 	"app.thinking.cycle": true;
 	"app.model.cycleForward": true;
 	"app.model.cycleBackward": true;
@@ -72,8 +73,12 @@ export const KEYBINDINGS = {
 		defaultKeys: process.platform === "win32" ? [] : "ctrl+z",
 		description: "Suspend to background",
 	},
+	"app.mode.cycle": {
+		defaultKeys: "ctrl+t",
+		description: "Cycle input mode (normal / plan)",
+	},
 	"app.thinking.cycle": {
-		defaultKeys: "shift+tab",
+		defaultKeys: [], // moved to /effort + settings; no default key
 		description: "Cycle thinking level",
 	},
 	"app.model.cycleForward": {
