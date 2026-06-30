@@ -18,6 +18,7 @@ export {
 } from './define';
 
 import agentdNodesTool from './agentd/nodes';
+import browserTool from './execute/browser';
 import sandboxTool from './execute/sanbox';
 import localCliTool from './local';
 import memoryTool from './memories/local';
@@ -29,6 +30,7 @@ import taskSummaryTool from './tasks/summary';
 
 const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   sandboxTool,
+  browserTool,
   memoryTool,
   localSkillTool,
   scheduleTool,
