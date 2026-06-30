@@ -443,3 +443,17 @@ export async function getChatUiSettingsAction(): Promise<{
     enterToSend: config.chat?.enter_to_send ?? true,
   };
 }
+
+const debugLogger = createLogger('chat.client.debug');
+
+export async function debugLogClientMessages(input: {
+  phase: string;
+  count: number;
+  messages: { id: string; role: string; parts: string }[];
+}): Promise<void> {
+  debugLogger.info('chat.client.debug', {
+    phase: input.phase,
+    count: input.count,
+    messages: input.messages,
+  });
+}

@@ -2,6 +2,7 @@
 
 import {
   controlSessionRuntimeAction,
+  debugLogClientMessages,
   deleteSessionAction,
   getChatUiSettingsAction,
   saveSessionModelAction,
@@ -465,6 +466,31 @@ export function Chat({
     },
     experimental_throttle: 100,
   });
+
+  useEffect(() => {
+    void debugLogClientMessages({
+      phase: 'render',
+      count: messages.length,
+      messages: messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        parts: m.parts.map((p) => p.type).join(','),
+      })),
+    });
+  }, [messages]);
+
+  useEffect(() => {
+    void debugLogClientMessages({
+      phase: 'mount',
+      count: initialMessages.length,
+      messages: initialMessages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        parts: m.parts.map((p) => p.type).join(','),
+      })),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     statusRef.current = status;
