@@ -107,12 +107,32 @@ export function deserializePersistedMessages(
 }
 
 function buildMessage(groupRows: PersistedMessageRecord[]): WorkflowUIMessage {
-  // Sort within a group so the assistant text row comes before tool rows
-  // (text is persisted first in persistStepDeltaAndUsageStep). Fall back
-  // to createdAt when role ordering is ambiguous.
+  // Order rows inside one assistant step to match what the user saw
+  // while streaming. AI SDK's ToolLoopAgent pushes parts onto the UI
+  // message in chunk-arrival order: tool-input-available → tool-output →
+  // text-delta, so the on-screen layout for a tool-using step is
+  // [tool-card, text]. The StepResult that survives into persistence
+  // loses that relative ordering (it has separate .text / .toolCalls
+  // fields), so persistStepDeltaAndUsageStep writes the assistant text
+  // row first and tool rows after — all sharing the same createdAt /
+  // stepNumber. Restoring the streaming order here means ranking tool
+  // rows ahead of the assistant text row.
+  //
+  // If partIndex is present on a row's payload (forward-compatible
+  // marker that may be written in a future change), prefer it so any
+  // explicit streaming order wins over the static rank.
+  const rank = (r: PersistedMessageRecord) =>
+    r.role === 'tool' ? 0 : r.role === 'assistant' ? 1 : 2;
   const ordered = [...groupRows].sort((a, b) => {
-    const rank = (r: PersistedMessageRecord) =>
-      r.role === 'assistant' ? 0 : r.role === 'tool' ? 1 : 2;
+    const aPartIdx = (a.payload as { partIndex?: unknown }).partIndex;
+    const bPartIdx = (b.payload as { partIndex?: unknown }).partIndex;
+    if (
+      typeof aPartIdx === 'number' &&
+      typeof bPartIdx === 'number' &&
+      aPartIdx !== bPartIdx
+    ) {
+      return aPartIdx - bPartIdx;
+    }
     const rankDiff = rank(a) - rank(b);
     if (rankDiff !== 0) return rankDiff;
     const aTime = a.createdAt?.getTime() ?? 0;
