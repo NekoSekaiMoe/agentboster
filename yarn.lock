@@ -562,71 +562,71 @@
   resolved "https://registry.npmmirror.com/@cbor-extract/cbor-extract-win32-x64/-/cbor-extract-win32-x64-2.2.2.tgz#adcd1cae6cfc5ba3dd1ace65642e7e63db744eca"
   integrity sha512-dI+9P7cfWxkTQ+oE+7Aa6onEn92PHgfWXZivjNheCRmTBDBf2fx6RyTi0cmgpYLnD1KLZK9ZYrMxaPZ4oiXhGA==
 
-"@chat-adapter/discord@^4.29.0":
-  version "4.31.0"
-  resolved "https://registry.npmmirror.com/@chat-adapter/discord/-/discord-4.31.0.tgz#9a2205de21af4038f179b914a0416e1f06065947"
-  integrity sha512-1dVw1+6ZBwdVh5ynLK9D+SyHdPWIBbiPmKRC+WhzDSddR8eySswcBiDUKaDMUaOmvJavPvibJLwWbohUSBiJww==
+"@chat-adapter/discord@4.29.0":
+  version "4.29.0"
+  resolved "https://registry.npmmirror.com/@chat-adapter/discord/-/discord-4.29.0.tgz#df772a964cee9bc83939879bb4868c72f3563fca"
+  integrity sha512-C6pDVKn7s0PhvgeqldYxoShWXJzthwtlo+sCesqenh56M03eHsioinqxeJttmtK8y1ZD8/qiP2lAZufDwuEQhA==
   dependencies:
-    "@chat-adapter/shared" "4.31.0"
-    chat "4.31.0"
+    "@chat-adapter/shared" "4.29.0"
+    chat "4.29.0"
     discord-api-types "^0.37.119"
     discord-interactions "^4.4.0"
     discord.js "^14.25.1"
 
-"@chat-adapter/gchat@^4.29.0":
-  version "4.31.0"
-  resolved "https://registry.npmmirror.com/@chat-adapter/gchat/-/gchat-4.31.0.tgz#abf941576ae36870a814bb0b1f89965e3c6dc4b3"
-  integrity sha512-4g7k7rJjTJJmtkuAoU3uGp87zNlebhzP+IJcxd9YrfK83/kApB/El5PGtn2P2SF/x5fl+EkOR9r/hWmH1U7Iyg==
+"@chat-adapter/gchat@4.29.0":
+  version "4.29.0"
+  resolved "https://registry.npmmirror.com/@chat-adapter/gchat/-/gchat-4.29.0.tgz#2955252630975e0fac606dac598679119d395b12"
+  integrity sha512-SZ5ZgzFmZ4oRj0AAISbjPztPiICTpw+RdPiPywNwqGWt2LItUOL+8+dl8zZMk+F86E/r0sqRjdbc8+9GqUe2pA==
   dependencies:
-    "@chat-adapter/shared" "4.31.0"
+    "@chat-adapter/shared" "4.29.0"
     "@googleapis/chat" "^44.6.0"
     "@googleapis/workspaceevents" "^9.1.0"
-    chat "4.31.0"
+    chat "4.29.0"
 
-"@chat-adapter/shared@4.31.0":
-  version "4.31.0"
-  resolved "https://registry.npmmirror.com/@chat-adapter/shared/-/shared-4.31.0.tgz#cda89f4534c6952dc431d43cb62db42dddd5c8d4"
-  integrity sha512-vT/0S/LKSU5QTz5xJNWdiGp1jl55x0o8Z9I2VqlHfwjOKxVR87z++bQjXlE99w6BAxZjSYhWErlveyKo4LiDGg==
+"@chat-adapter/shared@4.29.0":
+  version "4.29.0"
+  resolved "https://registry.npmmirror.com/@chat-adapter/shared/-/shared-4.29.0.tgz#7727d9c9639ed48f94de10f88e3e09fd0e7bd94e"
+  integrity sha512-ARqTDoHJHKN9rpytbFPJbNmqqx3fOg5xwsTZdlingQPAssOSeHDBdqrFJkgDhyCRGbmDtG09cuS0FkVzeoh2qg==
   dependencies:
-    chat "4.31.0"
+    chat "4.29.0"
 
-"@chat-adapter/slack@^4.29.0":
-  version "4.31.0"
-  resolved "https://registry.npmmirror.com/@chat-adapter/slack/-/slack-4.31.0.tgz#57dd2be5d2da93aa6a22a93afdd0daa1379ec60c"
-  integrity sha512-b+nUizoTQac0gNEaZ+F4XAYcFtynXufpGUYMkeSwfiD9najoQEKXpvZya8PgqX1Ddn3SPddeJ/ip+RS2oQuBLA==
+"@chat-adapter/slack@4.29.0":
+  version "4.29.0"
+  resolved "https://registry.npmmirror.com/@chat-adapter/slack/-/slack-4.29.0.tgz#d1c254302d2871fac20dccc829ffa3c9b6321c60"
+  integrity sha512-s2DXAwkTpmiIKSATXgrO879s1pqFwS70Y0JPd+TRGRzDeh6nfqt5dnKt5Bug0P1zwkB6DoPurhnYS9nqhSmD/w==
   dependencies:
-    "@chat-adapter/shared" "4.31.0"
+    "@chat-adapter/shared" "4.29.0"
     "@slack/socket-mode" "^2.0.5"
     "@slack/web-api" "^7.14.0"
-    chat "4.31.0"
+    chat "4.29.0"
 
-"@chat-adapter/state-redis@^4.29.0":
-  version "4.31.0"
-  resolved "https://registry.npmmirror.com/@chat-adapter/state-redis/-/state-redis-4.31.0.tgz#00016528fbb5c57cfda048989f6c43305f40604a"
-  integrity sha512-RS6QFp6P1lMpOAkDe8uFM7+0FUlfTfdyAct442ojSCsuqnVjQQFtylWPxvNwpeuvAAazruHAabg30Vngo8xy4w==
+"@chat-adapter/state-redis@4.29.0":
+  version "4.29.0"
+  resolved "https://registry.npmmirror.com/@chat-adapter/state-redis/-/state-redis-4.29.0.tgz#4adb9fb0f95dce8e45fe091d2a6b933086ae71c2"
+  integrity sha512-Nn/PMSrkavIwFbNt1yyIZ0VZ1b5hT8Gw0Ujcnvnv+JlfBGz44XEE0/+NRLRx07mDndov1MlUkGjBHuKPZcS1Tg==
   dependencies:
-    chat "4.31.0"
+    chat "4.29.0"
     redis "^5.11.0"
 
-"@chat-adapter/teams@^4.29.0":
-  version "4.31.0"
-  resolved "https://registry.npmmirror.com/@chat-adapter/teams/-/teams-4.31.0.tgz#cca8f2891f7f7d9b6af54e3ae5c47c9e2fd42ccd"
-  integrity sha512-SGkwO8XqoRHrmWThNEomWc1Tcn7GdoiO6TBod9ixbUKz6MuV4ovYVwWLaxnO8wjPA/W5KoPvPIwSEZiuNpRymw==
+"@chat-adapter/teams@4.29.0":
+  version "4.29.0"
+  resolved "https://registry.npmmirror.com/@chat-adapter/teams/-/teams-4.29.0.tgz#8ecfa027e09a12126f007a0c8f7bc385381f0224"
+  integrity sha512-KQq1JOeE8kgp13CAviT8+7A4KHO4uZOceV4VbIZdJiyDsChR08KTOeCNAKd6wr48zyF5SulJUjMbnOy745NTFw==
   dependencies:
-    "@chat-adapter/shared" "4.31.0"
+    "@chat-adapter/shared" "4.29.0"
     "@microsoft/teams.api" "^2.0.8"
     "@microsoft/teams.apps" "^2.0.8"
     "@microsoft/teams.cards" "^2.0.8"
     "@microsoft/teams.graph-endpoints" "^2.0.8"
-    chat "4.31.0"
+    chat "4.29.0"
 
-"@chat-adapter/telegram@^4.29.0":
-  version "4.31.0"
-  resolved "https://registry.npmmirror.com/@chat-adapter/telegram/-/telegram-4.31.0.tgz#86ef7cafe1bdae1a8fe987a8743d180295046768"
-  integrity sha512-kwhPKkhhRzt82XTunCD1cROkJOo+c1cpOEzSXT3RX6BIcVwqikh6k7qTSPG6gmBPiouMbNnvzgnQYFgA7FZJPw==
+"@chat-adapter/telegram@4.29.0":
+  version "4.29.0"
+  resolved "https://registry.npmmirror.com/@chat-adapter/telegram/-/telegram-4.29.0.tgz#d512e10f33edcf7798a93555ec713bc2494f5a57"
+  integrity sha512-015tU3HEjFQWw7DgebXWkDeQA6lTdTVEO4btAV3f6U1kEnOfjLVJq98latcsM1WkEvv+3LIFKpsz9pG53aamBw==
   dependencies:
-    "@chat-adapter/shared" "4.31.0"
-    chat "4.31.0"
+    "@chat-adapter/shared" "4.29.0"
+    chat "4.29.0"
 
 "@codemirror/lang-json@6.0.2":
   version "6.0.2"
@@ -3643,20 +3643,10 @@
   dependencies:
     "@vercel/python-analysis" "0.11.1"
 
-"@vercel/queue@0.3.1":
+"@vercel/queue@0.3.1", "@vercel/queue@^0.3.1":
   version "0.3.1"
   resolved "https://registry.npmmirror.com/@vercel/queue/-/queue-0.3.1.tgz#419ab719b2f4d022ced1111712914ee4ba5eb3aa"
   integrity sha512-6pjdXyNfdCQnj1nyeB1rPtll/XUhmciyeZJD0rpIUUwmcIfR+utDl6+iFvlHvsBdqAVT8UC6ydObT0v+xldfUQ==
-  dependencies:
-    "@vercel/oidc" "^3.0.5"
-    minimatch "^10.2.4"
-    mixpart "0.0.6"
-    picocolors "^1.1.1"
-
-"@vercel/queue@^0.1.7":
-  version "0.1.7"
-  resolved "https://registry.npmmirror.com/@vercel/queue/-/queue-0.1.7.tgz#dc215883de7977f4d2f916e81a915df9b87be9ad"
-  integrity sha512-4Uk9LOvDPVYqBJGrNDk4fdLte4CmFERXCUJI2y7SRYX1d//dI96Ww7sgKZF4+YDj/YaBXoCZ11AU0HYkVwW9Eg==
   dependencies:
     "@vercel/oidc" "^3.0.5"
     minimatch "^10.2.4"
@@ -4680,10 +4670,10 @@ character-reference-invalid@^2.0.0:
   resolved "https://registry.npmmirror.com/character-reference-invalid/-/character-reference-invalid-2.0.1.tgz#85c66b041e43b47210faf401278abf808ac45cb9"
   integrity sha512-iBZ4F4wRbyORVsu0jPV7gXkOsGYjGHPmAyv+HiHG8gi5PtC9KI2j1+v8/tlibRvjoWX027ypmG/n0HtO5t7unw==
 
-chat@4.31.0, chat@^4.29.0:
-  version "4.31.0"
-  resolved "https://registry.npmmirror.com/chat/-/chat-4.31.0.tgz#b36aa95fdbf3fc3fb842a99523453e8f4e15d07e"
-  integrity sha512-F6oJq9JUraLFkITS96/NKgwZwBfZX8aOwOj5qMs5NNwnOGHrSXZ5+osK+EA4HjzfyUEDfFTNiOSmyzgtFLpuWg==
+chat@4.29.0:
+  version "4.29.0"
+  resolved "https://registry.npmmirror.com/chat/-/chat-4.29.0.tgz#4ea817933bfde454e81f698cf4ff93aae2f08668"
+  integrity sha512-KdPfzaie5ivYytyRICTERg5xT+LeCbYefokvNAqTHe92eqkFaoTMXXkSitikxJVWhZIb2YoXF1b9UZHyzSzKzw==
   dependencies:
     "@workflow/serde" "4.1.0-beta.2"
     mdast-util-to-string "^4.0.0"

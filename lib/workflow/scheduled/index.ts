@@ -94,6 +94,25 @@ export async function scheduledTaskWorkflow(taskId: string) {
     });
 
     await sleep(nextRunAt);
-    await postScheduledTrigger(current.id, nextRunAt.toISOString());
+    try {
+      await postScheduledTrigger(current.id, nextRunAt.toISOString());
+    } catch (error) {
+      // postScheduledTrigger is a 'use step' — once its internal retries
+      // are exhausted, the runtime rejects its promise with FatalError.
+      // Without this catch the FatalError bubbles to the workflow body
+      // and the entire daily run enters 'failed' state, silently killing
+      // every future fire of this task.
+      //
+      // Daily frequency is the right cadence for retry: a transient
+      // outage (chat backend 5xx, DB connection blip) at 09:00 should
+      // not spam retries at 09:00:04 / 09:00:08 — it should just wait
+      // for the next day's slot. Swallow, log, let the while loop
+      // advance to the next computeNextDailyRunAt().
+      logger.error('daily:trigger_failed', {
+        taskId: current.id,
+        scheduledFor: nextRunAt.toISOString(),
+        error,
+      });
+    }
   }
 }
