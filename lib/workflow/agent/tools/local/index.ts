@@ -155,6 +155,48 @@ export default defineBuildInTool({
           return formatToolResult(result);
         },
       }),
+
+      local_ask_question: tool({
+        title: 'Ask the user a question (local TUI)',
+        description:
+          'Ask the user a clarifying question. The CLI renders an inline ' +
+          'prompt in the TUI and blocks until the user answers. Use ' +
+          'sparingly — prefer acting on reasonable assumptions over ' +
+          'interrupting the user. Each prompt can be free-text or ' +
+          'multiple-choice (provide options).',
+        inputSchema: z.object({
+          prompts: z
+            .array(
+              z.object({
+                question: z.string().min(1).describe('The question text.'),
+                options: z
+                  .array(z.string())
+                  .optional()
+                  .describe(
+                    'If provided, the user picks from these options. ' +
+                      'Omit for free-text input.',
+                  ),
+                multiple: z
+                  .boolean()
+                  .optional()
+                  .describe(
+                    'If true with options, allow multiple selections.',
+                  ),
+              }),
+            )
+            .min(1)
+            .max(5)
+            .describe('1-5 questions to ask the user.'),
+        }),
+        execute: async (input, { toolCallId }) => {
+          const result = await waitForLocalToolResult({
+            toolCallId,
+            toolName: 'local_ask_question',
+            toolInput: input,
+          });
+          return formatToolResult(result);
+        },
+      }),
     };
   },
 });

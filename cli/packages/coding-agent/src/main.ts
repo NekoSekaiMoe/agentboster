@@ -963,9 +963,10 @@ async function postCompactionResult(
  * until we respond at /api/ai/[runId]/tool-result.
  *
  * Tool names match the web backend's local_* vocabulary:
- *   local_read_file  → read a local file
- *   local_write_file → write a local file
- *   local_exec       → run a shell command locally
+ *   local_read_file     → read a local file
+ *   local_write_file    → write a local file
+ *   local_exec          → run a shell command locally
+ *   local_ask_question  → ask the user a question in the TUI
  */
 async function handleLocalToolRequest(
 	auth: { url: string; token: string },
@@ -978,12 +979,16 @@ async function handleLocalToolRequest(
 	const input = toolInput as Record<string, unknown>;
 	let result: { ok: boolean; output?: unknown; error?: string };
 
+	// local_ask_question is not a security-sensitive operation (no file/shell
+	// access), so skip the L0/L1/L2 gate entirely.
+	const isQuestion = toolName === "local_ask_question";
+
 	// Security gate: L0 blocks immediately, L2 requires user confirmation.
 	// --yolo skips both tiers (auto-approve every local_* invocation).
 	const command = toolName === "local_exec"
 		? String(input["command"] ?? "")
 		: formatToolRequest(toolName, toolInput);
-	const decision = yolo
+	const decision = (yolo || isQuestion)
 		? { ok: true, autoApprove: true, level: "l0" as const, message: "yolo (skipped)" }
 		: evaluateLocalCommand(command);
 
@@ -1038,36 +1043,73 @@ async function handleLocalToolRequest(
 				result = { ok: true, output: `Wrote ${content.length} bytes to ${path}` };
 				break;
 			}
-			case "local_exec": {
-				const command = String(input["command"] ?? "");
-				const cwd = typeof input["cwd"] === "string" ? input["cwd"] : process.cwd();
-				const { spawn } = await import("node:child_process");
-				result = await new Promise((resolve) => {
-					const child = spawn(command, {
-						shell: process.env["SHELL"] ?? "/bin/sh",
-						cwd: typeof cwd === "string" ? cwd : process.cwd(),
-						env: process.env,
-					});
-					let stdout = "";
-					let stderr = "";
-					const MAX = 100_000;
-					child.stdout?.on("data", (chunk: Buffer) => {
-						if (stdout.length < MAX) stdout += chunk.toString("utf8").slice(0, MAX - stdout.length);
-					});
-					child.stderr?.on("data", (chunk: Buffer) => {
-						if (stderr.length < MAX) stderr += chunk.toString("utf8").slice(0, MAX - stderr.length);
-					});
-					child.on("error", (err) => resolve({ ok: false, error: err.message }));
-					child.on("close", (code) => {
-						if (code === 0) {
-							resolve({ ok: true, output: stderr ? `${stdout}\n[stderr]\n${stderr}` : stdout });
-						} else {
-							resolve({ ok: false, error: `Exit ${code}.\n[stdout]\n${stdout}\n[stderr]\n${stderr}` });
-						}
-					});
+		case "local_exec": {
+			const command = String(input["command"] ?? "");
+			const cwd = typeof input["cwd"] === "string" ? input["cwd"] : process.cwd();
+			const { spawn } = await import("node:child_process");
+			result = await new Promise((resolve) => {
+				const child = spawn(command, {
+					shell: process.env["SHELL"] ?? "/bin/sh",
+					cwd: typeof cwd === "string" ? cwd : process.cwd(),
+					env: process.env,
 				});
+				let stdout = "";
+				let stderr = "";
+				const MAX = 100_000;
+				child.stdout?.on("data", (chunk: Buffer) => {
+					if (stdout.length < MAX) stdout += chunk.toString("utf8").slice(0, MAX - stdout.length);
+				});
+				child.stderr?.on("data", (chunk: Buffer) => {
+					if (stderr.length < MAX) stderr += chunk.toString("utf8").slice(0, MAX - stderr.length);
+				});
+				child.on("error", (err) => resolve({ ok: false, error: err.message }));
+				child.on("close", (code) => {
+					if (code === 0) {
+						resolve({ ok: true, output: stderr ? `${stdout}\n[stderr]\n${stderr}` : stdout });
+					} else {
+						resolve({ ok: false, error: `Exit ${code}.\n[stdout]\n${stdout}\n[stderr]\n${stderr}` });
+					}
+				});
+			});
+			break;
+		}
+		case "local_ask_question": {
+			const prompts = Array.isArray(input["prompts"]) ? input["prompts"] as Array<Record<string, unknown>> : [];
+			if (process.stdin.isTTY !== true) {
+				result = { ok: false, error: "Cannot ask a question without a TTY (running in -p mode)." };
 				break;
 			}
+			const rl = createInterfacePromises({ input: process.stdin, output: process.stdout });
+			const answers: string[] = [];
+			for (const prompt of prompts) {
+				const question = String(prompt["question"] ?? "");
+				const options = Array.isArray(prompt["options"]) ? prompt["options"] as string[] : undefined;
+				const multiple = Boolean(prompt["multiple"]);
+				if (options && options.length > 0) {
+					const lines = options.map((o, i) => `  ${i + 1}. ${o}`);
+					const hint = multiple ? " (comma-separate for multiple)" : "";
+					const raw = await rl.question(`\n❓ ${question}\n${lines.join("\n")}\nChoice${hint}: `);
+					const picks = raw.split(",").map((s) => s.trim()).filter(Boolean);
+					const selected: string[] = [];
+					for (const pick of picks) {
+						const idx = Number.parseInt(pick, 10);
+						if (Number.isFinite(idx) && idx >= 1 && idx <= options.length) {
+							selected.push(options[idx - 1]!);
+						} else if (options.includes(pick)) {
+							selected.push(pick);
+						}
+					}
+					if (!multiple && selected.length > 1) answers.push(selected[0] ?? "");
+					else answers.push(selected.join(", "));
+				} else {
+					const raw = await rl.question(`\n❓ ${question}\n> `);
+					answers.push(raw.trim());
+				}
+			}
+			rl.close();
+			result = { ok: true, output: answers };
+			break;
+		}
 			default:
 				result = { ok: false, error: `Unknown local tool: ${toolName}` };
 		}
