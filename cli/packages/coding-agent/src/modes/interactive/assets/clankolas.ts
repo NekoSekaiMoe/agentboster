@@ -29,9 +29,7 @@ export function getClankolasBase64(): string | undefined {
 		return cached;
 	}
 	try {
-		cached = fs
-			.readFileSync(getBundledInteractiveAssetPath(IMAGE_FILENAME))
-			.toString("base64");
+		cached = fs.readFileSync(getBundledInteractiveAssetPath(IMAGE_FILENAME)).toString("base64");
 	} catch {
 		cached = undefined;
 	}

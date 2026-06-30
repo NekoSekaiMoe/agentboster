@@ -1,13 +1,7 @@
 import chalk from "chalk";
 import { selectConfig } from "./cli/config-selector.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
-import {
-	APP_NAME,
-	CONFIG_DIR_NAME,
-	getAgentDir,
-	PACKAGE_NAME,
-	VERSION,
-} from "./config.ts";
+import { APP_NAME, CONFIG_DIR_NAME, getAgentDir } from "./config.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { DefaultPackageManager } from "./core/package-manager.ts";
 import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
@@ -354,7 +348,6 @@ export async function handlePackageCommand(
 		return true;
 	}
 	reportSettingsErrors(settingsManager, "package command");
-	const selfUpdateNpmCommand = settingsManager.getGlobalSettings().npmCommand;
 
 	const packageManager = new DefaultPackageManager({ cwd, agentDir, settingsManager });
 

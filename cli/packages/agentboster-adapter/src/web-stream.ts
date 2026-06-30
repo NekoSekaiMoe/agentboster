@@ -5,13 +5,7 @@
  * stream protocol) into a pi `AssistantMessageEventStream`.
  */
 
-import type {
-	Api,
-	AssistantMessage,
-	Context,
-	Model,
-	ToolCall,
-} from "@agentboster-cli/ai";
+import type { Api, AssistantMessage, Context, Model, ToolCall } from "@agentboster-cli/ai";
 import {
 	type AssistantMessageEventStream,
 	createAssistantMessageEventStream,
@@ -348,8 +342,7 @@ function handleChunk(
 		}
 
 		case "tool-input-delta": {
-			const delta =
-				typeof chunk.inputTextDelta === "string" ? chunk.inputTextDelta : "";
+			const delta = typeof chunk.inputTextDelta === "string" ? chunk.inputTextDelta : "";
 			if (state.toolIndex >= 0) {
 				const part = state.partial.content[state.toolIndex];
 				if (part && part.type === "toolCall") {
@@ -487,13 +480,13 @@ function handleChunk(
 			if (data?.type === "token-usage" || data?.kind === "status") {
 				const usage = (data as { usage?: Record<string, number> }).usage;
 				if (usage) {
-					const input = usage["input"] ?? usage["promptTokens"] ?? 0;
-					const output = usage["output"] ?? usage["completionTokens"] ?? 0;
-					const cacheRead = usage["cacheRead"] ?? 0;
-					const cacheWrite = usage["cacheWrite"] ?? 0;
+					const input = usage.input ?? usage.promptTokens ?? 0;
+					const output = usage.output ?? usage.completionTokens ?? 0;
+					const cacheRead = usage.cacheRead ?? 0;
+					const cacheWrite = usage.cacheWrite ?? 0;
 					// Web may send cost as a number (legacy) or as an
 					// object matching pi-ai's Usage.cost shape. Normalize.
-					const rawCost = usage["cost"];
+					const rawCost = usage.cost;
 					const costNum = typeof rawCost === "number" ? rawCost : 0;
 					const costObj =
 						typeof rawCost === "object" && rawCost !== null
@@ -516,7 +509,7 @@ function handleChunk(
 						output,
 						cacheRead,
 						cacheWrite,
-						totalTokens: usage["totalTokens"],
+						totalTokens: usage.totalTokens,
 						cost: costObj,
 					};
 				}
@@ -525,8 +518,7 @@ function handleChunk(
 		}
 
 		case "error": {
-			const message =
-				typeof chunk.message === "string" ? chunk.message : "unknown error";
+			const message = typeof chunk.message === "string" ? chunk.message : "unknown error";
 			stream.push({
 				type: "error",
 				reason: "error",

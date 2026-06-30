@@ -1,6 +1,6 @@
 import type { AgentState } from "@agentboster-cli/agent";
 import { existsSync, writeFileSync } from "fs";
-import { basename, join } from "path";
+import { basename } from "path";
 import { APP_NAME } from "../../config.ts";
 import { getResolvedThemeColors, getThemeExportColors } from "../../modes/interactive/theme/theme.ts";
 import { normalizePath, resolvePath } from "../../utils/paths.ts";

@@ -11,10 +11,7 @@
  */
 
 import type { StreamFn } from "@agentboster-cli/agent";
-import {
-	type AssistantMessageEventStream,
-	createAssistantMessageEventStream,
-} from "@agentboster-cli/ai/utils/event-stream";
+import { createAssistantMessageEventStream } from "@agentboster-cli/ai/utils/event-stream";
 import type { Api, Context, Model, SimpleStreamOptions } from "@agentboster-cli/ai";
 
 import {

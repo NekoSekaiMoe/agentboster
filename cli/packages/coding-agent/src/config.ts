@@ -1,8 +1,7 @@
-import { accessSync, constants, existsSync, realpathSync } from "fs";
+import { existsSync } from "fs";
 import { homedir } from "os";
-import { basename, dirname, join, resolve, sep, win32 } from "path";
+import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { spawnProcessSync } from "./utils/child-process.ts";
 import { normalizePath } from "./utils/paths.ts";
 
 // =============================================================================
@@ -21,8 +20,6 @@ export const isBunBinary =
 
 /** Detect if Bun is the runtime (compiled binary or bun run) */
 export const isBunRuntime = !!process.versions.bun;
-
-
 
 // =============================================================================
 // Package Asset Paths (shipped with executable)
@@ -145,7 +142,7 @@ interface PackageJson {
 // (dev) mode this resolves to the real package.json on disk.
 import packageJsonInline from "../package.json";
 
-let pkg: PackageJson = packageJsonInline as PackageJson;
+const pkg: PackageJson = packageJsonInline as PackageJson;
 
 const piConfigName: string | undefined = pkg.piConfig?.name;
 export const PACKAGE_NAME: string = pkg.name || "@agentboster-cli/core";
