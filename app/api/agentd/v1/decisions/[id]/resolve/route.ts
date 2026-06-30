@@ -102,8 +102,6 @@ export async function POST(
     });
 
     // Forward to daemon for L2 auth (the agent loop is blocked waiting).
-    // Question/conflict/branch answers go back via the notification
-    // callback path (P0.3 will wire that end-to-end).
     if (decision.type === 'l2_auth') {
       const daemonAction =
         reply === 'reject'
@@ -122,6 +120,36 @@ export async function POST(
         });
       } catch (err) {
         logger.warn('forward to daemon failed; decision still recorded', {
+          decisionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // For daemon-origin questions (nodeId set), inject the answer as a
+    // follow-up task so the daemon's agent picks it up on its next run.
+    // The daemon's ask_question tool is fire-and-forget, so the answer
+    // can't unblock the current turn — but creating a follow-up task
+    // ensures the answer reaches the agent as a new user message.
+    // Web-origin questions (no nodeId) are already unblocked via the
+    // in-process waitForResolution() callback in the ask_question tool.
+    if (decision.type === 'question' && decision.nodeId && answers && answers.length > 0) {
+      try {
+        const answerText = answers
+          .map((a) => (Array.isArray(a) ? a.join(', ') : String(a)))
+          .join('; ');
+        const { createTask } = await import('@/lib/core/db/agentd');
+        await createTask({
+          agentId: decision.agentId ?? 'default',
+          sessionId: decision.sessionId,
+          command: `[User answer to "${decision.question ?? 'question'}"]: ${answerText}`,
+        });
+        logger.info('question answer forwarded as follow-up task', {
+          decisionId,
+          sessionId: decision.sessionId,
+        });
+      } catch (err) {
+        logger.warn('failed to forward question answer as task', {
           decisionId,
           error: err instanceof Error ? err.message : String(err),
         });

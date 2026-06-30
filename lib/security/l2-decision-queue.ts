@@ -119,6 +119,10 @@ export class DecisionQueue {
   private decisions = new Map<string, Decision>();
   private pendingOrder: string[] = [];
   private checkInterval: NodeJS.Timeout | null = null;
+  /** Resolvers for in-process waitForResolution() callers (Web TS agent
+   *  ask_question tool). Daemon-side questions don't use this — they're
+   *  fire-and-forget and the answer is forwarded via HTTP. */
+  private resolvers = new Map<string, (decision: Decision | null) => void>();
 
   constructor(private timeoutMs: number = DEFAULT_TIMEOUT) {
     this.startTimeoutMonitor();
@@ -229,6 +233,14 @@ export class DecisionQueue {
       if (answers) decision.answers = answers;
     }
 
+    // Notify any in-process waitForResolution() caller (Web TS agent
+    // ask_question tool).
+    const resolver = this.resolvers.get(decisionId);
+    if (resolver) {
+      this.resolvers.delete(decisionId);
+      resolver(decision ?? null);
+    }
+
     this.advanceQueue();
     return updated ? rowToDecision(updated) : (decision ?? null);
   }
@@ -262,8 +274,39 @@ export class DecisionQueue {
       decision.action = 'deny';
     }
 
+    // Notify any in-process waitForResolution() caller.
+    const denyResolver = this.resolvers.get(decisionId);
+    if (denyResolver) {
+      this.resolvers.delete(decisionId);
+      denyResolver(decision ?? null);
+    }
+
     this.advanceQueue();
     return updated ? rowToDecision(updated) : (decision ?? null);
+  }
+
+  /**
+   * Wait for a decision to be resolved/denied/expired. Returns the final
+   * Decision (or null if not found / timed out). Used by the Web TS agent's
+   * ask_question tool to block the workflow step until the user answers.
+   */
+  waitForResolution(decisionId: string, timeoutMs?: number): Promise<Decision | null> {
+    // If already resolved, return immediately.
+    const existing = this.decisions.get(decisionId);
+    if (existing && (existing.status === DecisionStatus.RESOLVED || existing.status === DecisionStatus.DENIED || existing.status === DecisionStatus.EXPIRED || existing.status === DecisionStatus.TIMEOUT)) {
+      return Promise.resolve(existing);
+    }
+    const wait = this.timeoutMs;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.resolvers.delete(decisionId);
+        resolve(this.decisions.get(decisionId) ?? null);
+      }, timeoutMs ?? wait);
+      this.resolvers.set(decisionId, (decision) => {
+        clearTimeout(timer);
+        resolve(decision);
+      });
+    });
   }
 
   /**
