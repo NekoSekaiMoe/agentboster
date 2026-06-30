@@ -147,6 +147,15 @@ export function Chat({
   const statusRef = useRef<'submitted' | 'streaming' | 'ready' | 'error'>(
     'ready',
   );
+  // useChat holds its Chat instance in a useRef that is only recreated
+  // when the `id` option changes. With PPR enabled on the chat route,
+  // the page streams in two passes: a static shell (where the dynamic
+  // getVisibleSessionMessages query hasn't resolved yet, so
+  // initialMessages is []) followed by the real data. useChat latches
+  // onto the empty array on first render and never picks up the
+  // subsequently-arriving messages. Track the initialMessages we've
+  // handed to useChat so we can inject them once they actually arrive.
+  const hydratedMessagesRef = useRef<WorkflowUIMessage[] | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [composerFocusKey, setComposerFocusKey] = useState(0);
@@ -465,6 +474,27 @@ export function Chat({
     },
     experimental_throttle: 100,
   });
+
+  // PPR hydration: when the page is partially prerendered, the Chat
+  // component mounts during the static-shell phase with empty
+  // initialMessages. useChat's useRef-held Chat instance latches onto
+  // that empty array. Once the dynamic RSC payload arrives with the
+  // real messages, inject them into useChat. Only do this while idle
+  // (never clobber an active stream) and only once per id (tracked via
+  // hydratedMessagesRef, reset when the chat id changes by the Chat
+  // component's key prop forcing a full remount).
+  useEffect(() => {
+    if (initialMessages.length === 0) return;
+    if (
+      hydratedMessagesRef.current !== null &&
+      hydratedMessagesRef.current.length >= initialMessages.length
+    ) {
+      return;
+    }
+    if (status === 'streaming' || status === 'submitted') return;
+    hydratedMessagesRef.current = initialMessages;
+    setMessages(initialMessages);
+  }, [initialMessages, setMessages, status]);
 
   useEffect(() => {
     statusRef.current = status;
