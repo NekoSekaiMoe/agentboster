@@ -1448,8 +1448,14 @@ export class SessionManager {
 
 	/**
 	 * Create a new session.
-	 * @param cwd Working directory (stored in session header)
-	 * @param sessionDir Optional session directory. If omitted, uses default (~/.pi/agent/sessions/<encoded-cwd>/).
+	 *
+	 * @param cwd Working directory (stored in session header).
+	 * @param _sessionDir Ignored. Accepted for backward compatibility with
+	 *   the pi-coding-agent fork; the agentboster CLI treats local session
+	 *   files as ephemeral working copies (deleted on process exit) because
+	 *   the Web backend owns durable session state. Use the Web session
+	 *   selector / `--session <id>` for cross-session history.
+	 * @param options Options for the new session (e.g. explicit session id).
 	 */
 	static create(cwd: string, _sessionDir?: string, options?: NewSessionOptions): SessionManager {
 		return new SessionManager(cwd, undefined, undefined, true, options);
