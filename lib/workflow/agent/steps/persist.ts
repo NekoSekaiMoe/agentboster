@@ -111,11 +111,14 @@ export async function persistStepDeltaAndUsageStep(input: {
     'assistant',
   );
 
-  if (input.step.text.trim().length > 0) {
+  const hasText = input.step.text.trim().length > 0;
+  const hasReasoning = (input.step.reasoningText ?? '').trim().length > 0;
+  if (hasText || hasReasoning) {
     rows.push({
       ...serializeAssistantMessage({
         sessionId: input.sessionId,
         text: input.step.text,
+        reasoningText: input.step.reasoningText,
         stepNumber: input.step.stepNumber,
         finishReason: input.step.finishReason,
         usage,

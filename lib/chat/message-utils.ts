@@ -283,12 +283,20 @@ export function serializeWorkflowMessage(input: {
 export function serializeAssistantMessage(input: {
   sessionId: string;
   text: string;
+  reasoningText?: string;
   stepNumber?: number;
   finishReason?: string | null;
   usage?: TokenUsage;
   createdAt?: Date;
 }): SerializedMessageForDB {
-  const parts = input.text.length > 0 ? [createTextPart(input.text)] : [];
+  const parts: MessagePart[] = [];
+  const reasoning = (input.reasoningText ?? '').trim();
+  if (reasoning.length > 0) {
+    parts.push({ type: 'reasoning', text: reasoning, state: 'done' });
+  }
+  if (input.text.length > 0) {
+    parts.push(createTextPart(input.text));
+  }
 
   return {
     sessionId: input.sessionId,
