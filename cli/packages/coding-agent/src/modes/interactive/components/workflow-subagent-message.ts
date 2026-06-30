@@ -10,9 +10,7 @@ import { keyText } from "./keybinding-hints.ts";
 type WorkflowSubagentDetails = WorkflowSubagentEventDetails | WorkflowSubagentBatchEventDetails;
 type SubagentMessage = CustomMessage<WorkflowSubagentDetails>;
 
-function isBatchEvent(
-	event: WorkflowSubagentDetails | undefined,
-): event is WorkflowSubagentBatchEventDetails {
+function isBatchEvent(event: WorkflowSubagentDetails | undefined): event is WorkflowSubagentBatchEventDetails {
 	return Boolean(event && "batchId" in event);
 }
 
@@ -87,9 +85,15 @@ export class WorkflowSubagentMessageComponent extends Box {
 
 		if (!event) {
 			this.addChild(
-				new Markdown(typeof this.message.content === "string" ? this.message.content : "Sub-agent event", 0, 0, this.markdownTheme, {
-					color: (text: string) => theme.fg("customMessageText", text),
-				}),
+				new Markdown(
+					typeof this.message.content === "string" ? this.message.content : "Sub-agent event",
+					0,
+					0,
+					this.markdownTheme,
+					{
+						color: (text: string) => theme.fg("customMessageText", text),
+					},
+				),
 			);
 			return;
 		}

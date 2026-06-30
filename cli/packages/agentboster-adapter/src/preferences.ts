@@ -8,13 +8,7 @@
  * pushes on change.
  */
 
-export type ThinkingLevel =
-	| "off"
-	| "minimal"
-	| "low"
-	| "medium"
-	| "high"
-	| "xhigh";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export interface UserPreferences {
 	model?: string;
@@ -30,10 +24,7 @@ export interface PreferencesResponse {
  * Fetch the caller's current preferences. Returns null on auth failure
  * or network error — caller should treat null as "no preference set".
  */
-export async function fetchUserPreferences(
-	baseUrl: string,
-	token: string,
-): Promise<UserPreferences | null> {
+export async function fetchUserPreferences(baseUrl: string, token: string): Promise<UserPreferences | null> {
 	const root = baseUrl.replace(/\/$/, "");
 	try {
 		const response = await fetch(`${root}/api/cli/preferences`, {

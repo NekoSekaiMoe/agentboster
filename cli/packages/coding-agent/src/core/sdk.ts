@@ -304,9 +304,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			tools: [],
 		},
 		convertToLlm: convertToLlmWithBlockImages,
-		streamFn: options.streamFnOverride ?? ((_model, _context, _options) => {
-			throw new Error("No streamFn configured. Agentboster mode requires streamFnOverride.");
-		}),
+		streamFn:
+			options.streamFnOverride ??
+			((_model, _context, _options) => {
+				throw new Error("No streamFn configured. Agentboster mode requires streamFnOverride.");
+			}),
 		// In thin-client mode (streamFnOverride talks to the Web backend),
 		// tool calls are executed remotely (local_* on the CLI host via SSE,
 		// everything else on the Web workflow / agentd). Their results arrive

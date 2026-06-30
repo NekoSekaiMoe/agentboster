@@ -20,62 +20,37 @@ import type {
 
 export * from "./index.ts";
 
-export function streamSimple(
-	_model: Model<Api>,
-	_context: Context,
-	_options?: SimpleStreamOptions,
-): never {
-	throw new Error(
-		"streamSimple is not available in this fork. Use the Agentboster adapter.",
-	);
+export function streamSimple(_model: Model<Api>, _context: Context, _options?: SimpleStreamOptions): never {
+	throw new Error("streamSimple is not available in this fork. Use the Agentboster adapter.");
 }
 
-export function completeSimple(
-	_model: Model<Api>,
-	_context: Context,
-	_options?: SimpleStreamOptions,
-): never {
-	throw new Error(
-		"completeSimple is not available in this fork. Use the Agentboster adapter.",
-	);
+export function completeSimple(_model: Model<Api>, _context: Context, _options?: SimpleStreamOptions): never {
+	throw new Error("completeSimple is not available in this fork. Use the Agentboster adapter.");
 }
 
 export function getProviders(): KnownProvider[] {
 	return [];
 }
 
-export function modelsAreEqual(
-	a: Model<Api> | undefined,
-	b: Model<Api> | undefined,
-): boolean {
+export function modelsAreEqual(a: Model<Api> | undefined, b: Model<Api> | undefined): boolean {
 	return a?.id === b?.id;
 }
 
-export function validateToolArguments(
-	_tool: unknown,
-	call: unknown,
-): unknown {
+export function validateToolArguments(_tool: unknown, call: unknown): unknown {
 	return call;
 }
 
 export function cleanupSessionResources(_sessionId?: string): void {}
 
-export function isContextOverflow(
-	_message: AssistantMessage,
-	_contextWindow: number,
-): boolean {
+export function isContextOverflow(_message: AssistantMessage, _contextWindow: number): boolean {
 	return false;
 }
 
-export function isRetryableAssistantError(
-	_message: AssistantMessage,
-): boolean {
+export function isRetryableAssistantError(_message: AssistantMessage): boolean {
 	return false;
 }
 
-export function getSupportedThinkingLevels(
-	_model: Model<Api>,
-): ThinkingLevel[] {
+export function getSupportedThinkingLevels(_model: Model<Api>): ThinkingLevel[] {
 	return ["low", "medium", "high"];
 }
 

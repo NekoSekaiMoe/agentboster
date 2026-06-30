@@ -8,7 +8,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMessage, ThinkingLevel } from "@agentboster-cli/agent";
-import { clearStoredAuth, createAgentbosterStreamFn, fetchRemoteModels, getStoredAuth, remoteModelsToPiModels, writeStoredConfig } from "@agentboster/adapter";
+import {
+	clearStoredAuth,
+	createAgentbosterStreamFn,
+	fetchRemoteModels,
+	getStoredAuth,
+	remoteModelsToPiModels,
+	writeStoredConfig,
+} from "@agentboster/adapter";
 import { defaultClientLabel, exchangePairCode, loginWithPassword } from "../../cli/login.ts";
 import {
 	type AssistantMessage,
@@ -33,8 +40,6 @@ import {
 	type Component,
 	Container,
 	fuzzyFilter,
-	getCapabilities,
-	hyperlink,
 	Loader,
 	type LoaderIndicatorOptions,
 	Markdown,
@@ -48,16 +53,8 @@ import {
 	visibleWidth,
 } from "@agentboster-cli/tui";
 import chalk from "chalk";
-import { spawn, spawnSync } from "child_process";
-import {
-	APP_NAME,
-	APP_TITLE,
-	CONFIG_DIR_NAME,
-	getAuthPath,
-	getDebugLogPath,
-	getDocsPath,
-	VERSION,
-} from "../../config.ts";
+import { spawn } from "child_process";
+import { APP_NAME, APP_TITLE, CONFIG_DIR_NAME, getDebugLogPath, VERSION } from "../../config.ts";
 import { type AgentSession, type AgentSessionEvent, parseSkillBlock } from "../../core/agent-session.ts";
 import { type AgentSessionRuntime, SessionImportFileNotFoundError } from "../../core/agent-session-runtime.ts";
 import type {
@@ -84,7 +81,13 @@ import { defaultModelPerProvider, findExactModelReferenceMatch, resolveModelScop
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
-import { type SessionContext, type SessionInfo, SessionManager, type SessionListProgress, type SessionMessageEntry } from "../../core/session-manager.ts";
+import {
+	type SessionContext,
+	type SessionInfo,
+	SessionManager,
+	type SessionListProgress,
+	type SessionMessageEntry,
+} from "../../core/session-manager.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
@@ -98,7 +101,6 @@ import { ensureTool } from "../../utils/tools-manager.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
-import { BorderedLoader } from "./components/bordered-loader.ts";
 import { BranchSummaryMessageComponent } from "./components/branch-summary-message.ts";
 import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.ts";
 import { CountdownTimer } from "./components/countdown-timer.ts";
@@ -191,7 +193,7 @@ function isAnthropicSubscriptionAuthKey(apiKey: string | undefined): boolean {
 	return typeof apiKey === "string" && apiKey.startsWith("sk-ant-oat");
 }
 
-function isUnknownModel(model: Model<any> | undefined): boolean {
+function _isUnknownModel(model: Model<any> | undefined): boolean {
 	return !!model && model.provider === "unknown" && model.id === "unknown" && model.api === "unknown";
 }
 
@@ -201,9 +203,7 @@ function isUnknownModel(model: Model<any> | undefined): boolean {
  * /resume picker. On any error (offline, server down) the local list
  * is returned unchanged so resume keeps working.
  */
-async function filterByRemotePresence(
-	sessions: SessionInfo[],
-): Promise<SessionInfo[]> {
+async function filterByRemotePresence(sessions: SessionInfo[]): Promise<SessionInfo[]> {
 	const { getStoredAuth } = await import("@agentboster/adapter");
 	const auth = getStoredAuth();
 	if (!auth) return sessions;
@@ -238,11 +238,11 @@ export function formatResumeCommand(sessionManager: SessionManager): string | un
 	return args.join(" ");
 }
 
-function hasDefaultModelProvider(providerId: string): providerId is keyof typeof defaultModelPerProvider {
+function _hasDefaultModelProvider(providerId: string): providerId is keyof typeof defaultModelPerProvider {
 	return providerId in defaultModelPerProvider;
 }
 
-const BEDROCK_PROVIDER_ID = "amazon-bedrock";
+const _BEDROCK_PROVIDER_ID = "amazon-bedrock";
 
 const BUILT_IN_MODEL_PROVIDERS = new Set<string>(getProviders());
 
@@ -3124,9 +3124,7 @@ export class InteractiveMode {
 			const total = this.currentWorkflowSubagentCompleted + this.currentWorkflowSubagentFailed;
 			if (total > 0) {
 				const failedSuffix =
-					this.currentWorkflowSubagentFailed > 0
-						? `, ${this.currentWorkflowSubagentFailed} failed`
-						: "";
+					this.currentWorkflowSubagentFailed > 0 ? `, ${this.currentWorkflowSubagentFailed} failed` : "";
 				this.showStatus(
 					`All sub-agents finished (${this.currentWorkflowSubagentCompleted} completed${failedSuffix})`,
 					this.currentWorkflowSubagentFailed > 0 ? "warning" : "success",
@@ -3165,16 +3163,13 @@ export class InteractiveMode {
 			case "custom": {
 				if (message.display) {
 					const isSubagent =
-						message.customType === "workflow.subagent" ||
-						message.customType === "workflow.subagent.batch";
+						message.customType === "workflow.subagent" || message.customType === "workflow.subagent.batch";
 					const component = isSubagent
 						? new WorkflowSubagentMessageComponent(
 								// `message` is CustomMessage<unknown> by the time it reaches the
 								// dispatcher; narrow to the subagent-details shape the component
 								// expects once the customType discriminator has matched.
-								message as CustomMessage<
-									WorkflowSubagentEventDetails | WorkflowSubagentBatchEventDetails
-								>,
+								message as CustomMessage<WorkflowSubagentEventDetails | WorkflowSubagentBatchEventDetails>,
 								this.getMarkdownThemeWithSettings(),
 							)
 						: new CustomMessageComponent(
@@ -4523,7 +4518,11 @@ export class InteractiveMode {
 		const entry = this.sessionManager.getEntry(entryId) as
 			| (SessionMessageEntry & {
 					remoteMetadata?: {
-						versions?: Array<{ parts: Array<{ type: string; text?: string }>; response?: Array<{ type: string; text?: string }>; createdAt?: string }>;
+						versions?: Array<{
+							parts: Array<{ type: string; text?: string }>;
+							response?: Array<{ type: string; text?: string }>;
+							createdAt?: string;
+						}>;
 						currentVersionIndex?: number;
 					};
 			  })
@@ -4561,19 +4560,14 @@ export class InteractiveMode {
 					}
 				}
 				if (responseParts.length > 0) {
-					versionsWithResponse = versions.map((v, i) =>
-						i === curIdx ? { ...v, response: responseParts } : v,
-					);
+					versionsWithResponse = versions.map((v, i) => (i === curIdx ? { ...v, response: responseParts } : v));
 				}
 			}
 		}
 
 		// Truncate any versions after the current one, then append the edit.
 		const truncated = versionsWithResponse.slice(0, curIdx + 1);
-		const newVersions = [
-			...truncated,
-			{ parts: [{ type: "text", text: editedText }], createdAt: now },
-		];
+		const newVersions = [...truncated, { parts: [{ type: "text", text: editedText }], createdAt: now }];
 		const newIndex = newVersions.length - 1;
 		const newMetadata = {
 			...(entry.remoteMetadata as Record<string, unknown>),
@@ -4595,21 +4589,18 @@ export class InteractiveMode {
 		// PATCH metadata first so the backend has it when regenerate fires.
 		const auth = getStoredAuth();
 		if (auth) {
-			await fetch(
-				`${auth.url.replace(/\/$/, "")}/api/cli/messages/${encodeURIComponent(entryId)}/metadata`,
-				{
-					method: "PATCH",
-					headers: {
-						"content-type": "application/json",
-						authorization: `Bearer ${auth.token}`,
-						cookie: `clawless-auth=${auth.token}`,
-					},
-					body: JSON.stringify({
-						sessionId: this.sessionManager.getSessionId(),
-						metadata: newMetadata,
-					}),
+			await fetch(`${auth.url.replace(/\/$/, "")}/api/cli/messages/${encodeURIComponent(entryId)}/metadata`, {
+				method: "PATCH",
+				headers: {
+					"content-type": "application/json",
+					authorization: `Bearer ${auth.token}`,
+					cookie: `clawless-auth=${auth.token}`,
 				},
-			).catch(() => {});
+				body: JSON.stringify({
+					sessionId: this.sessionManager.getSessionId(),
+					metadata: newMetadata,
+				}),
+			}).catch(() => {});
 		}
 
 		// Push the edited text through the normal submit path so the agent
@@ -4743,42 +4734,40 @@ export class InteractiveMode {
 					this.sessionManager.appendLabelChange(entryId, label);
 					this.ui.requestRender();
 				},
-			initialSelectedId,
-			initialFilterMode,
-		);
-		selector.onVersionChange = (entryId, newVersionIndex) => {
-			const entry = this.sessionManager.getEntry(entryId) as
-				| (SessionMessageEntry & {
-						remoteMetadata?: {
-							versions?: Array<{ parts: Array<{ type: string; text?: string }> }>;
-							currentVersionIndex?: number;
-							response?: Array<{ type: string; text?: string }>;
-						};
-				  })
-				| undefined;
-			if (!entry?.remoteMetadata?.versions) return;
-			const version = entry.remoteMetadata.versions[newVersionIndex];
-			if (!version) return;
+				initialSelectedId,
+				initialFilterMode,
+			);
+			selector.onVersionChange = (entryId, newVersionIndex) => {
+				const entry = this.sessionManager.getEntry(entryId) as
+					| (SessionMessageEntry & {
+							remoteMetadata?: {
+								versions?: Array<{ parts: Array<{ type: string; text?: string }> }>;
+								currentVersionIndex?: number;
+								response?: Array<{ type: string; text?: string }>;
+							};
+					  })
+					| undefined;
+				if (!entry?.remoteMetadata?.versions) return;
+				const version = entry.remoteMetadata.versions[newVersionIndex];
+				if (!version) return;
 
-			entry.remoteMetadata.currentVersionIndex = newVersionIndex;
-			const newText = version.parts
-				.filter((p) => p.type === "text" && typeof p.text === "string")
-				.map((p) => (p as { text: string }).text)
-				.join("\n");
-			if (entry.message.role === "user") {
-				(entry.message as { content: string }).content = newText;
-			} else if (entry.message.role === "assistant") {
-				(entry.message as { content: Array<{ type: string; text?: string }> }).content = [
-					{ type: "text", text: newText },
-				];
-			}
+				entry.remoteMetadata.currentVersionIndex = newVersionIndex;
+				const newText = version.parts
+					.filter((p) => p.type === "text" && typeof p.text === "string")
+					.map((p) => (p as { text: string }).text)
+					.join("\n");
+				if (entry.message.role === "user") {
+					(entry.message as { content: string }).content = newText;
+				} else if (entry.message.role === "assistant") {
+					(entry.message as { content: Array<{ type: string; text?: string }> }).content = [
+						{ type: "text", text: newText },
+					];
+				}
 
-			const sessionId = this.sessionManager.getSessionId();
-			const auth = getStoredAuth();
-			if (auth) {
-				void fetch(
-					`${auth.url.replace(/\/$/, "")}/api/cli/messages/${encodeURIComponent(entryId)}/metadata`,
-					{
+				const sessionId = this.sessionManager.getSessionId();
+				const auth = getStoredAuth();
+				if (auth) {
+					void fetch(`${auth.url.replace(/\/$/, "")}/api/cli/messages/${encodeURIComponent(entryId)}/metadata`, {
 						method: "PATCH",
 						headers: {
 							"content-type": "application/json",
@@ -4789,40 +4778,39 @@ export class InteractiveMode {
 							sessionId,
 							metadata: entry.remoteMetadata,
 						}),
-					},
-				).catch(() => {});
-			}
+					}).catch(() => {});
+				}
 
-			this.ui.requestRender();
-		};
-		selector.onEditVersion = (entryId) => {
-			const entry = this.sessionManager.getEntry(entryId) as
-				| (SessionMessageEntry & {
-						remoteMetadata?: {
-							versions?: Array<{ parts: Array<{ type: string; text?: string }> }>;
-							currentVersionIndex?: number;
-						};
-				  })
-				| undefined;
-			if (!entry?.remoteMetadata?.versions) return;
-			const idx = entry.remoteMetadata.currentVersionIndex ?? 0;
-			const version = entry.remoteMetadata.versions[idx];
-			if (!version) return;
-			const versionText = version.parts
-				.filter((p) => p.type === "text" && typeof p.text === "string")
-				.map((p) => (p as { text: string }).text)
-				.join("\n");
+				this.ui.requestRender();
+			};
+			selector.onEditVersion = (entryId) => {
+				const entry = this.sessionManager.getEntry(entryId) as
+					| (SessionMessageEntry & {
+							remoteMetadata?: {
+								versions?: Array<{ parts: Array<{ type: string; text?: string }> }>;
+								currentVersionIndex?: number;
+							};
+					  })
+					| undefined;
+				if (!entry?.remoteMetadata?.versions) return;
+				const idx = entry.remoteMetadata.currentVersionIndex ?? 0;
+				const version = entry.remoteMetadata.versions[idx];
+				if (!version) return;
+				const versionText = version.parts
+					.filter((p) => p.type === "text" && typeof p.text === "string")
+					.map((p) => (p as { text: string }).text)
+					.join("\n");
 
-			// Close the selector and seed the editor with the version text.
-			done();
-			this.pendingEditVersion = { entryId, originalText: versionText };
-			this.editor.setText(versionText);
-			this.ui.setFocus(this.editor);
-			this.showStatus("Editing version — submit to regenerate from here");
-			this.ui.requestRender();
-		};
-		return { component: selector, focus: selector };
-	});
+				// Close the selector and seed the editor with the version text.
+				done();
+				this.pendingEditVersion = { entryId, originalText: versionText };
+				this.editor.setText(versionText);
+				this.ui.setFocus(this.editor);
+				this.showStatus("Editing version — submit to regenerate from here");
+				this.ui.requestRender();
+			};
+			return { component: selector, focus: selector };
+		});
 	}
 
 	private showSessionSelector(): void {
@@ -4834,7 +4822,9 @@ export class InteractiveMode {
 			const remoteLoader = async (): Promise<SessionInfo[]> => {
 				if (!auth) return [];
 				const { listRemoteSessions } = await import("../../core/remote-sessions.ts");
-				const rows = await listRemoteSessions(auth).catch(() => [] as Awaited<ReturnType<typeof listRemoteSessions>>);
+				const rows = await listRemoteSessions(auth).catch(
+					() => [] as Awaited<ReturnType<typeof listRemoteSessions>>,
+				);
 				return rows.map((s) => ({
 					id: s.id,
 					path: s.id,
@@ -4849,7 +4839,9 @@ export class InteractiveMode {
 				}));
 			};
 			const localCurrentLoader = async (onProgress?: SessionListProgress) =>
-				filterByRemotePresence(await SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress));
+				filterByRemotePresence(
+					await SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
+				);
 			const localAllLoader = async (onProgress?: SessionListProgress) =>
 				filterByRemotePresence(
 					this.sessionManager.usesDefaultSessionDir()
@@ -4917,13 +4909,13 @@ export class InteractiveMode {
 			const isRemote = !!auth && !fs.existsSync(sessionPath);
 			const result = isRemote
 				? await this.runtimeHost.switchSessionRemote(sessionPath, {
-					withSession: options?.withSession,
-					projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
-				})
+						withSession: options?.withSession,
+						projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
+					})
 				: await this.runtimeHost.switchSession(sessionPath, {
-					withSession: options?.withSession,
-					projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
-				});
+						withSession: options?.withSession,
+						projectTrustContextFactory: (cwd) => this.createProjectTrustContext(cwd),
+					});
 			if (result.cancelled) {
 				return result;
 			}
@@ -5562,21 +5554,18 @@ export class InteractiveMode {
 			const urlHint = existing?.url ?? "https://";
 			const url = await this.showExtensionInput("Server URL", urlHint);
 			if (!url) return;
-			const method = await this.showExtensionSelector(
-				"Login method",
-				["Username + password", "Pair code"],
-			);
+			const method = await this.showExtensionSelector("Login method", ["Username + password", "Pair code"]);
 			if (!method) return;
 
 			let token: string;
 			let username: string | undefined;
 
-		if (method === "Pair code") {
-			const code = await this.showExtensionInput("Pair code");
-			if (!code) return;
-			const r = await exchangePairCode(url, code, defaultClientLabel());
-			token = r.token;
-			username = r.username;
+			if (method === "Pair code") {
+				const code = await this.showExtensionInput("Pair code");
+				if (!code) return;
+				const r = await exchangePairCode(url, code, defaultClientLabel());
+				token = r.token;
+				username = r.username;
 			} else {
 				const user = await this.showExtensionInput("Username");
 				if (!user) return;
@@ -5590,15 +5579,13 @@ export class InteractiveMode {
 			writeStoredConfig({ url, token, username });
 
 			// Hot-swap streamFn on the live session.
-			const sessionId =
-				process.env["AGENTBOSTER_SESSION_ID"] ??
-				globalThis.crypto.randomUUID();
+			const sessionId = process.env.AGENTBOSTER_SESSION_ID ?? globalThis.crypto.randomUUID();
 			this.session.agent.streamFn = createAgentbosterStreamFn({
 				getAuth: () => ({ baseUrl: url, token }),
 				getSessionId: () => sessionId,
-				clientId: process.env["AGENTBOSTER_CLIENT_ID"] ?? "local-cli",
+				clientId: process.env.AGENTBOSTER_CLIENT_ID ?? "local-cli",
 				label: "agentboster-cli",
-				model: process.env["AGENTBOSTER_MODEL"] ?? null,
+				model: process.env.AGENTBOSTER_MODEL ?? null,
 				consumeRegenerateIntent: () => this.session.consumeRegenerateIntent(),
 				getAgentsMd: () => {
 					const files = this.session.resourceLoader.getAgentsFiles().agentsFiles;
@@ -5627,14 +5614,10 @@ export class InteractiveMode {
 				this.session.modelRegistry.setRemoteModels(remoteModelsToPiModels(remote));
 			}
 
-			this.showStatus(
-				`Logged in${username ? ` as ${username}` : ""}. Models reloaded from ${url}.`,
-			);
+			this.showStatus(`Logged in${username ? ` as ${username}` : ""}. Models reloaded from ${url}.`);
 			this.ui.requestRender();
 		} catch (error) {
-			this.showStatus(
-				`Login failed: ${error instanceof Error ? error.message : String(error)}`,
-			);
+			this.showStatus(`Login failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 }

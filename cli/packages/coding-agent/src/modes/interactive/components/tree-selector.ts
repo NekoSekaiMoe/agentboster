@@ -777,27 +777,29 @@ class TreeList implements Component {
 				const msg = entry.message;
 				const role = msg.role;
 				// Version indicator suffix for messages with multiple versions.
-				const remoteMeta = (entry as { remoteMetadata?: { versions?: unknown[]; currentVersionIndex?: number } }).remoteMetadata;
-				const versionSuffix = remoteMeta?.versions && remoteMeta.versions.length > 1
-					? theme.fg("dim", ` (${(remoteMeta.currentVersionIndex ?? 0) + 1}/${remoteMeta.versions.length})`)
-					: "";
+				const remoteMeta = (entry as { remoteMetadata?: { versions?: unknown[]; currentVersionIndex?: number } })
+					.remoteMetadata;
+				const versionSuffix =
+					remoteMeta?.versions && remoteMeta.versions.length > 1
+						? theme.fg("dim", ` (${(remoteMeta.currentVersionIndex ?? 0) + 1}/${remoteMeta.versions.length})`)
+						: "";
 				if (role === "user") {
 					const msgWithContent = msg as { content?: unknown };
 					const content = normalize(this.extractContent(msgWithContent.content));
 					result = theme.fg("accent", "user: ") + content + versionSuffix;
 				} else if (role === "assistant") {
-				const msgWithContent = msg as { content?: unknown; stopReason?: string; errorMessage?: string };
-				const textContent = normalize(this.extractContent(msgWithContent.content));
-				if (textContent) {
-					result = theme.fg("success", "assistant: ") + textContent + versionSuffix;
-				} else if (msgWithContent.stopReason === "aborted") {
-					result = theme.fg("success", "assistant: ") + theme.fg("muted", "(aborted)") + versionSuffix;
-				} else if (msgWithContent.errorMessage) {
-					const errMsg = normalize(msgWithContent.errorMessage).slice(0, 80);
-					result = theme.fg("success", "assistant: ") + theme.fg("error", errMsg) + versionSuffix;
-				} else {
-					result = theme.fg("success", "assistant: ") + theme.fg("muted", "(no content)") + versionSuffix;
-				}
+					const msgWithContent = msg as { content?: unknown; stopReason?: string; errorMessage?: string };
+					const textContent = normalize(this.extractContent(msgWithContent.content));
+					if (textContent) {
+						result = theme.fg("success", "assistant: ") + textContent + versionSuffix;
+					} else if (msgWithContent.stopReason === "aborted") {
+						result = theme.fg("success", "assistant: ") + theme.fg("muted", "(aborted)") + versionSuffix;
+					} else if (msgWithContent.errorMessage) {
+						const errMsg = normalize(msgWithContent.errorMessage).slice(0, 80);
+						result = theme.fg("success", "assistant: ") + theme.fg("error", errMsg) + versionSuffix;
+					} else {
+						result = theme.fg("success", "assistant: ") + theme.fg("muted", "(no content)") + versionSuffix;
+					}
 				} else if (role === "toolResult") {
 					const toolMsg = msg as { toolCallId?: string; toolName?: string };
 					const toolCall = toolMsg.toolCallId ? this.toolCallMap.get(toolMsg.toolCallId) : undefined;
@@ -1065,7 +1067,9 @@ class TreeList implements Component {
 		} else if (kb.matches(keyData, "app.tree.versionPrev") || kb.matches(keyData, "app.tree.versionNext")) {
 			const selected = this.filteredNodes[this.selectedIndex];
 			if (selected && this.onVersionChange) {
-				const entry = selected.node.entry as { remoteMetadata?: { versions?: unknown[]; currentVersionIndex?: number } };
+				const entry = selected.node.entry as {
+					remoteMetadata?: { versions?: unknown[]; currentVersionIndex?: number };
+				};
 				const meta = entry.remoteMetadata;
 				if (meta?.versions && meta.versions.length > 1) {
 					const cur = meta.currentVersionIndex ?? 0;
@@ -1080,7 +1084,11 @@ class TreeList implements Component {
 		} else if (kb.matches(keyData, "app.tree.editVersion")) {
 			const selected = this.filteredNodes[this.selectedIndex];
 			if (selected && this.onEditVersion) {
-				const entry = selected.node.entry as { type?: string; message?: { role?: string }; remoteMetadata?: { versions?: unknown[] } };
+				const entry = selected.node.entry as {
+					type?: string;
+					message?: { role?: string };
+					remoteMetadata?: { versions?: unknown[] };
+				};
 				const isUserMessage = entry.type === "message" && entry.message?.role === "user";
 				if (isUserMessage) {
 					this.onEditVersion(selected.node.entry.id);
