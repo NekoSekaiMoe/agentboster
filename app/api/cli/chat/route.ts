@@ -45,6 +45,11 @@ const requestSchema = z.object({
   // CLI source fields:
   clientId: z.string().min(1),
   label: z.string().optional(),
+  // Merged AGENTS.md content from the CLI host's filesystem. Persisted onto
+  // session.metadata.agentsMd on first arrival and forwarded to chatWorkflow
+  // so buildSystemPrompt can inject it as project-supplied reference data.
+  // Ignored for non-CLI sources; empty string is treated as absent.
+  agentsMd: z.string().optional(),
 });
 
 function getInputPayload(
@@ -158,6 +163,12 @@ export async function POST(request: Request) {
         requestModel: body.model,
         input,
         messages,
+        // Only CLI sources may forward project AGENTS.md content; the web/IM
+        // paths never set this field.
+        agentsMd:
+          body.agentsMd && body.agentsMd.trim().length > 0
+            ? body.agentsMd
+            : undefined,
       },
       {
         source: {

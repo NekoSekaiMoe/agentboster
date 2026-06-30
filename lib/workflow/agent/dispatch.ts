@@ -182,6 +182,12 @@ export async function startWorkflow(input: {
    * last positional arg to `chatWorkflow`. See `chatWorkflow`'s param docs.
    */
   requestModel?: string | null;
+  /**
+   * Merged AGENTS.md content forwarded by the CLI host and persisted on
+   * session.metadata. chatWorkflow forwards it to buildSystemPrompt, which
+   * injects it as project-supplied reference data (CLI sources only).
+   */
+  agentsMd?: string;
 }): Promise<{
   runId: string;
   readable: ReadableStream<WorkflowUIMessageChunk>;
@@ -200,6 +206,7 @@ export async function startWorkflow(input: {
       input.sessionId,
       input.user,
       input.requestModel,
+      input.agentsMd,
     ]),
     new Promise<never>((_, reject) =>
       setTimeout(

@@ -778,13 +778,13 @@ export async function main(args: string[], options?: MainOptions) {
 			excludeTools: sessionOptions.excludeTools,
 			noTools: getStoredAuth() ? "builtin" as const : sessionOptions.noTools,
 			customTools: sessionOptions.customTools,
-			streamFnOverride: await resolveStreamFnOverride(sessionManager, undefined, undefined, parsed.yolo === true),
+			streamFnOverride: await resolveStreamFnOverride(sessionManager, undefined, undefined, parsed.yolo === true, undefined, () => readMergedAgentsMd(resourceLoader)),
 		});
 		const overrideWithEvents = await resolveStreamFnOverride(sessionManager, (event) => {
 			void created.session.addWorkflowSubagentEvent(event);
 		}, (event) => {
 			void created.session.addWorkflowSubagentBatchEvent(event);
-		}, parsed.yolo === true, () => created.session.consumeRegenerateIntent());
+		}, parsed.yolo === true, () => created.session.consumeRegenerateIntent(), () => readMergedAgentsMd(created.session.resourceLoader));
 		if (overrideWithEvents) {
 			created.session.agent.streamFn = overrideWithEvents;
 		}
@@ -1173,6 +1173,30 @@ async function injectRemoteModels(modelRegistry: ModelRegistry): Promise<void> {
 }
 
 /**
+ * Read and merge the content of AGENTS.md files the resource loader has
+ * discovered for this session. Each file is prefixed with an HTML comment
+ * annotation showing its source path, mirroring the format the agentd build
+ * produces, so backend-injected prompts look identical regardless of channel.
+ *
+ * Returns undefined when no files were loaded so the stream-fn caller omits
+ * the field entirely and the Web backend leaves the stored prompt untouched.
+ */
+function readMergedAgentsMd(
+	resourceLoader: { getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> } },
+): string | undefined {
+	const files = resourceLoader.getAgentsFiles().agentsFiles;
+	if (files.length === 0) return undefined;
+	return files
+		.map((file) => {
+			const content = file.content.trim();
+			if (content.length === 0) return "";
+			return `<!-- From: ${file.path} -->\n${content}`;
+		})
+		.filter((entry) => entry.length > 0)
+		.join("\n\n") || undefined;
+}
+
+/**
  * Resolve an optional stream function override for the Agentboster web backend.
  *
  * When `AGENTBOSTER_URL` is set and `~/.agentboster/config.json` contains a
@@ -1204,6 +1228,7 @@ async function resolveStreamFnOverride(
 	}) => void,
 	yolo: boolean = false,
 	consumeRegenerateIntent?: () => { messageId: string; metadata?: unknown } | null,
+	getAgentsMd?: () => string | undefined,
 ): Promise<StreamFn | undefined> {
 	const auth = getStoredAuth();
 	if (!auth) {
@@ -1222,6 +1247,7 @@ async function resolveStreamFnOverride(
 		label: "agentboster-cli",
 		model: process.env["AGENTBOSTER_MODEL"] ?? null,
 		consumeRegenerateIntent,
+		...(getAgentsMd ? { getAgentsMd } : {}),
 		onSubagentEvent,
 		onSubagentBatchEvent,
 		onLocalToolRequest: async ({ runId, toolCallId, toolName, toolInput }) => {

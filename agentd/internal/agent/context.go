@@ -61,6 +61,16 @@ type AgentContext struct {
 	// SOUL content injected into system prompt
 	SoulContent string
 
+	// AgentsMd is the merged AGENTS.md content injected into the system prompt
+	// as project-supplied reference data. Loaded by the Manager from
+	// <brandHome>/AGENTS.md, <realHome>/.agents/AGENTS.md, and every AGENTS.md
+	// from the sandbox path up to the project root. Empty when nothing was
+	// found or when the session has no sandbox path. See LoadAgentsMd.
+	AgentsMd string
+	// AgentsMdWarning is a non-empty user-facing warning when AgentsMd exceeds
+	// the recommended size budget. Empty otherwise.
+	AgentsMdWarning string
+
 	// P1.2: Agent config fetched from the web layer. Currently used to:
 	//   - gate mcp_call tool registration (MCPEnabled)
 	//   - pass the MCP server allowlist to the mcp_call tool

@@ -5600,6 +5600,19 @@ export class InteractiveMode {
 				label: "agentboster-cli",
 				model: process.env["AGENTBOSTER_MODEL"] ?? null,
 				consumeRegenerateIntent: () => this.session.consumeRegenerateIntent(),
+				getAgentsMd: () => {
+					const files = this.session.resourceLoader.getAgentsFiles().agentsFiles;
+					if (files.length === 0) return undefined;
+					return (
+						files
+							.map((file) => {
+								const content = file.content.trim();
+								return content.length === 0 ? "" : `<!-- From: ${file.path} -->\n${content}`;
+							})
+							.filter((entry) => entry.length > 0)
+							.join("\n\n") || undefined
+					);
+				},
 				onSubagentEvent: (event) => {
 					void this.session.addWorkflowSubagentEvent(event);
 				},

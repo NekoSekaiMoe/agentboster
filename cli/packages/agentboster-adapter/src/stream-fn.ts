@@ -37,6 +37,11 @@ export interface CreateStreamFnOptions extends Omit<WebStreamOptions, "baseUrl" 
 	 *  this intent and then clear it (one-shot). The host sets this when the
 	 *  user edits a historical version and resends. */
 	consumeRegenerateIntent?: () => { messageId: string; metadata?: unknown } | null;
+	/** Resolve the merged AGENTS.md content to forward to the Web backend
+	 *  on each turn. Returning "" / undefined skips the field entirely so
+	 *  the backend leaves the stored prompt untouched. The host typically
+	 *  reads `resourceLoader.getAgentsFiles()` here. */
+	getAgentsMd?: () => string | undefined;
 }
 
 /**
@@ -69,6 +74,7 @@ export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn
 		}
 		const sessionId = opts.getSessionId();
 		const regenerate = opts.consumeRegenerateIntent?.() ?? undefined;
+		const agentsMd = opts.getAgentsMd?.() || undefined;
 		return openAgentbosterStream(_model, context, {
 			baseUrl: auth.baseUrl,
 			token: auth.token,
@@ -81,6 +87,7 @@ export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn
 			onSubagentBatchEvent: opts.onSubagentBatchEvent,
 			signal: options?.signal,
 			regenerate,
+			...(agentsMd ? { agentsMd } : {}),
 		});
 	};
 }

@@ -70,6 +70,12 @@ export interface WebStreamOptions {
 		messageId: string;
 		metadata?: unknown;
 	};
+	/** Merged AGENTS.md content from the CLI host's local filesystem. Sent
+	 *  on the first user message of a session so the Web backend can inject
+	 *  it into the system prompt as project-supplied reference data. The
+	 *  backend gates this on `source.type === 'cli'` and ignores it for
+	 *  web/IM sources. */
+	agentsMd?: string;
 }
 
 function lastUserText(messages: Context["messages"]): string {
@@ -189,6 +195,7 @@ async function driveStream(
 			clientId: options.clientId,
 			label: options.label ?? "agentboster-cli",
 			model: options.model ?? undefined,
+			...(options.agentsMd ? { agentsMd: options.agentsMd } : {}),
 		}),
 		signal: options.signal,
 	});

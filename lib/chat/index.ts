@@ -120,6 +120,13 @@ type LegacyChatMainRequest = {
    * unless the caller passes it again.
    */
   requestModel?: string;
+  /**
+   * Merged AGENTS.md content forwarded by the CLI host. Persisted onto
+   * `session.metadata.agentsMd` on first arrival so subsequent regenerations
+   * re-read it from the DB rather than asking the CLI to resend. Only set by
+   * the CLI route; web/IM paths leave this undefined.
+   */
+  agentsMd?: string;
 };
 
 type ChatMainOptions = {
@@ -294,6 +301,23 @@ async function bindImSourceToSession(
 function sourceUserId(source: ChatSource): string | null {
   if (source.type === 'scheduled') return null;
   return source.userId ?? null;
+}
+
+/**
+ * Read the CLI-forwarded AGENTS.md content from a session's metadata blob.
+ * Returns undefined when the metadata is missing or the stored value is not a
+ * non-empty trimmed string. Callers gate the value on `source.type === 'cli'`
+ * before passing it to buildSystemPrompt, so this helper does not need to
+ * check the source itself.
+ */
+function readSessionAgentsMd(
+  metadata: Record<string, unknown> | null | undefined,
+): string | undefined {
+  if (!metadata) return undefined;
+  const value = metadata.agentsMd;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 async function ensureMessageSession(input: {
@@ -1538,6 +1562,24 @@ export async function chatMain(
     });
   }
 
+  // Persist forwarded AGENTS.md content from the CLI onto the session so
+  // regenerations (which don't resend it) and resumptions can re-read it
+  // from the DB. Skipped when the request didn't include agentsMd.
+  if (request.agentsMd && request.agentsMd.trim().length > 0) {
+    const trimmed = request.agentsMd.trim();
+    const existing = (session.metadata ?? {}) as Record<string, unknown>;
+    if (existing.agentsMd !== trimmed) {
+      chatMainLogger.info('chatMain:persisting_agents_md', {
+        sessionId: session.id,
+        length: trimmed.length,
+      });
+      await updateSession(session.id, {
+        metadata: { ...existing, agentsMd: trimmed },
+      });
+      session.metadata = { ...existing, agentsMd: trimmed };
+    }
+  }
+
   if (envelope.kind === 'message' && source.type === 'im') {
     await recordMessage(source, envelope.text, session.id, {
       idempotencyKey: options?.idempotencyKey,
@@ -1720,6 +1762,7 @@ export async function chatMain(
   });
 
   chatMainLogger.info('chatMain:starting_workflow');
+  const agentsMd = readSessionAgentsMd(session.metadata);
   const { runId, readable } = await startWorkflow({
     sessionId: session.id,
     initialMessages,
@@ -1731,6 +1774,10 @@ export async function chatMain(
     // resolver, so passing effectiveModelId here would be redundant and
     // would mask the "request actually came from picker" intent in logs.
     requestModel: request.requestModel,
+    // Inject the CLI-forwarded AGENTS.md content (now persisted on the
+    // session). chatWorkflow forwards it to buildSystemPrompt for CLI
+    // sources only; web/IM sessions never set this.
+    agentsMd,
   });
   chatMainLogger.info('chatMain:workflow_started', { runId });
 

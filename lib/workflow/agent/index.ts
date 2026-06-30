@@ -183,6 +183,13 @@ export async function chatWorkflow(
    * (passes `undefined` to its own model resolution).
    */
   requestModel?: string | null,
+  /**
+   * Merged AGENTS.md content from the CLI host (persisted on
+   * session.metadata by chatMain). Forwarded to buildSystemPrompt — but
+   * only when `source.type === 'cli'`; other sources pass undefined so the
+   * stored prompt stays untouched.
+   */
+  agentsMd?: string,
 ) {
   'use workflow';
 
@@ -200,6 +207,10 @@ export async function chatWorkflow(
       source.type === 'im'
         ? (source.locale ?? config.language?.bot_locale)
         : undefined,
+    // Inject AGENTS.md content only for CLI sources — it is project-supplied
+    // reference data forwarded by the CLI host, never synthesized on the web
+    // side. Web/IM sessions have no "local project" to source from.
+    agentsMd: source.type === 'cli' ? agentsMd : undefined,
   });
   const writable = createWritable();
   const tools = await buildAgentTools(config, sessionId, {
