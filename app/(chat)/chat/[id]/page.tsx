@@ -3,11 +3,8 @@ import { canAccessOwnedResource, requireAuthAccess } from '@/lib/auth/access';
 import { evaluateSessionAccess } from '@/lib/chat/access';
 import { deserializePersistedMessages } from '@/lib/chat/persistence';
 import { getSession, getVisibleSessionMessages } from '@/lib/core/db/chat';
-import { createLogger } from '@/lib/utils/logger';
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
-
-const debugLogger = createLogger('chat.page.debug');
 
 function hasAccessDeniedMetadata(metadata: unknown): boolean {
   return (
@@ -15,20 +12,6 @@ function hasAccessDeniedMetadata(metadata: unknown): boolean {
     metadata !== null &&
     Boolean((metadata as { accessDenied?: unknown }).accessDenied)
   );
-}
-
-function partTypesOf(payload: unknown): string[] | null {
-  if (!payload || typeof payload !== 'object') return null;
-  const parts = (payload as { parts?: unknown }).parts;
-  if (!Array.isArray(parts)) return null;
-  return parts.map((p) => (p as { type?: string }).type ?? '?');
-}
-
-function metadataVersionsInfo(metadata: unknown): string {
-  if (!metadata || typeof metadata !== 'object') return 'no';
-  const versions = (metadata as { versions?: unknown }).versions;
-  if (!Array.isArray(versions)) return 'no';
-  return versions.length > 0 ? `yes(${versions.length})` : 'no';
 }
 
 export default async function Page({
@@ -46,30 +29,7 @@ export default async function Page({
   }
 
   const visibleMessages = session ? await getVisibleSessionMessages(id) : [];
-  debugLogger.info('chat.page.debug:raw_rows', {
-    sessionId: id,
-    count: visibleMessages.length,
-    rows: visibleMessages.map((r) => ({
-      role: r.role,
-      uiMessageId: r.uiMessageId,
-      stepNumber: r.stepNumber,
-      createdAt: r.createdAt?.toISOString(),
-      visibleInChat: r.visibleInChat,
-      parts: partTypesOf(r.payload)?.join(',') ?? null,
-      payloadKeys: Object.keys(r.payload as Record<string, unknown>).join(','),
-    })),
-  });
   const initialMessages = deserializePersistedMessages(visibleMessages);
-  debugLogger.info('chat.page.debug:deserialized', {
-    sessionId: id,
-    count: initialMessages.length,
-    messages: initialMessages.map((m) => ({
-      id: m.id,
-      role: m.role,
-      parts: m.parts.map((p) => p.type).join(','),
-      hasVersions: metadataVersionsInfo(m.metadata),
-    })),
-  });
 
   let readOnlyChannel: { sessionChannel: string } | null = null;
   if (session) {
