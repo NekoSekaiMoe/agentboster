@@ -24,6 +24,13 @@ function partTypesOf(payload: unknown): string[] | null {
   return parts.map((p) => (p as { type?: string }).type ?? '?');
 }
 
+function metadataVersionsInfo(metadata: unknown): string {
+  if (!metadata || typeof metadata !== 'object') return 'no';
+  const versions = (metadata as { versions?: unknown }).versions;
+  if (!Array.isArray(versions)) return 'no';
+  return versions.length > 0 ? `yes(${versions.length})` : 'no';
+}
+
 export default async function Page({
   params,
 }: {
@@ -60,6 +67,7 @@ export default async function Page({
       id: m.id,
       role: m.role,
       parts: m.parts.map((p) => p.type).join(','),
+      hasVersions: metadataVersionsInfo(m.metadata),
     })),
   });
 

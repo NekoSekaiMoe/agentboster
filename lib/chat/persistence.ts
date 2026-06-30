@@ -1,8 +1,11 @@
 import type { WorkflowUIMessage, WorkflowUIPart } from '@/types/workflow';
+import { createLogger } from '@/lib/utils/logger';
 import {
   type PersistedMessageRecord,
   reconstructUIMessageParts,
 } from './message-utils';
+
+const logger = createLogger('chat.persistence');
 
 /**
  * Deserialize persisted message rows back into UI messages.
@@ -132,18 +135,26 @@ function buildMessage(groupRows: PersistedMessageRecord[]): WorkflowUIMessage {
     if (row.role === 'user') {
       role = 'user';
     }
-    // Use the group-key (prefix before '#') as the message id so the
-    // reconstructed message has a stable id matching what streaming
-    // produces for the same step.
     if (!id) {
       const rawId = row.uiMessageId ?? row.id;
       id = rawId.includes('#') ? rawId.split('#', 1)[0] : rawId;
     }
-    // Prefer metadata from the assistant row (it carries stepNumber /
-    // finishReason / createdAt), but fall back to tool-row metadata.
     if (!metadata) {
       metadata = row.payload.metadata as WorkflowUIMessage['metadata'];
     }
+  }
+
+  if (
+    role === 'assistant' &&
+    metadata &&
+    'versions' in metadata &&
+    Array.isArray(metadata.versions)
+  ) {
+    logger.info('buildMessage:versions_found', {
+      id,
+      versionsCount: metadata.versions.length,
+      currentVersionIndex: metadata.currentVersionIndex,
+    });
   }
 
   return {
