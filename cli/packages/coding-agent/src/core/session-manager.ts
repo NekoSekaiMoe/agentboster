@@ -566,54 +566,8 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 	return entries;
 }
 
-function readSessionHeader(filePath: string): SessionHeader | null {
-	try {
-		const fd = openSync(filePath, "r");
-		const buffer = Buffer.alloc(512);
-		const bytesRead = readSync(fd, buffer, 0, 512, 0);
-		closeSync(fd);
-		const firstLine = buffer.toString("utf8", 0, bytesRead).split("\n")[0];
-		if (!firstLine) return null;
-		const header = JSON.parse(firstLine) as Record<string, unknown>;
-		if (header.type !== "session" || typeof header.id !== "string") {
-			return null;
-		}
-		return header as unknown as SessionHeader;
-	} catch {
-		return null;
-	}
-}
-
-function getSessionHeaderCwd(header: SessionHeader): string | undefined {
-	const cwd = (header as { cwd?: unknown }).cwd;
-	return typeof cwd === "string" ? cwd : undefined;
-}
-
 function sessionCwdMatches(cwd: string | undefined, resolvedCwd: string): boolean {
 	return cwd !== undefined && cwd !== "" && resolvePath(cwd) === resolvedCwd;
-}
-
-/** Exported for testing */
-export function findMostRecentSession(sessionDir: string, cwd?: string): string | null {
-	const resolvedSessionDir = normalizePath(sessionDir);
-	const resolvedCwd = cwd ? resolvePath(cwd) : undefined;
-	try {
-		const files = readdirSync(resolvedSessionDir)
-			.filter((f) => f.endsWith(".jsonl"))
-			.map((f) => join(resolvedSessionDir, f))
-			.map((path) => ({ path, header: readSessionHeader(path) }))
-			.filter(
-				(file): file is { path: string; header: SessionHeader } =>
-					file.header !== null &&
-					(!resolvedCwd || sessionCwdMatches(getSessionHeaderCwd(file.header), resolvedCwd)),
-			)
-			.map(({ path }) => ({ path, mtime: statSync(path).mtime }))
-			.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
-
-		return files[0]?.path || null;
-	} catch {
-		return null;
-	}
 }
 
 function isMessageWithContent(message: AgentMessage): message is Message {
@@ -950,10 +904,6 @@ export class SessionManager {
 
 	getSessionDir(): string {
 		return this.sessionDir;
-	}
-
-	usesDefaultSessionDir(): boolean {
-		return false;
 	}
 
 	getSessionId(): string {
@@ -1449,15 +1399,16 @@ export class SessionManager {
 	/**
 	 * Create a new session.
 	 *
+	 * Local session files are ephemeral working copies — deleted on process
+	 * exit by registerTempSessionCleanup — because the Web backend owns
+	 * durable session state (see cli/AGENTS.md). The previous
+	 * pi-coding-agent `sessionDir` parameter is therefore gone; use the
+	 * Web session selector / `--session <id>` for cross-session history.
+	 *
 	 * @param cwd Working directory (stored in session header).
-	 * @param _sessionDir Ignored. Accepted for backward compatibility with
-	 *   the pi-coding-agent fork; the agentboster CLI treats local session
-	 *   files as ephemeral working copies (deleted on process exit) because
-	 *   the Web backend owns durable session state. Use the Web session
-	 *   selector / `--session <id>` for cross-session history.
 	 * @param options Options for the new session (e.g. explicit session id).
 	 */
-	static create(cwd: string, _sessionDir?: string, options?: NewSessionOptions): SessionManager {
+	static create(cwd: string, options?: NewSessionOptions): SessionManager {
 		return new SessionManager(cwd, undefined, undefined, true, options);
 	}
 
@@ -1493,7 +1444,7 @@ export class SessionManager {
 			};
 		}>,
 	): SessionManager {
-		const manager = SessionManager.create(cwd, undefined, { id: sessionId });
+		const manager = SessionManager.create(cwd, { id: sessionId });
 		const entryIds: string[] = [];
 		for (const msg of messages) {
 			// Pick the effective parts: current version if versioned, else the message's own parts.
@@ -1597,39 +1548,17 @@ export class SessionManager {
 		return new SessionManager(cwd, dir, resolvedPath, true);
 	}
 
-	/**
-	 * Continue the most recent session, or create new if none.
-	 * @param cwd Working directory
-	 * @param sessionDir Optional session directory. If omitted, uses default (~/.pi/agent/sessions/<encoded-cwd>/).
-	 */
-	static continueRecent(cwd: string, sessionDir?: string): SessionManager {
-		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
-		const filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd);
-		const mostRecent = findMostRecentSession(dir, filterCwd ? cwd : undefined);
-		if (mostRecent) {
-			return new SessionManager(cwd, dir, mostRecent, true);
-		}
-		return new SessionManager(cwd, dir, undefined, true);
-	}
-
 	/** Create an in-memory session (no file persistence) */
 	static inMemory(cwd: string = process.cwd(), options?: NewSessionOptions): SessionManager {
 		return new SessionManager(cwd, undefined, undefined, false, options);
 	}
 
 	/**
-	 * Fork a session from another project directory into the current project.
-	 * Creates a new session in the target cwd with the full history from the source session.
-	 * @param sourcePath Path to the source session file
-	 * @param targetCwd Target working directory (where the new session will be stored)
-	 * @param sessionDir Optional session directory. If omitted, uses default for targetCwd.
+	 * Forking requires the remote backend in thin-client mode. Retained as
+	 * an explicit error surface so callers see a clear message instead of a
+	 * silent no-op.
 	 */
-	static forkFrom(
-		_sourcePath: string,
-		_targetCwd: string,
-		_sessionDir?: string,
-		_options?: NewSessionOptions,
-	): SessionManager {
+	static forkFrom(_sourcePath: string, _targetCwd: string, _options?: NewSessionOptions): SessionManager {
 		throw new Error("forkFrom is not available in thin-client mode. Session forking requires the remote backend.");
 	}
 

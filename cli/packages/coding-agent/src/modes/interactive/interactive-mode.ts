@@ -216,13 +216,6 @@ async function filterByRemotePresence(sessions: SessionInfo[]): Promise<SessionI
 	return sessions.filter((s) => ids.has(s.id));
 }
 
-function quoteIfNeeded(value: string): string {
-	if (value.length > 0 && !/[^a-zA-Z0-9_\-./~:@]/.test(value)) {
-		return value;
-	}
-	return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
 export function formatResumeCommand(sessionManager: SessionManager): string | undefined {
 	if (!process.stdout.isTTY) return undefined;
 	if (!sessionManager.isPersisted()) return undefined;
@@ -231,9 +224,6 @@ export function formatResumeCommand(sessionManager: SessionManager): string | un
 	if (!sessionFile || !fs.existsSync(sessionFile)) return undefined;
 
 	const args = [APP_NAME];
-	if (!sessionManager.usesDefaultSessionDir()) {
-		args.push("--session-dir", quoteIfNeeded(sessionManager.getSessionDir()));
-	}
 	args.push("--session", sessionManager.getSessionId());
 	return args.join(" ");
 }
@@ -4843,11 +4833,7 @@ export class InteractiveMode {
 					await SessionManager.list(this.sessionManager.getCwd(), this.sessionManager.getSessionDir(), onProgress),
 				);
 			const localAllLoader = async (onProgress?: SessionListProgress) =>
-				filterByRemotePresence(
-					this.sessionManager.usesDefaultSessionDir()
-						? await SessionManager.listAll(onProgress)
-						: await SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress),
-				);
+				filterByRemotePresence(await SessionManager.listAll(this.sessionManager.getSessionDir(), onProgress));
 			const currentLoader = auth ? remoteLoader : localCurrentLoader;
 			const allLoader = auth ? remoteLoader : localAllLoader;
 

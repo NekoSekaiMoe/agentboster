@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
-import { normalizePath, resolvePath } from "../utils/paths.ts";
+import { resolvePath } from "../utils/paths.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 
 export interface CompactionSettings {
@@ -116,7 +116,6 @@ export interface Settings {
 	showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
 	markdown?: MarkdownSettings;
 	warnings?: WarningSettings;
-	sessionDir?: string; // Custom session storage directory (same format as --session-dir CLI flag)
 	httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Pi-managed HTTP clients
 	httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
 	websocketConnectTimeoutMs?: number; // WebSocket connect/open handshake timeout in milliseconds; 0 disables it
@@ -659,11 +658,6 @@ export class SettingsManager {
 		this.globalSettings.lastChangelogVersion = version;
 		this.markModified("lastChangelogVersion");
 		this.save();
-	}
-
-	getSessionDir(): string | undefined {
-		const sessionDir = this.settings.sessionDir;
-		return sessionDir ? normalizePath(sessionDir) : sessionDir;
 	}
 
 	getDefaultProvider(): string | undefined {
