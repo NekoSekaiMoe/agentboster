@@ -205,6 +205,68 @@ describe('deserializePersistedMessages: multi-step with tools', () => {
     ]);
   });
 
+  it('survives DB returning rows in random UUID order within same createdAt', () => {
+    // The DB query orders by (created_at, id) where id is a random UUID.
+    // When multiple rows share the same createdAt (same step), their
+    // relative order from the DB is effectively random. Simulate the
+    // worst case: tool rows come BEFORE the assistant text row.
+    const t = new Date('2026-01-01T10:00:00.000Z');
+
+    const rows: PersistedMessageRecord[] = [
+      // DB returned tools first (random UUID sort)
+      makeRow({
+        role: 'tool',
+        uiMessageId: 'assistant:run1:0#tool:c2',
+        stepNumber: 0,
+        createdAt: t,
+        payload: {
+          toolName: 'get_weather',
+          toolCallId: 'c2',
+          toolState: 'output-available',
+          input: { city: '上海' },
+          output: '28°',
+        },
+      }),
+      makeRow({
+        role: 'tool',
+        uiMessageId: 'assistant:run1:0#tool:c1',
+        stepNumber: 0,
+        createdAt: t,
+        payload: {
+          toolName: 'get_weather',
+          toolCallId: 'c1',
+          toolState: 'output-available',
+          input: { city: '北京' },
+          output: '25°',
+        },
+      }),
+      makeRow({
+        role: 'assistant',
+        uiMessageId: 'assistant:run1:0',
+        stepNumber: 0,
+        createdAt: t,
+        payload: {
+          text: '查询中',
+          parts: [
+            { type: 'reasoning', text: '需要调用工具', state: 'done' },
+            { type: 'text', text: '查询中' },
+          ],
+        },
+      }),
+    ];
+
+    const messages = deserializePersistedMessages(rows);
+
+    expect(messages).toHaveLength(1);
+    // assistant text + reasoning MUST come before tool cards
+    expect(messages[0].parts.map((p) => p.type)).toEqual([
+      'reasoning',
+      'text',
+      'dynamic-tool',
+      'dynamic-tool',
+    ]);
+  });
+
   it('does not collapse user messages to the bottom', () => {
     const t0 = new Date('2026-01-01T10:00:00.000Z');
     const t1 = new Date('2026-01-01T10:00:01.000Z');

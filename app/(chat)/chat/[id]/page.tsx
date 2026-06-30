@@ -48,8 +48,8 @@ export default async function Page({
       stepNumber: r.stepNumber,
       createdAt: r.createdAt?.toISOString(),
       visibleInChat: r.visibleInChat,
-      partTypes: partTypesOf(r.payload),
-      payloadKeys: Object.keys(r.payload as Record<string, unknown>),
+      parts: partTypesOf(r.payload)?.join(',') ?? null,
+      payloadKeys: Object.keys(r.payload as Record<string, unknown>).join(','),
     })),
   });
   const initialMessages = deserializePersistedMessages(visibleMessages);
@@ -59,7 +59,7 @@ export default async function Page({
     messages: initialMessages.map((m) => ({
       id: m.id,
       role: m.role,
-      partTypes: m.parts.map((p) => p.type),
+      parts: m.parts.map((p) => p.type).join(','),
     })),
   });
 
