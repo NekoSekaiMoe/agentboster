@@ -4,11 +4,13 @@ import {
   toModelMessage,
 } from '@/lib/chat/message-utils';
 import { getSessionMessages } from '@/lib/core/db/chat';
+import { getConfig } from '@/lib/core/kv/config';
 import {
   formatRecalledMemoriesForContext,
   getCurrentSessionSummary,
   recallRelevantMemories,
 } from '@/lib/memory';
+import type { AppConfig } from '@/types/config';
 import type { WorkflowUIMessage } from '@/types/workflow';
 import type { ModelMessage } from 'ai';
 
@@ -149,14 +151,26 @@ export async function buildInitialContextMessages(
      * memory recall. When null/undefined/empty, no auto-recall happens.
      */
     recallQuery?: string | null;
+    /**
+     * App config. Forwarded to recallRelevantMemories so it can pick the
+     * right recall strategy (scorer vs vector). When omitted, recalled
+     * from KV lazily. Without this, the strategy resolver falls back to
+     * 'vector' even when no embedding model is configured, causing
+     * personal-context queries ("我住哪") to silently miss memories
+     * that the LLM scorer would have caught.
+     */
+    config?: AppConfig;
   },
 ): Promise<ModelMessage[]> {
+  const effectiveConfig =
+    options?.config ?? (await getConfig().catch(() => null));
   const [{ summaryText, modelMessages }, recalledMemories] = await Promise.all([
     buildPostSummaryConversationMessages(sessionId, options),
     options?.recallUserId && options?.recallQuery
       ? recallRelevantMemories({
           userId: options.recallUserId,
           query: options.recallQuery,
+          config: effectiveConfig ?? undefined,
         })
       : Promise.resolve([]),
   ]);

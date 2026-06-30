@@ -1713,6 +1713,7 @@ export async function chatMain(
     modelId: effectiveModelId,
     recallUserId: userId,
     recallQuery: request.input.text ?? null,
+    config,
   });
   chatMainLogger.info('chatMain:initial_messages_built', {
     messageCount: initialMessages.length,
@@ -1776,6 +1777,7 @@ async function runInitAgentsMdWorkflow(input: {
 
   const initialMessages = await buildInitialContextMessages(session.id, {
     modelId: effectiveModelId,
+    config,
   });
 
   const { runId, readable } = await startWorkflow({
