@@ -16,22 +16,20 @@ import {
 	formatToolRequest,
 	getStoredAuth,
 	remoteModelsToPiModels,
+	writeStoredConfig,
 } from "@agentboster/adapter";
 import type { StreamFn } from "@agentboster-cli/agent";
 import chalk from "chalk";
-import {
-	fetchRemoteMessages,
-	listRemoteSessions,
-	patchRemoteSession,
-	type RemoteSession,
-} from "./core/remote-sessions.ts";
+import { fetchRemoteMessages, listRemoteSessions, patchRemoteSession, type RemoteSession } from "./core/remote-sessions.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
+import type { ToolDefinition } from "./core/extensions/types.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listModels } from "./cli/list-models.ts";
 import { createProjectTrustContext } from "./cli/project-trust.ts";
+import { selectSession } from "./cli/session-picker.ts";
 import { shouldRunFirstTimeSetup, showFirstTimeSetup, showStartupSelector } from "./cli/startup-ui.ts";
-import { ENV_SESSION_DIR, expandTildePath, getAgentDir, VERSION } from "./config.ts";
+import { ENV_SESSION_DIR, expandTildePath, getAgentDir, getPackageDir, VERSION } from "./config.ts";
 import { type CreateAgentSessionRuntimeFactory, createAgentSessionRuntime } from "./core/agent-session-runtime.ts";
 import {
 	type AgentSessionRuntimeDiagnostic,
@@ -54,7 +52,7 @@ import {
 	MissingSessionCwdError,
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
-import { assertValidSessionId, cleanStaleTempSessions, SessionManager } from "./core/session-manager.ts";
+import { assertValidSessionId, cleanStaleTempSessions, type SessionInfo, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
@@ -166,7 +164,7 @@ type ResolvedSession =
  * Resolve a session argument to a file path.
  * If it looks like a path, use as-is. Otherwise try to match as session ID prefix.
  */
-async function _findLocalSessionByExactId(
+async function findLocalSessionByExactId(
 	sessionId: string,
 	cwd: string,
 	sessionDir?: string,
@@ -176,7 +174,7 @@ async function _findLocalSessionByExactId(
 	return localMatch ? { type: "local", path: localMatch.path } : undefined;
 }
 
-async function _resolveSessionPath(sessionArg: string, cwd: string, sessionDir?: string): Promise<ResolvedSession> {
+async function resolveSessionPath(sessionArg: string, cwd: string, sessionDir?: string): Promise<ResolvedSession> {
 	// If it looks like a file path, resolve it before handing it to the session manager.
 	if (sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl")) {
 		return { type: "path", path: resolvePath(sessionArg, cwd) };
@@ -205,7 +203,7 @@ async function _resolveSessionPath(sessionArg: string, cwd: string, sessionDir?:
 }
 
 /** Prompt user for yes/no confirmation */
-async function _promptConfirm(message: string): Promise<boolean> {
+async function promptConfirm(message: string): Promise<boolean> {
 	return new Promise((resolve) => {
 		const rl = createInterface({
 			input: process.stdin,
@@ -257,7 +255,7 @@ function validateSessionIdFlags(parsed: Args): void {
 	}
 }
 
-function _openSessionOrExit(path: string, sessionDir?: string): SessionManager {
+function openSessionOrExit(path: string, sessionDir?: string): SessionManager {
 	try {
 		return SessionManager.open(path, sessionDir);
 	} catch (error: unknown) {
@@ -267,7 +265,7 @@ function _openSessionOrExit(path: string, sessionDir?: string): SessionManager {
 	}
 }
 
-function _forkSessionOrExit(sourcePath: string, cwd: string, sessionDir?: string, sessionId?: string): SessionManager {
+function forkSessionOrExit(sourcePath: string, cwd: string, sessionDir?: string, sessionId?: string): SessionManager {
 	try {
 		return SessionManager.forkFrom(sourcePath, cwd, sessionDir, { id: sessionId });
 	} catch (error: unknown) {
@@ -302,43 +300,24 @@ async function createSessionManager(
 	if (parsed.resume) {
 		try {
 			const auth = getStoredAuth();
-			if (!auth) {
-				console.error(chalk.red("--resume requires login."));
-				process.exit(1);
-			}
+			if (!auth) { console.error(chalk.red("--resume requires login.")); process.exit(1); }
 			const remoteSessions = await listRemoteSessions(auth).catch((e) => {
-				console.error(chalk.red(`Failed to list sessions: ${e.message}`));
-				process.exit(1);
+				console.error(chalk.red(`Failed to list sessions: ${e.message}`)); process.exit(1);
 			});
-			if (remoteSessions.length === 0) {
-				console.log(chalk.dim("No sessions found."));
-				process.exit(0);
-			}
+			if (remoteSessions.length === 0) { console.log(chalk.dim("No sessions found.")); process.exit(0); }
 			const selected = await selectRemoteSession(remoteSessions, settingsManager);
-			if (!selected) {
-				console.log(chalk.dim("No session selected"));
-				process.exit(0);
-			}
+			if (!selected) { console.log(chalk.dim("No session selected")); process.exit(0); }
 			return await loadRemoteSessionOrExit(auth, selected.id, cwd);
-		} finally {
-			stopThemeWatcher();
-		}
+		} finally { stopThemeWatcher(); }
 	}
 
 	if (parsed.continue) {
 		const auth = getStoredAuth();
-		if (!auth) {
-			console.error(chalk.red("--continue requires login."));
-			process.exit(1);
-		}
+		if (!auth) { console.error(chalk.red("--continue requires login.")); process.exit(1); }
 		const remoteSessions = await listRemoteSessions(auth).catch((e) => {
-			console.error(chalk.red(`Failed to list sessions: ${e.message}`));
-			process.exit(1);
+			console.error(chalk.red(`Failed to list sessions: ${e.message}`)); process.exit(1);
 		});
-		if (remoteSessions.length === 0) {
-			console.error(chalk.red("No previous session."));
-			process.exit(1);
-		}
+		if (remoteSessions.length === 0) { console.error(chalk.red("No previous session.")); process.exit(1); }
 		return await loadRemoteSessionOrExit(auth, remoteSessions[0].id, cwd);
 	}
 
@@ -351,43 +330,30 @@ async function createSessionManager(
 }
 
 async function loadRemoteSessionOrExit(
-	auth: { url: string; token: string },
-	sessionId: string,
-	cwd: string,
+	auth: { url: string; token: string }, sessionId: string, cwd: string,
 ): Promise<SessionManager> {
 	try {
 		const { session, messages } = await fetchRemoteMessages(auth, sessionId);
 		return SessionManager.fromRemote(cwd, session.id, messages);
 	} catch (err) {
-		console.error(
-			chalk.red(`Failed to load session '${sessionId}': ${err instanceof Error ? err.message : String(err)}`),
-		);
+		console.error(chalk.red(`Failed to load session '${sessionId}': ${err instanceof Error ? err.message : String(err)}`));
 		process.exit(1);
 	}
 }
 
 async function selectRemoteSession(
-	sessions: RemoteSession[],
-	settingsManager: SettingsManager,
+	sessions: RemoteSession[], settingsManager: SettingsManager,
 ): Promise<RemoteSession | undefined> {
 	const { selectSession } = await import("./cli/session-picker.ts");
 	const indexById = new Map(sessions.map((s) => [s.id, s] as const));
 	const adapted = sessions.map((s) => ({
-		id: s.id,
-		path: s.id,
-		created: new Date(s.createdAt),
-		parentSessionPath: undefined,
-		cwd: undefined,
-		messageCount: 0,
-		title: s.title ?? undefined,
+		id: s.id, path: s.id, created: new Date(s.createdAt),
+		parentSessionPath: undefined, cwd: undefined, messageCount: 0, title: s.title ?? undefined,
 	})) as any;
-	const selectedPath = await selectSession(
-		async () => adapted,
-		async () => adapted,
-		settingsManager,
-	);
+	const selectedPath = await selectSession(async () => adapted, async () => adapted, settingsManager);
 	return selectedPath ? indexById.get(selectedPath) : undefined;
 }
+
 
 function buildSessionOptions(
 	parsed: Args,
@@ -438,9 +404,7 @@ function buildSessionOptions(
 		// back to the first scoped model.
 		const savedModelId = remoteDefaults?.model ?? null;
 		const savedInScope = savedModelId
-			? scopedModels.find(
-					(sm) => modelsAreEqual(sm.model, { id: savedModelId } as never) || sm.model.id === savedModelId,
-				)
+			? scopedModels.find((sm) => modelsAreEqual(sm.model, { id: savedModelId } as never) || sm.model.id === savedModelId)
 			: undefined;
 
 		if (savedInScope) {
@@ -525,6 +489,7 @@ export async function main(args: string[], options?: MainOptions) {
 		process.env.PI_SKIP_VERSION_CHECK = "1";
 	}
 
+
 	const cwd = process.cwd();
 	const agentDir = getAgentDir();
 	const bootstrapSettingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: false });
@@ -556,7 +521,9 @@ export async function main(args: string[], options?: MainOptions) {
 	// requires an Agentboster auth token. Subcommands (login/install/...)
 	// are dispatched above and exit before reaching here.
 	if (!getStoredAuth()) {
-		console.error("Not logged in. Run `agentboster login` first, then re-run this command.");
+		console.error(
+			"Not logged in. Run `agentboster login` first, then re-run this command.",
+		);
 		process.exit(1);
 	}
 
@@ -753,25 +720,25 @@ export async function main(args: string[], options?: MainOptions) {
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
 		const scopedModels =
 			modelPatterns && modelPatterns.length > 0 ? await resolveModelScope(modelPatterns, modelRegistry) : [];
-		// Pull the user's model preferences from the web backend so the
-		// initial model + thinking level match what the user picked in the
-		// web UI (and vice versa). The CLI no longer keeps a local default.
-		const authForPrefs = getStoredAuth();
-		const remoteDefaults = authForPrefs
-			? await fetchUserPreferences(authForPrefs.url, authForPrefs.token).catch(() => null)
-			: null;
+	// Pull the user's model preferences from the web backend so the
+	// initial model + thinking level match what the user picked in the
+	// web UI (and vice versa). The CLI no longer keeps a local default.
+	const authForPrefs = getStoredAuth();
+	const remoteDefaults = authForPrefs
+		? await fetchUserPreferences(authForPrefs.url, authForPrefs.token).catch(() => null)
+		: null;
 
-		const {
-			options: sessionOptions,
-			cliThinkingFromModel,
-			diagnostics: sessionOptionDiagnostics,
-		} = buildSessionOptions(
-			parsed,
-			scopedModels,
-			sessionManager.buildSessionContext().messages.length > 0,
-			modelRegistry,
-			remoteDefaults,
-		);
+	const {
+		options: sessionOptions,
+		cliThinkingFromModel,
+		diagnostics: sessionOptionDiagnostics,
+	} = buildSessionOptions(
+		parsed,
+		scopedModels,
+		sessionManager.buildSessionContext().messages.length > 0,
+		modelRegistry,
+		remoteDefaults,
+	);
 		diagnostics.push(...sessionOptionDiagnostics);
 
 		// Validate the chosen model against the server catalog when
@@ -790,7 +757,9 @@ export async function main(args: string[], options?: MainOptions) {
 					if (!catalogIds.includes(wanted)) {
 						const suggestion = catalogIds.slice().sort().join(", ");
 						console.error(
-							chalk.red(`Model "${wanted}" is not in the server catalog. Allowed models: ${suggestion}`),
+							chalk.red(
+								`Model "${wanted}" is not in the server catalog. Allowed models: ${suggestion}`,
+							),
 						);
 						process.exit(1);
 					}
@@ -807,29 +776,15 @@ export async function main(args: string[], options?: MainOptions) {
 			scopedModels: sessionOptions.scopedModels,
 			tools: sessionOptions.tools,
 			excludeTools: sessionOptions.excludeTools,
-			noTools: getStoredAuth() ? ("builtin" as const) : sessionOptions.noTools,
+			noTools: getStoredAuth() ? "builtin" as const : sessionOptions.noTools,
 			customTools: sessionOptions.customTools,
-			streamFnOverride: await resolveStreamFnOverride(
-				sessionManager,
-				undefined,
-				undefined,
-				parsed.yolo === true,
-				undefined,
-				() => readMergedAgentsMd(resourceLoader),
-			),
+			streamFnOverride: await resolveStreamFnOverride(sessionManager, undefined, undefined, parsed.yolo === true, undefined, () => readMergedAgentsMd(resourceLoader)),
 		});
-		const overrideWithEvents = await resolveStreamFnOverride(
-			sessionManager,
-			(event) => {
-				void created.session.addWorkflowSubagentEvent(event);
-			},
-			(event) => {
-				void created.session.addWorkflowSubagentBatchEvent(event);
-			},
-			parsed.yolo === true,
-			() => created.session.consumeRegenerateIntent(),
-			() => readMergedAgentsMd(created.session.resourceLoader),
-		);
+		const overrideWithEvents = await resolveStreamFnOverride(sessionManager, (event) => {
+			void created.session.addWorkflowSubagentEvent(event);
+		}, (event) => {
+			void created.session.addWorkflowSubagentBatchEvent(event);
+		}, parsed.yolo === true, () => created.session.consumeRegenerateIntent(), () => readMergedAgentsMd(created.session.resourceLoader));
 		if (overrideWithEvents) {
 			created.session.agent.streamFn = overrideWithEvents;
 		}
@@ -1030,11 +985,12 @@ async function handleLocalToolRequest(
 
 	// Security gate: L0 blocks immediately, L2 requires user confirmation.
 	// --yolo skips both tiers (auto-approve every local_* invocation).
-	const command = toolName === "local_exec" ? String(input.command ?? "") : formatToolRequest(toolName, toolInput);
-	const decision =
-		yolo || isQuestion
-			? { ok: true, autoApprove: true, level: "l0" as const, message: "yolo (skipped)" }
-			: evaluateLocalCommand(command);
+	const command = toolName === "local_exec"
+		? String(input["command"] ?? "")
+		: formatToolRequest(toolName, toolInput);
+	const decision = (yolo || isQuestion)
+		? { ok: true, autoApprove: true, level: "l0" as const, message: "yolo (skipped)" }
+		: evaluateLocalCommand(command);
 
 	if (!decision.ok) {
 		// L0 block — reject immediately.
@@ -1056,7 +1012,9 @@ async function handleLocalToolRequest(
 			return;
 		}
 		const rl = createInterfacePromises({ input: process.stdin, output: process.stdout });
-		const answer = await rl.question(`\n[security] ${decision.message}\n  ${command}\nAllow? [y/N] `);
+		const answer = await rl.question(
+			`\n[security] ${decision.message}\n  ${command}\nAllow? [y/N] `,
+		);
 		rl.close();
 		if (answer.trim().toLowerCase() !== "y") {
 			await postToolResult(auth, runId, toolCallId, {
@@ -1070,14 +1028,14 @@ async function handleLocalToolRequest(
 	try {
 		switch (toolName) {
 			case "local_read_file": {
-				const path = String(input.path ?? "");
+				const path = String(input["path"] ?? "");
 				const fs = await import("node:fs/promises");
 				result = { ok: true, output: await fs.readFile(path, "utf8") };
 				break;
 			}
 			case "local_write_file": {
-				const path = String(input.path ?? "");
-				const content = String(input.content ?? "");
+				const path = String(input["path"] ?? "");
+				const content = String(input["content"] ?? "");
 				const fs = await import("node:fs/promises");
 				const { dirname } = await import("node:path");
 				await fs.mkdir(dirname(path), { recursive: true });
@@ -1085,76 +1043,73 @@ async function handleLocalToolRequest(
 				result = { ok: true, output: `Wrote ${content.length} bytes to ${path}` };
 				break;
 			}
-			case "local_exec": {
-				const command = String(input.command ?? "");
-				const cwd = typeof input.cwd === "string" ? input.cwd : process.cwd();
-				const { spawn } = await import("node:child_process");
-				result = await new Promise((resolve) => {
-					const child = spawn(command, {
-						shell: process.env.SHELL ?? "/bin/sh",
-						cwd: typeof cwd === "string" ? cwd : process.cwd(),
-						env: process.env,
-					});
-					let stdout = "";
-					let stderr = "";
-					const MAX = 100_000;
-					child.stdout?.on("data", (chunk: Buffer) => {
-						if (stdout.length < MAX) stdout += chunk.toString("utf8").slice(0, MAX - stdout.length);
-					});
-					child.stderr?.on("data", (chunk: Buffer) => {
-						if (stderr.length < MAX) stderr += chunk.toString("utf8").slice(0, MAX - stderr.length);
-					});
-					child.on("error", (err) => resolve({ ok: false, error: err.message }));
-					child.on("close", (code) => {
-						if (code === 0) {
-							resolve({ ok: true, output: stderr ? `${stdout}\n[stderr]\n${stderr}` : stdout });
-						} else {
-							resolve({ ok: false, error: `Exit ${code}.\n[stdout]\n${stdout}\n[stderr]\n${stderr}` });
-						}
-					});
+		case "local_exec": {
+			const command = String(input["command"] ?? "");
+			const cwd = typeof input["cwd"] === "string" ? input["cwd"] : process.cwd();
+			const { spawn } = await import("node:child_process");
+			result = await new Promise((resolve) => {
+				const child = spawn(command, {
+					shell: process.env["SHELL"] ?? "/bin/sh",
+					cwd: typeof cwd === "string" ? cwd : process.cwd(),
+					env: process.env,
 				});
-				break;
-			}
-			case "local_ask_question": {
-				const prompts = Array.isArray(input.prompts) ? (input.prompts as Array<Record<string, unknown>>) : [];
-				if (process.stdin.isTTY !== true) {
-					result = { ok: false, error: "Cannot ask a question without a TTY (running in -p mode)." };
-					break;
-				}
-				const rl = createInterfacePromises({ input: process.stdin, output: process.stdout });
-				const answers: string[] = [];
-				for (const prompt of prompts) {
-					const question = String(prompt.question ?? "");
-					const options = Array.isArray(prompt.options) ? (prompt.options as string[]) : undefined;
-					const multiple = Boolean(prompt.multiple);
-					if (options && options.length > 0) {
-						const lines = options.map((o, i) => `  ${i + 1}. ${o}`);
-						const hint = multiple ? " (comma-separate for multiple)" : "";
-						const raw = await rl.question(`\n❓ ${question}\n${lines.join("\n")}\nChoice${hint}: `);
-						const picks = raw
-							.split(",")
-							.map((s) => s.trim())
-							.filter(Boolean);
-						const selected: string[] = [];
-						for (const pick of picks) {
-							const idx = Number.parseInt(pick, 10);
-							if (Number.isFinite(idx) && idx >= 1 && idx <= options.length) {
-								selected.push(options[idx - 1]!);
-							} else if (options.includes(pick)) {
-								selected.push(pick);
-							}
-						}
-						if (!multiple && selected.length > 1) answers.push(selected[0] ?? "");
-						else answers.push(selected.join(", "));
+				let stdout = "";
+				let stderr = "";
+				const MAX = 100_000;
+				child.stdout?.on("data", (chunk: Buffer) => {
+					if (stdout.length < MAX) stdout += chunk.toString("utf8").slice(0, MAX - stdout.length);
+				});
+				child.stderr?.on("data", (chunk: Buffer) => {
+					if (stderr.length < MAX) stderr += chunk.toString("utf8").slice(0, MAX - stderr.length);
+				});
+				child.on("error", (err) => resolve({ ok: false, error: err.message }));
+				child.on("close", (code) => {
+					if (code === 0) {
+						resolve({ ok: true, output: stderr ? `${stdout}\n[stderr]\n${stderr}` : stdout });
 					} else {
-						const raw = await rl.question(`\n❓ ${question}\n> `);
-						answers.push(raw.trim());
+						resolve({ ok: false, error: `Exit ${code}.\n[stdout]\n${stdout}\n[stderr]\n${stderr}` });
 					}
-				}
-				rl.close();
-				result = { ok: true, output: answers };
+				});
+			});
+			break;
+		}
+		case "local_ask_question": {
+			const prompts = Array.isArray(input["prompts"]) ? input["prompts"] as Array<Record<string, unknown>> : [];
+			if (process.stdin.isTTY !== true) {
+				result = { ok: false, error: "Cannot ask a question without a TTY (running in -p mode)." };
 				break;
 			}
+			const rl = createInterfacePromises({ input: process.stdin, output: process.stdout });
+			const answers: string[] = [];
+			for (const prompt of prompts) {
+				const question = String(prompt["question"] ?? "");
+				const options = Array.isArray(prompt["options"]) ? prompt["options"] as string[] : undefined;
+				const multiple = Boolean(prompt["multiple"]);
+				if (options && options.length > 0) {
+					const lines = options.map((o, i) => `  ${i + 1}. ${o}`);
+					const hint = multiple ? " (comma-separate for multiple)" : "";
+					const raw = await rl.question(`\n❓ ${question}\n${lines.join("\n")}\nChoice${hint}: `);
+					const picks = raw.split(",").map((s) => s.trim()).filter(Boolean);
+					const selected: string[] = [];
+					for (const pick of picks) {
+						const idx = Number.parseInt(pick, 10);
+						if (Number.isFinite(idx) && idx >= 1 && idx <= options.length) {
+							selected.push(options[idx - 1]!);
+						} else if (options.includes(pick)) {
+							selected.push(pick);
+						}
+					}
+					if (!multiple && selected.length > 1) answers.push(selected[0] ?? "");
+					else answers.push(selected.join(", "));
+				} else {
+					const raw = await rl.question(`\n❓ ${question}\n> `);
+					answers.push(raw.trim());
+				}
+			}
+			rl.close();
+			result = { ok: true, output: answers };
+			break;
+		}
 			default:
 				result = { ok: false, error: `Unknown local tool: ${toolName}` };
 		}
@@ -1226,21 +1181,19 @@ async function injectRemoteModels(modelRegistry: ModelRegistry): Promise<void> {
  * Returns undefined when no files were loaded so the stream-fn caller omits
  * the field entirely and the Web backend leaves the stored prompt untouched.
  */
-function readMergedAgentsMd(resourceLoader: {
-	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
-}): string | undefined {
+function readMergedAgentsMd(
+	resourceLoader: { getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> } },
+): string | undefined {
 	const files = resourceLoader.getAgentsFiles().agentsFiles;
 	if (files.length === 0) return undefined;
-	return (
-		files
-			.map((file) => {
-				const content = file.content.trim();
-				if (content.length === 0) return "";
-				return `<!-- From: ${file.path} -->\n${content}`;
-			})
-			.filter((entry) => entry.length > 0)
-			.join("\n\n") || undefined
-	);
+	return files
+		.map((file) => {
+			const content = file.content.trim();
+			if (content.length === 0) return "";
+			return `<!-- From: ${file.path} -->\n${content}`;
+		})
+		.filter((entry) => entry.length > 0)
+		.join("\n\n") || undefined;
 }
 
 /**
@@ -1284,14 +1237,15 @@ async function resolveStreamFnOverride(
 	// Use the SessionManager's id as the remote session identifier so
 	// the Web DB row and the local jsonl file stay correlated. Allow
 	// override via AGENTBOSTER_SESSION_ID for one-off debugging.
-	const envOverride = process.env.AGENTBOSTER_SESSION_ID;
-	const _sessionId = envOverride ?? _sessionManager.getSessionId();
+	const envOverride = process.env["AGENTBOSTER_SESSION_ID"];
+	const sessionId = envOverride ?? _sessionManager.getSessionId();
 	return createAgentbosterStreamFn({
 		getAuth: () => ({ baseUrl: auth.url, token: auth.token }),
-		getSessionId: () => envOverride ?? _sessionManager.getSessionId(),
-		clientId: process.env.AGENTBOSTER_CLIENT_ID ?? "local-cli",
+		getSessionId: () =>
+			envOverride ?? _sessionManager.getSessionId(),
+		clientId: process.env["AGENTBOSTER_CLIENT_ID"] ?? "local-cli",
 		label: "agentboster-cli",
-		model: process.env.AGENTBOSTER_MODEL ?? null,
+		model: process.env["AGENTBOSTER_MODEL"] ?? null,
 		consumeRegenerateIntent,
 		...(getAgentsMd ? { getAgentsMd } : {}),
 		onSubagentEvent,

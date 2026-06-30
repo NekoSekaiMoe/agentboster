@@ -182,7 +182,10 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 						timestamp: m.timestamp,
 					};
 				case "custom": {
-					if (m.customType === "workflow.subagent" || m.customType === "workflow.subagent.batch") {
+					if (
+						m.customType === "workflow.subagent" ||
+						m.customType === "workflow.subagent.batch"
+					) {
 						return undefined;
 					}
 					const content = typeof m.content === "string" ? [{ type: "text" as const, text: m.content }] : m.content;

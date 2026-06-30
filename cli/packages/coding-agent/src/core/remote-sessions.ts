@@ -48,7 +48,10 @@ export async function listRemoteSessions(
 	return data.sessions ?? [];
 }
 
-export async function getRemoteSession(auth: AgentbosterAuth, sessionId: string): Promise<RemoteSession | null> {
+export async function getRemoteSession(
+	auth: AgentbosterAuth,
+	sessionId: string,
+): Promise<RemoteSession | null> {
 	const res = await fetch(`${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}`, {
 		headers: authHeaders(auth),
 	});
@@ -75,7 +78,10 @@ export async function patchRemoteSession(
 	return res.ok;
 }
 
-export async function deleteRemoteSession(auth: AgentbosterAuth, sessionId: string): Promise<boolean> {
+export async function deleteRemoteSession(
+	auth: AgentbosterAuth,
+	sessionId: string,
+): Promise<boolean> {
 	const res = await fetch(`${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}`, {
 		method: "DELETE",
 		headers: authHeaders(auth),
@@ -174,10 +180,9 @@ export function uiMessageToText(msg: RemoteUIMessage): string {
  * Convenience: fetch messages for the current device's CLI session.
  * Returns null when not logged in (caller should fall back or error).
  */
-export async function fetchMyRemoteMessages(sessionId: string): Promise<{
-	session: { id: string; title: string | null; model: string | null };
-	messages: RemoteUIMessage[];
-} | null> {
+export async function fetchMyRemoteMessages(
+	sessionId: string,
+): Promise<{ session: { id: string; title: string | null; model: string | null }; messages: RemoteUIMessage[] } | null> {
 	const auth = getStoredAuth();
 	if (!auth) return null;
 	return fetchRemoteMessages(auth, sessionId);

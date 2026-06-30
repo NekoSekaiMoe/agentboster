@@ -406,8 +406,8 @@ export class ToolExecutionComponent extends Container {
 	private extractKeyArgument(): string {
 		const args = this.args as Record<string, unknown> | undefined;
 		if (!args) return "";
-		if (typeof args.command === "string") return args.command;
-		if (typeof args.path === "string") return shortenPath(args.path);
+		if (typeof args["command"] === "string") return args["command"];
+		if (typeof args["path"] === "string") return shortenPath(args["path"]);
 		const json = JSON.stringify(args);
 		return json === "{}" ? "" : json;
 	}

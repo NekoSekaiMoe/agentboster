@@ -122,7 +122,8 @@ export class FooterComponent implements Component {
 					totalCost += cost.total ?? 0;
 				}
 
-				const latestPromptTokens = (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+				const latestPromptTokens =
+					(usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
 				latestCacheHitRate =
 					latestPromptTokens > 0 ? ((usage.cacheRead ?? 0) / latestPromptTokens) * 100 : undefined;
 			}
@@ -144,12 +145,11 @@ export class FooterComponent implements Component {
 		if (this.permissionMode === "yolo") {
 			pwd = `${theme.bold(theme.fg("error", "[yolo]"))} ${pwd}`;
 		} else {
-			const badge =
-				this.inputMode === "plan"
-					? theme.bold(theme.fg("success", "[plan]"))
-					: this.inputMode === "shell"
-						? theme.bold(theme.fg("warning", "[shell]"))
-						: theme.bold(theme.fg("accent", "[build]"));
+			const badge = this.inputMode === "plan"
+				? theme.bold(theme.fg("success", "[plan]"))
+				: this.inputMode === "shell"
+					? theme.bold(theme.fg("warning", "[shell]"))
+					: theme.bold(theme.fg("accent", "[build]"));
 			pwd = `${badge} ${pwd}`;
 		}
 

@@ -12,7 +12,10 @@ import { hostname } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
-import { type AgentbosterStoredConfig, writeStoredConfig } from "@agentboster/adapter";
+import {
+	type AgentbosterStoredConfig,
+	writeStoredConfig,
+} from "@agentboster/adapter";
 
 const DEFAULT_CLIENT_LABEL = "agentboster-cli";
 
@@ -153,7 +156,11 @@ export interface LoginResult {
 	username?: string;
 }
 
-export async function loginWithPassword(url: string, username: string, password: string): Promise<LoginResult> {
+export async function loginWithPassword(
+	url: string,
+	username: string,
+	password: string,
+): Promise<LoginResult> {
 	const response = await fetch(`${url.replace(/\/$/, "")}/api/auth/login`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -175,7 +182,11 @@ export async function loginWithPassword(url: string, username: string, password:
 	return { token: payload.token, username: payload.user?.username };
 }
 
-export async function exchangePairCode(url: string, pairCode: string, label: string): Promise<LoginResult> {
+export async function exchangePairCode(
+	url: string,
+	pairCode: string,
+	label: string,
+): Promise<LoginResult> {
 	const response = await fetch(`${url.replace(/\/$/, "")}/api/auth/pair-exchange`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },

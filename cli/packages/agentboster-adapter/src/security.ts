@@ -38,7 +38,9 @@ const L0_ESCALATE_PATTERNS: RegExp[] = [
  * Does NOT call the L1 scoring endpoint — that's optional and
  * requires AGENTBOSTER_SCORER_URL.
  */
-export function evaluateLocalCommand(command: string): SecurityDecision {
+export function evaluateLocalCommand(
+	command: string,
+): SecurityDecision {
 	for (const pattern of L0_BLOCK_PATTERNS) {
 		if (pattern.test(command)) {
 			return {
@@ -72,15 +74,18 @@ export function evaluateLocalCommand(command: string): SecurityDecision {
 /**
  * Build a display string for a tool request (used in confirmation prompts).
  */
-export function formatToolRequest(toolName: string, toolInput: unknown): string {
+export function formatToolRequest(
+	toolName: string,
+	toolInput: unknown,
+): string {
 	const input = toolInput as Record<string, unknown> | undefined;
 	switch (toolName) {
 		case "local_exec":
-			return `$ ${String(input?.command ?? "")}`;
+			return `$ ${String(input?.["command"] ?? "")}`;
 		case "local_write_file":
-			return `write ${String(input?.path ?? "")} (${String(input?.content ?? "").length} bytes)`;
+			return `write ${String(input?.["path"] ?? "")} (${String(input?.["content"] ?? "").length} bytes)`;
 		case "local_read_file":
-			return `read ${String(input?.path ?? "")}`;
+			return `read ${String(input?.["path"] ?? "")}`;
 		default:
 			return `${toolName} ${JSON.stringify(toolInput ?? {})}`;
 	}

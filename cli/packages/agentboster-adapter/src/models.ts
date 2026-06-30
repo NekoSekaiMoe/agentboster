@@ -25,7 +25,10 @@ export interface RemoteModelsResponse {
  * Pull the catalog. Returns null when auth is missing or the server
  * is unreachable — caller falls back to whatever pi has locally.
  */
-export async function fetchRemoteModels(baseUrl: string, token: string): Promise<RemoteModelsResponse | null> {
+export async function fetchRemoteModels(
+	baseUrl: string,
+	token: string,
+): Promise<RemoteModelsResponse | null> {
 	const root = baseUrl.replace(/\/$/, "");
 	try {
 		const response = await fetch(`${root}/api/cli/models`, {
@@ -50,7 +53,9 @@ export async function fetchRemoteModels(baseUrl: string, token: string): Promise
  * nominal. contextWindow / maxTokens come from the server; cost /
  * reasoning / input modalities fall back to permissive defaults.
  */
-export function remoteModelsToPiModels(remote: RemoteModelsResponse): Model<Api>[] {
+export function remoteModelsToPiModels(
+	remote: RemoteModelsResponse,
+): Model<Api>[] {
 	return remote.models.map((m) => {
 		const contextWindow = m.contextLimit ?? 128_000;
 		const model: Model<Api> = {

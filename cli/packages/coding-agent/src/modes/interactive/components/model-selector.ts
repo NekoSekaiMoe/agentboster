@@ -52,6 +52,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	private filteredModels: ModelItem[] = [];
 	private selectedIndex: number = 0;
 	private currentModel?: Model<any>;
+	private settingsManager: SettingsManager;
 	private modelRegistry: ModelRegistry;
 	private onSelectCallback: (model: Model<any>) => void;
 	private onCancelCallback: () => void;
@@ -65,7 +66,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 	constructor(
 		tui: TUI,
 		currentModel: Model<any> | undefined,
-		_settingsManager: SettingsManager,
+		settingsManager: SettingsManager,
 		modelRegistry: ModelRegistry,
 		scopedModels: ReadonlyArray<ScopedModelItem>,
 		onSelect: (model: Model<any>) => void,
@@ -76,6 +77,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 
 		this.tui = tui;
 		this.currentModel = currentModel;
+		this.settingsManager = settingsManager;
 		this.modelRegistry = modelRegistry;
 		this.scopedModels = scopedModels;
 		this.scope = scopedModels.length > 0 ? "scoped" : "all";

@@ -43,9 +43,7 @@ export function cleanStaleTempSessions(): void {
 	try {
 		for (const name of readdirSync(dir)) {
 			if (name.startsWith(TMP_SESSION_PREFIX)) {
-				try {
-					unlinkSync(join(dir, name));
-				} catch {}
+				try { unlinkSync(join(dir, name)); } catch {}
 			}
 		}
 	} catch {}
@@ -60,22 +58,15 @@ function registerTempSessionCleanup(filePath: string): void {
 		exitHandlerRegistered = true;
 		const cleanup = () => {
 			for (const p of registeredCleanups) {
-				try {
-					unlinkSync(p);
-				} catch {}
+				try { unlinkSync(p); } catch {}
 			}
 		};
 		process.on("exit", cleanup);
-		process.on("SIGINT", () => {
-			cleanup();
-			process.exit(130);
-		});
-		process.on("SIGTERM", () => {
-			cleanup();
-			process.exit(143);
-		});
+		process.on("SIGINT", () => { cleanup(); process.exit(130); });
+		process.on("SIGTERM", () => { cleanup(); process.exit(143); });
 	}
 }
+
 
 export interface SessionHeader {
 	type: "session";
@@ -1452,7 +1443,7 @@ export class SessionManager {
 	 * @param sessionDir Optional session directory. If omitted, uses default (~/.pi/agent/sessions/<encoded-cwd>/).
 	 */
 	static create(cwd: string, sessionDir?: string, options?: NewSessionOptions): SessionManager {
-		const _dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
+		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
 		return new SessionManager(cwd, undefined, undefined, true, options);
 	}
 
@@ -1468,22 +1459,9 @@ export class SessionManager {
 		messages: Array<{
 			id: string;
 			role: "user" | "assistant";
-			parts: Array<{
-				type: string;
-				text?: string;
-				toolName?: string;
-				toolCallId?: string;
-				input?: unknown;
-				state?: string;
-				output?: unknown;
-				errorText?: string;
-			}>;
+			parts: Array<{ type: string; text?: string; toolName?: string; toolCallId?: string; input?: unknown; state?: string; output?: unknown; errorText?: string }>;
 			metadata?: {
-				versions?: Array<{
-					parts: Array<{ type: string; text?: string }>;
-					createdAt: string;
-					response?: Array<{ type: string; text?: string }>;
-				}>;
+				versions?: Array<{ parts: Array<{ type: string; text?: string }>; createdAt: string; response?: Array<{ type: string; text?: string }> }>;
 				currentVersionIndex?: number;
 			};
 		}>,
@@ -1492,16 +1470,7 @@ export class SessionManager {
 		const entryIds: string[] = [];
 		for (const msg of messages) {
 			// Pick the effective parts: current version if versioned, else the message's own parts.
-			type RemotePart = {
-				type: string;
-				text?: string;
-				toolName?: string;
-				toolCallId?: string;
-				input?: unknown;
-				state?: string;
-				output?: unknown;
-				errorText?: string;
-			};
+			type RemotePart = { type: string; text?: string; toolName?: string; toolCallId?: string; input?: unknown; state?: string; output?: unknown; errorText?: string };
 			const effectiveParts: RemotePart[] = (() => {
 				if (msg.metadata?.versions && msg.metadata.versions.length > 0) {
 					const idx = msg.metadata.currentVersionIndex ?? 0;
@@ -1523,10 +1492,7 @@ export class SessionManager {
 				// block for each dynamic-tool part so the TUI renders tool
 				// executions that happened during this step. Without this,
 				// /resume of a remote session drops all tool history.
-				const content: Array<
-					| { type: string; text?: string }
-					| { type: string; id: string; name: string; arguments: Record<string, unknown> }
-				> = [];
+				const content: Array<{ type: string; text?: string } | { type: string; id: string; name: string; arguments: Record<string, unknown> }> = [];
 				if (text) {
 					content.push({ type: "text", text });
 				}
@@ -1542,18 +1508,11 @@ export class SessionManager {
 				}
 				const entryId = manager.appendMessage({
 					role: "assistant",
-					content: content.length > 0 ? (content as any) : [{ type: "text", text: "" }],
+					content: content.length > 0 ? content as any : [{ type: "text", text: "" }],
 					api: "openai-responses" as any,
 					provider: "agentboster" as any,
 					model: "remote",
-					usage: {
-						input: 0,
-						output: 0,
-						cacheRead: 0,
-						cacheWrite: 0,
-						totalTokens: 0,
-						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-					},
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
 					stopReason: "stop",
 					timestamp: Date.now(),
 				});
@@ -1625,7 +1584,9 @@ export class SessionManager {
 		_sessionDir?: string,
 		_options?: NewSessionOptions,
 	): SessionManager {
-		throw new Error("forkFrom is not available in thin-client mode. Session forking requires the remote backend.");
+		throw new Error(
+			"forkFrom is not available in thin-client mode. Session forking requires the remote backend.",
+		);
 	}
 
 	/**

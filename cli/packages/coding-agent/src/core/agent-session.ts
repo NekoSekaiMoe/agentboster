@@ -15,7 +15,14 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
-import type { Agent, AgentEvent, AgentMessage, AgentState, AgentTool, ThinkingLevel } from "@agentboster-cli/agent";
+import type {
+	Agent,
+	AgentEvent,
+	AgentMessage,
+	AgentState,
+	AgentTool,
+	ThinkingLevel,
+} from "@agentboster-cli/agent";
 import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@agentboster-cli/ai/compat";
 import {
 	clampThinkingLevel,
@@ -54,7 +61,9 @@ async function patchRemoteModelPref(modelId: string): Promise<void> {
 }
 
 // Persist a thinking-level change to the user's web preferences.
-async function patchRemoteThinkingPref(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): Promise<void> {
+async function patchRemoteThinkingPref(
+	level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh",
+): Promise<void> {
 	const { getStoredAuth, patchUserPreferences } = await import("@agentboster/adapter");
 	const auth = getStoredAuth();
 	if (!auth) return;
@@ -1202,8 +1211,7 @@ export class AgentSession {
 			savedSystemPrompt = this.agent.state.systemPrompt;
 			this.agent.state.tools = [];
 			// Augment the system prompt to steer the model toward producing a plan.
-			const planSuffix =
-				"\n\n## Plan mode\nYou are in plan mode. Do NOT call any tools. Produce a clear, structured plan for how to accomplish the user's request. Outline the steps, files to touch, and any clarifying questions. The user will review the plan before execution begins.";
+			const planSuffix = "\n\n## Plan mode\nYou are in plan mode. Do NOT call any tools. Produce a clear, structured plan for how to accomplish the user's request. Outline the steps, files to touch, and any clarifying questions. The user will review the plan before execution begins.";
 			this.agent.state.systemPrompt = (this._baseSystemPrompt ?? this.agent.state.systemPrompt) + planSuffix;
 		}
 		try {
@@ -1416,7 +1424,11 @@ export class AgentSession {
 	}
 
 	async addWorkflowSubagentEvent(event: WorkflowSubagentEventDetails): Promise<void> {
-		const lines = [`Sub-agent: ${event.subagentName}`, `State: ${event.event}`, `Task: ${event.task}`];
+		const lines = [
+			`Sub-agent: ${event.subagentName}`,
+			`State: ${event.event}`,
+			`Task: ${event.task}`,
+		];
 		if (event.modelId) {
 			lines.push(`Model: ${event.modelId}`);
 		}
