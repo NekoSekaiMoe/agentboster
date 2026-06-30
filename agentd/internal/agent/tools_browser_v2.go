@@ -48,6 +48,13 @@ func registerBrowserToolsV2(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 	registerBrowserLoadState(registry, sbMgr, ctx)
 	registerBrowserListProfiles(registry, sbMgr, ctx)
 	registerBrowserClose(registry, sbMgr, ctx)
+	registerBrowserSelectOption(registry, sbMgr, ctx)
+	registerBrowserHover(registry, sbMgr, ctx)
+	registerBrowserUpload(registry, sbMgr, ctx)
+	registerBrowserTabNew(registry, sbMgr, ctx)
+	registerBrowserTabSwitch(registry, sbMgr, ctx)
+	registerBrowserTabClose(registry, sbMgr, ctx)
+	registerBrowserTabList(registry, sbMgr, ctx)
 }
 
 // resolveProfile mirrors lib/mcp/browser/pool.ts resolveProfile.
@@ -749,5 +756,285 @@ func registerBrowserClose(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *A
 			"profile": resolveProfile(params.Profile, ctx.AgentID),
 		})
 		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/close", body, browserDefaultTimeoutSec)
+	})
+}
+
+// registerBrowserSelectOption exposes browser_select_option — wraps
+// Playwright's Locator.selectOption, supporting both single-select
+// (value) and multi-select (values). Only applies to <select>, and
+// <input type=checkbox|radio> for the latter case.
+func registerBrowserSelectOption(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	props := locatorStrategyProperties()
+	props["value"] = map[string]any{
+		"type":        "string",
+		"description": "Single option value to select. Mutually exclusive with values. Use this for normal <select>.",
+	}
+	props["values"] = map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string"},
+		"description": "Multiple option values (for <select multiple> or a group of same-named checkboxes). Ignored if value is set.",
+	}
+	props["timeout_ms"] = map[string]any{"type": "number", "description": "Wait timeout in ms. Default 30000."}
+	props["profile"] = map[string]any{"type": "string", "description": "Profile name (defaults to current agent profile)."}
+
+	registry.Register(ToolDefinition{
+		Name: "browser_select_option",
+		Description: "Select option(s) on a <select>, or check <input type=checkbox|radio> elements matched by the locator. " +
+			"Provide ONE locator strategy (selector/role/label/placeholder) to target the element, " +
+			"and either value (single) or values (array). For <select>, value is the option's value attribute. " +
+			"Requires browser_navigate first.",
+		MinUserType: "trusted",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": props,
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		var params struct {
+			locatorStrategyParams
+			Value     string   `json:"value"`
+			Values    []string `json:"values"`
+			TimeoutMs int      `json:"timeout_ms"`
+			Profile   string   `json:"profile"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		body := params.locatorStrategyParams.toMap()
+		if len(params.Values) > 0 {
+			body["values"] = params.Values
+		} else {
+			body["value"] = params.Value
+		}
+		body["timeout_ms"] = params.TimeoutMs
+		body["profile"] = resolveProfile(params.Profile, ctx.AgentID)
+		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/select-option", body, clampTimeoutSec(params.TimeoutMs/1000))
+	})
+}
+
+// registerBrowserHover exposes browser_hover — wraps Playwright's
+// Locator.hover. Useful for triggering hover-only menus, tooltips, and
+// lazy-loaded panels.
+func registerBrowserHover(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	props := locatorStrategyProperties()
+	props["modifiers"] = map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string", "enum": []string{"Shift", "Control", "Alt", "Meta"}},
+		"description": "Modifier keys to hold during hover.",
+	}
+	props["timeout_ms"] = map[string]any{"type": "number", "description": "Wait timeout in ms. Default 30000."}
+	props["profile"] = map[string]any{"type": "string", "description": "Profile name (defaults to current agent profile)."}
+
+	registry.Register(ToolDefinition{
+		Name: "browser_hover",
+		Description: "Hover over an element (locator strategy required). Triggers hover-only UI such as dropdown menus, tooltips, " +
+			"and lazy image loading. Run browser_inspect first to pick a stable locator. Requires browser_navigate first.",
+		MinUserType: "trusted",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": props,
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		var params struct {
+			locatorStrategyParams
+			Modifiers []string `json:"modifiers"`
+			TimeoutMs int      `json:"timeout_ms"`
+			Profile   string   `json:"profile"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		body := params.locatorStrategyParams.toMap()
+		body["modifiers"] = params.Modifiers
+		body["timeout_ms"] = params.TimeoutMs
+		body["profile"] = resolveProfile(params.Profile, ctx.AgentID)
+		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/hover", body, clampTimeoutSec(params.TimeoutMs/1000))
+	})
+}
+
+// registerBrowserUpload exposes browser_upload — wraps Playwright's
+// Locator.setInputFiles. Supports both filesystem paths (preferred for
+// binary files already in the sandbox) and inline text payloads.
+func registerBrowserUpload(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	props := locatorStrategyProperties()
+	props["paths"] = map[string]any{
+		"type":        "string",
+		"description": "Comma-separated absolute paths inside the sandbox (e.g. \"/workspace/in.csv,/workspace/in2.csv\").",
+	}
+	props["paths_array"] = map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string"},
+		"description": "Array form of paths (use when paths contain commas).",
+	}
+	props["payload"] = map[string]any{
+		"type":        "string",
+		"description": "Inline text payload (UTF-8). Use with name. For binary, write the file to a sandbox path first and use paths.",
+	}
+	props["name"] = map[string]any{
+		"type":        "string",
+		"description": "Filename when using payload. Required with payload.",
+	}
+	props["mime"] = map[string]any{
+		"type":        "string",
+		"description": "MIME type when using payload (default application/octet-stream).",
+	}
+	props["timeout_ms"] = map[string]any{"type": "number", "description": "Wait timeout in ms. Default 30000."}
+	props["profile"] = map[string]any{"type": "string", "description": "Profile name (defaults to current agent profile)."}
+
+	registry.Register(ToolDefinition{
+		Name: "browser_upload",
+		Description: "Upload file(s) into an <input type=file> element matched by a locator strategy. " +
+			"Use paths (filesystem) for binary; use payload+name for small in-memory text files. " +
+			"Requires browser_navigate first.",
+		MinUserType: "trusted",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": props,
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		var params struct {
+			locatorStrategyParams
+			Paths     string   `json:"paths"`
+			PathsArr  []string `json:"paths_array"`
+			Payload   string   `json:"payload"`
+			Name      string   `json:"name"`
+			Mime      string   `json:"mime"`
+			TimeoutMs int      `json:"timeout_ms"`
+			Profile   string   `json:"profile"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		body := params.locatorStrategyParams.toMap()
+		body["paths"] = params.Paths
+		body["paths_array"] = params.PathsArr
+		body["payload"] = params.Payload
+		body["name"] = params.Name
+		body["mime"] = params.Mime
+		body["timeout_ms"] = params.TimeoutMs
+		body["profile"] = resolveProfile(params.Profile, ctx.AgentID)
+		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/upload", body, clampTimeoutSec(params.TimeoutMs/1000))
+	})
+}
+
+// registerBrowserTabNew exposes browser_tab_new — opens a new tab in the
+// current profile's BrowserContext. Subsequent browser_* calls operate on
+// the new tab until browser_tab_switch is used.
+func registerBrowserTabNew(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	registry.Register(ToolDefinition{
+		Name:        "browser_tab_new",
+		Description: "Open a new browser tab in the current profile and switch to it. Returns the new tabId. Optionally navigate it to a URL. Subsequent browser_* calls target this new tab.",
+		MinUserType:  "trusted",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"url":        map[string]any{"type": "string", "description": "URL to navigate the new tab to. Default: about:blank."},
+				"timeout_ms": map[string]any{"type": "number", "description": "Navigation timeout in ms. Default 30000."},
+				"profile":    map[string]any{"type": "string", "description": "Profile name (defaults to current agent profile)."},
+			},
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		var params struct {
+			URL       string `json:"url"`
+			TimeoutMs int    `json:"timeout_ms"`
+			Profile   string `json:"profile"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		body := map[string]any{
+			"url":        params.URL,
+			"timeout_ms": params.TimeoutMs,
+			"profile":    resolveProfile(params.Profile, ctx.AgentID),
+		}
+		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/tab-new", body, clampTimeoutSec(params.TimeoutMs/1000))
+	})
+}
+
+// registerBrowserTabSwitch exposes browser_tab_switch — makes an existing
+// tabId the active tab for subsequent browser_* calls.
+func registerBrowserTabSwitch(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	registry.Register(ToolDefinition{
+		Name:        "browser_tab_switch",
+		Description: "Switch the active tab for subsequent browser_* calls. Use browser_tab_list to discover tab ids.",
+		MinUserType:  "trusted",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"tab_id":  map[string]any{"type": "string", "description": "Tab id returned by browser_tab_new or browser_tab_list."},
+				"profile": map[string]any{"type": "string", "description": "Profile name (defaults to current agent profile)."},
+			},
+			"required": []string{"tab_id"},
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		var params struct {
+			TabID   string `json:"tab_id"`
+			Profile string `json:"profile"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		body := map[string]any{
+			"tab_id":  params.TabID,
+			"profile": resolveProfile(params.Profile, ctx.AgentID),
+		}
+		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/tab-switch", body, browserDefaultTimeoutSec)
+	})
+}
+
+// registerBrowserTabClose exposes browser_tab_close — closes a tab. If it
+// was the active tab, falls back to the next remaining tab (or a fresh
+// blank tab if it was the last one — the BrowserContext always has one).
+func registerBrowserTabClose(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	registry.Register(ToolDefinition{
+		Name:        "browser_tab_close",
+		Description: "Close a browser tab. Defaults to the current tab. The profile always retains at least one tab so subsequent browser_* calls keep working.",
+		MinUserType:  "trusted",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"tab_id":  map[string]any{"type": "string", "description": "Tab id to close. If omitted, closes the current tab."},
+				"profile": map[string]any{"type": "string", "description": "Profile name (defaults to current agent profile)."},
+			},
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		var params struct {
+			TabID   string `json:"tab_id"`
+			Profile string `json:"profile"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		body := map[string]any{
+			"tab_id":  params.TabID,
+			"profile": resolveProfile(params.Profile, ctx.AgentID),
+		}
+		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/tab-close", body, browserDefaultTimeoutSec)
+	})
+}
+
+// registerBrowserTabList exposes browser_tab_list — enumerates tabs in
+// the current profile (id, url, title, current flag).
+func registerBrowserTabList(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	registry.Register(ToolDefinition{
+		Name:        "browser_tab_list",
+		Description: "List all tabs in the current profile with their id, URL, title, and which is currently active. Use after browser_tab_new to capture ids.",
+		MinUserType:  "trusted",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"profile": map[string]any{"type": "string", "description": "Profile name (defaults to current agent profile)."},
+			},
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		var params struct {
+			Profile string `json:"profile"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		body := map[string]any{
+			"profile": resolveProfile(params.Profile, ctx.AgentID),
+		}
+		return bridgeCallToToolResult(sbMgr, ctx, "POST", "/tab-list", body, browserDefaultTimeoutSec)
 	})
 }

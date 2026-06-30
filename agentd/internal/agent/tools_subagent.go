@@ -304,10 +304,14 @@ func StoreSubagentResult(subagentID, rawResult, summary string) {
 }
 
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	if n <= 0 {
 		return s
 	}
-	return s[:n] + "..."
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "…"
 }
 
 // SubagentResumeState holds minimal state for resuming a crashed sub-agent.

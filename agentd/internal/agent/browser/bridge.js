@@ -90,7 +90,21 @@ async function getOrCreateSession(profile, options = {}) {
   const pages = context.pages();
   const page = pages.length > 0 ? pages[0] : await context.newPage();
 
-  const session = { context, page, profileDir };
+  // Multi-tab model: every session tracks a Map<tabId, Page> plus the
+  // current tab id. session.page is kept as an alias to the current tab
+  // so existing single-tab handlers (click/type/get-text/...) work
+  // unchanged when there is only one tab.
+  const tabs = new Map();
+  const initialTabId = 'tab-1';
+  tabs.set(initialTabId, page);
+  const session = {
+    context,
+    page,
+    profileDir,
+    tabs,
+    currentTabId: initialTabId,
+    tabSeq: 1,
+  };
   sessions.set(profile, session);
   return session;
 }
@@ -380,6 +394,213 @@ async function handleType(req, res, body) {
     ok: true,
     data: { typed_into: 'focused', chars: body.text.length, press_enter: Boolean(body.press_enter) },
   });
+}
+
+async function handleSelectOption(req, res, body) {
+  const profile = sanitizeFilename(resolveProfile(body));
+  if (!profile) return sendJSON(res, 400, { ok: false, error: 'invalid profile' });
+  const session = requireSession(profile);
+
+  const timeout = positiveInt(body.timeout_ms, DEFAULT_TIMEOUT_MS);
+  const values = Array.isArray(body.values) ? body.values.filter((v) => v !== null && v !== '') : [];
+  const single = typeof body.value === 'string' || typeof body.value === 'number';
+  if (values.length === 0 && !single) {
+    return sendJSON(res, 400, { ok: false, error: 'provide "value" (single) or "values" (array)' });
+  }
+  const allValues = values.length > 0
+    ? values.map(String)
+    : [String(body.value)];
+
+  try {
+    const { locator, describe } = resolveLocator(session.page, body, body.frame_chain);
+    const selected = await locator.selectOption(allValues, { timeout });
+    return sendJSON(res, 200, {
+      ok: true,
+      data: { selected_into: describe, selected_count: selected.length, requested: allValues.length },
+    });
+  } catch (e) {
+    return sendJSON(res, 400, {
+      ok: false,
+      error: `selectOption failed: ${e.message || e}. Element must be an <input type=checkbox|radio> or <select>.`,
+    });
+  }
+}
+
+async function handleHover(req, res, body) {
+  const profile = sanitizeFilename(resolveProfile(body));
+  if (!profile) return sendJSON(res, 400, { ok: false, error: 'invalid profile' });
+  const session = requireSession(profile);
+
+  const timeout = positiveInt(body.timeout_ms, DEFAULT_TIMEOUT_MS);
+  const modifiers = Array.isArray(body.modifiers)
+    ? body.modifiers.filter((m) => ['Shift', 'Control', 'Alt', 'Meta'].includes(m))
+    : undefined;
+
+  try {
+    const { locator, describe } = resolveLocator(session.page, body, body.frame_chain);
+    await locator.hover({ timeout, modifiers });
+    return sendJSON(res, 200, { ok: true, data: { hovered: describe, modifiers: modifiers || [] } });
+  } catch (e) {
+    return sendJSON(res, 400, { ok: false, error: `hover failed: ${e.message || e}` });
+  }
+}
+
+async function handleUpload(req, res, body) {
+  const profile = sanitizeFilename(resolveProfile(body));
+  if (!profile) return sendJSON(res, 400, { ok: false, error: 'invalid profile' });
+  const session = requireSession(profile);
+
+  const timeout = positiveInt(body.timeout_ms, DEFAULT_TIMEOUT_MS);
+  // Three input shapes supported:
+  //   paths: "/abs/file1,/abs/file2"   (comma-separated; sandbox-friendly)
+  //   paths_array: ["/abs/file1", "/abs/file2"]
+  //   payload + name (+ mime): single in-memory file (no sandbox filesystem hit)
+  let paths = null;
+  if (typeof body.paths === 'string' && body.paths.trim() !== '') {
+    paths = body.paths.split(',').map((s) => s.trim()).filter(Boolean);
+  } else if (Array.isArray(body.paths_array) && body.paths_array.length > 0) {
+    paths = body.paths_array.map(String).filter((s) => s.trim() !== '');
+  }
+
+  try {
+    const { locator, describe } = resolveLocator(session.page, body, body.frame_chain);
+
+    if (paths) {
+      await locator.setInputFiles(paths, { timeout });
+      return sendJSON(res, 200, {
+        ok: true,
+        data: { uploaded_to: describe, mode: 'paths', count: paths.length, paths },
+      });
+    }
+
+    if (typeof body.payload === 'string' && body.payload.length > 0 && typeof body.name === 'string' && body.name) {
+      // payload is raw text; for binary, callers should write to a sandbox path first.
+      const buffer = Buffer.from(body.payload, 'utf8');
+      await locator.setInputFiles(
+        { name: body.name, mimeType: body.mime || 'application/octet-stream', buffer },
+        { timeout },
+      );
+      return sendJSON(res, 200, {
+        ok: true,
+        data: { uploaded_to: describe, mode: 'payload', name: body.name, bytes: buffer.length },
+      });
+    }
+
+    return sendJSON(res, 400, {
+      ok: false,
+      error: 'provide "paths"/"paths_array" (filesystem) or "payload"+"name" (in-memory text)',
+    });
+  } catch (e) {
+    return sendJSON(res, 400, { ok: false, error: `upload failed: ${e.message || e}` });
+  }
+}
+
+async function handleTabNew(req, res, body) {
+  const profile = sanitizeFilename(resolveProfile(body));
+  if (!profile) return sendJSON(res, 400, { ok: false, error: 'invalid profile' });
+  const session = requireSession(profile);
+
+  const url = typeof body.url === 'string' ? body.url : 'about:blank';
+  const page = await session.context.newPage();
+  session.tabSeq += 1;
+  const tabId = `tab-${session.tabSeq}`;
+  session.tabs.set(tabId, page);
+  session.currentTabId = tabId;
+  session.page = page;
+
+  if (url && url !== 'about:blank') {
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: positiveInt(body.timeout_ms, DEFAULT_TIMEOUT_MS) });
+    } catch (e) {
+      // Navigation failure does not undo the tab creation; report + leave tab open.
+      return sendJSON(res, 200, {
+        ok: true,
+        data: { tabId, url, navigated: false, error: `tab created but navigation failed: ${e.message || e}` },
+      });
+    }
+  }
+  return sendJSON(res, 200, { ok: true, data: { tabId, url, navigated: url !== 'about:blank' } });
+}
+
+async function handleTabSwitch(req, res, body) {
+  const profile = sanitizeFilename(resolveProfile(body));
+  if (!profile) return sendJSON(res, 400, { ok: false, error: 'invalid profile' });
+  const session = requireSession(profile);
+
+  const tabId = typeof body.tab_id === 'string' ? body.tab_id.trim() : '';
+  if (!tabId) return sendJSON(res, 400, { ok: false, error: 'tab_id is required' });
+  const page = session.tabs.get(tabId);
+  if (!page) {
+    return sendJSON(res, 404, { ok: false, error: `tab "${tabId}" not found; call /tab-list for valid ids` });
+  }
+  if (page.isClosed()) {
+    session.tabs.delete(tabId);
+    return sendJSON(res, 410, { ok: false, error: `tab "${tabId}" was closed` });
+  }
+  session.currentTabId = tabId;
+  session.page = page;
+  await page.bringToFront();
+  let currentUrl = 'about:blank';
+  try { currentUrl = page.url(); } catch (_) {}
+  return sendJSON(res, 200, { ok: true, data: { switched_to: tabId, url: currentUrl } });
+}
+
+async function handleTabClose(req, res, body) {
+  const profile = sanitizeFilename(resolveProfile(body));
+  if (!profile) return sendJSON(res, 400, { ok: false, error: 'invalid profile' });
+  const session = requireSession(profile);
+
+  // Default: close the current tab.
+  const tabId = (typeof body.tab_id === 'string' && body.tab_id.trim()) || session.currentTabId;
+  const page = session.tabs.get(tabId);
+  if (!page) return sendJSON(res, 404, { ok: false, error: `tab "${tabId}" not found` });
+
+  try { await page.close(); } catch (_) {}
+  session.tabs.delete(tabId);
+
+  // Pick a fallback tab if we just closed the current one.
+  if (session.currentTabId === tabId) {
+    if (session.tabs.size === 0) {
+      // Keep the BrowserContext alive with a fresh blank tab so subsequent
+      // tool calls don't trip NO_SESSION-style states.
+      const blank = await session.context.newPage();
+      session.tabSeq += 1;
+      const newId = `tab-${session.tabSeq}`;
+      session.tabs.set(newId, blank);
+      session.currentTabId = newId;
+      session.page = blank;
+    } else {
+      const [nextId, nextPage] = session.tabs.entries().next().value;
+      session.currentTabId = nextId;
+      session.page = nextPage;
+      try { await nextPage.bringToFront(); } catch (_) {}
+    }
+  }
+  return sendJSON(res, 200, { ok: true, data: { closed: tabId, remaining: session.tabs.size, current: session.currentTabId } });
+}
+
+async function handleTabList(req, res, bodyOrParams) {
+  const body = bodyOrParams && typeof bodyOrParams === 'object' ? bodyOrParams : {};
+  const profile = sanitizeFilename(resolveProfile(body));
+  if (!profile) return sendJSON(res, 400, { ok: false, error: 'invalid profile' });
+  const session = requireSession(profile);
+
+  const items = [];
+  for (const [tabId, page] of session.tabs.entries()) {
+    let url = 'about:blank';
+    let title = '';
+    let closed = false;
+    try {
+      if (page.isClosed()) {
+        closed = true;
+      } else {
+        url = page.url();
+        title = await page.title().catch(() => '');
+      }
+    } catch (_) {}
+    items.push({ tabId, url, title, closed, current: tabId === session.currentTabId });
+  }
+  return sendJSON(res, 200, { ok: true, data: { tabs: items, current: session.currentTabId, count: items.length } });
 }
 
 async function handleGetText(req, res, params) {
@@ -770,6 +991,27 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/type' && method === 'POST') {
       return await handleType(req, res, await parseBody(req));
+    }
+    if (pathname === '/select-option' && method === 'POST') {
+      return await handleSelectOption(req, res, await parseBody(req));
+    }
+    if (pathname === '/hover' && method === 'POST') {
+      return await handleHover(req, res, await parseBody(req));
+    }
+    if (pathname === '/upload' && method === 'POST') {
+      return await handleUpload(req, res, await parseBody(req));
+    }
+    if (pathname === '/tab-new' && method === 'POST') {
+      return await handleTabNew(req, res, await parseBody(req));
+    }
+    if (pathname === '/tab-switch' && method === 'POST') {
+      return await handleTabSwitch(req, res, await parseBody(req));
+    }
+    if (pathname === '/tab-close' && method === 'POST') {
+      return await handleTabClose(req, res, await parseBody(req));
+    }
+    if (pathname === '/tab-list' && method === 'POST') {
+      return await handleTabList(req, res, await parseBody(req));
     }
     if (pathname === '/get-text' && method === 'GET') {
       return await handleGetText(req, res, params);

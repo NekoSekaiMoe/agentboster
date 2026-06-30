@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,18 +10,37 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	nurl "net/url"
+
+	"github.com/go-shiori/go-readability"
+)
+
+const (
+	webFetchMaxBytes      = 2 * 1024 * 1024 // 2MB cap on raw body
+	webFetchHTTPTimeout   = 30 * time.Second
+	webFetchTextLimit     = 50_000
+	webFetchMarkdownLimit = 80_000
+	webFetchHTMLLimit     = 100_000
 )
 
 func registerWebFetch(registry *ToolRegistry) {
 	registry.Register(ToolDefinition{
 		Name:        "web_fetch",
-		Description: "Fetch content from a URL. Returns the page content as text.",
+		Description: "Fetch content from a URL. Extracts the main article content (not raw HTML).",
 		MinUserType: "unknown",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"url":     map[string]any{"type": "string", "description": "URL to fetch"},
-				"extract": map[string]any{"type": "string", "description": "What to extract: text, html, or markdown. Default: text", "default": "text"},
+				"url": map[string]any{
+					"type":        "string",
+					"description": "URL to fetch (http or https)",
+				},
+				"extract": map[string]any{
+					"type":        "string",
+					"description": "Output format: \"markdown\" (default, main article as markdown), \"text\" (plain text), or \"html\" (raw page HTML).",
+					"default":     "markdown",
+				},
 			},
 			"required": []string{"url"},
 		},
@@ -33,14 +53,31 @@ func registerWebFetch(registry *ToolRegistry) {
 			return toolErr, nil
 		}
 
-		// Validate URL
-		u, err := url.Parse(params.URL)
+		rawURL := strings.TrimSpace(params.URL)
+		u, err := url.Parse(rawURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 			return &ToolResult{Success: false, Error: "invalid URL"}, nil
 		}
 
-		client := &http.Client{Timeout: 30 * time.Second}
-		resp, err := client.Get(params.URL)
+		extract := strings.ToLower(strings.TrimSpace(params.Extract))
+		if extract == "" {
+			extract = "markdown"
+		}
+		switch extract {
+		case "markdown", "text", "html":
+		default:
+			return &ToolResult{Success: false, Error: "extract must be one of: markdown, text, html"}, nil
+		}
+
+		client := &http.Client{Timeout: webFetchHTTPTimeout}
+		req, err := http.NewRequestWithContext(toolCtx, http.MethodGet, rawURL, nil)
+		if err != nil {
+			return &ToolResult{Success: false, Error: fmt.Sprintf("request build error: %v", err)}, nil
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+
+		resp, err := client.Do(req)
 		if err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("fetch error: %v", err)}, nil
 		}
@@ -50,18 +87,47 @@ func registerWebFetch(registry *ToolRegistry) {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("HTTP %d", resp.StatusCode)}, nil
 		}
 
-		data, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024)) // 1MB limit
+		body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchMaxBytes))
 		if err != nil {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("read error: %v", err)}, nil
 		}
 
-		content := string(data)
-		if params.Extract == "text" {
-			// Strip HTML tags for text extraction
-			content = stripHTML(content)
+		// "html" mode: return raw page HTML (capped).
+		if extract == "html" {
+			return &ToolResult{Success: true, Data: truncate(string(body), webFetchHTMLLimit)}, nil
 		}
 
-		return &ToolResult{Success: true, Data: content}, nil
+		// "markdown" / "text": run readability extraction.
+		pageURL, _ := nurl.Parse(rawURL)
+		article, err := readability.FromReader(bytes.NewReader(body), pageURL)
+		if err != nil {
+			// Fall back to raw text on extraction failure (still more useful than an error).
+			return &ToolResult{Success: true, Data: truncate(stripHTML(string(body)), webFetchTextLimit)}, nil
+		}
+
+		var out strings.Builder
+		if article.Title != "" {
+			out.WriteString("# ")
+			out.WriteString(article.Title)
+			out.WriteString("\n\n")
+		}
+		if article.Byline != "" {
+			out.WriteString("_by ")
+			out.WriteString(article.Byline)
+			out.WriteString("_\n\n")
+		}
+
+		if extract == "markdown" {
+			md := htmlToMarkdown(article.Content)
+			if strings.TrimSpace(md) == "" {
+				md = article.TextContent
+			}
+			out.WriteString(truncate(md, webFetchMarkdownLimit))
+		} else {
+			out.WriteString(truncate(article.TextContent, webFetchTextLimit))
+		}
+
+		return &ToolResult{Success: true, Data: out.String()}, nil
 	})
 }
 
@@ -150,7 +216,7 @@ func registerWebSearch(registry *ToolRegistry) {
 }
 
 func stripHTML(html string) string {
-	// Simple HTML tag stripper
+	// Fallback tag stripper, only used when readability extraction fails.
 	result := html
 	for {
 		start := strings.Index(result, "<")
