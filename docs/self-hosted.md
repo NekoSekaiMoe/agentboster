@@ -1,503 +1,1343 @@
-# Self-Hosted 部署指南：脱离 Vercel 自托管 AgentBoster
+# AgentBoster 本地部署指南
 
-> 本文档帮助你把 AgentBoster Web 层从 Vercel 部署迁移到自有服务器（自托管 Next.js + 自有 Postgres + 自有对象存储 + 自有 Redis）。文档基于对仓库源码的逐行核对，区分"已验证的硬耦合点"与"建议改造方向"，不提供未经测试的代码片段。
+> 本文档帮助你在自有服务器上部署 AgentBoster，脱离 Vercel 等云平台，实现完全自主可控的本地运行环境。
 >
-> 前置结论：**AgentBoster 在架构上是可自托管的**。所有"Vercel 依赖"都是软绑定或可选优化，没有一条是架构层面的硬锁。迁移的真实工程量约为 1–2 周，主要工作量集中在替换 3 处为 Vercel 函数模型写的 trick 与切换 Workflow World，而非重写业务代码。
+> **适用人群**：不熟悉 Vercel，只想在本地服务器（Linux/Docker）上运行完整 AgentBoster 的用户。
 
 ---
 
-## 一、为什么需要这份文档
+## 一、为什么需要本地部署
 
-AgentBoster 的前身 clawless 自我定位为"部署在 Vercel 的免费 AI agent"，README 与默认配置都按 Vercel 生态优化：Neon（Serverless HTTP Postgres）、Vercel Blob、Upstash Redis、@vercel/sandbox、Workflow DevKit 默认 Vercel World。这套组合让个人用户能零成本跑起来，但也带来三个常见痛点：
+AgentBoster 默认配置面向 Vercel 云平台优化（Neon Serverless Postgres、Vercel Blob 对象存储、Upstash Redis），这套方案对个人用户友好，但在以下场景下你可能需要本地部署：
 
-1. **免费额度上限**：Vercel Hobby/Pro、Neon 免费层、Vercel Blob 免费层都按个人用量设计，重度使用或多用户会触顶。
-2. **数据主权**：企业或合规场景要求所有数据留在自有基础设施内。
-3. **离线/内网**：某些场景不能有任何流量经过 Vercel。
+1. **数据主权**：企业或合规要求要求所有数据存储在自有基础设施内，不能使用云服务
+2. **成本控制**：长期运行或多用户场景下，云服务免费额度不够用，自建成本更低
+3. **离线/内网环境**：政企、特殊网络环境下无法访问外部云服务
+4. **完全可控**：希望掌握完整技术栈，避免依赖外部 SaaS 平台
 
-这份文档为这三类需求提供改造路径。
-
----
-
-## 二、改造全景：耦合点清单
-
-下表是源码中所有与 Vercel 生态耦合的点，按"改造难度"排序。所有路径都已通过 grep 在源码中核对。
-
-| 耦合点 | 文件 | 类型 | 改造难度 |
-|---|---|---|---|
-| Workflow World 默认 Vercel | `app/.well-known/workflow/v1/config.json` | 配置切换 | 极低（1 个 env） |
-| `@neondatabase/serverless`（HTTP Postgres） | `lib/core/db/index.ts`、`lib/extra/db/postgres.ts` | SDK 替换 | 低（换 driver） |
-| `@vercel/blob`（对象存储） | `lib/core/blob/index.ts`、`lib/core/blob/skills.ts` | SDK 替换 | 中（包 adapter） |
-| `@upstash/redis`（IM 状态、KV） | 经 `@chat-adapter/state-redis` 与 `lib/core/kv/` | SDK 替换 | 中（换自托管 Redis） |
-| `@vercel/analytics`、`@vercel/speed-insights` | `app/layout.tsx` | 可选移除 | 极低（删 import） |
-| `@vercel/sandbox`（agentd 回退） | `lib/core/sandbox/{manager,runtime,actions}.ts` | 可选移除 | 极低（有 agentd 即不用） |
-| `VERCEL_ENV` / `VERCEL_URL` 等 env（webhook URL） | `lib/bot/webhook.ts`、`scripts/vercel-postbuild.ts` | env 补全 | 低（加 APP_BASE_URL） |
-| `next/server` 的 `after()`（异步后台） | `app/api/bot/.../callback/route.ts`、`app/(skill)/actions.ts` | 行为替换 | 中（需重构后台机制） |
-| `im-stream` trick（streaming Response 吊命） | `app/api/internal/im-stream/route.ts` | 可选简化 | 低（自托管下多余） |
-| `maxDuration = 300` | `app/api/bot/.../callback/route.ts` | dead config | 零（自托管忽略） |
-
-注意：`maxDuration` 是 Vercel 函数概念，自托管 `next start` 下直接被忽略，**不是障碍**。`workflow/next`（withWorkflow 包裹）是构建期 Next.js 集成，不绑 Vercel 运行时。
+本文档将指导你从零开始在本地服务器搭建完整的 AgentBoster 运行环境。
 
 ---
 
-## 三、改造步骤（建议顺序）
+## 二、AgentBoster 架构简介
 
-按"低风险、高收益优先"的顺序改造。每步可独立验证，不必一次性全改。
-
-### 步骤 1：切换 Workflow World 到 Postgres World（最重要，最容易）
-
-Workflow DevKit 的 World 抽象层把"workflow 跑在哪"完全外置。默认 Vercel World 用 Vercel Queues + Vercel 持久化做 step 调度与状态存储；切到 Postgres World 后，用 Postgres 表 + graphile-worker 接管，零代码改动。
-
-**操作**：在自托管环境设置：
+在开始部署前，需要理解 AgentBoster 由三个独立部分组成：
 
 ```
+┌─────────────────────────────────────────────────────────────┐
+│  ① Web 层 (Next.js)                                         │
+│  - 浏览器 UI、API 服务、会话管理                              │
+│  - Workflow 编排引擎                                         │
+│  - 依赖：Postgres + Redis + 对象存储                         │
+└─────────────────────────────────────────────────────────────┘
+           ▲                    ▲
+           │ HTTPS API          │ HTTPS API
+           │                    │
+┌──────────┴──────────┐    ┌───┴──────────────────────────┐
+│  ② CLI (可选)        │    │  ③ agentd (可选)              │
+│  终端客户端           │    │  Linux 守护进程                │
+│  本地工具执行         │    │  沙箱工具执行 + 安全隔离       │
+└─────────────────────┘    └──────────────────────────────┘
+```
+
+### 各部分职责
+
+| 组件 | 作用 | 本地部署是否必需 |
+|------|------|-----------------|
+| **Web** | 核心服务，提供 UI、API、数据持久化、Workflow 编排 | ✅ **必需** |
+| **agentd** | 在独立主机上执行沙箱工具（shell、文件、浏览器等） | ⚠️ 可选（无 agentd 时工具能力受限） |
+| **CLI** | 终端交互客户端，通过 `agentboster login` 连接 Web | ⚠️ 可选（可以只用浏览器） |
+
+**本文档重点**：部署 **Web 层**（这是 AgentBoster 的核心）。agentd 和 CLI 的部署见各自文档。
+
+---
+
+## 三、前置准备
+
+### 3.1 硬件要求
+
+**最低配置**（单机全栈）：
+- CPU：2 核心
+- 内存：4GB
+- 磁盘：20GB（含数据库和依赖）
+- 操作系统：Linux（推荐 Ubuntu 22.04/Debian 12/RHEL 9）
+
+**推荐配置**（生产环境）：
+- CPU：4 核心
+- 内存：8GB
+- 磁盘：50GB SSD
+
+### 3.2 软件依赖
+
+在开始前，确保服务器已安装：
+
+```bash
+# 1. Node.js 22.x（必需）
+node --version  # 应输出 v22.x.x
+
+# 2. Yarn 1.x（包管理器）
+yarn --version  # 应输出 1.x.x
+
+# 3. PostgreSQL 14+（数据库）
+psql --version  # 应输出 14.x 或更高
+
+# 4. Redis 6+（缓存和状态存储）
+redis-cli --version  # 应输出 6.x 或更高
+
+# 5. Docker（可选，用于容器化部署）
+docker --version
+```
+
+**安装指南**（以 Ubuntu 为例）：
+
+```bash
+# 安装 Node.js 22
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# 安装 Yarn
+sudo npm install -g yarn
+
+# 安装 PostgreSQL
+sudo apt-get install -y postgresql postgresql-contrib
+
+# 安装 Redis
+sudo apt-get install -y redis-server
+
+# 启动服务
+sudo systemctl enable --now postgresql
+sudo systemctl enable --now redis-server
+```
+
+### 3.3 网络要求
+
+- 如果需要外部访问（浏览器、IM 机器人回调），需要：
+  - 公网 IP 或内网穿透
+  - 域名（推荐，用于 HTTPS）
+  - 防火墙开放 80/443 端口
+
+- 如果仅内网使用，可跳过域名和公网 IP
+
+---
+
+## 四、核心依赖服务配置
+
+在启动 Web 之前，需要先配置三个核心依赖：Postgres、Redis、对象存储。
+
+### 4.1 配置 PostgreSQL
+
+AgentBoster 使用 Postgres 存储所有会话、用户、配置数据，并依赖 `pgvector` 扩展实现向量检索（用于长期记忆）。
+
+#### 步骤 1：创建数据库和用户
+
+```bash
+# 切换到 postgres 用户
+sudo -u postgres psql
+
+-- 在 psql 中执行：
+CREATE DATABASE agentboster;
+CREATE USER agentboster_user WITH PASSWORD 'your_secure_password';
+GRANT ALL PRIVILEGES ON DATABASE agentboster TO agentboster_user;
+
+-- 授予 schema 权限（Postgres 15+ 需要）
+\c agentboster
+GRANT ALL ON SCHEMA public TO agentboster_user;
+GRANT CREATE ON SCHEMA public TO agentboster_user;
+
+-- 退出
+\q
+```
+
+#### 步骤 2：安装 pgvector 扩展
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install -y postgresql-16-pgvector  # 替换 16 为你的 Postgres 版本
+
+# RHEL/CentOS
+sudo yum install -y pgvector_16  # 替换 16 为你的版本
+```
+
+在数据库中启用扩展：
+
+```bash
+sudo -u postgres psql -d agentboster -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+#### 步骤 3：配置远程连接（如果 Postgres 和 Web 不在同一台机器）
+
+编辑 `/etc/postgresql/16/main/postgresql.conf`：
+
+```conf
+listen_addresses = '*'  # 或指定 IP
+```
+
+编辑 `/etc/postgresql/16/main/pg_hba.conf`，添加：
+
+```conf
+host    agentboster    agentboster_user    0.0.0.0/0    scram-sha-256
+```
+
+重启 Postgres：
+
+```bash
+sudo systemctl restart postgresql
+```
+
+#### 步骤 4：获取连接字符串
+
+```bash
+# 格式：postgresql://用户名:密码@主机:端口/数据库名
+# 示例：
+postgresql://agentboster_user:your_secure_password@localhost:5432/agentboster
+```
+
+**记下这个连接字符串**，后续配置 `DATABASE_URL` 环境变量时需要用到。
+
+### 4.2 配置 Redis
+
+AgentBoster 使用 Redis 存储两类数据：
+1. 应用全局配置和分布式锁
+2. IM 机器人会话状态
+
+#### 步骤 1：配置 Redis（默认配置通常够用）
+
+编辑 `/etc/redis/redis.conf`（如果需要远程访问）：
+
+```conf
+bind 0.0.0.0  # 允许远程连接（注意安全）
+requirepass your_redis_password  # 设置密码（强烈推荐）
+```
+
+重启 Redis：
+
+```bash
+sudo systemctl restart redis-server
+```
+
+#### 步骤 2：获取连接字符串
+
+```bash
+# 无密码（不推荐）：
+redis://localhost:6379
+
+# 有密码：
+redis://:your_redis_password@localhost:6379
+
+# 远程 Redis：
+redis://:password@redis-host:6379
+```
+
+**记下这两个环境变量的值**：
+- `REDIS_URL`：用于 IM 状态存储（`@chat-adapter/state-redis`）
+- Redis 的 REST API URL（Upstash 兼容）：用于全局 KV 存储
+
+**重要说明**：AgentBoster 当前代码使用 Upstash Redis SDK，它期望两种不同的连接方式：
+1. `REDIS_URL`（标准 Redis 协议）：用于 IM 状态
+2. `KV_REST_API_URL` + `KV_REST_API_TOKEN`（Upstash REST API）：用于全局配置
+
+**本地 Redis 适配方案**：
+
+如果你使用本地 Redis（非 Upstash），需要以下两种方案之一：
+
+**方案 A**（推荐）：使用 Upstash Redis 的兼容模式
+
+```bash
+# 安装 @upstash/redis（它支持标准 Redis 协议）
+# 在 .env.local 中配置：
+REDIS_URL=redis://localhost:6379
+KV_REST_API_URL=http://localhost:8079  # 使用 upstash-redis-rest-proxy（见下文）
+KV_REST_API_TOKEN=your_local_token
+```
+
+**方案 B**：修改代码，统一使用 `ioredis`（需改造，见后文"自托管改造清单"）
+
+### 4.3 配置对象存储
+
+AgentBoster 使用对象存储保存：
+- 用户上传的附件
+- 技能仓库同步产物
+
+默认配置使用 Vercel Blob，本地部署需要替换为：
+
+**推荐方案**：
+
+| 方案 | 适用场景 | 配置复杂度 |
+|------|----------|----------|
+| **MinIO**（自托管 S3 兼容） | 完全离线、单机全栈 | 中 |
+| **Cloudflare R2** | 低成本云存储（10GB 免费） | 低 |
+| **AWS S3** | 生产级可靠性 | 低 |
+| **阿里云 OSS / 腾讯云 COS** | 国内网络环境 | 低 |
+
+#### 方案 1：MinIO（推荐本地部署）
+
+MinIO 是兼容 S3 协议的开源对象存储，可以在本地服务器运行。
+
+**Docker 快速启动**：
+
+```bash
+docker run -d \
+  --name minio \
+  -p 9000:9000 \
+  -p 9001:9001 \
+  -e MINIO_ROOT_USER=minioadmin \
+  -e MINIO_ROOT_PASSWORD=minioadmin \
+  -v /data/minio:/data \
+  minio/minio server /data --console-address ":9001"
+```
+
+**访问 MinIO 控制台**：`http://localhost:9001`（用户名/密码：`minioadmin`/`minioadmin`）
+
+**创建 Bucket 和 Access Key**：
+
+1. 登录控制台，创建 Bucket（如 `agentboster`）
+2. 进入 "Access Keys"，创建新的 Access Key，记下 `Access Key` 和 `Secret Key`
+
+**环境变量配置**（记下以备后用）：
+
+```bash
+S3_ENDPOINT=http://localhost:9000
+S3_BUCKET=agentboster
+S3_ACCESS_KEY_ID=your_access_key
+S3_SECRET_ACCESS_KEY=your_secret_key
+S3_REGION=us-east-1  # MinIO 可以使用任意 region
+```
+
+#### 方案 2：Cloudflare R2
+
+R2 提供 10GB 免费存储，无出口流量费用，适合小规模部署。
+
+1. 注册 Cloudflare 账号，进入 R2 控制台
+2. 创建 Bucket（如 `agentboster`）
+3. 创建 API Token，获取 `Access Key ID` 和 `Secret Access Key`
+4. 获取 R2 的 S3 兼容端点（格式：`https://<account_id>.r2.cloudflarestorage.com`）
+
+**环境变量配置**：
+
+```bash
+S3_ENDPOINT=https://<your-account-id>.r2.cloudflarestorage.com
+S3_BUCKET=agentboster
+S3_ACCESS_KEY_ID=your_r2_access_key
+S3_SECRET_ACCESS_KEY=your_r2_secret_key
+S3_REGION=auto
+```
+
+---
+
+## 五、Web 层部署（核心）
+
+现在开始部署 AgentBoster 的核心 Web 服务。
+
+### 5.1 获取代码
+
+```bash
+# 克隆仓库
+git clone https://github.com/your-org/agentboster.git
+cd agentboster
+
+# 切换到稳定版本（可选，推荐生产环境）
+git checkout v0.1.0  # 替换为最新 release 版本
+```
+
+### 5.2 配置环境变量
+
+创建 `.env.local` 文件（Next.js 会自动加载）：
+
+```bash
+nano .env.local
+```
+
+**完整环境变量清单**：
+
+```bash
+# ==================== 核心配置 ====================
+
+# 运行环境（必需）
+NODE_ENV=production
+
+# 应用基础 URL（必需，用于 IM webhook 回调）
+# 如果有域名：https://your-domain.com
+# 仅内网：http://your-server-ip:3000
+APP_BASE_URL=https://your-domain.com
+
+# 认证密钥（必需，用于 session 加密和 bot webhook 验证）
+# 生成方式：openssl rand -base64 32
+AUTH_SECRET=your_random_secret_here
+
+# ==================== 数据库配置 ====================
+
+# PostgreSQL 连接字符串（必需）
+DATABASE_URL=postgresql://agentboster_user:your_secure_password@localhost:5432/agentboster
+
+# ==================== Redis 配置 ====================
+
+# 方案 A：使用 Upstash Redis（或兼容服务）
+KV_REST_API_URL=https://your-upstash-redis.upstash.io
+KV_REST_API_TOKEN=your_upstash_token
+
+# IM 状态存储（必需）
+REDIS_URL=redis://:your_redis_password@localhost:6379
+
+# ==================== 对象存储配置 ====================
+
+# 使用 MinIO/S3/R2（需要修改代码以支持，见后文"自托管改造清单"）
+# 当前版本使用 Vercel Blob，本地部署需要以下配置：
+BLOB_READ_WRITE_TOKEN=vercel_blob_token  # 如果保留 Vercel Blob
+
+# 或者（未来支持）：
+# STORAGE_DRIVER=s3
+# S3_ENDPOINT=http://localhost:9000
+# S3_BUCKET=agentboster
+# S3_ACCESS_KEY_ID=your_access_key
+# S3_SECRET_ACCESS_KEY=your_secret_key
+# S3_REGION=us-east-1
+
+# ==================== Workflow 配置 ====================
+
+# 切换到 Postgres World（自托管关键配置）
 WORKFLOW_TARGET_WORLD=@workflow/world-postgres
+
+# ==================== agentd 配置（可选） ====================
+
+# agentd API 密钥（如果部署了 agentd）
+# 生成方式：openssl rand -hex 32
+AGENTD_API_KEY=your_agentd_api_key
+
+# mTLS 证书路径（可选，用于 Web <-> agentd 加密通信）
+# AGENTD_CLIENT_CERT_PATH=/path/to/client-cert.pem
+# AGENTD_CLIENT_KEY_PATH=/path/to/client-key.pem
+# AGENTD_CA_CERT_PATH=/path/to/ca-cert.pem
+
+# ==================== 初始用户配置 ====================
+
+# 首次启动时创建的管理员账号（可选，不设则需手动创建）
+USERNAME=admin
+PASSWORD=your_admin_password
+
+# ==================== AI 模型配置 ====================
+
+# Anthropic API Key（如果使用 Claude）
+ANTHROPIC_API_KEY=sk-ant-xxx
+
+# OpenAI API Key（如果使用 GPT）
+OPENAI_API_KEY=sk-xxx
+
+# 其他模型 API Keys（按需配置）
+# GOOGLE_GENERATIVE_AI_API_KEY=xxx
+# DEEPSEEK_API_KEY=xxx
+
+# ==================== 可选配置 ====================
+
+# 禁用 Next.js 遥测
+NEXT_TELEMETRY_DISABLED=1
+
+# 日志级别（可选）
+# LOG_LEVEL=info
+
+# 如果需要代理访问外部 API（可选）
+# HTTP_PROXY=http://proxy-server:port
+# HTTPS_PROXY=http://proxy-server:port
 ```
 
-并按 Postgres World 文档配置（需要 `DATABASE_URL` 指向你的 Postgres，graphile-worker 需要 worker 进程）。参考 `node_modules/workflow/docs/deploying/index.mdx` 与 `building-a-world.mdx`。
+**环境变量说明**：
 
-**验证**：`npx workflow inspect runs --backend @workflow/world-postgres` 应能看到运行记录。
+| 变量 | 必需性 | 说明 |
+|------|--------|------|
+| `NODE_ENV` | ✅ 必需 | 必须设为 `production`，否则性能和行为不正确 |
+| `APP_BASE_URL` | ✅ 必需 | 外部访问的完整 URL，用于生成 webhook 回调地址 |
+| `AUTH_SECRET` | ✅ 必需 | 用于 session 加密，必须是随机字符串 |
+| `DATABASE_URL` | ✅ 必需 | Postgres 连接字符串 |
+| `REDIS_URL` | ✅ 必需 | Redis 连接字符串（标准协议） |
+| `KV_REST_API_URL` + `KV_REST_API_TOKEN` | ✅ 必需 | Upstash Redis REST API 凭证 |
+| `WORKFLOW_TARGET_WORLD` | ✅ 必需（自托管） | 设为 `@workflow/world-postgres` 以使用 Postgres 而非 Vercel Queue |
+| `BLOB_READ_WRITE_TOKEN` | ⚠️ 当前必需 | Vercel Blob token（未改造前）|
+| `AGENTD_API_KEY` | ⚠️ 可选 | 如果部署 agentd 则必需 |
+| `USERNAME` / `PASSWORD` | ⚠️ 推荐 | 首次启动自动创建的管理员账号 |
+| AI API Keys | ⚠️ 推荐 | 至少配置一个 LLM provider |
 
-**注意**：Postgres World 是 Vercel 官方维护的生产级参考实现（见 `building-a-world.mdx` 的 Reference Implementation 提示），不是社区边角料。这一步是整个迁移中性价比最高的。
+**重要提醒**：
 
-### 步骤 2：把 Postgres 从 Neon HTTP 驱动换成 pg 连接池
+1. **不要设置 `VERCEL=1` 或 `VERCEL_ENV`**：这些是 Vercel 平台的环境变量，自托管时设置会导致逻辑走错分支
+2. **`APP_BASE_URL` 必须是可从外部访问的地址**：如果你使用 IM 机器人（Telegram、Discord 等），这个 URL 必须能被 IM 平台的服务器访问到
+3. **`AUTH_SECRET` 必须保密**：泄露会导致 session 被伪造
 
-`lib/core/db/index.ts` 当前用 `neon`（HTTP 驱动，无连接池，适合 Vercel 函数短生命周期）+ `drizzle/neon-http`。自托管是常驻进程，应该用 `pg`（TCP 连接池，更适合长跑）。
+### 5.3 安装依赖
 
-**改造方向**：
-
-- 把 `import { neon } from '@neondatabase/serverless'` 换成 `pg` 的 `Pool`。
-- 把 `drizzle-orm/neon-http` 换成 `drizzle-orm/node-postgres`。
-- `DATABASE_URL` 仍指向同一个 Postgres（schema 完全不动，drizzle schema 定义与 driver 无关）。
-
-`lib/extra/db/postgres.ts`（用 `NeonQueryFunction`）也要同步改造。
-
-**验证**：跑一次聊天，确认 messages 表正常写入。
-
-**注意**：如果你的自托管 Postgres 同时是 Neon（远程），HTTP 驱动也能用，但延迟比 TCP 连接池高。最佳实践是 Postgres 与 Web 同主机或同 VPC。
-
-### 步骤 3：替换 Vercel Blob 为 S3/R2
-
-`lib/core/blob/index.ts` 与 `lib/core/blob/skills.ts` 用 `@vercel/blob` 存附件与技能仓库同步产物。
-
-**改造方向**：在这两个文件内包一层存储 adapter，按 `STORAGE_DRIVER` env 选择后端：
-
-- 默认 `vercel`：保留现有 `@vercel/blob` 调用。
-- `s3`：用 `@aws-sdk/client-s3` 实现 `putBlob`、`getBlob`、`deleteBlob`、`listBlobs` 等接口（签名要与 `@vercel/blob` 的 PutBlobResult 等返回类型兼容）。
-- `r2`：Cloudflare R2 用 S3 兼容 API，复用 s3 driver 改 endpoint。
-
-调用方（业务代码）不动，只改 adapter 内部。
-
-**验证**：上传一个附件，确认能在 S3/R2 里看到对象。
-
-### 步骤 4：替换 Upstash Redis 为自托管 Redis
-
-Upstash Redis 在两个地方用：
-
-- `@chat-adapter/state-redis`（IM 适配器状态）：见 `lib/bot/adaptor.ts` 的 `createBotAdapters`。
-- `lib/core/kv/`（全局配置 AppConfig、配对标记、分布式锁）。
-
-**改造方向**：
-
-- Upstash 提供两种 SDK：REST（HTTP）与 `@upstash/redis/cluster`。自托管 Redis 用 `ioredis` 或 `node-redis`（TCP）。
-- 包一层 KV adapter，按 `KV_DRIVER` env 选择。`lib/core/kv/config.ts` 等文件内的 `Redis` 调用替换为 adapter 接口。
-- `@chat-adapter/state-redis` 是 Chat SDK 的官方适配器，签名接受 Upstash 客户端。要么提供一个"伪 Upstash 客户端"（实现相同接口，内部用 ioredis），要么 fork 这个 adapter。
-
-**验证**：触发一次 IM 配对，确认 `pair:bound:<adapter>:<imUserId>` 写入 Redis。
-
-### 步骤 5：补全 webhook 的 APP_BASE_URL（替代 Vercel env）
-
-`lib/bot/webhook.ts` 的 `getAppBaseUrl` 优先读 `VERCEL_PROJECT_PRODUCTION_URL` 等 Vercel env，fallback 到 `http://127.0.0.1:3000`。自托管下这些 Vercel env 都是 undefined，会 fallback 到 localhost——这显然不对（外部 IM 平台回调不到 localhost）。
-
-**改造方向**：在 `getAppBaseUrl` 顶部加一个显式 env 优先级：
-
-```
-优先级：APP_BASE_URL > VERCEL_PROJECT_PRODUCTION_URL > VERCEL_BRANCH_URL > VERCEL_URL > NODE_ENV=production ? 报错 : LOCAL_BASE_URL
-```
-
-即在自托管生产环境，强制要求 `APP_BASE_URL=https://your-domain.com`，没设就报错（避免静默用 localhost）。
-
-`isProductionDeployment` 同理：去掉对 `NEXT_PUBLIC_VERCEL_ENV` 的依赖，只用 `NODE_ENV`。
-
-### 步骤 6：替换 next/server 的 after()
-
-这是**改造中唯一需要重构行为的点**，因为 `after()` 在自托管 `next start` 下行为不同（不再延迟到响应后执行，而是降级为响应前等待）。
-
-**两处调用**：
-
-1. `app/api/bot/[authSecret]/[adapter]/callback/route.ts:37`：`waitUntil: (p) => after(() => p)` —— Chat SDK webhook 用它把 IM 流消费放到响应后。
-2. `app/api/bot/[authSecret]/[adapter]/callback/route.ts:84, 130`：`after(() => fetch('/api/internal/im-stream...'))` —— webhook ACK 后 fire-and-forget 触发 IM 流消费端点。
-3. `app/(skill)/actions.ts:269`：`after(async () => { ... })` —— 技能相关后台清理。
-
-**问题**：自托管下 `after(p)` 会让响应等 p 完成。第 1、2 处会让 IM webhook 阻塞到整个 workflow run 完成（几十秒到几分钟），触发 IM 平台的 webhook 超时重试，造成重复触发。
-
-**改造方向**（任选其一）：
-
-- **方案 A：显式后台任务队列**。用 BullMQ 或类似机制，把 `after` 内容改成 enqueue 一个 job，由独立 worker 进程消费。最干净，但要引入队列基础设施。
-- **方案 B：detached fire-and-forget**。用 `void fetch(...)` 不 await，立即返回 ACK。Node 事件循环会保留 promise 到完成，但响应不等。注意：Next.js 自托管下未 await 的 fetch 在响应后是否被中断，需要测试（可能需要显式 `keepAlive`）。
-- **方案 C：保留 after()，接受降级行为**。如果 IM 平台 webhook 超时容忍度高（如 Telegram 是 60 秒），且 workflow run 通常更短，可以先不改，观察是否真的触发重试。
-
-**验证**：触发一次 IM 消息，确认 webhook 立即返回 200 ACK，且消息最终被处理（不重复、不丢失）。
-
-### 步骤 7：（可选）简化 im-stream trick
-
-`app/api/internal/im-stream/route.ts` 的注释明确说明：这个端点是用一个永远不结束的 ReadableStream 把 Vercel 函数吊着不退出，绕过 maxDuration。自托管下 Node 进程没有 maxDuration 概念，**这个 trick 多余但不有害**。
-
-**改造方向**（可选）：
-
-- 直接同步消费 workflow readable，不绕弯。
-- 或者保留现状（不影响功能，只是有一段 dead 逻辑）。
-
-### 步骤 8：移除可选的 Vercel 工具
-
-- `app/layout.tsx` 的 `@vercel/analytics` 与 `@vercel/speed-insights`：删除 import 与组件即可，换成本地分析或留空。
-- `@vercel/sandbox`（`lib/core/sandbox/`）：自托管且有 agentd 节点的情况下，sandbox 回退永远不会触发。可以保留代码（不发包不占资源），也可以删除。
-- `scripts/vercel-postbuild.ts` 的 `VERCEL=1 && VERCEL_ENV=production` 门控：自托管下手动跑 `db:push` 与 `migrate-message-versions`，不依赖 postbuild。
-
----
-
-## 四、启动 Web 服务：从开发到生产
-
-这一步回答最基础的问题：自托管下到底用什么命令把 Web 跑起来。答案跟 Vercel 部署不一样，必须分清"开发"、"构建"、"运行"三个阶段。
-
-### 4.1 三条核心命令及其用途
-
-仓库 `package.json` 的 scripts 暴露了三条标准 Next.js 命令，自托管下都要用：
-
-| 命令 | 作用 | 自托管下用在 |
-|---|---|---|
-| `yarn dev`（`next dev`） | 开发模式：热重载、source map、详细错误、**单进程**、不压缩、不做 production 优化 | 仅本地调试 |
-| `yarn build`（`next build`） | 构建：编译 RSC、生成 `.next/` 产物、跑 Workflow DevKit 的 step 编译（withWorkflow 注入） | 部署前一次 |
-| `yarn start`（`next start`） | 生产运行：跑构建产物 `.next/`，常驻 Node HTTP 服务，**这才是自托管的运行命令** | 生产部署 |
-
-**关键区别**：Vercel 部署时你只跑 `yarn build`（或 `yarn deploy` = `vercel --prod`），运行交给 Vercel 平台拉起函数；自托管时你必须**自己跑 `yarn start`**，它在你机器上起一个常驻 Node 进程监听端口。这是两种部署形态最根本的差异。
-
-### 4.2 自托管的正确启动流程（生产部署）
-
-按以下顺序操作，假设你已经完成 §三的改造步骤：
-
-**第一步：准备环境变量**
-
-在启动前加载所有必要 env（具体清单见 §五的拓扑章节与 §十一的对照表）。最简的方式是写一个 `.env.local`（Next.js 自动加载）或用 systemd 的 `EnvironmentFile=`。
-
-注意：`NODE_ENV=production` 是**必须**的。如果不设，Next.js 会按开发模式跑，性能差且行为不一致。但 `VERCEL=1` / `VERCEL_ENV` **不要设**（自托管下应该让代码走非 Vercel 分支）。
-
-**第二步：装依赖**
-
-```
+```bash
+# 在 agentboster 根目录执行
 yarn install --frozen-lockfile
 ```
 
-注意 agentboster 仓库根用 Yarn Classic（无 engines 字段，跟随主线）。CLI 子仓是独立的 Yarn monorepo，agentd 是独立 Go module——这两个不需要在启动 Web 时安装，它们各自独立部署。
+**注意**：根目录使用 Yarn Classic（1.x），不是 Yarn Berry。`cli/` 子目录是独立仓库，不需要在这里安装。
 
-**第三步：确保数据库就绪**
+### 5.4 初始化数据库
 
+在启动应用之前，需要推送数据库 schema 并确保 pgvector 扩展已启用。
+
+```bash
+# 1. 确保 pgvector 扩展存在
+yarn db:ensure-vector
+
+# 2. 推送 Drizzle schema 到数据库
+yarn db:push
 ```
-yarn db:ensure-vector    # 确保 pgvector 扩展存在
-yarn db:push             # 推送 schema 到你的 Postgres
+
+**这两步是幂等的**，重复执行不会破坏数据。但如果你升级到新版本，schema 可能有 breaking change，升级前请查看 CHANGELOG。
+
+**验证数据库**：
+
+```bash
+# 连接数据库查看表
+psql $DATABASE_URL -c "\dt"
+
+# 应该看到类似以下的表：
+# messages, users, agentd_nodes, l2_decisions, long_term_memories, chunks, ...
 ```
 
-这两步是**自托管下替代 postbuild 门控**的等价操作。在 Vercel 上这两步由 `scripts/vercel-postbuild.ts` 在 `VERCEL_ENV=production` 时自动执行；自托管下要手动跑（或者写进部署脚本）。
+### 5.5 构建应用
 
-`db:push` 是幂等的，重复执行不会破坏数据。但 schema 变更要小心（项目处于 WIP，1.0 前 schema 可能 breaking change，升级前要看 changelog）。
-
-**第四步：构建**
-
-```
+```bash
 yarn build
 ```
 
 这一步会：
+1. 编译 Next.js（RSC + Client Components）
+2. 运行 Workflow DevKit 的 `withWorkflow` 注入，生成 `app/.well-known/workflow/v1/*` 端点
+3. 输出构建产物到 `.next/` 目录
 
-- 编译所有 RSC 与 Client Component
-- 跑 `withWorkflow` 注入，把 `app/.well-known/workflow/v1/{flow,step,config}.js` 等 Workflow DevKit 端点编译生成
-- 输出到 `.next/` 目录
+**注意**：
+- `yarn build` 不会执行 `postbuild` 脚本（因为它门控在 `VERCEL=1 && VERCEL_ENV=production`）
+- 你已经手动执行了 `yarn db:push`，所以不需要 postbuild
+- 构建时长约 1-3 分钟（取决于服务器性能）
 
-注意：`yarn build` 不会执行 `postbuild`（因为它门控在 `VERCEL=1 && VERCEL_ENV=production`）。自托管下你不希望它执行（你已经手动跑了 `db:push`），所以保持门控即可，不要设那两个 env。
+**常见构建错误**：
 
-如果你想强制 postbuild 跑（比如想让 `migrate-message-versions` 自动执行），可以临时 `VERCEL=1 VERCEL_ENV=production yarn build`，但通常没必要。
+| 错误 | 原因 | 解决方案 |
+|------|------|---------|
+| `DATABASE_URL is not set` | 环境变量未加载 | 确保 `.env.local` 在项目根目录 |
+| `Cannot find module @neondatabase/serverless` | 依赖未安装 | 运行 `yarn install` |
+| TypeScript 错误 | 代码类型问题 | 构建会忽略（`next.config.ts` 配置了 `ignoreBuildErrors`），可以继续 |
 
-**第五步：启动生产服务**
+### 5.6 启动应用
 
-```
+```bash
 yarn start
 ```
 
-默认监听 `0.0.0.0:3000`。可以用 `PORT=xxx yarn start` 或 `next start -p xxx` 改端口。
+默认监听 `0.0.0.0:3000`。可以通过 `PORT` 环境变量改变端口：
 
-**这就是自托管的 Web 服务**。它是一个常驻 Node 进程，没有 Vercel 函数的超时、扩缩、Edge 网络——所有请求都进这一个进程处理。
-
-### 4.3 三个常见错误
-
-**错误一：用 `yarn dev` 跑生产**
-
-`yarn dev` 是 `next dev`，开发模式：不压缩、不做 tree-shaking、保留详细错误页、Recompile on file change、性能远低于 production build。**绝对不能用来对外服务**。Vercel 部署时 Vercel 自动跑 build 然后用 production runtime，自托管时同理——必须 `yarn build && yarn start`。
-
-判断方法：进程列表里如果是 `next dev` 就是开发模式，`next start`（或 `next-server`）才是生产。
-
-**错误二：不跑 `yarn build` 直接 `yarn start`**
-
-`yarn start` 跑的是 `.next/` 目录的构建产物。如果没跑过 build，`.next/` 不存在或过期，`yarn start` 会报错或跑老版本。每次代码变更后必须重新 `yarn build` 再 `yarn start`（或重启）。
-
-**错误三：让 `next start` 直接暴露公网**
-
-`next start` 监听 HTTP（无 TLS）。生产部署**必须在前面加反向代理**（Nginx、Caddy、Traefik），由反代处理 TLS、域名、限流、静态资源缓存。直接把 `next start` 暴露公网会有证书问题与安全问题。
-
-### 4.4 推荐的进程管理方式
-
-`yarn start` 跑的是前台进程，SSH 断开就退出。生产部署要用进程管理器：
-
-**systemd 方案**（Linux 原生，最推荐）：
-
-写一个 `agentboster-web.service`，`ExecStart=/path/to/yarn start`，`WorkingDirectory=/path/to/repo`，`EnvironmentFile=/path/to/env`，`User=non-root`，`Restart=always`。然后用 `systemctl enable --now agentboster-web`。这样开机自启、崩溃自动重启、日志进 journalctl。
-
-**Docker 方案**（推荐用于拓扑 A 单机全栈）：
-
-写 Dockerfile（基础镜像 `node:22-alpine`，`COPY` 源码，`yarn install --frozen-lockfile --production=false`、`yarn build`、`EXPOSE 3000`、`CMD ["yarn", "start"]`），用 docker-compose 跟 Postgres、Redis、agentd 一起编排。注意 Next.js 的 standalone 输出（`output: 'standalone'` in next.config）可以大幅减小镜像体积，但 agentboster 当前没启用，按需开启。
-
-**PM2 / forever 方案**（Node 生态传统选择）：
-
-`pm2 start "yarn start" --name agentboster-web`。比 systemd 简单，但功能重叠 systemd，Linux 上推荐 systemd 而非 PM2。
-
-### 4.5 graphile-worker 的独立进程（关键且容易遗漏）
-
-切换 Workflow World 到 Postgres World 后（§三步骤 1），workflow step 的执行依赖 graphile-worker。**graphile-worker 是独立进程**，不在 `yarn start` 里。
-
-如果忘了起 worker，workflow run 会被 enqueue 但永不消费——表现是用户发消息后一直转圈，没有任何响应。
-
-启动方式（按 graphile-worker 文档）：
-
-```
-npx graphile-worker --connection-string $DATABASE_URL
+```bash
+PORT=8080 yarn start
 ```
 
-或者写成代码脚本（`scripts/worker.ts`），用 `tsx` 跑：
+**首次启动时的日志**：
 
 ```
-tsx scripts/worker.ts
+[db:ensure-vector] ensuring pgvector extension
+[db:ensure-vector] pgvector extension is ready
+[seedInitialUser] Creating initial user: admin
+[seedInitialUser] Initial user created successfully
+ ▲ Next.js 15.5.9
+ - Local:        http://0.0.0.0:3000
+ - Network:      http://192.168.1.100:3000
+
+ ✓ Ready in 2.3s
 ```
 
-具体取决于 `@workflow/world-postgres` 的版本要求（看 node_modules/@workflow/world-postgres 的 README）。这个 worker 进程也要用 systemd 或 Docker 编排常驻。
+**验证启动成功**：
 
-### 4.6 端口、反代、健康检查的完整组合
+```bash
+# 本地访问
+curl http://localhost:3000/
 
-典型生产部署：
+# 应该返回 HTML（重定向到登录页）
+```
 
-- `yarn start` 监听 `127.0.0.1:3000`（建议绑 localhost，不直接暴露）
-- Caddy / Nginx 反代 `https://your-domain.com` → `http://127.0.0.1:3000`
-  - Caddy 优势：自动 TLS（Let's Encrypt）
-  - Nginx 优势：生态熟、配置资料多
-- 健康检查：定期 curl `https://your-domain.com/api/agentd/v1/health`（注意这个端点要 `AGENTD_API_KEY` 鉴权）或更简单的 `/`（重定向到登录页）
+### 5.7 启动 graphile-worker（关键！）
 
-### 4.7 启动后验证
+如果你设置了 `WORKFLOW_TARGET_WORLD=@workflow/world-postgres`，你**必须**启动 graphile-worker 进程，否则 workflow 任务会被入队但永不执行。
 
-按这个顺序验证 Web 起来了：
+**现象**：如果忘记启动 worker，用户发消息后会一直转圈，没有任何响应。
 
-1. `curl http://127.0.0.1:3000/` 应返回 HTML（重定向到登录页或聊天页）
-2. 浏览器访问域名，能看到登录页
-3. 用初始 `USERNAME` / `PASSWORD` 登录（首次启动 seedInitialUser 会建初始用户）
-4. 浏览器发一条消息，看 `messages` 表是否写入
-5. 看 `yarn start` 的 stdout / journalctl 是否有 workflow run 启动日志
-6. 如果一直转圈，检查 graphile-worker 进程是否在跑（§4.5）
+**启动方式**：
+
+在**另一个终端**或使用进程管理器（见后文），运行：
+
+```bash
+# 方式 1：使用 npx
+npx graphile-worker --connection-string "$DATABASE_URL"
+
+# 方式 2：使用代码脚本（如果项目提供了 scripts/worker.ts）
+npx tsx scripts/worker.ts
+```
+
+**验证 worker 运行**：
+
+```bash
+# 查看进程
+ps aux | grep graphile-worker
+
+# 应该看到类似：
+# user  12345  graphile-worker --connection-string postgresql://...
+```
+
+**注意**：
+- graphile-worker 是**独立进程**，与 `yarn start` 分开运行
+- 它需要访问同一个 `DATABASE_URL`
+- 如果 worker 崩溃，workflow 会停滞，需要重启 worker
 
 ---
 
-## 五、推荐的部署拓扑
+## 六、访问和验证
 
-### 拓扑 A：单机全栈（最简）
+### 6.1 浏览器访问
 
-适合个人/小团队自托管。
-
-- 一台 Linux 服务器（2C4G 起）
-- Docker Compose 跑：Next.js（`next start`）+ Postgres（带 pgvector）+ Redis + agentd
-- S3/R2 用云服务（避免本地 minio 运维负担）
-- 反向代理：Caddy 或 Nginx 做 TLS + 域名
-
-环境变量清单：
+在浏览器中打开：
 
 ```
-NODE_ENV=production
-APP_BASE_URL=https://your-domain.com
-DATABASE_URL=postgres://...（本地 Postgres）
-WORKFLOW_TARGET_WORLD=@workflow/world-postgres
-STORAGE_DRIVER=s3
-S3_ENDPOINT=...
-S3_BUCKET=...
-S3_ACCESS_KEY_ID=...
-S3_SECRET_ACCESS_KEY=...
-KV_DRIVER=redis
-REDIS_URL=redis://...
-AUTH_SECRET=...
-AGENTD_API_KEY=...
-USERNAME=...
-PASSWORD=...
+http://localhost:3000
 ```
 
-注意：graphile-worker 需要独立进程（在同一个 Docker Compose 里起一个 worker 服务容器）。
+或者如果配置了域名：
 
-### 拓扑 B：控制面/执行面分离
+```
+https://your-domain.com
+```
 
-适合团队/企业。
+**首次访问**：
 
-- Web 控制面：跑在一台服务器或私有云
-- agentd 执行面：跑在用户 VPC 内（数据主权所在）
-- Postgres：独立机器或托管服务（Crunchy Bridge、Aurora、Supabase Pro）
-- Redis：独立或托管
-- 对象存储：S3/R2
+1. 会自动重定向到登录页 `/login`
+2. 使用 `.env.local` 中配置的 `USERNAME` 和 `PASSWORD` 登录
+3. 登录成功后进入聊天界面
 
-Web 与 agentd 之间走 Pattern B（mTLS），见 architecture.md §六。
+### 6.2 发送测试消息
 
-### 拓扑 C：完全离线/内网
+1. 在聊天输入框输入：`你好，请做个自我介绍`
+2. 点击发送
 
-适合政企、特殊合规。
+**预期行为**：
+- 消息立即显示在界面
+- 出现"思考中"状态
+- 几秒后 AI 回复出现
 
-- 所有组件在内网（Postgres、Redis、MinIO、agentd、Web）
-- 不依赖任何外部 SaaS（Blob 换 MinIO、Redis 自建、LLM 用 Ollama 或本地模型）
-- IM 通道可选：内部 IM（Mattermost/Rocket.Chat 通过社区 adapter）或不启用 IM
+**如果一直转圈不响应**：
+- 检查 graphile-worker 是否启动（`ps aux | grep graphile`）
+- 检查 `yarn start` 的日志是否有错误
+- 检查数据库连接是否正常（`psql $DATABASE_URL -c "SELECT 1"`）
 
-**注意**：LLM 本地化（Ollama）需要额外改造，因为 `lib/ai/providers.ts` 的 provider 抽象支持 Ollama，但 L1 打分用的 scorer 模型、记忆抽取用的 LLM 都需要单独配。
+### 6.3 验证数据持久化
 
----
+```bash
+# 查询 messages 表
+psql $DATABASE_URL -c "SELECT id, role, content FROM messages LIMIT 5;"
 
-## 六、迁移后保留与失去的
+# 应该看到你刚才发送的消息和 AI 的回复
+```
 
-### 保留的能力
+### 6.4 验证 Workflow 运行
 
-- 完整三层架构（Web + agentd + CLI）
-- Workflow 持久化与可恢复（Postgres World 提供等价能力）
-- L0/L1/L2 三层安全
-- 多节点调度
-- IM 多渠道接入（只要 Redis 与公网 webhook 可达）
-- 长期记忆与 RAG（pgvector 不动）
-- 审计日志、监控
+```bash
+# 使用 workflow inspect 工具
+npx workflow inspect runs --backend @workflow/world-postgres
 
-### 失去的优化
-
-- **Vercel 函数自动扩缩**：自托管需自己处理流量突发（固定容量或 k8s）。
-- **Vercel Edge 网络**：自托管需自己配 CDN（Cloudflare 或前端）。
-- **Vercel Queues 触发器**：切到 Postgres World 后用 graphile-worker，需要运维 worker 进程。
-- **`after()` 异步模型**：失去"webhook 立即 ACK + 后台处理"的开箱体验，需要自建后台机制。
-- **Vercel dashboard 集成**：observability 换成本地 `workflow inspect` 或自建监控。
-
-### 不变的核心
-
-业务代码（chatMain、workflow agent、安全流、调度逻辑、IM 接入）完全不动。schema 不动。所有改造集中在 SDK 层、env 层、World 配置层。
+# 应该看到最近的 workflow run 记录
+```
 
 ---
 
-## 七、验证清单
+## 七、生产环境部署建议
 
-改造完成后，按以下清单逐项验证：
+### 7.1 使用反向代理
 
-- [ ] `next build && next start` 能正常启动
-- [ ] 浏览器登录正常（cookie clawless-auth 颁发与校验）
-- [ ] 浏览器聊天能完整跑一轮（消息写入 messages 表）
-- [ ] Workflow run 能持久化（重启 Web 进程后，session 能 resume）
-- [ ] IM webhook 立即返回 200 ACK（不阻塞）
-- [ ] IM 消息最终被处理（不重复、不丢失）
-- [ ] agentd 节点能注册与心跳（查 agentd_nodes 表）
-- [ ] 工具调用能在 agentd 沙箱执行（查 agent_tool_activity_logs）
-- [ ] L2 决策能触发 IM 卡片与用户响应（查 l2_decisions 表）
-- [ ] 附件上传到自托管存储（查 S3/MinIO）
-- [ ] 长期记忆抽取与召回（查 long_term_memories 与 chunks）
-- [ ] 定时任务能触发（查 scheduled_tasks 的 lastFiredFor）
-- [ ] CLI 能 login 配对与聊天
+**`yarn start` 只提供 HTTP 服务**，生产环境必须在前面加反向代理来处理：
+- HTTPS/TLS 终止
+- 域名绑定
+- 静态资源缓存
+- 请求限流
+- 日志记录
+
+**推荐方案 A：Caddy（最简单）**
+
+Caddy 自动申请和续期 Let's Encrypt 证书。
+
+安装 Caddy：
+
+```bash
+# Ubuntu/Debian
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install caddy
+```
+
+配置 Caddy（`/etc/caddy/Caddyfile`）：
+
+```caddyfile
+your-domain.com {
+    reverse_proxy localhost:3000
+    
+    # 日志
+    log {
+        output file /var/log/caddy/agentboster.log
+    }
+    
+    # 请求体大小限制（用于文件上传）
+    request_body {
+        max_size 100MB
+    }
+}
+```
+
+启动 Caddy：
+
+```bash
+sudo systemctl enable --now caddy
+```
+
+**推荐方案 B：Nginx**
+
+安装 Nginx 和 Certbot：
+
+```bash
+sudo apt install -y nginx certbot python3-certbot-nginx
+```
+
+配置 Nginx（`/etc/nginx/sites-available/agentboster`）：
+
+```nginx
+upstream agentboster_backend {
+    server 127.0.0.1:3000;
+    keepalive 64;
+}
+
+server {
+    listen 80;
+    server_name your-domain.com;
+    
+    # 重定向到 HTTPS
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+    
+    # SSL 证书（Certbot 自动配置）
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+    
+    # SSL 安全配置
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    
+    # 请求体大小限制
+    client_max_body_size 100M;
+    
+    # 超时配置（用于长时间 SSE 连接）
+    proxy_read_timeout 300s;
+    proxy_connect_timeout 75s;
+    
+    location / {
+        proxy_pass http://agentboster_backend;
+        proxy_http_version 1.1;
+        
+        # 转发真实 IP
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket 支持（如果未来需要）
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+    
+    # 日志
+    access_log /var/log/nginx/agentboster-access.log;
+    error_log /var/log/nginx/agentboster-error.log;
+}
+```
+
+启用配置并申请证书：
+
+```bash
+# 启用配置
+sudo ln -s /etc/nginx/sites-available/agentboster /etc/nginx/sites-enabled/
+sudo nginx -t  # 测试配置
+sudo systemctl reload nginx
+
+# 申请 Let's Encrypt 证书
+sudo certbot --nginx -d your-domain.com
+```
+
+### 7.2 进程管理
+
+`yarn start` 运行的是前台进程，SSH 断开会退出。生产环境需要使用进程管理器。
+
+**推荐方案 A：systemd（Linux 原生，最推荐）**
+
+创建 systemd 服务文件 `/etc/systemd/system/agentboster-web.service`：
+
+```ini
+[Unit]
+Description=AgentBoster Web Service
+After=network.target postgresql.service redis.service
+Requires=postgresql.service redis.service
+
+[Service]
+Type=simple
+User=agentboster
+WorkingDirectory=/home/agentboster/agentboster
+EnvironmentFile=/home/agentboster/agentboster/.env.local
+ExecStart=/usr/bin/yarn start
+Restart=always
+RestartSec=10
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agentboster-web
+
+[Install]
+WantedBy=multi-user.target
+```
+
+创建 graphile-worker 服务文件 `/etc/systemd/system/agentboster-worker.service`：
+
+```ini
+[Unit]
+Description=AgentBoster Workflow Worker
+After=network.target postgresql.service agentboster-web.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=agentboster
+WorkingDirectory=/home/agentboster/agentboster
+EnvironmentFile=/home/agentboster/agentboster/.env.local
+ExecStart=/usr/bin/npx graphile-worker --connection-string ${DATABASE_URL}
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agentboster-worker
+
+[Install]
+WantedBy=multi-user.target
+```
+
+启用并启动服务：
+
+```bash
+# 创建专用用户（推荐）
+sudo useradd -r -s /bin/bash -d /home/agentboster -m agentboster
+sudo chown -R agentboster:agentboster /home/agentboster/agentboster
+
+# 重载 systemd 配置
+sudo systemctl daemon-reload
+
+# 启用开机自启
+sudo systemctl enable agentboster-web agentboster-worker
+
+# 启动服务
+sudo systemctl start agentboster-web agentboster-worker
+
+# 查看状态
+sudo systemctl status agentboster-web
+sudo systemctl status agentboster-worker
+
+# 查看日志
+sudo journalctl -u agentboster-web -f
+sudo journalctl -u agentboster-worker -f
+```
+
+**推荐方案 B：PM2（Node 生态传统选择）**
+
+```bash
+# 安装 PM2
+sudo npm install -g pm2
+
+# 启动应用
+pm2 start "yarn start" --name agentboster-web
+pm2 start "npx graphile-worker --connection-string $DATABASE_URL" --name agentboster-worker
+
+# 设置开机自启
+pm2 startup
+pm2 save
+
+# 查看状态和日志
+pm2 status
+pm2 logs agentboster-web
+```
+
+### 7.3 Docker 部署（可选）
+
+如果你熟悉 Docker，可以使用容器化部署。仓库根目录已提供 `Dockerfile`。
+
+#### 单机 Docker Compose 方案
+
+创建 `docker-compose.yml`：
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: agentboster
+      POSTGRES_USER: agentboster_user
+      POSTGRES_PASSWORD: your_secure_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentboster_user -d agentboster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass your_redis_password
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  web:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://agentboster_user:your_secure_password@postgres:5432/agentboster
+      REDIS_URL: redis://:your_redis_password@redis:6379
+      KV_REST_API_URL: redis://:your_redis_password@redis:6379  # 需要适配
+      APP_BASE_URL: https://your-domain.com
+      AUTH_SECRET: ${AUTH_SECRET}
+      WORKFLOW_TARGET_WORLD: "@workflow/world-postgres"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      USERNAME: admin
+      PASSWORD: ${ADMIN_PASSWORD}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (r) => {process.exit(r.statusCode === 200 || r.statusCode === 307 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://agentboster_user:your_secure_password@postgres:5432/agentboster
+    command: ["npx", "graphile-worker", "--connection-string", "postgresql://agentboster_user:your_secure_password@postgres:5432/agentboster"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+```
+
+启动：
+
+```bash
+# 创建 .env 文件存放敏感信息
+cat > .env <<EOF
+AUTH_SECRET=$(openssl rand -base64 32)
+ADMIN_PASSWORD=your_admin_password
+ANTHROPIC_API_KEY=sk-ant-xxx
+EOF
+
+# 启动所有服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f web
+
+# 初始化数据库（首次启动）
+docker-compose exec web yarn db:ensure-vector
+docker-compose exec web yarn db:push
+```
+
+### 7.4 健康检查和监控
+
+**健康检查端点**：
+
+```bash
+# 检查 Web 服务（需要 AGENTD_API_KEY）
+curl -H "Authorization: Bearer $AGENTD_API_KEY" \
+  http://localhost:3000/api/agentd/v1/health
+
+# 简单存活检查（无需鉴权）
+curl http://localhost:3000/
+```
+
+**监控建议**：
+
+1. **数据库连接数**：
+
+```bash
+# PostgreSQL 连接数监控
+psql $DATABASE_URL -c "SELECT count(*) FROM pg_stat_activity WHERE datname = 'agentboster';"
+```
+
+2. **Redis 内存使用**：
+
+```bash
+redis-cli -a your_redis_password INFO memory | grep used_memory_human
+```
+
+3. **进程状态**：
+
+```bash
+# systemd
+sudo systemctl status agentboster-web agentboster-worker
+
+# PM2
+pm2 status
+```
+
+4. **日志监控**：
+
+```bash
+# systemd 日志
+sudo journalctl -u agentboster-web --since "10 minutes ago"
+
+# PM2 日志
+pm2 logs agentboster-web --lines 100
+```
 
 ---
 
-## 八、长期维护与上游同步
+## 八、自托管改造清单（当前版本限制）
 
-### 风险：与主仓 rebase 的冲突
+AgentBoster 当前版本（v0.1.0）的代码是为 Vercel 部署优化的，本地部署需要注意以下限制和改造点：
 
-自托管意味着你 fork 了一份代码。每次 agentboster 主仓更新，rebase 时最容易冲突的是：
+### 8.1 对象存储（当前必须改造）
 
-- `lib/core/blob/`（你改了 adapter）
-- `lib/core/db/index.ts`（你换了 driver）
-- `lib/core/kv/`（你换了 Redis 客户端）
-- `lib/bot/webhook.ts`（你改了 getAppBaseUrl）
-- `app/api/bot/.../callback/route.ts`（你改了 after）
+**现状**：代码强依赖 `@vercel/blob`
 
-### 缓解策略
+**影响范围**：
+- `lib/core/blob/index.ts`：附件上传/下载
+- `lib/core/blob/skills.ts`：技能仓库同步产物
 
-1. **把改造收拢到 adapter 文件**。所有 Vercel 替换都集中到 `lib/core/storage/`、`lib/core/db/drivers/`、`lib/core/kv/drivers/` 这类新目录，业务代码 import 抽象接口。rebase 时只冲突 adapter 文件。
-2. **保留 Vercel 默认，通过 env 切换**。不要删除 Vercel 路径，而是用 `STORAGE_DRIVER` 等 env 选择后端。这样你的 fork 与主仓始终兼容，只是多了几条 if 分支。
-3. **把 Workflow World 切换做成纯 env**（已经是了，`WORKFLOW_TARGET_WORLD`）。零冲突。
-4. **把 after() 替换做成 Next.js runtime 检测**：检测 `process.env.VERCEL`，是 Vercel 就用 after，否则用 fallback。这样代码同时支持两种部署。
+**临时方案**：
+1. 保留使用 Vercel Blob（需要 Vercel 账号和 `BLOB_READ_WRITE_TOKEN`）
+2. 附件功能受限，但不影响核心聊天
 
-策略 2 + 4 的好处是：你的 fork 可以**理论上提交回主仓作为"自托管支持"**，而不是永远 fork。如果作者接受，自托管变成主仓一等公民，你不再背 fork 债。
+**永久方案**（需要修改代码）：
 
-### 推动上游
+在 `lib/core/blob/index.ts` 中添加 adapter 层：
 
-最健康的长期方案是推动 agentboster 主仓官方支持自托管。具体提议：
+```typescript
+// 伪代码示例
+const storageDriver = process.env.STORAGE_DRIVER || 'vercel';
 
-- 加 `STORAGE_DRIVER`、`KV_DRIVER`、`DATABASE_DRIVER` 等 env 开关。
-- 加 `APP_BASE_URL` env。
-- 加 `WORKFLOW_TARGET_WORLD` 文档说明（README 目前完全没提 World 抽象，这其实是个宣传遗漏）。
-- 在 README 加 "Self-Hosted" 章节链到本指南（或主仓版本）。
+if (storageDriver === 's3') {
+  // 使用 @aws-sdk/client-s3
+  const s3Client = new S3Client({
+    endpoint: process.env.S3_ENDPOINT,
+    credentials: {
+      accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+    },
+    region: process.env.S3_REGION || 'us-east-1',
+  });
+  // 实现 put/get/delete/list 接口
+} else {
+  // 使用 @vercel/blob（默认）
+}
+```
 
-如果作者接受，自托管从"fork 改造"变成"配置项"，整个社区受益。
+### 8.2 Redis KV（需要适配）
+
+**现状**：代码使用两套 Redis SDK：
+1. `@upstash/redis`（REST API，需要 `KV_REST_API_URL` + `KV_REST_API_TOKEN`）
+2. `@chat-adapter/state-redis`（标准 Redis 协议，需要 `REDIS_URL`）
+
+**影响**：使用本地 Redis 时，第一套无法直接连接（Upstash SDK 期望 REST API）
+
+**临时方案**：
+- 使用 Upstash 的免费层（10,000 命令/天）
+- 或使用 upstash-redis-rest-proxy（开源工具，将本地 Redis 转为 REST API）
+
+**永久方案**（需要修改代码）：
+
+在 `lib/core/kv/index.ts` 中统一使用 `ioredis` 或 `node-redis`：
+
+```typescript
+// 替换 @upstash/redis 为 ioredis
+import Redis from 'ioredis';
+
+const redis = new Redis(process.env.REDIS_URL);
+```
+
+### 8.3 after() 异步机制（影响 IM webhook）
+
+**现状**：代码使用 `next/server` 的 `after()` API，在 Vercel 上可以延迟到响应后执行，在自托管 `next start` 下会降级为同步等待
+
+**影响范围**：
+- `app/api/bot/[authSecret]/[adapter]/callback/route.ts`（3 处）
+- `app/(skill)/actions.ts`（1 处）
+
+**问题**：IM webhook 会阻塞到 workflow 完成（几十秒到几分钟），导致 IM 平台超时重试
+
+**临时方案**：
+- 如果 IM 平台超时容忍度高（如 Telegram 60 秒），且 workflow 通常较短，可以暂时不改
+- 观察是否出现重复消息（超时重试的症状）
+
+**永久方案**（需要修改代码）：
+
+方案 A：使用后台任务队列（如 BullMQ）
+
+```typescript
+// 替换 after(() => fetch(...))
+await queue.add('process-im-message', { messageId, adapterId });
+```
+
+方案 B：fire-and-forget（需测试）
+
+```typescript
+// 替换 after(() => fetch(...))
+void fetch(...).catch(err => logger.error('background fetch failed', err));
+```
+
+### 8.4 数据库驱动（推荐优化，非必需）
+
+**现状**：使用 `@neondatabase/serverless`（HTTP 协议，无连接池）
+
+**问题**：自托管是常驻进程，HTTP 驱动延迟高于 TCP 连接池
+
+**改造方案**（可选）：
+
+替换为 `pg` + TCP 连接池：
+
+```typescript
+// lib/core/db/index.ts
+import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = drizzle(pool, { schema });
+```
 
 ---
 
 ## 九、常见问题
 
-### Q1：能不能部分迁移？比如 Web 留 Vercel、数据出 Vercel？
+### 9.1 启动后一直转圈，没有响应
 
-能，而且这是**推荐做法**。Web 控制面留 Vercel（享受自动扩缩、Edge、零运维），DATABASE_URL 指自有 Postgres，Blob 换 S3，agentd 在自己 VPC——这是数据主权 + 云便利的折中。本指南的步骤 2、3、4、5 都适用这种部分迁移，不需要做步骤 6（after）。
+**原因**：graphile-worker 未启动
 
-### Q2：自托管后还有 Vercel 函数 10 秒超时吗？
+**解决**：
 
-没有。`next start` 是常驻 Node 进程，没有函数超时概念。`maxDuration = 300` 是 dead config，被忽略。但要注意 Next.js 默认的 response timeout（有些反代如 Nginx 默认 60 秒），长 IM 流可能需要调高超时。
+```bash
+# 检查 worker 进程
+ps aux | grep graphile-worker
 
-### Q3：Workflow 切 Postgres World 后，Vercel World 的代码会不会冲突？
+# 如果没有，启动它
+npx graphile-worker --connection-string "$DATABASE_URL"
+```
 
-不会。Workflow DevKit 的 World 是运行时按 env 选择的，Vercel World 代码在 Postgres World 下不被加载。`app/.well-known/workflow/v1/config.json` 里的 `queue/v2beta` 触发器是 Vercel World 用的，切 Postgres World 后由 graphile-worker 接管，不冲突。
+### 9.2 提示 "KV_REST_API_URL and KV_REST_API_TOKEN env vars are required"
 
-### Q4：不换 neon，直接用本地 Postgres 配 neon HTTP 驱动行不行？
+**原因**：代码期望 Upstash Redis REST API 凭证
 
-行，但不是最优。neon HTTP 驱动假设无状态短查询，本地 Postgres 用 HTTP 模拟 TCP 有性能开销。最佳是步骤 2 描述的换 `pg`。
+**解决方案 A**（推荐）：注册 Upstash 免费账号
 
-### Q5：agentd 的 Linux-only 限制在自托管下是不是问题？
+1. 访问 https://upstash.com/
+2. 创建 Redis 数据库
+3. 获取 REST API URL 和 Token
+4. 配置到 `.env.local`
 
-不是。自托管本来就是 Linux 服务器（agentd 部署在那）。Windows/macOS 自托管 Web 可以，但 agentd 必须有 Linux 机器——这是 agentd 的硬约束，与 Web 自托管无关。
+**解决方案 B**：使用 upstash-redis-rest-proxy（未测试）
 
-### Q6：CLI 在自托管下需要改吗？
+### 9.3 文件上传失败
 
-不需要。CLI 是瘦客户端，只跟 Web 的 HTTPS API 通信。Web 自托管在哪，CLI 配对时填对应 URL 即可。`agentboster login --url https://your-domain.com` 即可（具体 flag 见 cli/README.md）。
+**原因**：`@vercel/blob` 需要 Vercel 凭证
 
-### Q7：迁移后还能用 Vercel 的 observability 吗？
+**临时方案**：注册 Vercel 账号，获取 `BLOB_READ_WRITE_TOKEN`
 
-Vercel Analytics 与 Speed Insights 失去（步骤 8 移除）。但 Workflow DevKit 的 observability（`workflow inspect`）通过 `--backend @workflow/world-postgres` 仍可用。其他监控换成本地方案（Prometheus + Grafana、或 OpenTelemetry）。
+**永久方案**：等待代码适配 S3/MinIO（见"自托管改造清单"）
+
+### 9.4 IM 机器人收到重复消息
+
+**原因**：webhook 超时导致平台重试，触发重复处理
+
+**解决方案**：见"自托管改造清单" → "after() 异步机制"
+
+### 9.5 升级后数据库报错
+
+**原因**：Schema 变更
+
+**解决方案**：
+
+```bash
+# 查看当前 schema 与代码的差异
+npx drizzle-kit push --dry-run
+
+# 如果安全，推送变更
+yarn db:push
+```
+
+**警告**：1.0 之前 schema 可能有 breaking change，升级前备份数据库！
+
+### 9.6 如何备份数据
+
+**PostgreSQL 备份**：
+
+```bash
+# 备份
+pg_dump $DATABASE_URL > agentboster-backup-$(date +%Y%m%d).sql
+
+# 恢复
+psql $DATABASE_URL < agentboster-backup-20260701.sql
+```
+
+**Redis 备份**：
+
+```bash
+# 触发 RDB 快照
+redis-cli -a your_redis_password SAVE
+
+# 备份文件位置：/var/lib/redis/dump.rdb
+```
 
 ---
 
-## 十、快速决策：你应该自托管吗？
+## 十、性能优化建议
 
-| 你的情况 | 建议 |
-|---|---|
-| 个人用、流量小、不介意数据在 Vercel | 留 Vercel 默认，零成本，享受自动扩缩 |
-| 个人用、想要数据/技能在自己手里 | 部分迁移：Web 留 Vercel，Postgres/Blob 出 Vercel（步骤 2、3） |
-| 小团队、需要 IM 接入与多端协作 | 单机全栈（拓扑 A），1-2 周改造 |
-| 企业、需要合规与数据主权 | 控制面/执行面分离（拓扑 B） |
-| 政企、完全内网、不能有任何外部依赖 | 完全离线（拓扑 C），额外需要 LLM 本地化改造 |
-| 边缘设备、单板机 | 不要选 AgentBoster，选 picoclaw（架构不匹配） |
-| 个人单机、不要 Web | 不要选 AgentBoster，选 manboster（单二进制） |
+### 10.1 数据库优化
+
+**连接池配置**（如果使用 `pg`）：
+
+```typescript
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20,  // 最大连接数
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+```
+
+**索引优化**（Drizzle 已定义，无需手动创建）：
+
+```bash
+# 查看表索引
+psql $DATABASE_URL -c "\d+ messages"
+```
+
+### 10.2 Redis 优化
+
+**内存策略**（`/etc/redis/redis.conf`）：
+
+```conf
+maxmemory 2gb
+maxmemory-policy allkeys-lru  # LRU 淘汰策略
+```
+
+### 10.3 Next.js standalone 模式（可选）
+
+启用 standalone 输出可以减小镜像体积（如果使用 Docker）：
+
+在 `next.config.ts` 中添加：
+
+```typescript
+const nextConfig: NextConfig = {
+  output: 'standalone',  // 添加这一行
+  // ... 其他配置
+};
+```
+
+然后修改 Dockerfile 的 COPY 路径：
+
+```dockerfile
+# 替换：
+COPY --from=builder /app/.next ./.next
+# 为：
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
+```
 
 ---
 
-## 十一、附录：环境变量对照表（Vercel vs 自托管）
+## 十一、总结
 
-| 用途 | Vercel 部署 | 自托管部署 |
-|---|---|---|
-| 鉴权密钥 | `AUTH_SECRET` | `AUTH_SECRET`（不变） |
-| Postgres | `DATABASE_URL`（指 Neon） | `DATABASE_URL`（指自有 Postgres） |
-| Workflow World | 默认 Vercel World | `WORKFLOW_TARGET_WORLD=@workflow/world-postgres` |
-| 对象存储 | `BLOB_READ_WRITE_TOKEN`（Vercel Blob） | `STORAGE_DRIVER=s3` + S3 凭证 |
-| Redis | `KV_REST_API_URL` + `KV_REST_API_TOKEN`（Upstash） | `REDIS_URL`（自托管 Redis） |
-| Webhook 基址 | 自动从 `VERCEL_URL` 推断 | `APP_BASE_URL=https://your-domain.com` |
-| 部署检测 | `VERCEL=1`、`VERCEL_ENV=production` | `NODE_ENV=production` |
-| daemon 鉴权 | `AGENTD_API_KEY` | `AGENTD_API_KEY`（不变） |
-| mTLS（Web→agentd） | `AGENTD_CLIENT_CERT_PATH` 等 | 不变（或留空） |
+本文档提供了 AgentBoster Web 层的完整本地部署方案，适合不熟悉 Vercel 的用户。
+
+**部署检查清单**：
+
+- [ ] PostgreSQL 已安装并配置 pgvector 扩展
+- [ ] Redis 已安装并配置密码
+- [ ] 对象存储已配置（Vercel Blob 或 MinIO/S3）
+- [ ] `.env.local` 已创建并填写所有必需变量
+- [ ] 依赖已安装（`yarn install`）
+- [ ] 数据库已初始化（`yarn db:ensure-vector && yarn db:push`）
+- [ ] 应用已构建（`yarn build`）
+- [ ] Web 服务已启动（`yarn start`）
+- [ ] graphile-worker 已启动
+- [ ] 反向代理已配置（Caddy/Nginx）
+- [ ] 进程管理已配置（systemd/PM2）
+- [ ] 防火墙已开放端口（80/443）
+- [ ] 健康检查通过
+- [ ] 浏览器访问成功并能发送消息
+
+**后续步骤**：
+
+1. **部署 agentd**（可选）：见 `agentd/README.md`，提供沙箱工具执行能力
+2. **安装 CLI**（可选）：见 `cli/README.md`，提供终端交互体验
+3. **配置 IM 机器人**（可选）：见主 README 的 IM 接入章节
+4. **监控和告警**：配置 Prometheus + Grafana 或使用云监控服务
+5. **定期备份**：设置 cron 任务自动备份 Postgres 和 Redis
+
+**获取帮助**：
+
+- 问题反馈：https://github.com/your-org/agentboster/issues
+- 社区讨论：见主 README 的联系方式
 
 ---
 
-*本文档基于 AgentBoster 仓库源码（Web 层）逐行核对撰写。所有耦合点文件路径与改造方向均可在源码中复核。改造代码需自行实现与测试；本指南提供路径与方向，不提供未经测试的代码片段。文档生成时项目处于 WIP 状态，1.0 前接口与 schema 可能变化，改造前请以最新源码为准。*
+*本文档基于 AgentBoster v0.1.0 编写，面向完全本地部署场景。部分功能（对象存储、Redis KV）当前需要临时依赖云服务或修改代码，未来版本将提供完整的本地适配方案。*
