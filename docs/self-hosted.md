@@ -1327,8 +1327,8 @@ COPY --from=builder /app/public ./public
 
 **后续步骤**：
 
-1. **部署 agentd**（可选）：见 `agentd/README.md`，提供沙箱工具执行能力
-2. **安装 CLI**（可选）：见 `cli/README.md`，提供终端交互体验
+1. **部署 agentd**（可选）：见 `subpackage/agentd/README.md`，提供沙箱工具执行能力
+2. **安装 CLI**（可选）：见 `subpackage/cli/README.md`，提供终端交互体验
 3. **配置 IM 机器人**（可选）：见主 README 的 IM 接入章节
 4. **监控和告警**：配置 Prometheus + Grafana 或使用云监控服务
 5. **定期备份**：设置 cron 任务自动备份 Postgres 和 Redis

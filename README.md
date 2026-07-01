@@ -107,7 +107,7 @@ CLI 的 `trigger: 'regenerate-message'` 复用同一条 chatMain:Web 侧 `delete
 | Web → agentd | `POST /api/v1/tools/exec`(可选,仅当节点 URL 可达) | `AGENTD_CLIENT_*` mTLS |
 
 - Web 不需要知道 agentd / CLI 的内部实现,只认 HTTP body 与事件 schema。
-- agentd 是独立 Go module(`agentd/`),CLI 是独立 Yarn Classic monorepo(`cli/`),两者各有自己的 `AGENTS.md`、工具链与发版周期。
+- agentd 是独立 Go module(`subpackage/agentd/`),CLI 是独立 Yarn Classic monorepo(`subpackage/cli/`),两者各有自己的 `AGENTS.md`、工具链与发版周期。
 - 模型上下文窗口大小(`resolveModelContextLimit`)在 Web 一处解析后,经 `/api/cli/models` 下发给 CLI 与 IM,避免三层各自维护一份上下文表。
 
 #### 强安全 —— 三层防线 + 双向鉴权
@@ -173,26 +173,26 @@ CLI 的 `trigger: 'regenerate-message'` 复用同一条 chatMain:Web 侧 `delete
 ### 2) Daemon（Linux）
 
 ```bash
-cd agentd
+cd subpackage/agentd
 go build -o agentd ./cmd/agentd/
 cp agentd.toml.example agentd.toml
 # 编辑 base_url、clawless_api_key、sandbox
 sudo ./agentd -config agentd.toml
 ```
 
-完整说明：[`agentd/README.md`](./agentd/README.md)。
+完整说明：[`subpackage/agentd/README.md`](./subpackage/agentd/README.md)。
 
 ### 3) CLI（本机）
 
 ```bash
-cd cli
+cd subpackage/cli
 npm install
 npm run build
 node packages/coding-agent/dist/cli.js --help
 agentboster login   # 使用 Web 时
 ```
 
-完整说明：[`cli/README.md`](./cli/README.md)。
+完整说明：[`subpackage/cli/README.md`](./subpackage/cli/README.md)。
 
 ---
 
@@ -232,8 +232,8 @@ CLI 端无需 env 变量；登录信息写入 `~/.agentboster/config.json`。调
 | 文档 | 内容 |
 |------|------|
 | [`README.EN.md`](./README.EN.md) | 英文 README（与本文同结构） |
-| [`agentd/README.md`](./agentd/README.md) | 守护进程 |
-| [`cli/README.md`](./cli/README.md) | 终端 CLI |
+| [`subpackage/agentd/README.md`](./subpackage/agentd/README.md) | 守护进程 |
+| [`subpackage/cli/README.md`](./subpackage/cli/README.md) | 终端 CLI |
 | [`AGENTS.md`](./AGENTS.md) | 贡献者与 OpenCode 说明 |
 
 ---

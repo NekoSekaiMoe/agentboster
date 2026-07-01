@@ -52,8 +52,7 @@ coverage
 # Repo-specific excludes
 ref/
 memoh/
-cli/
-agentd/
+subpackage/
 
 # Development files
 .prettierrc

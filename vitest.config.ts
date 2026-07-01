@@ -24,7 +24,7 @@ export default defineConfig({
       'hooks/**/*.test.ts',
       'components/**/*.test.ts',
       'components/**/*.test.tsx',
-      'cli/src/**/*.test.ts',
+      'subpackage/cli/src/**/*.test.ts',
     ],
     // The Next/Vercel modules reference Node builtins; tell vitest to
     // not polyfill them.

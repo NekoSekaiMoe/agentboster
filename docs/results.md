@@ -175,17 +175,18 @@ agentboster/
 │   ├── ui/                   # shadcn 原子组件(button, dialog, tabs, table…)
 │   └── *.tsx                 # app-sidebar / adaptive-chat-layout / markdown / tool-timeline / workflow-timeline / decision-card
 ├── lib/                      # 业务逻辑(见下文「Web 层关键模块」)
-├── agentd/                   # 独立 Go module(`github.com/clawless/agentd`)
-│   ├── cmd/agentd/           # main.go + tui/(交互式配置向导)
-│   ├── internal/             # 见下文「agentd 架构」
-│   ├── agentd.toml.example   # 配置模板
-│   ├── LAYOUT.MD, AGENTS.md, README.md
-│   └── go.mod / go.sum
-├── cli/                      # 独立 Yarn Classic monorepo(packageManager yarn@1.22.22)
-│   ├── packages/
-│   │   ├── coding-agent/     # `agentboster` bin + TUI + login + session
-│   │   ├── agentboster-adapter/  # auth / web-stream / models / preferences / security
-│   │   ├── agent/            # pi-agent-core 会话原语
+├── subpackage/               # 独立 build 单元集合（每个子项目自带 go.mod / package.json）
+│   ├── agentd/               # 独立 Go module(`github.com/clawless/agentd`)
+│   │   ├── cmd/agentd/       # main.go + tui/(交互式配置向导)
+│   │   ├── internal/         # 见下文「agentd 架构」
+│   │   ├── agentd.toml.example   # 配置模板
+│   │   ├── LAYOUT.MD, AGENTS.md, README.md
+│   │   └── go.mod / go.sum
+│   ├── cli/                  # 独立 Yarn Classic monorepo(packageManager yarn@1.22.22)
+│   │   ├── packages/
+│   │   │   ├── coding-agent/     # `agentboster` bin + TUI + login + session
+│   │   │   ├── agentboster-adapter/  # auth / web-stream / models / preferences / security
+│   │   │   ├── agent/            # pi-agent-core 会话原语
 │   │   └── ai/               # pi-ai 类型层(无 provider SDK)
 │   ├── scripts/              # bundle.mjs / package.mjs
 │   └── package.json, tsconfig*.json, AGENTS.md, README.md
@@ -397,7 +398,7 @@ users, files(略)
 
 ### agentd(Go)架构
 
-独立 module `github.com/clawless/agentd`,**Linux only**(`//go:build linux`),Go 1.26.2,依赖 Gin + Viper + charmbracelet(huh/lipgloss 用于 `-tui` 向导)。源码地图见 `agentd/LAYOUT.MD`,关键源码:`internal/`。
+独立 module `github.com/clawless/agentd`,**Linux only**(`//go:build linux`),Go 1.26.2,依赖 Gin + Viper + charmbracelet(huh/lipgloss 用于 `-tui` 向导)。源码地图见 `subpackage/agentd/LAYOUT.MD`,关键源码:`internal/`。
 
 #### 进程生命周期(`internal/lifecycle/`)
 
@@ -478,7 +479,7 @@ CLI **不持久化**会话权威状态。`--continue/--resume/--session/--fork` 
 | `AGENTD_CLIENT_CERT_PATH` / `AGENTD_CLIENT_KEY_PATH` / `AGENTD_CA_PATH` | 仅 Web 主动访问 daemon 时启用 mTLS |
 | `TAVILY_API_KEY` | 可选,联网搜索 |
 
-#### CLI 环境变量(`cli/README.md` §环境变量)
+#### CLI 环境变量(`subpackage/cli/README.md` §环境变量)
 
 | 变量 | 用途 |
 |------|------|

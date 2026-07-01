@@ -25,6 +25,7 @@
       "!**/node_modules",
       "!**/.next",
       "!cli/**",
+      "!**/subpackage",
       "!**/public",
       "!**/ref",
       "!**/memoh",

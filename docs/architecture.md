@@ -846,7 +846,7 @@ Web 与 agentd 都支持 MCP（Model Context Protocol）。Web 内置四个 MCP 
 
 ## 二十二、文档导航
 
-仓库内文档分工。README.md（中文）与 README.EN.md（英文）是高层地图，介绍平台架构、核心能力、快速部署、环境变量、常用命令、IM 命令、相关文档。AGENTS.md 是 OpenCode 会话的紧凑指南，补充 README 易遗漏的仓库形态、命令、Web 陷阱、风格与基础设施、有用指针。agentd/README.md 与 agentd/AGENTS.md 是 daemon 的边界文档（部署、配置、运行模式、构建）。cli/README.md 与 cli/AGENTS.md 是 CLI 的边界文档（monorepo 组织、pi 关系、命令、瘦客户端边界、打包分发）。MULTI-NODE-SCHEDULING.md 在 AGENTS.md 与 README 被引用但仓库内实际不存在（计划文档）。
+仓库内文档分工。README.md（中文）与 README.EN.md（英文）是高层地图，介绍平台架构、核心能力、快速部署、环境变量、常用命令、IM 命令、相关文档。AGENTS.md 是 OpenCode 会话的紧凑指南，补充 README 易遗漏的仓库形态、命令、Web 陷阱、风格与基础设施、有用指针。subpackage/agentd/README.md 与 subpackage/agentd/AGENTS.md 是 daemon 的边界文档（部署、配置、运行模式、构建）。subpackage/cli/README.md 与 subpackage/cli/AGENTS.md 是 CLI 的边界文档（monorepo 组织、pi 关系、命令、瘦客户端边界、打包分发）。MULTI-NODE-SCHEDULING.md 在 AGENTS.md 与 README 被引用但仓库内实际不存在（计划文档）。
 
 本文档（architecture.md）补充上述文档的空白，提供三层架构的端到端深度剖析，基于实际源码而非 README 的描述性段落。如需更细节，可对照引用的源码文件复核。
 

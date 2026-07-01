@@ -49,14 +49,14 @@ subpackage/dbushelper/cmd/a11y-helper/a11y-helper
 .atomcode/
 .qoder/
 
-# CLI (pi-coding-agent fork at cli/) — local-only artifacts
-cli/dist/
-cli/packages/*/dist/
+# CLI (pi-coding-agent fork at subpackage/cli/) — local-only artifacts
+subpackage/cli/dist/
+subpackage/cli/packages/*/dist/
 *.tsbuildinfo
 
 # vendored reference repos (not project code, see AGENTS.md)
 ref/
-cli/packages/coding-agent/dist/agentboster.cjs
-cli/agentboster.cjs
-cli/agentboster-cli-*.tar.gz
-cli/.pkg-staging/
+subpackage/cli/packages/coding-agent/dist/agentboster.cjs
+subpackage/cli/agentboster.cjs
+subpackage/cli/agentboster-cli-*.tar.gz
+subpackage/cli/.pkg-staging/

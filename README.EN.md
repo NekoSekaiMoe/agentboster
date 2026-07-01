@@ -173,26 +173,26 @@ Tool execution always crosses **three independent security checks**, any one of 
 ### 2) Daemon (Linux)
 
 ```bash
-cd agentd
+cd subpackage/agentd
 go build -o agentd ./cmd/agentd/
 cp agentd.toml.example agentd.toml
 # Edit base_url, clawless_api_key, sandbox
 sudo ./agentd -config agentd.toml
 ```
 
-Full guide: [`agentd/README.md`](./agentd/README.md).
+Full guide: [`subpackage/agentd/README.md`](./subpackage/agentd/README.md).
 
 ### 3) CLI (local)
 
 ```bash
-cd cli
+cd subpackage/cli
 npm install
 npm run build
 node packages/coding-agent/dist/cli.js --help
 agentboster login   # when using Web backend
 ```
 
-Full guide: [`cli/README.md`](./cli/README.md).
+Full guide: [`subpackage/cli/README.md`](./subpackage/cli/README.md).
 
 ---
 
@@ -232,8 +232,8 @@ CLI: `AGENTBOSTER_URL`, `AGENTBOSTER_SESSION_ID`, `AGENTBOSTER_CLIENT_ID` (see c
 | Document | Content |
 |----------|---------|
 | [`README.md`](./README.md) | Chinese README (same scope) |
-| [`agentd/README.md`](./agentd/README.md) | Daemon |
-| [`cli/README.md`](./cli/README.md) | Terminal CLI |
+| [`subpackage/agentd/README.md`](./subpackage/agentd/README.md) | Daemon |
+| [`subpackage/cli/README.md`](./subpackage/cli/README.md) | Terminal CLI |
 | [`AGENTS.md`](./AGENTS.md) | Contributors and OpenCode notes |
 
 ---

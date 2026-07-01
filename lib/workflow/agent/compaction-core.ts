@@ -1,5 +1,5 @@
 /**
- * Compaction core — shared between Web (lib/) and CLI (cli/packages/coding-agent/)
+ * Compaction core — shared between Web (lib/) and CLI (subpackage/cli/packages/coding-agent/)
  * via symlink. Pure functions only: no Node/Next/DB imports.
  *
  * Threshold semantics, token estimation, and the structured summary prompt
