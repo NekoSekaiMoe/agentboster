@@ -90,7 +90,7 @@
     "push": "python3 push.py",
     "build": "next build",
     "build:agentd": "cd agentd && go build -o agentd ./cmd/agentd/main.go",
-    "lint:check": "tsc --noEmit && biome check .",
+    "lint:check": "tsc --noEmit && biome check app components lib hooks middleware.ts next.config.ts drizzle.config.ts push.py",
     "check:sh": "shellcheck agentd/internal/agent/browser/node_install.sh",
     "test": "vitest run",
     "test:watch": "vitest",
