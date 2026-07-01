@@ -554,6 +554,8 @@ export const zhCN = {
   'notify.field.viewLogs': '查看日志',
   'notify.field.error': '错误',
   'notify.field.downloadFiles': '下载文件',
+  'notify.field.pending': '待办事项',
+  'notify.field.knownIssues': '已知问题',
   'notify.l2.passOnce': '放行一次',
   'notify.l2.passUntil': '放行至...',
   'notify.l2.rejectOnce': '拒绝一次',

@@ -154,6 +154,16 @@ export class DiscordNotificationChannel implements NotificationChannel {
           name: t(locale, 'notify.field.error'),
           value: payload.details.error,
         });
+      if (payload.details.pending && payload.details.pending.length > 0)
+        fields.push({
+          name: `📝 ${t(locale, 'notify.field.pending')}`,
+          value: payload.details.pending.map((i) => `• ${i}`).join('\n'),
+        });
+      if (payload.details.knownIssues && payload.details.knownIssues.length > 0)
+        fields.push({
+          name: `⚠️ ${t(locale, 'notify.field.knownIssues')}`,
+          value: payload.details.knownIssues.map((i) => `• ${i}`).join('\n'),
+        });
     }
 
     return {

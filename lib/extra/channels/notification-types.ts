@@ -97,6 +97,15 @@ export interface CompletionNotification {
     gitCompareUrl?: string;
     insertions?: number;
     deletions?: number;
+    /** Task summary snapshot attached by agentd on completion. */
+    progress?: string;
+    pending?: string[];
+    knownIssues?: string[];
+    decisions?: Array<{
+      description: string;
+      reason: string;
+      alternatives?: string[];
+    }>;
   };
   channelFallback: string[];
   /** Locale for template localization; falls back to global default if absent. */

@@ -153,6 +153,19 @@ export class TelegramNotificationChannel implements NotificationChannel {
         lines.push(
           `${t(locale, 'notify.field.error')}: ${this.escape(payload.details.error)}`,
         );
+      if (payload.details.pending && payload.details.pending.length > 0) {
+        lines.push('', `📝 ${t(locale, 'notify.field.pending')}:`);
+        for (const item of payload.details.pending)
+          lines.push(`  • ${this.escape(item)}`);
+      }
+      if (
+        payload.details.knownIssues &&
+        payload.details.knownIssues.length > 0
+      ) {
+        lines.push('', `⚠️ ${t(locale, 'notify.field.knownIssues')}:`);
+        for (const issue of payload.details.knownIssues)
+          lines.push(`  • ${this.escape(issue)}`);
+      }
     }
 
     return lines.join('\n');

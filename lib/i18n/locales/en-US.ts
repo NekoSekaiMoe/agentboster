@@ -597,6 +597,8 @@ export const enUS = {
   'notify.field.viewLogs': 'View logs',
   'notify.field.error': 'Error',
   'notify.field.downloadFiles': 'Download files',
+  'notify.field.pending': 'Pending todos',
+  'notify.field.knownIssues': 'Known issues',
   'notify.l2.passOnce': 'Pass once',
   'notify.l2.passUntil': 'Pass until...',
   'notify.l2.rejectOnce': 'Reject once',

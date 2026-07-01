@@ -272,6 +272,21 @@ export class FeishuNotificationChannel implements NotificationChannel {
         fields.push(
           `**${t(locale, 'notify.field.error')}:** ${payload.details.error}`,
         );
+      if (payload.details.pending && payload.details.pending.length > 0) {
+        const items = payload.details.pending.map((i) => `• ${i}`).join('\n');
+        fields.push(`📝 **${t(locale, 'notify.field.pending')}:**\n${items}`);
+      }
+      if (
+        payload.details.knownIssues &&
+        payload.details.knownIssues.length > 0
+      ) {
+        const items = payload.details.knownIssues
+          .map((i) => `• ${i}`)
+          .join('\n');
+        fields.push(
+          `⚠️ **${t(locale, 'notify.field.knownIssues')}:**\n${items}`,
+        );
+      }
 
       if (fields.length > 0) {
         elements.push({

@@ -591,6 +591,8 @@ export const ko = {
   'notify.field.viewLogs': '로그 보기',
   'notify.field.error': '오류',
   'notify.field.downloadFiles': '파일 다운로드',
+  'notify.field.pending': '남은 할 일',
+  'notify.field.knownIssues': '알려진 문제',
   'notify.l2.passOnce': '한 번 허용',
   'notify.l2.passUntil': '...까지 허용',
   'notify.l2.rejectOnce': '한 번 거부',

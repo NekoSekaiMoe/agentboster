@@ -503,6 +503,26 @@ func (d *Dispatcher) sendCompletionNotification(ctx context.Context, task *clawl
 		}
 	}
 
+	// Attach the current task summary (pending todos, decisions, known
+	// issues) so the IM completion notification carries a structured
+	// snapshot of where the task left off, not just the final text.
+	if summary, err := d.clawless.GetTaskSummary(ctx, task.ID); err == nil && summary != nil {
+		if len(summary.Pending) > 0 {
+			details["pending"] = summary.Pending
+		}
+		if len(summary.KnownIssues) > 0 {
+			details["known_issues"] = summary.KnownIssues
+		}
+		if len(summary.Decisions) > 0 {
+			details["decisions"] = summary.Decisions
+		}
+		if summary.Progress != "" {
+			details["progress"] = summary.Progress
+		}
+	} else if err != nil {
+		slog.Debug("completion: task summary fetch skipped", "task_id", task.ID, "error", err)
+	}
+
 	notification := map[string]any{
 		"type":        "completion",
 		"task_id":     task.ID,

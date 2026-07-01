@@ -607,6 +607,8 @@ export const ja = {
   'notify.field.viewLogs': 'ログを表示',
   'notify.field.error': 'エラー',
   'notify.field.downloadFiles': 'ファイルをダウンロード',
+  'notify.field.pending': '未完了のタスク',
+  'notify.field.knownIssues': '既知の問題',
   'notify.l2.passOnce': '一度許可',
   'notify.l2.passUntil': '...まで許可',
   'notify.l2.rejectOnce': '一度拒否',

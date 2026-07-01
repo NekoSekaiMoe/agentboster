@@ -556,6 +556,8 @@ export const zhTW = {
   'notify.field.viewLogs': '檢視日誌',
   'notify.field.error': '錯誤',
   'notify.field.downloadFiles': '下載檔案',
+  'notify.field.pending': '待辦事項',
+  'notify.field.knownIssues': '已知問題',
   'notify.l2.passOnce': '放行一次',
   'notify.l2.passUntil': '放行至...',
   'notify.l2.rejectOnce': '拒絕一次',
