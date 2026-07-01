@@ -257,6 +257,16 @@ export async function chatWorkflow(
     modelMessagesToPrompt(initialMessages),
   );
   const stepStartedAt = new Map<number, Date>();
+  // Monotonic counter for completed steps. @workflow/ai's doStreamStep stamps
+  // every StepResult.stepNumber with a hardcoded 0 (stream-text-iterator.js
+  // increments a local `stepNumber` but never writes it back onto the step
+  // object passed to onStepFinish). Relying on step.stepNumber here makes
+  // persistStepDeltaAndUsageStep generate the same `assistant:<runId>:0`
+  // uiMessageId for every step of a multi-step turn, so upsert's
+  // onConflictDoUpdate overwrites earlier steps — including their reasoning
+  // parts — leaving only the final step's content after a page refresh
+  // (reported as "first thinking disappears on reload").
+  let completedStepCount = 0;
 
   // Resolve the configured provider key for the active model. Used in
   // onStepFinish to build a user-facing error message when a third-party
@@ -454,7 +464,14 @@ export async function chatWorkflow(
         };
       },
       onStepFinish: async (step) => {
-        const startedAt = stepStartedAt.get(step.stepNumber) ?? new Date();
+        // step.stepNumber is always 0 (see comment above completedStepCount),
+        // so we cannot rely on it. prepareStep's ({ stepNumber }) callback
+        // receives the correct value and stores the step's start time under
+        // that key in stepStartedAt; since steps complete in order, the
+        // current completedStepCount matches the key prepareStep used for
+        // this step.
+        const realStepNumber = completedStepCount;
+        const startedAt = stepStartedAt.get(realStepNumber) ?? new Date();
 
         // Detect the third-party-OpenAI-compatible-API bug where the
         // provider returns finish_reason "stop" even though it emitted
@@ -470,7 +487,7 @@ export async function chatWorkflow(
             sessionId,
             runId,
             providerName,
-            stepNumber: step.stepNumber,
+            stepNumber: realStepNumber,
             finishReason: step.finishReason,
             toolCallCount: step.toolCalls.length,
           });
@@ -480,21 +497,21 @@ export async function chatWorkflow(
 
         try {
           await writeMessageMetadata({
-            stepNumber: step.stepNumber,
+            stepNumber: realStepNumber,
             createdAt: startedAt.toISOString(),
             finishReason: step.finishReason,
           });
 
           const usage = await persistStepDeltaAndUsageStep({
             sessionId,
-            step,
+            step: { ...step, stepNumber: realStepNumber },
             persistedInstructions: pendingPersistedInstructions,
             stepCreatedAt: startedAt,
           });
           logger.info('stream:step_finish', {
             sessionId,
             runId,
-            ...buildStepDebugLog(step),
+            ...buildStepDebugLog({ ...step, stepNumber: realStepNumber }),
           });
           pendingPersistedInstructions = [];
 
@@ -505,7 +522,8 @@ export async function chatWorkflow(
             totalTokensUsed += estimatePromptTokens([{ content: step.text }]);
           }
         } finally {
-          stepStartedAt.delete(step.stepNumber);
+          stepStartedAt.delete(realStepNumber);
+          completedStepCount += 1;
         }
       },
       onError: async ({ error }) => {
