@@ -28,6 +28,7 @@ import localSkillTool from './skills/local';
 import scheduleTool from './tasks/schedule';
 import subAgentTool from './tasks/sub-agent';
 import taskSummaryTool from './tasks/summary';
+import sequentialThinkingTool from './reasoning/sequential-thinking';
 
 const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   sandboxTool,
@@ -41,6 +42,7 @@ const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   agentdNodesTool,
   localCliTool,
   askQuestionTool,
+  sequentialThinkingTool,
 ];
 
 export function getBuildInToolCatalog(config: AppConfig): ToolCatalogResponse {

@@ -199,7 +199,9 @@ describe('estimateMessageTokensFromUsage', () => {
   });
 
   it('sums input + output when totalTokens missing', () => {
-    expect(estimateMessageTokensFromUsage({ inputTokens: 300, outputTokens: 200 })).toBe(500);
+    expect(
+      estimateMessageTokensFromUsage({ inputTokens: 300, outputTokens: 200 }),
+    ).toBe(500);
   });
 
   it('returns 0 for null/unknown shapes', () => {
