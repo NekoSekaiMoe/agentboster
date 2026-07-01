@@ -50,7 +50,7 @@ flowchart LR
 |------|---------|
 | `conn.go` | `OpenBus`, `SocketAlive`, `DisplayNumber`, `CandidateCachePaths` |
 | `atspi.go` | `RoleIsStructural`, `RoleIsInteractive`, `IsOnScreen`, role/state constants, AT-SPI interface wrappers |
-| `snapshot.go` | `RunSnapshot`, `SnapshotOutput`, `SnapshotItem`, `Diagnostics`, `FormatLine` |
+| `snapshot.go` | `RunSnapshot`, `SnapshotOutput`, `SnapshotItem`, `Diagnostics`, `FormatLine`, `JsonQuote` |
 | `action.go` | `RunClick`, `RunType`, `RunFill`, `RunInspect`, `InspectOutput`, `ActionOutput`, `Fallback`, `PreferredActionIndex` |
 | `refs.go` | `RefEntry`, `RefKind`, `WriteRefs`, `AppendRefs`, `LookupRef`, `NormalizeRef`, `RefsPath` |
 | `cmd/a11y-helper/main.go` | CLI binary — flag parsing, JSON serialization, exit codes |
