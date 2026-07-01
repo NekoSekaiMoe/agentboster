@@ -1,0 +1,376 @@
+//go:build linux
+// +build linux
+
+package main
+
+import (
+	"context"
+	"crypto/tls"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"syscall"
+	"time"
+
+	"github.com/clawless/agentd/cmd/agentd/tui"
+	"github.com/clawless/agentd/internal/agent"
+	"github.com/clawless/agentd/internal/cache"
+	"github.com/clawless/agentd/internal/certs"
+	"github.com/clawless/agentd/internal/clawless"
+	"github.com/clawless/agentd/internal/config"
+	"github.com/clawless/agentd/internal/eventbus"
+	"github.com/clawless/agentd/internal/identity"
+	"github.com/clawless/agentd/internal/lifecycle"
+	"github.com/clawless/agentd/internal/logging"
+	"github.com/clawless/agentd/internal/metrics"
+	"github.com/clawless/agentd/internal/persistence"
+	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/clawless/agentd/internal/security"
+	"github.com/clawless/agentd/internal/security/l0_rules"
+	"github.com/clawless/agentd/internal/security/l2_auth"
+	"github.com/clawless/agentd/internal/server"
+	"github.com/clawless/agentd/internal/system"
+	"github.com/clawless/agentd/internal/worker"
+	"github.com/gin-gonic/gin"
+)
+
+var (
+	version   = "0.1.0"
+	buildTime = "unknown"
+)
+
+func main() {
+	if runtime.GOOS != "linux" {
+		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon requires Linux. Current OS: %s\n", runtime.GOOS)
+		os.Exit(1)
+	}
+
+	var (
+		configPath = flag.String("config", "", "Path to agentd.toml config file")
+		genCerts   = flag.Bool("gen-certs", false, "Generate mTLS certificates and exit")
+		certDir    = flag.String("cert-dir", "./certs", "Directory for generated certificates")
+		showTUI    = flag.Bool("tui", false, "Run interactive terminal setup")
+	)
+	flag.Parse()
+
+	if *showTUI {
+		if err := tui.Run(version, buildTime); err != nil {
+			fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if os.Getuid() != 0 {
+		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon must be run as root (current uid: %d)\n", os.Getuid())
+		os.Exit(1)
+	}
+
+	if *genCerts {
+		if err := certs.Generate(*certDir); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to generate certificates: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Certificates generated in %s\n", *certDir)
+		return
+	}
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check system dependencies
+	if err := system.CheckDependencies(cfg.Sandbox.Default); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+
+	slog.SetDefault(slog.New(logging.NewHandler(os.Stdout, logging.Config{
+		Level:     cfg.Logging.Level,
+		Module:    cfg.Logging.Module,
+		AddSource: cfg.Logging.AddSource,
+	})))
+
+	slog.Info("Agent Daemon starting",
+		"version", version, "build_time", buildTime, "listen", cfg.Server.Listen,
+	)
+
+	releaseSingleton, err := lifecycle.AcquireSingleton()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+	defer releaseSingleton()
+
+	// Port probe: edge-case backstop for a rogue instance whose socket lock
+	// file was deleted out from under it but is still listening on server.listen.
+	// AcquireSingleton is the primary mutex; this catches what it can't.
+	if err := lifecycle.CheckPortAvailable(cfg.Server.Listen); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+
+	nodeID, err := identity.Resolve(cfg.ClawLess.NodeIDFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+	slog.Info("node identity ready", "node_id", nodeID)
+
+	metricsPath := filepath.Join(cfg.Cache.Path, "metrics.json")
+	if cfg.Cache.Path == "" {
+		metricsPath = "/tmp/agentd/metrics.json"
+	}
+	collector := metrics.New(nodeID, metricsPath, 10*time.Second)
+	defer collector.Stop()
+
+	if err := security.DropPrivileges(cfg.Security.RunAsUser); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+
+	l0Engine := l0_rules.NewEngine()
+	l1Client := clawless.NewL1Client(
+		cfg.ClawLess.BaseURL,
+		cfg.Security.L1Model,
+		cfg.Server.ClawLessAPIKey,
+	)
+	if cfg.Security.L1Enabled {
+		l1HealthCtx, l1HealthCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := l1Client.Health(l1HealthCtx); err != nil {
+			slog.Error("L1 scorer health check failed; all L0-passing commands will require L2 authorization", "error", err)
+		} else {
+			slog.Info("L1 scorer health check passed")
+		}
+		l1HealthCancel()
+	} else {
+		slog.Warn("L1 scorer disabled by configuration")
+	}
+	bus := eventbus.New()
+
+	l2Manager := l2_auth.NewL2AuthManager(nil, "default")
+	l2Manager.SetBus(bus)
+
+	l2CleanupStop := l2Manager.StartCleanupWithInterval(30 * time.Second)
+	defer l2CleanupStop()
+
+	gk := security.NewGatekeeper(l0Engine, l1Client, l2Manager, bus, "default", security.GatekeeperOptions{
+		L1Enabled: cfg.Security.L1Enabled,
+		FailOpen:  cfg.Security.FailOpen,
+	})
+
+	clawlessClient, err := clawless.NewClientFromConfig(
+		cfg.ClawLess.BaseURL, cfg.Server.ClawLessAPIKey,
+		cfg.ClawLess.ClientCertPath, cfg.ClawLess.ClientKeyPath, cfg.ClawLess.CAPath,
+	)
+	if err != nil {
+		slog.Warn("ClawLess client mTLS not configured, using plain HTTP", "error", err)
+		clawlessClient = clawless.NewClient(cfg.ClawLess.BaseURL, cfg.Server.ClawLessAPIKey, nil)
+	}
+	l2Manager.SetClawlessClient(clawlessClient)
+
+	lifecycle.RegisterNode(clawlessClient, nodeID, cfg, version)
+	// P3.1: heartbeat start is deferred until after agentMgr is created
+	// (below) so the counts callback can read live session counts.
+
+	l0Loader := l0_rules.NewLoader(l0Engine, clawlessClient, "default", 5*time.Minute)
+	l0Loader.Start()
+	defer l0Loader.Stop()
+
+	sbManager := sandbox.NewManager(cfg, l0Engine)
+
+	// Re-hydrate sandbox IDs from disk so crashed docker-strict / LXC
+	// containers can be reconciled by ReapOrphans below.
+	sbManager.Restore()
+
+	// Reconcile stale containers left over from a previous unclean shutdown.
+	// Orphan docker containers are destroyed; orphan LXC containers are
+	// stopped (rootfs preserved).
+	reapCtx, reapCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if err := sbManager.ReapOrphans(reapCtx); err != nil {
+		slog.Warn("sandbox reaper sweep failed", "error", err)
+	}
+	reapCancel()
+
+	// Continuous sandbox health checker: probes every active sandbox
+	// and reaps any that died on the host (OOM kill, docker daemon
+	// restart, container crash-loop) so the in-memory sandbox map
+	// doesn't lie about what's actually running.
+	healthChecker := sandbox.NewHealthChecker(sbManager, 0, 0)
+	healthChecker.Start()
+	defer healthChecker.Stop()
+
+	// Docker availability check and image pre-pull
+	if err := sandbox.CheckDockerAvailable(cfg.Sandbox.DockerSocket); err != nil {
+		slog.Warn("Docker not available, docker sandboxes will not work", "error", err)
+	} else {
+		slog.Info("Docker available, pre-pulling light image", "image", cfg.Sandbox.DockerImage)
+		if err := sandbox.PrePullDockerImage(cfg.Sandbox.DockerSocket, cfg.Sandbox.DockerImage); err != nil {
+			slog.Warn("Docker image pre-pull failed (will pull on demand)", "image", cfg.Sandbox.DockerImage, "error", err)
+		}
+	}
+
+	// LXC availability check
+	if err := sandbox.CheckLXCAvailable(); err != nil {
+		slog.Warn("LXC not available, only Docker sandboxes will work", "error", err)
+	} else {
+		slog.Info("LXC available for persistent containers")
+	}
+
+	agentMgr := agent.NewManager(sbManager, clawlessClient, l1Client, cfg)
+	agentMgr.SetBus(bus)
+	agentMgr.SetGatekeeper(gk)
+
+	// P2.3: wire per-agent stats into the metrics collector.
+	collector.SetAgentStatsFn(func() []metrics.AgentStat {
+		raw := agentMgr.GetAgentStats()
+		out := make([]metrics.AgentStat, len(raw))
+		for i, s := range raw {
+			out[i] = metrics.AgentStat{
+				AgentID:     s.AgentID,
+				SandboxID:   s.SandboxID,
+				SandboxType: s.SandboxType,
+			}
+		}
+		return out
+	})
+
+	// P3.3: wire per-sandbox cgroup v2 resource counters into the
+	// metrics collector. Sandbox manager reads cpu.stat / memory.current
+	// / pids.current for each active sandbox. Sentinel -1 on cgroup v1.
+	collector.SetCgroupStatsFn(func() []metrics.AgentCgroupStat {
+		samples := sbManager.SampleAllCgroups()
+		if len(samples) == 0 {
+			return nil
+		}
+		out := make([]metrics.AgentCgroupStat, 0, len(samples))
+		for _, s := range samples {
+			out = append(out, metrics.AgentCgroupStat{
+				SandboxID:   s.SandboxID,
+				CPUUsec:     s.CPUUsec,
+				MemoryCur:   s.MemoryCurrent,
+				MemoryPeak:  s.MemoryMax,
+				PidsCurrent: s.PidsCurrent,
+			})
+		}
+		return out
+	})
+
+	// P3.1: now that agentMgr exists, start the heartbeat with live counts.
+	lifecycle.StartHeartbeat(clawlessClient, nodeID, cfg.ClawLess.HeartbeatInterval, metricsPath, func() (int, int) {
+		stats := agentMgr.GetAgentStats()
+		tasks := 0
+		seen := make(map[string]bool, len(stats))
+		for _, s := range stats {
+			if s.SandboxID != "" && !seen[s.SandboxID] {
+				seen[s.SandboxID] = true
+				tasks++
+			}
+		}
+		return tasks, len(stats)
+	})
+
+	dispatcher := worker.NewDispatcher(bus, cfg.WorkerPool, cfg.ExecPool, gk, sbManager, clawlessClient, agentMgr, l2Manager, cfg.TaskSummary.TidyInterval)
+	dispatcher.Start()
+	defer dispatcher.Stop()
+
+	basePath := cfg.Cache.Path
+	if basePath == "" {
+		basePath = "/tmp/agentd"
+	}
+
+	bgTaskStore, err := persistence.NewBackgroundTaskStore(persistence.BackgroundTaskPath(basePath))
+	if err != nil {
+		slog.Warn("background task store init failed", "error", err)
+	} else if err := bgTaskStore.Restore(); err != nil {
+		slog.Warn("background task store restore failed", "error", err)
+	}
+	agentMgr.SetBGTaskStore(bgTaskStore)
+
+	cacheMgr := cache.NewManager(cfg.Cache.Path, cfg.Cache.SessionMaxSize)
+	cacheMgr.SetClawlessClient(clawlessClient)
+	if err := cacheMgr.Init(); err != nil {
+		slog.Warn("cache init failed", "error", err)
+	}
+	cacheMgr.StartPeriodicSync(cfg.Cache.SyncInterval)
+	defer cacheMgr.StopPeriodicSync()
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+
+	srv := server.NewServer(cfg, bus, dispatcher, clawlessClient, cacheMgr, agentMgr, l2Manager)
+	srv.RegisterRoutes(r)
+
+	var tlsConfig *tls.Config
+	if cfg.Server.TLSCertPath != "" && cfg.Server.TLSKeyPath != "" {
+		tlsConfig, err = config.LoadServerTLS(cfg)
+		if err != nil {
+			slog.Warn("mTLS not configured, falling back to plain TLS", "error", err)
+			tlsConfig = nil
+		}
+	}
+
+	httpServer := &http.Server{
+		Addr: cfg.Server.Listen, Handler: r, TLSConfig: tlsConfig,
+	}
+
+	go func() {
+		if err := lifecycle.ListenAndServe(httpServer); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+		}
+	}()
+
+	logConnectInfo(cfg.Server.Listen, cfg.Server.TLSCertPath != "")
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("Agent Daemon shutting down...")
+
+	// Clean up containers: docker containers are destroyed, LXC containers
+	// are stopped (rootfs preserved). 30s budget — we don't want a stuck
+	// container to block shutdown indefinitely.
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := sbManager.CleanupOnShutdown(cleanupCtx); err != nil {
+		slog.Error("sandbox cleanup error", "error", err)
+	}
+	cleanupCancel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(ctx); err != nil {
+		slog.Error("server shutdown error", "error", err)
+	}
+
+	slog.Info("Agent Daemon stopped")
+}
+
+func logConnectInfo(listen string, tlsEnabled bool) {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		slog.Info("Agent Daemon started", "addr", listen)
+		return
+	}
+	if host == "" || host == "0.0.0.0" {
+		slog.Info("Agent Daemon listens on all interfaces", "addr", listen)
+	}
+
+	scheme := "http"
+	if tlsEnabled {
+		scheme = "https"
+	}
+	slog.Info(fmt.Sprintf("Agent Daemon ready  ➜  Local:   %s://localhost:%s", scheme, port))
+	if host != "" && host != "0.0.0.0" {
+		slog.Info(fmt.Sprintf("Agent Daemon ready  ➜  Network: %s://%s:%s", scheme, host, port))
+	}
+}

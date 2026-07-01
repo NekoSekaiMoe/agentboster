@@ -35,6 +35,7 @@
       "!**/.claude",
       "!**/png",
       "!**/agentd",
+      "!**/subpackage",
       "!**/cli/node_modules",
       "!**/cli/dist",
       "!**/lib/core/db/migrations/meta"
