@@ -6,6 +6,12 @@
 export const dynamic = 'force-dynamic';
 
 import { getConfig } from '@/lib/core/kv/config';
+import {
+  buildL1ScoreCacheKey,
+  getCachedL1Score,
+  resolveL1CacheTtlSeconds,
+  setCachedL1Score,
+} from '@/lib/security/l1-cache';
 import { resolveL1ScorerModelId } from '@/lib/security/l1-model';
 import {
   type L1ScoreResult,
@@ -69,8 +75,31 @@ export async function POST(request: Request) {
     }
 
     const modelId = resolveL1ScorerModelId(config, parsed.data.model_id);
+    const ttlSeconds = resolveL1CacheTtlSeconds(
+      config.security?.l1_cache_ttl_seconds,
+    );
     let result: L1ScoreResult;
     if (parsed.data.type === 'command') {
+      // L1 command scoring is the hot path: agents re-run safe commands
+      // (git status, ls, cat) many times per session. Cache low/medium
+      // verdicts in KV so repeat calls skip the LLM round-trip.
+      const cacheKey = buildL1ScoreCacheKey({
+        command: parsed.data.command,
+        workDir: parsed.data.work_dir,
+        contextSummary: parsed.data.context_summary,
+        modelId,
+      });
+      const cached = await getCachedL1Score(cacheKey);
+      if (cached) {
+        logger.info('command score cache hit', {
+          command: parsed.data.command.slice(0, 100),
+          modelId,
+          score: cached.score,
+          level: cached.level,
+        });
+        return Response.json({ success: true, data: cached });
+      }
+
       result = await scoreCommand(
         {
           command: parsed.data.command,
@@ -80,11 +109,13 @@ export async function POST(request: Request) {
         modelId,
         config,
       );
+      await setCachedL1Score(cacheKey, result, ttlSeconds);
       logger.info('command scored', {
         command: parsed.data.command.slice(0, 100),
         modelId,
         score: result.score,
         level: result.level,
+        cached: result.level === 'low' || result.level === 'medium',
       });
     } else {
       result = await scoreOutput(
