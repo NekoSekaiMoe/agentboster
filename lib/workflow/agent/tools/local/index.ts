@@ -156,6 +156,67 @@ export default defineBuildInTool({
         },
       }),
 
+      local_grep: tool({
+        title: 'Search file contents on local machine',
+        description:
+          `Search file contents on the user's local machine using ripgrep ` +
+          '(rg). Returns matching lines with file paths and line numbers, ' +
+          'respects .gitignore. The CLI host auto-downloads rg on first ' +
+          'use if missing. Use this when you need to find code, configs, ' +
+          'or text patterns on the user’s own filesystem rather than on ' +
+          'agentd.',
+        inputSchema: z.object({
+          pattern: z
+            .string()
+            .min(1)
+            .describe('Search pattern (regex or literal string).'),
+          path: z
+            .string()
+            .optional()
+            .describe(
+              'Directory or file to search (default: current directory).',
+            ),
+          glob: z
+            .string()
+            .optional()
+            .describe(
+              "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'.",
+            ),
+          ignoreCase: z
+            .boolean()
+            .optional()
+            .describe('Case-insensitive search (default: false).'),
+          literal: z
+            .boolean()
+            .optional()
+            .describe(
+              'Treat pattern as literal string instead of regex (default: false).',
+            ),
+          context: z
+            .number()
+            .int()
+            .min(0)
+            .optional()
+            .describe(
+              'Number of lines to show before and after each match (default: 0).',
+            ),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .optional()
+            .describe('Maximum number of matches to return (default: 100).'),
+        }),
+        execute: async (input, { toolCallId }) => {
+          const result = await waitForLocalToolResult({
+            toolCallId,
+            toolName: 'local_grep',
+            toolInput: input,
+          });
+          return formatToolResult(result);
+        },
+      }),
+
       local_ask_question: tool({
         title: 'Ask the user a question (local TUI)',
         description:

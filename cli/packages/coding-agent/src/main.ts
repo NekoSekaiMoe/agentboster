@@ -1106,6 +1106,7 @@ async function postCompactionResult(
  *   local_read_file     → read a local file
  *   local_write_file    → write a local file
  *   local_exec          → run a shell command locally
+ *   local_grep          → ripgrep search on the local filesystem
  *   local_ask_question  → ask the user a question in the TUI
  */
 async function handleLocalToolRequest(
@@ -1234,6 +1235,47 @@ async function handleLocalToolRequest(
             }
           });
         });
+        break;
+      }
+      case 'local_grep': {
+        // Reuse the pi-inherited grep tool definition so rg auto-download,
+        // --json streaming, match limit, and truncation all stay in sync
+        // with the local CLI implementation. The ToolDefinition.execute
+        // signature is (toolCallId, params, signal?, onUpdate?, ctx); we
+        // pass undefined for the optional slots and a minimal ctx stub.
+        const { createGrepToolDefinition } = await import(
+          './core/tools/grep.ts'
+        );
+        const definition = createGrepToolDefinition(process.cwd());
+        const grepResult = await definition.execute(
+          toolCallId,
+          {
+            pattern: String(input.pattern ?? ''),
+            path: typeof input.path === 'string' ? input.path : undefined,
+            glob: typeof input.glob === 'string' ? input.glob : undefined,
+            ignoreCase:
+              typeof input.ignoreCase === 'boolean'
+                ? input.ignoreCase
+                : undefined,
+            literal:
+              typeof input.literal === 'boolean' ? input.literal : undefined,
+            context:
+              typeof input.context === 'number' ? input.context : undefined,
+            limit: typeof input.limit === 'number' ? input.limit : undefined,
+          },
+          undefined,
+          undefined,
+          // ExtensionContext is only consumed by tools that need UI / cwd
+          // hooks (renderCall/renderResult paths). grep's execute ignores
+          // it. Cast through unknown to avoid pulling the full type.
+          {} as never,
+        );
+        // grepResult.content is an array of TextContent / ImageContent;
+        // join the text fields for the web backend.
+        const text = (grepResult.content ?? [])
+          .map((block) => ('text' in block ? (block.text ?? '') : ''))
+          .join('\n');
+        result = { ok: true, output: text };
         break;
       }
       case 'local_ask_question': {
