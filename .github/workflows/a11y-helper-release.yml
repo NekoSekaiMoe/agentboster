@@ -1,0 +1,169 @@
+# Builds the agentd-a11y-helper binary (a small Go CLI that walks the
+# AT-SPI2 accessibility tree inside an agentd LXC sandbox) for linux/amd64
+# and linux/arm64, and attaches the binaries to the GitHub Release that
+# triggered the run.
+#
+# Trigger: push a tag matching `a11y-helper-v*`. The tag name IS the
+# version — `a11y-helper-v0.1.0` produces assets named
+# `agentd-a11y-helper-linux-amd64-v0.1.0` etc., which is exactly what
+# `subpackage/agentd/internal/agent/desktop/desktop_install.sh`'s
+# `install_a11y_helper_from_release` function fetches.
+#
+# Tag naming: we use `a11y-helper-vX.Y.Z` (hyphen-separated) rather than
+# `a11y-helper/vX.Y.Z` (slash-separated) because GitHub's
+# `releases/download/<tag>/<asset>` URL treats each path segment after
+# `download/` as part of the tag — a slash in the tag forces URL-encoding
+# (`%2F`), which is ugly in docs and brittle in shell. The hyphen form
+# stays a single URL segment.
+#
+# Cross-compilation: godbus is pure Go, so CGO_ENABLED=0 + GOARCH
+# cross-build produces fully static binaries that run on any Linux
+# distro without a C runtime mismatch. We do NOT run on an arm64 runner
+# — the amd64 runner builds both architectures.
+#
+# This workflow is intentionally narrow: it does NOT run lint, tests,
+# or any other build step. Those belong in a separate CI workflow if
+# one is introduced later. Keeping this isolated means re-enabling CI
+# for the helper binary does not imply re-enabling CI for the rest of
+# the repo (which was turned off in commit 7583d49).
+
+name: release a11y-helper
+
+on:
+  push:
+    tags:
+      - 'a11y-helper-v*'
+  # Allow manual runs for testing the pipeline without tagging. The
+  # release upload step is skipped on manual runs (see the if: guard
+  # below) — manual runs only verify the build matrix works.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label for the build (e.g. v0.1.0-test). Used in the asset name only; does NOT create or upload to a release.'
+        required: false
+        default: 'v0.1.0-dev'
+
+permissions:
+  contents: write   # required by gh release upload
+
+jobs:
+  build:
+    name: build ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # one arch failing should not cancel the other
+      matrix:
+        include:
+          - goarch: amd64
+            asset_arch: amd64
+          - goarch: arm64
+            asset_arch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # We need the full history for `git describe` if we ever want
+          # to embed commit info; fetch-depth 0 is cheap on small repos.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            subpackage/dbushelper/go.sum
+
+      - name: Resolve version
+        id: ver
+        run: |
+          # Prefer the tag name (a11y-helper-v0.1.0 → v0.1.0); fall back
+          # to the workflow_dispatch input; finally to a dev marker.
+          if [ "${{ startsWith(github.ref, 'refs/tags/a11y-helper-v') }}" = "true" ]; then
+            VERSION="${GITHUB_REF_NAME#a11y-helper-}"
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="v0.1.0-dev"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+
+      - name: Build
+        working-directory: subpackage/dbushelper
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          # Strip debug info (-s -w) to shrink the binary; this is a
+          # release-only build. Local dev builds keep symbols.
+          go build -trimpath -ldflags="-s -w" \
+            -o "../../agentd-a11y-helper-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}" \
+            ./cmd/a11y-helper
+
+          # Smoke test: --help must exit 0. We only run this on the
+          # amd64 build to keep the matrix fast; amd64 matches the
+          # runner's native arch so no qemu is needed.
+          if [ "${{ matrix.goarch }}" = "amd64" ]; then
+            "../../agentd-a11y-helper-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}" --help
+          fi
+
+          ls -la "../../agentd-a11y-helper-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentd-a11y-helper-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}
+          path: agentd-a11y-helper-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}
+          retention-days: 14
+          if-no-files-found: error
+
+  release:
+    name: attach to release
+    needs: build
+    runs-on: ubuntu-latest
+    # Only attach to a release when triggered by an actual tag push.
+    # workflow_dispatch runs verify the build but do not pollute any
+    # release with dev artifacts.
+    if: startsWith(github.ref, 'refs/tags/a11y-helper-v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF_NAME#a11y-helper-}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          # Download everything matching this version; the pattern is
+          # the matrix asset_arch list above.
+          pattern: agentd-a11y-helper-linux-*-${{ steps.ver.outputs.version }}
+          merge-multiple: true
+          path: release-assets
+
+      - name: Verify assets
+        run: |
+          ls -la release-assets/
+          # Sanity check: we expect exactly two files (amd64 + arm64).
+          COUNT=$(ls -1 release-assets/ | wc -l)
+          if [ "$COUNT" -ne 2 ]; then
+            echo "::error::Expected 2 release assets, found $COUNT"
+            exit 1
+          fi
+          chmod +x release-assets/*
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # `gh release upload` is idempotent across re-runs of the
+          # same tag (--clobber replaces existing assets with the same
+          # name), which makes retrying a failed run safe.
+          gh release upload "${GITHUB_REF_NAME}" \
+            release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber

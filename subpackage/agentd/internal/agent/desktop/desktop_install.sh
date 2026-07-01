@@ -133,7 +133,7 @@ install_a11y_helper_from_release() {
   fi
 
   A11Y_TARBALL="agentd-a11y-helper-linux-${A11Y_ARCH}-${A11Y_HELPER_VERSION}"
-  A11Y_URL="https://github.com/${A11Y_HELPER_REPO}/releases/download/a11y-helper/${A11Y_HELPER_VERSION}/${A11Y_TARBALL}"
+  A11Y_URL="https://github.com/${A11Y_HELPER_REPO}/releases/download/a11y-helper-${A11Y_HELPER_VERSION}/${A11Y_TARBALL}"
 
   echo "AGENTD_DESKTOP_A11Y_HELPER_DOWNLOAD_STARTED arch=${A11Y_ARCH} version=${A11Y_HELPER_VERSION}"
 
