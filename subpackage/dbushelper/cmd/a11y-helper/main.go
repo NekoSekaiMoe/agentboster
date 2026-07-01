@@ -7,6 +7,7 @@
 // Usage:
 //
 //	a11y-helper snapshot [--limit N]           # walk the tree, print JSON
+//	a11y-helper inspect <ref>                  # expand a snapshot ref's subtree
 //	a11y-helper click <ref>                    # DoAction on a snapshot ref
 //	a11y-helper type <ref> <text>              # InsertText at the caret
 //	a11y-helper fill <ref> <text>              # SetTextContents (replace)
@@ -34,6 +35,7 @@ import (
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   a11y-helper snapshot [--limit N]
+  a11y-helper inspect <ref>
   a11y-helper click <ref>
   a11y-helper type <ref> <text>
   a11y-helper fill <ref> <text>`)
@@ -52,6 +54,8 @@ func main() {
 	switch cmd {
 	case "snapshot":
 		err = runSnapshot(parseLimit(args))
+	case "inspect":
+		err = withRef(cmd, args, runInspect)
 	case "click":
 		err = withRef(cmd, args, runClick)
 	case "type":
@@ -94,6 +98,14 @@ func runSnapshot(limit int) error {
 
 func runClick(ref string) error {
 	out, err := dbushelper.RunClick(ref)
+	if err != nil {
+		return err
+	}
+	return emitJSON(out)
+}
+
+func runInspect(ref string) error {
+	out, err := dbushelper.RunInspect(ref)
 	if err != nil {
 		return err
 	}

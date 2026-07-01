@@ -25,6 +25,12 @@ const (
 	maxVisits    = 8000 // max nodes inspected across the entire walk
 	maxStack     = 4000 // max pending nodes on the DFS stack; bounds memory on wide trees (LibreOffice exposes wide sibling lists) where visited/limit caps lag the push rate
 	DefaultLimit = 300  // default cap on accepted (returned) nodes
+	// InspectLimit caps the per-call subtree DFS performed by RunInspect
+	// (the `inspect` subcommand). Set lower than maxVisits because
+	// inspect is meant to be a cheap "drill into one branch" call — if
+	// the subtree is still too big to enumerate the LLM should pick a
+	// narrower ref.
+	InspectLimit = 200
 )
 
 // SnapshotOutput is the JSON envelope returned by RunSnapshot. Mirrors
@@ -40,14 +46,16 @@ type SnapshotOutput struct {
 }
 
 type SnapshotItem struct {
-	RefID  string   `json:"ref_id"`
-	Role   string   `json:"role"`
-	Name   string   `json:"name"`
-	X      int32    `json:"x"`
-	Y      int32    `json:"y"`
-	Width  int32    `json:"width"`
-	Height int32    `json:"height"`
-	States []string `json:"states,omitempty"`
+	RefID      string   `json:"ref_id"`
+	Role       string   `json:"role"`
+	Name       string   `json:"name"`
+	X          int32    `json:"x"`
+	Y          int32    `json:"y"`
+	Width      int32    `json:"width"`
+	Height     int32    `json:"height"`
+	Kind       RefKind  `json:"kind,omitempty"`
+	ChildCount int      `json:"child_count,omitempty"`
+	States     []string `json:"states,omitempty"`
 }
 
 type Diagnostics struct {
@@ -98,6 +106,7 @@ func RunSnapshot(limit int) (*SnapshotOutput, error) {
 		items[i] = SnapshotItem{
 			RefID: e.RefID, Role: e.Role, Name: e.Name,
 			X: e.X, Y: e.Y, Width: e.Width, Height: e.Height,
+			Kind: e.Kind, ChildCount: e.ChildCount,
 		}
 	}
 
@@ -130,6 +139,14 @@ func collectSnapshot(conn *dbus.Conn, limit int, busAddr, display string) ([]Ref
 
 	var entries []RefEntry
 	truncated := false
+	// Dual counters: action nodes (button/entry/menu item/...) get an
+	// `eN` ref and a full line, while presentational nodes (panel,
+	// label, grouping) get an `xN` ref + a folded line that hides their
+	// subtree from the snapshot output. The subtree is still walked so
+	// deep action nodes surface; only the snapshot line for the group
+	// is collapsed — the LLM expands it on demand via `inspect <xN>`.
+	actionCounter := 0
+	groupCounter := 0
 
 	// Cap the number of top-level apps; iterate in order.
 	appLimit := len(appRefs)
@@ -159,7 +176,11 @@ func collectSnapshot(conn *dbus.Conn, limit int, busAddr, display string) ([]Ref
 			}
 			diag.Visited++
 
-			entry, outcome := describe(node, len(entries)+1)
+			// Probe children BEFORE deciding the node's kind: we need the
+			// direct child count to render the folded line for groups.
+			// Children are then re-used for the stack push below.
+			children, childErr := node.getChildren()
+			entry, outcome := describe(node, children, &actionCounter, &groupCounter)
 			switch outcome {
 			case outcomeKeep:
 				diag.Accepted++
@@ -174,11 +195,7 @@ func collectSnapshot(conn *dbus.Conn, limit int, busAddr, display string) ([]Ref
 				diag.Errors++
 			}
 
-			// Expand children even if the node itself was filtered, so
-			// descendants of a structural/Application node still get a
-			// chance to surface.
-			children, err := node.getChildren()
-			if err != nil {
+			if childErr != nil {
 				diag.Errors++
 				continue
 			}
@@ -214,7 +231,13 @@ const (
 
 // describe inspects one node and returns either a RefEntry to keep or
 // a skip reason. Mirrors memoh's snapshot.rs::describe.
-func describe(node *accessibleObj, nextIndex int) (RefEntry, describeOutcome) {
+//
+// The caller passes the already-fetched direct children so we can
+// (a) avoid a second D-Bus round-trip and (b) stamp the group line
+// with an accurate child count without re-querying. actionCounter /
+// groupCounter are bumped in place; their current values select the
+// ref id (`eN` for action, `xN` for group).
+func describe(node *accessibleObj, children []childRef, actionCounter, groupCounter *int) (RefEntry, describeOutcome) {
 	states, err := node.getStates()
 	if err != nil {
 		return RefEntry{}, outcomeError
@@ -248,13 +271,34 @@ func describe(node *accessibleObj, nextIndex int) (RefEntry, describeOutcome) {
 		return RefEntry{}, outcomeSkipGeometry
 	}
 
+	childCount := len(children)
+	// Tier assignment: interactive roles become action nodes (full line,
+	// legal click/type target), everything else becomes a group node
+	// (folded line, expand-only via `inspect`). See RoleIsInteractive
+	// for the rationale behind the role list.
+	if RoleIsInteractive(role) {
+		*actionCounter++
+		return RefEntry{
+			RefID:      fmt.Sprintf("e%d", *actionCounter),
+			BusName:    string(node.name),
+			ObjectPath: string(node.path),
+			Role:       roleName,
+			Name:       name,
+			X:          x, Y: y, Width: w, Height: h,
+			Kind:       RefKindAction,
+			ChildCount: childCount,
+		}, outcomeKeep
+	}
+	*groupCounter++
 	return RefEntry{
-		RefID:      fmt.Sprintf("e%d", nextIndex),
+		RefID:      fmt.Sprintf("x%d", *groupCounter),
 		BusName:    string(node.name),
 		ObjectPath: string(node.path),
 		Role:       roleName,
 		Name:       name,
 		X:          x, Y: y, Width: w, Height: h,
+		Kind:       RefKindGroup,
+		ChildCount: childCount,
 	}, outcomeKeep
 }
 
@@ -263,14 +307,25 @@ func describe(node *accessibleObj, nextIndex int) (RefEntry, describeOutcome) {
 //
 //	- push button "Reload" [ref=e3] @120,80 28x28
 //
-// Mirrors memoh snapshot.rs::format_line — keep field order identical
-// so prompt templates translate 1:1.
+// For group (presentational) refs the subtree is folded away and the
+// line surfaces a child count + an expand hint instead, so the LLM
+// pays for the subtree only when it actually wants to drill in:
+//
+//	- panel "Advanced settings" [ref=x7, children=47, inspect to expand] @20,30 600x400
+//
+// Mirrors memoh snapshot.rs::format_line for the action-line shape —
+// keep field order identical so prompt templates translate 1:1. The
+// group-line shape is agentboster-specific (no memoh equivalent).
 func FormatLine(e RefEntry) string {
 	line := "- " + e.Role
 	if name := strings.TrimSpace(e.Name); name != "" {
 		line += " " + JsonQuote(name)
 	}
-	line += fmt.Sprintf(" [ref=%s]", e.RefID)
+	if e.Kind == RefKindGroup {
+		line += fmt.Sprintf(" [ref=%s, children=%d, inspect to expand]", e.RefID, e.ChildCount)
+	} else {
+		line += fmt.Sprintf(" [ref=%s]", e.RefID)
+	}
 	if e.Width > 0 && e.Height > 0 {
 		line += fmt.Sprintf(" @%d,%d %dx%d", e.X, e.Y, e.Width, e.Height)
 	}

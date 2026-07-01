@@ -18,6 +18,12 @@ func TestNormalizeRef(t *testing.T) {
 		{"ref=e3", "e3"},
 		{"REF=E03", "e3"},
 		{"ref=7", "e7"},
+		// Expand refs (group nodes) preserve the x prefix.
+		{"x12", "x12"},
+		{"X12", "x12"},
+		{"  X04 ", "x4"},
+		{"ref=x7", "x7"},
+		{"REF=X03", "x3"},
 		// Invalid / non-numeric: returned trimmed as-is.
 		{"e0", "e0"}, // 0 is non-positive, no normalization
 		{"abc", "abc"},
@@ -201,6 +207,44 @@ func TestRoleIsStructural(t *testing.T) {
 	}
 }
 
+func TestRoleIsInteractive(t *testing.T) {
+	interactive := []uint32{
+		4,  // toggle button
+		7,  // check box
+		14, // entry
+		22, // list
+		25, // menu item
+		29, // push button
+		36, // spin button
+		42, // table cell
+		43, // text
+		61, // link
+	}
+	for _, r := range interactive {
+		if !RoleIsInteractive(r) {
+			t.Errorf("role %d should be interactive", r)
+		}
+	}
+	// Pure presentational / structural-but-not-blocklisted roles must
+	// be classified as group (non-interactive) so they get an xN ref
+	// and a folded line, not an action ref.
+	group := []uint32{
+		2,  // invalid-ish / filler-ish leftover
+		11, // font chooser (display only)
+		18, // frame
+		19, // glass pane
+		20, // html container
+		30, // — wait, 30 is radio button; remove below
+	}
+	// Remove the radio-button false positive from the group list.
+	group = []uint32{11, 18, 19, 20, 41}
+	for _, r := range group {
+		if RoleIsInteractive(r) {
+			t.Errorf("role %d should NOT be interactive", r)
+		}
+	}
+}
+
 func TestIsOnScreen(t *testing.T) {
 	if !IsOnScreen([]uint32{StateShowing}) {
 		t.Error("Showing alone should be on-screen")
@@ -242,6 +286,18 @@ func TestFormatLine(t *testing.T) {
 			// Name with embedded quote: round-trips via JSON escaping.
 			RefEntry{RefID: "e4", Role: "label", Name: `she said "hi"`, X: 5, Y: 6, Width: 7, Height: 8},
 			`- label "she said \"hi\"" [ref=e4] @5,6 7x8`,
+		},
+		{
+			// Group ref: folded line with child count + expand hint,
+			// geometry preserved.
+			RefEntry{RefID: "x7", Role: "panel", Name: "Advanced settings", Kind: RefKindGroup, ChildCount: 47, X: 20, Y: 30, Width: 600, Height: 400},
+			`- panel "Advanced settings" [ref=x7, children=47, inspect to expand] @20,30 600x400`,
+		},
+		{
+			// Group ref with no children still surfaces the fold hint
+			// (so the LLM knows there's nothing to expand).
+			RefEntry{RefID: "x1", Role: "panel", Name: "", Kind: RefKindGroup, ChildCount: 0, X: 0, Y: 0, Width: 0, Height: 0},
+			`- panel [ref=x1, children=0, inspect to expand]`,
 		},
 	}
 	for _, c := range cases {
@@ -307,5 +363,115 @@ func TestCandidateCachePaths(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got2, want2) {
 		t.Errorf("CandidateCachePaths (no XDG):\n got  %+v\n want %+v", got2, want2)
+	}
+}
+
+func TestNextRefCounters(t *testing.T) {
+	cases := []struct {
+		name          string
+		entries       []RefEntry
+		wantAction    int
+		wantGroup     int
+	}{
+		{
+			name:       "empty",
+			entries:    nil,
+			wantAction: 0,
+			wantGroup:  0,
+		},
+		{
+			name: "only action refs",
+			entries: []RefEntry{
+				{RefID: "e1", Kind: RefKindAction},
+				{RefID: "e5", Kind: RefKindAction},
+				{RefID: "e3", Kind: RefKindAction},
+			},
+			wantAction: 6, // one past max=5
+			wantGroup:  0,
+		},
+		{
+			name: "only group refs",
+			entries: []RefEntry{
+				{RefID: "x1", Kind: RefKindGroup},
+				{RefID: "x9", Kind: RefKindGroup},
+			},
+			wantAction: 0,
+			wantGroup:  10,
+		},
+		{
+			name: "mixed with legacy unkinded entries (treated as action)",
+			entries: []RefEntry{
+				{RefID: "e2"}, // legacy: no Kind
+				{RefID: "x4", Kind: RefKindGroup},
+				{RefID: "e7", Kind: RefKindAction},
+			},
+			wantAction: 8,
+			wantGroup:  5,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gotAction, gotGroup := nextRefCounters(c.entries)
+			if gotAction != c.wantAction || gotGroup != c.wantGroup {
+				t.Errorf("nextRefCounters = (action=%d, group=%d), want (%d, %d)",
+					gotAction, gotGroup, c.wantAction, c.wantGroup)
+			}
+		})
+	}
+}
+
+// AppendRefs must continue the action/group counters from the existing
+// index so newly published refs (from inspect) do not collide with
+// earlier ids. It must also be atomic (delegates to WriteRefs).
+func TestAppendRefsContinuesCounters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "refs.json")
+	t.Setenv("AGENTD_A11Y_REFS", path)
+
+	// Seed the index with an action ref e3 and a group ref x5.
+	if _, err := WriteRefs([]RefEntry{
+		{RefID: "e3", BusName: ":1.1", ObjectPath: "/o/3", Role: "push button", Name: "Old", Kind: RefKindAction},
+		{RefID: "x5", BusName: ":1.1", ObjectPath: "/o/5", Role: "panel", Name: "OldGroup", Kind: RefKindGroup},
+	}); err != nil {
+		t.Fatalf("seed WriteRefs: %v", err)
+	}
+
+	// Caller is responsible for picking the new ids using
+	// nextRefCounters — AppendRefs just persists them. Simulate the
+	// inspect helper: it picks e4 / x6 via nextRefCounters and hands
+	// them to AppendRefs.
+	existing, err := readRefs()
+	if err != nil {
+		t.Fatalf("readRefs: %v", err)
+	}
+	actionNext, groupNext := nextRefCounters(existing)
+	if actionNext != 4 || groupNext != 6 {
+		t.Fatalf("nextRefCounters = (%d,%d), want (4,6)", actionNext, groupNext)
+	}
+
+	appended := []RefEntry{
+		{RefID: "e4", BusName: ":1.2", ObjectPath: "/o/4", Role: "entry", Name: "New", Kind: RefKindAction},
+		{RefID: "x6", BusName: ":1.2", ObjectPath: "/o/6", Role: "panel", Name: "NewGroup", Kind: RefKindGroup},
+	}
+	combined, err := AppendRefs(appended)
+	if err != nil {
+		t.Fatalf("AppendRefs: %v", err)
+	}
+	if len(combined) != 4 {
+		t.Errorf("combined len = %d, want 4", len(combined))
+	}
+
+	// The new refs resolve through the standard lookup path.
+	got, err := LookupRef("e4")
+	if err != nil || got.Name != "New" {
+		t.Errorf("LookupRef(e4) = %+v, err=%v; want New", got, err)
+	}
+	gotX, err := LookupRef("x6")
+	if err != nil || gotX.Name != "NewGroup" {
+		t.Errorf("LookupRef(x6) = %+v, err=%v; want NewGroup", gotX, err)
+	}
+
+	// Old refs are still resolvable (append, not replace).
+	if _, err := LookupRef("e3"); err != nil {
+		t.Errorf("LookupRef(e3) after append err = %v", err)
 	}
 }

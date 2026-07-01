@@ -69,6 +69,48 @@ const (
 	RoleDesktopIcon  = 16
 )
 
+// Interactive roles — nodes that typically expose an AT-SPI Action or
+// EditableText interface and therefore are legal targets for click /
+// type / fill. RoleIsInteractive drives the tiered snapshot: action
+// nodes get an `eN` ref and a full FormatLine; non-action presentational
+// nodes (panels, labels, groupings) only get an `xN` expand ref + a
+// folded child-count line, so the LLM can decide whether to call
+// `inspect <xN>` for the subtree rather than paying for the whole tree
+// up front.
+//
+// The list is conservative on purpose: when in doubt we treat a node as
+// a group (costs one extra inspect round-trip) rather than as an action
+// (which would let click/type target something that cannot react and
+// silently fall back to xdotool coordinates).
+func RoleIsInteractive(role uint32) bool {
+	switch role {
+	case 4,    // toggle button
+		5,  // — Application: filtered as structural, never reaches here
+		7,  // check box
+		8,  // check menu item
+		9,  // color chooser
+		10, // combo box
+		12, // drawing area (interactive canvas)
+		14, // entry / text field
+		22, // list
+		24, // menu
+		25, // menu item
+		28, // password text
+		29, // push button
+		30, // radio button
+		31, // radio menu item
+		36, // spin button
+		40, // table
+		42, // table cell (clickable in most toolkits)
+		43, // text
+		44, // toggle button (dup of 4 in some toolkits; both kept)
+		46, // tree / tree table
+		61: // link
+		return true
+	}
+	return false
+}
+
 // RoleIsStructural mirrors memoh's role blacklist: pure structural noise
 // whose subtrees are still walked (we filter the node itself, not its
 // descendants).
