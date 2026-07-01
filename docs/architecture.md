@@ -504,7 +504,7 @@ agentd 执行工具时，Gatekeeper.Audit 走 L0（规则黑名单）到 L1（LL
 
 ### 8.4 LLM 成本与路由的集中
 
-所有 LLM 流量经 Web 是关键设计。即使 agentd 自跑 Agent Loop（路径 B），LLM 调用仍经 /llm-proxy 回 Web 代理——agentd 不持有 LLM API key、不直连模型供应商。这确保模型成本、路由策略、审计统一在 Web 侧，不分散到 agentd 节点。Provider API key 经 vault 加密存储，配发时解密。resolveModelContextLimit 在 Web 一处解析后经 /api/cli/models 下发给 CLI 与 IM，避免三层各自维护一份上下文表。代价是 agentd 节点的 LLM 调用多一跳 HTTP（到 Web 再到 provider），延迟略增；但换来集中管控与审计。
+所有 LLM 流量经 Web 是关键设计。即使 agentd 自跑 Agent Loop（路径 B），LLM 调用仍经 /llm-proxy 回 Web 代理——agentd 不持有 LLM API key、不直连模型供应商。这确保模型成本、路由策略、审计统一在 Web 侧，不分散到 agentd 节点。Provider API key 经 vault 加密存储，配发时解密。resolveModelContextLimit 在 Web 一处解析后经 /api/cli/models 下发给 CLI 与 IM，避免三层各自维护一份上下文表。代价是 agentd 节点的 LLM 调用多一跳 HTTP（到 Web 再到 provider），延迟略增；但换来集中管控与审计。L1 打分也借此集中：`/api/agentd/v1/l1-score` 在 Web 侧用 KV 缓存 low/medium 结果（`lib/security/l1-cache.ts`），同一命令+上下文短期内复用，跨 serverless 实例命中，high/critical 永不缓存。
 
 ### 8.5 沙箱抽象的一致性
 
@@ -515,11 +515,17 @@ L0 命中后伪造 OS 错误（formatOSError）而非返回"被规则拦截"，�
 此前版本在此节列了若干"未解决"问题，现已逐条核实并修复，记录如下：
 
 - **MULTI-NODE-SCHEDULING.md 悬空引用（已修复）**：该文件被 README.md、README.EN.md、subpackage/agentd/README.md 引用但仓库内从未存在，属于计划文档未提交。已将三处引用改指向真实代码位置——`lib/workflow/scheduled/dispatch.ts` 与 `app/api/agentd/v1/nodes/*`（含 `register`/`heartbeat`/`status` 三个端点），即多节点调度的实际落点。多节点调度的核心逻辑即在此，不再依赖外部计划文档。
-- **local_ollama L1 provider（已修复）**：此前 config 校验在 `internal/config/config.go` 认 `web_callback` 与 `local_ollama` 两种取值，但全仓库（Go 与 TS）除此之外没有任何实现——既无 provider 适配，也无调用分支，是"声明了却未兑现"的死契约。已从 `Validate()` 的合法 case 中移除 `local_ollama`，如今 L1 provider 仅认 `web_callback`（以及历史别名 `web` → `web_callback`）。若以后真要支持本地推理，应作为新功能补齐实现后，再在校验层放行。
+- **local_ollama L1 provider（已决定不做）**：此前 config 校验在 `internal/config/config.go` 认 `web_callback` 与 `local_ollama` 两种取值，但全仓库（Go 与 TS）除此之外没有任何实现——既无 provider 适配，也无调用分支，是"声明了却未兑现"的死契约。已从 `Validate()` 的合法 case 中移除 `local_ollama`，如今 L1 provider 仅认 `web_callback`（以及历史别名 `web` → `web_callback`）。经评估后决定**不再补 local_ollama 实现**：web_callback 路径下 LLM 流量统一经 Web 代理（见 8.5），模型成本、路由、审计集中管控；若 agentd 本地直连 Ollama 则破坏这一原则（节点本地持有模型/key），若仍走 Web 代理则与 web_callback 重复。两头不讨好，故彻底放弃，配置层也不再保留取值。
 - **resolveModelContextLimit 定义点（已核实，非问题）**：定义在 `lib/workflow/agent/utils/model-context.ts:48`，被同目录 `agent-config.ts` 与 `app/api/cli/models/route.ts` 经 `/api/cli/models` 下发给 CLI/IM。即在 Web 侧一处解析、一处下发，与 8.5 节正文（行 169、507）描述一致，本就不是悬案。
 - **yarn publish 失效（已修复）**：`package.json` 的 `publish` 原为 `yarn run check && yarn run build && git push`，而 `check` 并未在 scripts 中定义（yarn 报 "Command check not found"），脚本整体不可执行。已将 `check` 改为已定义的 `lint:check`（即 `tsc --noEmit && biome check ...`），发版前质量门现在能真正跑通；AGENTS.md 中"publish 失效"的提示也已同步更正。
 
-剩余仍处于演进中的问题：`lib/extra/security` 的 scorer、l1_scorer、l2_auth 子目录的具体 provider 适配未在本文档逐文件展开（可在该目录内进一步核对）。项目处于 WIP 状态，1.0 前接口与 schema 仍可能变化，升级兼容性不作保证。
+剩余仍处于演进中的问题（已核实，记于此供后续跟进）：
+
+- **lib/extra/security 影子目录（已清除）**：此前版本说"该目录的 scorer/l1_scorer/l2_auth 子目录的具体 provider 适配未在本文档逐文件展开"，这次核实后发现整个判断方向错了——`lib/extra/security/` 是一套**从未被任何路由或模块引用的影子实现**（与 `lib/security/` 同名但完全不同的一套早期英文/裸机版本，prompt 甚至不知命令跑在沙箱里）。真正的 L0 在 agentd 的 Go 侧（`internal/security/l0_rules/`），真正的 L1 在 `lib/security/l1-scorer.ts`（被 `/api/agentd/v1/l1-score` 调用），真正的 L2 决策队列在 `lib/security/l2-decision-queue.ts`（DB 持久化，agentd 的 `internal/security/l2_auth/` 消费授权窗口）。影子目录已整体删除，`lib/extra/index.ts` 中对应 re-export 一并清理。取长补短只搬了一样有价值的东西（见下条 L1 缓存），其余要么生产侧已有更强实现，要么概念上不该放 Web 侧。
+- **L1 打分无缓存（已补）**：生产侧 `/api/agentd/v1/l1-score` 每次都 `generateObject` 实打 LLM，而 agent 会话内同一安全命令（`git status`、`ls`、`cat` 等）反复打分是纯浪费。新增 `lib/security/l1-cache.ts`，以 KV（Upstash Redis）缓存 low/medium 结果，key 含 command+workDir+contextSummary+resolved modelId 的 sha256 截断（换模型自然失效），默认 TTL 5 分钟（经 `security.l1_cache_ttl_seconds` 可配，0 关闭，上限 1 小时），high/critical 永不缓存。跨 serverless 实例命中，KV 读写错误静默降级为 miss。`l1-score-batch` 不加缓存——其输入是 agentd 拼好的整段聚合 prompt，key 难定且收益低。
+- **l2-confirm 的 `l2:auth:*` KV 只写不读（已知 bug，未修）**：`app/api/agentd/v1/l2-confirm/route.ts` 在用户选 `pass_until`/`reject_until` 时把授权窗口写入 `l2:auth:{taskId}:{chatId}` 这个 KV 键，但全仓库没有任何代码在后续 L2 请求时读取这个键来短路授权。也就是说"未来 N 小时同类自动放行"这条 IM 快捷路径目前是写了就忘，用户每次高危仍会弹 L2。agentd 侧的 pattern-based L2 授权缓存（`internal/security/l2_auth/manager.go`）是另一条独立路径，工作正常。此 bug 的修复需要在 L2 请求路径加 KV 检查，超出本次范围，记于此供后续跟进。
+
+项目处于 WIP 状态，1.0 前接口与 schema 仍可能变化，升级兼容性不作保证。
 
 ### 8.7 与外部项目对比下的定位
 
