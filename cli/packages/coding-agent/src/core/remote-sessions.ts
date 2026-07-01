@@ -9,78 +9,96 @@
  * module only covers the CRUD metadata that the web DB owns.
  */
 
-import { getStoredAuth, type AgentbosterAuth } from "@agentboster/adapter";
+import { getStoredAuth, type AgentbosterAuth } from '@agentboster/adapter';
 
 export interface RemoteSession {
-	id: string;
-	title: string | null;
-	channel: string;
-	model: string | null;
-	totalTokens: number | null;
-	createdAt: string;
-	updatedAt: string;
+  id: string;
+  title: string | null;
+  channel: string;
+  model: string | null;
+  totalTokens: number | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 function authHeaders(auth: AgentbosterAuth): Record<string, string> {
-	return {
-		authorization: `Bearer ${auth.token}`,
-		cookie: `clawless-auth=${auth.token}`,
-	};
+  return {
+    authorization: `Bearer ${auth.token}`,
+    cookie: `clawless-auth=${auth.token}`,
+  };
 }
 
 function root(auth: AgentbosterAuth): string {
-	return auth.url.replace(/\/$/, "");
+  return auth.url.replace(/\/$/, '');
 }
 
 export async function listRemoteSessions(
-	auth: AgentbosterAuth,
-	options: { channel?: string; limit?: number } = {},
+  auth: AgentbosterAuth,
+  options: { channel?: string; limit?: number } = {},
 ): Promise<RemoteSession[]> {
-	const params = new URLSearchParams();
-	if (options.channel) params.set("channel", options.channel);
-	if (options.limit) params.set("limit", String(options.limit));
-	const qs = params.toString();
-	const res = await fetch(`${root(auth)}/api/cli/sessions${qs ? `?${qs}` : ""}`, {
-		headers: authHeaders(auth),
-	});
-	if (!res.ok) return [];
-	const data = (await res.json()) as { sessions?: RemoteSession[] };
-	return data.sessions ?? [];
+  const params = new URLSearchParams();
+  if (options.channel) params.set('channel', options.channel);
+  if (options.limit) params.set('limit', String(options.limit));
+  const qs = params.toString();
+  const res = await fetch(
+    `${root(auth)}/api/cli/sessions${qs ? `?${qs}` : ''}`,
+    {
+      headers: authHeaders(auth),
+    },
+  );
+  if (!res.ok) return [];
+  const data = (await res.json()) as { sessions?: RemoteSession[] };
+  return data.sessions ?? [];
 }
 
-export async function getRemoteSession(auth: AgentbosterAuth, sessionId: string): Promise<RemoteSession | null> {
-	const res = await fetch(`${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}`, {
-		headers: authHeaders(auth),
-	});
-	if (!res.ok) return null;
-	const data = (await res.json()) as { session?: RemoteSession };
-	return data.session ?? null;
+export async function getRemoteSession(
+  auth: AgentbosterAuth,
+  sessionId: string,
+): Promise<RemoteSession | null> {
+  const res = await fetch(
+    `${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      headers: authHeaders(auth),
+    },
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as { session?: RemoteSession };
+  return data.session ?? null;
 }
 
 export interface RemoteSessionPatch {
-	title?: string | null;
-	model?: string | null;
+  title?: string | null;
+  model?: string | null;
 }
 
 export async function patchRemoteSession(
-	auth: AgentbosterAuth,
-	sessionId: string,
-	patch: RemoteSessionPatch,
+  auth: AgentbosterAuth,
+  sessionId: string,
+  patch: RemoteSessionPatch,
 ): Promise<boolean> {
-	const res = await fetch(`${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}`, {
-		method: "PATCH",
-		headers: { "content-type": "application/json", ...authHeaders(auth) },
-		body: JSON.stringify(patch),
-	});
-	return res.ok;
+  const res = await fetch(
+    `${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', ...authHeaders(auth) },
+      body: JSON.stringify(patch),
+    },
+  );
+  return res.ok;
 }
 
-export async function deleteRemoteSession(auth: AgentbosterAuth, sessionId: string): Promise<boolean> {
-	const res = await fetch(`${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}`, {
-		method: "DELETE",
-		headers: authHeaders(auth),
-	});
-	return res.ok;
+export async function deleteRemoteSession(
+  auth: AgentbosterAuth,
+  sessionId: string,
+): Promise<boolean> {
+  const res = await fetch(
+    `${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'DELETE',
+      headers: authHeaders(auth),
+    },
+  );
+  return res.ok;
 }
 
 /**
@@ -88,9 +106,9 @@ export async function deleteRemoteSession(auth: AgentbosterAuth, sessionId: stri
  * Returns [] when not logged in.
  */
 export async function listMyRemoteSessions(): Promise<RemoteSession[]> {
-	const auth = getStoredAuth();
-	if (!auth) return [];
-	return listRemoteSessions(auth);
+  const auth = getStoredAuth();
+  if (!auth) return [];
+  return listRemoteSessions(auth);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,32 +117,32 @@ export async function listMyRemoteSessions(): Promise<RemoteSession[]> {
 
 /** A single UIMessage as returned by GET /api/cli/sessions/[id]/messages. */
 export interface RemoteUIMessage {
-	id: string;
-	role: "user" | "assistant";
-	parts: Array<{
-		type: string;
-		text?: string;
-		// tool-call / tool-result / file parts carry extra fields we don't
-		// need to type strictly here — we only extract text for display.
-		[key: string]: unknown;
-	}>;
-	metadata?: {
-		versions?: Array<{
-			parts: Array<{ type: string; text?: string }>;
-			createdAt: string;
-			response?: Array<{ type: string; text?: string }>;
-		}>;
-		currentVersionIndex?: number;
-		[key: string]: unknown;
-	};
+  id: string;
+  role: 'user' | 'assistant';
+  parts: Array<{
+    type: string;
+    text?: string;
+    // tool-call / tool-result / file parts carry extra fields we don't
+    // need to type strictly here — we only extract text for display.
+    [key: string]: unknown;
+  }>;
+  metadata?: {
+    versions?: Array<{
+      parts: Array<{ type: string; text?: string }>;
+      createdAt: string;
+      response?: Array<{ type: string; text?: string }>;
+    }>;
+    currentVersionIndex?: number;
+    [key: string]: unknown;
+  };
 }
 
 /** Response envelope from GET /api/cli/sessions/[id]/messages. */
 interface RemoteMessagesResponse {
-	ok: boolean;
-	session?: { id: string; title: string | null; model: string | null };
-	messages?: RemoteUIMessage[];
-	error?: string;
+  ok: boolean;
+  session?: { id: string; title: string | null; model: string | null };
+  messages?: RemoteUIMessage[];
+  error?: string;
 }
 
 /**
@@ -132,21 +150,29 @@ interface RemoteMessagesResponse {
  * Returns `{ session, messages }` on success; throws on non-ok / network error.
  */
 export async function fetchRemoteMessages(
-	auth: AgentbosterAuth,
-	sessionId: string,
-): Promise<{ session: { id: string; title: string | null; model: string | null }; messages: RemoteUIMessage[] }> {
-	const res = await fetch(`${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}/messages`, {
-		headers: authHeaders(auth),
-	});
-	if (!res.ok) {
-		const body = (await res.json().catch(() => ({}))) as { error?: string };
-		throw new Error(`Failed to load session (${res.status}): ${body.error ?? res.statusText}`);
-	}
-	const data = (await res.json()) as RemoteMessagesResponse;
-	if (!data.ok || !data.session || !data.messages) {
-		throw new Error(data.error ?? "Malformed response from server.");
-	}
-	return { session: data.session, messages: data.messages };
+  auth: AgentbosterAuth,
+  sessionId: string,
+): Promise<{
+  session: { id: string; title: string | null; model: string | null };
+  messages: RemoteUIMessage[];
+}> {
+  const res = await fetch(
+    `${root(auth)}/api/cli/sessions/${encodeURIComponent(sessionId)}/messages`,
+    {
+      headers: authHeaders(auth),
+    },
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(
+      `Failed to load session (${res.status}): ${body.error ?? res.statusText}`,
+    );
+  }
+  const data = (await res.json()) as RemoteMessagesResponse;
+  if (!data.ok || !data.session || !data.messages) {
+    throw new Error(data.error ?? 'Malformed response from server.');
+  }
+  return { session: data.session, messages: data.messages };
 }
 
 /**
@@ -154,20 +180,21 @@ export async function fetchRemoteMessages(
  * Used to rebuild user/assistant text for SessionEntry messages.
  */
 export function uiMessageToText(msg: RemoteUIMessage): string {
-	// If the message has versions, prefer the current version's parts.
-	if (msg.metadata?.versions && msg.metadata.versions.length > 0) {
-		const idx = msg.metadata.currentVersionIndex ?? 0;
-		const version = msg.metadata.versions[Math.min(idx, msg.metadata.versions.length - 1)];
-		return version.parts
-			.filter((p) => p.type === "text" && typeof p.text === "string")
-			.map((p) => p.text!)
-			.join("\n");
-	}
-	// Otherwise use the message's own parts.
-	return msg.parts
-		.filter((p) => p.type === "text" && typeof p.text === "string")
-		.map((p) => p.text!)
-		.join("\n");
+  // If the message has versions, prefer the current version's parts.
+  if (msg.metadata?.versions && msg.metadata.versions.length > 0) {
+    const idx = msg.metadata.currentVersionIndex ?? 0;
+    const version =
+      msg.metadata.versions[Math.min(idx, msg.metadata.versions.length - 1)];
+    return version.parts
+      .filter((p) => p.type === 'text' && typeof p.text === 'string')
+      .map((p) => p.text!)
+      .join('\n');
+  }
+  // Otherwise use the message's own parts.
+  return msg.parts
+    .filter((p) => p.type === 'text' && typeof p.text === 'string')
+    .map((p) => p.text!)
+    .join('\n');
 }
 
 /**
@@ -175,10 +202,10 @@ export function uiMessageToText(msg: RemoteUIMessage): string {
  * Returns null when not logged in (caller should fall back or error).
  */
 export async function fetchMyRemoteMessages(sessionId: string): Promise<{
-	session: { id: string; title: string | null; model: string | null };
-	messages: RemoteUIMessage[];
+  session: { id: string; title: string | null; model: string | null };
+  messages: RemoteUIMessage[];
 } | null> {
-	const auth = getStoredAuth();
-	if (!auth) return null;
-	return fetchRemoteMessages(auth, sessionId);
+  const auth = getStoredAuth();
+  if (!auth) return null;
+  return fetchRemoteMessages(auth, sessionId);
 }

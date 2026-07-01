@@ -8,37 +8,46 @@
  * pushes on change.
  */
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel =
+  | 'off'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh';
 
 export interface UserPreferences {
-	model?: string;
-	thinkingLevel?: ThinkingLevel;
+  model?: string;
+  thinkingLevel?: ThinkingLevel;
 }
 
 export interface PreferencesResponse {
-	ok: boolean;
-	preferences: UserPreferences | null;
+  ok: boolean;
+  preferences: UserPreferences | null;
 }
 
 /**
  * Fetch the caller's current preferences. Returns null on auth failure
  * or network error — caller should treat null as "no preference set".
  */
-export async function fetchUserPreferences(baseUrl: string, token: string): Promise<UserPreferences | null> {
-	const root = baseUrl.replace(/\/$/, "");
-	try {
-		const response = await fetch(`${root}/api/cli/preferences`, {
-			headers: {
-				authorization: `Bearer ${token}`,
-				cookie: `clawless-auth=${token}`,
-			},
-		});
-		if (!response.ok) return null;
-		const body = (await response.json()) as PreferencesResponse;
-		return body.preferences ?? null;
-	} catch {
-		return null;
-	}
+export async function fetchUserPreferences(
+  baseUrl: string,
+  token: string,
+): Promise<UserPreferences | null> {
+  const root = baseUrl.replace(/\/$/, '');
+  try {
+    const response = await fetch(`${root}/api/cli/preferences`, {
+      headers: {
+        authorization: `Bearer ${token}`,
+        cookie: `clawless-auth=${token}`,
+      },
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as PreferencesResponse;
+    return body.preferences ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -47,28 +56,28 @@ export async function fetchUserPreferences(baseUrl: string, token: string): Prom
  * preferences (or null if the request failed).
  */
 export async function patchUserPreferences(
-	baseUrl: string,
-	token: string,
-	patch: {
-		model?: string | null;
-		thinkingLevel?: ThinkingLevel | null;
-	},
+  baseUrl: string,
+  token: string,
+  patch: {
+    model?: string | null;
+    thinkingLevel?: ThinkingLevel | null;
+  },
 ): Promise<UserPreferences | null> {
-	const root = baseUrl.replace(/\/$/, "");
-	try {
-		const response = await fetch(`${root}/api/cli/preferences`, {
-			method: "PATCH",
-			headers: {
-				authorization: `Bearer ${token}`,
-				cookie: `clawless-auth=${token}`,
-				"content-type": "application/json",
-			},
-			body: JSON.stringify(patch),
-		});
-		if (!response.ok) return null;
-		const body = (await response.json()) as PreferencesResponse;
-		return body.preferences ?? null;
-	} catch {
-		return null;
-	}
+  const root = baseUrl.replace(/\/$/, '');
+  try {
+    const response = await fetch(`${root}/api/cli/preferences`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+        cookie: `clawless-auth=${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(patch),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as PreferencesResponse;
+    return body.preferences ?? null;
+  } catch {
+    return null;
+  }
 }

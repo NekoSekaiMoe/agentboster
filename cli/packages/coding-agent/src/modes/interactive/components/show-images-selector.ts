@@ -1,50 +1,72 @@
-import { Container, type SelectItem, SelectList, type SelectListLayoutOptions } from "@agentboster-cli/tui";
-import { getSelectListTheme } from "../theme/theme.ts";
-import { DynamicBorder } from "./dynamic-border.ts";
+import {
+  Container,
+  type SelectItem,
+  SelectList,
+  type SelectListLayoutOptions,
+} from '@agentboster-cli/tui';
+import { getSelectListTheme } from '../theme/theme.ts';
+import { DynamicBorder } from './dynamic-border.ts';
 
 const SHOW_IMAGES_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
-	minPrimaryColumnWidth: 12,
-	maxPrimaryColumnWidth: 32,
+  minPrimaryColumnWidth: 12,
+  maxPrimaryColumnWidth: 32,
 };
 
 /**
  * Component that renders a show images selector with borders
  */
 export class ShowImagesSelectorComponent extends Container {
-	private selectList: SelectList;
+  private selectList: SelectList;
 
-	constructor(currentValue: boolean, onSelect: (show: boolean) => void, onCancel: () => void) {
-		super();
+  constructor(
+    currentValue: boolean,
+    onSelect: (show: boolean) => void,
+    onCancel: () => void,
+  ) {
+    super();
 
-		const items: SelectItem[] = [
-			{ value: "yes", label: "Yes", description: "Show images inline in terminal" },
-			{ value: "no", label: "No", description: "Show text placeholder instead" },
-		];
+    const items: SelectItem[] = [
+      {
+        value: 'yes',
+        label: 'Yes',
+        description: 'Show images inline in terminal',
+      },
+      {
+        value: 'no',
+        label: 'No',
+        description: 'Show text placeholder instead',
+      },
+    ];
 
-		// Add top border
-		this.addChild(new DynamicBorder());
+    // Add top border
+    this.addChild(new DynamicBorder());
 
-		// Create selector
-		this.selectList = new SelectList(items, 5, getSelectListTheme(), SHOW_IMAGES_SELECT_LIST_LAYOUT);
+    // Create selector
+    this.selectList = new SelectList(
+      items,
+      5,
+      getSelectListTheme(),
+      SHOW_IMAGES_SELECT_LIST_LAYOUT,
+    );
 
-		// Preselect current value
-		this.selectList.setSelectedIndex(currentValue ? 0 : 1);
+    // Preselect current value
+    this.selectList.setSelectedIndex(currentValue ? 0 : 1);
 
-		this.selectList.onSelect = (item) => {
-			onSelect(item.value === "yes");
-		};
+    this.selectList.onSelect = (item) => {
+      onSelect(item.value === 'yes');
+    };
 
-		this.selectList.onCancel = () => {
-			onCancel();
-		};
+    this.selectList.onCancel = () => {
+      onCancel();
+    };
 
-		this.addChild(this.selectList);
+    this.addChild(this.selectList);
 
-		// Add bottom border
-		this.addChild(new DynamicBorder());
-	}
+    // Add bottom border
+    this.addChild(new DynamicBorder());
+  }
 
-	getSelectList(): SelectList {
-		return this.selectList;
-	}
+  getSelectList(): SelectList {
+    return this.selectList;
+  }
 }

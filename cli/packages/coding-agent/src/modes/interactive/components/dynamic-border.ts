@@ -1,5 +1,5 @@
-import type { Component } from "@agentboster-cli/tui";
-import { theme } from "../theme/theme.ts";
+import type { Component } from '@agentboster-cli/tui';
+import { theme } from '../theme/theme.ts';
 
 /**
  * Dynamic border component that adjusts to viewport width.
@@ -9,17 +9,19 @@ import { theme } from "../theme/theme.ts";
  * function when using DynamicBorder in components exported for extension use.
  */
 export class DynamicBorder implements Component {
-	private color: (str: string) => string;
+  private color: (str: string) => string;
 
-	constructor(color: (str: string) => string = (str) => theme.fg("border", str)) {
-		this.color = color;
-	}
+  constructor(
+    color: (str: string) => string = (str) => theme.fg('border', str),
+  ) {
+    this.color = color;
+  }
 
-	invalidate(): void {
-		// No cached state to invalidate currently
-	}
+  invalidate(): void {
+    // No cached state to invalidate currently
+  }
 
-	render(width: number): string[] {
-		return [this.color("─".repeat(Math.max(1, width)))];
-	}
+  render(width: number): string[] {
+    return [this.color('─'.repeat(Math.max(1, width)))];
+  }
 }

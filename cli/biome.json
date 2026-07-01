@@ -1,56 +1,56 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.3.5/schema.json",
-	"vcs": {
-		"enabled": true,
-		"clientKind": "git",
-		"useIgnoreFile": true
-	},
-	"assist": {
-		"actions": {
-			"source": {
-				"organizeImports": "off"
-			}
-		}
-	},
-	"linter": {
-		"enabled": true,
-		"rules": {
-			"recommended": true,
-			"style": {
-				"noNonNullAssertion": "off",
-				"useConst": "error",
-				"useNodejsImportProtocol": "off"
-			},
-			"suspicious": {
-				"noExplicitAny": "off",
-				"noControlCharactersInRegex": "off",
-				"noEmptyInterface": "off"
-			}
-		}
-	},
-	"formatter": {
-		"enabled": true,
-		"formatWithErrors": false,
-		"indentStyle": "tab",
-		"indentWidth": 3,
-		"lineWidth": 120
-	},
-	"javascript": {
-		"formatter": {
-			"quoteStyle": "double",
-			"semicolons": "always",
-			"trailingCommas": "all"
-		}
-	},
-	"files": {
-		"includes": [
-			"packages/*/src/**/*.ts",
-			"packages/*/test/**/*.ts",
-			"packages/coding-agent/examples/**/*.ts",
-			"!**/node_modules/**/*",
-			"!**/test-sessions.ts",
-			"!**/models.generated.ts",
-			"!**/*.models.ts"
-		]
-	}
+  "$schema": "https://biomejs.dev/schemas/2.3.5/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": {
+        "noNonNullAssertion": "off",
+        "useConst": "error",
+        "useNodejsImportProtocol": "off"
+      },
+      "suspicious": {
+        "noExplicitAny": "off",
+        "noControlCharactersInRegex": "off",
+        "noEmptyInterface": "off"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "formatWithErrors": false,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 80
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "files": {
+    "includes": [
+      "packages/*/src/**/*.ts",
+      "packages/*/test/**/*.ts",
+      "packages/coding-agent/examples/**/*.ts",
+      "!**/node_modules/**/*",
+      "!**/test-sessions.ts",
+      "!**/models.generated.ts",
+      "!**/*.models.ts"
+    ]
+  }
 }

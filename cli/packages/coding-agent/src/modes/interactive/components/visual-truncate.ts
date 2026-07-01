@@ -3,13 +3,13 @@
  * Used by both tool-execution.ts and bash-execution.ts for consistent behavior.
  */
 
-import { Text } from "@agentboster-cli/tui";
+import { Text } from '@agentboster-cli/tui';
 
 export interface VisualTruncateResult {
-	/** The visual lines to display */
-	visualLines: string[];
-	/** Number of visual lines that were skipped (hidden) */
-	skippedCount: number;
+  /** The visual lines to display */
+  visualLines: string[];
+  /** Number of visual lines that were skipped (hidden) */
+  skippedCount: number;
 }
 
 /**
@@ -25,26 +25,26 @@ export interface VisualTruncateResult {
  * @returns The truncated visual lines and count of skipped lines
  */
 export function truncateToVisualLines(
-	text: string,
-	maxVisualLines: number,
-	width: number,
-	paddingX: number = 0,
+  text: string,
+  maxVisualLines: number,
+  width: number,
+  paddingX: number = 0,
 ): VisualTruncateResult {
-	if (!text) {
-		return { visualLines: [], skippedCount: 0 };
-	}
+  if (!text) {
+    return { visualLines: [], skippedCount: 0 };
+  }
 
-	// Create a temporary Text component to render and get visual lines
-	const tempText = new Text(text, paddingX, 0);
-	const allVisualLines = tempText.render(width);
+  // Create a temporary Text component to render and get visual lines
+  const tempText = new Text(text, paddingX, 0);
+  const allVisualLines = tempText.render(width);
 
-	if (allVisualLines.length <= maxVisualLines) {
-		return { visualLines: allVisualLines, skippedCount: 0 };
-	}
+  if (allVisualLines.length <= maxVisualLines) {
+    return { visualLines: allVisualLines, skippedCount: 0 };
+  }
 
-	// Take the last N visual lines
-	const truncatedLines = allVisualLines.slice(-maxVisualLines);
-	const skippedCount = allVisualLines.length - maxVisualLines;
+  // Take the last N visual lines
+  const truncatedLines = allVisualLines.slice(-maxVisualLines);
+  const skippedCount = allVisualLines.length - maxVisualLines;
 
-	return { visualLines: truncatedLines, skippedCount };
+  return { visualLines: truncatedLines, skippedCount };
 }

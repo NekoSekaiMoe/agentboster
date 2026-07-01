@@ -10,35 +10,44 @@
  * server, since the server maintains full conversation history.
  */
 
-import type { StreamFn } from "@agentboster-cli/agent";
-import { createAssistantMessageEventStream } from "@agentboster-cli/ai/utils/event-stream";
-import type { Api, Context, Model, SimpleStreamOptions } from "@agentboster-cli/ai";
+import type { StreamFn } from '@agentboster-cli/agent';
+import { createAssistantMessageEventStream } from '@agentboster-cli/ai/utils/event-stream';
+import type {
+  Api,
+  Context,
+  Model,
+  SimpleStreamOptions,
+} from '@agentboster-cli/ai';
 
 import {
-	openAgentbosterStream,
-	type SubagentBatchEventHandler,
-	type SubagentEventHandler,
-	type WebStreamOptions,
-} from "./web-stream.ts";
+  openAgentbosterStream,
+  type SubagentBatchEventHandler,
+  type SubagentEventHandler,
+  type WebStreamOptions,
+} from './web-stream.ts';
 
-export interface CreateStreamFnOptions extends Omit<WebStreamOptions, "baseUrl" | "token" | "sessionId"> {
-	/** Resolve the current session id (called each turn so the host can rotate). */
-	getSessionId: () => string;
-	/** Resolve the current server URL + token (called each turn). */
-	getAuth: () => { baseUrl: string; token: string } | null;
-	/** Observe workflow-level subagent lifecycle updates from the server. */
-	onSubagentEvent?: SubagentEventHandler;
-	/** Observe workflow-level subagent batch updates from the server. */
-	onSubagentBatchEvent?: SubagentBatchEventHandler;
-	/** If set, the next stream call will POST as `regenerate-message` with
-	 *  this intent and then clear it (one-shot). The host sets this when the
-	 *  user edits a historical version and resends. */
-	consumeRegenerateIntent?: () => { messageId: string; metadata?: unknown } | null;
-	/** Resolve the merged AGENTS.md content to forward to the Web backend
-	 *  on each turn. Returning "" / undefined skips the field entirely so
-	 *  the backend leaves the stored prompt untouched. The host typically
-	 *  reads `resourceLoader.getAgentsFiles()` here. */
-	getAgentsMd?: () => string | undefined;
+export interface CreateStreamFnOptions
+  extends Omit<WebStreamOptions, 'baseUrl' | 'token' | 'sessionId'> {
+  /** Resolve the current session id (called each turn so the host can rotate). */
+  getSessionId: () => string;
+  /** Resolve the current server URL + token (called each turn). */
+  getAuth: () => { baseUrl: string; token: string } | null;
+  /** Observe workflow-level subagent lifecycle updates from the server. */
+  onSubagentEvent?: SubagentEventHandler;
+  /** Observe workflow-level subagent batch updates from the server. */
+  onSubagentBatchEvent?: SubagentBatchEventHandler;
+  /** If set, the next stream call will POST as `regenerate-message` with
+   *  this intent and then clear it (one-shot). The host sets this when the
+   *  user edits a historical version and resends. */
+  consumeRegenerateIntent?: () => {
+    messageId: string;
+    metadata?: unknown;
+  } | null;
+  /** Resolve the merged AGENTS.md content to forward to the Web backend
+   *  on each turn. Returning "" / undefined skips the field entirely so
+   *  the backend leaves the stored prompt untouched. The host typically
+   *  reads `resourceLoader.getAgentsFiles()` here. */
+  getAgentsMd?: () => string | undefined;
 }
 
 /**
@@ -48,43 +57,49 @@ export interface CreateStreamFnOptions extends Omit<WebStreamOptions, "baseUrl" 
  * the model from session state) and ignores pi's `context.tools` (the
  * server owns tool execution). It only forwards the latest user text.
  */
-export function createAgentbosterStreamFn(opts: CreateStreamFnOptions): StreamFn {
-	return (_model: Model<Api>, context: Context, options?: SimpleStreamOptions): ReturnType<StreamFn> => {
-		const auth = opts.getAuth();
-		if (!auth) {
-			const stream = createAssistantMessageEventStream();
-			stream.push({
-				type: "error",
-				reason: "error",
-				error: {
-					role: "assistant",
-					content: [
-						{
-							type: "text",
-							text: "Not logged in. Run `agentboster login` first.",
-						},
-					],
-					stopReason: "error",
-				} as never,
-			});
-			return stream;
-		}
-		const sessionId = opts.getSessionId();
-		const regenerate = opts.consumeRegenerateIntent?.() ?? undefined;
-		const agentsMd = opts.getAgentsMd?.() || undefined;
-		return openAgentbosterStream(_model, context, {
-			baseUrl: auth.baseUrl,
-			token: auth.token,
-			sessionId,
-			clientId: opts.clientId,
-			label: opts.label,
-			model: opts.model,
-			onLocalToolRequest: opts.onLocalToolRequest,
-			onSubagentEvent: opts.onSubagentEvent,
-			onSubagentBatchEvent: opts.onSubagentBatchEvent,
-			signal: options?.signal,
-			regenerate,
-			...(agentsMd ? { agentsMd } : {}),
-		});
-	};
+export function createAgentbosterStreamFn(
+  opts: CreateStreamFnOptions,
+): StreamFn {
+  return (
+    _model: Model<Api>,
+    context: Context,
+    options?: SimpleStreamOptions,
+  ): ReturnType<StreamFn> => {
+    const auth = opts.getAuth();
+    if (!auth) {
+      const stream = createAssistantMessageEventStream();
+      stream.push({
+        type: 'error',
+        reason: 'error',
+        error: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: 'Not logged in. Run `agentboster login` first.',
+            },
+          ],
+          stopReason: 'error',
+        } as never,
+      });
+      return stream;
+    }
+    const sessionId = opts.getSessionId();
+    const regenerate = opts.consumeRegenerateIntent?.() ?? undefined;
+    const agentsMd = opts.getAgentsMd?.() || undefined;
+    return openAgentbosterStream(_model, context, {
+      baseUrl: auth.baseUrl,
+      token: auth.token,
+      sessionId,
+      clientId: opts.clientId,
+      label: opts.label,
+      model: opts.model,
+      onLocalToolRequest: opts.onLocalToolRequest,
+      onSubagentEvent: opts.onSubagentEvent,
+      onSubagentBatchEvent: opts.onSubagentBatchEvent,
+      signal: options?.signal,
+      regenerate,
+      ...(agentsMd ? { agentsMd } : {}),
+    });
+  };
 }
