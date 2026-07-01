@@ -2007,6 +2007,36 @@ export class InteractiveMode {
     this.ui.requestRender();
   }
 
+  /**
+   * Update the footer task status line from a task_summary / task_progress
+   * tool result. Shows the pending todo count and known-issue count so the
+   * user has a persistent reminder of the active task list.
+   */
+  private refreshTaskFooterStatus(result: unknown): void {
+    const details = (
+      result as {
+        details?: {
+          summary?: { pending?: unknown[]; knownIssues?: unknown[] } | null;
+        };
+      }
+    )?.details;
+    const summary = details?.summary;
+    if (!summary) {
+      this.setExtensionStatus('task', undefined);
+      return;
+    }
+    const pending = summary.pending?.length ?? 0;
+    const issues = summary.knownIssues?.length ?? 0;
+    if (pending === 0 && issues === 0) {
+      this.setExtensionStatus('task', undefined);
+      return;
+    }
+    const parts: string[] = [];
+    if (pending > 0) parts.push(`${pending} todo`);
+    if (issues > 0) parts.push(`${issues} issue${issues > 1 ? 's' : ''}`);
+    this.setExtensionStatus('task', parts.join(' · '));
+  }
+
   private getWorkingLoaderMessage(): string {
     return this.workingMessage ?? this.defaultWorkingMessage;
   }
@@ -3358,6 +3388,12 @@ export class InteractiveMode {
           component.updateResult({ ...event.result, isError: event.isError });
           this.pendingTools.delete(event.toolCallId);
           this.ui.requestRender();
+        }
+        // Refresh the footer task status when the task_summary / task_progress
+        // tools run, so the pending/known-issue counts stay current.
+        const toolName = (event as { toolName?: string }).toolName;
+        if (toolName === 'task_summary' || toolName === 'task_progress') {
+          this.refreshTaskFooterStatus(event.result);
         }
         break;
       }

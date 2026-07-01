@@ -50,3 +50,11 @@ export {
   type SecurityDecision,
   type SecurityLevel,
 } from './security.ts';
+
+export {
+  fetchTaskSummary,
+  patchTaskSummary,
+  type TaskProgressDelta,
+  type TaskSummary,
+  type TaskSummaryResponse,
+} from './task-summary.ts';

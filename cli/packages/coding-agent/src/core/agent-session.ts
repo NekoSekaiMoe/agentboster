@@ -89,6 +89,7 @@ async function patchRemoteThinkingPref(
     thinkingLevel: level,
   }).catch(() => {});
 }
+import { getStoredAuth } from '@agentboster/adapter';
 import { type BashResult, executeBashWithOperations } from './bash-executor.ts';
 import {
   type CompactionResult,
@@ -171,6 +172,10 @@ import {
   createLocalBashOperations,
 } from './tools/bash.ts';
 import { createAllToolDefinitions } from './tools/index.ts';
+import {
+  createTaskProgressToolDefinition,
+  createTaskSummaryToolDefinition,
+} from './tools/task.ts';
 import { createToolDefinitionFromAgentTool } from './tools/tool-definition-wrapper.ts';
 
 // ============================================================================
@@ -2861,6 +2866,22 @@ export class AgentSession {
         tool as ToolDefinition,
       ]),
     );
+
+    // Register the remote-backed task tools (task_summary / task_progress)
+    // when logged in. They share the Web's task_summaries table so the
+    // CLI and IM/Web agent loops see the same todo state. Auth is read
+    // at execute time so the tool survives a re-login without rebuilding.
+    if (getStoredAuth()) {
+      const taskOpts = { sessionId: this.sessionId };
+      this._baseToolDefinitions.set(
+        'task_summary',
+        createTaskSummaryToolDefinition(taskOpts),
+      );
+      this._baseToolDefinitions.set(
+        'task_progress',
+        createTaskProgressToolDefinition(taskOpts),
+      );
+    }
 
     const extensionsResult = this._resourceLoader.getExtensions();
     if (options.flagValues) {
