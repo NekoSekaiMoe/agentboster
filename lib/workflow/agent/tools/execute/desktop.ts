@@ -185,6 +185,103 @@ export default defineBuildInTool({
             nodeId: input.nodeId,
           }),
       }),
+
+      desktop_click: tool({
+        title: 'Click at (x, y) on the sandbox desktop',
+        description:
+          'Inject a mouse click at the given X11 framebuffer coordinates. Use desktop_screenshot first to see the current layout and pick coordinates. Coordinates are in pixels from top-left. button: 1=left (default), 2=middle, 3=right, 4=wheel-up, 5=wheel-down. click_count: 1 (default), 2=double, 3=triple. Independent of whether a noVNC client is connected (uses xdotool XTest).',
+        inputSchema: z.object({
+          x: z.number().int().describe('X coordinate (pixels from left).'),
+          y: z.number().int().describe('Y coordinate (pixels from top).'),
+          button: z
+            .number()
+            .int()
+            .min(1)
+            .max(5)
+            .optional()
+            .describe(
+              '1=left, 2=middle, 3=right, 4=wheel-up, 5=wheel-down. Default 1.',
+            ),
+          click_count: z
+            .number()
+            .int()
+            .min(1)
+            .max(3)
+            .optional()
+            .describe(
+              'Number of clicks (1=single, 2=double, 3=triple). Default 1.',
+            ),
+          nodeId: nodeIdParam,
+        }),
+        execute: (input) =>
+          dispatchDesktopTool({
+            ...ctx,
+            toolName: 'desktop_click',
+            toolInput: {
+              x: input.x,
+              y: input.y,
+              button: input.button,
+              click_count: input.click_count,
+            },
+            nodeId: input.nodeId,
+          }),
+      }),
+
+      desktop_type: tool({
+        title: 'Type text into the focused window',
+        description:
+          'Type text into the currently focused window on the sandbox desktop. Use desktop_click first to focus an input field, then desktop_type to enter text. Handles UTF-8 and arbitrary characters safely (text is piped to xdotool via stdin, not passed as a shell argument).',
+        inputSchema: z.object({
+          text: z
+            .string()
+            .min(1)
+            .describe(
+              'Text to type. May contain any characters including newlines.',
+            ),
+          delay_ms: z
+            .number()
+            .int()
+            .min(0)
+            .max(1000)
+            .optional()
+            .describe(
+              'Per-keystroke delay in ms. Default 0 (as fast as possible).',
+            ),
+          nodeId: nodeIdParam,
+        }),
+        execute: (input) =>
+          dispatchDesktopTool({
+            ...ctx,
+            toolName: 'desktop_type',
+            toolInput: {
+              text: input.text,
+              delay_ms: input.delay_ms,
+            },
+            nodeId: input.nodeId,
+          }),
+      }),
+
+      desktop_key: tool({
+        title: 'Press a key or key combo',
+        description:
+          'Press a key or key combo on the sandbox desktop. Examples: "Return" (Enter), "Escape", "ctrl+c", "Alt+F4", "ctrl+shift+t", "Tab", "BackSpace", "space". Keys follow xdotool/X11 naming (see /usr/include/X11/keysymdef.h, strip the XK_ prefix). Multiple keys joined with \'+\' are pressed simultaneously.',
+        inputSchema: z.object({
+          keysym: z
+            .string()
+            .min(1)
+            .describe('Key or combo, e.g. "Return", "ctrl+c", "Alt+F4".'),
+          nodeId: nodeIdParam,
+        }),
+        execute: (input) =>
+          dispatchDesktopTool({
+            ...ctx,
+            toolName: 'desktop_key',
+            toolInput: {
+              keysym: input.keysym,
+            },
+            nodeId: input.nodeId,
+          }),
+      }),
     };
   },
 });

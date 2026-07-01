@@ -88,11 +88,16 @@ func RegisterAllTools(
 	// users; routed to LXC via needsPersistence + permission_profile=browser.
 	registerBrowserToolsV2(registry, sbManager, agentCtx)
 
-	// === Desktop automation (1) ===
+	// === Desktop automation (4) ===
 	// X11 desktop in the sandbox for GUI app debugging (Electron/Tauri/Qt/GTK).
 	// desktop_screenshot provisions Xvfb + icewm + x11vnc + noVNC on first call;
 	// user opens the live desktop via sandbox.public_port(6080) + /vnc.html.
+	// desktop_click/type/key inject via xdotool so vision-capable models can
+	// act on what they see in the screenshot.
 	registerDesktopScreenshot(registry, sbManager, agentCtx)
+	registerDesktopClick(registry, sbManager, agentCtx)
+	registerDesktopType(registry, sbManager, agentCtx)
+	registerDesktopKey(registry, sbManager, agentCtx)
 
 	// === Sandbox lifecycle (1) ===
 	// Explicit teardown when the user asks to destroy the project sandbox.

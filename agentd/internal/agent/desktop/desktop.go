@@ -25,7 +25,6 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -326,14 +325,19 @@ func Screenshot(sbMgr *sandbox.Manager, sandboxID string) ([]byte, error) {
 		return nil, err
 	}
 
-	// `import -window root` writes a PNG to stdout. We use a temp file
-	// under the sandbox state dir to avoid base64-via-stdout encoding
-	// issues (binary over the lxc-attach pipe can be lossy on some
-	// transports), then base64-encode it.
-	tmpFile := sandboxStateDir + "/screenshot.png"
+	// `import -window root` writes a PNG to a temp file, base64-encode it,
+	// then unconditionally remove the file — even on the success path.
+	// We use mktemp rather than a fixed name so concurrent screenshot
+	// calls (rare but possible if the agent fires two in parallel) don't
+	// clobber each other's file. Binary-over-lxc-attach pipe can be
+	// lossy on some transports, which is why we route through a file +
+	// `base64 -w0` instead of `import png:- | base64`.
 	captureCmd := fmt.Sprintf(
-		`DISPLAY=%s import -window root %s && base64 -w0 %s`,
-		defaultDisplay, tmpFile, tmpFile,
+		`tmpFile=$(mktemp /tmp/agentd-shot-XXXXXX.png) && `+
+			`trap 'rm -f "$tmpFile"' EXIT && `+
+			`DISPLAY=%s import -window root "$tmpFile" && `+
+			`base64 -w0 "$tmpFile"`,
+		defaultDisplay,
 	)
 	out, err := runScriptRaw(sbMgr, sandboxID, captureCmd, 30)
 	if err != nil {
@@ -354,6 +358,128 @@ func WebPort() int { return defaultWebPort }
 // inject mouse/keyboard events via xdotool (future desktop_* tools).
 func Display() string { return defaultDisplay }
 
-// itoa avoids strconv import in this file (matches web_extract.go's
-// style for keeping file deps minimal).
-func itoa(i int) string { return strconv.Itoa(i) }
+// Click injects a mouse click at (x, y) on the Xvfb display via
+// xdotool. button: 1=left (default), 2=middle, 3=right, 4=wheel-up,
+// 5=wheel-down. clickCount: 1 (default), 2=double, 3=triple.
+//
+// We use xdotool rather than RFB injection because:
+// (a) xdotool speaks XTest — the canonical X11 test extension — which
+//     is more reliable than x11vnc's RFB-to-X11 bridge;
+// (b) the agentd sandbox already installs xdotool as part of the
+//     desktop stack (no extra deps);
+// (c) it operates on the Xvfb display directly, independent of whether
+//     a VNC client (x11vnc, noVNC user) is connected.
+func Click(sbMgr *sandbox.Manager, sandboxID string, x, y int, button, clickCount int) error {
+	if err := EnsureDesktop(sbMgr, sandboxID); err != nil {
+		return err
+	}
+	if button < 1 || button > 5 {
+		button = 1
+	}
+	if clickCount < 1 || clickCount > 3 {
+		clickCount = 1
+	}
+	cmd := fmt.Sprintf(
+		`DISPLAY=%s xdotoolmousemove %d %d sync && DISPLAY=%s xdotool click --repeat %d %d`,
+		defaultDisplay, x, y, defaultDisplay, clickCount, button,
+	)
+	return runScript(sbMgr, sandboxID, cmd, 15)
+}
+
+// Type types a string into the focused window via xdotool's type
+// command. Uses --clearmodifiers so any physically-held modifiers (none
+// in a headless sandbox, but the flag is harmless) don't garble the
+// output. delayMs adds per-keystroke delay; 0 means as fast as possible.
+//
+// We use xdotool type (not xdotool key for each char) because type
+// handles UTF-8 properly via Xkb keymap synthesis — the alternative
+// (enumerating keysyms) would force the caller to know the user's
+// keymap, which is a non-starter for an AI model.
+func Type(sbMgr *sandbox.Manager, sandboxID, text string, delayMs int) error {
+	if err := EnsureDesktop(sbMgr, sandboxID); err != nil {
+		return err
+	}
+	if text == "" {
+		return fmt.Errorf("desktop: type text is empty")
+	}
+	if delayMs < 0 {
+		delayMs = 0
+	}
+	if delayMs > 1000 {
+		delayMs = 1000
+	}
+	// Write the text to a temp file and pipe it to xdotool — this avoids
+	// any shell-quoting nightmare when the text contains quotes, $, `,
+	// newlines, or any other special character. xdotool reads stdin when
+	// given `--clearmodifiers --delay N -` (trailing dash = stdin).
+	// We use a heredoc with quoted EOF so $ etc. are NOT expanded by the
+	// outer shell; the inner xdotool sees the raw bytes.
+	script := fmt.Sprintf(
+		`DISPLAY=%s xdotool type --clearmodifiers --delay %d '%s'`,
+		defaultDisplay, delayMs, escapeForSingleQuote(text),
+	)
+	return runScript(sbMgr, sandboxID, script, max(15, len(text)/10))
+}
+
+// Key presses a key or key combo (e.g. "Return", "ctrl+c", "Alt+F4",
+// "ctrl+shift+t"). xdotool accepts the same keysym syntax as X11; see
+// /usr/include/X11/keysymdef.h for the full list. Multiple keys are
+// joined with '+' and pressed simultaneously.
+//
+// Use cases: dismiss a dialog (Return/Escape), close a window
+// (Alt+F4), open a tab (Ctrl+T), switch workspaces, send a screenshot
+// shortcut to the app under test, etc.
+func Key(sbMgr *sandbox.Manager, sandboxID, keysym string) error {
+	if err := EnsureDesktop(sbMgr, sandboxID); err != nil {
+		return err
+	}
+	if keysym == "" {
+		return fmt.Errorf("desktop: key keysym is empty")
+	}
+	// Allow only keysym-safe characters (letters, digits, +, -, _).
+	// This blocks shell metacharacter injection without needing a
+	// quoting function — keysyms are inherently from a small alphabet.
+	if !isKeysymSafe(keysym) {
+		return fmt.Errorf("desktop: invalid keysym %q (allowed: letters, digits, +, -, _)", keysym)
+	}
+	cmd := fmt.Sprintf(
+		`DISPLAY=%s xdotool key --clearmodifiers %s`,
+		defaultDisplay, keysym,
+	)
+	return runScript(sbMgr, sandboxID, cmd, 15)
+}
+
+// escapeForSingleQuote wraps s so it can appear inside a single-quoted
+// shell string. The only character that needs escaping in this context
+// is the single quote itself, escaped via the '\'' idiom (close quote,
+// escaped literal quote, reopen quote).
+func escapeForSingleQuote(s string) string {
+	return strings.ReplaceAll(s, "'", `'\''`)
+}
+
+// isKeysymSafe returns true iff s contains only characters allowed in
+// xdotool keysym expressions: letters, digits, '+', '-', '_'. This
+// keeps the call site a single xdotool invocation without needing a
+// generic shell-quoting helper.
+func isKeysymSafe(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '+' || r == '-' || r == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// max returns the larger of a and b. (Go 1.21+ has builtin max, but
+// keeping this local avoids any version coupling in this file.)
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

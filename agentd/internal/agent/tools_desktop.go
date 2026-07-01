@@ -65,3 +65,126 @@ func registerDesktopScreenshot(registry *ToolRegistry, sbMgr *sandbox.Manager, c
 		return &ToolResult{Success: true, Data: string(payload)}, nil
 	})
 }
+
+// registerDesktopClick exposes desktop_click — inject a mouse click at
+// (x, y) on the Xvfb display via xdotool. Useful for vision-capable
+// models that read a desktop_screenshot and decide where to click.
+func registerDesktopClick(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	registry.Register(ToolDefinition{
+		Name: "desktop_click",
+		Description: "Click at (x, y) on the sandbox desktop. " +
+			"Coordinates are in X11 framebuffer pixels (top-left origin); call desktop_screenshot first to see the current layout and pick coordinates. " +
+			"button: 1=left (default), 2=middle, 3=right, 4=wheel-up, 5=wheel-down. click_count: 1 (default), 2=double, 3=triple. " +
+			"Uses xdotool (XTest extension), independent of whether a noVNC client is connected.",
+		MinUserType: "trusted",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"x":           map[string]any{"type": "integer", "description": "X coordinate (pixels from left)."},
+				"y":           map[string]any{"type": "integer", "description": "Y coordinate (pixels from top)."},
+				"button":      map[string]any{"type": "integer", "description": "Mouse button (1=left, 2=middle, 3=right, 4=wheel-up, 5=wheel-down). Default 1.", "default": 1},
+				"click_count": map[string]any{"type": "integer", "description": "Number of clicks (1-3). Default 1.", "default": 1},
+			},
+			"required": []string{"x", "y"},
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		sandboxID := ctx.SandboxID
+		if sandboxID == "" {
+			return &ToolResult{Success: false, Error: "desktop_click requires an active sandbox"}, nil
+		}
+		var params struct {
+			X          int `json:"x"`
+			Y          int `json:"y"`
+			Button     int `json:"button"`
+			ClickCount int `json:"click_count"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		if err := desktop.Click(sbMgr, sandboxID, params.X, params.Y, params.Button, params.ClickCount); err != nil {
+			return &ToolResult{Success: false, Error: fmt.Sprintf("desktop_click: %v", err)}, nil
+		}
+		return &ToolResult{Success: true, Data: fmt.Sprintf("clicked at (%d, %d) button=%d count=%d", params.X, params.Y, orDefault(params.Button, 1), orDefault(params.ClickCount, 1))}, nil
+	})
+}
+
+// registerDesktopType exposes desktop_type — type text into the focused
+// window. Use after desktop_click focuses an input field.
+func registerDesktopType(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	registry.Register(ToolDefinition{
+		Name: "desktop_type",
+		Description: "Type text into the currently focused window on the sandbox desktop. " +
+			"Use desktop_click first to focus an input field, then desktop_type to enter text. " +
+			"Handles UTF-8 and arbitrary characters safely (text is piped to xdotool via stdin, not passed as a shell argument).",
+		MinUserType: "trusted",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"text":     map[string]any{"type": "string", "description": "Text to type. May contain any characters including newlines."},
+				"delay_ms": map[string]any{"type": "integer", "description": "Per-keystroke delay in ms (0-1000). Default 0 (as fast as possible).", "default": 0},
+			},
+			"required": []string{"text"},
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		sandboxID := ctx.SandboxID
+		if sandboxID == "" {
+			return &ToolResult{Success: false, Error: "desktop_type requires an active sandbox"}, nil
+		}
+		var params struct {
+			Text    string `json:"text"`
+			DelayMs int    `json:"delay_ms"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		if err := desktop.Type(sbMgr, sandboxID, params.Text, params.DelayMs); err != nil {
+			return &ToolResult{Success: false, Error: fmt.Sprintf("desktop_type: %v", err)}, nil
+		}
+		return &ToolResult{Success: true, Data: fmt.Sprintf("typed %d chars", len(params.Text))}, nil
+	})
+}
+
+// registerDesktopKey exposes desktop_key — press a key or key combo
+// (e.g. "Return", "ctrl+c", "Alt+F4", "ctrl+shift+t"). Keysyms follow
+// X11/xdotool naming.
+func registerDesktopKey(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
+	registry.Register(ToolDefinition{
+		Name: "desktop_key",
+		Description: "Press a key or key combo on the sandbox desktop. " +
+			"Examples: \"Return\" (Enter), \"Escape\", \"ctrl+c\", \"Alt+F4\", \"ctrl+shift+t\", \"Tab\", \"BackSpace\", \"space\". " +
+			"Keys follow xdotool/X11 naming (see /usr/include/X11/keysymdef.h, strip the XK_ prefix). " +
+			"Multiple keys joined with '+' are pressed simultaneously. Allowed chars: letters, digits, +, -, _.",
+		MinUserType: "trusted",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"keysym": map[string]any{"type": "string", "description": "Key or combo, e.g. \"Return\", \"ctrl+c\", \"Alt+F4\"."},
+			},
+			"required": []string{"keysym"},
+		},
+	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
+		sandboxID := ctx.SandboxID
+		if sandboxID == "" {
+			return &ToolResult{Success: false, Error: "desktop_key requires an active sandbox"}, nil
+		}
+		var params struct {
+			Keysym string `json:"keysym"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+		if err := desktop.Key(sbMgr, sandboxID, params.Keysym); err != nil {
+			return &ToolResult{Success: false, Error: fmt.Sprintf("desktop_key: %v", err)}, nil
+		}
+		return &ToolResult{Success: true, Data: fmt.Sprintf("pressed: %s", params.Keysym)}, nil
+	})
+}
+
+// orDefault returns v if non-zero, else def. Small helper for building
+// result strings without pulling in a generic clamp util.
+func orDefault(v, def int) int {
+	if v == 0 {
+		return def
+	}
+	return v
+}
