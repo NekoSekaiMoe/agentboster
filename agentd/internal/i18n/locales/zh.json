@@ -1,6 +1,0 @@
-[
-  {
-    "id": "l2.authorization.message",
-    "translation": "{{.Icon}} 高风险操作需要您的授权\n\n命令：{{.Command}}\n风险评分：{{.Score}}/1.0\n风险等级：{{.Level}}\n原因：{{.Reason}}\n\n请选择授权时间窗口：\n- pass_once: 仅此次\n- pass_until: 指定时间前 (格式 hhddmmyy)\n- reject_once: 仅此次拒绝\n- reject_until: 指定时间前拒绝 (格式 hhddmmyy)"
-  }
-]
