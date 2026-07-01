@@ -27,7 +27,6 @@ import type {
   ExtensionContextActions,
   ExtensionError,
   ExtensionEvent,
-  ExtensionFlag,
   ExtensionMode,
   ExtensionRuntime,
   ExtensionShortcut,
@@ -443,16 +442,8 @@ export class ExtensionRunner {
     this.mode = mode;
   }
 
-  getUIContext(): ExtensionUIContext {
-    return this.uiContext;
-  }
-
   hasUI(): boolean {
     return this.uiContext !== noOpUIContext;
-  }
-
-  getExtensionPaths(): string[] {
-    return this.extensions.map((e) => e.path);
   }
 
   /** Get all registered tools from all extensions (first registration per name wins). */
@@ -466,35 +457,6 @@ export class ExtensionRunner {
       }
     }
     return Array.from(toolsByName.values());
-  }
-
-  /** Get a tool definition by name. Returns undefined if not found. */
-  getToolDefinition(
-    toolName: string,
-  ): RegisteredTool['definition'] | undefined {
-    for (const ext of this.extensions) {
-      const tool = ext.tools.get(toolName);
-      if (tool) {
-        return tool.definition;
-      }
-    }
-    return undefined;
-  }
-
-  getFlags(): Map<string, ExtensionFlag> {
-    const allFlags = new Map<string, ExtensionFlag>();
-    for (const ext of this.extensions) {
-      for (const [name, flag] of ext.flags) {
-        if (!allFlags.has(name)) {
-          allFlags.set(name, flag);
-        }
-      }
-    }
-    return allFlags;
-  }
-
-  setFlagValue(name: string, value: boolean | string): void {
-    this.runtime.flagValues.set(name, value);
   }
 
   getFlagValues(): Map<string, boolean | string> {
