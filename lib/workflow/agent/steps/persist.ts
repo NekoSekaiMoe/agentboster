@@ -111,21 +111,38 @@ export async function persistStepDeltaAndUsageStep(input: {
     'assistant',
   );
 
+  // Stamp runId onto every row produced by this step so the loader can
+  // merge consecutive assistant steps of the same agent turn back into a
+  // single UI message — matching what the user saw while streaming (where
+  // AI SDK accumulates every step's parts into one message). Without this
+  // marker, reload splits a multi-step turn into N independent messages,
+  // each with its own action row, which is reported as "tool cards jump
+  // below the regenerate button and only the first reasoning survives".
+  const stampRunId = (row: SerializedMessageForDB): SerializedMessageForDB => ({
+    ...row,
+    payload: {
+      ...row.payload,
+      metadata: { ...(row.payload.metadata ?? {}), runId },
+    },
+  });
+
   const hasText = input.step.text.trim().length > 0;
   const hasReasoning = (input.step.reasoningText ?? '').trim().length > 0;
   if (hasText || hasReasoning) {
-    rows.push({
-      ...serializeAssistantMessage({
-        sessionId: input.sessionId,
-        text: input.step.text,
-        reasoningText: input.step.reasoningText,
-        stepNumber: input.step.stepNumber,
-        finishReason: input.step.finishReason,
-        usage,
-        createdAt: stepCreatedAt,
+    rows.push(
+      stampRunId({
+        ...serializeAssistantMessage({
+          sessionId: input.sessionId,
+          text: input.step.text,
+          reasoningText: input.step.reasoningText,
+          stepNumber: input.step.stepNumber,
+          finishReason: input.step.finishReason,
+          usage,
+          createdAt: stepCreatedAt,
+        }),
+        uiMessageId: stepUiMessageId,
       }),
-      uiMessageId: stepUiMessageId,
-    });
+    );
   }
 
   const savedMessageIds: string[] = [];
@@ -168,28 +185,30 @@ export async function persistStepDeltaAndUsageStep(input: {
         : undefined;
 
     await upsertPersistedMessage(
-      serializeToolMessage({
-        sessionId: input.sessionId,
-        // Tool rows share a prefix with the assistant text row of the same
-        // step (both start with "<stepUiMessageId>") so the loader can
-        // group them back together. The "#tool:<toolCallId>" suffix keeps
-        // the (sessionId, uiMessageId) unique constraint satisfied —
-        // otherwise two tool rows in the same step would collide.
-        uiMessageId: `${stepUiMessageId}#tool:${toolCall.toolCallId}`,
-        stepNumber: input.step.stepNumber,
-        finishReason: input.step.finishReason,
-        toolCallId: toolCall.toolCallId,
-        toolName: toolCall.toolName,
-        toolState: deniedOutput
-          ? 'output-denied'
-          : result
-            ? 'output-available'
-            : 'input-available',
-        toolApproval,
-        toolInput: toolCall.input,
-        toolOutput,
-        createdAt: stepCreatedAt,
-      }),
+      stampRunId(
+        serializeToolMessage({
+          sessionId: input.sessionId,
+          // Tool rows share a prefix with the assistant text row of the same
+          // step (both start with "<stepUiMessageId>") so the loader can
+          // group them back together. The "#tool:<toolCallId>" suffix keeps
+          // the (sessionId, uiMessageId) unique constraint satisfied —
+          // otherwise two tool rows in the same step would collide.
+          uiMessageId: `${stepUiMessageId}#tool:${toolCall.toolCallId}`,
+          stepNumber: input.step.stepNumber,
+          finishReason: input.step.finishReason,
+          toolCallId: toolCall.toolCallId,
+          toolName: toolCall.toolName,
+          toolState: deniedOutput
+            ? 'output-denied'
+            : result
+              ? 'output-available'
+              : 'input-available',
+          toolApproval,
+          toolInput: toolCall.input,
+          toolOutput,
+          createdAt: stepCreatedAt,
+        }),
+      ),
     );
   }
 

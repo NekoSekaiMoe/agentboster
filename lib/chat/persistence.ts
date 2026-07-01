@@ -56,15 +56,62 @@ export function deserializePersistedMessages(
   });
 
   const messages: WorkflowUIMessage[] = [];
+  // runId of the last emitted assistant message, used to decide whether
+  // the next assistant group belongs to the same agent turn and should
+  // be merged into it. Kept separate from WorkflowUIMessage.metadata so
+  // the internal marker never reaches the client.
+  let lastEmittedRunId: string | undefined;
   let currentKey: string | null = null;
   let currentGroup: PersistedMessageRecord[] = [];
 
-  const flush = () => {
-    if (currentGroup.length > 0) {
-      messages.push(buildMessage(currentGroup));
+  // Reads the runId stamped by persistStepDeltaAndUsageStep (payload.metadata.runId).
+  // Returns undefined for legacy rows / user rows, which disables merging.
+  const runIdOf = (group: PersistedMessageRecord[]): string | undefined => {
+    for (const row of group) {
+      const meta = row.payload?.metadata as { runId?: unknown } | undefined;
+      if (typeof meta?.runId === 'string') {
+        return meta.runId;
+      }
     }
+    return undefined;
+  };
+
+  const flush = () => {
+    if (currentGroup.length === 0) {
+      currentKey = null;
+      return;
+    }
+
+    const built = buildMessage(currentGroup);
+    const runId = runIdOf(currentGroup);
     currentKey = null;
     currentGroup = [];
+
+    // Coalesce consecutive assistant steps of the same agent turn into
+    // one UI message. While streaming, AI SDK's ToolLoopAgent appends
+    // every step's parts (reasoning/tool/text) onto a single UI message,
+    // so reload must reconstruct the same single-message shape or the
+    // user sees N split bubbles (each with its own action row and only
+    // its own slice of reasoning) — the "tool cards jump below the
+    // regenerate button / only first reasoning survives" symptom.
+    if (
+      runId &&
+      built.role === 'assistant' &&
+      messages.length > 0 &&
+      lastEmittedRunId === runId
+    ) {
+      const prev = messages[messages.length - 1];
+      if (prev.role === 'assistant') {
+        prev.parts.push(...built.parts);
+        // Reflect the turn's final state (last step wins) without
+        // leaking runId into the public metadata.
+        prev.metadata = built.metadata;
+        return;
+      }
+    }
+
+    messages.push(built);
+    lastEmittedRunId = built.role === 'assistant' ? runId : undefined;
   };
 
   for (const row of orderedRows) {
@@ -80,10 +127,13 @@ export function deserializePersistedMessages(
     }
 
     // user rows are never grouped — flush the in-progress assistant
-    // group, then emit the user row as its own single-row group.
+    // group, then emit the user row as its own single-row group. The
+    // direct push bypasses lastEmittedRunId bookkeeping, so reset it
+    // here to prevent a subsequent turn from merging with the previous.
     if (row.role === 'user') {
       flush();
       messages.push(buildMessage([row]));
+      lastEmittedRunId = undefined;
       continue;
     }
 
@@ -162,7 +212,15 @@ function buildMessage(groupRows: PersistedMessageRecord[]): WorkflowUIMessage {
     // Prefer metadata from the assistant row (it carries stepNumber /
     // finishReason / createdAt), but fall back to tool-row metadata.
     if (!metadata) {
-      metadata = row.payload.metadata as WorkflowUIMessage['metadata'];
+      const rowMeta = row.payload.metadata as
+        | Record<string, unknown>
+        | undefined;
+      if (rowMeta) {
+        // runId is an internal marker used only by deserializePersistedMessages
+        // to coalesce steps; strip it so it never reaches the UI message.
+        const { runId: _drop, ...publicMeta } = rowMeta;
+        metadata = publicMeta as WorkflowUIMessage['metadata'];
+      }
     }
   }
 
