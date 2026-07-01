@@ -282,6 +282,100 @@ export default defineBuildInTool({
             nodeId: input.nodeId,
           }),
       }),
+
+      desktop_inspect: tool({
+        title: 'Return the desktop accessibility tree',
+        description:
+          'Walk the AT-SPI2 accessibility tree inside the sandbox and return a compact text list of on-screen widgets. ' +
+          'Each widget becomes one line: `- push button "Reload" [ref=e3] @120,80 28x28`. ' +
+          'Use the refs (eN) with desktop_a11y_click / desktop_a11y_type for precise, semantic GUI automation. ' +
+          'Much cheaper than desktop_screenshot (no image bytes), and works even when the target is off-screen but exposed by the toolkit. ' +
+          'Falls back gracefully on apps without AT-SPI support (raw X11 apps like xterm return an empty tree). ' +
+          'First call provisions Xvfb + icewm + x11vnc + noVNC + at-spi2 + the helper binary (~30-60s); subsequent calls are fast.',
+        inputSchema: z.object({
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(500)
+            .optional()
+            .describe(
+              'Max number of widgets to return. Default 300. Hard cap prevents pathological trees (LibreOffice Calc) from hanging.',
+            ),
+          nodeId: nodeIdParam,
+        }),
+        execute: (input) =>
+          dispatchDesktopTool({
+            ...ctx,
+            toolName: 'desktop_inspect',
+            toolInput: {
+              limit: input.limit,
+            },
+            nodeId: input.nodeId,
+          }),
+      }),
+
+      desktop_a11y_click: tool({
+        title: 'Click a widget by accessibility ref',
+        description:
+          'Click an on-screen widget by its accessibility ref (the eN id from desktop_inspect). ' +
+          'Routes through the AT-SPI Action interface for precise, semantic interaction. ' +
+          'If AT-SPI cannot reach the target (raw-X11 apps, widgets without an Action interface), ' +
+          'automatically falls back to a coordinate click via xdotool using the bounding-box center captured at snapshot time. ' +
+          'Always call desktop_inspect first to get refs.',
+        inputSchema: z.object({
+          ref: z
+            .string()
+            .min(1)
+            .describe(
+              'Accessibility ref from desktop_inspect (e.g. "e3"). Accepts e3 / E03 / ref=e3 / 3.',
+            ),
+          nodeId: nodeIdParam,
+        }),
+        execute: (input) =>
+          dispatchDesktopTool({
+            ...ctx,
+            toolName: 'desktop_a11y_click',
+            toolInput: {
+              ref: input.ref,
+            },
+            nodeId: input.nodeId,
+          }),
+      }),
+
+      desktop_a11y_type: tool({
+        title: 'Type text into a widget by accessibility ref',
+        description:
+          'Type text into the editable widget pointed at by an accessibility ref. ' +
+          'Inserts at the caret via the AT-SPI EditableText interface. ' +
+          'If AT-SPI cannot reach the target, falls back to clicking the bounding-box center and typing via xdotool. ' +
+          'Always call desktop_inspect first to get refs.',
+        inputSchema: z.object({
+          ref: z
+            .string()
+            .min(1)
+            .describe('Accessibility ref from desktop_inspect.'),
+          text: z.string().min(1).describe('Text to type. UTF-8 safe.'),
+          mode: z
+            .enum(['insert', 'replace'])
+            .optional()
+            .describe(
+              'insert (default) inserts at the caret; replace overwrites the whole field.',
+            ),
+          nodeId: nodeIdParam,
+        }),
+        execute: (input) =>
+          dispatchDesktopTool({
+            ...ctx,
+            toolName: 'desktop_a11y_type',
+            toolInput: {
+              ref: input.ref,
+              text: input.text,
+              mode: input.mode,
+            },
+            nodeId: input.nodeId,
+          }),
+      }),
     };
   },
 });

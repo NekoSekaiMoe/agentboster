@@ -1,8 +1,9 @@
 module github.com/clawless/agentd
 
-go 1.26.2
+go 1.26.4
 
 require (
+	github.com/NekoSekaiMoe/agentboster/subpackage/dbushelper v0.0.0-00010101000000-000000000000
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/fsnotify/fsnotify v1.9.0
@@ -79,3 +80,5 @@ require (
 	golang.org/x/sys v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
+
+replace github.com/NekoSekaiMoe/agentboster/subpackage/dbushelper => ./../subpackage/dbushelper

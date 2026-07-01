@@ -99,6 +99,16 @@ func RegisterAllTools(
 	registerDesktopType(registry, sbManager, agentCtx)
 	registerDesktopKey(registry, sbManager, agentCtx)
 
+	// desktop_inspect/a11y_click/a11y_type drive GUI via the AT-SPI
+	// accessibility tree — much cheaper and more precise than
+	// screenshot+xdotool for toolkits that expose AT-SPI (GTK /
+	// Chromium / Electron). The a11y_*_click/type tools fall back to
+	// desktop_click/type (xdotool) automatically when AT-SPI can't
+	// reach the target.
+	registerDesktopInspect(registry, sbManager, agentCtx)
+	registerDesktopA11yClick(registry, sbManager, agentCtx)
+	registerDesktopA11yType(registry, sbManager, agentCtx)
+
 	// === Sandbox lifecycle (1) ===
 	// Explicit teardown when the user asks to destroy the project sandbox.
 	registerSandboxDestroy(registry, sbManager, agentCtx)

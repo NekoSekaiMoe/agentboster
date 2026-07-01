@@ -113,6 +113,14 @@ func runScript(sbMgr *sandbox.Manager, sandboxID, script string, timeoutSec int)
 // runScriptRaw runs a shell script in the sandbox and returns trimmed
 // stdout. Errors include stderr when present.
 func runScriptRaw(sbMgr *sandbox.Manager, sandboxID, script string, timeoutSec int) (string, error) {
+	return RunScript(sbMgr, sandboxID, script, timeoutSec)
+}
+
+// RunScript is the exported form of runScriptRaw. External packages
+// (e.g. internal/agent/tools_a11y.go calling the a11y helper binary)
+// need to run commands in the sandbox and capture stdout without
+// reimplementing the sh -c wrapping + trimming + error formatting.
+func RunScript(sbMgr *sandbox.Manager, sandboxID, script string, timeoutSec int) (string, error) {
 	// `sh -s` reads the script from stdin. lxc-attach / docker exec both
 	// accept it via `sh -c '...'` form; sbMgr.Exec joins argv with spaces
 	// and feeds it to the container's shell. Embedding the script in a

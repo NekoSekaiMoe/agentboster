@@ -39,6 +39,16 @@ NOVNC_INSTALL_DIR="/usr/share/novnc"
 NOVNC_TARBALL="novnc-${NOVNC_VERSION}.tar.gz"
 NOVNC_URL="https://github.com/novnc/noVNC/archive/refs/tags/${NOVNC_VERSION}.tar.gz"
 
+# a11y helper binary — a small Go CLI that walks the AT-SPI2 tree inside
+# the sandbox. Built from subpackage/dbushelper/cmd/a11y-helper and
+# attached to a GitHub release; downloaded here on first desktop_* call.
+# Override AGENTD_A11Y_HELPER_VERSION / AGENTD_A11Y_HELPER_REPO to test
+# pre-release binaries or a fork.
+A11Y_HELPER_VERSION="${AGENTD_A11Y_HELPER_VERSION:-v0.1.0}"
+A11Y_HELPER_REPO="${AGENTD_A11Y_HELPER_REPO:-NekoSekaiMoe/agentboster}"
+A11Y_HELPER_INSTALL_DIR="/usr/local/bin"
+A11Y_HELPER_BIN="${A11Y_HELPER_INSTALL_DIR}/agentd-a11y-helper"
+
 # install_novnc_from_release fetches the noVNC tarball from GitHub and
 # unpacks it to /usr/share/novnc. Idempotent: skips if vnc.html exists.
 # Used on alpine and arch where the distro package is missing or empty
@@ -89,6 +99,75 @@ install_novnc_from_release() {
   echo "AGENTD_DESKTOP_NOVNC_INSTALLED=${NOVNC_INSTALL_DIR}/vnc.html"
 }
 
+# install_a11y_helper_from_release fetches the prebuilt a11y helper
+# binary from a GitHub release and installs it at
+# /usr/local/bin/agentd-a11y-helper. Idempotent: skips if the binary
+# already exists and matches the configured version.
+#
+# Architecture mapping:
+#   x86_64  → amd64
+#   aarch64 → arm64
+#   (others → emit hint + return 1; the helper is currently only built
+#   for linux/amd64 and linux/arm64 by the release pipeline)
+install_a11y_helper_from_release() {
+  if [ -x "${A11Y_HELPER_BIN}" ]; then
+    echo "AGENTD_DESKTOP_A11Y_HELPER_ALREADY_INSTALLED=${A11Y_HELPER_BIN}"
+    return 0
+  fi
+
+  # Resolve Go arch from uname -m.
+  case "$(uname -m)" in
+    x86_64)  A11Y_ARCH="amd64" ;;
+    aarch64) A11Y_ARCH="arm64" ;;
+    *)
+      echo "AGENTD_DESKTOP_A11Y_HELPER_UNSUPPORTED_ARCH=$(uname -m)" >&2
+      echo "AGENTD_DESKTOP_INSTALL_HINT=unsupported arch for a11y helper; build manually from subpackage/dbushelper/cmd/a11y-helper and place at ${A11Y_HELPER_BIN}" >&2
+      return 1
+      ;;
+  esac
+
+  if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    echo "AGENTD_DESKTOP_A11Y_HELPER_MISSING_TOOLS=curl-or-wget" >&2
+    echo "AGENTD_DESKTOP_INSTALL_HINT=install curl or wget first, then retry desktop_inspect" >&2
+    return 1
+  fi
+
+  A11Y_TARBALL="agentd-a11y-helper-linux-${A11Y_ARCH}-${A11Y_HELPER_VERSION}"
+  A11Y_URL="https://github.com/${A11Y_HELPER_REPO}/releases/download/a11y-helper/${A11Y_HELPER_VERSION}/${A11Y_TARBALL}"
+
+  echo "AGENTD_DESKTOP_A11Y_HELPER_DOWNLOAD_STARTED arch=${A11Y_ARCH} version=${A11Y_HELPER_VERSION}"
+
+  TMPDIR_A11Y="$(mktemp -d /tmp/agentd-a11y-XXXXXX)"
+  trap 'rm -rf "$TMPDIR_A11Y"' RETURN
+
+  if command -v curl >/dev/null 2>&1; then
+    if ! curl -fsSL "$A11Y_URL" -o "$TMPDIR_A11Y/agentd-a11y-helper"; then
+      echo "AGENTD_DESKTOP_A11Y_HELPER_DOWNLOAD_FAILED=$A11Y_URL" >&2
+      echo "AGENTD_DESKTOP_INSTALL_HINT=a11y helper download failed; build manually from subpackage/dbushelper/cmd/a11y-helper and place at ${A11Y_HELPER_BIN}" >&2
+      return 1
+    fi
+  else
+    if ! wget -q -O "$TMPDIR_A11Y/agentd-a11y-helper" "$A11Y_URL"; then
+      echo "AGENTD_DESKTOP_A11Y_HELPER_DOWNLOAD_FAILED=$A11Y_URL" >&2
+      echo "AGENTD_DESKTOP_INSTALL_HINT=a11y helper download failed; build manually from subpackage/dbushelper/cmd/a11y-helper and place at ${A11Y_HELPER_BIN}" >&2
+      return 1
+    fi
+  fi
+
+  chmod +x "$TMPDIR_A11Y/agentd-a11y-helper"
+  mkdir -p "$A11Y_HELPER_INSTALL_DIR"
+  # cp + mv to make the swap atomic from concurrent readers.
+  cp "$TMPDIR_A11Y/agentd-a11y-helper" "${A11Y_HELPER_BIN}.tmp"
+  mv "${A11Y_HELPER_BIN}.tmp" "${A11Y_HELPER_BIN}"
+
+  if ! [ -x "${A11Y_HELPER_BIN}" ]; then
+    echo "AGENTD_DESKTOP_A11Y_HELPER_INSTALL_FAILED=bin not executable after install" >&2
+    return 1
+  fi
+
+  echo "AGENTD_DESKTOP_A11Y_HELPER_INSTALLED=${A11Y_HELPER_BIN}"
+}
+
 # emit_hint prints a single AGENTD_DESKTOP_INSTALL_HINT line listing the
 # system packages needed, then exits 1. The caller (EnsureDesktop)
 # surfaces this to the LLM as a tool-result error; the model runs the
@@ -114,17 +193,23 @@ emit_hint() {
 # it inline rather than emitting another hint. Once vnc.html exists,
 # the script reports already-installed and exits 0.
 if command -v Xvfb >/dev/null 2>&1 && command -v x11vnc >/dev/null 2>&1; then
-  # Phase 2: system packages present. Ensure noVNC web assets are too.
-  # On alpine/arch this fetches from GitHub; on debian/rhel the distro
-  # package already provided /usr/share/novnc/vnc.html, so
-  # install_novnc_from_release no-ops.
+  # Phase 2: system packages present. Ensure noVNC web assets + the
+  # a11y helper binary are too. Both fetch from GitHub; on debian/rhel
+  # the distro novnc package already provided vnc.html, so
+  # install_novnc_from_release no-ops there.
   if ! [ -e "${NOVNC_INSTALL_DIR}/vnc.html" ]; then
     install_novnc_from_release || {
       echo "AGENTD_DESKTOP_INSTALL_HINT=install_novnc_from_release failed; check curl/wget availability and GitHub reachability" >&2
       exit 1
     }
   fi
-  echo "AGENTD_DESKTOP_ALREADY_INSTALLED=Xvfb:$DISPLAY_IDX,x11vnc,novnc:${NOVNC_INSTALL_DIR}/vnc.html"
+  # a11y helper failure is non-fatal — desktop_screenshot/click still
+  # work, only desktop_inspect/a11y_click/a11y_type degrade. We don't
+  # exit 1 here; the tool layer surfaces a per-call error if invoked.
+  if ! [ -x "${A11Y_HELPER_BIN}" ]; then
+    install_a11y_helper_from_release || true
+  fi
+  echo "AGENTD_DESKTOP_ALREADY_INSTALLED=Xvfb:$DISPLAY_IDX,x11vnc,novnc:${NOVNC_INSTALL_DIR}/vnc.html,a11y:${A11Y_HELPER_BIN}"
   exit 0
 fi
 
