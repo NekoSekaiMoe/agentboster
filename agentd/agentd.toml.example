@@ -104,6 +104,40 @@ init_commands = [
     "command -v apk >/dev/null 2>&1 && [ ! -s /etc/resolv.conf ] && echo 'nameserver 8.8.8.8' > /etc/resolv.conf || true",
 ]
 
+# ── Optional: GUI-enabled profile for desktop app debugging ──────────────
+# Uncomment the block below (replacing the init_commands above) to bake a
+# minimal X11 desktop into every new LXC sandbox. The stack is:
+#   - Xvfb (headless X server on :99)
+#   - icewm (10MB window manager, no GTK/Qt deps)
+#   - x11vnc (VNC server attached to :99, RFB port 5999)
+#   - websockify + noVNC (HTTP on port 6080, open /vnc.html in a browser)
+#   - xdotool (mouse/keyboard injection)
+#   - imagemagick (for the desktop_screenshot tool — lossless X11 capture)
+#
+# The desktop_screenshot tool auto-provisions all of this on first call
+# via desktop_install.sh (idempotent + LLM-self-heal hints), so you do
+# NOT need to enable this profile unless you want every sandbox to come
+# up with the stack preinstalled (saves the ~30s cold-start on first
+# desktop_screenshot call).
+#
+# Requires lxc_default_distro = "alpine" (the default) for the package
+# names below to resolve. On debian/ubuntu, replace `apk add --no-cache`
+# with `apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends`
+# and use the debian package names (xvfb icewm x11vnc websockify novnc
+# xdotool imagemagick fonts-noto-cjk).
+#
+# Once a sandbox is up, expose the noVNC port to the user with the
+# sandbox.public_port tool and share the returned URL with path /vnc.html.
+#
+# init_commands = [
+#     "apk add --no-cache git curl bash ca-certificates xz",
+#     "mkdir -p /workspace",
+#     "command -v apk >/dev/null 2>&1 && [ ! -s /etc/resolv.conf ] && echo 'nameserver 8.8.8.8' > /etc/resolv.conf || true",
+#     # GUI stack (Alpine community repo required for icewm / x11vnc)
+#     "grep -q community /etc/apk/repositories || (echo \"$(head -n1 /etc/apk/repositories | sed 's#/main#/community#')\") >> /etc/apk/repositories",
+#     "apk add --no-cache xorg-server-xvfb icewm x11vnc websockify novnc xdotool imagemagick",
+# ]
+
 [cache]
 path = "/tmp/agentd"
 session_max_size = 104857600  # 100MB
