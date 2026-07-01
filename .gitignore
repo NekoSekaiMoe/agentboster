@@ -44,6 +44,8 @@ yarn-error.log*
 artifacts/
 agentd/agentd
 agentd/a11y-helper
+subpackage/dbushelper/a11y-helper
+subpackage/dbushelper/cmd/a11y-helper/a11y-helper
 .atomcode/
 .qoder/
 

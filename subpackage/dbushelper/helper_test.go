@@ -1,4 +1,4 @@
-package main
+package dbushelper
 
 import (
 	"encoding/json"
@@ -24,20 +24,20 @@ func TestNormalizeRef(t *testing.T) {
 		{"", ""},
 	}
 	for _, c := range cases {
-		if got := normalizeRef(c.in); got != c.want {
-			t.Errorf("normalizeRef(%q) = %q, want %q", c.in, got, c.want)
+		if got := NormalizeRef(c.in); got != c.want {
+			t.Errorf("NormalizeRef(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
 
 func TestRefEntryCenter(t *testing.T) {
-	e := refEntry{X: 100, Y: 50, Width: 40, Height: 20}
-	if x, y := e.center(); x != 120 || y != 60 {
+	e := RefEntry{X: 100, Y: 50, Width: 40, Height: 20}
+	if x, y := e.Center(); x != 120 || y != 60 {
 		t.Errorf("center = (%d,%d), want (120,60)", x, y)
 	}
 	// Zero dimensions: center == origin.
-	e2 := refEntry{X: 10, Y: 20, Width: 0, Height: 0}
-	if x, y := e2.center(); x != 10 || y != 20 {
+	e2 := RefEntry{X: 10, Y: 20, Width: 0, Height: 0}
+	if x, y := e2.Center(); x != 10 || y != 20 {
 		t.Errorf("center(zero) = (%d,%d), want (10,20)", x, y)
 	}
 }
@@ -46,28 +46,28 @@ func TestRefsWriteLookupRoundtrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "refs.json")
 	t.Setenv("AGENTD_A11Y_REFS", path)
 
-	entries := []refEntry{
+	entries := []RefEntry{
 		{RefID: "e1", BusName: ":1.42", ObjectPath: "/org/a11y/atspi/accessible/root", Role: "push button", Name: "Reload", X: 100, Y: 50, Width: 30, Height: 20},
 		{RefID: "e2", BusName: ":1.42", ObjectPath: "/org/a11y/atspi/accessible/x", Role: "entry", Name: "Stop"},
 	}
-	if _, err := writeRefs(entries); err != nil {
-		t.Fatalf("writeRefs: %v", err)
+	if _, err := WriteRefs(entries); err != nil {
+		t.Fatalf("WriteRefs: %v", err)
 	}
 
-	got, err := lookupRef("e2")
+	got, err := LookupRef("e2")
 	if err != nil {
-		t.Fatalf("lookupRef(e2): %v", err)
+		t.Fatalf("LookupRef(e2): %v", err)
 	}
 	if got.Name != "Stop" {
 		t.Errorf("lookup(e2).Name = %q, want Stop", got.Name)
 	}
 
 	// Normalized forms resolve to the same entry.
-	if _, err := lookupRef("REF=E1"); err != nil {
+	if _, err := LookupRef("REF=E1"); err != nil {
 		t.Errorf("lookup(REF=E1) err = %v, want nil", err)
 	}
 
-	if _, err := lookupRef("e99"); err == nil {
+	if _, err := LookupRef("e99"); err == nil {
 		t.Errorf("lookup(e99) err = nil, want error (not in index)")
 	}
 
@@ -84,7 +84,7 @@ func TestRefsWriteLookupRoundtrip(t *testing.T) {
 
 func TestLookupRefFailsWhenFileMissing(t *testing.T) {
 	t.Setenv("AGENTD_A11Y_REFS", filepath.Join(t.TempDir(), "missing.json"))
-	if _, err := lookupRef("e1"); err == nil {
+	if _, err := LookupRef("e1"); err == nil {
 		t.Fatalf("lookup on missing file: expected error, got nil")
 	}
 }
@@ -92,95 +92,95 @@ func TestLookupRefFailsWhenFileMissing(t *testing.T) {
 func TestPreferredActionIndex(t *testing.T) {
 	cases := []struct {
 		name    string
-		actions []actionDescriptor
+		actions []ActionDescriptor
 		want    int
 	}{
-		{"click wins over later press/activate", []actionDescriptor{
+		{"click wins over later press/activate", []ActionDescriptor{
 			{Name: "focus"}, {Name: "click"}, {Name: "press"},
 		}, 1},
-		{"press wins when no click", []actionDescriptor{
+		{"press wins when no click", []ActionDescriptor{
 			{Name: "focus"}, {Name: "press"}, {Name: "activate"},
 		}, 1},
-		{"activate when no click/press", []actionDescriptor{
+		{"activate when no click/press", []ActionDescriptor{
 			{Name: "focus"}, {Name: "activate"},
 		}, 1},
-		{"case-insensitive", []actionDescriptor{
+		{"case-insensitive", []ActionDescriptor{
 			{Name: "Focus"}, {Name: "CLICK"},
 		}, 1},
-		{"fall back to first", []actionDescriptor{
+		{"fall back to first", []ActionDescriptor{
 			{Name: "focus"}, {Name: "describe"},
 		}, 0},
-		{"empty list", []actionDescriptor{}, 0},
+		{"empty list", []ActionDescriptor{}, 0},
 	}
 	for _, c := range cases {
-		if got := preferredActionIndex(c.actions); got != c.want {
+		if got := PreferredActionIndex(c.actions); got != c.want {
 			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
 		}
 	}
 }
 
 func TestRoleIsStructural(t *testing.T) {
-	structural := []uint32{roleInvalidRole, roleUnknown, roleFiller, roleSeparator, roleApplication, roleDesktopFrame, roleDesktopIcon}
+	structural := []uint32{RoleInvalidRole, RoleUnknown, RoleFiller, RoleSeparator, RoleApplication, RoleDesktopFrame, RoleDesktopIcon}
 	for _, r := range structural {
-		if !roleIsStructural(r) {
+		if !RoleIsStructural(r) {
 			t.Errorf("role %d should be structural", r)
 		}
 	}
 	// A few non-structural roles.
 	notStructural := []uint32{2, 3, 4, 6, 10, 20, 100, 200}
 	for _, r := range notStructural {
-		if roleIsStructural(r) {
+		if RoleIsStructural(r) {
 			t.Errorf("role %d should NOT be structural", r)
 		}
 	}
 }
 
 func TestIsOnScreen(t *testing.T) {
-	if !isOnScreen([]uint32{stateShowing}) {
+	if !IsOnScreen([]uint32{StateShowing}) {
 		t.Error("Showing alone should be on-screen")
 	}
-	if !isOnScreen([]uint32{stateVisible}) {
+	if !IsOnScreen([]uint32{StateVisible}) {
 		t.Error("Visible alone should be on-screen")
 	}
-	if !isOnScreen([]uint32{1, stateShowing, 5}) {
+	if !IsOnScreen([]uint32{1, StateShowing, 5}) {
 		t.Error("Showing mixed with other states should be on-screen")
 	}
-	if isOnScreen([]uint32{1, 5, 10}) {
+	if IsOnScreen([]uint32{1, 5, 10}) {
 		t.Error("states without Showing/Visible should NOT be on-screen")
 	}
-	if isOnScreen([]uint32{}) {
+	if IsOnScreen([]uint32{}) {
 		t.Error("empty state list should NOT be on-screen")
 	}
 }
 
 func TestFormatLine(t *testing.T) {
 	cases := []struct {
-		entry refEntry
+		entry RefEntry
 		want  string
 	}{
 		{
-			refEntry{RefID: "e3", Role: "push button", Name: "Reload", X: 120, Y: 80, Width: 28, Height: 28},
+			RefEntry{RefID: "e3", Role: "push button", Name: "Reload", X: 120, Y: 80, Width: 28, Height: 28},
 			`- push button "Reload" [ref=e3] @120,80 28x28`,
 		},
 		{
 			// No name: omit the quoted name clause.
-			refEntry{RefID: "e1", Role: "separator", Name: "", X: 0, Y: 0, Width: 0, Height: 0},
+			RefEntry{RefID: "e1", Role: "separator", Name: "", X: 0, Y: 0, Width: 0, Height: 0},
 			`- separator [ref=e1]`,
 		},
 		{
 			// Zero extents but non-empty name: name shown, no @x,y WxH.
-			refEntry{RefID: "e2", Role: "label", Name: "Hint", X: 0, Y: 0, Width: 0, Height: 0},
+			RefEntry{RefID: "e2", Role: "label", Name: "Hint", X: 0, Y: 0, Width: 0, Height: 0},
 			`- label "Hint" [ref=e2]`,
 		},
 		{
 			// Name with embedded quote: round-trips via JSON escaping.
-			refEntry{RefID: "e4", Role: "label", Name: `she said "hi"`, X: 5, Y: 6, Width: 7, Height: 8},
+			RefEntry{RefID: "e4", Role: "label", Name: `she said "hi"`, X: 5, Y: 6, Width: 7, Height: 8},
 			`- label "she said \"hi\"" [ref=e4] @5,6 7x8`,
 		},
 	}
 	for _, c := range cases {
-		if got := formatLine(c.entry); got != c.want {
-			t.Errorf("formatLine(%+v)\n  got  %q\n  want %q", c.entry, got, c.want)
+		if got := FormatLine(c.entry); got != c.want {
+			t.Errorf("FormatLine(%+v)\n  got  %q\n  want %q", c.entry, got, c.want)
 		}
 	}
 }
@@ -195,8 +195,8 @@ func TestJsonQuote(t *testing.T) {
 		{"日本語", `"日本語"`},
 	}
 	for _, c := range cases {
-		if got := jsonQuote(c.in); got != c.want {
-			t.Errorf("jsonQuote(%q) = %q, want %q", c.in, got, c.want)
+		if got := JsonQuote(c.in); got != c.want {
+			t.Errorf("JsonQuote(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
@@ -211,14 +211,14 @@ func TestDisplayNumber(t *testing.T) {
 		{"  :5 ", "5"}, // trimmed by implementation
 	}
 	for _, c := range cases {
-		if got := displayNumber(c.in); got != c.want {
-			t.Errorf("displayNumber(%q) = %q, want %q", c.in, got, c.want)
+		if got := DisplayNumber(c.in); got != c.want {
+			t.Errorf("DisplayNumber(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }
 
 func TestCandidateCachePaths(t *testing.T) {
-	got := candidateCachePaths("99", "/run/user/1000", "/home/alice")
+	got := CandidateCachePaths("99", "/run/user/1000", "/home/alice")
 	want := []string{
 		"/run/user/1000/at-spi/bus_99",
 		"/run/user/1000/at-spi/bus",
@@ -228,11 +228,11 @@ func TestCandidateCachePaths(t *testing.T) {
 		"/tmp/at-spi/bus_99",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("candidateCachePaths:\n got  %+v\n want %+v", got, want)
+		t.Errorf("CandidateCachePaths:\n got  %+v\n want %+v", got, want)
 	}
 
 	// No XDG_RUNTIME_DIR: skip those entries.
-	got2 := candidateCachePaths("0", "", "/root")
+	got2 := CandidateCachePaths("0", "", "/root")
 	want2 := []string{
 		"/root/.cache/at-spi/bus_0",
 		"/data/.cache/at-spi/bus_0",
@@ -240,26 +240,6 @@ func TestCandidateCachePaths(t *testing.T) {
 		"/tmp/at-spi/bus_0",
 	}
 	if !reflect.DeepEqual(got2, want2) {
-		t.Errorf("candidateCachePaths (no XDG):\n got  %+v\n want %+v", got2, want2)
-	}
-}
-
-func TestParseLimit(t *testing.T) {
-	cases := []struct {
-		args []string
-		want int
-	}{
-		{nil, defaultLimit},
-		{[]string{"--limit", "50"}, 50},
-		{[]string{"--limit=75"}, 75},
-		{[]string{"--limit", "abc"}, defaultLimit}, // bad value → default
-		{[]string{"--limit", "-5"}, defaultLimit},  // negative → default
-		{[]string{"--limit", "0"}, defaultLimit},   // zero → default
-		{[]string{"--unknown", "x"}, defaultLimit}, // unknown flag → default
-	}
-	for _, c := range cases {
-		if got := parseLimit(c.args); got != c.want {
-			t.Errorf("parseLimit(%v) = %d, want %d", c.args, got, c.want)
-		}
+		t.Errorf("CandidateCachePaths (no XDG):\n got  %+v\n want %+v", got2, want2)
 	}
 }

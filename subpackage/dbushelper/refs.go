@@ -1,12 +1,13 @@
-// Persistent ref index for the desktop accessibility tree. A `snapshot`
-// invocation writes the latest mapping to /tmp/agentd-a11y-refs.json;
-// later `click`/`type`/`fill` invocations read the same file to resolve
-// `eN` back into a (bus_name, object_path) pair.
+// Package dbushelper — persistent ref index for the desktop
+// accessibility tree. A `snapshot` invocation writes the latest
+// mapping to /tmp/agentd-a11y-refs.json; later `click`/`type`/`fill`
+// invocations read the same file to resolve `eN` back into a
+// (bus_name, object_path) pair.
 //
 // Path is overridable via AGENTD_A11Y_REFS (we use this in tests to
 // give each test its own file without stomping on the real index).
 
-package main
+package dbushelper
 
 import (
 	"encoding/json"
@@ -17,12 +18,12 @@ import (
 	"strings"
 )
 
-const defaultRefsPath = "/tmp/agentd-a11y-refs.json"
+const DefaultRefsPath = "/tmp/agentd-a11y-refs.json"
 
-// refEntry is one row in the persisted refs file. Fields must match
+// RefEntry is one row in the persisted refs file. Fields must match
 // the JSON tags exactly — the host (agentd) reads this file too when it
 // wants to extract a bounding box for fallback path.
-type refEntry struct {
+type RefEntry struct {
 	RefID      string `json:"ref_id"`
 	BusName    string `json:"bus_name"`
 	ObjectPath string `json:"object_path"`
@@ -34,33 +35,33 @@ type refEntry struct {
 	Height     int32  `json:"height"`
 }
 
-// refIndex wraps an array of refEntry for JSON marshalling.
+// refIndex wraps an array of RefEntry for JSON marshalling.
 type refIndex struct {
-	Entries []refEntry `json:"entries"`
+	Entries []RefEntry `json:"entries"`
 }
 
-// center returns the bounding-box center, used as the RFB fallback
+// Center returns the bounding-box center, used as the RFB fallback
 // target when AT-SPI cannot reach the action. Uses saturating math so
 // a 2^31-wide "extent" doesn't overflow.
-func (r refEntry) center() (int32, int32) {
+func (r RefEntry) Center() (int32, int32) {
 	cx := r.X + r.Width/2
 	cy := r.Y + r.Height/2
 	return cx, cy
 }
 
-// refsPath resolves the on-disk refs file location. The env override is
+// RefsPath resolves the on-disk refs file location. The env override is
 // primarily for tests; production callers let it default.
-func refsPath() string {
+func RefsPath() string {
 	if p := os.Getenv("AGENTD_A11Y_REFS"); p != "" {
 		return p
 	}
-	return defaultRefsPath
+	return DefaultRefsPath
 }
 
-// writeRefs persists the snapshot's ref index, returning the path
+// WriteRefs persists the snapshot's ref index, returning the path
 // written. Creates parent directories as needed.
-func writeRefs(entries []refEntry) (string, error) {
-	target := refsPath()
+func WriteRefs(entries []RefEntry) (string, error) {
+	target := RefsPath()
 	if dir := filepath.Dir(target); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("create parent dir for %s: %w", target, err)
@@ -76,36 +77,36 @@ func writeRefs(entries []refEntry) (string, error) {
 	return target, nil
 }
 
-// lookupRef reads the refs file and returns the entry whose RefID
+// LookupRef reads the refs file and returns the entry whose RefID
 // matches the (normalized) query. Accepts "e3", "E03", "ref=e3", "3".
-func lookupRef(refID string) (refEntry, error) {
-	data, err := os.ReadFile(refsPath())
+func LookupRef(refID string) (RefEntry, error) {
+	data, err := os.ReadFile(RefsPath())
 	if err != nil {
-		return refEntry{}, fmt.Errorf("read refs index at %s: %w", refsPath(), err)
+		return RefEntry{}, fmt.Errorf("read refs index at %s: %w", RefsPath(), err)
 	}
 	var idx refIndex
 	if err := json.Unmarshal(data, &idx); err != nil {
-		return refEntry{}, fmt.Errorf("parse refs index: %w", err)
+		return RefEntry{}, fmt.Errorf("parse refs index: %w", err)
 	}
-	want := normalizeRef(refID)
+	want := NormalizeRef(refID)
 	for _, e := range idx.Entries {
 		if e.RefID == want {
 			return e, nil
 		}
 	}
-	return refEntry{}, fmt.Errorf("ref %s not in %s (run `a11y-helper snapshot` first)", refID, refsPath())
+	return RefEntry{}, fmt.Errorf("ref %s not in %s (run `a11y-helper snapshot` first)", refID, RefsPath())
 }
 
-// normalizeRef maps a user-typed ref id to the canonical "eN" form.
+// NormalizeRef maps a user-typed ref id to the canonical "eN" form.
 // "e3" / "E03" / "ref=e3" / "3" / "REF=7" all collapse to "e3" / "e7".
 // Inputs that don't parse as a positive integer are returned trimmed
 // as-is (so a typo like "eb" still produces a sensible lookup miss).
-func normalizeRef(refID string) string {
+func NormalizeRef(refID string) string {
 	trimmed := strings.TrimSpace(refID)
 	lower := strings.ToLower(trimmed)
 	withoutPrefix := strings.TrimPrefix(lower, "ref=")
 	withoutE := strings.TrimPrefix(withoutPrefix, "e")
-	if n, err := strconv.Atoi(withoutE); err == nil && n > 0 {
+	if n, strconvErr := strconv.Atoi(withoutE); strconvErr == nil && n > 0 {
 		return fmt.Sprintf("e%d", n)
 	}
 	return trimmed

@@ -1,4 +1,4 @@
-// Bus discovery for the AT-SPI2 accessibility bus.
+// Package dbushelper — bus discovery for the AT-SPI2 accessibility bus.
 //
 // The a11y bus is a *separate* D-Bus daemon from the session bus. The
 // session bus exposes its address via org.a11y.Bus.GetAddress, but
@@ -10,7 +10,7 @@
 // and extracting its --address=, (c) probing well-known cache paths
 // under XDG_RUNTIME_DIR / HOME / /tmp.
 
-package main
+package dbushelper
 
 import (
 	"errors"
@@ -25,10 +25,10 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-// openA11yBus connects to the AT-SPI2 accessibility bus, returning a
+// OpenBus connects to the AT-SPI2 accessibility bus, returning a
 // fresh *dbus.Conn bound to the discovered bus address. The discovery
 // order matches memoh's connection.rs.
-func openA11yBus() (*dbus.Conn, error) {
+func OpenBus() (*dbus.Conn, error) {
 	addr, err := resolveBusAddress()
 	if err != nil {
 		return nil, err
@@ -71,22 +71,22 @@ func openA11yBus() (*dbus.Conn, error) {
 // from this process, and bypassing it removes a circular dependency.
 func resolveBusAddress() (string, error) {
 	if addr := os.Getenv("AT_SPI_BUS_ADDRESS"); addr != "" {
-		if socketAlive(addr) {
+		if SocketAlive(addr) {
 			return addr, nil
 		}
 		os.Unsetenv("AT_SPI_BUS_ADDRESS")
 	}
 
 	for _, addr := range scanProcForBusAddresses() {
-		if socketAlive(addr) {
+		if SocketAlive(addr) {
 			return addr, nil
 		}
 	}
 
-	display := displayNumber(os.Getenv("DISPLAY"))
+	display := DisplayNumber(os.Getenv("DISPLAY"))
 	xdgRuntime := os.Getenv("XDG_RUNTIME_DIR")
 	home := os.Getenv("HOME")
-	for _, p := range candidateCachePaths(display, xdgRuntime, home) {
+	for _, p := range CandidateCachePaths(display, xdgRuntime, home) {
 		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 			return "unix:path=" + p, nil
 		}
@@ -95,7 +95,7 @@ func resolveBusAddress() (string, error) {
 	return "", errors.New("no AT-SPI accessibility bus address could be resolved (no live --address= in /proc and no socket at cache paths)")
 }
 
-// socketAlive verifies that a unix:path=... address actually accepts a
+// SocketAlive verifies that a unix:path=... address actually accepts a
 // connection. A daemon that crashed leaves a stale socket file
 // (connect → ECONNREFUSED); a daemon that never bound its requested
 // path gives ENOENT. We catch both so we don't lock ourselves into a
@@ -103,7 +103,7 @@ func resolveBusAddress() (string, error) {
 //
 // Abstract sockets (unix:abstract=...) have no filesystem representation
 // and are trusted as-is — connect() inside godbus will surface any error.
-func socketAlive(addr string) bool {
+func SocketAlive(addr string) bool {
 	for _, part := range strings.Split(addr, ",") {
 		part = strings.TrimSpace(part)
 		if strings.HasPrefix(part, "unix:path=") {
@@ -122,9 +122,9 @@ func socketAlive(addr string) bool {
 	return true // unknown transport — trust the caller
 }
 
-// displayNumber strips the leading colon and trailing ".N" from an X11
+// DisplayNumber strips the leading colon and trailing ".N" from an X11
 // DISPLAY string (":99.0" → "99", ":0" → "0"). Defaults to "0".
-func displayNumber(display string) string {
+func DisplayNumber(display string) string {
 	d := strings.TrimSpace(display)
 	d = strings.TrimPrefix(d, ":")
 	if i := strings.IndexByte(d, '.'); i >= 0 {
@@ -139,11 +139,11 @@ func displayNumber(display string) string {
 	return d
 }
 
-// candidateCachePaths returns the ordered list of cache files to probe
+// CandidateCachePaths returns the ordered list of cache files to probe
 // when /proc discovery turns up nothing. Matches at-spi-bus-launcher's
 // own write locations across distros (some honor $XDG_RUNTIME_DIR,
 // some fall back to $HOME/.cache, Android-derived images use /data).
-func candidateCachePaths(display, xdgRuntime, home string) []string {
+func CandidateCachePaths(display, xdgRuntime, home string) []string {
 	leaf := fmt.Sprintf("at-spi/bus_%s", display)
 	var paths []string
 	if xdgRuntime != "" {

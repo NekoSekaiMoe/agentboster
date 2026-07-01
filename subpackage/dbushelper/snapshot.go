@@ -1,13 +1,14 @@
-// snapshot subcommand: walk the AT-SPI2 desktop tree, assign short
-// `eN` refs to on-screen nodes, persist the index, and emit a JSON
-// envelope with both machine-readable items and LLM-friendly text lines.
+// Package dbushelper — snapshot subcommand: walk the AT-SPI2 desktop
+// tree, assign short `eN` refs to on-screen nodes, persist the index,
+// and return a JSON envelope with both machine-readable items and
+// LLM-friendly text lines.
 //
 // The walk is iterative (DFS via a stack), capped at maxVisits nodes
 // inspected and maxApps top-level applications entered. Aggressive caps
 // are needed because AT-SPI trees can balloon — LibreOffice Calc
 // exposes ~2^31 cells per sheet, and a careless traversal would hang.
 
-package main
+package dbushelper
 
 import (
 	"encoding/json"
@@ -15,27 +16,29 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/godbus/dbus/v5"
 )
 
 const (
-	maxApps       = 32   // max top-level apps to descend into
-	maxVisits     = 8000 // max nodes inspected across the entire walk
-	defaultLimit  = 300  // default cap on accepted (returned) nodes
+	maxApps      = 32   // max top-level apps to descend into
+	maxVisits    = 8000 // max nodes inspected across the entire walk
+	DefaultLimit = 300  // default cap on accepted (returned) nodes
 )
 
-// snapshotOutput is the JSON envelope printed by `a11y-helper snapshot`.
-// Mirrors memoh's SnapshotOutput shape so the agentd Go shim can be
-// structurally identical to memoh's computer_a11y.go consumer.
-type snapshotOutput struct {
+// SnapshotOutput is the JSON envelope returned by RunSnapshot. Mirrors
+// memoh's SnapshotOutput shape so the agentd Go shim can be structurally
+// identical to memoh's computer_a11y.go consumer.
+type SnapshotOutput struct {
 	OK          bool           `json:"ok"`
 	Truncated   bool           `json:"truncated"`
-	Items       []snapshotItem `json:"items"`
+	Items       []SnapshotItem `json:"items"`
 	Lines       []string       `json:"lines"`
 	RefsPath    string         `json:"refs_path"`
-	Diagnostics snapshotDiag   `json:"diagnostics"`
+	Diagnostics Diagnostics    `json:"diagnostics"`
 }
 
-type snapshotItem struct {
+type SnapshotItem struct {
 	RefID  string   `json:"ref_id"`
 	Role   string   `json:"role"`
 	Name   string   `json:"name"`
@@ -46,7 +49,7 @@ type snapshotItem struct {
 	States []string `json:"states,omitempty"`
 }
 
-type snapshotDiag struct {
+type Diagnostics struct {
 	Apps            int    `json:"apps"`
 	Visited         int    `json:"visited"`
 	Accepted        int    `json:"accepted"`
@@ -58,16 +61,18 @@ type snapshotDiag struct {
 	Display         string `json:"display,omitempty"`
 }
 
-// runSnapshot connects to the a11y bus, walks the tree, persists refs,
-// and prints the JSON envelope on stdout.
-func runSnapshot(limit int) error {
+// RunSnapshot connects to the a11y bus, walks the tree, persists refs,
+// and returns the assembled envelope. Caller is responsible for
+// serializing it (JSON or otherwise) — this function has no side
+// effects beyond writing the refs file.
+func RunSnapshot(limit int) (*SnapshotOutput, error) {
 	if limit <= 0 {
-		limit = defaultLimit
+		limit = DefaultLimit
 	}
 
-	conn, err := openA11yBus()
+	conn, err := OpenBus()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer conn.Close()
 
@@ -76,41 +81,38 @@ func runSnapshot(limit int) error {
 
 	entries, truncated, diag, err := collectSnapshot(conn, limit, busAddr, display)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	refsPath, err := writeRefs(entries)
+	refsPath, err := WriteRefs(entries)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Build text lines + structured items from the same entries.
 	lines := make([]string, len(entries))
-	items := make([]snapshotItem, len(entries))
+	items := make([]SnapshotItem, len(entries))
 	for i, e := range entries {
-		lines[i] = formatLine(e)
-		items[i] = snapshotItem{
+		lines[i] = FormatLine(e)
+		items[i] = SnapshotItem{
 			RefID: e.RefID, Role: e.Role, Name: e.Name,
 			X: e.X, Y: e.Y, Width: e.Width, Height: e.Height,
 		}
 	}
 
-	out := snapshotOutput{
+	return &SnapshotOutput{
 		OK: true, Truncated: truncated,
 		Items: items, Lines: lines,
 		RefsPath: refsPath, Diagnostics: diag,
-	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(out)
+	}, nil
 }
 
 // collectSnapshot drives the DFS. Returns the accepted entries plus
 // diagnostics for the envelope. The error return is reserved for
 // catastrophic failures (cannot reach registry); per-node errors bump
 // diag.Errors and the walk continues.
-func collectSnapshot(conn *dbusConn, limit int, busAddr, display string) ([]refEntry, bool, snapshotDiag, error) {
-	diag := snapshotDiag{BusAddress: busAddr, Display: display}
+func collectSnapshot(conn *dbus.Conn, limit int, busAddr, display string) ([]RefEntry, bool, Diagnostics, error) {
+	diag := Diagnostics{BusAddress: busAddr, Display: display}
 
 	// Root: org.a11y.atspi.Registry at /org/a11y/atspi/registry on the
 	// a11y bus. Its children are the connected applications.
@@ -125,7 +127,7 @@ func collectSnapshot(conn *dbusConn, limit int, busAddr, display string) ([]refE
 	}
 	diag.Apps = len(appRefs)
 
-	var entries []refEntry
+	var entries []RefEntry
 	truncated := false
 
 	// Cap the number of top-level apps; iterate in order.
@@ -200,22 +202,22 @@ const (
 	outcomeError
 )
 
-// describe inspects one node and returns either a refEntry to keep or
+// describe inspects one node and returns either a RefEntry to keep or
 // a skip reason. Mirrors memoh's snapshot.rs::describe.
-func describe(node *accessibleObj, nextIndex int) (refEntry, describeOutcome) {
+func describe(node *accessibleObj, nextIndex int) (RefEntry, describeOutcome) {
 	states, err := node.getStates()
 	if err != nil {
-		return refEntry{}, outcomeError
+		return RefEntry{}, outcomeError
 	}
-	if !isOnScreen(states) {
-		return refEntry{}, outcomeSkipState
+	if !IsOnScreen(states) {
+		return RefEntry{}, outcomeSkipState
 	}
 	role, err := node.getRole()
 	if err != nil {
-		return refEntry{}, outcomeError
+		return RefEntry{}, outcomeError
 	}
-	if roleIsStructural(role) {
-		return refEntry{}, outcomeSkipRole
+	if RoleIsStructural(role) {
+		return RefEntry{}, outcomeSkipRole
 	}
 
 	roleName, _ := node.getRoleName()
@@ -233,10 +235,10 @@ func describe(node *accessibleObj, nextIndex int) (refEntry, describeOutcome) {
 	// If both geometry and name are empty, the node carries no info the
 	// model can act on. Skip it to keep the snapshot focused.
 	if w <= 0 && h <= 0 && name == "" {
-		return refEntry{}, outcomeSkipGeometry
+		return RefEntry{}, outcomeSkipGeometry
 	}
 
-	return refEntry{
+	return RefEntry{
 		RefID:      fmt.Sprintf("e%d", nextIndex),
 		BusName:    string(node.name),
 		ObjectPath: string(node.path),
@@ -246,16 +248,17 @@ func describe(node *accessibleObj, nextIndex int) (refEntry, describeOutcome) {
 	}, outcomeKeep
 }
 
-// formatLine renders one refEntry as the text line delivered to the LLM:
+// FormatLine renders one RefEntry as the text line delivered to the
+// LLM:
 //
 //	- push button "Reload" [ref=e3] @120,80 28x28
 //
 // Mirrors memoh snapshot.rs::format_line — keep field order identical
 // so prompt templates translate 1:1.
-func formatLine(e refEntry) string {
+func FormatLine(e RefEntry) string {
 	line := "- " + e.Role
 	if name := strings.TrimSpace(e.Name); name != "" {
-		line += " " + jsonQuote(name)
+		line += " " + JsonQuote(name)
 	}
 	line += fmt.Sprintf(" [ref=%s]", e.RefID)
 	if e.Width > 0 && e.Height > 0 {
@@ -264,10 +267,10 @@ func formatLine(e refEntry) string {
 	return line
 }
 
-// jsonQuote returns a JSON-quoted version of s (so names with quotes /
+// JsonQuote returns a JSON-quoted version of s (so names with quotes /
 // backslashes / control chars round-trip cleanly when the LLM sees them
 // embedded in plain text).
-func jsonQuote(s string) string {
+func JsonQuote(s string) string {
 	b, err := json.Marshal(s)
 	if err != nil {
 		return strconv.Quote(s)

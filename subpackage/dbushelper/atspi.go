@@ -1,7 +1,10 @@
-// Package main implements the a11y-helper, a thin CLI that walks the
-// AT-SPI2 accessibility tree inside an agentd sandbox and emits a
-// compact text snapshot + JSON envelope over stdout for the host
-// (agentd) to consume.
+// Package dbushelper is a small pure-Go client for the AT-SPI2
+// accessibility D-Bus registry. It runs INSIDE the agentd sandbox (NOT
+// on the host) and is consumed by:
+//
+//   - cmd/a11y-helper (a thin CLI that wraps this package for cross-
+//     container exec via sbMgr.Exec)
+//   - the agentd tool layer directly, when in-process calls are wanted
 //
 // This file defines the AT-SPI2 D-Bus surface we talk to. There is no
 // Go AT-SPI binding (unlike Rust's `atspi` crate); godbus provides the
@@ -17,7 +20,7 @@
 // Reference: https://gitlab.gnome.org/GNOME/at-spi2-core (atspi/atspi-*.xml
 // introspection). The numeric Role values are frozen by libatk ABI.
 
-package main
+package dbushelper
 
 import (
 	"errors"
@@ -25,10 +28,10 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-// errInvalidReply is returned when an AT-SPI method reply does not match
+// ErrInvalidReply is returned when an AT-SPI method reply does not match
 // the expected D-Bus signature. godbus decodes signatures at runtime,
 // and a toolkit that emits a malformed reply should not crash the walk.
-var errInvalidReply = errors.New("a11y: invalid AT-SPI reply signature")
+var ErrInvalidReply = errors.New("dbushelper: invalid AT-SPI reply signature")
 
 const (
 	// AT-SPI bus service + well-known objects.
@@ -57,40 +60,40 @@ const (
 // AT-SPI Role enum — only the entries we need for structural filtering.
 // Values must match atspi-enum-types.h (libatk ABI frozen).
 const (
-	roleInvalidRole    = 0
-	roleUnknown        = 1
-	roleFiller         = 47
-	roleSeparator      = 56
-	roleApplication    = 5
-	roleDesktopFrame   = 17
-	roleDesktopIcon    = 16
+	RoleInvalidRole  = 0
+	RoleUnknown      = 1
+	RoleFiller       = 47
+	RoleSeparator    = 56
+	RoleApplication  = 5
+	RoleDesktopFrame = 17
+	RoleDesktopIcon  = 16
 )
 
-// roleIsStructural mirrors memoh's role blacklist: pure structural noise
+// RoleIsStructural mirrors memoh's role blacklist: pure structural noise
 // whose subtrees are still walked (we filter the node itself, not its
 // descendants).
-func roleIsStructural(role uint32) bool {
+func RoleIsStructural(role uint32) bool {
 	switch role {
-	case roleInvalidRole, roleUnknown, roleFiller, roleSeparator,
-		roleApplication, roleDesktopFrame, roleDesktopIcon:
+	case RoleInvalidRole, RoleUnknown, RoleFiller, RoleSeparator,
+		RoleApplication, RoleDesktopFrame, RoleDesktopIcon:
 		return true
 	}
 	return false
 }
 
 // AT-SPI State enum bit numbers. The full set lives in atspi-state-set.c;
-// we only need the two visibility flags used by isOnScreen.
+// we only need the two visibility flags used by IsOnScreen.
 const (
-	stateShowing  = 28 // "showing" — currently painted on screen
-	stateVisible  = 30 // "visible" — will be painted when its parent is
+	StateShowing = 28 // "showing" — currently painted on screen
+	StateVisible = 30 // "visible" — will be painted when its parent is
 )
 
-// isOnScreen accepts either Showing or Visible. GTK apps set both,
+// IsOnScreen accepts either Showing or Visible. GTK apps set both,
 // Chromium sets only Showing — accepting either avoids false negatives
 // (mirrors memoh snapshot.rs:261-267).
-func isOnScreen(states []uint32) bool {
+func IsOnScreen(states []uint32) bool {
 	for _, s := range states {
-		if s == stateShowing || s == stateVisible {
+		if s == StateShowing || s == StateVisible {
 			return true
 		}
 	}
@@ -136,13 +139,13 @@ func (a *accessibleObj) getChildAtIndex(i int32) (string, dbus.ObjectPath, error
 		return "", "", err
 	}
 	if len(out) < 1 {
-		return "", "", errInvalidReply
+		return "", "", ErrInvalidReply
 	}
 	// AT-SPI returns an (so) struct as a variant; godbus decodes the
 	// struct itself into a []any.
 	v, ok := out[0].([]any)
 	if !ok || len(v) < 2 {
-		return "", "", errInvalidReply
+		return "", "", ErrInvalidReply
 	}
 	name, _ := v[0].(string)
 	path, _ := v[1].(dbus.ObjectPath)
@@ -158,11 +161,11 @@ func (a *accessibleObj) getChildren() ([]childRef, error) {
 		return nil, err
 	}
 	if len(out) < 1 {
-		return nil, errInvalidReply
+		return nil, ErrInvalidReply
 	}
 	arr, ok := out[0].([]any)
 	if !ok {
-		return nil, errInvalidReply
+		return nil, ErrInvalidReply
 	}
 	children := make([]childRef, 0, len(arr))
 	for _, raw := range arr {
@@ -187,7 +190,7 @@ func (a *accessibleObj) getRole() (uint32, error) {
 		return 0, err
 	}
 	if len(out) < 1 {
-		return 0, errInvalidReply
+		return 0, ErrInvalidReply
 	}
 	role, _ := out[0].(uint32)
 	return role, nil
@@ -202,7 +205,7 @@ func (a *accessibleObj) getRoleName() (string, error) {
 		return "", err
 	}
 	if len(out) < 1 {
-		return "", errInvalidReply
+		return "", ErrInvalidReply
 	}
 	name, _ := out[0].(string)
 	return name, nil
@@ -217,7 +220,7 @@ func (a *accessibleObj) getName() (string, error) {
 		return "", err
 	}
 	if len(out) < 1 {
-		return "", errInvalidReply
+		return "", ErrInvalidReply
 	}
 	name, _ := out[0].(string)
 	return name, nil
@@ -233,7 +236,7 @@ func (a *accessibleObj) getStates() ([]uint32, error) {
 		return nil, err
 	}
 	if len(out) < 1 {
-		return nil, errInvalidReply
+		return nil, ErrInvalidReply
 	}
 	// Godbus decodes (au) as []uint32 already when the signature matches
 	// — but AT-SPI returns an (auau) variant that may surface as
@@ -250,7 +253,7 @@ func (a *accessibleObj) getStates() ([]uint32, error) {
 		}
 		return states, nil
 	}
-	return nil, errInvalidReply
+	return nil, ErrInvalidReply
 }
 
 // Component interface.
@@ -264,12 +267,12 @@ func (a *accessibleObj) getExtents() (x, y, w, h int32, err error) {
 		return 0, 0, 0, 0, err
 	}
 	if len(out) < 1 {
-		return 0, 0, 0, 0, errInvalidReply
+		return 0, 0, 0, 0, ErrInvalidReply
 	}
 	// GetExtents returns an (iiii) struct.
 	rect, ok := out[0].([]any)
 	if !ok || len(rect) < 4 {
-		return 0, 0, 0, 0, errInvalidReply
+		return 0, 0, 0, 0, ErrInvalidReply
 	}
 	x, _ = rect[0].(int32)
 	y, _ = rect[1].(int32)
@@ -280,28 +283,28 @@ func (a *accessibleObj) getExtents() (x, y, w, h int32, err error) {
 
 // Action interface.
 
-// actionDescriptor is one entry of org.a11y.atspi.Action.GetActions.
+// ActionDescriptor is one entry of org.a11y.atspi.Action.GetActions.
 // Wire format: a(sss) — (name, description, keybinding).
-type actionDescriptor struct {
+type ActionDescriptor struct {
 	Name        string
 	Description string
 	KeyBinding  string
 }
 
 // getActions lists the AT-SPI actions exposed by this node.
-func (a *accessibleObj) getActions() ([]actionDescriptor, error) {
+func (a *accessibleObj) getActions() ([]ActionDescriptor, error) {
 	out, err := a.call(ifaceAction, "GetActions")
 	if err != nil {
 		return nil, err
 	}
 	if len(out) < 1 {
-		return nil, errInvalidReply
+		return nil, ErrInvalidReply
 	}
 	arr, ok := out[0].([]any)
 	if !ok {
-		return nil, errInvalidReply
+		return nil, ErrInvalidReply
 	}
-	actions := make([]actionDescriptor, 0, len(arr))
+	actions := make([]ActionDescriptor, 0, len(arr))
 	for _, raw := range arr {
 		entry, ok := raw.([]any)
 		if !ok || len(entry) < 3 {
@@ -310,7 +313,7 @@ func (a *accessibleObj) getActions() ([]actionDescriptor, error) {
 		name, _ := entry[0].(string)
 		desc, _ := entry[1].(string)
 		kb, _ := entry[2].(string)
-		actions = append(actions, actionDescriptor{Name: name, Description: desc, KeyBinding: kb})
+		actions = append(actions, ActionDescriptor{Name: name, Description: desc, KeyBinding: kb})
 	}
 	return actions, nil
 }
@@ -322,7 +325,7 @@ func (a *accessibleObj) doAction(i int32) (bool, error) {
 		return false, err
 	}
 	if len(out) < 1 {
-		return false, errInvalidReply
+		return false, ErrInvalidReply
 	}
 	ok, _ := out[0].(bool)
 	return ok, nil
@@ -340,7 +343,7 @@ func (a *accessibleObj) insertText(position int32, text string) (bool, error) {
 		return false, err
 	}
 	if len(out) < 1 {
-		return false, errInvalidReply
+		return false, ErrInvalidReply
 	}
 	ok, _ := out[0].(bool)
 	return ok, nil
@@ -353,7 +356,7 @@ func (a *accessibleObj) setTextContents(text string) (bool, error) {
 		return false, err
 	}
 	if len(out) < 1 {
-		return false, errInvalidReply
+		return false, ErrInvalidReply
 	}
 	ok, _ := out[0].(bool)
 	return ok, nil
@@ -368,7 +371,7 @@ func (a *accessibleObj) caretOffset() (int32, error) {
 		return -1, err
 	}
 	if len(out) < 1 {
-		return -1, errInvalidReply
+		return -1, ErrInvalidReply
 	}
 	offset, _ := out[0].(int32)
 	return offset, nil
