@@ -66,13 +66,29 @@ const timeoutParam = z
  * Marked `'use step'` because execToolOnAgentd reads the agentd nodes
  * table via neon-http (which needs host-side `fetch`); see
  * lib/workflow/agent/tools/agentd/nodes.ts for the same constraint.
+ *
+ * `browser_screenshot` is special-cased: agentd returns
+ * `{ data: { bytes, mime, base64 } }` (pretty-printed as JSON in
+ * ToolResult.Data), and naively surfacing that string would feed the
+ * model a wall of base64 ASCII through the text channel — hundreds of
+ * thousands of tokens for a single 1280x720 PNG, with no vision. We
+ * parse the envelope and re-emit it as an `{ type: 'image' }` content
+ * part so vision-capable providers actually see the picture. Every
+ * other tool returns structured text (clicked/target/title/url/...)
+ * which is forwarded as-is. Mirrors the desktop dispatcher's pattern
+ * (see ./desktop.ts).
  */
 async function dispatchBrowserTool(input: {
   sessionId: string;
   toolName: string;
   toolInput: Record<string, unknown>;
   nodeId?: string;
-}): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
+}): Promise<{
+  content: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; image: string; mimeType: string }
+  >;
+}> {
   'use step';
   const { execToolOnAgentd } = await import(
     '@/lib/extra/agent/agentd-tools-client'
@@ -110,11 +126,33 @@ async function dispatchBrowserTool(input: {
   }
 
   // agentd returns { success, data, error } where `data` is a JSON
-  // string OR a plain string. Surface it as-is — Playwright's structured
-  // outputs (clicked/target/title/url) are useful to the model.
+  // string OR a plain string. For non-screenshot tools, surface it
+  // as-is — Playwright's structured outputs (clicked/target/title/url)
+  // are useful to the model.
   const raw = result.data ?? '';
   const text =
     typeof raw === 'string' && raw.length > 0 ? raw : JSON.stringify(raw);
+
+  // browser_screenshot is the only tool whose payload is binary image
+  // data. Forward it as a vision image block instead of text so the
+  // base64 doesn't explode the text channel (a 1280x720 PNG is
+  // ~200-600k tokens as ASCII base64 vs ~1.5k as a vision image part).
+  if (input.toolName === 'browser_screenshot' && typeof raw === 'string') {
+    try {
+      const envelope = JSON.parse(raw) as {
+        data?: { base64?: string; mime?: string };
+      };
+      const base64 = envelope?.data?.base64;
+      const mime = envelope?.data?.mime;
+      if (typeof base64 === 'string' && base64.length > 0 && mime) {
+        return {
+          content: [{ type: 'image', image: base64, mimeType: mime }],
+        };
+      }
+    } catch {
+      // fall through to text surfacing below
+    }
+  }
 
   return { content: [{ type: 'text', text }] };
 }
