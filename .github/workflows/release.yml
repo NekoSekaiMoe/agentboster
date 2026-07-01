@@ -228,10 +228,12 @@ jobs:
       - name: Package
         working-directory: subpackage/cli
         env:
-          # package.mjs derives the version from package.json; override
-          # it via npm_config_pkg_version so tagged releases carry the
-          # tag name rather than the hardcoded 0.1.0 in package.json.
-          npm_config_pkg_version: ${{ steps.ver.outputs.version }}
+          # package.mjs reads this to name the tarball; falls back to
+          # packages/coding-agent/package.json's version when unset.
+          # Tagged releases carry the tag name (e.g. v0.1.3) so the
+          # asset is agentboster-cli-v0.1.3.tar.gz rather than the
+          # hardcoded 0.1.0 from package.json.
+          AGENTBOSTER_CLI_VERSION: ${{ steps.ver.outputs.version }}
         run: yarn package
 
       - name: Locate tarball
@@ -280,13 +282,15 @@ jobs:
           # is intentionally broad — we want the release to fail loudly
           # if any expected asset is missing.
           path: release-assets
+          # merge-multiple flattens the per-artifact subdirectories that
+          # download-artifact v4+ creates by default. Without this, the
+          # layout is release-assets/<artifact-name>/<file> and our
+          # subsequent verifications would need to know each subdir name.
+          # With it, every file lands directly in release-assets/.
+          merge-multiple: true
 
       - name: Verify expected assets present
         run: |
-          # The directory layout from download-artifact is one subdir
-          # per artifact name, with the file inside. Flatten it.
-          find release-assets/ -type f -exec mv -t release-assets/ {} +
-          find release-assets/ -mindepth 1 -maxdepth 1 -type d -exec rmdir {} + 2>/dev/null || true
           chmod +x release-assets/agentd-* || true
 
           echo "=== Collected release assets ==="

@@ -41,7 +41,11 @@ if (!existsSync(cjsPath)) {
 }
 
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-const version = pkg.version ?? "0.0.0";
+// Allow CI / release pipelines to override the version without editing
+// package.json. The override is purely cosmetic — it only affects the
+// tarball name + the version banner the CLI prints on first run.
+// Falls back to package.json's version when unset (local dev builds).
+const version = process.env.AGENTBOSTER_CLI_VERSION || pkg.version || "0.0.0";
 const dirName = `agentboster-cli-${version}`;
 const tarGz = `${dirName}.tar.gz`;
 const stagingDir = join(root, ".pkg-staging");
