@@ -20,7 +20,7 @@ Compact guide for OpenCode sessions in this repo. Keep it short: only include fa
 - `yarn lint:check` is the real gate before shipping. Exact form: `tsc --noEmit && biome check app components lib hooks middleware.ts next.config.ts drizzle.config.ts push.py` — note the scoped path list, not `biome check .`.
 - `yarn test` runs `vitest run` (one-shot). Single file: `yarn test <path>`; watch: `yarn test:watch <path>`.
 - Vitest `include` is fixed to `lib/**/*.test.ts`, `app/**/*.test.ts`, `hooks/**/*.test.ts`, `components/**/*.test.{ts,tsx}`, and `subpackage/cli/src/**/*.test.ts`. Root Vitest configures the `@/*` alias, so run `subpackage/cli/` tests from root (not from inside `subpackage/cli/`).
-- `yarn publish` runs `yarn run check` first, which is **not** a defined script — treat it as broken; run `yarn lint:check` manually before shipping.
+- `yarn publish` runs `yarn run lint:check` first (i.e. `tsc --noEmit && biome check ...`), then `yarn build` and `git push`.
 - `yarn build:agentd` builds agentd from repo root (the script does `cd agentd && go build ...`; works because yarn resolves the path, even though there is no top-level `agentd/`).
 - DB commands need `DATABASE_URL`: `yarn db:generate`, `yarn db:push`, `yarn db:studio`, `yarn db:ensure-vector`.
 - `yarn check:sh` runs `shellcheck` on the agentd node-install script.

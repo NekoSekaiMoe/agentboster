@@ -373,7 +373,7 @@ On startup, lifecycle code registers the node with the Web API and starts heartb
 - CPU model, usage, memory/disk availability
 - Active tasks and sandbox counts
 
-The Web scheduler uses these fields when multiple nodes are online (see repo `MULTI-NODE-SCHEDULING.md`).
+The Web scheduler uses these fields when multiple nodes are online (see `lib/workflow/scheduled/dispatch.ts` and `app/api/agentd/v1/nodes/*` in the Web app).
 
 ---
 

@@ -103,7 +103,7 @@
     "format": "biome format . --write",
     "lint:fix": "biome lint . --write --unsafe",
     "postbuild": "tsx scripts/vercel-postbuild.ts",
-    "publish": "yarn run check && yarn run build && git push",
+    "publish": "yarn run lint:check && yarn run build && git push",
     "start": "next start",
     "workflow:inspect": "workflow inspect runs --web"
   },

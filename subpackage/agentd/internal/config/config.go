@@ -230,7 +230,7 @@ func (c *Config) Validate() error {
 	}
 	if c.Security.L1Enabled {
 		switch c.Security.L1Provider {
-		case "web_callback", "local_ollama":
+		case "web_callback":
 		default:
 			return fmt.Errorf("unknown security.l1_provider %q; set security.l1_enabled=false to disable L1", c.Security.L1Provider)
 		}

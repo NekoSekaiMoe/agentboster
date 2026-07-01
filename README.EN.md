@@ -135,7 +135,7 @@ Tool execution always crosses **three independent security checks**, any one of 
 - Multi-channel bots (Telegram/Discord/Slack/Feishu/Teams) and unified notifications
 - Skills, providers, tools, MCP, Soul, audit and monitoring
 - Durable workflows with L1/L2 security
-- RAG / builtin memory; multi-node scheduling (`MULTI-NODE-SCHEDULING.md`)
+- RAG / builtin memory; multi-node scheduling (see `lib/workflow/scheduled/dispatch.ts` and `app/api/agentd/v1/nodes/*`)
 
 ### Daemon
 

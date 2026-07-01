@@ -510,9 +510,16 @@ agentd 执行工具时，Gatekeeper.Audit 走 L0（规则黑名单）到 L1（LL
 
 L0 命中后伪造 OS 错误（formatOSError）而非返回"被规则拦截"，让 LLM 误以为是 OS 层拒绝——这保持沙箱抽象完整，避免 LLM 学到"规则系统"的存在进而绕过。这是一个有意思的安全设计细节。类似地，三档沙箱（docker/docker-strict/lxc）的选择对 LLM 透明，SelectSandbox 按风险与持久化需求自动选档。
 
-### 8.6 未解决与演进中的问题
+### 8.6 已解决的文档/契约不一致与剩余演进项
 
-MULTI-NODE-SCHEDULING.md 在 AGENTS.md 与 README 被引用，但仓库内实际不存在——可能是计划文档尚未提交。多节点调度的核心逻辑实际散落在 dispatch.ts 与 app/api/agentd/v1/nodes/* 端点。local_ollama L1 provider 在 config 校验中被认，但仓库内实现未找到，实际可用路径只有 web_callback。resolveModelContextLimit 函数定义点未直接命中（README/AGENTS 提到在 Web 解析、/api/cli/models 下发），可能在 lib/cli 或 presets 内。lib/extra/security 的 scorer、l1_scorer、l2_auth 子目录的具体 provider 适配未逐文件读。yarn publish 脚本运行 yarn run check 先，但 check 未定义，等同失效——AGENTS.md 提示发版前应手动跑 yarn lint:check。项目处于 WIP 状态，1.0 前接口与 schema 仍可能变化，升级兼容性不作保证。
+此前版本在此节列了若干"未解决"问题，现已逐条核实并修复，记录如下：
+
+- **MULTI-NODE-SCHEDULING.md 悬空引用（已修复）**：该文件被 README.md、README.EN.md、subpackage/agentd/README.md 引用但仓库内从未存在，属于计划文档未提交。已将三处引用改指向真实代码位置——`lib/workflow/scheduled/dispatch.ts` 与 `app/api/agentd/v1/nodes/*`（含 `register`/`heartbeat`/`status` 三个端点），即多节点调度的实际落点。多节点调度的核心逻辑即在此，不再依赖外部计划文档。
+- **local_ollama L1 provider（已修复）**：此前 config 校验在 `internal/config/config.go` 认 `web_callback` 与 `local_ollama` 两种取值，但全仓库（Go 与 TS）除此之外没有任何实现——既无 provider 适配，也无调用分支，是"声明了却未兑现"的死契约。已从 `Validate()` 的合法 case 中移除 `local_ollama`，如今 L1 provider 仅认 `web_callback`（以及历史别名 `web` → `web_callback`）。若以后真要支持本地推理，应作为新功能补齐实现后，再在校验层放行。
+- **resolveModelContextLimit 定义点（已核实，非问题）**：定义在 `lib/workflow/agent/utils/model-context.ts:48`，被同目录 `agent-config.ts` 与 `app/api/cli/models/route.ts` 经 `/api/cli/models` 下发给 CLI/IM。即在 Web 侧一处解析、一处下发，与 8.5 节正文（行 169、507）描述一致，本就不是悬案。
+- **yarn publish 失效（已修复）**：`package.json` 的 `publish` 原为 `yarn run check && yarn run build && git push`，而 `check` 并未在 scripts 中定义（yarn 报 "Command check not found"），脚本整体不可执行。已将 `check` 改为已定义的 `lint:check`（即 `tsc --noEmit && biome check ...`），发版前质量门现在能真正跑通；AGENTS.md 中"publish 失效"的提示也已同步更正。
+
+剩余仍处于演进中的问题：`lib/extra/security` 的 scorer、l1_scorer、l2_auth 子目录的具体 provider 适配未在本文档逐文件展开（可在该目录内进一步核对）。项目处于 WIP 状态，1.0 前接口与 schema 仍可能变化，升级兼容性不作保证。
 
 ### 8.7 与外部项目对比下的定位
 
@@ -840,13 +847,13 @@ Web 与 agentd 都支持 MCP（Model Context Protocol）。Web 内置四个 MCP 
 
 具体兼容性边界：Web 的数据库 schema（drizzle）变更需 db:push，向后兼容性不保证；agentd 的 HTTP 契约（version 字段）变更需手动 bump，agentd 与 Web 版本需匹配；CLI 的 session 文件格式（CURRENT_SESSION_VERSION = 3）有 migrateToCurrentVersion 升级路径，但跨大版本不保证；token 格式（base64url(payload).base64url(hmac)）与 Web 共享，变更需两端协调；L0 规则格式（pattern/patternType/action）可能扩展，向后兼容性不保证。
 
-升级建议：1.0 前不要在生产依赖单一版本，关注 release notes，三层版本保持一致（Web 的 version、agentd 的 version、CLI 的 package.json version）。yarn publish 脚本运行 yarn run check 先，但 check 未定义等同失效——AGENTS.md 提示发版前应手动跑 yarn lint:check。
+升级建议：1.0 前不要在生产依赖单一版本，关注 release notes，三层版本保持一致（Web 的 version、agentd 的 version、CLI 的 package.json version）。`yarn publish` 现在会先跑 `yarn lint:check`（`tsc --noEmit && biome check ...`）再 build 与 push，发版前质量门已能跑通。
 
 ---
 
 ## 二十二、文档导航
 
-仓库内文档分工。README.md（中文）与 README.EN.md（英文）是高层地图，介绍平台架构、核心能力、快速部署、环境变量、常用命令、IM 命令、相关文档。AGENTS.md 是 OpenCode 会话的紧凑指南，补充 README 易遗漏的仓库形态、命令、Web 陷阱、风格与基础设施、有用指针。subpackage/agentd/README.md 与 subpackage/agentd/AGENTS.md 是 daemon 的边界文档（部署、配置、运行模式、构建）。subpackage/cli/README.md 与 subpackage/cli/AGENTS.md 是 CLI 的边界文档（monorepo 组织、pi 关系、命令、瘦客户端边界、打包分发）。MULTI-NODE-SCHEDULING.md 在 AGENTS.md 与 README 被引用但仓库内实际不存在（计划文档）。
+仓库内文档分工。README.md（中文）与 README.EN.md（英文）是高层地图，介绍平台架构、核心能力、快速部署、环境变量、常用命令、IM 命令、相关文档。AGENTS.md 是 OpenCode 会话的紧凑指南，补充 README 易遗漏的仓库形态、命令、Web 陷阱、风格与基础设施、有用指针。subpackage/agentd/README.md 与 subpackage/agentd/AGENTS.md 是 daemon 的边界文档（部署、配置、运行模式、构建）。subpackage/cli/README.md 与 subpackage/cli/AGENTS.md 是 CLI 的边界文档（monorepo 组织、pi 关系、命令、瘦客户端边界、打包分发）。多节点调度无独立计划文档，逻辑直接落在 `lib/workflow/scheduled/dispatch.ts` 与 `app/api/agentd/v1/nodes/*`。
 
 本文档（architecture.md）补充上述文档的空白，提供三层架构的端到端深度剖析，基于实际源码而非 README 的描述性段落。如需更细节，可对照引用的源码文件复核。
 

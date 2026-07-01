@@ -135,7 +135,7 @@ CLI 的 `trigger: 'regenerate-message'` 复用同一条 chatMain:Web 侧 `delete
 - 多渠道 Bot（Telegram/Discord/Slack/Feishu/Teams）与统一通知
 - Skills、Provider、工具、MCP、Soul、审计与监控
 - Workflow 持久化与 L1/L2 安全流
-- RAG / 内置记忆；多节点调度（见 `MULTI-NODE-SCHEDULING.md`）
+- RAG / 内置记忆；多节点调度（见 `lib/workflow/scheduled/dispatch.ts` 与 `app/api/agentd/v1/nodes/*`）
 
 ### Daemon 侧
 
