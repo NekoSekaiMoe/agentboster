@@ -77,7 +77,7 @@ func resolveBusAddress() (string, error) {
 		os.Unsetenv("AT_SPI_BUS_ADDRESS")
 	}
 
-	for _, addr := range scanProcForBusAddresses() {
+	for _, addr := range scanProcForBusAddresses("/proc") {
 		if SocketAlive(addr) {
 			return addr, nil
 		}
@@ -163,16 +163,18 @@ func CandidateCachePaths(display, xdgRuntime, home string) []string {
 	return paths
 }
 
-// scanProcForBusAddresses walks /proc/*/cmdline and pulls --address=
+// scanProcForBusAddresses walks <procRoot>/*/cmdline and pulls --address=
 // from every running dbus-daemon pointed at an at-spi/accessibility.conf
 // config. Results are sorted by PID descending so callers prefer the
 // most recent restart (the older daemon may be shutting down).
 //
-// We intentionally read cmdline as raw bytes and split on NUL: /proc is
-// not a regular filesystem, and Go's bufio on /proc files behaves
-// correctly with ReadFile but not with line-oriented helpers.
-func scanProcForBusAddresses() []string {
-	entries, err := os.ReadDir("/proc")
+// procRoot is normally "/proc" but is exposed as a parameter so tests
+// can supply a tempdir with a fake /proc layout. We intentionally read
+// cmdline as raw bytes and split on NUL: /proc is not a regular
+// filesystem, and Go's bufio on /proc files behaves correctly with
+// ReadFile but not with line-oriented helpers.
+func scanProcForBusAddresses(procRoot string) []string {
+	entries, err := os.ReadDir(procRoot)
 	if err != nil {
 		return nil
 	}
@@ -185,7 +187,7 @@ func scanProcForBusAddresses() []string {
 		if err != nil {
 			continue // not a PID directory
 		}
-		cmdline, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		cmdline, err := os.ReadFile(filepath.Join(procRoot, entry.Name(), "cmdline"))
 		if err != nil {
 			continue
 		}

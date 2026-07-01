@@ -298,33 +298,14 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	// In particular, do NOT use `set -e` here — a missing
 	// at-spi-bus-launcher must not abort the surrounding script.
 	envFile := fmt.Sprintf("%s/desktop-env.sh", sandboxStateDir)
-	dbusCmd := fmt.Sprintf(
-		`mkdir -p %s; `+
-			`rm -f %s; `+
-			`if command -v dbus-launch >/dev/null 2>&1; then `+
-			`eval "$(DISPLAY=%s dbus-launch --sh-syntax)"; `+
-			`if [ -n "$DBUS_SESSION_BUS_ADDRESS" ]; then `+
-			`if command -v at-spi-bus-launcher >/dev/null 2>&1; then `+
-			`DISPLAY=%s DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" NO_AT_BRIDGE=0 nohup at-spi-bus-launcher >/dev/null 2>&1 & `+
-			`sleep 1; `+ // let the registry bind its socket before clients connect
-			`fi; `+
-			`printf 'export DISPLAY=%s\nexport DBUS_SESSION_BUS_ADDRESS=%s\nexport NO_AT_BRIDGE=0\n' "$DBUS_SESSION_BUS_ADDRESS" >%s; `+
-			`fi; `+
-			`fi; `+
-			`true`,
-		sandboxStateDir, envFile, defaultDisplay, defaultDisplay,
-		defaultDisplay, "$DBUS_SESSION_BUS_ADDRESS", envFile,
-	)
+	dbusCmd := buildDbusStartScript(sandboxStateDir, envFile, defaultDisplay)
 	if err := runScript(sbMgr, sandboxID, dbusCmd, 15); err != nil {
 		slog.Warn("desktop: dbus/at-spi launch failed (continuing — a11y tools will degrade, screenshot/click still work)", "sandbox", sandboxID, "error", err)
 	}
 
 	// icewm — window manager. Started with DISPLAY set; gives windows
 	// borders + a taskbar so the noVNC view is usable.
-	icewmCmd := fmt.Sprintf(
-		`[ -f %s ] && . %s; DISPLAY=%s nohup icewm >/dev/null 2>&1 & echo $! > %s/icewm.pid`,
-		envFile, envFile, defaultDisplay, pidDir,
-	)
+	icewmCmd := buildIcemwStartScript(envFile, defaultDisplay, pidDir)
 	// Icewm may fail to start if it can't write its config dir under the
 	// sandbox user's HOME; treat failure as non-fatal (raw X without a
 	// WM is still usable for full-screen apps).
@@ -549,4 +530,55 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// buildDbusStartScript composes the shell fragment that brings up a
+// per-sandbox D-Bus session + the AT-SPI2 accessibility registry, then
+// writes DBUS_SESSION_BUS_ADDRESS + DISPLAY + NO_AT_BRIDGE into envFile
+// so subsequent commands (icewm, x11vnc, the a11y helper) can `source`
+// it to find the same bus.
+//
+// Extracted from startStack so it's unit-testable (sh -n + dry-run in
+// /bin/sh with stubbed binaries). Failure-mode contract:
+//   - No `set -e` anywhere — every step guarded, errors silent.
+//   - dbus-launch missing / fails  → envFile is NOT written.
+//   - at-spi-bus-launcher missing  → envFile IS written (D-Bus is up,
+//     only the registry is absent).
+//   - envFile absent or empty  → callers must `[ -f ] && .` it and
+//     fall back to DISPLAY-only behavior.
+//
+// Implementation note: the printf format string uses %%s so Go's
+// fmt.Sprintf leaves the inner %s intact for shell to consume at
+// runtime. The two runtime %s get filled by DISPLAY (literal from Go)
+// and "$DBUS_SESSION_BUS_ADDRESS" (shell-expanded).
+func buildDbusStartScript(stateDir, envFile, display string) string {
+	return fmt.Sprintf(
+		`mkdir -p %s; `+
+			`rm -f %s; `+
+			`if command -v dbus-launch >/dev/null 2>&1; then `+
+			`eval "$(DISPLAY=%s dbus-launch --sh-syntax)"; `+
+			`if [ -n "$DBUS_SESSION_BUS_ADDRESS" ]; then `+
+			`if command -v at-spi-bus-launcher >/dev/null 2>&1; then `+
+			`DISPLAY=%s DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" NO_AT_BRIDGE=0 nohup at-spi-bus-launcher >/dev/null 2>&1 & `+
+			`sleep 1; `+ // let the registry bind its socket before clients connect
+			`fi; `+
+			`printf 'export DISPLAY=%%s\nexport DBUS_SESSION_BUS_ADDRESS=%%s\nexport NO_AT_BRIDGE=0\n' %s "$DBUS_SESSION_BUS_ADDRESS" >%s; `+
+			`fi; `+
+			`fi; `+
+			`true`,
+		stateDir, envFile, display, display,
+		display, envFile,
+	)
+}
+
+// buildIcemwStartScript composes the shell fragment that sources the
+// dbus envFile (if present) and starts icewm in the background. The
+// envFile source is conditional so a missing/empty envFile (dbus failed)
+// does NOT abort the script — icewm still starts without a session bus,
+// which is fine for the screenshot / xdotool-click paths.
+func buildIcemwStartScript(envFile, display, pids string) string {
+	return fmt.Sprintf(
+		`[ -f %s ] && . %s; DISPLAY=%s nohup icewm >/dev/null 2>&1 & echo $! > %s/icewm.pid`,
+		envFile, envFile, display, pids,
+	)
 }
