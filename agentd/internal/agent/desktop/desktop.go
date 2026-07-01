@@ -2,14 +2,19 @@
 //
 // Mirror of the browser bridge pattern (internal/agent/browser/), but
 // simpler: no long-lived helper process, no Unix socket, no JS bridge.
-// The stack is just four daemons (Xvfb + icewm + x11vnc + websockify)
-// launched directly inside the sandbox via sbMgr.Exec. The daemon only
-// ever needs to:
+// The stack is just daemons launched directly inside the sandbox via
+// sbMgr.Exec: Xvfb + (session D-Bus + AT-SPI2 registry) + icewm +
+// x11vnc + websockify. The daemon only ever needs to:
 //
 //  1. Ensure the packages are installed (desktop_install.sh — idempotent,
 //     emits AGENTD_DESKTOP_INSTALL_HINT for the LLM on missing tools).
-//  2. Ensure the four daemons are running (pidfile probe + start if down).
+//  2. Ensure the daemons are running (pidfile probe + start if down).
 //  3. Capture a screenshot from the Xvfb framebuffer (import -window root).
+//
+// The session D-Bus + AT-SPI2 bus pair (started between Xvfb and icewm)
+// is what the a11y helper binary talks to for desktop_inspect /
+// desktop_a11y_click. If they fail to start the rest of the stack still
+// works for screenshot/xdotool-click paths; only a11y tools degrade.
 //
 // Configuration is intentionally hardcoded for the default topology:
 //   - DISPLAY=:99 (overridable via AGENTD_DESKTOP_DISPLAY env in the sandbox)
@@ -266,11 +271,51 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 		_ = out
 	}
 
+	// Session D-Bus + AT-SPI2 a11y bus. Required by the a11y helper
+	// (desktop_inspect/desktop_a11y_click). dbus-launch creates a
+	// private session bus and prints DBUS_SESSION_BUS_ADDRESS + PID;
+	// we capture the address into envFile so every subsequent daemon
+	// (icewm, x11vnc, the a11y helper) can `source` it and see the
+	// same bus.
+	//
+	// at-spi-bus-launcher is normally D-Bus-activated on first AT-SPI
+	// client call, but we start it explicitly so the bus is ready
+	// before any GUI app connects (avoids a race where the first app
+	// registers before the registry is listening). NO_AT_BRIDGE=0
+	// un-disables atk-bridge on distros that default it off.
+	//
+	// Failure is non-fatal: every step is guarded so the desktop
+	// stack still comes up for screenshot/click via xdotool even if
+	// dbus-launch or at-spi is missing; only the a11y tools degrade.
+	// In particular, do NOT use `set -e` here — a missing
+	// at-spi-bus-launcher must not abort the surrounding script.
+	envFile := fmt.Sprintf("%s/desktop-env.sh", sandboxStateDir)
+	dbusCmd := fmt.Sprintf(
+		`mkdir -p %s; `+
+			`rm -f %s; `+
+			`if command -v dbus-launch >/dev/null 2>&1; then `+
+			`eval "$(DISPLAY=%s dbus-launch --sh-syntax)"; `+
+			`if [ -n "$DBUS_SESSION_BUS_ADDRESS" ]; then `+
+			`if command -v at-spi-bus-launcher >/dev/null 2>&1; then `+
+			`DISPLAY=%s DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" NO_AT_BRIDGE=0 nohup at-spi-bus-launcher >/dev/null 2>&1 & `+
+			`sleep 1; `+ // let the registry bind its socket before clients connect
+			`fi; `+
+			`printf 'export DISPLAY=%s\nexport DBUS_SESSION_BUS_ADDRESS=%s\nexport NO_AT_BRIDGE=0\n' "$DBUS_SESSION_BUS_ADDRESS" >%s; `+
+			`fi; `+
+			`fi; `+
+			`true`,
+		sandboxStateDir, envFile, defaultDisplay, defaultDisplay,
+		defaultDisplay, "$DBUS_SESSION_BUS_ADDRESS", envFile,
+	)
+	if err := runScript(sbMgr, sandboxID, dbusCmd, 15); err != nil {
+		slog.Warn("desktop: dbus/at-spi launch failed (continuing — a11y tools will degrade, screenshot/click still work)", "sandbox", sandboxID, "error", err)
+	}
+
 	// icewm — window manager. Started with DISPLAY set; gives windows
 	// borders + a taskbar so the noVNC view is usable.
 	icewmCmd := fmt.Sprintf(
-		`DISPLAY=%s nohup icewm >/dev/null 2>&1 & echo $! > %s/icewm.pid`,
-		defaultDisplay, pidDir,
+		`[ -f %s ] && . %s; DISPLAY=%s nohup icewm >/dev/null 2>&1 & echo $! > %s/icewm.pid`,
+		envFile, envFile, defaultDisplay, pidDir,
 	)
 	// Icewm may fail to start if it can't write its config dir under the
 	// sandbox user's HOME; treat failure as non-fatal (raw X without a
@@ -357,6 +402,20 @@ func WebPort() int { return defaultWebPort }
 // screenshot tool description and for downstream tools that need to
 // inject mouse/keyboard events via xdotool (future desktop_* tools).
 func Display() string { return defaultDisplay }
+
+// EnvFile returns the path to the shell fragment that exports the
+// session D-Bus address, DISPLAY, and NO_AT_BRIDGE for this sandbox.
+//
+// Written by startStack after dbus-launch + at-spi-bus-launcher come
+// up. Downstream tools that need to talk to the AT-SPI2 a11y bus (the
+// a11y helper binary in particular) MUST `source` this file before
+// exec, otherwise they will not see DBUS_SESSION_BUS_ADDRESS and will
+// fail to connect to the per-session AT-SPI registry.
+//
+// Returns the path unconditionally; callers should handle the case
+// where the file does not yet exist (startStack failed or has not run)
+// by falling back to DISPLAY-only behavior.
+func EnvFile() string { return sandboxStateDir + "/desktop-env.sh" }
 
 // Click injects a mouse click at (x, y) on the Xvfb display via
 // xdotool. button: 1=left (default), 2=middle, 3=right, 4=wheel-up,

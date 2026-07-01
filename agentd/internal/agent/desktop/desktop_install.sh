@@ -136,7 +136,9 @@ if command -v apk >/dev/null 2>&1; then
   # because alpine's `novnc` apk package is an empty shell (only 5
   # metadata files, no vnc.html). Phase 2 above fetches noVNC from
   # GitHub instead.
-  PKGS="xorg-server-xvfb icewm x11vnc websockify xdotool imagemagick"
+  # at-spi2-core + dbus-x11 enable the AT-SPI2 a11y bus (consumed by
+  # the a11y helper binary for desktop_inspect/desktop_a11y_click).
+  PKGS="xorg-server-xvfb icewm x11vnc websockify xdotool imagemagick at-spi2-core dbus-x11"
   echo "AGENTD_DESKTOP_MISSING_TOOLS=gui-stack"
   echo "AGENTD_DESKTOP_DISTRO=alpine"
   # Probe whether community repo is enabled; if not, emit a hint that
@@ -155,7 +157,9 @@ elif command -v apt-get >/dev/null 2>&1; then
   # debian / ubuntu — the `novnc` package here is the full upstream
   # release (vnc.html + core JS + app/ assets), so we install it
   # through apt. Phase 2's install_novnc_from_release no-ops.
-  PKGS="xvfb icewm x11vnc websockify novnc xdotool imagemagick fonts-noto-cjk"
+  # at-spi2-core + dbus-x11 enable the AT-SPI2 a11y bus (consumed by
+  # the a11y helper binary for desktop_inspect/desktop_a11y_click).
+  PKGS="xvfb icewm x11vnc websockify novnc xdotool imagemagick fonts-noto-cjk at-spi2-core dbus-x11"
   echo "AGENTD_DESKTOP_MISSING_TOOLS=gui-stack"
   echo "AGENTD_DESKTOP_DISTRO=debian"
   emit_hint "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends" "$PKGS"
@@ -166,19 +170,21 @@ elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
   fi
   # xdotool is in EPEL on RHEL; the hint assumes EPEL is already enabled.
   # novnc on RHEL/Fedora is the full upstream release (same as debian).
-  PKGS="xorg-x11-server-Xvfb icewm x11vnc websockify novnc xdotool ImageMagick"
+  # at-spi2-core + dbus-x11 enable the AT-SPI2 a11y bus.
+  PKGS="xorg-x11-server-Xvfb icewm x11vnc websockify novnc xdotool ImageMagick at-spi2-core dbus-x11"
   echo "AGENTD_DESKTOP_MISSING_TOOLS=gui-stack"
   echo "AGENTD_DESKTOP_DISTRO=rhel"
   emit_hint "$PM" "$PKGS"
 elif command -v pacman >/dev/null 2>&1; then
   # arch — AUR has novnc, but the binary repos don't. Phase 2 fetches
   # from GitHub instead.
-  PKGS="xorg-server-xvfb icewm x11vnc websockify xdotool imagemagick"
+  # at-spi2-core + dbus-x11 enable the AT-SPI2 a11y bus.
+  PKGS="xorg-server-xvfb icewm x11vnc websockify xdotool imagemagick at-spi2-core dbus-x11"
   echo "AGENTD_DESKTOP_MISSING_TOOLS=gui-stack"
   echo "AGENTD_DESKTOP_DISTRO=arch"
   emit_hint "pacman -Sy --noconfirm --needed" "$PKGS"
 else
   echo "AGENTD_DESKTOP_MISSING_TOOLS=unknown-package-manager"
-  echo "AGENTD_DESKTOP_INSTALL_HINT=(no apk/apt/dnf/yum/pacman detected; install xvfb icewm x11vnc websockify xdotool imagemagick manually)" >&2
+  echo "AGENTD_DESKTOP_INSTALL_HINT=(no apk/apt/dnf/yum/pacman detected; install xvfb icewm x11vnc websockify xdotool imagemagick at-spi2-core dbus-x11 manually)" >&2
   exit 1
 fi
