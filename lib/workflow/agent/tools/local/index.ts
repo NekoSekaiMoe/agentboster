@@ -179,9 +179,7 @@ export default defineBuildInTool({
                 multiple: z
                   .boolean()
                   .optional()
-                  .describe(
-                    'If true with options, allow multiple selections.',
-                  ),
+                  .describe('If true with options, allow multiple selections.'),
               }),
             )
             .min(1)

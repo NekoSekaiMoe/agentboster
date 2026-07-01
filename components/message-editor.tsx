@@ -320,7 +320,8 @@ export function MessageEditor({
 
             // Build version history BEFORE updating state
             const versions = message.metadata?.versions || [];
-            const currentVersionIndex = message.metadata?.currentVersionIndex ?? -1;
+            const currentVersionIndex =
+              message.metadata?.currentVersionIndex ?? -1;
 
             // Only add to history if content actually changed
             const currentText = getTextFromParts(message);
@@ -413,10 +414,7 @@ export function MessageEditor({
                   // Subsequent edit: attach assistant reply to the CURRENT
                   // version (before truncation), then append the new version.
                   if (currentVersionIndex < newVersions.length - 1) {
-                    newVersions = newVersions.slice(
-                      0,
-                      currentVersionIndex + 1,
-                    );
+                    newVersions = newVersions.slice(0, currentVersionIndex + 1);
                   }
 
                   // Attach the captured assistant response to the entry at

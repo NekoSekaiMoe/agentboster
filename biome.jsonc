@@ -36,7 +36,8 @@
       "!**/png",
       "!**/agentd",
       "!**/cli/node_modules",
-      "!**/cli/dist"
+      "!**/cli/dist",
+      "!**/lib/core/db/migrations/meta"
     ],
     "ignoreUnknown": false
   },

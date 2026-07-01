@@ -41,7 +41,10 @@ function hasValidAgentdApiKey(request: Request): boolean {
 
   // AGENTD_API_KEY supports a comma-separated list (e.g. for key rotation
   // or multiple daemons). Constant-time compare each candidate.
-  const candidates = expected.split(',').map((k) => k.trim()).filter(Boolean);
+  const candidates = expected
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
   for (const candidate of candidates) {
     const a = Buffer.from(provided);
     const b = Buffer.from(candidate);

@@ -351,71 +351,71 @@ export function ChatSidebar() {
                 visibleSessions.map((session) => {
                   const ChannelIcon = getChannelIcon(session.channel);
                   return (
-                  <div
-                    key={session.id}
-                    role="button"
-                    tabIndex={0}
-                    className={`group relative flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
-                      currentSessionId === session.id
-                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                        : ''
-                    }`}
-                    onClick={() => handleSelectSession(session.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        handleSelectSession(session.id);
-                      }
-                    }}
-                  >
-                    <ChannelIcon
-                      className="h-4 w-4 shrink-0 text-muted-foreground"
-                      aria-label={session.channel}
-                    />
-                    <span className="flex-1 truncate text-sm">
-                      {session.title || t('chat.newConversation')}
-                    </span>
-                    {session.status === 'running' && (
-                      <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                    )}
-                    {/* Pin button: always visible when pinned, otherwise on hover. */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className={`h-6 w-6 shrink-0 ${
-                        session.pinned
-                          ? 'opacity-100'
-                          : 'opacity-0 group-hover:opacity-100'
+                    <div
+                      key={session.id}
+                      role="button"
+                      tabIndex={0}
+                      className={`group relative flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+                        currentSessionId === session.id
+                          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                          : ''
                       }`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleTogglePin(session);
+                      onClick={() => handleSelectSession(session.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleSelectSession(session.id);
+                        }
                       }}
                     >
-                      {session.pinned ? (
-                        <PinOff className="h-3 w-3" />
-                      ) : (
-                        <Pin className="h-3 w-3" />
+                      <ChannelIcon
+                        className="h-4 w-4 shrink-0 text-muted-foreground"
+                        aria-label={session.channel}
+                      />
+                      <span className="flex-1 truncate text-sm">
+                        {session.title || t('chat.newConversation')}
+                      </span>
+                      {session.status === 'running' && (
+                        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
                       )}
-                    </Button>
-                    {/* Delete only on hover to avoid accidents. */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
-                      disabled={deletingSessionId === session.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteSession(session);
-                      }}
-                    >
-                      {deletingSessionId === session.id ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-3 w-3" />
-                      )}
-                    </Button>
-                  </div>
+                      {/* Pin button: always visible when pinned, otherwise on hover. */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-6 w-6 shrink-0 ${
+                          session.pinned
+                            ? 'opacity-100'
+                            : 'opacity-0 group-hover:opacity-100'
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTogglePin(session);
+                        }}
+                      >
+                        {session.pinned ? (
+                          <PinOff className="h-3 w-3" />
+                        ) : (
+                          <Pin className="h-3 w-3" />
+                        )}
+                      </Button>
+                      {/* Delete only on hover to avoid accidents. */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
+                        disabled={deletingSessionId === session.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSession(session);
+                        }}
+                      >
+                        {deletingSessionId === session.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </div>
                   );
                 })
               )}

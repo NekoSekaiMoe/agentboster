@@ -290,10 +290,19 @@ export class DecisionQueue {
    * Decision (or null if not found / timed out). Used by the Web TS agent's
    * ask_question tool to block the workflow step until the user answers.
    */
-  waitForResolution(decisionId: string, timeoutMs?: number): Promise<Decision | null> {
+  waitForResolution(
+    decisionId: string,
+    timeoutMs?: number,
+  ): Promise<Decision | null> {
     // If already resolved, return immediately.
     const existing = this.decisions.get(decisionId);
-    if (existing && (existing.status === DecisionStatus.RESOLVED || existing.status === DecisionStatus.DENIED || existing.status === DecisionStatus.EXPIRED || existing.status === DecisionStatus.TIMEOUT)) {
+    if (
+      existing &&
+      (existing.status === DecisionStatus.RESOLVED ||
+        existing.status === DecisionStatus.DENIED ||
+        existing.status === DecisionStatus.EXPIRED ||
+        existing.status === DecisionStatus.TIMEOUT)
+    ) {
       return Promise.resolve(existing);
     }
     const wait = this.timeoutMs;
