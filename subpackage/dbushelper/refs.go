@@ -60,21 +60,52 @@ func RefsPath() string {
 }
 
 // WriteRefs persists the snapshot's ref index, returning the path
-// written. Creates parent directories as needed.
+// written. Creates parent directories as needed. The write is atomic:
+// it marshals to a temp file in the same directory and renames over the
+// target, so a concurrent LookupRef never observes a half-written file
+// (snapshot runs concurrently with click/type/fill reads from agentd's
+// workflow — a non-atomic WriteFile would let readers see truncated
+// JSON and fail with a parse error instead of just reading the prior
+// index).
 func WriteRefs(entries []RefEntry) (string, error) {
 	target := RefsPath()
-	if dir := filepath.Dir(target); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return "", fmt.Errorf("create parent dir for %s: %w", target, err)
-		}
+	dir := filepath.Dir(target)
+	if dir == "" {
+		dir = "."
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create parent dir for %s: %w", target, err)
 	}
 	data, err := json.MarshalIndent(refIndex{Entries: entries}, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal refs index: %w", err)
 	}
-	if err := os.WriteFile(target, data, 0o644); err != nil {
-		return "", fmt.Errorf("write refs index to %s: %w", target, err)
+	tmp, err := os.CreateTemp(dir, ".refs-*.json.tmp")
+	if err != nil {
+		return "", fmt.Errorf("create temp file in %s: %w", dir, err)
 	}
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return "", fmt.Errorf("write temp refs file %s: %w", tmpName, err)
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return "", fmt.Errorf("chmod temp refs file %s: %w", tmpName, err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close temp refs file %s: %w", tmpName, err)
+	}
+	if err := os.Rename(tmpName, target); err != nil {
+		return "", fmt.Errorf("rename %s -> %s: %w", tmpName, target, err)
+	}
+	cleanup = false
 	return target, nil
 }
 

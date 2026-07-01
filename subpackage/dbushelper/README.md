@@ -117,9 +117,20 @@ The DFS walk is hard-capped to keep pathological trees (LibreOffice Calc exposes
 |-----|-------|-----------------|
 | `maxApps` | `32` | Only the first 32 top-level applications are descended into; the rest are ignored. |
 | `maxVisits` | `8000` | Stops inspecting nodes mid-walk; `truncated=true` is set on the envelope. |
+| `maxStack` | `4000` | Caps pending DFS nodes so a pathological wide tree (LibreOffice) cannot balloon memory before `maxVisits` catches up; remaining siblings are dropped and `truncated=true` is set. |
 | `DefaultLimit` | `300` | Cap on **accepted** (returned) nodes. Override per-call with `snapshot --limit N`. |
 
 When any cap is hit, `SnapshotOutput.Truncated` is `true` and `Diagnostics` carries the exact `visited` / `accepted` / `apps` counts so the caller can tell "empty desktop" apart from "walk cut short".
+
+### Node filtering
+
+`describe` in `snapshot.go` drops nodes before they ever reach the output, in this order:
+
+1. **Off-screen** — nodes whose AT-SPI state set contains neither `SHOWING` (28) nor `VISIBLE` (30). Counted under `Diagnostics.SkippedState`. Note `IsOnScreen` accepts either flag: GTK sets both, Chromium sets only `SHOWING`.
+2. **Structural roles** — `InvalidRole(0)`, `Unknown(1)`, `Filler(47)`, `Separator(56)`, `Application(5)`, `DesktopFrame(17)`, `DesktopIcon(16)` (see `RoleIsStructural`). Counted under `Diagnostics.SkippedRole`. **The node is dropped but its subtree is still walked**, so descendants of an `Application` root still surface.
+3. **Empty geometry + empty name** — nodes where `width <= 0 && height <= 0 && name == ""`. Counted under `Diagnostics.SkippedGeometry`. Rationale: a node the model can neither click (no box) nor identify (no name) carries no actionable signal. Popups / virtual children with a name but no extents are kept.
+
+If a widget you expect is missing from a snapshot, check these three counters first.
 
 ### CoordType
 
@@ -139,7 +150,8 @@ If the ref is entirely absent from the index (e.g. stale refs file), no fallback
 
 - Default path: `/tmp/agentd-a11y-refs.json`.
 - Override with `AGENTD_A11Y_REFS` (used by the test suite to isolate per-test indices).
-- `snapshot` **overwrites** it atomically; `click`/`type`/`fill` only read it. If a snapshot is regenerated between an action call, ref IDs are invalidated and the action will miss.
+- `snapshot` **atomically overwrites** it (marshal to a temp file in the same directory, then rename); `click`/`type`/`fill` only read it. This guarantees a concurrent reader either sees the prior complete index or the new one, never a half-written file — important because agentd's workflow interleaves `desktop_inspect` (write) with `desktop_a11y_click`/`desktop_a11y_type` (read).
+- If a snapshot is regenerated between an action call, ref IDs are invalidated and the action will miss.
 
 ### Exit codes
 

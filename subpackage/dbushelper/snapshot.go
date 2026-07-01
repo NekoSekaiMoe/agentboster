@@ -23,6 +23,7 @@ import (
 const (
 	maxApps      = 32   // max top-level apps to descend into
 	maxVisits    = 8000 // max nodes inspected across the entire walk
+	maxStack     = 4000 // max pending nodes on the DFS stack; bounds memory on wide trees (LibreOffice exposes wide sibling lists) where visited/limit caps lag the push rate
 	DefaultLimit = 300  // default cap on accepted (returned) nodes
 )
 
@@ -182,6 +183,15 @@ func collectSnapshot(conn *dbus.Conn, limit int, busAddr, display string) ([]Ref
 				continue
 			}
 			// Push in reverse so the DFS visits left-to-right on pop.
+			// Guard the stack depth so a pathological wide tree (e.g.
+			// LibreOffice) cannot balloon memory before maxVisits catches
+			// up — drop further pushes once we hit maxStack and mark the
+			// walk truncated.
+			room := maxStack - len(stack)
+			if room < len(children) {
+				children = children[:max(0, room)]
+				truncated = true
+			}
 			for i := len(children) - 1; i >= 0; i-- {
 				stack = append(stack, children[i].asObj(conn))
 			}

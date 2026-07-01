@@ -89,6 +89,72 @@ func TestLookupRefFailsWhenFileMissing(t *testing.T) {
 	}
 }
 
+// WriteRefs must be atomic: a concurrent reader should never see a
+// half-written file, and no temp file should be left behind on success.
+func TestWriteRefsIsAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "refs.json")
+	t.Setenv("AGENTD_A11Y_REFS", path)
+
+	entries := []RefEntry{
+		{RefID: "e1", BusName: ":1.1", ObjectPath: "/o/1", Role: "push button", Name: "OK"},
+	}
+	if _, err := WriteRefs(entries); err != nil {
+		t.Fatalf("WriteRefs: %v", err)
+	}
+
+	// Target exists and is valid JSON (the rename happened).
+	got, err := LookupRef("e1")
+	if err != nil {
+		t.Fatalf("LookupRef after WriteRefs: %v", err)
+	}
+	if got.Name != "OK" {
+		t.Errorf("got.Name = %q, want OK", got.Name)
+	}
+
+	// No leftover temp files in the directory.
+	matches, err := filepath.Glob(filepath.Join(dir, ".refs-*.json.tmp"))
+	if err != nil {
+		t.Fatalf("glob temp: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("leftover temp files after atomic write: %v", matches)
+	}
+
+	// Overwrite works: the prior content is fully replaced, not appended.
+	entries2 := []RefEntry{
+		{RefID: "e9", BusName: ":1.1", ObjectPath: "/o/9", Role: "entry", Name: "Fresh"},
+	}
+	if _, err := WriteRefs(entries2); err != nil {
+		t.Fatalf("WriteRefs (overwrite): %v", err)
+	}
+	if _, err := LookupRef("e1"); err == nil {
+		t.Errorf("e1 should be gone after overwrite, but lookup succeeded")
+	}
+	got2, err := LookupRef("e9")
+	if err != nil || got2.Name != "Fresh" {
+		t.Errorf("after overwrite LookupRef(e9) = %+v, err=%v; want Fresh", got2, err)
+	}
+}
+
+// WriteRefs must create the parent directory if it does not yet exist
+// (default /tmp/agentd-a11y-refs.json path may have a missing /tmp/at-spi
+// on first run inside a fresh sandbox).
+func TestWriteRefsCreatesParentDir(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "nested", "deep", "refs.json")
+	t.Setenv("AGENTD_A11Y_REFS", nested)
+
+	if _, err := WriteRefs([]RefEntry{
+		{RefID: "e1", BusName: ":1.1", ObjectPath: "/o", Role: "label", Name: "x"},
+	}); err != nil {
+		t.Fatalf("WriteRefs into missing dir: %v", err)
+	}
+	if _, err := os.Stat(nested); err != nil {
+		t.Errorf("expected %s to exist: %v", nested, err)
+	}
+}
+
 func TestPreferredActionIndex(t *testing.T) {
 	cases := []struct {
 		name    string
