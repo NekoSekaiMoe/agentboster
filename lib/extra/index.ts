@@ -2,7 +2,6 @@ export * from './db';
 export * from './auth';
 export { parseAgentBosterConfig, agentBosterConfigSchema } from './config';
 export type { AgentBosterConfig } from './config';
-export * from './security';
 export * from './sandbox';
 export * from './agent/parallel';
 export * from './agent/skills';
