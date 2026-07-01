@@ -1114,35 +1114,73 @@ import Redis from 'ioredis';
 const redis = new Redis(process.env.REDIS_URL);
 ```
 
-### 8.3 after() 异步机制（影响 IM webhook）
+### 8.3 after() 异步机制（影响 IM webhook，自托管已知架构缺陷）
 
-**现状**：代码使用 `next/server` 的 `after()` API，在 Vercel 上可以延迟到响应后执行，在自托管 `next start` 下会降级为同步等待
+> ⚠️ **这是自托管场景下最需要警惕的问题**。它不是配置问题，无法通过调参绕过；不改代码的情况下只能靠"忍耐 + 调 IM 平台侧"或"避免使用 IM 渠道"来缓解。本节详细说明根因、症状、缓解措施与三种代码修复方案的取舍，供自托管者判断是否需要自行改造。
 
-**影响范围**：
-- `app/api/bot/[authSecret]/[adapter]/callback/route.ts`（3 处）
-- `app/(skill)/actions.ts`（1 处）
+#### 根因
 
-**问题**：IM webhook 会阻塞到 workflow 完成（几十秒到几分钟），导致 IM 平台超时重试
+代码在 IM webhook 入口使用 `next/server` 的 `after()` API 把"agent 推理 + 流式回复"延迟到 HTTP 响应返回之后再执行。`after()` **是 Vercel 平台特性**，在 Vercel 上会把回调注册到平台级的后台执行环境（请求结束后函数实例仍存活，回调继续跑完）。Next.js 自身（即 `next start` 自托管模式）**没有等价的"响应后执行"平台能力**，运行时会把它降级为同步等待——也就是 `after(fn)` 实际等价于 `await fn()`，回调跑完之前请求不会返回。
 
-**临时方案**：
-- 如果 IM 平台超时容忍度高（如 Telegram 60 秒），且 workflow 通常较短，可以暂时不改
-- 观察是否出现重复消息（超时重试的症状）
+后果是：IM 平台 webhook 在自托管下会一直阻塞到 workflow 完成（agent 推理几十秒到几分钟），而 IM 平台（Telegram/Discord/Slack 等）的 webhook 通常有自己的超时（典型 10-60 秒），超时后会认为投递失败并**重试发送同一条消息**，表现为用户收到重复回复，或同一消息被处理多次产生副作用（重复写记忆、重复执行工具）。
 
-**永久方案**（需要修改代码）：
+#### 影响范围
 
-方案 A：使用后台任务队列（如 BullMQ）
+- `app/api/bot/[authSecret]/[adapter]/callback/route.ts`（3 处 `after()`：Chat SDK 适配器的 `waitUntil` 包装、飞书分支、QQ 分支）
+- `app/(skill)/actions.ts`（1 处，技能相关，影响较小）
 
-```typescript
-// 替换 after(() => fetch(...))
-await queue.add('process-im-message', { messageId, adapterId });
-```
+注意：**Web UI 和 CLI 不受此问题影响**。它们走的是 `app/(chat)/api/ai/route.ts` 和 `app/api/cli/chat/route.ts`，这两个端点本身就是 SSE 流式响应（`maxDuration = 300` 秒），客户端主动维持长连接，不依赖 `after()` 把工作后置。问题仅出现在 IM webhook 这种"平台要求快速 ack"的场景。
 
-方案 B：fire-and-forget（需测试）
+#### 症状识别
 
-```typescript
-// 替换 after(() => fetch(...))
-void fetch(...).catch(err => logger.error('background fetch failed', err));
-```
+如果出现以下现象，基本可以确认撞上了这个问题：
+- IM 收到同一条用户消息的**多条回复**（典型 2-3 条，间隔约等于 IM 平台的超时阈值）
+- 后台日志看到同一条消息被 `chatMain` 处理多次
+- 长任务（agent 多步工具循环）几乎必定触发，短任务（一问一答）可能侥幸不触发
+- 数据库 `messages` 表出现同一 `uiMessageId` 的多版本写入
+
+#### 不改代码的缓解措施
+
+如果暂时不想改代码，可以按优先级尝试：
+
+1. **调短 agent 单轮执行时间**：在会话配置里关掉重工具（浏览器、桌面、长 CodeAct），让单轮 workflow 控制在 IM 平台超时阈值内（保守按 10 秒估算）。这能降低触发概率但治标不治本。
+2. **选超时容忍度高的 IM 平台**：Telegram webhook 超时约 60 秒，相对宽松；Discord/Slack 更严格。如果必须用 IM，优先 Telegram。
+3. **用 CLI 或 Web 替代 IM 渠道**：如上所述，CLI 和 Web 不受此问题影响。如果主要使用场景是开发者自己，可以跳过 IM 接入。
+4. **接受重复并靠幂等保护兜底**：代码中 `lib/chat/index.ts` 的 `checkDuplicate` 对 IM 来源有相似度去重，但只在"无 sessionId"的新会话创建时生效；已有会话的重复消息仍会处理。不能完全依赖。
+
+#### 代码修复方案（三选一，需自行改造）
+
+如果你决定改代码，按推荐度排序：
+
+**方案 C（最推荐）：复用 graphile-worker 入队**
+
+自托管 Postgres world 下你本来就要跑 graphile-worker（见 5.7 节）。把 IM 消息处理也做成一个 graphile job：webhook 调 `addJob('im-message', payload)` 后**立即返回**（亚毫秒级 ack），由已存在的 worker 进程消费并调 `routeAdapterMessage`。
+
+- 优点：不引入新依赖；进程崩溃消息不丢（任务持久化在 Postgres）；与现有 worker 同构，运维心智一致；水平扩 worker 即可提升消费能力。
+- 缺点：需要写一个 job handler，并验证 `routeAdapterMessage` 依赖的 Workflow runtime、KV、DB 在 worker 进程内可用（Web 主进程和 worker 进程都加载了完整 Next.js server，理论上可用，但需测试）。
+- 适配范围：飞书和 QQ 分支直接可改（显式 `after(() => routeAdapterMessage(...))`）。Chat SDK 适配器（slack/teams/gchat/telegram/discord）的 `waitUntil` 是 SDK 接口约定，需要在 SDK 调用前先把原始 payload 入队，再由 worker 重新构造请求对象调 SDK——改造量略大。
+
+**方案 B：独立 BullMQ 队列**
+
+新增 BullMQ（基于 Redis，自托管本来就要 Redis），webhook 入队后立即 ack，单独起一个 BullMQ worker 进程消费。
+
+- 优点：与 graphile-worker 解耦，IM 队列的扩缩容、重试、死信队列不影响 workflow 队列；BullMQ 自带 Dashboard 可观测。
+- 缺点：多一个 worker 进程，多一层运维；多一个依赖（BullMQ + ioredis）。如果还没用 graphile-worker，这个方案比方案 C 更简单；如果已经在跑 graphile-worker，叠加 BullMQ 会让进程拓扑变复杂。
+
+**方案 A：fire-and-forget（最小改动但不推荐生产用）**
+
+把 `after(() => fn())` 直接换成 `void fn().catch(err => logger.error(...))`。
+
+- 优点：一处改一行，立即生效，IM webhook 秒回。
+- 缺点：**进程崩溃或重启时正在跑的 IM 消息直接丢失**（无任何持久化）；Next.js 在 response 返回后可能回收请求相关资源，依赖 `AsyncLocalStorage` 的链路（logger 的 traceId、KV 锁的 sessionId、workflow 的 runId 上下文）**可能丢失或串扰**；不可观测（没有队列状态可看）。
+- 适用场景：仅适合本地开发调试或对消息丢失不敏感的玩具部署，**不建议生产环境使用**。
+
+#### 推荐决策路径
+
+- 只用 Web UI / CLI，**不接入 IM** → 这个问题不会触发，无需处理。
+- 接入 IM 但用量小、能容忍偶发重复 → 先用"不改代码的缓解措施"，观察实际触发频率再决定。
+- 接入 IM 且需要可靠投递 → 改代码，优先选**方案 C**（复用 graphile-worker），其次方案 B（BullMQ），不要用方案 A 上生产。
+- 想彻底避免自托管的这类平台特性差异 → 重新评估是否真的需要脱离 Vercel。Vercel 的 `after()`、Blob、Queue、Sandbox 是为 Serverless 优化的，自托管本质上是在用 Node 常驻进程模拟 Serverless 特性，部分能力（响应后执行、函数级隔离、自动伸缩）没有等价物。
 
 ### 8.4 数据库驱动（推荐优化，非必需）
 
