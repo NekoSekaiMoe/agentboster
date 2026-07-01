@@ -892,6 +892,20 @@ export class AgentSession {
     return this.agent.state.thinkingLevel;
   }
 
+  /**
+   * Plan-mode toggle (CLI `/plan` command). Pure client-side runtime
+   * state; not persisted. Sent to the Web workflow on every chatMain
+   * request via the `planMode` body field so chatWorkflow can filter
+   * the toolset to read-only / observe / reason tools only.
+   */
+  private _planMode = false;
+  get planMode(): boolean {
+    return this._planMode;
+  }
+  setPlanMode(value: boolean): void {
+    this._planMode = value;
+  }
+
   /** Whether agent is currently streaming a response */
   get isStreaming(): boolean {
     return this.agent.state.isStreaming;

@@ -50,6 +50,11 @@ const requestSchema = z.object({
   // so buildSystemPrompt can inject it as project-supplied reference data.
   // Ignored for non-CLI sources; empty string is treated as absent.
   agentsMd: z.string().optional(),
+  // CLI /plan toggle: when true, the workflow filters its toolset to
+  // read-only / observe / reason tools only — the model can investigate
+  // and propose a plan but cannot mutate state until the user approves
+  // and the CLI flips this to false for the next run.
+  planMode: z.boolean().optional(),
 });
 
 function getInputPayload(
@@ -169,6 +174,9 @@ export async function POST(request: Request) {
           body.agentsMd && body.agentsMd.trim().length > 0
             ? body.agentsMd
             : undefined,
+        // CLI /plan toggle: when true, the workflow filters its toolset
+        // to read-only / observe / reason tools only.
+        planMode: body.planMode === true,
       },
       {
         source: {

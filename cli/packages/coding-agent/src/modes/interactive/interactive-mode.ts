@@ -3050,6 +3050,14 @@ export class InteractiveMode {
         this.handleEffortCommand(arg);
         return;
       }
+      if (text === '/plan' || text.startsWith('/plan ')) {
+        const arg = text.startsWith('/plan ')
+          ? text.slice(6).trim().toLowerCase()
+          : undefined;
+        this.editor.setText('');
+        this.handlePlanCommand(arg);
+        return;
+      }
       if (text === '/reload') {
         this.editor.setText('');
         await this.handleReloadCommand();
@@ -4282,6 +4290,39 @@ export class InteractiveMode {
     this.footer.invalidate();
     this.updateEditorBorderColor();
     this.showStatus(`Effort: ${normalized}`);
+  }
+
+  private handlePlanCommand(arg?: string): void {
+    if (arg === undefined) {
+      // Toggle.
+      const next = !this.session.planMode;
+      this.session.setPlanMode(next);
+      this.footer.invalidate();
+      this.updateEditorBorderColor();
+      this.showStatus(
+        next
+          ? 'Plan mode ON — read-only, propose plan and wait for approval'
+          : 'Plan mode OFF — full actions available',
+      );
+      return;
+    }
+    if (arg === 'on' || arg === 'true' || arg === '1') {
+      this.session.setPlanMode(true);
+      this.footer.invalidate();
+      this.updateEditorBorderColor();
+      this.showStatus(
+        'Plan mode ON — read-only, propose plan and wait for approval',
+      );
+      return;
+    }
+    if (arg === 'off' || arg === 'false' || arg === '0') {
+      this.session.setPlanMode(false);
+      this.footer.invalidate();
+      this.updateEditorBorderColor();
+      this.showStatus('Plan mode OFF — full actions available');
+      return;
+    }
+    this.showStatus(`Unknown plan argument: ${arg}. Use /plan [on|off]`);
   }
 
   private async cycleModel(direction: 'forward' | 'backward'): Promise<void> {
@@ -6350,6 +6391,7 @@ export class InteractiveMode {
               .join('\n\n') || undefined
           );
         },
+        getPlanMode: () => this.session.planMode,
         onSubagentEvent: (event) => {
           void this.session.addWorkflowSubagentEvent(event);
         },

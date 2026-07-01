@@ -76,6 +76,12 @@ export interface WebStreamOptions {
    *  backend gates this on `source.type === 'cli'` and ignores it for
    *  web/IM sources. */
   agentsMd?: string;
+  /** Plan-mode toggle from the CLI `/plan` command. When true, the Web
+   *  workflow filters its toolset to read-only / observe / reason tools
+   *  only — the model can investigate and propose a plan but cannot
+   *  mutate state. The CLI flips this back to false when the user
+   *  approves the plan and re-submits. */
+  planMode?: boolean;
 }
 
 function lastUserText(messages: Context['messages']): string {
@@ -203,6 +209,7 @@ async function driveStream(
       label: options.label ?? 'agentboster-cli',
       model: options.model ?? undefined,
       ...(options.agentsMd ? { agentsMd: options.agentsMd } : {}),
+      planMode: options.planMode === true,
     }),
     signal: options.signal,
   });

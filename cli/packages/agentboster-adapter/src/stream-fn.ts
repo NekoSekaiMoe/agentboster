@@ -48,6 +48,11 @@ export interface CreateStreamFnOptions
    *  the backend leaves the stored prompt untouched. The host typically
    *  reads `resourceLoader.getAgentsFiles()` here. */
   getAgentsMd?: () => string | undefined;
+  /** Resolve the current plan-mode toggle. When true, the Web workflow
+   *  filters its toolset to read-only / observe / reason tools only —
+   *  the model can investigate and propose a plan but cannot mutate
+   *  state. Set by the CLI `/plan` command. */
+  getPlanMode?: () => boolean;
 }
 
 /**
@@ -87,6 +92,7 @@ export function createAgentbosterStreamFn(
     const sessionId = opts.getSessionId();
     const regenerate = opts.consumeRegenerateIntent?.() ?? undefined;
     const agentsMd = opts.getAgentsMd?.() || undefined;
+    const planMode = opts.getPlanMode?.() === true;
     return openAgentbosterStream(_model, context, {
       baseUrl: auth.baseUrl,
       token: auth.token,
@@ -99,6 +105,7 @@ export function createAgentbosterStreamFn(
       onSubagentBatchEvent: opts.onSubagentBatchEvent,
       signal: options?.signal,
       regenerate,
+      planMode,
       ...(agentsMd ? { agentsMd } : {}),
     });
   };

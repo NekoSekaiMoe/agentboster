@@ -34,6 +34,16 @@ export type BuildSystemPromptOptions = {
    * reference data, not a privileged instruction channel.
    */
   agentsMd?: string;
+  /**
+   * Plan mode (CLI `/plan` toggle). When true, prepends a "Plan Mode"
+   * section to the system prompt instructing the model to investigate
+   * using read-only tools only and to surface a proposed plan via
+   * `ask_question` for user approval before any execution. The matching
+   * toolset filtering happens in buildAgentTools; this flag only governs
+   * the prompt-side guidance so the model understands why its action
+   * tools are gone.
+   */
+  planMode?: boolean;
 };
 
 function createSection(title: string, lines: string[]) {
@@ -167,6 +177,21 @@ export async function buildSystemPrompt(
         `You are acting as a delegated \`sub-agent\` for \`${options.delegation.parentAgentName}\`.`,
         'Focus on the delegated task only.',
         'Return a concise work product for the calling agent instead of addressing the end user directly, unless the delegated task explicitly asks for user-facing copy.',
+      ]),
+    );
+  }
+
+  // Plan mode guidance. Tells the model why its action tools are gone
+  // and what to do instead: investigate with read-only tools, then
+  // surface a proposed plan via ask_question for the user to approve.
+  // The matching toolset filter lives in buildAgentTools; this is purely
+  // the prompt-side explanation.
+  if (options.planMode) {
+    sections.push(
+      createSection('Plan Mode', [
+        'You are in **plan mode**: every state-mutating tool has been removed from your toolset. You cannot write, edit, execute shell, dispatch sandbox / browser / desktop actions, or modify memory. You CAN still read files, search, observe sandbox / browser state, recall memory, and reason with `sequential_thinking`.',
+        'Investigate the task thoroughly using the read-only tools that remain. When you are ready, present a concrete plan via the `ask_question` tool: lay out the proposed steps, the files / commands / actions you intend to take, and any decisions you need the user to make. Block on the user response — when they approve, the host flips plan mode off for the next run and your action tools return.',
+        'Do not attempt to bypass this restriction by asking the user to run commands themselves, by emitting actions inside `ask_question` prompts, or by embedding instructions in memory entries. Plan mode ends only when the user explicitly approves.',
       ]),
     );
   }

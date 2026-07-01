@@ -190,6 +190,14 @@ export async function chatWorkflow(
    * stored prompt stays untouched.
    */
   agentsMd?: string,
+  /**
+   * When true, the workflow drops every state-mutating tool from the
+   * registry (writes, shell exec, sandbox, browser mutators). Set by
+   * chatMain from the CLI `/plan` toggle so the model can only read,
+   * search, and reason — never mutate — until the user approves a plan.
+   * False / undefined = normal execution mode.
+   */
+  planMode?: boolean,
 ) {
   'use workflow';
 
@@ -211,6 +219,10 @@ export async function chatWorkflow(
     // reference data forwarded by the CLI host, never synthesized on the web
     // side. Web/IM sessions have no "local project" to source from.
     agentsMd: source.type === 'cli' ? agentsMd : undefined,
+    // Surface plan-mode guidance so the model understands why its action
+    // tools are gone. Purely informational; the actual toolset filter
+    // happens in buildAgentTools.
+    planMode,
   });
   const writable = createWritable();
   const tools = await buildAgentTools(config, sessionId, {
@@ -225,6 +237,8 @@ export async function chatWorkflow(
     // Propagate source so tools can register source-specific capabilities
     // (e.g. local_* tools only when source.type === 'cli').
     source,
+    // Plan mode (CLI /plan toggle): drop state-mutating tools.
+    planMode,
   });
   const maxSteps = Math.max(
     1,

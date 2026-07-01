@@ -51,7 +51,9 @@ describe('shouldCompress', () => {
   it('triggers at the configured ratio', () => {
     const limit = 100_000;
     expect(shouldCompress(limit * DEFAULT_COMPACT_RATIO, limit)).toBe(true);
-    expect(shouldCompress(limit * DEFAULT_COMPACT_RATIO - 1, limit)).toBe(false);
+    expect(shouldCompress(limit * DEFAULT_COMPACT_RATIO - 1, limit)).toBe(
+      false,
+    );
   });
 
   it('respects a custom threshold', () => {
@@ -62,15 +64,11 @@ describe('shouldCompress', () => {
 
 describe('isContextOverflow', () => {
   it('returns true once usage meets the usable window', () => {
-    expect(
-      isContextOverflow(99_000, 100_000, 1_000),
-    ).toBe(true);
+    expect(isContextOverflow(99_000, 100_000, 1_000)).toBe(true);
   });
 
   it('returns false below the usable window', () => {
-    expect(
-      isContextOverflow(98_000, 100_000, 1_000),
-    ).toBe(false);
+    expect(isContextOverflow(98_000, 100_000, 1_000)).toBe(false);
   });
 
   it('returns false for non-positive context limit', () => {

@@ -52,6 +52,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
   { name: 'new', description: 'Start a new session' },
   { name: 'compact', description: 'Manually compact the session context' },
   {
+    name: 'plan',
+    description:
+      'Toggle plan mode (read-only: investigate, propose plan, then re-enable actions on approval)',
+  },
+  {
     name: 'effort',
     description:
       'Set thinking/effort level (off/minimal/low/medium/high/xhigh)',

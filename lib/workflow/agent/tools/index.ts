@@ -108,13 +108,71 @@ export async function buildAgentTools(
     ...mcpTools,
   };
 
+  // Plan mode: drop every state-mutating tool, keeping only read-only /
+  // observe / reason tools so the model can investigate and propose a
+  // plan without touching anything. Mirrors pi's plan-mode extension
+  // semantics ("read-only planning, propose plan, then act").
+  //
+  // agentboster runs tools in two execution planes (the Web workflow is
+  // the single tool registry for both):
+  //   - agentd sandbox: docker/lxc/browser/desktop — remote execution
+  //   - CLI host local_*: the user's own filesystem and shell
+  //
+  // Plan mode uses an ALLOWLIST because agentd/browser expose too many
+  // tools to maintain a stable blocklist, and MCP tools (web_search,
+  // fetch_url, etc.) are read-side research aids that should stay
+  // available. Anything not on the allowlist is dropped; the model
+  // therefore cannot mutate, execute, click, type, or write anywhere.
+  const logger = createLogger('workflow.agent.tools');
+  if (options.planMode) {
+    const PLAN_MODE_ALLOWED = new Set<string>([
+      // Reasoning scratchpad (no IO).
+      'sequential_thinking',
+      // Read-only local filesystem access (CLI host).
+      'local_read_file',
+      // Read-only sandbox tools (agentd).
+      'readFile',
+      // Read-only browser observers (agentd Playwright).
+      'browser_get_text',
+      'browser_get_html',
+      'browser_screenshot',
+      'browser_list_profiles',
+      'browser_tab_list',
+      'browser_inspect',
+      // Memory read (write/delete blocked).
+      'readMemory',
+      // Let the model ask the user for clarification or to surface its
+      // proposed plan for approval. ask_question blocks until the user
+      // answers, so it is the natural plan-approval channel.
+      'ask_question',
+      // Task summary read (already read-only) helps the model see what
+      // it has already committed to in earlier runs.
+      'task_summary',
+    ]);
+    // MCP tools are external research aids (web_search, fetch_url, ...).
+    // They were merged into mergedTools above; tag them as allowed unless
+    // individually blocked. Heuristic: anything containing "search" or
+    // "fetch" or "read" or "get" is research-y; everything else from MCP
+    // is dropped to be safe.
+    const mcpKeys = new Set(Object.keys(mcpTools));
+    for (const key of Object.keys(mergedTools)) {
+      if (PLAN_MODE_ALLOWED.has(key)) continue;
+      if (mcpKeys.has(key) && /search|fetch|read|get|list|query/i.test(key)) {
+        continue;
+      }
+      delete mergedTools[key];
+    }
+    logger.info('tools:plan_mode_filtered', {
+      kept: Object.keys(mergedTools).length,
+    });
+  }
+
   // Last-mile guard: drop any tool whose key fails provider tool-name
   // validation. Without this filter, a single bad key (e.g. an MCP server
   // exposing a tool whose name starts with a digit or contains non-ASCII
   // chars) causes Gemini to reject the ENTIRE tools array with
   // `function_declarations[N].name: Invalid function name`, taking down
   // the whole workflow run.
-  const logger = createLogger('workflow.agent.tools');
   const dropped: string[] = [];
   for (const key of Object.keys(mergedTools)) {
     if (!isValidToolName(key)) {

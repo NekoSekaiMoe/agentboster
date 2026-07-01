@@ -188,6 +188,13 @@ export async function startWorkflow(input: {
    * injects it as project-supplied reference data (CLI sources only).
    */
   agentsMd?: string;
+  /**
+   * Plan mode toggle from the CLI `/plan` command. Forwarded to
+   * chatWorkflow → buildAgentTools, which filters the toolset to
+   * read-only / observe / reason tools only. False / undefined = normal
+   * execution mode.
+   */
+  planMode?: boolean;
 }): Promise<{
   runId: string;
   readable: ReadableStream<WorkflowUIMessageChunk>;
@@ -207,6 +214,7 @@ export async function startWorkflow(input: {
       input.user,
       input.requestModel,
       input.agentsMd,
+      input.planMode,
     ]),
     new Promise<never>((_, reject) =>
       setTimeout(

@@ -127,6 +127,14 @@ type LegacyChatMainRequest = {
    * the CLI route; web/IM paths leave this undefined.
    */
   agentsMd?: string;
+  /**
+   * Plan-mode toggle from the CLI `/plan` slash command. When true, the
+   * workflow filters its toolset to read-only / observe / reason tools
+   * only — the model can investigate but not mutate state. Forwarded to
+   * startWorkflow → chatWorkflow → buildAgentTools. Only meaningful for
+   * CLI sources; ignored otherwise.
+   */
+  planMode?: boolean;
 };
 
 type ChatMainOptions = {
@@ -1778,6 +1786,10 @@ export async function chatMain(
     // session). chatWorkflow forwards it to buildSystemPrompt for CLI
     // sources only; web/IM sessions never set this.
     agentsMd,
+    // Forward the CLI /plan toggle so the workflow filters its toolset
+    // to read-only / observe / reason tools in plan mode. Other sources
+    // never set this and run in normal execution mode.
+    planMode: request.planMode,
   });
   chatMainLogger.info('chatMain:workflow_started', { runId });
 

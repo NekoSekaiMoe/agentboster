@@ -58,6 +58,15 @@ export type BuildAgentToolsOptions = {
   // source.type === 'cli', because only the CLI host has the user's
   // filesystem. Undefined for legacy callers; tools must tolerate that.
   source?: ChatSource;
+  // When true, drop every tool with side effects on the user's filesystem
+  // or sandbox (write/edit/bash/local_*/sandbox/desktop/browser). Mirrors
+  // pi's plan-mode extension: the model can read, search, and reason but
+  // cannot mutate state until the user approves the proposed plan and the
+  // CLI flips planMode to false for the next run. Read-only and reasoning
+  // tools (read, local_read_file, memory read, sequential_thinking,
+  // ask_question, sub-agent, schedule, task_summary, skills) stay
+  // available so the model can investigate before proposing.
+  planMode?: boolean;
 };
 
 export type BuildInToolFactoryContext = {
