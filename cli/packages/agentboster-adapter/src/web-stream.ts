@@ -82,6 +82,12 @@ export interface WebStreamOptions {
    *  mutate state. The CLI flips this back to false when the user
    *  approves the plan and re-submits. */
   planMode?: boolean;
+  /** Current thinking level from the CLI `/effort` command. Forwarded to
+   *  the Web workflow so resolveAgentProviderOptions can serialize it
+   *  into the provider-specific reasoning field (OpenAI reasoningEffort,
+   *  Anthropic thinking.budgetTokens, Google thinkingConfig.thinkingBudget).
+   *  'off' / undefined = no reasoning field is sent. */
+  thinkingLevel?: string;
 }
 
 function lastUserText(messages: Context['messages']): string {
@@ -210,6 +216,11 @@ async function driveStream(
       model: options.model ?? undefined,
       ...(options.agentsMd ? { agentsMd: options.agentsMd } : {}),
       planMode: options.planMode === true,
+      thinkingLevel:
+        typeof options.thinkingLevel === 'string' &&
+        options.thinkingLevel.length > 0
+          ? options.thinkingLevel
+          : undefined,
     }),
     signal: options.signal,
   });

@@ -135,6 +135,13 @@ type LegacyChatMainRequest = {
    * CLI sources; ignored otherwise.
    */
   planMode?: boolean;
+  /**
+   * Thinking level from the CLI `/effort` slash command. Forwarded to
+   * startWorkflow → chatWorkflow → resolveAgentProviderOptions, which
+   * serializes it into the provider-specific reasoning field. 'off' /
+   * undefined leaves the provider's default behavior unchanged.
+   */
+  thinkingLevel?: string;
 };
 
 type ChatMainOptions = {
@@ -1790,6 +1797,9 @@ export async function chatMain(
     // to read-only / observe / reason tools in plan mode. Other sources
     // never set this and run in normal execution mode.
     planMode: request.planMode,
+    // Forward the CLI /effort thinking level so resolveAgentProviderOptions
+    // can serialize it into the provider-specific reasoning field.
+    thinkingLevel: request.thinkingLevel,
   });
   chatMainLogger.info('chatMain:workflow_started', { runId });
 

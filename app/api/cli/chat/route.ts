@@ -55,6 +55,12 @@ const requestSchema = z.object({
   // and propose a plan but cannot mutate state until the user approves
   // and the CLI flips this to false for the next run.
   planMode: z.boolean().optional(),
+  // CLI /effort thinking level. Forwarded to chatWorkflow →
+  // resolveAgentProviderOptions, which serializes it into the matching
+  // provider-specific reasoning field (OpenAI reasoningEffort, Anthropic
+  // thinking.budgetTokens, Google thinkingConfig.thinkingBudget).
+  // 'off' / undefined = no reasoning field is sent.
+  thinkingLevel: z.string().optional(),
 });
 
 function getInputPayload(
@@ -177,6 +183,13 @@ export async function POST(request: Request) {
         // CLI /plan toggle: when true, the workflow filters its toolset
         // to read-only / observe / reason tools only.
         planMode: body.planMode === true,
+        // CLI /effort thinking level: serialized into the matching
+        // provider-specific reasoning field inside chatWorkflow.
+        thinkingLevel:
+          typeof body.thinkingLevel === 'string' &&
+          body.thinkingLevel.length > 0
+            ? body.thinkingLevel
+            : undefined,
       },
       {
         source: {

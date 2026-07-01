@@ -195,6 +195,13 @@ export async function startWorkflow(input: {
    * execution mode.
    */
   planMode?: boolean;
+  /**
+   * Thinking level from the CLI `/effort` command. Forwarded to
+   * chatWorkflow → resolveAgentProviderOptions, which serializes it
+   * into the matching provider-specific reasoning field. 'off' /
+   * undefined leaves the provider's default behavior unchanged.
+   */
+  thinkingLevel?: string;
 }): Promise<{
   runId: string;
   readable: ReadableStream<WorkflowUIMessageChunk>;
@@ -215,6 +222,7 @@ export async function startWorkflow(input: {
       input.requestModel,
       input.agentsMd,
       input.planMode,
+      input.thinkingLevel,
     ]),
     new Promise<never>((_, reject) =>
       setTimeout(

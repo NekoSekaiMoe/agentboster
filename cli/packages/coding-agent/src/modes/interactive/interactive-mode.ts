@@ -6392,6 +6392,7 @@ export class InteractiveMode {
           );
         },
         getPlanMode: () => this.session.planMode,
+        getThinkingLevel: () => this.session.thinkingLevel,
         onSubagentEvent: (event) => {
           void this.session.addWorkflowSubagentEvent(event);
         },

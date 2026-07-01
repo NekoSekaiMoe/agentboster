@@ -891,6 +891,7 @@ export async function main(args: string[], options?: MainOptions) {
         undefined,
         () => readMergedAgentsMd(resourceLoader),
         undefined,
+        undefined,
       ),
     });
     const overrideWithEvents = await resolveStreamFnOverride(
@@ -905,6 +906,7 @@ export async function main(args: string[], options?: MainOptions) {
       () => created.session.consumeRegenerateIntent(),
       () => readMergedAgentsMd(created.session.resourceLoader),
       () => created.session.planMode,
+      () => created.session.thinkingLevel,
     );
     if (overrideWithEvents) {
       created.session.agent.streamFn = overrideWithEvents;
@@ -1456,6 +1458,7 @@ async function resolveStreamFnOverride(
   } | null,
   getAgentsMd?: () => string | undefined,
   getPlanMode?: () => boolean,
+  getThinkingLevel?: () => string | undefined,
 ): Promise<StreamFn | undefined> {
   const auth = getStoredAuth();
   if (!auth) {
@@ -1474,6 +1477,7 @@ async function resolveStreamFnOverride(
     consumeRegenerateIntent,
     ...(getAgentsMd ? { getAgentsMd } : {}),
     ...(getPlanMode ? { getPlanMode } : {}),
+    ...(getThinkingLevel ? { getThinkingLevel } : {}),
     onSubagentEvent,
     onSubagentBatchEvent,
     onLocalToolRequest: async ({ runId, toolCallId, toolName, toolInput }) => {

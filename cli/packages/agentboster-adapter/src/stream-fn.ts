@@ -53,6 +53,11 @@ export interface CreateStreamFnOptions
    *  the model can investigate and propose a plan but cannot mutate
    *  state. Set by the CLI `/plan` command. */
   getPlanMode?: () => boolean;
+  /** Resolve the current thinking level. Forwarded to the Web workflow
+   *  so it can serialize the matching provider-specific reasoning field
+   *  (OpenAI reasoningEffort, Anthropic thinking.budgetTokens, Google
+   *  thinkingConfig.thinkingBudget). Set by the CLI `/effort` command. */
+  getThinkingLevel?: () => string | undefined;
 }
 
 /**
@@ -93,6 +98,7 @@ export function createAgentbosterStreamFn(
     const regenerate = opts.consumeRegenerateIntent?.() ?? undefined;
     const agentsMd = opts.getAgentsMd?.() || undefined;
     const planMode = opts.getPlanMode?.() === true;
+    const thinkingLevel = opts.getThinkingLevel?.();
     return openAgentbosterStream(_model, context, {
       baseUrl: auth.baseUrl,
       token: auth.token,
@@ -106,6 +112,7 @@ export function createAgentbosterStreamFn(
       signal: options?.signal,
       regenerate,
       planMode,
+      thinkingLevel,
       ...(agentsMd ? { agentsMd } : {}),
     });
   };

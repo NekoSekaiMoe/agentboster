@@ -198,6 +198,13 @@ export async function chatWorkflow(
    * False / undefined = normal execution mode.
    */
   planMode?: boolean,
+  /**
+   * Thinking level from the CLI `/effort` command. Forwarded to
+   * resolveAgentProviderOptions, which serializes it into the matching
+   * provider-specific reasoning field. 'off' / undefined leaves the
+   * provider's default behavior unchanged.
+   */
+  thinkingLevel?: string,
 ) {
   'use workflow';
 
@@ -333,7 +340,11 @@ export async function chatWorkflow(
     toolNames: Object.keys(tools),
   });
 
-  const providerOptions = await resolveAgentProviderOptions(config, modelId);
+  const providerOptions = await resolveAgentProviderOptions(
+    config,
+    modelId,
+    thinkingLevel,
+  );
   const agent = new DurableAgent({
     model: createModelResolver(config, modelId),
     system,

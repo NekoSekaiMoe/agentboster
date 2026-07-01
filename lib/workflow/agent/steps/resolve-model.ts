@@ -17,6 +17,25 @@ export function createModelResolver(config: AppConfig, modelId: string) {
 export async function resolveAgentProviderOptions(
   config: AppConfig,
   modelId: string,
+  /**
+   * Thinking level forwarded by the CLI `/effort` command. When set and
+   * supported by the resolved provider format, serialized into the
+   * matching provider-specific reasoning field:
+   *   - OpenAI Responses API (format='openai'): `reasoningEffort`
+   *     (minimal/low/medium/high; xhigh maps to high).
+   *   - Anthropic (format='anthropic'): `thinking.budgetTokens` mapped
+   *     from the level (off→disabled, minimal→1k, low→4k, medium→8k,
+   *     high→16k, xhigh→32k).
+   *   - Google (format='google'): `thinkingConfig.thinkingBudget` with
+   *     the same token mapping as Anthropic.
+   *   - openaicompatible (DeepSeek, Ollama, etc.): NOT injected. These
+   *     vary too much (DeepSeek uses enable_thinking header, Ollama has
+   *     its own per-model flag). Users wanting thinking on those should
+   *     configure provider options at the provider level.
+   * 'off' / undefined: no reasoning field is sent; the provider's
+   * default behavior applies.
+   */
+  thinkingLevel?: string,
 ): Promise<ProviderOptions | undefined> {
   'use step';
 
@@ -24,20 +43,93 @@ export async function resolveAgentProviderOptions(
   const parsed = parseProviderScopedModelId(modelId);
   const providerName = parsed.providerName ?? Object.keys(providers)[0];
   const providerConfig = providerName ? providers[providerName] : undefined;
-
-  if (providerConfig?.format !== 'openai') {
+  if (!providerConfig) {
     return undefined;
   }
 
-  // store:false is a Responses-API-specific workaround for multi-step
-  // local tool loops. It's meaningless for Chat Completions API.
-  // Only return it when the provider actually uses the Responses API.
-  if (!usesResponsesApi(providerConfig)) {
+  const format = providerConfig.format;
+  const level = normalizeThinkingLevel(thinkingLevel);
+
+  if (format === 'openai') {
+    // Responses API carries reasoning via reasoningEffort. Chat API has
+    // no equivalent — it silently ignores the field, so only set it when
+    // actually routing to /v1/responses.
+    const openaiOpts: Record<string, string | boolean> = {};
+    if (usesResponsesApi(providerConfig)) {
+      openaiOpts.store = false;
+      if (level && level !== 'off') {
+        // xhigh has no OpenAI equivalent; clamp to high.
+        openaiOpts.reasoningEffort = level === 'xhigh' ? 'high' : level;
+      }
+    }
+    return Object.keys(openaiOpts).length > 0
+      ? ({ openai: openaiOpts } as ProviderOptions)
+      : undefined;
+  }
+
+  if (format === 'anthropic' && level && level !== 'off') {
+    const budget = THINKING_BUDGET_TOKENS[level];
+    if (budget > 0) {
+      return {
+        anthropic: {
+          thinking: { type: 'enabled', budgetTokens: budget },
+        },
+      };
+    }
     return undefined;
   }
 
-  return { openai: { store: false } };
+  if (format === 'google' && level && level !== 'off') {
+    const budget = THINKING_BUDGET_TOKENS[level];
+    if (budget > 0) {
+      return {
+        google: { thinkingConfig: { thinkingBudget: budget } },
+      };
+    }
+    return undefined;
+  }
+
+  return undefined;
 }
+
+type NormalizedThinkingLevel =
+  | 'off'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh';
+
+function normalizeThinkingLevel(
+  value: string | undefined,
+): NormalizedThinkingLevel | undefined {
+  if (!value) return undefined;
+  const lower = value.toLowerCase();
+  const valid: NormalizedThinkingLevel[] = [
+    'off',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+  ];
+  return valid.includes(lower as NormalizedThinkingLevel)
+    ? (lower as NormalizedThinkingLevel)
+    : undefined;
+}
+
+// Token-budget mapping for Anthropic / Google thinking. OpenAI uses
+// named levels (minimal/low/medium/high) and is handled inline.
+const THINKING_BUDGET_TOKENS: Record<
+  Exclude<NormalizedThinkingLevel, 'off'>,
+  number
+> = {
+  minimal: 1_024,
+  low: 4_096,
+  medium: 8_192,
+  high: 16_384,
+  xhigh: 32_768,
+};
 
 /**
  * Determine whether this provider configuration routes to the OpenAI
