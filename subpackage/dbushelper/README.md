@@ -107,6 +107,50 @@ where `<arch>` ∈ {`amd64`, `arm64`}.
 
 Use `workflow_dispatch` for dry-run builds (upload step is skipped).
 
+## Limitations
+
+### Walk caps
+
+The DFS walk is hard-capped to keep pathological trees (LibreOffice Calc exposes ~2^31 cells per sheet) from hanging the helper. Both caps are `const` in `snapshot.go` and not configurable at runtime:
+
+| Cap | Value | Effect when hit |
+|-----|-------|-----------------|
+| `maxApps` | `32` | Only the first 32 top-level applications are descended into; the rest are ignored. |
+| `maxVisits` | `8000` | Stops inspecting nodes mid-walk; `truncated=true` is set on the envelope. |
+| `DefaultLimit` | `300` | Cap on **accepted** (returned) nodes. Override per-call with `snapshot --limit N`. |
+
+When any cap is hit, `SnapshotOutput.Truncated` is `true` and `Diagnostics` carries the exact `visited` / `accepted` / `apps` counts so the caller can tell "empty desktop" apart from "walk cut short".
+
+### CoordType
+
+Bounding boxes are always returned in **absolute screen coordinates** (`CoordType.Screen`, `atspi.go`). Window-relative extents would be useless for cross-app consumers. This means the host must NOT apply a window offset when replaying `fallback` coordinates via xdotool.
+
+### Action fallback semantics
+
+`click` / `type` / `fill` return an `ActionOutput` with `ok` indicating whether the AT-SPI call succeeded. **On failure the JSON still exits 0 and carries a `fallback` block** = `{x, y}` = bounding-box center of the ref (see `RefEntry.Center()`, saturating math so a 2^31-wide extent does not overflow). The host (agentd) replays the action against those coordinates via **xdotool** (XTest injection on the Xvfb display — see `internal/agent/desktop/desktop.go::Click`); RFB/VNC injection is deliberately not used.
+
+If the ref is entirely absent from the index (e.g. stale refs file), no fallback coordinate can be synthesized — the envelope carries `ok=false`, an `error` string, and **no** `fallback` block.
+
+### Caret fallback for `type`
+
+`RunType` reads `CaretOffset` from the AT-SPI Text interface; if that call fails or returns negative, the insert position falls back to `0` (start of field). There is no end-of-field heuristic.
+
+### Refs file
+
+- Default path: `/tmp/agentd-a11y-refs.json`.
+- Override with `AGENTD_A11Y_REFS` (used by the test suite to isolate per-test indices).
+- `snapshot` **overwrites** it atomically; `click`/`type`/`fill` only read it. If a snapshot is regenerated between an action call, ref IDs are invalidated and the action will miss.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success, **or** per-action failure (JSON envelope with `ok=false`, `fallback` block when available). |
+| `1` | Catastrophic: a11y bus unreachable, refs file unreadable, JSON serialization failure. Diagnostics on stderr. |
+| `2` | Usage error (unknown subcommand, missing `<ref>`/`<text>`). |
+
+The host must therefore decide success vs. action-failure by inspecting the JSON `ok` field, **not** by the exit code alone.
+
 ## AT-SPI coverage
 
 | App class | Coverage |
@@ -116,4 +160,4 @@ Use `workflow_dispatch` for dry-run builds (upload step is skipped).
 | Firefox | Likely works, untested |
 | Qt5 / Qt6 | Requires `linuxaccessibility` plugin; not configured |
 | LibreOffice | Pathological — truncated by `maxVisits=8000` |
-| Raw X11 apps (xterm, Motif) | Invisible to AT-SPI; `xdotool` fallback used |
+| Raw X11 apps (xterm, Motif) | Invisible to AT-SPI; `fallback` coordinate returned, host replays via xdotool |

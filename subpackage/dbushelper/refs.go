@@ -40,8 +40,9 @@ type refIndex struct {
 	Entries []RefEntry `json:"entries"`
 }
 
-// Center returns the bounding-box center, used as the RFB fallback
-// target when AT-SPI cannot reach the action. Uses saturating math so
+// Center returns the bounding-box center, used as the xdotool fallback
+// target when AT-SPI cannot reach the action (the host's desktop.Click
+// injects via XTest on the Xvfb display). Uses saturating math so
 // a 2^31-wide "extent" doesn't overflow.
 func (r RefEntry) Center() (int32, int32) {
 	cx := r.X + r.Width/2

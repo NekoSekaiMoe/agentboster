@@ -29,7 +29,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 - `atspi.go` — D-Bus interface wrappers (Accessible, Component, Action, EditableText, Text) using raw godbus calls. No Go AT-SPI binding exists; this is hand-rolled.
 - `snapshot.go` — iterative DFS walk of the accessibility tree, capped at `maxVisits=8000` nodes / `maxApps=32` apps. Returns `SnapshotOutput` envelope.
 - `refs.go` — persisted ref index (`/tmp/agentd-a11y-refs.json`, overridable via `AGENTD_A11Y_REFS` env). Snapshot writes it; click/type/fill read it.
-- `action.go` — click/type/fill actions. On failure, returns fallback (x,y) coordinates from the ref's bounding box so the caller can replay via xdotool/RFB.
+- `action.go` — click/type/fill actions. On failure, returns fallback (x,y) coordinates from the ref's bounding box so the caller can replay via xdotool (XTest injection on the Xvfb display).
 - `cmd/a11y-helper/main.go` — CLI dispatch + JSON emission. Exit codes: 0 = success or per-action failure (JSON with `ok=false`), 1 = catastrophic (bus unreachable), 2 = usage error.
 
 ## Testing

@@ -3,8 +3,8 @@
 // Every action returns an ActionOutput data structure. If the AT-SPI
 // call fails, the output still carries a Fallback coordinate (the
 // bounding-box center from the persisted refs) so the caller can
-// replay the action via xdotool/RFB. The OK field tells the caller
-// whether the AT-SPI path actually succeeded.
+// replay the action via xdotool (XTest injection on the Xvfb display).
+// The OK field tells the caller whether the AT-SPI path actually succeeded.
 
 package dbushelper
 
