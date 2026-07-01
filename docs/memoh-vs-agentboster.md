@@ -14,21 +14,29 @@ AgentBoster 的自托管路径则呈现"双轨制"且隐藏成本较高。一方
 
 总体而言，Memoh 的"开箱即用度"更高（一条命令拉起完整栈、双 DB 后端、桌面端离线），代价是强耦合的特权容器和 AGPL 约束；AgentBoster 部署更模块化、许可证更宽松，但自托管者需要面对至少五处云依赖改造、独立 worker 进程、IM webhook 阻塞等工程负担，self-hosted.md 自己也承认"未来版本将提供完整的本地适配方案"。
 
+Memoh 自托管流程：
+
 ```mermaid
 flowchart LR
-    subgraph M["Memoh 自托管（一条命令）"]
-        M1["curl memoh.sh"] --> M2["docker compose up -d"]
-        M2 --> M3["postgres + migrate + server + web"]
-        M3 --> M4["Qdrant/Sparse 可选 profile"]
-    end
-    subgraph A["AgentBoster 自托管（多依赖待改造）"]
-        A1["Dockerfile / yarn build"] --> A2["Postgres+pgvector"]
-        A1 --> A3["Redis 双SDK: 标准协议 + Upstash REST 需代理"]
-        A1 --> A4["对象存储: vercel/blob 需改 S3/MinIO"]
-        A1 --> A5["graphile-worker 必须独立进程"]
-        A1 --> A6["after() 自托管降级同步: IM webhook 阻塞"]
-        A2 & A3 & A4 & A5 --> A7["yarn start + 反代 + systemd"]
-    end
+    A1["curl memoh.sh"] --> A2["渲染 config.toml"]
+    A2 --> A3["docker compose up -d"]
+    A3 --> A4["postgres + migrate"]
+    A3 --> A5["server privileged + web :8082"]
+    A3 --> A6["Qdrant / Sparse 可选 profile"]
+    A3 --> A7["SQLite 单机覆盖文件"]
+```
+
+AgentBoster 自托管流程（含改造点）：
+
+```mermaid
+flowchart LR
+    B1["Dockerfile / yarn build"] --> B2["Postgres + pgvector"]
+    B1 --> B3["Redis 双 SDK<br/>Upstash REST 需兼容代理"]
+    B1 --> B4["对象存储<br/>vercel/blob 需改 S3/MinIO"]
+    B1 --> B5["graphile-worker<br/>必须独立进程"]
+    B1 --> B6["after() 降级同步<br/>IM webhook 阻塞"]
+    B2 --> B7["yarn db:push + ensure-vector"]
+    B7 --> B8["yarn start + 反代 + systemd"]
 ```
 
 ## 二、安全性
@@ -41,28 +49,31 @@ AgentBoster 的安全模型被显式划分为 L0/L1/L2 三层，每层可独立�
 
 简言之，Memoh 的安全更"传统企业"（JWT、ACL、glob 审批），AgentBoster 的 L0/L1/L2 更"智能体原生"，把 LLM 风险评估和持久化决策队列纳入了安全栈，并把"伪造 OS 错误防 LLM 学到规则系统"作为深度防御细节。两者都依赖特权/root 跑容器，但 AgentBoster 把特权集中在独立的 agentd 守护进程上，Web 层本身可保持非特权。
 
+Memoh 安全栈：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh 安全栈"]
-        direction TB
-        MJ["JWT HS256<br/>用户令牌 + 聊天路由令牌"]
-        MA["ACL 源感知规则<br/>频道/会话/线程粒度"]
-        MT["toolapproval 五状态<br/>glob 匹配路径与命令<br/>默认 10 分钟超时"]
-        MJ --> MA --> MT
-        MC["特权容器 privileged:true<br/>嵌套 containerd"]
-    end
-    subgraph AgentBoster["AgentBoster 三层安全"]
-        direction TB
-        L0["L0 规则黑名单<br/>正则/glob 命中伪造 OS 错误"]
-        L1["L1 LLM 风险打分<br/>调 Web l1-score<br/>确定性模式强制抬 high"]
-        L2["L2 人工授权<br/>l2_decisions 表双写<br/>IM 决策卡 5 秒撤回"]
-        L0 -->|low/medium 放行| Pass
-        L0 -->|high/critical| L1
-        L1 -->|low/medium 放行| Pass
-        L1 -->|high/critical| L2
-        L2 -->|approve| Pass
-        L2 -->|reject| Block
-    end
+    A1["JWT HS256<br/>用户令牌 + 聊天路由令牌"] --> A2["ACL 源感知规则<br/>频道/会话/线程粒度"]
+    A2 --> A3["toolapproval 五状态<br/>glob 匹配路径与命令<br/>默认 10 分钟超时"]
+    A3 --> A4["特权容器 privileged:true<br/>嵌套 containerd"]
+```
+
+AgentBoster 三层安全（L0/L1/L2 任一否决）：
+
+```mermaid
+flowchart TB
+    B1["L0 规则黑名单<br/>正则/glob 命中伪造 OS 错误"] --> B2{low/medium?}
+    B1 --> B3{high/critical}
+    B3 --> B4["L1 LLM 风险打分<br/>调 Web l1-score<br/>确定性模式强制抬 high"]
+    B4 --> B5{low/medium?}
+    B4 --> B6{high/critical}
+    B6 --> B7["L2 人工授权<br/>l2_decisions 表双写<br/>IM 决策卡 5 秒撤回"]
+    B7 --> B8{approve}
+    B7 --> B9{reject}
+    B2 --> B10["放行"]
+    B5 --> B10
+    B8 --> B10
+    B9 --> B11["阻断"]
 ```
 
 ## 三、跨平台性
@@ -73,19 +84,23 @@ AgentBoster 的跨平台更"分层"。Web 应用（Next.js+Node）天然跨平�
 
 对比来看，Memoh 试图让整个产品（含桌面 GUI 客户端）覆盖三大桌面 OS，代价是大量平台特例代码和实验性后端；AgentBoster 接受"执行端只能 Linux"现实，但让用户侧保持平台无关——浏览器和 CLI 在三大 OS 上都能跑，只是真正执行 shell/浏览器/桌面工具时需要后端 Linux 节点。
 
+Memoh 跨平台覆盖：
+
 ```mermaid
 flowchart LR
-    subgraph M["Memoh 覆盖"]
-        MW["Web 8082<br/>跨平台"]
-        MD["Desktop Electron<br/>macOS/Linux/Windows"]
-        MB["容器后端<br/>containerd/docker/apple"]
-        ML["Linux-only:<br/>Kata/KVM, a11y-cli, bridge"]
-    end
-    subgraph A["AgentBoster 覆盖"]
-        AW["Web Next.js<br/>跨平台"]
-        AC["CLI 纯 JS tarball<br/>跨平台 (Node≥22)"]
-        AL["Linux-only:<br/>agentd (build linux)<br/>dbushelper (AT-SPI)"]
-    end
+    A1["Memoh"] --> A2["Web :8082 跨平台"]
+    A1 --> A3["Desktop Electron<br/>macOS/Linux/Windows"]
+    A1 --> A4["容器后端<br/>containerd/docker/apple"]
+    A1 --> A5["Linux-only<br/>Kata/KVM, a11y-cli, bridge"]
+```
+
+AgentBoster 跨平台覆盖：
+
+```mermaid
+flowchart LR
+    B1["AgentBoster"] --> B2["Web Next.js 跨平台"]
+    B1 --> B3["CLI 纯 JS tarball<br/>跨平台 Node>=22"]
+    B1 --> B4["Linux-only<br/>agentd build linux<br/>dbushelper AT-SPI"]
 ```
 
 ## 四、Web UI
@@ -96,19 +111,26 @@ AgentBoster 的 Web UI 是 Next.js 15.5（App Router）加 React 19 加 Tailwind
 
 两者都是 SPA 风格管理控制台，但 Memoh 更"重"（一张 bot 详情页十几张 tab、display/browser/terminal 多面板工作台），AgentBoster 更"克制"（把执行能力留给 agentd 和 CLI，Web 主要承担权威状态、配置和对话）。
 
+Memoh Web UI：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh Web (Vue3+Vite, :8082)"]
-        MBot["Bot 详情页 16+ tab<br/>display/browser/terminal 面板"]
-        MMarket["Supermarket 技能市场"]
-        MMgr["人员/用量/外观/快捷键"]
-    end
-    subgraph AgentBoster["AgentBoster Web (Next15+React19, :3000)"]
-        AChat["Chat (PPR 懒会话)"]
-        AConfig["Config 17 section<br/>12 admin-only"]
-        AMem["Memory/SOUL/AGENTS"]
-        ASkill["Skill (KV+Blob)"]
-    end
+    A1["Memoh Web<br/>Vue3+Vite :8082"] --> A2["Bot 详情页 16+ tab"]
+    A1 --> A3["display/browser/terminal<br/>dockview 多面板"]
+    A1 --> A4["Supermarket 技能市场"]
+    A1 --> A5["人员/用量/外观/快捷键"]
+    A1 --> A6["i18n en+zh"]
+```
+
+AgentBoster Web UI：
+
+```mermaid
+flowchart TB
+    B1["AgentBoster Web<br/>Next15+React19 :3000"] --> B2["Chat (PPR 懒会话)"]
+    B1 --> B3["Config 17 section<br/>12 admin-only"]
+    B1 --> B4["Memory / SOUL / AGENTS"]
+    B1 --> B5["Skill (KV+Blob)"]
+    B1 --> B6["i18n 7 语"]
 ```
 
 ## 五、CLI 与桌面客户端
@@ -119,16 +141,20 @@ AgentBoster 这边没有桌面客户端（全仓库 grep 不到 electron/tauri/w
 
 哲学差异很明显：Memoh 让桌面客户端成为产品第一公民（自带本地 server + 内嵌向量库 + 完全离线），AgentBoster 把"桌面"理解成 agentd 在 LXC 沙箱里控制的 Linux GUI，用户侧交互只有浏览器和终端，CLI 永远依赖远程 Web。
 
+Memoh 客户端栈：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh 客户端栈"]
-        MCL["CLI Go+Cobra<br/>默认起 TUI<br/>管本地 server pid"]
-        MDT["Desktop Electron42<br/>自带 memoh-server:18731<br/>内嵌 Qdrant + SQLite<br/>完全离线"]
-    end
-    subgraph AgentBoster["AgentBoster 客户端栈"]
-        ACL["CLI pi 框架瘦客户端<br/>tmpdir 临时 session<br/>仅跑 local_* 工具<br/>LLM/会话全在 Web"]
-        ANone["无桌面客户端"]
-    end
+    A1["Memoh"] --> A2["CLI Go+Cobra<br/>默认起 TUI<br/>管本地 server pid"]
+    A1 --> A3["Desktop Electron42<br/>自带 memoh-server:18731<br/>内嵌 Qdrant + SQLite<br/>完全离线"]
+```
+
+AgentBoster 客户端栈：
+
+```mermaid
+flowchart TB
+    B1["AgentBoster"] --> B2["CLI pi 框架瘦客户端<br/>tmpdir 临时 session<br/>仅跑 local_* 工具<br/>LLM/会话全在 Web"]
+    B1 --> B3["无桌面客户端"]
 ```
 
 ## 六、容器支持
@@ -139,19 +165,25 @@ AgentBoster 有两套独立容器化层。第一套是 Web 侧 Vercel Sandbox（
 
 隔离模型根本不同——Memoh 是"一个智能体一个常驻容器"的横向隔离，AgentBoster 是"按会话/按任务临时执行平面"加"按风险自动选档"的纵向分层，沙箱注册到 agentd 节点而非永久绑定某个 agent。
 
+Memoh 容器模型（每 bot 一常驻容器）：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh: 每 bot 一常驻容器"]
-        MB1["Bot A"] --> MC1["workspace-A 容器<br/>+bridge UDS"]
-        MB2["Bot B"] --> MC2["workspace-B 容器<br/>+bridge UDS"]
-    end
-    subgraph AgentBoster["AgentBoster: 按任务临时沙箱 + 风险选档"]
-        ARisk{"SelectSandbox"}
-        ARisk -->|高风险 rm/mkfs/curl sh| AD["docker-strict<br/>白名单 --network none"]
-        ARisk -->|持久化 git/browser| AL["lxc persistent<br/>cgroup v2 限速"]
-        ARisk -->|普通| ADL["docker light<br/>alpine --rm"]
-        ARisk -->|Web-UI 会话| AV["Vercel Sandbox<br/>Amazon Linux 临时"]
-    end
+    A1["Bot A"] --> A2["workspace-A 容器<br/>+ bridge UDS"]
+    A3["Bot B"] --> A4["workspace-B 容器<br/>+ bridge UDS"]
+    A2 --> A5["挂载 /opt/memoh 运行时只读"]
+    A4 --> A5
+```
+
+AgentBoster 容器模型（按任务临时沙箱 + 风险选档）：
+
+```mermaid
+flowchart TB
+    B1["SelectSandbox"] --> B2{风险评估}
+    B2 -->|高风险 rm/mkfs/curl sh| B3["docker-strict<br/>白名单 --network none"]
+    B2 -->|持久化 git/browser| B4["lxc persistent<br/>cgroup v2 限速"]
+    B2 -->|普通| B5["docker light<br/>alpine --rm"]
+    B2 -->|Web-UI 会话| B6["Vercel Sandbox<br/>Amazon Linux 临时"]
 ```
 
 ## 七、容器桌面控制
@@ -164,20 +196,24 @@ AgentBoster 的桌面栈在 agentd 的 `internal/agent/desktop/desktop.go`（584
 
 差异要点：Memoh 用 WebRTC（低延迟、适合浏览器内嵌实时操作），AgentBoster 用 noVNC over WebSocket（实现简单、依赖少但延迟特性不同）；两者都用 AT-SPI 做语义化点击而非裸坐标，且都设计了坐标回退；两者截图都不自动入对话。
 
+Memoh 桌面控制（WebRTC）：
+
 ```mermaid
 flowchart LR
-    subgraph Memoh["Memoh 桌面 (WebRTC)"]
-        MX["Xvnc :5999 容器内"] --> MG["GStreamer 编码"]
-        MG --> MW["WebRTC UDP 30000-30100"]
-        MW --> MUI["Web display 面板"]
-        MA["a11y-cli snapshot (Rust)<br/>click/type/fill + fallback 坐标"]
-    end
-    subgraph AgentBoster["AgentBoster 桌面 (noVNC)"]
-        AX["Xvfb :99 + icewm"] --> AV["x11vnc :5999"]
-        AV --> AW["websockify/noVNC :6080"]
-        AW --> AUI["浏览器 /vnc.html"]
-        AH["a11y-helper (纯 Go)<br/>eN/xN ref 分层 + xdotool 回退"]
-    end
+    A1["Xvnc :5999 容器内"] --> A2["GStreamer 编码<br/>H264/VP8"]
+    A2 --> A3["WebRTC UDP 30000-30100"]
+    A3 --> A4["Web display 面板"]
+    A5["a11y-cli snapshot Rust<br/>click/type/fill + fallback 坐标"] --> A4
+```
+
+AgentBoster 桌面控制（noVNC over WebSocket）：
+
+```mermaid
+flowchart LR
+    B1["Xvfb :99 + icewm"] --> B2["x11vnc :5999"]
+    B2 --> B3["websockify/noVNC :6080"]
+    B3 --> B4["浏览器 /vnc.html"]
+    B5["a11y-helper 纯 Go<br/>eN/xN ref 分层 + xdotool 回退"] --> B4
 ```
 
 ## 八、浏览器自动化
@@ -186,19 +222,22 @@ Memoh 的浏览器栈在 `internal/agent/tools/browser.go`（2524 行），CDP �
 
 AgentBoster 的浏览器有两套实现。一是 agentd 的 Playwright 桥（`internal/agent/browser/`）：browser.go 管 EnsureBridge/CallBridge/CloseBridge，bridge.js 是嵌入式 Node.js HTTP 助手跑 Unix socket，node_install.sh 从 TUNA 镜像引导 Node.js 加 SHA256 校验。首次调用 30-60 秒冷启动（沙箱内装 Node+Playwright），之后缓存。浏览器 profile 持久化 agentd 节点，跨会话和守护重启可用，通过 browser_save_state/load_state（storageState JSON）和无服务器池互通。二是 `lib/mcp/browser/` 下的无服务器浏览器池（存在但**有意不**通过 `browser_*` 调度器暴露）。Web 侧调度器 browser.ts 是薄透传，工具名和 agentd 注册表一一对应，注册近二十个 browser_* 工具。browser_screenshot 被特殊处理——守护进程返回 bytes/mime/base64，调度器再以 `{type:'image'}` 内容块重发让视觉模型真的看到图。浏览器是带界真实 Chrome（反检测：真实 UA、`navigator.webdriver` 屏蔽），跑在持久 LXC 沙箱。静态抓取回退在 `lib/mcp/tools/web-fetch.ts`：web_search 和 fetch_url 做纯 HTTP 抓取加 HTML 剥离，带 JS 渲染检测启发式，搜索 provider 链 Brave→Tavily→DuckDuckGo HTML→Bing HTML。
 
+Memoh 浏览器自动化（CDP 9222）：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh 浏览器 (CDP 9222)"]
-        MB["headed Chrome 容器内<br/>CDP :9222"]
-        BT["browser_action/observe<br/>browser_remote_session 暴露 CDP"]
-        HP["无头 Playwright 独立路径"]
-    end
-    subgraph AgentBoster["AgentBoster 浏览器 (Playwright 桥)"]
-        AB["agentd Playwright bridge.js<br/>Unix socket 30-60s 冷启动"]
-        AT["近 20 个 browser_* 工具<br/>profile 持久 LXC"]
-        AS["screenshot 重发为 image 块"]
-        AF["lib/mcp/browser 池<br/>有意不暴露"]
-    end
+    A1["headed Chrome 容器内<br/>CDP :9222"] --> A2["browser_action / observe"]
+    A1 --> A3["browser_remote_session<br/>暴露 CDP 给外部 Playwright"]
+    A4["无头 Playwright<br/>独立路径"] --> A5["普通工作区命令"]
+```
+
+AgentBoster 浏览器自动化（Playwright 桥）：
+
+```mermaid
+flowchart TB
+    B1["agentd Playwright bridge.js<br/>Unix socket 30-60s 冷启动"] --> B2["近 20 个 browser_* 工具<br/>profile 持久 LXC"]
+    B1 --> B3["screenshot 重发为 image 块"]
+    B4["lib/mcp/browser 池<br/>有意不暴露"] --> B5["静态 web-fetch 回退<br/>Brave/Tavily/DDG/Bing"]
 ```
 
 ## 九、构建依赖
@@ -207,20 +246,24 @@ Memoh 的构建依赖由 `mise.toml` 钉版：Go 1.25.6（go.mod 声明 1.25.7�
 
 AgentBoster 呈现"工具链不匹配"特征。根 Web 用 Yarn、Next 15.5.9、React 19.2.6、TypeScript 6.0.2、Biome 2.4.16、Vitest 3.0.0、drizzle-kit 0.31.10、Tailwind 3.4.19。subpackage/agentd 用 Go 1.26.4（gin、viper、charmbracelet/huh+lipgloss）独立 go.mod。subpackage/cli 用 Node >=22.19.0、Biome 2.3.5（比根旧）、`@typescript/native-preview` 7.0（tsgo）加 TypeScript 5.9 回退、Vitest 4.1.9（比根新）、esbuild 0.28.1、Yarn Classic 1.22.22。subpackage/dbushelper 用 Go 1.26.4、godbus v5.2.2，纯 Go 无 CGO。根 tsconfig.json 排除 subpackage/ref/memoh/cli，根 `tsc --noEmit` 不类型检查子项目；根 vitest.config.ts 又包含 `subpackage/cli/src/**/*.test.ts` 并把 `@/*` 别名到根，所以 CLI 测试要从根跑。这种"工具链各自为政"是 monorepo 边界清晰的副作用，也是 AGENTS.md 反复强调的运维要点。
 
+Memoh 构建依赖（mise 钉版）：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh 构建依赖 (mise 钉版)"]
-        MG["Go 1.25.7"]
-        MN["Node 25 + pnpm 10"]
-        MR["Rust 1.90 (a11y-cli)"]
-        MS["sqlc 1.31.1 + golangci-lint 2.10.1"]
-    end
-    subgraph AgentBoster["AgentBoster 工具链不匹配"]
-        AR["根 Web: Yarn/Next15.5/React19/TS6/Biome2.4.16/Vitest3"]
-        AA["agentd: Go 1.26.4 独立 go.mod"]
-        AC["cli: Node≥22.19 Biome2.3.5/tsgo/Vitest4.1.9"]
-        AD["dbushelper: Go 1.26.4 纯 Go 无 CGO"]
-    end
+    A1["Memoh mise.toml"] --> A2["Go 1.25.7"]
+    A1 --> A3["Node 25 + pnpm 10"]
+    A1 --> A4["Rust 1.90 a11y-cli"]
+    A1 --> A5["sqlc 1.31.1<br/>golangci-lint 2.10.1"]
+```
+
+AgentBoster 构建依赖（工具链不匹配）：
+
+```mermaid
+flowchart TB
+    B1["AgentBoster"] --> B2["根 Web<br/>Yarn/Next15.5/React19<br/>TS6/Biome2.4.16/Vitest3"]
+    B1 --> B3["agentd<br/>Go 1.26.4 独立 go.mod"]
+    B1 --> B4["cli<br/>Node>=22.19<br/>Biome2.3.5/tsgo/Vitest4.1.9"]
+    B1 --> B5["dbushelper<br/>Go 1.26.4 纯 Go 无 CGO"]
 ```
 
 ## 十、生产依赖
@@ -229,22 +272,26 @@ Memoh 的生产栈由 docker-compose.yml 编排。常驻服务：postgres:18-alp
 
 AgentBoster 的生产依赖更分散，self-hosted.md 揭示了所有强制与可选项。强制服务：PostgreSQL 带 pgvector（存会话、消息、记忆向量、知识库、用户、agentd 节点、L2 决策、vault、IM 账号、调度、通知），生产 `DATABASE_URL` 缺失则 postbuild 抛错；Upstash Redis（双 SDK：`REDIS_URL` 给 IM 状态、`KV_REST_API_URL`+`KV_REST_API_TOKEN` 给全局 KV）——这是 self-hosted.md 4.2 节专门讨论的适配难点；至少一个 AI provider。**graphile-worker 是第四个强制进程**——当 `WORKFLOW_TARGET_WORLD=@workflow/world-postgres` 时必须独立运行，否则 workflow 任务入队不执行（self-hosted.md 5.7 节标"关键！"）。可选 Vercel 服务（用了就绑死 Vercel）：Blob 做附件和技能存储、Queue 和 Sandbox 做执行、Analytics/SpeedInsights 注入根布局。可选执行后端：agentd 守护进程跑 Linux 宿主（装 Docker/LXC）给 IM/CLI/调度会话提供沙箱/浏览器/桌面工具；没有 agentd 时这些工具返回"无在线节点"，Web-UI 回退 Vercel Sandbox。搜索 provider：Tavily、Brave（都可选，DuckDuckGo/Bing HTML 抓取兜底）。
 
+Memoh 生产栈（docker compose）：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh 生产栈 (docker compose)"]
-        MP["postgres:18-alpine"]
-        MSrv["memohai/server<br/>privileged + 嵌 containerd/CNI/GStreamer"]
-        MWeb["memohai/web<br/>nginx:alpine :8082"]
-        MQ["qdrant (profile)"]
-        MSparse["sparse BM25 (profile)"]
-    end
-    subgraph AgentBoster["AgentBoster 生产栈 (散件)"]
-        AP["PostgreSQL + pgvector<br/>(强制)"]
-        AR1["Upstash Redis 双 SDK<br/>REST API 需兼容代理"]
-        AG["graphile-worker 独立进程<br/>(切 postgres world 时强制)"]
-        AV["Vercel Blob/Queue/Sandbox<br/>(可选但用了绑死 Vercel)"]
-        AD1["agentd 守护进程<br/>(可选 Linux 节点)"]
-    end
+    A1["docker compose"] --> A2["postgres:18-alpine"]
+    A1 --> A3["memohai/server<br/>privileged + 嵌 containerd/CNI/GStreamer"]
+    A1 --> A4["memohai/web<br/>nginx:alpine :8082"]
+    A1 --> A5["qdrant profile"]
+    A1 --> A6["sparse BM25 profile"]
+```
+
+AgentBoster 生产栈（散件 + 强制 graphile-worker）：
+
+```mermaid
+flowchart TB
+    B1["AgentBoster 生产"] --> B2["PostgreSQL + pgvector 强制"]
+    B1 --> B3["Upstash Redis 双 SDK<br/>REST API 需兼容代理"]
+    B1 --> B4["graphile-worker<br/>独立进程强制"]
+    B1 --> B5["Vercel Blob/Queue/Sandbox<br/>可选但用了绑死 Vercel"]
+    B1 --> B6["agentd 守护进程<br/>可选 Linux 节点"]
 ```
 
 ## 十一、容器控制架构
@@ -255,19 +302,26 @@ AgentBoster 的容器控制是"Web → agentd → 沙箱 → a11y-helper"多跳�
 
 核心差异：Memoh 是单跳紧耦合（宿主-容器 UDS gRPC），AgentBoster 是多跳松耦合（Web 权威层、agentd 执行层、可选多节点）靠 HTTPS 回调而非共享 schema 协作，执行端可丢弃可水平扩展。
 
+Memoh 容器控制（单跳 UDS gRPC）：
+
+```mermaid
+flowchart LR
+    A1["宿主 Manager"] --> A2["unix:///run/memoh/bridge.sock"]
+    A2 --> A3["容器内 bridge 二进制"]
+    A3 --> A4["ContainerService RPC<br/>Exec/Tunnel/ReverseHTTP"]
+```
+
+AgentBoster 容器控制（多跳 HTTPS 回调）：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh 单跳 UDS gRPC"]
-        MH["宿主 Manager"] -->|"unix:///run/memoh/bridge.sock"| MB["容器内 bridge 二进制"]
-        MB --> MT["ContainerService RPC<br/>Exec/Tunnel/ReverseHTTP"]
-    end
-    subgraph AgentBoster["AgentBoster 多跳 HTTPS"]
-        AW1["Web 权威层"] -->|"POST /tools/exec<br/>(mTLS + API_KEY)"| AD1["agentd 节点"]
-        AD1 --> AD2["Gatekeeper L0/L1/L2"]
-        AD2 --> AS["沙箱 docker/lxc"]
-        AS --> AH["a11y-helper / Playwright 桥"]
-        AD1 -->|"回调 /api/agentd/v1/*<br/>(HTTPS + API_KEY)"| AW1
-    end
+    B1["Web 权威层"] --> B2["POST /tools/exec<br/>mTLS + API_KEY"]
+    B2 --> B3["agentd 节点"]
+    B3 --> B4["Gatekeeper L0/L1/L2"]
+    B4 --> B5["沙箱 docker/lxc"]
+    B5 --> B6["a11y-helper / Playwright 桥"]
+    B3 --> B7["回调 /api/agentd/v1/*<br/>HTTPS + API_KEY"]
+    B7 --> B1
 ```
 
 ## 十二、核心架构
@@ -276,21 +330,23 @@ Memoh 是"两服务加进程内智能体"模型。Server（Go+Echo，端口 8080
 
 AgentBoster 是"三层独立可部署"模型（架构白皮书 §1 详述），靠窄 HTTPS 契约通信、无共享 DB schema、无共享代码路径、无共享进程状态。Web（Next.js 15）是权威层：持有会话、模型编排、工具路由、Workflow 运行时、凭证、审计、节点注册表、L2 交互 UI，背靠 Postgres+pgvector+Upstash KV+Workflow DevKit，可部署 Vercel 或自托管 Docker。agentd（Go 1.26.2，仅 Linux amd64）是无状态执行平面：root 守护进程完成特权操作后降权到 runAsUser，注册 Web、每 30 秒心跳、跑沙箱工具调用、落地 L0/L1（L2 在 Web 持久化）、维护本地缓存指标，支持多节点（selectBestNode 按资源打分：CPU 空闲×0.35 + 内存空闲×0.35 + 磁盘空闲×0.2 + (1-activeLoad)×0.1），节点失联超 2 分钟标 offline。CLI 是瘦终端客户端：无模型推理、无会话持久化，本地会话文件是 Web 数据的临时镜像（tmpdir，退出即清），`--resume` 从 Web 远程拉消息重建。Web 是唯一真相源——README 说"执行端可丢弃"，agentd 节点和 CLI 进程可伸缩重启不影响会话连续性。强异步模型：所有 LLM 调用、工具循环、子代理编排落地为可恢复 Workflow DevKit 步骤，每步 delta 持久化到 messages 表，任一执行端死掉 workflow 暂停并在下一次 route-message 或 agentd 回调时从中断点恢复。
 
+Memoh 核心架构（两服务一体化）：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh 两服务一体化"]
-        MSrv["Server Go+Echo :8080<br/>进程内 AI 智能体"]
-        MWeb["Web Vue :8082<br/>nginx 代理 /api"]
-        MWeb --> MSrv
-        MSrv --> MAI["Twilight AI SDK<br/>41 provider YAML"]
-    end
-    subgraph AgentBoster["AgentBoster 三层松耦合"]
-        AW["Web Next15 权威层<br/>Postgres+pgvector+KV+Workflow"]
-        AD["agentd Go Linux-only<br/>无状态 多节点可扩缩"]
-        AC["CLI pi 瘦客户端<br/>tmpdir 临时镜像"]
-        AW <-->|"HTTPS 窄契约"| AD
-        AW <-->|"HTTPS 窄契约"| AC
-    end
+    A1["Web Vue :8082<br/>nginx 代理 /api"] --> A2["Server Go+Echo :8080<br/>进程内 AI 智能体"]
+    A2 --> A3["Twilight AI SDK<br/>41 provider YAML"]
+    A2 --> A4["FX 依赖注入"]
+```
+
+AgentBoster 核心架构（三层松耦合）：
+
+```mermaid
+flowchart TB
+    B1["Web Next15 权威层<br/>Postgres+pgvector+KV+Workflow"] <--> B2["HTTPS 窄契约"]
+    B2 <--> B3["agentd Go Linux-only<br/>无状态 多节点可扩缩"]
+    B1 <--> B4["HTTPS 窄契约"]
+    B4 <--> B5["CLI pi 瘦客户端<br/>tmpdir 临时镜像"]
 ```
 
 ## 十三、MCP 与内置工具/指令
@@ -299,19 +355,21 @@ Memoh 的 MCP 在 `internal/mcp/`（18 文件）：ConnectionService 和 OAuthSe
 
 AgentBoster 的 MCP 既支持客户端也提供内置 server。客户端用 `@ai-sdk/mcp` 的 createMCPClient（动态导入），支持多种传输。内置 MCP server（`lib/mcp/builtin/`）四个进程内 server 通过 InMemoryBuiltinMcpTransport 暴露，实现 JSON-RPC（initialize/tools/list/tools/call，协议版本 2025-11-25）：web（web_search/fetch_url）、firecrawl（firecrawl_scrape）、github（仓库检查、issue、PR）、context7（项目文档/代码库指引）。守护桥 executeBuiltinMcpTool 让 agentd 通过 `/api/agentd/v1/tools/mcp-exec` 调内置 MCP 工具，绕过绑定 Workflow 'use step' 的 AI SDK ToolSet。Web 侧 BUILT_IN_TOOLS 含 sandbox/browser/desktop/memory/localSkill/schedule/taskSummary/subAgent/agentdNodes/localCli/askQuestion/sequentialThinking。createResilientToolSet 用 Proxy 给幻觉/拼写错误工具名合成回退（别名解析→编辑距离≤2→结构化错误）而不污染模型可见列表。Plan 模式过滤为只读白名单。agentd 侧 tools_*.go 含 exec/file/git/codeact/browser_v2/desktop+a11y/web+web_rendered/media/memory/knowledge/skills/subagent/task_summary/vault/deliver/misc/mcp/sandbox_destroy/question，外加 agents_md.go（AGENTS.md 解析转发）。斜杠命令 IM 侧有 /start/new/session/stop/cancel/retry/model/approve/reject/compact/help/memory。
 
+Memoh MCP + 内置工具：
+
 ```mermaid
 flowchart LR
-    subgraph Memoh["Memoh MCP + 工具"]
-        MMCP["internal/mcp 18 文件<br/>+ Federation 适配 ToolProvider"]
-        MTool["49 内置工具<br/>fs/bg/msg/memory/schedule<br/>browser/computer/web/media/email"]
-        MCmd["45 斜杠命令 i18n"]
-    end
-    subgraph AgentBoster["AgentBoster MCP + 工具"]
-        AMCP["内置 4 MCP server<br/>web/firecrawl/github/context7<br/>协议 2025-11-25"]
-        ATool["Web BUILT_IN_TOOLS 12<br/>agentd tools_*.go 20+"]
-        AR["createResilientToolSet<br/>幻觉工具名回退"]
-        ACmd["IM /start..memory"]
-    end
+    A1["internal/mcp 18 文件"] --> A2["Federation 适配 ToolProvider"]
+    A3["49 内置工具<br/>fs/bg/msg/memory/schedule<br/>browser/computer/web/media/email"] --> A4["斜杠命令 45 文件 i18n"]
+```
+
+AgentBoster MCP + 内置工具：
+
+```mermaid
+flowchart LR
+    B1["内置 4 MCP server<br/>web/firecrawl/github/context7<br/>协议 2025-11-25"] --> B2["守护桥 mcp-exec"]
+    B3["Web BUILT_IN_TOOLS 12<br/>agentd tools_*.go 20+"] --> B4["createResilientToolSet<br/>幻觉工具名回退"]
+    B5["IM 斜杠命令<br/>/start..memory"] --> B4
 ```
 
 ## 十四、内置提示词
@@ -322,22 +380,26 @@ AgentBoster 的提示词组装在 `lib/workflow/agent/steps/build-prompt.ts`（'
 
 两者都把"工具用法不写进静态提示词"作为防漂移原则，但 Memoh 用编译期测试守护、AgentBoster 用结构化分段加 DB 行外置加 createResilientToolSet Proxy 兜底。
 
+Memoh 提示词组装：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh 提示词组装"]
-        MT1["system_common.md"] --> MAsm["GenerateSystemPrompt"]
-        MT2["mode_*.md 选择"] --> MAsm
-        MT3["_memory/_identities partial"] --> MAsm
-        MT4["bridge template 种 /data"] --> MAsm
-        MAsm --> MG["prompt_test.go 守护<br/>工具用法不进静态提示"]
-    end
-    subgraph AgentBoster["AgentBoster 提示词组装"]
-        AB1["builtin_memories 行<br/>AGENTS/SOUL/IDENTITY/USER"] --> ABasm["buildSystemPrompt 'use step'"]
-        AB2["DEFAULT_SYSTEM_PROMPT"] --> ABasm
-        AB3["AGENTS.md 项目指令<br/>(围栏块+非特权声明)"] --> ABasm
-        AB4["Tool 超级段<br/>Runtime/Memory/Sandbox/Skills/MCP"] --> ABasm
-        ABasm --> AG["SOUL 会话覆盖回退全局<br/>agentd 拉 /api/soul 防漂移"]
-    end
+    A1["system_common.md"] --> A4["GenerateSystemPrompt"]
+    A2["mode_*.md 按类型选"] --> A4
+    A3["_memory/_identities partial"] --> A4
+    A5["bridge template 种 /data"] --> A4
+    A4 --> A6["prompt_test.go 守护<br/>工具用法不进静态提示"]
+```
+
+AgentBoster 提示词组装：
+
+```mermaid
+flowchart TB
+    B1["builtin_memories 行<br/>AGENTS/SOUL/IDENTITY/USER"] --> B4["buildSystemPrompt use step"]
+    B2["DEFAULT_SYSTEM_PROMPT"] --> B4
+    B3["AGENTS.md 项目指令<br/>围栏块+非特权声明"] --> B4
+    B5["Tool 超级段<br/>Runtime/Memory/Sandbox/Skills/MCP"] --> B4
+    B4 --> B6["SOUL 会话覆盖回退全局<br/>agentd 拉 /api/soul 防漂移"]
 ```
 
 ## 十五、记忆的读取与储存
@@ -348,24 +410,25 @@ AgentBoster 的记忆是三层架构背靠 Drizzle+Postgres+pgvector（架构白
 
 两者都支持向量加关键词混合检索和 LLM 抽取，但 Memoh 把 provider 抽象做得很彻底（可外接 Mem0/OpenViking，三种检索策略可切），AgentBoster 则把记忆、会话摘要、知识库三个概念分库分表，pgvector 内嵌无外部向量服务依赖。
 
+Memoh 记忆系统（多 provider）：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh 多 provider 记忆"]
-        MB["builtin (dense/sparse/file 三策略)"]
-        MQ["qdrant 向量"]
-        MS1["sparse BM25 服务 :8085"]
-        MM["mem0 SaaS 适配"]
-        MO["openviking SaaS 适配"]
-        MB --> MMReg["Registry 按 DB id 懒实例化"]
-        MQ & MS1 & MM & MO --> MMReg
-    end
-    subgraph AgentBoster["AgentBoster 三层 + 知识库"]
-        AB1["builtin_memories<br/>AGENTS/SOUL/IDENTITY/USER"]
-        AB2["session_memories<br/>summaryVersion 单指针"]
-        AB3["long_term_memories<br/>+ chunks pgvector+tsv"]
-        AB4["knowledge_* 独立 RAG"]
-        AB3 --> AB5["recall RRF k=60<br/>+ 衰减 0.05<br/>+ L1 重排"]
-    end
+    A1["builtin dense/sparse/file 三策略"] --> A5["Registry 按 DB id 懒实例化"]
+    A2["qdrant 向量"] --> A5
+    A3["sparse BM25 服务 :8085"] --> A5
+    A4["mem0 / openviking SaaS"] --> A5
+    A5 --> A6["按 bot 作用域<br/>跨频道共享"]
+```
+
+AgentBoster 记忆系统（三层 + 知识库）：
+
+```mermaid
+flowchart TB
+    B1["builtin_memories<br/>AGENTS/SOUL/IDENTITY/USER"] --> B5["buildSystemPrompt 注入"]
+    B2["session_memories<br/>summaryVersion 单指针"] --> B6["每会话压缩"]
+    B3["long_term_memories<br/>+ chunks pgvector+tsv"] --> B7["recall RRF k=60<br/>衰减 0.05 + L1 重排"]
+    B4["knowledge_* 独立 RAG"] --> B8["searchKnowledge 混合检索"]
 ```
 
 ## 十六、IM 集成、本地化与模型技能
@@ -374,20 +437,22 @@ Memoh 的频道适配器在 `internal/channel/adapters/`，14 个平台子包：
 
 AgentBoster 的 IM 集成通过 `@chat-adapter/*` 家族加额外项：telegram、discord（next.config 把相关包列为 serverExternalPackages 防打包破坏）、slack、teams、gchat，飞书用 @larksuiteoapi/node-sdk（事件适配器加密键加验证 token，在 lib/bot/adaptor.ts ExtraAdapters 单独配），QQ 用 qq-official-bot（webhook 适配器带端口/路径）。适配器工厂 createBotAdapters 动态导入——仅该频道 enabled 时才加载。入站 webhook 走 `/api/bot/[authSecret]/[adapter]/callback`，maxDuration 设 300 秒（IM 流可能远超默认 10 秒 Vercel 函数超时）；**注意 self-hosted.md 8.3 节揭示的陷阱：next/server 的 after() 自托管降级为同步，IM webhook 会阻塞到 workflow 完成，触发平台超时重试和重复消息**——这是 AgentBoster IM 集成在自托管场景下的已知痛点。统一通知 getNotificationManager 按 notification_preferences preferredChannel 加 fallback 投递，记 channel_health。本地化在 `lib/i18n/`，七语：en-US/en-GB/zh-CN/zh-TW/zh-HK/ja/ko，lib/chat/user-locale 解析 locale 链（会话级→用户级→全局→auto），agentd 用 go-i18n 做 L2 通知文案本地化。模型技能 `.agents/skills/` 七个 OpenCode 技能（贡献者/AI 编码会话用，非用户面）。用户面技能系统是 OpenClaw 风格 Markdown 技能存 Upstash KV 加 Blob，有 listSkillMetas/getSkillDetail/upsertSkillDetail 和从 git/ClawHub 同步，localSkillTool 暴露 list/get/getSkillFile 加写/更新/删除。AI SDK 用 `ai` ^6.0.197 核心，@ai-sdk/anthropic/google/openai/openai-compatible/react/mcp 提供 provider，模型目录在 Web 解析后通过 /api/cli/models 推给 CLI/IM。
 
+Memoh IM + i18n + 技能：
+
 ```mermaid
 flowchart TB
-    subgraph Memoh["Memoh IM + i18n + 技能"]
-        MC["14 频道适配器<br/>tg/discord/feishu/qq/slack<br/>matrix/weixin/wecom..."]
-        MI["i18n en/zh/ja<br/>仅命令 UI"]
-        MS["skills 多根发现<br/>Supermarket 市场"]
-        MA_("ACP 托管 Claude Code/Codex<br/>session_pool 1680 行")]
-    end
-    subgraph AgentBoster["AgentBoster IM + i18n + 技能"]
-        AC["6+ 频道<br/>tg/discord/slack/teams/gchat<br/>+ 飞书 + QQ"]
-        AI["i18n 7 语<br/>en-US/GB zh-CN/TW/HK ja ko"]
-        AS[".agents/skills 7 OpenCode<br/>+ 用户面 KV/Blob 技能"]
-        AW_("after() 自托管降级同步<br/>IM webhook 阻塞已知痛点")]
-    end
+    A1["14 频道适配器<br/>tg/discord/feishu/qq/slack<br/>matrix/weixin/wecom..."] --> A4["i18n en/zh/ja 仅命令 UI"]
+    A2["skills 多根发现"] --> A5["Supermarket 市场"]
+    A3["ACP 托管 Claude Code/Codex<br/>session_pool 1680 行"] --> A6["每 bot 最多 4 未绑定"]
+```
+
+AgentBoster IM + i18n + 技能：
+
+```mermaid
+flowchart TB
+    B1["6+ 频道<br/>tg/discord/slack/teams/gchat<br/>+ 飞书 + QQ"] --> B4["after() 自托管降级同步<br/>IM webhook 阻塞已知痛点"]
+    B2["i18n 7 语<br/>en-US/GB zh-CN/TW/HK ja ko"] --> B5["agentd go-i18n L2 通知"]
+    B3[".agents/skills 7 OpenCode<br/>+ 用户面 KV/Blob 技能"] --> B6["localSkillTool 读写"]
 ```
 
 ## 总结性观察
