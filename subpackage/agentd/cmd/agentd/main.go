@@ -67,11 +67,6 @@ func main() {
 		return
 	}
 
-	if os.Getuid() != 0 {
-		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon must be run as root (current uid: %d)\n", os.Getuid())
-		os.Exit(1)
-	}
-
 	if *genCerts {
 		if err := certs.Generate(*certDir); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to generate certificates: %v\n", err)
@@ -79,6 +74,15 @@ func main() {
 		}
 		fmt.Printf("Certificates generated in %s\n", *certDir)
 		return
+	}
+
+	// Past this point the daemon actually starts — it needs root for
+	// cgroups/namespaces setup before dropping privileges to run_as_user.
+	// The -tui and -gen-certs tool modes above skip this check because
+	// they don't touch sandbox primitives.
+	if os.Getuid() != 0 {
+		fmt.Fprintf(os.Stderr, "FATAL: Agent Daemon must be run as root (current uid: %d)\n", os.Getuid())
+		os.Exit(1)
 	}
 
 	cfg, err := config.Load(*configPath)
