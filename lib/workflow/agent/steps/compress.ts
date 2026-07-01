@@ -3,10 +3,11 @@ import { modelMessagesToPrompt } from '@/lib/chat/message-utils';
 import type { AppConfig } from '@/types/config';
 import type { LanguageModelV3Prompt } from '@ai-sdk/provider';
 import { type ModelMessage, generateText } from 'ai';
+import { DEFAULT_SLIDING_WINDOW_ROUNDS } from '../config';
 import {
-  DEFAULT_SLIDING_WINDOW_ROUNDS,
-  DEFAULT_SUMMARY_PROMPT,
-} from '../config';
+  SUMMARY_PROMPT_INITIAL,
+  SUMMARY_PROMPT_UPDATE,
+} from '../compaction-core';
 import {
   buildCompressionConversationMessages,
   createSummaryModelMessage,
@@ -121,20 +122,18 @@ function buildSummaryPrompt(
   const context = formatConversation(headMessages);
 
   if (previousSummary) {
-    return `${DEFAULT_SUMMARY_PROMPT}
+    return `${SUMMARY_PROMPT_UPDATE}
 
 <previous-summary>
 ${previousSummary}
 </previous-summary>
-
-Update the anchored summary above using the conversation history below. Preserve still-true details, remove stale details, and merge in new facts. Output ONLY the updated summary.
 
 <conversation-history>
 ${context}
 </conversation-history>`;
   }
 
-  return `${DEFAULT_SUMMARY_PROMPT}
+  return `${SUMMARY_PROMPT_INITIAL}
 
 <conversation-history>
 ${context}

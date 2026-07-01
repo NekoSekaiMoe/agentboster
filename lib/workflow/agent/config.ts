@@ -4,13 +4,15 @@ export const DEFAULT_CONTEXT_LIMIT = 200000;
 
 export const DEFAULT_SLIDING_WINDOW_ROUNDS = 5;
 
-export const DEFAULT_THRESHOLD_TO_SUMMARY = 0.8;
-
-export const COMPACTION_BUFFER = 20_000;
-
-export const MIN_PRESERVE_RECENT_TOKENS = 2_000;
-
-export const MAX_PRESERVE_RECENT_TOKENS = 8_000;
+// Compaction tuning constants — re-exported from the shared core so the Web
+// agent loop and the CLI compaction path cannot drift. See
+// `lib/workflow/agent/compaction-core.ts`.
+export {
+  DEFAULT_COMPACT_RATIO as DEFAULT_THRESHOLD_TO_SUMMARY,
+  DEFAULT_COMPACTION_BUFFER as COMPACTION_BUFFER,
+  MIN_PRESERVE_RECENT_TOKENS,
+  MAX_PRESERVE_RECENT_TOKENS,
+} from './compaction-core';
 
 export const DEFAULT_TAIL_TURNS = 2;
 
@@ -79,31 +81,6 @@ Pick the sandbox provider via \`sandbox_hint\`:
 The \`browser_*\` tools (navigate, inspect, click, type, get_text, get_html, screenshot, evaluate, save_state, load_state, list_profiles, close, select_option, hover, upload, tab_new, tab_switch, tab_close, tab_list) run on the **agentd side only** — a persistent LXC sandbox with Playwright profiles that survive across sessions and daemon restarts, plus stronger anti-detection (real Chrome UA, navigator.webdriver masked). The first call bootstraps Node + Playwright inside the sandbox (~30–60s cold start, cached afterwards). Profiles are interoperable with the serverless browser pool: \`browser_save_state\` produces a storageState JSON that \`browser_load_state\` accepts — persist the blob via the \`memory\` tool's \`writeMemory\` action to migrate between agents or nodes. Browser tools are registered for IM / CLI / scheduled sessions; they are not available from the Web UI.
 
 The \`desktop_screenshot\` tool provisions a lightweight X11 desktop (Xvfb + icewm + x11vnc + noVNC) inside the agentd LXC sandbox and returns a lossless PNG of the framebuffer. Use it to debug GUI applications (Electron / Tauri / Qt / GTK) — vision-capable models see the actual screenshot and can reason about window state, layout, and error dialogs. The user can open the live desktop in their browser by exposing the noVNC port (\`6080\`) via \`sandbox.public_port\` and visiting the returned URL with path \`/vnc.html\`. First call auto-installs the stack (~30s); subsequent calls are fast. Not available from the Web UI.`;
-
-export const DEFAULT_SUMMARY_PROMPT = `You are an anchored context summarization assistant.
-
-Summarize the conversation history below. The newest turns may be kept verbatim outside your summary, so focus on the older context that still matters for continuing the work.
-
-If the prompt includes a <previous-summary> block, treat it as the current anchored summary. Update it with the new history by preserving still-true details, removing stale details, and merging in new facts.
-
-## What to Preserve (in priority order)
-When trimming is needed, preserve in this order — unresolved questions and blockers → action outcomes (tool runs, command results, file changes, success/failure status) → **user preferences and constraints, including security-decision preferences** (e.g., "user authorized git_push for 1 hour starting 14:00", "user always rejects direct file deletions", "user prefers docker-strict for untrusted code") → resolved factual exchanges.
-
-## What to Strip
-Eliminate pleasantries, empathetic filler, transition words, and repeated explanations. Write in concise third-person ("User said…", "Agent executed…", "Command returned…").
-
-## Output
-Use structured Markdown with clear headings so downstream agents can locate information quickly. Suggested sections when the content warrants them: \`### Task Progress\`, \`### Decisions Made\`, \`### User Preferences\`, \`### Blockers / Unresolved\`, \`### Files & Commands\`. Drop empty sections rather than emitting empty headers. If the conversation is short enough that headings would add noise, plain dense prose is fine.
-
-The summary must capture:
-- Key decision points: requirement changes, chosen approaches, retry-after-failure turning points
-- Important code changes or file modifications (preserve exact file paths)
-- Errors encountered and their solutions
-- Unresolved questions or pending tasks
-- User preferences and constraints (formatting, tone, and especially security-authorization habits)
-- Critical context needed to continue the work
-
-Preserve exact file paths, commands, error strings, and identifiers when known. Do not mention that you are summarizing.`;
 
 export const ACTIVE_RUN_STATUSES = new Set([
   'pending',
