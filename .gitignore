@@ -43,6 +43,7 @@ yarn-error.log*
 !.agents
 artifacts/
 agentd/agentd
+agentd/a11y-helper
 .atomcode/
 .qoder/
 
