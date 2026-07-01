@@ -160,8 +160,8 @@ async function runLoop(
   emit: AgentEventSink,
   streamFn?: StreamFn,
 ): Promise<void> {
-  let currentContext = initialContext;
-  let config = initialConfig;
+  const currentContext = initialContext;
+  const config = initialConfig;
   let firstTurn = true;
   // Check for steering messages at start (user may have typed while waiting)
   let pendingMessages: AgentMessage[] =
@@ -229,27 +229,6 @@ async function runLoop(
       }
 
       await emit({ type: 'turn_end', message, toolResults });
-
-      const nextTurnContext = {
-        message,
-        toolResults,
-        context: currentContext,
-        newMessages,
-      };
-      const nextTurnSnapshot = await config.prepareNextTurn?.(nextTurnContext);
-      if (nextTurnSnapshot) {
-        currentContext = nextTurnSnapshot.context ?? currentContext;
-        config = {
-          ...config,
-          model: nextTurnSnapshot.model ?? config.model,
-          reasoning:
-            nextTurnSnapshot.thinkingLevel === undefined
-              ? config.reasoning
-              : nextTurnSnapshot.thinkingLevel === 'off'
-                ? undefined
-                : nextTurnSnapshot.thinkingLevel,
-        };
-      }
 
       if (
         await config.shouldStopAfterTurn?.({

@@ -145,7 +145,6 @@ import { CompactionSummaryMessageComponent } from './components/compaction-summa
 import { CountdownTimer } from './components/countdown-timer.ts';
 import { CustomEditor } from './components/custom-editor.ts';
 import { CustomMessageComponent } from './components/custom-message.ts';
-import { DaxnutsComponent } from './components/daxnuts.ts';
 import { DynamicBorder } from './components/dynamic-border.ts';
 import { EarendilAnnouncementComponent } from './components/earendil-announcement.ts';
 import { ExtensionEditorComponent } from './components/extension-editor.ts';
@@ -238,13 +237,6 @@ function isDeadTerminalError(error: unknown): boolean {
   }
   const code = (error as NodeJS.ErrnoException).code;
   return code !== undefined && DEAD_TERMINAL_ERROR_CODES.has(code);
-}
-
-const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING =
-  'Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits. Manage extra usage at https://claude.ai/settings/usage.';
-
-function isAnthropicSubscriptionAuthKey(apiKey: string | undefined): boolean {
-  return typeof apiKey === 'string' && apiKey.startsWith('sk-ant-oat');
 }
 
 function _isUnknownModel(model: Model<any> | undefined): boolean {
@@ -378,7 +370,6 @@ export class InteractiveMode {
   private lastSigintTime = 0;
   private lastEscapeTime = 0;
   private startupNoticesShown = false;
-  private anthropicSubscriptionWarningShown = false;
 
   // Status line tracking (for mutating immediately-sequential status updates)
   private lastStatusSpacer: Spacer | undefined = undefined;
@@ -944,8 +935,6 @@ export class InteractiveMode {
     if (modelFallbackMessage) {
       this.showWarning(modelFallbackMessage);
     }
-
-    void this.maybeWarnAboutAnthropicSubscriptionAuth();
 
     // Process initial messages
     if (initialMessage) {
@@ -4314,7 +4303,6 @@ export class InteractiveMode {
         this.showStatus(
           `Switched to ${result.model.name || result.model.id}${thinkingStr}`,
         );
-        void this.maybeWarnAboutAnthropicSubscriptionAuth(result.model);
       }
     } catch (error) {
       this.showError(error instanceof Error ? error.message : String(error));
@@ -4856,8 +4844,6 @@ export class InteractiveMode {
         this.footer.invalidate();
         this.updateEditorBorderColor();
         this.showStatus(`Model: ${model.id}`);
-        void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
-        this.checkDaxnutsEasterEgg(model);
       } catch (error) {
         this.showError(error instanceof Error ? error.message : String(error));
       }
@@ -4892,41 +4878,6 @@ export class InteractiveMode {
     const models = await this.getModelCandidates();
     const uniqueProviders = new Set(models.map((m) => m.provider));
     this.footerDataProvider.setAvailableProviderCount(uniqueProviders.size);
-  }
-
-  private async maybeWarnAboutAnthropicSubscriptionAuth(
-    model: Model<any> | undefined = this.session.model,
-  ): Promise<void> {
-    if (this.settingsManager.getWarnings().anthropicExtraUsage === false) {
-      return;
-    }
-    if (this.anthropicSubscriptionWarningShown) {
-      return;
-    }
-    if (!model || model.provider !== 'anthropic') {
-      return;
-    }
-
-    const storedCredential =
-      this.session.modelRegistry.authStorage.get('anthropic');
-    if (storedCredential?.type === 'oauth') {
-      this.anthropicSubscriptionWarningShown = true;
-      this.showWarning(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
-      return;
-    }
-
-    try {
-      const apiKey = await this.session.modelRegistry.getApiKeyForProvider(
-        model.provider,
-      );
-      if (!isAnthropicSubscriptionAuthKey(apiKey)) {
-        return;
-      }
-      this.anthropicSubscriptionWarningShown = true;
-      this.showWarning(ANTHROPIC_SUBSCRIPTION_AUTH_WARNING);
-    } catch {
-      // Ignore auth lookup failures for warning-only checks.
-    }
   }
 
   private maybeSaveImplicitProjectTrustAfterReload(): boolean {
@@ -5002,8 +4953,6 @@ export class InteractiveMode {
             this.updateEditorBorderColor();
             done();
             this.showStatus(`Model: ${model.id}`);
-            void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
-            this.checkDaxnutsEasterEgg(model);
           } catch (error) {
             done();
             this.showError(
@@ -6189,21 +6138,6 @@ export class InteractiveMode {
     this.chatContainer.addChild(new Spacer(1));
     this.chatContainer.addChild(new EarendilAnnouncementComponent());
     this.ui.requestRender();
-  }
-
-  private handleDaxnuts(): void {
-    this.chatContainer.addChild(new Spacer(1));
-    this.chatContainer.addChild(new DaxnutsComponent(this.ui));
-    this.ui.requestRender();
-  }
-
-  private checkDaxnutsEasterEgg(model: { provider: string; id: string }): void {
-    if (
-      model.provider === 'opencode' &&
-      model.id.toLowerCase().includes('kimi-k2.5')
-    ) {
-      this.handleDaxnuts();
-    }
   }
 
   private async handleBashCommand(

@@ -363,7 +363,6 @@ export {
   ShowImagesSelectorComponent,
   SkillInvocationMessageComponent,
   ThemeSelectorComponent,
-  ThinkingSelectorComponent,
   ToolExecutionComponent,
   type ToolExecutionOptions,
   TreeSelectorComponent,

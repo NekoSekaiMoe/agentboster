@@ -529,25 +529,21 @@ export function findCutPoint(
 // from ./core.ts (shared with Web agent loop).
 
 function createSummarizationOptions(
-  model: Model<any>,
+  _model: Model<any>,
   maxTokens: number,
   apiKey: string | undefined,
   headers: Record<string, string> | undefined,
   env: Record<string, string> | undefined,
   signal: AbortSignal | undefined,
-  thinkingLevel: ThinkingLevel | undefined,
+  _thinkingLevel: ThinkingLevel | undefined,
 ): SimpleStreamOptions {
-  const options: SimpleStreamOptions = {
+  return {
     maxTokens,
     signal,
     apiKey,
     headers,
     env,
   };
-  if (model.reasoning && thinkingLevel && thinkingLevel !== 'off') {
-    options.reasoning = thinkingLevel;
-  }
-  return options;
 }
 
 async function completeSummarization(

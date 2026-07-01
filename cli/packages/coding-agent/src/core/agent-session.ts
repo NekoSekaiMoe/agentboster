@@ -38,7 +38,6 @@ import {
   isRetryableAssistantError,
   modelsAreEqual,
   resetApiProviders,
-  streamSimple,
 } from '@agentboster-cli/ai/compat';
 import { getThemeByName, theme } from '../modes/interactive/theme/theme.ts';
 import { stripFrontmatter } from '../utils/frontmatter.ts';
@@ -502,23 +501,11 @@ export class AgentSession {
       }
       throw new Error(result.error);
     }
-    if (result.apiKey) {
-      return {
-        apiKey: result.apiKey,
-        headers: result.headers,
-        env: result.env,
-      };
-    }
-
-    const isOAuth = this._modelRegistry.isUsingOAuth(model);
-    if (isOAuth) {
-      throw new Error(
-        `Authentication failed for "${model.provider}". ` +
-          `Credentials may have expired or network is unavailable. ` +
-          `Run '/login ${model.provider}' to re-authenticate.`,
-      );
-    }
-    throw new Error(formatNoApiKeyFoundMessage(model.provider));
+    return {
+      apiKey: result.apiKey ?? '',
+      headers: result.headers,
+      env: result.env,
+    };
   }
 
   private async _getCompactionRequestAuth(model: Model<any>): Promise<{
@@ -526,10 +513,6 @@ export class AgentSession {
     headers?: Record<string, string>;
     env?: Record<string, string>;
   }> {
-    if (this.agent.streamFn === streamSimple) {
-      return this._getRequiredRequestAuth(model);
-    }
-
     const result = await this._modelRegistry.getApiKeyAndHeaders(model);
     return result.ok
       ? { apiKey: result.apiKey, headers: result.headers, env: result.env }
@@ -1242,18 +1225,6 @@ export class AgentSession {
       // Validate model
       if (!this.model) {
         throw new Error(formatNoModelSelectedMessage());
-      }
-
-      if (!this._modelRegistry.hasConfiguredAuth(this.model)) {
-        const isOAuth = this._modelRegistry.isUsingOAuth(this.model);
-        if (isOAuth) {
-          throw new Error(
-            `Authentication failed for "${this.model.provider}". ` +
-              `Credentials may have expired or network is unavailable. ` +
-              `Run '/login ${this.model.provider}' to re-authenticate.`,
-          );
-        }
-        throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
       }
 
       // Check if we need to compact before sending (catches aborted responses)
@@ -2286,21 +2257,9 @@ export class AgentSession {
       let apiKey: string | undefined;
       let headers: Record<string, string> | undefined;
       let env: Record<string, string> | undefined;
-      if (this.agent.streamFn === streamSimple) {
-        const authResult = await this._modelRegistry.getApiKeyAndHeaders(
-          this.model,
-        );
-        if (!authResult.ok || !authResult.apiKey) {
-          return false;
-        }
-        apiKey = authResult.apiKey;
-        headers = authResult.headers;
-        env = authResult.env;
-      } else {
-        ({ apiKey, headers, env } = await this._getCompactionRequestAuth(
-          this.model,
-        ));
-      }
+      ({ apiKey, headers, env } = await this._getCompactionRequestAuth(
+        this.model,
+      ));
 
       const pathEntries = this.sessionManager.getBranch();
 

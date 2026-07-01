@@ -15,7 +15,6 @@ import type {
   AgentContext,
   AgentEvent,
   AgentLoopConfig,
-  AgentLoopTurnUpdate,
   AgentMessage,
   AgentState,
   AgentTool,
@@ -130,12 +129,6 @@ export interface AgentOptions {
     context: AfterToolCallContext,
     signal?: AbortSignal,
   ) => Promise<AfterToolCallResult | undefined>;
-  prepareNextTurn?: (
-    signal?: AbortSignal,
-  ) =>
-    | Promise<AgentLoopTurnUpdate | undefined>
-    | AgentLoopTurnUpdate
-    | undefined;
   steeringMode?: QueueMode;
   followUpMode?: QueueMode;
   sessionId?: string;
@@ -224,12 +217,6 @@ export class Agent {
     context: AfterToolCallContext,
     signal?: AbortSignal,
   ) => Promise<AfterToolCallResult | undefined>;
-  public prepareNextTurn?: (
-    signal?: AbortSignal,
-  ) =>
-    | Promise<AgentLoopTurnUpdate | undefined>
-    | AgentLoopTurnUpdate
-    | undefined;
   private activeRun?: ActiveRun;
   /** Session identifier forwarded to providers for cache-aware backends. */
   public sessionId?: string;
@@ -254,7 +241,6 @@ export class Agent {
     this.onResponse = options.onResponse;
     this.beforeToolCall = options.beforeToolCall;
     this.afterToolCall = options.afterToolCall;
-    this.prepareNextTurn = options.prepareNextTurn;
     this.steeringQueue = new PendingMessageQueue(
       options.steeringMode ?? 'one-at-a-time',
     );
@@ -501,9 +487,6 @@ export class Agent {
       skipUnknownTools: this.skipUnknownTools,
       beforeToolCall: this.beforeToolCall,
       afterToolCall: this.afterToolCall,
-      prepareNextTurn: this.prepareNextTurn
-        ? async () => await this.prepareNextTurn?.(this.signal)
-        : undefined,
       convertToLlm: this.convertToLlm,
       transformContext: this.transformContext,
       getApiKey: this.getApiKey,
