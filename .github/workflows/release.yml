@@ -1,0 +1,322 @@
+# Unified release pipeline for agentboster's pre-built artifacts.
+#
+# Triggered by pushing a tag matching `v*` (e.g. `v0.1.0`). The tag name
+# is the version shared across all components — there is one release per
+# version with all artifacts attached, rather than per-component tags.
+#
+# What gets built (all in parallel, then collected by the `release` job):
+#
+#   agentd-a11y-helper-linux-amd64-<version>   (from subpackage/dbushelper)
+#   agentd-a11y-helper-linux-arm64-<version>
+#   agentd-linux-amd64-<version>              (from subpackage/agentd, native)
+#   agentd-linux-arm64-<version>              (from subpackage/agentd, native)
+#   agentboster-cli-<version>.tar.gz          (from subpackage/cli, OS-agnostic)
+#
+# Why these specific runners:
+#   - agentd is pure Go with no cgo, so it could cross-compile. We still
+#     build it on native runners (ubuntu-latest for amd64, ubuntu-24.04-arm
+#     for arm64) so each binary benefits from native toolchain behavior
+#     and the build itself is a smoke test that the agentd Linux build
+#     works on a real Linux of each architecture.
+#   - a11y-helper cross-compiles on a single ubuntu-latest runner because
+#     it's tiny (no cgo) and not worth spending an arm runner on.
+#   - cli produces a single tarball (Node bundle, OS-agnostic) so it
+#     builds once on ubuntu-latest.
+#
+# This workflow is intentionally narrow: it builds and uploads release
+# artifacts only. It does NOT run lint, tests, or any other CI step.
+# Re-enabling releases does not imply re-enabling CI for the rest of the
+# repo (which was turned off in commit 7583d49).
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual runs verify the pipeline without tagging. The release-upload
+  # step is guarded so manual runs only build, never upload.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label (e.g. v0.1.0-test). Used in asset names only; does NOT create or upload to a release.'
+        required: false
+        default: 'v0.1.0-dev'
+
+permissions:
+  contents: write   # required by gh release upload
+
+jobs:
+  # ── a11y-helper: cross-compile both arches on one runner ──────────
+
+  a11y-helper:
+    name: a11y-helper (${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: subpackage/dbushelper/go.sum
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: subpackage/dbushelper
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p ../../out
+          go build -trimpath -ldflags="-s -w" \
+            -o "../../out/agentd-a11y-helper-linux-${{ matrix.goarch }}-${{ steps.ver.outputs.version }}" \
+            ./cmd/a11y-helper
+          # Smoke test on amd64 only — arm64 can't exec on this runner.
+          if [ "${{ matrix.goarch }}" = "amd64" ]; then
+            "../../out/agentd-a11y-helper-linux-${{ matrix.goarch }}-${{ steps.ver.outputs.version }}" --help
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentd-a11y-helper-linux-${{ matrix.goarch }}-${{ steps.ver.outputs.version }}
+          path: out/agentd-a11y-helper-linux-${{ matrix.goarch }}-${{ steps.ver.outputs.version }}
+          retention-days: 14
+          if-no-files-found: error
+
+  # ── agentd: native build on per-arch runners ──────────────────────
+
+  agentd:
+    name: agentd (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goarch: amd64
+            asset_arch: amd64
+          - runner: ubuntu-24.04-arm
+            goarch: arm64
+            asset_arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: subpackage/agentd/go.sum
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify native arch matches
+        env:
+          EXPECTED: ${{ matrix.goarch }}
+        run: |
+          ACTUAL="$(go env GOARCH)"
+          echo "go env GOARCH = $ACTUAL, expected $EXPECTED"
+          # The setup-go action honors GOARCH from the runner; we assert
+          # it matches what the matrix promises so a misconfigured runner
+          # surfaces as a build failure rather than a silent wrong-arch
+          # binary getting uploaded.
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Runner GOARCH ($ACTUAL) does not match matrix ($EXPECTED)"
+            exit 1
+          fi
+
+      - name: Build
+        working-directory: subpackage/agentd
+        env:
+          # agentd is Linux-only (//go:build linux). CGO is not used but
+          # we leave the default so the runner's C toolchain is available
+          # if a future dependency adds cgo.
+          GOOS: linux
+        run: |
+          mkdir -p ../../out
+          # Embed the release version + build timestamp into the binary
+          # so `agentd` logs and registry payloads carry the right info.
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          go build -trimpath \
+            -ldflags="-s -w -X main.version=${{ steps.ver.outputs.version }} -X main.buildTime=${BUILD_TIME}" \
+            -o "../../out/agentd-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}" \
+            ./cmd/agentd
+          # Native smoke test: -gen-certs writes to a temp dir and exits
+          # 0 without needing a config file. Verifies the binary actually
+          # runs on this arch.
+          cd ../../out
+          "./agentd-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}" -gen-certs -cert-dir /tmp/agentd-certs-test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentd-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}
+          path: out/agentd-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}
+          retention-days: 14
+          if-no-files-found: error
+
+  # ── cli: single tarball (Node bundle is OS-agnostic) ──────────────
+
+  cli:
+    name: cli
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          # cli/AGENTS.md pins engines.node >=22.19.0. setup-node's
+          # node-version is the runner's Node binary used for yarn.
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: subpackage/cli/yarn.lock
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install
+        working-directory: subpackage/cli
+        run: yarn install --frozen-lockfile
+
+      - name: Build
+        working-directory: subpackage/cli
+        run: yarn build
+
+      - name: Bundle
+        working-directory: subpackage/cli
+        run: yarn bundle
+
+      - name: Package
+        working-directory: subpackage/cli
+        env:
+          # package.mjs derives the version from package.json; override
+          # it via npm_config_pkg_version so tagged releases carry the
+          # tag name rather than the hardcoded 0.1.0 in package.json.
+          npm_config_pkg_version: ${{ steps.ver.outputs.version }}
+        run: yarn package
+
+      - name: Locate tarball
+        id: tarball
+        working-directory: subpackage/cli
+        run: |
+          # package.mjs writes agentboster-cli-<version>.tar.gz into the
+          # cli/ working dir. Find it and copy to a stable relative path
+          # the upload-artifact step can reference.
+          TARBALL=$(ls -1 agentboster-cli-*.tar.gz | head -1)
+          if [ -z "$TARBALL" ]; then
+            echo "::error::No agentboster-cli-*.tar.gz found after yarn package"
+            exit 1
+          fi
+          mkdir -p ../../out
+          cp "$TARBALL" "../../out/$TARBALL"
+          echo "name=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.tarball.outputs.name }}
+          path: out/${{ steps.tarball.outputs.name }}
+          retention-days: 14
+          if-no-files-found: error
+
+  # ── release: collect all artifacts, attach to the GitHub release ──
+
+  release:
+    name: attach to release
+    needs: [a11y-helper, agentd, cli]
+    runs-on: ubuntu-latest
+    # Only attach when triggered by a real tag push. workflow_dispatch
+    # runs verify the pipeline but must not pollute any release with
+    # dev-labeled artifacts.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          # Match every artifact produced by the build jobs. The pattern
+          # is intentionally broad — we want the release to fail loudly
+          # if any expected asset is missing.
+          path: release-assets
+
+      - name: Verify expected assets present
+        run: |
+          # The directory layout from download-artifact is one subdir
+          # per artifact name, with the file inside. Flatten it.
+          find release-assets/ -type f -exec mv -t release-assets/ {} +
+          find release-assets/ -mindepth 1 -maxdepth 1 -type d -exec rmdir {} + 2>/dev/null || true
+          chmod +x release-assets/agentd-* || true
+
+          echo "=== Collected release assets ==="
+          ls -la release-assets/
+
+          # Assert the 5 expected files are present. If a future change
+          # alters the asset set, update this list in lockstep.
+          EXPECTED=(
+            "agentd-a11y-helper-linux-amd64-${{ steps.ver.outputs.version }}"
+            "agentd-a11y-helper-linux-arm64-${{ steps.ver.outputs.version }}"
+            "agentd-linux-amd64-${{ steps.ver.outputs.version }}"
+            "agentd-linux-arm64-${{ steps.ver.outputs.version }}"
+            "agentboster-cli-${{ steps.ver.outputs.version }}.tar.gz"
+          )
+          MISSING=0
+          for ASSET in "${EXPECTED[@]}"; do
+            if [ ! -e "release-assets/$ASSET" ]; then
+              echo "::error::Missing release asset: $ASSET"
+              MISSING=$((MISSING + 1))
+            fi
+          done
+          if [ "$MISSING" -ne 0 ]; then
+            echo "::error::$MISSING expected asset(s) missing — refusing to upload a partial release"
+            exit 1
+          fi
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # --clobber makes re-runs of the same tag safe: existing
+          # assets with the same name are replaced, so retrying a
+          # partially-failed release does not require manual cleanup.
+          gh release upload "${GITHUB_REF_NAME}" \
+            release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber

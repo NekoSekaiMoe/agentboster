@@ -43,20 +43,24 @@ The helper binary is distributed as a GitHub release asset, fetched on first `de
 **Asset contract** (must match the install script):
 
 ```
-releases/download/a11y-helper-<version>/agentd-a11y-helper-linux-<arch>-<version>
+releases/download/<version>/agentd-a11y-helper-linux-<arch>-<version>
 ```
 
-where `<arch>` ∈ {`amd64`, `arm64`} and `<version>` is a `vX.Y.Z` tag (e.g. `v0.1.0`). The release tag is `a11y-helper-<version>` (hyphen-separated, not slash — slashes in tag names get URL-encoded in `releases/download/` URLs and are brittle to copy-paste in shell).
+where `<arch>` ∈ {`amd64`, `arm64`} and `<version>` is the unified release tag (e.g. `v0.1.0`). The same tag also produces `agentd-linux-<arch>-<version>` and `agentboster-cli-<version>.tar.gz` — one release per version carries all artifacts.
 
 **To cut a new release:**
 
-1. Update `AGENTD_A11Y_HELPER_VERSION` in `desktop_install.sh` to the new version (or leave it for sandbox env override).
-2. Tag the commit:
+1. Tag the commit:
    ```bash
-   git tag a11y-helper-v0.1.0
-   git push origin a11y-helper-v0.1.0
+   git tag v0.1.0
+   git push origin v0.1.0
    ```
-3. The [`a11y-helper-release`](../../.github/workflows/a11y-helper-release.yml) GitHub Actions workflow triggers automatically, builds both architectures, and attaches the assets to a release named `a11y-helper-v0.1.0`.
+2. The [`release`](../../.github/workflows/release.yml) GitHub Actions workflow triggers automatically. It builds (in parallel):
+   - `agentd-a11y-helper-linux-{amd64,arm64}-<version>` (cross-compiled on ubuntu-latest)
+   - `agentd-linux-{amd64,arm64}-<version>` (native runners: ubuntu-latest + ubuntu-24.04-arm)
+   - `agentboster-cli-<version>.tar.gz` (Node bundle, OS-agnostic)
+3. The `release` job verifies all 5 expected assets are present and attaches them to the GitHub Release named `v0.1.0`.
+4. Update the default `AGENTD_A11Y_HELPER_VERSION` (and the cli/agentd equivalent, if they grow version-pin fields) to the new tag, or leave it for sandbox env override.
 
 To test the pipeline without tagging, run the workflow manually via `workflow_dispatch` (the release-upload step is skipped on manual runs — they only verify the build matrix).
 
