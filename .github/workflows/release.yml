@@ -315,11 +315,30 @@ jobs:
             exit 1
           fi
 
-      - name: Attach to release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" \
-            release-assets/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --clobber
+          # Pushing a tag does NOT auto-create a Release object on GitHub
+          # (the web UI's "create release from tag" is a separate step).
+          # gh release upload requires the Release to pre-exist, so we
+          # use gh release create with positional asset args to do both
+          # in one call. --generate-notes auto-builds the notes from the
+          # commit history between this tag and the previous release.
+          #
+          # On re-runs of the same tag (manual retry after a partial
+          # failure) the Release already exists; gh release create fails
+          # in that case and we fall back to upload --clobber.
+          if gh release create "${GITHUB_REF_NAME}" \
+              release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --generate-notes \
+              --verify-tag 2>/dev/null; then
+            echo "Created new release ${GITHUB_REF_NAME}"
+          else
+            echo "Release ${GITHUB_REF_NAME} already exists; uploading assets"
+            gh release upload "${GITHUB_REF_NAME}" \
+              release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          fi
