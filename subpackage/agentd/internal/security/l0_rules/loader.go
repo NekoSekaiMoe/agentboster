@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 // Loader periodically fetches L0 rules from ClawLess API and hot-reloads the engine.

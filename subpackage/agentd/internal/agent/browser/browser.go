@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 // ExecFunc is the sandbox-execution primitive the bridge package depends on.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 func TestAlwaysAuthorizationLastsForSessionLifetime(t *testing.T) {

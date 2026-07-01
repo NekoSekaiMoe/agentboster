@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/clawless/agentd/internal/security/l0_rules"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/l0_rules"
 )
 
 // OSPolicy represents OS-level security enforcement derived from L0 rules.

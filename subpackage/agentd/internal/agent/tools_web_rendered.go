@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 	"golang.org/x/net/html"
 )
 

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 // SessionData is the serializable form of an agent session context.

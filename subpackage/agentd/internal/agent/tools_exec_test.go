@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/clawless/agentd/internal/usertype"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/usertype"
 )
 
 func TestToolRegistryDisabledToolIsNotRegistered(t *testing.T) {

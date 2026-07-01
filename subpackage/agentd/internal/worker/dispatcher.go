@@ -11,14 +11,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clawless/agentd/internal/agent"
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/config"
-	"github.com/clawless/agentd/internal/eventbus"
-	"github.com/clawless/agentd/internal/sandbox"
-	"github.com/clawless/agentd/internal/security"
-	"github.com/clawless/agentd/internal/security/l2_auth"
-	"github.com/clawless/agentd/internal/worker/workers"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/config"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/l2_auth"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/worker/workers"
 )
 
 // Dispatcher routes events from the bus to the appropriate worker pools.

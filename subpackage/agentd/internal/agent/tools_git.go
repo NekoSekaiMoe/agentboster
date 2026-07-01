@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 // safeShellArg matches characters that are safe to pass as shell arguments.

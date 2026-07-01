@@ -6,7 +6,7 @@ package sandbox
 import (
 	"testing"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 // TestSelectSandbox_UserExplicit covers priority 1: the caller's explicit

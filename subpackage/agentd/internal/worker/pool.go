@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clawless/agentd/internal/config"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/config"
 )
 
 type poolMetrics struct {

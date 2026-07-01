@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clawless/agentd/internal/agent"
-	"github.com/clawless/agentd/internal/persistence"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/persistence"
 	"github.com/gin-gonic/gin"
 )
 

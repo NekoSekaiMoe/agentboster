@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 // fakeExec is a recording stub for ExecFunc. It dispatches based on

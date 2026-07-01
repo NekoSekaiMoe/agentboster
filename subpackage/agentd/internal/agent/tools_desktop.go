@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/clawless/agentd/internal/agent/desktop"
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent/desktop"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 // registerDesktopScreenshot exposes desktop_screenshot — captures the

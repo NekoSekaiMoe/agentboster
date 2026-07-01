@@ -1,4 +1,4 @@
-module github.com/clawless/agentd
+module github.com/NekoSekaiMoe/agentboster/subpackage/agentd
 
 go 1.26.4
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	dbushelper "github.com/NekoSekaiMoe/agentboster/subpackage/dbushelper"
-	"github.com/clawless/agentd/internal/agent/desktop"
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent/desktop"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 // a11yHelperBin is the path where install_a11y_helper_from_release

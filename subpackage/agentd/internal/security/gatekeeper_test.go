@@ -6,10 +6,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/eventbus"
-	"github.com/clawless/agentd/internal/security/l0_rules"
-	"github.com/clawless/agentd/internal/security/l2_auth"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/l0_rules"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/l2_auth"
 )
 
 type mockL1Scorer struct {

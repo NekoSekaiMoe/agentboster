@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clawless/agentd/internal/eventbus"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
 )
 
 // ExecResult is the per-command result payload carried by EventExecCompleted.

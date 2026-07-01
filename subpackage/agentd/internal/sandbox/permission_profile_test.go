@@ -6,7 +6,7 @@ package sandbox
 import (
 	"testing"
 
-	"github.com/clawless/agentd/internal/security/os_enforce"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/os_enforce"
 )
 
 func TestPrepareSpecStrictProfileUsesDockerStrict(t *testing.T) {

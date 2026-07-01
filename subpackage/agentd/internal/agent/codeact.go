@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 // CodeActSession represents a single CodeAct interaction session.

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 // StreamOutputRequest is the payload sent to ClawLess for streaming output.

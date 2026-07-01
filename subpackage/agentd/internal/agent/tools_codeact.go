@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 const CodeActSystemPrompt = `You are operating in CodeAct mode. Instead of calling tools directly, you write and execute code to accomplish tasks.

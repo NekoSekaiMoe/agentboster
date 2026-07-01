@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/config"
-	"github.com/clawless/agentd/internal/security/l0_rules"
-	"github.com/clawless/agentd/internal/security/os_enforce"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/config"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/l0_rules"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/os_enforce"
 )
 
 const (

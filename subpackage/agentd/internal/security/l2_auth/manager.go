@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/eventbus"
-	"github.com/clawless/agentd/internal/i18n"
-	"github.com/clawless/agentd/internal/usertype"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/i18n"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/usertype"
 )
 
 const (

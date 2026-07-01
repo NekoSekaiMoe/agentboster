@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 func registerSandboxMedia(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {

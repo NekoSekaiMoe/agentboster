@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/eventbus"
-	"github.com/clawless/agentd/internal/persistence"
-	"github.com/clawless/agentd/internal/security/l0_rules"
-	"github.com/clawless/agentd/internal/worker/workers"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/persistence"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/l0_rules"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/worker/workers"
 )
 
 // AgentContext holds the runtime context for an agent session.

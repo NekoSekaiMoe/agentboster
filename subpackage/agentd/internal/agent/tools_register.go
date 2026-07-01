@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 // RegisterAllTools registers all MVP tools into the registry.

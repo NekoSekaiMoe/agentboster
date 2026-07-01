@@ -10,9 +10,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/clawless/agentd/internal/agent/browser"
-	"github.com/clawless/agentd/internal/sandbox"
-	"github.com/clawless/agentd/internal/security/l0_rules"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent/browser"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/l0_rules"
 )
 
 // P2 browser tools (v2): replaced the legacy browser_act (tools_browser.go v1).

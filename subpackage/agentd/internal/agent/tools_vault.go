@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 func registerVaultList(registry *ToolRegistry, client *clawless.Client) {

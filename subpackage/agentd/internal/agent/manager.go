@@ -10,15 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/config"
-	"github.com/clawless/agentd/internal/eventbus"
-	"github.com/clawless/agentd/internal/persistence"
-	"github.com/clawless/agentd/internal/sandbox"
-	"github.com/clawless/agentd/internal/security"
-	"github.com/clawless/agentd/internal/session"
-	"github.com/clawless/agentd/internal/usertype"
-	"github.com/clawless/agentd/internal/worker/workers"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/config"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/persistence"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/session"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/usertype"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/worker/workers"
 )
 
 // Manager manages agent sessions and their loops.

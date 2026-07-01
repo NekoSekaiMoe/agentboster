@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 // registerMCPCall registers the mcp_call tool.

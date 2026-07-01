@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 func (l *AgentLoop) completeToolCall(ctx context.Context, call *ToolCall, result *ToolResult, startedAt time.Time) {

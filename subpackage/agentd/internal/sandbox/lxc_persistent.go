@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clawless/agentd/internal/security/os_enforce"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/os_enforce"
 	"github.com/google/uuid"
 )
 

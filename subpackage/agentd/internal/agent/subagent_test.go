@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 // TestSubagentSemaphore_ConcurrencyLimit verifies the global semaphore

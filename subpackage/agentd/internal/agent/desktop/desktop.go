@@ -34,7 +34,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 //go:embed desktop_install.sh

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 func registerSandboxInstall(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {

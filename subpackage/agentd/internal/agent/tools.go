@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/clawless/agentd/internal/usertype"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/usertype"
 )
 
 // ToolResult is the unified return type for all tool handlers.

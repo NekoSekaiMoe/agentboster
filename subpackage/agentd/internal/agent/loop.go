@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/security"
-	"github.com/clawless/agentd/internal/usertype"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/usertype"
 )
 
 // Message represents a chat message.

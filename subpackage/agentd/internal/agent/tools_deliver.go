@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clawless/agentd/internal/clawless"
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 func registerDeliverFiles(registry *ToolRegistry, sbMgr *sandbox.Manager, client *clawless.Client, ctx *AgentContext) {

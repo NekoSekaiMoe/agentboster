@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clawless/agentd/internal/agent/desktop"
-	"github.com/clawless/agentd/internal/sandbox"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent/desktop"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 // stubExecFunc replaces desktop.ExecFunc for the duration of a test,

@@ -176,7 +176,7 @@ agentboster/
 │   └── *.tsx                 # app-sidebar / adaptive-chat-layout / markdown / tool-timeline / workflow-timeline / decision-card
 ├── lib/                      # 业务逻辑(见下文「Web 层关键模块」)
 ├── subpackage/               # 独立 build 单元集合（每个子项目自带 go.mod / package.json）
-│   ├── agentd/               # 独立 Go module(`github.com/clawless/agentd`)
+│   ├── agentd/               # 独立 Go module(`github.com/NekoSekaiMoe/agentboster/subpackage/agentd`)
 │   │   ├── cmd/agentd/       # main.go + tui/(交互式配置向导)
 │   │   ├── internal/         # 见下文「agentd 架构」
 │   │   ├── agentd.toml.example   # 配置模板
@@ -398,7 +398,7 @@ users, files(略)
 
 ### agentd(Go)架构
 
-独立 module `github.com/clawless/agentd`,**Linux only**(`//go:build linux`),Go 1.26.2,依赖 Gin + Viper + charmbracelet(huh/lipgloss 用于 `-tui` 向导)。源码地图见 `subpackage/agentd/LAYOUT.MD`,关键源码:`internal/`。
+独立 module `github.com/NekoSekaiMoe/agentboster/subpackage/agentd`,**Linux only**(`//go:build linux`),Go 1.26.2,依赖 Gin + Viper + charmbracelet(huh/lipgloss 用于 `-tui` 向导)。源码地图见 `subpackage/agentd/LAYOUT.MD`,关键源码:`internal/`。
 
 #### 进程生命周期(`internal/lifecycle/`)
 

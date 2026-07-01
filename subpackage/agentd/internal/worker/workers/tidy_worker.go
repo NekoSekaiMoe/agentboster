@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/clawless/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
 
 // RunTaskTidy asks ClawLess to run the task-summary tidy scan.

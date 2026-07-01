@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clawless/agentd/internal/security/os_enforce"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/os_enforce"
 )
 
 func TestDockerProviderCreateKeepsStrictTypeAndWorkspaceTmpfs(t *testing.T) {

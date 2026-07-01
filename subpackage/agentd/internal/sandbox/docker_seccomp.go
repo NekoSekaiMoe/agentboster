@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/clawless/agentd/internal/security/os_enforce"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/os_enforce"
 )
 
 const dockerSeccompDir = "/tmp/agentd-seccomp"
