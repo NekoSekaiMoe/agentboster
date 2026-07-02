@@ -1,0 +1,41 @@
+/* 宠物窗样式：纯透明，仅承载 Canvas 与交互层 */
+html,
+body,
+#root {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	background: transparent;
+	overflow: visible;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.pet-root {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	/* 透明悬浮窗内只画 sprite，背景透明露出窗口透明背景 */
+	background: transparent;
+}
+/* 通知气泡改为 Canvas 绘制（见 PetOverlay.drawNotification），CSS 样式已废弃 */
+
+/* 降级形态：不支持透明窗时（Linux Wayland / Windows 远程桌面），退化为圆角小窗 */
+.pet-root--rounded {
+  background: #eef0f3;
+  border-radius: 14px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.12);
+  overflow: hidden; /* 圆角裁切 canvas 边角 */
+}
+.pet-root--rounded canvas {
+  background: #eef0f3;
+}
+@media (prefers-color-scheme: dark) {
+  .pet-root--rounded {
+    background: #1f2228;
+  }
+  .pet-root--rounded canvas {
+    background: #1f2228;
+  }
+}

@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+out/
+dist/
+release/
+docs-site/.vitepress/cache/
+docs-site/.vitepress/dist/
+*.asar
+
+# Electron/Vite
+.vite/
+.cache/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Local artifacts
+*.local
+# 本地下载/导入的临时文件不参与版本发布，避免把用户机器上的产物打进 tag。
+downloads/
+
+.pi-lens
+.pi/
