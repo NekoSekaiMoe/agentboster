@@ -1188,74 +1188,87 @@ async function handleLocalToolRequest(
     // the CLI's TTY) to /api/cli/exec-on-agentd. The Web server proxies
     // to agentd with credentials the CLI doesn't hold. Tool names and
     // schemas are unchanged — only the execution location moves.
+    //
+    // This branch is wrapped in its own try/catch so a network or parse
+    // failure reports a clean error to the workflow via postToolResult
+    // and returns, rather than falling through to the outer catch and
+    // double-posting (the success/failure branches below already call
+    // postToolResult before returning).
     if (
       options?.remoteTarget &&
       toolName !== 'local_ask_question' &&
       options.sessionId
     ) {
-      const root = auth.url.replace(/\/$/, '');
-      const resp = await fetch(`${root}/api/cli/exec-on-agentd`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${auth.token}`,
-          cookie: `clawless-auth=${auth.token}`,
-        },
-        body: JSON.stringify({
-          nodeId: options.remoteTarget.nodeId,
-          sessionId: options.sessionId,
-          toolName,
-          toolInput,
-        }),
-      }).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        return new Response(JSON.stringify({ ok: false, error: msg }), {
-          status: 0,
+      try {
+        const root = auth.url.replace(/\/$/, '');
+        const resp = await fetch(`${root}/api/cli/exec-on-agentd`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${auth.token}`,
+            cookie: `clawless-auth=${auth.token}`,
+          },
+          body: JSON.stringify({
+            nodeId: options.remoteTarget.nodeId,
+            sessionId: options.sessionId,
+            toolName,
+            toolInput,
+          }),
         });
-      });
 
-      if (!resp.ok) {
+        if (!resp.ok) {
+          const body = (await resp.json().catch(() => null)) as {
+            ok: boolean;
+            error?: string;
+          } | null;
+          await postToolResult(auth, runId, toolCallId, {
+            ok: false,
+            error: body?.error ?? `Remote exec HTTP ${resp.status}`,
+          });
+          return;
+        }
+
         const body = (await resp.json().catch(() => null)) as {
           ok: boolean;
-          error?: string;
+          result?: { success: boolean; data?: string; error?: string };
         } | null;
-        await postToolResult(auth, runId, toolCallId, {
-          ok: false,
-          error: body?.error ?? `Remote exec HTTP ${resp.status}`,
-        });
-        return;
-      }
-
-      const body = (await resp.json()) as {
-        ok: boolean;
-        result?: { success: boolean; data?: string; error?: string };
-      };
-      if (!body.ok || !body.result) {
-        await postToolResult(auth, runId, toolCallId, {
-          ok: false,
-          error: body.result?.error ?? 'Remote exec returned no result',
-        });
-        return;
-      }
-
-      // agentd returns the tool output as a JSON-encoded string in
-      // `data`. Keep the output shape identical to the local path so
-      // the LLM sees no difference.
-      let output: unknown = body.result.data;
-      if (typeof output === 'string') {
-        try {
-          output = JSON.parse(output);
-        } catch {
-          // Not JSON — pass through as a plain string. Many agentd
-          // tools (e.g. read_file) return raw text, not JSON.
+        if (!body || !body.ok || !body.result) {
+          await postToolResult(auth, runId, toolCallId, {
+            ok: false,
+            error:
+              body?.result?.error ??
+              'Remote exec returned no result or invalid JSON',
+          });
+          return;
         }
+
+        // agentd returns the tool output as a JSON-encoded string in
+        // `data`. Keep the output shape identical to the local path so
+        // the LLM sees no difference.
+        let output: unknown = body.result.data;
+        if (typeof output === 'string') {
+          try {
+            output = JSON.parse(output);
+          } catch {
+            // Not JSON — pass through as a plain string. Many agentd
+            // tools (e.g. read_file) return raw text, not JSON.
+          }
+        }
+        await postToolResult(auth, runId, toolCallId, {
+          ok: body.result.success,
+          output: body.result.success ? output : undefined,
+          error: body.result.success ? undefined : body.result.error,
+        });
+        return;
+      } catch (error) {
+        await postToolResult(auth, runId, toolCallId, {
+          ok: false,
+          error: `Remote exec failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+        return;
       }
-      await postToolResult(auth, runId, toolCallId, {
-        ok: body.result.success,
-        output: body.result.success ? output : undefined,
-        error: body.result.success ? undefined : body.result.error,
-      });
-      return;
     }
 
     switch (toolName) {
