@@ -37,3 +37,14 @@ enigo = "0.6"
 #   Windows UIAutomation (COM client)
 [target.'cfg(target_os = "windows")'.dependencies]
 uiautomation = "0.25"
+
+#   macOS Accessibility (AXUIElement C API)
+[target.'cfg(target_os = "macos")'.dependencies]
+accessibility-sys = "0.2"
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
+
+#   Linux AT-SPI (D-Bus accessibility)
+[target.'cfg(target_os = "linux")'.dependencies]
+atspi = "0.30"
+zbus = { version = "5", default-features = false, features = ["tokio"] }

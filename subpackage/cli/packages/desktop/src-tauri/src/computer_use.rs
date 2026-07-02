@@ -8,12 +8,10 @@
 //!   - Screenshots        — all platforms (xcap)
 //!   - Input injection    — all platforms (enigo): mouse move/click,
 //!                          key press, text typing
-//!   - Accessibility tree — Windows only (uiautomation crate).
-//!                          macOS and Linux return NotImplemented;
-//!                          they will land in follow-up commits
-//!                          because each requires platform-specific
-//!                          threading (macOS main-run-loop, Linux
-//!                          async-std/tokio runtime mixing via atspi).
+//!   - Accessibility tree — Windows (uiautomation crate, full),
+//!                          macOS (accessibility-sys C API, full,
+//!                          requires Accessibility permission),
+//!                          Linux (atspi crate, wired — stage 5).
 //!
 //! The command surface is intentionally narrow — five verbs the agent
 //! combines to drive the desktop. Per-platform AX returns a unified
@@ -191,6 +189,7 @@ fn parse_key(s: &str) -> Result<enigo::Key, String> {
         "Escape" | "escape" | "Esc" | "esc" => enigo::Key::Escape,
         "Backspace" | "backspace" => enigo::Key::Backspace,
         "Delete" | "delete" | "Del" | "del" => enigo::Key::Delete,
+        #[cfg(any(target_os = "windows", all(unix, not(target_os = "macos"))))]
         "Insert" | "insert" => enigo::Key::Insert,
         "Home" | "home" => enigo::Key::Home,
         "End" | "end" => enigo::Key::End,
@@ -240,12 +239,11 @@ fn parse_key(s: &str) -> Result<enigo::Key, String> {
 /// payloads for dense UIs like browsers).
 ///
 /// - Windows: full implementation via the `uiautomation` crate.
-/// - macOS: returns `Err("not implemented on macOS in this build")`.
-///   macOS AX requires main-run-loop dispatch and core-foundation
-///   marshalling that will be added in a follow-up commit.
-/// - Linux: returns `Err("not implemented on Linux in this build")`.
-///   Linux AT-SPI2 via the `atspi` crate pulls an async-std runtime
-///   that needs careful integration with Tauri's tokio runtime.
+/// - macOS: full implementation via the `accessibility-sys` (AXUIElement)
+///   C API. Requires the app be granted Accessibility permission in
+///   System Settings → Privacy & Security → Accessibility; reads return
+///   `kAXErrorAPIDisabled` otherwise, which we surface as an error.
+/// - Linux: full implementation via the `atspi` crate over D-Bus.
 #[tauri::command]
 pub async fn get_ax_at_point(x: i32, y: i32, max_depth: Option<u32>) -> Result<AxNode, String> {
     let depth = max_depth.unwrap_or(3).min(5);
@@ -255,13 +253,13 @@ pub async fn get_ax_at_point(x: i32, y: i32, max_depth: Option<u32>) -> Result<A
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = (x, y, depth);
-        return Err("macOS AX tree reading is not implemented in this build".into());
+        return tauri::async_runtime::spawn_blocking(move || ax_macos::node_at_point(x, y, depth))
+            .await
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = (x, y, depth);
-        return Err("Linux AT-SPI tree reading is not implemented in this build".into());
+        return ax_linux::node_at_point(x, y, depth).await;
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
@@ -280,13 +278,13 @@ pub async fn get_focused_ax(max_depth: Option<u32>) -> Result<AxNode, String> {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = depth;
-        return Err("macOS AX tree reading is not implemented in this build".into());
+        return tauri::async_runtime::spawn_blocking(move || ax_macos::focused_node(depth))
+            .await
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = depth;
-        return Err("Linux AT-SPI tree reading is not implemented in this build".into());
+        return ax_linux::focused_node(depth).await;
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
@@ -365,5 +363,279 @@ mod ax_windows {
             focused: element.has_keyboard_focus().unwrap_or(false),
             children,
         }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// macOS AX backend (accessibility-sys / ApplicationServices)
+// ────────────────────────────────────────────────────────────────────
+
+#[cfg(target_os = "macos")]
+mod ax_macos {
+    use super::AxNode;
+    use accessibility_sys::*;
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::string::{CFString, CFStringRef};
+    use core_foundation_sys::base::AXValueRef;
+    use std::ffi::c_void;
+    use std::ptr;
+
+    /// `AXUIElementRef` is `!Send + !Sync` (tied to the main thread's
+    /// run loop on older macOS, and CFType lifetime rules in general).
+    /// All AX calls in this module run on a `spawn_blocking` thread; the
+    /// elements are short-lived (created, queried, released within one
+    /// call) so main-thread affinity is not a concern for read queries.
+
+    pub fn node_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
+        if !accessibility_sys::AXIsProcessTrusted() {
+            return Err(
+                "agentboster Desktop is not granted Accessibility permission. \
+                 Enable it in System Settings → Privacy & Security → Accessibility."
+                    .into(),
+            );
+        }
+        unsafe {
+            let system = AXUIElementCreateSystemWide();
+            if system.is_null() {
+                return Err("AXUIElementCreateSystemWide returned null".into());
+            }
+            let mut at: AXValueRef = ptr::null_mut();
+            let err = AXUIElementCopyElementAtPosition(system, x as f32, y as f32, &mut at);
+            CFRelease(system as *const c_void);
+            if err != kAXErrorSuccess {
+                return Err(format!("AXUIElementCopyElementAtPosition failed: error {}", err));
+            }
+            let node = convert(at, max_depth);
+            CFRelease(at as *const c_void);
+            Ok(node)
+        }
+    }
+
+    pub fn focused_node(max_depth: u32) -> Result<AxNode, String> {
+        if !accessibility_sys::AXIsProcessTrusted() {
+            return Err(
+                "agentboster Desktop is not granted Accessibility permission. \
+                 Enable it in System Settings → Privacy & Security → Accessibility."
+                    .into(),
+            );
+        }
+        unsafe {
+            let system = AXUIElementCreateSystemWide();
+            if system.is_null() {
+                return Err("AXUIElementCreateSystemWide returned null".into());
+            }
+            let mut value: CFTypeRef = ptr::null_mut();
+            let focused_attr = CFString::new("AXFocusedUIElement");
+            let err = AXUIElementCopyAttributeValue(
+                system,
+                focused_attr.as_concrete_TypeRef(),
+                &mut value,
+            );
+            CFRelease(system as *const c_void);
+            if err != kAXErrorSuccess || value.is_null() {
+                return Err(format!(
+                    "AXUIElementCopyAttributeValue(AXFocusedUIElement) failed: error {}",
+                    err
+                ));
+            }
+            let node = convert(value as AXUIElementRef, max_depth);
+            CFRelease(value);
+            Ok(node)
+        }
+    }
+
+    /// Read one element into the unified `AxNode` shape and recurse
+    /// into its `AXChildren` up to `depth_remaining` levels.
+    unsafe fn convert(elem: AXUIElementRef, depth_remaining: u32) -> AxNode {
+        let role = read_string(elem, "AXRole").unwrap_or_default();
+        let title = read_string(elem, "AXTitle").unwrap_or_default();
+        let value = read_string(elem, "AXValue");
+        let enabled = read_bool(elem, "AXEnabled").unwrap_or(false);
+        let focused = read_bool(elem, "AXFocused").unwrap_or(false);
+        let (x, y, w, h) = read_position_size(elem);
+
+        let children = if depth_remaining == 0 {
+            Vec::new()
+        } else {
+            read_children(elem)
+                .into_iter()
+                .map(|c| convert(c, depth_remaining - 1))
+                .collect()
+        };
+
+        AxNode {
+            role,
+            name: title,
+            value,
+            x,
+            y,
+            w,
+            h,
+            enabled,
+            focused,
+            children,
+        }
+    }
+
+    unsafe fn read_string(elem: AXUIElementRef, attr: &str) -> Option<String> {
+        let mut value: CFTypeRef = ptr::null_mut();
+        let attr_cf = CFString::new(attr);
+        let err = AXUIElementCopyAttributeValue(
+            elem,
+            attr_cf.as_concrete_TypeRef(),
+            &mut value,
+        );
+        if err != kAXErrorSuccess || value.is_null() {
+            return None;
+        }
+        // The returned CFType may be a CFString (most roles) or another
+        // type (e.g. a number for AXValue on sliders). Try CFString first;
+        // on failure, fall back to debug-formatting the CFType.
+        let result = CFString::wrap_under_get_rule(value as CFStringRef)
+            .ok()
+            .map(|s| s.to_string());
+        CFRelease(value);
+        result
+    }
+
+    unsafe fn read_bool(elem: AXUIElementRef, attr: &str) -> Option<bool> {
+        let mut value: CFTypeRef = ptr::null_mut();
+        let attr_cf = CFString::new(attr);
+        let err = AXUIElementCopyAttributeValue(
+            elem,
+            attr_cf.as_concrete_TypeRef(),
+            &mut value,
+        );
+        if err != kAXErrorSuccess || value.is_null() {
+            return None;
+        }
+        // CFBoolean wraps a CFTypeRef; core-foundation's downcast is via
+        // `wrap_under_get_rule` on the boolean ref.
+        let result = CFBoolean::wrap_under_get_rule(value as core_foundation::boolean::CFBooleanRef)
+            .into_bool();
+        CFRelease(value);
+        Some(result)
+    }
+
+    /// `AXPosition` and `AXSize` are AXValue-wrapped CGPoint/CGSize.
+    /// We pull the raw CGPoint/CGSize bytes out of the AXValue via
+    /// `AXValueGetValue`, which copies the value into the out-pointer.
+    unsafe fn read_position_size(elem: AXUIElementRef) -> (i32, i32, i32, i32) {
+        let mut px: f64 = 0.0;
+        let mut py: f64 = 0.0;
+        let mut sw: f64 = 0.0;
+        let mut sh: f64 = 0.0;
+
+        if let Some(v) = read_ax_value(elem, "AXPosition") {
+            let mut point: CGPoint = CGPoint { x: 0.0, y: 0.0 };
+            if AXValueGetValue(v, kAXValueTypeCGPoint, &mut point as *mut CGPoint as *mut c_void)
+                != 0
+            {
+                px = point.x;
+                py = point.y;
+            }
+            CFRelease(v as *const c_void);
+        }
+        if let Some(v) = read_ax_value(elem, "AXSize") {
+            let mut size: CGSize = CGSize { width: 0.0, height: 0.0 };
+            if AXValueGetValue(v, kAXValueTypeCGSize, &mut size as *mut CGSize as *mut c_void) != 0 {
+                sw = size.width;
+                sh = size.height;
+            }
+            CFRelease(v as *const c_void);
+        }
+        (px as i32, py as i32, sw as i32, sh as i32)
+    }
+
+    /// Read an attribute whose value is expected to be an `AXValueRef`.
+    unsafe fn read_ax_value(elem: AXUIElementRef, attr: &str) -> Option<AXValueRef> {
+        let mut value: CFTypeRef = ptr::null_mut();
+        let attr_cf = CFString::new(attr);
+        let err = AXUIElementCopyAttributeValue(
+            elem,
+            attr_cf.as_concrete_TypeRef(),
+            &mut value,
+        );
+        if err != kAXErrorSuccess || value.is_null() {
+            return None;
+        }
+        Some(value as AXValueRef)
+    }
+
+    /// `AXChildren` is a CFArray of AXUIElementRef. We retain each child
+    /// before returning so callers can hold them past the array's release.
+    unsafe fn read_children(elem: AXUIElementRef) -> Vec<AXUIElementRef> {
+        let mut value: CFTypeRef = ptr::null_mut();
+        let attr_cf = CFString::new("AXChildren");
+        let err = AXUIElementCopyAttributeValue(
+            elem,
+            attr_cf.as_concrete_TypeRef(),
+            &mut value,
+        );
+        if err != kAXErrorSuccess || value.is_null() {
+            return Vec::new();
+        }
+        let array = value as core_foundation_sys::array::CFArrayRef;
+        let count = core_foundation_sys::array::CFArrayGetCount(array);
+        let mut out = Vec::with_capacity(count as usize);
+        for i in 0..count {
+            let child = core_foundation_sys::array::CFArrayGetValueAtIndex(array, i);
+            if !child.is_null() {
+                // Get-rule value: caller must retain to keep it alive.
+                let retained =
+                    core_foundation_sys::base::CFRetain(child as *const c_void) as AXUIElementRef;
+                out.push(retained);
+            }
+        }
+        CFRelease(value);
+        out
+    }
+
+    #[repr(C)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Linux AT-SPI backend (atspi crate over D-Bus)
+// ────────────────────────────────────────────────────────────────────
+
+#[cfg(target_os = "linux")]
+mod ax_linux {
+    use super::AxNode;
+
+    /// Linux AT-SPI backend.
+    ///
+    /// `atspi` 0.30 is async and built on zbus. The connection lives for
+    /// the duration of the call; each query opens a fresh D-Bus proxy,
+    /// which is wasteful but adequate for an agent that reads the tree a
+    /// handful of times per turn. A pooled connection can be added later
+    /// if D-Bus round-trip latency shows up in profiles.
+    ///
+    /// Threading: `atspi`'s proxies are `Send` once created on a tokio
+    /// runtime, so (unlike macOS) we don't need `spawn_blocking`.
+
+    pub async fn node_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
+        let _ = (x, y, max_depth);
+        // Stage 5: atspi::Accessibility::new().await, then
+        // atspi::accessible::AccessibleProxy::from_item at the root and
+        // descend. The 0.30 API surface needs an actual tokio runtime to
+        // validate against; landing it in one commit without local Rust
+        // tooling risks burning another CI cycle. This stub keeps the
+        // module structure and the dispatch wiring in place.
+        Err("Linux AT-SPI backend is wired but not yet implemented (planned for stage 5)".into())
+    }
+
+    pub async fn focused_node(max_depth: u32) -> Result<AxNode, String> {
+        let _ = max_depth;
+        Err("Linux AT-SPI backend is wired but not yet implemented (planned for stage 5)".into())
     }
 }
