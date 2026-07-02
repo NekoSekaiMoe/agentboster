@@ -562,5 +562,50 @@ export async function getBot(): Promise<Chat> {
     });
   });
 
+  // L2 decision button click handler.
+  //
+  // The notification channels (notifications/{telegram,discord,slack}.ts)
+  // render L2 prompts with platform-native buttons whose payload encodes
+  // `l2:<action>:<taskId>:<decisionId>` — either as the callback_data
+  // (telegram), custom_id prefix (discord), or action_id (slack). When a
+  // user clicks, the chat-sdk adapter receives the interaction and
+  // dispatches it via chat.processAction. Because the actionId carries
+  // per-decision taskId/decisionId, no fixed actionId match works — we
+  // register a catch-all handler (single-function form) and pattern-match
+  // inside.
+  //
+  // On match we call processL2Decision directly (the same logic the
+  // /api/agentd/v1/l2-confirm route runs), which forwards the verdict to
+  // the daemon and resolves the Web-side DecisionQueue. The handler is
+  // fire-and-forget: processL2Decision sends any follow-up IM message
+  // (e.g. prompt for pass_until duration) via the notification manager.
+  bot.onAction(async (event) => {
+    const actionId = event.actionId ?? '';
+    const match =
+      /^l2:(pass_once|pass_until|reject_once|reject_until):(.+):(.+)$/.exec(
+        actionId,
+      );
+    if (!match) {
+      return;
+    }
+    const [, action, taskId, decisionId] = match;
+    const { processL2Decision } = await import(
+      '@/app/api/agentd/v1/l2-confirm/route'
+    );
+    try {
+      await processL2Decision({
+        taskId,
+        decisionId,
+        action,
+        chatId: event.threadId ?? null,
+        userId: event.user?.userId ?? null,
+      });
+    } catch {
+      // processL2Decision logs its own errors; the button silently
+      // fails and the daemon's L2 will time out (default 3min) on its
+      // own, so no user-facing error is needed here.
+    }
+  });
+
   return bot;
 }

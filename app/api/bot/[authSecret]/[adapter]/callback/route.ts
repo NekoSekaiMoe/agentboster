@@ -92,6 +92,44 @@ async function handleFeishuWebhook(
       }
     }
 
+    // L2 decision button click (feishu card action).
+    //
+    // notifications/feishu.ts renders L2 prompts as lark cards with
+    // buttons whose `value: { action: "l2:<action>:<taskId>:<decisionId>" }`
+    // payload is round-tripped here as body.event.action.value.action.
+    // We call the same processL2Decision the chat-sdk bot.onAction
+    // handler uses, so the bot catch-all path and feishu's webhook
+    // share the same code (the bot catch-all only fires for chat-sdk
+    // adapters; feishu runs its own webhook handler).
+    if (body.header?.event_type === 'card.action.trigger') {
+      const actionValue =
+        body.event?.action?.value?.action ?? body.event?.action?.value ?? '';
+      const actionStr = typeof actionValue === 'string' ? actionValue : '';
+      const match =
+        /^l2:(pass_once|pass_until|reject_once|reject_until):(.+):(.+)$/.exec(
+          actionStr,
+        );
+      if (match) {
+        const [, action, taskId, decisionId] = match;
+        const openId = body.event?.operator?.open_id ?? null;
+        const chatId = body.event?.action?.chat_id ?? null;
+        const { processL2Decision } = await import(
+          '@/app/api/agentd/v1/l2-confirm/route'
+        );
+        after(() =>
+          processL2Decision({
+            taskId,
+            decisionId,
+            action,
+            chatId,
+            userId: openId,
+          }).catch((error) => {
+            console.error('[bot/webhook] feishu L2 button error:', error);
+          }),
+        );
+      }
+    }
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error('[bot/webhook] feishu callback error:', error);

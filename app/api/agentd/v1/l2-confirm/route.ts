@@ -44,43 +44,196 @@ const logger = createLogger('api.agentd.l2-confirm');
 
 const DURATION_RE = /^(always|\d{8})$/;
 
+/**
+ * Outcome of processing an L2 decision. Returned by processL2Decision
+ * so the HTTP route can shape the Response and the bot action handler
+ * can decide whether to ACK silently.
+ */
+export interface L2DecisionOutcome {
+  success: boolean;
+  status: number;
+  awaitingTimeInput?: boolean;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Process an L2 decision (shared by the HTTP route and the IM bot
+ * action handler). Performs dedup, updates task status, resolves the
+ * Web-side DecisionQueue entry, forwards to the daemon, and sends any
+ * follow-up IM notification (e.g. the pass_until time input prompt).
+ *
+ * Extracted from the POST handler so bot.onAction can call it directly
+ * without an internal HTTP round-trip to this same Next.js process.
+ */
+export async function processL2Decision(input: {
+  taskId: string;
+  decisionId: string;
+  action: string;
+  timeInput?: string | null;
+  chatId?: string | null;
+  userId?: string | null;
+}): Promise<L2DecisionOutcome> {
+  const { taskId, decisionId, action } = input;
+  const timeInput = input.timeInput ?? null;
+  const chatId = input.chatId ?? null;
+  const userId = input.userId ?? null;
+
+  if (!taskId || !decisionId || !action) {
+    return {
+      success: false,
+      status: 400,
+      error: 'Missing required fields: taskId, decisionId, action',
+    };
+  }
+
+  const mgr = getNotificationManager();
+  const config = await getConfig();
+  ensureNotificationChannels(config);
+
+  const alreadyProcessed = await mgr.isDecisionProcessed(decisionId);
+  if (alreadyProcessed) {
+    logger.info('L2 decision already processed (dedup)', {
+      taskId,
+      decisionId,
+      action,
+    });
+    return {
+      success: true,
+      status: 200,
+      message: 'Already processed.',
+    };
+  }
+
+  logger.info('L2 confirmation received', {
+    taskId,
+    decisionId,
+    action,
+    timeInput,
+    chatId,
+    userId,
+  });
+
+  const queue = getDecisionQueue();
+  const decision = queue.get(decisionId);
+  const resolvedBy = userId ?? 'im-user';
+  const ctx = mgr.getL2Context(decisionId);
+  const command = decision?.command ?? ctx?.taskId ?? taskId;
+
+  // ── pass_once ──────────────────────────────────────────────────
+  if (action === 'pass_once') {
+    await mgr.markDecisionProcessed(decisionId);
+    await updateTaskStatus(taskId, 'running', 'L2 authorized: pass_once');
+    await finalizeDecision(decisionId, 'pass', resolvedBy, decision);
+    await forwardToDaemon(taskId, decisionId, 'pass_once', command, 'once');
+    return {
+      success: true,
+      status: 200,
+      message: '✅ 已放行。任务继续执行。',
+    };
+  }
+
+  // ── reject_once ────────────────────────────────────────────────
+  if (action === 'reject_once') {
+    await mgr.markDecisionProcessed(decisionId);
+    await updateTaskStatus(
+      taskId,
+      'cancelled',
+      'Rejected by user via L2 authorization (reject_once)',
+    );
+    await finalizeDecision(decisionId, 'reject', resolvedBy, decision);
+    await forwardToDaemon(taskId, decisionId, 'reject_once', command, 'once');
+    return {
+      success: true,
+      status: 200,
+      message: '❌ 已拒绝。任务已取消。',
+    };
+  }
+
+  // ── pass_until / reject_until — Step 1: prompt for time ────────
+  if (action === 'pass_until' || action === 'reject_until') {
+    if (!timeInput) {
+      const cmdForPrompt = ctx?.taskId ? ctx.taskId : 'unknown';
+      const prefs = userId
+        ? await import('@/lib/core/db/notification').then((m) =>
+            m.getNotificationPreferences(userId),
+          )
+        : null;
+      const channel = prefs?.preferredChannel ?? 'telegram';
+      await mgr.sendL2TimeInputPrompt({
+        taskId,
+        decisionId,
+        action,
+        command: cmdForPrompt,
+        channel,
+        targetChatId: chatId ?? '',
+      });
+      return {
+        success: true,
+        status: 200,
+        awaitingTimeInput: true,
+        message: '⏱️ 请回复时间。格式：hhddmmyy 或 always。',
+      };
+    }
+
+    if (!DURATION_RE.test(timeInput)) {
+      return {
+        success: false,
+        status: 400,
+        error:
+          '⚠️ 格式错误。请输入 8 位数字（hhddmmyy）或 always。`01000000`=1小时，`00010000`=1天',
+      };
+    }
+
+    const windowLabel =
+      timeInput === 'always' ? '本次会话内' : formatWindowLabel(timeInput);
+    await mgr.markDecisionProcessed(decisionId);
+    const isPass = action === 'pass_until';
+    const emoji = isPass ? '✅' : '🔕';
+    const verb = isPass ? '放行' : '拒绝';
+    const scopeLabel =
+      timeInput === 'always' ? windowLabel : `未来 ${windowLabel}`;
+
+    if (isPass) {
+      await updateTaskStatus(
+        taskId,
+        'running',
+        `L2 authorized: pass_until ${windowLabel}`,
+      );
+    } else {
+      await updateTaskStatus(
+        taskId,
+        'cancelled',
+        `L2 rejected: reject_until ${windowLabel}`,
+      );
+    }
+    await finalizeDecision(
+      decisionId,
+      isPass ? 'pass' : 'reject',
+      resolvedBy,
+      decision,
+    );
+    await forwardToDaemon(taskId, decisionId, action, command, timeInput);
+    return {
+      success: true,
+      status: 200,
+      message: `${emoji} 已${verb}，${scopeLabel}同类操作将自动${verb}。`,
+    };
+  }
+
+  return {
+    success: false,
+    status: 400,
+    error: `Unknown action: ${action}`,
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { taskId, decisionId, action, timeInput, chatId, userId } = body;
 
-    if (!taskId || !decisionId || !action) {
-      return Response.json(
-        {
-          success: false,
-          error: 'Missing required fields: taskId, decisionId, action',
-        },
-        { status: 400 },
-      );
-    }
-
-    const mgr = getNotificationManager();
-
-    // Lazily register notification channels from live config so that
-    // sendL2Decision / sendL2TimeInputPrompt actually find a channel.
-    const config = await getConfig();
-    ensureNotificationChannels(config);
-
-    // Decision dedup — ignore duplicate clicks from multiple IM channels
-    const alreadyProcessed = await mgr.isDecisionProcessed(decisionId);
-    if (alreadyProcessed) {
-      logger.info('L2 decision already processed (dedup)', {
-        taskId,
-        decisionId,
-        action,
-      });
-      return Response.json({
-        success: true,
-        data: { taskId, decision: action, message: 'Already processed.' },
-      });
-    }
-
-    logger.info('L2 confirmation received', {
+    const outcome = await processL2Decision({
       taskId,
       decisionId,
       action,
@@ -89,147 +242,20 @@ export async function POST(request: Request) {
       userId,
     });
 
-    // Command is needed for the daemon `pattern` field (used to key the
-    // L2AuthManager cache for future identical commands). Prefer the
-    // cached decision (authoritative); fall back to the L2 notification
-    // context if the decision has expired out of the in-memory cache.
-    const queue = getDecisionQueue();
-    const decision = queue.get(decisionId);
-    const resolvedBy = userId ?? 'im-user';
-    const ctx = mgr.getL2Context(decisionId);
-    const command = decision?.command ?? ctx?.taskId ?? taskId;
-
-    // ── Handle pass_once ──────────────────────────────────────────────
-    if (action === 'pass_once') {
-      await mgr.markDecisionProcessed(decisionId);
-      await updateTaskStatus(taskId, 'running', 'L2 authorized: pass_once');
-
-      await finalizeDecision(decisionId, 'pass', resolvedBy, decision);
-      await forwardToDaemon(taskId, decisionId, 'pass_once', command, 'once');
-
-      return Response.json({
-        success: true,
-        data: {
-          taskId,
-          decision: 'pass_once',
-          message: '✅ 已放行。任务继续执行。',
-        },
-      });
-    }
-
-    // ── Handle reject_once ────────────────────────────────────────────
-    if (action === 'reject_once') {
-      await mgr.markDecisionProcessed(decisionId);
-      await updateTaskStatus(
-        taskId,
-        'cancelled',
-        'Rejected by user via L2 authorization (reject_once)',
-      );
-
-      await finalizeDecision(decisionId, 'reject', resolvedBy, decision);
-      await forwardToDaemon(taskId, decisionId, 'reject_once', command, 'once');
-
-      return Response.json({
-        success: true,
-        data: {
-          taskId,
-          decision: 'reject_once',
-          message: '❌ 已拒绝。任务已取消。',
-        },
-      });
-    }
-
-    // ── Handle pass_until / reject_until — Step 1: prompt for time ───
-    if (action === 'pass_until' || action === 'reject_until') {
-      if (!timeInput) {
-        // First click — send time input prompt
-        const cmdForPrompt = ctx?.taskId ? ctx.taskId : 'unknown';
-
-        const prefs = userId
-          ? await import('@/lib/core/db/notification').then((m) =>
-              m.getNotificationPreferences(userId),
-            )
-          : null;
-        const channel = prefs?.preferredChannel ?? 'telegram';
-
-        await mgr.sendL2TimeInputPrompt({
-          taskId,
-          decisionId,
-          action,
-          command: cmdForPrompt,
-          channel,
-          targetChatId: chatId,
-        });
-
-        return Response.json({
-          success: true,
-          data: {
-            taskId,
-            decision: action,
-            awaitingTimeInput: true,
-            message: '⏱️ 请回复时间。格式：hhddmmyy 或 always。',
-          },
-        });
-      }
-
-      // ── Time input received — validate ─────────────────────────────
-      if (!DURATION_RE.test(timeInput)) {
-        return Response.json(
-          {
-            success: false,
-            error:
-              '⚠️ 格式错误。请输入 8 位数字（hhddmmyy）或 always。`01000000`=1小时，`00010000`=1天',
-          },
-          { status: 400 },
-        );
-      }
-
-      const windowLabel =
-        timeInput === 'always' ? '本次会话内' : formatWindowLabel(timeInput);
-
-      await mgr.markDecisionProcessed(decisionId);
-
-      const isPass = action === 'pass_until';
-      const emoji = isPass ? '✅' : '🔕';
-      const verb = isPass ? '放行' : '拒绝';
-      const scopeLabel =
-        timeInput === 'always' ? windowLabel : `未来 ${windowLabel}`;
-
-      if (isPass) {
-        await updateTaskStatus(
-          taskId,
-          'running',
-          `L2 authorized: pass_until ${windowLabel}`,
-        );
-      } else {
-        await updateTaskStatus(
-          taskId,
-          'cancelled',
-          `L2 rejected: reject_until ${windowLabel}`,
-        );
-      }
-
-      await finalizeDecision(
-        decisionId,
-        isPass ? 'pass' : 'reject',
-        resolvedBy,
-        decision,
-      );
-      await forwardToDaemon(taskId, decisionId, action, command, timeInput);
-
-      return Response.json({
-        success: true,
-        data: {
-          taskId,
-          decision: action,
-          message: `${emoji} 已${verb}，${scopeLabel}同类操作将自动${verb}。`,
-        },
-      });
-    }
-
     return Response.json(
-      { success: false, error: `Unknown action: ${action}` },
-      { status: 400 },
+      outcome.success
+        ? {
+            success: true,
+            data: {
+              taskId,
+              message: outcome.message,
+              ...(outcome.awaitingTimeInput
+                ? { awaitingTimeInput: true }
+                : {}),
+            },
+          }
+        : { success: false, error: outcome.error },
+      { status: outcome.status },
     );
   } catch (error) {
     logger.error('L2 confirmation failed', {
