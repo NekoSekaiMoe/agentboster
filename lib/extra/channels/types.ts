@@ -6,7 +6,8 @@ export type ChannelType =
   | 'gchat'
   | 'teams'
   | 'qq'
-  | 'wecom';
+  | 'wecom'
+  | 'dingtalk';
 
 export interface IncomingMessage {
   channelType: ChannelType;

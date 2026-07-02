@@ -23,6 +23,7 @@ import { SlackNotificationChannel } from './notifications/slack';
 import { TeamsNotificationChannel } from './notifications/teams';
 import { TelegramNotificationChannel } from './notifications/telegram';
 import { WecomNotificationChannel } from './notifications/wecom';
+import { DingtalkNotificationChannel } from './notifications/dingtalk';
 import { getNotificationManager } from './notification-manager';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -46,6 +47,8 @@ function channelFingerprint(channel: unknown): string {
     credentials_json: c.credentials_json,
     corp_id: c.corp_id,
     agent_id: c.agent_id,
+    app_key: c.app_key,
+    robot_code: c.robot_code,
   });
 }
 
@@ -183,6 +186,22 @@ export function ensureNotificationChannels(config: AppConfig): string[] {
             corpId: channels.wecom?.corp_id ?? '',
             secret: channels.wecom?.secret ?? '',
             agentId: channels.wecom?.agent_id ?? '',
+          }),
+        ),
+    });
+  }
+
+  if (channels.dingtalk) {
+    candidates.push({
+      type: 'dingtalk',
+      enabled: !!channels.dingtalk.enabled,
+      fingerprint: channelFingerprint(channels.dingtalk),
+      factory: () =>
+        mgr.registerChannel(
+          new DingtalkNotificationChannel({
+            appKey: channels.dingtalk?.app_key ?? '',
+            appSecret: channels.dingtalk?.app_secret ?? '',
+            robotCode: channels.dingtalk?.robot_code ?? '',
           }),
         ),
     });

@@ -449,6 +449,121 @@ async function handleWecomWebhook(request: NextRequest): Promise<NextResponse> {
   }
 }
 
+/**
+ * DingTalk application-bot webhook handler.
+ *
+ * DingTalk's HTTP webhook is far simpler than WeCom's: the inbound
+ * payload is plaintext JSON (no AES encryption). Authentication is a
+ * single HMAC-SHA256 signature in two request headers, `timestamp` and
+ * `sign`, computed as base64(HmacSHA256(timestamp + "\n" + appSecret)).
+ * Timestamps >1h off are rejected (doc 1017-1056 in /sd/a.md).
+ *
+ * Inbound message body fields (doc 660-825): msgId, conversationId,
+ * conversationType ("1"=single, "2"=group), senderStaffId, text.content,
+ * msgtype (text/richText/picture/audio/video/file), sessionWebhook
+ * (temporary reply URL with expiry — we use OpenAPI instead), etc.
+ *
+ * The threadId is built with a `single:`/`group:` prefix (see
+ * lib/bot/dingtalk-adapter.ts buildDingtalkThreadId) so the adapter can
+ * route replies to the correct OpenAPI endpoint (oToMessages/batchSend
+ * vs groupMessages/send).
+ */
+async function handleDingtalkWebhook(
+  request: NextRequest,
+): Promise<NextResponse> {
+  try {
+    const config = await getConfig();
+    const dtCfg = config.channels?.dingtalk;
+    if (!dtCfg?.app_secret) {
+      return NextResponse.json(
+        { error: 'DingTalk credentials not configured' },
+        { status: 500 },
+      );
+    }
+
+    const timestamp = request.headers.get('timestamp') ?? '';
+    const sign = request.headers.get('sign') ?? '';
+
+    // Reject skewed timestamps (> 1 hour) per DingTalk spec.
+    const tsNum = Number.parseInt(timestamp, 10);
+    if (Number.isNaN(tsNum) || Math.abs(Date.now() - tsNum) > 60 * 60 * 1000) {
+      logger.warn('dingtalk timestamp out of range', { timestamp });
+      return NextResponse.json(
+        { error: 'Timestamp out of range' },
+        { status: 401 },
+      );
+    }
+
+    // Verify HMAC-SHA256 signature: base64(HmacSHA256(timestamp + "\n" + appSecret)).
+    const { createHmac } = await import('node:crypto');
+    const computed = createHmac('sha256', dtCfg.app_secret)
+      .update(`${timestamp}\n${dtCfg.app_secret}`)
+      .digest('base64');
+    if (sign !== computed) {
+      logger.warn('dingtalk signature mismatch');
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
+
+    const body = (await request.json().catch(() => ({}))) as {
+      msgId?: string;
+      conversationId?: string;
+      conversationType?: string;
+      senderStaffId?: string;
+      senderNick?: string;
+      msgtype?: string;
+      text?: { content?: string };
+      sessionWebhook?: string;
+    };
+
+    // Only handle text messages for now (richText/picture/etc. need
+    // downloadCode + rich processing). Don't reject other types — just
+    // ACK so DingTalk doesn't retry.
+    if (body.msgtype !== 'text' || !body.text?.content) {
+      return NextResponse.json({ ok: true });
+    }
+
+    if (!body.conversationId || !body.senderStaffId) {
+      return NextResponse.json({ ok: true });
+    }
+
+    const { buildDingtalkThreadId } = await import(
+      '@/lib/bot/dingtalk-adapter'
+    );
+    const threadId = buildDingtalkThreadId(
+      body.conversationId,
+      body.conversationType ?? '1',
+    );
+
+    const { routeAdapterMessage } = await import('@/lib/chat/index');
+    const payload = {
+      adapter: 'dingtalk' as const,
+      origin: body.conversationId,
+      threadId,
+      messageId: body.msgId ?? null,
+      userId: body.senderStaffId,
+      userName: body.senderNick ?? body.senderStaffId,
+      text: body.text.content,
+      parts: [],
+    };
+    after(() =>
+      routeAdapterMessage(payload).catch((error) => {
+        console.error(
+          '[bot/webhook] dingtalk message processing error:',
+          error,
+        );
+      }),
+    );
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('[bot/webhook] dingtalk callback error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ authSecret: string; adapter: string }> },
@@ -479,6 +594,11 @@ export async function POST(
   // WeCom smart bot — custom webhook with AES decryption
   if (adapterName === 'wecom') {
     return handleWecomWebhook(request);
+  }
+
+  // DingTalk — custom webhook with HMAC-SHA256 sign verify
+  if (adapterName === 'dingtalk') {
+    return handleDingtalkWebhook(request);
   }
 
   return NextResponse.json({ error: 'Unknown adapter' }, { status: 400 });
@@ -560,6 +680,11 @@ export async function GET(
       console.error('[bot/webhook] wecom echo decrypt failed:', error);
       return NextResponse.json({ error: 'Decrypt failed' }, { status: 500 });
     }
+  }
+
+  // DingTalk — no GET verification flow; health-check only.
+  if (adapterName === 'dingtalk') {
+    return NextResponse.json({ ok: true, adapter: 'dingtalk' });
   }
 
   return NextResponse.json({ error: 'Unknown adapter' }, { status: 400 });

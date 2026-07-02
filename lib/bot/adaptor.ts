@@ -13,7 +13,8 @@ type ChatSdkAdapterName =
   | 'telegram'
   | 'feishu'
   | 'qq'
-  | 'wecom';
+  | 'wecom'
+  | 'dingtalk';
 
 type BotAdapters = Partial<Record<ChatSdkAdapterName, Adapter>>;
 
@@ -113,6 +114,18 @@ export async function createBotAdapters(
         corpId: cfg.corp_id,
         secret: cfg.secret,
         agentId: cfg.agent_id,
+      });
+    }
+  }
+
+  if (channels?.dingtalk?.enabled) {
+    const { asDingtalkAdapter } = await import('./dingtalk-adapter');
+    const cfg = channels.dingtalk;
+    if (cfg.app_key && cfg.app_secret && cfg.robot_code) {
+      adapters.dingtalk = asDingtalkAdapter({
+        appKey: cfg.app_key,
+        appSecret: cfg.app_secret,
+        robotCode: cfg.robot_code,
       });
     }
   }

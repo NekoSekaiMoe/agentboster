@@ -17,6 +17,9 @@ const CAPABILITY_MAP: Partial<Record<AdapterName, BotCapabilities>> = {
   // WeCom application-messaging has no editMessage (would flood via repost)
   // and recall only works for app messages, not smart-bot replies.
   wecom: { delete: false, edit: false, reaction: false },
+  // DingTalk sessionWebhook is one-shot per inbound; OpenAPI send covers
+  // richer types. No editMessage for already-sent messages.
+  dingtalk: { delete: false, edit: false, reaction: false },
 };
 
 export function getBotCapabilities(adapter: string): BotCapabilities {

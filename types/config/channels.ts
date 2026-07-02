@@ -170,6 +170,36 @@ export const wecomAdapterConfigSchema = baseAdapterConfigSchema.extend({
 export type WecomAdapterConfig = z.infer<typeof wecomAdapterConfigSchema>;
 
 /**
+ * DingTalk (钉钉) application-bot adapter configuration.
+ *
+ * DingTalk app bots support Webhook and Stream receive modes
+ * (developerpedia docs/learn/bot/appbot/receive). This adapter
+ * implements the Webhook mode only — Stream requires a long-running
+ * WebSocket and is incompatible with Vercel serverless.
+ *
+ * Notable: DingTalk's HTTP webhook does NOT encrypt the inbound
+ * payload (unlike WeCom). Authentication is a single
+ * `HmacSHA256(timestamp + "\n" + appSecret)` signature in the
+ * `timestamp` + `sign` request headers, with a 1-hour skew window.
+ * See lib/extra/channels/notifications/dingtalk.ts for the verify
+ * helper.
+ *
+ * Outbound replies use the temporary `sessionWebhook` URL from each
+ * inbound payload (simple text/markdown/actionCard, has expiry) OR
+ * the OpenAPI send endpoints (richer types, requires robotCode).
+ */
+export const dingtalkAdapterConfigSchema = baseAdapterConfigSchema.extend({
+  /** Application AppKey (a.k.a. clientId). */
+  app_key: z.string().optional(),
+  /** Application AppSecret (a.k.a. clientSecret). Used for HMAC sign verify + OpenAPI token. */
+  app_secret: z.string().optional(),
+  /** Robot code (usually equals AppKey; required for OpenAPI send endpoints). */
+  robot_code: z.string().optional(),
+});
+
+export type DingtalkAdapterConfig = z.infer<typeof dingtalkAdapterConfigSchema>;
+
+/**
  * Aggregate configuration schema for all channels/adapters
  * Aligned with the Chat SDK Adapter system
  */
@@ -190,6 +220,8 @@ export const channelsConfigSchema = z.object({
   qq: qqAdapterConfigSchema.optional(),
   /** WeChat Work (WeCom) smart-bot adapter configuration */
   wecom: wecomAdapterConfigSchema.optional(),
+  /** DingTalk application-bot adapter configuration */
+  dingtalk: dingtalkAdapterConfigSchema.optional(),
 });
 
 export type ChannelsConfig = z.infer<typeof channelsConfigSchema>;
@@ -206,6 +238,7 @@ export const ADAPTER_NAMES = [
   'feishu',
   'qq',
   'wecom',
+  'dingtalk',
 ] as const;
 
 export type AdapterName = (typeof ADAPTER_NAMES)[number];
