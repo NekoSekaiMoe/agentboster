@@ -79,8 +79,17 @@ import type {
 	SessionSummary,
 } from "../../../../shared/types";
 import { parseRichInputChips, type RichInputChip } from "./RichInput";
-/** 复用 petdex 标准网格规格，在主设置面板里为宠物选择器渲染单格动画预览 */
-import { GRID_COLS, CELL_W, CELL_H, MODE_ROW, MODE_FRAMES } from "../../pet/PetSpriteSheet";
+ /**
+  * Inline petdex sprite grid constants (previously imported from the pet
+  * module, which was removed in this commit). Kept here only because the
+  * Settings UI still renders a legacy pet preview canvas — the values
+  * match upstream PiDeck's petdex spec.
+  */
+ const GRID_COLS = 8;
+ const CELL_W = 64;
+ const CELL_H = 64;
+ const MODE_ROW: Record<string, number> = { idle: 0, happy: 1, sleeping: 2, jumping: 3 };
+ const MODE_FRAMES: Record<string, number> = { idle: 6, happy: 8, sleeping: 4, jumping: 8 };
 
 export type DrawerPanel = "files" | "sessions";
 

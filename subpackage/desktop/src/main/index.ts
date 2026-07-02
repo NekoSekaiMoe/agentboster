@@ -14,7 +14,6 @@ import { basename, join } from "node:path";
 import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { is } from "@electron-toolkit/utils";
-import { PetSystem, type PetSystemDeps } from "./pet";
 import {
 	applyLinuxDisplayBackendWorkaround,
 	isUsingLinuxXWaylandWorkaround,
@@ -129,7 +128,6 @@ let extensionManager: ExtensionManager;
 let projectResourceManager: ProjectResourceManager;
 let webServiceManager: WebServiceManager;
 let terminalManager: TerminalSessionManager;
-let petSystem: PetSystem | null = null;
 let appLogger: AppLogger;
 let rpcLogger: RpcLogger;
 let feishuBridge: FeishuBridge | null = null;
@@ -1585,12 +1583,8 @@ function registerIpc() {
 	ipcMain.handle(
 		ipcChannels.settingsUpdate,
 		async (_event, patch: Partial<AppSettings>) => {
-			// 记录更新前的设置，用于驱动桌面宠物对 pet 字段变化的反应
-			const prevSettings = settingsStore.get();
 			const settings = await settingsStore.update(patch);
 			void appLogger.info("settings", "Settings updated", { keys: Object.keys(patch) });
-			// 桌面宠物：设置面板走 settings.update，这里统一驱动开窗/切换/置顶
-			await petSystem?.reactToSettings(prevSettings, settings);
 			if (
 				"desktopProxyEnabled" in patch ||
 				"desktopProxyUrl" in patch ||
@@ -2125,23 +2119,9 @@ app.whenReady().then(async () => {
 	sendTelemetryHeartbeat();
 	await createWindow();
 	setupTray();
-	void detectExternalEditorsOnFirstLaunch().catch((error) => {
-		void appLogger.warn("editor", "External editor first launch detection failed", error);
-	});
-
-	// 桌面宠物系统：新增模块，默认关闭（petEnabled=false），不触碰现有 IPC 与主窗逻辑
-	petSystem = new PetSystem({
-		agentManager,
-		settingsStore,
-		getMainWindow: () => mainWindow,
-		recreateMainWindow: async () => {
-			await createWindow();
-			return mainWindow!;
-		},
-	});
-	void petSystem.start().catch((error) => {
-		void appLogger.warn("pet", "Pet system start failed", error);
-	});
+ 	void detectExternalEditorsOnFirstLaunch().catch((error) => {
+ 		void appLogger.warn("editor", "External editor first launch detection failed", error);
+ 	});
 
 	// 项目列表可能位于杀软/同步盘较慢的 userData；窗口先显示，随后异步加载，避免 packaged app 打开时白屏等待。
 	void projectStore
@@ -2211,8 +2191,6 @@ app.on("before-quit", () => {
 	void webServiceManager?.stop();
 	terminalManager?.closeAll();
 	agentManager?.stopAll();
-	petSystem?.stop();
-	petSystem = null;
 });
 
 app.on("window-all-closed", () => {
