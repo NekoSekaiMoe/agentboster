@@ -1,12 +1,15 @@
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::time::UNIX_EPOCH;
-use tauri::{AppHandle, Emitter, Manager};
+ use serde::{Deserialize, Serialize};
+ use std::collections::{HashMap, HashSet};
+ use std::fs;
+ use std::io::{BufRead, BufReader, Write};
+ use std::path::{Path, PathBuf};
+ use std::process::{Child, Command, Stdio};
+ use std::sync::{Arc, Mutex};
+ use std::time::UNIX_EPOCH;
+ use tauri::{AppHandle, Emitter, Manager};
+
+ // Native computer-use commands (screenshots, input injection, AX tree).
+ mod computer_use;
 
 #[derive(Default)]
 struct RpcProcessHandle {
@@ -2410,47 +2413,56 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
     Err("Unsupported platform for open_path_in_default_app".to_string())
 }
 
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
-        .setup(|app| {
-            #[cfg(target_os = "macos")]
-            {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
-                    let _ = window.set_shadow(true);
-                }
-            }
-            Ok(())
-        })
-        .manage(RpcState::default())
-        .invoke_handler(tauri::generate_handler![
-            rpc_start,
-            rpc_send,
-            rpc_stop,
-            rpc_stop_all,
-            rpc_is_running,
-            rpc_ui_response,
-            list_sessions,
-            get_session_content,
-            get_pi_auth_status,
-            get_pi_oauth_providers,
-            clear_pi_provider_auth,
-            save_settings,
-            load_settings,
-            open_file_dialog,
-            run_pi_cli_command,
-            get_cli_update_status,
-            get_pi_changelog,
-            update_cli_via_npm,
-            run_git_command,
-            create_share_gist,
-            get_desktop_runtime_info,
-            open_path_in_default_app,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
+ pub fn run() {
+     tauri::Builder::default()
+         .plugin(tauri_plugin_shell::init())
+         .plugin(tauri_plugin_fs::init())
+         .plugin(tauri_plugin_dialog::init())
+         .plugin(tauri_plugin_notification::init())
+         .setup(|app| {
+             #[cfg(target_os = "macos")]
+             {
+                 if let Some(window) = app.get_webview_window("main") {
+                     let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
+                     let _ = window.set_shadow(true);
+                 }
+             }
+             Ok(())
+         })
+         .manage(RpcState::default())
+         .invoke_handler(tauri::generate_handler![
+             rpc_start,
+             rpc_send,
+             rpc_stop,
+             rpc_stop_all,
+             rpc_is_running,
+             rpc_ui_response,
+             list_sessions,
+             get_session_content,
+             get_pi_auth_status,
+             get_pi_oauth_providers,
+             clear_pi_provider_auth,
+             save_settings,
+             load_settings,
+             open_file_dialog,
+             run_pi_cli_command,
+             get_cli_update_status,
+             get_pi_changelog,
+             update_cli_via_npm,
+             run_git_command,
+             create_share_gist,
+             get_desktop_runtime_info,
+             open_path_in_default_app,
+             // computer-use commands
+             computer_use::screenshot,
+             computer_use::mouse_move,
+             computer_use::mouse_click,
+             computer_use::mouse_drag,
+             computer_use::key_event,
+             computer_use::type_text,
+             computer_use::get_ax_at_point,
+             computer_use::get_focused_ax,
+         ])
+         .run(tauri::generate_context!())
+         .expect("error while running tauri application");
+ }

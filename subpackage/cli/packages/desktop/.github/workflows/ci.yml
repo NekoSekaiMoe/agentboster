@@ -30,7 +30,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
-      - name: Install Linux dependencies (Tauri)
+      - name: Install Linux dependencies (Tauri + computer-use crates)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -40,7 +40,13 @@ jobs:
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            pkg-config \
+            libclang-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxdo-dev \
+            libdbus-1-dev
 
       - name: Install dependencies
         run: npm ci

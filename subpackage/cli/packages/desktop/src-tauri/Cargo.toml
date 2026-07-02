@@ -1,12 +1,12 @@
 [package]
-name = "pi-desktop"
-version = "1.0.0"
-description = "Pi Desktop - A minimal coding agent desktop app"
-authors = ["Pi Desktop contributors"]
+name = "agentboster-desktop"
+version = "0.1.0"
+description = "Agentboster Desktop - Tauri shell with computer use"
+authors = ["Agentboster contributors"]
 edition = "2021"
 
 [lib]
-name = "pi_desktop_lib"
+name = "agentboster_desktop_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
@@ -22,3 +22,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 which = "8"
+
+# ── computer use (cross-platform) ─────────────────────────────────
+# Screenshots (all platforms) — returns image::RgbaImage.
+xcap = "0.9"
+# Re-encode the captured image to PNG bytes.
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Input injection (mouse + keyboard) — all platforms.
+enigo = "0.6"
+
+# Accessibility tree consumer. Per-platform backends are gated behind
+# `#[cfg(target_os = ...)]` in computer_use.rs and only one is pulled in
+# per build target.
+#   Windows UIAutomation (COM client)
+[target.'cfg(target_os = "windows")'.dependencies]
+uiautomation = "0.25"
