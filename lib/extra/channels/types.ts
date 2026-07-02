@@ -1,4 +1,11 @@
-export type ChannelType = 'feishu' | 'telegram' | 'discord' | 'slack';
+export type ChannelType =
+  | 'feishu'
+  | 'telegram'
+  | 'discord'
+  | 'slack'
+  | 'gchat'
+  | 'teams'
+  | 'qq';
 
 export interface IncomingMessage {
   channelType: ChannelType;

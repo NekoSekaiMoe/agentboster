@@ -35,8 +35,10 @@ export const dynamic = 'force-dynamic';
 import { forwardL2Confirm } from '@/lib/extra/agent/agentd-client';
 import { updateTaskStatus } from '@/lib/core/db/agentd';
 import { getNotificationManager } from '@/lib/extra/channels/notification-manager';
+import { ensureNotificationChannels } from '@/lib/extra/channels/register-channels';
 import { getDecisionQueue } from '@/lib/security/l2-index';
 import { createLogger } from '@/lib/utils/logger';
+import { getConfig } from '@/lib/core/kv/config';
 
 const logger = createLogger('api.agentd.l2-confirm');
 
@@ -58,6 +60,11 @@ export async function POST(request: Request) {
     }
 
     const mgr = getNotificationManager();
+
+    // Lazily register notification channels from live config so that
+    // sendL2Decision / sendL2TimeInputPrompt actually find a channel.
+    const config = await getConfig();
+    ensureNotificationChannels(config);
 
     // Decision dedup — ignore duplicate clicks from multiple IM channels
     const alreadyProcessed = await mgr.isDecisionProcessed(decisionId);

@@ -10,6 +10,7 @@ import {
 } from '@/lib/i18n';
 import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';
+import { ensureNotificationChannels } from './register-channels';
 import { getNotificationManager } from './notification-manager';
 import type {
   NotificationPayload,
@@ -123,6 +124,13 @@ export async function sendNotification(params: {
   // the rendering locale. Skipped silently when titleKey is absent.
   applyLocalizedTitle(payload, locale);
 
+  // Lazily register notification channels from live config. Idempotent
+  // — channels already registered with the same credentials are skipped.
+  // Without this call the NotificationManager singleton has an empty
+  // channels Map and every send (L2 prompts, task alerts) silently fails.
+  const config = await getConfig();
+  ensureNotificationChannels(config);
+
   const mgr = getNotificationManager();
 
   if (payload.type === 'decision') {
@@ -211,6 +219,10 @@ export async function reactivatePendingDecisions(params: {
 
   const mgr = getNotificationManager();
   await mgr.markUserOnline(userId);
+
+  // Ensure channels are registered (same lazy init as sendNotification).
+  const config = await getConfig();
+  ensureNotificationChannels(config);
 
   await mgr.reactivatePendingDecisions(
     pendingDecisions,

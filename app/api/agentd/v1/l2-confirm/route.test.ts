@@ -25,6 +25,14 @@ vi.mock('@/lib/core/db/agentd', () => ({
   updateTaskStatus: vi.fn(async () => undefined),
 }));
 
+vi.mock('@/lib/core/kv/config', () => ({
+  getConfig: vi.fn(async () => ({ channels: {} })),
+}));
+
+vi.mock('@/lib/extra/channels/register-channels', () => ({
+  ensureNotificationChannels: vi.fn(() => []),
+}));
+
 // DecisionQueue stub: tiny in-memory stand-in so resolve/deny are observable.
 const resolveMock = vi.fn(async () => null);
 const denyMock = vi.fn(async () => null);
