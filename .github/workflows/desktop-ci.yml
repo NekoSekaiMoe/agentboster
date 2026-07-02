@@ -1,0 +1,91 @@
+# CI for the agentboster desktop app (Tauri + Rust + Lit).
+#
+# The desktop package lives at subpackage/cli/packages/desktop/ but its
+# upstream workflow at subpackage/cli/packages/desktop/.github/workflows/
+# ci.yml is NOT picked up by GitHub Actions (only the repo-root
+# .github/workflows/ is scanned). This file mirrors that ci.yml with the
+# extra Linux system deps that xcap and enigo need.
+#
+# The job validates the Rust + TypeScript build on Linux only. mac/Windows
+# builds are exercised by the release pipeline (release.yml upstream) on
+# tag pushes. Linux is sufficient as a smoke test because the platform-
+# specific code is gated by #[cfg(target_os = ...)] and the non-Linux
+# dependencies (uiautomation on Windows, objc2 frameworks on macOS) are
+# compiled with no extra system packages on their target runners.
+
+name: desktop-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'subpackage/cli/packages/desktop/**'
+      - '.github/workflows/desktop-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'subpackage/cli/packages/desktop/**'
+      - '.github/workflows/desktop-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: desktop (TypeScript + Rust on Linux)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: subpackage/cli/packages/desktop/src-tauri
+
+      - name: Install Linux dependencies
+        # Tauri 2 base deps + computer-use extras.
+        # xcap needs libclang-dev + libxcb1-dev + libxrandr-dev at build time.
+        # enigo's x11rb backend needs libxcb1-dev.
+        # Future Linux AT-SPI support will need libatspi2-dev + libdbus-1-dev.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            pkg-config \
+            libclang-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxdo-dev \
+            libdbus-1-dev
+
+      - name: Install npm dependencies
+        working-directory: subpackage/cli/packages/desktop
+        run: npm install
+
+      - name: TypeScript check
+        working-directory: subpackage/cli/packages/desktop
+        run: npm run check
+
+      - name: Frontend build
+        working-directory: subpackage/cli/packages/desktop
+        run: npm run build:frontend
+
+      - name: Rust check (cargo check)
+        working-directory: subpackage/cli/packages/desktop
+        run: cargo check --manifest-path src-tauri/Cargo.toml
