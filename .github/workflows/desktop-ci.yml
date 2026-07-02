@@ -8,7 +8,7 @@
 #
 # Three matrix jobs validate Rust compilation per platform:
 #   - Linux   (ubuntu-24.04): xcap PipeWire + enigo x11rb + atspi
-#   - macOS    (macos-14):      xcap ScreenCaptureKit + enigo CGEvent
+#   - macOS    (macos-26):      xcap ScreenCaptureKit + enigo CGEvent
 #   - Windows  (windows-latest): xcap DXGI + enigo SendInput + uiautomation
 #
 # The platform-specific AX backends are gated by #[cfg(target_os = ...)]
@@ -40,7 +40,7 @@ jobs:
         include:
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-          - os: macos-14
+          - os: macos-26
             target: aarch64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
