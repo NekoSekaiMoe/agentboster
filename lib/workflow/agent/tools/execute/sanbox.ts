@@ -135,7 +135,14 @@ async function execOnAgentd(
   toolName: string,
   toolInput: Record<string, unknown>,
   nodeId?: string,
-): Promise<{ success: boolean; data?: string; error?: string } | null> {
+): Promise<{
+  success: boolean;
+  data?: string;
+  error?: string;
+  /** Set when an L0 block rule denied the call. Callers must NOT fall
+   *  back to Vercel Sandbox when this is true — the block is final. */
+  blocked?: boolean;
+} | null> {
   'use step';
 
   try {
@@ -178,6 +185,7 @@ async function execOnAgentd(
       if (l0.blocked) {
         return {
           success: false,
+          blocked: true,
           error: `L0 rule denied: ${l0.reason}`,
         };
       }
@@ -694,6 +702,21 @@ export default defineBuildInTool({
             } satisfies SandboxExecOutput;
           }
 
+          // L0 block on the agentd-online path is final: do NOT fall
+          // back to Vercel Sandbox. Without this guard the block would
+          // be silently bypassed because the fallback path's L0 check
+          // below only fires when `agentdResult === null` (agentd
+          // unreachable), not when agentd returned `{success:false}`.
+          if (agentdResult?.blocked) {
+            return {
+              kind: 'exec',
+              exitCode: 126,
+              stdout: '',
+              stderr: agentdResult.error ?? 'L0 rule denied',
+              backend: 'agentd',
+            } satisfies SandboxExecOutput;
+          }
+
           // Fallback to Vercel Sandbox
           //
           // L0 gate: when falling back to Vercel Sandbox (agentd
@@ -791,6 +814,15 @@ export default defineBuildInTool({
             } satisfies SandboxReadOutput;
           }
 
+          // L0 block is final — do not fall back to Vercel Sandbox.
+          if (agentdResult?.blocked) {
+            return {
+              approved: false,
+              denied: true,
+              reason: agentdResult.error ?? 'L0 rule denied',
+            } satisfies SandboxDeniedOutput;
+          }
+
           const fallback = await readSandboxFileStep({
             sessionId,
             runId,
@@ -843,6 +875,15 @@ export default defineBuildInTool({
               bytes: Buffer.byteLength(input.content),
               backend: 'agentd',
             } satisfies SandboxWriteOutput;
+          }
+
+          // L0 block is final — do not fall back to Vercel Sandbox.
+          if (agentdResult?.blocked) {
+            return {
+              approved: false,
+              denied: true,
+              reason: agentdResult.error ?? 'L0 rule denied',
+            } satisfies SandboxDeniedOutput;
           }
 
           const fallback = await writeSandboxFileStep({

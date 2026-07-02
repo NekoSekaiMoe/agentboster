@@ -39,6 +39,7 @@ import {
   buildAgentdHttpConfig,
   dispatchToolToAgentd,
 } from '@/lib/extra/agent/agentd-tools-client';
+import { mapLocalToolToAgentd } from './map';
 
 interface ExecRequestBody {
   nodeId?: unknown;
@@ -140,11 +141,25 @@ export const POST = withCliAuth(async (request, { userId }) => {
 
   void userId; // authenticated; not used for per-user node ACL yet
 
+  // Translate the CLI's local_* vocabulary to agentd's internal tool
+  // names + parameter shapes. local_ask_question never reaches here
+  // (the CLI short-circuits it), but reject defensively if it does.
+  const mapped = mapLocalToolToAgentd(toolName, toolInput);
+  if (!mapped) {
+    return Response.json(
+      {
+        ok: false,
+        error: `Tool ${toolName} cannot be forwarded to agentd (unknown or TTY-only)`,
+      },
+      { status: 400 },
+    );
+  }
+
   try {
     const result = await dispatchToolToAgentd(buildAgentdHttpConfig(nodeUrl), {
       session_id: sessionId,
-      tool_name: toolName,
-      tool_input: toolInput,
+      tool_name: mapped.name,
+      tool_input: mapped.input,
     });
     return Response.json({ ok: true, result });
   } catch (error) {
