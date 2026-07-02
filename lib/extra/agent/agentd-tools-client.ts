@@ -138,25 +138,7 @@ export async function execToolOnAgentd(
   const nodeUrl =
     matchedUrl || process.env.AGENTD_URL || `http://${node.ip}:${node.port}`;
 
-  const apiKey = process.env.AGENTD_API_KEY ?? '';
-
-  const config: AgentdHttpConfig = {
-    baseUrl: nodeUrl,
-    apiKey,
-  };
-
-  if (
-    process.env.AGENTD_CLIENT_CERT_PATH &&
-    process.env.AGENTD_CLIENT_KEY_PATH
-  ) {
-    config.cert = readFileSync(process.env.AGENTD_CLIENT_CERT_PATH);
-    config.key = readFileSync(process.env.AGENTD_CLIENT_KEY_PATH);
-  }
-
-  if (process.env.AGENTD_CA_PATH) {
-    config.ca = readFileSync(process.env.AGENTD_CA_PATH);
-  }
-
+  const config = buildAgentdHttpConfig(nodeUrl);
   const req: AgentdToolExecRequest = {
     session_id: sessionId,
     tool_name: toolName,
@@ -173,6 +155,49 @@ export async function execToolOnAgentd(
     selectedBy: nodeId ? 'explicit' : 'auto',
   });
 
+  return dispatchToolToAgentd(config, req);
+}
+
+/**
+ * Build an AgentdHttpConfig from a base URL, attaching the mTLS client
+ * cert/key and CA from the `AGENTD_*_PATH` env vars when present. This
+ * is the credential-bearing half of an agentd dispatch; only ever call
+ * it from server-side code that is allowed to hold agentd secrets.
+ *
+ * Not marked `'use step'` so route handlers (which are not workflow
+ * steps) can reuse it.
+ */
+export function buildAgentdHttpConfig(baseUrl: string): AgentdHttpConfig {
+  const config: AgentdHttpConfig = {
+    baseUrl,
+    apiKey: process.env.AGENTD_API_KEY ?? '',
+  };
+
+  if (
+    process.env.AGENTD_CLIENT_CERT_PATH &&
+    process.env.AGENTD_CLIENT_KEY_PATH
+  ) {
+    config.cert = readFileSync(process.env.AGENTD_CLIENT_CERT_PATH);
+    config.key = readFileSync(process.env.AGENTD_CLIENT_KEY_PATH);
+  }
+
+  if (process.env.AGENTD_CA_PATH) {
+    config.ca = readFileSync(process.env.AGENTD_CA_PATH);
+  }
+
+  return config;
+}
+
+/**
+ * POST /api/v1/tools/exec to a specific agentd node and unpack the
+ * envelope. Not workflow-bound; used by both the step wrapper above
+ * (via the URL-resolution path) and the `/api/cli/exec-on-agentd`
+ * route handler. Throws on HTTP failure or envelope `success=false`.
+ */
+export async function dispatchToolToAgentd(
+  config: AgentdHttpConfig,
+  req: AgentdToolExecRequest,
+): Promise<{ success: boolean; data?: string; error?: string }> {
   const response = await requestAgentd(
     config,
     'POST',

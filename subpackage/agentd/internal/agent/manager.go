@@ -489,6 +489,24 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 		return &ToolExecResponse{Success: false, Error: toolResult.Error}, nil
 	}
 
+	// L0 deny gate. The synchronous tools/exec path is the only execution
+	// entry point in agentd that bypasses Gatekeeper.Audit — that's a known
+	// gap because Audit's L2 branch is async (eventbus + IM), which cannot
+	// be awaited inside a synchronous HTTP handler. We still run the L0
+	// layer (pure local regex deny rules, no LLM call, no side effects) so
+	// that command/path/network block rules the user configured are honored
+	// here too. L1 risk scoring and L2 confirmation remain on the CodeAct
+	// loop + worker task paths, where async L2 is meaningful. See
+	// internal/security/gatekeeper.go:Gatekeeper.Audit for the full ladder.
+	if reason, blocked := checkL0Gate(m.gatekeeper, toolInput, argsJSON); blocked {
+		toolResult := &ToolResult{
+			Success: false,
+			Error:   fmt.Sprintf("tool blocked by L0 rule: %s", reason),
+		}
+		recordResult(toolResult)
+		return &ToolExecResponse{Success: false, Error: toolResult.Error}, nil
+	}
+
 	result, err := registry.Execute(ctx, toolName, argsJSON)
 	if err != nil {
 		toolResult := &ToolResult{
@@ -509,6 +527,40 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 		Success: true,
 		Data:    result.Data,
 	}, nil
+}
+
+// checkL0Gate runs the L0 deny layer against a synchronous tools/exec
+// invocation. Returns (reason, true) when the command/path is blocked;
+// ("", false) when allowed or when no gatekeeper/engine is wired (nil-
+// safe). Extracted from ExecuteTool for unit testing.
+//
+// The L0 target string prefers an explicit `command` field (exec tool),
+// then `path` (read/write tools), then falls back to the full args JSON
+// so path/network-type rules still have something to match against.
+func checkL0Gate(
+	gatekeeper *security.Gatekeeper,
+	toolInput map[string]any,
+	argsJSON []byte,
+) (string, bool) {
+	if gatekeeper == nil {
+		return "", false
+	}
+	l0Engine := gatekeeper.L0()
+	if l0Engine == nil {
+		return "", false
+	}
+	l0Command := string(argsJSON)
+	if c, ok := toolInput["command"].(string); ok && c != "" {
+		l0Command = c
+	} else if p, ok := toolInput["path"].(string); ok && p != "" {
+		l0Command = p
+	}
+	workDir, _ := toolInput["cwd"].(string)
+	l0Result, _ := l0Engine.Check(l0Command, workDir)
+	if l0Result == nil || !l0Result.Blocked {
+		return "", false
+	}
+	return l0Result.Reason, true
 }
 
 // GetSessionStatus returns the status of a session.

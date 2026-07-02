@@ -153,6 +153,36 @@ async function execOnAgentd(
       }
       return null;
     }
+
+    // L0 deny gate on the online agentd path. This was previously only
+    // enforced on the Vercel Sandbox fallback (further below), leaving
+    // a hole: when agentd was online, agentd's own L0 was assumed to
+    // run, but the synchronous POST /api/v1/tools/exec handler in agentd
+    // (Manager.ExecuteTool) was the one path that bypassed Gatekeeper.
+    // That agentd gap is also being fixed, but running L0 here is
+    // defense-in-depth and gives the user immediate feedback in the
+    // workflow stream rather than waiting for an agentd round-trip.
+    //
+    // Scope is 'global' (same as the fallback path) because the factory
+    // context exposes sessionId but not agentId.
+    //
+    // Only exec/readFile/writeFile carry a command/path payload worth
+    // checking; agentd-side L0 also covers path/network rules.
+    const l0Target =
+      toolName === 'exec'
+        ? String(toolInput.command ?? '')
+        : String(toolInput.path ?? toolInput.command ?? '');
+    if (l0Target) {
+      const { evaluateL0 } = await import('@/lib/security/l0-engine');
+      const l0 = await evaluateL0('global', l0Target);
+      if (l0.blocked) {
+        return {
+          success: false,
+          error: `L0 rule denied: ${l0.reason}`,
+        };
+      }
+    }
+
     return await execToolOnAgentd(sessionId, toolName, toolInput, nodeId);
   } catch (error) {
     console.warn(
