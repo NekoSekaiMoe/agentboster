@@ -54,7 +54,9 @@ jobs:
 
       - name: Install Linux dependencies
         # Tauri 2 base deps + computer-use extras.
-        # xcap needs libclang-dev + libxcb1-dev + libxrandr-dev at build time.
+        # xcap needs libclang-dev + libxcb1-dev + libxrandr-dev + libpipewire-0.3-dev
+        # at build time (libpipewire-0.3-dev pulls libspa-0.2-dev transitively,
+        # required by libspa-sys which xcap's PipeWire capture backend links).
         # enigo's x11rb backend needs libxcb1-dev.
         # Future Linux AT-SPI support will need libatspi2-dev + libdbus-1-dev.
         run: |
@@ -72,7 +74,11 @@ jobs:
             libxcb1-dev \
             libxrandr-dev \
             libxdo-dev \
-            libdbus-1-dev
+            libdbus-1-dev \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libwayland-dev \
+            libegl-dev
 
       - name: Install npm dependencies
         working-directory: subpackage/cli/packages/desktop
