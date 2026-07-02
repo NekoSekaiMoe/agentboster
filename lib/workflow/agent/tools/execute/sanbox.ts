@@ -665,6 +665,33 @@ export default defineBuildInTool({
           }
 
           // Fallback to Vercel Sandbox
+          //
+          // L0 gate: when falling back to Vercel Sandbox (agentd
+          // offline), agentd's own L0 enforcement is bypassed. Re-run
+          // L0 command rules here on the Web side so a block rule the
+          // user configured isn't silently ignored in the degraded
+          // path. Only block rules short-circuit; warn rules surface
+          // but don't prevent execution.
+          //
+          // Rule scope: global only. The factory context exposes
+          // sessionId but not agentId, and resolving sessionId→agentId
+          // here would require an extra DB hit per exec. agent-scoped
+          // L0 rules are a follow-up; the global set covers the
+          // common case (UI defaults new rules to scope='global').
+          if (agentdResult === null) {
+            const { evaluateL0 } = await import('@/lib/security/l0-engine');
+            const l0 = await evaluateL0('global', input.command);
+            if (l0.blocked) {
+              return {
+                kind: 'exec',
+                exitCode: 126, // "Command not executable" — POSIX-ish
+                stdout: '',
+                stderr: `L0 rule denied: ${l0.reason}`,
+                backend: 'vercel-fallback',
+              } satisfies SandboxExecOutput;
+            }
+          }
+
           const fallback = await executeSandboxCommandStep({
             sessionId,
             runId,
