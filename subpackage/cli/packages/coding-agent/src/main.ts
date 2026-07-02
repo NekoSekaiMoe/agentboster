@@ -1132,15 +1132,14 @@ async function handleLocalToolRequest(
     toolName === 'local_exec'
       ? String(input.command ?? '')
       : formatToolRequest(toolName, toolInput);
-  const decision =
-    yolo || isQuestion
-      ? {
-          ok: true,
-          autoApprove: true,
-          level: 'l0' as const,
-          message: 'yolo (skipped)',
-        }
-      : evaluateLocalCommand(command);
+  const decision = await (yolo || isQuestion
+    ? Promise.resolve({
+        ok: true,
+        autoApprove: true,
+        level: 'l0' as const,
+        message: 'yolo (skipped)',
+      })
+    : evaluateLocalCommand(command, auth));
 
   if (!decision.ok) {
     // L0 block — reject immediately.
