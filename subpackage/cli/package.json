@@ -3,9 +3,12 @@
 	"private": true,
 	"type": "module",
 	"packageManager": "yarn@1.22.22",
-	"workspaces": [
-		"packages/*"
-	],
+ 	"workspaces": [
+ 		"packages/ai",
+ 		"packages/agent",
+ 		"packages/agentboster-adapter",
+ 		"packages/coding-agent"
+ 	],
 	"scripts": {
 		"clean": "yarn workspaces run clean",
 		"build": "tsgo -p packages/ai/tsconfig.build.json && tsgo -p packages/agent/tsconfig.build.json && tsgo -p packages/agentboster-adapter/tsconfig.build.json && tsgo -p packages/coding-agent/tsconfig.build.json && shx chmod +x packages/coding-agent/dist/cli.js packages/coding-agent/dist/rpc-entry.js && yarn workspace @agentboster-cli/core copy-assets",

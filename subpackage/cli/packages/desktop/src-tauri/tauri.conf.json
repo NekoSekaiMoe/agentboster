@@ -1,0 +1,65 @@
+{
+	"$schema": "https://raw.githubusercontent.com/nicegui/nicegui/refs/heads/main/nicegui/static/tauri_v2_schema.json",
+	"productName": "Agentboster Desktop",
+	"identifier": "com.agentboster.desktop",
+	"version": "0.1.0",
+	"build": {
+		"beforeDevCommand": "npx vite --port 1420",
+		"devUrl": "http://localhost:1420",
+		"beforeBuildCommand": "npm run build:frontend",
+		"frontendDist": "../dist"
+	},
+	"app": {
+		"withGlobalTauri": true,
+		"macOSPrivateApi": true,
+		"windows": [
+			{
+				"title": "Agentboster Desktop",
+				"width": 1100,
+				"height": 750,
+				"minWidth": 600,
+				"minHeight": 400,
+				"decorations": false,
+				"transparent": true,
+				"shadow": true,
+				"backgroundColor": "#00000000",
+				"center": true
+			}
+		],
+		"security": {
+			"csp": null
+		}
+	},
+	"bundle": {
+		"active": true,
+		"icon": [
+			"icons/32x32.png",
+			"icons/128x128.png",
+			"icons/128x128@2x.png",
+			"icons/icon.icns",
+			"icons/icon.ico"
+		],
+		"linux": {
+			"appimage": {
+				"files": {
+					"usr/share/metainfo/com.agentboster.desktop.metainfo.xml": "linux/com.agentboster.desktop.metainfo.xml"
+				}
+			},
+			"deb": {
+				"files": {
+					"usr/share/metainfo/com.agentboster.desktop.metainfo.xml": "linux/com.agentboster.desktop.metainfo.xml"
+				}
+			},
+			"rpm": {
+				"files": {
+					"usr/share/metainfo/com.agentboster.desktop.metainfo.xml": "linux/com.agentboster.desktop.metainfo.xml"
+				}
+			}
+		}
+	},
+	"plugins": {
+		"shell": {
+			"open": true
+		}
+	}
+}
