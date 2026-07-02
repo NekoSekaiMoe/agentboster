@@ -1,8 +1,13 @@
 import { getBot } from '@/lib/bot/index';
 import { isValidBotSecret } from '@/lib/bot/webhook';
+import { getConfig } from '@/lib/core/kv/config';
+import { createLogger } from '@/lib/utils/logger';
 import type { AdapterName } from '@/types/config/channels';
 import { after } from 'next/server';
 import { NextRequest, NextResponse } from 'next/server';
+import { createDecipheriv, createHash } from 'node:crypto';
+
+const logger = createLogger('api.bot.webhook');
 
 const CHAT_SDK_ADAPTERS = ['slack', 'teams', 'gchat', 'telegram', 'discord'];
 
@@ -50,11 +55,104 @@ async function handleChatSdkWebhook(
   }
 }
 
+/**
+ * Decrypt a Feishu v2 event payload encrypted with AES-256-CBC.
+ *
+ * Feishu's protocol (when encrypt_key is configured on the app):
+ *   - The webhook body is `{ "encrypt": "<base64 blob>" }` instead of
+ *     the plaintext event JSON.
+ *   - The AES key is SHA256(encrypt_key) (32 bytes).
+ *   - The base64 blob decodes to `iv(16 bytes) || ciphertext`.
+ *   - Algorithm: AES-256-CBC, PKCS7 padding.
+ *
+ * When encrypt_key is not configured on the Feishu app, the webhook
+ * body is the plaintext event JSON and this function is not called.
+ *
+ * Returns the decrypted event object, or null if decryption fails
+ * (wrong key, malformed payload). The caller treats null as "treat
+ * the body as plaintext" for backward compatibility with apps that
+ * haven't enabled encryption.
+ */
+function decryptFeishuPayload(
+  encryptBlob: string,
+  encryptKey: string,
+): Record<string, unknown> | null {
+  try {
+    const key = createHash('sha256').update(encryptKey).digest();
+    const blob = Buffer.from(encryptBlob, 'base64');
+    if (blob.length < 32) return null;
+    const iv = blob.subarray(0, 16);
+    const ciphertext = blob.subarray(16);
+    const decipher = createDecipheriv('aes-256-cbc', key, iv);
+    const decrypted = Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final(),
+    ]).toString('utf8');
+    return JSON.parse(decrypted) as Record<string, unknown>;
+  } catch (err) {
+    logger.warn('feishu payload decryption failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 async function handleFeishuWebhook(
   request: NextRequest,
 ): Promise<NextResponse> {
   try {
-    const body = await request.json().catch(() => ({}));
+    let body = await request.json().catch(() => ({}));
+
+    // Decrypt the payload if Feishu is configured with an encrypt_key.
+    // Without this branch, an app that has encryption enabled would
+    // receive { encrypt: "..." } and silently fail to match any event
+    // type — inbound messages would never reach the agent.
+    const config = await getConfig();
+    const feishuCfg = config.channels?.feishu;
+    if (
+      feishuCfg?.encrypt_key &&
+      typeof body === 'object' &&
+      body !== null &&
+      typeof (body as { encrypt?: unknown }).encrypt === 'string'
+    ) {
+      const decrypted = decryptFeishuPayload(
+        (body as { encrypt: string }).encrypt,
+        feishuCfg.encrypt_key,
+      );
+      if (decrypted) {
+        body = decrypted;
+      } else {
+        // Decryption failed with encrypt_key configured — likely a
+        // spoofing attempt or key mismatch. Reject rather than fall
+        // through to plaintext handling.
+        return NextResponse.json(
+          { error: 'Decryption failed' },
+          { status: 401 },
+        );
+      }
+    }
+
+    // verification_token check: Feishu v2 events carry the token in
+    // body.header.token. When a verification_token is configured here,
+    // any event whose token doesn't match is rejected — this prevents
+    // third parties from injecting forged events. url_verification
+    // events also carry this token; allow them through so the developer
+    // can complete the initial webhook setup in the Feishu console.
+    if (feishuCfg?.verification_token) {
+      const headerToken = (body as { header?: { token?: string } })?.header
+        ?.token;
+      const eventType = (body as { header?: { event_type?: string } })?.header
+        ?.event_type;
+      if (
+        headerToken !== feishuCfg.verification_token &&
+        eventType !== 'url_verification'
+      ) {
+        logger.warn('feishu verification_token mismatch', {
+          eventType,
+        });
+        return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+      }
+    }
 
     // URL verification (challenge)
     if (body.challenge) {
