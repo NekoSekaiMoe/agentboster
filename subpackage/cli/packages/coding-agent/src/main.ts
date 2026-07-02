@@ -61,6 +61,7 @@ import {
 import { restoreStdout, takeOverStdout } from './core/output-guard.ts';
 import { type AppMode, resolveProjectTrusted } from './core/project-trust.ts';
 import type { CreateAgentSessionOptions } from './core/sdk.ts';
+import { getRemoteExecTarget } from './core/remote-exec.ts';
 import {
   formatMissingSessionCwdPrompt,
   getMissingSessionCwdIssue,
@@ -1118,6 +1119,10 @@ async function handleLocalToolRequest(
   toolName: string,
   toolInput: unknown,
   yolo: boolean,
+  options?: {
+    remoteTarget?: { nodeId: string } | null;
+    sessionId?: string;
+  },
 ): Promise<void> {
   const input = toolInput as Record<string, unknown>;
   let result: { ok: boolean; output?: unknown; error?: string };
@@ -1178,6 +1183,81 @@ async function handleLocalToolRequest(
   }
 
   try {
+    // Remote execution via /switch. When a target node is set, forward
+    // every local_* tool call (except local_ask_question, which needs
+    // the CLI's TTY) to /api/cli/exec-on-agentd. The Web server proxies
+    // to agentd with credentials the CLI doesn't hold. Tool names and
+    // schemas are unchanged — only the execution location moves.
+    if (
+      options?.remoteTarget &&
+      toolName !== 'local_ask_question' &&
+      options.sessionId
+    ) {
+      const root = auth.url.replace(/\/$/, '');
+      const resp = await fetch(`${root}/api/cli/exec-on-agentd`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${auth.token}`,
+          cookie: `clawless-auth=${auth.token}`,
+        },
+        body: JSON.stringify({
+          nodeId: options.remoteTarget.nodeId,
+          sessionId: options.sessionId,
+          toolName,
+          toolInput,
+        }),
+      }).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        return new Response(JSON.stringify({ ok: false, error: msg }), {
+          status: 0,
+        });
+      });
+
+      if (!resp.ok) {
+        const body = (await resp.json().catch(() => null)) as {
+          ok: boolean;
+          error?: string;
+        } | null;
+        await postToolResult(auth, runId, toolCallId, {
+          ok: false,
+          error: body?.error ?? `Remote exec HTTP ${resp.status}`,
+        });
+        return;
+      }
+
+      const body = (await resp.json()) as {
+        ok: boolean;
+        result?: { success: boolean; data?: string; error?: string };
+      };
+      if (!body.ok || !body.result) {
+        await postToolResult(auth, runId, toolCallId, {
+          ok: false,
+          error: body.result?.error ?? 'Remote exec returned no result',
+        });
+        return;
+      }
+
+      // agentd returns the tool output as a JSON-encoded string in
+      // `data`. Keep the output shape identical to the local path so
+      // the LLM sees no difference.
+      let output: unknown = body.result.data;
+      if (typeof output === 'string') {
+        try {
+          output = JSON.parse(output);
+        } catch {
+          // Not JSON — pass through as a plain string. Many agentd
+          // tools (e.g. read_file) return raw text, not JSON.
+        }
+      }
+      await postToolResult(auth, runId, toolCallId, {
+        ok: body.result.success,
+        output: body.result.success ? output : undefined,
+        error: body.result.success ? undefined : body.result.error,
+      });
+      return;
+    }
+
     switch (toolName) {
       case 'local_read_file': {
         const path = String(input.path ?? '');
@@ -1429,7 +1509,7 @@ function readMergedAgentsMd(resourceLoader: {
  * is absent, returns undefined and pi uses its built-in provider SDKs.
  */
 async function resolveStreamFnOverride(
-  _sessionManager: { getSessionId: () => string },
+  sessionManager: { getSessionId: () => string },
   onSubagentEvent?: (event: {
     subagentId: string;
     subagentName: string;
@@ -1469,7 +1549,7 @@ async function resolveStreamFnOverride(
   const envOverride = process.env.AGENTBOSTER_SESSION_ID;
   return createAgentbosterStreamFn({
     getAuth: () => ({ baseUrl: auth.url, token: auth.token }),
-    getSessionId: () => envOverride ?? _sessionManager.getSessionId(),
+    getSessionId: () => envOverride ?? sessionManager.getSessionId(),
     clientId: process.env.AGENTBOSTER_CLIENT_ID ?? 'local-cli',
     label: 'agentboster-cli',
     model: process.env.AGENTBOSTER_MODEL ?? null,
@@ -1487,6 +1567,10 @@ async function resolveStreamFnOverride(
         toolName,
         toolInput,
         yolo,
+        {
+          remoteTarget: getRemoteExecTarget(),
+          sessionId: envOverride ?? sessionManager.getSessionId(),
+        },
       );
     },
   });

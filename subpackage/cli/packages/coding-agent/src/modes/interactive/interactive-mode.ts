@@ -111,6 +111,13 @@ import {
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from '../../core/provider-display-names.ts';
 import type { ResourceDiagnostic } from '../../core/resource-loader.ts';
 import {
+  clearRemoteExecTarget,
+  consumePendingNotice,
+  getRemoteExecTarget,
+  setRemoteExecTarget,
+  type RemoteExecTarget,
+} from '../../core/remote-exec.ts';
+import {
   formatMissingSessionCwdPrompt,
   MissingSessionCwdError,
 } from '../../core/session-cwd.ts';
@@ -2937,6 +2944,15 @@ export class InteractiveMode {
       text = text.trim();
       if (!text) return;
 
+      // Prepend any pending remote-exec switch notice (set by /switch)
+      // so the model sees the path/working-directory reset without
+      // spending an extra agent turn. Only non-command messages get
+      // the notice — slash commands start with '/'.
+      const switchNotice = text.startsWith('/') ? null : consumePendingNotice();
+      if (switchNotice) {
+        text = `${switchNotice}\n\n${text}`;
+      }
+
       // Edit-and-resend from a historical version (tree selector `e`).
       // Build the new versions[], PATCH metadata, set the one-shot
       // regenerate intent, then fall through into the normal submit
@@ -3081,6 +3097,14 @@ export class InteractiveMode {
       if (text === '/resume') {
         this.showSessionSelector();
         this.editor.setText('');
+        return;
+      }
+      if (text === '/switch' || text.startsWith('/switch ')) {
+        const arg = text.startsWith('/switch ')
+          ? text.slice(8).trim()
+          : undefined;
+        this.editor.setText('');
+        await this.handleSwitchCommand(arg);
         return;
       }
       if (text === '/exit' || text === '/quit') {
@@ -6321,6 +6345,144 @@ export class InteractiveMode {
       this.isInitialized = false;
     }
     this.unregisterSignalHandlers();
+  }
+
+  /**
+   * /switch — toggle local_* tool execution between this machine and a
+   * remote Agent Daemon node.
+   *
+   *   /switch            → list online nodes, pick one (or "local" to revert)
+   *   /switch off        → revert to local execution
+   *   /switch <nodeId>   → switch directly to that node
+   *
+   * Pulls nodes from GET /api/cli/nodes (Bearer auth). The CLI never
+   * holds agentd credentials — when a target is set, handleLocalToolRequest
+   * forwards each tool call through POST /api/cli/exec-on-agentd, which
+   * the Web server proxies to the daemon. See core/remote-exec.ts.
+   */
+  private async handleSwitchCommand(arg?: string): Promise<void> {
+    const auth = getStoredAuth();
+    if (!auth) {
+      this.showError('Not logged in. Run `/login` first.');
+      return;
+    }
+
+    // /switch off — revert to local execution.
+    if (arg === 'off' || arg === 'local') {
+      const previous = getRemoteExecTarget();
+      clearRemoteExecTarget();
+      this.showStatus(
+        previous
+          ? `Switched back to local execution (was: ${previous.label}). Tool calls now run on this machine.`
+          : 'Already on local execution.',
+      );
+      return;
+    }
+
+    const root = auth.url.replace(/\/$/, '');
+    let nodes: Array<{
+      nodeId: string;
+      sandboxes: string[];
+      load: number | null;
+      activeTasks: number;
+    }> = [];
+    try {
+      const resp = await fetch(`${root}/api/cli/nodes`, {
+        headers: {
+          authorization: `Bearer ${auth.token}`,
+          cookie: `clawless-auth=${auth.token}`,
+        },
+      });
+      if (!resp.ok) {
+        this.showError(`Failed to list nodes: HTTP ${resp.status}`);
+        return;
+      }
+      const body = (await resp.json()) as {
+        ok: boolean;
+        nodes?: typeof nodes;
+      };
+      nodes = body.nodes ?? [];
+    } catch (err) {
+      this.showError(
+        `Failed to list nodes: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return;
+    }
+
+    if (nodes.length === 0) {
+      this.showStatus(
+        'No online Agent Daemon nodes. `/switch` requires at least one healthy node.',
+      );
+      return;
+    }
+
+    // Direct node id argument.
+    if (arg) {
+      const match = nodes.find((n) => n.nodeId === arg);
+      if (!match) {
+        this.showError(
+          `Node "${arg}" not found among ${nodes.length} online node(s).`,
+        );
+        return;
+      }
+      this.applySwitchTarget({
+        nodeId: match.nodeId,
+        label: match.nodeId,
+        sandboxes: match.sandboxes,
+      });
+      return;
+    }
+
+    // Interactive picker. Offer "Local (this machine)" as the first
+    // entry so the user can revert without typing.
+    const current = getRemoteExecTarget();
+    const options = [
+      'Local (this machine)',
+      ...nodes.map(
+        (n) =>
+          `${n.nodeId}  [${n.sandboxes.join('/') || 'no-sandbox'}]${
+            n.load != null ? ` load ${n.load}%` : ''
+          } tasks ${n.activeTasks}`,
+      ),
+    ];
+    const choice = await this.showExtensionSelector(
+      'Switch tool execution to',
+      options,
+    );
+    if (!choice) return;
+
+    if (choice === options[0]) {
+      clearRemoteExecTarget();
+      this.showStatus(
+        current
+          ? `Switched back to local execution (was: ${current.label}).`
+          : 'Already on local execution.',
+      );
+      return;
+    }
+
+    const selectedIndex = options.indexOf(choice) - 1;
+    const picked = nodes[selectedIndex];
+    if (!picked) return;
+    this.applySwitchTarget({
+      nodeId: picked.nodeId,
+      label: picked.nodeId,
+      sandboxes: picked.sandboxes,
+    });
+  }
+
+  private applySwitchTarget(target: RemoteExecTarget): void {
+    setRemoteExecTarget(target);
+    this.showStatus(
+      `Switched tool execution to remote node "${target.label}". ` +
+        'Paths in tool calls are now resolved on that node, not on this machine. ' +
+        'Run `/switch off` to revert.',
+    );
+    // The model-facing notice (path/working-directory reset) is queued
+    // via core/remote-exec.ts's pendingNotice and prepended to the
+    // user's next prompt by onSubmit — no extra agent turn here.
   }
 
   /**

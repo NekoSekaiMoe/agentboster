@@ -63,6 +63,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
   },
   { name: 'resume', description: 'Resume a different session' },
   {
+    name: 'switch',
+    description:
+      'Switch local_* tool execution between this machine and a remote Agent Daemon node',
+  },
+  {
     name: 'reload',
     description: 'Reload keybindings, extensions, skills, prompts, and themes',
   },
