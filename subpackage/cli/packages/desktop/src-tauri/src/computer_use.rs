@@ -19,6 +19,7 @@
 //! combines to drive the desktop. Per-platform AX returns a unified
 //! `AxNode` shape so the LLM sees one tree schema regardless of OS.
 
+use enigo::{Direction, Key, Keyboard, Mouse, Settings};
 use serde::Serialize;
 
 /// Unified AX node produced by every platform backend.
