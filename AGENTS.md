@@ -4,6 +4,7 @@ Compact guide for OpenCode sessions in this repo. Keep it short: only include fa
 
 ## Before coding
 
+- **Do not run yarn build in development**: It can only waste time and cpu.
 - **Path alias**: `@/*` maps to repo root (`tsconfig.json`).
 - **shadcn/ui**: Components in `components/`, UI primitives in `components/ui/`. Aliases: `@/components`, `@/components/ui`, `@/lib/utils`, `@/hooks`.
 - **Styling**: Tailwind CSS 3 + `tailwindcss-animate`. Dark mode via `next-themes` (`class` strategy). Colors use CSS custom properties (HSL vars).
