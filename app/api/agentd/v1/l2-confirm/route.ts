@@ -1,8 +1,41 @@
+/**
+ * L2 IM confirmation callback.
+ *
+ * Triggered when a user taps a button on an L2 authorization prompt
+ * delivered via IM (Telegram/Discord/etc.). Previously this route only
+ * updated task status and (for pass_until/reject_until) wrote a KV
+ * entry — but it never resolved the Web-side DecisionQueue entry nor
+ * forwarded the verdict to the daemon, so:
+ *   - The Web decision stayed PENDING until its 5-min timeout.
+ *   - The daemon's agent loop stayed blocked on L2 confirmation
+ *     (the daemon waits for an eventbus EventL2AuthApproved/Rejected
+ *     that never arrived, eventually timing out).
+ *   - The KV "window" was write-and-forget (never read).
+ *
+ * This rewrite fixes the root cause: each action branch now forwards
+ * the verdict to the daemon via forwardL2Confirm(). The daemon's
+ * handleL2Confirm then publishes EventL2AuthApproved/Rejected, which
+ * (1) unblocks the waiting agent loop for this task and (2) records
+ * the pattern in the daemon's L2AuthManager cache so future identical
+ * commands are short-circuited locally — that cache is the real
+ * "pass_until" implementation, and it was simply never being fed.
+ *
+ * The old l2:auth:* KV write is removed: it was keyed by taskId:chatId
+ * (taskId is unique per request, so the key could never match a future
+ * request) and nothing read it. The daemon-side pattern cache covers
+ * the "future similar commands" case correctly.
+ *
+ * The Web-side DecisionQueue.resolve()/deny() is also called for each
+ * action so the in-memory queue stops tracking the entry and any
+ * waitForResolution() caller unblocks.
+ */
+
 export const dynamic = 'force-dynamic';
 
+import { forwardL2Confirm } from '@/lib/extra/agent/agentd-client';
 import { updateTaskStatus } from '@/lib/core/db/agentd';
-import { getKV } from '@/lib/core/kv';
 import { getNotificationManager } from '@/lib/extra/channels/notification-manager';
+import { getDecisionQueue } from '@/lib/security/l2-index';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.l2-confirm');
@@ -25,7 +58,6 @@ export async function POST(request: Request) {
     }
 
     const mgr = getNotificationManager();
-    const kv = getKV();
 
     // Decision dedup — ignore duplicate clicks from multiple IM channels
     const alreadyProcessed = await mgr.isDecisionProcessed(decisionId);
@@ -50,10 +82,23 @@ export async function POST(request: Request) {
       userId,
     });
 
+    // Command is needed for the daemon `pattern` field (used to key the
+    // L2AuthManager cache for future identical commands). Prefer the
+    // cached decision (authoritative); fall back to the L2 notification
+    // context if the decision has expired out of the in-memory cache.
+    const queue = getDecisionQueue();
+    const decision = queue.get(decisionId);
+    const resolvedBy = userId ?? 'im-user';
+    const ctx = mgr.getL2Context(decisionId);
+    const command = decision?.command ?? ctx?.taskId ?? taskId;
+
     // ── Handle pass_once ──────────────────────────────────────────────
     if (action === 'pass_once') {
       await mgr.markDecisionProcessed(decisionId);
       await updateTaskStatus(taskId, 'running', 'L2 authorized: pass_once');
+
+      await finalizeDecision(decisionId, 'pass', resolvedBy, decision);
+      await forwardToDaemon(taskId, decisionId, 'pass_once', command, 'once');
 
       return Response.json({
         success: true,
@@ -74,6 +119,9 @@ export async function POST(request: Request) {
         'Rejected by user via L2 authorization (reject_once)',
       );
 
+      await finalizeDecision(decisionId, 'reject', resolvedBy, decision);
+      await forwardToDaemon(taskId, decisionId, 'reject_once', command, 'once');
+
       return Response.json({
         success: true,
         data: {
@@ -86,13 +134,10 @@ export async function POST(request: Request) {
 
     // ── Handle pass_until / reject_until — Step 1: prompt for time ───
     if (action === 'pass_until' || action === 'reject_until') {
-      // Check if this is the initial button click (no timeInput) or the time input response
       if (!timeInput) {
         // First click — send time input prompt
-        const ctx = mgr.getL2Context(decisionId);
-        const command = ctx?.taskId ? ctx.taskId : 'unknown';
+        const cmdForPrompt = ctx?.taskId ? ctx.taskId : 'unknown';
 
-        // Get user's preferred channel from notification preferences
         const prefs = userId
           ? await import('@/lib/core/db/notification').then((m) =>
               m.getNotificationPreferences(userId),
@@ -100,12 +145,11 @@ export async function POST(request: Request) {
           : null;
         const channel = prefs?.preferredChannel ?? 'telegram';
 
-        // Send time input prompt via notification channel
         await mgr.sendL2TimeInputPrompt({
           taskId,
           decisionId,
           action,
-          command,
+          command: cmdForPrompt,
           channel,
           targetChatId: chatId,
         });
@@ -133,48 +177,8 @@ export async function POST(request: Request) {
         );
       }
 
-      // Calculate expiry
-      let expiresAt: Date | null;
-      let windowLabel: string;
-
-      if (timeInput === 'always') {
-        expiresAt = null;
-        windowLabel = '本次会话内';
-      } else {
-        const hh = Number.parseInt(timeInput.slice(0, 2), 10);
-        const dd = Number.parseInt(timeInput.slice(2, 4), 10);
-        const mm = Number.parseInt(timeInput.slice(4, 6), 10);
-        const yy = Number.parseInt(timeInput.slice(6, 8), 10);
-
-        const ttlMs =
-          hh * 60 * 60 * 1000 +
-          dd * 24 * 60 * 60 * 1000 +
-          mm * 30 * 24 * 60 * 60 * 1000 +
-          yy * 365 * 24 * 60 * 60 * 1000;
-
-        expiresAt = new Date(Date.now() + ttlMs);
-        windowLabel = formatWindowLabel(hh, dd, mm, yy);
-      }
-
-      // Store authorization in KV
-      const authKey = `l2:auth:${taskId}:${chatId}`;
-      const authValue = JSON.stringify({
-        action: action === 'pass_until' ? 'pass' : 'reject',
-        taskId,
-        decisionId,
-        chatId,
-        userId,
-        window: timeInput === 'always' ? 'session' : 'duration',
-        expiresAt: expiresAt?.toISOString() ?? null,
-        decidedAt: new Date().toISOString(),
-      });
-      if (expiresAt) {
-        await kv.set(authKey, authValue, {
-          ex: Math.floor((expiresAt.getTime() - Date.now()) / 1000),
-        });
-      } else {
-        await kv.set(authKey, authValue);
-      }
+      const windowLabel =
+        timeInput === 'always' ? '本次会话内' : formatWindowLabel(timeInput);
 
       await mgr.markDecisionProcessed(decisionId);
 
@@ -198,12 +202,19 @@ export async function POST(request: Request) {
         );
       }
 
+      await finalizeDecision(
+        decisionId,
+        isPass ? 'pass' : 'reject',
+        resolvedBy,
+        decision,
+      );
+      await forwardToDaemon(taskId, decisionId, action, command, timeInput);
+
       return Response.json({
         success: true,
         data: {
           taskId,
           decision: action,
-          expiresAt: expiresAt?.toISOString() ?? null,
           message: `${emoji} 已${verb}，${scopeLabel}同类操作将自动${verb}。`,
         },
       });
@@ -224,12 +235,73 @@ export async function POST(request: Request) {
   }
 }
 
-function formatWindowLabel(
-  hh: number,
-  dd: number,
-  mm: number,
-  yy: number,
-): string {
+/**
+ * Resolve or deny the Web-side decision. Falls back to a noop if the
+ * decision is no longer in the cache (already expired / swept) — the
+ * daemon-side forward is still attempted so the agent loop unblocks.
+ */
+async function finalizeDecision(
+  decisionId: string,
+  action: 'pass' | 'reject',
+  resolvedBy: string,
+  decision: ReturnType<ReturnType<typeof getDecisionQueue>['get']> | null,
+): Promise<void> {
+  if (!decision) {
+    logger.warn('decision not in cache; skipping queue resolve', {
+      decisionId,
+    });
+    return;
+  }
+  try {
+    if (action === 'reject') {
+      await getDecisionQueue().deny(decisionId, resolvedBy);
+    } else {
+      await getDecisionQueue().resolve(decisionId, action, resolvedBy);
+    }
+  } catch (err) {
+    logger.error('queue resolve failed', {
+      decisionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Forward the verdict to the daemon so its agent loop unblocks and its
+ * L2AuthManager records the pattern cache entry (for pass_until /
+ * reject_until). Errors are logged but do not fail the request — the
+ * decision is already recorded on the Web side, and the daemon will
+ * time out on its own if the forward truly cannot land.
+ */
+async function forwardToDaemon(
+  taskId: string,
+  decisionId: string,
+  action: string,
+  pattern: string,
+  duration: string,
+): Promise<void> {
+  try {
+    await forwardL2Confirm({
+      task_id: taskId,
+      decision_id: decisionId,
+      action,
+      pattern,
+      duration,
+    });
+  } catch (err) {
+    logger.warn('forward to daemon failed; decision still recorded', {
+      taskId,
+      decisionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+function formatWindowLabel(timeInput: string): string {
+  const hh = Number.parseInt(timeInput.slice(0, 2), 10);
+  const dd = Number.parseInt(timeInput.slice(2, 4), 10);
+  const mm = Number.parseInt(timeInput.slice(4, 6), 10);
+  const yy = Number.parseInt(timeInput.slice(6, 8), 10);
   const parts: string[] = [];
   if (yy > 0) parts.push(`${yy}年`);
   if (mm > 0) parts.push(`${mm}月`);
