@@ -1,5 +1,9 @@
 import { getBot } from '@/lib/bot/index';
 import { isValidBotSecret } from '@/lib/bot/webhook';
+import {
+  decryptWecomPayload,
+  verifyWecomSignature,
+} from '@/lib/bot/wecom-crypto';
 import { getConfig } from '@/lib/core/kv/config';
 import { createLogger } from '@/lib/utils/logger';
 import type { AdapterName } from '@/types/config/channels';
@@ -290,6 +294,161 @@ async function handleQQWebhook(request: NextRequest): Promise<NextResponse> {
   }
 }
 
+/**
+ * WeCom smart-bot webhook handler.
+ *
+ * WeCom smart bots run in Webhook mode (HTTP callback, see lib/bot/wecom-crypto.ts
+ * for the AES + SHA1 protocol). Two flows reach this handler:
+ *
+ * 1. URL verification (GET): WeCom sends msg_signature/timestamp/nonce/echostr,
+ *    we verify the signature, decrypt echostr, and return the plaintext echo.
+ *    This is handled in the GET function below.
+ *
+ * 2. Event callback (POST): body is { encrypt: "..." }. After decryption the
+ *    plaintext is a JSON event envelope. Two event types matter:
+ *      - message (text from the user): forwarded to routeAdapterMessage.
+ *      - template_card_event (button click on a card): the button's key
+ *        carries the l2:<action>:<taskId>:<decisionId> payload that the
+ *        bot.onAction catch-all also matches; we forward it directly to
+ *        processL2Decision.
+ *
+ * Each event callback also carries a response_code for the smart-bot reply
+ * API (qyapi.weixin.qq.com/cgi-bin/aibot/response). The WeComBotAdapter
+ * (lib/bot/wecom-adapter.ts) posts replies via that code.
+ */
+async function handleWecomWebhook(request: NextRequest): Promise<NextResponse> {
+  try {
+    const config = await getConfig();
+    const wecomCfg = config.channels?.wecom;
+    if (!wecomCfg?.token || !wecomCfg?.encoding_aes_key) {
+      // Without webhook-mode credentials we can't decrypt. Reject so the
+      // misconfiguration is visible rather than silently dropping events.
+      return NextResponse.json(
+        { error: 'WeCom webhook credentials not configured' },
+        { status: 500 },
+      );
+    }
+
+    const body = (await request.json().catch(() => ({}))) as {
+      encrypt?: string;
+      echostr?: string;
+    };
+
+    // The encrypt field is the only envelope shape for events. The plain
+    // echostr-only body is the GET verification flow, handled separately.
+    if (typeof body.encrypt !== 'string') {
+      return NextResponse.json(
+        { error: 'Missing encrypt field' },
+        { status: 400 },
+      );
+    }
+
+    // Signature verification uses query params msg_signature/timestamp/nonce.
+    const url = new URL(request.url);
+    const msgSignature = url.searchParams.get('msg_signature') ?? '';
+    const timestamp = url.searchParams.get('timestamp') ?? '';
+    const nonce = url.searchParams.get('nonce') ?? '';
+
+    if (
+      !verifyWecomSignature({
+        token: wecomCfg.token,
+        timestamp,
+        nonce,
+        encrypt: body.encrypt,
+        msgSignature,
+      })
+    ) {
+      logger.warn('wecom signature verification failed', { timestamp, nonce });
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
+
+    const plaintext = decryptWecomPayload({
+      encodingAesKey: wecomCfg.encoding_aes_key,
+      encrypt: body.encrypt,
+    });
+    const event = JSON.parse(plaintext) as {
+      MsgType?: string;
+      Event?: string;
+      From?: { UserId?: string };
+      Text?: { Content?: string };
+      ResponseCode?: string;
+      TaskId?: string;
+      CardItem?: { Value?: string };
+      MsgId?: string;
+      ChatId?: string;
+    };
+
+    logger.info('wecom event', {
+      msgType: event.MsgType,
+      event: event.Event,
+      from: event.From?.UserId,
+    });
+
+    // URL verification events also arrive as POST in some configurations.
+    if (event.Event === 'verify_url' || event.MsgType === 'verify_url') {
+      return NextResponse.json({ ok: true });
+    }
+
+    // Template card button click → L2 decision.
+    if (event.Event === 'template_card_event') {
+      const actionStr = String(event.CardItem?.Value ?? '');
+      const match =
+        /^l2:(pass_once|pass_until|reject_once|reject_until):(.+):(.+)$/.exec(
+          actionStr,
+        );
+      if (match) {
+        const [, action, taskId, decisionId] = match;
+        const { processL2Decision } = await import(
+          '@/lib/extra/agent/l2-decision'
+        );
+        after(() =>
+          processL2Decision({
+            taskId,
+            decisionId,
+            action,
+            chatId: event.ChatId ?? null,
+            userId: event.From?.UserId ?? null,
+          }).catch((error) => {
+            console.error('[bot/webhook] wecom L2 button error:', error);
+          }),
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // User text message → route to agent.
+    if (event.MsgType === 'text' && event.From?.UserId) {
+      const { routeAdapterMessage } = await import('@/lib/chat/index');
+      const payload = {
+        adapter: 'wecom' as const,
+        origin: event.From.UserId,
+        // WeCom 1:1 chat has no thread concept beyond the user; use the
+        // user id as the thread id so adapter.postMessage targets the
+        // same user.
+        threadId: event.From.UserId,
+        messageId: event.MsgId ?? null,
+        userId: event.From.UserId,
+        userName: event.From.UserId,
+        text: event.Text?.Content ?? '',
+        parts: [],
+      };
+      after(() =>
+        routeAdapterMessage(payload).catch((error) => {
+          console.error('[bot/webhook] wecom message processing error:', error);
+        }),
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('[bot/webhook] wecom callback error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 },
+    );
+  }
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ authSecret: string; adapter: string }> },
@@ -315,6 +474,11 @@ export async function POST(
   // QQ — custom SDK adapter
   if (adapterName === 'qq') {
     return handleQQWebhook(request);
+  }
+
+  // WeCom smart bot — custom webhook with AES decryption
+  if (adapterName === 'wecom') {
+    return handleWecomWebhook(request);
   }
 
   return NextResponse.json({ error: 'Unknown adapter' }, { status: 400 });
@@ -350,6 +514,52 @@ export async function GET(
   // QQ URL verification
   if (adapterName === 'qq') {
     return NextResponse.json({ ok: true, adapter: 'qq' });
+  }
+
+  // WeCom URL verification — msg_signature/timestamp/nonce/echostr query params.
+  // Verify signature, decrypt echostr, return plaintext echo.
+  if (adapterName === 'wecom') {
+    const url = new URL(request.url);
+    const msgSignature = url.searchParams.get('msg_signature');
+    const timestamp = url.searchParams.get('timestamp');
+    const nonce = url.searchParams.get('nonce');
+    const echostr = url.searchParams.get('echostr');
+    if (!msgSignature || !timestamp || !nonce || !echostr) {
+      return NextResponse.json({ ok: true, adapter: 'wecom' }, { status: 200 });
+    }
+    const config = await getConfig();
+    const wecomCfg = config.channels?.wecom;
+    if (!wecomCfg?.token || !wecomCfg?.encoding_aes_key) {
+      return NextResponse.json(
+        { error: 'WeCom webhook credentials not configured' },
+        { status: 500 },
+      );
+    }
+    if (
+      !verifyWecomSignature({
+        token: wecomCfg.token,
+        timestamp,
+        nonce,
+        encrypt: echostr,
+        msgSignature,
+      })
+    ) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
+    try {
+      const plaintext = decryptWecomPayload({
+        encodingAesKey: wecomCfg.encoding_aes_key,
+        encrypt: echostr,
+      });
+      // WeCom expects the plaintext echo as the raw response body.
+      return new NextResponse(plaintext, {
+        status: 200,
+        headers: { 'content-type': 'text/plain' },
+      });
+    } catch (error) {
+      console.error('[bot/webhook] wecom echo decrypt failed:', error);
+      return NextResponse.json({ error: 'Decrypt failed' }, { status: 500 });
+    }
   }
 
   return NextResponse.json({ error: 'Unknown adapter' }, { status: 400 });

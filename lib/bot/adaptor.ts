@@ -12,7 +12,8 @@ type ChatSdkAdapterName =
   | 'teams'
   | 'telegram'
   | 'feishu'
-  | 'qq';
+  | 'qq'
+  | 'wecom';
 
 type BotAdapters = Partial<Record<ChatSdkAdapterName, Adapter>>;
 
@@ -100,6 +101,18 @@ export async function createBotAdapters(
       adapters.qq = asQQAdapter({
         appId: cfg.appid,
         appSecret: cfg.secret,
+      });
+    }
+  }
+
+  if (channels?.wecom?.enabled) {
+    const { asWecomAdapter } = await import('./wecom-adapter');
+    const cfg = channels.wecom;
+    if (cfg.corp_id && cfg.secret && cfg.agent_id) {
+      adapters.wecom = asWecomAdapter({
+        corpId: cfg.corp_id,
+        secret: cfg.secret,
+        agentId: cfg.agent_id,
       });
     }
   }

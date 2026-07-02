@@ -14,6 +14,9 @@ const CAPABILITY_MAP: Partial<Record<AdapterName, BotCapabilities>> = {
   gchat: { delete: false, edit: false, reaction: false },
   feishu: { delete: true, edit: true, reaction: false },
   qq: { delete: true, edit: true, reaction: false },
+  // WeCom application-messaging has no editMessage (would flood via repost)
+  // and recall only works for app messages, not smart-bot replies.
+  wecom: { delete: false, edit: false, reaction: false },
 };
 
 export function getBotCapabilities(adapter: string): BotCapabilities {

@@ -5,7 +5,8 @@ export type ChannelType =
   | 'slack'
   | 'gchat'
   | 'teams'
-  | 'qq';
+  | 'qq'
+  | 'wecom';
 
 export interface IncomingMessage {
   channelType: ChannelType;

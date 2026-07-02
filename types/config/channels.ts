@@ -134,6 +134,42 @@ export const qqAdapterConfigSchema = baseAdapterConfigSchema.extend({
 export type QQAdapterConfig = z.infer<typeof qqAdapterConfigSchema>;
 
 /**
+ * WeChat Work (WeCom / 企业微信) smart-bot adapter configuration.
+ *
+ * WeCom smart bots (智能机器人, see WeCom developer docs section 101039)
+ * support two receive modes — Webhook (HTTP callback) and WebSocket
+ * long-connection. This adapter only implements the Webhook mode because
+ * long-connection requires a persistent process (incompatible with
+ * Vercel serverless). The two modes have completely separate credential
+ * sets, so the schema below exposes both as optional and the adapter
+ * factory picks whichever set is filled in.
+ *
+ * Webhook mode credentials:
+ *   corp_id, secret, token, encoding_aes_key
+ *
+ * For notification push (single-direction, like L2 decisions), we also
+ * use corp_id + secret + agent_id to call the application-messaging API
+ * (qyapi.weixin.qq.com/cgi-bin/message/send). That's distinct from the
+ * smart-bot reply API (qyapi.weixin.qq.com/cgi-bin/aibot/response) and
+ * has its own quota (account_size × 200 msgs/day per app, 30/min and
+ * 1000/hour per recipient) — see doc 90236.
+ */
+export const wecomAdapterConfigSchema = baseAdapterConfigSchema.extend({
+  /** Corporation ID (from WeCom admin console). */
+  corp_id: z.string().optional(),
+  /** Application secret (used to exchange for access_token). */
+  secret: z.string().optional(),
+  /** Application agent_id (integer as string; required for app-message push). */
+  agent_id: z.string().optional(),
+  /** Signature verification token for webhook mode (self-chosen, set in WeCom console). */
+  token: z.string().optional(),
+  /** 43-char base64 EncodingAESKey for webhook-mode AES-256-CBC decryption. */
+  encoding_aes_key: z.string().optional(),
+});
+
+export type WecomAdapterConfig = z.infer<typeof wecomAdapterConfigSchema>;
+
+/**
  * Aggregate configuration schema for all channels/adapters
  * Aligned with the Chat SDK Adapter system
  */
@@ -152,6 +188,8 @@ export const channelsConfigSchema = z.object({
   feishu: feishuAdapterConfigSchema.optional(),
   /** QQ Official Bot adapter configuration */
   qq: qqAdapterConfigSchema.optional(),
+  /** WeChat Work (WeCom) smart-bot adapter configuration */
+  wecom: wecomAdapterConfigSchema.optional(),
 });
 
 export type ChannelsConfig = z.infer<typeof channelsConfigSchema>;
@@ -167,6 +205,7 @@ export const ADAPTER_NAMES = [
   'gchat',
   'feishu',
   'qq',
+  'wecom',
 ] as const;
 
 export type AdapterName = (typeof ADAPTER_NAMES)[number];

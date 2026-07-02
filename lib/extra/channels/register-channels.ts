@@ -22,6 +22,7 @@ import { QQNotificationChannel } from './notifications/qq';
 import { SlackNotificationChannel } from './notifications/slack';
 import { TeamsNotificationChannel } from './notifications/teams';
 import { TelegramNotificationChannel } from './notifications/telegram';
+import { WecomNotificationChannel } from './notifications/wecom';
 import { getNotificationManager } from './notification-manager';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -43,6 +44,8 @@ function channelFingerprint(channel: unknown): string {
     app_secret: c.app_secret,
     project_id: c.project_id,
     credentials_json: c.credentials_json,
+    corp_id: c.corp_id,
+    agent_id: c.agent_id,
   });
 }
 
@@ -164,6 +167,22 @@ export function ensureNotificationChannels(config: AppConfig): string[] {
           new QQNotificationChannel({
             appId: channels.qq?.appid ?? '',
             appSecret: channels.qq?.secret ?? '',
+          }),
+        ),
+    });
+  }
+
+  if (channels.wecom) {
+    candidates.push({
+      type: 'wecom',
+      enabled: !!channels.wecom.enabled,
+      fingerprint: channelFingerprint(channels.wecom),
+      factory: () =>
+        mgr.registerChannel(
+          new WecomNotificationChannel({
+            corpId: channels.wecom?.corp_id ?? '',
+            secret: channels.wecom?.secret ?? '',
+            agentId: channels.wecom?.agent_id ?? '',
           }),
         ),
     });
