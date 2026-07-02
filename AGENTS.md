@@ -14,18 +14,9 @@ Compact guide for OpenCode sessions in this repo. Keep it short: only include fa
 - **Auth**: Cookie-based. Requires `AUTH_SECRET`, `USERNAME`, `PASSWORD` env vars. Middleware in `middleware.ts` protects all routes except `/login`, `/api/auth/login`, `/.well-known/workflow/*`, and public assets (`.*` file extensions).
 - **Bot webhooks**: Auth secret is embedded in the callback URL path (`/api/bot/{AUTH_SECRET}/{adapter}/callback`). CI uses Yarn (`yarn run check`).
 
-
-
-Non-obvious constraints:
-- Linux-only — build tags (`//go:build linux`) enforce this. Cross-compiling to macOS/Windows is not supported.
-- Must run as root at startup (drops privileges to `run_as_user` after setup). Non-root launches are refused.
-- Config is TOML (`agentd.toml.example` is the template). Env override prefix is `AGENTD_`, e.g. `AGENTD_SERVER_LISTEN=:28732`.
-- Version is a constant in `cmd/agentd/main.go`; bump it when the HTTP contract or on-disk cache format changes.
-
-## Workflow / skills / opencode
+### Workflow / skills / opencode
 
 - `.agents/skills/` contains repo-local OpenCode skills (ai-sdk, bug-hunter, chat-sdk, workflow, etc.). The skills are intended for OpenCode sessions in this repo — load them when a task matches, don't reimplement what they encode.
-- `MULTI-NODE-SCHEDULING.md`, `security-level.md`, `gatekeeper-diff.md`, `SECURITY.md` carry operational/security context for the Web↔Daemon gatekeeper and L0/L1/L2 model. Read them before touching `lib/security/`, `lib/workflow/`, or any L2-decision code.
 
 ### Things that look like bugs but aren't
 
