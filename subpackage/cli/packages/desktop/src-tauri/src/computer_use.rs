@@ -376,10 +376,25 @@ mod ax_macos {
     use accessibility_sys::*;
     use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
     use core_foundation::boolean::CFBoolean;
-    use core_foundation::string::{CFString, CFStringRef};
-    use core_foundation_sys::geometry::{CGPoint, CGSize};
+    use core_foundation::string::CFString;
+    use core_foundation::ConcreteCFType;
     use std::ffi::c_void;
     use std::ptr;
+
+    // CGPoint / CGSize live in Carbon's HIApplication framework headers
+    // (originally CGGeometry). core-foundation-sys doesn't re-export them
+    // and core-graphics-types isn't a dependency, so we declare the two
+    // structs locally with the C ABI layout AXValueGetValue expects.
+    #[repr(C)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
 
     /// `AXUIElementRef` is `!Send + !Sync` (tied to the main thread's
     /// run loop on older macOS, and CFType lifetime rules in general).
@@ -387,8 +402,15 @@ mod ax_macos {
     /// elements are short-lived (created, queried, released within one
     /// call) so main-thread affinity is not a concern for read queries.
 
+    fn is_trusted() -> bool {
+        // AXIsProcessTrusted() is an unsafe extern C fn — reads the
+        // global Accessibility trust state. No mutation, safe to call
+        // from any thread once per call site.
+        unsafe { accessibility_sys::AXIsProcessTrusted() }
+    }
+
     pub fn node_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
-        if !accessibility_sys::AXIsProcessTrusted() {
+        if !is_trusted() {
             return Err(
                 "agentboster Desktop is not granted Accessibility permission. \
                  Enable it in System Settings → Privacy & Security → Accessibility."
@@ -413,7 +435,7 @@ mod ax_macos {
     }
 
     pub fn focused_node(max_depth: u32) -> Result<AxNode, String> {
-        if !accessibility_sys::AXIsProcessTrusted() {
+        if !is_trusted() {
             return Err(
                 "agentboster Desktop is not granted Accessibility permission. \
                  Enable it in System Settings → Privacy & Security → Accessibility."
@@ -460,7 +482,15 @@ mod ax_macos {
         } else {
             read_children(elem)
                 .into_iter()
-                .map(|c| convert(c, depth_remaining - 1))
+                .map(|c| {
+                    let node = convert(c, depth_remaining - 1);
+                    // read_children retained each child (+1); the subtree
+                    // has been walked and copied into AxNode, so release
+                    // the retained ref now to avoid leaking one AXUIElement
+                    // per child per call.
+                    CFRelease(c as *const c_void);
+                    node
+                })
                 .collect()
         };
 
@@ -489,16 +519,15 @@ mod ax_macos {
         if err != kAXErrorSuccess || value.is_null() {
             return None;
         }
-        // The returned CFType may be a CFString (most roles) or another
-        // type (e.g. a number for AXValue on sliders). CFString's
-        // type-id check rejects non-string types cleanly.
-        let result = if CFString::instance_of::<CFString>(value) {
-            Some(CFString::wrap_under_get_rule(value as CFStringRef).to_string())
-        } else {
-            None
-        };
-        CFRelease(value);
-        result
+        // The returned CFType follows the "Get Rule" (caller does NOT own
+        // a +1 ref). Wrap with `wrap_under_get_rule` which bumps the
+        // retain count so the wrapper owns one ref; `downcast_into`
+        // consumes the wrapper without releasing, transferring ownership
+        // to the downcasted type, which releases on drop. We must NOT
+        // call CFRelease(value) here — the wrapper owns the only ref we
+        // touched.
+        let cftype = core_foundation::base::CFType::wrap_under_get_rule(value);
+        cftype.downcast_into::<CFString>().map(|s| s.to_string())
     }
 
     unsafe fn read_bool(elem: AXUIElementRef, attr: &str) -> Option<bool> {
@@ -512,24 +541,14 @@ mod ax_macos {
         if err != kAXErrorSuccess || value.is_null() {
             return None;
         }
-        // core-foundation's `From<CFBoolean> for bool` reads the
-        // underlying CFBoolean value. `instance_of` guards against the
-        // attribute being missing or returning a different CFType.
-        let result = if CFBoolean::instance_of::<CFBoolean>(value) {
-            Some(bool::from(CFBoolean::wrap_under_get_rule(
-                value as core_foundation::boolean::CFBooleanRef,
-            )))
-        } else {
-            None
-        };
-        CFRelease(value);
-        result
+        let cftype = core_foundation::base::CFType::wrap_under_get_rule(value);
+        cftype.downcast_into::<CFBoolean>().map(bool::from)
     }
 
     /// `AXPosition` and `AXSize` are AXValue-wrapped CGPoint/CGSize.
     /// We pull the raw CGPoint/CGSize bytes out of the AXValue via
     /// `AXValueGetValue`, which copies the value into the out-pointer
-    /// and returns a `bool` (nonzero = success).
+    /// and returns a `bool` (true = success).
     unsafe fn read_position_size(elem: AXUIElementRef) -> (i32, i32, i32, i32) {
         let mut px: f64 = 0.0;
         let mut py: f64 = 0.0;
