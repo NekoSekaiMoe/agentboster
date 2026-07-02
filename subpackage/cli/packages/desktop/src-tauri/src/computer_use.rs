@@ -17,7 +17,7 @@
 //! combines to drive the desktop. Per-platform AX returns a unified
 //! `AxNode` shape so the LLM sees one tree schema regardless of OS.
 
-use enigo::{Direction, Key, Keyboard, Mouse, Settings};
+use enigo::{Keyboard, Mouse};
 use serde::Serialize;
 
 /// Unified AX node produced by every platform backend.
@@ -377,7 +377,7 @@ mod ax_macos {
     use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
     use core_foundation::boolean::CFBoolean;
     use core_foundation::string::{CFString, CFStringRef};
-    use core_foundation_sys::base::AXValueRef;
+    use core_foundation_sys::geometry::{CGPoint, CGSize};
     use std::ffi::c_void;
     use std::ptr;
 
@@ -400,7 +400,7 @@ mod ax_macos {
             if system.is_null() {
                 return Err("AXUIElementCreateSystemWide returned null".into());
             }
-            let mut at: AXValueRef = ptr::null_mut();
+            let mut at: AXUIElementRef = ptr::null_mut();
             let err = AXUIElementCopyElementAtPosition(system, x as f32, y as f32, &mut at);
             CFRelease(system as *const c_void);
             if err != kAXErrorSuccess {
@@ -490,11 +490,13 @@ mod ax_macos {
             return None;
         }
         // The returned CFType may be a CFString (most roles) or another
-        // type (e.g. a number for AXValue on sliders). Try CFString first;
-        // on failure, fall back to debug-formatting the CFType.
-        let result = CFString::wrap_under_get_rule(value as CFStringRef)
-            .ok()
-            .map(|s| s.to_string());
+        // type (e.g. a number for AXValue on sliders). CFString's
+        // type-id check rejects non-string types cleanly.
+        let result = if CFString::instance_of::<CFString>(value) {
+            Some(CFString::wrap_under_get_rule(value as CFStringRef).to_string())
+        } else {
+            None
+        };
         CFRelease(value);
         result
     }
@@ -510,17 +512,24 @@ mod ax_macos {
         if err != kAXErrorSuccess || value.is_null() {
             return None;
         }
-        // CFBoolean wraps a CFTypeRef; core-foundation's downcast is via
-        // `wrap_under_get_rule` on the boolean ref.
-        let result = CFBoolean::wrap_under_get_rule(value as core_foundation::boolean::CFBooleanRef)
-            .into_bool();
+        // core-foundation's `From<CFBoolean> for bool` reads the
+        // underlying CFBoolean value. `instance_of` guards against the
+        // attribute being missing or returning a different CFType.
+        let result = if CFBoolean::instance_of::<CFBoolean>(value) {
+            Some(bool::from(CFBoolean::wrap_under_get_rule(
+                value as core_foundation::boolean::CFBooleanRef,
+            )))
+        } else {
+            None
+        };
         CFRelease(value);
-        Some(result)
+        result
     }
 
     /// `AXPosition` and `AXSize` are AXValue-wrapped CGPoint/CGSize.
     /// We pull the raw CGPoint/CGSize bytes out of the AXValue via
-    /// `AXValueGetValue`, which copies the value into the out-pointer.
+    /// `AXValueGetValue`, which copies the value into the out-pointer
+    /// and returns a `bool` (nonzero = success).
     unsafe fn read_position_size(elem: AXUIElementRef) -> (i32, i32, i32, i32) {
         let mut px: f64 = 0.0;
         let mut py: f64 = 0.0;
@@ -528,18 +537,16 @@ mod ax_macos {
         let mut sh: f64 = 0.0;
 
         if let Some(v) = read_ax_value(elem, "AXPosition") {
-            let mut point: CGPoint = CGPoint { x: 0.0, y: 0.0 };
-            if AXValueGetValue(v, kAXValueTypeCGPoint, &mut point as *mut CGPoint as *mut c_void)
-                != 0
-            {
+            let mut point = CGPoint { x: 0.0, y: 0.0 };
+            if AXValueGetValue(v, kAXValueTypeCGPoint, &mut point as *mut CGPoint as *mut c_void) {
                 px = point.x;
                 py = point.y;
             }
             CFRelease(v as *const c_void);
         }
         if let Some(v) = read_ax_value(elem, "AXSize") {
-            let mut size: CGSize = CGSize { width: 0.0, height: 0.0 };
-            if AXValueGetValue(v, kAXValueTypeCGSize, &mut size as *mut CGSize as *mut c_void) != 0 {
+            let mut size = CGSize { width: 0.0, height: 0.0 };
+            if AXValueGetValue(v, kAXValueTypeCGSize, &mut size as *mut CGSize as *mut c_void) {
                 sw = size.width;
                 sh = size.height;
             }
@@ -590,17 +597,6 @@ mod ax_macos {
         }
         CFRelease(value);
         out
-    }
-
-    #[repr(C)]
-    struct CGPoint {
-        x: f64,
-        y: f64,
-    }
-    #[repr(C)]
-    struct CGSize {
-        width: f64,
-        height: f64,
     }
 }
 
