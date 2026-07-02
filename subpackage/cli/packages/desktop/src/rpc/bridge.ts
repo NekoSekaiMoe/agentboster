@@ -81,12 +81,6 @@ export interface PiProviderAuthClearResult {
   source: 'auth_file' | 'environment' | 'missing';
 }
 
-export interface PiOAuthProviderInfo {
-  id: string;
-  name: string;
-  source: 'built_in' | 'package';
-}
-
 export interface GitCommandResult {
   stdout: string;
   stderr: string;
@@ -604,10 +598,6 @@ export class RpcBridge {
     return invoke<PiProviderAuthClearResult>('clear_pi_provider_auth', {
       provider,
     });
-  }
-
-  async getPiOAuthProviders(): Promise<PiOAuthProviderInfo[]> {
-    return invoke<PiOAuthProviderInfo[]>('get_pi_oauth_providers');
   }
 
   async checkRpcCompatibility(): Promise<RpcCompatibilityReport> {
@@ -1131,10 +1121,6 @@ class ActiveRpcBridgeProxy {
     provider: string,
   ): Promise<PiProviderAuthClearResult> {
     return this.activeBridge.clearPiProviderAuth(provider);
-  }
-
-  async getPiOAuthProviders(): Promise<PiOAuthProviderInfo[]> {
-    return this.activeBridge.getPiOAuthProviders();
   }
 
   async checkRpcCompatibility(): Promise<RpcCompatibilityReport> {

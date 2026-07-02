@@ -1134,8 +1134,9 @@ export class ChatView {
     if (!force && this.oauthProviderCatalogLoadedAt > 0 && !stale) return;
     this.oauthProviderCatalogLoading = true;
     try {
-      const raw = await rpcBridge.getPiOAuthProviders();
-      this.oauthProviderCatalog = normalizeOAuthProviderCatalogEntries(raw);
+      // OAuth provider scanning removed - use hardcoded defaults only
+      // TODO: CLI should expose `agentboster auth list-providers --json`
+      this.oauthProviderCatalog = normalizeOAuthProviderCatalogEntries([]);
       this.oauthProviderCatalogLoadedAt = Date.now();
     } catch (err) {
       console.error('Failed to load OAuth provider catalog:', err);

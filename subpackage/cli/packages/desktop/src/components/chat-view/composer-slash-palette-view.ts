@@ -1,50 +1,53 @@
-import { html, nothing, type TemplateResult } from "lit";
-import type { SlashPaletteItem } from "../../commands/slash-command-runtime.js";
+import { html, nothing, type TemplateResult } from 'lit';
+import type { SlashPaletteItem } from '../../commands/slash-command-runtime.js';
 
 interface RenderSlashPaletteViewParams {
-	open: boolean;
-	loading: boolean;
-	query: string;
-	items: SlashPaletteItem[];
-	activeIndex: number;
-	navigationMode: "pointer" | "keyboard";
-	onMouseMove: (event: MouseEvent) => void;
-	onSelect: (item: SlashPaletteItem) => void;
+  open: boolean;
+  loading: boolean;
+  query: string;
+  items: SlashPaletteItem[];
+  activeIndex: number;
+  navigationMode: 'pointer' | 'keyboard';
+  onMouseMove: (event: MouseEvent) => void;
+  onSelect: (item: SlashPaletteItem) => void;
 }
 
 export function renderSlashPaletteView({
-	open,
-	loading,
-	query,
-	items,
-	activeIndex,
-	navigationMode,
-	onMouseMove,
-	onSelect,
+  open,
+  loading,
+  query,
+  items,
+  activeIndex,
+  navigationMode,
+  onMouseMove,
+  onSelect,
 }: RenderSlashPaletteViewParams): TemplateResult | typeof nothing {
-	if (!open) return nothing;
-	if (loading && items.length === 0) {
-		return html`<div class="composer-slash-menu"><div class="composer-slash-empty">Loading commands…</div></div>`;
-	}
-	if (items.length === 0) {
-		return html`<div class="composer-slash-menu"><div class="composer-slash-empty">No commands match “/${query}”.</div></div>`;
-	}
+  if (!open) return nothing;
+  if (loading && items.length === 0) {
+    return html`<div class="composer-slash-menu"><div class="composer-slash-empty">Loading commands…</div></div>`;
+  }
+  if (items.length === 0) {
+    return html`<div class="composer-slash-menu"><div class="composer-slash-empty">No commands match “/${query}”.</div></div>`;
+  }
 
-	const boundedActiveIndex = Math.max(0, Math.min(activeIndex, items.length - 1));
-	let currentSection: SlashPaletteItem["section"] | null = null;
+  const boundedActiveIndex = Math.max(
+    0,
+    Math.min(activeIndex, items.length - 1),
+  );
+  let currentSection: SlashPaletteItem['section'] | null = null;
 
-	return html`
+  return html`
 		<div
-			class="composer-slash-menu ${navigationMode === "keyboard" ? "keyboard-nav" : ""}"
+			class="composer-slash-menu ${navigationMode === 'keyboard' ? 'keyboard-nav' : ''}"
 			@mousemove=${onMouseMove}
 		>
 			${items.map((item, index) => {
-				const sectionChanged = item.section !== currentSection;
-				currentSection = item.section;
-				return html`
+        const sectionChanged = item.section !== currentSection;
+        currentSection = item.section;
+        return html`
 					${sectionChanged ? html`<div class="composer-slash-section">${item.section}</div>` : nothing}
 					<button
-						class="composer-slash-item ${index === boundedActiveIndex ? "active" : ""}"
+						class="composer-slash-item ${index === boundedActiveIndex ? 'active' : ''}"
 						data-index=${String(index)}
 						@click=${() => onSelect(item)}
 					>
@@ -54,7 +57,7 @@ export function renderSlashPaletteView({
 						</span>
 					</button>
 				`;
-			})}
+      })}
 		</div>
 	`;
 }
