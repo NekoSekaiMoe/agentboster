@@ -4,14 +4,15 @@
 # upstream workflow at subpackage/cli/packages/desktop/.github/workflows/
 # ci.yml is NOT picked up by GitHub Actions (only the repo-root
 # .github/workflows/ is scanned). This file mirrors that ci.yml with the
-# extra Linux system deps that xcap and enigo need.
+# extra system deps each platform needs.
 #
-# The job validates the Rust + TypeScript build on Linux only. mac/Windows
-# builds are exercised by the release pipeline (release.yml upstream) on
-# tag pushes. Linux is sufficient as a smoke test because the platform-
-# specific code is gated by #[cfg(target_os = ...)] and the non-Linux
-# dependencies (uiautomation on Windows, objc2 frameworks on macOS) are
-# compiled with no extra system packages on their target runners.
+# Three matrix jobs validate Rust compilation per platform:
+#   - Linux   (ubuntu-24.04): xcap PipeWire + enigo x11rb + atspi
+#   - macOS    (macos-14):      xcap ScreenCaptureKit + enigo CGEvent
+#   - Windows  (windows-latest): xcap DXGI + enigo SendInput + uiautomation
+#
+# The platform-specific AX backends are gated by #[cfg(target_os = ...)]
+# so each job compiles only the code for its target.
 
 name: desktop-ci
 
@@ -31,24 +32,28 @@ permissions:
   contents: read
 
 jobs:
-  validate:
-    name: desktop (TypeScript + Rust on Linux)
-    # ubuntu-24.04 has newer libspa / pipewire headers that match what
-    # libspa-sys 0.9.x expects (the `flags` field on spa_video_info_raw
-    # was added in newer SPA than ubuntu-22.04 ships).
-    runs-on: ubuntu-24.04
+  rust-check:
+    name: cargo check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -56,12 +61,11 @@ jobs:
           workspaces: subpackage/cli/packages/desktop/src-tauri
 
       - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         # Tauri 2 base deps + computer-use extras.
         # xcap needs libclang-dev + libxcb1-dev + libxrandr-dev + libpipewire-0.3-dev
-        # at build time (libpipewire-0.3-dev pulls libspa-0.2-dev transitively,
-        # required by libspa-sys which xcap's PipeWire capture backend links).
-        # enigo's x11rb backend needs libxcb1-dev.
-        # Future Linux AT-SPI support will need libatspi2-dev + libdbus-1-dev.
+        # at build time. enigo's x11rb backend needs libxcb1-dev.
+        # Linux AT-SPI support needs libatspi2-dev + libdbus-1-dev.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -78,10 +82,28 @@ jobs:
             libxrandr-dev \
             libxdo-dev \
             libdbus-1-dev \
+            libatspi2.0-dev \
             libpipewire-0.3-dev \
             libspa-0.2-dev \
             libwayland-dev \
             libegl-dev
+
+      - name: Rust check (cargo check)
+        working-directory: subpackage/cli/packages/desktop
+        run: cargo check --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
+
+  ts-check:
+    name: TypeScript check (Linux)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
 
       - name: Install npm dependencies
         working-directory: subpackage/cli/packages/desktop
@@ -94,7 +116,3 @@ jobs:
       - name: Frontend build
         working-directory: subpackage/cli/packages/desktop
         run: npm run build:frontend
-
-      - name: Rust check (cargo check)
-        working-directory: subpackage/cli/packages/desktop
-        run: cargo check --manifest-path src-tauri/Cargo.toml
