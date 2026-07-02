@@ -33,7 +33,10 @@ permissions:
 jobs:
   validate:
     name: desktop (TypeScript + Rust on Linux)
-    runs-on: ubuntu-22.04
+    # ubuntu-24.04 has newer libspa / pipewire headers that match what
+    # libspa-sys 0.9.x expects (the `flags` field on spa_video_info_raw
+    # was added in newer SPA than ubuntu-22.04 ships).
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
