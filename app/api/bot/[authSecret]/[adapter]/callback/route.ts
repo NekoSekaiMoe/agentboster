@@ -513,7 +513,43 @@ async function handleDingtalkWebhook(
       msgtype?: string;
       text?: { content?: string };
       sessionWebhook?: string;
+      // Action card button click (sampleActionCard). DingTalk fires this
+      // when the user taps one of the card's btns; actionBtnId is the
+      // btns[].id we set in buildDecisionMsgParam (the l2:... payload).
+      actionCardAction?: {
+        actionBtnId?: string;
+        cardId?: string;
+      };
     };
+
+    // L2 button click → processL2Decision. Dispatched before the text
+    // branch so actionCard events (which have no text.content) are not
+    // silently ACKed above.
+    if (body.msgtype === 'actionCard' && body.actionCardAction?.actionBtnId) {
+      const actionStr = body.actionCardAction.actionBtnId;
+      const match =
+        /^l2:(pass_once|pass_until|reject_once|reject_until):(.+):(.+)$/.exec(
+          actionStr,
+        );
+      if (match) {
+        const [, action, taskId, decisionId] = match;
+        const { processL2Decision } = await import(
+          '@/lib/extra/agent/l2-decision'
+        );
+        after(() =>
+          processL2Decision({
+            taskId,
+            decisionId,
+            action,
+            chatId: body.conversationId ?? null,
+            userId: body.senderStaffId ?? null,
+          }).catch((error) => {
+            console.error('[bot/webhook] dingtalk L2 button error:', error);
+          }),
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
 
     // Only handle text messages for now (richText/picture/etc. need
     // downloadCode + rich processing). Don't reject other types — just

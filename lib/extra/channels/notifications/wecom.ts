@@ -4,6 +4,9 @@ import { createLogger } from '@/lib/utils/logger';
 import type { AdapterName } from '@/types/config';
 import type { NotificationChannel } from '../notification-channel';
 import type {
+  CompletionNotification,
+  DecisionNotification,
+  L2TimeInputNotification,
   NotificationPayload,
   NotificationSendResult,
 } from '../notification-types';
@@ -33,11 +36,10 @@ interface WecomConfig {
  *
  * Markdown is supported via the `markdown` msgtype but rendering varies
  * between mobile and desktop clients; we send plain text for
- * cross-client reliability. Rich L2 buttons would require
- * template_card with text_notice card_type, which the user can tap to
- * trigger a callback — not yet implemented because the L2 button
- * payload needs the same AES-encrypted callback path as inbound
- * messages, and the simpler text prompt is workable.
+ * cross-client reliability. L2 decisions are sent as interactive
+ * `template_card` (text_notice with button_list); the inbound
+ * `template_card_event` path in callback/route.ts routes the click to
+ * `processL2Decision`.
  */
 export class WecomNotificationChannel implements NotificationChannel {
   readonly type: AdapterName = 'wecom';
@@ -92,18 +94,28 @@ export class WecomNotificationChannel implements NotificationChannel {
         throw new Error('could not obtain wecom access token');
       }
 
-      const content = this.renderText(payload);
+      // L2 decision → interactive template_card (text_notice with button_list).
+      // The inbound handler at callback/route.ts (template_card_event) reads
+      // event.CardItem.Value, which WeCom sets to the clicked button's `key`.
+      // task_id is required and echoed back as event.TaskId so the host can
+      // correlate (we don't currently use it, but the API rejects the card
+      // without it).
+      const body =
+        payload.type === 'decision'
+          ? this.buildDecisionCardBody(targetChatId, payload)
+          : {
+              touser: targetChatId,
+              msgtype: 'text' as const,
+              agentid: Number.parseInt(this.config.agentId, 10),
+              text: { content: this.renderText(payload) },
+            };
+
       const resp = await fetch(
         `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            touser: targetChatId,
-            msgtype: 'text',
-            agentid: Number.parseInt(this.config.agentId, 10),
-            text: { content },
-          }),
+          body: JSON.stringify(body),
         },
       );
 
@@ -140,21 +152,9 @@ export class WecomNotificationChannel implements NotificationChannel {
     }
   }
 
-  private renderText(payload: NotificationPayload): string {
-    const locale: Locale = payload.locale ?? defaultLocale;
-    if (payload.type === 'decision') {
-      return [
-        `【${payload.title}】`,
-        ``,
-        `${t(locale, 'notify.field.task')}: ${payload.body}`,
-        `${t(locale, 'notify.field.command')}: ${payload.command}`,
-        `${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}/1.0`,
-        `${t(locale, 'notify.field.reason')}: ${payload.reason}`,
-        ``,
-        t(locale, 'notify.field.selectAction'),
-      ].join('\n');
-    }
-
+  private renderText(
+    payload: CompletionNotification | L2TimeInputNotification,
+  ): string {
     if (payload.type === 'l2_time_input') {
       return payload.promptMessage;
     }
@@ -166,5 +166,75 @@ export class WecomNotificationChannel implements NotificationChannel {
           ? '❌'
           : '⏹️';
     return `${emoji} 【${payload.title}】\n\n${payload.summary}`;
+  }
+
+  /**
+   * Build a WeCom template_card (text_notice) body for an L2 decision.
+   *
+   * The card carries the verdict context (command/score/reason) in
+   * source.desc + main_title + emphasis, plus a button_list whose `key`
+   * is the canonical `l2:<action>:<taskId>:<decisionId>` payload. When
+   * the user taps a button WeCom fires a `template_card_event` inbound
+   * webhook with `event.CardItem.Value === key` — handled in
+   * callback/route.ts.
+   *
+   * Reference: qyapi.weixin.qq.com/cgi-bin/message/send doc,
+   * msgtype = "template_card", card_type = "text_notice".
+   */
+  private buildDecisionCardBody(
+    targetChatId: string,
+    payload: DecisionNotification,
+  ): Record<string, unknown> {
+    const locale: Locale = payload.locale ?? defaultLocale;
+
+    type DecisionAction =
+      | 'pass_once'
+      | 'pass_until'
+      | 'reject_once'
+      | 'reject_until';
+    const actions: { action: DecisionAction; label: string }[] = [
+      { action: 'pass_once', label: `✅ ${t(locale, 'notify.l2.passOnce')}` },
+      {
+        action: 'pass_until',
+        label: `⏱ ${t(locale, 'notify.l2.passUntil')}`,
+      },
+      {
+        action: 'reject_once',
+        label: `❌ ${t(locale, 'notify.l2.rejectOnce')}`,
+      },
+      {
+        action: 'reject_until',
+        label: `🔕 ${t(locale, 'notify.l2.rejectUntil')}`,
+      },
+    ];
+
+    const buttons = actions.map(({ action, label }) => ({
+      text: label,
+      style: action.startsWith('reject') ? 2 : 1,
+      key: `l2:${action}:${payload.taskId}:${payload.decisionId}`,
+    }));
+
+    return {
+      touser: targetChatId,
+      msgtype: 'template_card',
+      agentid: Number.parseInt(this.config.agentId, 10),
+      template_card: {
+        card_type: 'text_notice',
+        source: {
+          desc: `${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}`,
+        },
+        main_title: {
+          title: payload.title,
+          desc: payload.body,
+        },
+        emphasis_content: {
+          title: payload.score.toFixed(1),
+          desc: t(locale, 'notify.field.score'),
+        },
+        sub_title_text: `${t(locale, 'notify.field.command')}: ${payload.command}\n${t(locale, 'notify.field.reason')}: ${payload.reason}`,
+        task_id: `${payload.taskId}:${payload.decisionId}`,
+        button_list: buttons,
+      },
+    };
   }
 }

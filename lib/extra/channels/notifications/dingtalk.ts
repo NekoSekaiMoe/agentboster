@@ -4,6 +4,9 @@ import { createLogger } from '@/lib/utils/logger';
 import type { AdapterName } from '@/types/config';
 import type { NotificationChannel } from '../notification-channel';
 import type {
+  CompletionNotification,
+  DecisionNotification,
+  L2TimeInputNotification,
   NotificationPayload,
   NotificationSendResult,
 } from '../notification-types';
@@ -29,7 +32,10 @@ interface DingtalkConfig {
  * DingTalk has no editMessage/deleteMessage for already-sent messages,
  * and the inbound webhook doesn't encrypt payloads (only HMAC-SHA256 sign
  * verify in headers, handled in callback/route.ts). So this channel is
- * pure plaintext send — no crypto needed (unlike WeCom/feishu).
+ * pure plaintext send — no crypto needed (unlike WeCom/feishu). L2
+ * decisions use the `sampleActionCard` msgKey with embedded btns whose
+ * id carries the canonical `l2:` payload; clicks come back as inbound
+ * `msgtype: 'actionCard'` events (handled in callback/route.ts).
  *
  * Quota: there is a daily send-volume cap; when exceeded, the inbound
  * webhook starts including an errorMessage field and text.content is
@@ -93,12 +99,26 @@ export class DingtalkNotificationChannel implements NotificationChannel {
         throw new Error('could not obtain dingtalk access token');
       }
 
-      const content = this.renderText(payload);
-      const isMarkdown = /[*_`#\-[\]]/.test(content);
-      const msgKey = isMarkdown ? 'sampleMarkdown' : 'sampleText';
-      const msgParam = isMarkdown
-        ? JSON.stringify({ title: payload.title ?? 'Agent', text: content })
-        : JSON.stringify({ content });
+      // L2 decision → interactive sampleActionCard. The card carries btns
+      // whose id is the canonical `l2:<action>:<taskId>:<decisionId>`
+      // payload; when the user taps a button the inbound webhook fires
+      // with msgtype === 'actionCard' and actionCardAction.actionBtnId
+      // set to that id, dispatched in handleDingtalkWebhook.
+      const isDecision = payload.type === 'decision';
+      const content = isDecision
+        ? this.renderDecisionCardText(payload)
+        : this.renderText(payload);
+      const isMarkdown = !isDecision && /[*_`#\-[\]]/.test(content);
+      const msgKey = isDecision
+        ? 'sampleActionCard'
+        : isMarkdown
+          ? 'sampleMarkdown'
+          : 'sampleText';
+      const msgParam = isDecision
+        ? this.buildDecisionMsgParam(payload)
+        : isMarkdown
+          ? JSON.stringify({ title: payload.title ?? 'Agent', text: content })
+          : JSON.stringify({ content });
 
       const isGroup = targetChatId.startsWith('group:');
       const conversationId = isGroup
@@ -165,21 +185,9 @@ export class DingtalkNotificationChannel implements NotificationChannel {
     }
   }
 
-  private renderText(payload: NotificationPayload): string {
-    const locale: Locale = payload.locale ?? defaultLocale;
-    if (payload.type === 'decision') {
-      return [
-        `**${payload.title}**`,
-        ``,
-        `${t(locale, 'notify.field.task')}: ${payload.body}`,
-        `${t(locale, 'notify.field.command')}: \`${payload.command}\``,
-        `${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}/1.0`,
-        `${t(locale, 'notify.field.reason')}: ${payload.reason}`,
-        ``,
-        t(locale, 'notify.field.selectAction'),
-      ].join('\n');
-    }
-
+  private renderText(
+    payload: CompletionNotification | L2TimeInputNotification,
+  ): string {
     if (payload.type === 'l2_time_input') {
       return payload.promptMessage;
     }
@@ -191,5 +199,60 @@ export class DingtalkNotificationChannel implements NotificationChannel {
           ? '❌'
           : '⏹️';
     return `${emoji} **${payload.title}**\n\n${payload.summary}`;
+  }
+
+  /**
+   * Body text for the sampleActionCard. Markdown is supported inside
+   * actionCard text, so we keep the verdict context as a bulleted
+   * summary. The buttons (rendered separately via buildDecisionMsgParam)
+   * carry the L2 payload, not the text.
+   */
+  private renderDecisionCardText(payload: DecisionNotification): string {
+    const locale: Locale = payload.locale ?? defaultLocale;
+    return [
+      `**${payload.body}**`,
+      '',
+      `- ${t(locale, 'notify.field.command')}: \`${payload.command}\``,
+      `- ${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}/1.0`,
+      `- ${t(locale, 'notify.field.reason')}: ${payload.reason}`,
+    ].join('\n');
+  }
+
+  /**
+   * Build msgParam for sampleActionCard. DingTalk robot's actionCard
+   * supports a `btns` array; each entry's `title` is the visible label
+   * and `id` is echoed back as actionCardAction.actionBtnId on the
+   * inbound click event. We embed the canonical L2 payload there.
+   */
+  private buildDecisionMsgParam(payload: DecisionNotification): string {
+    const locale: Locale = payload.locale ?? defaultLocale;
+    type DecisionAction =
+      | 'pass_once'
+      | 'pass_until'
+      | 'reject_once'
+      | 'reject_until';
+    const actions: { action: DecisionAction; label: string }[] = [
+      { action: 'pass_once', label: `✅ ${t(locale, 'notify.l2.passOnce')}` },
+      {
+        action: 'pass_until',
+        label: `⏱ ${t(locale, 'notify.l2.passUntil')}`,
+      },
+      {
+        action: 'reject_once',
+        label: `❌ ${t(locale, 'notify.l2.rejectOnce')}`,
+      },
+      {
+        action: 'reject_until',
+        label: `🔕 ${t(locale, 'notify.l2.rejectUntil')}`,
+      },
+    ];
+    return JSON.stringify({
+      title: payload.title,
+      text: this.renderDecisionCardText(payload),
+      btns: actions.map(({ action, label }) => ({
+        title: label,
+        id: `l2:${action}:${payload.taskId}:${payload.decisionId}`,
+      })),
+    });
   }
 }
