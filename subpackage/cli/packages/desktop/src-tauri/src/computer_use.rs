@@ -313,7 +313,7 @@ mod ax_windows {
     pub fn node_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
         let automation = UIAutomation::new().map_err(|e| e.to_string())?;
         let element = automation
-            .element_from_point(Point::new(x as f64, y as f64))
+            .element_from_point(Point::new(x, y))
             .map_err(|e| e.to_string())?;
         Ok(convert(&automation, &element, max_depth))
     }
