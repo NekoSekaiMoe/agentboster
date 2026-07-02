@@ -40,6 +40,17 @@ function isAlwaysBypassPath(pathname: string): boolean {
     return true;
   }
 
+  // Public L2 decision URL-button endpoint. Used by IM adapters that
+  // cannot render native callback buttons (e.g. QQ, which gates button
+  // messages behind per-bot permission approval). The link carries an
+  // HMAC-SHA256 signature + expiry in query params; verification happens
+  // in the route handler itself (lib/security/l2-link.ts). Bypassing
+  // the session gate here is required because IM users may not have a
+  // web account.
+  if (pathname === '/api/l2' || pathname.startsWith('/api/l2/')) {
+    return true;
+  }
+
   return isPublicAssetPath(pathname);
 }
 

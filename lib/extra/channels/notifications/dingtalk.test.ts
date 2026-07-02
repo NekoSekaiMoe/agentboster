@@ -10,7 +10,12 @@ const baseDecisionPayload = {
   command: 'rm -rf /tmp/build',
   score: 0.92,
   reason: 'destructive',
-  options: ['pass_once', 'pass_until', 'reject_once', 'reject_until'],
+  options: ['pass_once', 'pass_until', 'reject_once', 'reject_until'] as [
+    'pass_once',
+    'pass_until',
+    'reject_once',
+    'reject_until',
+  ],
   expiresAt: '2026-01-01T00:00:00Z',
 };
 

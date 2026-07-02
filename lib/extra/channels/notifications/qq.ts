@@ -1,9 +1,13 @@
 import { defaultLocale, type Locale } from '@/lib/i18n';
 import { t } from '@/lib/i18n/server';
+import { signL2Link } from '@/lib/security/l2-link';
 import { createLogger } from '@/lib/utils/logger';
 import type { AdapterName } from '@/types/config';
 import type { NotificationChannel } from '../notification-channel';
 import type {
+  CompletionNotification,
+  DecisionNotification,
+  L2TimeInputNotification,
   NotificationPayload,
   NotificationSendResult,
 } from '../notification-types';
@@ -77,7 +81,10 @@ export class QQNotificationChannel implements NotificationChannel {
         throw new Error('could not obtain qq access token');
       }
 
-      const content = this.renderText(payload);
+      const content =
+        payload.type === 'decision'
+          ? this.renderDecision(payload)
+          : this.renderText(payload);
 
       const resp = await fetch(
         `https://api.sgroup.qq.com/channels/${targetChatId}/messages`,
@@ -114,34 +121,23 @@ export class QQNotificationChannel implements NotificationChannel {
     }
   }
 
-  // L2 decision prompts are rendered as plain text here, not as
-  // keyboard buttons. QQ Official Bot's keyboard markup requires
-  // platform-approved "button permission" per-bot, and QQ doesn't go
-  // through chat-sdk (so the bot.onAction catch-all in lib/bot/index.ts
-  // would never receive QQ button clicks anyway — a separate handler
-  // in callback/route.ts would be needed). Until both gating issues
-  // are resolved, QQ users respond to L2 prompts via natural language
-  // ("放行" / "拒绝"); the text prompt below carries the same context.
+  // L2 decisions on QQ are rendered as markdown links rather than
+  // callback buttons. QQ's keyboard/button API requires per-bot
+  // "button permission" approval from Tencent (gate we can't satisfy
+  // programmatically), and QQ doesn't go through chat-sdk so the
+  // bot.onAction catch-all wouldn't fire anyway. Each link points at
+  // the public /api/l2/<decisionId>/<action> route with an HMAC
+  // signature (lib/security/l2-link.ts); clicking opens a minimal
+  // confirmation page in QQ's in-app browser. Any IM client that
+  // supports markdown links (which is all of them) gets a working
+  // decision UX without platform-specific button permission.
 
-  private renderText(payload: NotificationPayload): string {
-    const locale: Locale = payload.locale ?? defaultLocale;
-    if (payload.type === 'decision') {
-      return [
-        `**${payload.title}**`,
-        ``,
-        `${t(locale, 'notify.field.task')}: ${payload.body}`,
-        `${t(locale, 'notify.field.command')}: \`${payload.command}\``,
-        `${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}/1.0`,
-        `${t(locale, 'notify.field.reason')}: ${payload.reason}`,
-        ``,
-        t(locale, 'notify.field.selectAction'),
-      ].join('\n');
-    }
-
+  private renderText(
+    payload: CompletionNotification | L2TimeInputNotification,
+  ): string {
     if (payload.type === 'l2_time_input') {
       return payload.promptMessage;
     }
-
     const emoji =
       payload.status === 'completed'
         ? '✅'
@@ -149,5 +145,46 @@ export class QQNotificationChannel implements NotificationChannel {
           ? '❌'
           : '⏹️';
     return `${emoji} **${payload.title}**\n\n${payload.summary}`;
+  }
+
+  private renderDecision(payload: DecisionNotification): string {
+    const locale: Locale = payload.locale ?? defaultLocale;
+    const actions: { action: string; label: string }[] = [
+      { action: 'pass_once', label: `✅ ${t(locale, 'notify.l2.passOnce')}` },
+      {
+        action: 'pass_until',
+        label: `⏱ ${t(locale, 'notify.l2.passUntil')}`,
+      },
+      {
+        action: 'reject_once',
+        label: `❌ ${t(locale, 'notify.l2.rejectOnce')}`,
+      },
+      {
+        action: 'reject_until',
+        label: `🔕 ${t(locale, 'notify.l2.rejectUntil')}`,
+      },
+    ];
+
+    const origin = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const lines = actions.map(({ action, label }) => {
+      const { params } = signL2Link({
+        decisionId: payload.decisionId,
+        action,
+      });
+      const url = `${origin}/api/l2/${payload.decisionId}/${action}?${params}`;
+      return `- [${label}](${url})`;
+    });
+
+    return [
+      `**${payload.title}**`,
+      '',
+      `${t(locale, 'notify.field.task')}: ${payload.body}`,
+      `${t(locale, 'notify.field.command')}: \`${payload.command}\``,
+      `${t(locale, 'notify.field.score')}: ${payload.score.toFixed(1)}/1.0`,
+      `${t(locale, 'notify.field.reason')}: ${payload.reason}`,
+      '',
+      t(locale, 'notify.field.selectAction'),
+      ...lines,
+    ].join('\n');
   }
 }
