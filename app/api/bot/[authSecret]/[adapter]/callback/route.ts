@@ -75,7 +75,8 @@ async function handleFeishuWebhook(
         const payload = {
           adapter: 'feishu' as const,
           origin: event.message.chat_id,
-          threadId: event.message.message_id,
+          threadId: event.message.chat_id,
+          messageId: event.message.message_id,
           userId: event.sender?.sender_id?.open_id || null,
           userName: event.sender?.sender_id?.open_id || null,
           text: event.message.content || '',
@@ -155,11 +156,19 @@ async function handleQQWebhook(request: NextRequest): Promise<NextResponse> {
       if (d?.content && d?.author) {
         const { routeAdapterMessage } = await import('@/lib/chat/index');
         const isGroup = !!d.group_openid;
-        // Fire-and-forget — see the feishu branch above for rationale.
+        // threadId must be the message-target id (channel id for guild
+        // channels, group_openid for group messages) so the
+        // QQBotAdapter.postMessage can POST to /channels/{threadId}/messages.
+        // Previously this was d.id (the inbound message id), which is not
+        // a valid send target.
+        const targetId = isGroup
+          ? d.group_openid
+          : (d.channel_id ?? d.author.id);
         const payload = {
           adapter: 'qq' as const,
-          origin: isGroup ? d.group_openid : d.author.id,
-          threadId: d.id,
+          origin: targetId,
+          threadId: targetId,
+          messageId: d.id,
           userId: d.author.id,
           userName: d.author.username || d.author.id,
           text: d.content || '',

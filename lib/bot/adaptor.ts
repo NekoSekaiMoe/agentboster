@@ -5,20 +5,16 @@ export {
   type BotCapabilities,
 } from './capabilities';
 
-type ChatSdkAdapterName = 'discord' | 'gchat' | 'slack' | 'teams' | 'telegram';
+type ChatSdkAdapterName =
+  | 'discord'
+  | 'gchat'
+  | 'slack'
+  | 'teams'
+  | 'telegram'
+  | 'feishu'
+  | 'qq';
 
 type BotAdapters = Partial<Record<ChatSdkAdapterName, Adapter>>;
-
-type ExtraAdapters = {
-  feishuEvents?: {
-    encryptKey?: string;
-    verificationToken?: string;
-  };
-  qqWebhook?: {
-    port?: number;
-    path?: string;
-  };
-};
 
 export async function createBotAdapters(
   channels?: ChannelsConfig,
@@ -80,29 +76,33 @@ export async function createBotAdapters(
     });
   }
 
-  // Feishu and QQ use their own SDKs, not Chat SDK adapters
-  // They are initialized separately in createExtraAdapters
-
-  return adapters;
-}
-
-export function createExtraAdapters(channels?: ChannelsConfig): ExtraAdapters {
-  const extra: ExtraAdapters = {};
-
+  // Feishu/QQ don't have @chat-adapter packages, so we register lightweight
+  // Adapter shims (lib/bot/feishu-adapter.ts, lib/bot/qq-adapter.ts) that
+  // implement postMessage/editMessage against each platform's REST API.
+  // Without these, bot.getAdapter('feishu' | 'qq') returns undefined and
+  // every outbound IM path (im-stream, reply, voice fallback) NPEs even
+  // though inbound routing works. See lib/bot/adaptor.ts header.
   if (channels?.feishu?.enabled) {
+    const { asFeishuAdapter } = await import('./feishu-adapter');
     const cfg = channels.feishu;
-    extra.feishuEvents = {
-      encryptKey: cfg.encrypt_key || undefined,
-      verificationToken: cfg.verification_token || undefined,
-    };
+    if (cfg.app_id && cfg.app_secret) {
+      adapters.feishu = asFeishuAdapter({
+        appId: cfg.app_id,
+        appSecret: cfg.app_secret,
+      });
+    }
   }
 
   if (channels?.qq?.enabled) {
-    extra.qqWebhook = {
-      port: 3001,
-      path: '/api/bot/qq/callback',
-    };
+    const { asQQAdapter } = await import('./qq-adapter');
+    const cfg = channels.qq;
+    if (cfg.appid && cfg.secret) {
+      adapters.qq = asQQAdapter({
+        appId: cfg.appid,
+        appSecret: cfg.secret,
+      });
+    }
   }
 
-  return extra;
+  return adapters;
 }

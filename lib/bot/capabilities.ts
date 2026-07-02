@@ -11,9 +11,9 @@ const CAPABILITY_MAP: Partial<Record<AdapterName, BotCapabilities>> = {
   discord: { delete: true, edit: true, reaction: true },
   slack: { delete: true, edit: true, reaction: true },
   teams: { delete: true, edit: true, reaction: false },
-  gchat: { delete: false, edit: true, reaction: false },
-  feishu: { delete: false, edit: false, reaction: false },
-  qq: { delete: false, edit: false, reaction: false },
+  gchat: { delete: false, edit: false, reaction: false },
+  feishu: { delete: true, edit: true, reaction: false },
+  qq: { delete: true, edit: true, reaction: false },
 };
 
 export function getBotCapabilities(adapter: string): BotCapabilities {
