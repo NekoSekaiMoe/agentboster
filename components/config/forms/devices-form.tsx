@@ -189,7 +189,7 @@ export function DevicesForm() {
                         </span>
                       ) : null}
                     </div>
-                    <div className="text-muted-foreground flex items-center gap-1 text-xs">
+                    <div className="flex items-center gap-1 text-muted-foreground text-xs">
                       <Clock className="size-3" />
                       {t('config.devices.expiresIn', {
                         seconds: pc.expiresInSeconds,
@@ -238,7 +238,7 @@ export function DevicesForm() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="text-muted-foreground py-8 text-center text-sm">
+            <div className="py-8 text-center text-muted-foreground text-sm">
               <Loader2 className="mx-auto size-6 animate-spin" />
             </div>
           ) : data?.devices && data.devices.length > 0 ? (
@@ -250,7 +250,7 @@ export function DevicesForm() {
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">
+                      <span className="font-medium text-sm">
                         {d.label || t('config.devices.unlabeled')}
                       </span>
                       {d.active ? (
@@ -285,7 +285,7 @@ export function DevicesForm() {
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground py-4 text-center text-sm">
+            <p className="py-4 text-center text-muted-foreground text-sm">
               {t('config.devices.noDevices')}
             </p>
           )}
