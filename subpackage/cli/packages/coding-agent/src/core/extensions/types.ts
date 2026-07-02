@@ -311,6 +311,23 @@ export interface ExtensionUIContext {
 
   /** Set tool output expansion state. */
   setToolsExpanded(expanded: boolean): void;
+
+  /**
+   * Invoke a computer-use capability on the host (desktop app only).
+   *
+   * Returns the raw result bytes/object for the given action. In
+   * interactive (TUI) mode this always rejects with an error —
+   * computer use is only wired up when running under the desktop app
+   * via RPC mode.
+   *
+   * `action` is one of: 'screenshot' | 'mouse_move' | 'mouse_click' |
+   * 'mouse_drag' | 'key_event' | 'type_text' | 'get_ax_at_point' |
+   * 'get_focused_ax'. `params` is the action-specific argument object.
+   */
+  computerUse(
+    action: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown>;
 }
 
 // ============================================================================

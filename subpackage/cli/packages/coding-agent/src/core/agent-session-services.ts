@@ -71,6 +71,8 @@ export interface CreateAgentSessionFromServicesOptions {
   excludeTools?: CreateAgentSessionOptions['excludeTools'];
   noTools?: CreateAgentSessionOptions['noTools'];
   customTools?: ToolDefinition[];
+  /** Register the built-in computer-use tools (desktop-only). */
+  enableComputerUse?: boolean;
   /** Override the LLM streaming function. Default: built-in provider SDKs. */
   streamFnOverride?: StreamFn;
 }
@@ -221,6 +223,7 @@ export async function createAgentSessionFromServices(
     excludeTools: options.excludeTools,
     noTools: options.noTools,
     customTools: options.customTools,
+    enableComputerUse: options.enableComputerUse,
     sessionStartEvent: options.sessionStartEvent,
     streamFnOverride: options.streamFnOverride,
   });

@@ -284,6 +284,10 @@ const noOpUIContext: ExtensionUIContext = {
   }),
   getToolsExpanded: () => false,
   setToolsExpanded: () => {},
+  computerUse: () =>
+    Promise.reject(
+      new Error('computer use is only available in desktop RPC mode'),
+    ),
 };
 
 export class ExtensionRunner {

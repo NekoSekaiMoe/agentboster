@@ -308,6 +308,16 @@ export {
   type WriteToolInput,
   type WriteToolOptions,
   withFileMutationQueue,
+  createComputerUseToolDefinitions,
+  type ComputerUseToolDetails,
+  type GetAxAtPointToolInput,
+  type GetFocusedAxToolInput,
+  type KeyEventToolInput,
+  type MouseClickToolInput,
+  type MouseDragToolInput,
+  type MouseMoveToolInput,
+  type ScreenshotToolInput,
+  type TypeTextToolInput,
 } from './core/tools/index.ts';
 export {
   hasTrustRequiringProjectResources,

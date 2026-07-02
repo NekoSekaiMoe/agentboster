@@ -2416,6 +2416,12 @@ export class InteractiveMode {
       },
       getToolsExpanded: () => this.toolOutputExpanded,
       setToolsExpanded: (expanded) => this.setToolsExpanded(expanded),
+      computerUse: () =>
+        Promise.reject(
+          new Error(
+            'computer use is only available in the desktop app, not in TUI mode',
+          ),
+        ),
     };
   }
 

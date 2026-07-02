@@ -884,6 +884,11 @@ export async function main(args: string[], options?: MainOptions) {
       excludeTools: sessionOptions.excludeTools,
       noTools: getStoredAuth() ? ('builtin' as const) : sessionOptions.noTools,
       customTools: sessionOptions.customTools,
+      // Enable the built-in computer-use tools when running under the
+      // desktop host. They forward every call to the desktop via the
+      // ExtensionUIContext.computerUse reverse-RPC channel; harmless in
+      // other modes (each call rejects with a clear error).
+      enableComputerUse: appMode === 'rpc',
       streamFnOverride: await resolveStreamFnOverride(
         sessionManager,
         undefined,

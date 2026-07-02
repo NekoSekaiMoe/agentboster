@@ -10,6 +10,33 @@ export {
   createLocalBashOperations,
 } from './bash.ts';
 export {
+  type ComputerUseToolDetails,
+  createGetAxAtPointTool,
+  createGetAxAtPointToolDefinition,
+  createGetFocusedAxTool,
+  createGetFocusedAxToolDefinition,
+  type GetAxAtPointToolInput,
+  type GetFocusedAxToolInput,
+  createKeyEventTool,
+  createKeyEventToolDefinition,
+  type KeyEventToolInput,
+  createMouseClickTool,
+  createMouseClickToolDefinition,
+  type MouseClickToolInput,
+  createMouseDragTool,
+  createMouseDragToolDefinition,
+  type MouseDragToolInput,
+  createMouseMoveTool,
+  createMouseMoveToolDefinition,
+  type MouseMoveToolInput,
+  createScreenshotTool,
+  createScreenshotToolDefinition,
+  type ScreenshotToolInput,
+  createTypeTextTool,
+  createTypeTextToolDefinition,
+  type TypeTextToolInput,
+} from './computer-use.ts';
+export {
   createEditTool,
   createEditToolDefinition,
   type EditOperations,
@@ -75,6 +102,16 @@ import {
   createBashTool,
   createBashToolDefinition,
 } from './bash.ts';
+import {
+  createGetAxAtPointToolDefinition,
+  createGetFocusedAxToolDefinition,
+  createKeyEventToolDefinition,
+  createMouseClickToolDefinition,
+  createMouseDragToolDefinition,
+  createMouseMoveToolDefinition,
+  createScreenshotToolDefinition,
+  createTypeTextToolDefinition,
+} from './computer-use.ts';
 import {
   createEditTool,
   createEditToolDefinition,
@@ -259,4 +296,28 @@ export function createAllTools(
     find: createFindTool(cwd, options?.find),
     ls: createLsTool(cwd, options?.ls),
   };
+}
+
+/**
+ * Computer-use tool definitions (screenshot / input / AX). These are NOT
+ * included in `createAllToolDefinitions` because they should only be
+ * registered when running under the desktop app (RPC mode), where the
+ * `ExtensionUIContext.computerUse` bridge is wired up. In other modes
+ * they reject with a clear error.
+ *
+ * Caller is expected to merge these into the base tool registry when
+ * appropriate, e.g. `agent-session.ts` adds them when the host advertises
+ * computer-use capability.
+ */
+export function createComputerUseToolDefinitions(): ToolDef[] {
+  return [
+    createScreenshotToolDefinition(),
+    createMouseMoveToolDefinition(),
+    createMouseClickToolDefinition(),
+    createMouseDragToolDefinition(),
+    createKeyEventToolDefinition(),
+    createTypeTextToolDefinition(),
+    createGetAxAtPointToolDefinition(),
+    createGetFocusedAxToolDefinition(),
+  ];
 }

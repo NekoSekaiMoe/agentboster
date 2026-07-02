@@ -360,6 +360,35 @@ export async function runRpcMode(
     setToolsExpanded(_expanded: boolean) {
       // Tool expansion not supported in RPC mode - no TUI
     },
+
+    async computerUse(action, params) {
+      // Route to the desktop host via the existing extension_ui_request
+      // reverse-RPC channel. The desktop frontend handles method
+      // 'computer_use' by invoking the matching Tauri command and
+      // replying with the result (or an error).
+      return createDialogPromise(
+        undefined,
+        undefined,
+        { method: 'computer_use', action, params },
+        (r) => {
+          if ('cancelled' in r && r.cancelled) return undefined;
+          if ('error' in r && r.error) {
+            throw new Error(String(r.error));
+          }
+          // The desktop always serializes the Tauri result into `value`
+          // as a JSON string; parse it back. For screenshot (binary), the
+          // value is a base64 string and the caller handles decoding.
+          if ('value' in r && typeof r.value === 'string') {
+            try {
+              return JSON.parse(r.value);
+            } catch {
+              return r.value;
+            }
+          }
+          return undefined;
+        },
+      );
+    },
   });
 
   runtimeHost.setRebindSession(async () => {

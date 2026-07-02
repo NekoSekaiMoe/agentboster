@@ -90,6 +90,16 @@ export interface CreateAgentSessionOptions {
   /** Custom tools to register (in addition to built-in tools). */
   customTools?: ToolDefinition[];
 
+  /**
+   * Register the built-in computer-use tools (screenshot, mouse_*,
+   * key_event, type_text, get_ax_*). When true the eight tools are
+   * added to the base tool registry. They only function under the
+   * desktop app's RPC host; in other modes each call rejects with a
+   * clear error, so enabling them is harmless but noisy. Defaults to
+   * false.
+   */
+  enableComputerUse?: boolean;
+
   /** Resource loader. When omitted, DefaultResourceLoader is used. */
   resourceLoader?: ResourceLoader;
 
@@ -417,6 +427,7 @@ export async function createAgentSession(
     scopedModels: options.scopedModels,
     resourceLoader,
     customTools: options.customTools,
+    enableComputerUse: options.enableComputerUse,
     modelRegistry,
     initialActiveToolNames,
     allowedToolNames,

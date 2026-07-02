@@ -376,6 +376,23 @@ export type RpcExtensionUIRequest =
       id: string;
       method: 'set_editor_text';
       text: string;
+    }
+  | {
+      type: 'extension_ui_request';
+      id: string;
+      method: 'computer_use';
+      /** Computer-use action name; matches a Tauri command in computer_use.rs. */
+      action:
+        | 'screenshot'
+        | 'mouse_move'
+        | 'mouse_click'
+        | 'mouse_drag'
+        | 'key_event'
+        | 'type_text'
+        | 'get_ax_at_point'
+        | 'get_focused_ax';
+      /** Action-specific parameters, passed through to the Tauri command. */
+      params: Record<string, unknown>;
     };
 
 // ============================================================================
@@ -386,7 +403,8 @@ export type RpcExtensionUIRequest =
 export type RpcExtensionUIResponse =
   | { type: 'extension_ui_response'; id: string; value: string }
   | { type: 'extension_ui_response'; id: string; confirmed: boolean }
-  | { type: 'extension_ui_response'; id: string; cancelled: true };
+  | { type: 'extension_ui_response'; id: string; cancelled: true }
+  | { type: 'extension_ui_response'; id: string; error: string };
 
 // ============================================================================
 // Helper type for extracting command types

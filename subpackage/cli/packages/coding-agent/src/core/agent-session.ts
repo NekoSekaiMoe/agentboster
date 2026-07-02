@@ -170,7 +170,10 @@ import {
   type BashOperations,
   createLocalBashOperations,
 } from './tools/bash.ts';
-import { createAllToolDefinitions } from './tools/index.ts';
+import {
+  createAllToolDefinitions,
+  createComputerUseToolDefinitions,
+} from './tools/index.ts';
 import {
   createTaskProgressToolDefinition,
   createTaskSummaryToolDefinition,
@@ -262,6 +265,8 @@ export interface AgentSessionConfig {
   resourceLoader: ResourceLoader;
   /** SDK custom tools registered outside extensions */
   customTools?: ToolDefinition[];
+  /** Register built-in computer-use tools (desktop-only, default false). */
+  enableComputerUse?: boolean;
   /** Model registry for API key resolution and model discovery */
   modelRegistry: ModelRegistry;
   /** Initial active built-in tool names. Default: [read, bash, edit, write] */
@@ -421,6 +426,7 @@ export class AgentSession {
 
   private _resourceLoader: ResourceLoader;
   private _customTools: ToolDefinition[];
+  private _enableComputerUse: boolean;
   private _baseToolDefinitions: Map<string, ToolDefinition> = new Map();
   private _cwd: string;
   private _extensionRunnerRef?: { current?: ExtensionRunner };
@@ -457,6 +463,7 @@ export class AgentSession {
     this._scopedModels = config.scopedModels ?? [];
     this._resourceLoader = config.resourceLoader;
     this._customTools = config.customTools ?? [];
+    this._enableComputerUse = config.enableComputerUse === true;
     this._cwd = config.cwd;
     this._modelRegistry = config.modelRegistry;
     this._extensionRunnerRef = config.extensionRunnerRef;
@@ -2854,6 +2861,16 @@ export class AgentSession {
         'task_progress',
         createTaskProgressToolDefinition(taskOpts),
       );
+    }
+
+    // Register the built-in computer-use tools when the host opted in.
+    // These tools forward every call to the desktop app via
+    // ExtensionUIContext.computerUse; in non-desktop hosts each call
+    // rejects with a clear error so the tools remain inert.
+    if (this._enableComputerUse) {
+      for (const def of createComputerUseToolDefinitions()) {
+        this._baseToolDefinitions.set(def.name, def);
+      }
     }
 
     const extensionsResult = this._resourceLoader.getExtensions();
