@@ -2,7 +2,6 @@ import { createLogger } from '@/lib/utils/logger';
 import { getConfig as getAppConfig } from '@/lib/core/kv/config';
 import { requestAgentd } from './agentd-http';
 import type { AgentdHttpConfig } from './agentd-http';
-import { readFileSync } from 'node:fs';
 
 const logger = createLogger('agentd-tools-client');
 
@@ -42,11 +41,13 @@ export async function getAgentdClientConfig(): Promise<AgentdHttpConfig> {
     process.env.AGENTD_CLIENT_CERT_PATH &&
     process.env.AGENTD_CLIENT_KEY_PATH
   ) {
+    const { readFileSync } = await import('node:fs');
     config.cert = readFileSync(process.env.AGENTD_CLIENT_CERT_PATH);
     config.key = readFileSync(process.env.AGENTD_CLIENT_KEY_PATH);
   }
 
   if (process.env.AGENTD_CA_PATH) {
+    const { readFileSync } = await import('node:fs');
     config.ca = readFileSync(process.env.AGENTD_CA_PATH);
   }
 
@@ -138,7 +139,7 @@ export async function execToolOnAgentd(
   const nodeUrl =
     matchedUrl || process.env.AGENTD_URL || `http://${node.ip}:${node.port}`;
 
-  const config = buildAgentdHttpConfig(nodeUrl);
+  const config = await buildAgentdHttpConfig(nodeUrl);
   const req: AgentdToolExecRequest = {
     session_id: sessionId,
     tool_name: toolName,
@@ -167,7 +168,9 @@ export async function execToolOnAgentd(
  * Not marked `'use step'` so route handlers (which are not workflow
  * steps) can reuse it.
  */
-export function buildAgentdHttpConfig(baseUrl: string): AgentdHttpConfig {
+export async function buildAgentdHttpConfig(
+  baseUrl: string,
+): Promise<AgentdHttpConfig> {
   const config: AgentdHttpConfig = {
     baseUrl,
     apiKey: process.env.AGENTD_API_KEY ?? '',
@@ -177,11 +180,13 @@ export function buildAgentdHttpConfig(baseUrl: string): AgentdHttpConfig {
     process.env.AGENTD_CLIENT_CERT_PATH &&
     process.env.AGENTD_CLIENT_KEY_PATH
   ) {
+    const { readFileSync } = await import('node:fs');
     config.cert = readFileSync(process.env.AGENTD_CLIENT_CERT_PATH);
     config.key = readFileSync(process.env.AGENTD_CLIENT_KEY_PATH);
   }
 
   if (process.env.AGENTD_CA_PATH) {
+    const { readFileSync } = await import('node:fs');
     config.ca = readFileSync(process.env.AGENTD_CA_PATH);
   }
 

@@ -156,11 +156,14 @@ export const POST = withCliAuth(async (request, { userId }) => {
   }
 
   try {
-    const result = await dispatchToolToAgentd(buildAgentdHttpConfig(nodeUrl), {
-      session_id: sessionId,
-      tool_name: mapped.name,
-      tool_input: mapped.input,
-    });
+    const result = await dispatchToolToAgentd(
+      await buildAgentdHttpConfig(nodeUrl),
+      {
+        session_id: sessionId,
+        tool_name: mapped.name,
+        tool_input: mapped.input,
+      },
+    );
     return Response.json({ ok: true, result });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
