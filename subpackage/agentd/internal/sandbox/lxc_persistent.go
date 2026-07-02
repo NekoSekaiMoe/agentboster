@@ -119,16 +119,18 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 
 	time.Sleep(2 * time.Second)
 
-	if isNew && len(spec.InitCommands) > 0 {
+	if len(spec.InitCommands) > 0 {
 		for _, initCmd := range spec.InitCommands {
 			cmd := exec.Command("lxc-attach", "-n", containerName, "-P", p.rootfsBase, "--", "sh", "-c", initCmd)
 			if output, err := cmd.CombinedOutput(); err != nil {
 				slog.Warn("lxc init command failed", "cmd", initCmd, "error", err, "output", string(output))
 			}
 		}
-		p.mu.Lock()
-		p.initialized[id] = true
-		p.mu.Unlock()
+		if isNew {
+			p.mu.Lock()
+			p.initialized[id] = true
+			p.mu.Unlock()
+		}
 	}
 
 	sb := &Sandbox{
@@ -196,6 +198,38 @@ func (p *LXCPersistentProvider) Exec(sandboxID, cmd string, env map[string]strin
 	}
 
 	return result, nil
+}
+
+// Restart re-launches a stopped LXC persistent container without
+// recreating its rootfs. Used by the HealthChecker when it observes a
+// persistent container has been stopped (host crash, OOM, manual
+// lxc-stop) — instead of reaping it, we bring it back so the user's
+// desktop session can resume.
+//
+// The desktop stack (Xvfb/x11vnc/websockify) is NOT started here; it
+// is re-launched lazily by EnsureDesktop on the next desktop_* tool
+// call. We only clear the daemon-side "desktop ready" flag so that
+// next call doesn't trust a stale cache entry.
+func (p *LXCPersistentProvider) Restart(sandboxID string) error {
+	p.mu.Lock()
+	sb, ok := p.sandboxes[sandboxID]
+	p.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("sandbox %q not found", sandboxID)
+	}
+
+	startCmd := exec.Command("lxc-start", "-n", sb.Path, "-P", p.rootfsBase, "-d")
+	if output, err := startCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("lxc-start (restart) failed: %w (output: %s)", err, string(output))
+	}
+
+	// Give the container a moment to come up before any lxc-attach runs.
+	time.Sleep(2 * time.Second)
+
+	// Mark the sandbox back to ready so the manager map reflects reality.
+	sb.Status = "ready"
+	slog.Info("lxc sandbox restarted after unexpected stop", "id", sandboxID, "container", sb.Path)
+	return nil
 }
 
 // Destroy stops and optionally destroys the LXC container.

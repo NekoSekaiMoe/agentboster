@@ -145,7 +145,7 @@ func (h *HealthChecker) probeOne(sandboxID string) {
 	}
 
 	// Status reported destroyed or dead — bump failure counter and
-	// reap only after threshold consecutive observations.
+	// act only after threshold consecutive observations.
 	count := h.bumpFailure(sandboxID)
 	if count < h.failureThreshold {
 		slog.Debug("health_check: sandbox unhealthy, observing",
@@ -155,6 +155,27 @@ func (h *HealthChecker) probeOne(sandboxID string) {
 			"threshold", h.failureThreshold,
 		)
 		return
+	}
+
+	// Persistent sandboxes (LXC) are worth restarting — the user's
+	// rootfs + desktop session lives there. Try to bring the container
+	// back before falling back to Destroy. The desktop stack itself is
+	// re-launched lazily by EnsureDesktop on the next desktop_* call;
+	// its internal readySet entry will be invalidated by the fast-path
+	// probe miss (see EnsureDesktop in internal/agent/desktop).
+	if sb.Persistent {
+		if err := h.manager.RestartSandbox(sandboxID); err == nil {
+			slog.Info("health_check: restarted persistent sandbox",
+				"sandbox", sandboxID,
+			)
+			h.resetFailure(sandboxID)
+			return
+		} else {
+			slog.Warn("health_check: restart failed, falling back to destroy",
+				"sandbox", sandboxID,
+				"error", err,
+			)
+		}
 	}
 
 	slog.Warn("health_check: reaping dead sandbox",

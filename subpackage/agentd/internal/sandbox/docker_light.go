@@ -276,4 +276,11 @@ func (p *DockerLightProvider) Status(sandboxID string) (*Sandbox, error) {
 	return sb, nil
 }
 
+// Restart is not supported for lightweight Docker sandboxes — they are
+// ephemeral (docker rm on Destroy), so there is no rootfs to resume.
+// The HealthChecker falls back to Destroy for non-restartable providers.
+func (p *DockerLightProvider) Restart(sandboxID string) error {
+	return fmt.Errorf("restart not supported for docker-light sandboxes")
+}
+
 var _ SandboxProvider = (*DockerLightProvider)(nil)

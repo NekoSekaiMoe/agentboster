@@ -294,4 +294,10 @@ func (p *DockerProvider) SetPersistent(sandboxID string, persistent bool) {
 	}
 }
 
+// Restart is not supported for standard Docker sandboxes — they are
+// ephemeral (docker rm on Destroy). HealthChecker falls back to Destroy.
+func (p *DockerProvider) Restart(sandboxID string) error {
+	return fmt.Errorf("restart not supported for docker sandboxes")
+}
+
 var _ SandboxProvider = (*DockerProvider)(nil)

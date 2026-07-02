@@ -30,6 +30,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -71,7 +72,124 @@ const (
 var (
 	readySet   = make(map[string]bool)
 	readySetMu sync.RWMutex
+
+	// lastActivity tracks the last time a desktop_* tool touched each
+	// sandbox. The idle reaper uses it to tear down an idle desktop
+	// stack (Xvfb + x11vnc + websockify) so it stops consuming RAM
+	// while the agent is doing non-desktop work. The next desktop_*
+	// call re-launches the stack via EnsureDesktop.
+	lastActivity   = make(map[string]time.Time)
+	lastActivityMu sync.Mutex
+
+	// idleReaperStop shuts down the idle reaper goroutine. Started
+	// lazily on the first EnsureDesktop success; stopped by StopReaper.
+	idleReaperStop chan struct{}
+	idleReaperOnce sync.Once
+	reaperStopped  bool
+	reaperMu       sync.Mutex
 )
+
+// idleReaperInterval is how often the reaper wakes up to scan. The
+// default (5 min) is a var so tests can shrink it.
+var idleReaperInterval = 5 * time.Minute
+
+// idleReaperThreshold is how long a sandbox must be untouched before
+// its desktop stack is torn down. The default (30 min) is a var so
+// tests can shrink it.
+var idleReaperThreshold = 30 * time.Minute
+
+func touchActivity(sandboxID string) {
+	lastActivityMu.Lock()
+	defer lastActivityMu.Unlock()
+	lastActivity[sandboxID] = time.Now()
+}
+
+func lastActivityFor(sandboxID string) time.Time {
+	lastActivityMu.Lock()
+	defer lastActivityMu.Unlock()
+	return lastActivity[sandboxID]
+}
+
+func clearActivity(sandboxID string) {
+	lastActivityMu.Lock()
+	defer lastActivityMu.Unlock()
+	delete(lastActivity, sandboxID)
+}
+
+// startIdleReaper launches the background goroutine that tears down
+// idle desktop stacks. Idempotent — safe to call from every
+// EnsureDesktop success path; the sync.Once ensures only one goroutine.
+func startIdleReaper(getManager func() *sandbox.Manager) {
+	idleReaperOnce.Do(func() {
+		idleReaperStop = make(chan struct{})
+		go idleReaperLoop(getManager)
+	})
+}
+
+// StopReaper halts the idle reaper. Used by tests and daemon shutdown.
+func StopReaper() {
+	reaperMu.Lock()
+	defer reaperMu.Unlock()
+	if reaperStopped {
+		return
+	}
+	reaperStopped = true
+	if idleReaperStop != nil {
+		close(idleReaperStop)
+	}
+}
+
+func idleReaperLoop(getManager func() *sandbox.Manager) {
+	ticker := time.NewTicker(idleReaperInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-idleReaperStop:
+			return
+		case <-ticker.C:
+			reapIdleStacks(getManager())
+		}
+	}
+}
+
+// reapIdleStacks pkill's the desktop stack (Xvfb/x11vnc/websockify/
+// icewm/D-Bus) in any sandbox whose last desktop_* activity exceeds
+// idleReaperThreshold. The stack is restarted on demand by the next
+// EnsureDesktop call, so this is purely a memory-saving measure —
+// the user-visible effect is a few seconds of restart latency the
+// next time a desktop tool runs after a long idle period.
+func reapIdleStacks(sbMgr *sandbox.Manager) {
+	if sbMgr == nil {
+		return
+	}
+	now := time.Now()
+	lastActivityMu.Lock()
+	idle := make([]string, 0)
+	for id, t := range lastActivity {
+		if now.Sub(t) >= idleReaperThreshold {
+			idle = append(idle, id)
+		}
+	}
+	lastActivityMu.Unlock()
+
+	for _, id := range idle {
+		// Same cleanup startStack does on launch: kill by name, then
+		// clear lock files so a later Xvfb start isn't blocked.
+		script := fmt.Sprintf(
+			`pkill -f "Xvfb %s" 2>/dev/null; pkill -f "x11vnc.*%s" 2>/dev/null; pkill -f "websockify.*%d" 2>/dev/null; pkill -f "icewm" 2>/dev/null; pkill -f "at-spi-bus-launcher" 2>/dev/null; pkill -f "dbus-launch" 2>/dev/null; rm -f /tmp/.X%d-lock /tmp/.X11-unix/X%d 2>/dev/null; rm -f %s/*.pid 2>/dev/null; true`,
+			defaultDisplay, defaultDisplay, defaultWebPort, 99, 99, pidDir,
+		)
+		if _, err := runScriptRaw(sbMgr, id, script, 15); err != nil {
+			slog.Debug("desktop idle reaper: cleanup failed (will retry next tick)",
+				"sandbox", id, "error", err)
+			continue
+		}
+		markNotReady(id)
+		clearActivity(id)
+		slog.Info("desktop idle reaper: tore down idle stack",
+			"sandbox", id, "threshold", idleReaperThreshold)
+	}
+}
 
 func isReady(sandboxID string) bool {
 	readySetMu.RLock()
@@ -165,7 +283,18 @@ func EnsureDesktop(sbMgr *sandbox.Manager, sandboxID string) error {
 	// Fast path: already verified up in this daemon process.
 	if isReady(sandboxID) {
 		if healthy, _ := probeHealth(sbMgr, sandboxID); healthy {
+			touchActivity(sandboxID)
+			startIdleReaper(func() *sandbox.Manager { return sbMgr })
 			return nil
+		}
+		// Stack was up but is now down — the X server was restarted
+		// (crash, container stop/start, OOM kill). The a11y refs file
+		// captured the *old* AT-SPI tree; the new AT-SPI registry will
+		// have a different UI tree shape, so the old eN/xN indices no
+		// longer map. Drop the refs file so the LLM is forced to
+		// re-inspect rather than click stale coordinates. Best-effort.
+		if err := clearA11yRefs(sbMgr, sandboxID); err != nil {
+			slog.Warn("desktop: could not clear stale a11y refs", "sandbox", sandboxID, "error", err)
 		}
 		markNotReady(sandboxID)
 	}
@@ -187,6 +316,12 @@ func EnsureDesktop(sbMgr *sandbox.Manager, sandboxID string) error {
 	for time.Now().Before(deadline) {
 		if healthy, _ := probeHealth(sbMgr, sandboxID); healthy {
 			markReady(sandboxID)
+			touchActivity(sandboxID)
+			// Launch the idle reaper so an unattended desktop stack
+			// doesn't pin RAM forever. The closure captures sbMgr,
+			// which is the same manager the daemon uses for the
+			// lifetime of this process.
+			startIdleReaper(func() *sandbox.Manager { return sbMgr })
 			return nil
 		}
 		time.Sleep(healthPollInterval)
@@ -262,7 +397,28 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	slog.Info("desktop: starting stack", "sandbox", sandboxID, "display", defaultDisplay)
 
 	// Kill any stale daemons first (best-effort).
-	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`pkill -f "Xvfb %s" 2>/dev/null; pkill -f "x11vnc.*%s" 2>/dev/null; pkill -f "websockify.*%d" 2>/dev/null; pkill -f "icewm" 2>/dev/null; true`, defaultDisplay, defaultDisplay, defaultWebPort), 15)
+	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`pkill -f "Xvfb %s" 2>/dev/null; pkill -f "x11vnc.*%s" 2>/dev/null; pkill -f "websockify.*%d" 2>/dev/null; pkill -f "icewm" 2>/dev/null; pkill -f "at-spi-bus-launcher" 2>/dev/null; pkill -f "dbus-launch" 2>/dev/null; true`, defaultDisplay, defaultDisplay, defaultWebPort), 15)
+
+	// Remove stale X11 lock files and sockets. Xvfb refuses to start on
+	// DISPLAY=:99 if /tmp/.X99-lock or /tmp/.X11-unix/X99 still exist
+	// from a previous run (e.g. after a SIGKILL container stop, where
+	// daemons never got a chance to clean up). This is the same
+	// behavior tmoe's vnc-reset performs: kill procs AND remove locks
+	// so the new server isn't fooled into thinking the display is taken.
+	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f /tmp/.X%d-lock /tmp/.X11-unix/X%d 2>/dev/null; true`, 99, 99), 10)
+
+	// Clear stale pidfiles so the new daemons start from a known state.
+	// (No code reads these to kill — startStack uses pkill -f for that —
+	// but leaving stale PIDs around is misleading and a fresh start is
+	// cheap.)
+	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f %s/*.pid 2>/dev/null; true`, pidDir), 10)
+
+	// Clear stale D-Bus session bus state. dbus-launch leaves a
+	// session-bus socket and address file under /tmp that would confuse
+	// a second dbus-launch into reusing a dead bus. The desktop-env.sh
+	// fragment is also regenerated by buildDbusStartScript below, so
+	// removing it here avoids any chance of sourcing stale state.
+	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f %s 2>/dev/null; rm -rf /tmp/dbus-* 2>/dev/null; true`, sandboxStateDir+"/desktop-env.sh"), 10)
 
 	// Xvfb — the headless X server. This is the foundation; everything
 	// else attaches to its DISPLAY.
@@ -503,6 +659,23 @@ func Key(sbMgr *sandbox.Manager, sandboxID, keysym string) error {
 // escaped literal quote, reopen quote).
 func escapeForSingleQuote(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)
+}
+
+// clearA11yRefs removes the a11y refs file inside the sandbox. Called
+// when the desktop stack is detected to have restarted: the old refs
+// (eN/xN indices) pointed at the previous AT-SPI UI tree and no longer
+// match. Forcing the LLM to re-inspect avoids clicking stale
+// coordinates. Best-effort — errors are logged by the caller.
+//
+// The refs path defaults to /tmp/agentd-a11y-refs.json but can be
+// overridden via AGENTD_A11Y_REFS; we honor both.
+func clearA11yRefs(sbMgr *sandbox.Manager, sandboxID string) error {
+	refsPath := "/tmp/agentd-a11y-refs.json"
+	if env := os.Getenv("AGENTD_A11Y_REFS"); env != "" {
+		refsPath = env
+	}
+	_, err := runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f %s 2>/dev/null; true`, refsPath), 10)
+	return err
 }
 
 // isKeysymSafe returns true iff s contains only characters allowed in

@@ -33,6 +33,7 @@ type SandboxProvider interface {
 	Exec(sandboxID string, cmd string, env map[string]string, timeout int) (*ExecResult, error)
 	Destroy(sandboxID string) error
 	Status(sandboxID string) (*Sandbox, error)
+	Restart(sandboxID string) error
 }
 
 // SandboxSpec defines how to create a sandbox.
@@ -374,6 +375,35 @@ func (m *Manager) DestroySandbox(sandboxID string) error {
 //
 // For docker / docker-strict providers this is identical to Destroy
 // (their Destroy already removes the container unconditionally).
+// DestroySandboxForce removes a sandbox and its backing container
+// unconditionally. Used by session deletion and the user-facing
+// sandbox_destroy tool.
+// RestartSandbox attempts to restart a stopped sandbox via its
+// provider's Restart. Returns an error if the provider cannot restart
+// (e.g. ephemeral Docker sandboxes) — the caller (HealthChecker) then
+// falls back to Destroy.
+//
+// Only Persistent LXC sandboxes support Restart today. The desktop
+// stack is not re-launched here; EnsureDesktop does that lazily on
+// the next desktop_* call, after its fast-path probe misses and
+// invalidates its own readySet entry.
+func (m *Manager) RestartSandbox(sandboxID string) error {
+	m.mu.RLock()
+	sb, ok := m.sandboxes[sandboxID]
+	providerName := sb.Type
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("sandbox %q not found", sandboxID)
+	}
+
+	provider, err := m.GetProvider(providerName)
+	if err != nil {
+		return err
+	}
+
+	return provider.Restart(sandboxID)
+}
+
 func (m *Manager) DestroySandboxForce(sandboxID string) error {
 	m.mu.Lock()
 	sb, ok := m.sandboxes[sandboxID]
