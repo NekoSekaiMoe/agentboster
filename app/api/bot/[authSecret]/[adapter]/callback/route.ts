@@ -213,7 +213,7 @@ async function handleFeishuWebhook(
         const openId = body.event?.operator?.open_id ?? null;
         const chatId = body.event?.action?.chat_id ?? null;
         const { processL2Decision } = await import(
-          '@/app/api/agentd/v1/l2-confirm/route'
+          '@/lib/extra/agent/l2-decision'
         );
         after(() =>
           processL2Decision({

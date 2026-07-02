@@ -142,6 +142,19 @@ export class GChatNotificationChannel implements NotificationChannel {
         : `spaces/${targetChatId}`;
       const text = this.renderText(payload);
 
+      // L2 decisions render as a Card v2 with four buttons. The chat-sdk
+      // gchat adapter (handleCardClick in @chat-adapter/gchat) extracts
+      // `commonEvent.parameters.actionId` from CARD_CLICKED events and
+      // dispatches via chat.processAction; the bot.onAction catch-all
+      // in lib/bot/index.ts matches the `l2:` regex and runs
+      // processL2Decision. Each button's onClick action.parameters must
+      // carry an `actionId` parameter for the chat-sdk extraction to
+      // work (see @chat-adapter/gchat index.js:1299).
+      const body =
+        payload.type === 'decision'
+          ? this.buildDecisionBody(payload, text)
+          : { text };
+
       const resp = await fetch(
         `https://chat.googleapis.com/v1/${space}/messages`,
         {
@@ -150,7 +163,7 @@ export class GChatNotificationChannel implements NotificationChannel {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify(body),
         },
       );
 
@@ -203,5 +216,93 @@ export class GChatNotificationChannel implements NotificationChannel {
           ? '❌'
           : '⏹️';
     return `${emoji} *${payload.title}*\n\n${payload.summary}`;
+  }
+
+  /**
+   * Build a Google Chat Card v2 body carrying the decision prompt as
+   * TextParagraph + four Buttons. Each button's onClick action passes
+   * an `actionId` parameter so the chat-sdk gchat adapter can route
+   * CARD_CLICKED into processAction → bot.onAction catch-all.
+   */
+  private buildDecisionBody(
+    payload: Extract<NotificationPayload, { type: 'decision' }>,
+    text: string,
+  ): Record<string, unknown> {
+    const locale: Locale = payload.locale ?? defaultLocale;
+    const { taskId, decisionId } = payload;
+    const action = (a: string) => `l2:${a}:${taskId}:${decisionId}`;
+
+    const button = (label: string, a: string) => ({
+      text: label,
+      onClick: {
+        action: {
+          function: 'l2Decision',
+          parameters: [{ key: 'actionId', value: action(a) }],
+        },
+      },
+    });
+
+    return {
+      cardsV2: [
+        {
+          cardId: `l2-${decisionId}`,
+          card: {
+            header: { title: payload.title },
+            sections: [
+              {
+                widgets: [
+                  { textParagraph: { text } },
+                  {
+                    buttonList: {
+                      buttons: [
+                        button(
+                          `✅ ${t(locale, 'notify.l2.passOnce')}`,
+                          'pass_once',
+                        ),
+                        button(
+                          `⏱ ${t(locale, 'notify.l2.passUntil')}`,
+                          'pass_until',
+                        ),
+                        button(
+                          `❌ ${t(locale, 'notify.l2.rejectOnce')}`,
+                          'reject_once',
+                        ),
+                        button(
+                          `🔕 ${t(locale, 'notify.l2.rejectUntil')}`,
+                          'reject_until',
+                        ),
+                      ],
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+  }
+
+  parseDecisionReply(body: unknown): string | null {
+    if (!body || typeof body !== 'object') return null;
+    const params = (
+      body as {
+        common?: {
+          invocationEvent?: {
+            commonParameters?: {
+              parameters?: Array<{ key: string; value: string }>;
+            };
+          };
+        };
+      }
+    )?.common?.invocationEvent?.commonParameters?.parameters;
+    if (!Array.isArray(params)) return null;
+    const actionId = params.find(
+      (p) => p.key === 'actionId' && typeof p.value === 'string',
+    )?.value;
+    if (!actionId) return null;
+    return /^l2:(pass_once|pass_until|reject_once|reject_until):/.test(actionId)
+      ? actionId
+      : null;
   }
 }

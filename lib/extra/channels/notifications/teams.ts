@@ -95,11 +95,23 @@ export class TeamsNotificationChannel implements NotificationChannel {
       ).replace(/\/$/, '');
 
       const text = this.renderText(payload);
-      const body = {
-        type: 'message',
-        text,
-        textFormat: 'markdown',
-      };
+      // L2 decision prompts ship as an Adaptive Card with Action.Submit
+      // buttons so the user can tap a verdict instead of typing. The
+      // chat-sdk teams adapter (handleAdaptiveCardAction in
+      // @chat-adapter/teams) extracts `activity.value.action.data.actionId`
+      // and dispatches via chat.processAction, where the bot.onAction
+      // catch-all in lib/bot/index.ts matches the `l2:` regex and runs
+      // processL2Decision. Action.Submit data must carry `actionId` and
+      // may carry an arbitrary `value` (we encode the same payload for
+      // traceability).
+      const body =
+        payload.type === 'decision'
+          ? this.buildDecisionBody(payload, text)
+          : {
+              type: 'message',
+              text,
+              textFormat: 'markdown',
+            };
 
       const resp = await fetch(
         `${base}/v3/conversations/${conversationId}/activities`,
@@ -162,5 +174,88 @@ export class TeamsNotificationChannel implements NotificationChannel {
           ? '❌'
           : '⏹️';
     return `${emoji} **${payload.title}**\n\n${payload.summary}`;
+  }
+
+  /**
+   * Build a Bot Framework activity carrying an Adaptive Card with four
+   * Action.Submit buttons (pass_once / pass_until / reject_once /
+   * reject_until). Each button's `data.actionId` is the `l2:...` payload
+   * the bot.onAction catch-all matches.
+   */
+  private buildDecisionBody(
+    payload: Extract<NotificationPayload, { type: 'decision' }>,
+    text: string,
+  ): Record<string, unknown> {
+    const locale: Locale = payload.locale ?? defaultLocale;
+    const { taskId, decisionId } = payload;
+    const action = (a: string) => `l2:${a}:${taskId}:${decisionId}`;
+
+    const button = (
+      title: string,
+      a: string,
+      style: 'positive' | 'destructive' | 'default',
+    ) => ({
+      type: 'Action.Submit',
+      title,
+      style,
+      data: { actionId: action(a) },
+    });
+
+    return {
+      type: 'message',
+      attachments: [
+        {
+          contentType: 'application/vnd.microsoft.card.adaptive',
+          content: {
+            $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+            type: 'AdaptiveCard',
+            version: '1.4',
+            body: [{ type: 'TextBlock', text, wrap: true }],
+            actions: [
+              button(
+                `✅ ${t(locale, 'notify.l2.passOnce')}`,
+                'pass_once',
+                'positive',
+              ),
+              button(
+                `⏱ ${t(locale, 'notify.l2.passUntil')}`,
+                'pass_until',
+                'default',
+              ),
+              button(
+                `❌ ${t(locale, 'notify.l2.rejectOnce')}`,
+                'reject_once',
+                'destructive',
+              ),
+              button(
+                `🔕 ${t(locale, 'notify.l2.rejectUntil')}`,
+                'reject_until',
+                'default',
+              ),
+            ],
+          },
+        },
+      ],
+    };
+  }
+
+  /**
+   * Parse an inbound Teams invoke activity for an L2 button click.
+   * Teams dispatches Action.Submit through Bot Framework's invoke route,
+   * which the chat-sdk teams adapter forwards to processAction; this
+   * parser is only used when the notification manager receives the raw
+   * webhook body directly (e.g. a fallback path that bypasses chat-sdk).
+   */
+  parseDecisionReply(body: unknown): string | null {
+    if (!body || typeof body !== 'object') return null;
+    const data = (
+      body as { value?: { action?: { data?: { actionId?: string } } } }
+    )?.value?.action?.data;
+    if (!data || typeof data.actionId !== 'string') return null;
+    return /^l2:(pass_once|pass_until|reject_once|reject_until):/.test(
+      data.actionId,
+    )
+      ? data.actionId
+      : null;
   }
 }

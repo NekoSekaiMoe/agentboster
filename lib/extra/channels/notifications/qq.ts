@@ -114,6 +114,15 @@ export class QQNotificationChannel implements NotificationChannel {
     }
   }
 
+  // L2 decision prompts are rendered as plain text here, not as
+  // keyboard buttons. QQ Official Bot's keyboard markup requires
+  // platform-approved "button permission" per-bot, and QQ doesn't go
+  // through chat-sdk (so the bot.onAction catch-all in lib/bot/index.ts
+  // would never receive QQ button clicks anyway — a separate handler
+  // in callback/route.ts would be needed). Until both gating issues
+  // are resolved, QQ users respond to L2 prompts via natural language
+  // ("放行" / "拒绝"); the text prompt below carries the same context.
+
   private renderText(payload: NotificationPayload): string {
     const locale: Locale = payload.locale ?? defaultLocale;
     if (payload.type === 'decision') {

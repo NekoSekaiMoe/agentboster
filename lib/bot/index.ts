@@ -589,9 +589,7 @@ export async function getBot(): Promise<Chat> {
       return;
     }
     const [, action, taskId, decisionId] = match;
-    const { processL2Decision } = await import(
-      '@/app/api/agentd/v1/l2-confirm/route'
-    );
+    const { processL2Decision } = await import('@/lib/extra/agent/l2-decision');
     try {
       await processL2Decision({
         taskId,
