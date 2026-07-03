@@ -113,6 +113,13 @@
       "when": 1782701210894,
       "tag": "0015_cli_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783200000000,
+      "tag": "0016_agent_l0_rules",
+      "breakpoints": true
     }
   ]
 }
