@@ -1638,7 +1638,6 @@ export class ChatView {
       pickSessionImportPathFromDialog:
         this.pickSessionImportPathFromDialog.bind(this),
       refreshFromBackend: this.refreshFromBackend.bind(this),
-      shareAsGist: this.shareAsGist.bind(this),
       copyLastMessage: this.copyLastMessage.bind(this),
       onBeginRenameCurrentSession: this.onBeginRenameCurrentSession,
       renameSession: this.renameSession.bind(this),
@@ -4057,35 +4056,6 @@ export class ChatView {
     } finally {
       this.creatingGitRepo = false;
       this.render();
-    }
-  }
-
-  async shareAsGist(): Promise<boolean> {
-    try {
-      const { tempDir } = await import('@tauri-apps/api/path');
-      const tempRoot = (await tempDir())
-        .replace(/\\/g, '/')
-        .replace(/\/+$/, '');
-      const exportPath = `${tempRoot}/session.html`;
-      const { path } = await rpcBridge.exportHtml(exportPath);
-      const shared = await rpcBridge.createShareGist(path);
-      this.appendSystemMessage(
-        `[Open shared session](${shared.preview_url}) · [Open gist](${shared.gist_url})`,
-        {
-          label: 'share',
-          markdown: true,
-        },
-      );
-      this.pushNotice('Session shared as secret gist', 'success');
-      return true;
-    } catch (err) {
-      console.error('Failed to share as gist:', err);
-      const message = err instanceof Error ? err.message : String(err);
-      this.pushNotice(
-        truncate(message || 'Failed to share session', 180),
-        'error',
-      );
-      return false;
     }
   }
 

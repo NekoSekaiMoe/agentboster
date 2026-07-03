@@ -87,14 +87,6 @@ export interface GitCommandResult {
   exit_code: number;
 }
 
-export interface ShareGistResult {
-  gist_url: string;
-  gist_id: string;
-  preview_url: string;
-  stdout: string;
-  stderr: string;
-}
-
 export interface RpcCompatibilityReport {
   ok: boolean;
   checks: string[];
@@ -572,14 +564,6 @@ export class RpcBridge {
       options: {
         args,
         cwd: options.cwd ?? null,
-      },
-    });
-  }
-
-  async createShareGist(htmlPath: string): Promise<ShareGistResult> {
-    return invoke<ShareGistResult>('create_share_gist', {
-      options: {
-        html_path: htmlPath,
       },
     });
   }
@@ -1099,10 +1083,6 @@ class ActiveRpcBridgeProxy {
     options: { cwd?: string } = {},
   ): Promise<GitCommandResult> {
     return this.activeBridge.runGitCommand(args, options);
-  }
-
-  async createShareGist(htmlPath: string): Promise<ShareGistResult> {
-    return this.activeBridge.createShareGist(htmlPath);
   }
 
   async getPiAuthStatus(): Promise<PiAuthStatus> {
