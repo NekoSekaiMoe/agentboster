@@ -1,11 +1,5 @@
-import {
-  type RequestOptions as HttpRequestOptions,
-  request as httpRequest,
-} from 'node:http';
-import {
-  type RequestOptions as HttpsRequestOptions,
-  request as httpsRequest,
-} from 'node:https';
+import type { RequestOptions as HttpRequestOptions } from 'node:http';
+import type { RequestOptions as HttpsRequestOptions } from 'node:https';
 
 export interface AgentdHttpConfig {
   baseUrl: string;
@@ -46,6 +40,13 @@ export async function requestAgentd(
   body?: unknown,
   timeoutMs = 30_000,
 ): Promise<AgentdHttpResponse> {
+  // Dynamic import: this file is transitively reachable from the workflow
+  // body (lib/workflow/agent/dispatch.ts -> agentd-tools-client.ts -> here).
+  // Per AGENTS.md, no top-level node:* imports — the workflow DevKit
+  // statically bundles them into the vm sandbox where `require` is undefined.
+  const { request: httpRequest } = await import('node:http');
+  const { request: httpsRequest } = await import('node:https');
+
   const url = new URL(path, config.baseUrl);
   const payload = body === undefined ? undefined : JSON.stringify(body);
   const headers: Record<string, string> = {

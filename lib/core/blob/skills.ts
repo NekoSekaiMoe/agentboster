@@ -1,19 +1,5 @@
-import fs from 'node:fs';
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-
 import matter from 'gray-matter';
 import git from 'isomorphic-git';
-import http from 'isomorphic-git/http/node';
 import { ofetch } from 'ofetch';
 import { z } from 'zod';
 import { del, getBlob, list, put } from './';
@@ -27,6 +13,39 @@ import type {
   SkillFrontmatter,
 } from '@/types/skills';
 import { clawhubManifestSchema } from '@/types/skills';
+
+// Workflow-bundle safety: this file is transitively reachable from the
+// workflow body (lib/workflow/agent/tools/skills/local.ts -> here). Per
+// AGENTS.md, no top-level node:* imports — all Node primitives are loaded
+// lazily via these cached helpers so the workflow DevKit static bundler
+// does not pull them into the vm sandbox (where `require` is undefined).
+let _nodeFs: typeof import('node:fs') | undefined;
+let _nodeFsPromises: typeof import('node:fs/promises') | undefined;
+let _nodePath: typeof import('node:path') | undefined;
+let _nodeOs: typeof import('node:os') | undefined;
+let _isoGitHttpNode: typeof import('isomorphic-git/http/node') | undefined;
+
+async function nodeFs() {
+  if (!_nodeFs) _nodeFs = await import('node:fs');
+  return _nodeFs;
+}
+async function nodeFsPromises() {
+  if (!_nodeFsPromises) _nodeFsPromises = await import('node:fs/promises');
+  return _nodeFsPromises;
+}
+async function nodePath() {
+  if (!_nodePath) _nodePath = await import('node:path');
+  return _nodePath;
+}
+async function nodeOs() {
+  if (!_nodeOs) _nodeOs = await import('node:os');
+  return _nodeOs;
+}
+async function isoGitHttpNode() {
+  if (!_isoGitHttpNode)
+    _isoGitHttpNode = await import('isomorphic-git/http/node');
+  return _isoGitHttpNode;
+}
 
 /** Max total size (in bytes) for manually added skill files */
 export const MANUAL_SKILL_MAX_TOTAL_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -148,7 +167,7 @@ function deriveRepoName(gitURL: string): string {
 // ─── Path helpers ───
 
 function normalizeFilePath(value: string): string {
-  return value.split(path.sep).join('/');
+  return value.replace(/\\/g, '/');
 }
 
 function normalizeSkillPath(pathname: string): string {
@@ -225,6 +244,8 @@ async function listSkillFilesRecursive(
   skillDir: string,
   currentDir = skillDir,
 ): Promise<string[]> {
+  const { readdir } = await nodeFsPromises();
+  const path = await nodePath();
   const entries = await readdir(currentDir, { withFileTypes: true });
   const files: string[] = [];
 
@@ -254,6 +275,8 @@ function toFileEntries(paths: string[]): SkillFileEntry[] {
 }
 
 async function assertRepoSkillLimits(rootDir: string, filePaths: string[]) {
+  const { stat } = await nodeFsPromises();
+  const path = await nodePath();
   if (filePaths.length > GIT_IMPORT_MAX_FILE_COUNT) {
     throw new Error(
       `Repository exceeds the ${GIT_IMPORT_MAX_FILE_COUNT} file limit for skill imports`,
@@ -324,6 +347,12 @@ export async function removeSkillFilesFromBlob(
 // ─── Git clone ───
 
 export async function cloneRepoToTmp(gitURL: string): Promise<ClonedRepo> {
+  const { mkdtemp, rm } = await nodeFsPromises();
+  const path = await nodePath();
+  const { tmpdir } = await nodeOs();
+  const fs = await nodeFs();
+  const http = await isoGitHttpNode();
+
   const normalizedGitURL = normalizeGitURL(gitURL);
   const parsed = new URL(normalizedGitURL);
   const repoName = (
@@ -360,6 +389,8 @@ export async function scanSkillsFromRepo(
   repoDir: string,
   gitURL: string,
 ): Promise<ScannedSkill[]> {
+  const { stat, readdir, readFile } = await nodeFsPromises();
+  const path = await nodePath();
   const clawhubSkill = await scanClawHubSkillFromRepo(repoDir, gitURL);
   if (clawhubSkill) {
     return [clawhubSkill];
@@ -442,6 +473,8 @@ async function scanRootSkillFromRepo(
   repoDir: string,
   gitURL: string,
 ): Promise<ScannedSkill | null> {
+  const { stat, readFile } = await nodeFsPromises();
+  const path = await nodePath();
   const manifestPath = path.join(repoDir, SKILL_MANIFEST);
   const manifestStat = await stat(manifestPath).catch(() => null);
   if (!manifestStat?.isFile()) {
@@ -475,6 +508,8 @@ async function scanClawHubSkillFromRepo(
   repoDir: string,
   gitURL: string,
 ): Promise<ScannedSkill | null> {
+  const { stat, readFile } = await nodeFsPromises();
+  const path = await nodePath();
   const manifestPath = path.join(repoDir, CLAWHUB_MANIFEST);
   const manifestStat = await stat(manifestPath).catch(() => null);
   if (!manifestStat?.isFile()) {
@@ -516,6 +551,8 @@ export async function syncSkillFilesToBlob(
   localDir: string,
   filePaths: string[],
 ): Promise<void> {
+  const { readFile } = await nodeFsPromises();
+  const path = await nodePath();
   logger.info('syncSkillFilesToBlob:start', {
     skillName,
     fileCount: filePaths.length,
@@ -564,6 +601,7 @@ export async function syncSkillFilesToBlob(
 export async function downloadAndSyncSkillsFromGit(
   gitURL: string,
 ): Promise<SkillDetail[]> {
+  const { rm } = await nodeFsPromises();
   const normalizedGitURL = normalizeGitURL(gitURL);
   const cloned = await cloneRepoToTmp(normalizedGitURL);
 
@@ -634,6 +672,9 @@ export async function downloadAndSyncSkillFromClawHub(input: {
   slug: string;
   version?: string;
 }): Promise<SkillDetail> {
+  const { mkdir, mkdtemp, readFile, rm, writeFile } = await nodeFsPromises();
+  const path = await nodePath();
+  const { tmpdir } = await nodeOs();
   const slug = normalizeClawHubSlug(input.slug);
   const skillUrl = new URL(
     `/api/v1/skills/${encodeURIComponent(slug)}`,
