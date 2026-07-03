@@ -62,6 +62,8 @@ export async function evaluateL0(
   agentId: string,
   command: string,
 ): Promise<L0Evaluation> {
+  'use step';
+
   if (!command.trim()) return ALLOWED;
 
   let rules: L0Rule[];
