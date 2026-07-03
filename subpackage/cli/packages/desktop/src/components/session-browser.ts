@@ -99,26 +99,15 @@ export class SessionBrowser {
 
   private async loadSessions(): Promise<void> {
     try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      const sessions =
-        await invoke<
-          Array<{
-            id: string;
-            name: string | null;
-            path: string;
-            cwd: string | null;
-            modified_at: number;
-            tokens: number;
-            cost: number;
-          }>
-        >('list_sessions');
+      const { listSessions } = await import('../sessions/session-list.js');
+      const sessions = await listSessions();
 
       this.sessions = sessions.map((s) => ({
         id: s.id,
         name: s.name ?? undefined,
         path: s.path,
         cwd: s.cwd ?? undefined,
-        modifiedAt: s.modified_at,
+        modifiedAt: s.modifiedAt,
         tokens: s.tokens,
         cost: s.cost,
       }));

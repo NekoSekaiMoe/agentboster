@@ -5439,7 +5439,8 @@ export class ChatView {
     this.historyViewerLoading = true;
     this.render();
     try {
-      const content = await rpcBridge.getSessionContent(sessionPath);
+      const { getSessionContent } = await import('../sessions/session-list.js');
+      const content = await getSessionContent(sessionPath);
       if (
         requestId !== this.historyTreeRequestSeq ||
         this.historyViewerMode !== 'browse' ||

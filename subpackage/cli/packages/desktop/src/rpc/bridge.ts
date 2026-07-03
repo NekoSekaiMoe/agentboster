@@ -524,10 +524,6 @@ export class RpcBridge {
     return data.text;
   }
 
-  async getSessionContent(sessionPath: string): Promise<string> {
-    return invoke<string>('get_session_content', { sessionPath });
-  }
-
   async sendExtensionUiResponse(
     response: Record<string, unknown>,
   ): Promise<void> {
@@ -1078,10 +1074,6 @@ class ActiveRpcBridgeProxy {
 
   async getLastAssistantText(): Promise<string | null> {
     return this.activeBridge.getLastAssistantText();
-  }
-
-  async getSessionContent(sessionPath: string): Promise<string> {
-    return this.activeBridge.getSessionContent(sessionPath);
   }
 
   async sendExtensionUiResponse(

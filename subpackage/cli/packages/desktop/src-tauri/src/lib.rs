@@ -704,19 +704,6 @@ async fn rpc_ui_response(
     }
 }
 
-/// Session info for listing
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SessionInfo {
-    pub id: String,
-    pub name: Option<String>,
-    pub path: String,
-    pub cwd: Option<String>,
-    pub created_at: i64,
-    pub modified_at: i64,
-    pub tokens: u64,
-    pub cost: f64,
-}
-
 fn get_pi_agent_dir() -> Option<PathBuf> {
     // Respect explicit env override first
     if let Ok(raw) = std::env::var("PI_CODING_AGENT_DIR") {
@@ -743,171 +730,6 @@ fn get_pi_agent_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .or(std::env::var_os("USERPROFILE"))
         .map(|home| PathBuf::from(home).join(".agentboster").join("agent"))
-}
-
-fn get_pi_sessions_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    if let Some(agent_dir) = get_pi_agent_dir() {
-        return Ok(agent_dir.join("sessions"));
-    }
-
-    // Fallback for unusual environments
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-    Ok(data_dir.join("sessions"))
-}
-
-fn collect_session_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_session_files_recursive(&path, out);
-            continue;
-        }
-
-        let is_jsonl = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.eq_ignore_ascii_case("jsonl"))
-            .unwrap_or(false);
-
-        if is_jsonl {
-            out.push(path);
-        }
-    }
-}
-
-fn get_modified_at_ms(path: &Path) -> i64 {
-    fs::metadata(path)
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn get_created_at_ms(path: &Path) -> i64 {
-    fs::metadata(path)
-        .ok()
-        .and_then(|m| m.created().ok())
-        .or_else(|| fs::metadata(path).ok().and_then(|m| m.modified().ok()))
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn parse_session_info(path: &Path) -> Option<SessionInfo> {
-    let content = fs::read_to_string(path).ok()?;
-
-    let mut id = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_string();
-    let mut name: Option<String> = None;
-    let mut cwd: Option<String> = None;
-    let mut tokens: u64 = 0;
-    let mut cost: f64 = 0.0;
-
-    for line in content.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        let entry = match serde_json::from_str::<serde_json::Value>(line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-
-        match entry.get("type").and_then(|t| t.as_str()) {
-            Some("session") => {
-                if let Some(session_id) = entry.get("id").and_then(|v| v.as_str()) {
-                    id = session_id.to_string();
-                }
-                if let Some(session_cwd) = entry.get("cwd").and_then(|v| v.as_str()) {
-                    let trimmed = session_cwd.trim();
-                    if !trimmed.is_empty() {
-                        cwd = Some(trimmed.to_string());
-                    }
-                }
-            }
-            Some("session_info") => {
-                if let Some(session_name) = entry.get("name").and_then(|v| v.as_str()) {
-                    let trimmed = session_name.trim();
-                    if !trimmed.is_empty() {
-                        name = Some(trimmed.to_string());
-                    }
-                }
-            }
-            Some("message") => {
-                let message = entry.get("message");
-                let role = message.and_then(|m| m.get("role")).and_then(|r| r.as_str());
-                if role == Some("assistant") {
-                    let message_tokens = message
-                        .and_then(|m| m.get("usage"))
-                        .and_then(|u| u.get("totalTokens"))
-                        .and_then(|t| t.as_u64())
-                        .unwrap_or(0);
-                    tokens = tokens.saturating_add(message_tokens);
-
-                    let message_cost = message
-                        .and_then(|m| m.get("usage"))
-                        .and_then(|u| u.get("cost"))
-                        .and_then(|c| c.get("total"))
-                        .and_then(|c| c.as_f64())
-                        .unwrap_or(0.0);
-                    cost += message_cost;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Some(SessionInfo {
-        id,
-        name,
-        path: path.to_string_lossy().to_string(),
-        cwd,
-        created_at: get_created_at_ms(path),
-        modified_at: get_modified_at_ms(path),
-        tokens,
-        cost,
-    })
-}
-
-/// List all sessions from agentboster's session directory (~/.agentboster/agent/sessions)
-#[tauri::command]
-async fn list_sessions(app: AppHandle) -> Result<Vec<SessionInfo>, String> {
-    let sessions_dir = get_pi_sessions_dir(&app)?;
-
-    if !sessions_dir.exists() {
-        fs::create_dir_all(&sessions_dir)
-            .map_err(|e| format!("Failed to create sessions dir: {}", e))?;
-        return Ok(Vec::new());
-    }
-
-    let mut files = Vec::new();
-    collect_session_files_recursive(&sessions_dir, &mut files);
-
-    let mut sessions = files
-        .iter()
-        .filter_map(|path| parse_session_info(path))
-        .collect::<Vec<_>>();
-
-    sessions.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
-    Ok(sessions)
-}
-
-/// Get the content of a session file
-#[tauri::command]
-async fn get_session_content(session_path: String) -> Result<String, String> {
-    fs::read_to_string(&session_path).map_err(|e| format!("Failed to read session: {}", e))
 }
 
 #[derive(Debug, Serialize)]
@@ -1648,8 +1470,6 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
              rpc_stop_all,
              rpc_is_running,
              rpc_ui_response,
-             list_sessions,
-             get_session_content,
              get_pi_auth_status,
              clear_pi_provider_auth,
              save_settings,

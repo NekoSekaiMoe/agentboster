@@ -1995,20 +1995,8 @@ export class Sidebar {
 
       const hadLoadedSessions = project.sessionsLoaded;
       try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const sessions =
-          await invoke<
-            Array<{
-              id: string;
-              name: string | null;
-              path: string;
-              cwd: string | null;
-              created_at: number;
-              modified_at: number;
-              tokens: number;
-              cost: number;
-            }>
-          >('list_sessions');
+        const { listSessions } = await import('../sessions/session-list.js');
+        const sessions = await listSessions();
         if (isStale()) return;
 
         const projectPath = normalizePath(project.path);
@@ -2032,8 +2020,8 @@ export class Sidebar {
               id: s.id,
               name: s.name || 'Untitled session',
               path: s.path,
-              createdAt: s.created_at ?? s.modified_at,
-              modifiedAt: s.modified_at,
+              createdAt: s.createdAt ?? s.modifiedAt,
+              modifiedAt: s.modifiedAt,
               tokens: s.tokens ?? 0,
               cost: s.cost ?? 0,
               optimistic: false,
