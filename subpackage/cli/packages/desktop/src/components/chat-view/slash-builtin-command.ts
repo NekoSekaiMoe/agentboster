@@ -47,7 +47,6 @@ export interface ExecuteBuiltinSlashCommandParams {
   pickSessionExportPathFromDialog: () => Promise<string | null>;
   pickSessionImportPathFromDialog: () => Promise<string | null>;
   refreshFromBackend: () => Promise<void>;
-  shareAsGist: () => Promise<unknown>;
   copyLastMessage: () => Promise<unknown>;
   onBeginRenameCurrentSession: (() => boolean | Promise<boolean>) | null;
   renameSession: () => Promise<unknown>;
@@ -192,7 +191,6 @@ export async function executeBuiltinSlashCommand({
   pickSessionExportPathFromDialog,
   pickSessionImportPathFromDialog,
   refreshFromBackend,
-  shareAsGist,
   copyLastMessage,
   onBeginRenameCurrentSession,
   renameSession,
@@ -285,10 +283,6 @@ export async function executeBuiltinSlashCommand({
       } else {
         pushNotice('Import cancelled', 'info');
       }
-      return;
-    }
-    case 'share': {
-      await shareAsGist();
       return;
     }
     case 'copy': {

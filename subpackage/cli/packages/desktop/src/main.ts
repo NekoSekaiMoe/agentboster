@@ -31,7 +31,6 @@ import {
   type DesktopUpdateStatus,
 } from './desktop-updates.js';
 import {
-  type CliUpdateStatus,
   RpcBridge,
   type RpcSessionState,
   rpcBridge,
@@ -144,7 +143,6 @@ const NEW_FILE_TAB_TITLE = 'New file';
 const NEW_GENERIC_TAB_TITLE = 'New tab';
 const DEFAULT_AUTO_CONTENT_TAB_LIMIT = 2;
 const DEBUG_OVERLAY_STORAGE_KEY = 'pi-desktop.debug-overlay.v1';
-const CLI_UPDATE_NOTICE_STORAGE_KEY = 'pi-desktop.cli-update-notice-at.v1';
 const DESKTOP_UPDATE_NOTICE_STORAGE_KEY =
   'pi-desktop.desktop-update-notice-at.v1';
 const UPDATE_NOTICE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -176,12 +174,9 @@ let sessionBrowser: SessionBrowser | null = null;
 let shortcutsPanel: ShortcutsPanel | null = null;
 let extensionUiHandler: ExtensionUiHandler | null = null;
 
-let cliUpdateStatus: CliUpdateStatus | null = null;
 let desktopUpdateStatus: DesktopUpdateStatus | null = null;
 let preferredPiBinaryPath: string | null = null;
-let cliUpdatePollingTimer: ReturnType<typeof setInterval> | null = null;
 let desktopUpdatePollingTimer: ReturnType<typeof setInterval> | null = null;
-let cliUpdateChecking = false;
 let desktopUpdateChecking = false;
 
 let projectSwitchTask: Promise<void> = Promise.resolve();
@@ -548,14 +543,6 @@ function markUpdateNotified(storageKey: string, now = Date.now()): void {
   } catch {
     // ignore
   }
-}
-
-function shouldNotifyCliUpdate(now = Date.now()): boolean {
-  return shouldNotifyUpdate(CLI_UPDATE_NOTICE_STORAGE_KEY, now);
-}
-
-function markCliUpdateNotified(now = Date.now()): void {
-  markUpdateNotified(CLI_UPDATE_NOTICE_STORAGE_KEY, now);
 }
 
 function shouldNotifyDesktopUpdate(now = Date.now()): boolean {
@@ -2839,13 +2826,6 @@ function syncWorkspaceContextChrome(
   if (settingsOpen) syncSidebarSettingsNavigation();
 }
 
-function syncCliUpdateUiHint(): void {
-  sidebar?.setCliUpdateStatus(
-    Boolean(cliUpdateStatus?.update_available),
-    cliUpdateStatus?.latest_version ?? null,
-  );
-}
-
 function syncDesktopUpdateUiHint(): void {
   sidebar?.setDesktopUpdateStatus(
     Boolean(desktopUpdateStatus?.updateAvailable),
@@ -3413,7 +3393,6 @@ async function ensureRuntimeForSessionTab(
       ) === normalizeProjectPath(projectPath)
     ) {
       setActiveRuntime(runtime);
-      await refreshCliUpdateStatus();
     }
     return runtime;
   } catch (err) {
@@ -3670,32 +3649,6 @@ async function runStartupCompatibilityCheck(): Promise<void> {
   }
 }
 
-function applyCliStatusToTitlebar(): void {
-  // top titlebar removed; keep runtime polling state only
-}
-
-async function refreshCliUpdateStatus(): Promise<void> {
-  if (cliUpdateChecking) return;
-  cliUpdateChecking = true;
-  try {
-    cliUpdateStatus = await rpcBridge.getCliUpdateStatus();
-    if (cliUpdateStatus?.update_available && shouldNotifyCliUpdate()) {
-      chatView?.notify(
-        `A Pi CLI update is available${cliUpdateStatus.latest_version ? ` (v${cliUpdateStatus.latest_version})` : ''}. Open Settings → CLI updates to install it.`,
-        'info',
-      );
-      markCliUpdateNotified();
-    }
-  } catch (err) {
-    console.warn('Failed to refresh CLI update status:', err);
-    cliUpdateStatus = null;
-  } finally {
-    cliUpdateChecking = false;
-    syncCliUpdateUiHint();
-    applyCliStatusToTitlebar();
-  }
-}
-
 async function refreshDesktopUpdateStatus(): Promise<void> {
   if (desktopUpdateChecking) return;
   desktopUpdateChecking = true;
@@ -3715,15 +3668,6 @@ async function refreshDesktopUpdateStatus(): Promise<void> {
     desktopUpdateChecking = false;
     syncDesktopUpdateUiHint();
   }
-}
-
-function startCliUpdatePolling(): void {
-  if (cliUpdatePollingTimer) {
-    clearInterval(cliUpdatePollingTimer);
-  }
-  cliUpdatePollingTimer = setInterval(() => {
-    void refreshCliUpdateStatus();
-  }, UPDATE_NOTICE_INTERVAL_MS);
 }
 
 function startDesktopUpdatePolling(): void {
@@ -4075,9 +4019,7 @@ async function initialize(): Promise<void> {
     }
 
     await runStartupCompatibilityCheck();
-    await refreshCliUpdateStatus();
     await refreshDesktopUpdateStatus();
-    startCliUpdatePolling();
     startDesktopUpdatePolling();
     void startAuthConfigChangeMonitor();
   } catch (err) {
@@ -4101,10 +4043,6 @@ function mountSettingsPanel(): SettingsPanel {
   panel.setOnDesktopStatusChange((status) => {
     desktopUpdateStatus = status;
     syncDesktopUpdateUiHint();
-  });
-  panel.setOnCliStatusChange((status) => {
-    cliUpdateStatus = status;
-    syncCliUpdateUiHint();
   });
   panel.setOnPiBinaryPathChange((path) => {
     const previous = preferredPiBinaryPath;
@@ -4549,12 +4487,6 @@ function setupKeyboardShortcuts(): void {
     if (isCtrlOrMeta && e.key.toLowerCase() === 'e' && !isShift) {
       e.preventDefault();
       void chatView?.exportToHtml();
-      return;
-    }
-
-    if (isCtrlOrMeta && isShift && e.key.toLowerCase() === 'e') {
-      e.preventDefault();
-      void chatView?.shareAsGist();
       return;
     }
 
@@ -5122,7 +5054,6 @@ function renderApp(): void {
     syncSidebarCollapseToggleButton();
   });
   syncSidebarCollapseToggleButton();
-  syncCliUpdateUiHint();
   syncDesktopUpdateUiHint();
 
   sidebar.setOnWorkspaceSelect((workspaceId) => {

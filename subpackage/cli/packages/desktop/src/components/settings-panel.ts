@@ -175,12 +175,6 @@ export class SettingsPanel {
     this.onDesktopStatusChange = callback;
   }
 
-  setOnCliStatusChange(
-    callback: (status: CliUpdateStatus | null) => void,
-  ): void {
-    this.onCliStatusChange = callback;
-  }
-
   setOnPiBinaryPathChange(
     callback: ((path: string | null) => void) | null,
   ): void {
@@ -1076,7 +1070,6 @@ export class SettingsPanel {
       this.piPathActionMessage = normalized
         ? 'Saved CLI binary override. Use /reload to reconnect active runtimes.'
         : 'Cleared CLI binary override.';
-      await this.refreshCliStatus();
       if (this.isRuntimeControlsEnabled()) {
         await this.refreshCompatibilityStatus();
       }
@@ -1153,7 +1146,6 @@ export class SettingsPanel {
 
     const refreshTasks: Promise<void>[] = [
       this.refreshDesktopStatus(),
-      this.refreshCliStatus(),
       this.refreshThemeCatalog(),
     ];
     if (runtimeReady) {

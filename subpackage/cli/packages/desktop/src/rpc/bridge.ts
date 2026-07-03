@@ -62,6 +62,17 @@ export interface PiCliCommandResult {
   discovery: string;
 }
 
+// Provider auth status — restored after 5784729 removed it along with the
+// dead getPiAuthStatus / clearPiProviderAuth methods. The type itself is
+// still referenced by auth/provider-auth.ts, chat-view.ts and
+// model-picker-provider-groups.ts (Pick<..., 'source' | 'kind'>), which are
+// all live code paths backing the /provider-auth slash commands.
+export interface PiAuthProviderStatus {
+  provider: string;
+  source: 'auth_file_api_key' | 'auth_file_oauth' | 'environment';
+  kind: 'api_key' | 'oauth' | 'unknown';
+}
+
 
 export interface GitCommandResult {
   stdout: string;

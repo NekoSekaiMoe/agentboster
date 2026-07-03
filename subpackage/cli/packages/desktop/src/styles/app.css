@@ -321,17 +321,6 @@ samp {
 	color: var(--text);
 }
 
-.titlebar-action.update {
-	border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
-	background: color-mix(in srgb, var(--accent) 15%, transparent);
-	color: var(--accent);
-}
-
-.titlebar-action.update:disabled {
-	opacity: 0.7;
-	cursor: wait;
-}
-
 .titlebar-window.close:hover {
 	background: rgba(239, 68, 68, 0.2);
 	color: var(--danger);
@@ -2944,34 +2933,8 @@ body.file-split-resizing #file-split-resize-handle::after {
 	display: none;
 }
 
-.sidebar-cli-update-banner {
-	height: 30px;
-	border: none;
-	border-radius: 8px;
-	background: color-mix(in srgb, var(--accent) 14%, var(--bg-soft));
-	color: var(--text);
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 0 10px;
-	font-size: 11px;
-	cursor: pointer;
-	gap: 8px;
-	text-align: left;
-}
-
-.sidebar-cli-update-banner:hover {
-	background: color-mix(in srgb, var(--accent) 22%, var(--bg-soft));
-}
-
 .sidebar-desktop-update-banner {
 	background: color-mix(in srgb, var(--accent) 18%, var(--bg-soft));
-}
-
-.sidebar-cli-update-cta {
-	font-size: 10px;
-	color: var(--muted);
-	white-space: nowrap;
 }
 
 .sidebar-mode-row {

@@ -309,8 +309,6 @@ export class Sidebar {
   private modeFilterMenuOpen = false;
   private desktopUpdateAvailable = false;
   private desktopUpdateLatestVersion: string | null = null;
-  private cliUpdateAvailable = false;
-  private cliUpdateLatestVersion: string | null = null;
   private sessionOrganize: 'byProject' | 'chronological' = 'byProject';
   private sessionSortBy: 'updated' | 'created' = 'updated';
   private sessionShow: 'all' | 'relevant' = 'all';
@@ -628,24 +626,6 @@ export class Sidebar {
       return;
     this.desktopUpdateAvailable = updateAvailable;
     this.desktopUpdateLatestVersion = normalizedLatest;
-    this.render();
-  }
-
-  setCliUpdateStatus(
-    updateAvailable: boolean,
-    latestVersion: string | null = null,
-  ): void {
-    const normalizedLatest =
-      latestVersion && latestVersion.trim().length > 0
-        ? latestVersion.trim()
-        : null;
-    if (
-      this.cliUpdateAvailable === updateAvailable &&
-      this.cliUpdateLatestVersion === normalizedLatest
-    )
-      return;
-    this.cliUpdateAvailable = updateAvailable;
-    this.cliUpdateLatestVersion = normalizedLatest;
     this.render();
   }
 
@@ -5100,18 +5080,7 @@ export class Sidebar {
 								`
                   : nothing
               }
-							${
-                this.cliUpdateAvailable
-                  ? html`
-									<button class="sidebar-cli-update-banner" @click=${() => this.onOpenSettings?.()}>
-										<span>
-											CLI update available${this.cliUpdateLatestVersion ? ` · v${this.cliUpdateLatestVersion}` : ''}
-										</span>
-										<span class="sidebar-cli-update-cta">Open settings</span>
-									</button>
-								`
-                  : nothing
-              }
+
 							<div class="sidebar-top-actions sidebar-top-actions-primary">
 								<button
 									class="sidebar-top-action-btn"

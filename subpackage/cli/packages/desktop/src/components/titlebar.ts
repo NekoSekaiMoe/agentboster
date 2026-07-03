@@ -5,7 +5,6 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { html, nothing, render } from 'lit';
 import {
-  type CliUpdateStatus,
   type RpcSessionState,
   rpcBridge,
 } from '../rpc/bridge.js';
@@ -22,14 +21,11 @@ export class TitleBar {
   private isMaximized = false;
   private stats: SessionStats | null = null;
   private statsTimer: ReturnType<typeof setInterval> | null = null;
-  private cliStatus: CliUpdateStatus | null = null;
-  private cliUpdating = false;
 
   private onNewSession: (() => void) | null = null;
   private onOpenSessions: (() => void) | null = null;
   private onOpenCommandPalette: (() => void) | null = null;
   private onOpenSettings: (() => void) | null = null;
-  private onUpdateCli: (() => void) | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -64,20 +60,6 @@ export class TitleBar {
 
   setOnOpenSettings(cb: () => void): void {
     this.onOpenSettings = cb;
-  }
-
-  setOnUpdateCli(cb: () => void): void {
-    this.onUpdateCli = cb;
-  }
-
-  setCliUpdateStatus(status: CliUpdateStatus | null): void {
-    this.cliStatus = status;
-    this.render();
-  }
-
-  setCliUpdating(updating: boolean): void {
-    this.cliUpdating = updating;
-    this.render();
   }
 
   private startStatsRefresh(): void {
@@ -166,13 +148,6 @@ export class TitleBar {
     const tokens = this.formatTokens(this.stats?.tokens?.total);
     const cost = this.formatCost(this.stats?.cost);
     const pending = this.state?.pendingMessageCount ?? 0;
-    const updateAvailable = Boolean(this.cliStatus?.update_available);
-    const canUpdateInApp = Boolean(
-      this.cliStatus?.can_update_in_app && this.cliStatus?.npm_available,
-    );
-    const updateTitle = this.cliStatus
-      ? `CLI ${this.cliStatus.current_version || 'unknown'} → ${this.cliStatus.latest_version || 'latest'}`
-      : 'CLI update status';
 
     const template = html`
 			<div class="titlebar" data-tauri-drag-region>
@@ -196,23 +171,6 @@ export class TitleBar {
 					<button class="titlebar-action" @click=${() => this.onNewSession?.()} title="New session">New</button>
 					<button class="titlebar-action" @click=${() => this.onOpenSessions?.()} title="Sessions">Sessions</button>
 					<button class="titlebar-action" @click=${() => this.onOpenCommandPalette?.()} title="Commands">⌘K</button>
-					${
-            updateAvailable
-              ? html`
-							<button
-								class="titlebar-action update"
-								?disabled=${this.cliUpdating}
-								@click=${() => {
-                  if (canUpdateInApp) this.onUpdateCli?.();
-                  else this.onOpenSettings?.();
-                }}
-								title=${updateTitle}
-							>
-								${this.cliUpdating ? 'Updating…' : canUpdateInApp ? 'Update CLI' : 'CLI Update'}
-							</button>
-						`
-              : nothing
-          }
 					<button class="titlebar-action" @click=${() => this.onOpenSettings?.()} title="Settings">⚙</button>
 
 					<button class="titlebar-window" @click=${() => this.minimize()} title="Minimize">—</button>
