@@ -2158,6 +2158,7 @@ export class SettingsPanel {
     hasProjectContext: boolean,
     compatibilityChecks: string[],
   ): TemplateResult {
+    return html`
 			<div class="settings-view-grid">
 				<section class="settings-group settings-group-full">
 					<div class="settings-section">
