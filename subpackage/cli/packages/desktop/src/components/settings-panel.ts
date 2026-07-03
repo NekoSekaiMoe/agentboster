@@ -2152,7 +2152,12 @@ export class SettingsPanel {
 				</div>
 			`;
   }
-    return html`
+
+  private renderUpdatesSection(
+    runtimeControlsEnabled: boolean,
+    hasProjectContext: boolean,
+    compatibilityChecks: string[],
+  ): TemplateResult {
 			<div class="settings-view-grid">
 				<section class="settings-group settings-group-full">
 					<div class="settings-section">
@@ -2244,7 +2249,6 @@ export class SettingsPanel {
     section: SettingsSectionId,
     runtimeControlsEnabled: boolean,
     hasProjectContext: boolean,
-    authProviders: PiAuthStatus['configured_providers'],
     compatibilityChecks: string[],
   ): TemplateResult {
     switch (section) {
@@ -2258,6 +2262,7 @@ export class SettingsPanel {
       case 'updates':
         return this.renderUpdatesSection(
           runtimeControlsEnabled,
+          hasProjectContext,
           compatibilityChecks,
         );
       case 'general':
@@ -2273,7 +2278,6 @@ export class SettingsPanel {
     section: SettingsSectionId,
     runtimeControlsEnabled: boolean,
     hasProjectContext: boolean,
-    authProviders: PiAuthStatus['configured_providers'],
     compatibilityChecks: string[],
   ): TemplateResult {
     try {
@@ -2281,7 +2285,6 @@ export class SettingsPanel {
         section,
         runtimeControlsEnabled,
         hasProjectContext,
-        authProviders,
         compatibilityChecks,
       );
     } catch (err) {
@@ -2333,7 +2336,7 @@ export class SettingsPanel {
 					<div class="settings-view-body settings-view-body-flat">
 						<section class="settings-main" aria-live="polite">
 							<div class="settings-main-content settings-main-content-flat">
-								${this.renderActiveSectionSafe(activeSection, runtimeControlsEnabled, hasProjectContext, authProviders, compatibilityChecks)}
+								${this.renderActiveSectionSafe(activeSection, runtimeControlsEnabled, hasProjectContext, compatibilityChecks)}
 							</div>
 						</section>
 					</div>
