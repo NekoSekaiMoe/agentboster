@@ -72,6 +72,8 @@ export async function evaluateL0(
     logger.error('l0 rule lookup failed, failing open', {
       agentId,
       error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      cause: err instanceof Error ? err.cause : undefined,
     });
     return ALLOWED;
   }
