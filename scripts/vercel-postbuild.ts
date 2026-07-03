@@ -43,7 +43,7 @@ async function main() {
   await runCommand('npx', ['tsx', 'scripts/ensure-vector-extension.ts']);
 
   console.log('[postbuild] pushing Drizzle schema');
-  await runCommand('npx', ['drizzle-kit', 'push']);
+  await runCommand('npx', ['drizzle-kit', 'push', '--force']);
 
   console.log('[postbuild] migrating message versions to unified model');
   await runCommand('npx', ['tsx', 'scripts/migrate-message-versions.ts']);
