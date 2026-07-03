@@ -204,7 +204,8 @@ Full guide: [`subpackage/cli/README.md`](./subpackage/cli/README.md).
 | `DATABASE_URL` | Required in production |
 | `BLOB_ACCESS` / `BLOB_READ_WRITE_TOKEN` | Attachments |
 | `AGENTD_API_KEY` | Must match daemon `clawless_api_key`; accepts a comma-separated list (e.g. `key1,key2`) for multiple daemons or key rotation |
-| `AGENTD_CLIENT_CERT_PATH`, etc. | Only when Web calls daemon directly |
+| `AGENTD_URL` | **Required** (when using agentd): Web server direct connection URL to daemon, format `https://host:port`. Without this, LLM code execution will fallback to Vercel sandbox (limited functionality) |
+| `AGENTD_CLIENT_CERT_PATH`, `AGENTD_CLIENT_KEY_PATH`, `AGENTD_CA_PATH` | Optional mTLS certificate paths; only needed when Web actively calls daemon (direct connection mode). Used with `AGENTD_URL` |
 | `TAVILY_API_KEY` | Optional |
 
 CLI: `AGENTBOSTER_URL`, `AGENTBOSTER_SESSION_ID`, `AGENTBOSTER_CLIENT_ID` (see cli README).

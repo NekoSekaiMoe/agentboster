@@ -204,7 +204,8 @@ agentboster login   # 使用 Web 时
 | `DATABASE_URL` | 生产必填 |
 | `BLOB_ACCESS` / `BLOB_READ_WRITE_TOKEN` | 附件存储 |
 | `AGENTD_API_KEY` | 与 daemon `clawless_api_key` 一致；支持逗号分隔多个值（如 `key1,key2`），用于多 daemon 或密钥轮换 |
-| `AGENTD_CLIENT_CERT_PATH` 等 | 仅 Web 主动访问 daemon 时需要 |
+| `AGENTD_URL` | **必填**（使用 agentd 时）：Web 服务器直连 daemon 的 URL，格式 `https://host:port`。未配置时 LLM 执行代码会 fallback 到 Vercel sandbox（功能受限） |
+| `AGENTD_CLIENT_CERT_PATH`、`AGENTD_CLIENT_KEY_PATH`、`AGENTD_CA_PATH` | 可选 mTLS 证书路径；仅 Web 主动调用 daemon 时需要（直连模式）。配合 `AGENTD_URL` 使用 |
 | `TAVILY_API_KEY` | 可选 |
 
 CLI 端无需 env 变量；登录信息写入 `~/.agentboster/config.json`。调试可设 `AGENTBOSTER_SESSION_ID`、`AGENTBOSTER_CLIENT_ID`（见 cli README）。
