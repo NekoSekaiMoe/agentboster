@@ -8,16 +8,16 @@
 	"sideEffects": false,
 	"exports": {
 		".": {
-			"types": "./src/index.ts",
-			"import": "./src/index.ts"
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
 		},
 		"./compat": {
-			"types": "./src/compat.ts",
-			"import": "./src/compat.ts"
+			"types": "./dist/compat.d.ts",
+			"import": "./dist/compat.js"
 		},
 		"./utils/*": {
-			"types": "./src/utils/*.ts",
-			"import": "./src/utils/*.ts"
+			"types": "./dist/utils/*.d.ts",
+			"import": "./dist/utils/*.js"
 		}
 	},
 	"files": [

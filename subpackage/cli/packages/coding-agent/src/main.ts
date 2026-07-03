@@ -90,6 +90,7 @@ import {
   handlePackageCommand,
 } from './package-manager-cli.ts';
 import { handleLoginCommand } from './cli/login.ts';
+import { handleAuthCommand } from './cli/auth-commands.ts';
 import { isLocalPath, resolvePath } from './utils/paths.ts';
 
 const EXTENSION_LOAD_FAILURE_HINT =
@@ -544,6 +545,10 @@ export async function main(args: string[], options?: MainOptions) {
   configureHttpDispatcher();
 
   if (await handleLoginCommand(args)) {
+    return;
+  }
+
+  if (await handleAuthCommand(args)) {
     return;
   }
 

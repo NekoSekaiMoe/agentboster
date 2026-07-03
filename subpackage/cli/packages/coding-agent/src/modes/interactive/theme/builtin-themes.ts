@@ -3,8 +3,8 @@
  * loader. Replaces the previous readFileSync-at-runtime load (which
  * required dark.json/light.json to ship alongside agentboster.cjs).
  */
-import darkJson from './dark.json';
-import lightJson from './light.json';
+import darkJson from './dark.json' with { type: 'json' };
+import lightJson from './light.json' with { type: 'json' };
 import type { ThemeJson } from './theme.ts';
 
 export const BUILTIN_THEMES: Record<string, ThemeJson> = {

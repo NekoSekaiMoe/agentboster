@@ -140,9 +140,11 @@ interface PackageJson {
   };
 }
 
-// Statically imported so esbuild inlines it into the bundle. In tsx
-// (dev) mode this resolves to the real package.json on disk.
-import packageJsonInline from '../package.json';
+// Read package.json at runtime to avoid import attribute issues with Node.js 24+
+import { readFileSync } from 'fs';
+
+const packageJsonPath = join(getPackageDir(), 'package.json');
+const packageJsonInline = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
 
 const pkg: PackageJson = packageJsonInline as PackageJson;
 
