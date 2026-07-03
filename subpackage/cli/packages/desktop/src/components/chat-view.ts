@@ -1165,7 +1165,18 @@ export class ChatView {
     if (!force && this.providerAuthLoadedAt > 0 && !stale) return;
     this.loadingProviderAuth = true;
     try {
-      const raw = await rpcBridge.getPiAuthStatus();
+      // Use CLI command instead of direct Rust call
+      const result = await rpcBridge.runPiCliCommand(['auth', 'status'], {
+        cwd: this.projectPath || '.',
+      });
+      if (result.exit_code !== 0) {
+        throw new Error(
+          result.stderr ||
+            result.stdout ||
+            `auth status failed with exit ${result.exit_code}`,
+        );
+      }
+      const raw = JSON.parse(result.stdout || '{}');
       const next = normalizeConfiguredProviderAuthEntries(
         raw?.configured_providers,
       );
@@ -1288,7 +1299,15 @@ export class ChatView {
         return;
       }
 
-      const result = await rpcBridge.clearPiProviderAuth(providerKey);
+      // Use CLI command instead of direct Rust call
+      const cliResult = await rpcBridge.runPiCliCommand(
+        ['auth', 'logout', providerKey],
+        { cwd: this.projectPath || '.' },
+      );
+      const result = cliResult.exit_code === 0
+        ? JSON.parse(cliResult.stdout || '{}')
+        : { removed: false, source: 'missing' };
+
       if (result.removed) {
         this.providerAuthForcedLoggedOut.add(providerKey);
         this.providerAuthById.delete(providerKey);
