@@ -54,10 +54,9 @@ function captureFetch() {
       body: init?.body ? JSON.parse(String(init.body)) : {},
     });
     // QQ OAuth endpoint shape vs message-send endpoint shape.
-    const payload =
-      u.includes('getAppAccessToken')
-        ? { access_token: 'tok', expires_in: 7200 }
-        : { id: 'msg_1' };
+    const payload = u.includes('getAppAccessToken')
+      ? { access_token: 'tok', expires_in: 7200 }
+      : { id: 'msg_1' };
     return new Response(JSON.stringify(payload), { status: 200 });
   }) as typeof globalThis.fetch;
   return {
