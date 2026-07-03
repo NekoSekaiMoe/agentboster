@@ -60,3 +60,4 @@ subpackage/cli/packages/coding-agent/dist/agentboster.cjs
 subpackage/cli/agentboster.cjs
 subpackage/cli/agentboster-cli-*.tar.gz
 subpackage/cli/.pkg-staging/
+error.md
