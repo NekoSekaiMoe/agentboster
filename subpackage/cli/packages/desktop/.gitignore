@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+# desktop is a yarn project; keep npm's lockfile out of the tree
+package-lock.json
 
 # Build outputs
 dist/
