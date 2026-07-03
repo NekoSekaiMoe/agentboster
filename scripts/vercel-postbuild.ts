@@ -42,6 +42,9 @@ async function main() {
   console.log('[postbuild] ensuring pgvector extension');
   await runCommand('npx', ['tsx', 'scripts/ensure-vector-extension.ts']);
 
+  console.log('[postbuild] ensuring agent_l0_rules table');
+  await runCommand('npx', ['tsx', 'scripts/ensure-l0-rules-table.ts']);
+
   console.log('[postbuild] pushing Drizzle schema');
   await runCommand('npx', ['drizzle-kit', 'push', '--force']);
 
