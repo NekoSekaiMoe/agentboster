@@ -1,5 +1,11 @@
-import type { RequestOptions as HttpRequestOptions } from 'node:http';
-import type { RequestOptions as HttpsRequestOptions } from 'node:https';
+// Workflow-bundle safety: this file is transitively reachable from the
+// workflow body (lib/workflow/agent/dispatch.ts -> agentd-tools-client.ts
+// -> here). The workflow DevKit esbuild plugin rejects ANY reference to
+// node:* modules — even `import type` — so we avoid importing node:http /
+// node:https entirely at module scope. The http.request options shape is
+// inlined as a local structural type, and the actual modules are loaded
+// dynamically inside requestAgentd (which only runs on the host via
+// 'use step' callers).
 
 export interface AgentdHttpConfig {
   baseUrl: string;
@@ -15,10 +21,26 @@ export interface AgentdHttpResponse {
   text: string;
 }
 
-type NodeRequestOptions = HttpRequestOptions & HttpsRequestOptions;
+// Structural mirror of http.request's options — kept local to avoid any
+// top-level reference to node:* modules. Matches the subset of fields we
+// actually populate below.
+interface NodeRequestOptions {
+  protocol?: string;
+  hostname?: string;
+  port?: string | number;
+  path?: string;
+  method?: string;
+  headers?: Record<string, string | string[] | undefined>;
+  timeout?: number;
+  // TLS (https only)
+  cert?: string | Buffer;
+  key?: string | Buffer;
+  ca?: string | Buffer;
+  rejectUnauthorized?: boolean;
+}
 
-function getTlsOptions(config: AgentdHttpConfig): HttpsRequestOptions {
-  const options: HttpsRequestOptions = {};
+function getTlsOptions(config: AgentdHttpConfig): NodeRequestOptions {
+  const options: NodeRequestOptions = {};
 
   if (config.cert && config.key) {
     options.cert = config.cert;
@@ -40,10 +62,6 @@ export async function requestAgentd(
   body?: unknown,
   timeoutMs = 30_000,
 ): Promise<AgentdHttpResponse> {
-  // Dynamic import: this file is transitively reachable from the workflow
-  // body (lib/workflow/agent/dispatch.ts -> agentd-tools-client.ts -> here).
-  // Per AGENTS.md, no top-level node:* imports — the workflow DevKit
-  // statically bundles them into the vm sandbox where `require` is undefined.
   const { request: httpRequest } = await import('node:http');
   const { request: httpsRequest } = await import('node:https');
 
