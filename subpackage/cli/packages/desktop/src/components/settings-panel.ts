@@ -19,7 +19,6 @@ import {
   saveDesktopAppearanceProfiles,
 } from '../theme/appearance-profiles.js';
 import {
-  type PiAuthStatus,
   type QueueMode,
   type RpcCompatibilityReport,
   rpcBridge,
@@ -103,8 +102,6 @@ export class SettingsPanel {
   private onClose: (() => void) | null = null;
   private onRequestAddProject: (() => void) | null = null;
   private saving = false;
-  private authStatus: PiAuthStatus | null = null;
-  private authLoading = false;
   private desktopStatus: DesktopUpdateStatus | null = null;
   private desktopLoading = false;
   private desktopOpening = false;
@@ -1114,9 +1111,7 @@ export class SettingsPanel {
         // ignore
       }
     } else {
-      this.authStatus = null;
       this.compatibilityReport = null;
-      this.authLoading = false;
       this.compatibilityLoading = false;
       this.scopedModelsLoading = false;
       this.scopedModelsSaving = false;
@@ -1163,7 +1158,6 @@ export class SettingsPanel {
     ];
     if (runtimeReady) {
       refreshTasks.push(
-        this.refreshAccountStatus(),
         this.refreshCompatibilityStatus(),
         this.refreshScopedModels(),
       );
@@ -1173,52 +1167,6 @@ export class SettingsPanel {
     this.applyAppearanceProfileForCurrentResolvedTheme(false);
   }
 
-  private async refreshAuthStatus(): Promise<void> {
-    this.authLoading = true;
-    this.render();
-    try {
-      const raw = await rpcBridge.getPiAuthStatus();
-      const providers = Array.isArray(raw?.configured_providers)
-        ? raw.configured_providers
-            .filter((entry) => entry && typeof entry === 'object')
-            .map((entry) => {
-              const provider =
-                typeof entry.provider === 'string' &&
-                entry.provider.trim().length > 0
-                  ? entry.provider.trim()
-                  : 'unknown';
-              const source =
-                entry.source === 'environment' ||
-                entry.source === 'auth_file_api_key' ||
-                entry.source === 'auth_file_oauth'
-                  ? entry.source
-                  : 'environment';
-              const kind =
-                entry.kind === 'api_key' ||
-                entry.kind === 'oauth' ||
-                entry.kind === 'unknown'
-                  ? entry.kind
-                  : 'unknown';
-              return { provider, source, kind };
-            })
-        : [];
-      this.authStatus = {
-        agent_dir: typeof raw?.agent_dir === 'string' ? raw.agent_dir : null,
-        auth_file: typeof raw?.auth_file === 'string' ? raw.auth_file : null,
-        auth_file_exists: Boolean(raw?.auth_file_exists),
-        configured_providers: providers,
-      };
-    } catch {
-      this.authStatus = null;
-    } finally {
-      this.authLoading = false;
-      this.render();
-    }
-  }
-
-  private async refreshAccountStatus(): Promise<void> {
-    await this.refreshAuthStatus();
-  }
 
   private async refreshDesktopStatus(): Promise<void> {
     this.desktopLoading = true;
@@ -1405,19 +1353,12 @@ export class SettingsPanel {
   }
 
   private async resolvePiSettingsPath(): Promise<string> {
-    let agentDir = '';
-    try {
-      const status = await rpcBridge.getPiAuthStatus();
-      agentDir =
-        typeof status.agent_dir === 'string' ? status.agent_dir.trim() : '';
-    } catch {
-      // ignore and fallback to default path
-    }
-    if (!agentDir) {
-      const { homeDir } = await import('@tauri-apps/api/path');
-      const home = (await homeDir()).replace(/\\/g, '/').replace(/\/+$/, '');
-      agentDir = this.joinFsPath(this.joinFsPath(home, '.pi'), 'agent');
-    }
+    const { homeDir } = await import('@tauri-apps/api/path');
+    const home = (await homeDir()).replace(/\\/g, '/').replace(/\/+$/, '');
+    const agentDir = this.joinFsPath(
+      this.joinFsPath(home, '.agentboster'),
+      'agent',
+    );
     return this.joinFsPath(agentDir, 'settings.json');
   }
 
@@ -2197,96 +2138,20 @@ export class SettingsPanel {
   private renderAccountSection(
     runtimeControlsEnabled: boolean,
     hasProjectContext: boolean,
-    authProviders: PiAuthStatus['configured_providers'],
   ): TemplateResult {
-    const runtimeMessage = hasProjectContext
-      ? 'Runtime is still starting for this project. Account diagnostics unlock when runtime is ready.'
-      : 'Open a project to inspect account diagnostics.';
-
-    const uniqueAuthProviders = new Map<
-      string,
-      PiAuthStatus['configured_providers'][number]
-    >();
-    for (const entry of authProviders) {
-      const key = (entry?.provider ?? '').trim().toLowerCase();
-      if (!key) continue;
-      const existing = uniqueAuthProviders.get(key);
-      const score = entry.source === 'environment' ? 2 : 1;
-      const existingScore = existing
-        ? existing.source === 'environment'
-          ? 2
-          : 1
-        : -1;
-      if (!existing || score >= existingScore) {
-        uniqueAuthProviders.set(key, entry);
-      }
-    }
-    const connectedProviders = Array.from(uniqueAuthProviders.values()).sort(
-      (a, b) => a.provider.localeCompare(b.provider),
-    );
-
     return html`
-			<div class="settings-view-grid">
-				<section class="settings-group">
-					<div class="settings-section">
-						<div class="settings-section-title">Account (work in progress)</div>
-						<div class="settings-desc">This section is being redesigned for real account features instead of model/provider login controls.</div>
-						<div class="settings-desc">Planned direction: GitHub/Google sign-in, profile/avatar in the app sidebar, and optional cloud sync for preferences.</div>
-						<div class="settings-desc">Model/provider login/logout is handled from the model picker.</div>
-						<div class="settings-desc">Package install + provider setup flows stay in <strong>Packages</strong>.</div>
-					</div>
-				</section>
-
-				<section class="settings-group">
-					<div class="settings-section">
-						<div class="settings-section-title">Current account diagnostics</div>
-						${
-              !runtimeControlsEnabled
-                ? html`<div class="settings-desc">${runtimeMessage}</div>`
-                : this.authLoading
-                  ? html`<div class="settings-desc">Checking account diagnostics…</div>`
-                  : html`
-									<div class="settings-desc">
-										${
-                      connectedProviders.length > 0
-                        ? `Connected providers detected: ${connectedProviders.length}`
-                        : 'No provider credentials detected.'
-                    }
-									</div>
-									<div class="settings-actions">
-										<button class="ghost-btn" @click=${() => this.refreshAccountStatus()}>Refresh diagnostics</button>
-									</div>
-									${
-                    connectedProviders.length > 0
-                      ? html`
-											<div class="account-chips">
-												${connectedProviders.map((provider) => html`<span class="account-chip">${provider.provider} · ${provider.source === 'environment' ? 'env' : provider.kind}</span>`)}
-											</div>
-										`
-                      : null
-                  }
-									${
-                    this.authStatus?.auth_file
-                      ? html`
-											<details class="settings-advanced">
-												<summary>Advanced details</summary>
-												<div class="settings-desc">Auth file: <code>${this.authStatus.auth_file}</code></div>
-											</details>
-										`
-                      : null
-                  }
-								`
-            }
-					</div>
-				</section>
-			</div>
-		`;
+				<div class="settings-view-grid">
+					<section class="settings-group">
+						<div class="settings-section">
+							<div class="settings-section-title">Account (work in progress)</div>
+							<div class="settings-desc">This section is being redesigned for real account features.</div>
+							<div class="settings-desc">Planned direction: GitHub/Google sign-in, profile/avatar in the app sidebar, and optional cloud sync for preferences.</div>
+							<div class="settings-desc">For agentboster platform: use <code>agentboster login</code> from the CLI to authenticate with your Web backend.</div>
+						</div>
+					</section>
+				</div>
+			`;
   }
-
-  private renderUpdatesSection(
-    runtimeControlsEnabled: boolean,
-    compatibilityChecks: string[],
-  ): TemplateResult {
     return html`
 			<div class="settings-view-grid">
 				<section class="settings-group settings-group-full">
@@ -2389,7 +2254,6 @@ export class SettingsPanel {
         return this.renderAccountSection(
           runtimeControlsEnabled,
           hasProjectContext,
-          authProviders,
         );
       case 'updates':
         return this.renderUpdatesSection(
@@ -2442,9 +2306,6 @@ export class SettingsPanel {
       return;
     }
 
-    const authProviders = Array.isArray(this.authStatus?.configured_providers)
-      ? this.authStatus.configured_providers
-      : [];
     const compatibilityChecks = Array.isArray(this.compatibilityReport?.checks)
       ? this.compatibilityReport.checks
       : [];

@@ -3939,86 +3939,6 @@ export class PackagesView {
     return [...candidates].filter(Boolean);
   }
 
-  private async cleanupProviderAuthForRemovedPackage(
-    source: string,
-  ): Promise<string[]> {
-    const candidates = this.inferRemovedPackageAuthProviderCandidates(source);
-    if (candidates.length === 0) return [];
-    let authProviders: Array<{
-      provider: string;
-      source: string;
-      kind: string;
-    }> = [];
-    try {
-      const status = await rpcBridge.getPiAuthStatus();
-      authProviders = Array.isArray(status?.configured_providers)
-        ? status.configured_providers
-            .map((item) => ({
-              provider: String(item.provider || '')
-                .trim()
-                .toLowerCase(),
-              source: String(item.source || '')
-                .trim()
-                .toLowerCase(),
-              kind: String(item.kind || '')
-                .trim()
-                .toLowerCase(),
-            }))
-            .filter((item) => item.provider.length > 0)
-        : [];
-    } catch {
-      return [];
-    }
-
-    const packageTokens = normalizeRecommendedSource(source)
-      .replace(/^npm:/, '')
-      .split(/[/_-]+/)
-      .map((token) => token.trim().toLowerCase())
-      .filter(
-        (token) =>
-          token.length >= 4 && token !== 'provider' && token !== 'package',
-      );
-
-    // OAuth provider scanning removed - use hardcoded defaults only
-    // TODO: CLI should expose `agentboster auth list-providers --json`
-    const builtInOAuthProviders = collectBuiltInOAuthProviderIds([]);
-
-    const targets = new Set<string>();
-    for (const auth of authProviders) {
-      if (auth.source === 'environment') continue;
-      if (auth.kind !== 'oauth') continue;
-      if (builtInOAuthProviders.has(auth.provider)) continue;
-      const directMatch = candidates.some(
-        (candidate) =>
-          auth.provider === candidate ||
-          auth.provider.includes(candidate) ||
-          candidate.includes(auth.provider),
-      );
-      const tokenMatch = packageTokens.some((token) =>
-        auth.provider.includes(token),
-      );
-      if (directMatch || tokenMatch) {
-        targets.add(auth.provider);
-      }
-    }
-
-    if (targets.size === 0) return [];
-    const removed: string[] = [];
-    for (const provider of targets) {
-      try {
-        const result = await rpcBridge.clearPiProviderAuth(provider);
-        if (result.removed) {
-          removed.push(provider);
-        }
-      } catch {
-        // best-effort cleanup
-      }
-    }
-    if (removed.length > 0) {
-      this.commandOutput = `${this.commandOutput ? `${this.commandOutput}\n` : ''}[auth-cleanup] removed oauth credentials for: ${removed.join(', ')}\n`;
-    }
-    return removed;
-  }
 
   private async removePackage(
     source: string,
@@ -4034,13 +3954,7 @@ export class PackagesView {
       refreshOnSuccess: true,
     });
     if (success) {
-      const removedProviders =
-        await this.cleanupProviderAuthForRemovedPackage(trimmed);
-      if (removedProviders.length > 0) {
-        this.commandStatus = `Removed: ${trimmed} · Cleared auth for ${removedProviders.join(', ')}`;
-      } else {
-        this.commandStatus = `Removed: ${trimmed}`;
-      }
+      this.commandStatus = `Removed: ${trimmed}`;
     }
   }
 

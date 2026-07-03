@@ -62,24 +62,6 @@ export interface PiCliCommandResult {
   discovery: string;
 }
 
-export interface PiAuthProviderStatus {
-  provider: string;
-  source: 'auth_file_api_key' | 'auth_file_oauth' | 'environment';
-  kind: 'api_key' | 'oauth' | 'unknown';
-}
-
-export interface PiAuthStatus {
-  agent_dir: string | null;
-  auth_file: string | null;
-  auth_file_exists: boolean;
-  configured_providers: PiAuthProviderStatus[];
-}
-
-export interface PiProviderAuthClearResult {
-  provider: string;
-  removed: boolean;
-  source: 'auth_file' | 'environment' | 'missing';
-}
 
 export interface GitCommandResult {
   stdout: string;
@@ -565,18 +547,6 @@ export class RpcBridge {
         args,
         cwd: options.cwd ?? null,
       },
-    });
-  }
-
-  async getPiAuthStatus(): Promise<PiAuthStatus> {
-    return invoke<PiAuthStatus>('get_pi_auth_status');
-  }
-
-  async clearPiProviderAuth(
-    provider: string,
-  ): Promise<PiProviderAuthClearResult> {
-    return invoke<PiProviderAuthClearResult>('clear_pi_provider_auth', {
-      provider,
     });
   }
 
@@ -1083,16 +1053,6 @@ class ActiveRpcBridgeProxy {
     options: { cwd?: string } = {},
   ): Promise<GitCommandResult> {
     return this.activeBridge.runGitCommand(args, options);
-  }
-
-  async getPiAuthStatus(): Promise<PiAuthStatus> {
-    return this.activeBridge.getPiAuthStatus();
-  }
-
-  async clearPiProviderAuth(
-    provider: string,
-  ): Promise<PiProviderAuthClearResult> {
-    return this.activeBridge.clearPiProviderAuth(provider);
   }
 
   async checkRpcCompatibility(): Promise<RpcCompatibilityReport> {
