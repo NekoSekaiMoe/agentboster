@@ -256,11 +256,158 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  # ── desktop: Tauri 2 app on 5 native targets ──────────────────────
+  #
+  # Tauri must build on a runner whose OS+arch matches the target — it
+  # shells out to platform-specific bundlers (appdmg, makensis, wix,
+  # appimage). We build natively on each runner rather than cross-compiling.
+  #
+  #   macos-26          → macOS arm64       (.dmg, .app.tar.gz)
+  #   windows-latest    → Windows x64       (.exe NSIS, .msi)
+  #   windows-11-arm    → Windows arm64     (.exe NSIS, .msi)
+  #   ubuntu-latest     → Linux x64         (.AppImage, .deb)
+  #   ubuntu-24.04-arm  → Linux arm64       (.AppImage, .deb)
+  #
+  # Note: GitHub has no `windows-2025-arm` image (verified against
+  # actions/runner-images); windows-11-arm is the only GA Windows ARM64
+  # runner. Each runner's native arch matches the Rust target, so no
+  # cross-compile / --target flag is needed.
+  #
+  # Each runner uploads one artifact named `desktop-<asset_target>`; the
+  # release job downloads them all and uploads the files to the GH release.
+  # Desktop artifacts are NOT in the release job's strict EXPECTED list
+  # because their filenames embed version + arch in platform-specific
+  # shapes (spaces, mixed casing) that are fragile to enumerate. Instead
+  # the release job does a per-target glob presence check.
+
+  desktop:
+    name: desktop (${{ matrix.asset_target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            asset_target: macos-arm64
+          - runner: windows-latest
+            asset_target: windows-x64
+          - runner: windows-11-arm
+            asset_target: windows-arm64
+          - runner: ubuntu-latest
+            asset_target: linux-x64
+          - runner: ubuntu-24.04-arm
+            asset_target: linux-arm64
+
+    defaults:
+      run:
+        working-directory: subpackage/cli/packages/desktop
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          # desktop ships yarn.lock (not package-lock.json); cache against it.
+          cache: yarn
+          cache-dependency-path: subpackage/cli/packages/desktop/yarn.lock
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: subpackage/cli/packages/desktop/src-tauri
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        # Mirrors desktop-ci.yml. xcap needs PipeWire + libclang; enigo's
+        # x11rb backend needs libxcb1; AT-SPI needs libatspi2 + libdbus.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            pkg-config \
+            libclang-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxdo-dev \
+            libdbus-1-dev \
+            libatspi2.0-dev \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libwayland-dev \
+            libegl-dev
+
+      - name: Install npm dependencies
+        # desktop ships yarn.lock (not package-lock.json); use yarn to
+        # honor the committed lockfile.
+        run: yarn install --frozen-lockfile
+
+      - name: Build Tauri app
+        # `tauri build` runs beforeBuildCommand (vite build) then compiles
+        # the Rust binary and runs platform bundlers. Output lands in
+        # src-tauri/target/release/bundle/.
+        run: npm run build
+
+      - name: Stage bundle artifacts (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE="../../../../desktop-out/${{ matrix.asset_target }}"
+          mkdir -p "$STAGE"
+          BUNDLE_DIR="src-tauri/target/release/bundle"
+          # Collect every installer file Tauri emits (.dmg, .app.tar.gz,
+          # .AppImage, .deb). Plain `find ... -exec cp {} +` with -t fails
+          # on macOS BSD find, so we loop.
+          find "$BUNDLE_DIR" -type f \
+            \( -name '*.dmg' -o -name '*.app.tar.gz' \
+               -o -name '*.AppImage' -o -name '*.deb' \) \
+            -print0 | while IFS= read -r -d '' f; do
+              cp "$f" "$STAGE/"
+            done
+          echo "=== staged ${{ matrix.asset_target }} ==="
+          ls -la "$STAGE"
+
+      - name: Stage bundle artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "../../../../desktop-out/${{ matrix.asset_target }}"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          $bundleDir = "src-tauri/target/release/bundle"
+          # NSIS emits *-setup.exe; WiX emits .msi. Collect both.
+          $files = Get-ChildItem -Path $bundleDir -Recurse -File |
+            Where-Object { $_.Extension -in '.msi','.exe' }
+          foreach ($f in $files) {
+            Copy-Item $f.FullName -Destination $stage
+          }
+          Write-Host "=== staged ${{ matrix.asset_target }} ==="
+          Get-ChildItem $stage | Format-Table Name,Length
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.asset_target }}
+          path: desktop-out/${{ matrix.asset_target }}
+          retention-days: 14
+          if-no-files-found: error
+
   # ── release: collect all artifacts, attach to the GitHub release ──
 
   release:
     name: attach to release
-    needs: [a11y-helper, agentd, cli]
+    needs: [a11y-helper, agentd, cli, desktop]
     runs-on: ubuntu-latest
     # Only attach when triggered by a real tag push. workflow_dispatch
     # runs verify the pipeline but must not pollute any release with
@@ -310,8 +457,37 @@ jobs:
               MISSING=$((MISSING + 1))
             fi
           done
-          if [ "$MISSING" -ne 0 ]; then
-            echo "::error::$MISSING expected asset(s) missing — refusing to upload a partial release"
+
+          # Desktop artifacts have version- and arch-embedded filenames in
+          # platform-specific shapes (spaces, mixed casing), so we can't
+          # enumerate them like the Go/CLI assets. Instead assert that each
+          # of the 5 desktop targets contributed at least one installer
+          # matching its platform's extension.
+          echo "=== Desktop asset presence check ==="
+          DESKTOP_MISSING=0
+          check_glob() {
+            local label="$1"; local pattern="$2"
+            # shellcheck disable=SC2086
+            if [ -z "$(ls release-assets/$pattern 2>/dev/null)" ]; then
+              echo "::error::Missing desktop assets for $label (pattern: $pattern)"
+              DESKTOP_MISSING=$((DESKTOP_MISSING + 1))
+            else
+              echo "  $label: $(ls release-assets/$pattern 2>/dev/null | wc -l) file(s)"
+            fi
+          }
+          # macOS: dmg from macos-arm64
+          check_glob "macos-arm64" "*.dmg"
+          # Windows: NSIS setup .exe from windows-x64 + windows-arm64
+          check_glob "windows-x64+arm64 (nsis)" "*-setup.exe"
+          # Windows: .msi from both windows targets
+          check_glob "windows-x64+arm64 (msi)" "*.msi"
+          # Linux: AppImage + deb from linux-x64 + linux-arm64
+          check_glob "linux-x64+arm64 (appimage)" "*.AppImage"
+          check_glob "linux-x64+arm64 (deb)" "*.deb"
+
+          TOTAL_MISSING=$((MISSING + DESKTOP_MISSING))
+          if [ "$TOTAL_MISSING" -ne 0 ]; then
+            echo "::error::$TOTAL_MISSING expected asset(s) missing — refusing to upload a partial release"
             exit 1
           fi
 
