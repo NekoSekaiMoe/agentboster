@@ -1,12 +1,18 @@
- use serde::{Deserialize, Serialize};
- use std::collections::{HashMap, HashSet};
- use std::fs;
- use std::io::{BufRead, BufReader, Write};
- use std::path::{Path, PathBuf};
- use std::process::{Child, Command, Stdio};
- use std::sync::{Arc, Mutex};
- use std::time::UNIX_EPOCH;
- use tauri::{AppHandle, Emitter, Manager};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::time::UNIX_EPOCH;
+use tauri::{AppHandle, Emitter, Manager};
+
+// GitHub releases feed for the CLI tarballs. The installer queries the
+// `/releases/latest` endpoint at runtime to discover the current version
+// (tag_name) and download URL, so Desktop never needs to be in lock-step
+// with CLI releases.
+const CLI_RELEASES_API: &str = "https://api.github.com/repos/anomalyco/agentboster/releases/latest";
 
  // Native computer-use commands (screenshots, input injection, AX tree).
  mod computer_use;
@@ -267,6 +273,15 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
             candidates.push(PathBuf::from(nvm_symlink).join("agentboster.cmd"));
         }
 
+        // Auto-installed by `install_cli` (this Desktop app). The installer
+        // writes agentboster.cmd next to the .cjs bundle here.
+        if let Some(home_dir) = resolve_home_dir() {
+            let installed_bin = home_dir.join(".agentboster").join("agent").join("bin");
+            candidates.push(installed_bin.join("agentboster.cmd"));
+            candidates.push(installed_bin.join("agentboster.exe"));
+            candidates.push(installed_bin.join("agentboster"));
+        }
+
         return candidates.into_iter().find(|candidate| candidate.is_file());
     }
 
@@ -355,6 +370,313 @@ fn missing_pi_cli_error(additional: Option<String>) -> String {
         }
     }
     message
+}
+
+// ── CLI auto-installer ────────────────────────────────────────────────
+//
+// Resolves the latest CLI release from GitHub, downloads the universal
+// `agentboster-cli-<tag>.tar.gz` tarball, extracts it into the existing
+// per-user bin dir (`~/.agentboster/agent/bin/` — already on the
+// discovery candidate list), and emits progress events to the frontend.
+//
+// The tarball layout (per `subpackage/cli/scripts/package.mjs`) is:
+//   agentboster-cli-<tag>/
+//     agentboster        # shell wrapper, execs node agentboster.cjs
+//     agentboster.cjs    # single-file esbuild bundle
+//
+// After extraction we point Desktop at `<bin_dir>/agentboster` and let
+// the existing discovery path pick it up on the next rpc_start.
+
+#[derive(Debug, Deserialize)]
+struct GithubAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    assets: Vec<GithubAsset>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct InstallProgressPayload {
+    stage: String,
+    /// 0.0–1.0 progress within the current stage, when meaningful.
+    progress: Option<f64>,
+    message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct InstallResult {
+    /// Absolute path to the installed `agentboster` entry script.
+    bin_path: String,
+    /// Release tag the installer pulled (e.g. "v0.1.5").
+    version: String,
+}
+
+fn install_progress_event_name() -> &'static str {
+    "cli-install-progress"
+}
+
+fn http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent(concat!("agentboster-desktop/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))
+}
+
+/// Resolve the latest CLI release metadata from GitHub.
+async fn fetch_latest_release(
+    client: &reqwest::Client,
+    app: &AppHandle,
+) -> Result<GithubRelease, String> {
+    emit_progress(app, "checking", None, Some("Looking up latest CLI release…".into()));
+    let resp = client
+        .get(CLI_RELEASES_API)
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| format!("GitHub release lookup failed: {}", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "GitHub release lookup returned {}: {}",
+            status,
+            body.chars().take(300).collect::<String>()
+        ));
+    }
+    let release: GithubRelease = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse GitHub release JSON: {}", e))?;
+    if release.tag_name.trim().is_empty() {
+        return Err("GitHub returned a release with empty tag_name".to_string());
+    }
+    Ok(release)
+}
+
+/// Pick the universal tarball asset. The packaging script names it
+/// `agentboster-cli-<tag>.tar.gz`; we don't pin the tag here so this
+/// keeps working as the version moves.
+fn pick_tarball_asset<'a>(release: &'a GithubRelease) -> Result<&'a GithubAsset, String> {
+    release
+        .assets
+        .iter()
+        .find(|a| {
+            a.name.ends_with(".tar.gz") && a.name.starts_with("agentboster-cli-")
+        })
+        .ok_or_else(|| {
+            let available: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
+            format!(
+                "Latest release {} has no agentboster-cli-*.tar.gz asset (assets: [{}])",
+                release.tag_name,
+                available.join(", ")
+            )
+        })
+}
+
+/// Destination dir for the installed CLI. Matches the per-user location
+/// already on the discovery candidate list (`discover_pi_from_common_locations`),
+/// so no extra wiring is needed for `rpc_start` to find the new binary.
+fn install_target_bin_dir() -> Result<PathBuf, String> {
+    let home = resolve_home_dir()
+        .ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
+    Ok(home.join(".agentboster").join("agent").join("bin"))
+}
+
+/// Stream the asset to a temp file, emitting download progress events.
+async fn download_tarball(
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    app: &AppHandle,
+) -> Result<(), String> {
+    use futures_util::StreamExt;
+
+    emit_progress(app, "downloading", Some(0.0), Some(format!("Fetching {}", url)));
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Download request failed: {}", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("Download returned HTTP {}", status));
+    }
+    let total = resp.content_length().unwrap_or(0);
+
+    let mut file = fs::File::create(dest)
+        .map_err(|e| format!("Failed to create temp file {}: {}", dest.display(), e))?;
+    let mut stream = resp.bytes_stream();
+    let mut received: u64 = 0;
+    let mut last_emit = std::time::Instant::now();
+    const EMIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(120);
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download stream error: {}", e))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("Failed writing download chunk: {}", e))?;
+        received += chunk.len() as u64;
+        if last_emit.elapsed() >= EMIT_INTERVAL {
+            let pct = if total > 0 {
+                Some((received as f64 / total as f64).clamp(0.0, 1.0))
+            } else {
+                None
+            };
+            emit_progress(
+                app,
+                "downloading",
+                pct,
+                Some(format!(
+                    "{} / {} bytes",
+                    received,
+                    if total > 0 { total.to_string() } else { "?".to_string() }
+                )),
+            );
+            last_emit = std::time::Instant::now();
+        }
+    }
+
+    file.flush().map_err(|e| format!("Failed flushing download: {}", e))?;
+    emit_progress(app, "downloading", Some(1.0), None);
+    Ok(())
+}
+
+/// Extract the tarball into the bin dir. The archive contains a single
+/// top-level dir (`agentboster-cli-<tag>/`) with `agentboster` and
+/// `agentboster.cjs`; we flatten that prefix so the files land directly
+/// in `bin_dir/`. Existing files are overwritten.
+fn extract_tarball(tarball: &Path, bin_dir: &Path, app: &AppHandle) -> Result<(), String> {
+    emit_progress(app, "extracting", None, Some("Unpacking archive…".into()));
+    fs::create_dir_all(bin_dir)
+        .map_err(|e| format!("Failed to create {}: {}", bin_dir.display(), e))?;
+
+    let f = fs::File::open(tarball)
+        .map_err(|e| format!("Failed to open downloaded tarball: {}", e))?;
+    let gz = flate2::read::GzDecoder::new(f);
+    let mut archive = tar::Archive::new(gz);
+
+    for entry in archive.entries().map_err(|e| format!("tar read error: {}", e))? {
+        let mut entry = entry.map_err(|e| format!("tar entry error: {}", e))?;
+        let path = entry.path().map_err(|e| format!("tar path error: {}", e))?;
+        let path = path.into_owned();
+
+        // Flatten the single top-level dir: skip it, descend one level.
+        let components: Vec<_> = path.components().collect();
+        if components.len() < 2 {
+            continue;
+        }
+        let relative: PathBuf = components.into_iter().skip(1).collect();
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+
+        // Guard against path traversal (defense-in-depth; tar already
+        // rejects absolute / `..` paths when unpack_in_prefix is used,
+        // but we unpack manually here).
+        if relative.is_absolute() || relative.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            continue;
+        }
+
+        let dest = bin_dir.join(&relative);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create {}: {}", parent.display(), e))?;
+        }
+
+        entry
+            .unpack(&dest)
+            .map_err(|e| format!("Failed to unpack {}: {}", dest.display(), e))?;
+
+        // The shell entry and the .cjs are shipped with the executable bit
+        // set inside the archive, but Windows host unpacking or cross-fs
+        // copies can drop it. Re-assert on non-Windows.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&dest, fs::Permissions::from_mode(0o755));
+        }
+    }
+    emit_progress(app, "extracting", Some(1.0), None);
+    Ok(())
+}
+
+fn emit_progress(
+    app: &AppHandle,
+    stage: &str,
+    progress: Option<f64>,
+    message: Option<String>,
+) {
+    let _ = app.emit(
+        install_progress_event_name(),
+        InstallProgressPayload {
+            stage: stage.to_string(),
+            progress,
+            message,
+        },
+    );
+}
+
+/// Install the latest CLI release into `~/.agentboster/agent/bin/`.
+/// Emits `cli-install-progress` events as it goes. Returns the path to
+/// the installed `agentboster` entry script + the release tag.
+#[tauri::command]
+async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
+    let client = http_client()?;
+    let release = fetch_latest_release(&client, &app).await?;
+    let asset = pick_tarball_asset(&release)?;
+
+    let bin_dir = install_target_bin_dir()?;
+    let staging = bin_dir.join(format!(".download-{}.tar.gz", release.tag_name));
+    fs::create_dir_all(&staging.parent().unwrap_or(Path::new(".")))
+        .map_err(|e| format!("Failed to create staging dir: {}", e))?;
+
+    // Best-effort cleanup of any previous half-finished download.
+    let _ = fs::remove_file(&staging);
+
+    download_tarball(&client, &asset.browser_download_url, &staging, &app).await?;
+    extract_tarball(&staging, &bin_dir, &app).await?;
+
+    let _ = fs::remove_file(&staging);
+
+    let bin_path = bin_dir.join("agentboster");
+    if !bin_path.exists() {
+        return Err(format!(
+            "Extraction completed but {} is missing. The tarball may have an unexpected layout.",
+            bin_path.display()
+        ));
+    }
+
+    // The packaging script ships a POSIX shell wrapper
+    // (`#!/bin/sh ... exec node agentboster.cjs`). That wrapper works on
+    // macOS/Linux, but Windows can't execute `#!/bin/sh`. Synthesize a
+    // `agentboster.cmd` shim next to the .cjs so Windows discovery finds
+    // an executable that actually runs.
+    #[cfg(target_os = "windows")]
+    {
+        let cjs_path = bin_dir.join("agentboster.cjs");
+        let cmd_path = bin_dir.join("agentboster.cmd");
+        let cmd_body = format!(
+            "@echo off\r\nnode \"%~dp0agentboster.cjs\" %*\r\n"
+        );
+        fs::write(&cmd_path, cmd_body)
+            .map_err(|e| format!("Failed to write {}: {}", cmd_path.display(), e))?;
+        let _ = cjs_path; // referenced for clarity
+    }
+
+    emit_progress(
+        &app,
+        "done",
+        None,
+        Some(format!("Installed agentboster CLI {}", release.tag_name)),
+    );
+
+    Ok(InstallResult {
+        bin_path: bin_path.to_string_lossy().into_owned(),
+        version: release.tag_name,
+    })
 }
 
 /// Discover the pi binary. Strategy:
@@ -1092,13 +1414,14 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
          })
          .manage(RpcState::default())
          .invoke_handler(tauri::generate_handler![
-             rpc_start,
-             rpc_send,
-             rpc_stop,
-             rpc_stop_all,
-             rpc_is_running,
-             rpc_ui_response,
-             save_settings,
+            rpc_start,
+            rpc_send,
+            rpc_stop,
+            rpc_stop_all,
+            rpc_is_running,
+            rpc_ui_response,
+            install_cli,
+            save_settings,
              load_settings,
              open_file_dialog,
              run_pi_cli_command,

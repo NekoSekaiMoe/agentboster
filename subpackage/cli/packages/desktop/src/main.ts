@@ -3,6 +3,8 @@
  */
 
 import { html, nothing, render } from 'lit';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ChatView } from './components/chat-view.js';
 import { CommandPalette } from './components/command-palette.js';
 import { ContentTabs } from './components/content-tabs.js';
@@ -169,6 +171,86 @@ let terminalPanel: TerminalPanel | null = null;
 let packagesView: PackagesView | null = null;
 let agentdVncView: AgentdVncView | null = null;
 let connectionError: string | null = null;
+
+// CLI auto-installer state. Populated when the user clicks
+// "Install automatically" from the onboarding card; rendered inline
+// while the install is in flight.
+interface CliInstallState {
+  stage: string;
+  progress: number | null;
+  message: string | null;
+  error: string | null;
+}
+let cliInstall: CliInstallState | null = null;
+let cliInstallUnlisten: UnlistenFn | null = null;
+
+interface InstallProgressEvent {
+  stage: string;
+  progress: number | null;
+  message: string | null;
+}
+
+function stageLabel(stage: string): string {
+  switch (stage) {
+    case 'checking':
+      return 'Looking up latest CLI release…';
+    case 'downloading':
+      return 'Downloading…';
+    case 'extracting':
+      return 'Extracting…';
+    case 'done':
+      return 'Done';
+    default:
+      return stage;
+  }
+}
+
+async function installCliAutomatically(): Promise<void> {
+  if (cliInstall) return;
+  cliInstall = {
+    stage: 'checking',
+    progress: null,
+    message: 'Looking up latest CLI release…',
+    error: null,
+  };
+  renderApp();
+
+  try {
+    if (!cliInstallUnlisten) {
+      cliInstallUnlisten = await listen<InstallProgressEvent>(
+        'cli-install-progress',
+        (event) => {
+          if (cliInstall && !cliInstall.error) {
+            cliInstall.stage = event.payload.stage;
+            cliInstall.progress = event.payload.progress;
+            cliInstall.message = event.payload.message;
+            renderApp();
+          }
+        },
+      );
+    }
+
+    const result = await invoke<{ bin_path: string; version: string }>(
+      'install_cli',
+    );
+    // Success: clear the install state and re-run initialization so
+    // rpc_start rediscovers the freshly-installed binary.
+    cliInstall = null;
+    connectionError = null;
+    recordDebugTrace(`cli-installed: ${result.bin_path} (${result.version})`);
+    void initialize();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    recordDebugTrace(`cli-install-failed: ${message}`);
+    cliInstall = {
+      stage: 'failed',
+      progress: null,
+      message: null,
+      error: message,
+    };
+    renderApp();
+  }
+}
 
 let settingsPanel: SettingsPanel | null = null;
 let commandPalette: CommandPalette | null = null;
@@ -4659,51 +4741,106 @@ function renderApp(): void {
     removeSidebarResizeHandlers = null;
     const cliMissing = isCliMissingError(connectionError);
     const windowsHost = isLikelyWindowsHost();
+    const installInProgress = cliInstall !== null && cliInstall.error === null;
     render(
       html`
 				<div class="error-shell">
 					<div class="error-card ${cliMissing ? 'onboarding-card' : ''}">
-						<h1>${cliMissing ? 'Install Pi CLI to continue' : 'Connection failed'}</h1>
+						<h1>${
+              cliInstall?.error
+                ? 'Installation failed'
+                : installInProgress
+                  ? 'Installing agentboster CLI…'
+                  : cliMissing
+                    ? 'Install agentboster CLI to continue'
+                    : 'Connection failed'
+            }</h1>
 						${
-              cliMissing
+              // ── In-flight install: show live progress ──
+              installInProgress && cliInstall
                 ? html`
-								<p>Pi Desktop could not find the <code>pi</code> CLI on your machine.</p>
-								<div class="onboarding-command-block">
-									<div class="onboarding-command-label">Run this in Terminal</div>
-									<code>${CLI_INSTALL_COMMAND}</code>
-								</div>
+								<p class="onboarding-stage">${stageLabel(cliInstall.stage)}</p>
 								${
-                  windowsHost
+                  cliInstall.message
+                    ? html`<p class="onboarding-message">${cliInstall.message}</p>`
+                    : nothing
+                }
+								${
+                  typeof cliInstall.progress === 'number'
                     ? html`
+									<div class="onboarding-progress">
+										<div
+											class="onboarding-progress-bar"
+											style="width: ${Math.round(cliInstall.progress * 100)}%"
+										></div>
+									</div>
+									<p class="onboarding-message">
+										${Math.round(cliInstall.progress * 100)}%
+									</p>
+								`
+                    : html`<p class="onboarding-message">Working…</p>`
+                }
+							`
+                : cliInstall?.error
+                  ? html`
+								<p class="onboarding-error">${cliInstall.error}</p>
+								<div class="onboarding-actions">
+									<button @click=${() => {
+                    cliInstall = null;
+                    void installCliAutomatically();
+                  }}>Retry install</button>
+									<button class="ghost-btn" @click=${() => {
+                    cliInstall = null;
+                    renderApp();
+                  }}>Back</button>
+								</div>
+							`
+                // ── CLI missing onboarding: offer auto-install + manual fallback ──
+                : cliMissing
+                  ? html`
+								<p>Agentboster Desktop could not find the <code>agentboster</code> CLI on your machine.</p>
+								<div class="onboarding-actions">
+									<button @click=${() => void installCliAutomatically()}>Install automatically</button>
+									<button class="ghost-btn" @click=${() => {
+                    connectionError = null;
+                    void initialize();
+                  }}>I already installed it · Retry</button>
+								</div>
+								<details class="onboarding-manual">
+									<summary>Prefer manual install?</summary>
+									<div class="onboarding-command-block">
+										<div class="onboarding-command-label">Run this in Terminal</div>
+										<code>${CLI_INSTALL_COMMAND}</code>
+									</div>
+									${
+                    windowsHost
+                      ? html`
 										<div class="onboarding-command-block">
 											<div class="onboarding-command-label">If npm is missing, install Node.js first</div>
 											<code>${WINDOWS_NODE_INSTALL_COMMAND}</code>
 										</div>
 									`
-                    : nothing
-                }
-								<div class="onboarding-actions">
-									<button class="ghost-btn" @click=${() => void copyCliInstallCommand()}>Copy install command</button>
-									${
-                    windowsHost
-                      ? html`<button class="ghost-btn" @click=${() => void copyWindowsNodeInstallCommand()}>Copy Node.js command</button>`
                       : nothing
                   }
-									<button @click=${() => {
-                    connectionError = null;
-                    void initialize();
-                  }}>I installed it · Retry</button>
-								</div>
-								<p class="onboarding-footnote">Need npm first? Install Node.js, then run the command above.</p>
-								${
-                  windowsHost
-                    ? html`
+									<div class="onboarding-actions">
+										<button class="ghost-btn" @click=${() => void copyCliInstallCommand()}>Copy install command</button>
+										${
+                      windowsHost
+                        ? html`<button class="ghost-btn" @click=${() => void copyWindowsNodeInstallCommand()}>Copy Node.js command</button>`
+                        : nothing
+                    }
+									</div>
+									<p class="onboarding-footnote">Need npm first? Install Node.js, then run the command above.</p>
+									${
+                    windowsHost
+                      ? html`
 										<p class="onboarding-footnote">
-											Using WSL? Pi Desktop v1 starts a Windows-native agent. Install <code>pi</code> in Windows too (not only inside WSL).
+											Using WSL? Agentboster Desktop starts a Windows-native agent. Install <code>agentboster</code> in Windows too (not only inside WSL).
 										</p>
 									`
-                    : nothing
-                }
+                      : nothing
+                  }
+								</details>
 							`
                 : html`
 								<p>${connectionError}</p>
