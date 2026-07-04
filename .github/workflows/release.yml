@@ -312,8 +312,6 @@ jobs:
         with:
           node-version: '22'
           # desktop ships yarn.lock (not package-lock.json); cache against it.
-          cache: yarn
-          cache-dependency-path: subpackage/cli/packages/desktop/yarn.lock
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

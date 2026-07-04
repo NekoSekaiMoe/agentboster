@@ -12,7 +12,7 @@
   <img alt="Node.js" src="https://img.shields.io/badge/node.js-%E2%9C%93-339933?logo=node.js" />
   <img alt="Go" src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-yellow" />
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-blue" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.6-blue" />
 </p>
 
 > [!NOTE]
