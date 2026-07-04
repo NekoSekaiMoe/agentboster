@@ -161,8 +161,15 @@ export async function isAgentdAvailable(): Promise<boolean> {
     const node = await selectBestNode();
     if (!node) return false;
 
-    // Second check: is the daemon actually responding?
-    const healthy = await checkAgentdHealth();
+    // Second check: is the selected daemon actually responding?
+    // Probe the same node we just picked (not nodes[0]) so a
+    // multi-node install returns a verdict driven by the node that
+    // would actually receive the dispatch.
+    const healthy = await checkAgentdHealth({
+      nodeID: node.nodeID,
+      ip: node.ip,
+      port: node.port,
+    });
     return healthy;
   } catch {
     return false;

@@ -31,31 +31,38 @@ export async function getAgentdClientConfig(): Promise<AgentdHttpConfig> {
   const appConfig = await getAppConfig();
   const nodes = appConfig.agentd?.nodes ?? [];
   const baseUrl = resolveDefaultAgentdBaseUrl(nodes, process.env.AGENTD_URL);
-  const apiKey = process.env.AGENTD_API_KEY ?? '';
   if (!baseUrl) {
     throw new Error('Agent Daemon URL is not configured');
   }
+  return buildAgentdHttpConfig(baseUrl);
+}
 
-  const config: AgentdHttpConfig = {
-    baseUrl,
-    apiKey,
-  };
-
-  if (
-    process.env.AGENTD_CLIENT_CERT_PATH &&
-    process.env.AGENTD_CLIENT_KEY_PATH
-  ) {
-    const { readFileSync } = await import('node:fs');
-    config.cert = readFileSync(process.env.AGENTD_CLIENT_CERT_PATH);
-    config.key = readFileSync(process.env.AGENTD_CLIENT_KEY_PATH);
-  }
-
-  if (process.env.AGENTD_CA_PATH) {
-    const { readFileSync } = await import('node:fs');
-    config.ca = readFileSync(process.env.AGENTD_CA_PATH);
-  }
-
-  return config;
+/**
+ * Resolve an AgentdHttpConfig for a specific node, using the same
+ * precedence as `execToolOnAgentd` (`resolveAgentdNodeUrl`): exact
+ * configured match → single configured URL → AGENTD_URL → registered
+ * ip:port fallback.
+ *
+ * Used by health checks that need to probe the same node that the
+ * dispatch path would actually target, instead of always hitting
+ * `nodes[0]`. Multi-node installs where `nodes[0]` points at a
+ * different daemon than the one selected by `selectBestNode` would
+ * otherwise produce misleading health verdicts.
+ */
+export async function getAgentdClientConfigForNode(
+  nodeId: string,
+  fallbackUrl: string,
+): Promise<AgentdHttpConfig> {
+  'use step';
+  const appConfig = await getAppConfig();
+  const configuredNodes = appConfig.agentd?.nodes ?? [];
+  const baseUrl = resolveAgentdNodeUrl({
+    configuredNodes,
+    nodeId,
+    envUrl: process.env.AGENTD_URL,
+    fallbackUrl,
+  });
+  return buildAgentdHttpConfig(baseUrl);
 }
 
 /**
@@ -245,11 +252,25 @@ export async function dispatchToolToAgentd(
 
 /**
  * Check if Agent Daemon is healthy.
+ *
+ * Without `node`, probes the default endpoint (`nodes[0]` →
+ * `AGENTD_URL`). Pass `node` to probe the same node the dispatch
+ * path would target — `isAgentdAvailable` does this so a multi-node
+ * install does not return a verdict driven by `nodes[0]`.
  */
-export async function checkAgentdHealth(): Promise<boolean> {
+export async function checkAgentdHealth(node?: {
+  nodeID: string;
+  ip: string;
+  port: number;
+}): Promise<boolean> {
   'use step';
   try {
-    const config = await getAgentdClientConfig();
+    const config = node
+      ? await getAgentdClientConfigForNode(
+          node.nodeID,
+          `http://${node.ip}:${node.port}`,
+        )
+      : await getAgentdClientConfig();
     const response = await requestAgentd(
       config,
       'GET',
@@ -265,15 +286,29 @@ export async function checkAgentdHealth(): Promise<boolean> {
 
 /**
  * Get Agent Daemon health info.
+ *
+ * Same node-vs-default semantics as `checkAgentdHealth`. The
+ * `/api/agentd/v1/health` route uses the default form to preserve
+ * its single-daemon diagnostic view for the WebUI; callers that
+ * know which node they care about should pass it explicitly.
  */
-export async function getAgentdHealth(): Promise<{
+export async function getAgentdHealth(node?: {
+  nodeID: string;
+  ip: string;
+  port: number;
+}): Promise<{
   status: string;
   version: string;
   uptime: string;
 } | null> {
   'use step';
   try {
-    const config = await getAgentdClientConfig();
+    const config = node
+      ? await getAgentdClientConfigForNode(
+          node.nodeID,
+          `http://${node.ip}:${node.port}`,
+        )
+      : await getAgentdClientConfig();
     const response = await requestAgentd(
       config,
       'GET',

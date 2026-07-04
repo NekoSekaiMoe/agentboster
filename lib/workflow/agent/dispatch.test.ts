@@ -22,8 +22,9 @@ vi.mock('@/lib/core/db', () => ({
     }),
   },
 }));
+const checkAgentdHealthMock = vi.fn(async () => true);
 vi.mock('@/lib/extra/agent/agentd-tools-client', () => ({
-  checkAgentdHealth: vi.fn(async () => true),
+  checkAgentdHealth: checkAgentdHealthMock,
 }));
 vi.mock('@/lib/utils/logger', () => ({
   createLogger: () => ({
@@ -35,7 +36,7 @@ vi.mock('@/lib/utils/logger', () => ({
 }));
 
 // Import after the mocks are in place.
-const { selectBestNode } = await import('./dispatch');
+const { selectBestNode, isAgentdAvailable } = await import('./dispatch');
 
 function makeRow(
   overrides: Record<string, unknown> = {},
@@ -59,6 +60,8 @@ function makeRow(
 describe('selectBestNode', () => {
   beforeEach(() => {
     mockRows.length = 0;
+    checkAgentdHealthMock.mockReset();
+    checkAgentdHealthMock.mockResolvedValue(true);
   });
 
   it('returns null when no nodes are online', async () => {
@@ -180,5 +183,64 @@ describe('selectBestNode', () => {
     // dimensions are identical so 'idle' still wins, but 'small-load'
     // is not skipped (would be the case under hard cutoff).
     expect(result?.nodeID).toBe('idle');
+  });
+});
+
+describe('isAgentdAvailable', () => {
+  beforeEach(() => {
+    mockRows.length = 0;
+    checkAgentdHealthMock.mockReset();
+    checkAgentdHealthMock.mockResolvedValue(true);
+  });
+
+  it('returns false when no node is online in DB', async () => {
+    const result = await isAgentdAvailable();
+    expect(result).toBe(false);
+    expect(checkAgentdHealthMock).not.toHaveBeenCalled();
+  });
+
+  it('probes the selected node (not nodes[0]) when verifying health', async () => {
+    // 'idle' wins the scoring race, so isAgentdAvailable must pass
+    // { nodeID: 'idle', ip, port } to checkAgentdHealth — not 'busy'.
+    mockRows.push(
+      makeRow({
+        nodeID: 'busy',
+        ip: '10.0.0.1',
+        port: 18732,
+        cpuUsage: 80,
+        memAvail: 30,
+        activeTasks: 9,
+      }),
+      makeRow({
+        nodeID: 'idle',
+        ip: '10.0.0.2',
+        port: 18733,
+        cpuUsage: 10,
+        memAvail: 90,
+        activeTasks: 0,
+      }),
+    );
+
+    const result = await isAgentdAvailable();
+    expect(result).toBe(true);
+    expect(checkAgentdHealthMock).toHaveBeenCalledTimes(1);
+    expect(checkAgentdHealthMock).toHaveBeenCalledWith({
+      nodeID: 'idle',
+      ip: '10.0.0.2',
+      port: 18733,
+    });
+  });
+
+  it('returns false when the selected node fails the health probe', async () => {
+    mockRows.push(makeRow({ nodeID: 'a', ip: '10.0.0.1', port: 18732 }));
+    checkAgentdHealthMock.mockResolvedValueOnce(false);
+
+    const result = await isAgentdAvailable();
+    expect(result).toBe(false);
+    expect(checkAgentdHealthMock).toHaveBeenCalledWith({
+      nodeID: 'a',
+      ip: '10.0.0.1',
+      port: 18732,
+    });
   });
 });
