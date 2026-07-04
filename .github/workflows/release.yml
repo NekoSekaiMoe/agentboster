@@ -325,6 +325,9 @@ jobs:
         if: runner.os == 'Linux'
         # Mirrors desktop-ci.yml. xcap needs PipeWire + libclang; enigo's
         # x11rb backend needs libxcb1; AT-SPI needs libatspi2 + libdbus.
+        # xdg-utils provides /usr/bin/xdg-open, which Tauri's AppImage
+        # bundler symlinks into the AppDir (AppImage runtime uses it to
+        # open URLs/files).
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -345,7 +348,8 @@ jobs:
             libpipewire-0.3-dev \
             libspa-0.2-dev \
             libwayland-dev \
-            libegl-dev
+            libegl-dev \
+            xdg-utils
 
       - name: Install npm dependencies
         # desktop ships yarn.lock (not package-lock.json); use yarn to
