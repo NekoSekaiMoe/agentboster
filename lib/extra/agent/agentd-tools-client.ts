@@ -2,6 +2,10 @@ import { createLogger } from '@/lib/utils/logger';
 import { getConfig as getAppConfig } from '@/lib/core/kv/config';
 import { requestAgentd } from './agentd-http';
 import type { AgentdHttpConfig } from './agentd-http';
+import {
+  resolveAgentdNodeUrl,
+  resolveDefaultAgentdBaseUrl,
+} from './agentd-url';
 
 const logger = createLogger('agentd-tools-client');
 
@@ -25,8 +29,7 @@ export async function getAgentdClientConfig(): Promise<AgentdHttpConfig> {
   'use step';
   const appConfig = await getAppConfig();
   const nodes = appConfig.agentd?.nodes ?? [];
-  const firstNodeUrl = nodes.length > 0 ? nodes[0].url : undefined;
-  const baseUrl = firstNodeUrl || process.env.AGENTD_URL;
+  const baseUrl = resolveDefaultAgentdBaseUrl(nodes, process.env.AGENTD_URL);
   const apiKey = process.env.AGENTD_API_KEY ?? '';
   if (!baseUrl) {
     throw new Error('Agent Daemon URL is not configured');
@@ -122,22 +125,24 @@ export async function execToolOnAgentd(
   // When the Web runs on Vercel and the daemon sits behind a frp /
   // reverse-tunnel public entry, the LAN address is unreachable.
   //
-  // The dashboard-configured `agentd.nodes[].url` (matched by node id)
-  // is the public entry point and takes precedence. If no per-node URL
-  // is configured, fall back to `AGENTD_URL` env var, then to the
-  // raw `node.ip:port` (works only when the Web can actually reach
-  // the daemon on its LAN IP, e.g. self-hosted Web on the same
-  // network).
+  // The dashboard-configured `agentd.nodes[].url` is the public entry
+  // point and takes precedence. Exact node-id matches win; a single
+  // configured URL is treated as the default for single-node installs.
+  // If no configured URL applies, fall back to `AGENTD_URL`, then to
+  // raw `node.ip:port` (works only when the Web can actually reach the
+  // daemon on its LAN IP, e.g. self-hosted Web on the same network).
   //
   // The protocol comes from the configured URL (http or https) rather
   // than being hardcoded, because the daemon may legitimately run
   // plain HTTP behind a TLS-terminating frp proxy.
   const appConfig = await getAppConfig();
   const configuredNodes = appConfig.agentd?.nodes ?? [];
-  const matchedUrl = configuredNodes.find((n) => n.id === node?.nodeID)?.url;
-
-  const nodeUrl =
-    matchedUrl || process.env.AGENTD_URL || `http://${node.ip}:${node.port}`;
+  const nodeUrl = resolveAgentdNodeUrl({
+    configuredNodes,
+    nodeId: node.nodeID,
+    envUrl: process.env.AGENTD_URL,
+    fallbackUrl: `http://${node.ip}:${node.port}`,
+  });
 
   const config = await buildAgentdHttpConfig(nodeUrl);
   const req: AgentdToolExecRequest = {

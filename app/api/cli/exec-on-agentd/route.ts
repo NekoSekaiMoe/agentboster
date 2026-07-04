@@ -39,6 +39,7 @@ import {
   buildAgentdHttpConfig,
   dispatchToolToAgentd,
 } from '@/lib/extra/agent/agentd-tools-client';
+import { resolveAgentdNodeUrl } from '@/lib/extra/agent/agentd-url';
 import { mapLocalToolToAgentd } from './map';
 
 interface ExecRequestBody {
@@ -77,9 +78,10 @@ export const POST = withCliAuth(async (request, { userId }) => {
     );
   }
 
-  // Resolve the node row + its configured public URL (same precedence
-  // as execToolOnAgentd: per-node configured url > AGENTD_URL > raw
-  // ip:port). Reject before any agentd call if the node is unknown.
+  // Resolve the node row + its configured public URL. The forwarding path
+  // uses the same resolver as execToolOnAgentd: exact configured node URL,
+  // single configured URL, AGENTD_URL, then raw ip:port.
+  // Reject before any agentd call if the node is unknown.
   const rows = await db
     .select({
       nodeId: agentdNodes.nodeID,
@@ -135,9 +137,12 @@ export const POST = withCliAuth(async (request, { userId }) => {
 
   const appConfig = await getAppConfig();
   const configuredNodes = appConfig.agentd?.nodes ?? [];
-  const matchedUrl = configuredNodes.find((n) => n.id === nodeId)?.url;
-  const nodeUrl =
-    matchedUrl || process.env.AGENTD_URL || `http://${row.ip}:${row.port}`;
+  const nodeUrl = resolveAgentdNodeUrl({
+    configuredNodes,
+    nodeId,
+    envUrl: process.env.AGENTD_URL,
+    fallbackUrl: `http://${row.ip}:${row.port}`,
+  });
 
   void userId; // authenticated; not used for per-user node ACL yet
 
