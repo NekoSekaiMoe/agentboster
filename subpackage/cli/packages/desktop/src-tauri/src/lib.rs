@@ -1,11 +1,10 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::UNIX_EPOCH;
 use tauri::{AppHandle, Emitter, Manager};
 
 // GitHub releases feed for the CLI tarballs. The installer queries the
@@ -637,7 +636,7 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
     let _ = fs::remove_file(&staging);
 
     download_tarball(&client, &asset.browser_download_url, &staging, &app).await?;
-    extract_tarball(&staging, &bin_dir, &app).await?;
+    extract_tarball(&staging, &bin_dir, &app)?;
 
     let _ = fs::remove_file(&staging);
 
