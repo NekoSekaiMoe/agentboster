@@ -1,7 +1,7 @@
 interface ConfiguredAgentdNode {
-  id?: string;
-  node_id?: string;
-  url?: string;
+  id: string;
+  url: string;
+  name?: string;
 }
 
 function cleanUrl(value: string | undefined): string | undefined {
@@ -24,7 +24,19 @@ export function resolveDefaultAgentdBaseUrl(
   return configuredUrls(nodes)[0] ?? cleanUrl(envUrl);
 }
 
-export function resolveAgentdNodeUrl({
+export type AgentdNodeUrlResolutionReason =
+  | 'exact-configured'
+  | 'single-configured'
+  | 'env'
+  | 'registered-fallback';
+
+export interface AgentdNodeUrlResolution {
+  url: string;
+  reason: AgentdNodeUrlResolutionReason;
+  usableConfiguredUrlCount: number;
+}
+
+export function resolveAgentdNodeUrlWithReason({
   configuredNodes,
   nodeId,
   envUrl,
@@ -34,19 +46,45 @@ export function resolveAgentdNodeUrl({
   nodeId: string;
   envUrl: string | undefined;
   fallbackUrl: string;
-}): string {
-  const exact = (configuredNodes ?? []).find(
-    (node) => node.id === nodeId || node.node_id === nodeId,
-  );
+}): AgentdNodeUrlResolution {
+  const exact = (configuredNodes ?? []).find((node) => node.id === nodeId);
   const exactUrl = cleanUrl(exact?.url);
-  if (exactUrl) {
-    return exactUrl;
-  }
-
   const urls = configuredUrls(configuredNodes);
-  if (urls.length === 1) {
-    return urls[0];
+
+  if (exactUrl) {
+    return {
+      url: exactUrl,
+      reason: 'exact-configured',
+      usableConfiguredUrlCount: urls.length,
+    };
   }
 
-  return cleanUrl(envUrl) ?? fallbackUrl;
+  if (urls.length === 1) {
+    return {
+      url: urls[0],
+      reason: 'single-configured',
+      usableConfiguredUrlCount: urls.length,
+    };
+  }
+
+  const cleanedEnvUrl = cleanUrl(envUrl);
+  if (cleanedEnvUrl) {
+    return {
+      url: cleanedEnvUrl,
+      reason: 'env',
+      usableConfiguredUrlCount: urls.length,
+    };
+  }
+
+  return {
+    url: fallbackUrl,
+    reason: 'registered-fallback',
+    usableConfiguredUrlCount: urls.length,
+  };
+}
+
+export function resolveAgentdNodeUrl(
+  input: Parameters<typeof resolveAgentdNodeUrlWithReason>[0],
+): string {
+  return resolveAgentdNodeUrlWithReason(input).url;
 }

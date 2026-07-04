@@ -4,6 +4,7 @@ import { requestAgentd } from './agentd-http';
 import type { AgentdHttpConfig } from './agentd-http';
 import {
   resolveAgentdNodeUrl,
+  resolveAgentdNodeUrlWithReason,
   resolveDefaultAgentdBaseUrl,
 } from './agentd-url';
 
@@ -137,12 +138,24 @@ export async function execToolOnAgentd(
   // plain HTTP behind a TLS-terminating frp proxy.
   const appConfig = await getAppConfig();
   const configuredNodes = appConfig.agentd?.nodes ?? [];
-  const nodeUrl = resolveAgentdNodeUrl({
+  const nodeUrlResolution = resolveAgentdNodeUrlWithReason({
     configuredNodes,
     nodeId: node.nodeID,
     envUrl: process.env.AGENTD_URL,
     fallbackUrl: `http://${node.ip}:${node.port}`,
   });
+  if (
+    nodeUrlResolution.usableConfiguredUrlCount > 1 &&
+    (nodeUrlResolution.reason === 'env' ||
+      nodeUrlResolution.reason === 'registered-fallback')
+  ) {
+    logger.warn('agentd configured URL did not match selected node', {
+      nodeId: node.nodeID,
+      configuredUrlCount: nodeUrlResolution.usableConfiguredUrlCount,
+      fallbackReason: nodeUrlResolution.reason,
+    });
+  }
+  const nodeUrl = nodeUrlResolution.url;
 
   const config = await buildAgentdHttpConfig(nodeUrl);
   const req: AgentdToolExecRequest = {

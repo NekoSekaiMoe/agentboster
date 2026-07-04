@@ -33,14 +33,17 @@
 import { withCliAuth } from '@/lib/cli/auth';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
+import { createLogger } from '@/lib/utils/logger';
 import { eq } from 'drizzle-orm';
 import { getConfig as getAppConfig } from '@/lib/core/kv/config';
 import {
   buildAgentdHttpConfig,
   dispatchToolToAgentd,
 } from '@/lib/extra/agent/agentd-tools-client';
-import { resolveAgentdNodeUrl } from '@/lib/extra/agent/agentd-url';
+import { resolveAgentdNodeUrlWithReason } from '@/lib/extra/agent/agentd-url';
 import { mapLocalToolToAgentd } from './map';
+
+const logger = createLogger('api.cli.exec-on-agentd');
 
 interface ExecRequestBody {
   nodeId?: unknown;
@@ -137,12 +140,24 @@ export const POST = withCliAuth(async (request, { userId }) => {
 
   const appConfig = await getAppConfig();
   const configuredNodes = appConfig.agentd?.nodes ?? [];
-  const nodeUrl = resolveAgentdNodeUrl({
+  const nodeUrlResolution = resolveAgentdNodeUrlWithReason({
     configuredNodes,
     nodeId,
     envUrl: process.env.AGENTD_URL,
     fallbackUrl: `http://${row.ip}:${row.port}`,
   });
+  if (
+    nodeUrlResolution.usableConfiguredUrlCount > 1 &&
+    (nodeUrlResolution.reason === 'env' ||
+      nodeUrlResolution.reason === 'registered-fallback')
+  ) {
+    logger.warn('agentd configured URL did not match requested CLI node', {
+      nodeId,
+      configuredUrlCount: nodeUrlResolution.usableConfiguredUrlCount,
+      fallbackReason: nodeUrlResolution.reason,
+    });
+  }
+  const nodeUrl = nodeUrlResolution.url;
 
   void userId; // authenticated; not used for per-user node ACL yet
 

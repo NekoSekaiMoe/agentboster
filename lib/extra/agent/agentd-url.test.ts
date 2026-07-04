@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   resolveAgentdNodeUrl,
+  resolveAgentdNodeUrlWithReason,
   resolveDefaultAgentdBaseUrl,
 } from './agentd-url';
 
@@ -67,6 +68,24 @@ describe('agentd URL resolution', () => {
     ).toBe('http://env.example.test');
   });
 
+  it('reports env fallback when multiple configured URLs cannot be matched', () => {
+    expect(
+      resolveAgentdNodeUrlWithReason({
+        configuredNodes: [
+          { id: 'node-a', url: 'http://agentd-a.example.test' },
+          { id: 'node-b', url: 'http://agentd-b.example.test' },
+        ],
+        nodeId: 'node-c',
+        envUrl: 'http://env.example.test',
+        fallbackUrl: 'http://10.0.0.3:18732',
+      }),
+    ).toEqual({
+      url: 'http://env.example.test',
+      reason: 'env',
+      usableConfiguredUrlCount: 2,
+    });
+  });
+
   it('falls back to the registered ip/port URL when no configured URL applies', () => {
     expect(
       resolveAgentdNodeUrl({
@@ -76,5 +95,39 @@ describe('agentd URL resolution', () => {
         fallbackUrl: 'http://10.0.0.1:18732',
       }),
     ).toBe('http://10.0.0.1:18732');
+  });
+
+  it('ignores a whitespace-only single configured URL and uses AGENTD_URL', () => {
+    expect(
+      resolveAgentdNodeUrl({
+        configuredNodes: [{ id: 'node-a', url: '   ' }],
+        nodeId: 'node-a',
+        envUrl: 'http://env.example.test',
+        fallbackUrl: 'http://10.0.0.1:18732',
+      }),
+    ).toBe('http://env.example.test');
+  });
+
+  it('ignores whitespace-only AGENTD_URL and uses the registered fallback', () => {
+    expect(
+      resolveAgentdNodeUrl({
+        configuredNodes: [],
+        nodeId: 'node-a',
+        envUrl: '  ',
+        fallbackUrl: 'http://10.0.0.1:18732',
+      }),
+    ).toBe('http://10.0.0.1:18732');
+  });
+
+  it('uses the first non-empty configured URL for direct health checks', () => {
+    expect(
+      resolveDefaultAgentdBaseUrl(
+        [
+          { id: 'dirty', url: ' ' },
+          { id: 'valid', url: 'http://agentd.example.test' },
+        ],
+        'http://env.example.test',
+      ),
+    ).toBe('http://agentd.example.test');
   });
 });
