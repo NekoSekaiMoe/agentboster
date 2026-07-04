@@ -53,14 +53,13 @@ function PureChatHeader({
     let cancelled = false;
     const check = async () => {
       try {
-        const response = await fetch('/api/agentd/v1/health', {
+        const response = await fetch('/api/agentd/v1/available', {
           cache: 'no-store',
         });
         const payload = (await response.json()) as {
-          data?: { daemon?: { status?: string } };
+          data?: { available?: boolean };
         };
-        const healthy =
-          response.ok && payload.data?.daemon?.status === 'online';
+        const healthy = response.ok && payload.data?.available === true;
         if (!cancelled) setAgentdStatus(healthy ? 'online' : 'offline');
       } catch {
         if (!cancelled) setAgentdStatus('offline');
