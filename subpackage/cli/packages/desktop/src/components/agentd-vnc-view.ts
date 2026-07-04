@@ -98,6 +98,7 @@ export class AgentdVncView {
   private reconnectTimer: number | null = null;
   private reconnectStartedAt: number | null = null;
   private disposed = false;
+  private infoOpen = false;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -449,6 +450,7 @@ export class AgentdVncView {
             class="agentd-vnc-icon-btn"
             title="Info"
             aria-label="Info"
+            @click=${() => { this.infoOpen = !this.infoOpen; this.render(); }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
               <circle cx="12" cy="12" r="10"></circle>
@@ -469,6 +471,84 @@ export class AgentdVncView {
             </svg>
           </button>
         </div>
+      </div>
+    `;
+  }
+
+  private formatHeartbeat(value: string | null): string {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '—';
+    return new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date);
+  }
+
+  private renderInfoDrawer(): TemplateResult {
+    if (!this.infoOpen) return html``;
+
+    const node = this.getSelectedNode();
+
+    return html`
+      <div class="agentd-vnc-info-backdrop" @click=${() => { this.infoOpen = false; this.render(); }}>
+        <aside class="agentd-vnc-info-drawer" @click=${(e: Event) => e.stopPropagation()}>
+          <div class="agentd-vnc-info-header">
+            <span class="agentd-vnc-info-title">Connection Info</span>
+            <button class="agentd-vnc-icon-btn" @click=${() => { this.infoOpen = false; this.render(); }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div class="agentd-vnc-info-body">
+            ${node ? html`
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">Node</span>
+                <span class="agentd-vnc-info-value">${node.nodeId}</span>
+              </div>
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">Label</span>
+                <span class="agentd-vnc-info-value">${node.label}</span>
+              </div>
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">AgentD Version</span>
+                <span class="agentd-vnc-info-value">${node.version ?? '—'}</span>
+              </div>
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">Active Sandboxes</span>
+                <span class="agentd-vnc-info-value">${node.activeSandboxes}</span>
+              </div>
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">Active Tasks</span>
+                <span class="agentd-vnc-info-value">${node.activeTasks}</span>
+              </div>
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">Sandboxes</span>
+                <span class="agentd-vnc-info-value">${node.sandboxes.join(', ') || '—'}</span>
+              </div>
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">Last Heartbeat</span>
+                <span class="agentd-vnc-info-value">${this.formatHeartbeat(node.lastHeartbeat)}</span>
+              </div>
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">Proxy Status</span>
+                <span class="agentd-vnc-info-value">${node.proxyStatus}</span>
+              </div>
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">Connection</span>
+                <span class="agentd-vnc-info-value">${this.connectionState}</span>
+              </div>
+              <div class="agentd-vnc-info-row">
+                <span class="agentd-vnc-info-label">Scale Mode</span>
+                <span class="agentd-vnc-info-value">${this.scaleMode}</span>
+              </div>
+            ` : html`<div class="agentd-vnc-info-row"><span class="agentd-vnc-info-label">No node selected</span></div>`}
+          </div>
+        </aside>
       </div>
     `;
   }
@@ -540,6 +620,7 @@ export class AgentdVncView {
         <div class="agentd-vnc-root">
           ${this.renderToolbar()}
           ${this.renderViewport()}
+          ${this.renderInfoDrawer()}
         </div>
       `,
       this.container,
