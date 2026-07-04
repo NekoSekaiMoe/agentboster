@@ -305,6 +305,7 @@ export class Sidebar {
   private sessionLoadsInFlight = new Map<string, Promise<void>>();
   private sessionReloadQueued = new Set<string>();
   private packagesOpen = false;
+  private agentdVncOpen = false;
   private openProjectMenuId: string | null = null;
   private modeFilterMenuOpen = false;
   private desktopUpdateAvailable = false;
@@ -340,6 +341,7 @@ export class Sidebar {
 
   private onOpenSettings: (() => void) | null = null;
   private onTogglePackages: (() => void) | null = null;
+  private onOpenAgentdVnc: (() => void) | null = null;
   private onWorkspaceSelect: ((workspaceId: string) => void) | null = null;
   private onWorkspaceCreate:
     | ((workspace?: { title?: string; emoji?: string | null }) => void)
@@ -496,6 +498,10 @@ export class Sidebar {
     this.onTogglePackages = cb;
   }
 
+  setOnOpenAgentdVnc(cb: () => void): void {
+    this.onOpenAgentdVnc = cb;
+  }
+
   setOnWorkspaceSelect(cb: (workspaceId: string) => void): void {
     this.onWorkspaceSelect = cb;
   }
@@ -608,6 +614,12 @@ export class Sidebar {
   setPackagesOpen(open: boolean): void {
     if (this.packagesOpen === open) return;
     this.packagesOpen = open;
+    this.render();
+  }
+
+  setAgentdVncOpen(open: boolean): void {
+    if (this.agentdVncOpen === open) return;
+    this.agentdVncOpen = open;
     this.render();
   }
 
@@ -5092,6 +5104,9 @@ export class Sidebar {
 								</button>
 								<button class="sidebar-top-action-btn ${this.packagesOpen ? 'active' : ''}" title="Packages" @click=${() => this.onTogglePackages?.()}>
 									<span>Packages</span>
+								</button>
+								<button class="sidebar-top-action-btn ${this.agentdVncOpen ? 'active' : ''}" title="AgentD VNC" @click=${() => this.onOpenAgentdVnc?.()}>
+									<span>VNC</span>
 								</button>
 							</div>
 						`

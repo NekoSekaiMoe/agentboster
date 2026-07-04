@@ -12,6 +12,7 @@ import {
   type NotificationActionTarget,
 } from './components/extension-ui-handler.js';
 import { FileViewer } from './components/file-viewer.js';
+import { AgentdVncView } from './components/agentd-vnc-view.js';
 import { PackagesView } from './components/packages-view.js';
 import { SessionBrowser } from './components/session-browser.js';
 import {
@@ -87,7 +88,7 @@ interface WorkspaceState {
   emoji: string | null;
   pinned: boolean;
   leftMode: SidebarMode;
-  pane: 'chat' | 'file' | 'packages' | 'settings' | 'terminal';
+  pane: 'chat' | 'file' | 'packages' | 'settings' | 'terminal' | 'agentd-vnc';
   activeProjectId: string | null;
   activeProjectPath: string | null;
   filePath: string | null;
@@ -166,6 +167,7 @@ let contentTabsBar: ContentTabs | null = null;
 let fileViewer: FileViewer | null = null;
 let terminalPanel: TerminalPanel | null = null;
 let packagesView: PackagesView | null = null;
+let agentdVncView: AgentdVncView | null = null;
 let connectionError: string | null = null;
 
 let settingsPanel: SettingsPanel | null = null;
@@ -1658,7 +1660,9 @@ function resetWorkspaceContentTabs(
   workspace.filePath = null;
   workspace.sessionTitle = NEW_SESSION_TAB_TITLE;
   workspace.pane =
-    previousPane === 'settings' || previousPane === 'packages'
+    previousPane === 'settings' ||
+    previousPane === 'packages' ||
+    previousPane === 'agentd-vnc'
       ? previousPane
       : 'chat';
 }
@@ -2717,7 +2721,11 @@ function loadWorkspaces(): void {
             pinned: false,
             leftMode: w.leftMode === 'files' ? 'files' : 'projects',
             pane:
-              w.pane === 'packages' || w.pane === 'settings' ? w.pane : 'chat',
+              w.pane === 'packages' ||
+              w.pane === 'settings' ||
+              w.pane === 'agentd-vnc'
+                ? w.pane
+                : 'chat',
             activeProjectId: normalizeStoredId(w.activeProjectId),
             activeProjectPath: normalizeStoredPath(w.activeProjectPath),
             filePath: typeof w.filePath === 'string' ? w.filePath : null,
@@ -2820,8 +2828,10 @@ function syncWorkspaceContextChrome(
 ): void {
   const packagesOpen = workspace?.pane === 'packages';
   const settingsOpen = workspace?.pane === 'settings';
+  const agentdVncOpen = workspace?.pane === 'agentd-vnc';
   workspaceTabsBar?.setPackagesToolbarVisible(packagesOpen);
   sidebar?.setPackagesOpen(packagesOpen);
+  sidebar?.setAgentdVncOpen(agentdVncOpen);
   sidebar?.setSettingsShellActive(Boolean(settingsOpen));
   if (settingsOpen) syncSidebarSettingsNavigation();
 }
@@ -3028,6 +3038,7 @@ function syncContentTabsBar(
       'hidden',
       workspace?.pane === 'packages' ||
         workspace?.pane === 'settings' ||
+        workspace?.pane === 'agentd-vnc' ||
         !hasProject,
     );
   }
@@ -3037,6 +3048,7 @@ function syncContentTabsBar(
     !workspace ||
     workspace.pane === 'packages' ||
     workspace.pane === 'settings' ||
+    workspace.pane === 'agentd-vnc' ||
     !hasProject
   ) {
     contentTabsBar?.setTerminalActive(false);
@@ -3077,13 +3089,15 @@ function setPaneVisibility(
   const terminalPane = document.getElementById('terminal-pane');
   const packagesPane = document.getElementById('packages-pane');
   const settingsPane = document.getElementById('settings-pane');
+  const agentdVncPane = document.getElementById('agentd-vnc-pane');
   if (
     !chatFileLayout ||
     !sessionPane ||
     !fileSplitResizeHandle ||
     !filePane ||
     !packagesPane ||
-    !settingsPane
+    !settingsPane ||
+    !agentdVncPane
   )
     return;
 
@@ -3096,6 +3110,7 @@ function setPaneVisibility(
   if (showFileSplit) applyFileSplitWidth();
   packagesPane.classList.toggle('hidden-pane', pane !== 'packages');
   settingsPane.classList.toggle('hidden-pane', pane !== 'settings');
+  agentdVncPane.classList.toggle('hidden-pane', pane !== 'agentd-vnc');
   if (!showChatLayout) {
     terminalPane?.classList.add('hidden-pane');
     terminalPane?.classList.remove('terminal-dock-visible');
@@ -3219,6 +3234,21 @@ async function applyWorkspacePane(
     await packagesView?.open();
     if (isStale()) return;
     workspaceTabsBar?.setPackagesSearchQuery(packagesView?.getQuery() ?? '');
+    syncDebugOverlay();
+    return;
+  }
+
+  if (workspace.pane === 'agentd-vnc') {
+    syncTerminalDockVisibility({
+      ...workspace,
+      terminalOpen: false,
+      pane: 'agentd-vnc',
+    });
+    settingsPanel?.hideWithoutClearing();
+    if (isStale()) return;
+    setPaneVisibility('agentd-vnc');
+    await agentdVncView?.open();
+    if (isStale()) return;
     syncDebugOverlay();
     return;
   }
@@ -4237,6 +4267,15 @@ function openPackagesPane(): void {
   void applyWorkspacePane(workspace);
 }
 
+function openAgentdVncPane(): void {
+  const workspace = getActiveWorkspace();
+  if (!workspace) return;
+  workspace.pane = 'agentd-vnc';
+  persistWorkspaces();
+  syncWorkspaceTabsBar();
+  void applyWorkspacePane(workspace);
+}
+
 function toggleTerminalDock(forceOpen?: boolean): void {
   const workspace = getActiveWorkspace();
   if (!workspace) return;
@@ -4322,6 +4361,11 @@ function wireCommandPaletteBuiltins(): void {
       name: 'packages',
       description: 'Open packages & resources',
       action: async () => openPackagesPane(),
+    },
+    {
+      name: 'agentd-vnc',
+      description: 'Open AgentD VNC viewer',
+      action: async () => openAgentdVncPane(),
     },
     {
       name: 'terminal',
@@ -4709,6 +4753,7 @@ function renderApp(): void {
 							<div id="file-pane" class="hidden-pane"></div>
 						</div>
 						<div id="packages-pane" class="hidden-pane"></div>
+						<div id="agentd-vnc-pane" class="hidden-pane"></div>
 						<div id="settings-pane" class="hidden-pane"></div>
 					</div>
 				</div>
@@ -5045,6 +5090,19 @@ function renderApp(): void {
     });
   }
 
+  const agentdVncPane = document.getElementById('agentd-vnc-pane');
+  if (agentdVncPane) {
+    agentdVncView = new AgentdVncView(agentdVncPane);
+    agentdVncView.setOnBack(() => {
+      const workspace = getActiveWorkspace();
+      if (!workspace) return;
+      workspace.pane = 'chat';
+      persistWorkspaces();
+      syncWorkspaceTabsBar();
+      void applyWorkspacePane(workspace);
+    });
+  }
+
   const sidebarContainer = document.getElementById('sidebar-container');
   if (!sidebarContainer) return;
   sidebar = new Sidebar(sidebarContainer);
@@ -5129,6 +5187,15 @@ function renderApp(): void {
     const workspace = getActiveWorkspace();
     if (!workspace) return;
     workspace.pane = workspace.pane === 'packages' ? 'chat' : 'packages';
+    persistWorkspaces();
+    syncWorkspaceTabsBar();
+    void applyWorkspacePane(workspace);
+  });
+
+  sidebar.setOnOpenAgentdVnc(() => {
+    const workspace = getActiveWorkspace();
+    if (!workspace) return;
+    workspace.pane = workspace.pane === 'agentd-vnc' ? 'chat' : 'agentd-vnc';
     persistWorkspaces();
     syncWorkspaceTabsBar();
     void applyWorkspacePane(workspace);

@@ -63,6 +63,13 @@ function isAgentdBypassPath(pathname: string): boolean {
   );
 }
 
+function isRouteHandlerAuthPath(pathname: string): boolean {
+  // Desktop calls this endpoint from the Tauri webview origin, so its
+  // OPTIONS preflight must reach the route handler. The route still
+  // performs CLI auth with requireCliAuth before returning node state.
+  return pathname === '/api/cli/agentd/vnc';
+}
+
 function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) {
     return false;
@@ -101,6 +108,10 @@ export async function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
   if (isLoginPath(pathname) || isAlwaysBypassPath(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (isRouteHandlerAuthPath(pathname)) {
     return NextResponse.next();
   }
 
