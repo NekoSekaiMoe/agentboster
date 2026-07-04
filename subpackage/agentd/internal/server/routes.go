@@ -113,6 +113,9 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		v1.POST("/sessions/:id/abort", s.handleAbortSession)
 		v1.POST("/sessions/:id/destroy", s.handleDestroySession)
 
+		// Desktop VNC proxy (WebSocket tunnel to container's websockify)
+		v1.GET("/desktop/vnc", s.handleVNCProxy)
+
 		// Synchronous tool execution (called by ClawLess web when agentd is primary)
 		v1.POST("/tools/exec", s.handleToolExec)
 		// P2.1: Streaming exec output via SSE for long-running commands.
