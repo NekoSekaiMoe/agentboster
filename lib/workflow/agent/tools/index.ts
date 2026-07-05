@@ -26,6 +26,7 @@ import memoryTool from './memories/local';
 import askQuestionTool from './questions/ask-question';
 import localSkillTool from './skills/local';
 import barrierTool from './tasks/barrier';
+import handoffTool from './tasks/handoff';
 import scheduleTool from './tasks/schedule';
 import subAgentTool from './tasks/sub-agent';
 import taskSummaryTool from './tasks/summary';
@@ -45,6 +46,7 @@ const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   askQuestionTool,
   sequentialThinkingTool,
   barrierTool,
+  handoffTool,
 ];
 
 export function getBuildInToolCatalog(config: AppConfig): ToolCatalogResponse {

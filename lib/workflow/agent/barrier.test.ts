@@ -115,7 +115,7 @@ vi.mock('@/lib/core/db/agent-barriers', () => ({
       result: Record<string, unknown>;
     }) => {
       const row = store.barriers.get(input.barrierStableId);
-      if (!row || row.status !== 'open') return null;
+      if (row?.status !== 'open') return null;
       row.status = input.status;
       row.result = input.result;
       row.releasedAt = new Date();

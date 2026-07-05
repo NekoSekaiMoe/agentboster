@@ -45,3 +45,8 @@ export type {
   AgentBarrierRelease,
   NewAgentBarrierRelease,
 } from './agent-barriers';
+export { agentHandoffs } from './agent-handoffs';
+export type {
+  AgentHandoff,
+  NewAgentHandoff,
+} from './agent-handoffs';
