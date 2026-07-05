@@ -4,7 +4,7 @@ The `cli/` workspace ships the **`agentboster`** terminal coding agent. It is a 
 
 There is **no direct provider mode** — every LLM call goes through `POST /api/cli/chat` on the Web backend. The provider SDKs (Anthropic / OpenAI / Google / Bedrock / Mistral / …) are intentionally absent from `packages/ai` (~90 MB of npm deps stripped).
 
-This CLI is **based on [pi](https://github.com/earendil-works/pi)** (`@earendil-works/pi-coding-agent` and companion packages `pi-ai` / `pi-agent-core` / `pi-tui`).
+This CLI is **based on [pi](https://github.com/earendil-works/pi)**, but new code should use the AgentBoster package names in this workspace. The TUI remains an external npm dependency (`@agentboster-cli/tui`).
 
 ---
 
@@ -45,7 +45,7 @@ flowchart BT
   AD["packages/agentboster-adapter\nauth + web stream"]
   AG["packages/agent"]
   AI["packages/ai (types only)"]
-  TUI["packages/tui"]
+  TUI["@agentboster-cli/tui\nexternal npm dependency"]
   CA --> AD
   CA --> AG
   CA --> AI
@@ -57,13 +57,13 @@ flowchart BT
 
 | Package | Responsibility |
 |---------|----------------|
-| `@earendil-works/pi-coding-agent` | `agentboster` bin, interactive mode, extensions, export |
+| `@agentboster-cli/core` | `agentboster` bin, interactive mode, extensions, export |
 | `@agentboster/adapter` | Stored auth, `createAgentbosterStreamFn`, remote models, remote sessions |
-| `@earendil-works/pi-agent-core` | Agent session primitives |
-| `@earendil-works/pi-ai` | Type surface + `compat` stubs (no provider SDKs) |
-| `@earendil-works/pi-tui` | Terminal rendering |
+| `@agentboster-cli/agent` | Agent session primitives |
+| `@agentboster-cli/ai` | Type surface + `compat` stubs (no provider SDKs) |
+| `@agentboster-cli/tui` | Terminal rendering, resolved from npm |
 
-Build order is enforced by the root `package.json` `build` script (tui → ai → agent → adapter → coding-agent).
+Build order is enforced by the root `package.json` `build` script: `ai` → `agent` → `agentboster-adapter` → `coding-agent`.
 
 ---
 
@@ -101,15 +101,15 @@ Non-interactive `--print` skips TUI and writes final text to stdout (suitable fo
 
 ### Requirements
 
-- **Node.js >= 22.19.0** (`engines` in `cli/package.json`)
-- npm (workspaces)
+- **Node.js >= 22.19.0** (`engines` in `subpackage/cli/package.json`)
+- Yarn Classic (`yarn@1.22.22`)
 
 ### Install and build
 
 ```bash
-cd cli
-npm install
-npm run build
+cd subpackage/cli
+yarn install
+yarn build
 ```
 
 ### Run
@@ -119,17 +119,17 @@ npm run build
 node packages/coding-agent/dist/cli.js --help
 
 # Single-file bundle (no node_modules needed at runtime)
-npm run bundle
+yarn bundle
 node packages/coding-agent/dist/agentboster.cjs --help
 
 # TypeScript direct (dev)
-npx tsx src/cli.ts --help
+yarn tsx packages/coding-agent/src/cli.ts --help
 ```
 
 ### Quality gate
 
 ```bash
-npm run check    # tsgo --noEmit + Biome lint
+yarn check    # Biome check --write, then tsgo --noEmit
 ```
 
 ---
@@ -285,15 +285,15 @@ Each `local_*` invocation passes through `evaluateLocalCommand` in the adapter b
 
 | Script | Output |
 |--------|--------|
-| `npm run build` | Per-package `dist/` |
-| `npm run clean` | Remove build artifacts |
-| `npm run bundle` | `packages/coding-agent/dist/agentboster.cjs` (single file, all assets inlined) |
-| `npm run package` | `agentboster-cli-<version>.tar.gz` (2 files: `agentboster` wrapper + `agentboster.cjs`) |
+| `yarn build` | Per-package `dist/` |
+| `yarn clean` | Remove build artifacts |
+| `yarn bundle` | `packages/coding-agent/dist/agentboster.cjs` (single file, all assets inlined) |
+| `yarn package` | `agentboster-cli-<version>.tar.gz` (2 files: `agentboster` wrapper + `agentboster.cjs`) |
 
 ```bash
-cd cli
-npm run bundle
-npm run package
+cd subpackage/cli
+yarn bundle
+yarn package
 tar xzf agentboster-cli-*.tar.gz
 ./agentboster-cli-*/agentboster --version
 ```
@@ -345,12 +345,12 @@ To **edit a historical user-message version and resend**: select the user messag
 
 | Issue | Fix |
 |-------|-----|
-| `command not found` | Build (`npm run build`), use the tarball `./agentboster`, or run `node …/agentboster.cjs` |
+| `command not found` | Build (`yarn build`), use the tarball `./agentboster`, or run `node …/agentboster.cjs` |
 | `Not logged in` | `agentboster login` (the CLI cannot run without the Web backend) |
 | `Model "X" is not in the server catalog` | Run `agentboster --list-models`; the id must match exactly |
 | Empty model list | Check Web backend `/api/cli/models` and your token |
 | `Tool <name> not found` | Internal error — the CLI no longer dispatches tools locally; report if seen |
-| Bundle missing assets | `npm run build` before `npm run bundle` |
+| Bundle missing assets | `yarn build` before `yarn bundle` |
 
 ---
 
@@ -377,6 +377,6 @@ See [`AGENTS.md`](AGENTS.md):
 
 ## Related documentation
 
-- [Root README](../README.md) — platform architecture
+- [Root README](../../README.md) — platform architecture
 - [`agentd/README.md`](../agentd/README.md) — Linux execution daemon
 - [`AGENTS.md`](AGENTS.md) — monorepo dev guide

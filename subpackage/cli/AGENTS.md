@@ -1,107 +1,67 @@
-# AGENTS.md — cli/
+# Repository Guidelines
 
-Compact guide for AI coding sessions working in the `cli/` workspace. This is a **Yarn Classic** (`yarn@1.22.22`) monorepo, separate from the root web app.
+## Project Structure & Module Organization
 
-## Read first
+This directory is a Yarn Classic monorepo for the `agentboster` CLI. The root
+`package.json` manages workspaces under `packages/`:
 
-- `cli/README.md` is the best map for workspace boundaries and runtime flow.
-- The CLI is a thin client: Web owns models, auth, tool routing, session persistence, and workflow execution.
-- There is no direct provider mode; every model call goes through the Web backend via `POST /api/cli/chat`.
-- Based on [pi](https://github.com/earendil-works/pi) — legacy package names (`@earendil-works/pi-*`, `@mariozechner/pi-*`) appear in vitest alias maps but should not be used in new code.
+- `packages/ai`: shared AI type surface and compatibility stubs.
+- `packages/agent`: agent loop and session primitives.
+- `packages/agentboster-adapter`: auth, remote model lookup, Web streaming, and
+  AgentBoster backend integration.
+- `packages/coding-agent`: `agentboster` binary, TUI, local tools, extensions,
+  session handling, and HTML export.
+- `packages/desktop`: separate Tauri desktop app; it is not part of the root
+  Yarn workspace list.
 
-## Toolchain
+Runtime assets live with their consumers, for example
+`packages/coding-agent/src/modes/interactive/assets/` and
+`packages/coding-agent/src/modes/interactive/theme/`.
 
-- **Node:** `>=22.19.0` (enforced via `engines`)
-- **TypeScript:** `@typescript/native-preview` 7.0 (`tsgo`) for builds and type-checking; `typescript` 5.9 as fallback/IDE support.
-- **Biome:** `2.3.5` — sole formatter/linter. `organizeImports` is off; do not run import sorters.
-- **Vitest:** `4.1.9` for tests in all packages.
-- **esbuild:** `0.28.1` for bundling.
+## Build, Test, and Development Commands
 
-## Commands
+- `yarn install`: install dependencies with Yarn 1.x.
+- `yarn build`: build workspace packages in dependency order with `tsgo` and copy
+  CLI runtime assets.
+- `yarn check`: run Biome with writes enabled and then `tsgo --noEmit`; review
+  generated edits before committing.
+- `yarn bundle`: create `packages/coding-agent/dist/agentboster.cjs`.
+- `yarn package`: create the distributable CLI tarball.
+- `yarn clean`: remove package `dist/` outputs.
+- `yarn workspace @agentboster-cli/core test`: run the coding-agent Vitest suite.
 
-- `yarn install` — installs workspace. Use Yarn Classic only; do not switch to Berry/PnP.
-- `yarn build` — builds in order: `ai` → `agent` → `agentboster-adapter` → `coding-agent` (each via `tsgo -p <pkg>/tsconfig.build.json`). Order-sensitive; later packages import earlier ones. Also `chmod +x` on CLI entry points and copies assets in `coding-agent`.
-- `yarn check` — runs `biome check --write --error-on-warnings . && tsgo --noEmit`. Note: **writes** fixes (not read-only) and fails on warnings.
-- `yarn bundle` — produces `packages/coding-agent/dist/agentboster.cjs` (single-file, assets inlined via esbuild).
-- `yarn package` — wraps bundle into `agentboster-cli-<version>.tar.gz` (`scripts/package.mjs`).
-- `yarn clean` — removes all `dist/` across workspace.
+After building, verify the CLI with
+`node packages/coding-agent/dist/cli.js --help`.
 
-### Testing
+## Coding Style & Naming Conventions
 
-- Per-package: each of `ai`, `agent`, `coding-agent` has `yarn test` → `vitest --run` with its own `vitest.config.ts`.
-- `coding-agent`'s vitest config defines aliases for legacy pi package names so existing test imports resolve correctly.
-- From root web repo: `yarn test subpackage/cli/packages/*/test/**` also works via the root vitest include glob.
+Use TypeScript ESM. Prefer workspace path aliases such as
+`@agentboster-cli/agent` and `@agentboster/adapter` instead of deep relative
+cross-package imports. Biome is the formatter and linter: 2-space indentation,
+single quotes, semicolons, trailing commas, and 80-column formatting. Import
+organization is disabled, so do not run separate import sorters.
 
-## Package boundaries
+Name source files descriptively in kebab case when adding new modules, matching
+existing files such as `print-mode.ts` and `theme-controller.ts`.
 
-| Package | npm name | Responsibility |
-|---------|----------|----------------|
-| `packages/ai` | `@agentboster-cli/ai` | Type surface + compat stubs (no provider SDKs) |
-| `packages/agent` | `@agentboster-cli/agent` | Agent session/loop primitives |
-| `packages/agentboster-adapter` | `@agentboster/adapter` | Stored auth, remote model lookup, Web stream, security eval, preferences, task summary |
-| `packages/coding-agent` | `@agentboster-cli/core` | `agentboster` binary, TUI, login, sessions, local tools, extensions, export |
+## Testing Guidelines
 
-TUI is an **external** npm dependency (`@agentboster-cli/tui` → `npm:@earendil-works/pi-tui@0.80.2`), not a local package.
+Tests use Vitest. Place tests beside the relevant package under `packages/*/test/`
+or use the existing `*.test.ts` pattern if introduced in a package. Run package
+tests before changing shared behavior, and run `yarn check` before opening a PR.
 
-### Dependency graph (build order)
+## Commit & Pull Request Guidelines
 
-```
-ai → agent → agentboster-adapter → coding-agent
-                                         ↓
-                                   @agentboster-cli/tui (npm)
-```
+Recent history mostly uses concise subjects with Conventional Commit prefixes,
+for example `feat(workflow): ...` and `fix(ci): ...`; keep using
+`type(scope): summary` when practical. Use imperative, specific summaries.
 
-## Package cross-imports
+Pull requests should explain the behavior change, list validation commands run,
+link related issues, and include screenshots or recordings for TUI or desktop UI
+changes. Note any auth, config, or packaging impact.
 
-Must use `tsconfig.json` path aliases, not deep relative paths:
+## Security & Configuration Tips
 
-- `@agentboster-cli/ai`, `@agentboster-cli/ai/*`
-- `@agentboster-cli/agent`, `@agentboster-cli/agent/*`
-- `@agentboster-cli/core`, `@agentboster-cli/core/*`
-- `@agentboster/adapter`, `@agentboster/adapter/*`
-- `@agentboster-cli/tui`, `@agentboster-cli/tui/*`
-
-The build (`tsgo -p tsconfig.build.json`) maps these to `dist/` paths; the root `tsconfig.json` (type-check only) maps them to `src/` for IDE navigation.
-
-## coding-agent structure
-
-```
-src/
-├── cli.ts              # entry point (bin)
-├── rpc-entry.ts        # programmatic/RPC entry
-├── main.ts             # app bootstrap
-├── config.ts           # runtime config
-├── cli/                # CLI arg parsing, login, startup
-├── core/
-│   ├── tools/          # local tool implementations (bash, edit, read, write, find, grep, ls, task, ...)
-│   ├── extensions/     # extension system (loader, runner, types, wrapper)
-│   ├── export-html/    # session HTML export
-│   ├── compaction/     # context compaction
-│   └── ...             # sessions, models, settings, skills, slash-commands, etc.
-└── modes/
-    ├── interactive/    # TUI mode (theme + assets)
-    ├── print-mode.ts   # --print non-interactive output
-    └── rpc/            # RPC/automation mode
-```
-
-## Adapter exports
-
-Auth: `readStoredConfig`, `writeStoredConfig`, `getStoredAuth`, `clearStoredAuth`, `getAgentbosterHome`
-Models: `fetchRemoteModels`, `remoteModelsToPiModels`
-Streaming: `createAgentbosterStreamFn`, `openAgentbosterStream`
-Security: `evaluateLocalCommand`, `formatToolRequest`
-Preferences: `fetchUserPreferences`, `patchUserPreferences`
-Task summary: `fetchTaskSummary`, `patchTaskSummary`
-
-## Gotchas
-
-- `yarn check` **writes** formatted output to disk; CI should run it and fail if the working tree is dirty afterward.
-- `tsconfig.json` includes `packages/coding-agent/examples/**/*` but excludes `packages/coding-agent/examples/extensions/gondolin/**`. No `examples/` dir currently exists — this is future-proofing.
-- Biome `files.includes` scopes to `packages/*/src/**/*.ts`, `packages/*/test/**/*.ts`, and `packages/coding-agent/examples/**/*.ts`; it explicitly excludes `**/test-sessions.ts`, `**/models.generated.ts`, and `**/*.models.ts`.
-- `agentboster login` writes `~/.agentboster/config.json`; login is required before any use.
-- The model catalog comes from the Web backend; selecting an unlisted model fails fast.
-- `--print` skips the TUI and writes only final output to stdout.
-- `--yolo` auto-approves all `local_*` tool invocations without security scoring.
-- `rpc-entry.js` is marked executable at build time for editor/automation integrations.
-- `husky` is in devDependencies with a `prepare` script, but no `.husky/` directory exists yet — pre-commit hooks are not currently active.
-- The `coding-agent` vitest config aliases old upstream names (`@earendil-works/pi-*`, `@mariozechner/pi-*`) to local sources; these should not appear in new code.
+The CLI is a thin client: model calls go through the Web backend, not local
+provider SDKs. Do not commit tokens or `~/.agentboster/config.json` contents.
+Node `>=22.19.0` is required.
