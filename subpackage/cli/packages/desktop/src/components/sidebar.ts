@@ -231,13 +231,13 @@ function formatRelativeDate(ts: number): string {
   return `${Math.floor(diff / day)}d`;
 }
 
-function formatTokens(n: number): string {
+function _formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return `${n}`;
 }
 
-function formatCost(cost: number): string {
+function _formatCost(cost: number): string {
   if (!cost) return '$0';
   if (cost < 0.01) return `$${cost.toFixed(3)}`;
   return `$${cost.toFixed(2)}`;
@@ -1255,45 +1255,6 @@ export class Sidebar {
     }
   }
 
-  private async createFileInActiveProject(): Promise<void> {
-    const project = this.getActiveProject();
-    if (!project) return;
-    await this.createFileInDirectory(project.id, project.path);
-  }
-
-  private async createFileInDirectory(
-    projectId: string,
-    directoryPath: string,
-  ): Promise<void> {
-    const project =
-      this.projects.find((entry) => entry.id === projectId) ?? null;
-    if (!project) return;
-
-    const input = window.prompt('New file name', 'new-file.txt')?.trim();
-    if (!input) return;
-    if (input.includes('/') || input.includes('\\')) {
-      window.alert('Use a file name without folders.');
-      return;
-    }
-
-    const targetDir = directoryPath || project.path;
-    const filePath = joinFsPath(targetDir, input);
-    try {
-      const { exists, writeTextFile } = await import('@tauri-apps/plugin-fs');
-      if (await exists(filePath)) {
-        window.alert('A file with that name already exists.');
-        return;
-      }
-
-      await writeTextFile(filePath, '');
-      await this.ensureFileTreeForProject(projectId, true);
-      this.openFile(projectId, filePath);
-    } catch (err) {
-      console.error('Failed to create file:', err);
-      window.alert(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   private startFileRename(projectId: string, node: FileNode): void {
     if (node.isDirectory) return;
     this.sessionRenameDraft = null;
@@ -1894,13 +1855,12 @@ export class Sidebar {
       project.pathExists = null;
     } finally {
       if (
-        !this.isWorkspaceHydrationCurrent(hydrationToken) ||
-        !this.projects.includes(project)
+        this.isWorkspaceHydrationCurrent(hydrationToken) &&
+        this.projects.includes(project)
       ) {
-        return;
+        project.checkingPath = false;
+        this.render();
       }
-      project.checkingPath = false;
-      this.render();
     }
   }
 
@@ -2054,9 +2014,10 @@ export class Sidebar {
           project.lastSessionsLoadedAt = 0;
         }
       } finally {
-        if (isStale()) return;
-        project.loadingSessions = silent ? loadingBefore : false;
-        this.render();
+        if (!isStale()) {
+          project.loadingSessions = silent ? loadingBefore : false;
+          this.render();
+        }
       }
     })();
 
@@ -2205,7 +2166,7 @@ export class Sidebar {
   }
 
   private async toggleDirectory(
-    projectId: string,
+    _projectId: string,
     node: FileNode,
   ): Promise<void> {
     if (!node.isDirectory) return;
@@ -2243,15 +2204,6 @@ export class Sidebar {
     this.closeContextMenu(false);
     this.openProjectMenuId =
       this.openProjectMenuId === projectId ? null : projectId;
-    this.render();
-  }
-
-  private setProjectColor(projectId: string, color: string | null): void {
-    const project = this.projects.find((entry) => entry.id === projectId);
-    if (!project) return;
-    project.color = color ?? stringToColor(project.name);
-    this.openProjectMenuId = null;
-    this.persistProjects();
     this.render();
   }
 
@@ -2974,11 +2926,11 @@ export class Sidebar {
       '.sidebar-project-list',
     );
     if (!list) return null;
-    const rows = [
-      ...list.querySelectorAll<HTMLElement>(
+    const rows = Array.from(
+      list.querySelectorAll<HTMLElement>(
         '.sidebar-project-row[data-project-id]',
       ),
-    ];
+    );
     if (rows.length === 0) return null;
     const compatibleRows = rows.filter((row) => {
       const projectId = row.dataset.projectId;
@@ -3233,9 +3185,7 @@ export class Sidebar {
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
-    const currentIndex = active
-      ? focusable.findIndex((entry) => entry === active)
-      : -1;
+    const currentIndex = active ? focusable.indexOf(active) : -1;
     const nextIndex = event.shiftKey
       ? currentIndex <= 0
         ? focusable.length - 1
@@ -3260,9 +3210,9 @@ export class Sidebar {
   private getWorkspaceCreateDialogFocusableElements(): HTMLElement[] {
     const dialog = this.getWorkspaceCreateDialogElement();
     if (!dialog) return [];
-    return [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(
-      (el) => !el.hasAttribute('disabled') && el.tabIndex !== -1,
-    );
+    return Array.from(
+      dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    ).filter((el) => !el.hasAttribute('disabled') && el.tabIndex !== -1);
   }
 
   private focusWorkspaceCreateDialogPrimaryInput(selectText = false): void {
@@ -3366,54 +3316,6 @@ export class Sidebar {
     this.closeWorkspaceCreateDialog(false, false);
     this.onWorkspaceCreate?.({ title, emoji });
     this.render();
-  }
-
-  private toggleWorkspaceMenu(nextOpen?: boolean): void {
-    const open =
-      typeof nextOpen === 'boolean' ? nextOpen : !this.workspaceMenuOpen;
-    if (this.workspaceMenuOpen === open) return;
-    this.workspaceMenuOpen = open;
-    if (!open) {
-      this.cancelWorkspacePointerDrag(false);
-      this.closeWorkspaceEmojiPicker(false);
-    }
-    this.render();
-  }
-
-  private openWorkspaceEmojiPicker(
-    workspaceId: string,
-    event: MouseEvent,
-  ): void {
-    event.stopPropagation();
-    if (this.emojiPickerWorkspaceId === workspaceId) {
-      this.closeWorkspaceEmojiPicker();
-      return;
-    }
-    const target = event.currentTarget as HTMLElement | null;
-    const rect = target?.getBoundingClientRect();
-    const anchorLeft = rect?.left ?? event.clientX;
-    const anchorBottom = rect?.bottom ?? event.clientY;
-    const pad = 10;
-    const pickerWidth = 272;
-    const pickerHeight = 332;
-    this.emojiPickerWorkspaceId = workspaceId;
-    this.emojiSearchQuery = '';
-    this.emojiPickerX = Math.min(
-      Math.max(pad, anchorLeft - 8),
-      Math.max(pad, window.innerWidth - pickerWidth - pad),
-    );
-    this.emojiPickerY = Math.min(
-      Math.max(pad, anchorBottom + 8),
-      Math.max(pad, window.innerHeight - pickerHeight - pad),
-    );
-    this.render();
-    requestAnimationFrame(() => {
-      const input = this.container.querySelector<HTMLInputElement>(
-        `.workspace-emoji-search[data-workspace-id="${workspaceId}"]`,
-      );
-      input?.focus();
-      input?.select();
-    });
   }
 
   private closeWorkspaceEmojiPicker(shouldRender = true): void {
@@ -3542,11 +3444,11 @@ export class Sidebar {
       '.sidebar-workspace-dock-list',
     );
     if (!list) return null;
-    const pills = [
-      ...list.querySelectorAll<HTMLElement>(
+    const pills = Array.from(
+      list.querySelectorAll<HTMLElement>(
         '.sidebar-workspace-pill[data-workspace-id]',
       ),
-    ];
+    );
     if (pills.length === 0) return null;
     const compatiblePills = pills.filter((pill) => {
       const workspaceId = pill.dataset.workspaceId;
@@ -3837,186 +3739,6 @@ export class Sidebar {
     } catch {
       // no-op outside Tauri runtime
     }
-  }
-
-  private renderWorkspaceSwitcher(): TemplateResult | typeof nothing {
-    const activeWorkspace = this.getActiveWorkspaceItem();
-    if (!activeWorkspace) return nothing;
-    const emojiPickerWorkspace = this.emojiPickerWorkspaceId
-      ? (this.workspaces.find(
-          (workspace) => workspace.id === this.emojiPickerWorkspaceId,
-        ) ?? null)
-      : null;
-    const filteredEmojis = this.filteredWorkspaceEmojis();
-
-    return html`
-			<div class="sidebar-workspace-switcher" data-tauri-drag-region>
-				<div class="sidebar-workspace-switcher-row" data-tauri-drag-region>
-					<div class="sidebar-window-controls" @click=${(e: Event) => e.stopPropagation()}>
-						<button class="sidebar-window-dot red" title="Close" @click=${(
-              e: Event,
-            ) => {
-              e.stopPropagation();
-              void this.invokeWindowControl('close');
-            }}></button>
-						<button class="sidebar-window-dot yellow" title="Minimize" @click=${(
-              e: Event,
-            ) => {
-              e.stopPropagation();
-              void this.invokeWindowControl('minimize');
-            }}></button>
-						<button class="sidebar-window-dot green" title="Maximize" @click=${(
-              e: Event,
-            ) => {
-              e.stopPropagation();
-              void this.invokeWindowControl('maximize');
-            }}></button>
-					</div>
-					<div
-						class="sidebar-workspace-trigger ${this.workspaceMenuOpen ? 'open' : ''}"
-						title="Switch workspace"
-						@contextmenu=${(e: MouseEvent) => this.handleWorkspaceContextMenu(e, activeWorkspace.id)}
-					>
-						<button
-							class="sidebar-workspace-trigger-emoji"
-							title="Change workspace emoji"
-							@click=${(e: MouseEvent) => this.openWorkspaceEmojiPicker(activeWorkspace.id, e)}
-						>
-							<span class="sidebar-workspace-avatar">${activeWorkspace.emoji || '💼'}</span>
-						</button>
-						<button
-							class="sidebar-workspace-trigger-main"
-							@click=${(e: Event) => {
-                e.stopPropagation();
-                this.toggleWorkspaceMenu();
-              }}
-						>
-							<span class="sidebar-workspace-trigger-title">${activeWorkspace.title}</span>
-						</button>
-						<span class="sidebar-workspace-chevron" aria-hidden="true">${this.workspaceMenuOpen ? '▴' : '▾'}</span>
-					</div>
-					<button
-						class="workspace-sidebar-toggle"
-						title="Collapse sidebar"
-						@click=${(e: Event) => {
-              e.stopPropagation();
-              this.toggleCollapsed();
-            }}
-					>
-						<svg viewBox="0 0 16 16" aria-hidden="true">
-							<path d="M3 3.5h10v9H3z" />
-							<path d="M6 3.5v9" />
-						</svg>
-					</button>
-				</div>
-				${
-          this.workspaceMenuOpen
-            ? html`
-						<div class="sidebar-workspace-menu" @click=${(e: Event) => e.stopPropagation()}>
-							<div class="sidebar-workspace-list">
-								${this.workspaces.map((workspace, index) => {
-                  const active = workspace.id === this.activeWorkspaceId;
-                  const dragOver =
-                    workspace.id === this.workspaceDragOverId &&
-                    this.draggingWorkspaceId !== workspace.id;
-                  const prevWorkspace = this.workspaces[index - 1] ?? null;
-                  const showPinnedDivider =
-                    Boolean(prevWorkspace?.pinned) && !workspace.pinned;
-                  return html`
-										${showPinnedDivider ? html`<div class="sidebar-workspace-pin-divider" role="separator" aria-hidden="true"></div>` : nothing}
-										<div
-											class="sidebar-workspace-row ${active ? 'active' : ''} ${dragOver ? 'drag-over' : ''} ${workspace.id === this.draggingWorkspaceId ? 'dragging' : ''}"
-											data-workspace-id=${workspace.id}
-											@contextmenu=${(e: MouseEvent) => this.handleWorkspaceContextMenu(e, workspace.id)}
-										>
-											<span
-												class="sidebar-workspace-grip"
-												aria-hidden="true"
-												title="Drag to reorder"
-												@pointerdown=${(e: PointerEvent) => this.beginWorkspacePointerDrag(e, workspace.id)}
-											>⋮⋮</span>
-											<button
-												class="sidebar-workspace-avatar-btn row"
-												title="Change workspace emoji"
-												@click=${(e: MouseEvent) => this.openWorkspaceEmojiPicker(workspace.id, e)}
-											>
-												<span class="sidebar-workspace-avatar">${workspace.emoji || '💼'}</span>
-											</button>
-											<button
-												class="sidebar-workspace-row-main"
-												@click=${() => {
-                          if (this.shouldSuppressWorkspaceRowClick()) return;
-                          this.toggleWorkspaceMenu(false);
-                          if (!active) this.onWorkspaceSelect?.(workspace.id);
-                        }}
-											>
-												<span class="sidebar-workspace-row-title">${workspace.title}</span>
-											</button>
-										</div>
-									`;
-                })}
-							</div>
-							<div class="sidebar-workspace-menu-divider"></div>
-							<button
-								class="sidebar-workspace-new"
-								@click=${() => {
-                  this.toggleWorkspaceMenu(false);
-                  this.onWorkspaceCreate?.();
-                }}
-							>
-								<span class="sidebar-workspace-new-plus" aria-hidden="true">＋</span>
-								<span>New workspace</span>
-							</button>
-						</div>
-					`
-            : nothing
-        }
-				${
-          this.emojiPickerWorkspaceId
-            ? html`
-						<div class="workspace-emoji-picker" style=${`left:${this.emojiPickerX}px;top:${this.emojiPickerY}px`} @click=${(event: Event) => event.stopPropagation()}>
-							<input
-								class="workspace-emoji-search"
-								data-workspace-id=${this.emojiPickerWorkspaceId}
-								type="text"
-								placeholder="Search emojis"
-								.value=${this.emojiSearchQuery}
-								@input=${(event: Event) => {
-                  this.emojiSearchQuery = (
-                    event.target as HTMLInputElement
-                  ).value;
-                  this.render();
-                }}
-								@keydown=${(event: KeyboardEvent) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    this.closeWorkspaceEmojiPicker();
-                  }
-                }}
-							/>
-							<div class="workspace-emoji-scroll">
-								<div class="workspace-emoji-grid">
-									${
-                    filteredEmojis.length > 0
-                      ? filteredEmojis.map(
-                          (entry) => html`
-											<button
-												class="workspace-emoji-swatch ${emojiPickerWorkspace?.emoji === entry.emoji ? 'selected' : ''}"
-												title=${entry.name}
-												@click=${() => this.applyWorkspaceEmoji(this.emojiPickerWorkspaceId!, entry.emoji)}
-											>${entry.emoji}</button>
-										`,
-                        )
-                      : html`<div class="workspace-emoji-empty">No emojis found</div>`
-                  }
-								</div>
-							</div>
-						</div>
-					`
-            : nothing
-        }
-			</div>
-		`;
   }
 
   private renderWorkspaceWindowRow(): TemplateResult {
@@ -4506,7 +4228,7 @@ export class Sidebar {
 
     return html`
 			<div class="sidebar-project-list">
-				${projects.map((project, index) => {
+				${projects.map((project, _index) => {
           const active = this.activeProjectId === project.id;
           const menuOpen = this.openProjectMenuId === project.id;
           const sessions = this.visibleSessions(project);
@@ -4761,7 +4483,7 @@ export class Sidebar {
 
     return html`
 			<div class="sidebar-project-list">
-				${projects.map((project, index) => {
+				${projects.map((project, _index) => {
           const active = this.activeProjectId === project.id;
           const menuOpen = this.openProjectMenuId === project.id;
           const unreadCount = this.getProjectAttentionCount(project);
@@ -4919,19 +4641,6 @@ export class Sidebar {
     if (this.settingsShellActive) return this.renderSettingsShellBody();
     if (this.mode === 'files') return this.renderFilesMode();
     return this.renderProjectsMode();
-  }
-
-  private handleRefreshActive(): void {
-    const active = this.getActiveProject();
-    if (!active) return;
-    const activeProject =
-      this.projects.find((project) => project.id === active.id) ?? null;
-    void this.refreshProjectPathStatus(active.id);
-    void this.loadSessionsForProject(active.id, {
-      silent: Boolean(activeProject?.sessions.length),
-    });
-    if (this.mode === 'files')
-      void this.ensureFileTreeForProject(active.id, true);
   }
 
   private renderModeIcon(mode: SidebarMode): TemplateResult {

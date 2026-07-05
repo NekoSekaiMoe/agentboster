@@ -4,10 +4,7 @@
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { html, nothing, render } from 'lit';
-import {
-  type RpcSessionState,
-  rpcBridge,
-} from '../rpc/bridge.js';
+import { type RpcSessionState, rpcBridge } from '../rpc/bridge.js';
 
 interface SessionStats {
   tokens: { total?: number };

@@ -2,7 +2,7 @@
  * Command Palette - slash commands + desktop actions
  */
 
-import { html, nothing, render } from 'lit';
+import { html, render } from 'lit';
 import { normalizeRuntimeSlashCommands } from '../commands/slash-command-runtime.js';
 import { rpcBridge } from '../rpc/bridge.js';
 

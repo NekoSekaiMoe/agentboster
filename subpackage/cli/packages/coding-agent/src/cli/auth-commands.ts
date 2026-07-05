@@ -85,7 +85,7 @@ function writeAuthFile(data: Record<string, AuthEntry>): void {
     fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
   }
 
-  fs.writeFileSync(authPath, JSON.stringify(data, null, 2) + '\n', {
+  fs.writeFileSync(authPath, `${JSON.stringify(data, null, 2)}\n`, {
     mode: 0o600,
   });
 }
@@ -104,7 +104,12 @@ export async function handleAuthStatus(): Promise<void> {
   if (authFileExists) {
     const authData = readAuthFile();
     for (const [provider, cred] of Object.entries(authData)) {
-      const kind = cred.type === 'oauth' ? 'oauth' : cred.type === 'api_key' ? 'api_key' : 'unknown';
+      const kind =
+        cred.type === 'oauth'
+          ? 'oauth'
+          : cred.type === 'api_key'
+            ? 'api_key'
+            : 'unknown';
       const source = kind === 'oauth' ? 'auth_file_oauth' : 'auth_file_api_key';
       configured.push({ provider, source, kind });
     }
@@ -113,9 +118,9 @@ export async function handleAuthStatus(): Promise<void> {
   // Check environment variables
   for (const [provider, envKey] of Object.entries(PROVIDER_ENV_MAP)) {
     const envValue = process.env[envKey];
-    if (envValue && envValue.trim()) {
+    if (envValue?.trim()) {
       // Skip if already listed from auth.json
-      if (configured.some(p => p.provider === provider)) {
+      if (configured.some((p) => p.provider === provider)) {
         continue;
       }
       configured.push({
@@ -175,7 +180,9 @@ export async function handleAuthLogout(provider: string): Promise<void> {
   if (removed) {
     process.exit(0);
   } else if (hasEnvVar) {
-    console.error(`Note: ${normalized} is configured via environment variable ${envKey}`);
+    console.error(
+      `Note: ${normalized} is configured via environment variable ${envKey}`,
+    );
     process.exit(1);
   } else {
     console.error(`Note: No credentials found for ${normalized}`);

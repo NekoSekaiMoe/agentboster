@@ -136,7 +136,7 @@ async function parseSessionInfo(filePath: string): Promise<SessionInfo | null> {
             }
             break;
         }
-      } catch (parseErr) {}
+      } catch (_parseErr) {}
     }
 
     const timestamps = await getFileTimestamps(filePath);

@@ -133,7 +133,6 @@ function sectionForSource(source: SlashCommandSource): SlashPaletteSection {
       return 'Prompts';
     case 'skill':
       return 'Skills';
-    case 'other':
     default:
       return 'Commands';
   }

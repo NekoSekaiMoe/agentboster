@@ -20,12 +20,14 @@ interface RenderGitRepoControlViewParams {
   gitBranchQuery: string;
   resolveGitBranchSelection: (query: string) => GitBranchEntry | null;
   gitIcon: () => TemplateResult;
-  onCreateRepo: () => void | Promise<unknown>;
+  onCreateRepo: () => undefined | Promise<unknown>;
   onToggleMenu: () => void;
   onSetBranchQuery: (value: string) => void;
-  onCreateAndCheckoutBranch: (value: string) => void | Promise<unknown>;
-  onFetchRemotes: () => void | Promise<unknown>;
-  onSwitchGitBranchEntry: (entry: GitBranchEntry) => void | Promise<unknown>;
+  onCreateAndCheckoutBranch: (value: string) => undefined | Promise<unknown>;
+  onFetchRemotes: () => undefined | Promise<unknown>;
+  onSwitchGitBranchEntry: (
+    entry: GitBranchEntry,
+  ) => undefined | Promise<unknown>;
 }
 
 export function renderGitRepoControlView({

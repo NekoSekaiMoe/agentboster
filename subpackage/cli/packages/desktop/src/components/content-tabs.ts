@@ -199,7 +199,9 @@ export class ContentTabs {
 
   private sortTabsByPinnedOrder(tabs: MainContentTab[]): MainContentTab[] {
     const order = new Map<string, number>();
-    this.tabOrder.forEach((key, index) => order.set(key, index));
+    this.tabOrder.forEach((key, index) => {
+      order.set(key, index);
+    });
     const ranked = tabs.map((tab, index) => ({
       tab,
       index,

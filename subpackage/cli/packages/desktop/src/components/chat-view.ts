@@ -303,7 +303,7 @@ function formatUsd(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
-function formatAge(ts: number): string {
+function _formatAge(ts: number): string {
   if (!ts) return '';
   const diff = Math.max(0, Date.now() - ts);
   const minute = 60_000;
@@ -573,9 +573,6 @@ export class ChatView {
   private pendingImages: PendingImage[] = [];
   private pendingFileReferences: PendingFileReference[] = [];
   private notices: Notice[] = [];
-  private changelogCacheMarkdown: string | null = null;
-  private changelogCacheAt = 0;
-  private loadingChangelog = false;
   private allThinkingExpanded = false;
   private retryStatus = '';
   private compactionCycle: CompactionCycleState | null = null;
@@ -1304,9 +1301,10 @@ export class ChatView {
         ['auth', 'logout', providerKey],
         { cwd: this.projectPath || '.' },
       );
-      const result = cliResult.exit_code === 0
-        ? JSON.parse(cliResult.stdout || '{}')
-        : { removed: false, source: 'missing' };
+      const result =
+        cliResult.exit_code === 0
+          ? JSON.parse(cliResult.stdout || '{}')
+          : { removed: false, source: 'missing' };
 
       if (result.removed) {
         this.providerAuthForcedLoggedOut.add(providerKey);
@@ -1430,7 +1428,7 @@ export class ChatView {
     const slashQuery = this.slashQueryFromInput();
     const parsed = this.parseSlashInput(this.inputText);
     if (!parsed && slashQuery === null) return;
-    if (parsed && parsed.commandName.startsWith('skill:')) {
+    if (parsed?.commandName.startsWith('skill:')) {
       const skillCommandText = `/${parsed.commandName}${parsed.args ? ` ${parsed.args}` : ''}`;
       if (this.stageSkillSlashCommand(skillCommandText)) return;
     }
@@ -2127,9 +2125,10 @@ export class ChatView {
         );
       }
     } finally {
-      if (requestSeq !== this.modelLoadRequestSeq) return;
-      this.loadingModels = false;
-      this.render();
+      if (requestSeq === this.modelLoadRequestSeq) {
+        this.loadingModels = false;
+        this.render();
+      }
     }
   }
 
@@ -2455,7 +2454,7 @@ export class ChatView {
     return `${header ? `${header}\n\n` : ''}${body}`.trim();
   }
 
-  private async loadPiAgentChangelogMarkdown(force = false): Promise<string> {
+  private async loadPiAgentChangelogMarkdown(_force = false): Promise<string> {
     // Changelog removed - CLI updates are no longer managed by Desktop
     return '# Changelog\n\nCLI changelog has been removed. Check the CLI repository for release notes.';
   }
@@ -3837,11 +3836,6 @@ export class ChatView {
     this.queuedComposerMessages = next;
   }
 
-  private clearComposerQueueMessages(): void {
-    if (this.queuedComposerMessages.length === 0) return;
-    this.queuedComposerMessages = [];
-  }
-
   private syncComposerQueueFromState(
     state: RpcSessionState | null | undefined,
   ): void {
@@ -3990,13 +3984,6 @@ export class ChatView {
       console.error('Failed to copy message:', err);
       this.pushNotice('Failed to copy message', 'error');
     }
-  }
-
-  private editUserMessage(msg: UiMessage): void {
-    this.pendingImages = this.cloneImages(msg.attachments);
-    this.pendingFileReferences = [];
-    this.setInputText(msg.text || '');
-    this.pushNotice('Loaded message into composer', 'info');
   }
 
   private resendUserMessage(msg: UiMessage): void {
@@ -4261,7 +4248,7 @@ export class ChatView {
       await this.refreshFromBackend();
       this.pushNotice('Session renamed', 'success');
       return true;
-    } catch (err) {
+    } catch (_err) {
       this.pushNotice('Failed to rename session', 'error');
       return false;
     }
@@ -4387,12 +4374,12 @@ export class ChatView {
       this.forkEntryIdByMessageId.clear();
     } finally {
       if (
-        requestId !== this.forkTargetsRequestSeq ||
-        this.historyViewerMode !== 'fork'
-      )
-        return;
-      this.historyViewerLoading = false;
-      this.render();
+        requestId === this.forkTargetsRequestSeq &&
+        this.historyViewerMode === 'fork'
+      ) {
+        this.historyViewerLoading = false;
+        this.render();
+      }
     }
   }
 
@@ -4732,10 +4719,6 @@ export class ChatView {
 
   private summarizeToolCall(tc: ToolCallBlock): string {
     return summarizeToolCall(tc, truncate);
-  }
-
-  private isToolWorkflowExpanded(workflowId: string): boolean {
-    return this.expandedToolWorkflowIds.has(workflowId);
   }
 
   private clearWorkflowThinkingExpansion(workflowId: string): void {
@@ -5458,13 +5441,13 @@ export class ChatView {
       this.historyTreeRows = [];
     } finally {
       if (
-        requestId !== this.historyTreeRequestSeq ||
-        this.historyViewerMode !== 'browse' ||
-        !this.historyViewerOpen
-      )
-        return;
-      this.historyViewerLoading = false;
-      this.render();
+        requestId === this.historyTreeRequestSeq &&
+        this.historyViewerMode === 'browse' &&
+        this.historyViewerOpen
+      ) {
+        this.historyViewerLoading = false;
+        this.render();
+      }
     }
   }
 

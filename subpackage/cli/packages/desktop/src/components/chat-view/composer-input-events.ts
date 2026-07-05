@@ -17,7 +17,7 @@ interface HandleComposerInputEventParams {
 interface HandleComposerPasteEventParams {
   event: ClipboardEvent;
   interactionLocked: boolean;
-  onPrepareImages: (files: File[]) => void | Promise<unknown>;
+  onPrepareImages: (files: File[]) => undefined | Promise<unknown>;
 }
 
 interface HandleComposerDragOverEventParams {
@@ -34,7 +34,7 @@ interface HandleComposerDropEventParams {
 interface HandleComposerFilePickerChangeEventParams {
   event: Event;
   interactionLocked: boolean;
-  onPrepareFiles: (files: FileList | File[]) => void | Promise<unknown>;
+  onPrepareFiles: (files: FileList | File[]) => undefined | Promise<unknown>;
 }
 
 interface HandleComposerKeyDownEventParams {
@@ -48,7 +48,7 @@ interface HandleComposerKeyDownEventParams {
   composerHistoryIndex: number;
   onCloseModelPicker: () => void;
   onRemoveSelectedSkillDraft: () => void;
-  onCycleThinkingLevel: (step: 1 | -1) => void | Promise<unknown>;
+  onCycleThinkingLevel: (step: 1 | -1) => undefined | Promise<unknown>;
   shouldHandleComposerHistoryKey: (
     event: KeyboardEvent,
     textarea: HTMLTextAreaElement,
@@ -64,8 +64,8 @@ interface HandleComposerKeyDownEventParams {
   onEnsureActiveSlashItemVisible: () => void;
   onCloseSlashPalette: () => void;
   slashQueryFromInput: () => string | null;
-  onExecuteSlashCommandFromComposer: () => void | Promise<unknown>;
-  onSendMessage: (mode: ComposerSendMode) => void | Promise<unknown>;
+  onExecuteSlashCommandFromComposer: () => undefined | Promise<unknown>;
+  onSendMessage: (mode: ComposerSendMode) => undefined | Promise<unknown>;
 }
 
 export function handleComposerInputEvent({

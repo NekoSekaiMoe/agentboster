@@ -1159,7 +1159,6 @@ export class SettingsPanel {
     this.applyAppearanceProfileForCurrentResolvedTheme(false);
   }
 
-
   private async refreshDesktopStatus(): Promise<void> {
     this.desktopLoading = true;
     this.render();
@@ -2128,8 +2127,8 @@ export class SettingsPanel {
   }
 
   private renderAccountSection(
-    runtimeControlsEnabled: boolean,
-    hasProjectContext: boolean,
+    _runtimeControlsEnabled: boolean,
+    _hasProjectContext: boolean,
   ): TemplateResult {
     return html`
 				<div class="settings-view-grid">
@@ -2147,7 +2146,7 @@ export class SettingsPanel {
 
   private renderUpdatesSection(
     runtimeControlsEnabled: boolean,
-    hasProjectContext: boolean,
+    _hasProjectContext: boolean,
     compatibilityChecks: string[],
   ): TemplateResult {
     return html`
@@ -2258,7 +2257,6 @@ export class SettingsPanel {
           hasProjectContext,
           compatibilityChecks,
         );
-      case 'general':
       default:
         return this.renderGeneralSection(
           runtimeControlsEnabled,

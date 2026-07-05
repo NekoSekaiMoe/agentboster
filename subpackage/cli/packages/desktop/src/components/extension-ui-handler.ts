@@ -345,7 +345,7 @@ export class ExtensionUiHandler {
 
   private sanitizeDesktopNotificationText(text: string): string {
     return text
-      .replace(/[✅❌❓⚠️]/g, '')
+      .replace(/(?:✅|❌|❓|⚠️)/gu, '')
       .replace(/\bpi\s*-\s*/gi, '')
       .replace(/\bsmart voice notify\b/gi, '')
       .replace(/\s+/g, ' ')

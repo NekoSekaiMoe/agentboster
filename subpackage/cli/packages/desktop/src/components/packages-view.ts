@@ -13,7 +13,6 @@ import {
   type RecommendedSkillDefinition,
 } from '../recommended-skills.js';
 import { rpcBridge } from '../rpc/bridge.js';
-import { collectBuiltInOAuthProviderIds } from '../auth/provider-auth.js';
 import { isExtensionConfigIntent } from '../extensions/extension-command-intent.js';
 import {
   extensionCommandUsageHint,
@@ -162,7 +161,7 @@ const SMART_NOTIFY_LEGACY_SOURCE = normalizeRecommendedSource(
   'npm:pi-desktop-notify',
 );
 const SMART_NOTIFY_INSTALL_SOURCE = 'npm:pi-smart-voice-notify';
-const PROVIDER_AUTH_CLEANUP_HINTS = new Map<string, string[]>([
+const _PROVIDER_AUTH_CLEANUP_HINTS = new Map<string, string[]>([
   ['pi-cursor-agent', ['cursor-agent']],
   ['cursor-agent', ['cursor-agent']],
   ['pi-kilocode', ['kilo']],
@@ -650,8 +649,6 @@ export class PackagesView {
   private container: HTMLElement;
   private catalogItems: CatalogPackageItem[] = [];
   private installedUser: InstalledPackageItem[] = [];
-  private installedProject: InstalledPackageItem[] = [];
-  private promptTemplateResources: DiscoveredResourceItem[] = [];
   private skillResources: DiscoveredResourceItem[] = [];
   private themeResources: DiscoveredThemeItem[] = [];
 
@@ -695,24 +692,13 @@ export class PackagesView {
   private configModels: ModelOption[] = [];
   private configModelsLoading = false;
   private configModelsLoaded = false;
-  private configModelsError = '';
   private homePath: string | null = null;
   private creatingResource = false;
   private deletingResource = false;
   private resourceStatus = '';
-  private resourceEditorOpen = false;
-  private resourceEditorMode: 'create' | 'edit' = 'create';
-  private resourceEditorKind: 'prompt' | 'skill' = 'prompt';
   private resourceEditorScope: 'global' | 'project' = 'global';
-  private resourceEditorName = '';
-  private resourceEditorDescription = '';
-  private resourceEditorContent = '';
-  private resourceEditorPath: string | null = null;
-  private resourceEditorLoaded = false;
-  private resourceEditorError = '';
   private resourceCreatorOpen = false;
   private resourceCreatorKind: 'auto' | 'prompt' | 'skill' = 'auto';
-  private resourceCreatorScope: 'global' | 'project' = 'global';
   private resourceCreatorBrief = '';
   private resourceCreatorRunning = false;
   private resourceCreatorError = '';
@@ -739,7 +725,6 @@ export class PackagesView {
     if (!path && this.resourceEditorScope === 'project') {
       this.resourceEditorScope = 'global';
     }
-    this.resourceCreatorScope = 'global';
     this.refreshAutoRenameProjectOptions();
     this.render();
   }
@@ -757,7 +742,7 @@ export class PackagesView {
     const merged = uniqueBy(
       [
         ...providerItems
-          .filter((item) => item && item.id && item.path)
+          .filter((item) => item?.id && item.path)
           .map((item) => ({
             id: item.id,
             name: item.name || item.path,
@@ -911,46 +896,6 @@ export class PackagesView {
     return this.query.trim().toLowerCase();
   }
 
-  private normalizeResourceName(name: string): string {
-    const trimmed = name.trim();
-    if (this.resourceEditorKind === 'skill') {
-      return trimmed
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/g, '-')
-        .replace(/--+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 64);
-    }
-    return trimmed
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, '-')
-      .replace(/--+/g, '-')
-      .replace(/^[-_]+|[-_]+$/g, '')
-      .slice(0, 64);
-  }
-
-  private validateResourceName(
-    name: string,
-    kind: 'prompt' | 'skill',
-  ): string | null {
-    const trimmed = name.trim();
-    if (!trimmed) return 'Name is required.';
-    if (kind === 'skill') {
-      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed)) {
-        return 'Skill name must use lowercase letters, numbers, and hyphens.';
-      }
-      if (trimmed.length > 64)
-        return 'Skill name must be 64 characters or fewer.';
-      return null;
-    }
-    if (!/^[a-z0-9][a-z0-9_-]*$/.test(trimmed)) {
-      return 'Prompt name must start with a letter/number and use letters, numbers, hyphens, or underscores.';
-    }
-    if (trimmed.length > 64)
-      return 'Prompt name must be 64 characters or fewer.';
-    return null;
-  }
-
   private async ensureHomePath(): Promise<void> {
     if (this.homePath) return;
     try {
@@ -975,50 +920,6 @@ export class PackagesView {
     }
     if (!this.currentProjectPath) return null;
     return joinFsPath(joinFsPath(this.currentProjectPath, '.pi'), suffix);
-  }
-
-  private resourceFilePath(
-    kind: 'prompt' | 'skill',
-    scope: 'global' | 'project',
-    name: string,
-  ): string | null {
-    const root = this.resourceRootPath(kind, scope);
-    if (!root) return null;
-    if (kind === 'prompt') {
-      return joinFsPath(root, `${name}.md`);
-    }
-    return joinFsPath(joinFsPath(root, name), 'SKILL.md');
-  }
-
-  private createPromptTemplateContent(description: string): string {
-    const safeDescription =
-      description.trim() || 'Describe when to use this template';
-    return `---\ndescription: ${JSON.stringify(safeDescription)}\n---\nWrite the prompt instructions here.\n\nUse arguments if needed:\n- $1 for first arg\n- $@ for all args\n`;
-  }
-
-  private createSkillTemplateContent(
-    name: string,
-    description: string,
-  ): string {
-    const safeName = name.trim() || 'my-skill';
-    const safeDescription =
-      description.trim() || 'What this skill does and when to use it.';
-    const heading = toTitleFromSlug(safeName) || 'My Skill';
-    return `---\nname: ${safeName}\ndescription: ${JSON.stringify(safeDescription)}\n---\n\n# ${heading}\n\n## Purpose\nDescribe the task this skill handles and when to use it.\n\n## Setup\nAdd one-time setup steps if needed.\n\n## Workflow\n1. Gather required context.\n2. Execute the core steps for this skill.\n3. Return a concise summary and next actions.\n`;
-  }
-
-  private applyResourceTemplate(): void {
-    if (this.resourceEditorKind === 'prompt') {
-      this.resourceEditorContent = this.createPromptTemplateContent(
-        this.resourceEditorDescription,
-      );
-    } else {
-      this.resourceEditorContent = this.createSkillTemplateContent(
-        this.resourceEditorName,
-        this.resourceEditorDescription,
-      );
-    }
-    this.render();
   }
 
   private normalizeLoadedResourceName(item: DiscoveredResourceItem): string {
@@ -1138,7 +1039,6 @@ export class PackagesView {
         [...parsedUser.user],
         (item) => item.source,
       );
-      this.installedProject = [];
 
       const migratedNotifyPackage =
         await this.migrateLegacyNotifyPackageIfNeeded();
@@ -1153,7 +1053,6 @@ export class PackagesView {
           [...refreshedParsed.user],
           (item) => item.source,
         );
-        this.installedProject = [];
       }
 
       await this.refreshPackageConfigCommands();
@@ -1581,12 +1480,6 @@ export class PackagesView {
         localResources,
       );
 
-      this.promptTemplateResources = uniqueBy(
-        merged.filter((item) => item.kind === 'prompt'),
-        (item) =>
-          `${item.kind}:${item.name}:${normalizeFsPath(item.path) || item.packageScope || 'runtime'}`.toLowerCase(),
-      ).sort((a, b) => a.name.localeCompare(b.name));
-
       this.skillResources = uniqueBy(
         merged.filter((item) => item.kind === 'skill'),
         (item) =>
@@ -1599,7 +1492,6 @@ export class PackagesView {
       ).sort((a, b) => a.name.localeCompare(b.name));
       this.updateBundledThemeInstallStateFromResources(this.themeResources);
     } catch (err) {
-      this.promptTemplateResources = [];
       this.skillResources = [];
       this.themeResources = [];
       this.resourcesError = err instanceof Error ? err.message : String(err);
@@ -1644,7 +1536,7 @@ export class PackagesView {
       for (const variant of variants) {
         const storageKey = this.packageConfigStorageKey(source, variant);
         const stored = localStorage.getItem(storageKey);
-        if (stored && stored.trim()) {
+        if (stored?.trim()) {
           const trimmed = stored.trim();
           for (const syncVariant of variants) {
             this.packageConfigCommandArgs.set(
@@ -1763,7 +1655,6 @@ export class PackagesView {
     if (this.configModelsLoaded && !force) return;
 
     this.configModelsLoading = true;
-    this.configModelsError = '';
     this.render();
     try {
       const models = await rpcBridge.getAvailableModels().catch(() => []);
@@ -1777,21 +1668,13 @@ export class PackagesView {
           this.packageConfigCommands.get(this.activePackageConfigSource) ?? [];
         this.seedModelArgsForSource(this.activePackageConfigSource, commands);
       }
-    } catch (err) {
+    } catch (_err) {
       this.configModels = [];
       this.configModelsLoaded = true;
-      this.configModelsError = err instanceof Error ? err.message : String(err);
     } finally {
       this.configModelsLoading = false;
       this.render();
     }
-  }
-
-  private getConfigCommandsForItem(
-    item: InstalledDisplayItem,
-  ): PackageConfigCommand[] {
-    const normalizedSource = normalizeRecommendedSource(item.source);
-    return this.packageConfigCommands.get(normalizedSource) ?? [];
   }
 
   private isNormalizedSourceInstalled(normalizedSource: string): boolean {
@@ -2210,23 +2093,6 @@ export class PackagesView {
       this.autoRenameConfigSaving = false;
       this.render();
     }
-  }
-
-  private async openPackageConfig(item: InstalledDisplayItem): Promise<void> {
-    const source = normalizeRecommendedSource(item.source);
-    const commands = this.getConfigCommandsForItem(item);
-    this.activePackageConfigSource = source;
-    this.activePackageConfigLabel = item.displayName;
-    this.packageConfigStatus = '';
-    if (this.configModelsLoaded) {
-      this.seedModelArgsForSource(source, commands);
-    }
-    if (commands.some((command) => commandLikelyNeedsModelArg(command))) {
-      void this.ensureConfigModelsLoaded();
-    }
-    // attempt to read existing package config files and seed args from disk (native only)
-    void this.loadPackageConfigFromPackage(source, commands).catch(() => {});
-    this.render();
   }
 
   async openExtensionConfigBySource(source: string): Promise<boolean> {
@@ -3211,60 +3077,6 @@ export class PackagesView {
 		`;
   }
 
-  private renderPackageConfigModal(): TemplateResult | typeof nothing {
-    if (!this.activePackageConfigSource) return nothing;
-    const source = this.activePackageConfigSource;
-    const commands = this.packageConfigCommands.get(source) ?? [];
-    const hasModelCommand = commands.some((command) =>
-      commandLikelyNeedsModelArg(command),
-    );
-
-    return html`
-			<div class="overlay" @click=${(event: Event) => event.target === event.currentTarget && this.closeActivePackageConfig()}>
-				<div class="overlay-card packages-config-modal">
-					<div class="overlay-header">
-						<div>
-							<div class="packages-config-modal-title">Package settings · ${this.activePackageConfigLabel}</div>
-							<div class="packages-config-modal-sub">Configure package capabilities directly from Packages.</div>
-						</div>
-						<button @click=${() => this.closeActivePackageConfig()}>✕</button>
-					</div>
-					<div class="overlay-body packages-config-modal-body">
-						${
-              commands.length === 0
-                ? html`
-								<div class="packages-empty">
-									No package config commands were discovered. This package appears to only add runtime capabilities.
-								</div>
-							`
-                : commands.map((command) =>
-                    this.renderPackageConfigCommandEditor(source, command),
-                  )
-            }
-
-						<div class="packages-config-modal-actions">
-							<button class="ghost-btn" ?disabled=${this.loadingConfig || this.runningCommand} @click=${() => void this.refreshPackages(false)}>
-								Refresh package commands
-							</button>
-							${
-                hasModelCommand
-                  ? html`
-									<button class="ghost-btn" ?disabled=${this.configModelsLoading || this.runningConfigCommand} @click=${() => void this.ensureConfigModelsLoaded(true)}>
-										${this.configModelsLoading ? 'Refreshing models…' : 'Refresh models'}
-									</button>
-								`
-                  : nothing
-              }
-						</div>
-
-						${this.configModelsError ? html`<div class="packages-config-inline-error">Model lookup failed: ${this.configModelsError}</div>` : nothing}
-						${this.packageConfigStatus ? html`<div class="packages-section-submeta">${this.packageConfigStatus}</div>` : nothing}
-					</div>
-				</div>
-			</div>
-		`;
-  }
-
   private getDisplayName(source: string): string {
     if (source.startsWith('npm:')) return source.slice(4);
     if (source.startsWith('git:')) return source.slice(4);
@@ -3294,29 +3106,6 @@ export class PackagesView {
     return null;
   }
 
-  private matchesRecommendedSource(
-    installedSource: string,
-    definition: RecommendedPackageDefinition,
-  ): boolean {
-    const normalizedInstalledSource =
-      normalizeRecommendedSource(installedSource);
-    const candidates = [definition.source, ...(definition.aliases ?? [])].map(
-      (value) => normalizeRecommendedSource(value),
-    );
-    return candidates.includes(normalizedInstalledSource);
-  }
-
-  private getRecommendedInstallState(
-    definition: RecommendedPackageDefinition,
-  ): { global: boolean; project: boolean } {
-    return {
-      global: this.installedUser.some((item) =>
-        this.matchesRecommendedSource(item.source, definition),
-      ),
-      project: false,
-    };
-  }
-
   private getInstalledItems(applyQuery = true): InstalledDisplayItem[] {
     const unique = uniqueBy(
       this.installedUser.map((item) => ({ ...item, scope: 'user' as const })),
@@ -3340,16 +3129,6 @@ export class PackagesView {
         .toLowerCase()
         .includes(q),
     );
-  }
-
-  private filteredPromptTemplateResources(): DiscoveredResourceItem[] {
-    const q = this.normalizeQuery();
-    if (!q) return this.promptTemplateResources;
-    return this.promptTemplateResources.filter((item) => {
-      const haystack =
-        `${item.name} ${item.description} ${item.commandText} ${item.packageSource ?? ''} ${item.path}`.toLowerCase();
-      return haystack.includes(q);
-    });
   }
 
   private filteredSkillResources(): DiscoveredResourceItem[] {
@@ -3860,10 +3639,13 @@ export class PackagesView {
       const result = await rpcBridge.runPiCliCommand(finalArgs, { cwd });
       const stdOut = result.stdout?.trim();
       const stdErr = result.stderr?.trim();
-      this.commandOutput +=
-        [`[exit ${result.exit_code}] via ${result.discovery}`, stdOut, stdErr]
-          .filter(Boolean)
-          .join('\n') + '\n';
+      this.commandOutput += `${[
+        `[exit ${result.exit_code}] via ${result.discovery}`,
+        stdOut,
+        stdErr,
+      ]
+        .filter(Boolean)
+        .join('\n')}\n`;
 
       if (result.exit_code !== 0) {
         this.commandStatus = (
@@ -3904,41 +3686,6 @@ export class PackagesView {
       this.commandStatus = `Installed: ${trimmed}`;
     }
   }
-
-  private inferRemovedPackageAuthProviderCandidates(source: string): string[] {
-    const normalized = normalizeRecommendedSource(source);
-    if (!normalized.startsWith('npm:')) return [];
-    const packageName = normalized.slice(4);
-    if (!packageName) return [];
-    const packageTail =
-      packageName.split('/').filter(Boolean).pop() || packageName;
-    const candidates = new Set<string>();
-    const hinted = [
-      ...(PROVIDER_AUTH_CLEANUP_HINTS.get(packageName) ?? []),
-      ...(PROVIDER_AUTH_CLEANUP_HINTS.get(packageTail) ?? []),
-    ];
-    for (const provider of hinted) {
-      const normalizedProvider = provider.trim().toLowerCase();
-      if (normalizedProvider) candidates.add(normalizedProvider);
-    }
-    if (packageName.includes('cursor') || packageTail.includes('cursor')) {
-      candidates.add('cursor-agent');
-    }
-    if (packageName.includes('kilo') || packageTail.includes('kilo')) {
-      candidates.add('kilo');
-    }
-    const withoutPiPrefix = packageTail.startsWith('pi-')
-      ? packageTail.slice(3)
-      : packageTail;
-    if (withoutPiPrefix) {
-      candidates.add(withoutPiPrefix);
-      if (withoutPiPrefix.endsWith('-provider')) {
-        candidates.add(withoutPiPrefix.slice(0, -'-provider'.length));
-      }
-    }
-    return [...candidates].filter(Boolean);
-  }
-
 
   private async removePackage(
     source: string,
@@ -3982,48 +3729,6 @@ export class PackagesView {
     if (success) {
       this.commandStatus = 'Refreshed package list.';
     }
-  }
-
-  private async installRecommendedPackage(
-    definition: RecommendedPackageDefinition,
-    scope: 'global' | 'local',
-  ): Promise<void> {
-    await this.installPackage(definition.source, scope);
-  }
-
-  private async addCatalogItem(item: CatalogPackageItem): Promise<void> {
-    await this.installPackage(`npm:${item.name}`, this.packageScope);
-  }
-
-  private async openInstalledItem(item: InstalledDisplayItem): Promise<void> {
-    if (!item.openUrl) return;
-    await this.openExternal(item.openUrl);
-  }
-
-  private async runResourceCommand(
-    item: DiscoveredResourceItem,
-    actionLabel: string,
-  ): Promise<void> {
-    if (this.runningCommand || this.runningConfigCommand) return;
-    this.runningCommand = true;
-    this.commandStatus = `${actionLabel} ${item.commandText}…`;
-    this.commandOutput = `${this.commandOutput ? `${this.commandOutput}\n\n` : ''}[resource] ${item.commandText}\n`;
-    this.render();
-    try {
-      await rpcBridge.prompt(item.commandText);
-      this.commandStatus = `${actionLabel} ${item.commandText}.`;
-    } catch (err) {
-      this.commandStatus = `Failed to run ${item.commandText}: ${err instanceof Error ? err.message : String(err)}`;
-    } finally {
-      this.runningCommand = false;
-      this.render();
-    }
-  }
-
-  private async applyPromptTemplate(
-    item: DiscoveredResourceItem,
-  ): Promise<void> {
-    await this.runResourceCommand(item, 'Applied prompt template');
   }
 
   private async stageResourceCommandInChat(
@@ -4107,37 +3812,11 @@ export class PackagesView {
     }
   }
 
-  private insertPromptTemplate(item: DiscoveredResourceItem): void {
-    void this.stageResourceCommandInChat(
-      item.commandText,
-      `Inserted ${item.commandText} into composer.`,
-    );
-  }
-
   async ensureCreatorSkillInstalled(): Promise<void> {
     await this.ensureResourceCreatorSkillInstalled();
     if (rpcBridge.isConnected) {
       await this.refreshDiscoveredResources();
     }
-  }
-
-  private openResourceCreatorModal(
-    kind: 'auto' | 'prompt' | 'skill' = 'auto',
-    lockKind = false,
-  ): void {
-    this.resourceCreatorOpen = true;
-    this.resourceCreatorKind = kind;
-    this.resourceCreatorKindLocked = lockKind;
-    this.resourceCreatorScope = 'global';
-    this.resourceCreatorBrief = '';
-    this.resourceCreatorError = '';
-    this.resourceStatus = '';
-    void this.ensureHomePath();
-    this.render();
-  }
-
-  private openCreateSkillModal(): void {
-    this.openResourceCreatorModal('skill', true);
   }
 
   private async triggerCreatorSkillInChat(): Promise<void> {
@@ -4298,7 +3977,7 @@ Notes
           import.meta.url,
         ).href;
         const resp = await fetch(assetUrl);
-        if (resp && resp.ok) {
+        if (resp?.ok) {
           skillContent = await resp.text();
         }
       } catch {
@@ -4320,28 +3999,6 @@ Notes
     return entry.commandText || `/skill:${RESOURCE_CREATOR_SKILL_NAME}`;
   }
 
-  private buildResourceCreatorFallbackPrompt(): string {
-    const kind = this.resourceCreatorKind;
-    const brief = this.resourceCreatorBrief.trim();
-    return `Create a Pi resource from this brief with minimal manual steps.
-
-Preferred skill (if available): /skill:${RESOURCE_CREATOR_SKILL_NAME}
-Kind preference: ${kind}
-Scope: global
-Important: create ONLY global resources under ~/.pi/agent.
-
-Brief:
-${brief}
-
-Use Pi conventions:
-- Prompt templates: ~/.pi/agent/prompts/*.md
-- Skills: ~/.pi/agent/skills/<name>/SKILL.md
-- Prompt template format: frontmatter description + reusable markdown body
-- Skill format: Agent Skills style SKILL.md with name + description frontmatter and clear workflow steps
-
-Execute the required file creation/edits directly, then summarize exactly which files were created.`;
-  }
-
   private async runResourceCreator(): Promise<void> {
     if (
       this.resourceCreatorRunning ||
@@ -4354,8 +4011,6 @@ Execute the required file creation/edits directly, then summarize exactly which 
       this.render();
       return;
     }
-    this.resourceCreatorScope = 'global';
-
     this.resourceCreatorRunning = true;
     this.resourceCreatorError = '';
     this.resourceStatus = 'Preparing command draft for chat…';
@@ -4471,124 +4126,6 @@ Execute the required file creation/edits directly, then summarize exactly which 
 		`;
   }
 
-  private openCreateResourceEditor(kind: 'prompt' | 'skill'): void {
-    this.resourceEditorOpen = true;
-    this.resourceEditorMode = 'create';
-    this.resourceEditorKind = kind;
-    this.resourceEditorScope = 'global';
-    this.resourceEditorName = kind === 'skill' ? 'my-skill' : 'new-template';
-    this.resourceEditorDescription =
-      kind === 'skill'
-        ? 'What this skill does and when to use it.'
-        : 'Describe when to use this template.';
-    this.resourceEditorPath = null;
-    this.resourceEditorLoaded = false;
-    this.resourceEditorError = '';
-    this.resourceStatus = '';
-    this.applyResourceTemplate();
-  }
-
-  private closeResourceEditor(): void {
-    this.resourceEditorOpen = false;
-    this.resourceEditorError = '';
-    this.resourceEditorLoaded = false;
-    this.resourceEditorPath = null;
-    this.render();
-  }
-
-  private async openEditResourceEditor(
-    item: DiscoveredResourceItem,
-  ): Promise<void> {
-    if (!this.canEditResource(item) || !item.path) return;
-    this.resourceEditorOpen = true;
-    this.resourceEditorMode = 'edit';
-    this.resourceEditorKind = item.kind;
-    this.resourceEditorScope = 'global';
-    this.resourceEditorName = this.normalizeLoadedResourceName(item);
-    this.resourceEditorDescription = item.description || '';
-    this.resourceEditorPath = item.path;
-    this.resourceEditorLoaded = item.loaded;
-    this.resourceEditorError = '';
-    this.resourceStatus = '';
-    this.render();
-    try {
-      const { readTextFile } = await import('@tauri-apps/plugin-fs');
-      this.resourceEditorContent = await readTextFile(item.path);
-    } catch (err) {
-      this.resourceEditorContent = '';
-      this.resourceEditorError =
-        err instanceof Error ? err.message : String(err);
-    }
-    this.render();
-  }
-
-  private async saveResourceEditor(): Promise<void> {
-    if (this.creatingResource || this.deletingResource) return;
-    const kind = this.resourceEditorKind;
-    const name = this.normalizeResourceName(this.resourceEditorName);
-    const validationError = this.validateResourceName(name, kind);
-    if (validationError) {
-      this.resourceEditorError = validationError;
-      this.render();
-      return;
-    }
-    if (!this.resourceEditorContent.trim()) {
-      this.resourceEditorError = 'Content cannot be empty.';
-      this.render();
-      return;
-    }
-
-    this.creatingResource = true;
-    this.resourceEditorError = '';
-    this.resourceStatus =
-      this.resourceEditorMode === 'create'
-        ? 'Saving new resource…'
-        : 'Saving resource…';
-    this.render();
-
-    try {
-      await this.ensureHomePath();
-      const { exists, mkdir, writeTextFile } = await import(
-        '@tauri-apps/plugin-fs'
-      );
-      const targetPath =
-        this.resourceEditorMode === 'edit' && this.resourceEditorPath
-          ? this.resourceEditorPath
-          : this.resourceFilePath(kind, this.resourceEditorScope, name);
-      if (!targetPath) {
-        throw new Error('Could not resolve resource path.');
-      }
-
-      const root = this.resourceRootPath(kind, this.resourceEditorScope);
-      if (!root) throw new Error('Could not resolve resource root directory.');
-      await mkdir(root, { recursive: true });
-      if (kind === 'skill') {
-        const skillDir = joinFsPath(root, name);
-        await mkdir(skillDir, { recursive: true });
-      }
-
-      if (this.resourceEditorMode === 'create' && (await exists(targetPath))) {
-        throw new Error('A resource with that name already exists.');
-      }
-
-      await writeTextFile(targetPath, this.resourceEditorContent);
-      this.resourceStatus =
-        this.resourceEditorMode === 'create'
-          ? 'Resource saved. Restart or open a new session to load new commands.'
-          : 'Resource updated. Restart or open a new session to refresh loaded commands.';
-      this.commandStatus = this.resourceStatus;
-      await this.refreshDiscoveredResources();
-      this.closeResourceEditor();
-    } catch (err) {
-      this.resourceEditorError =
-        err instanceof Error ? err.message : String(err);
-      this.resourceStatus = '';
-      this.render();
-    } finally {
-      this.creatingResource = false;
-    }
-  }
-
   private async deleteResource(item: DiscoveredResourceItem): Promise<void> {
     if (!this.canEditResource(item) || !item.path) return;
     if (this.deletingResource || this.creatingResource) return;
@@ -4596,7 +4133,6 @@ Execute the required file creation/edits directly, then summarize exactly which 
     if (!confirmed) return;
     this.deletingResource = true;
     this.resourceStatus = `Deleting ${item.name}…`;
-    this.resourceEditorError = '';
     this.render();
     try {
       const { remove } = await import('@tauri-apps/plugin-fs');
@@ -4610,128 +4146,11 @@ Execute the required file creation/edits directly, then summarize exactly which 
       this.commandStatus = this.resourceStatus;
       await this.refreshDiscoveredResources();
     } catch (err) {
-      this.resourceEditorError =
-        err instanceof Error ? err.message : String(err);
+      this.resourceStatus = err instanceof Error ? err.message : String(err);
     } finally {
       this.deletingResource = false;
       this.render();
     }
-  }
-
-  private renderResourceEditorModal(): TemplateResult | typeof nothing {
-    if (!this.resourceEditorOpen) return nothing;
-    const creating = this.resourceEditorMode === 'create';
-    const saveLabel = this.creatingResource
-      ? 'Saving…'
-      : creating
-        ? 'Create resource'
-        : 'Save changes';
-    const typeLocked = !creating;
-    return html`
-			<div class="overlay" @click=${(event: Event) => event.target === event.currentTarget && this.closeResourceEditor()}>
-				<div class="overlay-card packages-config-modal">
-					<div class="overlay-header">
-						<div>
-							<div class="packages-config-modal-title">${creating ? 'Create resource' : 'Edit resource'}</div>
-							<div class="packages-config-modal-sub">Create prompt templates or skills with best-practice starter templates.</div>
-						</div>
-						<button @click=${() => this.closeResourceEditor()}>✕</button>
-					</div>
-					<div class="overlay-body packages-config-modal-body">
-						<div class="packages-config-field-grid">
-							<div class="packages-config-field">
-								<label class="packages-config-field-label">Type</label>
-								<select
-									class="packages-config-select"
-									.value=${this.resourceEditorKind}
-									?disabled=${typeLocked || this.creatingResource}
-									@change=${(event: Event) => {
-                    const next = (event.target as HTMLSelectElement).value as
-                      | 'prompt'
-                      | 'skill';
-                    this.resourceEditorKind = next;
-                    this.resourceEditorName =
-                      this.normalizeResourceName(this.resourceEditorName) ||
-                      (next === 'skill' ? 'my-skill' : 'new-template');
-                    this.applyResourceTemplate();
-                  }}
-								>
-									<option value="prompt">Prompt template</option>
-									<option value="skill">Skill</option>
-								</select>
-							</div>
-						</div>
-
-						<div class="packages-config-field">
-							<label class="packages-config-field-label">Name</label>
-							<input
-								class="packages-config-input"
-								type="text"
-								.value=${this.resourceEditorName}
-								?disabled=${!creating || this.creatingResource}
-								@input=${(event: Event) => {
-                  this.resourceEditorName = (
-                    event.target as HTMLInputElement
-                  ).value;
-                  this.render();
-                }}
-							/>
-						</div>
-
-						<div class="packages-config-field">
-							<label class="packages-config-field-label">Description</label>
-							<input
-								class="packages-config-input"
-								type="text"
-								.value=${this.resourceEditorDescription}
-								?disabled=${this.creatingResource}
-								@input=${(event: Event) => {
-                  this.resourceEditorDescription = (
-                    event.target as HTMLInputElement
-                  ).value;
-                  this.render();
-                }}
-							/>
-						</div>
-
-						<div class="packages-config-field">
-							<label class="packages-config-field-label">Content</label>
-							<textarea
-								class="packages-config-textarea"
-								?disabled=${this.creatingResource}
-								.value=${this.resourceEditorContent}
-								@input=${(event: Event) => {
-                  this.resourceEditorContent = (
-                    event.target as HTMLTextAreaElement
-                  ).value;
-                  this.render();
-                }}
-							></textarea>
-						</div>
-
-						<div class="packages-config-modal-actions">
-							<button class="ghost-btn" ?disabled=${this.creatingResource} @click=${() => this.applyResourceTemplate()}>Use best-practice template</button>
-							<button class="ghost-btn" ?disabled=${this.creatingResource} @click=${() => this.closeResourceEditor()}>Cancel</button>
-							<button class="ghost-btn" ?disabled=${this.creatingResource} @click=${() => void this.saveResourceEditor()}>
-								${saveLabel}
-							</button>
-						</div>
-						${
-              this.resourceEditorPath && !creating
-                ? html`<div class="packages-section-submeta">Path: ${this.resourceEditorPath}</div>`
-                : nothing
-            }
-						${
-              this.resourceEditorLoaded && !creating
-                ? html`<div class="packages-section-submeta">Loaded command may require a new session/restart to pick up changes.</div>`
-                : nothing
-            }
-						${this.resourceEditorError ? html`<div class="packages-config-inline-error">${this.resourceEditorError}</div>` : nothing}
-						${this.resourceStatus ? html`<div class="packages-section-submeta">${this.resourceStatus}</div>` : nothing}
-					</div>
-				</div>
-			</div>
-		`;
   }
 
   private statusTone(): 'info' | 'success' | 'error' {
@@ -4811,13 +4230,6 @@ Execute the required file creation/edits directly, then summarize exactly which 
       this.runningCommand = false;
       this.render();
     }
-  }
-
-  private isRecommendedPackageInstalledForScope(
-    _scope: 'global' | 'local',
-    state: { global: boolean; project: boolean },
-  ): boolean {
-    return state.global;
   }
 
   private sourceMatchesInstalled(
@@ -5858,7 +5270,7 @@ Execute the required file creation/edits directly, then summarize exactly which 
       )
       .map((entry) => this.renderPackageRow(entry.options));
     const installedCount = sortedInstalled.length;
-    const discoverCount = discoverRows.length;
+    const _discoverCount = discoverRows.length;
     const installedLoading = this.loadingResources || this.loadingConfig;
     const discoverLoading = this.loadingCatalog && hasQuery;
     const discoverTitle = hasQuery ? 'Results' : 'Recommended';

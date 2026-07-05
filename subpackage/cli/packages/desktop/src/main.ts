@@ -1028,7 +1028,9 @@ function listRuntimeKeysForWorkspace(workspaceId: string): string[] {
 }
 
 function removeRuntimeKeys(keys: string[]): void {
-  keys.forEach((key) => removeRuntimeByKey(key));
+  keys.forEach((key) => {
+    removeRuntimeByKey(key);
+  });
 }
 
 function removeRuntimesForWorkspace(workspaceId: string): void {
@@ -2491,10 +2493,6 @@ async function loadPreferredPiBinaryPathFromSettings(): Promise<void> {
 }
 
 function findCliPath(): string | null {
-  if (import.meta.env.DEV) {
-    // Optional local dev path (if running next to pi-mono)
-    return null;
-  }
   return null;
 }
 
@@ -2502,7 +2500,7 @@ function findPiBinaryPath(): string | null {
   return preferredPiBinaryPath;
 }
 
-function getCwd(): string {
+function _getCwd(): string {
   try {
     const defaultWorkspaceRaw = localStorage.getItem(
       workspaceProjectsStorageKey(WORKSPACE_DEFAULT_ID),
@@ -2644,7 +2642,9 @@ function normalizeWorkspaceOrder(): boolean {
 function applyWorkspaceTabOrder(orderedIds: string[]): boolean {
   if (orderedIds.length !== workspaces.length) return false;
   const order = new Map<string, number>();
-  orderedIds.forEach((id, index) => order.set(id, index));
+  orderedIds.forEach((id, index) => {
+    order.set(id, index);
+  });
   if (order.size !== workspaces.length) return false;
   const before = workspaces.map((workspace) => workspace.id).join('|');
   workspaces.sort(
@@ -2656,7 +2656,7 @@ function applyWorkspaceTabOrder(orderedIds: string[]): boolean {
   return before !== workspaces.map((workspace) => workspace.id).join('|');
 }
 
-function setWorkspacePinned(_workspaceId: string, _pinned: boolean): boolean {
+function _setWorkspacePinned(_workspaceId: string, _pinned: boolean): boolean {
   return false;
 }
 
@@ -4795,9 +4795,9 @@ function renderApp(): void {
                   }}>Back</button>
 								</div>
 							`
-                // ── CLI missing onboarding: offer auto-install + manual fallback ──
-                : cliMissing
-                  ? html`
+                  : // ── CLI missing onboarding: offer auto-install + manual fallback ──
+                    cliMissing
+                    ? html`
 								<p>Agentboster Desktop could not find the <code>agentboster</code> CLI on your machine.</p>
 								<div class="onboarding-actions">
 									<button @click=${() => void installCliAutomatically()}>Install automatically</button>
@@ -4842,7 +4842,7 @@ function renderApp(): void {
                   }
 								</details>
 							`
-                : html`
+                    : html`
 								<p>${connectionError}</p>
 								<button @click=${() => {
                   connectionError = null;
@@ -5749,7 +5749,9 @@ function renderApp(): void {
     void applyWorkspacePane(workspace);
 
     const disposeRemovedRuntimes = () => {
-      removedTabs.forEach((tab) => removeRuntimeForTab(workspace.id, tab.id));
+      removedTabs.forEach((tab) => {
+        removeRuntimeForTab(workspace.id, tab.id);
+      });
     };
 
     if (!activeWasRemoved) {

@@ -272,9 +272,9 @@ export class AgentdVncView {
         headers: { authorization: `Bearer ${auth.token}` },
       });
 
-      const body = (await response.json().catch(() => null)) as
-        | AgentdVncResponse
-        | null;
+      const body = (await response
+        .json()
+        .catch(() => null)) as AgentdVncResponse | null;
       if (!response.ok || !body?.ok) {
         throw new Error(
           body?.error ||
@@ -324,9 +324,8 @@ export class AgentdVncView {
   private initRfb(wsUrl: string): void {
     if (this.disposed) return;
 
-    const mount = this.container.querySelector<HTMLDivElement>(
-      '.agentd-vnc-mount',
-    );
+    const mount =
+      this.container.querySelector<HTMLDivElement>('.agentd-vnc-mount');
     if (!mount) return;
 
     this.mountEl = mount;
@@ -519,11 +518,14 @@ export class AgentdVncView {
     this.connectionState = 'reconnecting';
     this.render();
 
-    this.reconnectTimer = window.setTimeout(() => {
-      this.reconnectTimer = null;
-      if (this.disposed) return;
-      this.connectToSelectedSession();
-    }, clean ? 500 : RECONNECT_DELAY_MS);
+    this.reconnectTimer = window.setTimeout(
+      () => {
+        this.reconnectTimer = null;
+        if (this.disposed) return;
+        this.connectToSelectedSession();
+      },
+      clean ? 500 : RECONNECT_DELAY_MS,
+    );
   }
 
   private disconnectRfb(): void {
@@ -563,12 +565,19 @@ export class AgentdVncView {
     const selection = this.getSelectedSession();
     const node = this.getSelectedNode();
     const sessionOptions = this.getSessionOptions();
-    const online = this.enabled && !this.error && this.connectionState === 'connected';
+    const online =
+      this.enabled && !this.error && this.connectionState === 'connected';
     const pending =
       this.connectionState === 'fetching' ||
       this.connectionState === 'connecting' ||
       this.connectionState === 'reconnecting';
-    const statusClass = online ? 'online' : this.error ? 'error' : pending ? 'pending' : '';
+    const statusClass = online
+      ? 'online'
+      : this.error
+        ? 'error'
+        : pending
+          ? 'pending'
+          : '';
     const statusText =
       this.connectionState === 'fetching'
         ? '载入中'
@@ -604,9 +613,10 @@ export class AgentdVncView {
               <polyline points="12 19 5 12 12 5"></polyline>
             </svg>
           </button>
-          ${sessionOptions.length <= 1
-            ? html`<span class="agentd-vnc-title" title=${title}>${title}</span>`
-            : html`
+          ${
+            sessionOptions.length <= 1
+              ? html`<span class="agentd-vnc-title" title=${title}>${title}</span>`
+              : html`
                 <select
                   class="agentd-vnc-session-select"
                   aria-label="选择远程 AgentD 桌面"
@@ -623,7 +633,8 @@ export class AgentdVncView {
                       </option>`,
                   )}
                 </select>
-              `}
+              `
+          }
         </div>
 
         <div class="agentd-vnc-topbar-center">
@@ -657,7 +668,10 @@ export class AgentdVncView {
             type="button"
             title="Info"
             aria-label="Info"
-            @click=${() => { this.infoOpen = !this.infoOpen; this.render(); }}
+            @click=${() => {
+              this.infoOpen = !this.infoOpen;
+              this.render();
+            }}
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
               <circle cx="12" cy="12" r="10"></circle>
@@ -703,7 +717,10 @@ export class AgentdVncView {
     const session = selection?.session ?? null;
 
     return html`
-      <div class="agentd-vnc-info-backdrop" @click=${() => { this.infoOpen = false; this.render(); }}>
+      <div class="agentd-vnc-info-backdrop" @click=${() => {
+        this.infoOpen = false;
+        this.render();
+      }}>
         <aside class="agentd-vnc-info-drawer" @click=${(e: Event) => e.stopPropagation()}>
           <div class="agentd-vnc-info-header">
             <span class="agentd-vnc-info-title">连接信息</span>
@@ -711,7 +728,10 @@ export class AgentdVncView {
               class="agentd-vnc-icon-btn"
               type="button"
               aria-label="Close"
-              @click=${() => { this.infoOpen = false; this.render(); }}
+              @click=${() => {
+                this.infoOpen = false;
+                this.render();
+              }}
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -720,8 +740,12 @@ export class AgentdVncView {
             </button>
           </div>
           <div class="agentd-vnc-info-body">
-            ${node ? html`
-              ${session ? html`
+            ${
+              node
+                ? html`
+              ${
+                session
+                  ? html`
                 <div class="agentd-vnc-info-row">
                   <span class="agentd-vnc-info-label">Session</span>
                   <span class="agentd-vnc-info-value">${session.title}</span>
@@ -750,7 +774,9 @@ export class AgentdVncView {
                   <span class="agentd-vnc-info-label">Updated</span>
                   <span class="agentd-vnc-info-value">${this.formatHeartbeat(session.updatedAt)}</span>
                 </div>
-              ` : nothing}
+              `
+                  : nothing
+              }
               <div class="agentd-vnc-info-row">
                 <span class="agentd-vnc-info-label">Node</span>
                 <span class="agentd-vnc-info-value">${node.nodeId}</span>
@@ -783,12 +809,16 @@ export class AgentdVncView {
                 <span class="agentd-vnc-info-label">Proxy Status</span>
                 <span class="agentd-vnc-info-value">${node.proxyStatus}</span>
               </div>
-              ${node.message ? html`
+              ${
+                node.message
+                  ? html`
                 <div class="agentd-vnc-info-row">
                   <span class="agentd-vnc-info-label">Message</span>
                   <span class="agentd-vnc-info-value">${node.message}</span>
                 </div>
-              ` : nothing}
+              `
+                  : nothing
+              }
               <div class="agentd-vnc-info-row">
                 <span class="agentd-vnc-info-label">Connection</span>
                 <span class="agentd-vnc-info-value">${this.connectionState}</span>
@@ -797,7 +827,9 @@ export class AgentdVncView {
                 <span class="agentd-vnc-info-label">Scale Mode</span>
                 <span class="agentd-vnc-info-value">${this.scaleMode}</span>
               </div>
-            ` : html`<div class="agentd-vnc-info-row"><span class="agentd-vnc-info-label">No node selected</span></div>`}
+            `
+                : html`<div class="agentd-vnc-info-row"><span class="agentd-vnc-info-label">No node selected</span></div>`
+            }
           </div>
         </aside>
       </div>
@@ -813,18 +845,22 @@ export class AgentdVncView {
       return html`
         <div class="agentd-vnc-viewport">
           <div class="agentd-vnc-mount"></div>
-          ${this.connectionState !== 'connected'
-            ? html`
+          ${
+            this.connectionState !== 'connected'
+              ? html`
                 <div class="agentd-vnc-overlay" data-state=${this.connectionState}>
                   <div class="agentd-vnc-overlay-spinner"></div>
                   <span class="agentd-vnc-overlay-text">
-                    ${this.connectionState === 'connecting'
-                      ? 'Connecting to desktop…'
-                      : 'Reconnecting…'}
+                    ${
+                      this.connectionState === 'connecting'
+                        ? 'Connecting to desktop…'
+                        : 'Reconnecting…'
+                    }
                   </span>
                 </div>
               `
-            : nothing}
+              : nothing
+          }
         </div>
       `;
     }
@@ -843,11 +879,13 @@ export class AgentdVncView {
       <div class="agentd-vnc-viewport">
         <div class="agentd-vnc-empty">
           <div class="agentd-vnc-empty-title">${title}</div>
-          ${this.error
-            ? html`<div class="agentd-vnc-empty-detail">${this.error}</div>`
-            : this.message
-              ? html`<div class="agentd-vnc-empty-detail">${this.message}</div>`
-              : nothing}
+          ${
+            this.error
+              ? html`<div class="agentd-vnc-empty-detail">${this.error}</div>`
+              : this.message
+                ? html`<div class="agentd-vnc-empty-detail">${this.message}</div>`
+                : nothing
+          }
           <div class="agentd-vnc-empty-actions">
             <button
               class="agentd-vnc-action-btn"
@@ -864,8 +902,7 @@ export class AgentdVncView {
   }
 
   private render(): void {
-    const wasConnected =
-      this.rfb && this.connectionState === 'connected';
+    const wasConnected = this.rfb && this.connectionState === 'connected';
 
     render(
       html`
@@ -879,9 +916,8 @@ export class AgentdVncView {
     );
 
     if (wasConnected) {
-      const mount = this.container.querySelector<HTMLDivElement>(
-        '.agentd-vnc-mount',
-      );
+      const mount =
+        this.container.querySelector<HTMLDivElement>('.agentd-vnc-mount');
       if (mount && this.mountEl && mount !== this.mountEl) {
         // RFB is already attached to the old mount, move it
         while (this.mountEl.firstChild) {

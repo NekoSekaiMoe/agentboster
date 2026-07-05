@@ -48,11 +48,14 @@ interface RenderComposerControlsViewParams {
   onProviderAuthAction: (
     provider: string,
     action: 'login' | 'logout',
-  ) => void | Promise<unknown>;
-  onSelectModel: (provider: string, modelId: string) => void | Promise<unknown>;
-  onSetThinkingLevel: (value: ThinkingLevel) => void | Promise<unknown>;
-  onAbort: () => void | Promise<unknown>;
-  onSend: () => void | Promise<unknown>;
+  ) => undefined | Promise<unknown>;
+  onSelectModel: (
+    provider: string,
+    modelId: string,
+  ) => undefined | Promise<unknown>;
+  onSetThinkingLevel: (value: ThinkingLevel) => undefined | Promise<unknown>;
+  onAbort: () => undefined | Promise<unknown>;
+  onSend: () => undefined | Promise<unknown>;
 }
 
 export function renderComposerControlsView({

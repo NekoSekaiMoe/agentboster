@@ -73,7 +73,6 @@ export interface PiAuthProviderStatus {
   kind: 'api_key' | 'oauth' | 'unknown';
 }
 
-
 export interface GitCommandResult {
   stdout: string;
   stderr: string;
