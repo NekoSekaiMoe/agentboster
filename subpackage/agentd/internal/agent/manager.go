@@ -13,6 +13,7 @@ import (
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/config"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/lsp"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/persistence"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security"
@@ -26,6 +27,7 @@ type Manager struct {
 	mu            sync.RWMutex
 	sessions      map[string]*AgentContext
 	sbManager     *sandbox.Manager
+	lspManager    *lsp.Manager
 	clawless      *clawless.Client
 	l1Scorer      clawless.L1Scorer
 	llmEndpoint   string
@@ -53,9 +55,19 @@ func NewManager(
 		store, _ = session.NewStore("/tmp/agentd/sessions", 50, 30*time.Minute)
 	}
 
+	// Create LSP manager with sandbox exec function
+	lspManager := lsp.NewManager(func(sandboxID, cmd string, env map[string]string, timeout int) (stdout, stderr string, exitCode int, err error) {
+		result, execErr := sbManager.Exec(sandboxID, cmd, env, timeout)
+		if execErr != nil {
+			return "", "", -1, execErr
+		}
+		return result.Stdout, result.Stderr, result.ExitCode, nil
+	})
+
 	m := &Manager{
 		sessions:      make(map[string]*AgentContext),
 		sbManager:     sbManager,
+		lspManager:    lspManager,
 		clawless:      clawlessClient,
 		l1Scorer:      l1Scorer,
 		llmEndpoint:   cfg.Security.L1Endpoint,
@@ -315,6 +327,11 @@ func (m *Manager) CloseSession(sessionID string) error {
 	// Destroy sandbox (force-destroy: LXC rootfs is torn down too,
 	// not just stopped, because the session is going away permanently).
 	if ctx.SandboxID != "" {
+		// Stop all LSP servers for this sandbox
+		if m.lspManager != nil {
+			m.lspManager.StopAll(ctx.SandboxID)
+		}
+
 		if err := m.sbManager.DestroySandboxForce(ctx.SandboxID); err != nil {
 			slog.Warn("failed to destroy sandbox on session close",
 				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
@@ -367,7 +384,7 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 	// Create tool registry with all MVP tools
 	registry := NewToolRegistry(m.disabledTools)
 	m.injectToolLayerDeps(agentCtx)
-	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
+	RegisterAllTools(registry, m.sbManager, m.lspManager, m.clawless, agentCtx)
 
 	// Create agent loop
 	loop := NewAgentLoop(
@@ -454,7 +471,7 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	agentCtx.SystemPrompt = buildDefaultSystemPrompt(agentCtx.SoulContent, customPrompt, agentsMd)
 	registry := NewToolRegistry(m.disabledTools)
 	m.injectToolLayerDeps(agentCtx)
-	RegisterAllTools(registry, m.sbManager, m.clawless, agentCtx)
+	RegisterAllTools(registry, m.sbManager, m.lspManager, m.clawless, agentCtx)
 
 	// Execute the tool directly
 	startedAt := time.Now()

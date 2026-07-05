@@ -2,6 +2,7 @@ package agent
 
 import (
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/lsp"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
@@ -9,6 +10,7 @@ import (
 func RegisterAllTools(
 	registry *ToolRegistry,
 	sbManager *sandbox.Manager,
+	lspManager *lsp.Manager,
 	clawlessClient *clawless.Client,
 	agentCtx *AgentContext,
 ) {
@@ -112,4 +114,16 @@ func RegisterAllTools(
 	// === Sandbox lifecycle (1) ===
 	// Explicit teardown when the user asks to destroy the project sandbox.
 	registerSandboxDestroy(registry, sbManager, agentCtx)
+
+	// === LSP (4) ===
+	// Language Server Protocol integration for code intelligence.
+	// Auto-detects project type (Rust/Go/C++/Python/TypeScript) and installs
+	// the appropriate language server if needed. Provides definition lookup,
+	// hover info, find references, and document symbols.
+	if lspManager != nil {
+		registerLSPDefinition(registry, sbManager, lspManager, agentCtx)
+		registerLSPHover(registry, sbManager, lspManager, agentCtx)
+		registerLSPReferences(registry, sbManager, lspManager, agentCtx)
+		registerLSPSymbols(registry, sbManager, lspManager, agentCtx)
+	}
 }

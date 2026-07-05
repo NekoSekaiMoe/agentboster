@@ -56,6 +56,7 @@ On Vercel-backed Web: leave `[clawless].client_cert_path`, `client_key_path`, `c
 - `internal/server/routes.go` + `middleware.go` — Gin HTTP surface, API key + mTLS enforcement
 - `internal/agent/` — CodeAct loop, tool registry, context compaction, sub-agent runner
 - `internal/agent/browser/` — in-sandbox Playwright bridge (`bridge.js` over unix socket)
+- `internal/lsp/` — LSP (Language Server Protocol) client, manager, and auto-detection for code intelligence
 - `internal/security/gatekeeper.go` — L0 → L1 → L2 orchestration + output audit
 - `internal/security/l0_rules/` — regex deny presets (command, path, network, output)
 - `internal/security/l2_auth/` — user confirmation flow (IM/UI → `/l2-confirm`)
@@ -64,6 +65,24 @@ On Vercel-backed Web: leave `[clawless].client_cert_path`, `client_key_path`, `c
 - `internal/worker/` — dynamic goroutine pool, event dispatcher, per-event handlers
 
 Full per-file annotations: `LAYOUT.MD`. Runtime flow and config shape: `README.md`.
+
+## LSP integration
+
+The `internal/lsp/` package provides automatic Language Server Protocol support for agents working in sandboxes:
+
+- **Auto-detection**: Scans project files (Cargo.toml, go.mod, package.json, etc.) to detect project type
+- **Auto-installation**: If the LSP server is missing, automatically installs it in the sandbox (rust-analyzer, gopls, clangd, pyright, typescript-language-server)
+- **Container-isolated execution**: LSP servers run **inside the LXC container**, not on the host, ensuring full isolation
+- **Process management**: Starts LSP servers on-demand, keeps them alive during the session, and closes idle servers after 10 minutes
+- **Tools exposed to agents**:
+  - `lsp_definition` — find symbol definition (go-to-definition)
+  - `lsp_hover` — get type information and documentation
+  - `lsp_references` — find all references to a symbol
+  - `lsp_symbols` — list all symbols in a file (functions, classes, variables)
+
+Supported languages: Rust, Go, C/C++, Python, TypeScript, JavaScript.
+
+The LSP client uses JSON-RPC 2.0 over stdio, bridged through `lxc-attach` to communicate with language servers running inside the container. This ensures that LSP servers have the same view of the filesystem and environment as the agent's other tools.
 
 ## Key dependencies
 
