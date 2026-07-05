@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +47,18 @@ func APIKeyMiddleware(expectedKey string) gin.HandlerFunc {
 			auth := c.GetHeader("Authorization")
 			if len(auth) > 7 && auth[:7] == "Bearer " {
 				key = auth[7:]
+			}
+		}
+		if key == "" && c.Request.URL.Path == desktopVNCProxyPath {
+			if validateSignedVNCQuery(
+				expectedKey,
+				c.Query("session_id"),
+				c.Query("exp"),
+				c.Query("sig"),
+				time.Now(),
+			) {
+				c.Next()
+				return
 			}
 		}
 		if subtle.ConstantTimeCompare([]byte(key), []byte(expectedKey)) != 1 {

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent/desktop"
 	"github.com/gin-gonic/gin"
 )
 
@@ -42,6 +43,13 @@ func (s *Server) handleVNCProxy(c *gin.Context) {
 	sbMgr := s.agentMgr.GetSandboxManager()
 	if sbMgr == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "sandbox manager unavailable"})
+		return
+	}
+	if err := desktop.EnsureDesktop(sbMgr, agentCtx.SandboxID); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("desktop stack unavailable: %v", err),
+		})
 		return
 	}
 
