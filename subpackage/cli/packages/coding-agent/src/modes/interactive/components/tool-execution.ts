@@ -1,5 +1,4 @@
 import {
-  Box,
   type Component,
   Container,
   getCapabilities,
@@ -21,13 +20,9 @@ import {
   getTextOutput as getRenderedTextOutput,
   shortenPath,
 } from '../../../core/tools/render-utils.ts';
-import {
-  FAILURE_MARK,
-  RUNNING_MARK,
-  SUCCESS_MARK,
-} from '../../../utils/symbols.ts';
 import { convertToPng } from '../../../utils/image-convert.ts';
 import { theme } from '../theme/theme.ts';
+import { formatEventChildBlock, formatEventLine } from './event-style.ts';
 
 export interface ToolExecutionOptions {
   showImages?: boolean;
@@ -35,7 +30,7 @@ export interface ToolExecutionOptions {
 }
 
 export class ToolExecutionComponent extends Container {
-  private contentBox: Box;
+  private contentBox: Container;
   private contentText: Text;
   private selfRenderContainer: Container;
   private callRendererComponent?: Component;
@@ -96,12 +91,8 @@ export class ToolExecutionComponent extends Container {
     // Always create all shell variants. contentBox is used for default renderer-based composition.
     // selfRenderContainer is used when the tool renders its own framing.
     // contentText is reserved for generic fallback rendering when no tool definition exists.
-    this.contentBox = new Box(1, 1, (text: string) =>
-      theme.bg('toolPendingBg', text),
-    );
-    this.contentText = new Text('', 1, 1, (text: string) =>
-      theme.bg('toolPendingBg', text),
-    );
+    this.contentBox = new Container();
+    this.contentText = new Text('', 0, 0);
     this.selfRenderContainer = new Container();
 
     if (this.hasRendererDefinition()) {
@@ -313,12 +304,6 @@ export class ToolExecutionComponent extends Container {
   }
 
   private updateDisplay(): void {
-    const bgFn = this.isPartial
-      ? (text: string) => theme.bg('toolPendingBg', text)
-      : this.result?.isError
-        ? (text: string) => theme.bg('toolErrorBg', text)
-        : (text: string) => theme.bg('toolSuccessBg', text);
-
     let hasContent = false;
     this.hideComponent = false;
     if (this.hasRendererDefinition()) {
@@ -326,9 +311,6 @@ export class ToolExecutionComponent extends Container {
         this.getRenderShell() === 'self'
           ? this.selfRenderContainer
           : this.contentBox;
-      if (renderContainer instanceof Box) {
-        renderContainer.setBgFn(bgFn);
-      }
       renderContainer.clear();
 
       const callRenderer = this.getCallRenderer();
@@ -385,7 +367,6 @@ export class ToolExecutionComponent extends Container {
         }
       }
     } else {
-      this.contentText.setCustomBgFn(bgFn);
       this.contentText.setText(this.formatToolExecution());
       hasContent = true;
     }
@@ -440,20 +421,18 @@ export class ToolExecutionComponent extends Container {
   }
 
   private formatToolExecution(): string {
-    // Status symbol prefix (● running, ✓ success, ✗ error) — mirrors the
-    // kimi-code STATUS_BULLET set so local_* tool cards visually match.
-    const symbol = this.isPartial
-      ? theme.fg('toolTitle', RUNNING_MARK)
-      : this.result?.isError
-        ? theme.fg('error', FAILURE_MARK)
-        : theme.fg('success', SUCCESS_MARK);
-
     // Compact key-argument preview instead of raw JSON dump.
     const keyArg = this.extractKeyArgument();
-
-    const toolLabel = theme.fg('toolTitle', theme.bold(this.toolName));
+    const action = this.result?.isError
+      ? theme.fg('error', theme.bold('Failed'))
+      : this.isPartial
+        ? theme.bold('Running')
+        : theme.bold('Ran');
+    const toolLabel = theme.fg('toolTitle', this.toolName);
     const argStr = keyArg ? theme.fg('dim', ` ${keyArg}`) : '';
-    let header = `${symbol}${toolLabel}${argStr}`;
+    let header = formatEventLine(theme, `${action} ${toolLabel}${argStr}`, {
+      bulletColor: this.result?.isError ? 'error' : 'success',
+    });
 
     // Quantitative chip from the registry (exit N / N lines / N files …).
     if (this.result) {
@@ -469,7 +448,11 @@ export class ToolExecutionComponent extends Container {
     let text = header;
     const output = this.getTextOutput();
     if (output) {
-      text += `\n${output}`;
+      const styledOutput = output
+        .split('\n')
+        .map((line) => theme.fg('toolOutput', line))
+        .join('\n');
+      text += `\n${formatEventChildBlock(theme, styledOutput)}`;
     }
     return text;
   }

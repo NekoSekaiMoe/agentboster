@@ -175,6 +175,7 @@ import { TreeSelectorComponent } from './components/tree-selector.ts';
 import { TrustSelectorComponent } from './components/trust-selector.ts';
 import { UserMessageComponent } from './components/user-message.ts';
 import { UserMessageSelectorComponent } from './components/user-message-selector.ts';
+import { WorkingLoader } from './components/working-loader.ts';
 import { WorkflowSubagentMessageComponent } from './components/workflow-subagent-message.ts';
 import { getModelSearchText } from './model-search.ts';
 import {
@@ -365,7 +366,7 @@ export class InteractiveMode {
    *  the tree-selector `e` (editVersion) affordance. */
   private pendingEditVersion: { entryId: string; originalText: string } | null =
     null;
-  private loadingAnimation: Loader | undefined = undefined;
+  private loadingAnimation: WorkingLoader | undefined = undefined;
   private workingMessage: string | undefined = undefined;
   private workingVisible = true;
   private workingIndicatorOptions: LoaderIndicatorOptions | undefined =
@@ -2037,11 +2038,9 @@ export class InteractiveMode {
     return this.workingMessage ?? this.defaultWorkingMessage;
   }
 
-  private createWorkingLoader(): Loader {
-    return new Loader(
+  private createWorkingLoader(): WorkingLoader {
+    return new WorkingLoader(
       this.ui,
-      (spinner) => theme.fg('accent', spinner),
-      (text) => theme.fg('muted', text),
       this.getWorkingLoaderMessage(),
       this.workingIndicatorOptions,
     );

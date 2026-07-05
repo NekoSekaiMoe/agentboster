@@ -5,6 +5,11 @@ import { Text } from '@agentboster-cli/tui';
 import { spawn } from 'child_process';
 import path from 'path';
 import { type Static, Type } from 'typebox';
+import {
+  formatEventChildBlock,
+  formatEventChildLine,
+  formatEventLine,
+} from '../../modes/interactive/components/event-style.ts';
 import { keyHint } from '../../modes/interactive/components/keybinding-hints.ts';
 import type { Theme } from '../../modes/interactive/theme/theme.ts';
 import { ensureTool } from '../../utils/tools-manager.ts';
@@ -108,11 +113,16 @@ function formatGrepCall(
   const glob = str(args?.glob);
   const limit = args?.limit;
   const invalidArg = invalidArgText(theme);
-  let text =
-    theme.fg('toolTitle', theme.bold('grep')) +
-    ' ' +
-    (pattern === null ? invalidArg : theme.fg('accent', `/${pattern || ''}/`)) +
-    theme.fg('toolOutput', ` in ${path === null ? invalidArg : path}`);
+  const patternDisplay =
+    pattern === null ? invalidArg : theme.fg('accent', `/${pattern || ''}/`);
+  const pathDisplay = theme.fg(
+    'toolOutput',
+    ` in ${path === null ? invalidArg : path}`,
+  );
+  let text = formatEventLine(
+    theme,
+    `${theme.bold('Searched')} ${patternDisplay}${pathDisplay}`,
+  );
   if (glob) text += theme.fg('toolOutput', ` (${glob})`);
   if (limit !== undefined) text += theme.fg('toolOutput', ` limit ${limit}`);
   return text;
@@ -139,9 +149,15 @@ function formatGrepResult(
     const maxLines = options.expanded ? lines.length : 15;
     const displayLines = lines.slice(0, maxLines);
     const remaining = lines.length - maxLines;
-    text += `\n${displayLines.map((line) => theme.fg('toolOutput', line)).join('\n')}`;
+    text += `\n${formatEventChildBlock(
+      theme,
+      displayLines.map((line) => theme.fg('toolOutput', line)).join('\n'),
+    )}`;
     if (remaining > 0) {
-      text += `${theme.fg('muted', `\n... (${remaining} more lines,`)} ${keyHint('app.tools.expand', 'to expand')}${theme.fg('muted', ')')}`;
+      text += `\n${formatEventChildLine(
+        theme,
+        `${theme.fg('muted', `... (${remaining} more lines,`)} ${keyHint('app.tools.expand', 'to expand')}${theme.fg('muted', ')')}`,
+      )}`;
     }
   }
 
@@ -156,7 +172,10 @@ function formatGrepResult(
         `${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit`,
       );
     if (linesTruncated) warnings.push('some lines truncated');
-    text += `\n${theme.fg('warning', `[Truncated: ${warnings.join(', ')}]`)}`;
+    text += `\n${formatEventChildLine(
+      theme,
+      theme.fg('warning', `[Truncated: ${warnings.join(', ')}]`),
+    )}`;
   }
   return text;
 }

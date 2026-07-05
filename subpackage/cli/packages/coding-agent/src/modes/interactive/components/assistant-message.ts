@@ -1,5 +1,6 @@
 import type { AssistantMessage } from '@agentboster-cli/ai';
 import {
+  type Component,
   Container,
   Markdown,
   type MarkdownTheme,
@@ -11,6 +12,27 @@ import { getMarkdownTheme, theme } from '../theme/theme.ts';
 const OSC133_ZONE_START = '\x1b]133;A\x07';
 const OSC133_ZONE_END = '\x1b]133;B\x07';
 const OSC133_ZONE_FINAL = '\x1b]133;C\x07';
+
+class AssistantMarkdownBlock implements Component {
+  private readonly markdown: Markdown;
+
+  constructor(text: string, markdownTheme: MarkdownTheme) {
+    this.markdown = new Markdown(text, 0, 0, markdownTheme);
+  }
+
+  invalidate(): void {
+    (this.markdown as Markdown & { invalidate?: () => void }).invalidate?.();
+  }
+
+  render(width: number): string[] {
+    const prefix = `${theme.fg('muted', '·')} `;
+    const continuation = '  ';
+    const lines = this.markdown.render(Math.max(1, width - 2));
+    return lines.map((line, index) =>
+      index === 0 ? `${prefix}${line}` : `${continuation}${line}`,
+    );
+  }
+}
 
 /**
  * Component that renders a complete assistant message
@@ -100,7 +122,7 @@ export class AssistantMessageComponent extends Container {
         // Assistant text messages with no background - trim the text
         // Set paddingY=0 to avoid extra spacing before tool executions
         this.contentContainer.addChild(
-          new Markdown(content.text.trim(), 1, 0, this.markdownTheme),
+          new AssistantMarkdownBlock(content.text.trim(), this.markdownTheme),
         );
       } else if (content.type === 'thinking' && content.thinking.trim()) {
         // Add spacing only when another visible assistant content block follows.

@@ -5,6 +5,13 @@ import { Container, Text, truncateToWidth } from '@agentboster-cli/tui';
 import { spawn } from 'child_process';
 import { type Static, Type } from 'typebox';
 import { keyHint } from '../../modes/interactive/components/keybinding-hints.ts';
+import {
+  formatEventChildBlock,
+  formatEventChildLine,
+  formatEventChildLines,
+  formatEventLine,
+  formatShellCommand,
+} from '../../modes/interactive/components/event-style.ts';
 import { truncateToVisualLines } from '../../modes/interactive/components/visual-truncate.ts';
 import { theme } from '../../modes/interactive/theme/theme.ts';
 import { waitForChildProcess } from '../../utils/child-process.ts';
@@ -221,10 +228,11 @@ function formatBashCall(
     command === null
       ? invalidArgText(theme)
       : command
-        ? command
+        ? formatShellCommand(theme, command)
         : theme.fg('toolOutput', '...');
   return (
-    theme.fg('toolTitle', theme.bold(`$ ${commandDisplay}`)) + timeoutSuffix
+    formatEventLine(theme, `${theme.bold('Ran')} ${commandDisplay}`) +
+    timeoutSuffix
   );
 }
 
@@ -272,7 +280,9 @@ function rebuildBashResultRenderComponent(
       .join('\n');
 
     if (options.expanded) {
-      component.addChild(new Text(`\n${styledOutput}`, 0, 0));
+      component.addChild(
+        new Text(`\n${formatEventChildBlock(theme, styledOutput)}`, 0, 0),
+      );
     } else {
       component.addChild({
         render: (width: number) => {
@@ -293,10 +303,10 @@ function rebuildBashResultRenderComponent(
             return [
               '',
               truncateToWidth(hint, width, '...'),
-              ...(state.cachedLines ?? []),
+              ...formatEventChildLines(theme, state.cachedLines ?? []),
             ];
           }
-          return ['', ...(state.cachedLines ?? [])];
+          return ['', ...formatEventChildLines(theme, state.cachedLines ?? [])];
         },
         invalidate: () => {
           state.cachedWidth = undefined;
@@ -324,7 +334,14 @@ function rebuildBashResultRenderComponent(
       }
     }
     component.addChild(
-      new Text(`\n${theme.fg('warning', `[${warnings.join('. ')}]`)}`, 0, 0),
+      new Text(
+        `\n${formatEventChildLine(
+          theme,
+          theme.fg('warning', `[${warnings.join('. ')}]`),
+        )}`,
+        0,
+        0,
+      ),
     );
   }
 
@@ -333,7 +350,10 @@ function rebuildBashResultRenderComponent(
     const endTime = endedAt ?? Date.now();
     component.addChild(
       new Text(
-        `\n${theme.fg('muted', `${label} ${formatDuration(endTime - startedAt)}`)}`,
+        `\n${formatEventChildLine(
+          theme,
+          theme.fg('muted', `${label} ${formatDuration(endTime - startedAt)}`),
+        )}`,
         0,
         0,
       ),

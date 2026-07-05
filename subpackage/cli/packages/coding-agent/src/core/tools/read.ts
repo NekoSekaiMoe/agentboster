@@ -19,6 +19,11 @@ import { access as fsAccess, readFile as fsReadFile } from 'fs/promises';
 import { type Static, Type } from 'typebox';
 import { getReadmePath } from '../../config.ts';
 import {
+  formatEventChildBlock,
+  formatEventChildLine,
+  formatEventLine,
+} from '../../modes/interactive/components/event-style.ts';
+import {
   keyHint,
   keyText,
 } from '../../modes/interactive/components/keybinding-hints.ts';
@@ -137,7 +142,10 @@ function formatReadCall(
     theme,
     cwd,
   );
-  return `${theme.fg('toolTitle', theme.bold('read'))} ${pathDisplay}${formatReadLineRange(args, theme)}`;
+  return formatEventLine(
+    theme,
+    `${theme.bold('Read')} ${pathDisplay}${formatReadLineRange(args, theme)}`,
+  );
 }
 
 function trimTrailingEmptyLines(lines: string[]): string[] {
@@ -229,19 +237,22 @@ function formatCompactReadCall(
   );
   if (classification.kind === 'skill') {
     return (
-      theme.fg('customMessageLabel', `\x1b[1m[skill]\x1b[22m `) +
-      theme.fg('customMessageText', classification.label) +
-      formatReadLineRange(args, theme) +
-      expandHint
+      formatEventLine(theme, theme.bold('Explored')) +
+      '\n' +
+      formatEventChildLine(
+        theme,
+        `${theme.fg('accent', 'Read')} ${theme.fg('customMessageText', classification.label)}${formatReadLineRange(args, theme)}${expandHint}`,
+      )
     );
   }
 
   return (
-    theme.fg('toolTitle', theme.bold(`read ${classification.kind}`)) +
-    ' ' +
-    theme.fg('accent', classification.label) +
-    formatReadLineRange(args, theme) +
-    expandHint
+    formatEventLine(theme, theme.bold('Explored')) +
+    '\n' +
+    formatEventChildLine(
+      theme,
+      `${theme.fg('accent', 'Read')} ${theme.fg('toolTitle', classification.label)}${formatReadLineRange(args, theme)}${expandHint}`,
+    )
   );
 }
 
@@ -271,19 +282,29 @@ function formatReadResult(
   const maxLines = options.expanded ? lines.length : 10;
   const displayLines = lines.slice(0, maxLines);
   const remaining = lines.length - maxLines;
-  let text = `\n${displayLines.map((line) => (lang ? replaceTabs(line) : theme.fg('toolOutput', replaceTabs(line)))).join('\n')}`;
+  let text = `\n${formatEventChildBlock(
+    theme,
+    displayLines
+      .map((line) =>
+        lang ? replaceTabs(line) : theme.fg('toolOutput', replaceTabs(line)),
+      )
+      .join('\n'),
+  )}`;
   if (remaining > 0) {
-    text += `${theme.fg('muted', `\n... (${remaining} more lines,`)} ${keyHint('app.tools.expand', 'to expand')}${theme.fg('muted', ')')}`;
+    text += `\n${formatEventChildLine(
+      theme,
+      `${theme.fg('muted', `... (${remaining} more lines,`)} ${keyHint('app.tools.expand', 'to expand')}${theme.fg('muted', ')')}`,
+    )}`;
   }
 
   const truncation = result.details?.truncation;
   if (truncation?.truncated) {
     if (truncation.firstLineExceedsLimit) {
-      text += `\n${theme.fg('warning', `[First line exceeds ${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit]`)}`;
+      text += `\n${formatEventChildLine(theme, theme.fg('warning', `[First line exceeds ${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit]`))}`;
     } else if (truncation.truncatedBy === 'lines') {
-      text += `\n${theme.fg('warning', `[Truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines (${truncation.maxLines ?? DEFAULT_MAX_LINES} line limit)]`)}`;
+      text += `\n${formatEventChildLine(theme, theme.fg('warning', `[Truncated: showing ${truncation.outputLines} of ${truncation.totalLines} lines (${truncation.maxLines ?? DEFAULT_MAX_LINES} line limit)]`))}`;
     } else {
-      text += `\n${theme.fg('warning', `[Truncated: ${truncation.outputLines} lines shown (${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit)]`)}`;
+      text += `\n${formatEventChildLine(theme, theme.fg('warning', `[Truncated: ${truncation.outputLines} lines shown (${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit]`))}`;
     }
   }
   return text;

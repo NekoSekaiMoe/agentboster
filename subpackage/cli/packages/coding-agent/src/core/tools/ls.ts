@@ -3,6 +3,11 @@ import type { AgentTool } from '@agentboster-cli/agent';
 import { Text } from '@agentboster-cli/tui';
 import nodePath from 'path';
 import { type Static, Type } from 'typebox';
+import {
+  formatEventChildBlock,
+  formatEventChildLine,
+  formatEventLine,
+} from '../../modes/interactive/components/event-style.ts';
 import { keyHint } from '../../modes/interactive/components/keybinding-hints.ts';
 import type { Theme } from '../../modes/interactive/theme/theme.ts';
 import type {
@@ -76,7 +81,7 @@ function formatLsCall(
   const pathDisplay = renderToolPath(str(args?.path), theme, cwd, {
     emptyFallback: '.',
   });
-  let text = `${theme.fg('toolTitle', theme.bold('ls'))} ${pathDisplay}`;
+  let text = formatEventLine(theme, `${theme.bold('Listed')} ${pathDisplay}`);
   if (limit !== undefined) {
     text += theme.fg('toolOutput', ` (limit ${limit})`);
   }
@@ -104,9 +109,15 @@ function formatLsResult(
     const maxLines = options.expanded ? lines.length : 20;
     const displayLines = lines.slice(0, maxLines);
     const remaining = lines.length - maxLines;
-    text += `\n${displayLines.map((line) => theme.fg('toolOutput', line)).join('\n')}`;
+    text += `\n${formatEventChildBlock(
+      theme,
+      displayLines.map((line) => theme.fg('toolOutput', line)).join('\n'),
+    )}`;
     if (remaining > 0) {
-      text += `${theme.fg('muted', `\n... (${remaining} more lines,`)} ${keyHint('app.tools.expand', 'to expand')}${theme.fg('muted', ')')}`;
+      text += `\n${formatEventChildLine(
+        theme,
+        `${theme.fg('muted', `... (${remaining} more lines,`)} ${keyHint('app.tools.expand', 'to expand')}${theme.fg('muted', ')')}`,
+      )}`;
     }
   }
 
@@ -119,7 +130,10 @@ function formatLsResult(
       warnings.push(
         `${formatSize(truncation.maxBytes ?? DEFAULT_MAX_BYTES)} limit`,
       );
-    text += `\n${theme.fg('warning', `[Truncated: ${warnings.join(', ')}]`)}`;
+    text += `\n${formatEventChildLine(
+      theme,
+      theme.fg('warning', `[Truncated: ${warnings.join(', ')}]`),
+    )}`;
   }
   return text;
 }
