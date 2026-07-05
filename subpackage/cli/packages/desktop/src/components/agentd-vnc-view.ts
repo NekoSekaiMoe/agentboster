@@ -25,6 +25,29 @@ interface AgentdVncNode {
   lastHeartbeat: string | null;
   wsProxyUrl: string | null;
   proxyStatus: string;
+  activeSessionId: string | null;
+  sessionCount: number;
+  sessions: AgentdVncSession[];
+  message: string;
+}
+
+interface AgentdVncSession {
+  compactionCount: number | null;
+  sandboxId: string | null;
+  sandboxPath: string | null;
+  sandboxType: string | null;
+  sessionId: string;
+  status: string;
+  title: string;
+  updatedAt: string | null;
+  userId: string | null;
+  wsProxyUrl: string | null;
+}
+
+interface AgentdVncSelection {
+  key: string;
+  node: AgentdVncNode;
+  session: AgentdVncSession;
 }
 
 interface AgentdVncResponse {
@@ -59,21 +82,69 @@ function asStringArray(value: unknown): string[] {
     : [];
 }
 
+function normalizeSession(value: unknown): AgentdVncSession | null {
+  const session = asRecord(value);
+  const sessionId = asString(session.sessionId);
+  if (!sessionId) return null;
+
+  return {
+    compactionCount:
+      typeof session.compactionCount === 'number' &&
+      Number.isFinite(session.compactionCount)
+        ? session.compactionCount
+        : null,
+    sandboxId: asString(session.sandboxId),
+    sandboxPath: asString(session.sandboxPath),
+    sandboxType: asString(session.sandboxType),
+    sessionId,
+    status: asString(session.status) ?? 'unknown',
+    title: asString(session.title) ?? `Session ${sessionId.slice(0, 8)}`,
+    updatedAt: asString(session.updatedAt),
+    userId: asString(session.userId),
+    wsProxyUrl: asString(session.wsProxyUrl),
+  };
+}
+
 function normalizeNode(value: unknown): AgentdVncNode | null {
   const node = asRecord(value);
   const nodeId = asString(node.nodeId);
   if (!nodeId) return null;
+  const label = asString(node.label) ?? nodeId;
+  const wsProxyUrl = asString(node.wsProxyUrl);
+  const activeSessionId = asString(node.activeSessionId);
+  const sessions = (Array.isArray(node.sessions) ? node.sessions : [])
+    .map((entry) => normalizeSession(entry))
+    .filter((entry): entry is AgentdVncSession => Boolean(entry));
+
+  if (sessions.length === 0 && wsProxyUrl) {
+    sessions.push({
+      compactionCount: null,
+      sandboxId: null,
+      sandboxPath: null,
+      sandboxType: null,
+      sessionId: activeSessionId ?? `node:${nodeId}`,
+      status: 'running',
+      title: label,
+      updatedAt: asString(node.lastHeartbeat),
+      userId: null,
+      wsProxyUrl,
+    });
+  }
 
   return {
     nodeId,
-    label: asString(node.label) ?? nodeId,
+    label,
     version: asString(node.version),
     sandboxes: asStringArray(node.sandboxes),
     activeTasks: asNumber(node.activeTasks),
     activeSandboxes: asNumber(node.activeSandboxes),
     lastHeartbeat: asString(node.lastHeartbeat),
-    wsProxyUrl: asString(node.wsProxyUrl),
+    wsProxyUrl,
     proxyStatus: asString(node.proxyStatus) ?? 'unknown',
+    activeSessionId: activeSessionId ?? sessions[0]?.sessionId ?? null,
+    sessionCount: Math.max(asNumber(node.sessionCount), sessions.length),
+    sessions,
+    message: asString(node.message) ?? '',
   };
 }
 
@@ -88,7 +159,7 @@ export class AgentdVncView {
   private error: string | null = null;
   private enabled = true;
   private nodes: AgentdVncNode[] = [];
-  private selectedNodeId: string | null = null;
+  private selectedSessionKey: string | null = null;
   private scaleMode: VncScaleMode = 'fit';
   private message = '';
 
@@ -97,6 +168,10 @@ export class AgentdVncView {
   private resizeObserver: ResizeObserver | null = null;
   private reconnectTimer: number | null = null;
   private reconnectStartedAt: number | null = null;
+  private originalAbs: {
+    x?: (x: number) => number;
+    y?: (y: number) => number;
+  } = {};
   private disposed = false;
   private infoOpen = false;
 
@@ -122,17 +197,54 @@ export class AgentdVncView {
     this.resizeObserver = null;
   }
 
-  private getSelectedNode(): AgentdVncNode | null {
-    return (
-      this.nodes.find((n) => n.nodeId === this.selectedNodeId) ??
-      this.nodes[0] ??
-      null
+  private getSessionKey(
+    node: AgentdVncNode,
+    session: AgentdVncSession,
+  ): string {
+    return `${node.nodeId}::${session.sessionId}`;
+  }
+
+  private getSessionOptions(): AgentdVncSelection[] {
+    return this.nodes.flatMap((node) =>
+      node.sessions.map((session) => ({
+        key: this.getSessionKey(node, session),
+        node,
+        session,
+      })),
     );
   }
 
-  private getWsUrl(node: AgentdVncNode | null): string | null {
-    if (!node?.wsProxyUrl || !this.auth?.url) return null;
-    const raw = node.wsProxyUrl;
+  private syncSelectedSession(): void {
+    const options = this.getSessionOptions();
+    if (options.length === 0) {
+      this.selectedSessionKey = null;
+      return;
+    }
+    if (!options.some((option) => option.key === this.selectedSessionKey)) {
+      const active =
+        options.find(
+          (option) => option.session.sessionId === option.node.activeSessionId,
+        ) ?? options[0];
+      this.selectedSessionKey = active.key;
+    }
+  }
+
+  private getSelectedSession(): AgentdVncSelection | null {
+    const options = this.getSessionOptions();
+    if (options.length === 0) return null;
+    return (
+      options.find((option) => option.key === this.selectedSessionKey) ??
+      options[0]
+    );
+  }
+
+  private getSelectedNode(): AgentdVncNode | null {
+    return this.getSelectedSession()?.node ?? this.nodes[0] ?? null;
+  }
+
+  private getWsUrl(selection: AgentdVncSelection | null): string | null {
+    const raw = selection?.session.wsProxyUrl ?? selection?.node.wsProxyUrl;
+    if (!raw || !this.auth?.url) return null;
     if (/^wss?:\/\//i.test(raw)) return raw;
     const base = this.auth.url.replace(/\/+$/, '').replace(/^http/, 'ws');
     return `${base}${raw.startsWith('/') ? '' : '/'}${raw}`;
@@ -176,14 +288,9 @@ export class AgentdVncView {
         .filter((entry): entry is AgentdVncNode => Boolean(entry));
       this.message = asString(body.message) ?? '';
 
-      if (
-        !this.selectedNodeId ||
-        !this.nodes.some((n) => n.nodeId === this.selectedNodeId)
-      ) {
-        this.selectedNodeId = this.nodes[0]?.nodeId ?? null;
-      }
+      this.syncSelectedSession();
 
-      this.connectToSelectedNode();
+      this.connectToSelectedSession();
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err);
       this.connectionState = 'unavailable';
@@ -191,15 +298,16 @@ export class AgentdVncView {
     }
   }
 
-  private connectToSelectedNode(): void {
+  private connectToSelectedSession(): void {
     this.disconnectRfb();
     this.clearReconnectTimer();
 
-    const node = this.getSelectedNode();
-    const wsUrl = this.getWsUrl(node);
+    const selection = this.getSelectedSession();
+    const wsUrl = this.getWsUrl(selection);
 
     if (!wsUrl) {
-      this.connectionState = this.nodes.length > 0 ? 'unavailable' : 'idle';
+      this.connectionState =
+        this.getSessionOptions().length > 0 ? 'unavailable' : 'idle';
       this.render();
       return;
     }
@@ -223,6 +331,7 @@ export class AgentdVncView {
 
     this.mountEl = mount;
     mount.replaceChildren();
+    this.originalAbs = {};
 
     let rfb: RFB;
     try {
@@ -239,7 +348,7 @@ export class AgentdVncView {
     rfb.clipViewport = false;
     rfb.qualityLevel = 6;
     rfb.compressionLevel = 2;
-    rfb.background = '#0d0f12';
+    rfb.background = '#1c1724';
     this.rfb = rfb;
 
     rfb.addEventListener('connect', () => {
@@ -264,21 +373,45 @@ export class AgentdVncView {
     });
 
     this.resizeObserver?.disconnect();
-    this.resizeObserver = new ResizeObserver(() => this.applyScale());
-    this.resizeObserver.observe(mount);
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.applyScale());
+      this.resizeObserver.observe(mount);
+    } else {
+      this.resizeObserver = null;
+    }
   }
 
   private applyScale(): void {
     const rfb = this.rfb;
     if (!rfb) return;
-    rfb.scaleViewport = this.scaleMode === 'fit';
 
     const mount = this.mountEl;
     if (!mount) return;
-    const canvas = mount.querySelector('canvas');
-    const screen = mount.firstElementChild as HTMLElement | null;
+
+    const display = (
+      rfb as RFB & {
+        _display?: {
+          _viewportLoc?: { w: number; h: number; x: number; y: number };
+          scale?: number;
+          absX?: (x: number) => number;
+          absY?: (y: number) => number;
+        };
+        _screen?: HTMLDivElement;
+      }
+    )._display;
+    const screen =
+      (rfb as RFB & { _screen?: HTMLDivElement })._screen ??
+      (mount.firstElementChild as HTMLElement | null);
+    const canvas = mount.querySelector('canvas') as HTMLCanvasElement | null;
+
+    rfb.scaleViewport = this.scaleMode === 'fit';
+    rfb.resizeSession = false;
 
     if (this.scaleMode === 'fit') {
+      if (display) {
+        if (this.originalAbs.x) display.absX = this.originalAbs.x;
+        if (this.originalAbs.y) display.absY = this.originalAbs.y;
+      }
       if (screen) {
         screen.style.display = 'flex';
         screen.style.alignItems = 'center';
@@ -289,11 +422,64 @@ export class AgentdVncView {
         canvas.style.width = '';
         canvas.style.height = '';
       }
-    } else if (this.scaleMode === 'stretch') {
-      rfb.scaleViewport = false;
-      if (canvas) {
+      return;
+    }
+
+    rfb.scaleViewport = false;
+
+    if (!canvas) return;
+
+    const viewport = display?._viewportLoc;
+    if (!display || !viewport) {
+      if (this.scaleMode === 'stretch') {
         canvas.style.width = '100%';
         canvas.style.height = '100%';
+        if (screen) {
+          screen.style.display = 'flex';
+          screen.style.alignItems = 'stretch';
+          screen.style.justifyContent = 'stretch';
+          screen.style.overflow = 'hidden';
+        }
+      } else {
+        canvas.style.width = '';
+        canvas.style.height = '';
+        if (screen) {
+          screen.style.display = 'flex';
+          screen.style.alignItems = 'center';
+          screen.style.justifyContent = 'center';
+          screen.style.overflow = 'auto';
+        }
+      }
+      return;
+    }
+
+    this.originalAbs.x ??= display.absX;
+    this.originalAbs.y ??= display.absY;
+
+    const rect = mount.getBoundingClientRect();
+    const viewportWidth = viewport.w || canvas.width || 0;
+    const viewportHeight = viewport.h || canvas.height || 0;
+
+    if (
+      viewportWidth <= 0 ||
+      viewportHeight <= 0 ||
+      rect.width <= 0 ||
+      rect.height <= 0
+    ) {
+      return;
+    }
+
+    if (this.scaleMode === 'stretch') {
+      const scaleX = rect.width / viewportWidth;
+      const scaleY = rect.height / viewportHeight;
+      display.scale = scaleX;
+      display.absX = (x: number) =>
+        Math.trunc(x / scaleX + (display._viewportLoc?.x ?? 0));
+      display.absY = (y: number) =>
+        Math.trunc(y / scaleY + (display._viewportLoc?.y ?? 0));
+      if (canvas) {
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
       }
       if (screen) {
         screen.style.display = 'flex';
@@ -301,17 +487,19 @@ export class AgentdVncView {
         screen.style.justifyContent = 'stretch';
         screen.style.overflow = 'hidden';
       }
-    } else {
-      if (canvas) {
-        canvas.style.width = '';
-        canvas.style.height = '';
-      }
-      if (screen) {
-        screen.style.display = 'flex';
-        screen.style.alignItems = 'center';
-        screen.style.justifyContent = 'center';
-        screen.style.overflow = 'auto';
-      }
+      return;
+    }
+
+    if (this.originalAbs.x) display.absX = this.originalAbs.x;
+    if (this.originalAbs.y) display.absY = this.originalAbs.y;
+    display.scale = 1;
+    canvas.style.width = `${viewportWidth}px`;
+    canvas.style.height = `${viewportHeight}px`;
+    if (screen) {
+      screen.style.display = 'flex';
+      screen.style.alignItems = 'center';
+      screen.style.justifyContent = 'center';
+      screen.style.overflow = 'auto';
     }
   }
 
@@ -334,11 +522,13 @@ export class AgentdVncView {
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       if (this.disposed) return;
-      this.connectToSelectedNode();
+      this.connectToSelectedSession();
     }, clean ? 500 : RECONNECT_DELAY_MS);
   }
 
   private disconnectRfb(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     if (this.rfb) {
       try {
         this.rfb.disconnect();
@@ -347,6 +537,8 @@ export class AgentdVncView {
       }
       this.rfb = null;
     }
+    this.mountEl = null;
+    this.originalAbs = {};
   }
 
   private clearReconnectTimer(): void {
@@ -356,9 +548,9 @@ export class AgentdVncView {
     }
   }
 
-  private selectNode(nodeId: string): void {
-    this.selectedNodeId = nodeId;
-    this.connectToSelectedNode();
+  private selectSession(key: string): void {
+    this.selectedSessionKey = key;
+    this.connectToSelectedSession();
   }
 
   private setScaleMode(mode: VncScaleMode): void {
@@ -368,21 +560,28 @@ export class AgentdVncView {
   }
 
   private renderToolbar(): TemplateResult {
+    const selection = this.getSelectedSession();
     const node = this.getSelectedNode();
-    const online =
-      this.enabled && !this.error && this.connectionState === 'connected';
+    const sessionOptions = this.getSessionOptions();
+    const online = this.enabled && !this.error && this.connectionState === 'connected';
+    const pending =
+      this.connectionState === 'fetching' ||
+      this.connectionState === 'connecting' ||
+      this.connectionState === 'reconnecting';
+    const statusClass = online ? 'online' : this.error ? 'error' : pending ? 'pending' : '';
     const statusText =
       this.connectionState === 'fetching'
-        ? 'Loading'
+        ? '载入中'
         : this.connectionState === 'connecting'
-          ? 'Connecting'
+          ? '连接中'
           : this.connectionState === 'reconnecting'
-            ? 'Reconnecting'
+            ? '重连中'
             : this.connectionState === 'connected'
               ? '运行中'
               : this.error
-                ? 'Error'
+                ? '错误'
                 : '离线';
+    const title = selection?.session.title ?? node?.label ?? 'AgentD Desktop';
 
     const scaleOptions: Array<{ value: VncScaleMode; label: string }> = [
       { value: 'native', label: '100%' },
@@ -395,6 +594,7 @@ export class AgentdVncView {
         <div class="agentd-vnc-topbar-left">
           <button
             class="agentd-vnc-icon-btn"
+            type="button"
             title="Back"
             aria-label="Back"
             @click=${() => this.onBack?.()}
@@ -404,27 +604,30 @@ export class AgentdVncView {
               <polyline points="12 19 5 12 12 5"></polyline>
             </svg>
           </button>
-          ${this.nodes.length <= 1
-            ? html`<span class="agentd-vnc-title">${node?.label ?? 'AgentD'}</span>`
+          ${sessionOptions.length <= 1
+            ? html`<span class="agentd-vnc-title" title=${title}>${title}</span>`
             : html`
                 <select
-                  class="agentd-vnc-node-select"
-                  .value=${node?.nodeId ?? ''}
+                  class="agentd-vnc-session-select"
+                  aria-label="选择远程 AgentD 桌面"
+                  .value=${selection?.key ?? ''}
                   @change=${(e: Event) =>
-                    this.selectNode(
+                    this.selectSession(
                       (e.currentTarget as HTMLSelectElement).value,
                     )}
                 >
-                  ${this.nodes.map(
-                    (n) =>
-                      html`<option value=${n.nodeId}>${n.label}</option>`,
+                  ${sessionOptions.map(
+                    (option) =>
+                      html`<option value=${option.key}>
+                        ${option.session.title} · ${option.node.label}
+                      </option>`,
                   )}
                 </select>
               `}
         </div>
 
         <div class="agentd-vnc-topbar-center">
-          <span class="agentd-vnc-status-dot ${online ? 'online' : this.error ? 'error' : ''}"></span>
+          <span class="agentd-vnc-status-dot ${statusClass}"></span>
           <span class="agentd-vnc-status-text">${statusText}</span>
         </div>
 
@@ -438,8 +641,11 @@ export class AgentdVncView {
               (opt) => html`
                 <button
                   class="agentd-vnc-scale-chip ${opt.value === this.scaleMode ? 'active' : ''}"
+                  type="button"
                   @click=${() => this.setScaleMode(opt.value)}
                   title=${opt.label}
+                  aria-label=${opt.label}
+                  aria-pressed=${opt.value === this.scaleMode ? 'true' : 'false'}
                 >
                   ${opt.label}
                 </button>
@@ -448,6 +654,7 @@ export class AgentdVncView {
           </div>
           <button
             class="agentd-vnc-icon-btn"
+            type="button"
             title="Info"
             aria-label="Info"
             @click=${() => { this.infoOpen = !this.infoOpen; this.render(); }}
@@ -460,6 +667,7 @@ export class AgentdVncView {
           </button>
           <button
             class="agentd-vnc-icon-btn"
+            type="button"
             title="Refresh"
             aria-label="Refresh"
             ?disabled=${this.connectionState === 'fetching'}
@@ -490,14 +698,21 @@ export class AgentdVncView {
   private renderInfoDrawer(): TemplateResult {
     if (!this.infoOpen) return html``;
 
+    const selection = this.getSelectedSession();
     const node = this.getSelectedNode();
+    const session = selection?.session ?? null;
 
     return html`
       <div class="agentd-vnc-info-backdrop" @click=${() => { this.infoOpen = false; this.render(); }}>
         <aside class="agentd-vnc-info-drawer" @click=${(e: Event) => e.stopPropagation()}>
           <div class="agentd-vnc-info-header">
-            <span class="agentd-vnc-info-title">Connection Info</span>
-            <button class="agentd-vnc-icon-btn" @click=${() => { this.infoOpen = false; this.render(); }}>
+            <span class="agentd-vnc-info-title">连接信息</span>
+            <button
+              class="agentd-vnc-icon-btn"
+              type="button"
+              aria-label="Close"
+              @click=${() => { this.infoOpen = false; this.render(); }}
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -506,6 +721,36 @@ export class AgentdVncView {
           </div>
           <div class="agentd-vnc-info-body">
             ${node ? html`
+              ${session ? html`
+                <div class="agentd-vnc-info-row">
+                  <span class="agentd-vnc-info-label">Session</span>
+                  <span class="agentd-vnc-info-value">${session.title}</span>
+                </div>
+                <div class="agentd-vnc-info-row">
+                  <span class="agentd-vnc-info-label">Session ID</span>
+                  <span class="agentd-vnc-info-value">${session.sessionId}</span>
+                </div>
+                <div class="agentd-vnc-info-row">
+                  <span class="agentd-vnc-info-label">Session Status</span>
+                  <span class="agentd-vnc-info-value">${session.status}</span>
+                </div>
+                <div class="agentd-vnc-info-row">
+                  <span class="agentd-vnc-info-label">Sandbox</span>
+                  <span class="agentd-vnc-info-value">${session.sandboxId ?? '—'}</span>
+                </div>
+                <div class="agentd-vnc-info-row">
+                  <span class="agentd-vnc-info-label">Sandbox Type</span>
+                  <span class="agentd-vnc-info-value">${session.sandboxType ?? '—'}</span>
+                </div>
+                <div class="agentd-vnc-info-row">
+                  <span class="agentd-vnc-info-label">Sandbox Path</span>
+                  <span class="agentd-vnc-info-value">${session.sandboxPath ?? '—'}</span>
+                </div>
+                <div class="agentd-vnc-info-row">
+                  <span class="agentd-vnc-info-label">Updated</span>
+                  <span class="agentd-vnc-info-value">${this.formatHeartbeat(session.updatedAt)}</span>
+                </div>
+              ` : nothing}
               <div class="agentd-vnc-info-row">
                 <span class="agentd-vnc-info-label">Node</span>
                 <span class="agentd-vnc-info-value">${node.nodeId}</span>
@@ -538,6 +783,12 @@ export class AgentdVncView {
                 <span class="agentd-vnc-info-label">Proxy Status</span>
                 <span class="agentd-vnc-info-value">${node.proxyStatus}</span>
               </div>
+              ${node.message ? html`
+                <div class="agentd-vnc-info-row">
+                  <span class="agentd-vnc-info-label">Message</span>
+                  <span class="agentd-vnc-info-value">${node.message}</span>
+                </div>
+              ` : nothing}
               <div class="agentd-vnc-info-row">
                 <span class="agentd-vnc-info-label">Connection</span>
                 <span class="agentd-vnc-info-value">${this.connectionState}</span>
@@ -600,6 +851,7 @@ export class AgentdVncView {
           <div class="agentd-vnc-empty-actions">
             <button
               class="agentd-vnc-action-btn"
+              type="button"
               ?disabled=${this.connectionState === 'fetching'}
               @click=${() => void this.refresh()}
             >
@@ -637,8 +889,13 @@ export class AgentdVncView {
         }
         this.mountEl = mount;
         this.resizeObserver?.disconnect();
-        this.resizeObserver = new ResizeObserver(() => this.applyScale());
-        this.resizeObserver.observe(mount);
+        if (typeof ResizeObserver !== 'undefined') {
+          this.resizeObserver = new ResizeObserver(() => this.applyScale());
+          this.resizeObserver.observe(mount);
+        } else {
+          this.resizeObserver = null;
+        }
+        this.applyScale();
       }
     }
   }
