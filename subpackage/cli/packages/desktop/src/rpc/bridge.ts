@@ -7,6 +7,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type QueueMode = 'all' | 'one-at-a-time';
 export type StreamingBehavior = 'steer' | 'followUp';
+export type ClientSpoof = 'off' | 'claude-code' | 'codex' | 'antigravity';
 export type ThinkingLevel =
   | 'off'
   | 'minimal'
@@ -51,6 +52,7 @@ export interface RpcSessionState {
   sessionId: string;
   sessionName?: string;
   autoCompactionEnabled: boolean;
+  clientSpoof: ClientSpoof;
   messageCount: number;
   pendingMessageCount: number;
 }
@@ -461,6 +463,10 @@ export class RpcBridge {
 
   async setFollowUpMode(mode: QueueMode): Promise<void> {
     await this.send({ type: 'set_follow_up_mode', mode });
+  }
+
+  async setClientSpoof(clientSpoof: ClientSpoof): Promise<void> {
+    await this.send({ type: 'set_client_spoof', clientSpoof });
   }
 
   async compact(customInstructions?: string): Promise<Record<string, unknown>> {
@@ -1037,6 +1043,10 @@ class ActiveRpcBridgeProxy {
 
   async setFollowUpMode(mode: QueueMode): Promise<void> {
     return this.activeBridge.setFollowUpMode(mode);
+  }
+
+  async setClientSpoof(clientSpoof: ClientSpoof): Promise<void> {
+    return this.activeBridge.setClientSpoof(clientSpoof);
   }
 
   async compact(customInstructions?: string): Promise<Record<string, unknown>> {

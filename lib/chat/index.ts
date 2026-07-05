@@ -32,6 +32,7 @@ import {
   resumeWithMessage,
   startWorkflow,
 } from '@/lib/workflow/agent/dispatch';
+import type { ClientSpoof } from '@/types/config/ai';
 import type { AdapterName } from '@/types/config/channels';
 import type { BotLocale } from '@/types/config/language';
 import {
@@ -142,6 +143,11 @@ type LegacyChatMainRequest = {
    * undefined leaves the provider's default behavior unchanged.
    */
   thinkingLevel?: string;
+  /**
+   * Experimental client-spoof profile from CLI/Desktop settings. When set,
+   * it overrides stored provider `client_spoof` values for this workflow run.
+   */
+  clientSpoof?: ClientSpoof;
 };
 
 type ChatMainOptions = {
@@ -1800,6 +1806,9 @@ export async function chatMain(
     // Forward the CLI /effort thinking level so resolveAgentProviderOptions
     // can serialize it into the provider-specific reasoning field.
     thinkingLevel: request.thinkingLevel,
+    // Forward the CLI/Desktop client-spoof setting as a per-run provider
+    // configuration override.
+    clientSpoof: request.clientSpoof,
   });
   chatMainLogger.info('chatMain:workflow_started', { runId });
 

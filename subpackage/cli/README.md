@@ -1,10 +1,10 @@
 # AgentBoster CLI
 
-The `cli/` workspace ships the **`agentboster`** terminal coding agent. It is a **thin client** of the AgentBoster platform: the Web backend owns models, API keys, tool routing, session persistence, and the workflow runtime; the CLI renders the TUI and executes `local_*` tools (shell / file I/O) on the user's machine.
+The `subpackage/cli/` directory ships the **`agentboster`** terminal coding agent. It is a Yarn Classic monorepo and a **thin client** of the AgentBoster platform: the Web backend owns models, API keys, tool routing, session persistence, and the workflow runtime; the CLI renders the TUI and executes `local_*` tools (shell / file I/O) on the user's machine.
 
 There is **no direct provider mode** — every LLM call goes through `POST /api/cli/chat` on the Web backend. The provider SDKs (Anthropic / OpenAI / Google / Bedrock / Mistral / …) are intentionally absent from `packages/ai` (~90 MB of npm deps stripped).
 
-This CLI is **based on [pi](https://github.com/earendil-works/pi)**, but new code should use the AgentBoster package names in this workspace. The TUI remains an external npm dependency (`@agentboster-cli/tui`).
+This CLI is **based on [pi](https://github.com/earendil-works/pi)**, but new code should use the AgentBoster package names in this monorepo. The TUI remains an external npm dependency (`@agentboster-cli/tui`).
 
 ---
 
@@ -45,6 +45,7 @@ flowchart BT
   AD["packages/agentboster-adapter\nauth + web stream"]
   AG["packages/agent"]
   AI["packages/ai (types only)"]
+  DESK["packages/desktop\nTauri app (separate)"]
   TUI["@agentboster-cli/tui\nexternal npm dependency"]
   CA --> AD
   CA --> AG
@@ -55,15 +56,18 @@ flowchart BT
   AG --> AI
 ```
 
-| Package | Responsibility |
-|---------|----------------|
-| `@agentboster-cli/core` | `agentboster` bin, interactive mode, extensions, export |
-| `@agentboster/adapter` | Stored auth, `createAgentbosterStreamFn`, remote models, remote sessions |
-| `@agentboster-cli/agent` | Agent session primitives |
-| `@agentboster-cli/ai` | Type surface + `compat` stubs (no provider SDKs) |
-| `@agentboster-cli/tui` | Terminal rendering, resolved from npm |
+| Package | Directory | Root workspace | Responsibility |
+|---------|-----------|----------------|----------------|
+| `@agentboster-cli/core` | `packages/coding-agent` | Yes | `agentboster` bin, TUI / print mode, local tools, extensions, session tree, HTML export |
+| `@agentboster/adapter` | `packages/agentboster-adapter` | Yes | Stored auth, `createAgentbosterStreamFn`, Web SSE stream, remote models, remote sessions, local security helpers |
+| `@agentboster-cli/agent` | `packages/agent` | Yes | Agent loop and session primitives |
+| `@agentboster-cli/ai` | `packages/ai` | Yes | Type surface, event-stream primitives, `compat` stubs; no provider SDKs |
+| `@agentboster-cli/desktop` | `packages/desktop` | No | Private Tauri desktop shell with its own package metadata and lockfile |
+| `@agentboster-cli/tui` | npm dependency | No | Terminal rendering, resolved from `@earendil-works/pi-tui` |
 
 Build order is enforced by the root `package.json` `build` script: `ai` → `agent` → `agentboster-adapter` → `coding-agent`.
+
+`packages/desktop` is intentionally outside the root workspace list. Work on it from `packages/desktop/` with its own scripts (`yarn dev`, `yarn build`, `yarn check:lint`) instead of the CLI root build chain.
 
 ---
 
@@ -129,7 +133,7 @@ yarn tsx packages/coding-agent/src/cli.ts --help
 ### Quality gate
 
 ```bash
-yarn check    # Biome check --write, then tsgo --noEmit
+yarn check:lint    # Biome check --write, then tsgo --noEmit
 ```
 
 ---
@@ -287,6 +291,7 @@ Each `local_*` invocation passes through `evaluateLocalCommand` in the adapter b
 |--------|--------|
 | `yarn build` | Per-package `dist/` |
 | `yarn clean` | Remove build artifacts |
+| `yarn check:lint` | Biome check with writes enabled, then `tsgo --noEmit` |
 | `yarn bundle` | `packages/coding-agent/dist/agentboster.cjs` (single file, all assets inlined) |
 | `yarn package` | `agentboster-cli-<version>.tar.gz` (2 files: `agentboster` wrapper + `agentboster.cjs`) |
 

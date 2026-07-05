@@ -61,6 +61,8 @@ export interface WarningSettings {
   anthropicExtraUsage?: boolean; // default: true
 }
 
+export type ClientSpoofSetting = 'off' | 'claude-code' | 'codex' | 'antigravity';
+
 export type DefaultProjectTrust = 'ask' | 'always' | 'never';
 
 export type TransportSetting = Transport;
@@ -130,6 +132,7 @@ export interface Settings {
   showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
   markdown?: MarkdownSettings;
   warnings?: WarningSettings;
+  clientSpoof?: ClientSpoofSetting; // default: "off"; experimental, may violate provider terms
   httpProxy?: string; // Proxy URL applied as HTTP_PROXY and HTTPS_PROXY for Pi-managed HTTP clients
   httpIdleTimeoutMs?: number; // HTTP header/body idle timeout in milliseconds; 0 disables it
   websocketConnectTimeoutMs?: number; // WebSocket connect/open handshake timeout in milliseconds; 0 disables it
@@ -181,6 +184,12 @@ function parseTimeoutSetting(
     throw new Error(`Invalid ${settingName} setting: ${String(value)}`);
   }
   return undefined;
+}
+
+function normalizeClientSpoofSetting(value: unknown): ClientSpoofSetting {
+  return value === 'claude-code' || value === 'codex' || value === 'antigravity'
+    ? value
+    : 'off';
 }
 
 export type SettingsScope = 'global' | 'project';
@@ -1331,6 +1340,16 @@ export class SettingsManager {
   setWarnings(warnings: WarningSettings): void {
     this.globalSettings.warnings = { ...warnings };
     this.markModified('warnings');
+    this.save();
+  }
+
+  getClientSpoof(): ClientSpoofSetting {
+    return normalizeClientSpoofSetting(this.settings.clientSpoof);
+  }
+
+  setClientSpoof(clientSpoof: ClientSpoofSetting): void {
+    this.globalSettings.clientSpoof = normalizeClientSpoofSetting(clientSpoof);
+    this.markModified('clientSpoof');
     this.save();
   }
 }

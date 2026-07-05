@@ -58,6 +58,8 @@ export interface CreateStreamFnOptions
    *  (OpenAI reasoningEffort, Anthropic thinking.budgetTokens, Google
    *  thinkingConfig.thinkingBudget). Set by the CLI `/effort` command. */
   getThinkingLevel?: () => string | undefined;
+  /** Resolve the current experimental client-spoof profile. */
+  getClientSpoof?: () => string | undefined;
 }
 
 /**
@@ -99,6 +101,7 @@ export function createAgentbosterStreamFn(
     const agentsMd = opts.getAgentsMd?.() || undefined;
     const planMode = opts.getPlanMode?.() === true;
     const thinkingLevel = opts.getThinkingLevel?.();
+    const clientSpoof = opts.getClientSpoof?.();
     return openAgentbosterStream(_model, context, {
       baseUrl: auth.baseUrl,
       token: auth.token,
@@ -113,6 +116,7 @@ export function createAgentbosterStreamFn(
       regenerate,
       planMode,
       thinkingLevel,
+      clientSpoof,
       ...(agentsMd ? { agentsMd } : {}),
     });
   };

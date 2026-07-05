@@ -3,6 +3,8 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { experimental_generateSpeech as experimental_generateSpeechImport } from 'ai';
+import type { ClientSpoof } from '@/types/config/ai';
+import { applyClientSpoofHeaders } from './client-spoof';
 import { getPreset } from './presets';
 
 type ProviderConfig = {
@@ -12,6 +14,8 @@ type ProviderConfig = {
   base_url?: string;
   headers?: Record<string, string>;
   preset?: string;
+  client_spoof?: ClientSpoof;
+  openai_api?: 'chat' | 'responses';
 };
 
 export function getProvider({
@@ -21,6 +25,8 @@ export function getProvider({
   base_url,
   headers,
   preset: presetKey,
+  client_spoof,
+  openai_api,
 }: ProviderConfig) {
   // Apply preset defaults if a preset key is specified
   if (presetKey) {
@@ -32,9 +38,18 @@ export function getProvider({
         api_key,
         base_url: preset.base_url,
         headers,
+        client_spoof,
+        openai_api,
       });
     }
   }
+
+  const effectiveHeaders = applyClientSpoofHeaders(
+    type,
+    headers,
+    client_spoof,
+    openai_api,
+  );
 
   switch (type) {
     case 'openaicompatible': {
@@ -42,7 +57,7 @@ export function getProvider({
         name: provider || 'openaicompatible',
         baseURL: base_url || 'https://api.openai.com/v1',
         apiKey: api_key,
-        headers,
+        headers: effectiveHeaders,
       });
     }
     case 'anthropic': {
@@ -50,7 +65,7 @@ export function getProvider({
         name: provider || 'anthropic',
         baseURL: base_url || 'https://api.anthropic.com/v1',
         apiKey: api_key,
-        headers,
+        headers: effectiveHeaders,
       });
     }
     case 'openai': {
@@ -58,14 +73,14 @@ export function getProvider({
         name: provider || 'openai',
         baseURL: base_url || 'https://api.openai.com/v1',
         apiKey: api_key,
-        headers,
+        headers: effectiveHeaders,
       });
     }
     case 'google': {
       return createGoogleGenerativeAI({
         name: provider || 'google',
         apiKey: api_key,
-        headers,
+        headers: effectiveHeaders,
       });
     }
     default: {

@@ -4761,6 +4761,7 @@ export class InteractiveMode {
           treeFilterMode: this.settingsManager.getTreeFilterMode(),
           showHardwareCursor: this.settingsManager.getShowHardwareCursor(),
           defaultProjectTrust: this.settingsManager.getDefaultProjectTrust(),
+          clientSpoof: this.settingsManager.getClientSpoof(),
           editorPaddingX: this.settingsManager.getEditorPaddingX(),
           autocompleteMaxVisible:
             this.settingsManager.getAutocompleteMaxVisible(),
@@ -4850,6 +4851,9 @@ export class InteractiveMode {
           },
           onDefaultProjectTrustChange: (defaultProjectTrust) => {
             this.settingsManager.setDefaultProjectTrust(defaultProjectTrust);
+          },
+          onClientSpoofChange: (clientSpoof) => {
+            this.settingsManager.setClientSpoof(clientSpoof);
           },
           onDoubleEscapeActionChange: (action) => {
             this.settingsManager.setDoubleEscapeAction(action);
@@ -6560,6 +6564,7 @@ export class InteractiveMode {
         },
         getPlanMode: () => this.session.planMode,
         getThinkingLevel: () => this.session.thinkingLevel,
+        getClientSpoof: () => this.settingsManager.getClientSpoof(),
         onSubagentEvent: (event) => {
           void this.session.addWorkflowSubagentEvent(event);
         },

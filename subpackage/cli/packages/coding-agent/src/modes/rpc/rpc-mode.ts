@@ -544,6 +544,7 @@ export async function runRpcMode(
           sessionId: session.sessionId,
           sessionName: session.sessionName,
           autoCompactionEnabled: session.autoCompactionEnabled,
+          clientSpoof: session.settingsManager.getClientSpoof(),
           messageCount: session.messages.length,
           pendingMessageCount: session.pendingMessageCount,
         };
@@ -612,6 +613,11 @@ export async function runRpcMode(
       case 'set_follow_up_mode': {
         session.setFollowUpMode(command.mode);
         return success(id, 'set_follow_up_mode');
+      }
+
+      case 'set_client_spoof': {
+        session.settingsManager.setClientSpoof(command.clientSpoof);
+        return success(id, 'set_client_spoof');
       }
 
       // =================================================================

@@ -10,6 +10,7 @@ import type { ImageContent, Model } from '@agentboster-cli/ai';
 import type { SessionStats } from '../../core/agent-session.ts';
 import type { BashResult } from '../../core/bash-executor.ts';
 import type { CompactionResult } from '../../core/compaction/index.ts';
+import type { ClientSpoofSetting } from '../../core/settings-manager.ts';
 import type {
   DiscoveredMcpService,
   RunningMcpService,
@@ -49,6 +50,7 @@ export type RpcCommand =
   // Queue modes
   | { id?: string; type: 'set_steering_mode'; mode: 'all' | 'one-at-a-time' }
   | { id?: string; type: 'set_follow_up_mode'; mode: 'all' | 'one-at-a-time' }
+  | { id?: string; type: 'set_client_spoof'; clientSpoof: ClientSpoofSetting }
 
   // Compaction
   | { id?: string; type: 'compact'; customInstructions?: string }
@@ -115,6 +117,7 @@ export interface RpcSessionState {
   sessionId: string;
   sessionName?: string;
   autoCompactionEnabled: boolean;
+  clientSpoof: ClientSpoofSetting;
   messageCount: number;
   pendingMessageCount: number;
 }
@@ -200,6 +203,12 @@ export type RpcResponse =
       id?: string;
       type: 'response';
       command: 'set_follow_up_mode';
+      success: true;
+    }
+  | {
+      id?: string;
+      type: 'response';
+      command: 'set_client_spoof';
       success: true;
     }
 

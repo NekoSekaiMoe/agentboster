@@ -142,10 +142,16 @@ function usesResponsesApi(providerConfig: {
   openai_api?: string;
   preset?: string;
   base_url?: string;
+  client_spoof?: string;
 }): boolean {
   if (providerConfig.format !== 'openai') {
     return false;
   }
+
+  // NOTE: client_spoof no longer forces the Responses API. A 'codex' spoof
+  // follows the resolved API mode; see getEffectiveProviderClientSpoof's
+  // openaiApi handling. On OpenAI Legacy (Chat Completions) the spoof is
+  // dropped, so legacy endpoints are never impersonated as Codex.
 
   const choice = providerConfig.openai_api ?? 'auto';
 

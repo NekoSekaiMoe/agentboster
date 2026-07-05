@@ -9,6 +9,7 @@ import { nowIso, patchWorkflowRuntime } from '@/lib/core/sandbox/runtime';
 import { checkAgentdHealth } from '@/lib/extra/agent/agentd-tools-client';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
+import type { ClientSpoof } from '@/types/config/ai';
 import type {
   ChatHookPayload,
   ChatSource,
@@ -209,6 +210,11 @@ export async function startWorkflow(input: {
    * undefined leaves the provider's default behavior unchanged.
    */
   thinkingLevel?: string;
+  /**
+   * Experimental client-spoof profile from CLI/Desktop settings. Forwarded
+   * to chatWorkflow so it can override provider config for this run.
+   */
+  clientSpoof?: ClientSpoof;
 }): Promise<{
   runId: string;
   readable: ReadableStream<WorkflowUIMessageChunk>;
@@ -230,6 +236,7 @@ export async function startWorkflow(input: {
       input.agentsMd,
       input.planMode,
       input.thinkingLevel,
+      input.clientSpoof,
     ]),
     new Promise<never>((_, reject) =>
       setTimeout(

@@ -1,11 +1,12 @@
 'use client';
 
-import { ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/components/i18n-provider';
+import type { TranslationKey } from '@/lib/i18n';
 import {
   Card,
   CardContent,
@@ -27,7 +28,10 @@ import {
   type AIConfig,
   type AIProvider,
   aiProviderEnum,
+  type ClientSpoof,
+  clientSpoofEnum,
 } from '@/types/config/ai';
+import { isClientSpoofSupported } from '@/lib/ai/client-spoof';
 
 /**
  * Human-readable labels for provider format values.
@@ -44,6 +48,13 @@ const FORMAT_LABELS: Record<AIProvider, string> = {
 function formatLabel(format: AIProvider): string {
   return FORMAT_LABELS[format] ?? format;
 }
+
+const CLIENT_SPOOF_LABEL_KEYS: Record<ClientSpoof, TranslationKey> = {
+  off: 'config.forms.models.clientSpoofOff',
+  'claude-code': 'config.forms.models.clientSpoofClaudeCode',
+  codex: 'config.forms.models.clientSpoofCodex',
+  antigravity: 'config.forms.models.clientSpoofAntigravity',
+};
 
 import {
   Field,
@@ -656,6 +667,11 @@ export function ModelsForm() {
         <CardContent className="space-y-4">
           {providers.map(([providerKey, providerValue]) => {
             const isExpanded = expandedProviderKeys.has(providerKey);
+            const clientSpoof = providerValue.client_spoof ?? 'off';
+            const clientSpoofSupported = isClientSpoofSupported(
+              providerValue.format,
+              clientSpoof,
+            );
 
             return (
               <div
@@ -674,6 +690,9 @@ export function ModelsForm() {
                     </span>
                     <span className="block truncate text-muted-foreground text-xs">
                       {formatLabel(providerValue.format)}
+                      {clientSpoof !== 'off'
+                        ? ` · ${t(CLIENT_SPOOF_LABEL_KEYS[clientSpoof])}`
+                        : ''}
                       {providerValue.base_url
                         ? ` · ${providerValue.base_url}`
                         : ''}
@@ -816,6 +835,51 @@ export function ModelsForm() {
                                 }))
                               }
                             />
+                          </Field>
+                          <Field label={t('config.forms.models.clientSpoof')}>
+                            <Select
+                              value={clientSpoof}
+                              onValueChange={(nextValue) =>
+                                updateModels((current) => ({
+                                  ...current,
+                                  providers: {
+                                    ...(current.providers ?? {}),
+                                    [providerKey]: {
+                                      ...(current.providers?.[providerKey] ??
+                                        providerValue),
+                                      client_spoof:
+                                        nextValue === 'off'
+                                          ? undefined
+                                          : (nextValue as ClientSpoof),
+                                    },
+                                  },
+                                }))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {clientSpoofEnum.options.map((option) => (
+                                  <SelectItem key={option} value={option}>
+                                    {t(CLIENT_SPOOF_LABEL_KEYS[option])}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <p className="mt-1 text-muted-foreground text-xs">
+                              {t('config.forms.models.clientSpoofHelp')}
+                            </p>
+                            {!clientSpoofSupported ? (
+                              <p className="mt-1 flex items-start gap-1 text-amber-600 text-xs dark:text-amber-500">
+                                <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                                <span>
+                                  {t(
+                                    'config.forms.models.clientSpoofUnsupported',
+                                  )}
+                                </span>
+                              </p>
+                            ) : null}
                           </Field>
                         </div>
 

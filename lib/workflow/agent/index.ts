@@ -6,9 +6,11 @@ import {
   toModelMessage,
 } from '@/lib/chat/message-utils';
 import { parseProviderScopedModelId } from '@/lib/ai';
+import { applyClientSpoofOverride } from '@/lib/ai/client-spoof';
 import { extractMemoriesFromSession } from '@/lib/memory/extract';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
+import type { ClientSpoof } from '@/types/config/ai';
 import type { ChatSource, UserMessagePart } from '@/types/workflow';
 import { DurableAgent } from '@workflow/ai/agent';
 import type { ModelMessage, StepResult, ToolSet } from 'ai';
@@ -205,22 +207,28 @@ export async function chatWorkflow(
    * provider's default behavior unchanged.
    */
   thinkingLevel?: string,
+  /**
+   * Experimental client-spoof profile from CLI/Desktop settings. When set,
+   * overrides provider `client_spoof` for this workflow run.
+   */
+  clientSpoof?: ClientSpoof,
 ) {
   'use workflow';
 
+  const effectiveConfig = applyClientSpoofOverride(config, clientSpoof);
   const { workflowRunId: runId } = getWorkflowMetadata();
   const agentName = MAIN_AGENT_NAME;
   const { modelId, temperature, contextLimit, outputLimit } =
-    resolveMainAgentModelParams(config, user, requestModel);
-  const system = await buildSystemPrompt(config, {
+    resolveMainAgentModelParams(effectiveConfig, user, requestModel);
+  const system = await buildSystemPrompt(effectiveConfig, {
     agentName,
     enableFollowUpSuggestions:
       (source.type === 'web' || source.type === 'im') &&
-      (config.chat?.follow_up_enabled ?? config.agentd?.follow_up_enabled) ===
-        true,
+      (effectiveConfig.chat?.follow_up_enabled ??
+        effectiveConfig.agentd?.follow_up_enabled) === true,
     responseLocale:
       source.type === 'im'
-        ? (source.locale ?? config.language?.bot_locale)
+        ? (source.locale ?? effectiveConfig.language?.bot_locale)
         : undefined,
     // Inject AGENTS.md content only for CLI sources — it is project-supplied
     // reference data forwarded by the CLI host, never synthesized on the web
@@ -232,7 +240,7 @@ export async function chatWorkflow(
     planMode,
   });
   const writable = createWritable();
-  const tools = await buildAgentTools(config, sessionId, {
+  const tools = await buildAgentTools(effectiveConfig, sessionId, {
     runId,
     agentName,
     allowDelegation: true,
@@ -249,7 +257,7 @@ export async function chatWorkflow(
   });
   const maxSteps = Math.max(
     1,
-    config.autonomy?.max_steps ?? DEFAULT_MAIN_MAX_STEPS,
+    effectiveConfig.autonomy?.max_steps ?? DEFAULT_MAIN_MAX_STEPS,
   );
   const instructionQueue: QueuedInstruction[] = [];
   let pendingPersistedInstructions: SerializedMessageForDB[] = [];
@@ -278,7 +286,7 @@ export async function chatWorkflow(
     if (parsed.providerName) {
       return parsed.providerName;
     }
-    const keys = Object.keys(config.models?.providers ?? {});
+    const keys = Object.keys(effectiveConfig.models?.providers ?? {});
     return keys[0] ?? modelId;
   })();
 
@@ -351,12 +359,12 @@ export async function chatWorkflow(
   });
 
   const providerOptions = await resolveAgentProviderOptions(
-    config,
+    effectiveConfig,
     modelId,
     thinkingLevel,
   );
   const agent = new DurableAgent({
-    model: createModelResolver(config, modelId),
+    model: createModelResolver(effectiveConfig, modelId),
     system,
     tools,
     temperature,
@@ -434,7 +442,7 @@ export async function chatWorkflow(
 
           const compressed = await compactAndPersistSummaryStep({
             sessionId,
-            config,
+            config: effectiveConfig,
             useTurnBasedSelection: true,
           });
           nextMessages = compressed.compressedMessages;
@@ -556,7 +564,7 @@ export async function chatWorkflow(
           await extractMemoriesFromSession({
             sessionId,
             userId: source.userId as string,
-            config,
+            config: effectiveConfig,
             user,
           });
         } catch (err) {

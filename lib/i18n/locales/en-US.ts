@@ -329,6 +329,15 @@ export const enUS = {
   'config.forms.models.addProvider': 'Add provider',
   'config.forms.models.bareModelHelp':
     'Bare model names resolve against your OpenAI Legacy provider. Use provider/model-id to target a specific provider.',
+  'config.forms.models.clientSpoof': 'Client spoof',
+  'config.forms.models.clientSpoofClaudeCode': 'Claude Code (Anthropic)',
+  'config.forms.models.clientSpoofCodex': 'Codex (OpenAI Responses)',
+  'config.forms.models.clientSpoofAntigravity': 'Antigravity (Google)',
+  'config.forms.models.clientSpoofHelp':
+    'Experimental. Changes client-identifying request headers and may result in provider account bans. Bound to the provider format: Claude Code → Anthropic; Codex → OpenAI Responses only (never OpenAI Legacy); Antigravity → Google (Gemini).',
+  'config.forms.models.clientSpoofOff': 'Off',
+  'config.forms.models.clientSpoofUnsupported':
+    'This profile is ignored for the current provider format.',
   'config.forms.models.defaultContextHelp':
     'Sets the default context window. Selecting a model only fills this when the field is empty.',
   'config.forms.models.defaultContextLimit': 'Default context limit',

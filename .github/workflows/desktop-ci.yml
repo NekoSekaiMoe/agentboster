@@ -104,16 +104,16 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install npm dependencies
         working-directory: subpackage/cli/packages/desktop
-        run: npm install
+        run: yarn install
 
       - name: TypeScript check
         working-directory: subpackage/cli/packages/desktop
-        run: npm run check
+        run: yarn check:lint
 
       - name: Frontend build
         working-directory: subpackage/cli/packages/desktop
-        run: npm run build:frontend
+        run: yarn build:frontend

@@ -17,6 +17,7 @@ import {
   HTTP_IDLE_TIMEOUT_CHOICES,
 } from '../../../core/http-dispatcher.ts';
 import type {
+  ClientSpoofSetting,
   DefaultProjectTrust,
   WarningSettings,
 } from '../../../core/settings-manager.ts';
@@ -88,6 +89,7 @@ export interface SettingsConfig {
   autocompleteMaxVisible: number;
   quietStartup: boolean;
   defaultProjectTrust: DefaultProjectTrust;
+  clientSpoof: ClientSpoofSetting;
   clearOnShrink: boolean;
   showTerminalProgress: boolean;
   warnings: WarningSettings;
@@ -121,6 +123,7 @@ export interface SettingsCallbacks {
   onDefaultProjectTrustChange: (
     defaultProjectTrust: DefaultProjectTrust,
   ) => void;
+  onClientSpoofChange: (clientSpoof: ClientSpoofSetting) => void;
   onClearOnShrinkChange: (enabled: boolean) => void;
   onShowTerminalProgressChange: (enabled: boolean) => void;
   onWarningsChange: (warnings: WarningSettings) => void;
@@ -574,6 +577,14 @@ export class SettingsSelectorComponent extends Container {
         values: ['sse', 'websocket', 'websocket-cached', 'auto'],
       },
       {
+        id: 'client-spoof',
+        label: 'Client spoof',
+        description:
+          'Experimental; may result in provider account bans. Bound to the provider port: claude-code → Anthropic, codex → OpenAI Responses (not OpenAI Legacy), antigravity → Google (Gemini).',
+        currentValue: str(config.clientSpoof),
+        values: ['off', 'claude-code', 'codex', 'antigravity'],
+      },
+      {
         id: 'http-idle-timeout',
         label: 'HTTP idle timeout',
         description:
@@ -836,6 +847,9 @@ export class SettingsSelectorComponent extends Container {
             break;
           case 'transport':
             callbacks.onTransportChange(newValue as Transport);
+            break;
+          case 'client-spoof':
+            callbacks.onClientSpoofChange(newValue as ClientSpoofSetting);
             break;
           case 'http-idle-timeout': {
             const choice = HTTP_IDLE_TIMEOUT_CHOICES.find(

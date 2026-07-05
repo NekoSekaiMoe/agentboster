@@ -28,6 +28,14 @@ export type AIProvider = z.infer<typeof aiProviderEnum>;
 export const openaiApiEnum = z.enum(['responses', 'chat', 'auto']);
 export type OpenAiApi = z.infer<typeof openaiApiEnum>;
 
+export const clientSpoofEnum = z.enum([
+  'off',
+  'claude-code',
+  'codex',
+  'antigravity',
+]);
+export type ClientSpoof = z.infer<typeof clientSpoofEnum>;
+
 /**
  * AI provider configuration schema.
  */
@@ -47,6 +55,12 @@ export const aiProviderConfigSchema = z.object({
     .optional()
     .describe(
       'Which OpenAI API endpoint to use when format=openai. "auto" picks "responses" for the official OpenAI base_url and "chat" for everything else.',
+    ),
+  client_spoof: clientSpoofEnum
+    .default('off')
+    .optional()
+    .describe(
+      'Experimental client impersonation profile, automatically bound to the provider format (port): "claude-code" → Anthropic only, "codex" → OpenAI Responses only (never OpenAI Legacy / Chat Completions), "antigravity" → Google (Gemini) only. The spoof is recognized from the port, so a profile set on the wrong port is ignored.',
     ),
 });
 

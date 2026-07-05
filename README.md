@@ -14,6 +14,9 @@
   <img alt="Go" src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-yellow" />
   <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-blue" />
+  <a href="https://deepwiki.com/NekoSekaiMoe/agentboster">
+    <img src="https://deepwiki.com/badge.svg" alt="DeepWiki" />
+  </a>
 </p>
 
 > [!NOTE]
@@ -23,7 +26,7 @@ AgentBoster 是多端协作的 AI 平台，由 **三个可独立部署/安装的
 
 - **Web（Next.js 15）**：浏览器 UI、会话与配置、IM 接入、Workflow 持久化编排、L2 审批与节点注册（Postgres）
 - **agentd（Go）**：Linux 守护进程，沙箱内执行工具、L0/L1/L2 安全、本地会话运行时与多节点心跳
-- **CLI（[agentboster-cli](./cli)，基于 [pi](https://github.com/earendil-works/pi)）**：终端编码 Agent；通过 `agentboster login` 配对到 Web 后端，所有模型调用、工具执行、会话持久化都由 Web 编排，CLI 仅作为瘦客户端负责本地 TUI 与 `local_*` 工具（在本机执行 shell/读写文件）
+- **CLI（[`agentboster`](./subpackage/cli)，基于 [pi](https://github.com/earendil-works/pi)）**：终端编码 Agent；通过 `agentboster login` 配对到 Web 后端，所有模型调用、模型/工具编排、会话持久化都由 Web 负责，CLI 仅作为瘦客户端负责本地 TUI 与 `local_*` 工具（在本机执行 shell/读写文件）
 
 Web 负责体验与编排，Daemon 负责执行隔离与安全边界，CLI 负责开发者本机终端场景；三者通过 HTTPS API 协作，部署环境可分开升级。
 
@@ -50,7 +53,7 @@ flowchart TB
   end
 
   subgraph tier3["③ CLI — agentboster 终端"]
-    CLI["coding-agent + adapter"]
+    CLI["@agentboster-cli/core + @agentboster/adapter"]
   end
 
   subgraph clients["用户接入"]
@@ -60,7 +63,7 @@ flowchart TB
 
   Browser --> UI
   IM --> API
-  CLI -->|"login 配对\n流式 API + local_* 工具结果"| API
+  CLI -->|"login token\n流式 API + local_* 工具结果"| API
 
   AD -->|"始终 HTTPS + API Key"| API
   API -->|"可选 mTLS 下发工具"| AD
@@ -151,7 +154,17 @@ CLI 的 `trigger: 'regenerate-message'` 复用同一条 chatMain:Web 侧 `delete
 - 交互 TUI 与 `--print` 非交互
 - `agentboster login` 写入 `~/.agentboster/config.json`，配对到 Web 后端
 - 所有 LLM 调用、模型/工具编排、会话持久化都由 Web 负责；CLI 仅运行 `local_*` 工具（本机 shell / 读写文件）
-- 打包：`cli/` 下 `npm run bundle` / `npm run package`
+- Yarn Classic monorepo：`packages/ai` → `packages/agent` → `packages/agentboster-adapter` → `packages/coding-agent`
+- `packages/desktop` 是独立 Tauri 桌面应用，不在 CLI 根 workspace 构建链内
+- 打包：`subpackage/cli/` 下 `yarn bundle` / `yarn package`
+
+| CLI 包 | 作用 |
+|--------|------|
+| `@agentboster-cli/core` (`packages/coding-agent`) | `agentboster` bin、TUI/打印模式、本机工具、扩展、会话树、HTML 导出 |
+| `@agentboster/adapter` (`packages/agentboster-adapter`) | 登录配置、远端模型目录、Web SSE 流、安全辅助函数 |
+| `@agentboster-cli/agent` (`packages/agent`) | Agent loop 与 session primitives |
+| `@agentboster-cli/ai` (`packages/ai`) | 类型与事件流接口、兼容 stub；不包含 provider SDK |
+| `@agentboster-cli/desktop` (`packages/desktop`) | 独立 Tauri 桌面壳，私有包，不属于根 workspace |
 
 ---
 
@@ -187,10 +200,10 @@ sudo ./agentd -config agentd.toml
 
 ```bash
 cd subpackage/cli
-npm install
-npm run build
+yarn install
+yarn build
 node packages/coding-agent/dist/cli.js --help
-agentboster login   # 使用 Web 时
+node packages/coding-agent/dist/cli.js login   # 配对 Web 后端
 ```
 
 完整说明：[`subpackage/cli/README.md`](./subpackage/cli/README.md)。
@@ -209,7 +222,7 @@ agentboster login   # 使用 Web 时
 | `AGENTD_CLIENT_CERT_PATH`、`AGENTD_CLIENT_KEY_PATH`、`AGENTD_CA_PATH` | 可选 mTLS 证书路径；仅 Web 主动调用 daemon 时需要（直连模式）。配合 `AGENTD_URL` 使用 |
 | `TAVILY_API_KEY` | 可选 |
 
-CLI 端无需 env 变量；登录信息写入 `~/.agentboster/config.json`。调试可设 `AGENTBOSTER_SESSION_ID`、`AGENTBOSTER_CLIENT_ID`（见 cli README）。
+CLI 端通常无需 env 变量；登录信息写入 `~/.agentboster/config.json`。可选调试/覆盖变量包括 `AGENTBOSTER_HOME`、`AGENTBOSTER_SESSION_ID`、`AGENTBOSTER_CLIENT_ID`、`AGENTBOSTER_MODEL`、`PI_OFFLINE`（见 CLI README）。
 
 ---
 
@@ -218,8 +231,8 @@ CLI 端无需 env 变量；登录信息写入 `~/.agentboster/config.json`。调
 | 范围 | 命令 |
 |------|------|
 | Web | `yarn dev`、`yarn build`、`yarn lint:check`、`yarn test`、`yarn db:push` |
-| agentd | `go test ./...`、`go build -o agentd ./cmd/agentd/`（在 `agentd/`） |
-| CLI | `npm run build`、`npm run check`（在 `cli/`） |
+| agentd | `go test ./...`、`go build -o agentd ./cmd/agentd/`（在 `subpackage/agentd/`） |
+| CLI | `yarn build`、`yarn check:lint`、`yarn bundle`、`yarn package`（在 `subpackage/cli/`） |
 
 ---
 

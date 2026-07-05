@@ -19,6 +19,7 @@ import {
   saveDesktopAppearanceProfiles,
 } from '../theme/appearance-profiles.js';
 import {
+  type ClientSpoof,
   type QueueMode,
   type RpcCompatibilityReport,
   rpcBridge,
@@ -56,6 +57,7 @@ interface SettingsState {
   autoRetryEnabled: boolean;
   steeringMode: QueueMode;
   followUpMode: QueueMode;
+  clientSpoof: ClientSpoof;
   piBinaryPath: string;
 }
 
@@ -97,6 +99,7 @@ export class SettingsPanel {
     autoRetryEnabled: true,
     steeringMode: 'one-at-a-time',
     followUpMode: 'one-at-a-time',
+    clientSpoof: 'off',
     piBinaryPath: '',
   };
   private onClose: (() => void) | null = null;
@@ -1100,6 +1103,9 @@ export class SettingsPanel {
           sessionState.steeringMode === 'all' ? 'all' : 'one-at-a-time';
         this.state.followUpMode =
           sessionState.followUpMode === 'all' ? 'all' : 'one-at-a-time';
+        this.state.clientSpoof = this.normalizeClientSpoof(
+          sessionState.clientSpoof,
+        );
       } catch {
         // ignore
       }
@@ -1124,6 +1130,7 @@ export class SettingsPanel {
       const saved = (await invoke('load_settings')) as {
         theme?: string;
         auto_retry?: boolean;
+        client_spoof?: string;
         pi_path?: string | null;
       };
       if (
@@ -1136,6 +1143,9 @@ export class SettingsPanel {
       }
       if (typeof saved.auto_retry === 'boolean') {
         this.state.autoRetryEnabled = saved.auto_retry;
+      }
+      if (!runtimeReady) {
+        this.state.clientSpoof = this.normalizeClientSpoof(saved.client_spoof);
       }
       const normalizedPiPath = this.normalizePiBinaryPath(saved.pi_path);
       this.state.piBinaryPath = normalizedPiPath ?? '';
@@ -1276,6 +1286,24 @@ export class SettingsPanel {
       await this.saveSettings();
     } catch (err) {
       console.error('Failed to set follow-up mode:', err);
+    }
+  }
+
+  private normalizeClientSpoof(value: unknown): ClientSpoof {
+    return value === 'claude-code' || value === 'codex' || value === 'antigravity'
+      ? value
+      : 'off';
+  }
+
+  private async setClientSpoof(clientSpoof: ClientSpoof): Promise<void> {
+    try {
+      const normalized = this.normalizeClientSpoof(clientSpoof);
+      await rpcBridge.setClientSpoof(normalized);
+      this.state.clientSpoof = normalized;
+      this.render();
+      await this.saveSettings();
+    } catch (err) {
+      console.error('Failed to set client spoof:', err);
     }
   }
 
@@ -1763,6 +1791,7 @@ export class SettingsPanel {
           auto_retry: this.state.autoRetryEnabled,
           steering_mode: this.state.steeringMode,
           follow_up_mode: this.state.followUpMode,
+          client_spoof: this.state.clientSpoof,
           model_provider: null,
           model_id: null,
           pi_path: this.normalizePiBinaryPath(this.state.piBinaryPath),
@@ -2090,6 +2119,19 @@ export class SettingsPanel {
               this.state.autoRetryEnabled,
               (v) => this.setAutoRetry(v),
             )}
+						<div class="settings-row">
+							<div>
+								<div class="settings-label">Client spoof</div>
+								<div class="settings-desc">Experimental. Changes client-identifying request headers and may result in provider account bans.</div>
+								<div class="settings-desc">Bound to the provider port: Claude Code → Anthropic, Codex → OpenAI Responses only (never OpenAI Legacy), Antigravity → Google (Gemini).</div>
+							</div>
+							<select class="settings-select" .value=${this.state.clientSpoof} @change=${(e: Event) => this.setClientSpoof((e.target as HTMLSelectElement).value as ClientSpoof)}>
+								<option value="off">Off</option>
+								<option value="claude-code">Claude Code (Anthropic)</option>
+								<option value="codex">Codex (OpenAI Responses)</option>
+								<option value="antigravity">Antigravity (Google)</option>
+							</select>
+						</div>
 					</div>
 				</section>
 

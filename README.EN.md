@@ -13,6 +13,9 @@
   <img alt="Go" src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-yellow" />
   <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-blue" />
+  <a href="https://deepwiki.com/NekoSekaiMoe/agentboster">
+    <img src="https://deepwiki.com/badge.svg" alt="DeepWiki" />
+  </a>
 </p>
 
 > [!NOTE]
@@ -22,7 +25,7 @@ AgentBoster is a multi-surface AI platform made of **three independently deploya
 
 - **Web (Next.js 15)**: browser UI, sessions and config, IM integration, durable Workflow orchestration, L2 approvals, and node registry (Postgres)
 - **agentd (Go)**: Linux daemon for sandboxed tools, L0/L1/L2 security, local session runtime, and multi-node heartbeats
-- **CLI (`agentboster`)**: terminal coding agent; direct provider APIs or the same Web streaming backend via `login` + `AGENTBOSTER_URL`
+- **CLI ([`agentboster`](./subpackage/cli), based on [pi](https://github.com/earendil-works/pi))**: terminal coding agent; pairs to the Web backend with `agentboster login`. All model calls, model/tool orchestration, and session persistence are owned by Web; the CLI is a thin client for local TUI UX and `local_*` tools (shell / file I/O on the user's machine).
 
 Web owns UX and orchestration, the daemon owns execution isolation and safety, and the CLI owns local developer terminals. They cooperate over HTTPS APIs and can be upgraded on different schedules.
 
@@ -49,7 +52,7 @@ flowchart TB
   end
 
   subgraph tier3["③ CLI — agentboster terminal"]
-    CLI["coding-agent + adapter"]
+    CLI["@agentboster-cli/core + @agentboster/adapter"]
   end
 
   subgraph clients["User entry"]
@@ -59,7 +62,7 @@ flowchart TB
 
   Browser --> UI
   IM --> API
-  CLI -->|"login + AGENTBOSTER_URL\nstreaming API"| API
+  CLI -->|"login token\nstreaming API + local_* results"| API
 
   AD -->|"always HTTPS + API Key"| API
   API -->|"optional mTLS tools"| AD
@@ -71,7 +74,7 @@ flowchart TB
 |-------|------|----------------|
 | **Web** | Sessions, IM routing, config UI, workflow state, L2 UX, node table | Long-lived shell in your VPC (unless delegated to agentd) |
 | **agentd** | Sandbox exec/file/browser tools, host L0/L1, local cache and metrics | Primary DB persistence (syncs via Web APIs) |
-| **CLI** | TUI / print mode, local provider keys, `agentboster login` remote stream | Server-side IM or authoritative workflow state |
+| **CLI** | TUI / print mode, `agentboster login` pairing, local `local_*` execution | Server-side IM, model/tool orchestration, or authoritative workflow state |
 
 ### Platform pillars
 
@@ -107,7 +110,7 @@ The three tiers communicate only through **narrow HTTP contracts** — no shared
 | Web → agentd | `POST /api/v1/tools/exec` (optional, only when node URL is reachable) | `AGENTD_CLIENT_*` mTLS |
 
 - Web does not need to know agentd / CLI internals — it only speaks HTTP bodies and event schemas.
-- agentd is an independent Go module (`agentd/`), CLI is an independent Yarn Classic monorepo (`cli/`); each has its own `AGENTS.md`, toolchain and release cycle.
+- agentd is an independent Go module (`subpackage/agentd/`), CLI is an independent Yarn Classic monorepo (`subpackage/cli/`); each has its own `AGENTS.md`, toolchain and release cycle.
 - The model context window size (`resolveModelContextLimit`) is resolved in one place on Web and shipped to CLI and IM via `/api/cli/models`, so the three tiers never maintain divergent context tables.
 
 #### Strong security — three defense lines + mutual auth
@@ -148,9 +151,19 @@ Tool execution always crosses **three independent security checks**, any one of 
 ### CLI
 
 - Interactive TUI and `--print` non-interactive mode
-- `agentboster login` → `~/.agentboster/config.json`
-- `AGENTBOSTER_URL` and related env for Web; or local provider API keys only
-- Release: `npm run bundle` / `npm run package` under `cli/`
+- `agentboster login` writes `~/.agentboster/config.json` and pairs with the Web backend
+- All LLM calls, model/tool orchestration, and session persistence are owned by Web; the CLI only runs `local_*` tools (local shell / file I/O)
+- Yarn Classic monorepo: `packages/ai` → `packages/agent` → `packages/agentboster-adapter` → `packages/coding-agent`
+- `packages/desktop` is a separate Tauri desktop app and is not part of the CLI root workspace build chain
+- Release: `yarn bundle` / `yarn package` under `subpackage/cli/`
+
+| CLI package | Role |
+|-------------|------|
+| `@agentboster-cli/core` (`packages/coding-agent`) | `agentboster` bin, TUI / print mode, local tools, extensions, session tree, HTML export |
+| `@agentboster/adapter` (`packages/agentboster-adapter`) | Stored auth, remote model catalog, Web SSE stream, security helpers |
+| `@agentboster-cli/agent` (`packages/agent`) | Agent loop and session primitives |
+| `@agentboster-cli/ai` (`packages/ai`) | Type and event-stream surface, compatibility stubs; no provider SDKs |
+| `@agentboster-cli/desktop` (`packages/desktop`) | Separate private Tauri desktop shell, outside the root workspace |
 
 ---
 
@@ -186,10 +199,10 @@ Full guide: [`subpackage/agentd/README.md`](./subpackage/agentd/README.md).
 
 ```bash
 cd subpackage/cli
-npm install
-npm run build
+yarn install
+yarn build
 node packages/coding-agent/dist/cli.js --help
-agentboster login   # when using Web backend
+node packages/coding-agent/dist/cli.js login   # pair with Web backend
 ```
 
 Full guide: [`subpackage/cli/README.md`](./subpackage/cli/README.md).
@@ -208,7 +221,7 @@ Full guide: [`subpackage/cli/README.md`](./subpackage/cli/README.md).
 | `AGENTD_CLIENT_CERT_PATH`, `AGENTD_CLIENT_KEY_PATH`, `AGENTD_CA_PATH` | Optional mTLS certificate paths; only needed when Web actively calls daemon (direct connection mode). Used with `AGENTD_URL` |
 | `TAVILY_API_KEY` | Optional |
 
-CLI: `AGENTBOSTER_URL`, `AGENTBOSTER_SESSION_ID`, `AGENTBOSTER_CLIENT_ID` (see cli README).
+CLI usually needs no env vars; login writes `~/.agentboster/config.json`. Optional debug/override vars include `AGENTBOSTER_HOME`, `AGENTBOSTER_SESSION_ID`, `AGENTBOSTER_CLIENT_ID`, `AGENTBOSTER_MODEL`, and `PI_OFFLINE` (see the CLI README).
 
 ---
 
@@ -217,8 +230,8 @@ CLI: `AGENTBOSTER_URL`, `AGENTBOSTER_SESSION_ID`, `AGENTBOSTER_CLIENT_ID` (see c
 | Scope | Commands |
 |-------|----------|
 | Web | `yarn dev`, `yarn build`, `yarn lint:check`, `yarn test`, `yarn db:push` |
-| agentd | `go test ./...`, `go build -o agentd ./cmd/agentd/` (from `agentd/`) |
-| CLI | `npm run build`, `npm run check` (from `cli/`) |
+| agentd | `go test ./...`, `go build -o agentd ./cmd/agentd/` (from `subpackage/agentd/`) |
+| CLI | `yarn build`, `yarn check:lint`, `yarn bundle`, `yarn package` (from `subpackage/cli/`) |
 
 ---
 

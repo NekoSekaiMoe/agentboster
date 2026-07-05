@@ -11,7 +11,7 @@
 		"build:frontend": "npx vite build",
 		"build": "tauri build",
 		"preview": "vite preview",
-		"check": "tsc --noEmit"
+		"check:lint": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@mariozechner/mini-lit": "^0.2.0",

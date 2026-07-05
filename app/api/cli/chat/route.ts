@@ -11,6 +11,7 @@ import {
   chatMessageMetadataSchema,
   workflowDataSchema,
 } from '@/types/workflow';
+import { clientSpoofEnum } from '@/types/config/ai';
 import { createUIMessageStreamResponse, validateUIMessages } from 'ai';
 import { z } from 'zod';
 
@@ -61,6 +62,8 @@ const requestSchema = z.object({
   // thinking.budgetTokens, Google thinkingConfig.thinkingBudget).
   // 'off' / undefined = no reasoning field is sent.
   thinkingLevel: z.string().optional(),
+  // Experimental client impersonation profile from CLI/Desktop settings.
+  clientSpoof: clientSpoofEnum.optional(),
 });
 
 function getInputPayload(
@@ -190,6 +193,7 @@ export async function POST(request: Request) {
           body.thinkingLevel.length > 0
             ? body.thinkingLevel
             : undefined,
+        clientSpoof: body.clientSpoof,
       },
       {
         source: {

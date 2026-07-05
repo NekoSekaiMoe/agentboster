@@ -88,6 +88,8 @@ export interface WebStreamOptions {
    *  Anthropic thinking.budgetTokens, Google thinkingConfig.thinkingBudget).
    *  'off' / undefined = no reasoning field is sent. */
   thinkingLevel?: string;
+  /** Experimental provider client spoof profile. */
+  clientSpoof?: string;
 }
 
 function lastUserText(messages: Context['messages']): string {
@@ -220,6 +222,11 @@ async function driveStream(
         typeof options.thinkingLevel === 'string' &&
         options.thinkingLevel.length > 0
           ? options.thinkingLevel
+          : undefined,
+      clientSpoof:
+        typeof options.clientSpoof === 'string' &&
+        options.clientSpoof.length > 0
+          ? options.clientSpoof
           : undefined,
     }),
     signal: options.signal,

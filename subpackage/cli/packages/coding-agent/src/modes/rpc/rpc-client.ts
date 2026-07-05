@@ -14,6 +14,7 @@ import type { ImageContent } from '@agentboster-cli/ai';
 import type { SessionStats } from '../../core/agent-session.ts';
 import type { BashResult } from '../../core/bash-executor.ts';
 import type { CompactionResult } from '../../core/compaction/index.ts';
+import type { ClientSpoofSetting } from '../../core/settings-manager.ts';
 import type {
   DiscoveredMcpService,
   RunningMcpService,
@@ -324,6 +325,10 @@ export class RpcClient {
    */
   async setFollowUpMode(mode: 'all' | 'one-at-a-time'): Promise<void> {
     await this.send({ type: 'set_follow_up_mode', mode });
+  }
+
+  async setClientSpoof(clientSpoof: ClientSpoofSetting): Promise<void> {
+    await this.send({ type: 'set_client_spoof', clientSpoof });
   }
 
   /**

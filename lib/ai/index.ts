@@ -116,6 +116,13 @@ export function resolveLanguageModel(modelId: string, config: AppConfig) {
     api_key: providerConfig.api_key,
     base_url: providerConfig.base_url,
     headers: providerConfig.headers,
+    client_spoof: providerConfig.client_spoof,
+    openai_api:
+      providerConfig.format === 'openai'
+        ? useChatApi
+          ? 'chat'
+          : 'responses'
+        : undefined,
   });
 
   return getLanguageModel(providerModelId, provider, useChatApi);
@@ -144,6 +151,11 @@ function shouldUseChatApi(providerConfig: AIProviderConfig): boolean {
   if (providerConfig?.format !== 'openai') {
     return false;
   }
+
+  // NOTE: client_spoof no longer forces the Responses API. A 'codex' spoof
+  // only applies when the endpoint actually resolves to Responses (see
+  // resolveLanguageModel's openai_api wiring); on OpenAI Legacy (Chat
+  // Completions) the spoof is dropped, so legacy endpoints stay honest.
 
   const choice = providerConfig.openai_api ?? 'auto';
 
@@ -214,6 +226,7 @@ export function resolveEmbeddingModel(modelId: string, config: AppConfig) {
     api_key: providerConfig.api_key,
     base_url: providerConfig.base_url,
     headers: providerConfig.headers,
+    client_spoof: providerConfig.client_spoof,
   });
 
   return getEmbeddingModel(providerModelId, provider);
@@ -280,6 +293,7 @@ export function resolveSpeechModel(modelId: string, config: AppConfig) {
     api_key: providerConfig.api_key,
     base_url: providerConfig.base_url,
     headers: providerConfig.headers,
+    client_spoof: providerConfig.client_spoof,
   });
 
   return getSpeechModel(providerModelId, provider);

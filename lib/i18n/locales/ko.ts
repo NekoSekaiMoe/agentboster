@@ -330,6 +330,15 @@ export const ko = {
   'config.forms.models.addProvider': '공급자 추가',
   'config.forms.models.bareModelHelp':
     '단독 모델 이름은 OpenAI Legacy 공급자로 해석됩니다. 특정 공급자를 지정하려면 provider/model-id를 사용하세요.',
+  'config.forms.models.clientSpoof': '클라이언트 위장',
+  'config.forms.models.clientSpoofClaudeCode': 'Claude Code (Anthropic)',
+  'config.forms.models.clientSpoofCodex': 'Codex (OpenAI Responses)',
+  'config.forms.models.clientSpoofAntigravity': 'Antigravity (Google)',
+  'config.forms.models.clientSpoofHelp':
+    '실험 기능입니다. 클라이언트 식별 요청 헤더를 변경하며 provider 계정이 차단될 수 있습니다. Claude Code는 Anthropic에만, Codex는 OpenAI Responses에만 적용되며 OpenAI Legacy에는 적용되지 않습니다.',
+  'config.forms.models.clientSpoofOff': '끄기',
+  'config.forms.models.clientSpoofUnsupported':
+    '현재 provider 형식에서는 이 프로필이 무시됩니다.',
   'config.forms.models.defaultContextHelp':
     '기본 컨텍스트 창을 설정합니다. 모델을 선택하면 필드가 비어 있을 때만 이 값을 채웁니다.',
   'config.forms.models.defaultContextLimit': '기본 컨텍스트 제한',
