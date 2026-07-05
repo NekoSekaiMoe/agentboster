@@ -38,3 +38,10 @@ export {
 export { vaultAuditLogs, vaultEntries } from './vault';
 export { l2Decisions } from './l2-decisions';
 export type { L2Decision, NewL2Decision } from './l2-decisions';
+export { agentBarriers, agentBarrierReleases } from './agent-barriers';
+export type {
+  AgentBarrier,
+  NewAgentBarrier,
+  AgentBarrierRelease,
+  NewAgentBarrierRelease,
+} from './agent-barriers';
