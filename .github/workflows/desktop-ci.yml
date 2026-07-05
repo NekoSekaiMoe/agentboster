@@ -86,7 +86,8 @@ jobs:
             libpipewire-0.3-dev \
             libspa-0.2-dev \
             libwayland-dev \
-            libegl-dev
+            libegl-dev \
+            libgbm-dev
 
       - name: Rust check (cargo check)
         working-directory: subpackage/cli/packages/desktop

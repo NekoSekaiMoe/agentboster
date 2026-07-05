@@ -349,6 +349,7 @@ jobs:
             libspa-0.2-dev \
             libwayland-dev \
             libegl-dev \
+            libgbm-dev \
             xdg-utils
 
       - name: Install npm dependencies
