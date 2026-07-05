@@ -50,3 +50,10 @@ export type {
   AgentHandoff,
   NewAgentHandoff,
 } from './agent-handoffs';
+export { agentSubagentBatches, agentSubagentJobs } from './agent-subagents';
+export type {
+  AgentSubagentBatch,
+  NewAgentSubagentBatch,
+  AgentSubagentJob,
+  NewAgentSubagentJob,
+} from './agent-subagents';

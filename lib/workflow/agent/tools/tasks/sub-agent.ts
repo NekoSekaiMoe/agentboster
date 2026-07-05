@@ -23,131 +23,38 @@ const SUB_AGENT_MAX_STEPS = 12;
 const DEFAULT_MAX_PARALLEL_SUBAGENTS = 3;
 const logger = createLogger('workflow.agent.tools.sub-agent');
 
-type PersistedSubagentStatus =
-  | 'queued'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'cancelled';
+// ── Runtime (in-process hot cache) ────────────────────────────────
+//
+// Phase C-full: persistence moved to agentSubagentBatches/agentSubagentJobs
+// tables. The in-process Map only retains AbortControllers + Promise
+// handles, which can't be persisted. If the workflow process restarts
+// mid-batch, the jobs' abort controllers are lost (already-running
+// sub-agent.stream calls will continue until they finish or the workflow
+// run itself cancels), but the DB rows still reflect each job's last
+// persisted status. The cancel() action falls back to writing
+// status='cancelled' directly to the DB when no controller is present.
 
-interface PersistedSubagentJob {
+interface RuntimeJob {
   subagentId: string;
-  batchId: string;
-  agentName: string;
-  task: string;
-  status: PersistedSubagentStatus;
-  modelId?: string;
-  steps?: number;
-  summary?: string;
-  error?: string;
-  startedAt?: string;
-  finishedAt?: string;
-}
-
-interface PersistedSubagentBatch {
-  batchId: string;
-  status: 'running' | 'completed' | 'failed' | 'cancelled';
-  createdAt: string;
-  updatedAt: string;
-  concurrencyLimit: number;
-  jobs: string[];
-  succeeded: number;
-  failed: number;
-  cancelled: number;
-}
-
-interface PersistedSubagentState {
-  batches: Record<string, PersistedSubagentBatch>;
-  jobs: Record<string, PersistedSubagentJob>;
-}
-
-interface RuntimeSubagentJob {
-  subagentId: string;
-  batchId: string;
-  agentName: string;
-  task: string;
-  status: PersistedSubagentStatus;
   controller: AbortController;
   promise: Promise<void>;
-  modelId?: string;
-  steps?: number;
-  summary?: string;
-  error?: string;
-  startedAt?: string;
-  finishedAt?: string;
 }
-
-interface RuntimeSubagentBatch {
+interface RuntimeBatch {
   sessionId: string;
   batchId: string;
-  concurrencyLimit: number;
-  createdAt: string;
-  jobs: Map<string, RuntimeSubagentJob>;
+  jobs: Map<string, RuntimeJob>;
 }
 
-const activeSubagentBatches = new Map<string, RuntimeSubagentBatch>();
+const activeSubagentBatches = new Map<string, RuntimeBatch>();
 
 function createSubagentId(): string {
   return `wf-subagent-${Math.random().toString(36).slice(2, 10)}`;
 }
-
 function createBatchId(): string {
   return `wf-subagent-batch-${Math.random().toString(36).slice(2, 10)}`;
 }
-
 function getBatchRegistryKey(sessionId: string, batchId: string): string {
   return `${sessionId}:${batchId}`;
-}
-
-function getPersistedSubagentState(metadata: unknown): PersistedSubagentState {
-  const root =
-    metadata && typeof metadata === 'object'
-      ? (metadata as Record<string, unknown>)
-      : {};
-  const raw =
-    root.workflowSubagents && typeof root.workflowSubagents === 'object'
-      ? (root.workflowSubagents as Record<string, unknown>)
-      : {};
-  return {
-    batches:
-      raw.batches && typeof raw.batches === 'object'
-        ? (raw.batches as Record<string, PersistedSubagentBatch>)
-        : {},
-    jobs:
-      raw.jobs && typeof raw.jobs === 'object'
-        ? (raw.jobs as Record<string, PersistedSubagentJob>)
-        : {},
-  };
-}
-
-async function readPersistedSubagentStateStep(
-  sessionId: string,
-): Promise<PersistedSubagentState> {
-  'use step';
-
-  const { getSession } = await import('@/lib/core/db/chat');
-  const session = await getSession(sessionId);
-  return getPersistedSubagentState(session?.metadata ?? null);
-}
-
-async function writePersistedSubagentStateStep(input: {
-  sessionId: string;
-  next: PersistedSubagentState;
-}): Promise<void> {
-  'use step';
-
-  const { getSession, updateSession } = await import('@/lib/core/db/chat');
-  const session = await getSession(input.sessionId);
-  if (!session) {
-    return;
-  }
-
-  await updateSession(input.sessionId, {
-    metadata: {
-      ...(session.metadata ?? {}),
-      workflowSubagents: input.next,
-    },
-  });
 }
 
 function getSubagentConcurrencyLimit(
@@ -165,14 +72,10 @@ async function mapWithConcurrencyLimit<T, R>(
   limit: number,
   worker: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  if (items.length === 0) {
-    return [];
-  }
-
+  if (items.length === 0) return [];
   const maxWorkers = Math.max(1, Math.min(limit, items.length));
   const results = new Array<R>(items.length);
   let nextIndex = 0;
-
   await Promise.all(
     Array.from({ length: maxWorkers }, async () => {
       while (nextIndex < items.length) {
@@ -182,16 +85,156 @@ async function mapWithConcurrencyLimit<T, R>(
       }
     }),
   );
-
   return results;
 }
 
-function summarizeBatchResults(
-  input: {
+// ── DB persistence (use-step wrappers) ────────────────────────────
+
+async function persistBatchCreateStep(input: {
+  sessionId: string;
+  runId: string;
+  batchId: string;
+  concurrencyLimit: number;
+  barrierId?: string;
+  jobs: Array<{ subagentId: string; agentName: string; task: string }>;
+}): Promise<void> {
+  'use step';
+  const { createBatch } = await import('@/lib/core/db/agent-subagents');
+  await createBatch({
+    batchId: input.batchId,
+    sessionId: input.sessionId,
+    runId: input.runId,
+    barrierId: input.barrierId,
+    concurrencyLimit: input.concurrencyLimit,
+    jobs: input.jobs,
+  });
+}
+
+async function persistJobStatusStep(input: {
+  subagentId: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  modelId?: string;
+  steps?: number;
+  summary?: string;
+  error?: string;
+}): Promise<void> {
+  'use step';
+  const { updateJobStatus } = await import('@/lib/core/db/agent-subagents');
+  await updateJobStatus(input);
+}
+
+async function loadBatchStep(
+  sessionId: string,
+  batchId: string,
+): Promise<{
+  batch: {
+    batchId: string;
+    status: string;
     concurrencyLimit: number;
     succeeded: number;
     failed: number;
-  },
+    cancelled: number;
+    barrierId: string | null;
+  } | null;
+  jobs: Array<{
+    subagentId: string;
+    agentName: string;
+    task: string;
+    status: string;
+    modelId: string | null;
+    steps: number | null;
+    summary: string | null;
+    error: string | null;
+  }>;
+}> {
+  'use step';
+  const { getBatchWithJobs, migrateBatchFromLegacyMetadata } = await import(
+    '@/lib/core/db/agent-subagents'
+  );
+  const { getSession } = await import('@/lib/core/db/chat');
+
+  let result = await getBatchWithJobs(batchId);
+
+  // Lazy legacy migration: if the batch is missing from the new tables
+  // but exists in sessions.metadata.workflowSubagents (the pre-C-full
+  // persistence path), backfill it transparently.
+  if (!result) {
+    const session = await getSession(sessionId);
+    const meta = (session?.metadata ?? {}) as Record<string, unknown>;
+    const legacy = (meta.workflowSubagents ?? {}) as {
+      batches?: Record<string, unknown>;
+      jobs?: Record<string, unknown>;
+    };
+    if (legacy.batches && legacy.batches[batchId]) {
+      result = await migrateBatchFromLegacyMetadata({
+        sessionId,
+        batchId,
+        legacy: {
+          batches: legacy.batches,
+          jobs: legacy.jobs ?? {},
+        },
+      });
+    }
+  }
+
+  if (!result) {
+    return { batch: null, jobs: [] };
+  }
+  return {
+    batch: {
+      batchId: result.batch.batchId,
+      status: result.batch.status,
+      concurrencyLimit: result.batch.concurrencyLimit,
+      succeeded: result.batch.succeeded,
+      failed: result.batch.failed,
+      cancelled: result.batch.cancelled,
+      barrierId: result.batch.barrierId,
+    },
+    jobs: result.jobs.map((j) => ({
+      subagentId: j.subagentId,
+      agentName: j.agentName,
+      task: j.task,
+      status: j.status,
+      modelId: j.modelId,
+      steps: j.steps,
+      summary: j.summary,
+      error: j.error,
+    })),
+  };
+}
+
+async function cancelBatchJobsStep(
+  batchId: string,
+  reason: string,
+): Promise<void> {
+  'use step';
+  const { cancelBatchJobs } = await import('@/lib/core/db/agent-subagents');
+  await cancelBatchJobs(batchId, reason);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+
+function getMessageText(message: ModelMessage): string {
+  if (typeof message.content === 'string') return message.content;
+  return message.content
+    .flatMap((part) =>
+      'text' in part && typeof part.text === 'string' ? [part.text] : [],
+    )
+    .join('');
+}
+
+function getFinalAssistantText(messages: ModelMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m?.role !== 'assistant') continue;
+    const text = getMessageText(m).trim();
+    if (text.length > 0) return text;
+  }
+  return '';
+}
+
+function summarizeBatchResults(
+  input: { concurrencyLimit: number; succeeded: number; failed: number },
   results: Array<
     | {
         ok: true;
@@ -202,21 +245,15 @@ function summarizeBatchResults(
         steps: number;
         response: string;
       }
-    | {
-        ok: false;
-        task: string;
-        agentName: string;
-        error: string;
-      }
+    | { ok: false; task: string; agentName: string; error: string }
   >,
 ): string {
   const header = [
-    `Batch sub-agent run complete.`,
+    'Batch sub-agent run complete.',
     `Concurrency limit: ${input.concurrencyLimit}`,
     `Succeeded: ${input.succeeded}`,
     `Failed: ${input.failed}`,
   ].join('\n');
-
   const body = results
     .map((item, index) => {
       if (item.ok) {
@@ -227,7 +264,6 @@ function summarizeBatchResults(
           `Summary: ${item.response}`,
         ].join('\n');
       }
-
       return [
         `${index + 1}. [failed] ${item.agentName}`,
         `Task: ${item.task}`,
@@ -235,112 +271,10 @@ function summarizeBatchResults(
       ].join('\n');
     })
     .join('\n\n');
-
   return `${header}\n\n${body}`;
 }
 
-function snapshotRuntimeBatch(
-  runtimeBatch: RuntimeSubagentBatch,
-): PersistedSubagentState {
-  const jobs: Record<string, PersistedSubagentJob> = {};
-  let succeeded = 0;
-  let failed = 0;
-  let cancelled = 0;
-
-  for (const job of runtimeBatch.jobs.values()) {
-    if (job.status === 'completed') succeeded += 1;
-    if (job.status === 'failed') failed += 1;
-    if (job.status === 'cancelled') cancelled += 1;
-    jobs[job.subagentId] = {
-      subagentId: job.subagentId,
-      batchId: job.batchId,
-      agentName: job.agentName,
-      task: job.task,
-      status: job.status,
-      modelId: job.modelId,
-      steps: job.steps,
-      summary: job.summary,
-      error: job.error,
-      startedAt: job.startedAt,
-      finishedAt: job.finishedAt,
-    };
-  }
-
-  const total = runtimeBatch.jobs.size;
-  const batchStatus: PersistedSubagentBatch['status'] =
-    cancelled === total
-      ? 'cancelled'
-      : failed > 0
-        ? 'failed'
-        : succeeded === total
-          ? 'completed'
-          : 'running';
-
-  return {
-    batches: {
-      [runtimeBatch.batchId]: {
-        batchId: runtimeBatch.batchId,
-        status: batchStatus,
-        createdAt: runtimeBatch.createdAt,
-        updatedAt: new Date().toISOString(),
-        concurrencyLimit: runtimeBatch.concurrencyLimit,
-        jobs: Array.from(runtimeBatch.jobs.keys()),
-        succeeded,
-        failed,
-        cancelled,
-      },
-    },
-    jobs,
-  };
-}
-
-async function syncPersistedRuntimeBatchStep(
-  sessionId: string,
-  runtimeBatch: RuntimeSubagentBatch,
-): Promise<PersistedSubagentState> {
-  const snapshot = snapshotRuntimeBatch(runtimeBatch);
-  const existing = await readPersistedSubagentStateStep(sessionId);
-  const next: PersistedSubagentState = {
-    batches: {
-      ...existing.batches,
-      ...snapshot.batches,
-    },
-    jobs: {
-      ...existing.jobs,
-      ...snapshot.jobs,
-    },
-  };
-  await writePersistedSubagentStateStep({ sessionId, next });
-  return next;
-}
-
-function getMessageText(message: ModelMessage): string {
-  if (typeof message.content === 'string') {
-    return message.content;
-  }
-
-  return message.content
-    .flatMap((part) =>
-      'text' in part && typeof part.text === 'string' ? [part.text] : [],
-    )
-    .join('');
-}
-
-function getFinalAssistantText(messages: ModelMessage[]): string {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== 'assistant') {
-      continue;
-    }
-
-    const text = getMessageText(message).trim();
-    if (text.length > 0) {
-      return text;
-    }
-  }
-
-  return '';
-}
+// ── Sub-agent runner ──────────────────────────────────────────────
 
 async function runSubagent(
   context: Parameters<
@@ -348,10 +282,7 @@ async function runSubagent(
   >[1],
   agentName: string,
   task: string,
-  options?: {
-    subagentId?: string;
-    abortSignal?: AbortSignal;
-  },
+  options?: { subagentId?: string; abortSignal?: AbortSignal },
 ): Promise<{
   subagentId: string;
   agentName: string;
@@ -365,9 +296,7 @@ async function runSubagent(
   const system = await buildSystemPrompt(context.appConfig, {
     agentName,
     useConfiguredAgentPrompt: true,
-    delegation: {
-      parentAgentName: context.agentName,
-    },
+    delegation: { parentAgentName: context.agentName },
     sessionId: context.sessionId,
   });
   const tools = await context.buildNestedTools({
@@ -424,10 +353,9 @@ Return a concise result with findings, actions taken, and any blockers or assump
     const response =
       getFinalAssistantText(result.messages) ||
       result.steps
-        .map((step) => step.text.trim())
-        .filter((text) => text.length > 0)
+        .map((s) => s.text.trim())
+        .filter((t) => t.length > 0)
         .join('\n\n');
-
     await writeSubagentEvent({
       subagentId,
       subagentName: agentName,
@@ -437,7 +365,6 @@ Return a concise result with findings, actions taken, and any blockers or assump
       steps: result.steps.length,
       modelId,
     });
-
     return {
       subagentId,
       agentName,
@@ -447,46 +374,95 @@ Return a concise result with findings, actions taken, and any blockers or assump
     };
   } catch (error) {
     if (options?.abortSignal?.aborted) {
-      const cancelledMessage =
-        error instanceof Error ? error.message : 'Cancelled by user';
+      const msg = error instanceof Error ? error.message : 'Cancelled by user';
       await writeSubagentEvent({
         subagentId,
         subagentName: agentName,
         event: 'failed',
         task,
-        error: cancelledMessage,
+        error: msg,
         modelId,
       });
-      throw new Error(`Cancelled: ${cancelledMessage}`);
+      throw new Error(`Cancelled: ${msg}`);
     }
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const msg = error instanceof Error ? error.message : String(error);
     await writeSubagentEvent({
       subagentId,
       subagentName: agentName,
       event: 'failed',
       task,
-      error: errorMessage,
+      error: msg,
       modelId,
     });
     throw error;
   }
 }
 
+// Shared worker body for spawn + spawn_async. Updates both the runtime
+// cache (for abort) and the DB (for durability). The optional
+// onTerminal callback lets spawn_async hook in a barrier release.
+async function executeSubagentJob(
+  context: Parameters<
+    NonNullable<ReturnType<typeof defineBuildInTool>['factory']>
+  >[1],
+  job: { subagentId: string; agentName: string; task: string },
+  controller: AbortController,
+  onTerminal?: (result: {
+    status: 'completed' | 'failed' | 'cancelled';
+    modelId?: string;
+    steps?: number;
+    summary?: string;
+    error?: string;
+  }) => Promise<void>,
+): Promise<void> {
+  await persistJobStatusStep({
+    subagentId: job.subagentId,
+    status: 'running',
+  });
+  try {
+    const r = await runSubagent(context, job.agentName, job.task, {
+      subagentId: job.subagentId,
+      abortSignal: controller.signal,
+    });
+    await persistJobStatusStep({
+      subagentId: job.subagentId,
+      status: 'completed',
+      modelId: r.modelId,
+      steps: r.steps,
+      summary: r.response,
+    });
+    await onTerminal?.({
+      status: 'completed',
+      modelId: r.modelId,
+      steps: r.steps,
+      summary: r.response,
+    });
+  } catch (error) {
+    const status: 'failed' | 'cancelled' = controller.signal.aborted
+      ? 'cancelled'
+      : 'failed';
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    await persistJobStatusStep({
+      subagentId: job.subagentId,
+      status,
+      error: errorMsg,
+    });
+    await onTerminal?.({ status, error: errorMsg });
+  }
+}
+
+// ── Tool registration ─────────────────────────────────────────────
+
 export default defineBuildInTool({
   id: 'sub-agent',
   description: `Delegate a focused task to another configured agent in the same workflow.`,
   factory: async (_config, context) => {
-    if (!context.allowDelegation) {
-      return null;
-    }
-
+    if (!context.allowDelegation) return null;
     const availableAgentNames = getDelegatableAgentNames(
       context.appConfig,
       context.agentName,
     );
-    if (availableAgentNames.length === 0) {
-      return null;
-    }
+    if (availableAgentNames.length === 0) return null;
 
     return {
       subAgent: tool({
@@ -511,14 +487,12 @@ export default defineBuildInTool({
             .min(1)
             .max(8)
             .optional(),
-          // spawn_async options.
           barrierMode: z
             .enum(['all', 'quorum', 'first_ok', 'first_fail'])
             .default('all')
             .optional()
             .describe(
-              'Release condition for the barrier created by spawn_async. ' +
-                'Default `all` (wait for every spawned job).',
+              'Release condition for the barrier created by spawn_async. Default `all`.',
             ),
           barrierTimeoutMs: z
             .number()
@@ -527,13 +501,13 @@ export default defineBuildInTool({
             .max(60 * 60 * 1000)
             .optional()
             .describe(
-              'Optional hard deadline (ms) on the spawn_async barrier. ' +
-                'After this elapses with no satisfying release, the barrier ' +
-                'is marked expired and waitForBarrier returns.',
+              'Optional hard deadline (ms) on the spawn_async barrier.',
             ),
         }),
         execute: async (input) => {
           const { action, agentName, task, batchId, tasks } = input;
+
+          // ── query / collect / cancel ────────────────────────────
           if (
             action === 'query' ||
             action === 'collect' ||
@@ -543,100 +517,90 @@ export default defineBuildInTool({
               throw new Error('batchId is required for query/collect/cancel.');
             }
 
-            const registryKey = getBatchRegistryKey(context.sessionId, batchId);
-            const runtimeBatch = activeSubagentBatches.get(registryKey);
-            const persisted = runtimeBatch
-              ? await syncPersistedRuntimeBatchStep(
-                  context.sessionId,
-                  runtimeBatch,
-                )
-              : await readPersistedSubagentStateStep(context.sessionId);
-            const batch = persisted.batches[batchId];
-            if (!batch) {
+            if (action === 'cancel') {
+              const registryKey = getBatchRegistryKey(
+                context.sessionId,
+                batchId,
+              );
+              const runtimeBatch = activeSubagentBatches.get(registryKey);
+              if (runtimeBatch) {
+                // Abort every in-flight job via its controller.
+                for (const job of runtimeBatch.jobs.values()) {
+                  job.controller.abort();
+                }
+              }
+              // Always write cancelled to DB (covers jobs whose
+              // controllers were lost across a process restart).
+              await cancelBatchJobsStep(batchId, 'Cancelled by user');
+            }
+
+            const loaded = await loadBatchStep(context.sessionId, batchId);
+            if (!loaded.batch) {
               throw new Error(`Unknown subagent batch: ${batchId}`);
             }
 
+            // Emit a stream event for cancel so the UI/CLI sees the
+            // cancellation even if no terminal event arrives from an
+            // aborted job. Matches the legacy payload shape so the CLI
+            // adapter (subpackage/cli/.../web-stream.ts) is unchanged.
             if (action === 'cancel') {
-              if (runtimeBatch) {
-                for (const job of runtimeBatch.jobs.values()) {
-                  if (job.status === 'queued' || job.status === 'running') {
-                    job.status = 'cancelled';
-                    job.finishedAt = new Date().toISOString();
-                    job.error = 'Cancelled by user';
-                    job.controller.abort();
-                  }
-                }
-                const next = await syncPersistedRuntimeBatchStep(
-                  context.sessionId,
-                  runtimeBatch,
-                );
-                await writeSubagentBatchEvent({
-                  batchId,
-                  event: 'cancelled',
-                  concurrencyLimit: batch.concurrencyLimit,
-                  total: batch.jobs.length,
-                  succeeded: next.batches[batchId]?.succeeded,
-                  failed: next.batches[batchId]?.failed,
-                  cancelled: next.batches[batchId]?.cancelled,
-                });
-                return {
-                  ok: true,
-                  mode: 'cancel',
-                  batchId,
-                  batch: next.batches[batchId],
-                };
-              }
-
+              await writeSubagentBatchEvent({
+                batchId,
+                event: 'cancelled',
+                concurrencyLimit: loaded.batch.concurrencyLimit,
+                total: loaded.jobs.length,
+                succeeded: loaded.batch.succeeded,
+                failed: loaded.batch.failed,
+                cancelled: loaded.batch.cancelled,
+              });
               return {
                 ok: true,
                 mode: 'cancel',
                 batchId,
-                batch,
+                batch: loaded.batch,
               };
             }
 
-            const jobs = batch.jobs
-              .map((jobId) => persisted.jobs[jobId])
-              .filter(Boolean);
+            // query / collect: surface the human-readable summary.
             const response = summarizeBatchResults(
               {
-                concurrencyLimit: batch.concurrencyLimit,
-                succeeded: batch.succeeded,
-                failed: batch.failed + batch.cancelled,
+                concurrencyLimit: loaded.batch.concurrencyLimit,
+                succeeded: loaded.batch.succeeded,
+                failed: loaded.batch.failed + loaded.batch.cancelled,
               },
-              jobs.map((job) =>
-                job.status === 'completed'
+              loaded.jobs.map((j) =>
+                j.status === 'completed'
                   ? {
                       ok: true as const,
-                      task: job.task,
-                      subagentId: job.subagentId,
-                      agentName: job.agentName,
-                      modelId: job.modelId ?? 'unknown',
-                      steps: job.steps ?? 0,
-                      response: job.summary ?? '',
+                      task: j.task,
+                      subagentId: j.subagentId,
+                      agentName: j.agentName,
+                      modelId: j.modelId ?? 'unknown',
+                      steps: j.steps ?? 0,
+                      response: j.summary ?? '',
                     }
                   : {
                       ok: false as const,
-                      task: job.task,
-                      agentName: job.agentName,
-                      error: job.error ?? job.status,
+                      task: j.task,
+                      agentName: j.agentName,
+                      error: j.error ?? j.status,
                     },
               ),
             );
-
             return {
-              ok: batch.status === 'completed',
+              ok: loaded.batch.status === 'completed',
               mode: action,
               batchId,
-              batch,
-              results: jobs,
+              batch: loaded.batch,
+              results: loaded.jobs,
               response,
             };
           }
 
-          if (action === 'spawn') {
+          // ── spawn + spawn_async (shared dispatch) ───────────────
+          if (action === 'spawn' || action === 'spawn_async') {
             if (!Array.isArray(tasks) || tasks.length === 0) {
-              throw new Error('tasks is required for spawn.');
+              throw new Error(`tasks is required for ${action}.`);
             }
 
             const groupedLimits = new Map<string, number>();
@@ -651,332 +615,167 @@ export default defineBuildInTool({
                 );
               }
             }
-
             const concurrencyLimit = Math.max(
               1,
               Math.min(...Array.from(groupedLimits.values()), tasks.length),
             );
-            const createdAt = new Date().toISOString();
+
+            // spawn_async: create the barrier first so the persisted
+            // batch row can carry the barrierId (lets a UI display the
+            // link and lets aggregate/cancel find it).
+            let barrierId: string | undefined;
+            if (action === 'spawn_async') {
+              const { getBarrierRegistry } = await import(
+                '@/lib/workflow/agent/barrier'
+              );
+              const registry = getBarrierRegistry();
+              barrierId = await registry.create({
+                sessionId: context.sessionId,
+                runId: context.runId,
+                expected: tasks.length,
+                mode: input.barrierMode ?? 'all',
+                expiresAt: input.barrierTimeoutMs
+                  ? new Date(Date.now() + input.barrierTimeoutMs)
+                  : undefined,
+              });
+            }
+
             const createdBatchId = createBatchId();
-            const runtimeBatch: RuntimeSubagentBatch = {
-              sessionId: context.sessionId,
-              batchId: createdBatchId,
-              concurrencyLimit,
-              createdAt,
-              jobs: new Map(),
-            };
+            const jobSpecs = tasks.map((t) => ({
+              subagentId: createSubagentId(),
+              agentName: t.agentName,
+              task: t.task,
+            }));
 
-            for (const item of tasks) {
-              const controller = new AbortController();
-              const subagentId = createSubagentId();
-              const runtimeJob: RuntimeSubagentJob = {
-                subagentId,
-                batchId: createdBatchId,
-                agentName: item.agentName,
-                task: item.task,
-                status: 'queued',
-                controller,
-                promise: Promise.resolve(),
-              };
-              runtimeBatch.jobs.set(subagentId, runtimeJob);
-            }
-
-            const registryKey = getBatchRegistryKey(
-              context.sessionId,
-              createdBatchId,
-            );
-            activeSubagentBatches.set(registryKey, runtimeBatch);
-            await syncPersistedRuntimeBatchStep(
-              context.sessionId,
-              runtimeBatch,
-            );
-            const jobList = Array.from(runtimeBatch.jobs.values());
-            await writeSubagentBatchEvent({
-              batchId: createdBatchId,
-              event: 'spawned',
-              concurrencyLimit,
-              total: jobList.length,
-            });
-            const scheduled = mapWithConcurrencyLimit(
-              jobList,
-              concurrencyLimit,
-              async (job) => {
-                job.status = 'running';
-                job.startedAt = new Date().toISOString();
-                try {
-                  const result = await runSubagent(
-                    context,
-                    job.agentName,
-                    job.task,
-                    {
-                      subagentId: job.subagentId,
-                      abortSignal: job.controller.signal,
-                    },
-                  );
-                  job.status = 'completed';
-                  job.modelId = result.modelId;
-                  job.steps = result.steps;
-                  job.summary = result.response;
-                } catch (error) {
-                  job.status = job.controller.signal.aborted
-                    ? 'cancelled'
-                    : 'failed';
-                  job.error =
-                    error instanceof Error ? error.message : String(error);
-                } finally {
-                  job.finishedAt = new Date().toISOString();
-                }
-              },
-            ).finally(() => {
-              void (async () => {
-                const next = await syncPersistedRuntimeBatchStep(
-                  context.sessionId,
-                  runtimeBatch,
-                );
-                const batch = next.batches[createdBatchId];
-                if (!batch) {
-                  return;
-                }
-                await writeSubagentBatchEvent({
-                  batchId: createdBatchId,
-                  event:
-                    batch.status === 'cancelled' ? 'cancelled' : 'completed',
-                  concurrencyLimit,
-                  total: jobList.length,
-                  succeeded: batch.succeeded,
-                  failed: batch.failed,
-                  cancelled: batch.cancelled,
-                  summary: summarizeBatchResults(
-                    {
-                      concurrencyLimit,
-                      succeeded: batch.succeeded,
-                      failed: batch.failed + batch.cancelled,
-                    },
-                    Array.from(runtimeBatch.jobs.values()).map((job) =>
-                      job.status === 'completed'
-                        ? {
-                            ok: true as const,
-                            task: job.task,
-                            subagentId: job.subagentId,
-                            agentName: job.agentName,
-                            modelId: job.modelId ?? 'unknown',
-                            steps: job.steps ?? 0,
-                            response: job.summary ?? '',
-                          }
-                        : {
-                            ok: false as const,
-                            task: job.task,
-                            agentName: job.agentName,
-                            error: job.error ?? job.status,
-                          },
-                    ),
-                  ),
-                });
-              })();
-            });
-
-            for (const job of jobList) {
-              job.promise = scheduled.then(() => undefined);
-            }
-
-            return {
-              ok: true,
-              mode: 'spawn',
-              batchId: createdBatchId,
-              concurrencyLimit,
-              jobIds: jobList.map((job) => job.subagentId),
-            };
-          }
-
-          if (action === 'spawn_async') {
-            // Phase C-mini: spawn N sub-agents AND create a barrier that
-            // fires when they finish. Coexists with the classic `spawn`
-            // path (above) without touching it — the difference is the
-            // extra barrier wiring, which lets a downstream workflow
-            // (this run, a different run, or a scheduled task) wait
-            // across process restarts via waitForBarrier.
-            //
-            // The job execution path itself is unchanged; we just hook
-            // a release() call into each job's `finally` block.
-            if (!Array.isArray(tasks) || tasks.length === 0) {
-              throw new Error('tasks is required for spawn_async.');
-            }
-
-            const { getBarrierRegistry } = await import(
-              '@/lib/workflow/agent/barrier'
-            );
-            const registry = getBarrierRegistry();
-
-            const barrierMode = input.barrierMode ?? 'all';
-            const barrierId = await registry.create({
+            // Persist the batch + queued jobs to the DB. abort
+            // controllers live in the runtime cache below.
+            await persistBatchCreateStep({
               sessionId: context.sessionId,
               runId: context.runId,
-              expected: tasks.length,
-              mode: barrierMode,
-              expiresAt: input.barrierTimeoutMs
-                ? new Date(Date.now() + input.barrierTimeoutMs)
-                : undefined,
-            });
-
-            const groupedLimits = new Map<string, number>();
-            for (const item of tasks) {
-              if (!groupedLimits.has(item.agentName)) {
-                groupedLimits.set(
-                  item.agentName,
-                  getSubagentConcurrencyLimit(
-                    context.appConfig,
-                    item.agentName,
-                  ),
-                );
-              }
-            }
-
-            const concurrencyLimit = Math.max(
-              1,
-              Math.min(...Array.from(groupedLimits.values()), tasks.length),
-            );
-            const createdAt = new Date().toISOString();
-            const createdBatchId = createBatchId();
-            const runtimeBatch: RuntimeSubagentBatch = {
-              sessionId: context.sessionId,
               batchId: createdBatchId,
               concurrencyLimit,
-              createdAt,
-              jobs: new Map(),
+              barrierId,
+              jobs: jobSpecs,
+            });
+
+            const runtimeBatch: RuntimeBatch = {
+              sessionId: context.sessionId,
+              batchId: createdBatchId,
+              jobs: new Map(
+                jobSpecs.map((j) => [
+                  j.subagentId,
+                  {
+                    subagentId: j.subagentId,
+                    controller: new AbortController(),
+                    promise: Promise.resolve(),
+                  },
+                ]),
+              ),
             };
-
-            for (const item of tasks) {
-              const controller = new AbortController();
-              const subagentId = createSubagentId();
-              const runtimeJob: RuntimeSubagentJob = {
-                subagentId,
-                batchId: createdBatchId,
-                agentName: item.agentName,
-                task: item.task,
-                status: 'queued',
-                controller,
-                promise: Promise.resolve(),
-              };
-              runtimeBatch.jobs.set(subagentId, runtimeJob);
-            }
-
-            const registryKey = getBatchRegistryKey(
-              context.sessionId,
-              createdBatchId,
-            );
-            activeSubagentBatches.set(registryKey, runtimeBatch);
-            await syncPersistedRuntimeBatchStep(
-              context.sessionId,
+            activeSubagentBatches.set(
+              getBatchRegistryKey(context.sessionId, createdBatchId),
               runtimeBatch,
             );
-            const jobList = Array.from(runtimeBatch.jobs.values());
+
             await writeSubagentBatchEvent({
               batchId: createdBatchId,
               event: 'spawned',
               concurrencyLimit,
-              total: jobList.length,
+              total: jobSpecs.length,
             });
 
+            // spawn_async: each job's terminal hook calls
+            // registry.release() with that job's subagentId so the
+            // barrier sees one distinct participant per job. Best-
+            // effort — a failed release (barrier already expired) is
+            // logged and does not affect the job.
             const scheduled = mapWithConcurrencyLimit(
-              jobList,
+              jobSpecs,
               concurrencyLimit,
-              async (job) => {
-                job.status = 'running';
-                job.startedAt = new Date().toISOString();
-                try {
-                  const result = await runSubagent(
-                    context,
-                    job.agentName,
-                    job.task,
-                    {
-                      subagentId: job.subagentId,
-                      abortSignal: job.controller.signal,
-                    },
-                  );
-                  job.status = 'completed';
-                  job.modelId = result.modelId;
-                  job.steps = result.steps;
-                  job.summary = result.response;
-                } catch (error) {
-                  job.status = job.controller.signal.aborted
-                    ? 'cancelled'
-                    : 'failed';
-                  job.error =
-                    error instanceof Error ? error.message : String(error);
-                } finally {
-                  job.finishedAt = new Date().toISOString();
-                  // Release this job's slot in the barrier. Best-effort:
-                  // a failed release (e.g. barrier already expired) is
-                  // logged by the registry and does not affect the job.
-                  try {
-                    await registry.release({
-                      barrierId,
-                      participantId: job.subagentId,
-                      ok: job.status === 'completed',
-                      payload: {
-                        subagentId: job.subagentId,
-                        agentName: job.agentName,
-                        task: job.task,
-                        status: job.status,
-                        modelId: job.modelId,
-                        steps: job.steps,
-                        summary: job.summary,
-                        error: job.error,
-                      },
-                    });
-                  } catch (releaseError) {
-                    logger.warn('spawn_async: barrier release failed', {
-                      barrierId,
-                      subagentId: job.subagentId,
-                      error:
-                        releaseError instanceof Error
-                          ? releaseError.message
-                          : String(releaseError),
-                    });
-                  }
-                }
+              async (spec) => {
+                const runtimeEntry = runtimeBatch.jobs.get(spec.subagentId);
+                const controller =
+                  runtimeEntry?.controller ?? new AbortController();
+                const onTerminal = barrierId
+                  ? async (r: {
+                      status: 'completed' | 'failed' | 'cancelled';
+                      modelId?: string;
+                      steps?: number;
+                      summary?: string;
+                      error?: string;
+                    }) => {
+                      try {
+                        const { getBarrierRegistry } = await import(
+                          '@/lib/workflow/agent/barrier'
+                        );
+                        await getBarrierRegistry().release({
+                          barrierId: barrierId,
+                          participantId: spec.subagentId,
+                          ok: r.status === 'completed',
+                          payload: {
+                            subagentId: spec.subagentId,
+                            agentName: spec.agentName,
+                            task: spec.task,
+                            ...r,
+                          },
+                        });
+                      } catch (releaseError) {
+                        logger.warn('spawn_async: barrier release failed', {
+                          barrierId,
+                          subagentId: spec.subagentId,
+                          error:
+                            releaseError instanceof Error
+                              ? releaseError.message
+                              : String(releaseError),
+                        });
+                      }
+                    }
+                  : undefined;
+                await executeSubagentJob(context, spec, controller, onTerminal);
               },
             ).finally(() => {
               void (async () => {
-                const next = await syncPersistedRuntimeBatchStep(
+                // After all jobs settle, emit a terminal batch event
+                // matching the legacy payload shape. Read the persisted
+                // state so the counters reflect every job.
+                const loaded = await loadBatchStep(
                   context.sessionId,
-                  runtimeBatch,
+                  createdBatchId,
                 );
-                const batch = next.batches[createdBatchId];
-                if (!batch) {
-                  return;
-                }
+                if (!loaded.batch) return;
                 await writeSubagentBatchEvent({
                   batchId: createdBatchId,
                   event:
-                    batch.status === 'cancelled' ? 'cancelled' : 'completed',
+                    loaded.batch.status === 'cancelled'
+                      ? 'cancelled'
+                      : 'completed',
                   concurrencyLimit,
-                  total: jobList.length,
-                  succeeded: batch.succeeded,
-                  failed: batch.failed,
-                  cancelled: batch.cancelled,
+                  total: loaded.jobs.length,
+                  succeeded: loaded.batch.succeeded,
+                  failed: loaded.batch.failed,
+                  cancelled: loaded.batch.cancelled,
                   summary: summarizeBatchResults(
                     {
                       concurrencyLimit,
-                      succeeded: batch.succeeded,
-                      failed: batch.failed + batch.cancelled,
+                      succeeded: loaded.batch.succeeded,
+                      failed: loaded.batch.failed + loaded.batch.cancelled,
                     },
-                    Array.from(runtimeBatch.jobs.values()).map((job) =>
-                      job.status === 'completed'
+                    loaded.jobs.map((j) =>
+                      j.status === 'completed'
                         ? {
                             ok: true as const,
-                            task: job.task,
-                            subagentId: job.subagentId,
-                            agentName: job.agentName,
-                            modelId: job.modelId ?? 'unknown',
-                            steps: job.steps ?? 0,
-                            response: job.summary ?? '',
+                            task: j.task,
+                            subagentId: j.subagentId,
+                            agentName: j.agentName,
+                            modelId: j.modelId ?? 'unknown',
+                            steps: j.steps ?? 0,
+                            response: j.summary ?? '',
                           }
                         : {
                             ok: false as const,
-                            task: job.task,
-                            agentName: job.agentName,
-                            error: job.error ?? job.status,
+                            task: j.task,
+                            agentName: j.agentName,
+                            error: j.error ?? j.status,
                           },
                     ),
                   ),
@@ -984,21 +783,27 @@ export default defineBuildInTool({
               })();
             });
 
-            for (const job of jobList) {
-              job.promise = scheduled.then(() => undefined);
+            // Track each promise so cancel() can await or abort.
+            for (const spec of jobSpecs) {
+              const entry = runtimeBatch.jobs.get(spec.subagentId);
+              if (entry) entry.promise = scheduled.then(() => undefined);
             }
 
             return {
               ok: true,
-              mode: 'spawn_async',
+              mode: action,
               batchId: createdBatchId,
               barrierId,
               concurrencyLimit,
-              jobIds: jobList.map((job) => job.subagentId),
-              hint: `Use the barrier tool with action=wait, barrierId=${barrierId} to block until completion. Use action=status to peek.`,
+              jobIds: jobSpecs.map((j) => j.subagentId),
+              hint:
+                action === 'spawn_async' && barrierId
+                  ? `Use the barrier tool with action=wait, barrierId=${barrierId} to block until completion. Use action=status to peek.`
+                  : undefined,
             };
           }
 
+          // ── sync batch (no action OR action=run with tasks[]) ──
           if (Array.isArray(tasks) && tasks.length > 0) {
             const groupedLimits = new Map<string, number>();
             for (const item of tasks) {
@@ -1012,27 +817,21 @@ export default defineBuildInTool({
                 );
               }
             }
-
             const concurrencyLimit = Math.max(
               1,
               Math.min(...Array.from(groupedLimits.values()), tasks.length),
             );
-
             const settled = await mapWithConcurrencyLimit(
               tasks,
               concurrencyLimit,
               async (item) => {
                 try {
-                  const result = await runSubagent(
+                  const r = await runSubagent(
                     context,
                     item.agentName,
                     item.task,
                   );
-                  return {
-                    ok: true as const,
-                    task: item.task,
-                    ...result,
-                  };
+                  return { ok: true as const, task: item.task, ...r };
                 } catch (error) {
                   return {
                     ok: false as const,
@@ -1044,8 +843,7 @@ export default defineBuildInTool({
                 }
               },
             );
-
-            const succeeded = settled.filter((item) => item.ok).length;
+            const succeeded = settled.filter((x) => x.ok).length;
             const failed = settled.length - succeeded;
             return {
               ok: failed === 0,
@@ -1054,23 +852,19 @@ export default defineBuildInTool({
               succeeded,
               failed,
               response: summarizeBatchResults(
-                {
-                  concurrencyLimit,
-                  succeeded,
-                  failed,
-                },
+                { concurrencyLimit, succeeded, failed },
                 settled,
               ),
               results: settled,
             };
           }
 
+          // ── sync single (action=run with agentName+task) ────────
           if (!agentName || !task) {
             throw new Error(
               'Provide either { agentName, task } or { tasks: [...] }.',
             );
           }
-
           const result = await runSubagent(context, agentName, task);
           return {
             ok: true,

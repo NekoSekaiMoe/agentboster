@@ -88,48 +88,46 @@ export default defineBuildInTool({
             };
           }
 
-          // Read the batch state via the same persisted path subAgent uses.
-          // This keeps aggregate_results decoupled from subAgent's in-process
-          // runtime cache — if the workflow restarted between spawn and
-          // aggregate, the DB-persisted state is what we read.
+          // Phase C-full: read batch + jobs from the new tables. The
+          // lazy legacy-migration path lives inside loadBatchStep in
+          // lib/core/db/agent-subagents.ts, so sessions created before
+          // this deploy still work transparently.
+          const { getBatchWithJobs, migrateBatchFromLegacyMetadata } =
+            await import('@/lib/core/db/agent-subagents');
           const { getSession } = await import('@/lib/core/db/chat');
-          const session = await getSession(context.sessionId);
-          if (!session) {
-            return { ok: false, error: 'Session not found.' };
+
+          let loaded = await getBatchWithJobs(input.batchId);
+
+          if (!loaded) {
+            // Fall back to legacy metadata so a pre-C-full session
+            // stays aggregable without a manual migration step.
+            const session = await getSession(context.sessionId);
+            const meta = (session?.metadata ?? {}) as Record<string, unknown>;
+            const legacy = (meta.workflowSubagents ?? {}) as {
+              batches?: Record<string, unknown>;
+              jobs?: Record<string, unknown>;
+            };
+            if (legacy.batches && legacy.batches[input.batchId]) {
+              loaded = await migrateBatchFromLegacyMetadata({
+                sessionId: context.sessionId,
+                batchId: input.batchId,
+                legacy: {
+                  batches: legacy.batches,
+                  jobs: legacy.jobs ?? {},
+                },
+              });
+            }
           }
-          const meta = (session.metadata ?? {}) as Record<string, unknown>;
-          const persisted = (meta.workflowSubagents ?? {}) as {
-            batches?: Record<string, unknown>;
-            jobs?: Record<string, unknown>;
-          };
-          const batch = persisted.batches?.[input.batchId] as
-            | {
-                jobs?: string[];
-                status?: string;
-                succeeded?: number;
-                failed?: number;
-              }
-            | undefined;
-          if (!batch) {
+
+          if (!loaded) {
             return {
               ok: false,
-              error: `Batch ${input.batchId} not found in session metadata. Spawn it first via subAgent (action: spawn).`,
+              error: `Batch ${input.batchId} not found. Spawn it first via subAgent (action: spawn).`,
             };
           }
 
-          const jobs = (persisted.jobs ?? {}) as Record<
-            string,
-            {
-              agentName?: string;
-              task?: string;
-              status?: string;
-              summary?: string;
-              error?: string;
-              modelId?: string;
-            }
-          >;
-          const jobIds = batch.jobs ?? [];
-          if (jobIds.length === 0) {
+          const { batch, jobs: jobRows } = loaded;
+          if (jobRows.length === 0) {
             return {
               ok: true,
               batchId: input.batchId,
@@ -140,16 +138,13 @@ export default defineBuildInTool({
             };
           }
 
-          const inputs = jobIds.map((id) => {
-            const j = jobs[id] ?? {};
-            return {
-              agentName: j.agentName ?? 'unknown',
-              task: j.task ?? '',
-              status: j.status ?? 'unknown',
-              summary: j.summary ?? j.error ?? '',
-              modelId: j.modelId,
-            };
-          });
+          const inputs = jobRows.map((j) => ({
+            agentName: j.agentName,
+            task: j.task,
+            status: j.status,
+            summary: j.summary ?? '',
+            modelId: j.modelId ?? undefined,
+          }));
 
           const styleInstruction =
             input.style === 'custom'
@@ -205,12 +200,8 @@ export default defineBuildInTool({
             batchId: input.batchId,
             style: input.style,
             count: inputs.length,
-            succeeded:
-              batch.succeeded ??
-              inputs.filter((x) => x.status === 'completed').length,
-            failed:
-              batch.failed ??
-              inputs.filter((x) => x.status === 'failed').length,
+            succeeded: batch.succeeded,
+            failed: batch.failed,
             synthesis: result.text,
             usage: result.usage,
           };
