@@ -79,6 +79,41 @@ export interface GitCommandResult {
   exit_code: number;
 }
 
+export type McpServiceProtocol = 'mcp' | 'lsp';
+export type McpServiceSource = 'builtin' | 'project-config';
+
+export interface DiscoveredMcpService {
+  id: string;
+  name: string;
+  protocol: McpServiceProtocol;
+  description: string;
+  command: string;
+  args: string[];
+  cwd: string;
+  envKeys: string[];
+  source: McpServiceSource;
+  sourcePath?: string;
+  installed: boolean;
+  executablePath: string | null;
+  projectDetected: boolean;
+  reason: string;
+}
+
+export interface RunningMcpService {
+  id: string;
+  name: string;
+  protocol: McpServiceProtocol;
+  command: string;
+  args: string[];
+  cwd: string;
+  pid: number | null;
+  startedAt: number;
+  running: boolean;
+  exitCode: number | null;
+  signal: string | null;
+  stderrTail: string;
+}
+
 export interface RpcCompatibilityReport {
   ok: boolean;
   checks: string[];
@@ -452,6 +487,30 @@ export class RpcBridge {
 
   async abortBash(): Promise<void> {
     await this.send({ type: 'abort_bash' });
+  }
+
+  async discoverMcpServices(): Promise<DiscoveredMcpService[]> {
+    const response = await this.send({ type: 'mcp_discover' });
+    const data = this.getData<{ services: DiscoveredMcpService[] }>(response);
+    return data.services;
+  }
+
+  async startMcpService(service: string): Promise<RunningMcpService> {
+    const response = await this.send({ type: 'mcp_start', service });
+    const data = this.getData<{ service: RunningMcpService }>(response);
+    return data.service;
+  }
+
+  async stopMcpService(service: string): Promise<RunningMcpService | null> {
+    const response = await this.send({ type: 'mcp_stop', service });
+    const data = this.getData<{ service: RunningMcpService | null }>(response);
+    return data.service;
+  }
+
+  async listRunningMcpServices(): Promise<RunningMcpService[]> {
+    const response = await this.send({ type: 'mcp_list_running' });
+    const data = this.getData<{ services: RunningMcpService[] }>(response);
+    return data.services;
   }
 
   async getMessages(): Promise<Array<Record<string, unknown>>> {
@@ -1002,6 +1061,22 @@ class ActiveRpcBridgeProxy {
 
   async abortBash(): Promise<void> {
     return this.activeBridge.abortBash();
+  }
+
+  async discoverMcpServices(): Promise<DiscoveredMcpService[]> {
+    return this.activeBridge.discoverMcpServices();
+  }
+
+  async startMcpService(service: string): Promise<RunningMcpService> {
+    return this.activeBridge.startMcpService(service);
+  }
+
+  async stopMcpService(service: string): Promise<RunningMcpService | null> {
+    return this.activeBridge.stopMcpService(service);
+  }
+
+  async listRunningMcpServices(): Promise<RunningMcpService[]> {
+    return this.activeBridge.listRunningMcpServices();
   }
 
   async getMessages(): Promise<Array<Record<string, unknown>>> {

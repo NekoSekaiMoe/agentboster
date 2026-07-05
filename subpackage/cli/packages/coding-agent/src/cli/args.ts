@@ -256,7 +256,8 @@ ${chalk.bold('Commands:')}
   ${APP_NAME} uninstall <source> [-l]   Alias for remove
   ${APP_NAME} list                      List installed extensions from settings
   ${APP_NAME} config                    Open TUI to enable/disable package resources
-  ${APP_NAME} <command> --help          Show help for login/install/remove/uninstall/list
+  ${APP_NAME} mcp list|start            Discover or run local MCP/LSP services
+  ${APP_NAME} <command> --help          Show help for login/install/remove/uninstall/list/mcp
 
 ${chalk.bold('Options:')}
   --model <provider/model>        Model ID from the server catalog (run --list-models to see choices)

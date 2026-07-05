@@ -91,6 +91,7 @@ import {
 } from './package-manager-cli.ts';
 import { handleLoginCommand } from './cli/login.ts';
 import { handleAuthCommand } from './cli/auth-commands.ts';
+import { handleMcpCommand } from './cli/mcp-commands.ts';
 import { isLocalPath, resolvePath } from './utils/paths.ts';
 
 const EXTENSION_LOAD_FAILURE_HINT =
@@ -549,6 +550,10 @@ export async function main(args: string[], options?: MainOptions) {
   }
 
   if (await handleAuthCommand(args)) {
+    return;
+  }
+
+  if (await handleMcpCommand(args)) {
     return;
   }
 

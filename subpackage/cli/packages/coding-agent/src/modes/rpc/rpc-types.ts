@@ -10,6 +10,10 @@ import type { ImageContent, Model } from '@agentboster-cli/ai';
 import type { SessionStats } from '../../core/agent-session.ts';
 import type { BashResult } from '../../core/bash-executor.ts';
 import type { CompactionResult } from '../../core/compaction/index.ts';
+import type {
+  DiscoveredMcpService,
+  RunningMcpService,
+} from '../../core/mcp-services.ts';
 import type { SourceInfo } from '../../core/source-info.ts';
 
 // ============================================================================
@@ -57,6 +61,12 @@ export type RpcCommand =
   // Bash
   | { id?: string; type: 'bash'; command: string; excludeFromContext?: boolean }
   | { id?: string; type: 'abort_bash' }
+
+  // MCP/LSP services
+  | { id?: string; type: 'mcp_discover' }
+  | { id?: string; type: 'mcp_start'; service: string }
+  | { id?: string; type: 'mcp_stop'; service: string }
+  | { id?: string; type: 'mcp_list_running' }
 
   // Session
   | { id?: string; type: 'get_session_stats' }
@@ -221,6 +231,36 @@ export type RpcResponse =
       data: BashResult;
     }
   | { id?: string; type: 'response'; command: 'abort_bash'; success: true }
+
+  // MCP/LSP services
+  | {
+      id?: string;
+      type: 'response';
+      command: 'mcp_discover';
+      success: true;
+      data: { services: DiscoveredMcpService[] };
+    }
+  | {
+      id?: string;
+      type: 'response';
+      command: 'mcp_start';
+      success: true;
+      data: { service: RunningMcpService };
+    }
+  | {
+      id?: string;
+      type: 'response';
+      command: 'mcp_stop';
+      success: true;
+      data: { service: RunningMcpService | null };
+    }
+  | {
+      id?: string;
+      type: 'response';
+      command: 'mcp_list_running';
+      success: true;
+      data: { services: RunningMcpService[] };
+    }
 
   // Session
   | {

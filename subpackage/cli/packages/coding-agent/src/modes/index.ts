@@ -15,6 +15,10 @@ export {
 } from './rpc/rpc-client.ts';
 export { runRpcMode } from './rpc/rpc-mode.ts';
 export type {
+  DiscoveredMcpService,
+  RunningMcpService,
+} from '../core/mcp-services.ts';
+export type {
   RpcCommand,
   RpcExtensionUIRequest,
   RpcExtensionUIResponse,

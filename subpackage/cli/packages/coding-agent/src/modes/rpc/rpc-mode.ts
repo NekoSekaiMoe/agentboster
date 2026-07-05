@@ -25,6 +25,7 @@ import {
   waitForRawStdoutBackpressure,
   writeRawStdout,
 } from '../../core/output-guard.ts';
+import { McpServiceManager } from '../../core/mcp-services.ts';
 import { killTrackedDetachedChildren } from '../../utils/shell.ts';
 import { type Theme, theme } from '../interactive/theme/theme.ts';
 import { attachJsonlLineReader, serializeJsonLine } from './jsonl.ts';
@@ -55,6 +56,7 @@ export async function runRpcMode(
 ): Promise<never> {
   takeOverStdout();
   let session = runtimeHost.session;
+  const mcpServices = new McpServiceManager();
   let unsubscribe: (() => void) | undefined;
   let unsubscribeBackpressure: (() => void) | undefined;
 
@@ -657,6 +659,35 @@ export async function runRpcMode(
       }
 
       // =================================================================
+      // MCP/LSP services
+      // =================================================================
+
+      case 'mcp_discover': {
+        const services = await mcpServices.discover({
+          cwd: session.sessionManager.getCwd(),
+        });
+        return success(id, 'mcp_discover', { services });
+      }
+
+      case 'mcp_start': {
+        const service = await mcpServices.start(command.service, {
+          cwd: session.sessionManager.getCwd(),
+        });
+        return success(id, 'mcp_start', { service });
+      }
+
+      case 'mcp_stop': {
+        const service = await mcpServices.stop(command.service);
+        return success(id, 'mcp_stop', { service });
+      }
+
+      case 'mcp_list_running': {
+        return success(id, 'mcp_list_running', {
+          services: mcpServices.listRunning(),
+        });
+      }
+
+      // =================================================================
       // Session
       // =================================================================
 
@@ -799,6 +830,7 @@ export async function runRpcMode(
     }
     unsubscribe?.();
     unsubscribeBackpressure?.();
+    await mcpServices.stopAll();
     await runtimeHost.dispose();
     detachInput();
     process.stdin.pause();

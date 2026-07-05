@@ -14,6 +14,10 @@ import type { ImageContent } from '@agentboster-cli/ai';
 import type { SessionStats } from '../../core/agent-session.ts';
 import type { BashResult } from '../../core/bash-executor.ts';
 import type { CompactionResult } from '../../core/compaction/index.ts';
+import type {
+  DiscoveredMcpService,
+  RunningMcpService,
+} from '../../core/mcp-services.ts';
 import { attachJsonlLineReader, serializeJsonLine } from './jsonl.ts';
 import type {
   RpcCommand,
@@ -364,6 +368,40 @@ export class RpcClient {
    */
   async abortBash(): Promise<void> {
     await this.send({ type: 'abort_bash' });
+  }
+
+  /**
+   * Discover local MCP/LSP services for the active project.
+   */
+  async discoverMcpServices(): Promise<DiscoveredMcpService[]> {
+    const response = await this.send({ type: 'mcp_discover' });
+    return this.getData<{ services: DiscoveredMcpService[] }>(response)
+      .services;
+  }
+
+  /**
+   * Start a discovered MCP/LSP service inside the RPC runtime.
+   */
+  async startMcpService(service: string): Promise<RunningMcpService> {
+    const response = await this.send({ type: 'mcp_start', service });
+    return this.getData<{ service: RunningMcpService }>(response).service;
+  }
+
+  /**
+   * Stop a service previously started by this RPC runtime.
+   */
+  async stopMcpService(service: string): Promise<RunningMcpService | null> {
+    const response = await this.send({ type: 'mcp_stop', service });
+    return this.getData<{ service: RunningMcpService | null }>(response)
+      .service;
+  }
+
+  /**
+   * List MCP/LSP services currently held by this RPC runtime.
+   */
+  async listRunningMcpServices(): Promise<RunningMcpService[]> {
+    const response = await this.send({ type: 'mcp_list_running' });
+    return this.getData<{ services: RunningMcpService[] }>(response).services;
   }
 
   /**

@@ -4422,6 +4422,78 @@ async function startFreshSessionTab(
   );
 }
 
+async function showMcpServicesSummary(): Promise<void> {
+  if (!rpcBridge.isConnected) {
+    chatView?.notify(
+      'Open a project session before discovering MCP services',
+      'info',
+    );
+    return;
+  }
+  try {
+    const services = await rpcBridge.discoverMcpServices();
+    if (services.length === 0) {
+      chatView?.notify('No MCP/LSP services discovered', 'info');
+      return;
+    }
+    const lines = services.slice(0, 12).map((service) => {
+      const state = service.installed ? 'installed' : 'missing';
+      const match = service.projectDetected ? 'project' : 'known';
+      return `${service.id} (${service.protocol}, ${state}, ${match})`;
+    });
+    window.alert(`MCP/LSP services:\n\n${lines.join('\n')}`);
+  } catch (err) {
+    console.error('Failed to discover MCP services:', err);
+    chatView?.notify('Failed to discover MCP services', 'error');
+  }
+}
+
+async function startRecommendedMcpService(): Promise<void> {
+  if (!rpcBridge.isConnected) {
+    chatView?.notify(
+      'Open a project session before starting MCP services',
+      'info',
+    );
+    return;
+  }
+  try {
+    const [services, running] = await Promise.all([
+      rpcBridge.discoverMcpServices(),
+      rpcBridge.listRunningMcpServices(),
+    ]);
+    const runningIds = new Set(running.map((service) => service.id));
+    const candidates = services.filter(
+      (service) => service.installed && !runningIds.has(service.id),
+    );
+    if (candidates.length === 0) {
+      chatView?.notify(
+        'No installed MCP/LSP services are available to start',
+        'info',
+      );
+      return;
+    }
+    const recommended =
+      candidates.find((service) => service.projectDetected) ?? candidates[0];
+    let target = recommended.id;
+    if (candidates.length > 1) {
+      const choice = window.prompt(
+        'MCP/LSP service to start',
+        candidates.map((service) => service.id).join(', '),
+      );
+      if (!choice) return;
+      target = choice.split(',')[0].trim() || recommended.id;
+    }
+    const status = await rpcBridge.startMcpService(target);
+    chatView?.notify(`Started ${status.name} (${status.protocol})`, 'success');
+  } catch (err) {
+    console.error('Failed to start MCP service:', err);
+    chatView?.notify(
+      err instanceof Error ? err.message : 'Failed to start MCP service',
+      'error',
+    );
+  }
+}
+
 function wireCommandPaletteBuiltins(): void {
   commandPalette?.setBuiltins([
     {
@@ -4453,6 +4525,16 @@ function wireCommandPaletteBuiltins(): void {
       name: 'terminal',
       description: 'Toggle docked terminal',
       action: async () => toggleTerminalDock(),
+    },
+    {
+      name: 'mcp-services',
+      description: 'Discover local MCP/LSP services',
+      action: async () => showMcpServicesSummary(),
+    },
+    {
+      name: 'mcp-start',
+      description: 'Start a discovered MCP/LSP service',
+      action: async () => startRecommendedMcpService(),
     },
     {
       name: 'fork',
