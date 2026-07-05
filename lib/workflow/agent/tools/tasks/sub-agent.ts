@@ -491,10 +491,10 @@ export default defineBuildInTool({
     return {
       subAgent: tool({
         title: 'Delegate to Sub-Agent',
-        description: `Delegate one focused task, or a small batch of independent tasks, to configured sub-agents. Available agent names: ${availableAgentNames.join(', ')}. Include all necessary context in each task because a sub-agent only sees what you pass here.`,
+        description: `Delegate one focused task, or a small batch of independent tasks, to configured sub-agents. Available agent names: ${availableAgentNames.join(', ')}. Include all necessary context in each task because a sub-agent only sees what you pass here. Actions: \`run\` (sync single), \`spawn\` (async batch, returns immediately), \`spawn_async\` (async batch + creates a barrier; pair with the barrier tool to wait across process restarts), \`query\`/\`collect\`/\`cancel\` (inspect a spawned batch).`,
         inputSchema: z.object({
           action: z
-            .enum(['run', 'spawn', 'query', 'collect', 'cancel'])
+            .enum(['run', 'spawn', 'spawn_async', 'query', 'collect', 'cancel'])
             .optional(),
           agentName: z
             .enum(availableAgentNames as [string, ...string[]])
@@ -511,8 +511,29 @@ export default defineBuildInTool({
             .min(1)
             .max(8)
             .optional(),
+          // spawn_async options.
+          barrierMode: z
+            .enum(['all', 'quorum', 'first_ok', 'first_fail'])
+            .default('all')
+            .optional()
+            .describe(
+              'Release condition for the barrier created by spawn_async. ' +
+                'Default `all` (wait for every spawned job).',
+            ),
+          barrierTimeoutMs: z
+            .number()
+            .int()
+            .positive()
+            .max(60 * 60 * 1000)
+            .optional()
+            .describe(
+              'Optional hard deadline (ms) on the spawn_async barrier. ' +
+                'After this elapses with no satisfying release, the barrier ' +
+                'is marked expired and waitForBarrier returns.',
+            ),
         }),
-        execute: async ({ action, agentName, task, batchId, tasks }) => {
+        execute: async (input) => {
+          const { action, agentName, task, batchId, tasks } = input;
           if (
             action === 'query' ||
             action === 'collect' ||
@@ -764,6 +785,217 @@ export default defineBuildInTool({
               batchId: createdBatchId,
               concurrencyLimit,
               jobIds: jobList.map((job) => job.subagentId),
+            };
+          }
+
+          if (action === 'spawn_async') {
+            // Phase C-mini: spawn N sub-agents AND create a barrier that
+            // fires when they finish. Coexists with the classic `spawn`
+            // path (above) without touching it — the difference is the
+            // extra barrier wiring, which lets a downstream workflow
+            // (this run, a different run, or a scheduled task) wait
+            // across process restarts via waitForBarrier.
+            //
+            // The job execution path itself is unchanged; we just hook
+            // a release() call into each job's `finally` block.
+            if (!Array.isArray(tasks) || tasks.length === 0) {
+              throw new Error('tasks is required for spawn_async.');
+            }
+
+            const { getBarrierRegistry } = await import(
+              '@/lib/workflow/agent/barrier'
+            );
+            const registry = getBarrierRegistry();
+
+            const barrierMode = input.barrierMode ?? 'all';
+            const barrierId = await registry.create({
+              sessionId: context.sessionId,
+              runId: context.runId,
+              expected: tasks.length,
+              mode: barrierMode,
+              expiresAt: input.barrierTimeoutMs
+                ? new Date(Date.now() + input.barrierTimeoutMs)
+                : undefined,
+            });
+
+            const groupedLimits = new Map<string, number>();
+            for (const item of tasks) {
+              if (!groupedLimits.has(item.agentName)) {
+                groupedLimits.set(
+                  item.agentName,
+                  getSubagentConcurrencyLimit(
+                    context.appConfig,
+                    item.agentName,
+                  ),
+                );
+              }
+            }
+
+            const concurrencyLimit = Math.max(
+              1,
+              Math.min(...Array.from(groupedLimits.values()), tasks.length),
+            );
+            const createdAt = new Date().toISOString();
+            const createdBatchId = createBatchId();
+            const runtimeBatch: RuntimeSubagentBatch = {
+              sessionId: context.sessionId,
+              batchId: createdBatchId,
+              concurrencyLimit,
+              createdAt,
+              jobs: new Map(),
+            };
+
+            for (const item of tasks) {
+              const controller = new AbortController();
+              const subagentId = createSubagentId();
+              const runtimeJob: RuntimeSubagentJob = {
+                subagentId,
+                batchId: createdBatchId,
+                agentName: item.agentName,
+                task: item.task,
+                status: 'queued',
+                controller,
+                promise: Promise.resolve(),
+              };
+              runtimeBatch.jobs.set(subagentId, runtimeJob);
+            }
+
+            const registryKey = getBatchRegistryKey(
+              context.sessionId,
+              createdBatchId,
+            );
+            activeSubagentBatches.set(registryKey, runtimeBatch);
+            await syncPersistedRuntimeBatchStep(
+              context.sessionId,
+              runtimeBatch,
+            );
+            const jobList = Array.from(runtimeBatch.jobs.values());
+            await writeSubagentBatchEvent({
+              batchId: createdBatchId,
+              event: 'spawned',
+              concurrencyLimit,
+              total: jobList.length,
+            });
+
+            const scheduled = mapWithConcurrencyLimit(
+              jobList,
+              concurrencyLimit,
+              async (job) => {
+                job.status = 'running';
+                job.startedAt = new Date().toISOString();
+                try {
+                  const result = await runSubagent(
+                    context,
+                    job.agentName,
+                    job.task,
+                    {
+                      subagentId: job.subagentId,
+                      abortSignal: job.controller.signal,
+                    },
+                  );
+                  job.status = 'completed';
+                  job.modelId = result.modelId;
+                  job.steps = result.steps;
+                  job.summary = result.response;
+                } catch (error) {
+                  job.status = job.controller.signal.aborted
+                    ? 'cancelled'
+                    : 'failed';
+                  job.error =
+                    error instanceof Error ? error.message : String(error);
+                } finally {
+                  job.finishedAt = new Date().toISOString();
+                  // Release this job's slot in the barrier. Best-effort:
+                  // a failed release (e.g. barrier already expired) is
+                  // logged by the registry and does not affect the job.
+                  try {
+                    await registry.release({
+                      barrierId,
+                      participantId: job.subagentId,
+                      ok: job.status === 'completed',
+                      payload: {
+                        subagentId: job.subagentId,
+                        agentName: job.agentName,
+                        task: job.task,
+                        status: job.status,
+                        modelId: job.modelId,
+                        steps: job.steps,
+                        summary: job.summary,
+                        error: job.error,
+                      },
+                    });
+                  } catch (releaseError) {
+                    logger.warn('spawn_async: barrier release failed', {
+                      barrierId,
+                      subagentId: job.subagentId,
+                      error:
+                        releaseError instanceof Error
+                          ? releaseError.message
+                          : String(releaseError),
+                    });
+                  }
+                }
+              },
+            ).finally(() => {
+              void (async () => {
+                const next = await syncPersistedRuntimeBatchStep(
+                  context.sessionId,
+                  runtimeBatch,
+                );
+                const batch = next.batches[createdBatchId];
+                if (!batch) {
+                  return;
+                }
+                await writeSubagentBatchEvent({
+                  batchId: createdBatchId,
+                  event:
+                    batch.status === 'cancelled' ? 'cancelled' : 'completed',
+                  concurrencyLimit,
+                  total: jobList.length,
+                  succeeded: batch.succeeded,
+                  failed: batch.failed,
+                  cancelled: batch.cancelled,
+                  summary: summarizeBatchResults(
+                    {
+                      concurrencyLimit,
+                      succeeded: batch.succeeded,
+                      failed: batch.failed + batch.cancelled,
+                    },
+                    Array.from(runtimeBatch.jobs.values()).map((job) =>
+                      job.status === 'completed'
+                        ? {
+                            ok: true as const,
+                            task: job.task,
+                            subagentId: job.subagentId,
+                            agentName: job.agentName,
+                            modelId: job.modelId ?? 'unknown',
+                            steps: job.steps ?? 0,
+                            response: job.summary ?? '',
+                          }
+                        : {
+                            ok: false as const,
+                            task: job.task,
+                            agentName: job.agentName,
+                            error: job.error ?? job.status,
+                          },
+                    ),
+                  ),
+                });
+              })();
+            });
+
+            for (const job of jobList) {
+              job.promise = scheduled.then(() => undefined);
+            }
+
+            return {
+              ok: true,
+              mode: 'spawn_async',
+              batchId: createdBatchId,
+              barrierId,
+              concurrencyLimit,
+              jobIds: jobList.map((job) => job.subagentId),
+              hint: `Use the barrier tool with action=wait, barrierId=${barrierId} to block until completion. Use action=status to peek.`,
             };
           }
 
