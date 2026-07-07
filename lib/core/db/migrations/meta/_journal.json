@@ -120,6 +120,13 @@
       "when": 1783200000000,
       "tag": "0016_agent_l0_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783417038189,
+      "tag": "0017_curved_meggan",
+      "breakpoints": true
     }
   ]
 }

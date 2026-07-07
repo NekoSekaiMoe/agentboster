@@ -99,7 +99,7 @@ export const agentBarrierReleases = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     barrierId: text('barrier_id')
       .notNull()
-      .references(() => agentBarriers.id, { onDelete: 'cascade' }),
+      .references(() => agentBarriers.barrierId, { onDelete: 'cascade' }),
     /** Stable barrier_id (FK target is the uuid PK; this is the
      *  human-readable id used in the registry for fast lookups). */
     barrierStableId: text('barrier_stable_id').notNull(),

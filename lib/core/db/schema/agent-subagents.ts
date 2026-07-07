@@ -7,6 +7,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { agentBarriers } from './agent-barriers';
 
 /**
  * agentSubagentBatches + agentSubagentJobs: durable storage for the
@@ -39,7 +40,9 @@ export const agentSubagentBatches = pgTable(
     sessionId: uuid('session_id'),
     runId: text('run_id'),
     /** Optional phase-A barrier this batch is linked to (spawn_async). */
-    barrierId: text('barrier_id'),
+    barrierId: text('barrier_id').references(() => agentBarriers.barrierId, {
+      onDelete: 'set null',
+    }),
     status: text('status', {
       enum: ['running', 'completed', 'failed', 'cancelled'],
     })

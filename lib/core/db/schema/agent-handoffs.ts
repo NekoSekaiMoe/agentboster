@@ -6,6 +6,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { agentBarriers } from './agent-barriers';
 
 /**
  * agentHandoffs: a durable named-pipe / mailbox for cross-session and
@@ -48,7 +49,9 @@ export const agentHandoffs = pgTable(
     runId: text('run_id'),
     /** Optional link to a barrier (phase A) so a remote process can
      *  signal completion via release() after consuming the handoff. */
-    barrierId: text('barrier_id'),
+    barrierId: text('barrier_id').references(() => agentBarriers.barrierId, {
+      onDelete: 'set null',
+    }),
     /** Logical name within a session, e.g. "research_result". Takers
      *  filter by key; (fromSessionId, key) is the canonical lookup
      *  pair. Multiple rows with the same key are FIFO-ordered by id. */
