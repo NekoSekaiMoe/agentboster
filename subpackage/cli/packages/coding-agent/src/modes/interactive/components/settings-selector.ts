@@ -580,9 +580,9 @@ export class SettingsSelectorComponent extends Container {
         id: 'client-spoof',
         label: 'Client spoof',
         description:
-          'Experimental; may result in provider account bans. Bound to the provider port: claude-code → Anthropic, codex → OpenAI Responses (not OpenAI Legacy), antigravity → Google (Gemini).',
+          'Experimental; may result in provider account bans. When on, auto-detects the native client per provider: codex for OpenAI (Responses only), claude-code for Anthropic, antigravity for Google (Gemini).',
         currentValue: str(config.clientSpoof),
-        values: ['off', 'claude-code', 'codex', 'antigravity'],
+        values: ['off', 'on'],
       },
       {
         id: 'http-idle-timeout',

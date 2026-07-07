@@ -334,11 +334,10 @@ export const ja = {
   'config.forms.models.bareModelHelp':
     '裸のモデル名は OpenAI Legacy provider に解決されます。特定 provider を指定するには provider/model-id を使用します。',
   'config.forms.models.clientSpoof': 'クライアント偽装',
-  'config.forms.models.clientSpoofClaudeCode': 'Claude Code (Anthropic)',
-  'config.forms.models.clientSpoofCodex': 'Codex (OpenAI Responses)',
-  'config.forms.models.clientSpoofAntigravity': 'Antigravity (Google)',
+  'config.forms.models.clientSpoofOn':
+    'ネイティブクライアントを偽装（プロバイダフォーマット自動検出）',
   'config.forms.models.clientSpoofHelp':
-    '実験的機能です。クライアント識別ヘッダーを変更し、provider アカウントが停止される可能性があります。Claude Code は Anthropic のみ、Codex は OpenAI Responses のみに適用され、OpenAI Legacy には適用されません。',
+    '実験的機能です。有効にすると、各プロバイダフォーマットに応じてネイティブCLIを偽装します（OpenAI Responses → Codex、Anthropic → Claude Code、Google/Gemini → Antigravity）。プロバイダアカウントが停止される可能性があります。',
   'config.forms.models.clientSpoofOff': 'オフ',
   'config.forms.models.clientSpoofUnsupported':
     '現在の provider 形式ではこのプロファイルは無視されます。',

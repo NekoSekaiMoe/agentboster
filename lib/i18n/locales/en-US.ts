@@ -330,11 +330,10 @@ export const enUS = {
   'config.forms.models.bareModelHelp':
     'Bare model names resolve against your OpenAI Legacy provider. Use provider/model-id to target a specific provider.',
   'config.forms.models.clientSpoof': 'Client spoof',
-  'config.forms.models.clientSpoofClaudeCode': 'Claude Code (Anthropic)',
-  'config.forms.models.clientSpoofCodex': 'Codex (OpenAI Responses)',
-  'config.forms.models.clientSpoofAntigravity': 'Antigravity (Google)',
+  'config.forms.models.clientSpoofOn':
+    'Impersonate native client (auto-detected per provider format)',
   'config.forms.models.clientSpoofHelp':
-    'Experimental. Changes client-identifying request headers and may result in provider account bans. Bound to the provider format: Claude Code → Anthropic; Codex → OpenAI Responses only (never OpenAI Legacy); Antigravity → Google (Gemini).',
+    'Experimental. When enabled, the tool impersonates the native CLI of each provider format: Codex for OpenAI (Responses only, not Legacy Chat), Claude Code for Anthropic, Antigravity for Google (Gemini). May result in provider account bans.',
   'config.forms.models.clientSpoofOff': 'Off',
   'config.forms.models.clientSpoofUnsupported':
     'This profile is ignored for the current provider format.',

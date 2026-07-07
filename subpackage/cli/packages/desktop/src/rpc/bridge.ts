@@ -7,7 +7,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type QueueMode = 'all' | 'one-at-a-time';
 export type StreamingBehavior = 'steer' | 'followUp';
-export type ClientSpoof = 'off' | 'claude-code' | 'codex' | 'antigravity';
+export type ClientSpoof = 'off' | 'on';
 export type ThinkingLevel =
   | 'off'
   | 'minimal'

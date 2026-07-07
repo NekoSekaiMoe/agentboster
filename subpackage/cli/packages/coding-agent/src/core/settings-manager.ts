@@ -61,7 +61,7 @@ export interface WarningSettings {
   anthropicExtraUsage?: boolean; // default: true
 }
 
-export type ClientSpoofSetting = 'off' | 'claude-code' | 'codex' | 'antigravity';
+export type ClientSpoofSetting = 'off' | 'on';
 
 export type DefaultProjectTrust = 'ask' | 'always' | 'never';
 
@@ -187,9 +187,7 @@ function parseTimeoutSetting(
 }
 
 function normalizeClientSpoofSetting(value: unknown): ClientSpoofSetting {
-  return value === 'claude-code' || value === 'codex' || value === 'antigravity'
-    ? value
-    : 'off';
+  return value === 'on' ? 'on' : 'off';
 }
 
 export type SettingsScope = 'global' | 'project';

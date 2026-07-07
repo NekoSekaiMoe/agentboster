@@ -1,76 +1,59 @@
 import type { AppConfig } from '@/types/config';
-import type { AIProvider, ClientSpoof } from '@/types/config/ai';
-
-const CLIENT_SPOOF_VALUES = new Set<ClientSpoof>([
-  'off',
-  'claude-code',
-  'codex',
-  'antigravity',
-]);
-
-const CLIENT_SPOOF_HEADERS: Record<
-  Exclude<ClientSpoof, 'off'>,
-  Record<string, string>
-> = {
-  'claude-code': {
-    'User-Agent': 'claude-code/1.0',
-  },
-  codex: {
-    'User-Agent': 'codex-cli/1.0',
-  },
-  antigravity: {
-    'User-Agent': 'antigravity-cli/1.0',
-  },
-};
+import type { ClientSpoof } from '@/types/config/ai';
 
 /**
  * The OpenAI API mode an endpoint resolves to. `codex` spoof only makes
- * sense against the Responses API (/v1/responses); it must never be applied
- * to OpenAI Legacy (Chat Completions, /v1/chat/completions).
+ * sense against the Responses API (/v1/responses); never apply to Legacy.
  */
 export type OpenAIApiMode = 'chat' | 'responses' | undefined;
 
+const CLIENT_SPOOF_VALUES = new Set<ClientSpoof>(['off', 'on']);
+
+/**
+ * Per-format spoof profile. When spoof is enabled ("on"), the spoof headers
+ * are auto-selected from this map based on the provider format.
+ */
+const FORMAT_SPOOF_MAP: Record<
+  string,
+  { headers: Record<string, string>; openaiResponsesOnly?: true } | undefined
+> = {
+  anthropic: { headers: { 'User-Agent': 'claude-code/1.0' } },
+  openai: {
+    headers: { 'User-Agent': 'codex-cli/1.0' },
+    openaiResponsesOnly: true,
+  },
+  google: { headers: { 'User-Agent': 'antigravity-cli/1.0' } },
+};
+
 export function normalizeClientSpoof(value: unknown): ClientSpoof {
-  return typeof value === 'string' &&
-    CLIENT_SPOOF_VALUES.has(value as ClientSpoof)
+  return CLIENT_SPOOF_VALUES.has(value as ClientSpoof)
     ? (value as ClientSpoof)
     : 'off';
 }
 
 /**
- * Map each client-spoof profile to the provider format it is valid for.
- * This is the "port" binding: the spoof is recognized from the provider
- * format, not from a free user choice that can leak across ports.
+ * Whether the provider format has a spoof profile to apply.
  */
-export function isClientSpoofSupported(
-  format: AIProvider | string | undefined,
-  clientSpoof: ClientSpoof,
-): boolean {
-  switch (clientSpoof) {
-    case 'off':
-      return true;
-    case 'claude-code':
-      return format === 'anthropic';
-    case 'codex':
-      return format === 'openai';
-    case 'antigravity':
-      return format === 'google';
-    default:
-      return false;
-  }
+export function isClientSpoofSupported(format: string | undefined): boolean {
+  return format !== undefined && format in FORMAT_SPOOF_MAP;
 }
 
+/**
+ * Resolve the spoof state after applying format + openai-api guard.
+ * Returns 'off'|'on'.
+ */
 export function getEffectiveProviderClientSpoof(
-  format: AIProvider | string | undefined,
+  format: string | undefined,
   clientSpoof: unknown,
   openaiApi?: OpenAIApiMode,
 ): ClientSpoof {
   const normalized = normalizeClientSpoof(clientSpoof);
-  if (!isClientSpoofSupported(format, normalized)) return 'off';
-  // OpenAI Legacy (Chat Completions) cannot be spoofed as Codex, which is a
-  // Responses-API client. Drop the spoof so legacy endpoints stay honest.
-  if (normalized === 'codex' && openaiApi === 'chat') return 'off';
-  return normalized;
+  if (normalized !== 'on') return 'off';
+  if (!format) return 'off';
+  const profile = FORMAT_SPOOF_MAP[format];
+  if (!profile) return 'off';
+  if (profile.openaiResponsesOnly && openaiApi === 'chat') return 'off';
+  return 'on';
 }
 
 function withHeaderOverrides(
@@ -81,37 +64,40 @@ function withHeaderOverrides(
     Object.keys(overrides).map((key) => key.toLowerCase()),
   );
   const next: Record<string, string> = {};
-
   for (const [key, value] of Object.entries(headers ?? {})) {
-    if (!overrideKeys.has(key.toLowerCase())) {
-      next[key] = value;
-    }
+    if (!overrideKeys.has(key.toLowerCase())) next[key] = value;
   }
-
   return { ...next, ...overrides };
 }
 
+/**
+ * Apply format-matched spoof headers to the request's header bag.
+ * Returns the original `headers` when spoof is off or no format matches.
+ */
 export function applyClientSpoofHeaders(
-  format: AIProvider | string | undefined,
+  format: string | undefined,
   headers: Record<string, string> | undefined,
   clientSpoof: unknown,
   openaiApi?: OpenAIApiMode,
 ): Record<string, string> | undefined {
-  const effective = getEffectiveProviderClientSpoof(
-    format,
-    clientSpoof,
-    openaiApi,
-  );
-  if (effective === 'off') return headers;
-  return withHeaderOverrides(headers, CLIENT_SPOOF_HEADERS[effective]);
+  if (clientSpoof !== 'on') return headers;
+  if (!format) return headers;
+  const profile = FORMAT_SPOOF_MAP[format];
+  if (!profile) return headers;
+  if (profile.openaiResponsesOnly && openaiApi === 'chat') return headers;
+  return withHeaderOverrides(headers, profile.headers);
 }
 
+/**
+ * Override all providers with the global client_spoof value from CLI/Desktop.
+ * When "on", each provider gets its format-appropriate spoof at request time.
+ */
 export function applyClientSpoofOverride(
   config: AppConfig,
   clientSpoof: unknown,
 ): AppConfig {
-  const normalized = normalizeClientSpoof(clientSpoof);
   if (clientSpoof === undefined) return config;
+  const normalized = clientSpoof === 'on' ? 'on' : 'off';
 
   const models = config.models;
   const providers = models?.providers;
@@ -126,10 +112,9 @@ export function applyClientSpoofOverride(
       nextProviders[providerName] = nextProvider;
       continue;
     }
-
     nextProviders[providerName] = {
       ...providerConfig,
-      client_spoof: normalized,
+      client_spoof: 'on',
     };
   }
 

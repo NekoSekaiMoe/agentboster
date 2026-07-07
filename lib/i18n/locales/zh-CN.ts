@@ -307,11 +307,10 @@ export const zhCN = {
   'config.forms.models.bareModelHelp':
     '裸模型名会解析到你的 OpenAI Legacy provider。使用 provider/model-id 可指定 provider。',
   'config.forms.models.clientSpoof': '伪装客户端',
-  'config.forms.models.clientSpoofClaudeCode': 'Claude Code（Anthropic）',
-  'config.forms.models.clientSpoofCodex': 'Codex（OpenAI Responses）',
-  'config.forms.models.clientSpoofAntigravity': 'Antigravity（Google）',
+  'config.forms.models.clientSpoofOn':
+    '启用客户端伪装（按 provider 格式自动识别端口）',
   'config.forms.models.clientSpoofHelp':
-    '实验功能。会修改客户端识别请求头，可能导致 provider 账号被封禁。绑定到 provider 格式：Claude Code → Anthropic；Codex 仅作用于 OpenAI Responses（绝不作用于 OpenAI Legacy）；Antigravity → Google（Gemini）。',
+    '实验功能。启用后按 provider 接口格式自动设置对应请求头：Codex（OpenAI Responses，非 Legacy Chat）、Claude Code（Anthropic）、Antigravity（Google/Gemini）。可能导致 provider 账号被封禁。',
   'config.forms.models.clientSpoofOff': '关闭',
   'config.forms.models.clientSpoofUnsupported':
     '当前 provider 格式不会使用此伪装档案。',

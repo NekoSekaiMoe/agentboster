@@ -1290,9 +1290,7 @@ export class SettingsPanel {
   }
 
   private normalizeClientSpoof(value: unknown): ClientSpoof {
-    return value === 'claude-code' || value === 'codex' || value === 'antigravity'
-      ? value
-      : 'off';
+    return value === 'on' ? value : 'off';
   }
 
   private async setClientSpoof(clientSpoof: ClientSpoof): Promise<void> {
@@ -2122,14 +2120,11 @@ export class SettingsPanel {
 						<div class="settings-row">
 							<div>
 								<div class="settings-label">Client spoof</div>
-								<div class="settings-desc">Experimental. Changes client-identifying request headers and may result in provider account bans.</div>
-								<div class="settings-desc">Bound to the provider port: Claude Code → Anthropic, Codex → OpenAI Responses only (never OpenAI Legacy), Antigravity → Google (Gemini).</div>
+								<div class="settings-desc">Experimental. When on, the tool impersonates the native CLI of each provider format: Codex for OpenAI (Responses only), Claude Code for Anthropic, Antigravity for Google (Gemini). May result in provider account bans.</div>
 							</div>
 							<select class="settings-select" .value=${this.state.clientSpoof} @change=${(e: Event) => this.setClientSpoof((e.target as HTMLSelectElement).value as ClientSpoof)}>
 								<option value="off">Off</option>
-								<option value="claude-code">Claude Code (Anthropic)</option>
-								<option value="codex">Codex (OpenAI Responses)</option>
-								<option value="antigravity">Antigravity (Google)</option>
+								<option value="on">On</option>
 							</select>
 						</div>
 					</div>

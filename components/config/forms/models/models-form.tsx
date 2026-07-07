@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useI18n } from '@/components/i18n-provider';
 import type { TranslationKey } from '@/lib/i18n';
 import {
@@ -29,7 +30,6 @@ import {
   type AIProvider,
   aiProviderEnum,
   type ClientSpoof,
-  clientSpoofEnum,
 } from '@/types/config/ai';
 import { isClientSpoofSupported } from '@/lib/ai/client-spoof';
 
@@ -51,9 +51,7 @@ function formatLabel(format: AIProvider): string {
 
 const CLIENT_SPOOF_LABEL_KEYS: Record<ClientSpoof, TranslationKey> = {
   off: 'config.forms.models.clientSpoofOff',
-  'claude-code': 'config.forms.models.clientSpoofClaudeCode',
-  codex: 'config.forms.models.clientSpoofCodex',
-  antigravity: 'config.forms.models.clientSpoofAntigravity',
+  on: 'config.forms.models.clientSpoofOn',
 };
 
 import {
@@ -668,10 +666,6 @@ export function ModelsForm() {
           {providers.map(([providerKey, providerValue]) => {
             const isExpanded = expandedProviderKeys.has(providerKey);
             const clientSpoof = providerValue.client_spoof ?? 'off';
-            const clientSpoofSupported = isClientSpoofSupported(
-              providerValue.format,
-              clientSpoof,
-            );
 
             return (
               <div
@@ -836,52 +830,46 @@ export function ModelsForm() {
                               }
                             />
                           </Field>
-                          <Field label={t('config.forms.models.clientSpoof')}>
-                            <Select
-                              value={clientSpoof}
-                              onValueChange={(nextValue) =>
-                                updateModels((current) => ({
-                                  ...current,
-                                  providers: {
-                                    ...(current.providers ?? {}),
-                                    [providerKey]: {
-                                      ...(current.providers?.[providerKey] ??
-                                        providerValue),
-                                      client_spoof:
-                                        nextValue === 'off'
-                                          ? undefined
-                                          : (nextValue as ClientSpoof),
-                                    },
-                                  },
-                                }))
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {clientSpoofEnum.options.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {t(CLIENT_SPOOF_LABEL_KEYS[option])}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <p className="mt-1 text-muted-foreground text-xs">
-                              {t('config.forms.models.clientSpoofHelp')}
-                            </p>
-                            {!clientSpoofSupported ? (
-                              <p className="mt-1 flex items-start gap-1 text-amber-600 text-xs dark:text-amber-500">
-                                <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-                                <span>
-                                  {t(
-                                    'config.forms.models.clientSpoofUnsupported',
-                                  )}
-                                </span>
-                              </p>
-                            ) : null}
-                          </Field>
                         </div>
+                        <label
+                          htmlFor={`${providerKey}-client-spoof`}
+                          className="flex items-start gap-3 rounded-md border p-4"
+                        >
+                          <Checkbox
+                            id={`${providerKey}-client-spoof`}
+                            checked={clientSpoof === 'on'}
+                            onCheckedChange={(checked) =>
+                              updateModels((current) => ({
+                                ...current,
+                                providers: {
+                                  ...(current.providers ?? {}),
+                                  [providerKey]: {
+                                    ...(current.providers?.[providerKey] ??
+                                      providerValue),
+                                    client_spoof: checked ? 'on' : undefined,
+                                  },
+                                },
+                              }))
+                            }
+                          />
+                          <span className="space-y-1">
+                            <span className="font-medium text-sm">
+                              {t('config.forms.models.clientSpoof')}
+                            </span>
+                            <span className="block text-muted-foreground text-xs">
+                              {t('config.forms.models.clientSpoofHelp')}
+                            </span>
+                            {clientSpoof === 'on' &&
+                            !isClientSpoofSupported(providerValue.format) ? (
+                              <span className="flex items-center gap-1 text-amber-600 text-xs dark:text-amber-500">
+                                <AlertTriangle className="size-3 shrink-0" />
+                                {t(
+                                  'config.forms.models.clientSpoofUnsupported',
+                                )}
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
 
                         <div className="space-y-2">
                           <Field label={t('config.common.headers')}>

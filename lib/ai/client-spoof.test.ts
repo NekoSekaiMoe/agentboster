@@ -7,60 +7,61 @@ import {
 import type { AppConfig } from '@/types/config';
 
 describe('client spoof helpers', () => {
-  it('applies Claude Code headers only to Anthropic providers', () => {
-    expect(
-      applyClientSpoofHeaders('anthropic', undefined, 'claude-code'),
-    ).toEqual({
+  it('applies Claude Code headers for Anthropic when on', () => {
+    expect(applyClientSpoofHeaders('anthropic', undefined, 'on')).toEqual({
       'User-Agent': 'claude-code/1.0',
     });
-    expect(
-      applyClientSpoofHeaders('openai', undefined, 'claude-code'),
-    ).toBeUndefined();
+    expect(applyClientSpoofHeaders('openai', undefined, 'on')).not.toEqual({
+      'User-Agent': 'claude-code/1.0',
+    });
   });
 
-  it('applies Codex headers only to OpenAI providers', () => {
-    expect(applyClientSpoofHeaders('openai', {}, 'codex')).toEqual({
+  it('applies Codex headers only for OpenAI Responses (not Legacy)', () => {
+    expect(applyClientSpoofHeaders('openai', {}, 'on')).toEqual({
       'User-Agent': 'codex-cli/1.0',
     });
-    expect(applyClientSpoofHeaders('openaicompatible', {}, 'codex')).toEqual(
-      {},
-    );
+    // Legacy Chat → no spoof
+    expect(applyClientSpoofHeaders('openai', {}, 'on', 'chat')).toEqual({});
+    // openaicompatible has no spoof profile
+    expect(applyClientSpoofHeaders('openaicompatible', {}, 'on')).toEqual({});
   });
 
-  it('never spoofs Codex on OpenAI Legacy (Chat Completions)', () => {
-    expect(applyClientSpoofHeaders('openai', {}, 'codex', 'chat')).toEqual({});
-    expect(getEffectiveProviderClientSpoof('openai', 'codex', 'chat')).toBe(
-      'off',
-    );
-    expect(
-      getEffectiveProviderClientSpoof('openai', 'codex', 'responses'),
-    ).toBe('codex');
-  });
-
-  it('applies Antigravity headers only to Google (Gemini) providers', () => {
-    expect(applyClientSpoofHeaders('google', {}, 'antigravity')).toEqual({
+  it('applies Antigravity headers for Google when on', () => {
+    expect(applyClientSpoofHeaders('google', {}, 'on')).toEqual({
       'User-Agent': 'antigravity-cli/1.0',
     });
-    expect(applyClientSpoofHeaders('openai', {}, 'antigravity')).toEqual({});
-    expect(applyClientSpoofHeaders('anthropic', {}, 'antigravity')).toEqual({});
+    expect(applyClientSpoofHeaders('anthropic', {}, 'on')).not.toEqual({
+      'User-Agent': 'antigravity-cli/1.0',
+    });
   });
 
-  it('overrides existing user-agent headers case-insensitively', () => {
+  it('returns original headers when spoof is off', () => {
     expect(
-      applyClientSpoofHeaders(
-        'openai',
-        { 'user-agent': 'custom', 'x-test': '1' },
-        'codex',
-      ),
+      applyClientSpoofHeaders('openai', { 'x-custom': '1' }, 'off'),
     ).toEqual({
-      'x-test': '1',
-      'User-Agent': 'codex-cli/1.0',
+      'x-custom': '1',
+    });
+    expect(
+      applyClientSpoofHeaders('openai', { 'x-custom': '1' }, undefined),
+    ).toEqual({
+      'x-custom': '1',
     });
   });
 
   it('exposes effective off for unsupported provider formats', () => {
-    expect(getEffectiveProviderClientSpoof('anthropic', 'codex')).toBe('off');
-    expect(getEffectiveProviderClientSpoof('openai', 'codex')).toBe('codex');
+    expect(getEffectiveProviderClientSpoof('anthropic', 'on')).toBe('on');
+    expect(getEffectiveProviderClientSpoof('openaicompatible', 'on')).toBe(
+      'off',
+    );
+    expect(getEffectiveProviderClientSpoof('openai', 'on')).toBe('on');
+    expect(getEffectiveProviderClientSpoof('google', 'on')).toBe('on');
+  });
+
+  it('drops Codex for OpenAI Legacy (Chat Completions)', () => {
+    expect(getEffectiveProviderClientSpoof('openai', 'on', 'chat')).toBe('off');
+    expect(getEffectiveProviderClientSpoof('openai', 'on', 'responses')).toBe(
+      'on',
+    );
   });
 
   it('can override stored provider spoof settings for one run', () => {
@@ -72,7 +73,7 @@ describe('client spoof helpers', () => {
         providers: {
           anthropic: {
             format: 'anthropic',
-            client_spoof: 'claude-code',
+            client_spoof: 'on',
           },
           openai: {
             format: 'openai',
@@ -80,24 +81,6 @@ describe('client spoof helpers', () => {
         },
       },
     };
-
-    expect(applyClientSpoofOverride(config, 'codex')).toEqual({
-      models: {
-        temperature: 0.7,
-        context_limit: 128_000,
-        max_output_tokens: 8_192,
-        providers: {
-          anthropic: {
-            format: 'anthropic',
-            client_spoof: 'codex',
-          },
-          openai: {
-            format: 'openai',
-            client_spoof: 'codex',
-          },
-        },
-      },
-    });
 
     expect(applyClientSpoofOverride(config, 'off')).toEqual({
       models: {
@@ -110,6 +93,24 @@ describe('client spoof helpers', () => {
           },
           openai: {
             format: 'openai',
+          },
+        },
+      },
+    });
+
+    expect(applyClientSpoofOverride(config, 'on')).toEqual({
+      models: {
+        temperature: 0.7,
+        context_limit: 128_000,
+        max_output_tokens: 8_192,
+        providers: {
+          anthropic: {
+            format: 'anthropic',
+            client_spoof: 'on',
+          },
+          openai: {
+            format: 'openai',
+            client_spoof: 'on',
           },
         },
       },

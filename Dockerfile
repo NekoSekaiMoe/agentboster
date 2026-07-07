@@ -23,6 +23,14 @@ COPY --from=deps /app/node_modules ./node_modules
 # Copy source code
 COPY . .
 
+# Copy Docker environment into the filename Next.js loads automatically.
+ARG DOCKER_ENV_FILE=docker.env
+RUN if [ ! -f "$DOCKER_ENV_FILE" ]; then \
+        echo "Missing $DOCKER_ENV_FILE. Copy docker.env.example to docker.env before docker build."; \
+        exit 1; \
+    fi && \
+    cp "$DOCKER_ENV_FILE" .env
+
 # Set build-time environment variables
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -53,12 +61,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Copy necessary files for runtime
 COPY --from=builder /app/next.config.ts ./
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/.env ./.env
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
 
 # Copy database scripts and schema for migrations
-COPY --from=builder /app/drizzle ./drizzle
+COPY --from=builder /app/lib/core/db ./lib/core/db
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 
