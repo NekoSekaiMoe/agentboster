@@ -1,15 +1,14 @@
-import {
-  del,
-  get,
-  getDownloadUrl,
-  list,
-  put as vercelBlobPut,
-} from '@vercel/blob';
 import type { PutBlobResult, PutCommandOptions } from '@vercel/blob';
 
-export { del, get, getDownloadUrl, list };
-
 export type BlobAccess = 'public' | 'private';
+type VercelBlobModule = typeof import('@vercel/blob');
+
+let blobModule: Promise<VercelBlobModule> | null = null;
+
+async function loadBlob(): Promise<VercelBlobModule> {
+  blobModule ??= import('@vercel/blob');
+  return blobModule;
+}
 
 const PRIVATE_STORE_PUBLIC_ACCESS_ERROR =
   'Cannot use public access on a private store';
@@ -18,6 +17,34 @@ const PUBLIC_STORE_PRIVATE_ACCESS_ERROR =
 
 export function getConfiguredBlobAccess(): BlobAccess {
   return process.env.BLOB_ACCESS === 'private' ? 'private' : 'public';
+}
+
+export async function del(
+  ...args: Parameters<VercelBlobModule['del']>
+): ReturnType<VercelBlobModule['del']> {
+  const blob = await loadBlob();
+  return blob.del(...args);
+}
+
+export async function get(
+  ...args: Parameters<VercelBlobModule['get']>
+): ReturnType<VercelBlobModule['get']> {
+  const blob = await loadBlob();
+  return blob.get(...args);
+}
+
+export async function getDownloadUrl(
+  ...args: Parameters<VercelBlobModule['getDownloadUrl']>
+): Promise<ReturnType<VercelBlobModule['getDownloadUrl']>> {
+  const blob = await loadBlob();
+  return blob.getDownloadUrl(...args);
+}
+
+export async function list(
+  ...args: Parameters<VercelBlobModule['list']>
+): ReturnType<VercelBlobModule['list']> {
+  const blob = await loadBlob();
+  return blob.list(...args);
 }
 
 function shouldRetryWithPrivateAccess(error: unknown): boolean {
@@ -76,7 +103,7 @@ export async function getBlob(
 
 export async function put(
   pathname: string,
-  body: Parameters<typeof vercelBlobPut>[1],
+  body: Parameters<VercelBlobModule['put']>[1],
   options: Omit<PutCommandOptions, 'access'> & {
     access?: BlobAccess;
   } = {},
@@ -88,17 +115,20 @@ export async function put(
   };
 
   try {
-    return await vercelBlobPut(pathname, body, putOptions);
+    const blob = await loadBlob();
+    return await blob.put(pathname, body, putOptions);
   } catch (error) {
     if (access === 'private' && shouldRetryWithPublicAccess(error)) {
-      return vercelBlobPut(pathname, body, {
+      const blob = await loadBlob();
+      return blob.put(pathname, body, {
         ...options,
         access: 'public',
       });
     }
 
     if (access === 'public' && shouldRetryWithPrivateAccess(error)) {
-      return vercelBlobPut(pathname, body, {
+      const blob = await loadBlob();
+      return blob.put(pathname, body, {
         ...options,
         access: 'private',
       });
