@@ -383,6 +383,8 @@ export const zhTW = {
   'config.monitoring.totalTasks': '總任務數',
   'config.monitoring.updated': '更新於 {time}',
   'login.firstLoginHint': '如果是第一次登入，請留意日誌輸出的預設密碼。',
+  'login.forgotPassword': '忘記密碼？',
+  'login.forgotPasswordHint': '非種子帳號忘記密碼時，請聯絡管理員重設密碼。',
   'login.failed': '登入失敗。',
   'login.hidePassword': '隱藏密碼',
   'login.language': '語言',

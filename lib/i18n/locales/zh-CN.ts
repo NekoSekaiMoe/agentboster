@@ -382,6 +382,8 @@ export const zhCN = {
   'config.monitoring.totalTasks': '总任务数',
   'config.monitoring.updated': '更新于 {time}',
   'login.firstLoginHint': '如果是第一次登录，请留意日志输出的默认密码。',
+  'login.forgotPassword': '忘记密码？',
+  'login.forgotPasswordHint': '非种子账号忘记密码时，请联系管理员重置密码。',
   'login.failed': '登录失败。',
   'login.hidePassword': '隐藏密码',
   'login.language': '语言',

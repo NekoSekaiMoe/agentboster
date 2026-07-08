@@ -409,6 +409,9 @@ export const ko = {
   'config.monitoring.updated': '{time}에 업데이트됨',
   'login.firstLoginHint':
     '처음 로그인하는 경우 로그에 출력된 기본 비밀번호를 확인하세요.',
+  'login.forgotPassword': '비밀번호를 잊으셨나요?',
+  'login.forgotPasswordHint':
+    '시드 계정이 아닌 경우 관리자에게 비밀번호 재설정을 요청하세요.',
   'login.failed': '로그인에 실패했습니다.',
   'login.hidePassword': '비밀번호 숨기기',
   'login.language': '언어',

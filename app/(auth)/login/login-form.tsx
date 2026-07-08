@@ -36,6 +36,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [passwordHelpVisible, setPasswordHelpVisible] = useState(false);
   const isDark = resolvedTheme === 'dark';
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -170,9 +171,23 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
           </div>
         </div>
 
-        <p className="text-muted-foreground text-xs">
-          {t('login.firstLoginHint')}
-        </p>
+        <div className="flex flex-col gap-2 text-xs sm:flex-row sm:items-start sm:justify-between">
+          <p className="text-muted-foreground">{t('login.firstLoginHint')}</p>
+          <button
+            type="button"
+            className="shrink-0 self-start font-medium text-sky-600 underline-offset-4 hover:text-sky-700 hover:underline dark:text-sky-400 dark:hover:text-sky-300"
+            aria-expanded={passwordHelpVisible}
+            onClick={() => setPasswordHelpVisible((visible) => !visible)}
+          >
+            {t('login.forgotPassword')}
+          </button>
+        </div>
+
+        {passwordHelpVisible ? (
+          <p className="rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-muted-foreground text-xs">
+            {t('login.forgotPasswordHint')}
+          </p>
+        ) : null}
 
         {error ? <p className="text-destructive text-sm">{error}</p> : null}
         {success ? (

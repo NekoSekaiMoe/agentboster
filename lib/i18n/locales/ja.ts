@@ -413,6 +413,9 @@ export const ja = {
   'config.monitoring.updated': '{time} に更新',
   'login.firstLoginHint':
     '初回ログインの場合は、ログに出力された既定パスワードを確認してください。',
+  'login.forgotPassword': 'パスワードをお忘れですか？',
+  'login.forgotPasswordHint':
+    'シード以外のアカウントは、管理者にパスワードのリセットを依頼してください。',
   'login.failed': 'ログインに失敗しました。',
   'login.hidePassword': 'パスワードを隠す',
   'login.language': '言語',

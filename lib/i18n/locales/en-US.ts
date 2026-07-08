@@ -409,6 +409,9 @@ export const enUS = {
   'config.monitoring.updated': 'Updated {time}',
   'login.firstLoginHint':
     'For first login, check the logs for the default password.',
+  'login.forgotPassword': 'Forgot password?',
+  'login.forgotPasswordHint':
+    'For non-seed accounts, ask an administrator to reset your password.',
   'login.failed': 'Login failed.',
   'login.hidePassword': 'Hide password',
   'login.language': 'Language',
