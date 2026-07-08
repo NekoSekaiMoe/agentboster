@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  KeyRound,
   Loader2,
   Shield,
   ShieldOff,
@@ -117,6 +118,18 @@ async function updateUserRoles(input: { id: string; roles: string[] }) {
   });
   if (!res.ok) {
     throw new Error(await readError(res, 'Failed to update roles'));
+  }
+  return res.json();
+}
+
+async function resetUserPassword(input: { id: string; password: string }) {
+  const res = await fetch('/api/auth/users', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(await readError(res, 'Failed to reset password'));
   }
   return res.json();
 }
@@ -373,6 +386,7 @@ function UserCard({ user }: { user: User }) {
             >
               {isAdmin ? 'Demote' : 'Promote'}
             </Button>
+            <PasswordResetDialog user={user} />
             <Button
               variant="ghost"
               size="icon"
@@ -416,6 +430,94 @@ function UserCard({ user }: { user: User }) {
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function PasswordResetDialog({ user }: { user: User }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const queryClient = useQueryClient();
+  const passwordsMatch = password === confirmPassword;
+
+  const resetMutation = useMutation({
+    mutationFn: resetUserPassword,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setPassword('');
+      setConfirmPassword('');
+      setOpen(false);
+      toast.success('Password reset');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) {
+          setPassword('');
+          setConfirmPassword('');
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <KeyRound className="mr-2 size-4" />
+          Reset password
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reset password</DialogTitle>
+          <DialogDescription>
+            Set a new password for {user.username}.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label htmlFor={`reset-password-${user.id}`}>New password</Label>
+            <Input
+              id={`reset-password-${user.id}`}
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor={`confirm-password-${user.id}`}>
+              Confirm password
+            </Label>
+            <Input
+              id={`confirm-password-${user.id}`}
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+          {confirmPassword && !passwordsMatch ? (
+            <p className="text-destructive text-sm">Passwords do not match.</p>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button
+            disabled={
+              !password ||
+              !confirmPassword ||
+              !passwordsMatch ||
+              resetMutation.isPending
+            }
+            onClick={() => resetMutation.mutate({ id: user.id, password })}
+          >
+            {resetMutation.isPending ? 'Resetting...' : 'Reset password'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

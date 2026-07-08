@@ -16,6 +16,7 @@ import {
   isSeedAdminUser,
   listUsers,
   normalizeRoles,
+  updateUserPassword,
   updateUserRoles,
 } from '@/lib/core/db/users';
 import { deleteLongTermMemory, listLongTermMemories } from '@/lib/memory';
@@ -187,8 +188,13 @@ export async function PATCH(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const { id, roles } = body as { id?: string; roles?: string[] };
+  const { id, password, roles } = body as {
+    id?: string;
+    password?: string;
+    roles?: string[];
+  };
   const userId = id?.trim();
+  const newPassword = password?.trim();
 
   if (!userId) {
     return NextResponse.json(
@@ -200,6 +206,22 @@ export async function PATCH(request: NextRequest) {
   const userToUpdate = await getUserById(userId);
   if (!userToUpdate) {
     return NextResponse.json({ error: 'User not found.' }, { status: 404 });
+  }
+
+  if (typeof password === 'string' && !newPassword) {
+    return NextResponse.json(
+      { error: 'Password is required.' },
+      { status: 400 },
+    );
+  }
+
+  if (newPassword) {
+    const updated = await updateUserPassword(userId, newPassword);
+    if (!updated) {
+      return NextResponse.json({ error: 'User not found.' }, { status: 404 });
+    }
+
+    return NextResponse.json(serializeUser(updated));
   }
 
   if (isSeedAdminUser(userToUpdate)) {

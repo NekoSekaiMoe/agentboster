@@ -225,6 +225,29 @@ export async function updateUserRoles(
   return row ?? null;
 }
 
+export async function updateUserPassword(
+  userId: string,
+  password: string,
+): Promise<StoredUser | null> {
+  const passwordHash = await hashPassword(password);
+  const [row] = await db
+    .update(users)
+    .set({
+      passwordHash,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId))
+    .returning({
+      id: users.id,
+      username: users.username,
+      roles: users.roles,
+      modelPreferences: users.modelPreferences,
+      createdAt: users.createdAt,
+    });
+
+  return row ?? null;
+}
+
 /**
  * Replace the per-user model preferences for the given user. Pass `null` to
  * clear (fall back to global defaults). Returns the updated user or null if
