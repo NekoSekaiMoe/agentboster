@@ -277,8 +277,8 @@ function detectJavaScriptRenderingNeed(
   do {
     previousBodyWithoutScripts = bodyWithoutScripts;
     bodyWithoutScripts = bodyWithoutScripts
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, '')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi, '');
   } while (bodyWithoutScripts !== previousBodyWithoutScripts);
   bodyWithoutScripts = bodyWithoutScripts.trim();
   const visibleWordCount = text
