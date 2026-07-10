@@ -2202,6 +2202,14 @@ export class DefaultPackageManager implements PackageManager {
     }
   }
 
+  private isSafeGitRef(ref: string): boolean {
+    const trimmed = ref.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith('-')) return false;
+    if (/[\s\0]/.test(trimmed)) return false;
+    return true;
+  }
+
   private async updateGit(
     source: GitSource,
     scope: SourceScope,
@@ -2213,9 +2221,12 @@ export class DefaultPackageManager implements PackageManager {
     }
 
     if (source.ref) {
+      if (!this.isSafeGitRef(source.ref)) {
+        throw new Error(`Invalid git ref: ${source.ref}`);
+      }
       await this.ensureGitRef(
         targetDir,
-        ['fetch', 'origin', source.ref],
+        ['fetch', 'origin', '--', source.ref],
         'FETCH_HEAD',
       );
       return;
