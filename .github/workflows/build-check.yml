@@ -1,0 +1,27 @@
+name: Build Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [22, 24]
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Build
+      run: |
+        yarn install --force
+        yarn check:lint
+        yarn build
