@@ -2196,7 +2196,7 @@ export class DefaultPackageManager implements PackageManager {
         }
         await this.ensureGitRef(
           targetDir,
-          ['fetch', 'origin', source.ref],
+          ['fetch', 'origin', '--', source.ref],
           'FETCH_HEAD',
         );
         return;
