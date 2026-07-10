@@ -1052,7 +1052,7 @@ const server = http.createServer(async (req, res) => {
     });
     return sendJSON(res, status, {
       ok: false,
-      error: e && e.message ? e.message : String(e),
+      error: status === 400 ? 'no active session' : 'internal server error',
     });
   }
 });
