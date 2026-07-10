@@ -3245,7 +3245,7 @@ export class ChatView {
       }
     }
     if (/\s/.test(token)) {
-      return `"${token.replace(/"/g, '\\"')}"`;
+      return `"${token.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
     }
     return token;
   }
