@@ -181,10 +181,23 @@ async function assertExternalUrlAllowed(url: string) {
   return normalized;
 }
 
+function stripHtmlBlock(html: string, tagName: string): string {
+  const open = new RegExp(`<${tagName}\\b[^>]*>`, 'gi');
+  const close = new RegExp(`</${tagName}\\b[^>]*>`, 'gi');
+  let previous = '';
+  let result = html;
+  while (previous !== result) {
+    previous = result;
+    result = result.replace(
+      new RegExp(`<${tagName}\\b[^>]*>[\\s\\S]*?</${tagName}\\b[^>]*>`, 'gi'),
+      ' ',
+    );
+  }
+  return result.replace(open, ' ').replace(close, ' ');
+}
+
 function htmlToText(value: string) {
-  return value
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  return stripHtmlBlock(stripHtmlBlock(value, 'script'), 'style')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&lt;/gi, '<')

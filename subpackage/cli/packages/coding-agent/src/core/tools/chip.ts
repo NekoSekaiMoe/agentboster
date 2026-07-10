@@ -50,9 +50,9 @@ export const writeChip: ToolChipProvider = (result, options) => {
 export const grepChip: ToolChipProvider = (result, options) => {
   if (options.isPartial) return undefined;
   const text = result.content.find((c) => c.type === 'text')?.text ?? '';
-  const match = text.match(/(\d+)\s+matches?/i);
+  const match = text.match(/\b(\d+)\s+matches?\b/i);
   if (match) return `${match[1]} matches`;
-  if (/no matches/i.test(text)) return 'no matches';
+  if (/\bno matches\b/i.test(text)) return 'no matches';
   return undefined;
 };
 

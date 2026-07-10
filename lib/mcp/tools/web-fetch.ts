@@ -59,13 +59,28 @@ function decodeHtmlEntities(value: string): string {
     .replace(/&amp;/g, '&');
 }
 
+function stripHtmlBlock(html: string, tagName: string): string {
+  const open = new RegExp(`<${tagName}\\b[^>]*>`, 'gi');
+  const close = new RegExp(`</${tagName}\\b[^>]*>`, 'gi');
+  let previous = '';
+  let result = html;
+  while (previous !== result) {
+    previous = result;
+    result = result.replace(
+      new RegExp(`<${tagName}\\b[^>]*>[\\s\\S]*?</${tagName}\\b[^>]*>`, 'gi'),
+      ' ',
+    );
+  }
+  // Drop any unmatched leftover open/close tags of this kind.
+  return result.replace(open, ' ').replace(close, ' ');
+}
+
 function stripHtml(html: string): string {
   return decodeHtmlEntities(
-    html
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, ' ')
-      .replace(/<[^>]*>/g, ' '),
+    stripHtmlBlock(
+      stripHtmlBlock(stripHtmlBlock(html, 'script'), 'style'),
+      'noscript',
+    ).replace(/<[^>]*>/g, ' '),
   )
     .replace(/\s+/g, ' ')
     .trim();
@@ -272,20 +287,10 @@ function detectJavaScriptRenderingNeed(
   const lowerText = text.toLowerCase();
   const scriptCount = countMatches(html, /<script\b/gi);
   const bodyHtml = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(html)?.[1] ?? html;
-  let bodyWithoutScripts = bodyHtml;
-  let previousBodyWithoutScripts: string;
-  do {
-    previousBodyWithoutScripts = bodyWithoutScripts;
-    bodyWithoutScripts = bodyWithoutScripts.replace(
-      /<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi,
-      '',
-    );
-    bodyWithoutScripts = bodyWithoutScripts.replace(
-      /<style\b[^>]*>[\s\S]*?<\/style\b[^>]*>/gi,
-      '',
-    );
-  } while (bodyWithoutScripts !== previousBodyWithoutScripts);
-  bodyWithoutScripts = bodyWithoutScripts.trim();
+  const bodyWithoutScripts = stripHtmlBlock(
+    stripHtmlBlock(bodyHtml, 'script'),
+    'style',
+  ).trim();
   const visibleWordCount = text
     .split(/\s+/)
     .filter((word) => word.trim().length > 0).length;
