@@ -39,7 +39,7 @@ import { minimatch } from 'minimatch';
 import { maxSatisfying, rcompare, satisfies, valid, validRange } from 'semver';
 import { CONFIG_DIR_NAME } from '../config.ts';
 import { spawnProcess, spawnProcessSync } from '../utils/child-process.ts';
-import { type GitSource, parseGitUrl } from '../utils/git.ts';
+import { type GitSource, isSafeGitRef, parseGitUrl } from '../utils/git.ts';
 import {
   canonicalizePath,
   isLocalPath,
@@ -2164,26 +2164,6 @@ export class DefaultPackageManager implements PackageManager {
     ]);
   }
 
-  private isSafeGitRef(ref: string): boolean {
-    if (!ref) return false;
-    if (ref.startsWith('-')) return false;
-    if (/[\u0000-\u001F\u007F\s]/.test(ref)) return false;
-    if (ref.includes('..') || ref.includes('@{') || ref.includes('//')) return false;
-    if (ref.endsWith('.') || ref.endsWith('/') || ref.endsWith('.lock')) return false;
-    if (
-      ref.includes('\\') ||
-      ref.includes(':') ||
-      ref.includes('~') ||
-      ref.includes('^') ||
-      ref.includes('?') ||
-      ref.includes('*') ||
-      ref.includes('[')
-    ) {
-      return false;
-    }
-    return true;
-  }
-
   private async installGit(
     source: GitSource,
     scope: SourceScope,
@@ -2191,7 +2171,7 @@ export class DefaultPackageManager implements PackageManager {
     const targetDir = this.getGitInstallPath(source, scope);
     if (existsSync(targetDir)) {
       if (source.ref) {
-        if (!this.isSafeGitRef(source.ref)) {
+        if (!isSafeGitRef(source.ref)) {
           throw new Error(`Invalid git ref: ${source.ref}`);
         }
         await this.ensureGitRef(
@@ -2225,14 +2205,6 @@ export class DefaultPackageManager implements PackageManager {
     }
   }
 
-  private isSafeGitRef(ref: string): boolean {
-    const trimmed = ref.trim();
-    if (!trimmed) return false;
-    if (trimmed.startsWith('-')) return false;
-    if (/[\s\0]/.test(trimmed)) return false;
-    return true;
-  }
-
   private async updateGit(
     source: GitSource,
     scope: SourceScope,
@@ -2244,7 +2216,7 @@ export class DefaultPackageManager implements PackageManager {
     }
 
     if (source.ref) {
-      if (!this.isSafeGitRef(source.ref)) {
+      if (!isSafeGitRef(source.ref)) {
         throw new Error(`Invalid git ref: ${source.ref}`);
       }
       await this.ensureGitRef(
