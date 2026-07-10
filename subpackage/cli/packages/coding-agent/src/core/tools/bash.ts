@@ -52,6 +52,24 @@ export interface BashToolDetails {
   fullOutputPath?: string;
 }
 
+function assertSafeBashCommandInput(command: string): void {
+  // Guardrail for library input: reject control constructs that can
+  // unexpectedly alter shell command meaning when passed through exported APIs.
+  // This tool still executes shell commands intentionally, but this validation
+  // reduces command-injection style abuse from untrusted callers.
+  if (command.includes('\0')) {
+    throw new Error('Invalid command: contains NUL byte.');
+  }
+  if (command.includes('\n') || command.includes('\r')) {
+    throw new Error('Invalid command: multiline commands are not allowed.');
+  }
+  if (/[;&`]/.test(command) || /\|\|/.test(command) || /&&/.test(command) || /\$\(/.test(command)) {
+    throw new Error(
+      'Invalid command: contains disallowed shell control operators.',
+    );
+  }
+}
+
 /**
  * Pluggable operations for the bash tool.
  * Override these to delegate command execution to remote systems (for example SSH).
@@ -387,6 +405,7 @@ export function createBashToolDefinition(
       onUpdate?,
       _ctx?,
     ) {
+      assertSafeBashCommandInput(command);
       const resolvedCommand = commandPrefix
         ? `${commandPrefix}\n${command}`
         : command;
