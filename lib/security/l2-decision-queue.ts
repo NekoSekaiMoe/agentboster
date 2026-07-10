@@ -236,9 +236,12 @@ export class DecisionQueue {
     // Notify any in-process waitForResolution() caller (Web TS agent
     // ask_question tool).
     const resolver = this.resolvers.get(decisionId);
-    if (resolver) {
+    if (typeof resolver === 'function') {
       this.resolvers.delete(decisionId);
       resolver(decision ?? null);
+    } else if (resolver) {
+      logger.warn('resolve: non-callable resolver entry dropped', { decisionId });
+      this.resolvers.delete(decisionId);
     }
 
     this.advanceQueue();
@@ -276,9 +279,12 @@ export class DecisionQueue {
 
     // Notify any in-process waitForResolution() caller.
     const denyResolver = this.resolvers.get(decisionId);
-    if (denyResolver) {
+    if (typeof denyResolver === 'function') {
       this.resolvers.delete(decisionId);
       denyResolver(decision ?? null);
+    } else if (denyResolver) {
+      logger.warn('deny: non-callable resolver entry dropped', { decisionId });
+      this.resolvers.delete(decisionId);
     }
 
     this.advanceQueue();
