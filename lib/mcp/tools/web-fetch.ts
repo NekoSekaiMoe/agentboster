@@ -272,10 +272,15 @@ function detectJavaScriptRenderingNeed(
   const lowerText = text.toLowerCase();
   const scriptCount = countMatches(html, /<script\b/gi);
   const bodyHtml = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(html)?.[1] ?? html;
-  const bodyWithoutScripts = bodyHtml
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
-    .trim();
+  let bodyWithoutScripts = bodyHtml;
+  let previousBodyWithoutScripts: string;
+  do {
+    previousBodyWithoutScripts = bodyWithoutScripts;
+    bodyWithoutScripts = bodyWithoutScripts
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+  } while (bodyWithoutScripts !== previousBodyWithoutScripts);
+  bodyWithoutScripts = bodyWithoutScripts.trim();
   const visibleWordCount = text
     .split(/\s+/)
     .filter((word) => word.trim().length > 0).length;
