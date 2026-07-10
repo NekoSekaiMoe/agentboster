@@ -2164,6 +2164,26 @@ export class DefaultPackageManager implements PackageManager {
     ]);
   }
 
+  private isSafeGitRef(ref: string): boolean {
+    if (!ref) return false;
+    if (ref.startsWith('-')) return false;
+    if (/[\u0000-\u001F\u007F\s]/.test(ref)) return false;
+    if (ref.includes('..') || ref.includes('@{') || ref.includes('//')) return false;
+    if (ref.endsWith('.') || ref.endsWith('/') || ref.endsWith('.lock')) return false;
+    if (
+      ref.includes('\\') ||
+      ref.includes(':') ||
+      ref.includes('~') ||
+      ref.includes('^') ||
+      ref.includes('?') ||
+      ref.includes('*') ||
+      ref.includes('[')
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   private async installGit(
     source: GitSource,
     scope: SourceScope,
@@ -2171,6 +2191,9 @@ export class DefaultPackageManager implements PackageManager {
     const targetDir = this.getGitInstallPath(source, scope);
     if (existsSync(targetDir)) {
       if (source.ref) {
+        if (!this.isSafeGitRef(source.ref)) {
+          throw new Error(`Invalid git ref: ${source.ref}`);
+        }
         await this.ensureGitRef(
           targetDir,
           ['fetch', 'origin', source.ref],

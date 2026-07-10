@@ -105,6 +105,18 @@ function hasUnsafeGitInstallPart(value: string, allowSlash: boolean): boolean {
   return false;
 }
 
+function isSafeGitRef(ref: string): boolean {
+  if (!ref) return false;
+  if (ref.startsWith('-')) return false;
+  if (/[\u0000-\u001F\u007F\s]/.test(ref)) return false;
+  if (ref.includes('..') || ref.includes('@{') || ref.includes('//')) return false;
+  if (ref.endsWith('.') || ref.endsWith('/') || ref.endsWith('.lock')) return false;
+  if (ref.includes('\\') || ref.includes(':') || ref.includes('~') || ref.includes('^') || ref.includes('?') || ref.includes('*') || ref.includes('[')) {
+    return false;
+  }
+  return true;
+}
+
 function buildGitSource(args: {
   repo: string;
   host: string;
@@ -122,6 +134,9 @@ function buildGitSource(args: {
     hasUnsafeGitInstallPart(args.host, false) ||
     hasUnsafeGitInstallPart(normalizedPath, true)
   ) {
+    return null;
+  }
+  if (args.ref && !isSafeGitRef(args.ref)) {
     return null;
   }
 
