@@ -203,6 +203,6 @@ export class TelegramNotificationChannel implements NotificationChannel {
   }
 
   private escape(text: string): string {
-    return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+    return text.replace(/[\\_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
   }
 }
