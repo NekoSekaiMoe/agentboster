@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -194,7 +196,25 @@ func (s *Store) CleanupExpired() []string {
 	return expired
 }
 
+var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func validateSessionID(sessionID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("invalid session id: empty")
+	}
+	if strings.Contains(sessionID, "/") || strings.Contains(sessionID, "\\") || strings.Contains(sessionID, "..") {
+		return fmt.Errorf("invalid session id: contains path characters")
+	}
+	if !sessionIDPattern.MatchString(sessionID) {
+		return fmt.Errorf("invalid session id: contains unsupported characters")
+	}
+	return nil
+}
+
 func (s *Store) save(sessionID string, data *SessionData) error {
+	if err := validateSessionID(sessionID); err != nil {
+		return err
+	}
 	path := s.sessionPath(sessionID)
 	raw, err := json.Marshal(data)
 	if err != nil {
@@ -211,6 +231,9 @@ func (s *Store) save(sessionID string, data *SessionData) error {
 
 // Load reads session data from disk.
 func (s *Store) Load(sessionID string) (*SessionData, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return nil, err
+	}
 	path := s.sessionPath(sessionID)
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -255,6 +278,9 @@ func (s *Store) loadAll() error {
 }
 
 func (s *Store) sessionPath(sessionID string) string {
+	if err := validateSessionID(sessionID); err != nil {
+		return ""
+	}
 	return filepath.Join(s.storePath, sessionID+".json")
 }
 
