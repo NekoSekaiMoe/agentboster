@@ -240,7 +240,9 @@ export class DecisionQueue {
       this.resolvers.delete(decisionId);
       resolver(decision ?? null);
     } else if (resolver) {
-      logger.warn('resolve: non-callable resolver entry dropped', { decisionId });
+      logger.warn('resolve: non-callable resolver entry dropped', {
+        decisionId,
+      });
       this.resolvers.delete(decisionId);
     }
 
