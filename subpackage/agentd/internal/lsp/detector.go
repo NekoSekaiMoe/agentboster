@@ -107,7 +107,7 @@ var serverConfigs = map[ProjectType]ServerConfig{
 		Args:       []string{"--stdio"},
 		LanguageID: "python",
 		InstallCommands: []string{
-			"pip install pyright",
+			"pip install --break-system-packages pyright || pip install pyright",
 		},
 	},
 	ProjectTypeTypeScript: {
