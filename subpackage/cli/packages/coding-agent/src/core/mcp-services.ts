@@ -196,6 +196,28 @@ function windowsPathExts(env: NodeJS.ProcessEnv): string[] {
     .filter(Boolean);
 }
 
+const WELL_KNOWN_LSP_DIRS: string[] = (() => {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  if (!home) return [];
+  return [
+    path.join(home, '.cargo', 'bin'),
+    path.join(home, 'go', 'bin'),
+    path.join(home, '.local', 'bin'),
+    path.join(home, '.local', 'share', 'nvim', 'mason', 'bin'),
+    path.join(home, '.npm-global', 'bin'),
+    path.join(home, '.yarn', 'bin'),
+    path.join(home, '.bun', 'bin'),
+    path.join(home, '.deno', 'bin'),
+    path.join(home, '.ghcup', 'bin'),
+    path.join(home, '.elan', 'bin'),
+    path.join(home, '.juliaup', 'bin'),
+    ...(process.env.GOPATH ? [path.join(process.env.GOPATH, 'bin')] : []),
+    ...(process.env.CARGO_HOME
+      ? [path.join(process.env.CARGO_HOME, 'bin')]
+      : []),
+  ];
+})();
+
 async function findExecutable(
   command: string,
   cwd: string,
@@ -227,6 +249,15 @@ async function findExecutable(
       for (const name of names) {
         candidates.push(path.join(dir, name));
       }
+    }
+    for (const dir of WELL_KNOWN_LSP_DIRS) {
+      for (const name of names) {
+        candidates.push(path.join(dir, name));
+      }
+    }
+    const localNodeBin = path.join(cwd, 'node_modules', '.bin');
+    for (const name of names) {
+      candidates.push(path.join(localNodeBin, name));
     }
   }
 
@@ -344,6 +375,50 @@ function pickServerMap(parsed: unknown): Record<string, unknown> | null {
   return null;
 }
 
+const KNOWN_LSP_IDENTIFIERS = [
+  'clangd',
+  'gopls',
+  'rust-analyzer',
+  'language-server',
+  'langserver',
+  'pyright',
+  'pylsp',
+  'ruff-lsp',
+  'jdtls',
+  'solargraph',
+  'ruby-lsp',
+  'sorbet',
+  'intelephense',
+  'phpactor',
+  'lua-language-server',
+  'zls',
+  'elixir-ls',
+  'next-ls',
+  'lexical',
+  'dart',
+  'metals',
+  'omnisharp',
+  'csharp-ls',
+  'sourcekit-lsp',
+  'haskell-language-server',
+  'ocamllsp',
+  'erlang-ls',
+  'vhdl-ls',
+  'texlab',
+  'marksman',
+  'taplo',
+  'yaml-language-server',
+  'vscode-json-language',
+  'bash-language-server',
+  'sqls',
+  'nil',
+  'nixd',
+  'serve-d',
+  'deno',
+  'biome',
+  'eslint',
+];
+
 function inferProtocol(
   name: string,
   command: string,
@@ -351,14 +426,8 @@ function inferProtocol(
 ): McpServiceProtocol {
   if (rawProtocol === 'lsp' || rawProtocol === 'mcp') return rawProtocol;
   const normalized = `${name} ${command}`.toLowerCase();
-  if (
-    normalized.includes('clangd') ||
-    normalized.includes('gopls') ||
-    normalized.includes('rust-analyzer') ||
-    normalized.includes('language-server') ||
-    normalized.includes('langserver')
-  ) {
-    return 'lsp';
+  for (const id of KNOWN_LSP_IDENTIFIERS) {
+    if (normalized.includes(id)) return 'lsp';
   }
   return 'mcp';
 }
