@@ -107,7 +107,8 @@ var serverConfigs = map[ProjectType]ServerConfig{
 		Args:       []string{"--stdio"},
 		LanguageID: "python",
 		InstallCommands: []string{
-			"pip install --break-system-packages pyright || pip install pyright",
+			"command -v pipx >/dev/null || { command -v apt-get >/dev/null && apt-get update && apt-get install -y pipx; } || { command -v dnf >/dev/null && dnf install -y pipx; } || { command -v pacman >/dev/null && pacman -S --noconfirm python-pipx; } || { command -v apk >/dev/null && apk add pipx; } || true",
+			"command -v pipx >/dev/null && pipx install pyright && pipx ensurepath || pip install --break-system-packages pyright || pip install pyright",
 		},
 	},
 	ProjectTypeTypeScript: {
