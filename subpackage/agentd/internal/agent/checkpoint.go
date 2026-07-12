@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -25,6 +26,8 @@ type CheckpointData struct {
 }
 
 const checkpointRefBase = "refs/agentd-checkpoints"
+
+var checkpointIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func gitCmd(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
@@ -128,6 +131,10 @@ func ListCheckpoints(sandboxPath, sessionID string) ([]CheckpointData, error) {
 
 // RestoreCheckpoint restores the workspace to a checkpoint's state.
 func RestoreCheckpoint(sandboxPath, checkpointID string) error {
+	if !checkpointIDPattern.MatchString(checkpointID) {
+		return fmt.Errorf("invalid checkpoint id")
+	}
+
 	metaPath := filepath.Join(sandboxPath, "workspace", ".agentd-checkpoints", checkpointID+".json")
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
