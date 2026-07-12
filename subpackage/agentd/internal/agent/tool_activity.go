@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -50,7 +51,18 @@ func (l *AgentLoop) completeToolCall(ctx context.Context, call *ToolCall, result
 				HostPath: l.agentCtx.SandboxPath,
 			}
 			go func() {
-				if _, cpErr := CreateCheckpoint(ref, l.sbMgr, l.agentCtx.SessionID, desc); cpErr != nil {
+				_, cpErr := CreateCheckpoint(ref, l.sbMgr, l.agentCtx.SessionID, desc)
+				switch {
+				case cpErr == nil:
+					return
+				case errors.Is(cpErr, ErrGitUnavailableInContainer):
+					// Common in minimal images (alpine/ubuntu base). Log once
+					// per loop at warn level so it's visible without spamming.
+					if !l.warnedGitMissing {
+						l.warnedGitMissing = true
+						slog.Warn("auto-checkpoint disabled: sandbox image has no git", "sandbox_type", ref.Type, "sandbox_id", ref.ID)
+					}
+				default:
 					slog.Debug("auto-checkpoint failed", "error", cpErr)
 				}
 			}()

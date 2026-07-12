@@ -39,6 +39,10 @@ func (s *Server) handleCreateCheckpoint(c *gin.Context) {
 
 	cp, err := agent.CreateCheckpoint(ref, s.agentMgr.GetSandboxManager(), req.SessionID, req.Description)
 	if err != nil {
+		if errors.Is(err, agent.ErrGitUnavailableInContainer) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
@@ -60,6 +64,10 @@ func (s *Server) handleListCheckpoints(c *gin.Context) {
 
 	checkpoints, err := agent.ListCheckpoints(ref, s.agentMgr.GetSandboxManager(), sessionID)
 	if err != nil {
+		if errors.Is(err, agent.ErrGitUnavailableInContainer) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
@@ -92,6 +100,10 @@ func (s *Server) handleRestoreCheckpoint(c *gin.Context) {
 	}
 
 	if err := agent.RestoreCheckpoint(ref, s.agentMgr.GetSandboxManager(), id); err != nil {
+		if errors.Is(err, agent.ErrGitUnavailableInContainer) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}

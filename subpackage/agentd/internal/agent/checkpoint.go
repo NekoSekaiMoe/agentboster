@@ -240,12 +240,23 @@ func (b *hostGitBackend) ListMeta() ([]string, error) {
 	return out, nil
 }
 
+// ErrGitUnavailableInContainer is returned by the container checkpoint
+// backend when the sandbox image does not ship git. Callers may treat this as
+// a soft failure (e.g. skip auto-checkpoint) or surface it to the operator
+// (HTTP handlers should suggest installing git in the sandbox image).
+var ErrGitUnavailableInContainer = errors.New("git is not installed in the sandbox image; install git (e.g. `apk add git` or `apt-get install -y git`) in the sandbox image to enable checkpoints")
+
 // containerGitBackend runs git inside the sandbox container via Manager.Exec.
 // Workdir is fixed at /workspace; meta files live under
 // /workspace/.agentd-checkpoints.
 type containerGitBackend struct {
 	sbMgr     *sandbox.Manager
 	sandboxID string
+
+	// gitChecked / gitOK cache the result of a one-shot `git --version`
+	// probe so the cost is paid once per backend instance.
+	gitChecked bool
+	gitOK      bool
 }
 
 const containerWorkspace = "/workspace"
@@ -275,7 +286,29 @@ func (b *containerGitBackend) runSh(cmd string) (string, error) {
 	return strings.TrimRight(combined, "\n"), nil
 }
 
+// gitAvailable probes the container once and caches the result. Returns
+// ErrGitUnavailableInContainer when git is missing so callers can degrade.
+func (b *containerGitBackend) gitAvailable() error {
+	if b.gitChecked {
+		if !b.gitOK {
+			return ErrGitUnavailableInContainer
+		}
+		return nil
+	}
+	b.gitChecked = true
+	res, err := b.sbMgr.Exec(b.sandboxID, "git --version", nil, 10)
+	if err != nil || res.ExitCode != 0 {
+		b.gitOK = false
+		return ErrGitUnavailableInContainer
+	}
+	b.gitOK = true
+	return nil
+}
+
 func (b *containerGitBackend) GitRun(args ...string) (string, error) {
+	if err := b.gitAvailable(); err != nil {
+		return "", err
+	}
 	// Quote each arg; git is invoked via `sh -c` so the workspace CWD applies.
 	parts := make([]string, 0, len(args)+2)
 	parts = append(parts, "git")
@@ -286,6 +319,9 @@ func (b *containerGitBackend) GitRun(args ...string) (string, error) {
 }
 
 func (b *containerGitBackend) GitCommit(args ...string) (string, error) {
+	if err := b.gitAvailable(); err != nil {
+		return "", err
+	}
 	// git requires env vars to be set on the same command line.
 	prefix := "GIT_AUTHOR_NAME=agentd GIT_AUTHOR_EMAIL=agentd@local GIT_COMMITTER_NAME=agentd GIT_COMMITTER_EMAIL=agentd@local "
 	parts := make([]string, 0, len(args)+2)

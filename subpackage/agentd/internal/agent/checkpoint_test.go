@@ -139,6 +139,18 @@ func TestResolveBackend_DockerWithoutManagerFails(t *testing.T) {
 	}
 }
 
+// TestErrGitUnavailableInContainer_MessageDocumentsFix ensures the sentinel
+// error tells operators how to enable checkpoints in container sandboxes.
+// The message is part of the public contract (surfaced verbatim via HTTP 503).
+func TestErrGitUnavailableInContainer_MessageDocumentsFix(t *testing.T) {
+	msg := ErrGitUnavailableInContainer.Error()
+	for _, want := range []string{"git", "install", "image"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error message %q missing token %q", msg, want)
+		}
+	}
+}
+
 func TestCreateCheckpoint_RejectsBadSessionID(t *testing.T) {
 	sb := withSandboxRoot(t, "sb-12345678")
 

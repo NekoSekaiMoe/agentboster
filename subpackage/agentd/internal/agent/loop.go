@@ -47,6 +47,9 @@ type AgentLoop struct {
 	// sbMgr is required for auto-checkpoint dispatch (resolves the right
 	// checkpoint backend per sandbox type). Nil disables auto-checkpoint.
 	sbMgr *sandbox.Manager
+	// warnedGitMissing suppresses repeated warn logs when a sandbox image
+	// lacks git and auto-checkpoint therefore degrades to a no-op.
+	warnedGitMissing bool
 }
 
 // NewAgentLoop creates a new agent loop.
