@@ -15,10 +15,20 @@ export interface AgentbosterAuth {
   username?: string;
 }
 
+export interface AdvisorStoredConfig {
+  provider?: string;
+  modelId?: string;
+  api?: 'anthropic-messages' | 'openai-completions';
+  baseUrl?: string;
+  effort?: string;
+  apiKey?: string;
+}
+
 export interface AgentbosterStoredConfig {
   url: string;
   token?: string;
   username?: string;
+  advisor?: AdvisorStoredConfig;
 }
 
 export function getAgentbosterHome(): string {

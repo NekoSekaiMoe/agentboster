@@ -111,6 +111,7 @@ interface ExtensionSurfaceItem {
   sourceKind: 'npm' | 'git' | 'url' | 'local' | 'unknown';
   installState: { global: boolean; project: boolean };
   installedItemForScope: InstalledDisplayItem | null;
+  builtin?: boolean;
 }
 
 interface RecommendedSkillSurfaceItem {
@@ -4409,7 +4410,10 @@ Notes
     return RECOMMENDED_PACKAGES.map((item) => {
       const source = item.source;
       const normalized = normalizeRecommendedSource(source);
-      const installState = this.extensionInstallState(source);
+      const isBuiltin = item.builtin === true;
+      const installState = isBuiltin
+        ? { global: true, project: false }
+        : this.extensionInstallState(source);
       return {
         id: `recommended:${normalized}`,
         displayName: item.name,
@@ -4419,10 +4423,10 @@ Notes
         openUrl: this.resolveSourceUrl(source),
         sourceKind: item.sourceKind,
         installState,
-        installedItemForScope: this.findInstalledItemForSource(
-          source,
-          'global',
-        ),
+        installedItemForScope: isBuiltin
+          ? null
+          : this.findInstalledItemForSource(source, 'global'),
+        builtin: isBuiltin,
       } satisfies ExtensionSurfaceItem;
     });
   }
@@ -5142,15 +5146,21 @@ Notes
       });
     }
 
+    const builtinBadge = html`<span class="packages-card-scope recommended">Built-in</span>`;
+
     for (const item of extensionInstalled) {
       addInstalledRow(item.displayName.toLowerCase(), {
         title: item.displayName,
         description: item.description || item.source,
         note: item.note,
         iconName: extensionIconFor(item),
-        actions: html`<button class="packages-row-install installed" title="Installed" @click=${() => void this.openPackagesItemModal({ kind: 'extension', item })}>✓</button>`,
-        onTitleClick: () =>
-          void this.openPackagesItemModal({ kind: 'extension', item }),
+        badges: item.builtin ? [builtinBadge] : undefined,
+        actions: item.builtin
+          ? html`<span class="packages-row-install installed" title="Built-in">✓</span>`
+          : html`<button class="packages-row-install installed" title="Installed" @click=${() => void this.openPackagesItemModal({ kind: 'extension', item })}>✓</button>`,
+        onTitleClick: item.builtin
+          ? null
+          : () => void this.openPackagesItemModal({ kind: 'extension', item }),
         titleAttr: item.source,
       });
     }

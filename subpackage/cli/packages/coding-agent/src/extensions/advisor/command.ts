@@ -74,7 +74,7 @@ export function registerAdvisorCommand(pi: ExtensionAPI): void {
       if (choice === undefined) return;
 
       if (choice === NO_ADVISOR) {
-        if (!(await saveAdvisorConfig({}))) {
+        if (!saveAdvisorConfig({})) {
           ctx.ui.notify('Failed to save advisor config.', 'error');
           return;
         }
@@ -106,7 +106,7 @@ export function registerAdvisorCommand(pi: ExtensionAPI): void {
       // otherwise prompt. Store the "$ENV_VAR" spec (not the secret) when the
       // env var is present so the key never lands on disk.
       const envName = defaultKeyEnv(picked.provider);
-      const prior = await loadAdvisorConfig();
+      const prior = loadAdvisorConfig();
       let apiKeySpec = prior.apiKey;
       if (process.env[envName]) {
         apiKeySpec = `$${envName}`;
@@ -128,7 +128,7 @@ export function registerAdvisorCommand(pi: ExtensionAPI): void {
         ...(prior.baseUrl ? { baseUrl: prior.baseUrl } : {}),
       };
 
-      if (!(await saveAdvisorConfig(config))) {
+      if (!saveAdvisorConfig(config)) {
         ctx.ui.notify('Failed to save advisor config.', 'error');
         return;
       }

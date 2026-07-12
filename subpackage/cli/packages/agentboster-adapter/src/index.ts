@@ -6,6 +6,7 @@
  */
 
 export {
+  type AdvisorStoredConfig,
   type AgentbosterAuth,
   type AgentbosterStoredConfig,
   clearStoredAuth,

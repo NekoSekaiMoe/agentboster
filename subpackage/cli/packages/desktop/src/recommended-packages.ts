@@ -9,6 +9,8 @@ export interface RecommendedPackageDefinition {
   resourcesLabel: string;
   installSourceHint: string;
   aliases?: string[];
+  /** When true, the package is bundled with the CLI and always active. */
+  builtin?: boolean;
 }
 
 export const RECOMMENDED_PACKAGES: RecommendedPackageDefinition[] = [
@@ -76,6 +78,66 @@ export const RECOMMENDED_PACKAGES: RecommendedPackageDefinition[] = [
     resourcesLabel: '1 provider extension',
     installSourceHint: 'npm:pi-kilocode',
     aliases: ['pi-kilocode', 'kilo', 'kilocode'],
+  },
+  {
+    id: 'pi-rewind',
+    name: 'Rewind',
+    description:
+      'Git-based checkpoints with /rewind command and Esc+Esc shortcut. Restore files and/or conversation to any checkpoint.',
+    installScopeHint: 'global',
+    source: 'npm:pi-rewind',
+    sourceKind: 'npm',
+    publisher: 'community',
+    resourcesLabel: '1 extension',
+    installSourceHint: 'Built-in',
+    aliases: ['pi-rewind', 'rewind', 'checkpoint'],
+    builtin: true,
+  },
+  {
+    id: 'pi-simplify',
+    name: 'Simplify',
+    description:
+      'Review recently changed code for clarity, consistency, and maintainability via /simplify command.',
+    installScopeHint: 'global',
+    source: 'npm:pi-simplify',
+    sourceKind: 'npm',
+    publisher: 'community',
+    resourcesLabel: '1 extension',
+    installSourceHint: 'Built-in',
+    aliases: ['pi-simplify', 'simplify', 'code-review'],
+    builtin: true,
+  },
+  {
+    id: 'pi-sequential-thinking',
+    name: 'Sequential Thinking',
+    description:
+      'Structured progressive thinking through defined stages (Problem Definition → Research → Analysis → Synthesis → Conclusion).',
+    installScopeHint: 'global',
+    source: 'npm:@feniix/pi-sequential-thinking',
+    sourceKind: 'npm',
+    publisher: 'community',
+    resourcesLabel: '8 tools',
+    installSourceHint: 'Built-in',
+    aliases: [
+      '@feniix/pi-sequential-thinking',
+      'sequential-thinking',
+      'thinking',
+    ],
+    builtin: true,
+  },
+  {
+    id: 'advisor',
+    name: 'Advisor',
+    description:
+      'Escalate to a stronger reviewer model mid-task. Configure via /advisor, then the agent can call the advisor tool for guidance.',
+    installScopeHint: 'global',
+    source: 'builtin:advisor',
+    sourceKind: 'local',
+    publisher: 'first-party',
+    resourcesLabel: '1 tool, 1 command',
+    installSourceHint: 'Built-in',
+    aliases: ['advisor', 'rpiv-advisor'],
+    builtin: true,
   },
 ];
 

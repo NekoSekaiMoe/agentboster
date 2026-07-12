@@ -69,7 +69,7 @@ export default function advisor(pi: ExtensionAPI): void {
   // Seed in-memory state from disk on every session start (startup, resume,
   // new, fork, reload) so the tool and command see the persisted model choice.
   pi.on('session_start', async () => {
-    const config = await loadAdvisorConfig();
+    const config = loadAdvisorConfig();
     applyAdvisorConfig(config);
   });
 }
