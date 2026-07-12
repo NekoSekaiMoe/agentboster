@@ -147,6 +147,10 @@ export function summarizeToolCall(
   if ((name === 'list' || name.includes('ls')) && path)
     return `Explored ${truncateText(path, 74)}`;
   if (name === 'advisor') return 'Consulting advisor';
+  if (name === 'url_context') {
+    const url = pickToolArg(toolCall.args, ['url', 'urls']);
+    return url ? `Fetching ${truncateText(url, 68)}` : 'Fetching URL context';
+  }
   if (name === 'process_thought') {
     const stage = pickToolArg(toolCall.args, ['stage']);
     return stage

@@ -1566,6 +1566,11 @@ pi-simplify@0.2.2:
   resolved "https://registry.npmmirror.com/pi-simplify/-/pi-simplify-0.2.2.tgz#b3a088d9be4c0346121c9f23d5ce01af609a1e42"
   integrity sha512-Y6+czXZpiioY9tbV83G/EHZOn2iMveBBYFss/JyCnZ6cbxSxOh1UPn1Z+KvNfQEXj+Ozv3vPpGog3sMaHD8iRQ==
 
+pi-web-search@1.3.1:
+  version "1.3.1"
+  resolved "https://registry.npmmirror.com/pi-web-search/-/pi-web-search-1.3.1.tgz#45d28ffc5bccf0b8eef28cb8d76411e32f9e6f5c"
+  integrity sha512-FBmGupWahqLU+uMSDLy+As7zn/4oiHGxC/MPtGuzOZNHEJw8ACJvCsZhyflprBJB31m0WIa4iiRKtbARRByaZg==
+
 picocolors@^1.1.1:
   version "1.1.1"
   resolved "https://registry.npmmirror.com/picocolors/-/picocolors-1.1.1.tgz#3d321af3eab939b083c8f929a1d12cda81c26b6b"

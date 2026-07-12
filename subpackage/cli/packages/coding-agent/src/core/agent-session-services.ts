@@ -31,6 +31,7 @@ function resolveBuiltinExtensionPaths(): string[] {
   const packages = [
     'pi-rewind',
     'pi-simplify',
+    'pi-web-search',
     '@feniix/pi-sequential-thinking',
   ];
   for (const pkg of packages) {
