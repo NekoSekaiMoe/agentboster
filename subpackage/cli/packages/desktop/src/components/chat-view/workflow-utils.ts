@@ -146,25 +146,6 @@ export function summarizeToolCall(
     return `Explored ${truncateText(query, 74)}`;
   if ((name === 'list' || name.includes('ls')) && path)
     return `Explored ${truncateText(path, 74)}`;
-  if (name === 'advisor') return 'Consulting advisor';
-  if (name === 'process_thought') {
-    const stage = pickToolArg(toolCall.args, ['stage']);
-    return stage
-      ? `Thinking: ${truncateText(stage, 60)}`
-      : 'Processing thought';
-  }
-  if (name === 'sequential_think') {
-    const topic = pickToolArg(toolCall.args, ['topic']);
-    return topic
-      ? `Thinking about ${truncateText(topic, 60)}`
-      : 'Sequential thinking';
-  }
-  if (name === 'generate_summary') return 'Generating thinking summary';
-  if (name === 'get_thinking_history') return 'Reading thinking history';
-  if (name === 'get_thinking_status') return 'Checking thinking status';
-  if (name === 'clear_history') return 'Clearing thinking history';
-  if (name === 'export_session') return 'Exporting thinking session';
-  if (name === 'import_session') return 'Importing thinking session';
   if (path) return `${toolCall.name} ${truncateText(path, 74)}`;
   return `Ran ${toolCall.name}`;
 }
