@@ -634,3 +634,33 @@ func needsPersistence(command string) bool {
 func containsPattern(s, pattern string) bool {
 	return len(s) > 0 && len(pattern) > 0 && strings.Contains(strings.ToLower(s), strings.ToLower(pattern))
 }
+
+// HostWorkspacePath returns the host-side path to the sandbox's workspace root
+// (the directory that contains the `workspace/` subdirectory), or "" when the
+// sandbox has no host filesystem workspace.
+//
+// LXC persistent sandboxes expose a real rootfs path via RootfsPath(); docker
+// / docker-strict containers do not, and their workspace lives in-container
+// (e.g. /workspace). Callers that need to run host-FS operations (e.g. the
+// checkpoint host backend) should fall back to in-container execution when
+// this returns "".
+func (m *Manager) HostWorkspacePath(sandboxID string) string {
+	m.mu.RLock()
+	sb, ok := m.sandboxes[sandboxID]
+	m.mu.RUnlock()
+	if !ok {
+		return ""
+	}
+	provider, err := m.GetProvider(sb.Type)
+	if err != nil {
+		return ""
+	}
+	type rootfsResolver interface {
+		RootfsPath(sandboxID string) string
+	}
+	rr, ok := provider.(rootfsResolver)
+	if !ok {
+		return ""
+	}
+	return rr.RootfsPath(sandboxID)
+}

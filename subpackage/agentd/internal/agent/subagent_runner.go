@@ -305,6 +305,7 @@ func (m *Manager) runSubagentLoop(snap subagentParentSnapshot) {
 		m.llmAPIKey,
 		m.l1Scorer,
 		m.gatekeeper,
+		m.sbManager,
 	)
 
 	// Bound the sub-agent's wall-clock time so a runaway loop can't

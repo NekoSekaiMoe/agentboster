@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/usertype"
 )
@@ -43,6 +44,9 @@ type AgentLoop struct {
 	stepCount      int
 	maxSteps       int
 	autoCheckpoint bool
+	// sbMgr is required for auto-checkpoint dispatch (resolves the right
+	// checkpoint backend per sandbox type). Nil disables auto-checkpoint.
+	sbMgr *sandbox.Manager
 }
 
 // NewAgentLoop creates a new agent loop.
@@ -53,18 +57,21 @@ func NewAgentLoop(
 	llmEndpoint, llmModel, llmAPIKey string,
 	l1Scorer clawless.L1Scorer,
 	gatekeeper *security.Gatekeeper,
+	sbMgr *sandbox.Manager,
 ) *AgentLoop {
 	return &AgentLoop{
-		registry:    registry,
-		agentCtx:    agentCtx,
-		clawless:    clawlessClient,
-		llmEndpoint: llmEndpoint,
-		llmModel:    llmModel,
-		llmAPIKey:   llmAPIKey,
-		l1Scorer:    l1Scorer,
-		gatekeeper:  gatekeeper,
-		messages:    make([]Message, 0),
-		maxSteps:    agentCtx.MaxSteps,
+		registry:       registry,
+		agentCtx:       agentCtx,
+		clawless:       clawlessClient,
+		llmEndpoint:    llmEndpoint,
+		llmModel:       llmModel,
+		llmAPIKey:      llmAPIKey,
+		l1Scorer:       l1Scorer,
+		gatekeeper:     gatekeeper,
+		messages:       make([]Message, 0),
+		maxSteps:       agentCtx.MaxSteps,
+		sbMgr:          sbMgr,
+		autoCheckpoint: sbMgr != nil,
 	}
 }
 

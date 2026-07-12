@@ -43,9 +43,14 @@ func (l *AgentLoop) completeToolCall(ctx context.Context, call *ToolCall, result
 	if l.autoCheckpoint && call.Name != "" && result.Success {
 		switch call.Name {
 		case "write", "edit", "patch", "exec", "exec_batch", "git_push":
+			desc := call.Name
+			ref := SandboxRef{
+				Type:    l.agentCtx.SandboxType,
+				ID:      l.agentCtx.SandboxID,
+				HostPath: l.agentCtx.SandboxPath,
+			}
 			go func() {
-				desc := call.Name
-				if _, cpErr := CreateCheckpoint(l.agentCtx.SandboxPath, l.agentCtx.SessionID, desc); cpErr != nil {
+				if _, cpErr := CreateCheckpoint(ref, l.sbMgr, l.agentCtx.SessionID, desc); cpErr != nil {
 					slog.Debug("auto-checkpoint failed", "error", cpErr)
 				}
 			}()

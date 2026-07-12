@@ -396,6 +396,7 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 		m.llmAPIKey,
 		m.l1Scorer,
 		m.gatekeeper,
+		m.sbManager,
 	)
 
 	return loop.Run(ctx, userMessage)
