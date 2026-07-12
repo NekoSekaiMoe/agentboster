@@ -4,6 +4,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -26,8 +27,39 @@ type CheckpointData struct {
 }
 
 const checkpointRefBase = "refs/agentd-checkpoints"
+const defaultSandboxRoot = "/var/lib/agentd/sandboxes"
 
 var checkpointIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+func safeSandboxRoot() string {
+	if v := strings.TrimSpace(os.Getenv("AGENTD_SANDBOX_ROOT")); v != "" {
+		return v
+	}
+	return defaultSandboxRoot
+}
+
+func resolveWorkspacePath(sandboxPath string) (string, error) {
+	if strings.TrimSpace(sandboxPath) == "" {
+		return "", errors.New("sandbox path is required")
+	}
+
+	rootAbs, err := filepath.Abs(filepath.Clean(safeSandboxRoot()))
+	if err != nil {
+		return "", fmt.Errorf("resolve sandbox root: %w", err)
+	}
+
+	sandboxAbs, err := filepath.Abs(filepath.Clean(sandboxPath))
+	if err != nil {
+		return "", fmt.Errorf("resolve sandbox path: %w", err)
+	}
+
+	rel, err := filepath.Rel(rootAbs, sandboxAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("sandbox path is outside allowed root")
+	}
+
+	return filepath.Join(sandboxAbs, "workspace"), nil
+}
 
 func gitCmd(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
@@ -99,7 +131,12 @@ func CreateCheckpoint(sandboxPath, sessionID, description string) (*CheckpointDa
 
 // ListCheckpoints returns all checkpoints for a session.
 func ListCheckpoints(sandboxPath, sessionID string) ([]CheckpointData, error) {
-	metaPath := filepath.Join(sandboxPath, "workspace", ".agentd-checkpoints")
+	workDir, err := resolveWorkspacePath(sandboxPath)
+	if err != nil {
+		return nil, err
+	}
+
+	metaPath := filepath.Join(workDir, ".agentd-checkpoints")
 	entries, err := os.ReadDir(metaPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -135,7 +172,12 @@ func RestoreCheckpoint(sandboxPath, checkpointID string) error {
 		return fmt.Errorf("invalid checkpoint id")
 	}
 
-	metaPath := filepath.Join(sandboxPath, "workspace", ".agentd-checkpoints", checkpointID+".json")
+	workDir, err := resolveWorkspacePath(sandboxPath)
+	if err != nil {
+		return err
+	}
+
+	metaPath := filepath.Join(workDir, ".agentd-checkpoints", checkpointID+".json")
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		return fmt.Errorf("checkpoint %s not found", checkpointID)
@@ -146,7 +188,6 @@ func RestoreCheckpoint(sandboxPath, checkpointID string) error {
 		return fmt.Errorf("invalid checkpoint data: %w", err)
 	}
 
-	workDir := filepath.Join(sandboxPath, "workspace")
 	if _, err := gitCmd(workDir, "checkout", cp.HeadSHA, "--", "."); err != nil {
 		return fmt.Errorf("git checkout: %w", err)
 	}
