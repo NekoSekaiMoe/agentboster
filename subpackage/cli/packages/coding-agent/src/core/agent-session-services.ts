@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { createRequire } from 'node:module';
 import type { ThinkingLevel } from '@agentboster-cli/agent';
 import type { Model } from '@agentboster-cli/ai';
 import { getAgentDir } from '../config.ts';
@@ -20,6 +21,28 @@ import {
 import type { StreamFn } from '@agentboster-cli/agent';
 import type { SessionManager } from './session-manager.ts';
 import { SettingsManager } from './settings-manager.ts';
+import advisorExtension from '../extensions/advisor/index.ts';
+import type { ExtensionFactory } from './extensions/index.ts';
+
+const _require = createRequire(import.meta.url);
+
+function resolveBuiltinExtensionPaths(): string[] {
+  const paths: string[] = [];
+  const packages = [
+    'pi-rewind',
+    'pi-simplify',
+    '@feniix/pi-sequential-thinking',
+  ];
+  for (const pkg of packages) {
+    try {
+      const entry = _require.resolve(`${pkg}/package.json`);
+      paths.push(dirname(entry));
+    } catch {
+      // Package not installed — skip silently
+    }
+  }
+  return paths;
+}
 
 /**
  * Non-fatal issues collected while creating services or sessions.
@@ -160,8 +183,23 @@ export async function createAgentSessionServices(
   const modelRegistry =
     options.modelRegistry ??
     ModelRegistry.create(authStorage, join(agentDir, 'models.json'));
+  const passthrough = options.resourceLoaderOptions ?? {};
+  const builtinPaths = resolveBuiltinExtensionPaths();
+  const mergedAdditionalExtensionPaths = [
+    ...builtinPaths,
+    ...(passthrough.additionalExtensionPaths ?? []),
+  ];
+  // The advisor extension lives in-tree, so it is registered as a factory
+  // rather than resolved from node_modules like the npm-installed extensions.
+  const builtinFactories: ExtensionFactory[] = [advisorExtension];
+  const mergedExtensionFactories = [
+    ...builtinFactories,
+    ...(passthrough.extensionFactories ?? []),
+  ];
   const resourceLoader = new DefaultResourceLoader({
-    ...(options.resourceLoaderOptions ?? {}),
+    ...passthrough,
+    additionalExtensionPaths: mergedAdditionalExtensionPaths,
+    extensionFactories: mergedExtensionFactories,
     cwd,
     agentDir,
     settingsManager,
