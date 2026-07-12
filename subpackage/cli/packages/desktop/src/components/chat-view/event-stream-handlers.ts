@@ -204,6 +204,32 @@ export function handleMessageStreamEvent(
         context.scrollToBottom();
         return true;
       }
+
+      if (role === 'custom') {
+        const customType =
+          typeof message.customType === 'string'
+            ? message.customType
+            : typeof message.custom_type === 'string'
+              ? message.custom_type
+              : '';
+        const content = context.extractText(
+          message.content ?? message.display ?? '',
+        );
+        if (
+          customType === 'workflow.subagent' ||
+          customType === 'workflow.subagent.batch'
+        ) {
+          context.attachOrphanToolResult(
+            customType,
+            content || `[${customType}]`,
+            false,
+          );
+          context.render();
+          context.scrollToBottom();
+          return true;
+        }
+      }
+
       return true;
     }
 

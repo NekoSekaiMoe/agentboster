@@ -59,3 +59,12 @@ export {
   type TaskSummary,
   type TaskSummaryResponse,
 } from './task-summary.ts';
+
+export {
+  fetchSubagentBatch,
+  fetchSubagentInfo,
+  fetchSubagentMessages,
+  type SubagentBatchInfo,
+  type SubagentInfo,
+  type SubagentMessage,
+} from './subagent.ts';
