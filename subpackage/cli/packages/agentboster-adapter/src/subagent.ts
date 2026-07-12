@@ -93,3 +93,30 @@ export async function fetchSubagentBatch(
     `/api/cli/subagent-batch/${batchId}`,
   );
 }
+
+export function streamSubagentMessages(
+  baseUrl: string,
+  token: string,
+  subagentId: string,
+  onMessage: (messages: SubagentMessage[]) => void,
+  intervalMs = 3000,
+): { stop: () => void } {
+  let stopped = false;
+  const poll = async () => {
+    while (!stopped) {
+      try {
+        const msgs = await fetchSubagentMessages(baseUrl, token, subagentId);
+        if (!stopped) onMessage(msgs);
+      } catch {
+        // silent poll failure
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  };
+  void poll();
+  return {
+    stop: () => {
+      stopped = true;
+    },
+  };
+}

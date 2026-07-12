@@ -38,6 +38,19 @@ func (l *AgentLoop) completeToolCall(ctx context.Context, call *ToolCall, result
 		Role:    "tool",
 		Content: string(resultJSON),
 	})
+
+	// Auto-checkpoint after mutating tools.
+	if l.autoCheckpoint && call.Name != "" && result.Success {
+		switch call.Name {
+		case "write", "edit", "patch", "exec", "exec_batch", "git_push":
+			go func() {
+				desc := call.Name
+				if _, cpErr := CreateCheckpoint(l.agentCtx.SandboxPath, l.agentCtx.SessionID, desc); cpErr != nil {
+					slog.Debug("auto-checkpoint failed", "error", cpErr)
+				}
+			}()
+		}
+	}
 }
 
 func (l *AgentLoop) writeToolActivityLog(

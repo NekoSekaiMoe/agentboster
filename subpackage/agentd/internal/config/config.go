@@ -31,6 +31,8 @@ type Config struct {
 	TaskSummary TaskSummaryConfig `mapstructure:"task_summary"`
 	Logging     LoggingConfig     `mapstructure:"logging"`
 	ExecPool    ExecPoolConfig    `mapstructure:"exec_pool"`
+	Advisor     AdvisorConfig     `mapstructure:"advisor"`
+	Checkpoint  CheckpointConfig  `mapstructure:"checkpoint"`
 }
 
 type TaskSummaryConfig struct {
@@ -145,6 +147,18 @@ type ExecPoolConfig struct {
 	ScaleDownPct  int    `mapstructure:"scale_down_pct" default:"25"`
 	CooldownSecs  int    `mapstructure:"cooldown_secs" default:"10"`  // 10s, faster than worker_pool's 30s
 	StatsInterval string `mapstructure:"stats_interval" default:"5s"` // 5s, faster than worker_pool's 30s
+}
+
+type AdvisorConfig struct {
+	Model   string `mapstructure:"model" default:""`
+	APIKey  string `mapstructure:"api_key" default:""`
+	BaseURL string `mapstructure:"base_url" default:""`
+	Effort  string `mapstructure:"effort" default:""`
+}
+
+type CheckpointConfig struct {
+	Auto          bool `mapstructure:"auto" default:"false"`
+	MaxPerSession int  `mapstructure:"max_per_session" default:"50"`
 }
 
 // registerDefaults reads `default` struct tags and registers them with Viper.

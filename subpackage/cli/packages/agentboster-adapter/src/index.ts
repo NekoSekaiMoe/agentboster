@@ -64,6 +64,7 @@ export {
   fetchSubagentBatch,
   fetchSubagentInfo,
   fetchSubagentMessages,
+  streamSubagentMessages,
   type SubagentBatchInfo,
   type SubagentInfo,
   type SubagentMessage,

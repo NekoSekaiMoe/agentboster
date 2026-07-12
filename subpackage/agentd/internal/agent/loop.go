@@ -31,17 +31,18 @@ const compactionThreshold = 50
 
 // AgentLoop implements the think→act→observe reasoning loop.
 type AgentLoop struct {
-	registry    *ToolRegistry
-	agentCtx    *AgentContext
-	clawless    *clawless.Client
-	llmEndpoint string
-	llmModel    string
-	llmAPIKey   string
-	l1Scorer    clawless.L1Scorer
-	gatekeeper  *security.Gatekeeper
-	messages    []Message
-	stepCount   int
-	maxSteps    int
+	registry       *ToolRegistry
+	agentCtx       *AgentContext
+	clawless       *clawless.Client
+	llmEndpoint    string
+	llmModel       string
+	llmAPIKey      string
+	l1Scorer       clawless.L1Scorer
+	gatekeeper     *security.Gatekeeper
+	messages       []Message
+	stepCount      int
+	maxSteps       int
+	autoCheckpoint bool
 }
 
 // NewAgentLoop creates a new agent loop.

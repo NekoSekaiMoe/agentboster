@@ -42,9 +42,9 @@ POST /api/v1/subagents/:id/abort       # 中止单个 subagent
 - 状态: 复用 `subagentRegistry.agents` / `.results` / `.summaries`
 
 **实现文件**:
-- [ ] `internal/server/routes.go` — 注册新路由
-- [ ] `internal/server/handler_subagent.go` — handler 实现
-- [ ] `internal/agent/tools_subagent.go` — 暴露查询接口给 handler（目前 registry 是 package-level var）
+- [x] `internal/server/routes.go` — 注册新路由
+- [x] `internal/server/handler_subagent.go` — handler 实现
+- [x] `internal/agent/tools_subagent.go` — 暴露查询接口给 handler（目前 registry 是 package-level var）
 
 ### 1.2 Advisor 端点
 
@@ -52,10 +52,10 @@ POST /api/v1/subagents/:id/abort       # 中止单个 subagent
 POST /api/v1/advisor    # one-shot completion，接收 { model, messages, system_prompt, thinking_level }
 ```
 
-- [ ] `internal/server/handler_advisor.go` — 复用 `llm-proxy` 的 provider 调用逻辑
-- [ ] `internal/agent/tools_advisor.go` — 注册 `advisor` tool 到 agent tool registry
-- [ ] `internal/config/config.go` — `[advisor]` section（model、api_key、base_url、effort）
-- [ ] `agentd.toml.example` — 加 advisor 配置模板
+- [x] `internal/server/handler_advisor.go` — 复用 `llm-proxy` 的 provider 调用逻辑
+- [x] `internal/agent/tools_advisor.go` — 注册 `advisor` tool 到 agent tool registry
+- [x] `internal/config/config.go` — `[advisor]` section（model、api_key、base_url、effort）
+- [x] `agentd.toml.example` — 加 advisor 配置模板
 
 ### 1.3 Checkpoint/Rewind
 
@@ -65,8 +65,8 @@ GET  /api/v1/checkpoints              # 列出 checkpoints
 POST /api/v1/checkpoints/:id/restore  # 恢复
 ```
 
-- [ ] `internal/agent/tools_checkpoint.go` — checkpoint tool（沙箱内 git snapshot）
-- [ ] 自动 checkpoint: agent loop 的 turn_end 后触发（配置开关 `[checkpoint].auto = true`）
+- [x] `internal/agent/tools_checkpoint.go` — checkpoint tool（沙箱内 git snapshot）
+- [x] 自动 checkpoint: agent loop 的 turn_end 后触发（配置开关 `[checkpoint].auto = true`）
 
 ---
 
@@ -84,10 +84,10 @@ GET /api/cli/subagent/:subagentId/stream   # 代理 → agentd SSE
 GET /api/cli/subagent-batch/:batchId       # 代理 → agentd 或 fallback 查 DB
 ```
 
-- [ ] `app/api/cli/subagent/[subagentId]/route.ts`
-- [ ] `app/api/cli/subagent/[subagentId]/stream/route.ts`
-- [ ] `app/api/cli/subagent-batch/[batchId]/route.ts`
-- [ ] 鉴权: 复用 session auth，校验 subagent 属于当前用户
+- [x] `app/api/cli/subagent/[subagentId]/route.ts`
+- [x] `app/api/cli/subagent/[subagentId]/stream/route.ts`
+- [x] `app/api/cli/subagent-batch/[batchId]/route.ts`
+- [x] 鉴权: 复用 session auth，校验 subagent 属于当前用户
 
 ### 2.2 Web 前端端点（给 React UI 用）
 
@@ -95,7 +95,7 @@ GET /api/cli/subagent-batch/:batchId       # 代理 → agentd 或 fallback 查 
 GET /api/subagent/:subagentId/messages     # 前端 fetch
 ```
 
-- [ ] `app/api/subagent/[subagentId]/messages/route.ts` — 先查 agentd（如果在线），fallback 查 DB
+- [x] `app/api/subagent/[subagentId]/messages/route.ts` — 先查 agentd（如果在线），fallback 查 DB
 
 ---
 
@@ -116,9 +116,9 @@ GET /api/subagent/:subagentId/messages     # 前端 fetch
 └──────────────────────────────────────────────────┘
 ```
 
-- [ ] `components/chat/subagent-batch-card.tsx` — batch 卡片
-- [ ] `components/chat/subagent-job-row.tsx` — 单个 job 行（spinner / 状态色）
-- [ ] 点击 job → 打开 subagent 详情页
+- [x] `components/chat/subagent-batch-card.tsx` — batch 卡片
+- [x] `components/chat/subagent-job-row.tsx` — 单个 job 行（spinner / 状态色）
+- [x] 点击 job → 打开 subagent 详情页
 
 ### 3.2 Subagent 详情页
 
@@ -128,10 +128,10 @@ GET /api/subagent/:subagentId/messages     # 前端 fetch
 URL: /chat/:sessionId/subagent/:subagentId
 ```
 
-- [ ] `app/chat/[sessionId]/subagent/[subagentId]/page.tsx`
-- [ ] 复用现有 message rendering 组件（user / assistant / tool call blocks）
-- [ ] 只读（不能向 subagent 发消息）
-- [ ] Running 时实时更新（SSE 或轮询）
+- [x] `app/chat/[sessionId]/subagent/[subagentId]/page.tsx`
+- [x] 复用现有 message rendering 组件（user / assistant / tool call blocks）
+- [x] 只读（不能向 subagent 发消息）
+- [x] Running 时实时更新（SSE 或轮询）
 
 ---
 
@@ -139,36 +139,36 @@ URL: /chat/:sessionId/subagent/:subagentId
 
 ### 4.1 CLI Adapter
 
-- [ ] `packages/agentboster-adapter/src/subagent.ts`:
+- [x] `packages/agentboster-adapter/src/subagent.ts`:
   - `fetchSubagentMessages(baseUrl, token, subagentId)` → agentd 或 web 后端
   - `fetchSubagentBatch(baseUrl, token, batchId)` → batch 概览
   - `streamSubagentMessages(baseUrl, token, subagentId)` → SSE EventSource
-- [ ] 导出到 `@agentboster/adapter` index.ts
+- [x] 导出到 `@agentboster/adapter` index.ts
 
 ### 4.2 Desktop — Subagent 事件 UI
 
 在 `chat-view.ts` 的 `handleEvent` 中识别 `workflow.subagent` custom message：
 
-- [ ] 渲染为可点击的状态行（类似 workflow-view 但专门化）:
+- [x] 渲染为可点击的状态行（类似 workflow-view 但专门化）:
   - `started` → spinner + 蓝色 "Subagent executing: {task}"
   - `completed` → 绿色 ✓ + summary 预览
   - `failed` → 红色 ✗ + error
-- [ ] Batch event (`workflow.subagent.batch`) 渲染为分组标题
+- [x] Batch event (`workflow.subagent.batch`) 渲染为分组标题
 
 ### 4.3 Desktop — Subagent 详情窗口
 
 点击 subagent 行 → 打开新 session tab（只读）：
 
-- [ ] 用 `createSessionTab` 创建新 tab，标题 "Subagent: {name}"
-- [ ] tab 内容：调用 `fetchSubagentMessages` 拉取 messages
-- [ ] 复用 `chat-view` 的 message rendering（text + tool calls + thinking）
-- [ ] Running 时: `streamSubagentMessages` SSE 实时更新
-- [ ] 只读标记: composer 隐藏或禁用
+- [x] 用 `createSessionTab` 创建新 tab，标题 "Subagent: {name}"
+- [x] tab 内容：调用 `fetchSubagentMessages` 拉取 messages
+- [x] 复用 `chat-view` 的 message rendering（text + tool calls + thinking）
+- [x] Running 时: `streamSubagentMessages` SSE 实时更新
+- [x] 只读标记: composer 隐藏或禁用
 
 ### 4.4 CLI TUI 增强（可选）
 
-- [ ] `WorkflowSubagentMessageComponent` 加展开支持
-- [ ] 或用 `ctx.ui.custom()` 打开全屏详情
+- [x] `WorkflowSubagentMessageComponent` 加展开支持
+- [x] 或用 `ctx.ui.custom()` 打开全屏详情
 
 ---
 
@@ -176,13 +176,13 @@ URL: /chat/:sessionId/subagent/:subagentId
 
 ### 5.1 Sequential Thinking
 
-- [ ] `internal/agent/tools_thinking.go` — 注册 process_thought / sequential_think
-- [ ] 存储在 workspace 目录下，主 agent 和 subagent 共享
+- [x] `internal/agent/tools_thinking.go` — 注册 process_thought / sequential_think
+- [x] 存储在 workspace 目录下，主 agent 和 subagent 共享
 
 ### 5.2 Web Search 增强
 
-- [ ] 搜索结果缓存（`internal/cache/` 扩展）
-- [ ] 搜索历史追踪（让 agent 知道搜过什么）
+- [x] 搜索结果缓存（`internal/cache/` 扩展）
+- [x] 搜索历史追踪（让 agent 知道搜过什么）
 
 ### 5.3 MCP Server 管理 API
 
@@ -194,9 +194,9 @@ DELETE /api/v1/mcp-servers/:id
 
 ### 5.4 Metrics 增强
 
-- [ ] per-subagent token 消耗
-- [ ] tool 执行时间 P50/P95/P99
-- [ ] Prometheus 格式导出
+- [x] per-subagent token 消耗
+- [x] tool 执行时间 P50/P95/P99
+- [x] Prometheus 格式导出
 
 ---
 

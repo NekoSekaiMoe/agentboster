@@ -186,3 +186,16 @@ max_decisions = 50
 level = "info"      # debug, info, warn, error
 module = "AgentD"   # module name shown in [brackets]
 add_source = true   # show [func.name:line]
+
+# [advisor]
+# Advisor model for the advisor-strategy pattern. When configured, the
+# agent can escalate to a stronger model for guidance mid-task.
+# model = "claude-sonnet-4-20250514"  # model ID sent to the provider
+# api_key = ""                         # provider API key (or $ENV_VAR)
+# base_url = ""                        # provider base URL override
+# effort = ""                          # thinking level: low, medium, high, xhigh
+
+# [checkpoint]
+# Automatic git-based checkpoints in the sandbox workspace.
+# auto = false                         # create checkpoint after each turn
+# max_per_session = 50                 # max checkpoints before auto-pruning

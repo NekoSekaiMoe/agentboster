@@ -227,17 +227,24 @@ export function handleMessageStreamEvent(
                 ? details.batchId
                 : '';
           const event = typeof details?.event === 'string' ? details.event : '';
+          const task =
+            typeof details?.task === 'string'
+              ? details.task.slice(0, 100)
+              : content.slice(0, 120);
+          const statusIcon =
+            event === 'started'
+              ? '⟳'
+              : event === 'completed'
+                ? '✓'
+                : event === 'failed'
+                  ? '✗'
+                  : '⊞';
+          const isError = event === 'failed';
           const label =
             customType === 'workflow.subagent'
-              ? `⊞ Sub-agent ${event}: ${content.slice(0, 120)}`
-              : `⊞ Batch ${event}: ${content.slice(0, 120)}`;
-          context.attachOrphanToolResult(
-            customType,
-            subagentId
-              ? `${label}\n[Click to view: /subagent/${subagentId}]`
-              : label,
-            false,
-          );
+              ? `${statusIcon} Sub-agent ${event}: ${task}`
+              : `${statusIcon} Batch ${event}: ${task}`;
+          context.attachOrphanToolResult(customType, label, isError);
           context.render();
           context.scrollToBottom();
           return true;
