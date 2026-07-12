@@ -149,6 +149,11 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		v1.POST("/checkpoints", s.handleCreateCheckpoint)
 		v1.GET("/checkpoints", s.handleListCheckpoints)
 		v1.POST("/checkpoints/:id/restore", s.handleRestoreCheckpoint)
+
+		// MCP server management
+		v1.GET("/mcp-servers", s.handleListMCPServers)
+		v1.POST("/mcp-servers", s.handleStartMCPServer)
+		v1.DELETE("/mcp-servers/:id", s.handleStopMCPServer)
 	}
 }
 
