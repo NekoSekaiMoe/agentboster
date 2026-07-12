@@ -75,6 +75,14 @@ func CreateCheckpoint(sandboxPath, sessionID, description string) (*CheckpointDa
 		return nil, err
 	}
 
+	sessionID = strings.TrimSpace(sessionID)
+	if len(sessionID) < 8 {
+		return nil, errors.New("session id must be at least 8 characters")
+	}
+	if !checkpointIDPattern.MatchString(sessionID) {
+		return nil, errors.New("session id contains invalid characters")
+	}
+
 	workDir := filepath.Join(resolvedSandboxPath, "workspace")
 	if _, err := os.Stat(filepath.Join(workDir, ".git")); os.IsNotExist(err) {
 		if _, initErr := gitCmd(workDir, "init"); initErr != nil {
