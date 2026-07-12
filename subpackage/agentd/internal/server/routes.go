@@ -133,6 +133,22 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		v1.POST("/tools/memory-search", s.handleToolMemorySearch)
 		v1.POST("/tools/memory-save", s.handleToolMemorySave)
 		v1.POST("/tools/sandbox-install", s.handleToolSandboxInstall)
+
+		// Subagent query & management
+		v1.GET("/subagents", s.handleListSubagents)
+		v1.GET("/subagents/:id", s.handleGetSubagent)
+		v1.GET("/subagents/:id/messages", s.handleGetSubagentMessages)
+		v1.POST("/subagents/:id/abort", s.handleAbortSubagent)
+		v1.GET("/subagent-batches/:batchId", s.handleGetSubagentBatch)
+		v1.POST("/subagent-batches/:batchId/cancel", s.handleCancelSubagentBatch)
+
+		// Advisor (one-shot LLM completion)
+		v1.POST("/advisor", s.handleAdvisor)
+
+		// Checkpoints
+		v1.POST("/checkpoints", s.handleCreateCheckpoint)
+		v1.GET("/checkpoints", s.handleListCheckpoints)
+		v1.POST("/checkpoints/:id/restore", s.handleRestoreCheckpoint)
 	}
 }
 
