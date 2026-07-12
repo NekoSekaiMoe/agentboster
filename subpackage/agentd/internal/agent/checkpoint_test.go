@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,6 +149,100 @@ func TestErrGitUnavailableInContainer_MessageDocumentsFix(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("error message %q missing token %q", msg, want)
 		}
+	}
+}
+
+// TestSanitizeGitValueArg_RejectsFlagLikeValues covers the command-injection
+// vector flagged by CodeQL #55: a value that starts with "-" could be parsed
+// by git as a flag rather than as a positional argument. Only the explicit
+// allowlist of flags we actually use should be accepted.
+func TestSanitizeGitValueArg_RejectsFlagLikeValues(t *testing.T) {
+	for _, bad := range []string{
+		"--upload-pack=evil",
+		"-x",
+		"-",
+	} {
+		if _, err := sanitizeGitValueArg(bad); err == nil {
+			t.Fatalf("expected rejection for %q", bad)
+		}
+	}
+	for _, ok := range []string{
+		"HEAD", "HEAD^{tree}", ".", "refs/agentd-checkpoints/cp-abcdefgh-1",
+		"agentd-checkpoint:cp-abcdefgh-1\nsome description",
+		"0123456789abcdef0123456789abcdef01234567",
+	} {
+		if _, err := sanitizeGitValueArg(ok); err != nil {
+			t.Fatalf("unexpected rejection for %q: %v", ok, err)
+		}
+	}
+	// Known flags pass even though they start with "-".
+	for _, flag := range []string{"-A", "-m", "--allow-empty", "--", "--abbrev-ref"} {
+		if _, err := sanitizeGitValueArg(flag); err != nil {
+			t.Fatalf("known flag %q should be allowed: %v", flag, err)
+		}
+	}
+}
+
+// TestSanitizeGitValueArgs_RejectsUnknownSubcommand ensures only the git
+// subcommands we actually call can be dispatched.
+func TestSanitizeGitValueArgs_RejectsUnknownSubcommand(t *testing.T) {
+	for _, bad := range []string{"config", "clone", "remote", "daemon"} {
+		if _, err := sanitizeGitValueArgs([]string{bad}); err == nil {
+			t.Fatalf("expected rejection for subcommand %q", bad)
+		}
+	}
+	for _, ok := range []string{"init", "add", "commit", "rev-parse", "update-ref", "checkout"} {
+		if _, err := sanitizeGitValueArgs([]string{ok}); err != nil {
+			t.Fatalf("expected acceptance for subcommand %q: %v", ok, err)
+		}
+	}
+}
+
+// TestHostGitBackend_RejectsFlagInjection attempts to drive a flag-shaped
+// value through GitRun and asserts the backend refuses to dispatch the
+// command at all. This is the concrete mitigation for CodeQL alert #55.
+func TestHostGitBackend_RejectsFlagInjection(t *testing.T) {
+	b := &hostGitBackend{sandboxRoot: t.TempDir()}
+	for _, args := range [][]string{
+		{"checkout", "--upload-pack=evil", "--", "."},
+		{"update-ref", "refs/x", "-e", "something"},
+		{"commit", "-m", "--exec=evil"},
+	} {
+		if _, err := b.GitRun(args...); err == nil {
+			t.Fatalf("expected rejection for args %v", args)
+		} else if !strings.Contains(err.Error(), "flag") && !strings.Contains(err.Error(), "subcommand") {
+			t.Fatalf("expected flag/subcommand error for %v, got %v", args, err)
+		}
+	}
+}
+
+// TestRestoreCheckpoint_RejectsTamperedHeadSHA writes a checkpoint meta file
+// with a non-SHA HeadSHA and asserts Restore refuses to run the checkout.
+// This closes the disk-resident attack vector where a tampered meta file
+// could inject flags into git checkout.
+func TestRestoreCheckpoint_RejectsTamperedHeadSHA(t *testing.T) {
+	sb := withSandboxRoot(t, "sb-12345678")
+
+	// Create a legit checkpoint first so the workspace + meta dir exist.
+	cp, err := CreateCheckpoint(hostRef(sb), nil, "abcdefgh", "desc")
+	if err != nil {
+		t.Fatalf("CreateCheckpoint: %v", err)
+	}
+
+	// Overwrite the meta with a flag-shaped HeadSHA.
+	tampered := cp
+	tampered.HeadSHA = "--upload-pack=evil"
+	data, _ := json.Marshal(tampered)
+	if err := os.WriteFile(filepath.Join(sb, "workspace", checkpointMetaDir, cp.ID+".json"), data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	err = RestoreCheckpoint(hostRef(sb), nil, cp.ID)
+	if err == nil {
+		t.Fatal("expected RestoreCheckpoint to reject tampered HeadSHA")
+	}
+	if !strings.Contains(err.Error(), "invalid head SHA") {
+		t.Fatalf("expected SHA validation error, got %v", err)
 	}
 }
 

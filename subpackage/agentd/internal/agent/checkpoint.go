@@ -58,6 +58,70 @@ var checkpointIDPattern = regexp.MustCompile(`^cp-[A-Za-z0-9_-]{8,128}-[0-9]+$`)
 // under the checkpoint meta dir.
 var safeMetaFileNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
+// gitSHAPattern matches a git object SHA (40-hex for sha-1, 64-hex for sha-256).
+// Used to validate any SHA read from persistent metadata before handing it to
+// git, so a tampered meta file cannot inject flags into git invocations.
+var gitSHAPattern = regexp.MustCompile(`^[0-9a-f]{40}(?:[0-9a-f]{24})?$`)
+
+// knownGitFlags is the set of leading tokens we always permit (git subcommands
+// and flags we use intentionally). Anything else starting with "-" is rejected
+// by sanitizeGitValueArg as a defense against flag-injection from
+// attacker-controlled values (commit message text, SHAs read from disk, etc).
+//
+// Note: exec.Command does not invoke a shell, so shell metacharacters are not
+// a concern here. The risk is purely git interpreting a value as a flag.
+var knownGitFlags = map[string]bool{
+	"init": true, "add": true, "-A": true,
+	"commit": true, "--allow-empty": true, "-m": true,
+	"rev-parse": true, "--abbrev-ref": true, "HEAD": true, "HEAD^{tree}": true,
+	"update-ref": true, "checkout": true, "--": true, ".": true,
+}
+
+// sanitizeGitValueArg validates a single non-flag-position argument before it
+// is passed to exec.Command("git", args...). It rejects values that start with
+// "-" and are not part of the known allowlist, which closes the
+// "value parsed as flag" attack vector (e.g. a description of
+// "--upload-pack=..." being consumed by git commit).
+//
+// Values that pass this check are safe to pass as exec.Command args without a
+// shell, because exec.Command forwards argv entries verbatim.
+func sanitizeGitValueArg(arg string) (string, error) {
+	if arg == "" {
+		return "", errors.New("empty git argument")
+	}
+	if !strings.HasPrefix(arg, "-") {
+		return arg, nil
+	}
+	if knownGitFlags[arg] {
+		return arg, nil
+	}
+	return "", fmt.Errorf("git argument %q looks like an unknown flag (possible injection)", arg)
+}
+
+// sanitizeGitValueArgs validates a slice of args, rejecting any that look like
+// unknown flags. The first arg (the git subcommand) is allowlisted via
+// knownGitFlags; subsequent args are validated as values.
+func sanitizeGitValueArgs(args []string) ([]string, error) {
+	out := make([]string, 0, len(args))
+	for i, a := range args {
+		// The subcommand (first arg) and known positional tokens (".", "HEAD")
+		// are allowed. Everything else starting with "-" is rejected.
+		if i == 0 {
+			if !knownGitFlags[a] {
+				return nil, fmt.Errorf("disallowed git subcommand %q", a)
+			}
+			out = append(out, a)
+			continue
+		}
+		clean, err := sanitizeGitValueArg(a)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, clean)
+	}
+	return out, nil
+}
+
 // base64StdEncoding is an alias for base64.StdEncoding, used by the container
 // backend to stream bytes through Manager.Exec (which has no stdin channel).
 var base64StdEncoding = base64.StdEncoding
@@ -178,14 +242,22 @@ func (b *hostGitBackend) workspace() string { return filepath.Join(b.sandboxRoot
 func (b *hostGitBackend) metaDir() string   { return filepath.Join(b.workspace(), checkpointMetaDir) }
 
 func (b *hostGitBackend) GitRun(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	safe, err := sanitizeGitValueArgs(args)
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.Command("git", safe...)
 	cmd.Dir = b.workspace()
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
 
 func (b *hostGitBackend) GitCommit(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	safe, err := sanitizeGitValueArgs(args)
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.Command("git", safe...)
 	cmd.Dir = b.workspace()
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=agentd",
@@ -309,10 +381,14 @@ func (b *containerGitBackend) GitRun(args ...string) (string, error) {
 	if err := b.gitAvailable(); err != nil {
 		return "", err
 	}
+	safe, err := sanitizeGitValueArgs(args)
+	if err != nil {
+		return "", err
+	}
 	// Quote each arg; git is invoked via `sh -c` so the workspace CWD applies.
-	parts := make([]string, 0, len(args)+2)
+	parts := make([]string, 0, len(safe)+2)
 	parts = append(parts, "git")
-	for _, a := range args {
+	for _, a := range safe {
 		parts = append(parts, quoteShellArg(a))
 	}
 	return b.runSh(strings.Join(parts, " "))
@@ -322,11 +398,15 @@ func (b *containerGitBackend) GitCommit(args ...string) (string, error) {
 	if err := b.gitAvailable(); err != nil {
 		return "", err
 	}
+	safe, err := sanitizeGitValueArgs(args)
+	if err != nil {
+		return "", err
+	}
 	// git requires env vars to be set on the same command line.
 	prefix := "GIT_AUTHOR_NAME=agentd GIT_AUTHOR_EMAIL=agentd@local GIT_COMMITTER_NAME=agentd GIT_COMMITTER_EMAIL=agentd@local "
-	parts := make([]string, 0, len(args)+2)
+	parts := make([]string, 0, len(safe)+2)
 	parts = append(parts, "git")
-	for _, a := range args {
+	for _, a := range safe {
 		parts = append(parts, quoteShellArg(a))
 	}
 	return b.runSh(prefix + strings.Join(parts, " "))
@@ -523,6 +603,13 @@ func RestoreCheckpoint(ref SandboxRef, sbMgr *sandbox.Manager, checkpointID stri
 	var cp CheckpointData
 	if err := json.Unmarshal(data, &cp); err != nil {
 		return fmt.Errorf("invalid checkpoint data: %w", err)
+	}
+
+	// HeadSHA was originally produced by git rev-parse, but it has lived on
+	// disk since then. Validate its shape before handing it to git checkout so
+	// a tampered meta file cannot inject flags or alternate object notations.
+	if !gitSHAPattern.MatchString(cp.HeadSHA) {
+		return fmt.Errorf("checkpoint %s has invalid head SHA", checkpointID)
 	}
 
 	if _, err := backend.GitRun("checkout", cp.HeadSHA, "--", "."); err != nil {
