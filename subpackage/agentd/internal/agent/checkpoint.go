@@ -70,7 +70,12 @@ func gitCmd(dir string, args ...string) (string, error) {
 
 // CreateCheckpoint creates a git snapshot of the current workspace state.
 func CreateCheckpoint(sandboxPath, sessionID, description string) (*CheckpointData, error) {
-	workDir := filepath.Join(sandboxPath, "workspace")
+	resolvedSandboxPath, err := resolveWorkspacePath(sandboxPath)
+	if err != nil {
+		return nil, err
+	}
+
+	workDir := filepath.Join(resolvedSandboxPath, "workspace")
 	if _, err := os.Stat(filepath.Join(workDir, ".git")); os.IsNotExist(err) {
 		if _, initErr := gitCmd(workDir, "init"); initErr != nil {
 			return nil, fmt.Errorf("git init: %w", initErr)
@@ -120,7 +125,7 @@ func CreateCheckpoint(sandboxPath, sessionID, description string) (*CheckpointDa
 		Timestamp:   ts.UnixMilli(),
 	}
 
-	metaPath := filepath.Join(sandboxPath, "workspace", ".agentd-checkpoints")
+	metaPath := filepath.Join(resolvedSandboxPath, "workspace", ".agentd-checkpoints")
 	os.MkdirAll(metaPath, 0o755)
 	data, _ := json.MarshalIndent(cp, "", "  ")
 	os.WriteFile(filepath.Join(metaPath, id+".json"), data, 0o640)
