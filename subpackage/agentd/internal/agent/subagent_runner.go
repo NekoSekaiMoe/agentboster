@@ -420,4 +420,9 @@ func registerSubagentToolset(
 
 	// DELIBERATELY OMITTED: registerSubagent, registerSubagentResult
 	// (no recursive sub-agent nesting).
+
+	// Thinking tools (available to sub-agents for structured reasoning)
+	registerProcessThought(registry, agentCtx)
+	registerSequentialThink(registry, agentCtx)
+	registerGetThinkingHistory(registry)
 }

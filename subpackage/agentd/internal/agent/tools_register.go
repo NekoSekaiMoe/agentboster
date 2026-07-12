@@ -126,4 +126,12 @@ func RegisterAllTools(
 		registerLSPReferences(registry, sbManager, lspManager, agentCtx)
 		registerLSPSymbols(registry, sbManager, lspManager, agentCtx)
 	}
+
+	// === Advisor (1) ===
+	registerAdvisor(registry, clawlessClient, agentCtx, "")
+
+	// === Sequential Thinking (3) ===
+	registerProcessThought(registry, agentCtx)
+	registerSequentialThink(registry, agentCtx)
+	registerGetThinkingHistory(registry)
 }

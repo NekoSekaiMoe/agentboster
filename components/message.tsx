@@ -8,6 +8,7 @@ import { memo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
+import { SubagentBatchCard } from '@/components/chat/subagent-batch-card';
 import type {
   ChatMessageMetadata,
   WorkflowDataUIPart,
@@ -231,11 +232,13 @@ function WorkflowDetails({ part }: { part: WorkflowDataUIPart }) {
 
 function AstrBotAssistantMessageParts({
   message,
+  chatId,
   onToolApproval,
   onSuggestedFollowUpSelect,
   showSuggestedFollowUps,
 }: {
   message: WorkflowUIMessage;
+  chatId: string;
   onToolApproval?: (input: {
     toolCallId: string;
     toolName: string;
@@ -555,6 +558,26 @@ function AstrBotAssistantMessageParts({
           }
 
           if (isWorkflowMessageUIPart(part) || isWorkflowStatusUIPart(part)) {
+            // Render subagent batch events as a dedicated batch card
+            if (
+              part.data.kind === 'status' &&
+              part.data.type === 'subagent-batch-event' &&
+              'batchId' in part.data &&
+              part.data.event === 'spawned'
+            ) {
+              return (
+                <div
+                  key={`subagent-batch-${part.data.batchId}-${index}`}
+                  className="min-w-0"
+                >
+                  <SubagentBatchCard
+                    batchId={part.data.batchId}
+                    sessionId={chatId}
+                  />
+                </div>
+              );
+            }
+
             const workflowSuffix =
               part.data.kind === 'message'
                 ? `${part.data.type}-${part.data.eventType}`
@@ -1071,6 +1094,7 @@ const PurePreviewMessage = ({
             {message.role === 'assistant' && (
               <AstrBotAssistantMessageParts
                 message={message}
+                chatId={chatId}
                 onToolApproval={onToolApproval}
                 onSuggestedFollowUpSelect={onSuggestedFollowUpSelect}
                 showSuggestedFollowUps={showSuggestedFollowUps}

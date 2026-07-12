@@ -212,6 +212,7 @@ export function handleMessageStreamEvent(
             : typeof message.custom_type === 'string'
               ? message.custom_type
               : '';
+        const details = message.details as Record<string, unknown> | undefined;
         const content = context.extractText(
           message.content ?? message.display ?? '',
         );
@@ -219,9 +220,22 @@ export function handleMessageStreamEvent(
           customType === 'workflow.subagent' ||
           customType === 'workflow.subagent.batch'
         ) {
+          const subagentId =
+            typeof details?.subagentId === 'string'
+              ? details.subagentId
+              : typeof details?.batchId === 'string'
+                ? details.batchId
+                : '';
+          const event = typeof details?.event === 'string' ? details.event : '';
+          const label =
+            customType === 'workflow.subagent'
+              ? `⊞ Sub-agent ${event}: ${content.slice(0, 120)}`
+              : `⊞ Batch ${event}: ${content.slice(0, 120)}`;
           context.attachOrphanToolResult(
             customType,
-            content || `[${customType}]`,
+            subagentId
+              ? `${label}\n[Click to view: /subagent/${subagentId}]`
+              : label,
             false,
           );
           context.render();
