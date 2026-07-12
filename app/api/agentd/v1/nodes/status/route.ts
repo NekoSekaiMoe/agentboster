@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 
+import { computeNodeStatus } from '@/lib/extra/agent/node-liveness';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
@@ -21,7 +22,10 @@ export async function GET() {
       port: row.port,
       sandboxes: row.sandboxes,
       version: row.version,
-      status: row.status,
+      // Effective status is computed from heartbeat freshness, not the
+      // stored column — the column is only ever written to 'online', so
+      // without this check a dead node would display as online forever.
+      status: computeNodeStatus(row.status, row.lastHeartbeat),
       cpu_model: row.cpuModel,
       cpu_usage: row.cpuUsage,
       mem_avail: row.memAvail,

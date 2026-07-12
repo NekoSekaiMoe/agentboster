@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 
+import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
@@ -20,13 +21,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const existing = await db
+    // Dedup by node_id first (the normal case — agentd persisted its
+    // ID across a process restart).
+    const existingById = await db
       .select()
       .from(agentdNodes)
       .where(eq(agentdNodes.nodeID, node_id))
       .limit(1);
 
-    if (existing.length > 0) {
+    let existingNodeId: string | null = existingById[0]?.nodeID ?? null;
+
+    // Fallback dedup by (ip, port): if the daemon restarted with a
+    // fresh node_id (e.g. host reboot wiped the persisted node_id file),
+    // reclaim the stale row for the same address instead of inserting a
+    // duplicate. We update its node_id to the new value so subsequent
+    // heartbeats land on it.
+    if (!existingNodeId) {
+      const byAddress = await findNodeByAddress(ip, port);
+      if (byAddress) {
+        logger.info('reclaiming stale node row by (ip, port)', {
+          old_node_id: byAddress.nodeID,
+          new_node_id: node_id,
+          ip,
+          port,
+        });
+        await db
+          .update(agentdNodes)
+          .set({ nodeID: node_id })
+          .where(eq(agentdNodes.nodeID, byAddress.nodeID));
+        existingNodeId = node_id;
+      }
+    }
+
+    if (existingNodeId) {
       await db
         .update(agentdNodes)
         .set({
@@ -35,6 +62,7 @@ export async function POST(req: NextRequest) {
           sandboxes,
           version,
           status: 'online',
+          lastHeartbeat: new Date(),
         })
         .where(eq(agentdNodes.nodeID, node_id));
     } else {
@@ -45,6 +73,7 @@ export async function POST(req: NextRequest) {
         sandboxes,
         version,
         status: 'online',
+        lastHeartbeat: new Date(),
       });
     }
 

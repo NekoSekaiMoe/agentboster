@@ -1,3 +1,4 @@
+import { computeNodeStatus } from '@/lib/extra/agent/node-liveness';
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
@@ -12,7 +13,7 @@ export async function GET() {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const nodes = await db
+    const rows = await db
       .select({
         id: agentdNodes.nodeID,
         hostname: agentdNodes.ip,
@@ -25,6 +26,14 @@ export async function GET() {
       .from(agentdNodes)
       .orderBy(desc(agentdNodes.lastHeartbeat))
       .limit(100);
+
+    // Effective status is computed from heartbeat freshness — the stored
+    // column is only ever 'online', so a dead node would otherwise stay
+    // green in the monitoring UI.
+    const nodes = rows.map((row) => ({
+      ...row,
+      status: computeNodeStatus(row.status, row.lastHeartbeat),
+    }));
 
     return NextResponse.json(nodes);
   } catch (error) {

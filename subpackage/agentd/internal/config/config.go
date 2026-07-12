@@ -64,7 +64,7 @@ type ClawLessConfig struct {
 	ClientKeyPath     string        `mapstructure:"client_key_path"`
 	CAPath            string        `mapstructure:"ca_path"`
 	HeartbeatInterval time.Duration `mapstructure:"heartbeat_interval" default:"30s"`
-	NodeIDFile        string        `mapstructure:"node_id_file" default:"/var/run/agentd.node_id"`
+	NodeIDFile        string        `mapstructure:"node_id_file" default:"/var/lib/agentd/node_id"`
 }
 
 type SecurityConfig struct {

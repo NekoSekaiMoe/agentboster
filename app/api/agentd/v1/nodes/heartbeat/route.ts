@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 
+import { reapStaleNodes } from '@/lib/extra/agent/node-liveness';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
@@ -119,6 +120,21 @@ export async function POST(req: NextRequest) {
         status: 'online',
       })
       .where(eq(agentdNodes.nodeID, node_id));
+
+    // Piggyback a stale-node reaper on every heartbeat. agentd pings
+    // every 30s, so this doubles as a lazy sweeper without requiring an
+    // external scheduler. Best-effort: failures here must not fail the
+    // heartbeat (the caller would back off and retry).
+    try {
+      const reaped = await reapStaleNodes();
+      if (reaped.markedOffline > 0 || reaped.deletedZombies > 0) {
+        logger.info('reaped stale agentd nodes', reaped);
+      }
+    } catch (reapError) {
+      logger.warn('stale-node reap failed (non-fatal)', {
+        error: reapError instanceof Error ? reapError.message : String(reapError),
+      });
+    }
 
     return Response.json({
       success: true,

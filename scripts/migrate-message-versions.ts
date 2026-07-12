@@ -38,7 +38,9 @@ function coerceParts(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
 
-function migrateMetadata(metadata: LegacyMetadata): Record<string, unknown> | null {
+function migrateMetadata(
+  metadata: LegacyMetadata,
+): Record<string, unknown> | null {
   // Already migrated — leave untouched.
   if (Array.isArray(metadata.versions)) return null;
 
@@ -52,8 +54,15 @@ function migrateMetadata(metadata: LegacyMetadata): Record<string, unknown> | nu
   if (Array.isArray(metadata.editHistory)) {
     for (const entry of metadata.editHistory) {
       const parts = coerceParts(entry?.parts);
-      const createdAt = typeof entry?.createdAt === 'string' ? entry.createdAt! : new Date().toISOString();
-      const version: { parts: unknown[]; createdAt: string; response?: unknown[] } = { parts, createdAt };
+      const createdAt =
+        typeof entry?.createdAt === 'string'
+          ? entry.createdAt!
+          : new Date().toISOString();
+      const version: {
+        parts: unknown[];
+        createdAt: string;
+        response?: unknown[];
+      } = { parts, createdAt };
       // Preserve paired assistant reply snapshot — critical for edit/rewind semantics.
       if (Array.isArray(entry?.responseParts)) {
         version.response = entry.responseParts;
@@ -61,7 +70,9 @@ function migrateMetadata(metadata: LegacyMetadata): Record<string, unknown> | nu
       versions.push(version);
     }
     const currentVersionIndex =
-      typeof metadata.currentEditIndex === 'number' ? metadata.currentEditIndex : 0;
+      typeof metadata.currentEditIndex === 'number'
+        ? metadata.currentEditIndex
+        : 0;
     return { versions, currentVersionIndex };
   }
 
@@ -69,7 +80,10 @@ function migrateMetadata(metadata: LegacyMetadata): Record<string, unknown> | nu
   if (Array.isArray(metadata.generationHistory)) {
     for (const entry of metadata.generationHistory) {
       const parts = coerceParts(entry?.parts);
-      const createdAt = typeof entry?.createdAt === 'string' ? entry.createdAt! : new Date().toISOString();
+      const createdAt =
+        typeof entry?.createdAt === 'string'
+          ? entry.createdAt!
+          : new Date().toISOString();
       versions.push({ parts, createdAt });
     }
     const currentVersionIndex =
@@ -124,10 +138,10 @@ async function main() {
       delete (newMetadata as Record<string, unknown>).currentGenerationIndex;
 
       const updatedPayload = { ...payload, metadata: newMetadata };
-      await sql.query(
-        `UPDATE messages SET payload = $1 WHERE id = $2`,
-        [JSON.stringify(updatedPayload), row.id],
-      );
+      await sql.query(`UPDATE messages SET payload = $1 WHERE id = $2`, [
+        JSON.stringify(updatedPayload),
+        row.id,
+      ]);
       migrated += 1;
     }
 

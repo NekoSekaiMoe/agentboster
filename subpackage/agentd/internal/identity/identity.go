@@ -15,7 +15,11 @@ import (
 // Resolve loads an existing node ID from disk or generates a new one.
 func Resolve(idFile string) (string, error) {
 	if idFile == "" {
-		idFile = "/var/run/agentd.node_id"
+		// /var/lib/agentd is on persistent storage — /var/run is tmpfs
+		// on most Linux distros and gets wiped on every host reboot,
+		// which would regenerate the node_id and create a duplicate row
+		// in the Web's agentd_nodes table.
+		idFile = "/var/lib/agentd/node_id"
 	}
 	dir := filepath.Dir(idFile)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
