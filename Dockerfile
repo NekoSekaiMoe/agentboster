@@ -27,7 +27,7 @@ COPY . .
 ARG DOCKER_ENV_FILE=docker.env
 RUN if [ ! -f "$DOCKER_ENV_FILE" ]; then \
         echo "Missing $DOCKER_ENV_FILE. Copy docker.env.example to docker.env before docker build."; \
-        exit 1; \
+        exit 255; \
     fi && \
     cp "$DOCKER_ENV_FILE" .env
 
