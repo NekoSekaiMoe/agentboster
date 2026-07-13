@@ -99,6 +99,12 @@ function getBackend(): Promise<KvBackend> {
  */
 export const redis = new Proxy({} as Redis, {
   get(_target, prop, _receiver) {
+    // Thenable guard: if anything awaits this proxy (Promise.resolve(redis),
+    // a runtime probing for a `.then`), returning an async function for `then`
+    // would make the proxy look like a never-settling promise and hang. Return
+    // undefined so it's treated as a plain object. Same for any symbol prop
+    // (e.g. Symbol.toPrimitive / util.inspect) — those aren't backend methods.
+    if (prop === 'then' || typeof prop === 'symbol') return undefined;
     return async (...args: unknown[]) => {
       const backend = await getBackend();
       const value = Reflect.get(backend as object, prop);
@@ -129,6 +135,8 @@ function loadRedisState(): Promise<RedisState> {
 
 export const redisState = new Proxy({} as RedisState, {
   get(_target, prop, _receiver) {
+    // Same thenable guard as `redis` above — don't let an await hang on this.
+    if (prop === 'then' || typeof prop === 'symbol') return undefined;
     return async (...args: unknown[]) => {
       const state = await loadRedisState();
       const value = Reflect.get(state, prop);

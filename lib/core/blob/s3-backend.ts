@@ -116,25 +116,104 @@ function withRandomSuffix(pathname: string): string {
   return `${dir}${name}-${suffix}`;
 }
 
-async function toBytes(
-  body: Blob | Buffer | string | Uint8Array,
-): Promise<Uint8Array> {
+/**
+ * Normalize any body shape `@vercel/blob`'s `put()` accepts into a
+ * `Uint8Array` for `PutObjectCommand`. The upstream `PutBody` union is
+ * `string | Blob | ArrayBuffer | ArrayBufferView | Buffer | ReadableStream |
+ * Readable` (Web stream AND Node stream). We buffer streams fully because the
+ * S3 SDK needs a known content length for a single-shot put; the blobs this
+ * backend stores (skill files, audio, images) are small.
+ */
+export async function toBytes(body: unknown): Promise<Uint8Array> {
   if (typeof body === 'string') {
     return new TextEncoder().encode(body);
   }
-  if (body instanceof Uint8Array) {
-    return body;
+  // Buffer and every typed-array view. Handles Uint8Array directly; other
+  // views (DataView, Int32Array, …) are wrapped over their backing buffer.
+  if (ArrayBuffer.isView(body)) {
+    return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
   }
-  // Blob (and Buffer, which is a Uint8Array subclass handled above).
-  if (typeof (body as Blob).arrayBuffer === 'function') {
+  if (body instanceof ArrayBuffer) {
+    return new Uint8Array(body);
+  }
+  // Web ReadableStream (has getReader) — covers both the browser stream and
+  // the one @vercel/blob's types surface.
+  if (isWebReadableStream(body)) {
+    return await readWebStream(body);
+  }
+  // Node Readable (async-iterable) — @vercel/blob accepts fs.createReadStream.
+  if (isAsyncIterable(body)) {
+    return await readAsyncIterable(body);
+  }
+  // Blob / File (and anything else exposing arrayBuffer()).
+  if (
+    body &&
+    typeof (body as { arrayBuffer?: unknown }).arrayBuffer === 'function'
+  ) {
     return new Uint8Array(await (body as Blob).arrayBuffer());
   }
   throw new Error('Unsupported blob body type');
 }
 
+function isWebReadableStream(
+  body: unknown,
+): body is ReadableStream<Uint8Array> {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    typeof (body as ReadableStream).getReader === 'function'
+  );
+}
+
+function isAsyncIterable(
+  body: unknown,
+): body is AsyncIterable<Uint8Array | string> {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    typeof (body as AsyncIterable<unknown>)[Symbol.asyncIterator] === 'function'
+  );
+}
+
+async function readWebStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) chunks.push(value);
+  }
+  return concatChunks(chunks);
+}
+
+async function readAsyncIterable(
+  iterable: AsyncIterable<Uint8Array | string>,
+): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of iterable) {
+    chunks.push(
+      typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk,
+    );
+  }
+  return concatChunks(chunks);
+}
+
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((n, c) => n + c.byteLength, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
+}
+
 export async function s3Put(
   pathname: string,
-  body: Blob | Buffer | string | Uint8Array,
+  body: unknown,
   options?: PutOptions,
 ): Promise<PutResult> {
   const { client, bucket, commands } = await getClient();

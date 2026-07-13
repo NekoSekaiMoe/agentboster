@@ -103,6 +103,13 @@ export async function pgSet(
     //  - key absent            → INSERT happens
     //  - key present & expired  → guarded UPDATE fires (reclaim the stale key)
     //  - key present & live     → guarded UPDATE matches nothing → no row
+    //  - key present, no expiry → NULL <= now is false in SQL, so the guarded
+    //                             UPDATE matches nothing → no row. A persistent
+    //                             key is NEVER reclaimable by NX (that's the
+    //                             whole point of NX), so `expires_at IS NULL`
+    //                             must NOT be treated as "expired". Using a bare
+    //                             `lte(expiresAt, now)` gives exactly this — no
+    //                             `isNull` branch, no `isNotNull` import needed.
     //
     // Postgres exposes whether a returned row came from the INSERT or the
     // UPDATE via the system column `xmax`: it is 0 for a freshly inserted row
@@ -118,7 +125,7 @@ export async function pgSet(
       .onConflictDoUpdate({
         target: kvStore.key,
         set: { value: stored, expiresAt, updatedAt: now },
-        setWhere: or(isNull(kvStore.expiresAt), lte(kvStore.expiresAt, now)),
+        setWhere: lte(kvStore.expiresAt, now),
       })
       .returning({ key: kvStore.key });
 
@@ -145,15 +152,36 @@ export async function pgDel(...keys: string[]): Promise<number> {
   return deleted.length;
 }
 
-/** EXPIRE — set a TTL (seconds) on an existing key. Returns 1/0 like Redis. */
+/**
+ * EXPIRE — set a TTL (seconds) on an existing key. Returns 1/0 like Redis.
+ *
+ * A key can live in EITHER table: a plain string sits in `kv_store`, while a
+ * set (sadd/srem) lives across one-or-more rows in `kv_sets`. pair-code.ts
+ * calls `expire(setKey, …)` right after `sadd(setKey, …)`, so we MUST also
+ * stamp the TTL onto every `kv_sets` row for that key — otherwise set members
+ * keep `expires_at = NULL` (never expire) and the return value is 0 even
+ * though the set exists. We update both tables and report 1 if either matched.
+ */
 export async function pgExpire(key: string, seconds: number): Promise<number> {
   const expiresAt = new Date(Date.now() + seconds * 1000);
-  const updated = await db
-    .update(kvStore)
-    .set({ expiresAt })
-    .where(and(eq(kvStore.key, key), liveRow()))
-    .returning({ key: kvStore.key });
-  return updated.length > 0 ? 1 : 0;
+  const [store, sets] = await Promise.all([
+    db
+      .update(kvStore)
+      .set({ expiresAt })
+      .where(and(eq(kvStore.key, key), liveRow()))
+      .returning({ key: kvStore.key }),
+    db
+      .update(kvSets)
+      .set({ expiresAt })
+      .where(
+        and(
+          eq(kvSets.key, key),
+          or(isNull(kvSets.expiresAt), gt(kvSets.expiresAt, new Date())),
+        ),
+      )
+      .returning({ member: kvSets.member }),
+  ]);
+  return store.length > 0 || sets.length > 0 ? 1 : 0;
 }
 
 /**

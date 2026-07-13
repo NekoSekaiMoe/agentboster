@@ -153,7 +153,7 @@ export async function put(
 ): Promise<PutBlobResult> {
   if (!isVercel) {
     const s3 = await loadS3();
-    const result = await s3.s3Put(pathname, body as Blob | Buffer | string, {
+    const result = await s3.s3Put(pathname, body, {
       addRandomSuffix: options.addRandomSuffix,
       allowOverwrite: options.allowOverwrite,
       contentType: options.contentType,
