@@ -18,22 +18,34 @@
  * getter — so `warmupDatabase()` is a no-op there.
  */
 export async function register(): Promise<void> {
-  // Only the Node.js server runtime can hold a pg TCP pool. The edge runtime
-  // (middleware) sets NEXT_RUNTIME='edge' and must skip DB warm-up.
-  if (process.env.NEXT_RUNTIME !== 'nodejs') {
-    return;
-  }
-
-  try {
-    const { warmupDatabase } = await import('@/lib/core/db/pg-driver');
-    await warmupDatabase();
-  } catch (error) {
-    // Non-fatal: a dev server may boot without DATABASE_URL configured. The
-    // first real DB access will surface a clear error if the driver is still
-    // uninitialized.
-    console.warn(
-      '[instrumentation] database warm-up skipped:',
-      error instanceof Error ? error.message : String(error),
-    );
+  // CRITICAL: the dynamic import MUST live inside a POSITIVE
+  // `process.env.NEXT_RUNTIME === 'nodejs'` block, not behind an early return.
+  //
+  // Next.js compiles this file for BOTH the node and the edge runtimes (the
+  // edge one exists because middleware.ts runs on edge). `pg` requires Node
+  // built-ins (`fs`/`path`/`stream`/`readline`) that the edge runtime does not
+  // provide, and `serverExternalPackages` only applies to the node server
+  // compilation — so the edge compilation must never even reference pg-driver.
+  //
+  // webpack collects `import()` dependencies statically, ignoring control flow:
+  // an early `return` before the import does NOT keep pg out of the edge graph
+  // (that was the CI build failure). But `process.env.NEXT_RUNTIME` is inlined
+  // per-compilation by DefinePlugin, so in the edge build this becomes
+  // `if ('edge' === 'nodejs')` → `if (false)`, and ConstPlugin strips the whole
+  // block at parse time — the `import()` inside never enters the edge graph.
+  // This is the pattern Next.js documents for runtime-gated instrumentation.
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    try {
+      const { warmupDatabase } = await import('@/lib/core/db/pg-driver');
+      await warmupDatabase();
+    } catch (error) {
+      // Non-fatal: a dev server may boot without DATABASE_URL configured. The
+      // first real DB access will surface a clear error if the driver is still
+      // uninitialized.
+      console.warn(
+        '[instrumentation] database warm-up skipped:',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 }
