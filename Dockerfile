@@ -71,8 +71,8 @@ COPY --from=builder /app/lib/core/db ./lib/core/db
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 
-# Set ownership
-RUN chown -R nextjs:nodejs /app
+# Make the startup script executable, then set ownership.
+RUN chmod +x /app/scripts/docker-entrypoint.sh && chown -R nextjs:nodejs /app
 
 USER nextjs
 
@@ -89,5 +89,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # Use tini to handle signals properly
 ENTRYPOINT ["/sbin/tini", "--"]
 
-# Start the application with next start
-CMD ["yarn", "start"]
+# Run self-host DB migrations (idempotent), then start the Next.js server.
+# Set SKIP_DB_MIGRATE=1 to bypass migrations for read-replica / multi-instance
+# rollouts where a single migration job runs separately.
+CMD ["/app/scripts/docker-entrypoint.sh"]

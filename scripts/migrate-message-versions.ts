@@ -13,7 +13,7 @@
  *   assistant message: generationHistory[i]      → versions[i]
  *                      currentGenerationIndex    → currentVersionIndex
  */
-import { neon } from '@neondatabase/serverless';
+import { closeRawSql, getRawQuery } from './db-raw-sql';
 
 type LegacyEntry = {
   parts?: Array<Record<string, unknown>>;
@@ -97,11 +97,7 @@ function migrateMetadata(
 }
 
 async function main() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error('[migrate-versions] DATABASE_URL is required');
-  }
-  const sql = neon(databaseUrl);
+  const query = getRawQuery();
 
   // Pull candidate rows in batches. We filter on the jsonb path to only
   // touch rows that still carry a legacy field, so re-runs are cheap.
@@ -111,7 +107,7 @@ async function main() {
   let scanned = 0;
 
   while (true) {
-    const rows = (await sql.query(
+    const rows = (await query(
       `SELECT id, payload
        FROM messages
        WHERE payload->'metadata' ?| ARRAY['editHistory','generationHistory']
@@ -138,7 +134,7 @@ async function main() {
       delete (newMetadata as Record<string, unknown>).currentGenerationIndex;
 
       const updatedPayload = { ...payload, metadata: newMetadata };
-      await sql.query(`UPDATE messages SET payload = $1 WHERE id = $2`, [
+      await query(`UPDATE messages SET payload = $1 WHERE id = $2`, [
         JSON.stringify(updatedPayload),
         row.id,
       ]);
@@ -152,9 +148,11 @@ async function main() {
   console.log(
     `[migrate-versions] scanned=${scanned} migrated=${migrated} (idempotent; re-runs skip already-migrated rows)`,
   );
+  await closeRawSql();
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error('[migrate-versions] failed:', error);
+  await closeRawSql();
   process.exit(1);
 });

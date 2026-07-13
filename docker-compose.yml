@@ -1,0 +1,111 @@
+# Self-hosted stack for the agentboster web app.
+#
+# Brings up the web app plus its four backing services:
+#   - postgres (pgvector)  → DATABASE_URL  (dual-driver DB + Postgres-backed KV)
+#   - redis                → REDIS_URL     (chat-adapter session state)
+#   - minio (S3-compatible)→ S3_*          (blob storage, served via /api/blob)
+#   - minio-setup          → one-shot bucket creation
+#
+# Usage:
+#   cp docker.env.example docker.env   # then edit secrets
+#   docker compose up -d --build
+#
+# The web app runs DB migrations at start (see scripts/docker-entrypoint.sh),
+# so postgres must be healthy first — enforced via depends_on/healthcheck.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agentboster_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-agentboster}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentboster_user} -d ${POSTGRES_DB:-agentboster}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No host port published by default; the web app reaches it over the
+    # compose network. Uncomment to inspect from the host.
+    # ports:
+    #   - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-your_redis_password}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-your_redis_password}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      # Console for manual inspection; the API (9000) is reached over the
+      # compose network by the web app. Publish 9000 too if you want host access.
+      - "9001:9001"
+
+  # One-shot: create the bucket the web app expects, then exit.
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "${S3_ACCESS_KEY_ID:-minioadmin}" "${S3_SECRET_ACCESS_KEY:-minioadmin}"
+        mc mb --ignore-existing "local/${S3_BUCKET:-agentboster}"
+        echo "bucket ready: ${S3_BUCKET:-agentboster}"
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      # docker.env is copied to .env at build time (see Dockerfile).
+      args:
+        DOCKER_ENV_FILE: docker.env
+    restart: unless-stopped
+    env_file:
+      - docker.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      # Durable-execution state for the local Workflow world. Persisted on a
+      # volume so in-flight workflow runs survive a container restart.
+      WORKFLOW_LOCAL_DATA_DIR: /app/.workflow-data
+    volumes:
+      - workflow-data:/app/.workflow-data
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  workflow-data:

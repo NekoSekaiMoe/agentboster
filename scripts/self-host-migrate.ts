@@ -1,0 +1,66 @@
+import { spawn } from 'node:child_process';
+
+/**
+ * Self-hosted database migration.
+ *
+ * The Vercel path (`scripts/vercel-postbuild.ts`) only runs migrations when
+ * `VERCEL=1 && VERCEL_ENV=production`, so a self-hosted deployment never
+ * migrates through it. This script is the self-hosted equivalent: run it once
+ * on container/host startup (see the Dockerfile CMD / docker-compose command)
+ * before `next start`.
+ *
+ * It performs the same three steps as the Vercel postbuild, in the same order:
+ *   1. ensure the pgvector extension exists (knowledge/memory tsvector columns)
+ *   2. push the Drizzle schema (creates kv_store / kv_sets and any new tables)
+ *   3. run the one-shot message-version data migration (idempotent)
+ *
+ * All three are driver-agnostic: drizzle-kit reads DATABASE_URL directly, and
+ * the two tsx scripts use `scripts/db-raw-sql.ts`, which auto-selects the neon
+ * or pg driver by URL shape (same logic as `lib/core/db`).
+ *
+ * Idempotent: `drizzle-kit push` is a no-op when the schema already matches,
+ * pgvector uses `CREATE EXTENSION IF NOT EXISTS`, and the version migration
+ * skips already-migrated rows. Safe to run on every boot.
+ */
+
+function runCommand(command: string, args: string[] = []) {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      env: process.env,
+      stdio: 'inherit',
+    });
+
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(`${command} ${args.join(' ')} exited with code ${code}`),
+      );
+    });
+  });
+}
+
+async function main() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('[self-host-migrate] DATABASE_URL is required');
+  }
+
+  console.log('[self-host-migrate] ensuring pgvector extension');
+  await runCommand('npx', ['tsx', 'scripts/ensure-vector-extension.ts']);
+
+  console.log('[self-host-migrate] pushing Drizzle schema');
+  await runCommand('npx', ['drizzle-kit', 'push', '--force']);
+
+  console.log('[self-host-migrate] migrating message versions to unified model');
+  await runCommand('npx', ['tsx', 'scripts/migrate-message-versions.ts']);
+
+  console.log('[self-host-migrate] database schema is up to date');
+}
+
+main().catch((error) => {
+  console.error('[self-host-migrate] failed:', error);
+  process.exit(1);
+});

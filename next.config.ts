@@ -40,6 +40,13 @@ const nextConfig: NextConfig = {
     'discord-interactions',
     'discord.js',
     'zlib-sync',
+    // Self-hosted backends: keep their Node-only transitive deps (pg → pgpass
+    // → readline/fs/net; aws-sdk → node:*) out of the webpack bundle. Next
+    // leaves them as runtime requires, resolved on the Node host only. Loaded
+    // via `await import()` from host-only code (pg-driver.ts, s3-backend.ts),
+    // so they never enter the workflow steps bundle either.
+    'pg',
+    '@aws-sdk/client-s3',
   ],
   async headers() {
     return [
