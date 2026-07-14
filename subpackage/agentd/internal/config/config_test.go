@@ -55,3 +55,26 @@ func TestDefaultAgentdTOMLUsesRootlessDockerSocket(t *testing.T) {
 		t.Fatalf("expected rootless Docker socket in default TOML, got:\n%s", toml)
 	}
 }
+
+// TestNestedEnvOverrideApplies guards the SetEnvKeyReplacer wiring: a nested
+// config key like clawless.node_id_file must be overridable via the documented
+// AGENTD_CLAWLESS_NODE_ID_FILE env var. Without the "." -> "_" replacer,
+// AutomaticEnv looks for the dotted AGENTD_CLAWLESS.NODE_ID_FILE (unsettable
+// from a shell) and every documented override is silently ignored.
+func TestNestedEnvOverrideApplies(t *testing.T) {
+	t.Setenv("AGENTD_CLAWLESS_NODE_ID_FILE", "/from/env/node_id")
+	t.Setenv("AGENTD_SERVER_LISTEN", ":28732")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.ClawLess.NodeIDFile != "/from/env/node_id" {
+		t.Fatalf("nested env override ignored: node_id_file = %q, want /from/env/node_id",
+			cfg.ClawLess.NodeIDFile)
+	}
+	if cfg.Server.Listen != ":28732" {
+		t.Fatalf("nested env override ignored: server.listen = %q, want :28732",
+			cfg.Server.Listen)
+	}
+}

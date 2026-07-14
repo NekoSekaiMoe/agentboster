@@ -345,6 +345,11 @@ func Load(path string) (*Config, error) {
 
 	// Environment override
 	v.SetEnvPrefix("AGENTD")
+	// Map nested config keys to env vars: clawless.node_id_file is overridden
+	// by AGENTD_CLAWLESS_NODE_ID_FILE. Without this replacer AutomaticEnv looks
+	// for AGENTD_CLAWLESS.NODE_ID_FILE (a dotted name that shells can't set),
+	// so every documented AGENTD_<SECTION>_<KEY> override was silently ignored.
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
 	if err := v.ReadInConfig(); err != nil {
