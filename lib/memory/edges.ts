@@ -90,9 +90,7 @@ async function deriveSameTopicEdges(
   await Promise.all(
     siblingIds.map((siblingId) => {
       const [src, dst] =
-        memoryId < siblingId
-          ? [memoryId, siblingId]
-          : [siblingId, memoryId];
+        memoryId < siblingId ? [memoryId, siblingId] : [siblingId, memoryId];
       return createMemoryEdge({
         srcMemoryId: src,
         dstMemoryId: dst,
@@ -106,7 +104,11 @@ async function deriveSameTopicEdges(
 async function deriveRelatedEdges(memoryId: string, userId?: string | null) {
   const chunks = await listLongTermMemoryChunksForMemory(memoryId);
   const chunk = chunks[0];
-  if (!chunk?.embedding || !chunk.embeddingModel || !chunk.embeddingDimensions) {
+  if (
+    !chunk?.embedding ||
+    !chunk.embeddingModel ||
+    !chunk.embeddingDimensions
+  ) {
     return;
   }
 
@@ -131,10 +133,12 @@ async function deriveRelatedEdges(memoryId: string, userId?: string | null) {
   await Promise.all(
     similar.map(({ memoryId: relatedId, similarity }) => {
       const [src, dst] =
-        memoryId < relatedId
-          ? [memoryId, relatedId]
-          : [relatedId, memoryId];
-      const weight = Math.min(1.0, (similarity - RELATED_SIMILARITY_THRESHOLD) / (1 - RELATED_SIMILARITY_THRESHOLD));
+        memoryId < relatedId ? [memoryId, relatedId] : [relatedId, memoryId];
+      const weight = Math.min(
+        1.0,
+        (similarity - RELATED_SIMILARITY_THRESHOLD) /
+          (1 - RELATED_SIMILARITY_THRESHOLD),
+      );
       return createMemoryEdge({
         srcMemoryId: src,
         dstMemoryId: dst,
