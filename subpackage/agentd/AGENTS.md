@@ -35,7 +35,7 @@ From repo root: `yarn build:agentd` builds without entering the subdir.
 - **Linux only**: all source files have `//go:build linux`; macOS/Windows are not supported dev targets.
 - **Root at startup**: required for cgroups/namespaces/sandbox setup, then drops to `[security].run_as_user`.
 - **Config**: TOML via `agentd.toml` (template: `agentd.toml.example`); env overrides use `AGENTD_<SECTION>_<KEY>` (Viper).
-- **Singleton lock**: three layers (`/var/run/agentd.sock`, PID file, TCP port probe) prevent duplicate daemons.
+- **Singleton lock**: three layers (`/var/run/agentd/agentd.sock`, PID file, TCP port probe) prevent duplicate daemons. The lock dir `/var/run/agentd/` is chowned to `[security].run_as_user` before the privilege drop so shutdown can unlink the PID/socket (unlink needs write on the parent dir, which the dropped-to user lacks on `/var/run` itself).
 - **Version bumps**: change `version` in `cmd/agentd/main.go` when the on-disk cache format or HTTP contract changes.
 - **HTTP envelope**: all API responses use `{ "success": bool, "data": any, "error": any }`.
 

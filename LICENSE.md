@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 Niapya
+Copyright (c) 2026 NekoSekaiMoe Org
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

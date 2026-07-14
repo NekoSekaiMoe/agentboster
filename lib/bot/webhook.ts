@@ -6,12 +6,7 @@ import {
   translate,
   type TranslationKey,
 } from '@/lib/i18n';
-
-const LOCAL_BASE_URL = 'http://127.0.0.1:3000';
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/+$/, '');
-}
+import { getPublicAppUrl } from '@/lib/deploy';
 
 export function isProductionDeployment(): boolean {
   const vercelEnvironment =
@@ -52,26 +47,7 @@ export function isValidBotSecret(secret: string): boolean {
 }
 
 export function getAppBaseUrl(): string {
-  const vercelEnv =
-    process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.VERCEL_ENV;
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  const branchUrl = process.env.VERCEL_BRANCH_URL?.trim();
-  const productionUrl =
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL?.trim() ??
-    process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-
-  const baseUrl = productionUrl ?? branchUrl ?? vercelUrl ?? LOCAL_BASE_URL;
-  const result = baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`;
-
-  console.log('[getAppBaseUrl]', {
-    vercelEnv,
-    vercelUrl,
-    branchUrl,
-    productionUrl,
-    result: normalizeBaseUrl(result),
-  });
-
-  return normalizeBaseUrl(result);
+  return getPublicAppUrl();
 }
 
 export function getWebhookCallbackPath(

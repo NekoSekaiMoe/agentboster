@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { reapStaleNodes } from '@/lib/extra/agent/node-liveness';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
+import { maybeSweepExpiredKv } from '@/lib/core/kv/sweep-tick';
 import { createLogger } from '@/lib/utils/logger';
 import { eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
@@ -133,6 +134,21 @@ export async function POST(req: NextRequest) {
     } catch (reapError) {
       logger.warn('stale-node reap failed (non-fatal)', {
         error: reapError instanceof Error ? reapError.message : String(reapError),
+      });
+    }
+
+    // Piggyback the self-hosted KV sweep on the same beat (throttled + gated to
+    // self-hosted inside the helper). Vercel's Upstash backend expires natively,
+    // so this is a no-op there. Best-effort: never fail the heartbeat.
+    try {
+      const swept = await maybeSweepExpiredKv();
+      if (swept > 0) {
+        logger.info('swept expired KV rows', { deleted: swept });
+      }
+    } catch (sweepError) {
+      logger.warn('KV sweep failed (non-fatal)', {
+        error:
+          sweepError instanceof Error ? sweepError.message : String(sweepError),
       });
     }
 

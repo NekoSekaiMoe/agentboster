@@ -1,0 +1,135 @@
+# Self-hosted stack for the agentboster web app.
+#
+# Brings up the web app plus its four backing services:
+#   - postgres (pgvector)  → DATABASE_URL  (dual-driver DB + Postgres-backed KV)
+#   - redis                → REDIS_URL     (chat-adapter session state)
+#   - minio (S3-compatible)→ S3_*          (blob storage, served via /api/blob)
+#   - minio-setup          → one-shot bucket creation
+#
+# Usage:
+#   cp docker.env.example docker.env   # then edit secrets
+#   docker compose --env-file docker.env up -d --build
+#
+# NOTE: pass --env-file docker.env. `docker compose up` alone does NOT read
+# docker.env for Compose variable interpolation — it only injects it into the
+# web container via env_file. Without --env-file, the ${S3_ACCESS_KEY_ID:-...}
+# interpolations below fall back to their minioadmin defaults, so minio/
+# minio-setup would init with different credentials than the web container
+# reads from docker.env, breaking object-storage auth.
+#
+# The web app runs DB migrations at start (see scripts/docker-entrypoint.sh),
+# so postgres must be healthy first — enforced via depends_on/healthcheck.
+
+services:
+  postgres:
+    # Pinned for reproducibility. Bump deliberately; keep the pg16 major line
+    # (the migrations/ensure-vector path is validated against pg16 + pgvector).
+    image: pgvector/pgvector:0.8.5-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agentboster_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-agentboster}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentboster_user} -d ${POSTGRES_DB:-agentboster}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No host port published by default; the web app reaches it over the
+    # compose network. Uncomment to inspect from the host.
+    # ports:
+    #   - "5432:5432"
+
+  redis:
+    # Pinned for reproducibility. Bump deliberately; stay on the 7.x line.
+    image: redis:7.4.9-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-your_redis_password}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-your_redis_password}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    # Pinned for reproducibility. MinIO uses date-based RELEASE tags; bump
+    # deliberately after checking the changelog.
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-minioadmin}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      # Console for manual inspection, bound to loopback ONLY — the console has
+      # no TLS and sits outside the documented reverse proxy, so it must not be
+      # exposed on all host interfaces. Reach it via an SSH tunnel
+      # (ssh -L 9001:127.0.0.1:9001 <host>) or a controlled admin channel. The
+      # API (9000) is reached over the compose network by the web app; publish
+      # it the same loopback-only way if you need host access.
+      - "127.0.0.1:9001:9001"
+
+  # One-shot: create the bucket the web app expects, then exit.
+  minio-setup:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "${S3_ACCESS_KEY_ID:-minioadmin}" "${S3_SECRET_ACCESS_KEY:-minioadmin}"
+        mc mb --ignore-existing "local/${S3_BUCKET:-agentboster}"
+        echo "bucket ready: ${S3_BUCKET:-agentboster}"
+    restart: "no"
+
+  web:
+    build:
+      context: .
+      # docker.env is mounted as a BuildKit secret during `next build` (see
+      # Dockerfile) so build-time env is available WITHOUT baking secrets into
+      # any image layer. Runtime env comes from env_file below.
+      secrets:
+        - docker_env
+    restart: unless-stopped
+    env_file:
+      - docker.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      # Durable-execution state for the local Workflow world. Persisted on a
+      # volume so in-flight workflow runs survive a container restart.
+      WORKFLOW_LOCAL_DATA_DIR: /app/.workflow-data
+    volumes:
+      - workflow-data:/app/.workflow-data
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  workflow-data:
+
+secrets:
+  # Build-time only. Mounted into `next build` as a tmpfs file (see Dockerfile);
+  # never written to an image layer. Runtime config is injected via env_file.
+  docker_env:
+    file: docker.env

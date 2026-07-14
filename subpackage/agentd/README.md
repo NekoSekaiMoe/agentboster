@@ -413,9 +413,13 @@ Structured logs: `[module] [func:line] level message key=value`. Tune `[logging]
 
 Three layers prevent duplicate daemons:
 
-1. Unix socket `/var/run/agentd.sock`
-2. PID file `/var/run/agentd.pid` with liveness probe
+1. Unix socket `/var/run/agentd/agentd.sock`
+2. PID file `/var/run/agentd/agentd.pid` with liveness probe
 3. TCP bind probe on `server.listen`
+
+The lock dir `/var/run/agentd/` is created as root at startup and chowned to
+`[security].run_as_user` before the privilege drop, so the dropped-to user can
+unlink the PID/socket files on shutdown (unlink needs write on the parent dir).
 
 Survives `kill -9` and OOM: next start cleans stale artifacts when PID is dead.
 
@@ -486,6 +490,7 @@ Pattern A is enough for nodes that only pull work via polling callbacks (limited
 - [`agentd.toml.example`](agentd.toml.example)
 - [`AGENTS.md`](AGENTS.md) — contributor commands and mTLS gotchas
 - [CLI README](../cli/README.md) — terminal client (separate from daemon)
+- [`docs/agentd-deployment.md`](../../docs/agentd-deployment.md) — 部署与降权运维（startup/privilege-drop/runtime dirs/node_id）
 
 (No separate layout map document — use source tree under `cmd/agentd` and `internal/` when navigating code.)
 

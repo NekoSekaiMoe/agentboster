@@ -1,4 +1,5 @@
 import type { PutBlobResult, PutCommandOptions } from '@vercel/blob';
+import { isVercel } from '@/lib/deploy';
 
 export type BlobAccess = 'public' | 'private';
 type VercelBlobModule = typeof import('@vercel/blob');
@@ -10,6 +11,13 @@ async function loadBlob(): Promise<VercelBlobModule> {
   return blobModule;
 }
 
+type S3Backend = typeof import('./s3-backend');
+let s3Module: Promise<S3Backend> | null = null;
+async function loadS3(): Promise<S3Backend> {
+  s3Module ??= import('./s3-backend');
+  return s3Module;
+}
+
 const PRIVATE_STORE_PUBLIC_ACCESS_ERROR =
   'Cannot use public access on a private store';
 const PUBLIC_STORE_PRIVATE_ACCESS_ERROR =
@@ -19,18 +27,57 @@ export function getConfiguredBlobAccess(): BlobAccess {
   return process.env.BLOB_ACCESS === 'private' ? 'private' : 'public';
 }
 
+/**
+ * Blob storage layer with two interchangeable backends, selected by deployment
+ * mode:
+ *
+ *  - Vercel      → Vercel Blob (`@vercel/blob`, `BLOB_READ_WRITE_TOKEN`).
+ *  - Self-hosted → S3/MinIO (`./s3-backend`, `S3_*` env). `put`/`list` return a
+ *                  signed proxy URL (`/api/blob/...`) instead of an S3 URL so
+ *                  the LLM and browser can fetch through our own route.
+ *
+ * Both backends are loaded via `await import()` so neither the Vercel SDK nor
+ * the AWS SDK is pulled into any bundle that doesn't use it — and, critically,
+ * so the AWS SDK's `node:*` deps stay invisible to the workflow bundler (this
+ * module is reached from the sandbox tool via `await import('@/lib/core/blob')`).
+ */
+
+export type BlobGetResult = {
+  statusCode: number;
+  stream: ReadableStream;
+  blob: { contentType?: string };
+} | null;
+
 export async function del(
   ...args: Parameters<VercelBlobModule['del']>
-): ReturnType<VercelBlobModule['del']> {
+): Promise<void> {
+  if (!isVercel) {
+    const s3 = await loadS3();
+    await s3.s3Del(args[0] as string | string[]);
+    return;
+  }
   const blob = await loadBlob();
-  return blob.del(...args);
+  await blob.del(...args);
 }
 
-export async function get(
-  ...args: Parameters<VercelBlobModule['get']>
-): ReturnType<VercelBlobModule['get']> {
+export async function list(
+  ...args: Parameters<VercelBlobModule['list']>
+): Promise<{
+  blobs: Array<{ pathname: string; url: string }>;
+  hasMore: boolean;
+  cursor?: string;
+}> {
+  if (!isVercel) {
+    const s3 = await loadS3();
+    const opts = (args[0] ?? {}) as {
+      prefix?: string;
+      limit?: number;
+      cursor?: string;
+    };
+    return s3.s3List(opts);
+  }
   const blob = await loadBlob();
-  return blob.get(...args);
+  return blob.list(...args);
 }
 
 export async function getDownloadUrl(
@@ -38,13 +85,6 @@ export async function getDownloadUrl(
 ): Promise<ReturnType<VercelBlobModule['getDownloadUrl']>> {
   const blob = await loadBlob();
   return blob.getDownloadUrl(...args);
-}
-
-export async function list(
-  ...args: Parameters<VercelBlobModule['list']>
-): ReturnType<VercelBlobModule['list']> {
-  const blob = await loadBlob();
-  return blob.list(...args);
 }
 
 function shouldRetryWithPrivateAccess(error: unknown): boolean {
@@ -63,38 +103,41 @@ function shouldRetryWithPublicAccess(error: unknown): boolean {
 
 export async function getBlob(
   pathname: string,
-  options?: Omit<Parameters<typeof get>[1], 'access'> & {
+  options?: Omit<Parameters<VercelBlobModule['get']>[1], 'access'> & {
     access?: BlobAccess;
   },
-): ReturnType<typeof get> {
+): Promise<BlobGetResult> {
+  if (!isVercel) {
+    const s3 = await loadS3();
+    return s3.s3GetBlob(pathname);
+  }
+
+  const blob = await loadBlob();
   const access = options?.access ?? getConfiguredBlobAccess();
   const fallbackAccess: BlobAccess = access === 'public' ? 'private' : 'public';
 
   try {
-    const result = await get(pathname, {
-      ...options,
-      access,
-    });
+    const result = await blob.get(pathname, { ...options, access });
     if (!result) {
-      return get(pathname, {
+      return (await blob.get(pathname, {
         ...options,
         access: fallbackAccess,
-      });
+      })) as BlobGetResult;
     }
-    return result;
+    return result as BlobGetResult;
   } catch (error) {
     if (access === 'private' && shouldRetryWithPublicAccess(error)) {
-      return get(pathname, {
+      return (await blob.get(pathname, {
         ...options,
         access: 'public',
-      });
+      })) as BlobGetResult;
     }
 
     if (access === 'public' && shouldRetryWithPrivateAccess(error)) {
-      return get(pathname, {
+      return (await blob.get(pathname, {
         ...options,
         access: 'private',
-      });
+      })) as BlobGetResult;
     }
 
     throw error;
@@ -108,11 +151,26 @@ export async function put(
     access?: BlobAccess;
   } = {},
 ): Promise<PutBlobResult> {
+  if (!isVercel) {
+    const s3 = await loadS3();
+    const result = await s3.s3Put(pathname, body, {
+      addRandomSuffix: options.addRandomSuffix,
+      allowOverwrite: options.allowOverwrite,
+      contentType: options.contentType,
+      access: options.access ?? getConfiguredBlobAccess(),
+    });
+    // Shape as PutBlobResult — callers only read `.url` and `.pathname`.
+    return {
+      url: result.url,
+      downloadUrl: result.downloadUrl,
+      pathname: result.pathname,
+      contentType: result.contentType ?? '',
+      contentDisposition: '',
+    } as PutBlobResult;
+  }
+
   const access = options.access ?? getConfiguredBlobAccess();
-  const putOptions = {
-    ...options,
-    access,
-  };
+  const putOptions = { ...options, access };
 
   try {
     const blob = await loadBlob();
@@ -120,18 +178,12 @@ export async function put(
   } catch (error) {
     if (access === 'private' && shouldRetryWithPublicAccess(error)) {
       const blob = await loadBlob();
-      return blob.put(pathname, body, {
-        ...options,
-        access: 'public',
-      });
+      return blob.put(pathname, body, { ...options, access: 'public' });
     }
 
     if (access === 'public' && shouldRetryWithPrivateAccess(error)) {
       const blob = await loadBlob();
-      return blob.put(pathname, body, {
-        ...options,
-        access: 'private',
-      });
+      return blob.put(pathname, body, { ...options, access: 'private' });
     }
 
     throw error;

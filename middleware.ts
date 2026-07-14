@@ -51,6 +51,16 @@ function isAlwaysBypassPath(pathname: string): boolean {
     return true;
   }
 
+  // Self-hosted blob proxy. Serves S3/MinIO objects to LLM providers and the
+  // web UI, neither of which carries a session cookie. The `t` (expiry) + `s`
+  // (HMAC-SHA256 keyed by AUTH_SECRET) query params ARE the credential;
+  // verification happens in the route handler (lib/core/blob/proxy-link.ts),
+  // same as the /api/l2 signed-link pattern above. Inert on Vercel (the route
+  // returns 404 there).
+  if (pathname === '/api/blob' || pathname.startsWith('/api/blob/')) {
+    return true;
+  }
+
   return isPublicAssetPath(pathname);
 }
 

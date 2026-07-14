@@ -136,6 +136,27 @@ func main() {
 	collector := metrics.New(nodeID, metricsPath, 10*time.Second)
 	defer collector.Stop()
 
+	// Hand ownership of every directory the daemon writes to AFTER the
+	// privilege drop over to run_as_user, while we are still root. This
+	// covers the singleton lock dir (whose parent-directory write permission
+	// is required to unlink the PID/socket files on shutdown), plus the cache
+	// base (metrics.json, session blobs, background-task store) and the
+	// session store. A no-op when no drop will happen (root/empty user).
+	cacheBase := cfg.Cache.Path
+	if cacheBase == "" {
+		cacheBase = "/tmp/agentd"
+	}
+	sessionStore := cfg.Session.StorePath
+	if sessionStore == "" {
+		sessionStore = "/tmp/agentd/sessions"
+	}
+	if err := security.PrepareRuntimeOwnership(cfg.Security.RunAsUser,
+		lifecycle.RuntimeDir(), cacheBase, sessionStore,
+	); err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
+
 	if err := security.DropPrivileges(cfg.Security.RunAsUser); err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
 		os.Exit(1)
