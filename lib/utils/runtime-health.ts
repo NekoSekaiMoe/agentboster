@@ -156,9 +156,11 @@ function buildSandboxCheck(input: {
   const requiredEnvVars = isVercel
     ? ['DATABASE_URL', 'KV_REST_API_URL', 'KV_REST_API_TOKEN']
     : ['DATABASE_URL'];
+  // Self-hosted KV rides on DATABASE_URL, so buildKvCheck returns the same
+  // missingEnvVars as database — dedupe so a missing DATABASE_URL is not
+  // reported twice (e.g. ['DATABASE_URL', 'DATABASE_URL']).
   const missingEnvVars = [
-    ...input.database.missingEnvVars,
-    ...input.kv.missingEnvVars,
+    ...new Set([...input.database.missingEnvVars, ...input.kv.missingEnvVars]),
   ];
 
   if (missingEnvVars.length === 0) {

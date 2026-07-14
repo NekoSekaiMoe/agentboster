@@ -51,11 +51,21 @@ export async function GET(
     return NextResponse.json({ error: 'Blob not found' }, { status: 404 });
   }
 
+  // Never let a cached response outlive the signature: an entry fetched in the
+  // signature's final hour must not keep serving from a private browser cache
+  // after `expires`, which would bypass the `verifyBlobUrl` expiry check above.
+  // Cap max-age at the signature's remaining lifetime.
+  const remainingSeconds = Math.max(
+    0,
+    verification.expires - Math.floor(Date.now() / 1000),
+  );
+  const maxAge = Math.min(3600, remainingSeconds);
+
   return new Response(blob.stream, {
     headers: {
-      // Signed URL already bounds access; allow browser/CDN caching for the
-      // lifetime of the signature. Private so shared caches don't retain it.
-      'Cache-Control': 'private, max-age=3600',
+      // Signed URL already bounds access; allow browser/CDN caching up to the
+      // signature's remaining lifetime. Private so shared caches don't retain it.
+      'Cache-Control': `private, max-age=${maxAge}`,
       'Content-Type': blob.blob.contentType || 'application/octet-stream',
     },
   });

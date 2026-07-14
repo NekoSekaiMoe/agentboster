@@ -8,7 +8,14 @@
 #
 # Usage:
 #   cp docker.env.example docker.env   # then edit secrets
-#   docker compose up -d --build
+#   docker compose --env-file docker.env up -d --build
+#
+# NOTE: pass --env-file docker.env. `docker compose up` alone does NOT read
+# docker.env for Compose variable interpolation — it only injects it into the
+# web container via env_file. Without --env-file, the ${S3_ACCESS_KEY_ID:-...}
+# interpolations below fall back to their minioadmin defaults, so minio/
+# minio-setup would init with different credentials than the web container
+# reads from docker.env, breaking object-storage auth.
 #
 # The web app runs DB migrations at start (see scripts/docker-entrypoint.sh),
 # so postgres must be healthy first — enforced via depends_on/healthcheck.
@@ -65,9 +72,13 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      # Console for manual inspection; the API (9000) is reached over the
-      # compose network by the web app. Publish 9000 too if you want host access.
-      - "9001:9001"
+      # Console for manual inspection, bound to loopback ONLY — the console has
+      # no TLS and sits outside the documented reverse proxy, so it must not be
+      # exposed on all host interfaces. Reach it via an SSH tunnel
+      # (ssh -L 9001:127.0.0.1:9001 <host>) or a controlled admin channel. The
+      # API (9000) is reached over the compose network by the web app; publish
+      # it the same loopback-only way if you need host access.
+      - "127.0.0.1:9001:9001"
 
   # One-shot: create the bucket the web app expects, then exit.
   minio-setup:
@@ -87,9 +98,11 @@ services:
   web:
     build:
       context: .
-      # docker.env is copied to .env at build time (see Dockerfile).
-      args:
-        DOCKER_ENV_FILE: docker.env
+      # docker.env is mounted as a BuildKit secret during `next build` (see
+      # Dockerfile) so build-time env is available WITHOUT baking secrets into
+      # any image layer. Runtime env comes from env_file below.
+      secrets:
+        - docker_env
     restart: unless-stopped
     env_file:
       - docker.env
@@ -114,3 +127,9 @@ volumes:
   redis-data:
   minio-data:
   workflow-data:
+
+secrets:
+  # Build-time only. Mounted into `next build` as a tmpfs file (see Dockerfile);
+  # never written to an image layer. Runtime config is injected via env_file.
+  docker_env:
+    file: docker.env

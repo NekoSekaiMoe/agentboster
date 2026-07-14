@@ -17,8 +17,11 @@
  */
 import { drizzle as drizzleNodePg } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
+import { createLogger } from '@/lib/utils/logger';
 import { resolveDriver, requireDatabaseUrl, setDb } from './index';
 import * as schema from './schema';
+
+const logger = createLogger('db.pg-driver');
 
 let _warmed = false;
 
@@ -38,6 +41,15 @@ export async function warmupDatabase(): Promise<void> {
   if (resolveDriver(databaseUrl) !== 'postgres') return;
 
   const pool = new Pool({ connectionString: requireDatabaseUrl() });
+  // A pg Pool emits 'error' on idle clients whose backend connection drops
+  // (server restart, network blip, idle timeout). Node terminates the process
+  // on an unhandled 'error' event, so this listener is mandatory: log and let
+  // the pool discard the dead client — the next query acquires a fresh one.
+  pool.on('error', (err) => {
+    logger.error('pg pool idle client error', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
   setDb(drizzleNodePg(pool, { schema }));
   _warmed = true;
 }

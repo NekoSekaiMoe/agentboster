@@ -221,14 +221,32 @@ export async function s3Put(
     options?.addRandomSuffix === true ? withRandomSuffix(pathname) : pathname;
   const bytes = await toBytes(body);
 
-  await client.send(
-    new commands.PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: bytes,
-      ContentType: options?.contentType,
-    }),
-  );
+  // Match @vercel/blob's default anti-clobber semantics: unless the caller
+  // opts into overwriting (or randomizes the key), refuse to replace an
+  // existing object. S3/MinIO support the conditional write `If-None-Match: *`
+  // (succeeds only when no object exists at the key), returning 412
+  // PreconditionFailed otherwise.
+  const guardOverwrite =
+    options?.allowOverwrite !== true && options?.addRandomSuffix !== true;
+
+  try {
+    await client.send(
+      new commands.PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: bytes,
+        ContentType: options?.contentType,
+        IfNoneMatch: guardOverwrite ? '*' : undefined,
+      }),
+    );
+  } catch (error) {
+    if (guardOverwrite && isPreconditionFailed(error)) {
+      throw new Error(
+        `Blob already exists at "${key}". Pass allowOverwrite: true to replace it.`,
+      );
+    }
+    throw error;
+  }
 
   const url = await signBlobUrl({ baseUrl: getPublicAppUrl(), blobPath: key });
   return {
@@ -306,13 +324,34 @@ export async function s3Del(pathnames: string | string[]): Promise<void> {
   const keys = Array.isArray(pathnames) ? pathnames : [pathnames];
   if (keys.length === 0) return;
   const { client, bucket, commands } = await getClient();
-  // DeleteObjectsCommand handles up to 1000 keys per call.
-  await client.send(
-    new commands.DeleteObjectsCommand({
-      Bucket: bucket,
-      Delete: { Objects: keys.map((Key) => ({ Key })) },
-    }),
-  );
+
+  // DeleteObjectsCommand caps at 1000 keys per call, and callers (e.g.
+  // removeSkillFilesFromBlob for manually-authored skills) can exceed that, so
+  // page in batches of 1000. DeleteObjects can also report per-object failures
+  // in the `Errors` array of an otherwise-2xx response — surface those instead
+  // of treating a partial delete as success.
+  const failures: string[] = [];
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000);
+    const result = (await client.send(
+      new commands.DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: { Objects: batch.map((Key) => ({ Key })) },
+      }),
+    )) as { Errors?: Array<{ Key?: string; Code?: string; Message?: string }> };
+
+    for (const err of result.Errors ?? []) {
+      failures.push(
+        `${err.Key ?? '?'}: ${err.Code ?? 'Error'}${err.Message ? ` (${err.Message})` : ''}`,
+      );
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(
+      `S3 delete failed for ${failures.length} object(s): ${failures.join('; ')}`,
+    );
+  }
 }
 
 function emptyStream(): ReadableStream<Uint8Array> {
@@ -321,6 +360,20 @@ function emptyStream(): ReadableStream<Uint8Array> {
       controller.close();
     },
   });
+}
+
+function isPreconditionFailed(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const e = error as {
+    name?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  return (
+    e.name === 'PreconditionFailed' ||
+    e.Code === 'PreconditionFailed' ||
+    e.$metadata?.httpStatusCode === 412
+  );
 }
 
 function isNotFound(error: unknown): boolean {

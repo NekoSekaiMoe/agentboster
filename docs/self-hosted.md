@@ -52,14 +52,19 @@ cp docker.env.example docker.env
 #   AUTH_SECRET 生成：openssl rand -base64 32
 
 # 2. 构建并启动
-docker compose up -d --build
+#    必须带 --env-file：docker compose 不会自动读取 docker.env 做变量插值，
+#    不带它时 minio/minio-setup 会退回 minioadmin 默认值，与 web 用的 S3 凭据
+#    不一致。构建期通过 BuildKit secret 注入 docker.env（不会写进镜像层）。
+DOCKER_BUILDKIT=1 docker compose --env-file docker.env up -d --build
 
 # 3. 查看日志（web 容器启动时会自动跑 DB 迁移）
-docker compose logs -f web
+docker compose --env-file docker.env logs -f web
 ```
 
 启动后访问 `http://localhost:3000`，用 `docker.env` 里的 `USERNAME` /
-`PASSWORD` 登录。MinIO 控制台在 `http://localhost:9001`。
+`PASSWORD` 登录。MinIO 控制台默认只绑定到 `127.0.0.1:9001`（不经 TLS 反代，
+不对外暴露）；从宿主机本地访问 `http://localhost:9001`，远程需走 SSH 隧道
+（`ssh -L 9001:127.0.0.1:9001 <host>`）或受控管理通道。
 
 容器启动流程（`scripts/docker-entrypoint.sh`）：先跑
 `scripts/self-host-migrate.ts`（ensure-vector + drizzle-kit push +
@@ -150,7 +155,9 @@ pgvector 扩展由迁移脚本自动 `CREATE EXTENSION IF NOT EXISTS vector`，�
 MinIO 快速启动 + 建桶：
 
 ```bash
-docker run -d --name minio -p 9000:9000 -p 9001:9001 \
+# 控制台端口绑定到 127.0.0.1，避免把管理界面暴露到公网；API(9000) 同理，
+# 生产环境应只经反代/内网访问。
+docker run -d --name minio -p 127.0.0.1:9000:9000 -p 127.0.0.1:9001:9001 \
   -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
   -v /data/minio:/data minio/minio server /data --console-address ":9001"
 # 控制台 http://localhost:9001 建桶 agentboster，并创建 Access Key
