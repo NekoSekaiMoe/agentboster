@@ -16,7 +16,7 @@ agentd 启动时**必须是真 root**（`main.go` 第一步就检查 `os.Getuid(
 
 - cgroup v2 资源计量（读 `/sys/fs/cgroup`）
 - seccomp-bpf、Linux capabilities（`--cap-drop ALL` / `no-new-privileges`）
-- 绑定 `/var/run` 下的单例锁
+- 绑定 `/var/run` 下的单例锁（见下方三层机制）
 
 完成这些之后，如果配置了 `[security].run_as_user`，进程会 `setgroups → setgid →
 setuid` 降到该非 root 用户，长期以低权限运行。降权是可选的但**强烈建议**开启。
@@ -26,11 +26,12 @@ setuid` 降到该非 root 用户，长期以低权限运行。降权是可选的
 ```
 1. 检查 root                              ← 非 root 直接 FATAL 退出
 2. 加载配置                                ← 见「二、配置从哪来」
-3. AcquireSingleton()                     ← 以 root 建 /var/run/agentd/ 并写 pid/sock
-4. identity.Resolve()                     ← 以 root 生成/读取 node_id
-5. PrepareRuntimeOwnership()              ← 以 root 把 runtime 目录 chown 给 run_as_user
-6. DropPrivileges()                       ← 降权到 run_as_user
-7. 启动 worker / HTTP / 心跳 ...           ← 已是低权限用户
+3. AcquireSingleton()                     ← 以 root 建 /var/run/agentd/ 并写 pid/sock（单例锁第 1、2 层）
+4. CheckPortAvailable()                   ← 探测 server.listen 是否被占（单例锁第 3 层）
+5. identity.Resolve()                     ← 以 root 生成/读取 node_id
+6. PrepareRuntimeOwnership()              ← 以 root 把 runtime 目录 chown 给 run_as_user
+7. DropPrivileges()                       ← 降权到 run_as_user
+8. 启动 worker / HTTP / 心跳 ...           ← 已是低权限用户
 ```
 
 ---
@@ -135,10 +136,29 @@ agentd 降权后仍需读写若干目录。**Linux 下删除一个文件需要�
 `/var/run`（→`/run`）在大多数发行版上是 tmpfs，**重启即清空**。锁文件丢失没关系
 （下次启动重建），但如果把需要持久化的东西放这里就会出问题——见下一节的 node_id。
 
-你不需要手动创建 `/var/run/agentd/`——agentd 启动时自己会 `MkdirAll` 并 chown。
+你不需要手动创建 `/var/run/agentd/`——agentd 启动时会**以符号链接安全的方式**创建
+并 chown 该目录：逐层 `openat(O_NOFOLLOW)` + `mkdirat` + `fchownat(AT_EMPTY_PATH)`
+走查，拒绝跟随「父目录可被非 root 写入」的符号链接组件（防 `/tmp` symlink 提权），
+仅放行父目录 root-owned 且非世界可写的合法符号链接（如 `/var/run→/run`）。这不是
+朴素的 `os.MkdirAll`+`os.Chown`（后者会跟随 symlink 把属主改到攻击者指定目标）。
 systemd 部署时可选地加上 `RuntimeDirectory=agentd`：它让 systemd 在服务停止时
 自动清理 `/run/agentd/`（agentd 以 `User=root` 启动，目录初始属主 root，随后由
 agentd 在降权前 chown 给 `run_as_user`，两者不冲突）。
+
+### 单例锁的三层机制
+
+防止同机重复启动守护进程用了**三层**，排查「重复启动/已在运行」报错时要看全：
+
+1. **Unix socket** `/var/run/agentd/agentd.sock` —— 主锁，绑定即为 OS 级原子互斥，
+   免疫 PID 复用与 TOCTOU。干净退出时关闭 listener 会删除该 socket 文件。
+2. **PID 文件** `/var/run/agentd/agentd.pid` —— 当 socket 被占时的仲裁依据：读取
+   PID 后探测 `/proc/<pid>/exe`、`cmdline` 确认持有者确实是 agentd；若记录的 PID
+   已死或是无关进程，则把 socket 当作崩溃残留（`kill -9`/OOM/断电）清理后重试。
+3. **TCP 端口探测** `server.listen` —— 兜底层：应对「socket 锁文件被删但进程仍在
+   监听端口」这种 socket 与 PID 文件都失灵的边缘情况。
+
+前两层的文件都在 `/var/run/agentd/`（tmpfs，重启清空），第三层探测的是配置里的
+`server.listen`。三层都过才允许启动。
 
 ---
 
