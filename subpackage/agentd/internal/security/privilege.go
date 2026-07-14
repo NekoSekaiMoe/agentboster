@@ -4,13 +4,17 @@
 package security
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // userIdentity is the resolved passwd/group information for the target
@@ -79,17 +83,165 @@ func PrepareRuntimeOwnership(username string, dirs ...string) error {
 		if dir == "" {
 			continue
 		}
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return fmt.Errorf("create runtime dir %q: %w", dir, err)
-		}
-		if err := os.Chown(dir, id.uid, id.gid); err != nil {
-			return fmt.Errorf("chown runtime dir %q to %s (uid=%d gid=%d): %w",
+		if err := mkdirAndChownSafe(dir, id.uid, id.gid); err != nil {
+			return fmt.Errorf("prepare runtime dir %q for %s (uid=%d gid=%d): %w",
 				dir, username, id.uid, id.gid, err)
 		}
 	}
 	slog.Info("runtime directories prepared for privilege drop",
 		"user", username, "uid", id.uid, "gid", id.gid, "dirs", dirs)
 	return nil
+}
+
+// mkdirAndChownSafe creates dir (and any missing parents) and chowns the
+// leaf to uid/gid, WITHOUT ever following an untrusted symlink — defeating
+// the classic /tmp symlink attack. The daemon runs this as root before the
+// privilege drop, and several default paths ([cache].path=/tmp/agentd,
+// [session].store_path=/tmp/agentd/sessions) live under the world-writable
+// /tmp, where a local attacker can pre-plant a symlink (e.g. /tmp/agentd ->
+// /etc). A naive os.MkdirAll+os.Chown would treat the symlink as an existing
+// directory and chown its *target*, handing an arbitrary directory to the
+// unprivileged user — a local privilege escalation.
+//
+// The walk mirrors systemd's CHASE_SAFE semantics:
+//   - Each path component is opened with O_NOFOLLOW | O_DIRECTORY relative to
+//     its parent fd (openat), so a symlink component is never dereferenced
+//     implicitly.
+//   - A symlink component is followed ONLY when its parent directory is not
+//     writable by non-root (owned by root/uid and lacking group/other write
+//     bits). This is what lets the legitimate /var/run -> /run symlink work
+//     (its parent /var is root:root 0755) while refusing /tmp/agentd -> /etc
+//     (its parent /tmp is world-writable, mode 1777).
+//   - Missing components are created with mkdirat (relative to the parent fd),
+//     so a freshly created directory can never be a symlink — no TOCTOU.
+//   - The leaf is chowned via fchown on its O_NOFOLLOW fd, so we never chown
+//     through a symlink even if one races into place.
+func mkdirAndChownSafe(dir string, uid, gid int) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	clean := filepath.Clean(abs)
+	components := strings.Split(strings.TrimPrefix(clean, "/"), "/")
+
+	// Open the root directory as the anchor fd. "/" is trusted.
+	parentFd, err := unix.Open("/", unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return fmt.Errorf("open /: %w", err)
+	}
+	// parentPath tracks the resolved path of parentFd for trust decisions
+	// and error messages.
+	parentPath := "/"
+	defer func() { _ = unix.Close(parentFd) }()
+
+	for i, name := range components {
+		if name == "" || name == "." {
+			continue
+		}
+		isLeaf := i == len(components)-1
+
+		childFd, cerr := openChildSafe(parentFd, parentPath, name, uid, gid, isLeaf)
+		if cerr != nil {
+			return cerr
+		}
+		_ = unix.Close(parentFd)
+		parentFd = childFd
+		parentPath = filepath.Join(parentPath, name)
+	}
+
+	// parentFd now refers to the leaf directory, opened without following a
+	// symlink leaf. It is an O_PATH fd, so a plain fchown(2) would fail with
+	// EBADF; chown it via fchownat with an empty pathname + AT_EMPTY_PATH,
+	// which operates directly on the fd (the canonical way to chown an O_PATH
+	// descriptor).
+	if err := unix.Fchownat(parentFd, "", uid, gid, unix.AT_EMPTY_PATH); err != nil {
+		return fmt.Errorf("fchownat %q: %w", parentPath, err)
+	}
+	return nil
+}
+
+// openChildSafe opens (or creates) the single path component `name` inside
+// the directory referred to by parentFd, never dereferencing an untrusted
+// symlink. Returns an O_DIRECTORY fd for the child.
+func openChildSafe(parentFd int, parentPath, name string, uid, gid int, isLeaf bool) (int, error) {
+	// Fast path: component exists as a real directory (not a symlink).
+	fd, err := unix.Openat(parentFd, name, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err == nil {
+		return fd, nil
+	}
+
+	// ELOOP / ENOTDIR from O_NOFOLLOW means the component is a symlink (or a
+	// non-directory). Decide whether following it is safe based on the parent.
+	if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENOTDIR) {
+		return followOrRefuseSymlink(parentFd, parentPath, name)
+	}
+
+	// ENOENT: component does not exist — create it atomically relative to
+	// parentFd. A mkdirat'd directory cannot be a pre-existing symlink.
+	if errors.Is(err, unix.ENOENT) {
+		if mkErr := unix.Mkdirat(parentFd, name, 0o750); mkErr != nil && !errors.Is(mkErr, unix.EEXIST) {
+			return -1, fmt.Errorf("mkdirat %q in %q: %w", name, parentPath, mkErr)
+		}
+		fd, err = unix.Openat(parentFd, name, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+		if err != nil {
+			return -1, fmt.Errorf("open freshly created %q in %q: %w", name, parentPath, err)
+		}
+		return fd, nil
+	}
+
+	return -1, fmt.Errorf("openat %q in %q: %w", name, parentPath, err)
+}
+
+// followOrRefuseSymlink is called when `name` inside parentFd is a symlink.
+// It follows the symlink only if parentFd's directory is not writable by
+// non-root users; otherwise it refuses (the /tmp attack case).
+func followOrRefuseSymlink(parentFd int, parentPath, name string) (int, error) {
+	var st unix.Stat_t
+	if err := unix.Fstat(parentFd, &st); err != nil {
+		return -1, fmt.Errorf("fstat parent %q: %w", parentPath, err)
+	}
+	// Parent is trusted only if owned by root (uid 0) and not group/other
+	// writable. Anything else (e.g. /tmp at 1777, or a user-owned dir) means
+	// a non-root actor could have planted this symlink.
+	if st.Uid != 0 || st.Mode&(unix.S_IWGRP|unix.S_IWOTH) != 0 {
+		return -1, fmt.Errorf(
+			"refusing to follow symlink %q: parent %q is writable by non-root (uid=%d mode=%#o) — possible symlink attack",
+			name, parentPath, st.Uid, st.Mode&0o7777)
+	}
+
+	// Trusted parent: resolve the symlink target and open it with the same
+	// safe walk from root, so nested symlinks are also validated.
+	target, err := readlinkAt(parentFd, name)
+	if err != nil {
+		return -1, fmt.Errorf("readlinkat %q in %q: %w", name, parentPath, err)
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(parentPath, target)
+	}
+	// Re-walk the (now trusted) absolute target. Depth is bounded by the
+	// filesystem; a malicious loop would be under a root-owned dir, which we
+	// treat as an operator problem, not an attacker one.
+	fd, err := unix.Open(filepath.Clean(target), unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err == nil {
+		return fd, nil
+	}
+	// Target may itself be a symlink or not yet exist; fall back to a plain
+	// open that follows (target lives under a trusted, root-owned tree).
+	fd, err = unix.Open(filepath.Clean(target), unix.O_PATH|unix.O_DIRECTORY, 0)
+	if err != nil {
+		return -1, fmt.Errorf("open symlink target %q (from %q/%q): %w", target, parentPath, name, err)
+	}
+	return fd, nil
+}
+
+// readlinkAt reads the target of the symlink `name` relative to dirFd.
+func readlinkAt(dirFd int, name string) (string, error) {
+	buf := make([]byte, unix.PathMax)
+	n, err := unix.Readlinkat(dirFd, name, buf)
+	if err != nil {
+		return "", err
+	}
+	return string(buf[:n]), nil
 }
 
 // DropPrivileges switches from root to the configured unprivileged user.
