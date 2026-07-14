@@ -54,7 +54,9 @@ async function main() {
   console.log('[self-host-migrate] pushing Drizzle schema');
   await runCommand('npx', ['drizzle-kit', 'push', '--force']);
 
-  console.log('[self-host-migrate] migrating message versions to unified model');
+  console.log(
+    '[self-host-migrate] migrating message versions to unified model',
+  );
   await runCommand('npx', ['tsx', 'scripts/migrate-message-versions.ts']);
 
   console.log('[self-host-migrate] database schema is up to date');
