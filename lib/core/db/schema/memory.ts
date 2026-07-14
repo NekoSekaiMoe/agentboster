@@ -4,6 +4,7 @@ import {
   index,
   integer,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -144,5 +145,40 @@ export const longTermMemoryChunks = pgTable(
       table.chunkIndex,
     ),
     tsvIdx: index('ltm_chunks_tsv_idx').using('gin', table.tsv),
+  }),
+);
+
+// ─── Memory Edges (graph relationships between long-term memories) ──
+
+export type MemoryEdgeRelation =
+  | 'same_topic'
+  | 'related'
+  | 'supersedes'
+  | 'contradicts';
+
+export const memoryEdges = pgTable(
+  'memory_edges',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    srcMemoryId: uuid('src_memory_id')
+      .references(() => longTermMemories.id, { onDelete: 'cascade' })
+      .notNull(),
+    dstMemoryId: uuid('dst_memory_id')
+      .references(() => longTermMemories.id, { onDelete: 'cascade' })
+      .notNull(),
+    relation: text('relation').$type<MemoryEdgeRelation>().notNull(),
+    weight: real('weight').default(1.0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    srcIdx: index('memory_edges_src_idx').on(table.srcMemoryId),
+    dstIdx: index('memory_edges_dst_idx').on(table.dstMemoryId),
+    uniqueEdgeIdx: uniqueIndex('memory_edges_unique_idx').on(
+      table.srcMemoryId,
+      table.dstMemoryId,
+      table.relation,
+    ),
   }),
 );

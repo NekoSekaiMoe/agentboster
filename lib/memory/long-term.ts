@@ -21,6 +21,7 @@ import {
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { LongTermMemoryIndexing } from '@/types/memory';
+import { deriveEdgesForMemory } from './edges';
 
 const logger = createLogger('memory.long_term');
 
@@ -153,6 +154,8 @@ export async function createLongTermMemory(input: {
     config: input.config,
   });
 
+  deriveEdgesForMemory(memory.id, input.config).catch(() => {});
+
   return { memory, indexing };
 }
 
@@ -181,6 +184,8 @@ export async function upsertLongTermMemory(input: {
     config: input.config,
   });
 
+  deriveEdgesForMemory(memory.id, input.config).catch(() => {});
+
   return { memory, indexing, created };
 }
 
@@ -199,6 +204,8 @@ export async function updateLongTermMemory(input: {
     content: memory.content,
     config: input.config,
   });
+
+  deriveEdgesForMemory(memory.id, input.config).catch(() => {});
 
   return { memory, indexing };
 }

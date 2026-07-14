@@ -1,4 +1,8 @@
 import { listLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
+import {
+  getConnectedMemoryIds,
+  getMemoryContentByIds,
+} from '@/lib/core/db/memory/edges';
 import { scoreMemoryRelevance } from '@/lib/security/l1-scorer';
 import type { AppConfig } from '@/types/config';
 import { createLogger } from '@/lib/utils/logger';
@@ -8,6 +12,7 @@ import {
   resolveCrossRerankConfig,
 } from './cross-reranker';
 import { searchLongTermMemories } from './long-term';
+import type { HybridSearchRow } from './search';
 
 const logger = createLogger('memory.recall');
 
@@ -51,6 +56,20 @@ export const SCORER_RECENCY_CANDIDATE_LIMIT = 20;
  * pool to cull from; the reranker then cuts it back down to `topK`.
  */
 const CROSS_RERANK_POOL_MULTIPLIER = 4;
+
+/**
+ * Score decay per BFS hop. A memory found 1 hop from a seed gets
+ * its score multiplied by HOP_DECAY × edge_weight. Set to 0.6 to
+ * match the decay curve from graph-based memory retrieval research.
+ */
+const BFS_HOP_DECAY = 0.6;
+
+/**
+ * Overfetch multiplier for the initial seed pool before BFS expansion.
+ * A wider seed pool gives BFS more starting points to discover related
+ * memories through graph edges.
+ */
+const BFS_SEED_OVERFETCH = 3;
 
 export interface RecalledMemory {
   content: string;
@@ -142,12 +161,16 @@ export async function recallRelevantMemories(input: {
 }
 
 /**
- * Vector + keyword hybrid recall. Existing behavior preserved for
- * deployments that have `embedding_model` configured. When
- * `cross_rerank` is enabled, the RRF candidate pool (sized at
- * `topK * CROSS_RERANK_POOL_MULTIPLIER`) is passed through a dedicated
- * cross-encoder service before the final top-K cut. Failures of the
- * reranker are silent: the RRF order is returned unchanged.
+ * Vector + keyword hybrid recall with BFS graph expansion.
+ *
+ * Pipeline:
+ *  1. Overfetch seeds via hybrid search (topK × BFS_SEED_OVERFETCH or
+ *     wider if cross-rerank is enabled).
+ *  2. Expand seeds 1 hop through memory_edges — connected memories get
+ *     score = max_seed_score × HOP_DECAY × edge_weight.
+ *  3. Merge seed and BFS results, deduplicated by memoryId.
+ *  4. Optionally pass through cross-reranker.
+ *  5. Return top-K.
  */
 async function recallViaVector(input: {
   userId: string;
@@ -157,9 +180,10 @@ async function recallViaVector(input: {
   config?: AppConfig;
 }): Promise<RecalledMemory[]> {
   const rerankConfig = resolveCrossRerankConfig(input.config);
-  const poolSize = rerankConfig?.enabled
+  const rerankPoolSize = rerankConfig?.enabled
     ? Math.max(input.topK * CROSS_RERANK_POOL_MULTIPLIER, input.topK + 5)
     : input.topK;
+  const poolSize = Math.max(rerankPoolSize, input.topK * BFS_SEED_OVERFETCH);
 
   const results = await searchLongTermMemories({
     query: input.query,
@@ -168,18 +192,18 @@ async function recallViaVector(input: {
     userId: input.userId,
   });
 
-  if (!rerankConfig?.enabled || results.length <= input.topK) {
-    return results
-      .slice(0, input.topK)
-      .map((row) => ({ content: row.content, score: row.finalScore }));
+  const merged = await expandWithBfs(results, input.topK);
+
+  if (!rerankConfig?.enabled || merged.length <= input.topK) {
+    return merged.slice(0, input.topK);
   }
 
   const reranked = await crossRerankCandidates({
     query: input.query,
-    candidates: results.map((row) => ({
-      id: row.chunkId,
-      content: row.content,
-      rrfScore: row.finalScore,
+    candidates: merged.map((m) => ({
+      id: m.content,
+      content: m.content,
+      rrfScore: m.score,
     })),
     config: rerankConfig as CrossRerankConfig,
     topN: input.topK,
@@ -187,12 +211,85 @@ async function recallViaVector(input: {
 
   return reranked.map((row) => ({
     content: row.content,
-    // Preserve original RRF score on the output — the reranker's score
-    // is exposed via `rerankScore` for observability but downstream
-    // consumers (logs, threshold checks) keep working against the RRF
-    // scale they already understand.
     score: row.rrfScore,
   }));
+}
+
+/**
+ * Expand seed results through graph edges (1 hop BFS).
+ * Connected memories not already in the seed set are scored as
+ * max_seed_score × HOP_DECAY × edge_weight and merged in.
+ */
+async function expandWithBfs(
+  seeds: HybridSearchRow[],
+  topK: number,
+): Promise<RecalledMemory[]> {
+  if (seeds.length === 0) return [];
+
+  const seedMemoryIds = [...new Set(seeds.map((s) => s.memoryId))];
+  const seedScoreMap = new Map<string, number>();
+  for (const seed of seeds) {
+    const existing = seedScoreMap.get(seed.memoryId) ?? 0;
+    if (seed.finalScore > existing) {
+      seedScoreMap.set(seed.memoryId, seed.finalScore);
+    }
+  }
+
+  let connected: { memoryId: string; relation: string; weight: number }[] = [];
+  try {
+    connected = await getConnectedMemoryIds(seedMemoryIds);
+  } catch {
+    logger.info('bfs:edge_query_skipped');
+  }
+
+  const merged: RecalledMemory[] = seeds.map((s) => ({
+    content: s.content,
+    score: s.finalScore,
+  }));
+
+  if (connected.length === 0) return merged;
+
+  const maxSeedScore = Math.max(...seedScoreMap.values());
+  const newMemoryIds = connected
+    .filter((c) => !seedScoreMap.has(c.memoryId))
+    .map((c) => c.memoryId);
+
+  if (newMemoryIds.length === 0) return merged;
+
+  let contentMap: Map<string, string>;
+  try {
+    contentMap = await getMemoryContentByIds(newMemoryIds);
+  } catch {
+    return merged;
+  }
+
+  for (const conn of connected) {
+    if (seedScoreMap.has(conn.memoryId)) continue;
+    const content = contentMap.get(conn.memoryId);
+    if (!content) continue;
+
+    const bfsScore = maxSeedScore * BFS_HOP_DECAY * conn.weight;
+    merged.push({ content, score: bfsScore });
+  }
+
+  logger.info('bfs:expanded', {
+    seedCount: seedMemoryIds.length,
+    connectedCount: connected.length,
+    newCount: newMemoryIds.length,
+  });
+
+  merged.sort((a, b) => b.score - a.score);
+
+  const seen = new Set<string>();
+  const deduped: RecalledMemory[] = [];
+  for (const m of merged) {
+    if (seen.has(m.content)) continue;
+    seen.add(m.content);
+    deduped.push(m);
+    if (deduped.length >= topK * 2) break;
+  }
+
+  return deduped;
 }
 
 /**
@@ -295,13 +392,19 @@ async function recallViaScorer(input: {
  * Format recalled memories into a single text block suitable for
  * injection as a system message. Returns null when there are no
  * memories to inject (caller should skip the system message entirely).
+ *
+ * Uses anti-lost-in-middle reordering: highest-scored memories are
+ * placed at the beginning and end of the list, since LLMs attend more
+ * to the edges of their context window than the middle.
  */
 export function formatRecalledMemoriesForContext(
   memories: RecalledMemory[],
 ): string | null {
   if (memories.length === 0) return null;
 
-  const lines = memories.map((memory, index) => {
+  const reordered = antiLostInMiddle(memories);
+
+  const lines = reordered.map((memory, index) => {
     return `${index + 1}. ${memory.content}`;
   });
 
@@ -311,4 +414,31 @@ export function formatRecalledMemoriesForContext(
     '',
     ...lines,
   ].join('\n');
+}
+
+/**
+ * Reorder items so the highest-scored entries sit at the edges (start
+ * and end) of the list, pushing lower-scored items into the middle.
+ *
+ * Input must be sorted by score descending. Output alternates placement:
+ *   rank 0 → head, rank 1 → tail, rank 2 → head, rank 3 → tail, ...
+ *
+ * This counteracts the "lost in the middle" effect observed in LLMs,
+ * where items in the center of a long context receive less attention.
+ */
+function antiLostInMiddle<T>(items: T[]): T[] {
+  if (items.length <= 2) return items;
+
+  const head: T[] = [];
+  const tail: T[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    if (i % 2 === 0) {
+      head.push(items[i]);
+    } else {
+      tail.unshift(items[i]);
+    }
+  }
+
+  return [...head, ...tail];
 }
