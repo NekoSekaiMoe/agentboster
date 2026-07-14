@@ -299,6 +299,6 @@ session 鉴权）。
 
 ## 八、后续
 
-- **agentd**（沙箱执行）：见 `subpackage/agentd/README.md`
+- **agentd**（沙箱执行）：见 `subpackage/agentd/README.md`；部署/降权/runtime 目录运维见 [`agentd-deployment.md`](agentd-deployment.md)
 - **CLI**：见 `subpackage/cli/README.md`
 - **IM 机器人接入**：见主 README

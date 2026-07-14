@@ -490,6 +490,7 @@ Pattern A is enough for nodes that only pull work via polling callbacks (limited
 - [`agentd.toml.example`](agentd.toml.example)
 - [`AGENTS.md`](AGENTS.md) — contributor commands and mTLS gotchas
 - [CLI README](../cli/README.md) — terminal client (separate from daemon)
+- [`docs/agentd-deployment.md`](../../docs/agentd-deployment.md) — 部署与降权运维（startup/privilege-drop/runtime dirs/node_id）
 
 (No separate layout map document — use source tree under `cmd/agentd` and `internal/` when navigating code.)
 
