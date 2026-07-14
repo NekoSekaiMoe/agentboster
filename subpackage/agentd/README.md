@@ -413,9 +413,13 @@ Structured logs: `[module] [func:line] level message key=value`. Tune `[logging]
 
 Three layers prevent duplicate daemons:
 
-1. Unix socket `/var/run/agentd.sock`
-2. PID file `/var/run/agentd.pid` with liveness probe
+1. Unix socket `/var/run/agentd/agentd.sock`
+2. PID file `/var/run/agentd/agentd.pid` with liveness probe
 3. TCP bind probe on `server.listen`
+
+The lock dir `/var/run/agentd/` is created as root at startup and chowned to
+`[security].run_as_user` before the privilege drop, so the dropped-to user can
+unlink the PID/socket files on shutdown (unlink needs write on the parent dir).
 
 Survives `kill -9` and OOM: next start cleans stale artifacts when PID is dead.
 

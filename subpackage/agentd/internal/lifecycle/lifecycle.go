@@ -23,14 +23,29 @@ import (
 )
 
 const (
+	// runtimeDir holds the singleton lock artifacts. They live in a
+	// dedicated subdirectory (rather than directly in /var/run) so that
+	// its ownership can be handed to security.run_as_user before the
+	// privilege drop: unlinking the PID/socket files on shutdown requires
+	// write permission on this *parent directory*, which the dropped-to
+	// user would not have on /var/run itself (root:root 0755).
+	runtimeDir = "/var/run/agentd"
 	// pidFilePath is the fallback PID record read when the socket lock is
 	// held by a stale (crashed) instance. Format: "<pid>\n<unix_ts>\n".
-	pidFilePath = "/var/run/agentd.pid"
+	pidFilePath = runtimeDir + "/agentd.pid"
 	// socketLockPath is the primary mutex. Binding a Unix domain socket at
 	// this path is an atomic OS-level operation, immune to PID reuse and
 	// TOCTOU races that plague pure PID-file schemes.
-	socketLockPath = "/var/run/agentd.sock"
+	socketLockPath = runtimeDir + "/agentd.sock"
 )
+
+// RuntimeDir returns the directory holding the singleton lock artifacts
+// (PID file and socket). main.go hands its ownership to run_as_user via
+// security.PrepareRuntimeOwnership before dropping privileges, so the
+// shutdown cleanup can unlink these files as the unprivileged user.
+func RuntimeDir() string {
+	return runtimeDir
+}
 
 // AcquireSingleton ensures only one Agent Daemon instance runs on this machine.
 //
