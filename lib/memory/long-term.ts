@@ -22,6 +22,7 @@ import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { LongTermMemoryIndexing } from '@/types/memory';
 import { deriveEdgesForMemory } from './edges';
+import { invalidateRecallCache } from './recall';
 
 const logger = createLogger('memory.long_term');
 
@@ -155,6 +156,7 @@ export async function createLongTermMemory(input: {
   });
 
   deriveEdgesForMemory(memory.id, input.config).catch(() => {});
+  invalidateRecallCache(input.userId);
 
   return { memory, indexing };
 }
@@ -185,6 +187,7 @@ export async function upsertLongTermMemory(input: {
   });
 
   deriveEdgesForMemory(memory.id, input.config).catch(() => {});
+  invalidateRecallCache(input.userId);
 
   return { memory, indexing, created };
 }
@@ -206,6 +209,7 @@ export async function updateLongTermMemory(input: {
   });
 
   deriveEdgesForMemory(memory.id, input.config).catch(() => {});
+  invalidateRecallCache(memory.userId ?? undefined);
 
   return { memory, indexing };
 }
@@ -214,7 +218,11 @@ export async function deleteLongTermMemory(
   id: string,
   options?: { userId?: string },
 ) {
-  return deleteLongTermMemoryRow(id, options);
+  const result = await deleteLongTermMemoryRow(id, options);
+  if (result) {
+    invalidateRecallCache(options?.userId);
+  }
+  return result;
 }
 
 export { deleteLongTermMemoryByKey } from '@/lib/core/db/memory/long-term';

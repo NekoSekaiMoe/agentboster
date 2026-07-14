@@ -16,6 +16,76 @@ import type { HybridSearchRow } from './search';
 
 const logger = createLogger('memory.recall');
 
+// ─── Recall cache ────────────────────────────────────────────────────
+// Caches formatted memory context strings by userId+queryHash to avoid
+// redundant vector searches during rapid-fire conversation turns.
+
+const CACHE_TTL_MS = 60_000;
+const CACHE_STALE_TTL_MS = 300_000;
+const CACHE_MAX_ENTRIES = 256;
+
+interface CacheEntry {
+  memories: RecalledMemory[];
+  createdAt: number;
+}
+
+const recallCache = new Map<string, CacheEntry>();
+
+function buildCacheKey(userId: string, query: string): string {
+  let hash = 0;
+  for (let i = 0; i < query.length; i++) {
+    hash = ((hash << 5) - hash + query.charCodeAt(i)) | 0;
+  }
+  return `${userId}:${hash}`;
+}
+
+function getCachedRecall(
+  userId: string,
+  query: string,
+): { memories: RecalledMemory[]; stale: boolean } | null {
+  const key = buildCacheKey(userId, query);
+  const entry = recallCache.get(key);
+  if (!entry) return null;
+
+  const age = Date.now() - entry.createdAt;
+  if (age > CACHE_STALE_TTL_MS) {
+    recallCache.delete(key);
+    return null;
+  }
+
+  return { memories: entry.memories, stale: age > CACHE_TTL_MS };
+}
+
+function setCachedRecall(
+  userId: string,
+  query: string,
+  memories: RecalledMemory[],
+) {
+  const key = buildCacheKey(userId, query);
+  recallCache.set(key, { memories, createdAt: Date.now() });
+
+  if (recallCache.size > CACHE_MAX_ENTRIES) {
+    const firstKey = recallCache.keys().next().value;
+    if (firstKey !== undefined) recallCache.delete(firstKey);
+  }
+}
+
+/**
+ * Invalidate all cached recall results for a user. Call this after
+ * memory writes (create/upsert/delete) to prevent stale recall.
+ */
+export function invalidateRecallCache(userId?: string) {
+  if (!userId) {
+    recallCache.clear();
+    return;
+  }
+  for (const key of recallCache.keys()) {
+    if (key.startsWith(`${userId}:`)) {
+      recallCache.delete(key);
+    }
+  }
+}
+
 /**
  * Default number of long-term memories to auto-inject into the agent's
  * context per turn. Kept small to avoid drowning out the conversation
@@ -137,21 +207,35 @@ export async function recallRelevantMemories(input: {
     return [];
   }
 
+  const cached = getCachedRecall(userId, query);
+  if (cached && !cached.stale) {
+    logger.info('recall:cache_hit', { userId });
+    return cached.memories;
+  }
+
   const config = input.config;
   const strategy = config ? resolveRecallStrategy(config) : 'vector';
 
   try {
+    let results: RecalledMemory[];
     if (strategy === 'scorer' && config) {
-      return await recallViaScorer({ userId, query, topK, config });
+      results = await recallViaScorer({ userId, query, topK, config });
+    } else {
+      results = await recallViaVector({
+        userId,
+        query,
+        topK,
+        minConfidence,
+        config,
+      });
     }
-    return await recallViaVector({
-      userId,
-      query,
-      topK,
-      minConfidence,
-      config,
-    });
+    setCachedRecall(userId, query, results);
+    return results;
   } catch (error) {
+    if (cached) {
+      logger.info('recall:serve_stale', { userId });
+      return cached.memories;
+    }
     logger.warn('recall:failed', {
       strategy,
       error: error instanceof Error ? error.message : String(error),
