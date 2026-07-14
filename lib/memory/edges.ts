@@ -37,7 +37,7 @@ function extractKeyPrefix(key: string): string | null {
  */
 export async function deriveEdgesForMemory(
   memoryId: string,
-  config?: AppConfig,
+  _config?: AppConfig,
 ) {
   try {
     await deleteDerivedEdgesForMemory(memoryId);

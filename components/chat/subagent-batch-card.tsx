@@ -117,7 +117,7 @@ export const SubagentBatchCard = memo(function SubagentBatchCard({
 
   if (!data) {
     return (
-      <div className="my-2 rounded-lg border bg-card px-4 py-3 text-sm text-muted-foreground">
+      <div className="my-2 rounded-lg border bg-card px-4 py-3 text-muted-foreground text-sm">
         <Loader2 className="mr-2 inline size-3.5 animate-spin" />
         Loading subagent batch…
       </div>
@@ -134,13 +134,13 @@ export const SubagentBatchCard = memo(function SubagentBatchCard({
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm font-medium transition-colors hover:bg-muted/30"
+        className="flex w-full items-center gap-2 px-4 py-2 text-left font-medium text-sm transition-colors hover:bg-muted/30"
       >
         <span className="text-[#6d9ec3]">⊞</span>
         <span className="flex-1">
           Subagent Batch · {total} agent{total !== 1 ? 's' : ''}
         </span>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-muted-foreground text-xs">
           {completed > 0 && `${completed} done`}
           {failed > 0 && ` · ${failed} failed`}
           {running > 0 && ` · ${running} running`}

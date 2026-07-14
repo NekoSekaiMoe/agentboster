@@ -3,7 +3,7 @@ import type { MemoryEdgeRelation } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 
-const logger = createLogger('db.memory.edges');
+const _logger = createLogger('db.memory.edges');
 
 export async function createMemoryEdge(input: {
   srcMemoryId: string;
@@ -139,7 +139,7 @@ export async function findMemoriesWithSameKeyPrefix(input: {
     .where(
       and(
         eq(schema.longTermMemories.userId, input.userId),
-        sql`${schema.longTermMemories.key} LIKE ${input.keyPrefix + '.%'}`,
+        sql`${schema.longTermMemories.key} LIKE ${`${input.keyPrefix}.%`}`,
         sql`${schema.longTermMemories.id} != ${input.memoryId}`,
       ),
     )

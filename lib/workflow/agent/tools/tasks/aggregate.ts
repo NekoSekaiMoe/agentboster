@@ -107,7 +107,7 @@ export default defineBuildInTool({
               batches?: Record<string, unknown>;
               jobs?: Record<string, unknown>;
             };
-            if (legacy.batches && legacy.batches[input.batchId]) {
+            if (legacy.batches?.[input.batchId]) {
               loaded = await migrateBatchFromLegacyMetadata({
                 sessionId: context.sessionId,
                 batchId: input.batchId,
