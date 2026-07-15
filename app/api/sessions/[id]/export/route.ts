@@ -1,4 +1,4 @@
-import { requireAuthAccess } from '@/lib/auth/access';
+import { AuthError, requireAuthAccess } from '@/lib/auth/access';
 import { getSession, getVisibleSessionMessages } from '@/lib/core/db/chat';
 import { deserializePersistedMessages } from '@/lib/chat/persistence';
 import { listSessionSummaries } from '@/lib/memory/session';
@@ -22,20 +22,26 @@ export async function GET(
   let access: Awaited<ReturnType<typeof requireAuthAccess>>;
   try {
     access = await requireAuthAccess(cookieStore);
-  } catch {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (error) {
+    // Only map explicit auth failures to their status; let anything else
+    // (e.g. a DB error inside requireAuthAccess) bubble up as a 5xx.
+    if (error instanceof AuthError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
 
   const { id: sessionId } = await params;
   const session = await getSession(sessionId);
-  if (!session) {
-    return Response.json({ error: 'Session not found' }, { status: 404 });
-  }
 
-  // Ownership check: a logged-in user must not be able to export another
-  // user's session just by knowing its id. Admins may export any session.
-  if (!access.isAdmin && session.userId !== access.session.userId) {
-    return Response.json({ error: 'Forbidden' }, { status: 403 });
+  // Collapse "not found" and "exists but not yours" into a single 404 so a
+  // logged-in user cannot probe which session ids exist by diffing 403 vs
+  // 404. Admins may export any session.
+  if (
+    !session ||
+    (!access.isAdmin && session.userId !== access.session.userId)
+  ) {
+    return Response.json({ error: 'Session not found' }, { status: 404 });
   }
 
   const [messageRows, summaries] = await Promise.all([

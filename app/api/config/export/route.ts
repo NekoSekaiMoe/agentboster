@@ -1,4 +1,4 @@
-import { requireAuthAccess } from '@/lib/auth/access';
+import { AuthError, requireAuthAccess } from '@/lib/auth/access';
 import { getConfig } from '@/lib/core/kv/config';
 import { cookies } from 'next/headers';
 
@@ -12,7 +12,8 @@ const NO_STORE_HEADERS = {
   Pragma: 'no-cache',
 } as const;
 
-const SECRET_KEY_PATTERN = /token|secret|password|api[_-]?key|key|authorization/i;
+const SECRET_KEY_PATTERN =
+  /token|secret|password|api[_-]?key|key|authorization/i;
 const REDACTED = '***REDACTED***';
 
 /**
@@ -45,8 +46,13 @@ export async function GET(request: Request) {
   let access: Awaited<ReturnType<typeof requireAuthAccess>>;
   try {
     access = await requireAuthAccess(cookieStore);
-  } catch {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  } catch (error) {
+    // Only map explicit auth failures to their status; let anything else
+    // (e.g. a DB error inside requireAuthAccess) bubble up as a 5xx.
+    if (error instanceof AuthError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
 
   const config = await getConfig();
