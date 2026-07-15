@@ -1,6 +1,6 @@
 # API Reference
 
-AgentBoster exposes a REST API via Next.js App Router route handlers. All responses use JSON. No GraphQL.
+AgentBoster exposes a REST API via Next.js App Router route handlers. Most endpoints respond with JSON; the exceptions are file/blob download endpoints (which stream binary attachments) and the L2 decision link handler (which returns an HTML result page). No GraphQL.
 
 ## Authentication
 

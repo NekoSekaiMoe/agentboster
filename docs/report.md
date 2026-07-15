@@ -62,7 +62,7 @@ Memoh 的核心理念是为每个 AI 代理提供独立的云端计算机，包�
 
 #### Agentboster
 
-采用基于 Cookie 的 HMAC-SHA256 会话机制，所有令牌签名由 AUTH_SECRET 统一管控。浏览器使用 Cookie，CLI 使用 Bearer 令牌，格式相同。CLI 配对通过一次性配对码交换完成，设备令牌支持服务端吊销。agentd 使用独立的 API 密钥认证，可选 mTLS。
+系统存在三套彼此独立的凭据，切勿混为一谈。用户会话由 AUTH_SECRET 做 HMAC-SHA256 签名，浏览器用 Cookie、CLI 用同格式的 Bearer 令牌；CLI 令牌经一次性配对码换取，携带设备标识，可在服务端按设备吊销。agentd 回调用独立的 AGENTD_API_KEY(与 AUTH_SECRET 无关，支持逗号分隔轮转)加可选 mTLS。频道适配器各自持有自己的机器人 token/密钥，其 Webhook 把 AUTH_SECRET 嵌入回调路径做校验，与用户会话签名同源但用途不同。三者的签名密钥、轮转方式和吊销范围各不相同。
 
 #### Memoh
 
