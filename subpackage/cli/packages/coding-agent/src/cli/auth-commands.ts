@@ -56,7 +56,15 @@ function getAgentDir(): string {
     }
     return trimmed;
   }
-  return path.join(homedir(), '.config', 'agentboster-cli', 'agent');
+  const home = homedir();
+  switch (process.platform) {
+    case 'darwin':
+      return path.join(home, 'Library', 'Application Support', 'agentboster-cli', 'agent');
+    case 'win32':
+      return path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'agentboster-cli', 'agent');
+    default:
+      return path.join(home, '.config', 'agentboster-cli', 'agent');
+  }
 }
 
 function getAuthFilePath(): string {

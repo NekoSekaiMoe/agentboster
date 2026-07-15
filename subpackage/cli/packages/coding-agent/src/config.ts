@@ -172,7 +172,15 @@ export function getAgentDir(): string {
   if (envDir) {
     return expandTildePath(envDir);
   }
-  return join(homedir(), '.config', 'agentboster-cli', 'agent');
+  const home = homedir();
+  switch (process.platform) {
+    case 'darwin':
+      return join(home, 'Library', 'Application Support', 'agentboster-cli', 'agent');
+    case 'win32':
+      return join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'agentboster-cli', 'agent');
+    default:
+      return join(home, '.config', 'agentboster-cli', 'agent');
+  }
 }
 
 /** Get path to user's custom themes directory */

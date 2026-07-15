@@ -275,6 +275,12 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
         // Auto-installed by `install_cli` (this Desktop app). The installer
         // writes agentboster-cli.cmd next to the .cjs bundle here.
         if let Some(home_dir) = resolve_home_dir() {
+            if let Ok(local) = std::env::var("LOCALAPPDATA") {
+                let installed_bin = PathBuf::from(local).join("agentboster-cli").join("agent").join("bin");
+                candidates.push(installed_bin.join("agentboster-cli.cmd"));
+                candidates.push(installed_bin.join("agentboster-cli.exe"));
+                candidates.push(installed_bin.join("agentboster-cli"));
+            }
             let installed_bin = home_dir.join(".config").join("agentboster-cli").join("agent").join("bin");
             candidates.push(installed_bin.join("agentboster-cli.cmd"));
             candidates.push(installed_bin.join("agentboster-cli.exe"));
@@ -306,6 +312,9 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
         }
 
         // Other common per-user install locations
+        if cfg!(target_os = "macos") {
+            candidates.push(home_dir.join("Library/Application Support/agentboster-cli/agent/bin/agentboster-cli"));
+        }
         candidates.push(home_dir.join(".config/agentboster-cli/agent/bin/agentboster-cli"));
         candidates.push(home_dir.join(".volta/bin/agentboster-cli"));
         candidates.push(home_dir.join(".local/bin/agentboster-cli"));
@@ -482,7 +491,17 @@ fn pick_tarball_asset<'a>(release: &'a GithubRelease) -> Result<&'a GithubAsset,
 fn install_target_bin_dir() -> Result<PathBuf, String> {
     let home = resolve_home_dir()
         .ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
-    Ok(home.join(".config").join("agentboster-cli").join("agent").join("bin"))
+    if cfg!(target_os = "macos") {
+        Ok(home.join("Library").join("Application Support").join("agentboster-cli").join("agent").join("bin"))
+    } else if cfg!(target_os = "windows") {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            Ok(PathBuf::from(local).join("agentboster-cli").join("agent").join("bin"))
+        } else {
+            Ok(home.join("AppData").join("Local").join("agentboster-cli").join("agent").join("bin"))
+        }
+    } else {
+        Ok(home.join(".config").join("agentboster-cli").join("agent").join("bin"))
+    }
 }
 
 /// Stream the asset to a temp file, emitting download progress events.
@@ -1047,10 +1066,20 @@ fn get_pi_agent_dir() -> Option<PathBuf> {
         }
     }
 
-    // Default: ~/.config/agentboster-cli/agent
-    std::env::var_os("HOME")
-        .or(std::env::var_os("USERPROFILE"))
-        .map(|home| PathBuf::from(home).join(".config").join("agentboster-cli").join("agent"))
+    // Default: platform-specific config dir
+    resolve_home_dir().map(|home| {
+        if cfg!(target_os = "macos") {
+            home.join("Library").join("Application Support").join("agentboster-cli").join("agent")
+        } else if cfg!(target_os = "windows") {
+            if let Ok(local) = std::env::var("LOCALAPPDATA") {
+                PathBuf::from(local).join("agentboster-cli").join("agent")
+            } else {
+                home.join("AppData").join("Local").join("agentboster-cli").join("agent")
+            }
+        } else {
+            home.join(".config").join("agentboster-cli").join("agent")
+        }
+    })
 }
 
 
@@ -1090,7 +1119,17 @@ impl Default for AppSettings {
 fn desktop_config_dir() -> Result<PathBuf, String> {
     let home = resolve_home_dir()
         .ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
-    Ok(home.join(".config").join("agentboster-desktop"))
+    if cfg!(target_os = "macos") {
+        Ok(home.join("Library").join("Application Support").join("agentboster-desktop"))
+    } else if cfg!(target_os = "windows") {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            Ok(PathBuf::from(local).join("agentboster-desktop"))
+        } else {
+            Ok(home.join("AppData").join("Local").join("agentboster-desktop"))
+        }
+    } else {
+        Ok(home.join(".config").join("agentboster-desktop"))
+    }
 }
 
 /// Save app settings
