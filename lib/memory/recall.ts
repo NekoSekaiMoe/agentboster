@@ -60,7 +60,7 @@ function hashString(value: string): number {
  * model swap, endpoint change) must bust the cache. Returns 'off' when
  * disabled so the common no-rerank path shares one signature.
  */
-function buildRerankSignature(config?: AppConfig): string {
+function buildRecallRerankSignature(config?: AppConfig): string {
   const rerank = resolveCrossRerankConfig(config);
   if (!rerank?.enabled) return 'off';
   return `on:${rerank.model ?? ''}:${rerank.apiUrl ?? ''}`;
