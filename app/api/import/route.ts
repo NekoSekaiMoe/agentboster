@@ -1,14 +1,9 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import { requireAdminAccess } from '@/lib/auth/access';
-import {
-  upsertBuiltinMemoryRow,
-} from '@/lib/core/db/memory/builtin';
+import { upsertBuiltinMemoryRow } from '@/lib/core/db/memory/builtin';
 import { createL0Rule } from '@/lib/core/db/agentd';
 import { patchConfig } from '@/lib/core/kv/config';
-import {
-  upsertLongTermMemory,
-} from '@/lib/memory/long-term';
-import { getConfig } from '@/lib/core/kv/config';
+import { upsertLongTermMemory } from '@/lib/memory/long-term';
 import { createLogger } from '@/lib/utils/logger';
 import { cookies } from 'next/headers';
 
@@ -74,11 +69,14 @@ export async function POST(request: Request) {
     : null;
   const mergeConfig = url.searchParams.get('merge') !== 'false';
 
-  const results: Record<string, { success: boolean; count?: number; error?: string }> = {};
+  const results: Record<
+    string,
+    { success: boolean; count?: number; error?: string }
+  > = {};
 
   if (body.config && (!allowedItems || allowedItems.has('config'))) {
     try {
-      await requireAdminAccess(authSession);
+      await requireAdminAccess(cookieStore);
       if (mergeConfig) {
         await patchConfig(body.config);
       } else {
@@ -99,7 +97,7 @@ export async function POST(request: Request) {
     (!allowedItems || allowedItems.has('builtin_memories'))
   ) {
     try {
-      await requireAdminAccess(authSession);
+      await requireAdminAccess(cookieStore);
       let count = 0;
       for (const mem of body.builtinMemories) {
         if (
@@ -137,7 +135,12 @@ export async function POST(request: Request) {
             userId: authSession.userId,
             key: mem.key,
             content: mem.content,
-            memoryType: mem.memoryType as 'fact' | 'preference' | 'decision' | 'conversation' | undefined,
+            memoryType: mem.memoryType as
+              | 'fact'
+              | 'preference'
+              | 'decision'
+              | 'conversation'
+              | undefined,
             importance: mem.importance,
           });
         } else {
@@ -147,7 +150,12 @@ export async function POST(request: Request) {
           await createLongTermMemory({
             content: mem.content,
             userId: authSession.userId,
-            memoryType: mem.memoryType as 'fact' | 'preference' | 'decision' | 'conversation' | undefined,
+            memoryType: mem.memoryType as
+              | 'fact'
+              | 'preference'
+              | 'decision'
+              | 'conversation'
+              | undefined,
             importance: mem.importance,
           });
         }
@@ -165,7 +173,7 @@ export async function POST(request: Request) {
 
   if (body.l0Rules && (!allowedItems || allowedItems.has('l0_rules'))) {
     try {
-      await requireAdminAccess(authSession);
+      await requireAdminAccess(cookieStore);
       let count = 0;
       for (const rule of body.l0Rules) {
         if (!rule.pattern || !rule.type || !rule.action) continue;

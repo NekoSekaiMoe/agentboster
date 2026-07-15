@@ -1,8 +1,6 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import { listBuiltinMemoryRows } from '@/lib/core/db/memory/builtin';
-import {
-  listAllLongTermMemoryRows,
-} from '@/lib/core/db/memory/long-term';
+import { listAllLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { listL0Rules } from '@/lib/core/db/agentd';
 import { getConfig } from '@/lib/core/kv/config';
 import { cookies } from 'next/headers';
@@ -24,7 +22,9 @@ function parseItems(raw: string | null): ExportItem[] {
   );
 }
 
-function redactSecrets(config: Record<string, unknown>): Record<string, unknown> {
+function redactSecrets(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
   const clone = JSON.parse(JSON.stringify(config));
   const channels = clone.channels;
   if (channels && typeof channels === 'object') {
