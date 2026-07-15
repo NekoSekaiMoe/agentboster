@@ -1,4 +1,5 @@
 import { requestAgentd } from './agentd-http';
+import type { AgentdHttpConfig } from './agentd-http';
 import { getAgentdClientConfig } from './agentd-tools-client';
 
 /**
@@ -6,30 +7,60 @@ import { getAgentdClientConfig } from './agentd-tools-client';
  * Uses mTLS + API key authentication.
  */
 
+function validateAgentdResponse<T = void>(
+  method: string,
+  path: string,
+  text: string,
+  extractData: true,
+): T;
+function validateAgentdResponse(
+  method: string,
+  path: string,
+  text: string,
+  extractData?: false,
+): void;
+function validateAgentdResponse<T>(
+  method: string,
+  path: string,
+  text: string,
+  extractData?: boolean,
+): T | void {
+  const json = JSON.parse(text) as {
+    success: boolean;
+    data?: T;
+    error?: string;
+  };
+  if (!json.success) {
+    throw new Error(`AgentDaemon error: ${json.error ?? 'unknown'}`);
+  }
+  if (extractData) {
+    return json.data as T;
+  }
+}
+
+async function agentdRequestRaw(
+  config: AgentdHttpConfig,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<string> {
+  const response = await requestAgentd(config, method, path, body);
+  if (!response.ok) {
+    throw new Error(
+      `AgentDaemon request failed: ${method} ${path} → ${response.status}: ${response.text}`,
+    );
+  }
+  return response.text;
+}
+
 async function agentdRequest<T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
   const config = await getAgentdClientConfig();
-  const response = await requestAgentd(config, method, path, body);
-
-  if (!response.ok) {
-    throw new Error(
-      `AgentDaemon request failed: ${method} ${path} → ${response.status}: ${response.text}`,
-    );
-  }
-
-  const json = JSON.parse(response.text) as {
-    success: boolean;
-    data: T;
-    error?: string;
-  };
-  if (!json.success) {
-    throw new Error(`AgentDaemon error: ${json.error ?? 'unknown'}`);
-  }
-
-  return json.data;
+  const text = await agentdRequestRaw(config, method, path, body);
+  return validateAgentdResponse<T>(method, path, text, true);
 }
 
 // ── Decision Queue API ─────────────────────────────────────────────
@@ -121,24 +152,13 @@ export async function forwardL2Confirm(payload: {
     );
     const config = await getAgentdClientConfigByNodeId(nodeId);
     if (config) {
-      const response = await requestAgentd(
+      const text = await agentdRequestRaw(
         config,
         'POST',
         '/api/v1/l2-confirm',
         body,
       );
-      if (!response.ok) {
-        throw new Error(
-          `AgentDaemon request failed: POST /api/v1/l2-confirm → ${response.status}: ${response.text}`,
-        );
-      }
-      const json = JSON.parse(response.text) as {
-        success: boolean;
-        error?: string;
-      };
-      if (!json.success) {
-        throw new Error(`AgentDaemon error: ${json.error ?? 'unknown'}`);
-      }
+      validateAgentdResponse('POST', '/api/v1/l2-confirm', text);
       return;
     }
     // node id no longer resolves — fall through to default resolution.

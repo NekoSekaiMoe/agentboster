@@ -40,7 +40,7 @@ type Dispatcher struct {
 	execCollector       *workers.BatchCollector
 	execCollectorCancel context.CancelFunc
 
-	// nodeID is this daemon's stable node identifier (identity.Load).
+	// nodeID is this daemon's stable node identifier (identity.Resolve).
 	// Attached to L2 authorization notifications so the Web layer can
 	// pin the pending decision to *this* node and route the user's
 	// verdict back here — not to nodes[0]. Empty is tolerated (older
@@ -716,7 +716,7 @@ func (d *Dispatcher) handleL2AuthRequired(e eventbus.Event) {
 		"message":        payload["message"],
 		// node_id pins this pending decision to *this* daemon so the
 		// user's verdict is routed back here (not to nodes[0]) in a
-		// multi-node install. Empty when identity.Load never ran; the
+		// multi-node install. Empty when identity.Resolve never ran; the
 		// Web side tolerates that and falls back to default resolution.
 		"node_id": d.nodeID,
 	})

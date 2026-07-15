@@ -92,10 +92,26 @@ export async function getAgentdClientConfigByNodeId(
   if (rows.length === 0) {
     return null;
   }
-  return getAgentdClientConfigForNode(
+  const appConfig = await getAppConfig();
+  const configuredNodes = appConfig.agentd?.nodes ?? [];
+  const fallbackUrl = `http://${rows[0].ip}:${rows[0].port}`;
+  const resolution = resolveAgentdNodeUrlWithReason({
+    configuredNodes,
     nodeId,
-    `http://${rows[0].ip}:${rows[0].port}`,
-  );
+    envUrl: process.env.AGENTD_URL,
+    fallbackUrl,
+  });
+  if (
+    resolution.usableConfiguredUrlCount > 1 &&
+    (resolution.reason === 'env' || resolution.reason === 'registered-fallback')
+  ) {
+    logger.warn('agentd configured URL did not match node for L2 routing', {
+      nodeId,
+      configuredUrlCount: resolution.usableConfiguredUrlCount,
+      fallbackReason: resolution.reason,
+    });
+  }
+  return buildAgentdHttpConfig(resolution.url);
 }
 
 /**

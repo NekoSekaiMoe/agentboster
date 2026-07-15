@@ -1,4 +1,5 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAdminAccess } from '@/lib/auth/access';
 import { listBuiltinMemoryRows } from '@/lib/core/db/memory/builtin';
 import { listAllLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { listL0Rules } from '@/lib/core/db/agentd';
@@ -22,30 +23,39 @@ function parseItems(raw: string | null): ExportItem[] {
   );
 }
 
+function isSensitiveKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return (
+    lower.includes('token') ||
+    lower.includes('secret') ||
+    lower.includes('password') ||
+    lower.includes('key')
+  );
+}
+
+function redactRecursive(obj: unknown): unknown {
+  if (Array.isArray(obj)) {
+    return obj.map(redactRecursive);
+  }
+  if (obj && typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (isSensitiveKey(key) && typeof value === 'string') {
+        result[key] = '***REDACTED***';
+      } else {
+        result[key] = redactRecursive(value);
+      }
+    }
+    return result;
+  }
+  return obj;
+}
+
 function redactSecrets(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
   const clone = JSON.parse(JSON.stringify(config));
-  const channels = clone.channels;
-  if (channels && typeof channels === 'object') {
-    for (const adapter of Object.keys(channels)) {
-      const ch = channels[adapter];
-      if (ch && typeof ch === 'object') {
-        for (const key of Object.keys(ch)) {
-          const lower = key.toLowerCase();
-          if (
-            lower.includes('token') ||
-            lower.includes('secret') ||
-            lower.includes('password') ||
-            lower.includes('key')
-          ) {
-            ch[key] = '***REDACTED***';
-          }
-        }
-      }
-    }
-  }
-  return clone;
+  return redactRecursive(clone) as Record<string, unknown>;
 }
 
 /**
@@ -80,6 +90,20 @@ export async function GET(request: Request) {
       },
       { status: 400 },
     );
+  }
+
+  const ADMIN_ITEMS: readonly string[] = [
+    'config',
+    'builtin_memories',
+    'l0_rules',
+  ];
+  const needsAdmin = items.some((item) => ADMIN_ITEMS.includes(item));
+  if (needsAdmin) {
+    try {
+      await requireAdminAccess(cookieStore);
+    } catch {
+      return Response.json({ error: 'Forbidden' }, { status: 403 });
+    }
   }
 
   const exportData: Record<string, unknown> = {

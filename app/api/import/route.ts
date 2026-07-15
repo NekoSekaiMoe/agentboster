@@ -1,7 +1,7 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import { requireAdminAccess } from '@/lib/auth/access';
 import { upsertBuiltinMemoryRow } from '@/lib/core/db/memory/builtin';
-import { createL0Rule } from '@/lib/core/db/agentd';
+import { createL0Rule, listL0Rules } from '@/lib/core/db/agentd';
 import { patchConfig } from '@/lib/core/kv/config';
 import { upsertLongTermMemory } from '@/lib/memory/long-term';
 import { createLogger } from '@/lib/utils/logger';
@@ -174,9 +174,21 @@ export async function POST(request: Request) {
   if (body.l0Rules && (!allowedItems || allowedItems.has('l0_rules'))) {
     try {
       await requireAdminAccess(cookieStore);
+      const existing = await listL0Rules();
+      const existingKeys = new Set(
+        existing.map(
+          (r) => `${r.agentId}|${r.pattern}|${r.type}|${r.scope}|${r.action}`,
+        ),
+      );
       let count = 0;
+      let skipped = 0;
       for (const rule of body.l0Rules) {
         if (!rule.pattern || !rule.type || !rule.action) continue;
+        const key = `${rule.agentId ?? 'global'}|${rule.pattern}|${rule.type}|${rule.scope ?? 'global'}|${rule.action}`;
+        if (existingKeys.has(key)) {
+          skipped++;
+          continue;
+        }
         await createL0Rule({
           agentId: rule.agentId,
           pattern: rule.pattern,
@@ -185,9 +197,14 @@ export async function POST(request: Request) {
           scope: rule.scope,
           enabled: rule.enabled,
         });
+        existingKeys.add(key);
         count++;
       }
-      results.l0Rules = { success: true, count };
+      results.l0Rules = {
+        success: true,
+        count,
+        ...(skipped > 0 ? { error: `${skipped} duplicate rules skipped` } : {}),
+      };
     } catch (err) {
       results.l0Rules = {
         success: false,
@@ -201,5 +218,7 @@ export async function POST(request: Request) {
     results,
   });
 
-  return Response.json({ ok: true, results });
+  const allOk = Object.values(results).every((r) => r.success);
+
+  return Response.json({ ok: allOk, results });
 }
