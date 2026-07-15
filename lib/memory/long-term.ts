@@ -155,8 +155,14 @@ export async function createLongTermMemory(input: {
     config: input.config,
   });
 
-  deriveEdgesForMemory(memory.id, input.config).catch(() => {});
+  // Invalidate now (content changed) and again once edge derivation finishes.
+  // Derivation runs in the background and rewrites the graph; a recall that
+  // lands mid-derivation would otherwise rebuild the cache on the stale graph
+  // and never be invalidated again. The second invalidation closes that race.
   invalidateRecallCache(input.userId);
+  deriveEdgesForMemory(memory.id, input.config)
+    .catch(() => {})
+    .finally(() => invalidateRecallCache(input.userId));
 
   return { memory, indexing };
 }
@@ -186,8 +192,10 @@ export async function upsertLongTermMemory(input: {
     config: input.config,
   });
 
-  deriveEdgesForMemory(memory.id, input.config).catch(() => {});
   invalidateRecallCache(input.userId);
+  deriveEdgesForMemory(memory.id, input.config)
+    .catch(() => {})
+    .finally(() => invalidateRecallCache(input.userId));
 
   return { memory, indexing, created };
 }
@@ -208,8 +216,11 @@ export async function updateLongTermMemory(input: {
     config: input.config,
   });
 
-  deriveEdgesForMemory(memory.id, input.config).catch(() => {});
-  invalidateRecallCache(memory.userId ?? undefined);
+  const ownerId = memory.userId ?? undefined;
+  invalidateRecallCache(ownerId);
+  deriveEdgesForMemory(memory.id, input.config)
+    .catch(() => {})
+    .finally(() => invalidateRecallCache(ownerId));
 
   return { memory, indexing };
 }
