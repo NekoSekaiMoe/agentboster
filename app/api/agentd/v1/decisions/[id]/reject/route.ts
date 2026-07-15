@@ -59,6 +59,8 @@ export async function POST(
           task_id: decision.taskId,
           decision_id: decisionId,
           action: 'reject_once',
+          // Route the verdict back to the daemon that raised it (multi-node).
+          nodeId: decision.nodeId,
         });
       } catch (err) {
         logger.warn('forward to daemon failed; rejection still recorded', {

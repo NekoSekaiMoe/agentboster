@@ -93,6 +93,8 @@ export async function POST(request: Request) {
         decision_id: decision.decisionId,
         action: daemonAction,
         duration: parsed.data.duration,
+        // Route the verdict back to the daemon that raised it (multi-node).
+        nodeId: decision.nodeId,
       });
     } catch (err) {
       // Don't fail the whole request — the user has already seen
