@@ -1,4 +1,4 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess } from '@/lib/auth/access';
 import { getConfig } from '@/lib/core/kv/config';
 import { cookies } from 'next/headers';
 
@@ -42,17 +42,22 @@ function redactSecrets(value: unknown): unknown {
 
 export async function GET(request: Request) {
   const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-  if (!authSession) {
+  let access: Awaited<ReturnType<typeof requireAuthAccess>>;
+  try {
+    access = await requireAuthAccess(cookieStore);
+  } catch {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const config = await getConfig();
 
-  // Redact by default. An explicit ?redact=false opt-out lets an operator
-  // pull a full backup, but the safe path (what a UI button hits) is redacted.
+  // Redact by default. An explicit ?redact=false opt-out returns the raw
+  // config (plaintext bot tokens / API keys), so it is admin-only — a
+  // non-admin logged-in user always gets the redacted view regardless of
+  // the query param. The safe path (what a UI button hits) is redacted.
   const url = new URL(request.url);
-  const shouldRedact = url.searchParams.get('redact') !== 'false';
+  const wantRaw = url.searchParams.get('redact') === 'false';
+  const shouldRedact = !(wantRaw && access.isAdmin);
 
   const exportData = {
     exportedAt: new Date().toISOString(),
