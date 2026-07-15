@@ -66,6 +66,21 @@ export async function getAgentdClientConfigForNode(
 }
 
 /**
+ * Identity of the agentd node a tool call actually ran on. Attached to
+ * `execToolOnAgentd`'s result so callers (and, ultimately, the chat
+ * tool card) can show *which* machine executed the call rather than an
+ * opaque "agentd". `name` is the user-facing label from the dashboard
+ * `agentd.nodes[].name` config when present; it is optional because
+ * most single-node self-host installs never set it, in which case the
+ * card falls back to the id/ip.
+ */
+export interface ExecutedAgentdNode {
+  id: string;
+  name?: string;
+  ip: string;
+}
+
+/**
  * Execute a tool on the Agent Daemon synchronously.
  * This is the primary execution path when Agent Daemon is online.
  * Automatically selects the best available node based on resource availability,
@@ -77,7 +92,12 @@ export async function execToolOnAgentd(
   toolInput: Record<string, unknown>,
   nodeId?: string,
   allowedNodes?: readonly string[],
-): Promise<{ success: boolean; data?: string; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: string;
+  error?: string;
+  node?: ExecutedAgentdNode;
+}> {
   'use step';
 
   const { selectBestNode } = await import('@/lib/workflow/agent/dispatch');
@@ -181,7 +201,19 @@ export async function execToolOnAgentd(
     selectedBy: nodeId ? 'explicit' : 'auto',
   });
 
-  return dispatchToolToAgentd(config, req);
+  // User-facing node label from dashboard config (agentd.nodes[].name),
+  // matched by the same node id. Optional — falls back to id/ip in the UI.
+  const configuredName = configuredNodes.find(
+    (n) => n.id === node.nodeID,
+  )?.name;
+  const executedNode: ExecutedAgentdNode = {
+    id: node.nodeID,
+    name: configuredName,
+    ip: node.ip,
+  };
+
+  const result = await dispatchToolToAgentd(config, req);
+  return { ...result, node: executedNode };
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   writeToolOutputDenied,
 } from '@/lib/workflow/agent/sender/writers';
 import { createLogger } from '@/lib/utils/logger';
+import type { ExecutedAgentdNode } from '@/lib/extra/agent/agentd-tools-client';
 import { tool } from 'ai';
 import { z } from 'zod';
 import { defineBuildInTool } from '../define';
@@ -68,6 +69,9 @@ interface SandboxExecOutput {
   stdout: string;
   stderr: string;
   backend: 'agentd' | 'vercel-fallback';
+  /** Which agentd node actually ran this call. Present only on the
+   *  agentd backend; the fallback path has no node. */
+  node?: ExecutedAgentdNode;
 }
 
 interface SandboxReadOutput {
@@ -75,6 +79,7 @@ interface SandboxReadOutput {
   path: string;
   content: string;
   backend: 'agentd' | 'vercel-fallback';
+  node?: ExecutedAgentdNode;
 }
 
 interface SandboxWriteOutput {
@@ -82,6 +87,7 @@ interface SandboxWriteOutput {
   path: string;
   bytes: number;
   backend: 'agentd' | 'vercel-fallback';
+  node?: ExecutedAgentdNode;
 }
 
 interface SandboxPortOutput {
@@ -142,6 +148,11 @@ async function execOnAgentd(
   /** Set when an L0 block rule denied the call. Callers must NOT fall
    *  back to Vercel Sandbox when this is true — the block is final. */
   blocked?: boolean;
+  /** Identity of the node the call actually ran on, forwarded from
+   *  execToolOnAgentd. Absent on the L0-block short-circuit (no dispatch
+   *  happened). Threaded into the SandboxOutput so the chat tool card can
+   *  show which machine executed the call. */
+  node?: ExecutedAgentdNode;
 } | null> {
   'use step';
 
@@ -699,6 +710,7 @@ export default defineBuildInTool({
               stdout: parsed.stdout,
               stderr: parsed.stderr,
               backend: 'agentd',
+              node: agentdResult.node,
             } satisfies SandboxExecOutput;
           }
 
@@ -811,6 +823,7 @@ export default defineBuildInTool({
               path: input.path,
               content: agentdResult.data || '',
               backend: 'agentd',
+              node: agentdResult.node,
             } satisfies SandboxReadOutput;
           }
 
@@ -874,6 +887,7 @@ export default defineBuildInTool({
               path: input.path,
               bytes: Buffer.byteLength(input.content),
               backend: 'agentd',
+              node: agentdResult.node,
             } satisfies SandboxWriteOutput;
           }
 
