@@ -54,18 +54,6 @@ function hashString(value: string): number {
   return hash;
 }
 
-/**
- * Build a stable signature for the cross-rerank config. Reranking changes
- * both which memories survive and their order, so a config change (enable,
- * model swap, endpoint change) must bust the cache. Returns 'off' when
- * disabled so the common no-rerank path shares one signature.
- */
-function buildRecallRerankSignature(config?: AppConfig): string {
-  const rerank = resolveCrossRerankConfig(config);
-  if (!rerank?.enabled) return 'off';
-  return `on:${rerank.model ?? ''}:${rerank.apiUrl ?? ''}`;
-}
-
 function buildCacheKey(params: CacheKeyParams): string {
   const queryHash = hashString(params.query);
   return [
