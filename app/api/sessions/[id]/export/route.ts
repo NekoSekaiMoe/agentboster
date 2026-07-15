@@ -1,17 +1,28 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess } from '@/lib/auth/access';
 import { getSession, getVisibleSessionMessages } from '@/lib/core/db/chat';
 import { deserializePersistedMessages } from '@/lib/chat/persistence';
-import { listLongTermMemories } from '@/lib/memory/long-term';
 import { listSessionSummaries } from '@/lib/memory/session';
 import { cookies } from 'next/headers';
+
+/**
+ * Response headers for exports of private data. These payloads contain a
+ * user's session messages/summaries, so they must never be cached by the
+ * browser, a shared proxy, or a CDN.
+ */
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'private, no-store, max-age=0',
+  Pragma: 'no-cache',
+} as const;
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-  if (!authSession) {
+  let access: Awaited<ReturnType<typeof requireAuthAccess>>;
+  try {
+    access = await requireAuthAccess(cookieStore);
+  } catch {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -19,6 +30,12 @@ export async function GET(
   const session = await getSession(sessionId);
   if (!session) {
     return Response.json({ error: 'Session not found' }, { status: 404 });
+  }
+
+  // Ownership check: a logged-in user must not be able to export another
+  // user's session just by knowing its id. Admins may export any session.
+  if (!access.isAdmin && session.userId !== access.session.userId) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const [messageRows, summaries] = await Promise.all([
@@ -57,6 +74,7 @@ export async function GET(
     headers: {
       'Content-Type': 'application/json',
       'Content-Disposition': `attachment; filename="${filename}"`,
+      ...NO_STORE_HEADERS,
     },
   });
 }
