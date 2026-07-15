@@ -45,9 +45,19 @@ export async function deriveEdgesForMemory(
     const memory = await getLongTermMemoryRow(memoryId);
     if (!memory) return;
 
+    // Tenant isolation: edge derivation joins other memories by key prefix
+    // and embedding similarity. Without a userId we cannot scope those
+    // queries to a single tenant, so a global (cross-user) derivation would
+    // link memories across users and leak them through BFS recall. Skip
+    // derivation entirely rather than build unscoped edges.
+    if (!memory.userId) {
+      logger.warn('derive_edges:skipped_no_user', { memoryId });
+      return;
+    }
+
     const edgePromises: Promise<unknown>[] = [];
 
-    if (memory.key && memory.userId) {
+    if (memory.key) {
       const prefix = extractKeyPrefix(memory.key);
       if (prefix) {
         edgePromises.push(
@@ -101,7 +111,7 @@ async function deriveSameTopicEdges(
   );
 }
 
-async function deriveRelatedEdges(memoryId: string, userId?: string | null) {
+async function deriveRelatedEdges(memoryId: string, userId: string) {
   const chunks = await listLongTermMemoryChunksForMemory(memoryId);
   const chunk = chunks[0];
   if (
@@ -118,7 +128,7 @@ async function deriveRelatedEdges(memoryId: string, userId?: string | null) {
     embeddingModel: chunk.embeddingModel,
     embeddingDimensions: chunk.embeddingDimensions,
     threshold: RELATED_SIMILARITY_THRESHOLD,
-    userId: userId ?? undefined,
+    userId,
     limit: MAX_RELATED_EDGES,
   });
 

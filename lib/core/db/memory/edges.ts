@@ -5,6 +5,16 @@ import { and, eq, inArray, or, sql } from 'drizzle-orm';
 
 const _logger = createLogger('db.memory.edges');
 
+/**
+ * Escape LIKE wildcards (`_` and `%`) in a literal string so it can be
+ * safely used as a prefix pattern. Without this, a key prefix like
+ * `user_profile` would match `userXprofile.*` because `_` is a single-
+ * char wildcard in SQL LIKE.
+ */
+function escapeLikeLiteral(value: string): string {
+  return value.replace(/([\\%_])/g, '\\$1');
+}
+
 export async function createMemoryEdge(input: {
   srcMemoryId: string;
   dstMemoryId: string;
@@ -59,13 +69,32 @@ export async function deleteDerivedEdgesForMemory(memoryId: string) {
 
 /**
  * Find memories connected to a set of seed memory IDs via edges (1 hop).
- * Returns connected memory IDs with their best edge weight, excluding seeds.
+ * Returns connected memory IDs with their best edge weight and which seed
+ * they came from, excluding seeds themselves.
+ *
+ * Tenant isolation: a `userId` MUST be supplied. Both endpoints of every
+ * edge are constrained to belong to that user (via a join on
+ * long_term_memories for src and dst), so no cross-tenant memory can ever
+ * be reached through the graph — even if a stray edge linking two users'
+ * memories somehow exists.
  */
 export async function getConnectedMemoryIds(
   seedMemoryIds: string[],
-): Promise<{ memoryId: string; relation: string; weight: number }[]> {
-  if (seedMemoryIds.length === 0) return [];
+  userId: string,
+): Promise<
+  { memoryId: string; relation: string; weight: number; seedId: string }[]
+> {
+  if (seedMemoryIds.length === 0 || !userId) return [];
 
+  const srcMem = schema.longTermMemories;
+  const dstMem = schema.longTermMemories;
+
+  // Join both endpoints to long_term_memories and require both to belong
+  // to `userId`. We alias via two separate subqueries to keep it simple:
+  // fetch edges where either endpoint is a seed, then verify ownership of
+  // both endpoints in-query with EXISTS-style constraints expressed as
+  // inArray against the user's memory ids is not viable (unbounded), so we
+  // join twice using raw SQL aliases.
   const edges = await db
     .select({
       srcMemoryId: schema.memoryEdges.srcMemoryId,
@@ -75,42 +104,60 @@ export async function getConnectedMemoryIds(
     })
     .from(schema.memoryEdges)
     .where(
-      or(
-        inArray(schema.memoryEdges.srcMemoryId, seedMemoryIds),
-        inArray(schema.memoryEdges.dstMemoryId, seedMemoryIds),
+      and(
+        or(
+          inArray(schema.memoryEdges.srcMemoryId, seedMemoryIds),
+          inArray(schema.memoryEdges.dstMemoryId, seedMemoryIds),
+        ),
+        // Both endpoints must belong to userId.
+        sql`EXISTS (SELECT 1 FROM ${srcMem} m WHERE m.id = ${schema.memoryEdges.srcMemoryId} AND m.user_id = ${userId})`,
+        sql`EXISTS (SELECT 1 FROM ${dstMem} m WHERE m.id = ${schema.memoryEdges.dstMemoryId} AND m.user_id = ${userId})`,
       ),
     );
 
   const seedSet = new Set(seedMemoryIds);
-  const best = new Map<string, { relation: string; weight: number }>();
+  const best = new Map<
+    string,
+    { relation: string; weight: number; seedId: string }
+  >();
 
   for (const edge of edges) {
-    const connectedId = seedSet.has(edge.srcMemoryId)
-      ? edge.dstMemoryId
-      : edge.srcMemoryId;
+    const srcIsSeed = seedSet.has(edge.srcMemoryId);
+    const connectedId = srcIsSeed ? edge.dstMemoryId : edge.srcMemoryId;
+    const seedId = srcIsSeed ? edge.srcMemoryId : edge.dstMemoryId;
 
     if (seedSet.has(connectedId)) continue;
 
     const existing = best.get(connectedId);
     if (!existing || edge.weight > existing.weight) {
-      best.set(connectedId, { relation: edge.relation, weight: edge.weight });
+      best.set(connectedId, {
+        relation: edge.relation,
+        weight: edge.weight,
+        seedId,
+      });
     }
   }
 
-  return Array.from(best.entries()).map(([memoryId, { relation, weight }]) => ({
-    memoryId,
-    relation,
-    weight,
-  }));
+  return Array.from(best.entries()).map(
+    ([memoryId, { relation, weight, seedId }]) => ({
+      memoryId,
+      relation,
+      weight,
+      seedId,
+    }),
+  );
 }
 
 /**
  * Fetch content for a list of memory IDs (for BFS expansion results).
+ * Scoped to `userId` so callers can never surface another tenant's
+ * content even if an ID leaked into the id list.
  */
 export async function getMemoryContentByIds(
   memoryIds: string[],
+  userId: string,
 ): Promise<Map<string, string>> {
-  if (memoryIds.length === 0) return new Map();
+  if (memoryIds.length === 0 || !userId) return new Map();
 
   const rows = await db
     .select({
@@ -118,7 +165,12 @@ export async function getMemoryContentByIds(
       content: schema.longTermMemories.content,
     })
     .from(schema.longTermMemories)
-    .where(inArray(schema.longTermMemories.id, memoryIds));
+    .where(
+      and(
+        inArray(schema.longTermMemories.id, memoryIds),
+        eq(schema.longTermMemories.userId, userId),
+      ),
+    );
 
   return new Map(rows.map((row) => [row.id, row.content]));
 }
@@ -126,6 +178,7 @@ export async function getMemoryContentByIds(
 /**
  * Find memories sharing the same key prefix as the given memory.
  * Key prefix is the part before the last dot (e.g., "user" from "user.location").
+ * LIKE wildcards in the prefix are escaped so `user_x` cannot match `userYx`.
  */
 export async function findMemoriesWithSameKeyPrefix(input: {
   memoryId: string;
@@ -133,13 +186,17 @@ export async function findMemoriesWithSameKeyPrefix(input: {
   userId: string;
   limit?: number;
 }): Promise<string[]> {
+  if (!input.userId) return [];
+
+  const pattern = `${escapeLikeLiteral(input.keyPrefix)}.%`;
+
   const rows = await db
     .select({ id: schema.longTermMemories.id })
     .from(schema.longTermMemories)
     .where(
       and(
         eq(schema.longTermMemories.userId, input.userId),
-        sql`${schema.longTermMemories.key} LIKE ${`${input.keyPrefix}.%`}`,
+        sql`${schema.longTermMemories.key} LIKE ${pattern} ESCAPE '\\'`,
         sql`${schema.longTermMemories.id} != ${input.memoryId}`,
       ),
     )
@@ -150,7 +207,9 @@ export async function findMemoriesWithSameKeyPrefix(input: {
 
 /**
  * Find memories whose embeddings are highly similar to the given embedding.
- * Returns memory IDs (deduplicated from chunks) with their cosine similarity.
+ * Returns memory IDs (deduplicated from chunks, keeping the max similarity
+ * per memory) with their cosine similarity. A `userId` MUST be supplied so
+ * similarity search never crosses tenants.
  */
 export async function findSimilarMemoryIds(input: {
   memoryId: string;
@@ -158,41 +217,43 @@ export async function findSimilarMemoryIds(input: {
   embeddingModel: string;
   embeddingDimensions: number;
   threshold: number;
-  userId?: string;
+  userId: string;
   limit?: number;
 }): Promise<{ memoryId: string; similarity: number }[]> {
+  if (!input.userId) return [];
+
   const distanceExpr = sql<number>`(${schema.longTermMemoryChunks.embedding} <=> ${`[${input.embedding.join(',')}]`}::vector)`;
   const similarityExpr = sql<number>`greatest(0, 1 - ${distanceExpr})`;
+  const maxSimilarityExpr = sql<number>`max(${similarityExpr})`;
 
-  const conditions = [
-    sql`${schema.longTermMemoryChunks.embedding} IS NOT NULL`,
-    eq(schema.longTermMemoryChunks.embeddingModel, input.embeddingModel),
-    eq(
-      schema.longTermMemoryChunks.embeddingDimensions,
-      input.embeddingDimensions,
-    ),
-    sql`${schema.longTermMemoryChunks.memoryId} != ${input.memoryId}`,
-  ];
-
-  if (input.userId) {
-    conditions.push(eq(schema.longTermMemories.userId, input.userId));
-  }
-
+  // Aggregate by memoryId so multiple chunks of the same memory collapse
+  // into one row (keeping the best similarity) BEFORE the limit is applied.
   const rows = await db
     .select({
       memoryId: schema.longTermMemoryChunks.memoryId,
-      similarity: similarityExpr,
+      similarity: maxSimilarityExpr,
     })
     .from(schema.longTermMemoryChunks)
     .innerJoin(
       schema.longTermMemories,
       eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
     )
-    .where(and(...conditions))
-    .orderBy(sql`${similarityExpr} DESC`)
+    .where(
+      and(
+        sql`${schema.longTermMemoryChunks.embedding} IS NOT NULL`,
+        eq(schema.longTermMemoryChunks.embeddingModel, input.embeddingModel),
+        eq(
+          schema.longTermMemoryChunks.embeddingDimensions,
+          input.embeddingDimensions,
+        ),
+        sql`${schema.longTermMemoryChunks.memoryId} != ${input.memoryId}`,
+        eq(schema.longTermMemories.userId, input.userId),
+      ),
+    )
+    .groupBy(schema.longTermMemoryChunks.memoryId)
+    .having(sql`${maxSimilarityExpr} >= ${input.threshold}`)
+    .orderBy(sql`${maxSimilarityExpr} DESC`)
     .limit(input.limit ?? 10);
 
-  return rows
-    .filter((r) => r.similarity >= input.threshold)
-    .map((r) => ({ memoryId: r.memoryId, similarity: r.similarity }));
+  return rows.map((r) => ({ memoryId: r.memoryId, similarity: r.similarity }));
 }
