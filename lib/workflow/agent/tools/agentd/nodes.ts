@@ -59,7 +59,7 @@ async function hasMultipleOnlineNodesStep() {
 
 export default defineBuildInTool({
   id: 'agentd-nodes',
-  description: `Query available agentd nodes and their resource status. Use this to inspect node capacity before delegating compute-intensive tasks.`,
+  description: `Query available agentd nodes (execution locations) and their resource status. Each online node is a machine where file and command tools can run; use this to discover which nodes exist before pinning a task to a specific one. The nodeId returned here can be passed as the optional \`nodeId\` argument to the sandbox exec/read/write, desktop, and browser tools to force execution on that node instead of letting the scheduler auto-select.`,
   factory: async (_config, { appConfig }) => {
     const agentdEnabled = appConfig.agentd?.enabled ?? false;
     if (!agentdEnabled) {
@@ -78,7 +78,7 @@ export default defineBuildInTool({
     return {
       listNodes: tool({
         title: 'List AgentD Nodes',
-        description: `List all online agentd nodes with CPU model, resource usage (CPU/memory/disk), and active task count. Use this to choose which node should handle a specific task based on available resources.`,
+        description: `List all online agentd nodes (available execution locations) with CPU model, resource usage (CPU/memory/disk), and active task count. Use this to discover which nodes exist and to choose which node should handle a specific task based on available resources. Pass the returned nodeId as the optional \`nodeId\` argument on the exec/read/write, desktop, or browser tools to run there specifically; omit it to let the scheduler pick the best node automatically.`,
         inputSchema: z.object({
           requiredSandbox: z
             .enum(['docker', 'docker-strict', 'lxc'])

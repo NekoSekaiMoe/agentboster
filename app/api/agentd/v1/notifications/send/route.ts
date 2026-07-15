@@ -55,6 +55,12 @@ const requestSchema = z.object({
   options: z.array(z.string()).optional(),
   expiresAt: z.string().optional(),
   message: z.any().optional(),
+  // Node id of the agentd daemon that raised this L2 authorization.
+  // Persisted on the decision so the user's verdict is later routed back
+  // to *this* daemon (which holds the paused task + L2AuthManager cache)
+  // rather than to nodes[0]. Optional — older daemons don't send it, in
+  // which case the forward falls back to default single-node resolution.
+  node_id: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -101,7 +107,7 @@ export async function POST(request: Request) {
     reason: data.reason,
     options: data.options,
     status: DecisionStatus.PENDING,
-    nodeId: undefined,
+    nodeId: data.node_id,
     createdAt: new Date(),
     timeoutAt: expiresAt,
   };

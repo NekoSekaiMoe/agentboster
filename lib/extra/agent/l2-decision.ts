@@ -101,7 +101,14 @@ export async function processL2Decision(input: {
     await mgr.markDecisionProcessed(decisionId);
     await updateTaskStatus(taskId, 'running', 'L2 authorized: pass_once');
     await finalizeDecision(decisionId, 'pass', resolvedBy, decision);
-    await forwardToDaemon(taskId, decisionId, 'pass_once', command, 'once');
+    await forwardToDaemon(
+      taskId,
+      decisionId,
+      'pass_once',
+      command,
+      'once',
+      decision?.nodeId,
+    );
     return {
       success: true,
       status: 200,
@@ -118,7 +125,14 @@ export async function processL2Decision(input: {
       'Rejected by user via L2 authorization (reject_once)',
     );
     await finalizeDecision(decisionId, 'reject', resolvedBy, decision);
-    await forwardToDaemon(taskId, decisionId, 'reject_once', command, 'once');
+    await forwardToDaemon(
+      taskId,
+      decisionId,
+      'reject_once',
+      command,
+      'once',
+      decision?.nodeId,
+    );
     return {
       success: true,
       status: 200,
@@ -189,7 +203,14 @@ export async function processL2Decision(input: {
       resolvedBy,
       decision,
     );
-    await forwardToDaemon(taskId, decisionId, action, command, timeInput);
+    await forwardToDaemon(
+      taskId,
+      decisionId,
+      action,
+      command,
+      timeInput,
+      decision?.nodeId,
+    );
     return {
       success: true,
       status: 200,
@@ -248,6 +269,7 @@ async function forwardToDaemon(
   action: string,
   pattern: string,
   duration: string,
+  nodeId?: string,
 ): Promise<void> {
   try {
     await forwardL2Confirm({
@@ -256,6 +278,7 @@ async function forwardToDaemon(
       action,
       pattern,
       duration,
+      nodeId,
     });
   } catch (err) {
     logger.warn('forward to daemon failed; decision still recorded', {

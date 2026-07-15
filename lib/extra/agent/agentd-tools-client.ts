@@ -66,6 +66,70 @@ export async function getAgentdClientConfigForNode(
 }
 
 /**
+ * Resolve an AgentdHttpConfig for a node identified only by its node id,
+ * looking up the registered ip:port to supply the fallback URL. Returns
+ * null when the node id is unknown (no matching row) so callers can fall
+ * back to the default single-node config resolution.
+ *
+ * Used by `forwardL2Confirm` to route an L2 verdict back to the specific
+ * daemon that raised the authorization. Without this, the verdict always
+ * hits `nodes[0]`/`AGENTD_URL`; in a multi-node install that delivers the
+ * user's decision to the wrong daemon and leaves the raising daemon's
+ * task hung until it times out.
+ */
+export async function getAgentdClientConfigByNodeId(
+  nodeId: string,
+): Promise<AgentdHttpConfig | null> {
+  'use step';
+  const { agentdNodes } = await import('@/lib/core/db/schema');
+  const { db } = await import('@/lib/core/db');
+  const { eq } = await import('drizzle-orm');
+  const rows = await db
+    .select({ ip: agentdNodes.ip, port: agentdNodes.port })
+    .from(agentdNodes)
+    .where(eq(agentdNodes.nodeID, nodeId))
+    .limit(1);
+  if (rows.length === 0) {
+    return null;
+  }
+  const appConfig = await getAppConfig();
+  const configuredNodes = appConfig.agentd?.nodes ?? [];
+  const fallbackUrl = `http://${rows[0].ip}:${rows[0].port}`;
+  const resolution = resolveAgentdNodeUrlWithReason({
+    configuredNodes,
+    nodeId,
+    envUrl: process.env.AGENTD_URL,
+    fallbackUrl,
+  });
+  if (
+    resolution.usableConfiguredUrlCount > 1 &&
+    (resolution.reason === 'env' || resolution.reason === 'registered-fallback')
+  ) {
+    logger.warn('agentd configured URL did not match node for L2 routing', {
+      nodeId,
+      configuredUrlCount: resolution.usableConfiguredUrlCount,
+      fallbackReason: resolution.reason,
+    });
+  }
+  return buildAgentdHttpConfig(resolution.url);
+}
+
+/**
+ * Identity of the agentd node a tool call actually ran on. Attached to
+ * `execToolOnAgentd`'s result so callers (and, ultimately, the chat
+ * tool card) can show *which* machine executed the call rather than an
+ * opaque "agentd". `name` is the user-facing label from the dashboard
+ * `agentd.nodes[].name` config when present; it is optional because
+ * most single-node self-host installs never set it, in which case the
+ * card falls back to the id/ip.
+ */
+export interface ExecutedAgentdNode {
+  id: string;
+  name?: string;
+  ip: string;
+}
+
+/**
  * Execute a tool on the Agent Daemon synchronously.
  * This is the primary execution path when Agent Daemon is online.
  * Automatically selects the best available node based on resource availability,
@@ -77,7 +141,12 @@ export async function execToolOnAgentd(
   toolInput: Record<string, unknown>,
   nodeId?: string,
   allowedNodes?: readonly string[],
-): Promise<{ success: boolean; data?: string; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: string;
+  error?: string;
+  node?: ExecutedAgentdNode;
+}> {
   'use step';
 
   const { selectBestNode } = await import('@/lib/workflow/agent/dispatch');
@@ -181,7 +250,19 @@ export async function execToolOnAgentd(
     selectedBy: nodeId ? 'explicit' : 'auto',
   });
 
-  return dispatchToolToAgentd(config, req);
+  // User-facing node label from dashboard config (agentd.nodes[].name),
+  // matched by the same node id. Optional — falls back to id/ip in the UI.
+  const configuredName = configuredNodes.find(
+    (n) => n.id === node.nodeID,
+  )?.name;
+  const executedNode: ExecutedAgentdNode = {
+    id: node.nodeID,
+    name: configuredName,
+    ip: node.ip,
+  };
+
+  const result = await dispatchToolToAgentd(config, req);
+  return { ...result, node: executedNode };
 }
 
 /**

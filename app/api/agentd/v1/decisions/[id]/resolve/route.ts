@@ -117,6 +117,8 @@ export async function POST(
           decision_id: decisionId,
           action: daemonAction,
           duration: parsed.data.time_input ?? reply,
+          // Route the verdict back to the daemon that raised it (multi-node).
+          nodeId: decision.nodeId,
         });
       } catch (err) {
         logger.warn('forward to daemon failed; decision still recorded', {

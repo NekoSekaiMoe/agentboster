@@ -134,6 +134,9 @@ describe('l2-confirm: pass_once', () => {
       action: 'pass_once',
       pattern: 'rm -rf /tmp/x',
       duration: 'once',
+      // No nodeId on the seeded decision → forwarded as undefined, so
+      // agentd-client falls back to default single-node resolution.
+      nodeId: undefined,
     });
   });
 
@@ -246,6 +249,27 @@ describe('l2-confirm: dedup', () => {
     // Second click is deduped — forward fires only once.
     expect(forwardL2ConfirmMock).toHaveBeenCalledTimes(1);
     expect(resolveMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('l2-confirm: node pinning', () => {
+  it('forwards the decision nodeId so the verdict routes back to the raising daemon', async () => {
+    // A multi-node install: the L2 was raised by node "node-b", stored on
+    // the decision at enqueue time. The verdict must carry that nodeId so
+    // agentd-client routes it to node-b's /api/v1/l2-confirm, not nodes[0].
+    setDecision('dec-1', { nodeId: 'node-b' });
+
+    await post({ ...baseBody, action: 'pass_once' });
+
+    expect(forwardL2ConfirmMock).toHaveBeenCalledTimes(1);
+    expect(forwardL2ConfirmMock).toHaveBeenCalledWith({
+      task_id: 'task-1',
+      decision_id: 'dec-1',
+      action: 'pass_once',
+      pattern: 'rm -rf /tmp/x',
+      duration: 'once',
+      nodeId: 'node-b',
+    });
   });
 });
 

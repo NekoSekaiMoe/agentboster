@@ -41,7 +41,7 @@ import (
 )
 
 var (
-	version   = "0.1.0"
+	version   = "0.1.1"
 	buildTime = "unknown"
 )
 
@@ -303,7 +303,7 @@ func main() {
 		return tasks, len(stats)
 	})
 
-	dispatcher := worker.NewDispatcher(bus, cfg.WorkerPool, cfg.ExecPool, gk, sbManager, clawlessClient, agentMgr, l2Manager, cfg.TaskSummary.TidyInterval)
+	dispatcher := worker.NewDispatcher(bus, cfg.WorkerPool, cfg.ExecPool, gk, sbManager, clawlessClient, agentMgr, l2Manager, cfg.TaskSummary.TidyInterval, nodeID)
 	dispatcher.Start()
 	defer dispatcher.Stop()
 
