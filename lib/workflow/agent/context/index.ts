@@ -16,6 +16,10 @@ import type { ModelMessage } from 'ai';
 
 const SUMMARY_MESSAGE_PREFIX = '[Conversation Summary]\n';
 
+const RECENT_USER_MESSAGE_COUNT = 4;
+const MAX_ENRICHED_QUERY_CHARS = 1600;
+const MAX_HISTORY_MESSAGE_CHARS = 280;
+
 export function createSummaryModelMessage(summaryText: string): ModelMessage {
   return {
     role: 'user',
@@ -123,57 +127,82 @@ export async function buildPostSummaryConversationMessages(
 }
 
 /**
- * Build the initial ModelMessage[] for a chat run.
+ * Build an enriched recall query from the current message plus recent
+ * user messages from history. This improves recall for messages that
+ * reference prior context (e.g., "那个" / "that thing we discussed").
  *
- * Optionally retrieves the top-K most relevant long-term memories for the
- * user's latest message and injects them as a system-prefixed user message
- * at the start. This auto-RAG path is the primary mechanism by which
- * personal context (location, preferences, schedule) reaches the model —
- * it does not rely on the agent proactively calling readMemory, which
- * small/mid models frequently skip even when prompted.
- *
- * Auto-RAG is opt-in via the `recallUserId` + `recallQuery` options. When
- * either is absent (e.g. anonymous chat, /init-agents-md path, compression
- * re-runs), no recall happens and the output matches the prior behavior.
+ * `modelMessages` here is purely conversation history — the summary and
+ * recalled-memory blocks are injected into the prefix AFTER this runs, so
+ * there is no internal/prefixed message to filter out. The caller writes
+ * the current user turn to the DB before building context, so the most
+ * recent user message in `modelMessages` is `currentQuery` itself; we skip
+ * that one so it isn't concatenated twice (which would also perturb the
+ * recall cache key).
  */
+function buildEnrichedRecallQuery(
+  currentQuery: string,
+  modelMessages: ModelMessage[],
+): string {
+  const recentUserTexts: string[] = [];
+  let skippedCurrent = false;
+
+  for (
+    let i = modelMessages.length - 1;
+    i >= 0 && recentUserTexts.length < RECENT_USER_MESSAGE_COUNT;
+    i--
+  ) {
+    const msg = modelMessages[i];
+    if (msg.role !== 'user' || typeof msg.content !== 'string') continue;
+
+    // The last user message is the current turn (already captured in
+    // currentQuery); skip exactly one occurrence of it.
+    if (!skippedCurrent) {
+      skippedCurrent = true;
+      continue;
+    }
+
+    const trimmed = msg.content.slice(0, MAX_HISTORY_MESSAGE_CHARS);
+    recentUserTexts.push(trimmed);
+  }
+
+  if (recentUserTexts.length === 0) return currentQuery;
+
+  const parts = [currentQuery, ...recentUserTexts.reverse()];
+  let combined = parts.join('\n');
+  if (combined.length > MAX_ENRICHED_QUERY_CHARS) {
+    combined = combined.slice(0, MAX_ENRICHED_QUERY_CHARS);
+  }
+  return combined;
+}
+
 export async function buildInitialContextMessages(
   sessionId: string,
   options?: {
     modelId?: string | null;
     allowFileParts?: boolean;
-    /**
-     * User id to scope the long-term memory recall. When null/undefined,
-     * no auto-recall happens.
-     */
     recallUserId?: string | null;
-    /**
-     * The user's latest message text, used as the semantic query for
-     * memory recall. When null/undefined/empty, no auto-recall happens.
-     */
     recallQuery?: string | null;
-    /**
-     * App config. Forwarded to recallRelevantMemories so it can pick the
-     * right recall strategy (scorer vs vector). When omitted, recalled
-     * from KV lazily. Without this, the strategy resolver falls back to
-     * 'vector' even when no embedding model is configured, causing
-     * personal-context queries ("我住哪") to silently miss memories
-     * that the LLM scorer would have caught.
-     */
     config?: AppConfig;
   },
 ): Promise<ModelMessage[]> {
   const effectiveConfig =
     options?.config ?? (await getConfig().catch(() => null));
-  const [{ summaryText, modelMessages }, recalledMemories] = await Promise.all([
-    buildPostSummaryConversationMessages(sessionId, options),
-    options?.recallUserId && options?.recallQuery
-      ? recallRelevantMemories({
-          userId: options.recallUserId,
-          query: options.recallQuery,
-          config: effectiveConfig ?? undefined,
-        })
-      : Promise.resolve([]),
-  ]);
+
+  const { summaryText, modelMessages } =
+    await buildPostSummaryConversationMessages(sessionId, options);
+
+  let recalledMemories: Awaited<ReturnType<typeof recallRelevantMemories>> = [];
+  if (options?.recallUserId && options?.recallQuery) {
+    const enrichedQuery = buildEnrichedRecallQuery(
+      options.recallQuery,
+      modelMessages,
+    );
+    recalledMemories = await recallRelevantMemories({
+      userId: options.recallUserId,
+      query: enrichedQuery,
+      config: effectiveConfig ?? undefined,
+    });
+  }
 
   const recalledContext = formatRecalledMemoriesForContext(recalledMemories);
 

@@ -24,7 +24,7 @@
       "!**/yarn.lock",
       "!**/node_modules",
       "!**/.next",
-      "!cli/**",
+      "!cli",
       "!**/subpackage",
       "!**/public",
       "!**/ref",

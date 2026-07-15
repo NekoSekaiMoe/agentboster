@@ -42,10 +42,10 @@ function MessageBubble({ msg }: { msg: SubagentMessage }) {
         msg.is_error && 'border-red-500/30 bg-red-50 dark:bg-red-950/20',
       )}
     >
-      <div className="mb-1 text-xs font-medium text-muted-foreground">
+      <div className="mb-1 font-medium text-muted-foreground text-xs">
         {isAssistant ? 'Assistant' : isToolResult ? 'Tool Result' : 'User'}
         {msg.tool_name && (
-          <span className="ml-2 text-xs text-blue-500">[{msg.tool_name}]</span>
+          <span className="ml-2 text-blue-500 text-xs">[{msg.tool_name}]</span>
         )}
       </div>
       <div className="whitespace-pre-wrap break-words">{msg.content}</div>
@@ -135,7 +135,7 @@ export default function SubagentDetailPage() {
         <p className="text-red-500">{error}</p>
         <Link
           href={`/chat/${sessionId}`}
-          className="text-sm text-muted-foreground underline"
+          className="text-muted-foreground text-sm underline"
         >
           Back to session
         </Link>
@@ -155,7 +155,7 @@ export default function SubagentDetailPage() {
       <div className="mb-6">
         <Link
           href={`/chat/${sessionId}`}
-          className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="mb-4 inline-flex items-center gap-1 text-muted-foreground text-sm transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" />
           Back to session
@@ -171,7 +171,7 @@ export default function SubagentDetailPage() {
           <h1 className="font-semibold text-lg">
             Subagent: {info?.id?.slice(0, 8)}
           </h1>
-          <span className="rounded bg-muted px-2 py-0.5 text-xs capitalize text-muted-foreground">
+          <span className="rounded bg-muted px-2 py-0.5 text-muted-foreground text-xs capitalize">
             {info?.status}
           </span>
         </div>
@@ -213,7 +213,7 @@ export default function SubagentDetailPage() {
           messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)
         )}
         {info?.status === 'running' && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
             <Loader2 className="size-3.5 animate-spin" />
             Subagent is still running…
           </div>

@@ -1,4 +1,8 @@
 import { listLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
+import {
+  getConnectedMemoryIds,
+  getMemoryContentByIds,
+} from '@/lib/core/db/memory/edges';
 import { scoreMemoryRelevance } from '@/lib/security/l1-scorer';
 import type { AppConfig } from '@/types/config';
 import { createLogger } from '@/lib/utils/logger';
@@ -8,8 +12,103 @@ import {
   resolveCrossRerankConfig,
 } from './cross-reranker';
 import { searchLongTermMemories } from './long-term';
+import type { HybridSearchRow } from './search';
 
 const logger = createLogger('memory.recall');
+
+// ─── Recall cache ────────────────────────────────────────────────────
+// Caches formatted memory context strings by userId+queryHash to avoid
+// redundant vector searches during rapid-fire conversation turns.
+
+const CACHE_TTL_MS = 60_000;
+const CACHE_STALE_TTL_MS = 300_000;
+const CACHE_MAX_ENTRIES = 256;
+
+interface CacheEntry {
+  memories: RecalledMemory[];
+  createdAt: number;
+}
+
+const recallCache = new Map<string, CacheEntry>();
+
+/**
+ * Parameters that change the recall result. Every field that affects which
+ * memories come back — and in what order — must be part of the cache key,
+ * otherwise the first call for a given (userId, query) poisons every later
+ * call that varies topK / minConfidence / strategy / rerank config.
+ */
+interface CacheKeyParams {
+  userId: string;
+  query: string;
+  topK: number;
+  minConfidence: number;
+  strategy: string;
+  rerankSignature: string;
+}
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
+function buildCacheKey(params: CacheKeyParams): string {
+  const queryHash = hashString(params.query);
+  return [
+    params.userId,
+    queryHash,
+    params.topK,
+    params.minConfidence,
+    params.strategy,
+    params.rerankSignature,
+  ].join(':');
+}
+
+function getCachedRecall(
+  params: CacheKeyParams,
+): { memories: RecalledMemory[]; stale: boolean } | null {
+  const key = buildCacheKey(params);
+  const entry = recallCache.get(key);
+  if (!entry) return null;
+
+  const age = Date.now() - entry.createdAt;
+  if (age > CACHE_STALE_TTL_MS) {
+    recallCache.delete(key);
+    return null;
+  }
+
+  return { memories: entry.memories, stale: age > CACHE_TTL_MS };
+}
+
+function setCachedRecall(params: CacheKeyParams, memories: RecalledMemory[]) {
+  const key = buildCacheKey(params);
+  recallCache.set(key, { memories, createdAt: Date.now() });
+
+  if (recallCache.size > CACHE_MAX_ENTRIES) {
+    const firstKey = recallCache.keys().next().value;
+    if (firstKey !== undefined) recallCache.delete(firstKey);
+  }
+}
+
+/**
+ * Invalidate all cached recall results for a user. Call this after
+ * memory writes (create/upsert/delete) to prevent stale recall.
+ */
+export function invalidateRecallCache(userId?: string) {
+  if (!userId) {
+    recallCache.clear();
+    return;
+  }
+  for (const key of recallCache.keys()) {
+    // Keys are `userId:queryHash:topK:...`; match the exact first segment
+    // so one userId can't invalidate another that shares a prefix.
+    if (key.slice(0, key.indexOf(':')) === userId) {
+      recallCache.delete(key);
+    }
+  }
+}
 
 /**
  * Default number of long-term memories to auto-inject into the agent's
@@ -51,6 +150,20 @@ export const SCORER_RECENCY_CANDIDATE_LIMIT = 20;
  * pool to cull from; the reranker then cuts it back down to `topK`.
  */
 const CROSS_RERANK_POOL_MULTIPLIER = 4;
+
+/**
+ * Score decay per BFS hop. A memory found 1 hop from a seed gets
+ * its score multiplied by HOP_DECAY × edge_weight. Set to 0.6 to
+ * match the decay curve from graph-based memory retrieval research.
+ */
+const BFS_HOP_DECAY = 0.6;
+
+/**
+ * Overfetch multiplier for the initial seed pool before BFS expansion.
+ * A wider seed pool gives BFS more starting points to discover related
+ * memories through graph edges.
+ */
+const BFS_SEED_OVERFETCH = 3;
 
 export interface RecalledMemory {
   content: string;
@@ -120,19 +233,43 @@ export async function recallRelevantMemories(input: {
 
   const config = input.config;
   const strategy = config ? resolveRecallStrategy(config) : 'vector';
+  const rerankSignature = buildRerankSignature(config);
+
+  const cacheParams: CacheKeyParams = {
+    userId,
+    query,
+    topK,
+    minConfidence,
+    strategy,
+    rerankSignature,
+  };
+
+  const cached = getCachedRecall(cacheParams);
+  if (cached && !cached.stale) {
+    logger.info('recall:cache_hit', { userId });
+    return cached.memories;
+  }
 
   try {
+    let results: RecalledMemory[];
     if (strategy === 'scorer' && config) {
-      return await recallViaScorer({ userId, query, topK, config });
+      results = await recallViaScorer({ userId, query, topK, config });
+    } else {
+      results = await recallViaVector({
+        userId,
+        query,
+        topK,
+        minConfidence,
+        config,
+      });
     }
-    return await recallViaVector({
-      userId,
-      query,
-      topK,
-      minConfidence,
-      config,
-    });
+    setCachedRecall(cacheParams, results);
+    return results;
   } catch (error) {
+    if (cached) {
+      logger.info('recall:serve_stale', { userId });
+      return cached.memories;
+    }
     logger.warn('recall:failed', {
       strategy,
       error: error instanceof Error ? error.message : String(error),
@@ -142,12 +279,26 @@ export async function recallRelevantMemories(input: {
 }
 
 /**
- * Vector + keyword hybrid recall. Existing behavior preserved for
- * deployments that have `embedding_model` configured. When
- * `cross_rerank` is enabled, the RRF candidate pool (sized at
- * `topK * CROSS_RERANK_POOL_MULTIPLIER`) is passed through a dedicated
- * cross-encoder service before the final top-K cut. Failures of the
- * reranker are silent: the RRF order is returned unchanged.
+ * Build a stable signature of the cross-rerank config so cache keys change
+ * when rerank is toggled or repointed at a different model/endpoint.
+ */
+function buildRerankSignature(config?: AppConfig): string {
+  const rerank = resolveCrossRerankConfig(config);
+  if (!rerank?.enabled) return 'norerank';
+  return `rerank:${rerank.model ?? ''}:${rerank.apiUrl ?? ''}`;
+}
+
+/**
+ * Vector + keyword hybrid recall with BFS graph expansion.
+ *
+ * Pipeline:
+ *  1. Overfetch seeds via hybrid search (topK × BFS_SEED_OVERFETCH or
+ *     wider if cross-rerank is enabled).
+ *  2. Expand seeds 1 hop through memory_edges — connected memories get
+ *     score = max_seed_score × HOP_DECAY × edge_weight.
+ *  3. Merge seed and BFS results, deduplicated by memoryId.
+ *  4. Optionally pass through cross-reranker.
+ *  5. Return top-K.
  */
 async function recallViaVector(input: {
   userId: string;
@@ -157,9 +308,10 @@ async function recallViaVector(input: {
   config?: AppConfig;
 }): Promise<RecalledMemory[]> {
   const rerankConfig = resolveCrossRerankConfig(input.config);
-  const poolSize = rerankConfig?.enabled
+  const rerankPoolSize = rerankConfig?.enabled
     ? Math.max(input.topK * CROSS_RERANK_POOL_MULTIPLIER, input.topK + 5)
     : input.topK;
+  const poolSize = Math.max(rerankPoolSize, input.topK * BFS_SEED_OVERFETCH);
 
   const results = await searchLongTermMemories({
     query: input.query,
@@ -168,18 +320,18 @@ async function recallViaVector(input: {
     userId: input.userId,
   });
 
-  if (!rerankConfig?.enabled || results.length <= input.topK) {
-    return results
-      .slice(0, input.topK)
-      .map((row) => ({ content: row.content, score: row.finalScore }));
+  const merged = await expandWithBfs(results, input.topK, input.userId);
+
+  if (!rerankConfig?.enabled || merged.length <= input.topK) {
+    return merged.slice(0, input.topK);
   }
 
   const reranked = await crossRerankCandidates({
     query: input.query,
-    candidates: results.map((row) => ({
-      id: row.chunkId,
-      content: row.content,
-      rrfScore: row.finalScore,
+    candidates: merged.map((m) => ({
+      id: m.content,
+      content: m.content,
+      rrfScore: m.score,
     })),
     config: rerankConfig as CrossRerankConfig,
     topN: input.topK,
@@ -187,12 +339,130 @@ async function recallViaVector(input: {
 
   return reranked.map((row) => ({
     content: row.content,
-    // Preserve original RRF score on the output — the reranker's score
-    // is exposed via `rerankScore` for observability but downstream
-    // consumers (logs, threshold checks) keep working against the RRF
-    // scale they already understand.
     score: row.rrfScore,
   }));
+}
+
+/**
+ * Relation-type multipliers applied on top of the edge weight during BFS
+ * expansion. `contradicts` edges are NOT authoritative context — a memory
+ * that contradicts a seed must not be injected as fact, so it is dropped
+ * (multiplier 0). Directional `supersedes` edges are also dropped here: a
+ * neighbour that a seed supersedes is stale, and one that supersedes a seed
+ * is only reachable if the seed itself matched, so we let the seed stand.
+ * `same_topic` and `related` are the only edges that propagate relevance.
+ */
+const RELATION_SCORE_MULTIPLIER: Record<string, number> = {
+  same_topic: 1.0,
+  related: 1.0,
+  supersedes: 0,
+  contradicts: 0,
+};
+
+/**
+ * Expand seed results through graph edges (1 hop BFS).
+ *
+ * Each connected memory is scored off the SPECIFIC seed it was reached from
+ * (not the global best seed), so a neighbour of a weak seed does not inherit
+ * the strongest seed's score. The score is
+ *   source_seed_score × HOP_DECAY × edge_weight × relation_multiplier
+ * and edges whose relation multiplier is 0 (contradicts / supersedes) are
+ * dropped so they are never injected as authoritative context.
+ *
+ * All DB reads are scoped to `userId` so the graph can never surface another
+ * tenant's memory.
+ */
+async function expandWithBfs(
+  seeds: HybridSearchRow[],
+  topK: number,
+  userId: string,
+): Promise<RecalledMemory[]> {
+  if (seeds.length === 0) return [];
+
+  const seedMemoryIds = [...new Set(seeds.map((s) => s.memoryId))];
+  const seedScoreMap = new Map<string, number>();
+  for (const seed of seeds) {
+    const existing = seedScoreMap.get(seed.memoryId) ?? 0;
+    if (seed.finalScore > existing) {
+      seedScoreMap.set(seed.memoryId, seed.finalScore);
+    }
+  }
+
+  let connected: {
+    memoryId: string;
+    relation: string;
+    weight: number;
+    seedId: string;
+  }[] = [];
+  try {
+    connected = await getConnectedMemoryIds(seedMemoryIds, userId);
+  } catch {
+    logger.info('bfs:edge_query_skipped');
+  }
+
+  const merged: RecalledMemory[] = seeds.map((s) => ({
+    content: s.content,
+    score: s.finalScore,
+  }));
+
+  if (connected.length === 0) return merged;
+
+  // Keep only edges that propagate relevance (drop contradicts/supersedes)
+  // and that reach a memory not already in the seed set.
+  const usable = connected.filter((c) => {
+    if (seedScoreMap.has(c.memoryId)) return false;
+    const multiplier = RELATION_SCORE_MULTIPLIER[c.relation] ?? 1.0;
+    return multiplier > 0;
+  });
+
+  const newMemoryIds = [...new Set(usable.map((c) => c.memoryId))];
+  if (newMemoryIds.length === 0) return merged;
+
+  let contentMap: Map<string, string>;
+  try {
+    contentMap = await getMemoryContentByIds(newMemoryIds, userId);
+  } catch {
+    return merged;
+  }
+
+  // A neighbour may be reachable from several seeds; keep the best score.
+  const bestBfsScore = new Map<string, number>();
+  for (const conn of usable) {
+    const content = contentMap.get(conn.memoryId);
+    if (!content) continue;
+
+    const sourceSeedScore = seedScoreMap.get(conn.seedId) ?? 0;
+    const multiplier = RELATION_SCORE_MULTIPLIER[conn.relation] ?? 1.0;
+    const bfsScore = sourceSeedScore * BFS_HOP_DECAY * conn.weight * multiplier;
+
+    const prev = bestBfsScore.get(conn.memoryId) ?? 0;
+    if (bfsScore > prev) bestBfsScore.set(conn.memoryId, bfsScore);
+  }
+
+  for (const [memoryId, score] of bestBfsScore) {
+    const content = contentMap.get(memoryId);
+    if (content) merged.push({ content, score });
+  }
+
+  logger.info('bfs:expanded', {
+    seedCount: seedMemoryIds.length,
+    connectedCount: connected.length,
+    usableCount: usable.length,
+    newCount: newMemoryIds.length,
+  });
+
+  merged.sort((a, b) => b.score - a.score);
+
+  const seen = new Set<string>();
+  const deduped: RecalledMemory[] = [];
+  for (const m of merged) {
+    if (seen.has(m.content)) continue;
+    seen.add(m.content);
+    deduped.push(m);
+    if (deduped.length >= topK * 2) break;
+  }
+
+  return deduped;
 }
 
 /**
@@ -295,13 +565,19 @@ async function recallViaScorer(input: {
  * Format recalled memories into a single text block suitable for
  * injection as a system message. Returns null when there are no
  * memories to inject (caller should skip the system message entirely).
+ *
+ * Uses anti-lost-in-middle reordering: highest-scored memories are
+ * placed at the beginning and end of the list, since LLMs attend more
+ * to the edges of their context window than the middle.
  */
 export function formatRecalledMemoriesForContext(
   memories: RecalledMemory[],
 ): string | null {
   if (memories.length === 0) return null;
 
-  const lines = memories.map((memory, index) => {
+  const reordered = antiLostInMiddle(memories);
+
+  const lines = reordered.map((memory, index) => {
     return `${index + 1}. ${memory.content}`;
   });
 
@@ -311,4 +587,31 @@ export function formatRecalledMemoriesForContext(
     '',
     ...lines,
   ].join('\n');
+}
+
+/**
+ * Reorder items so the highest-scored entries sit at the edges (start
+ * and end) of the list, pushing lower-scored items into the middle.
+ *
+ * Input must be sorted by score descending. Output alternates placement:
+ *   rank 0 → head, rank 1 → tail, rank 2 → head, rank 3 → tail, ...
+ *
+ * This counteracts the "lost in the middle" effect observed in LLMs,
+ * where items in the center of a long context receive less attention.
+ */
+function antiLostInMiddle<T>(items: T[]): T[] {
+  if (items.length <= 2) return items;
+
+  const head: T[] = [];
+  const tail: T[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    if (i % 2 === 0) {
+      head.push(items[i]);
+    } else {
+      tail.unshift(items[i]);
+    }
+  }
+
+  return [...head, ...tail];
 }

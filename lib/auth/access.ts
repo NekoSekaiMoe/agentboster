@@ -12,18 +12,41 @@ export type AuthAccess = {
   isAdmin: boolean;
 };
 
+/**
+ * Error thrown by the access helpers for the two authorization failure
+ * modes (missing/invalid session → 401, insufficient role → 403).
+ *
+ * It carries an explicit `status` so callers can map an auth failure to the
+ * right HTTP code WITHOUT a blanket `catch → 401`, which would also swallow
+ * unrelated failures (a DB error inside getUserById, a missing AUTH_SECRET)
+ * and mislabel a 5xx as "unauthorized".
+ *
+ * The `message` is kept as the bare 'Unauthorized' / 'Forbidden' string for
+ * backward compatibility with the several routes that still branch on
+ * `error.message === 'Unauthorized'` to pick a status code.
+ */
+export class AuthError extends Error {
+  readonly status: number;
+
+  constructor(message: 'Unauthorized' | 'Forbidden', status: number) {
+    super(message);
+    this.name = 'AuthError';
+    this.status = status;
+  }
+}
+
 export async function requireAuthAccess(
   cookieStore: Pick<RequestCookies, 'get'>,
 ): Promise<AuthAccess> {
   const session = await readAuthSessionFromCookies(cookieStore);
 
   if (!session) {
-    throw new Error('Unauthorized');
+    throw new AuthError('Unauthorized', 401);
   }
 
   const user = await getUserById(session.userId);
   if (!user) {
-    throw new Error('Unauthorized');
+    throw new AuthError('Unauthorized', 401);
   }
 
   return {
@@ -39,7 +62,7 @@ export async function requireAdminAccess(
   const access = await requireAuthAccess(cookieStore);
 
   if (!access.isAdmin) {
-    throw new Error('Forbidden');
+    throw new AuthError('Forbidden', 403);
   }
 
   return access;
@@ -57,6 +80,6 @@ export function assertCanAccessOwnedResource(
   ownerUserId: string | null | undefined,
 ) {
   if (!canAccessOwnedResource(access, ownerUserId)) {
-    throw new Error('Forbidden');
+    throw new AuthError('Forbidden', 403);
   }
 }

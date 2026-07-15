@@ -9,8 +9,10 @@ export {
   builtinMemories,
   longTermMemories,
   longTermMemoryChunks,
+  memoryEdges,
   sessionMemories,
 } from './memory';
+export type { MemoryEdgeRelation } from './memory';
 export {
   knowledgeBases,
   knowledgeConnectors,

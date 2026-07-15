@@ -60,8 +60,6 @@ const hoisted = vi.hoisted(() => {
   };
 });
 
-type Pred = (row: never) => boolean;
-
 vi.mock('drizzle-orm', () => {
   const eq = (col: string, value: unknown) => (row: Record<string, unknown>) =>
     row[col] === value;

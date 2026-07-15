@@ -21,6 +21,8 @@ import {
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { LongTermMemoryIndexing } from '@/types/memory';
+import { deriveEdgesForMemory } from './edges';
+import { invalidateRecallCache } from './recall';
 
 const logger = createLogger('memory.long_term');
 
@@ -153,6 +155,15 @@ export async function createLongTermMemory(input: {
     config: input.config,
   });
 
+  // Invalidate now (content changed) and again once edge derivation finishes.
+  // Derivation runs in the background and rewrites the graph; a recall that
+  // lands mid-derivation would otherwise rebuild the cache on the stale graph
+  // and never be invalidated again. The second invalidation closes that race.
+  invalidateRecallCache(input.userId);
+  deriveEdgesForMemory(memory.id, input.config)
+    .catch(() => {})
+    .finally(() => invalidateRecallCache(input.userId));
+
   return { memory, indexing };
 }
 
@@ -181,6 +192,11 @@ export async function upsertLongTermMemory(input: {
     config: input.config,
   });
 
+  invalidateRecallCache(input.userId);
+  deriveEdgesForMemory(memory.id, input.config)
+    .catch(() => {})
+    .finally(() => invalidateRecallCache(input.userId));
+
   return { memory, indexing, created };
 }
 
@@ -200,6 +216,12 @@ export async function updateLongTermMemory(input: {
     config: input.config,
   });
 
+  const ownerId = memory.userId ?? undefined;
+  invalidateRecallCache(ownerId);
+  deriveEdgesForMemory(memory.id, input.config)
+    .catch(() => {})
+    .finally(() => invalidateRecallCache(ownerId));
+
   return { memory, indexing };
 }
 
@@ -207,7 +229,11 @@ export async function deleteLongTermMemory(
   id: string,
   options?: { userId?: string },
 ) {
-  return deleteLongTermMemoryRow(id, options);
+  const result = await deleteLongTermMemoryRow(id, options);
+  if (result) {
+    invalidateRecallCache(options?.userId);
+  }
+  return result;
 }
 
 export { deleteLongTermMemoryByKey } from '@/lib/core/db/memory/long-term';

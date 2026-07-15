@@ -165,7 +165,7 @@ async function loadBatchStep(
       batches?: Record<string, unknown>;
       jobs?: Record<string, unknown>;
     };
-    if (legacy.batches && legacy.batches[batchId]) {
+    if (legacy.batches?.[batchId]) {
       result = await migrateBatchFromLegacyMetadata({
         sessionId,
         batchId,
