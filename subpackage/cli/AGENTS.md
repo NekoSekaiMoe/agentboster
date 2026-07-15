@@ -63,5 +63,5 @@ changes. Note any auth, config, or packaging impact.
 ## Security & Configuration Tips
 
 The CLI is a thin client: model calls go through the Web backend, not local
-provider SDKs. Do not commit tokens or `~/.agentboster/config.json` contents.
+provider SDKs. Do not commit tokens or `~/.config/agentboster/config.json` contents.
 Node `>=22.19.0` is required.

@@ -275,7 +275,7 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
         // Auto-installed by `install_cli` (this Desktop app). The installer
         // writes agentboster.cmd next to the .cjs bundle here.
         if let Some(home_dir) = resolve_home_dir() {
-            let installed_bin = home_dir.join(".agentboster").join("agent").join("bin");
+            let installed_bin = home_dir.join(".config").join("agentboster").join("agent").join("bin");
             candidates.push(installed_bin.join("agentboster.cmd"));
             candidates.push(installed_bin.join("agentboster.exe"));
             candidates.push(installed_bin.join("agentboster"));
@@ -306,7 +306,7 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
         }
 
         // Other common per-user install locations
-        candidates.push(home_dir.join(".agentboster/agent/bin/agentboster"));
+        candidates.push(home_dir.join(".config/agentboster/agent/bin/agentboster"));
         candidates.push(home_dir.join(".volta/bin/agentboster"));
         candidates.push(home_dir.join(".local/bin/agentboster"));
         candidates.push(home_dir.join(".npm-global/bin/agentboster"));
@@ -375,7 +375,7 @@ fn missing_pi_cli_error(additional: Option<String>) -> String {
 //
 // Resolves the latest CLI release from GitHub, downloads the universal
 // `agentboster-cli-<tag>.tar.gz` tarball, extracts it into the existing
-// per-user bin dir (`~/.agentboster/agent/bin/` — already on the
+// per-user bin dir (`~/.config/agentboster/agent/bin/` — already on the
 // discovery candidate list), and emits progress events to the frontend.
 //
 // The tarball layout (per `subpackage/cli/scripts/package.mjs`) is:
@@ -482,7 +482,7 @@ fn pick_tarball_asset<'a>(release: &'a GithubRelease) -> Result<&'a GithubAsset,
 fn install_target_bin_dir() -> Result<PathBuf, String> {
     let home = resolve_home_dir()
         .ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
-    Ok(home.join(".agentboster").join("agent").join("bin"))
+    Ok(home.join(".config").join("agentboster").join("agent").join("bin"))
 }
 
 /// Stream the asset to a temp file, emitting download progress events.
@@ -618,7 +618,7 @@ fn emit_progress(
     );
 }
 
-/// Install the latest CLI release into `~/.agentboster/agent/bin/`.
+/// Install the latest CLI release into `~/.config/agentboster/agent/bin/`.
 /// Emits `cli-install-progress` events as it goes. Returns the path to
 /// the installed `agentboster` entry script + the release tag.
 #[tauri::command]
@@ -1047,10 +1047,10 @@ fn get_pi_agent_dir() -> Option<PathBuf> {
         }
     }
 
-    // Default: ~/.agentboster/agent
+    // Default: ~/.config/agentboster/agent
     std::env::var_os("HOME")
         .or(std::env::var_os("USERPROFILE"))
-        .map(|home| PathBuf::from(home).join(".agentboster").join("agent"))
+        .map(|home| PathBuf::from(home).join(".config").join("agentboster").join("agent"))
 }
 
 
@@ -1087,13 +1087,16 @@ impl Default for AppSettings {
     }
 }
 
+fn desktop_config_dir() -> Result<PathBuf, String> {
+    let home = resolve_home_dir()
+        .ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
+    Ok(home.join(".config").join("agentboster-desktop"))
+}
+
 /// Save app settings
 #[tauri::command]
-async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+async fn save_settings(_app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    let data_dir = desktop_config_dir()?;
 
     // Ensure directory exists
     fs::create_dir_all(&data_dir).map_err(|e| format!("Failed to create data dir: {}", e))?;
@@ -1107,11 +1110,8 @@ async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), Stri
 
 /// Load app settings
 #[tauri::command]
-async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+async fn load_settings(_app: AppHandle) -> Result<AppSettings, String> {
+    let data_dir = desktop_config_dir()?;
 
     let settings_path = data_dir.join("settings.json");
 

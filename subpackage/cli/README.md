@@ -26,7 +26,7 @@ flowchart TB
 
   subgraph tier3["③ CLI (this repo)"]
     BIN["agentboster"]
-    CFG["~/.agentboster/"]
+    CFG["~/.config/agentboster/"]
     BIN --> CFG
   end
 
@@ -155,7 +155,7 @@ agentboster login -u https://your-app.vercel.app --username you --password '***'
 agentboster login -u https://your-app.vercel.app --pair-code ABCD-1234
 ```
 
-Writes `~/.agentboster/config.json` via `@agentboster/adapter`. The token's device id (`jti`) is recorded in the Web DB so the user can revoke it from the Web UI.
+Writes `~/.config/agentboster/config.json` via `@agentboster/adapter`. The token's device id (`jti`) is recorded in the Web DB so the user can revoke it from the Web UI.
 
 ### 2. Pick a model
 
@@ -245,8 +245,8 @@ Run `agentboster --help` for the authoritative list (extensions add more flags).
 
 | Path | Content |
 |------|---------|
-| `~/.agentboster/config.json` | Server URL, bearer token, username |
-| `~/.agentboster/agent/sessions/` | Local session jsonl (tree state + LLM context mirror) |
+| `~/.config/agentboster/config.json` | Server URL, bearer token, username |
+| `~/.config/agentboster/agent/sessions/` | Local session jsonl (tree state + LLM context mirror) |
 
 `getStoredAuth()` / `clearStoredAuth()` live in `packages/agentboster-adapter/src/auth.ts`. The upstream pi OAuth flow is replaced with **`agentboster login`**.
 
@@ -311,7 +311,7 @@ The bundle embeds themes, export-HTML templates, vendored libs (marked/highlight
 
 | Variable | Purpose |
 |----------|---------|
-| `AGENTBOSTER_HOME` | Override `~/.agentboster` (config + sessions root) |
+| `AGENTBOSTER_HOME` | Override `~/.config/agentboster` (config + sessions root) |
 | `AGENTBOSTER_SESSION_ID` | Pin session id (debugging) |
 | `AGENTBOSTER_CLIENT_ID` | Override device label |
 | `AGENTBOSTER_MODEL` | Default model override |
@@ -327,7 +327,7 @@ The bundle embeds themes, export-HTML templates, vendored libs (marked/highlight
 
 - **List / resume / delete:** mirrored via `/api/cli/sessions` — sessions deleted on the Web disappear from the CLI's `--resume` / `/resume` picker.
 - **Title renames:** `--name`, `/name`, and the rename action in the session picker PATCH the Web session row.
-- **Messages:** written by the Web workflow (`chatMain`) into the Postgres `messages` table. The CLI keeps an **ephemeral** jsonl mirror under `$(tmpdir)/agentboster-sessions/` (never under `~/.agentboster/`) for tree state (branch / rewind) and LLM context window. The mirror is deleted on exit; stale files from a crashed run are cleaned up at startup.
+- **Messages:** written by the Web workflow (`chatMain`) into the Postgres `messages` table. The CLI keeps an **ephemeral** jsonl mirror under `$(tmpdir)/agentboster-sessions/` (never under `~/.config/agentboster/`) for tree state (branch / rewind) and LLM context window. The mirror is deleted on exit; stale files from a crashed run are cleaned up at startup.
 - **Compaction:** the CLI summarizes locally (through the adapter stream) and POSTs the result to `/api/cli/sessions/[id]/compact` so the Web DB stays consistent.
 
 ### Message versions (edit + regenerate)

@@ -4,7 +4,7 @@
  * Used by the CLI to mirror the web-side session list/title/delete
  * operations, so that sessions deleted on the web disappear from the
  * CLI's --resume / /resume picker too. The local jsonl files in
- * ~/.agentboster/agent/sessions/ remain the source of truth for tree
+ * ~/.config/agentboster/agent/sessions/ remain the source of truth for tree
  * state (branch / rewind / labels) and the LLM context window; this
  * module only covers the CRUD metadata that the web DB owns.
  */

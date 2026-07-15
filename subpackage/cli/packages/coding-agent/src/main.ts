@@ -1533,7 +1533,7 @@ function readMergedAgentsMd(resourceLoader: {
 /**
  * Resolve an optional stream function override for the Agentboster web backend.
  *
- * When `AGENTBOSTER_URL` is set and `~/.agentboster/config.json` contains a
+ * When `AGENTBOSTER_URL` is set and `~/.config/agentboster/config.json` contains a
  * saved auth token, we build a streamFn that talks to the web backend. This
  * lets pi run as a thin client to the Agentboster server. When the env var
  * is absent, returns undefined and pi uses its built-in provider SDKs.

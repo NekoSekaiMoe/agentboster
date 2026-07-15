@@ -3,7 +3,7 @@
  *
  * The full pi AuthStorage managed per-provider API keys, OAuth
  * tokens, credential files, locking, and refresh. In this fork auth
- * is a single bearer token stored in ~/.agentboster/config.json and
+ * is a single bearer token stored in ~/.config/agentboster/config.json and
  * handled by the adapter — AuthStorage only exists so pi's internal
  * is-authed checks pass.
  */

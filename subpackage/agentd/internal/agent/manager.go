@@ -828,7 +828,7 @@ func (m *Manager) fetchAgentConfig(ctx context.Context, agentID string) *clawles
 // Only sessions bound to a sandbox path are scanned (per the agreed scope:
 // pure docker-strict one-shot sandboxes have no meaningful project root, and
 // skipping them avoids touching fs in unit-test-style sessions). The brand
-// home defaults to ~/.agentboster (matching the CLI's config dir) and the
+// home defaults to ~/.config/agentboster (matching the CLI's config dir) and the
 // generic user dir is ~/.agents. Failures are logged at debug level and
 // treated as "no AGENTS.md" — the session proceeds with an empty section.
 //

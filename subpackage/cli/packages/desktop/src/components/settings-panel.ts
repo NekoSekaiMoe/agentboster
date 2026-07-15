@@ -444,7 +444,7 @@ export class SettingsPanel {
         '@tauri-apps/plugin-fs'
       );
       const home = await homeDir();
-      const themesRoot = `${home.replace(/\\/g, '/').replace(/\/+$/, '')}/.pi/agent/themes`;
+      const themesRoot = `${home.replace(/\\/g, '/').replace(/\/+$/, '')}/.config/agentboster/agent/themes`;
       if (!(await exists(themesRoot))) {
         this.availableThemes = [];
         return;
@@ -1004,7 +1004,7 @@ export class SettingsPanel {
     );
     const home = (await homeDir()).replace(/\\/g, '/').replace(/\/+$/, '');
     const themesRoot = this.joinFsPath(
-      this.joinFsPath(this.joinFsPath(home, '.pi'), 'agent'),
+      this.joinFsPath(this.joinFsPath(this.joinFsPath(home, '.config'), 'agentboster'), 'agent'),
       'themes',
     );
     await mkdir(themesRoot, { recursive: true });
@@ -1029,7 +1029,7 @@ export class SettingsPanel {
       this.applyAppearanceProfileForCurrentResolvedTheme();
     }
     await this.refreshThemeCatalog();
-    this.themeCatalogMessage = `Created theme ${fileStem}.json in ~/.pi/agent/themes`;
+    this.themeCatalogMessage = `Created theme ${fileStem}.json in ~/.config/agentboster/agent/themes`;
   }
 
   private normalizePiBinaryPath(
@@ -1373,7 +1373,7 @@ export class SettingsPanel {
     const { homeDir } = await import('@tauri-apps/api/path');
     const home = (await homeDir()).replace(/\\/g, '/').replace(/\/+$/, '');
     const agentDir = this.joinFsPath(
-      this.joinFsPath(home, '.agentboster'),
+      this.joinFsPath(this.joinFsPath(home, '.config'), 'agentboster'),
       'agent',
     );
     return this.joinFsPath(agentDir, 'settings.json');

@@ -7,7 +7,7 @@ Forked from [`gustavonline/pi-desktop`](https://github.com/gustavonline/pi-deskt
 upstream (Tauri + Lit variant). Adapted to:
 
 - spawn `agentboster` instead of `pi`
-- read/write `~/.agentboster/agent/` instead of `~/.pi/agent/`
+- read/write `~/.config/agentboster/agent/` instead of `~/.pi/agent/`
 - add computer-use Rust crates in `src-tauri/src/computer_use.rs`
 
 ## Position in the agentboster repo

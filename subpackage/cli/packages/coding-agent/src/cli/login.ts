@@ -4,7 +4,7 @@
  * Replaces pi's auth flow (Google OAuth / API key / Vertex) with
  * Agentboster server credentials: url + (username+password OR pair code).
  *
- * Result is written to ~/.agentboster/config.json by way of
+ * Result is written to ~/.config/agentboster/config.json by way of
  * @agentboster/adapter's writeStoredConfig.
  */
 

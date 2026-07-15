@@ -56,7 +56,7 @@ function getAgentDir(): string {
     }
     return trimmed;
   }
-  return path.join(homedir(), '.agentboster', 'agent');
+  return path.join(homedir(), '.config', 'agentboster', 'agent');
 }
 
 function getAuthFilePath(): string {

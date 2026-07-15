@@ -22,7 +22,7 @@ export async function resolveAgentbosterConfigPath(): Promise<string | null> {
   const { homeDir } = await import('@tauri-apps/api/path');
   const home = (await homeDir()).replace(/\\/g, '/').replace(/\/+$/, '');
   if (!home) return null;
-  return joinFsPath(home, '.agentboster', 'config.json');
+  return joinFsPath(home, '.config', 'agentboster', 'config.json');
 }
 
 export async function readAgentbosterDesktopAuth(): Promise<AgentbosterDesktopAuth | null> {
