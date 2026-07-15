@@ -40,6 +40,14 @@ type Dispatcher struct {
 	execCollector       *workers.BatchCollector
 	execCollectorCancel context.CancelFunc
 
+	// nodeID is this daemon's stable node identifier (identity.Load).
+	// Attached to L2 authorization notifications so the Web layer can
+	// pin the pending decision to *this* node and route the user's
+	// verdict back here — not to nodes[0]. Empty is tolerated (older
+	// single-node installs); the Web side falls back to default URL
+	// resolution when node_id is absent.
+	nodeID string
+
 	// P1.1: per-agent config cache (5-minute TTL). Keyed by agentID.
 	// Empty agentID ("") falls through to a synthetic default config.
 	agentCfgMu sync.RWMutex
@@ -66,6 +74,7 @@ func NewDispatcher(
 	agentManager *agent.Manager,
 	l2Mgr *l2_auth.L2AuthManager,
 	tidyInterval time.Duration,
+	nodeID string,
 ) *Dispatcher {
 	collector := workers.NewBatchCollector(bus, 0)
 	d := &Dispatcher{
@@ -81,6 +90,7 @@ func NewDispatcher(
 		clawless:      clawlessClient,
 		agentManager:  agentManager,
 		l2Mgr:         l2Mgr,
+		nodeID:        nodeID,
 		tidyInterval:  tidyInterval,
 		tidyStop:      make(chan struct{}),
 		execCollector: collector,
@@ -704,6 +714,11 @@ func (d *Dispatcher) handleL2AuthRequired(e eventbus.Event) {
 		"options":        []string{"pass_once", "pass_until", "reject_once", "reject_until"},
 		"expiresAt":      time.Now().Add(3 * time.Minute).Format(time.RFC3339),
 		"message":        payload["message"],
+		// node_id pins this pending decision to *this* daemon so the
+		// user's verdict is routed back here (not to nodes[0]) in a
+		// multi-node install. Empty when identity.Load never ran; the
+		// Web side tolerates that and falls back to default resolution.
+		"node_id": d.nodeID,
 	})
 	if err != nil {
 		slog.Warn("L2 notification send failed", "task_id", taskID, "error", err)

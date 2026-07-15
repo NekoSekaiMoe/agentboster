@@ -66,6 +66,39 @@ export async function getAgentdClientConfigForNode(
 }
 
 /**
+ * Resolve an AgentdHttpConfig for a node identified only by its node id,
+ * looking up the registered ip:port to supply the fallback URL. Returns
+ * null when the node id is unknown (no matching row) so callers can fall
+ * back to the default single-node config resolution.
+ *
+ * Used by `forwardL2Confirm` to route an L2 verdict back to the specific
+ * daemon that raised the authorization. Without this, the verdict always
+ * hits `nodes[0]`/`AGENTD_URL`; in a multi-node install that delivers the
+ * user's decision to the wrong daemon and leaves the raising daemon's
+ * task hung until it times out.
+ */
+export async function getAgentdClientConfigByNodeId(
+  nodeId: string,
+): Promise<AgentdHttpConfig | null> {
+  'use step';
+  const { agentdNodes } = await import('@/lib/core/db/schema');
+  const { db } = await import('@/lib/core/db');
+  const { eq } = await import('drizzle-orm');
+  const rows = await db
+    .select({ ip: agentdNodes.ip, port: agentdNodes.port })
+    .from(agentdNodes)
+    .where(eq(agentdNodes.nodeID, nodeId))
+    .limit(1);
+  if (rows.length === 0) {
+    return null;
+  }
+  return getAgentdClientConfigForNode(
+    nodeId,
+    `http://${rows[0].ip}:${rows[0].port}`,
+  );
+}
+
+/**
  * Identity of the agentd node a tool call actually ran on. Attached to
  * `execToolOnAgentd`'s result so callers (and, ultimately, the chat
  * tool card) can show *which* machine executed the call rather than an

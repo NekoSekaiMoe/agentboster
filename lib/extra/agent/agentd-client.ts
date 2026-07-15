@@ -89,15 +89,62 @@ export async function rejectDecision(decisionId: string): Promise<void> {
   await agentdRequest('POST', `/api/v1/decisions/${decisionId}/reject`);
 }
 
-/** Forward L2 confirmation to the daemon. */
+/**
+ * Forward an L2 confirmation verdict to the daemon.
+ *
+ * `nodeId` (when present) is the id of the daemon that raised the
+ * authorization, persisted on the decision. The verdict MUST land on
+ * that same daemon — it holds the paused task and the L2AuthManager
+ * cache — so we resolve the daemon URL from the node id rather than the
+ * default `nodes[0]`/`AGENTD_URL` path. In a multi-node install the
+ * default path would deliver the verdict to the wrong daemon and leave
+ * the raising daemon's task hung until timeout.
+ *
+ * Backward compatible: when `nodeId` is absent (older decision rows that
+ * predate node_id persistence, or single-node installs) or the node id
+ * no longer resolves to a registered row, we fall back to the default
+ * single-node resolution via `agentdRequest`.
+ */
 export async function forwardL2Confirm(payload: {
   task_id: string;
   decision_id: string;
   action: string;
   pattern?: string;
   duration?: string;
+  nodeId?: string;
 }): Promise<void> {
-  await agentdRequest('POST', '/api/v1/l2-confirm', payload);
+  const { nodeId, ...body } = payload;
+
+  if (nodeId) {
+    const { getAgentdClientConfigByNodeId } = await import(
+      './agentd-tools-client'
+    );
+    const config = await getAgentdClientConfigByNodeId(nodeId);
+    if (config) {
+      const response = await requestAgentd(
+        config,
+        'POST',
+        '/api/v1/l2-confirm',
+        body,
+      );
+      if (!response.ok) {
+        throw new Error(
+          `AgentDaemon request failed: POST /api/v1/l2-confirm → ${response.status}: ${response.text}`,
+        );
+      }
+      const json = JSON.parse(response.text) as {
+        success: boolean;
+        error?: string;
+      };
+      if (!json.success) {
+        throw new Error(`AgentDaemon error: ${json.error ?? 'unknown'}`);
+      }
+      return;
+    }
+    // node id no longer resolves — fall through to default resolution.
+  }
+
+  await agentdRequest('POST', '/api/v1/l2-confirm', body);
 }
 
 /** Health check for the daemon. */
