@@ -40,7 +40,7 @@ function redactRecursive(obj: unknown): unknown {
   if (obj && typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
-      if (isSensitiveKey(key) && typeof value === 'string') {
+      if (isSensitiveKey(key)) {
         result[key] = '***REDACTED***';
       } else {
         result[key] = redactRecursive(value);

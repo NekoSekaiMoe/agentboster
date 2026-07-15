@@ -56,11 +56,13 @@ vi.mock('@/lib/auth/access', () => ({
   requireAdminAccess: (cookies: unknown) => requireAdminAccessMock(cookies),
 }));
 
+let authSession: { userId: string; role: string } | null = {
+  userId: 'user-1',
+  role: 'user',
+};
+const readAuthSessionFromCookiesMock = vi.fn(async () => authSession);
 vi.mock('@/lib/auth', () => ({
-  readAuthSessionFromCookies: vi.fn(async () => ({
-    userId: 'user-1',
-    role: 'user',
-  })),
+  readAuthSessionFromCookies: () => readAuthSessionFromCookiesMock(),
 }));
 
 vi.mock('next/headers', () => ({
@@ -94,6 +96,7 @@ describe('POST /api/import', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     isAdmin = true;
+    authSession = { userId: 'user-1', role: 'user' };
     listL0RulesMock.mockResolvedValue([]);
     ({ POST } = await import('./route'));
   });
@@ -103,6 +106,22 @@ describe('POST /api/import', () => {
   });
 
   describe('admin access', () => {
+    it('rejects unauthenticated requests', async () => {
+      authSession = null;
+      const res = await POST(makeRequest({ config: { models: {} } }));
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects invalid JSON body', async () => {
+      const req = new Request('http://localhost/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{not valid json',
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+    });
+
     it('rejects config import for non-admin', async () => {
       isAdmin = false;
       const res = await POST(

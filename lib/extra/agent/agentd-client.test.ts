@@ -128,6 +128,19 @@ describe('forwardL2Confirm: node routing', () => {
     const [config] = requestAgentdMock.mock.calls[0];
     expect(config).toBe(DEFAULT_CONFIG);
   });
+
+  it('falls back to default when the resolver throws', async () => {
+    getAgentdClientConfigByNodeIdMock.mockRejectedValue(
+      new Error('DB connection lost'),
+    );
+
+    await callForward({ ...baseVerdict, nodeId: 'node-b' });
+
+    expect(getAgentdClientConfigByNodeIdMock).toHaveBeenCalledWith('node-b');
+    expect(getAgentdClientConfigMock).toHaveBeenCalledTimes(1);
+    const [config] = requestAgentdMock.mock.calls[0];
+    expect(config).toBe(DEFAULT_CONFIG);
+  });
 });
 
 describe('forwardL2Confirm: error propagation', () => {

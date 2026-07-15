@@ -147,21 +147,25 @@ export async function forwardL2Confirm(payload: {
   const { nodeId, ...body } = payload;
 
   if (nodeId) {
-    const { getAgentdClientConfigByNodeId } = await import(
-      './agentd-tools-client'
-    );
-    const config = await getAgentdClientConfigByNodeId(nodeId);
-    if (config) {
-      const text = await agentdRequestRaw(
-        config,
-        'POST',
-        '/api/v1/l2-confirm',
-        body,
+    try {
+      const { getAgentdClientConfigByNodeId } = await import(
+        './agentd-tools-client'
       );
-      validateAgentdResponse('POST', '/api/v1/l2-confirm', text);
-      return;
+      const config = await getAgentdClientConfigByNodeId(nodeId);
+      if (config) {
+        const text = await agentdRequestRaw(
+          config,
+          'POST',
+          '/api/v1/l2-confirm',
+          body,
+        );
+        validateAgentdResponse('POST', '/api/v1/l2-confirm', text);
+        return;
+      }
+    } catch {
+      //Resolver failure — fall through to the default route so the
+      // L2 decision is still delivered.
     }
-    // node id no longer resolves — fall through to default resolution.
   }
 
   await agentdRequest('POST', '/api/v1/l2-confirm', body);
