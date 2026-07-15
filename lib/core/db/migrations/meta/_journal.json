@@ -134,6 +134,13 @@
       "when": 1783600000000,
       "tag": "0018_memory_edges",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784104780322,
+      "tag": "0019_melted_secret_warriors",
+      "breakpoints": true
     }
   ]
 }
