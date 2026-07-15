@@ -163,16 +163,16 @@ export function expandTildePath(path: string): string {
 }
 
 // =============================================================================
-// User Config Paths (~/.config/agentboster/agent/*)
+// User Config Paths (~/.config/agentboster-cli/agent/*)
 // =============================================================================
 
-/** Get the agent config directory (e.g., ~/.config/agentboster/agent/) */
+/** Get the agent config directory (e.g., ~/.config/agentboster-cli/agent/) */
 export function getAgentDir(): string {
   const envDir = process.env[ENV_AGENT_DIR];
   if (envDir) {
     return expandTildePath(envDir);
   }
-  return join(homedir(), '.config', 'agentboster', 'agent');
+  return join(homedir(), '.config', 'agentboster-cli', 'agent');
 }
 
 /** Get path to user's custom themes directory */

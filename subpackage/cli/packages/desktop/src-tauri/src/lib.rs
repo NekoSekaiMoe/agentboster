@@ -130,7 +130,7 @@ fn discover_sidecar(app: &AppHandle) -> Option<PathBuf> {
     } else {
         ""
     };
-    let expected_name = format!("agentboster-{}{}", target, extension);
+    let expected_name = format!("agentboster-cli-{}{}", target, extension);
 
     let mut candidate_dirs: Vec<PathBuf> = Vec::new();
 
@@ -219,16 +219,16 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
         if let Ok(app_data) = std::env::var("APPDATA") {
             let app_data_dir = PathBuf::from(app_data);
-            candidates.push(app_data_dir.join("npm").join("agentboster.cmd"));
-            candidates.push(app_data_dir.join("npm").join("agentboster.exe"));
-            candidates.push(app_data_dir.join("npm").join("agentboster.bat"));
-            candidates.push(app_data_dir.join("npm").join("agentboster"));
+            candidates.push(app_data_dir.join("npm").join("agentboster-cli.cmd"));
+            candidates.push(app_data_dir.join("npm").join("agentboster-cli.exe"));
+            candidates.push(app_data_dir.join("npm").join("agentboster-cli.bat"));
+            candidates.push(app_data_dir.join("npm").join("agentboster-cli"));
         }
 
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
             let local_app_data_dir = PathBuf::from(local_app_data);
-            candidates.push(local_app_data_dir.join("npm").join("agentboster.cmd"));
-            candidates.push(local_app_data_dir.join("npm").join("agentboster.exe"));
+            candidates.push(local_app_data_dir.join("npm").join("agentboster-cli.cmd"));
+            candidates.push(local_app_data_dir.join("npm").join("agentboster-cli.exe"));
         }
 
         if let Ok(user_profile) = std::env::var("USERPROFILE") {
@@ -238,47 +238,47 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
                     .join("AppData")
                     .join("Roaming")
                     .join("npm")
-                    .join("agentboster.cmd"),
+                    .join("agentboster-cli.cmd"),
             );
             candidates.push(
                 user_dir
                     .join("AppData")
                     .join("Roaming")
                     .join("npm")
-                    .join("agentboster.exe"),
+                    .join("agentboster-cli.exe"),
             );
-            candidates.push(user_dir.join("scoop").join("shims").join("agentboster.cmd"));
+            candidates.push(user_dir.join("scoop").join("shims").join("agentboster-cli.cmd"));
         }
 
         if let Ok(program_files) = std::env::var("ProgramFiles") {
-            candidates.push(PathBuf::from(program_files).join("nodejs").join("agentboster.cmd"));
+            candidates.push(PathBuf::from(program_files).join("nodejs").join("agentboster-cli.cmd"));
         }
 
         if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
-            candidates.push(PathBuf::from(program_files_x86).join("nodejs").join("agentboster.cmd"));
+            candidates.push(PathBuf::from(program_files_x86).join("nodejs").join("agentboster-cli.cmd"));
         }
 
         if let Ok(program_data) = std::env::var("ProgramData") {
             let program_data_dir = PathBuf::from(program_data);
-            candidates.push(program_data_dir.join("npm").join("agentboster.cmd"));
-            candidates.push(program_data_dir.join("npm").join("agentboster.exe"));
+            candidates.push(program_data_dir.join("npm").join("agentboster-cli.cmd"));
+            candidates.push(program_data_dir.join("npm").join("agentboster-cli.exe"));
         }
 
         if let Ok(nvm_home) = std::env::var("NVM_HOME") {
-            candidates.push(PathBuf::from(nvm_home).join("agentboster.cmd"));
+            candidates.push(PathBuf::from(nvm_home).join("agentboster-cli.cmd"));
         }
 
         if let Ok(nvm_symlink) = std::env::var("NVM_SYMLINK") {
-            candidates.push(PathBuf::from(nvm_symlink).join("agentboster.cmd"));
+            candidates.push(PathBuf::from(nvm_symlink).join("agentboster-cli.cmd"));
         }
 
         // Auto-installed by `install_cli` (this Desktop app). The installer
-        // writes agentboster.cmd next to the .cjs bundle here.
+        // writes agentboster-cli.cmd next to the .cjs bundle here.
         if let Some(home_dir) = resolve_home_dir() {
-            let installed_bin = home_dir.join(".config").join("agentboster").join("agent").join("bin");
-            candidates.push(installed_bin.join("agentboster.cmd"));
-            candidates.push(installed_bin.join("agentboster.exe"));
-            candidates.push(installed_bin.join("agentboster"));
+            let installed_bin = home_dir.join(".config").join("agentboster-cli").join("agent").join("bin");
+            candidates.push(installed_bin.join("agentboster-cli.cmd"));
+            candidates.push(installed_bin.join("agentboster-cli.exe"));
+            candidates.push(installed_bin.join("agentboster-cli"));
         }
 
         return candidates.into_iter().find(|candidate| candidate.is_file());
@@ -286,7 +286,7 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
 
     if let Some(home_dir) = resolve_home_dir() {
         // nvm installations (common for npm global installs)
-        candidates.push(home_dir.join(".nvm/versions/node/current/bin/agentboster"));
+        candidates.push(home_dir.join(".nvm/versions/node/current/bin/agentboster-cli"));
         let nvm_versions_dir = home_dir.join(".nvm/versions/node");
         if let Ok(entries) = fs::read_dir(nvm_versions_dir) {
             let mut version_dirs: Vec<PathBuf> = entries
@@ -301,16 +301,16 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
                 .collect();
             version_dirs.sort_by(|a, b| b.cmp(a));
             for version_dir in version_dirs {
-                candidates.push(version_dir.join("bin/agentboster"));
+                candidates.push(version_dir.join("bin/agentboster-cli"));
             }
         }
 
         // Other common per-user install locations
-        candidates.push(home_dir.join(".config/agentboster/agent/bin/agentboster"));
-        candidates.push(home_dir.join(".volta/bin/agentboster"));
-        candidates.push(home_dir.join(".local/bin/agentboster"));
-        candidates.push(home_dir.join(".npm-global/bin/agentboster"));
-        candidates.push(home_dir.join(".npm/bin/agentboster"));
+        candidates.push(home_dir.join(".config/agentboster-cli/agent/bin/agentboster-cli"));
+        candidates.push(home_dir.join(".volta/bin/agentboster-cli"));
+        candidates.push(home_dir.join(".local/bin/agentboster-cli"));
+        candidates.push(home_dir.join(".npm-global/bin/agentboster-cli"));
+        candidates.push(home_dir.join(".npm/bin/agentboster-cli"));
     }
 
     // npm custom prefix installs (common on Linux/macOS desktop launches)
@@ -318,16 +318,16 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
         if let Ok(prefix) = std::env::var(key) {
             let trimmed = prefix.trim();
             if !trimmed.is_empty() {
-                candidates.push(PathBuf::from(trimmed).join("bin/agentboster"));
-                candidates.push(PathBuf::from(trimmed).join("agentboster"));
+                candidates.push(PathBuf::from(trimmed).join("bin/agentboster-cli"));
+                candidates.push(PathBuf::from(trimmed).join("agentboster-cli"));
             }
         }
     }
 
     // Common system install locations
-    candidates.push(PathBuf::from("/opt/homebrew/bin/agentboster"));
-    candidates.push(PathBuf::from("/usr/local/bin/agentboster"));
-    candidates.push(PathBuf::from("/usr/bin/agentboster"));
+    candidates.push(PathBuf::from("/opt/homebrew/bin/agentboster-cli"));
+    candidates.push(PathBuf::from("/usr/local/bin/agentboster-cli"));
+    candidates.push(PathBuf::from("/usr/bin/agentboster-cli"));
 
     candidates.into_iter().find(|candidate| candidate.is_file())
 }
@@ -359,7 +359,7 @@ fn discover_pi_from_env_override() -> Option<PathBuf> {
 
 fn missing_pi_cli_error(additional: Option<String>) -> String {
     let mut message = String::from(
-        "Could not find the agentboster CLI.\n\nInstall it by building subpackage/cli/ (see its README) and placing the `agentboster` binary on your PATH.\n\nThen restart the app.",
+        "Could not find the agentboster CLI.\n\nInstall it by building subpackage/cli/ (see its README) and placing the `agentboster-cli` binary on your PATH.\n\nThen restart the app.",
     );
     if let Some(extra) = additional {
         let trimmed = extra.trim();
@@ -375,15 +375,15 @@ fn missing_pi_cli_error(additional: Option<String>) -> String {
 //
 // Resolves the latest CLI release from GitHub, downloads the universal
 // `agentboster-cli-<tag>.tar.gz` tarball, extracts it into the existing
-// per-user bin dir (`~/.config/agentboster/agent/bin/` — already on the
+// per-user bin dir (`~/.config/agentboster-cli/agent/bin/` — already on the
 // discovery candidate list), and emits progress events to the frontend.
 //
 // The tarball layout (per `subpackage/cli/scripts/package.mjs`) is:
 //   agentboster-cli-<tag>/
-//     agentboster        # shell wrapper, execs node agentboster.cjs
-//     agentboster.cjs    # single-file esbuild bundle
+//     agentboster-cli        # shell wrapper, execs node agentboster-cli.cjs
+//     agentboster-cli.cjs    # single-file esbuild bundle
 //
-// After extraction we point Desktop at `<bin_dir>/agentboster` and let
+// After extraction we point Desktop at `<bin_dir>/agentboster-cli` and let
 // the existing discovery path pick it up on the next rpc_start.
 
 #[derive(Debug, Deserialize)]
@@ -408,7 +408,7 @@ struct InstallProgressPayload {
 
 #[derive(Debug, Serialize)]
 struct InstallResult {
-    /// Absolute path to the installed `agentboster` entry script.
+    /// Absolute path to the installed `agentboster-cli` entry script.
     bin_path: String,
     /// Release tag the installer pulled (e.g. "v0.1.5").
     version: String,
@@ -482,7 +482,7 @@ fn pick_tarball_asset<'a>(release: &'a GithubRelease) -> Result<&'a GithubAsset,
 fn install_target_bin_dir() -> Result<PathBuf, String> {
     let home = resolve_home_dir()
         .ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
-    Ok(home.join(".config").join("agentboster").join("agent").join("bin"))
+    Ok(home.join(".config").join("agentboster-cli").join("agent").join("bin"))
 }
 
 /// Stream the asset to a temp file, emitting download progress events.
@@ -544,8 +544,8 @@ async fn download_tarball(
 }
 
 /// Extract the tarball into the bin dir. The archive contains a single
-/// top-level dir (`agentboster-cli-<tag>/`) with `agentboster` and
-/// `agentboster.cjs`; we flatten that prefix so the files land directly
+/// top-level dir (`agentboster-cli-<tag>/`) with `agentboster-cli` and
+/// `agentboster-cli.cjs`; we flatten that prefix so the files land directly
 /// in `bin_dir/`. Existing files are overwritten.
 fn extract_tarball(tarball: &Path, bin_dir: &Path, app: &AppHandle) -> Result<(), String> {
     emit_progress(app, "extracting", None, Some("Unpacking archive…".into()));
@@ -618,7 +618,7 @@ fn emit_progress(
     );
 }
 
-/// Install the latest CLI release into `~/.config/agentboster/agent/bin/`.
+/// Install the latest CLI release into `~/.config/agentboster-cli/agent/bin/`.
 /// Emits `cli-install-progress` events as it goes. Returns the path to
 /// the installed `agentboster` entry script + the release tag.
 #[tauri::command]
@@ -640,7 +640,7 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
 
     let _ = fs::remove_file(&staging);
 
-    let bin_path = bin_dir.join("agentboster");
+    let bin_path = bin_dir.join("agentboster-cli");
     if !bin_path.exists() {
         return Err(format!(
             "Extraction completed but {} is missing. The tarball may have an unexpected layout.",
@@ -649,16 +649,16 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
     }
 
     // The packaging script ships a POSIX shell wrapper
-    // (`#!/bin/sh ... exec node agentboster.cjs`). That wrapper works on
+    // (`#!/bin/sh ... exec node agentboster-cli.cjs`). That wrapper works on
     // macOS/Linux, but Windows can't execute `#!/bin/sh`. Synthesize a
-    // `agentboster.cmd` shim next to the .cjs so Windows discovery finds
+    // `agentboster-cli.cmd` shim next to the .cjs so Windows discovery finds
     // an executable that actually runs.
     #[cfg(target_os = "windows")]
     {
-        let cjs_path = bin_dir.join("agentboster.cjs");
-        let cmd_path = bin_dir.join("agentboster.cmd");
+        let cjs_path = bin_dir.join("agentboster-cli.cjs");
+        let cmd_path = bin_dir.join("agentboster-cli.cmd");
         let cmd_body = format!(
-            "@echo off\r\nnode \"%~dp0agentboster.cjs\" %*\r\n"
+            "@echo off\r\nnode \"%~dp0agentboster-cli.cjs\" %*\r\n"
         );
         fs::write(&cmd_path, cmd_body)
             .map_err(|e| format!("Failed to write {}: {}", cmd_path.display(), e))?;
@@ -669,7 +669,7 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
         &app,
         "done",
         None,
-        Some(format!("Installed agentboster CLI {}", release.tag_name)),
+        Some(format!("Installed agentboster-cli {}", release.tag_name)),
     );
 
     Ok(InstallResult {
@@ -727,7 +727,7 @@ fn discover_pi(app: &AppHandle, options: &RpcStartOptions) -> Result<PiProcess, 
     }
 
     // Fallback: pi on PATH
-    if let Ok(path) = which::which("agentboster") {
+    if let Ok(path) = which::which("agentboster-cli") {
         return Ok(PiProcess::PathBinary { path });
     }
 
@@ -1047,10 +1047,10 @@ fn get_pi_agent_dir() -> Option<PathBuf> {
         }
     }
 
-    // Default: ~/.config/agentboster/agent
+    // Default: ~/.config/agentboster-cli/agent
     std::env::var_os("HOME")
         .or(std::env::var_os("USERPROFILE"))
-        .map(|home| PathBuf::from(home).join(".config").join("agentboster").join("agent"))
+        .map(|home| PathBuf::from(home).join(".config").join("agentboster-cli").join("agent"))
 }
 
 

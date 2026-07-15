@@ -1,5 +1,5 @@
 /**
- * `agentboster auth` subcommands for managing provider credentials.
+ * `agentboster-cli auth` subcommands for managing provider credentials.
  *
  * These commands replace Desktop's direct file access to auth.json,
  * providing a proper CLI interface for auth management.
@@ -56,7 +56,7 @@ function getAgentDir(): string {
     }
     return trimmed;
   }
-  return path.join(homedir(), '.config', 'agentboster', 'agent');
+  return path.join(homedir(), '.config', 'agentboster-cli', 'agent');
 }
 
 function getAuthFilePath(): string {
@@ -91,7 +91,7 @@ function writeAuthFile(data: Record<string, AuthEntry>): void {
 }
 
 /**
- * `agentboster auth status` - List configured providers in JSON format
+ * `agentboster-cli auth status` - List configured providers in JSON format
  */
 export async function handleAuthStatus(): Promise<void> {
   const agentDir = getAgentDir();
@@ -144,7 +144,7 @@ export async function handleAuthStatus(): Promise<void> {
 }
 
 /**
- * `agentboster auth logout <provider>` - Remove provider credentials
+ * `agentboster-cli auth logout <provider>` - Remove provider credentials
  */
 export async function handleAuthLogout(provider: string): Promise<void> {
   const normalized = provider.trim().toLowerCase();
@@ -191,7 +191,7 @@ export async function handleAuthLogout(provider: string): Promise<void> {
 }
 
 /**
- * Dispatch `agentboster auth <subcommand>` from argv.
+ * Dispatch `agentboster-cli auth <subcommand>` from argv.
  */
 export async function handleAuthCommand(args: string[]): Promise<boolean> {
   if (args.length === 0 || args[0] !== 'auth') {
@@ -201,7 +201,7 @@ export async function handleAuthCommand(args: string[]): Promise<boolean> {
   const subcommand = args[1];
 
   if (!subcommand) {
-    console.error('Usage: agentboster auth <status|logout>');
+    console.error('Usage: agentboster-cli auth <status|logout>');
     console.error('');
     console.error('Subcommands:');
     console.error('  status              List configured providers (JSON)');
@@ -218,7 +218,7 @@ export async function handleAuthCommand(args: string[]): Promise<boolean> {
     const provider = args[2];
     if (!provider) {
       console.error('Error: Missing provider name');
-      console.error('Usage: agentboster auth logout <provider>');
+      console.error('Usage: agentboster-cli auth logout <provider>');
       process.exit(1);
     }
     await handleAuthLogout(provider);

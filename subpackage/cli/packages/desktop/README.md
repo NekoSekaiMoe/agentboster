@@ -6,8 +6,8 @@ native computer-use capability (screenshots / accessibility tree / input injecti
 Forked from [`gustavonline/pi-desktop`](https://github.com/gustavonline/pi-desktop)
 upstream (Tauri + Lit variant). Adapted to:
 
-- spawn `agentboster` instead of `pi`
-- read/write `~/.config/agentboster/agent/` instead of `~/.pi/agent/`
+- spawn `agentboster-cli` instead of `pi`
+- read/write `~/.config/agentboster-cli/agent/` instead of `~/.pi/agent/`
 - add computer-use Rust crates in `src-tauri/src/computer_use.rs`
 
 ## Position in the agentboster repo

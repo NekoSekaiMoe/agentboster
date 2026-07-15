@@ -4880,7 +4880,7 @@ function renderApp(): void {
                   : // ── CLI missing onboarding: offer auto-install + manual fallback ──
                     cliMissing
                     ? html`
-								<p>Agentboster Desktop could not find the <code>agentboster</code> CLI on your machine.</p>
+								<p>Agentboster Desktop could not find the <code>agentboster-cli</code> CLI on your machine.</p>
 								<div class="onboarding-actions">
 									<button @click=${() => void installCliAutomatically()}>Install automatically</button>
 									<button class="ghost-btn" @click=${() => {
@@ -4917,7 +4917,7 @@ function renderApp(): void {
                     windowsHost
                       ? html`
 										<p class="onboarding-footnote">
-											Using WSL? Agentboster Desktop starts a Windows-native agent. Install <code>agentboster</code> in Windows too (not only inside WSL).
+											Using WSL? Agentboster Desktop starts a Windows-native agent. Install <code>agentboster-cli</code> in Windows too (not only inside WSL).
 										</p>
 									`
                       : nothing

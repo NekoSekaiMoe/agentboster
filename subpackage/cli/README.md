@@ -1,6 +1,6 @@
 # AgentBoster CLI
 
-The `subpackage/cli/` directory ships the **`agentboster`** terminal coding agent. It is a Yarn Classic monorepo and a **thin client** of the AgentBoster platform: the Web backend owns models, API keys, tool routing, session persistence, and the workflow runtime; the CLI renders the TUI and executes `local_*` tools (shell / file I/O) on the user's machine.
+The `subpackage/cli/` directory ships the **`agentboster-cli`** terminal coding agent. It is a Yarn Classic monorepo and a **thin client** of the AgentBoster platform: the Web backend owns models, API keys, tool routing, session persistence, and the workflow runtime; the CLI renders the TUI and executes `local_*` tools (shell / file I/O) on the user's machine.
 
 There is **no direct provider mode** — every LLM call goes through `POST /api/cli/chat` on the Web backend. The provider SDKs (Anthropic / OpenAI / Google / Bedrock / Mistral / …) are intentionally absent from `packages/ai` (~90 MB of npm deps stripped).
 
@@ -25,8 +25,8 @@ flowchart TB
   end
 
   subgraph tier3["③ CLI (this repo)"]
-    BIN["agentboster"]
-    CFG["~/.config/agentboster/"]
+    BIN["agentboster-cli"]
+    CFG["~/.config/agentboster-cli/"]
     BIN --> CFG
   end
 
@@ -58,7 +58,7 @@ flowchart BT
 
 | Package | Directory | Root workspace | Responsibility |
 |---------|-----------|----------------|----------------|
-| `@agentboster-cli/core` | `packages/coding-agent` | Yes | `agentboster` bin, TUI / print mode, local tools, extensions, session tree, HTML export |
+| `@agentboster-cli/core` | `packages/coding-agent` | Yes | `agentboster-cli` bin, TUI / print mode, local tools, extensions, session tree, HTML export |
 | `@agentboster/adapter` | `packages/agentboster-adapter` | Yes | Stored auth, `createAgentbosterStreamFn`, Web SSE stream, remote models, remote sessions, local security helpers |
 | `@agentboster-cli/agent` | `packages/agent` | Yes | Agent loop and session primitives |
 | `@agentboster-cli/ai` | `packages/ai` | Yes | Type surface, event-stream primitives, `compat` stubs; no provider SDKs |
@@ -76,7 +76,7 @@ Build order is enforced by the root `package.json` `build` script: `ai` → `age
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant CLI as agentboster
+  participant CLI as agentboster-cli
   participant API as Web API
   participant WF as Workflow
   participant D as agentd
@@ -124,7 +124,7 @@ node packages/coding-agent/dist/cli.js --help
 
 # Single-file bundle (no node_modules needed at runtime)
 yarn bundle
-node packages/coding-agent/dist/agentboster.cjs --help
+node packages/coding-agent/dist/agentboster-cli.cjs --help
 
 # TypeScript direct (dev)
 yarn tsx packages/coding-agent/src/cli.ts --help
@@ -146,16 +146,16 @@ Pair the CLI with your AgentBoster Web deployment:
 
 ```bash
 # Interactive
-agentboster login
+agentboster-cli login
 
 # Username + password
-agentboster login -u https://your-app.vercel.app --username you --password '***'
+agentboster-cli login -u https://your-app.vercel.app --username you --password '***'
 
 # One-shot pair code (issued by the Web UI under /config/devices)
-agentboster login -u https://your-app.vercel.app --pair-code ABCD-1234
+agentboster-cli login -u https://your-app.vercel.app --pair-code ABCD-1234
 ```
 
-Writes `~/.config/agentboster/config.json` via `@agentboster/adapter`. The token's device id (`jti`) is recorded in the Web DB so the user can revoke it from the Web UI.
+Writes `~/.config/agentboster-cli/config.json` via `@agentboster/adapter`. The token's device id (`jti`) is recorded in the Web DB so the user can revoke it from the Web UI.
 
 ### 2. Pick a model
 
@@ -163,16 +163,16 @@ The model catalog is fetched from `GET /api/cli/models`. Only models the Web bac
 
 ```bash
 # Choose at startup
-agentboster --model openai/gpt-4o-mini
-agentboster --model anthropic/claude-sonnet-4:high
+agentboster-cli --model openai/gpt-4o-mini
+agentboster-cli --model anthropic/claude-sonnet-4:high
 
 # Or inside the TUI
 /model
 Ctrl+P                       # cycle scoped models
 
 # List what the server offers
-agentboster --list-models
-agentboster --list-models sonnet
+agentboster-cli --list-models
+agentboster-cli --list-models sonnet
 ```
 
 Passing a model id that is not in the server catalog fails fast with `Model "X" is not in the server catalog. Allowed models: …` — the same restriction the IM `/model` command enforces.
@@ -180,26 +180,26 @@ Passing a model id that is not in the server catalog fails fast with `Model "X" 
 ### 3. Interactive session
 
 ```bash
-agentboster
-agentboster "List top-level directories"
-agentboster @prompt.md "Implement this"
+agentboster-cli
+agentboster-cli "List top-level directories"
+agentboster-cli @prompt.md "Implement this"
 ```
 
 ### 4. One-shot (print mode)
 
 ```bash
-agentboster -p "list top-level directories"
-agentboster --print "explain package.json workspaces"
+agentboster-cli -p "list top-level directories"
+agentboster-cli --print "explain package.json workspaces"
 ```
 
 ### 5. Resume / fork / export
 
 ```bash
-agentboster --continue              # continue last session (synced with Web)
-agentboster --resume                # picker (Web-deleted sessions are hidden)
-agentboster --session <id|path>     # exact session
-agentboster --fork <id|path>        # branch off a previous turn
-agentboster --export session.jsonl  # HTML export
+agentboster-cli --continue              # continue last session (synced with Web)
+agentboster-cli --resume                # picker (Web-deleted sessions are hidden)
+agentboster-cli --session <id|path>     # exact session
+agentboster-cli --fork <id|path>        # branch off a previous turn
+agentboster-cli --export session.jsonl  # HTML export
 ```
 
 ---
@@ -235,7 +235,7 @@ agentboster --export session.jsonl  # HTML export
 | `--approve` / `--no-approve` | `-a` / `-na` | Trust project-local files |
 | `--yolo` | | Skip L0/L1/L2 security scoring and user confirmation on `local_*` tools |
 
-Run `agentboster --help` for the authoritative list (extensions add more flags).
+Run `agentboster-cli --help` for the authoritative list (extensions add more flags).
 
 > **Removed flags:** `--provider` and `--api-key` no longer exist. Provider selection happens via `--model <provider>/<id>`; API keys live exclusively on the Web backend.
 
@@ -245,10 +245,10 @@ Run `agentboster --help` for the authoritative list (extensions add more flags).
 
 | Path | Content |
 |------|---------|
-| `~/.config/agentboster/config.json` | Server URL, bearer token, username |
-| `~/.config/agentboster/agent/sessions/` | Local session jsonl (tree state + LLM context mirror) |
+| `~/.config/agentboster-cli/config.json` | Server URL, bearer token, username |
+| `~/.config/agentboster-cli/agent/sessions/` | Local session jsonl (tree state + LLM context mirror) |
 
-`getStoredAuth()` / `clearStoredAuth()` live in `packages/agentboster-adapter/src/auth.ts`. The upstream pi OAuth flow is replaced with **`agentboster login`**.
+`getStoredAuth()` / `clearStoredAuth()` live in `packages/agentboster-adapter/src/auth.ts`. The upstream pi OAuth flow is replaced with **`agentboster-cli login`**.
 
 ---
 
@@ -293,7 +293,7 @@ Each `local_*` invocation passes through `evaluateLocalCommand` in the adapter b
 | `yarn clean` | Remove build artifacts |
 | `yarn check:lint` | Biome check with writes enabled, then `tsgo --noEmit` |
 | `yarn bundle` | `packages/coding-agent/dist/agentboster.cjs` (single file, all assets inlined) |
-| `yarn package` | `agentboster-cli-<version>.tar.gz` (2 files: `agentboster` wrapper + `agentboster.cjs`) |
+| `yarn package` | `agentboster-cli-<version>.tar.gz` (2 files: `agentboster-cli` wrapper + `agentboster.cjs`) |
 
 ```bash
 cd subpackage/cli
@@ -311,7 +311,7 @@ The bundle embeds themes, export-HTML templates, vendored libs (marked/highlight
 
 | Variable | Purpose |
 |----------|---------|
-| `AGENTBOSTER_HOME` | Override `~/.config/agentboster` (config + sessions root) |
+| `AGENTBOSTER_HOME` | Override `~/.config/agentboster-cli` (config + sessions root) |
 | `AGENTBOSTER_SESSION_ID` | Pin session id (debugging) |
 | `AGENTBOSTER_CLIENT_ID` | Override device label |
 | `AGENTBOSTER_MODEL` | Default model override |
@@ -327,7 +327,7 @@ The bundle embeds themes, export-HTML templates, vendored libs (marked/highlight
 
 - **List / resume / delete:** mirrored via `/api/cli/sessions` — sessions deleted on the Web disappear from the CLI's `--resume` / `/resume` picker.
 - **Title renames:** `--name`, `/name`, and the rename action in the session picker PATCH the Web session row.
-- **Messages:** written by the Web workflow (`chatMain`) into the Postgres `messages` table. The CLI keeps an **ephemeral** jsonl mirror under `$(tmpdir)/agentboster-sessions/` (never under `~/.config/agentboster/`) for tree state (branch / rewind) and LLM context window. The mirror is deleted on exit; stale files from a crashed run are cleaned up at startup.
+- **Messages:** written by the Web workflow (`chatMain`) into the Postgres `messages` table. The CLI keeps an **ephemeral** jsonl mirror under `$(tmpdir)/agentboster-sessions/` (never under `~/.config/agentboster-cli/`) for tree state (branch / rewind) and LLM context window. The mirror is deleted on exit; stale files from a crashed run are cleaned up at startup.
 - **Compaction:** the CLI summarizes locally (through the adapter stream) and POSTs the result to `/api/cli/sessions/[id]/compact` so the Web DB stays consistent.
 
 ### Message versions (edit + regenerate)
@@ -350,9 +350,9 @@ To **edit a historical user-message version and resend**: select the user messag
 
 | Issue | Fix |
 |-------|-----|
-| `command not found` | Build (`yarn build`), use the tarball `./agentboster`, or run `node …/agentboster.cjs` |
-| `Not logged in` | `agentboster login` (the CLI cannot run without the Web backend) |
-| `Model "X" is not in the server catalog` | Run `agentboster --list-models`; the id must match exactly |
+| `command not found` | Build (`yarn build`), use the tarball `./agentboster-cli`, or run `node …/agentboster-cli.cjs` |
+| `Not logged in` | `agentboster-cli login` (the CLI cannot run without the Web backend) |
+| `Model "X" is not in the server catalog` | Run `agentboster-cli --list-models`; the id must match exactly |
 | Empty model list | Check Web backend `/api/cli/models` and your token |
 | `Tool <name> not found` | Internal error — the CLI no longer dispatches tools locally; report if seen |
 | Bundle missing assets | `yarn build` before `yarn bundle` |

@@ -1132,7 +1132,7 @@ export class ChatView {
     this.oauthProviderCatalogLoading = true;
     try {
       // OAuth provider scanning removed - use hardcoded defaults only
-      // TODO: CLI should expose `agentboster auth list-providers --json`
+      // TODO: CLI should expose `agentboster-cli auth list-providers --json`
       this.oauthProviderCatalog = normalizeOAuthProviderCatalogEntries([]);
       this.oauthProviderCatalogLoadedAt = Date.now();
     } catch (err) {

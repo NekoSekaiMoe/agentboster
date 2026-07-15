@@ -35,7 +35,7 @@ import {
 
 const OFFICIAL_PACKAGE_NAME = '@agentboster-cli/core';
 const OFFICIAL_APP_NAME = 'pi';
-const OFFICIAL_CONFIG_DIR_NAME = '.config/agentboster';
+const OFFICIAL_CONFIG_DIR_NAME = '.config/agentboster-cli';
 
 interface DistributionMetadata {
   packageName: string;
