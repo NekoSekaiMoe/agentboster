@@ -110,24 +110,37 @@ export async function compactLongTermMemories(input: {
       continue;
     }
 
-    try {
-      const result = await compactGroup({
-        prefix,
-        members: members.slice(0, MAX_GROUP_SIZE),
-        userId: input.userId,
-        modelId,
-        config: input.config,
-      });
-      totalMerged += result.merged;
-      totalDeleted += result.deleted;
-      totalKept += result.kept;
-    } catch (error) {
-      logger.warn('compact:group_failed', {
-        prefix,
-        memberCount: members.length,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      totalKept += members.length;
+    // Process the whole group in batches of MAX_GROUP_SIZE rather than only
+    // the first slice. Without this, members beyond the first MAX_GROUP_SIZE
+    // are silently skipped on every run and never compacted or counted.
+    for (let offset = 0; offset < members.length; offset += MAX_GROUP_SIZE) {
+      const batch = members.slice(offset, offset + MAX_GROUP_SIZE);
+      if (batch.length < MIN_GROUP_SIZE_FOR_COMPACT) {
+        // A trailing batch of one has nothing to merge against; keep it.
+        totalKept += batch.length;
+        continue;
+      }
+
+      try {
+        const result = await compactGroup({
+          prefix,
+          members: batch,
+          userId: input.userId,
+          modelId,
+          config: input.config,
+        });
+        totalMerged += result.merged;
+        totalDeleted += result.deleted;
+        totalKept += result.kept;
+      } catch (error) {
+        logger.warn('compact:group_failed', {
+          prefix,
+          batchOffset: offset,
+          memberCount: batch.length,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        totalKept += batch.length;
+      }
     }
   }
 
@@ -151,6 +164,12 @@ async function compactGroup(input: {
 }): Promise<{ merged: number; deleted: number; kept: number }> {
   const model = resolveLanguageModel(input.modelId, input.config);
 
+  // The set of IDs the model is allowed to touch. Anything it returns that
+  // is not in here is a hallucinated / out-of-group ID and must be ignored —
+  // otherwise an untrusted model could delete memories outside this group
+  // (or another user's, though userId-scoped delete already blocks that).
+  const memberIds = new Set(input.members.map((m) => m.id));
+
   const memoriesBlock = input.members
     .map(
       (m, i) =>
@@ -171,6 +190,7 @@ For each action, choose one:
 - KEEP: leave a memory as-is. Provide its ID in sourceIds.
 
 Rules:
+- Only use the exact [id=...] values shown above. Never invent IDs.
 - Every memory ID must appear in exactly one action.
 - Prefer MERGE over DELETE when content overlaps but each adds unique detail.
 - Preserve the highest importance value from merged sources.
@@ -191,19 +211,34 @@ Rules:
   const deletedIds = new Set<string>();
 
   for (const action of result.object.actions) {
+    // Drop any ID the model returned that is not a real member of this group.
+    const validSourceIds = action.sourceIds.filter((id) => memberIds.has(id));
+    const droppedCount = action.sourceIds.length - validSourceIds.length;
+    if (droppedCount > 0) {
+      logger.warn('compact:ignored_out_of_group_ids', {
+        type: action.type,
+        droppedCount,
+        requested: action.sourceIds.length,
+      });
+    }
+
     try {
       switch (action.type) {
         case 'MERGE': {
           if (
             !action.mergedContent ||
             !action.mergedKey ||
-            action.sourceIds.length < 2
+            validSourceIds.length < 2
           ) {
-            kept += action.sourceIds.length;
+            kept += validSourceIds.length;
             break;
           }
 
-          await upsertLongTermMemory({
+          // Write the merged memory FIRST and learn its row id. If mergedKey
+          // collides with an existing source row, upsert updates that same
+          // row — so we must exclude the merged row's id from the subsequent
+          // delete sweep, otherwise we would delete the memory we just wrote.
+          const upserted = await upsertLongTermMemory({
             userId: input.userId,
             key: action.mergedKey,
             content: action.mergedContent,
@@ -211,19 +246,22 @@ Rules:
             importance: action.mergedImportance,
             config: input.config,
           });
+          const mergedRowId = upserted.memory.id;
 
-          for (const id of action.sourceIds) {
-            if (!deletedIds.has(id)) {
-              await deleteLongTermMemory(id, { userId: input.userId });
-              deletedIds.add(id);
-            }
+          let deletedThisAction = 0;
+          for (const id of validSourceIds) {
+            if (id === mergedRowId) continue; // never delete the merge target
+            if (deletedIds.has(id)) continue;
+            await deleteLongTermMemory(id, { userId: input.userId });
+            deletedIds.add(id);
+            deletedThisAction += 1;
           }
           merged += 1;
-          deleted += action.sourceIds.length;
+          deleted += deletedThisAction;
           break;
         }
         case 'DELETE': {
-          for (const id of action.sourceIds) {
+          for (const id of validSourceIds) {
             if (!deletedIds.has(id)) {
               await deleteLongTermMemory(id, { userId: input.userId });
               deletedIds.add(id);
@@ -234,17 +272,17 @@ Rules:
         }
         case 'KEEP':
         default: {
-          kept += action.sourceIds.length;
+          kept += validSourceIds.length;
           break;
         }
       }
     } catch (error) {
       logger.warn('compact:action_failed', {
         type: action.type,
-        sourceIds: action.sourceIds,
+        sourceIds: validSourceIds,
         error: error instanceof Error ? error.message : String(error),
       });
-      kept += action.sourceIds.length;
+      kept += validSourceIds.length;
     }
   }
 
