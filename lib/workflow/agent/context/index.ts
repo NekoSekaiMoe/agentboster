@@ -130,18 +130,36 @@ export async function buildPostSummaryConversationMessages(
  * Build an enriched recall query from the current message plus recent
  * user messages from history. This improves recall for messages that
  * reference prior context (e.g., "那个" / "that thing we discussed").
+ *
+ * `modelMessages` here is purely conversation history — the summary and
+ * recalled-memory blocks are injected into the prefix AFTER this runs, so
+ * there is no internal/prefixed message to filter out. The caller writes
+ * the current user turn to the DB before building context, so the most
+ * recent user message in `modelMessages` is `currentQuery` itself; we skip
+ * that one so it isn't concatenated twice (which would also perturb the
+ * recall cache key).
  */
 function buildEnrichedRecallQuery(
   currentQuery: string,
   modelMessages: ModelMessage[],
 ): string {
   const recentUserTexts: string[] = [];
+  let skippedCurrent = false;
 
-  for (let i = modelMessages.length - 1; i >= 0 && recentUserTexts.length < RECENT_USER_MESSAGE_COUNT; i--) {
+  for (
+    let i = modelMessages.length - 1;
+    i >= 0 && recentUserTexts.length < RECENT_USER_MESSAGE_COUNT;
+    i--
+  ) {
     const msg = modelMessages[i];
     if (msg.role !== 'user' || typeof msg.content !== 'string') continue;
-    if (msg.content.startsWith(SUMMARY_MESSAGE_PREFIX)) continue;
-    if (msg.content.startsWith('[Relevant Long-term Memories]')) continue;
+
+    // The last user message is the current turn (already captured in
+    // currentQuery); skip exactly one occurrence of it.
+    if (!skippedCurrent) {
+      skippedCurrent = true;
+      continue;
+    }
 
     const trimmed = msg.content.slice(0, MAX_HISTORY_MESSAGE_CHARS);
     recentUserTexts.push(trimmed);

@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   customType,
   index,
   integer,
@@ -179,6 +181,13 @@ export const memoryEdges = pgTable(
       table.srcMemoryId,
       table.dstMemoryId,
       table.relation,
+    ),
+    // The $type<>() above only constrains TypeScript; the column is plain
+    // text at the DB level. Enforce the allowed relation set with a CHECK so
+    // an invalid relation can never enter the graph (and mislead BFS recall).
+    relationCheck: check(
+      'memory_edges_relation_check',
+      sql`${table.relation} IN ('same_topic', 'related', 'supersedes', 'contradicts')`,
     ),
   }),
 );
