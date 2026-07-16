@@ -10,7 +10,7 @@ use serde::Serialize;
 ///
 /// Coordinates are in physical screen pixels with origin at the primary
 /// monitor's top-left.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AxNode {
     pub role: String,
@@ -23,23 +23,6 @@ pub struct AxNode {
     pub enabled: bool,
     pub focused: bool,
     pub children: Vec<AxNode>,
-}
-
-impl Default for AxNode {
-    fn default() -> Self {
-        Self {
-            role: String::new(),
-            name: String::new(),
-            value: None,
-            x: 0,
-            y: 0,
-            w: 0,
-            h: 0,
-            enabled: false,
-            focused: false,
-            children: Vec::new(),
-        }
-    }
 }
 
 /// Get the accessibility node at the given screen coordinates.
@@ -449,12 +432,11 @@ mod linux {
         if depth > 0 {
             let child_count = elem.child_count().await.unwrap_or(0);
             for i in 0..child_count {
-                if let Ok(child) = child_accessible(conn, elem, i).await {
-                    if let Ok(node) = Box::pin(find_at_point(conn, &child, x, y, depth - 1)).await {
-                        if !node.role.is_empty() {
-                            return Ok(node);
-                        }
-                    }
+                if let Ok(child) = child_accessible(conn, elem, i).await
+                    && let Ok(node) = Box::pin(find_at_point(conn, &child, x, y, depth - 1)).await
+                    && !node.role.is_empty()
+                {
+                    return Ok(node);
                 }
             }
         }
@@ -477,25 +459,24 @@ mod linux {
         display_depth: u32,
         search_depth: u32,
     ) -> Result<AxNode, String> {
-        if let Ok(state_set) = elem.get_state().await {
-            if state_set.contains(State::Focused) {
-                return build_node(conn, elem, display_depth).await;
-            }
+        if let Ok(state_set) = elem.get_state().await
+            && state_set.contains(State::Focused)
+        {
+            return build_node(conn, elem, display_depth).await;
         }
         if search_depth > 0 {
             let child_count = elem.child_count().await.unwrap_or(0);
             for i in 0..child_count {
-                if let Ok(child) = child_accessible(conn, elem, i).await {
-                    if let Ok(node) = Box::pin(search_focused(
+                if let Ok(child) = child_accessible(conn, elem, i).await
+                    && let Ok(node) = Box::pin(search_focused(
                         conn,
                         &child,
                         display_depth,
                         search_depth - 1,
                     ))
                     .await
-                    {
-                        return Ok(node);
-                    }
+                {
+                    return Ok(node);
                 }
             }
         }
@@ -539,10 +520,10 @@ mod linux {
         if depth > 0 {
             let child_count = elem.child_count().await.unwrap_or(0);
             for i in 0..child_count {
-                if let Ok(child) = child_accessible(conn, elem, i).await {
-                    if let Ok(node) = Box::pin(build_node(conn, &child, depth - 1)).await {
-                        children.push(node);
-                    }
+                if let Ok(child) = child_accessible(conn, elem, i).await
+                    && let Ok(node) = Box::pin(build_node(conn, &child, depth - 1)).await
+                {
+                    children.push(node);
                 }
             }
         }

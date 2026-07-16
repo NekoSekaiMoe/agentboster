@@ -16,7 +16,7 @@ impl InputController {
 
     pub fn mouse_move(&mut self, x: f64, y: f64) -> Result<(), Box<dyn std::error::Error>> {
         let (nx, ny) = self.coord_mapper.to_native(x, y);
-        self.enigo.move_mouse(nx as i32, ny as i32, Coordinate::Abs);
+        self.enigo.move_mouse(nx as i32, ny as i32, Coordinate::Abs)?;
         Ok(())
     }
 
@@ -35,9 +35,9 @@ impl InputController {
             "forward" | "Forward" => enigo::Button::Forward,
             _ => enigo::Button::Left,
         };
-        self.enigo.button(btn, enigo::Direction::Click);
+        self.enigo.button(btn, enigo::Direction::Click)?;
         if double {
-            self.enigo.button(btn, enigo::Direction::Click);
+            self.enigo.button(btn, enigo::Direction::Click)?;
         }
         Ok(())
     }
@@ -51,17 +51,17 @@ impl InputController {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (fx, fy) = self.coord_mapper.to_native(from_x, from_y);
         let (tx, ty) = self.coord_mapper.to_native(to_x, to_y);
-        self.enigo.move_mouse(fx as i32, fy as i32, Coordinate::Abs);
+        self.enigo.move_mouse(fx as i32, fy as i32, Coordinate::Abs)?;
         self.enigo
-            .button(enigo::Button::Left, enigo::Direction::Press);
-        self.enigo.move_mouse(tx as i32, ty as i32, Coordinate::Abs);
+            .button(enigo::Button::Left, enigo::Direction::Press)?;
+        self.enigo.move_mouse(tx as i32, ty as i32, Coordinate::Abs)?;
         self.enigo
-            .button(enigo::Button::Left, enigo::Direction::Release);
+            .button(enigo::Button::Left, enigo::Direction::Release)?;
         Ok(())
     }
 
     pub fn type_text(&mut self, text: &str) -> Result<(), Box<dyn std::error::Error>> {
-        self.enigo.text(text);
+        self.enigo.text(text)?;
         Ok(())
     }
 
@@ -77,7 +77,7 @@ impl InputController {
             "click" => enigo::Direction::Click,
             _ => return Err(format!("unknown direction: {direction}").into()),
         };
-        self.enigo.key(k, dir);
+        self.enigo.key(k, dir)?;
         Ok(())
     }
 
@@ -92,11 +92,11 @@ impl InputController {
             .map(|m| parse_key(m))
             .collect::<Result<_, _>>()?;
         for m in &mods {
-            self.enigo.key(*m, enigo::Direction::Press);
+            self.enigo.key(*m, enigo::Direction::Press)?;
         }
-        self.enigo.key(k, enigo::Direction::Click);
+        self.enigo.key(k, enigo::Direction::Click)?;
         for m in mods.iter().rev() {
-            self.enigo.key(*m, enigo::Direction::Release);
+            self.enigo.key(*m, enigo::Direction::Release)?;
         }
         Ok(())
     }
@@ -140,8 +140,12 @@ pub fn parse_key(s: &str) -> Result<enigo::Key, Box<dyn std::error::Error>> {
         _ => {
             let mut chars = s.chars();
             let only = chars.next();
-            if only.is_some() && chars.next().is_none() {
-                enigo::Key::Unicode(only.unwrap())
+            if let Some(c) = only {
+                if chars.next().is_none() {
+                    enigo::Key::Unicode(c)
+                } else {
+                    return Err(format!("unknown key: {s}").into());
+                }
             } else {
                 return Err(format!("unknown key: {s}").into());
             }

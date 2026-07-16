@@ -44,23 +44,21 @@ impl ComputerUseLock {
         let path = config_dir.join("computer-use.lock");
 
         if path.exists() {
-            if let Ok(contents) = fs::read_to_string(&path) {
-                if let Ok(info) = serde_json::from_str::<LockInfo>(&contents) {
-                    if process_alive(info.pid) {
-                        return Err(LockError::Held {
-                            session_id: info.session_id,
-                            pid: info.pid,
-                        });
-                    }
-                }
+            if let Ok(contents) = fs::read_to_string(&path)
+                && let Ok(info) = serde_json::from_str::<LockInfo>(&contents)
+                && process_alive(info.pid)
+            {
+                return Err(LockError::Held {
+                    session_id: info.session_id,
+                    pid: info.pid,
+                });
             }
             let _ = fs::remove_file(&path);
         }
 
         // Cross-check the other app's lock
         let parent = config_dir.parent().ok_or_else(|| {
-            LockError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            LockError::Io(std::io::Error::other(
                 "config_dir has no parent",
             ))
         })?;
@@ -70,17 +68,15 @@ impl ComputerUseLock {
             parent.join("agentboster-desktop")
         };
         let other_lock = other_dir.join("computer-use.lock");
-        if other_lock.exists() {
-            if let Ok(contents) = fs::read_to_string(&other_lock) {
-                if let Ok(info) = serde_json::from_str::<LockInfo>(&contents) {
-                    if process_alive(info.pid) {
-                        return Err(LockError::Held {
-                            session_id: info.session_id,
-                            pid: info.pid,
-                        });
-                    }
-                }
-            }
+        if other_lock.exists()
+            && let Ok(contents) = fs::read_to_string(&other_lock)
+            && let Ok(info) = serde_json::from_str::<LockInfo>(&contents)
+            && process_alive(info.pid)
+        {
+            return Err(LockError::Held {
+                session_id: info.session_id,
+                pid: info.pid,
+            });
         }
 
         if let Some(parent) = path.parent() {
