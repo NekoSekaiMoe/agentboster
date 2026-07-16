@@ -1111,51 +1111,6 @@ async fn rpc_ui_response(
     }
 }
 
-#[allow(dead_code)]
-fn get_pi_agent_dir() -> Option<PathBuf> {
-    // Respect explicit env override first
-    if let Ok(raw) = std::env::var("PI_CODING_AGENT_DIR") {
-        let trimmed = raw.trim();
-        if !trimmed.is_empty() {
-            if trimmed == "~" {
-                return std::env::var_os("HOME")
-                    .or(std::env::var_os("USERPROFILE"))
-                    .map(PathBuf::from);
-            }
-            if let Some(rest) = trimmed
-                .strip_prefix("~/")
-                .or_else(|| trimmed.strip_prefix("~\\"))
-            {
-                return std::env::var_os("HOME")
-                    .or(std::env::var_os("USERPROFILE"))
-                    .map(|home| PathBuf::from(home).join(rest));
-            }
-            return Some(PathBuf::from(trimmed));
-        }
-    }
-
-    // Default: platform-specific config dir
-    resolve_home_dir().map(|home| {
-        if cfg!(target_os = "macos") {
-            home.join("Library")
-                .join("Application Support")
-                .join("agentboster-cli")
-                .join("agent")
-        } else if cfg!(target_os = "windows") {
-            if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                PathBuf::from(local).join("agentboster-cli").join("agent")
-            } else {
-                home.join("AppData")
-                    .join("Local")
-                    .join("agentboster-cli")
-                    .join("agent")
-            }
-        } else {
-            home.join(".config").join("agentboster-cli").join("agent")
-        }
-    })
-}
-
 /// Settings structure
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
