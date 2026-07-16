@@ -1081,7 +1081,7 @@ export class ExtensionUiHandler {
     await this.sendResponse(request.id, {
       error:
         'Computer-use tools are now handled by the CLI via the computer-use-mcp binary. ' +
-        'Update the CLI and run `agentboster-cli remote start` with MCP support.',
+        'Update the CLI to a version that includes MCP-based computer-use support.',
     });
   }
 
