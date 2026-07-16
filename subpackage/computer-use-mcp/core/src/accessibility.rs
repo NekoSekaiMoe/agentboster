@@ -152,10 +152,12 @@ mod macos {
     };
     use core_foundation::{
         array::CFArray,
-        base::{CFType, TCFType},
+        base::{CFRelease, CFType, TCFType},
+        boolean::CFBoolean,
         string::CFString,
     };
     use core_graphics::geometry::{CGPoint, CGSize};
+    use std::ffi::c_void;
     use std::ptr;
 
     pub fn get_ax_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
@@ -168,10 +170,13 @@ mod macos {
                 y as f64,
                 &mut elem,
             );
+            CFRelease(system_wide as *const c_void);
             if result != 0 || elem.is_null() {
                 return Err(format!("AXUIElementCopyElementAtPosition failed: {}", result));
             }
-            build_node(elem, max_depth)
+            let node = build_node(elem, max_depth);
+            CFRelease(elem as *const c_void);
+            node
         }
     }
 
@@ -182,15 +187,18 @@ mod macos {
             let mut value = ptr::null_mut();
             let result =
                 AXUIElementCopyAttributeValue(system_wide, focused_attr.as_concrete_TypeRef(), &mut value);
+            CFRelease(system_wide as *const c_void);
             if result != 0 || value.is_null() {
                 return Err(format!("AXUIElementCopyAttributeValue(AXFocusedUIElement) failed: {}", result));
             }
-            build_node(value as *mut _, max_depth)
+            let node = build_node(value as *mut _, max_depth);
+            CFRelease(value);
+            node
         }
     }
 
-    unsafe fn build_node(elem: *mut std::ffi::c_void, depth_remaining: u32) -> Result<AxNode, String> {
-        fn get_string_attr(elem: *mut std::ffi::c_void, attr: &str) -> String {
+    unsafe fn build_node(elem: *mut c_void, depth_remaining: u32) -> Result<AxNode, String> {
+        fn get_string_attr(elem: *mut c_void, attr: &str) -> String {
             unsafe {
                 let cf_attr = CFString::new(attr);
                 let mut value = ptr::null_mut();
@@ -206,22 +214,23 @@ mod macos {
             }
         }
 
-        fn get_bool_attr(elem: *mut std::ffi::c_void, attr: &str) -> bool {
+        fn get_bool_attr(elem: *mut c_void, attr: &str) -> bool {
             unsafe {
                 let cf_attr = CFString::new(attr);
                 let mut value = ptr::null_mut();
                 if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value) == 0
                     && !value.is_null()
                 {
-                    // macOS AX bools are CFBoolean; we can check pointer identity
-                    // with kCFBooleanTrue/kCFBooleanFalse, but simpler: just check non-null.
-                    return true;
+                    let cf_val = CFType::wrap_under_create_rule(value);
+                    if let Some(b) = cf_val.downcast::<CFBoolean>() {
+                        return bool::from(b);
+                    }
                 }
                 false
             }
         }
 
-        fn get_position(elem: *mut std::ffi::c_void) -> (i32, i32) {
+        fn get_position(elem: *mut c_void) -> (i32, i32) {
             unsafe {
                 let cf_attr = CFString::new("AXPosition");
                 let mut value = ptr::null_mut();
@@ -229,7 +238,9 @@ mod macos {
                     && !value.is_null()
                 {
                     let mut point = CGPoint::new(0.0, 0.0);
-                    if AXValueGetValue(value as *mut _, kAXValueTypeCGPoint, &mut point as *mut _ as *mut _) {
+                    let ok = AXValueGetValue(value as *mut _, kAXValueTypeCGPoint, &mut point as *mut _ as *mut _);
+                    CFRelease(value);
+                    if ok {
                         return (point.x as i32, point.y as i32);
                     }
                 }
@@ -237,7 +248,7 @@ mod macos {
             }
         }
 
-        fn get_size(elem: *mut std::ffi::c_void) -> (i32, i32) {
+        fn get_size(elem: *mut c_void) -> (i32, i32) {
             unsafe {
                 let cf_attr = CFString::new("AXSize");
                 let mut value = ptr::null_mut();
@@ -245,7 +256,9 @@ mod macos {
                     && !value.is_null()
                 {
                     let mut size = CGSize::new(0.0, 0.0);
-                    if AXValueGetValue(value as *mut _, kAXValueTypeCGSize, &mut size as *mut _ as *mut _) {
+                    let ok = AXValueGetValue(value as *mut _, kAXValueTypeCGSize, &mut size as *mut _ as *mut _);
+                    CFRelease(value);
+                    if ok {
                         return (size.width as i32, size.height as i32);
                     }
                 }
@@ -253,7 +266,7 @@ mod macos {
             }
         }
 
-        fn get_children(elem: *mut std::ffi::c_void, depth: u32) -> Vec<AxNode> {
+        fn get_children(elem: *mut c_void, depth: u32) -> Vec<AxNode> {
             if depth == 0 {
                 return Vec::new();
             }
@@ -340,31 +353,38 @@ mod linux {
         y: i32,
         depth: u32,
     ) -> Result<AxNode, String> {
-        if let Ok(component) = ComponentProxy::from(elem.clone()) {
+        let contains_point = if let Ok(component) = ComponentProxy::from(elem.clone()) {
             if let Ok(extents) = component.extents(atspi::CoordType::Screen) {
-                let ex = extents.x();
-                let ey = extents.y();
-                let ew = extents.width();
-                let eh = extents.height();
-                if x >= ex && x < ex + ew && y >= ey && y < ey + eh {
-                    if depth > 0 {
-                        if let Ok(child_count) = elem.child_count() {
-                            for i in 0..child_count {
-                                if let Ok(child) = elem.child_at_index(i) {
-                                    if let Ok(node) = find_at_point(&child, x, y, depth - 1) {
-                                        if !node.role.is_empty() {
-                                            return Ok(node);
-                                        }
-                                    }
-                                }
+                x >= extents.x()
+                    && x < extents.x() + extents.width()
+                    && y >= extents.y()
+                    && y < extents.y() + extents.height()
+            } else {
+                true
+            }
+        } else {
+            true
+        };
+
+        if !contains_point {
+            return Err("No element at point".into());
+        }
+
+        if depth > 0 {
+            if let Ok(child_count) = elem.child_count() {
+                for i in 0..child_count {
+                    if let Ok(child) = elem.child_at_index(i) {
+                        if let Ok(node) = find_at_point(&child, x, y, depth - 1) {
+                            if !node.role.is_empty() {
+                                return Ok(node);
                             }
                         }
                     }
-                    return build_node(elem, depth);
                 }
             }
         }
-        Err("No element at point".into())
+
+        build_node(elem, depth)
     }
 
     fn find_focused(elem: &atspi::Accessible, depth: u32) -> Result<AxNode, String> {

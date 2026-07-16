@@ -151,6 +151,16 @@ fn handle_tool_call(
     let tool_name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
 
+    let invalid_params = |msg: String| JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id: id.clone(),
+        result: None,
+        error: Some(JsonRpcError {
+            code: -32602,
+            message: msg,
+        }),
+    };
+
     if !caps.has_display {
         return JsonRpcResponse {
             jsonrpc: "2.0".into(),
@@ -166,6 +176,11 @@ fn handle_tool_call(
     match tool_name {
         "screenshot" => {
             let max_width = args["max_width"].as_u64().map(|v| v as u32);
+            if let Some(w) = max_width {
+                if w == 0 {
+                    return invalid_params("max_width must be > 0".into());
+                }
+            }
             let monitor_index = args["monitor_index"].as_u64().map(|v| v as usize);
             match computer_use_core::screenshot::capture_and_scale(max_width, monitor_index) {
                 Ok(result) => JsonRpcResponse {
@@ -214,33 +229,46 @@ fn handle_tool_call(
 
             let result = match tool_name {
                 "mouse_move" => {
-                    let x = args["x"].as_f64().unwrap_or(0.0);
-                    let y = args["y"].as_f64().unwrap_or(0.0);
+                    let (Some(x), Some(y)) = (args["x"].as_f64(), args["y"].as_f64()) else {
+                        return invalid_params("x and y are required".into());
+                    };
                     ctrl.mouse_move(x, y).map(|_| json!({"moved_to": [x, y]}))
                 }
                 "mouse_click" => {
-                    let x = args["x"].as_f64().unwrap_or(0.0);
-                    let y = args["y"].as_f64().unwrap_or(0.0);
+                    let (Some(x), Some(y)) = (args["x"].as_f64(), args["y"].as_f64()) else {
+                        return invalid_params("x and y are required".into());
+                    };
                     let button = args["button"].as_str().unwrap_or("left");
                     let double = args["click_type"].as_str() == Some("double");
                     ctrl.mouse_click(x, y, button, double)
                         .map(|_| json!({"clicked": [x, y], "button": button}))
                 }
                 "mouse_drag" => {
-                    let fx = args["from_x"].as_f64().unwrap_or(0.0);
-                    let fy = args["from_y"].as_f64().unwrap_or(0.0);
-                    let tx = args["to_x"].as_f64().unwrap_or(0.0);
-                    let ty = args["to_y"].as_f64().unwrap_or(0.0);
+                    let (Some(fx), Some(fy), Some(tx), Some(ty)) = (
+                        args["from_x"].as_f64(),
+                        args["from_y"].as_f64(),
+                        args["to_x"].as_f64(),
+                        args["to_y"].as_f64(),
+                    ) else {
+                        return invalid_params("from_x, from_y, to_x, to_y are required".into());
+                    };
                     ctrl.mouse_drag(fx, fy, tx, ty)
                         .map(|_| json!({"dragged": {"from": [fx, fy], "to": [tx, ty]}}))
                 }
                 "type_text" => {
-                    let text = args["text"].as_str().unwrap_or("");
+                    let Some(text) = args["text"].as_str() else {
+                        return invalid_params("text is required".into());
+                    };
                     ctrl.type_text(text)
                         .map(|_| json!({"typed": text}))
                 }
                 "key_event" => {
-                    let key = args["key"].as_str().unwrap_or("");
+                    let Some(key) = args["key"].as_str() else {
+                        return invalid_params("key is required".into());
+                    };
+                    if key.is_empty() {
+                        return invalid_params("key must not be empty".into());
+                    }
                     let modifiers: Vec<String> = args["modifiers"]
                         .as_array()
                         .map(|arr| {
@@ -290,8 +318,10 @@ fn handle_tool_call(
                     }),
                 };
             }
-            let x = args["x"].as_i64().unwrap_or(0) as i32;
-            let y = args["y"].as_i64().unwrap_or(0) as i32;
+            let (Some(x), Some(y)) = (args["x"].as_i64(), args["y"].as_i64()) else {
+                return invalid_params("x and y are required integers".into());
+            };
+            let (x, y) = (x as i32, y as i32);
             let max_depth = args["max_depth"].as_u64().map(|v| v as u32);
             match computer_use_core::accessibility::get_ax_at_point(x, y, max_depth) {
                 Ok(node) => JsonRpcResponse {
