@@ -9,8 +9,7 @@ export interface RiskAssessment {
 const DANGEROUS_COMMANDS =
   /\b(rm\s+(-[-rfRF]+\s+)+|rm\s+--recursive|rm\s+--force|mkfs\.|dd\s+.*of=\/dev\/|fdisk|format\s+[a-z]:|shutdown|reboot|init\s+[06]|systemctl\s+(halt|poweroff|reboot)|halt\b)/;
 
-const DANGEROUS_COMMANDS_IFS =
-  /rm\s*\$\{?IFS\}?-[rfRF]/;
+const DANGEROUS_COMMANDS_IFS = /rm\s*\$\{?IFS\}?-[rfRF]/;
 
 const ADMIN_COMMANDS =
   /\b(sudo\s|su\s|doas\s|pkexec\s|runas\s|gsudo\s|chmod\s+(777|666|u\+s|4[0-7]{3})|chown\s)/;
@@ -67,7 +66,10 @@ export function assessLocalToolRisk(
 }
 
 function assessExecRisk(command: string): RiskAssessment {
-  if (DANGEROUS_COMMANDS.test(command) || DANGEROUS_COMMANDS_IFS.test(command)) {
+  if (
+    DANGEROUS_COMMANDS.test(command) ||
+    DANGEROUS_COMMANDS_IFS.test(command)
+  ) {
     return {
       level: 'block',
       reason: 'Destructive system command',
