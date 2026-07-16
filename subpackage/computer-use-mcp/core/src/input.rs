@@ -52,7 +52,8 @@ impl InputController {
         let (fx, fy) = self.coord_mapper.to_native(from_x, from_y);
         let (tx, ty) = self.coord_mapper.to_native(to_x, to_y);
         self.enigo.move_mouse(fx as i32, fy as i32, Coordinate::Abs);
-        self.enigo.button(enigo::Button::Left, enigo::Direction::Press);
+        self.enigo
+            .button(enigo::Button::Left, enigo::Direction::Press);
         self.enigo.move_mouse(tx as i32, ty as i32, Coordinate::Abs);
         self.enigo
             .button(enigo::Button::Left, enigo::Direction::Release);

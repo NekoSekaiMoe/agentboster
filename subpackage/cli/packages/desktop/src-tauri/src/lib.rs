@@ -11,7 +11,8 @@ use tauri::{AppHandle, Emitter, Manager};
 // `/releases/latest` endpoint at runtime to discover the current version
 // (tag_name) and download URL, so Desktop never needs to be in lock-step
 // with CLI releases.
-const CLI_RELEASES_API: &str = "https://api.github.com/repos/NekoSekaiMoe/agentboster/releases/latest";
+const CLI_RELEASES_API: &str =
+    "https://api.github.com/repos/NekoSekaiMoe/agentboster/releases/latest";
 
 #[derive(Default)]
 struct RpcProcessHandle {
@@ -244,15 +245,28 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
                     .join("npm")
                     .join("agentboster-cli.exe"),
             );
-            candidates.push(user_dir.join("scoop").join("shims").join("agentboster-cli.cmd"));
+            candidates.push(
+                user_dir
+                    .join("scoop")
+                    .join("shims")
+                    .join("agentboster-cli.cmd"),
+            );
         }
 
         if let Ok(program_files) = std::env::var("ProgramFiles") {
-            candidates.push(PathBuf::from(program_files).join("nodejs").join("agentboster-cli.cmd"));
+            candidates.push(
+                PathBuf::from(program_files)
+                    .join("nodejs")
+                    .join("agentboster-cli.cmd"),
+            );
         }
 
         if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
-            candidates.push(PathBuf::from(program_files_x86).join("nodejs").join("agentboster-cli.cmd"));
+            candidates.push(
+                PathBuf::from(program_files_x86)
+                    .join("nodejs")
+                    .join("agentboster-cli.cmd"),
+            );
         }
 
         if let Ok(program_data) = std::env::var("ProgramData") {
@@ -273,12 +287,19 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
         // writes agentboster-cli.cmd next to the .cjs bundle here.
         if let Some(home_dir) = resolve_home_dir() {
             if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                let installed_bin = PathBuf::from(local).join("agentboster-cli").join("agent").join("bin");
+                let installed_bin = PathBuf::from(local)
+                    .join("agentboster-cli")
+                    .join("agent")
+                    .join("bin");
                 candidates.push(installed_bin.join("agentboster-cli.cmd"));
                 candidates.push(installed_bin.join("agentboster-cli.exe"));
                 candidates.push(installed_bin.join("agentboster-cli"));
             }
-            let installed_bin = home_dir.join(".config").join("agentboster-cli").join("agent").join("bin");
+            let installed_bin = home_dir
+                .join(".config")
+                .join("agentboster-cli")
+                .join("agent")
+                .join("bin");
             candidates.push(installed_bin.join("agentboster-cli.cmd"));
             candidates.push(installed_bin.join("agentboster-cli.exe"));
             candidates.push(installed_bin.join("agentboster-cli"));
@@ -295,11 +316,7 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
             let mut version_dirs: Vec<PathBuf> = entries
                 .filter_map(|entry| {
                     let path = entry.ok()?.path();
-                    if path.is_dir() {
-                        Some(path)
-                    } else {
-                        None
-                    }
+                    if path.is_dir() { Some(path) } else { None }
                 })
                 .collect();
             version_dirs.sort_by(|a, b| b.cmp(a));
@@ -310,7 +327,10 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
 
         // Other common per-user install locations
         if cfg!(target_os = "macos") {
-            candidates.push(home_dir.join("Library/Application Support/agentboster-cli/agent/bin/agentboster-cli"));
+            candidates.push(
+                home_dir
+                    .join("Library/Application Support/agentboster-cli/agent/bin/agentboster-cli"),
+            );
         }
         candidates.push(home_dir.join(".config/agentboster-cli/agent/bin/agentboster-cli"));
         candidates.push(home_dir.join(".volta/bin/agentboster-cli"));
@@ -349,11 +369,13 @@ fn prepend_bin_dir_to_path(cmd: &mut Command, bin_dir: &Path) {
     }
 }
 
-
-
-
 fn discover_pi_from_env_override() -> Option<PathBuf> {
-    for key in ["AGENTBOSTER_DESKTOP_BIN_PATH", "AGENTBOSTER_CLI_PATH", "PI_DESKTOP_PI_PATH", "PI_CLI_PATH"] {
+    for key in [
+        "AGENTBOSTER_DESKTOP_BIN_PATH",
+        "AGENTBOSTER_CLI_PATH",
+        "PI_DESKTOP_PI_PATH",
+        "PI_CLI_PATH",
+    ] {
         if let Ok(raw) = std::env::var(key) {
             if let Some(path) = resolve_explicit_pi_path(&raw) {
                 return Some(path);
@@ -436,7 +458,12 @@ async fn fetch_latest_release(
     client: &reqwest::Client,
     app: &AppHandle,
 ) -> Result<GithubRelease, String> {
-    emit_progress(app, "checking", None, Some("Looking up latest CLI release…".into()));
+    emit_progress(
+        app,
+        "checking",
+        None,
+        Some("Looking up latest CLI release…".into()),
+    );
     let resp = client
         .get(CLI_RELEASES_API)
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -469,9 +496,7 @@ fn pick_tarball_asset<'a>(release: &'a GithubRelease) -> Result<&'a GithubAsset,
     release
         .assets
         .iter()
-        .find(|a| {
-            a.name.ends_with(".tar.gz") && a.name.starts_with("agentboster-cli-")
-        })
+        .find(|a| a.name.ends_with(".tar.gz") && a.name.starts_with("agentboster-cli-"))
         .ok_or_else(|| {
             let available: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
             format!(
@@ -486,18 +511,35 @@ fn pick_tarball_asset<'a>(release: &'a GithubRelease) -> Result<&'a GithubAsset,
 /// already on the discovery candidate list (`discover_pi_from_common_locations`),
 /// so no extra wiring is needed for `rpc_start` to find the new binary.
 fn install_target_bin_dir() -> Result<PathBuf, String> {
-    let home = resolve_home_dir()
-        .ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
+    let home =
+        resolve_home_dir().ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
     if cfg!(target_os = "macos") {
-        Ok(home.join("Library").join("Application Support").join("agentboster-cli").join("agent").join("bin"))
+        Ok(home
+            .join("Library")
+            .join("Application Support")
+            .join("agentboster-cli")
+            .join("agent")
+            .join("bin"))
     } else if cfg!(target_os = "windows") {
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            Ok(PathBuf::from(local).join("agentboster-cli").join("agent").join("bin"))
+            Ok(PathBuf::from(local)
+                .join("agentboster-cli")
+                .join("agent")
+                .join("bin"))
         } else {
-            Ok(home.join("AppData").join("Local").join("agentboster-cli").join("agent").join("bin"))
+            Ok(home
+                .join("AppData")
+                .join("Local")
+                .join("agentboster-cli")
+                .join("agent")
+                .join("bin"))
         }
     } else {
-        Ok(home.join(".config").join("agentboster-cli").join("agent").join("bin"))
+        Ok(home
+            .join(".config")
+            .join("agentboster-cli")
+            .join("agent")
+            .join("bin"))
     }
 }
 
@@ -510,7 +552,12 @@ async fn download_tarball(
 ) -> Result<(), String> {
     use futures_util::StreamExt;
 
-    emit_progress(app, "downloading", Some(0.0), Some(format!("Fetching {}", url)));
+    emit_progress(
+        app,
+        "downloading",
+        Some(0.0),
+        Some(format!("Fetching {}", url)),
+    );
     let resp = client
         .get(url)
         .send()
@@ -547,14 +594,19 @@ async fn download_tarball(
                 Some(format!(
                     "{} / {} bytes",
                     received,
-                    if total > 0 { total.to_string() } else { "?".to_string() }
+                    if total > 0 {
+                        total.to_string()
+                    } else {
+                        "?".to_string()
+                    }
                 )),
             );
             last_emit = std::time::Instant::now();
         }
     }
 
-    file.flush().map_err(|e| format!("Failed flushing download: {}", e))?;
+    file.flush()
+        .map_err(|e| format!("Failed flushing download: {}", e))?;
     emit_progress(app, "downloading", Some(1.0), None);
     Ok(())
 }
@@ -568,12 +620,15 @@ fn extract_tarball(tarball: &Path, bin_dir: &Path, app: &AppHandle) -> Result<()
     fs::create_dir_all(bin_dir)
         .map_err(|e| format!("Failed to create {}: {}", bin_dir.display(), e))?;
 
-    let f = fs::File::open(tarball)
-        .map_err(|e| format!("Failed to open downloaded tarball: {}", e))?;
+    let f =
+        fs::File::open(tarball).map_err(|e| format!("Failed to open downloaded tarball: {}", e))?;
     let gz = flate2::read::GzDecoder::new(f);
     let mut archive = tar::Archive::new(gz);
 
-    for entry in archive.entries().map_err(|e| format!("tar read error: {}", e))? {
+    for entry in archive
+        .entries()
+        .map_err(|e| format!("tar read error: {}", e))?
+    {
         let mut entry = entry.map_err(|e| format!("tar entry error: {}", e))?;
         let path = entry.path().map_err(|e| format!("tar path error: {}", e))?;
         let path = path.into_owned();
@@ -591,7 +646,11 @@ fn extract_tarball(tarball: &Path, bin_dir: &Path, app: &AppHandle) -> Result<()
         // Guard against path traversal (defense-in-depth; tar already
         // rejects absolute / `..` paths when unpack_in_prefix is used,
         // but we unpack manually here).
-        if relative.is_absolute() || relative.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
             continue;
         }
 
@@ -618,12 +677,7 @@ fn extract_tarball(tarball: &Path, bin_dir: &Path, app: &AppHandle) -> Result<()
     Ok(())
 }
 
-fn emit_progress(
-    app: &AppHandle,
-    stage: &str,
-    progress: Option<f64>,
-    message: Option<String>,
-) {
+fn emit_progress(app: &AppHandle, stage: &str, progress: Option<f64>, message: Option<String>) {
     let _ = app.emit(
         install_progress_event_name(),
         InstallProgressPayload {
@@ -673,9 +727,7 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
     {
         let cjs_path = bin_dir.join("agentboster-cli.cjs");
         let cmd_path = bin_dir.join("agentboster-cli.cmd");
-        let cmd_body = format!(
-            "@echo off\r\nnode \"%~dp0agentboster-cli.cjs\" %*\r\n"
-        );
+        let cmd_body = format!("@echo off\r\nnode \"%~dp0agentboster-cli.cjs\" %*\r\n");
         fs::write(&cmd_path, cmd_body)
             .map_err(|e| format!("Failed to write {}: {}", cmd_path.display(), e))?;
         let _ = cjs_path; // referenced for clarity
@@ -954,10 +1006,16 @@ async fn rpc_send(
             if let Some(ref mut stdin) = handle.stdin_writer {
                 write_rpc_line(stdin, &command)
             } else {
-                Err(format!("RPC process not started for instance '{}'", instance_id))
+                Err(format!(
+                    "RPC process not started for instance '{}'",
+                    instance_id
+                ))
             }
         } else {
-            Err(format!("RPC process not started for instance '{}'", instance_id))
+            Err(format!(
+                "RPC process not started for instance '{}'",
+                instance_id
+            ))
         }
     } else {
         Err("Failed to acquire RPC instances lock".to_string())
@@ -966,7 +1024,10 @@ async fn rpc_send(
 
 /// Stop an RPC process instance
 #[tauri::command]
-async fn rpc_stop(state: tauri::State<'_, RpcState>, instance_id: Option<String>) -> Result<(), String> {
+async fn rpc_stop(
+    state: tauri::State<'_, RpcState>,
+    instance_id: Option<String>,
+) -> Result<(), String> {
     let instance_id = normalize_instance_id(instance_id);
     if let Ok(mut instances) = state.instances.lock() {
         if let Some(mut handle) = instances.remove(&instance_id) {
@@ -993,7 +1054,10 @@ async fn rpc_stop_all(state: tauri::State<'_, RpcState>) -> Result<(), String> {
 
 /// Check if an RPC process instance is running
 #[tauri::command]
-async fn rpc_is_running(state: tauri::State<'_, RpcState>, instance_id: Option<String>) -> Result<bool, String> {
+async fn rpc_is_running(
+    state: tauri::State<'_, RpcState>,
+    instance_id: Option<String>,
+) -> Result<bool, String> {
     let instance_id = normalize_instance_id(instance_id);
     if let Ok(mut instances) = state.instances.lock() {
         if let Some(handle) = instances.get_mut(&instance_id) {
@@ -1031,10 +1095,16 @@ async fn rpc_ui_response(
             if let Some(ref mut stdin) = handle.stdin_writer {
                 write_rpc_line(stdin, &response)
             } else {
-                Err(format!("RPC process not started for instance '{}'", instance_id))
+                Err(format!(
+                    "RPC process not started for instance '{}'",
+                    instance_id
+                ))
             }
         } else {
-            Err(format!("RPC process not started for instance '{}'", instance_id))
+            Err(format!(
+                "RPC process not started for instance '{}'",
+                instance_id
+            ))
         }
     } else {
         Err("Failed to acquire RPC instances lock".to_string())
@@ -1066,19 +1136,24 @@ fn get_pi_agent_dir() -> Option<PathBuf> {
     // Default: platform-specific config dir
     resolve_home_dir().map(|home| {
         if cfg!(target_os = "macos") {
-            home.join("Library").join("Application Support").join("agentboster-cli").join("agent")
+            home.join("Library")
+                .join("Application Support")
+                .join("agentboster-cli")
+                .join("agent")
         } else if cfg!(target_os = "windows") {
             if let Ok(local) = std::env::var("LOCALAPPDATA") {
                 PathBuf::from(local).join("agentboster-cli").join("agent")
             } else {
-                home.join("AppData").join("Local").join("agentboster-cli").join("agent")
+                home.join("AppData")
+                    .join("Local")
+                    .join("agentboster-cli")
+                    .join("agent")
             }
         } else {
             home.join(".config").join("agentboster-cli").join("agent")
         }
     })
 }
-
 
 /// Settings structure
 #[derive(Debug, Serialize, Deserialize)]
@@ -1114,15 +1189,21 @@ impl Default for AppSettings {
 }
 
 fn desktop_config_dir() -> Result<PathBuf, String> {
-    let home = resolve_home_dir()
-        .ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
+    let home =
+        resolve_home_dir().ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
     if cfg!(target_os = "macos") {
-        Ok(home.join("Library").join("Application Support").join("agentboster-desktop"))
+        Ok(home
+            .join("Library")
+            .join("Application Support")
+            .join("agentboster-desktop"))
     } else if cfg!(target_os = "windows") {
         if let Ok(local) = std::env::var("LOCALAPPDATA") {
             Ok(PathBuf::from(local).join("agentboster-desktop"))
         } else {
-            Ok(home.join("AppData").join("Local").join("agentboster-desktop"))
+            Ok(home
+                .join("AppData")
+                .join("Local")
+                .join("agentboster-desktop"))
         }
     } else {
         Ok(home.join(".config").join("agentboster-desktop"))
@@ -1184,7 +1265,6 @@ struct PiCliCommandResult {
     exit_code: i32,
     discovery: String,
 }
-
 
 #[derive(Debug, Deserialize)]
 struct GitCommandOptions {
@@ -1261,7 +1341,10 @@ async fn run_pi_cli_command(
 
     let resolved_cwd = options.cwd.clone().unwrap_or_else(|| ".".to_string());
     if !Path::new(&resolved_cwd).is_dir() {
-        return Err(format!("Working directory does not exist: {}", resolved_cwd));
+        return Err(format!(
+            "Working directory does not exist: {}",
+            resolved_cwd
+        ));
     }
 
     let discovery_opts = RpcStartOptions {
@@ -1287,9 +1370,6 @@ async fn run_pi_cli_command(
         discovery: discovery_label,
     })
 }
-
-
-
 
 #[tauri::command]
 async fn run_git_command(options: GitCommandOptions) -> Result<GitCommandResult, String> {
@@ -1401,7 +1481,10 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
 
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
-            format!("Could not open file (exit code {})", output.status.code().unwrap_or(-1))
+            format!(
+                "Could not open file (exit code {})",
+                output.status.code().unwrap_or(-1)
+            )
         } else {
             format!("Could not open file: {}", stderr)
         });
@@ -1423,7 +1506,10 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
 
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
-            format!("Could not open file (exit code {})", output.status.code().unwrap_or(-1))
+            format!(
+                "Could not open file (exit code {})",
+                output.status.code().unwrap_or(-1)
+            )
         } else {
             format!("Could not open file: {}", stderr)
         });
@@ -1433,24 +1519,25 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
     Err("Unsupported platform for open_path_in_default_app".to_string())
 }
 
- pub fn run() {
-     tauri::Builder::default()
-         .plugin(tauri_plugin_shell::init())
-         .plugin(tauri_plugin_fs::init())
-         .plugin(tauri_plugin_dialog::init())
-         .plugin(tauri_plugin_notification::init())
-         .setup(|app| {
-             #[cfg(target_os = "macos")]
-             {
-                 if let Some(window) = app.get_webview_window("main") {
-                     let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
-                     let _ = window.set_shadow(true);
-                 }
-             }
-             Ok(())
-         })
-         .manage(RpcState::default())
-         .invoke_handler(tauri::generate_handler![
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ =
+                        window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
+                    let _ = window.set_shadow(true);
+                }
+            }
+            Ok(())
+        })
+        .manage(RpcState::default())
+        .invoke_handler(tauri::generate_handler![
             rpc_start,
             rpc_send,
             rpc_stop,
@@ -1459,13 +1546,13 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
             rpc_ui_response,
             install_cli,
             save_settings,
-             load_settings,
-             open_file_dialog,
-             run_pi_cli_command,
-             run_git_command,
-             get_desktop_runtime_info,
-             open_path_in_default_app,
-         ])
-         .run(tauri::generate_context!())
-         .expect("error while running tauri application");
- }
+            load_settings,
+            open_file_dialog,
+            run_pi_cli_command,
+            run_git_command,
+            get_desktop_runtime_info,
+            open_path_in_default_app,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

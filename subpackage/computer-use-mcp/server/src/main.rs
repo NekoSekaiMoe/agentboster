@@ -1,6 +1,6 @@
 use computer_use_core::capability::detect_capabilities;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{BufRead, Write};
 
 #[derive(Deserialize)]
@@ -111,22 +111,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn tools_list(
-    caps: &computer_use_core::capability::Capabilities,
-) -> Vec<Value> {
-    let mut tools = vec![
-        json!({
-            "name": "screenshot",
-            "description": "Capture the screen. Returns a scaled PNG image.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "max_width": { "type": "integer", "description": "Max width in pixels (default: 1400)" },
-                    "monitor_index": { "type": "integer", "description": "Monitor index (default: primary)" }
-                }
+fn tools_list(caps: &computer_use_core::capability::Capabilities) -> Vec<Value> {
+    let mut tools = vec![json!({
+        "name": "screenshot",
+        "description": "Capture the screen. Returns a scaled PNG image.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_width": { "type": "integer", "description": "Max width in pixels (default: 1400)" },
+                "monitor_index": { "type": "integer", "description": "Monitor index (default: primary)" }
             }
-        }),
-    ];
+        }
+    })];
 
     if caps.has_display && caps.accessibility_granted {
         tools.extend([
@@ -259,8 +255,7 @@ fn handle_tool_call(
                     let Some(text) = args["text"].as_str() else {
                         return invalid_params("text is required".into());
                     };
-                    ctrl.type_text(text)
-                        .map(|_| json!({"typed": text}))
+                    ctrl.type_text(text).map(|_| json!({"typed": text}))
                 }
                 "key_event" => {
                     let Some(key) = args["key"].as_str() else {
@@ -278,8 +273,7 @@ fn handle_tool_call(
                         })
                         .unwrap_or_default();
                     if modifiers.is_empty() {
-                        ctrl.key_event(key, "click")
-                            .map(|_| json!({"key": key}))
+                        ctrl.key_event(key, "click").map(|_| json!({"key": key}))
                     } else {
                         ctrl.key_combo(key, &modifiers)
                             .map(|_| json!({"key": key, "modifiers": modifiers}))
@@ -327,7 +321,9 @@ fn handle_tool_call(
                 Ok(node) => JsonRpcResponse {
                     jsonrpc: "2.0".into(),
                     id,
-                    result: Some(json!({"content": [{"type": "text", "text": serde_json::to_string(&node).unwrap_or_default()}]})),
+                    result: Some(
+                        json!({"content": [{"type": "text", "text": serde_json::to_string(&node).unwrap_or_default()}]}),
+                    ),
                     error: None,
                 },
                 Err(e) => JsonRpcResponse {
@@ -359,7 +355,9 @@ fn handle_tool_call(
                 Ok(node) => JsonRpcResponse {
                     jsonrpc: "2.0".into(),
                     id,
-                    result: Some(json!({"content": [{"type": "text", "text": serde_json::to_string(&node).unwrap_or_default()}]})),
+                    result: Some(
+                        json!({"content": [{"type": "text", "text": serde_json::to_string(&node).unwrap_or_default()}]}),
+                    ),
                     error: None,
                 },
                 Err(e) => JsonRpcResponse {

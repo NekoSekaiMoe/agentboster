@@ -147,8 +147,8 @@ mod windows {
 mod macos {
     use super::AxNode;
     use accessibility_sys::{
-        kAXValueTypeCGPoint, kAXValueTypeCGSize, AXUIElementCopyAttributeValue,
-        AXUIElementCopyElementAtPosition, AXUIElementCreateSystemWide, AXValueGetValue,
+        AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
+        AXUIElementCreateSystemWide, AXValueGetValue, kAXValueTypeCGPoint, kAXValueTypeCGSize,
     };
     use core_foundation::{
         array::CFArray,
@@ -164,15 +164,14 @@ mod macos {
         unsafe {
             let system_wide = AXUIElementCreateSystemWide();
             let mut elem = ptr::null_mut();
-            let result = AXUIElementCopyElementAtPosition(
-                system_wide,
-                x as f64,
-                y as f64,
-                &mut elem,
-            );
+            let result =
+                AXUIElementCopyElementAtPosition(system_wide, x as f64, y as f64, &mut elem);
             CFRelease(system_wide as *const c_void);
             if result != 0 || elem.is_null() {
-                return Err(format!("AXUIElementCopyElementAtPosition failed: {}", result));
+                return Err(format!(
+                    "AXUIElementCopyElementAtPosition failed: {}",
+                    result
+                ));
             }
             let node = build_node(elem, max_depth);
             CFRelease(elem as *const c_void);
@@ -185,11 +184,17 @@ mod macos {
             let system_wide = AXUIElementCreateSystemWide();
             let focused_attr = CFString::new("AXFocusedUIElement");
             let mut value = ptr::null_mut();
-            let result =
-                AXUIElementCopyAttributeValue(system_wide, focused_attr.as_concrete_TypeRef(), &mut value);
+            let result = AXUIElementCopyAttributeValue(
+                system_wide,
+                focused_attr.as_concrete_TypeRef(),
+                &mut value,
+            );
             CFRelease(system_wide as *const c_void);
             if result != 0 || value.is_null() {
-                return Err(format!("AXUIElementCopyAttributeValue(AXFocusedUIElement) failed: {}", result));
+                return Err(format!(
+                    "AXUIElementCopyAttributeValue(AXFocusedUIElement) failed: {}",
+                    result
+                ));
             }
             let node = build_node(value as *mut _, max_depth);
             CFRelease(value);
@@ -202,7 +207,8 @@ mod macos {
             unsafe {
                 let cf_attr = CFString::new(attr);
                 let mut value = ptr::null_mut();
-                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value) == 0
+                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
+                    == 0
                     && !value.is_null()
                 {
                     let cf_val = CFType::wrap_under_create_rule(value);
@@ -218,7 +224,8 @@ mod macos {
             unsafe {
                 let cf_attr = CFString::new(attr);
                 let mut value = ptr::null_mut();
-                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value) == 0
+                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
+                    == 0
                     && !value.is_null()
                 {
                     let cf_val = CFType::wrap_under_create_rule(value);
@@ -234,11 +241,16 @@ mod macos {
             unsafe {
                 let cf_attr = CFString::new("AXPosition");
                 let mut value = ptr::null_mut();
-                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value) == 0
+                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
+                    == 0
                     && !value.is_null()
                 {
                     let mut point = CGPoint::new(0.0, 0.0);
-                    let ok = AXValueGetValue(value as *mut _, kAXValueTypeCGPoint, &mut point as *mut _ as *mut _);
+                    let ok = AXValueGetValue(
+                        value as *mut _,
+                        kAXValueTypeCGPoint,
+                        &mut point as *mut _ as *mut _,
+                    );
                     CFRelease(value);
                     if ok {
                         return (point.x as i32, point.y as i32);
@@ -252,11 +264,16 @@ mod macos {
             unsafe {
                 let cf_attr = CFString::new("AXSize");
                 let mut value = ptr::null_mut();
-                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value) == 0
+                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
+                    == 0
                     && !value.is_null()
                 {
                     let mut size = CGSize::new(0.0, 0.0);
-                    let ok = AXValueGetValue(value as *mut _, kAXValueTypeCGSize, &mut size as *mut _ as *mut _);
+                    let ok = AXValueGetValue(
+                        value as *mut _,
+                        kAXValueTypeCGSize,
+                        &mut size as *mut _ as *mut _,
+                    );
                     CFRelease(value);
                     if ok {
                         return (size.width as i32, size.height as i32);
@@ -273,7 +290,8 @@ mod macos {
             unsafe {
                 let cf_attr = CFString::new("AXChildren");
                 let mut value = ptr::null_mut();
-                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value) == 0
+                if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
+                    == 0
                     && !value.is_null()
                 {
                     let cf_val = CFType::wrap_under_create_rule(value);
@@ -294,11 +312,7 @@ mod macos {
         let name = get_string_attr(elem, "AXTitle");
         let value = {
             let v = get_string_attr(elem, "AXValue");
-            if v.is_empty() {
-                None
-            } else {
-                Some(v)
-            }
+            if v.is_empty() { None } else { Some(v) }
         };
         let (x, y) = get_position(elem);
         let (w, h) = get_size(elem);
@@ -418,12 +432,7 @@ mod linux {
 
         let (x, y, w, h) = if let Ok(component) = ComponentProxy::from(elem.clone()) {
             if let Ok(extents) = component.extents(atspi::CoordType::Screen) {
-                (
-                    extents.x(),
-                    extents.y(),
-                    extents.width(),
-                    extents.height(),
-                )
+                (extents.x(), extents.y(), extents.width(), extents.height())
             } else {
                 (0, 0, 0, 0)
             }
