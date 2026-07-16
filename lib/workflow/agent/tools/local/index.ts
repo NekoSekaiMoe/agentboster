@@ -8,6 +8,7 @@ import {
 } from '../../sender/writers';
 import { sendApprovalRequestReminderStep } from '../../sender/bot-steps';
 import { defineBuildInTool } from '../define';
+import { assessLocalToolRisk, shouldRequireApproval } from './security';
 
 /**
  * Local-tool execution result returned by the CLI after running a
@@ -80,7 +81,7 @@ async function waitForLocalToolApproval(input: {
  * workflow function" because the step is dispatched outside the
  * workflow function's invocation context.
  *
- * When requireApproval is true, this function first requests user approval
+ * When isRemoteControl is true, this function first assesses risk and requests
  * via the L2 approval flow before executing the tool on the CLI.
  */
 async function waitForLocalToolResult(input: {
@@ -89,23 +90,37 @@ async function waitForLocalToolResult(input: {
   toolInput: unknown;
   sessionId?: string;
   runId?: string;
-  requireApproval?: boolean;
+  isRemoteControl?: boolean;
 }): Promise<LocalToolResult> {
-  // Request L2 approval if required (remote control mode with supervised autonomy)
-  if (input.requireApproval && input.sessionId && input.runId) {
-    const approvalResult = await waitForLocalToolApproval({
-      sessionId: input.sessionId,
-      runId: input.runId,
-      toolCallId: input.toolCallId,
-      toolName: input.toolName,
-      toolInput: input.toolInput,
-    });
+  // Risk-based approval for remote control mode
+  if (input.isRemoteControl && input.sessionId && input.runId) {
+    const risk = assessLocalToolRisk(
+      input.toolName,
+      input.toolInput as Record<string, unknown>,
+    );
 
-    if (!approvalResult.approved) {
+    if (risk.level === 'block') {
       return {
         ok: false,
-        error: `Tool execution denied by user: ${approvalResult.reason ?? 'no reason provided'}`,
+        error: `Tool execution blocked: ${risk.reason}`,
       };
+    }
+
+    if (shouldRequireApproval(risk, true)) {
+      const approvalResult = await waitForLocalToolApproval({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        toolInput: input.toolInput,
+      });
+
+      if (!approvalResult.approved) {
+        return {
+          ok: false,
+          error: `Tool execution denied by user: ${approvalResult.reason ?? 'no reason provided'}`,
+        };
+      }
     }
   }
 
@@ -177,7 +192,7 @@ export default defineBuildInTool({
   description: `File and shell tools executed on the user's local machine via the agentboster CLI client. Only available when the session was started from the CLI (channel 'cli:<clientId>') or when a CLI is online in remote control mode. Useful for editing files the user can see locally but that are not on agentd (e.g. files on a developer's laptop). All operations are performed by the CLI process with the user's own permissions.`,
   requiredConfig: [],
   optionalConfig: [],
-  factory: async (_config, { source, sessionId, runId, appConfig }) => {
+  factory: async (_config, { source, sessionId, runId }) => {
     // Gate: register for CLI-originated sessions, or for sessions where
     // a CLI is online in remote control mode (IM controlling a CLI session).
     let isRemoteControlMode = false;
@@ -199,9 +214,7 @@ export default defineBuildInTool({
 
     const sid = sessionId;
     const rid = runId;
-    // Remote control mode with supervised autonomy requires L2 approval
-    const requireApproval =
-      isRemoteControlMode && appConfig.autonomy?.level === 'supervised';
+    const remoteControl = isRemoteControlMode;
 
     return {
       local_read_file: tool({
@@ -220,7 +233,7 @@ export default defineBuildInTool({
             toolInput: input,
             sessionId: sid,
             runId: rid,
-            requireApproval,
+            isRemoteControl: remoteControl,
           });
           return formatToolResult(result);
         },
@@ -243,7 +256,7 @@ export default defineBuildInTool({
             toolInput: input,
             sessionId: sid,
             runId: rid,
-            requireApproval,
+            isRemoteControl: remoteControl,
           });
           return formatToolResult(result);
         },
@@ -268,7 +281,7 @@ export default defineBuildInTool({
             toolInput: input,
             sessionId: sid,
             runId: rid,
-            requireApproval,
+            isRemoteControl: remoteControl,
           });
           return formatToolResult(result);
         },
@@ -332,7 +345,7 @@ export default defineBuildInTool({
             toolInput: input,
             sessionId: sid,
             runId: rid,
-            requireApproval,
+            isRemoteControl: remoteControl,
           });
           return formatToolResult(result);
         },
@@ -375,7 +388,7 @@ export default defineBuildInTool({
             toolInput: input,
             sessionId: sid,
             runId: rid,
-            requireApproval: false, // User questions don't need approval
+            isRemoteControl: false,
           });
           return formatToolResult(result);
         },
