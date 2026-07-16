@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, Manager};
 // `/releases/latest` endpoint at runtime to discover the current version
 // (tag_name) and download URL, so Desktop never needs to be in lock-step
 // with CLI releases.
-const CLI_RELEASES_API: &str = "https://api.github.com/repos/anomalyco/agentboster/releases/latest";
+const CLI_RELEASES_API: &str = "https://api.github.com/repos/NekoSekaiMoe/agentboster/releases/latest";
 
 #[derive(Default)]
 struct RpcProcessHandle {
