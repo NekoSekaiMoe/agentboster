@@ -7,22 +7,23 @@ edition = "2021"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
-xcap = "0.0.14"
-enigo = "0.2"
+xcap = "0.9"
+enigo = "0.6"
 base64 = "0.22"
 thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-accessibility-sys = "0.1"
-core-graphics = "0.24"
+accessibility-sys = "0.2"
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-uiautomation = "0.8"
+uiautomation = "0.25"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-atspi = { version = "0.22", features = ["zbus"] }
-zbus = "5"
+atspi = "0.30"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
