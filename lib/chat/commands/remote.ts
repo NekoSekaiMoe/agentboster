@@ -4,7 +4,7 @@ import type { ChatSession } from '@/lib/core/db/schema';
 import type { ChatSource } from '@/types/workflow';
 import { isCliOnlineForSession } from '@/lib/cli/remote-control';
 import { db } from '@/lib/core/db';
-import { chatSessions } from '@/lib/core/db/schema';
+import { sessions } from '@/lib/core/db/schema';
 import { eq, and, isNotNull } from 'drizzle-orm';
 
 export async function executeAttachCommand(opts: {
@@ -40,11 +40,26 @@ export async function executeAttachCommand(opts: {
     };
   }
 
-  // Verify target session exists and is a CLI session
+  // Verify target session exists, belongs to the same user, and is a CLI session
+  if (!currentSession.userId) {
+    return {
+      sessionId: currentSession.id,
+      text: t(locale, 'cmd.attach.sessionNotFound', {
+        sessionId: targetSessionId,
+      }),
+      runId: currentSession.workflowRunId,
+    };
+  }
+
   const [targetSession] = await db
     .select()
-    .from(chatSessions)
-    .where(eq(chatSessions.id, targetSessionId))
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.id, targetSessionId),
+        eq(sessions.userId, currentSession.userId),
+      ),
+    )
     .limit(1);
 
   if (!targetSession) {
@@ -83,9 +98,9 @@ export async function executeAttachCommand(opts: {
     await setImAttachment(source.adapter, source.threadId, targetSessionId);
 
     await db
-      .update(chatSessions)
+      .update(sessions)
       .set({ remoteControlNodeId: targetSessionId })
-      .where(eq(chatSessions.id, currentSession.id));
+      .where(eq(sessions.id, currentSession.id));
 
     return {
       sessionId: currentSession.id,
@@ -139,9 +154,9 @@ export async function executeDetachCommand(opts: {
     await clearImAttachment(source.adapter, source.threadId);
 
     await db
-      .update(chatSessions)
+      .update(sessions)
       .set({ remoteControlNodeId: null })
-      .where(eq(chatSessions.id, currentSession.id));
+      .where(eq(sessions.id, currentSession.id));
 
     return {
       sessionId: currentSession.id,
@@ -182,18 +197,27 @@ export async function executeRemoteCommand(opts: {
     };
   }
 
+  if (!currentSession.userId) {
+    return {
+      sessionId: currentSession.id,
+      text: t(locale, 'cmd.remote.noCliSessions'),
+      runId: currentSession.workflowRunId,
+    };
+  }
+
   try {
-    // Find all CLI sessions with online status
+    // Find CLI sessions owned by the current user
     const cliSessions = await db
       .select()
-      .from(chatSessions)
+      .from(sessions)
       .where(
         and(
-          eq(chatSessions.channel, 'cli'),
-          isNotNull(chatSessions.channelOrigin),
+          eq(sessions.channel, 'cli'),
+          eq(sessions.userId, currentSession.userId),
+          isNotNull(sessions.channelOrigin),
         ),
       )
-      .orderBy(chatSessions.updatedAt)
+      .orderBy(sessions.updatedAt)
       .limit(20);
 
     if (cliSessions.length === 0) {

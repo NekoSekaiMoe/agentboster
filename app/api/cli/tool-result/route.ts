@@ -2,7 +2,7 @@ import {
   assertCanAccessOwnedResource,
   requireAuthAccess,
 } from '@/lib/auth/access';
-import { getSession } from '@/lib/core/db/repositories/sessions';
+import { getSession } from '@/lib/core/db/chat';
 import { createLogger } from '@/lib/utils/logger';
 import { resumeLocalToolResult } from '@/lib/workflow/agent/dispatch';
 import { cookies } from 'next/headers';
@@ -56,7 +56,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = await getSession(body.sessionId, { userId: access.userId });
+  const session = await getSession(body.sessionId, {
+    userId: access.session.userId,
+  });
   if (!session) {
     return Response.json(
       { ok: false, error: 'Session not found.' },

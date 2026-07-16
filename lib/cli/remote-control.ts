@@ -264,22 +264,33 @@ const LOCK_TTL_SECONDS = 600;
 export async function acquireSessionLock(
   sessionId: string,
   runId: string,
-): Promise<void> {
-  await set(
+): Promise<boolean> {
+  const result = await set(
     `cli-lock:${sessionId}`,
     JSON.stringify({ runId, lockedAt: Date.now() }),
-    { ex: LOCK_TTL_SECONDS },
+    { nx: true, ex: LOCK_TTL_SECONDS },
   );
+  if (result !== 'OK') {
+    return false;
+  }
   await pushToCliSession(sessionId, 'lock-acquired', {
     runId,
     source: 'im',
   });
+  return true;
 }
 
 export async function releaseSessionLock(
   sessionId: string,
   runId: string,
 ): Promise<void> {
+  const raw = await get(`cli-lock:${sessionId}`);
+  if (raw) {
+    const lock = JSON.parse(raw as string);
+    if (lock.runId !== runId) {
+      return;
+    }
+  }
   await del(`cli-lock:${sessionId}`);
   await pushToCliSession(sessionId, 'lock-released', { runId });
 }

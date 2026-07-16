@@ -5,7 +5,7 @@ import {
   getImBinding,
   handleCliSessionSwitch,
 } from '@/lib/cli/remote-control';
-import { listUserSessions } from '@/lib/core/db/chat';
+import { getSession, listUserSessions } from '@/lib/core/db/chat';
 
 function getSessionIdFromUrl(request: Request): string | null {
   const match = request.url.match(
@@ -20,6 +20,14 @@ export const POST = withCliAuth(async (request, { userId }) => {
     return Response.json(
       { ok: false, error: 'Missing session id.' },
       { status: 400 },
+    );
+  }
+
+  const session = await getSession(sessionId, { userId });
+  if (!session) {
+    return Response.json(
+      { ok: false, error: 'Session not found.' },
+      { status: 404 },
     );
   }
 

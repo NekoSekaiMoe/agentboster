@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getSession } from '@/lib/core/db/repositories/sessions';
+import { getSession } from '@/lib/core/db/chat';
 import { readAuthSessionFromRequest } from '@/lib/auth/session';
 import {
   registerCliListener,
