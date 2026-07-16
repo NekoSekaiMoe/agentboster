@@ -395,8 +395,11 @@ mod linux {
             .get_child_at_index(index)
             .await
             .map_err(|e| e.to_string())?;
-        let name = obj_ref.name_as_str().ok_or("Null accessible reference")?;
-        let path = obj_ref.path_as_str();
+        let name = obj_ref
+            .name_as_str()
+            .ok_or("Null accessible reference")?
+            .to_string();
+        let path = obj_ref.path_as_str().to_string();
         AccessibleProxy::builder(conn)
             .destination(name)
             .map_err(|e| e.to_string())?
@@ -414,9 +417,9 @@ mod linux {
         let dest = accessible.inner().destination().to_string();
         let path = accessible.inner().path().to_string();
         ComponentProxy::builder(conn)
-            .destination(dest.as_str())
+            .destination(dest)
             .ok()?
-            .path(path.as_str())
+            .path(path)
             .ok()?
             .build()
             .await
