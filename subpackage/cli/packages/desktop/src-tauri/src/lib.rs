@@ -1227,12 +1227,27 @@ async fn save_settings(_app: AppHandle, settings: AppSettings) -> Result<(), Str
 
 /// Load app settings
 #[tauri::command]
-async fn load_settings(_app: AppHandle) -> Result<AppSettings, String> {
+async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
     let data_dir = desktop_config_dir()?;
-
     let settings_path = data_dir.join("settings.json");
 
     if !settings_path.exists() {
+        // Migrate from legacy Tauri app_data_dir if available
+        if let Ok(legacy_dir) = app.path().app_data_dir() {
+            let legacy_path = legacy_dir.join("settings.json");
+            if legacy_path.exists() {
+                let content = fs::read_to_string(&legacy_path)
+                    .map_err(|e| format!("Failed to read legacy settings: {}", e))?;
+                let settings: AppSettings = serde_json::from_str(&content)
+                    .map_err(|e| format!("Failed to parse legacy settings: {}", e))?;
+                let _ = fs::create_dir_all(&data_dir);
+                let _ = fs::write(
+                    &settings_path,
+                    serde_json::to_string_pretty(&settings).unwrap_or_default(),
+                );
+                return Ok(settings);
+            }
+        }
         return Ok(AppSettings::default());
     }
 

@@ -9,6 +9,8 @@ pub struct ScreenshotResult {
     pub native_size: (u32, u32),
     pub scaled_size: (u32, u32),
     pub scale_factor: f64,
+    pub monitor_origin: (i32, i32),
+    pub monitor_index: usize,
 }
 
 pub fn capture_and_scale(
@@ -20,20 +22,31 @@ pub fn capture_and_scale(
     if monitors.is_empty() {
         return Err("No monitors found".into());
     }
-    let monitor = match monitor_index {
-        Some(idx) if idx < monitors.len() => &monitors[idx],
-        _ => monitors
-            .iter()
-            .find(|m| m.is_primary().unwrap_or(false))
-            .or(monitors.first())
-            .ok_or("No usable monitor")?,
+    let (selected_index, monitor) = match monitor_index {
+        Some(idx) if idx < monitors.len() => (idx, &monitors[idx]),
+        Some(idx) => {
+            return Err(format!(
+                "monitor_index {} out of range (available: 0..{})",
+                idx,
+                monitors.len()
+            )
+            .into());
+        }
+        None => {
+            let idx = monitors
+                .iter()
+                .position(|m| m.is_primary().unwrap_or(false))
+                .unwrap_or(0);
+            (idx, &monitors[idx])
+        }
     };
+    let origin = (monitor.x(), monitor.y());
     let frame = monitor.capture_image()?;
     let (w, h) = (frame.width(), frame.height());
 
     let (scaled, scaled_size) = if w > max_w {
         let ratio = max_w as f64 / w as f64;
-        let new_h = (h as f64 * ratio) as u32;
+        let new_h = ((h as f64 * ratio) as u32).max(1);
         let resized = image::imageops::resize(&frame, max_w, new_h, FilterType::Lanczos3);
         (image::DynamicImage::ImageRgba8(resized), (max_w, new_h))
     } else {
@@ -51,5 +64,7 @@ pub fn capture_and_scale(
         native_size: (w, h),
         scaled_size,
         scale_factor: w as f64 / scaled_size.0 as f64,
+        monitor_origin: origin,
+        monitor_index: selected_index,
     })
 }

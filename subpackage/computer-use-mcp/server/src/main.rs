@@ -6,7 +6,8 @@ use std::io::{BufRead, Write};
 #[derive(Deserialize)]
 struct JsonRpcRequest {
     jsonrpc: String,
-    id: Value,
+    #[serde(default)]
+    id: Option<Value>,
     method: String,
     #[serde(default)]
     params: Value,
@@ -57,45 +58,64 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
+        // JSON-RPC notifications have no id — don't send a response
+        if request.id.is_none() {
+            continue;
+        }
+        let id = request.id.unwrap();
+
         let response = match request.method.as_str() {
-            "initialize" => JsonRpcResponse {
-                jsonrpc: "2.0".into(),
-                id: request.id,
-                result: Some(json!({
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "tools": {},
-                        "computerUse": {
-                            "hasDisplay": capabilities.has_display,
-                            "platform": capabilities.platform,
-                            "displayServer": capabilities.display_server,
-                            "displayResolution": capabilities.display_resolution
-                                .map(|(w, h)| json!({"native": [w, h]})),
-                            "scaleFactor": capabilities.scale_factor,
-                            "accessibilityGranted": capabilities.accessibility_granted,
-                            "isAdmin": capabilities.is_admin,
-                            "issues": capabilities.issues,
+            "initialize" => {
+                let supported = ["2024-11-05"];
+                let client_version = request
+                    .params
+                    .get("protocolVersion")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let protocol_version = if supported.contains(&client_version) {
+                    client_version
+                } else {
+                    supported[0]
+                };
+                JsonRpcResponse {
+                    jsonrpc: "2.0".into(),
+                    id,
+                    result: Some(json!({
+                        "protocolVersion": protocol_version,
+                        "capabilities": {
+                            "tools": {},
+                            "computerUse": {
+                                "hasDisplay": capabilities.has_display,
+                                "platform": capabilities.platform,
+                                "displayServer": capabilities.display_server,
+                                "displayResolution": capabilities.display_resolution
+                                    .map(|(w, h)| json!({"native": [w, h]})),
+                                "scaleFactor": capabilities.scale_factor,
+                                "accessibilityGranted": capabilities.accessibility_granted,
+                                "isAdmin": capabilities.is_admin,
+                                "issues": capabilities.issues,
+                            }
+                        },
+                        "serverInfo": {
+                            "name": "computer-use-mcp",
+                            "version": env!("CARGO_PKG_VERSION"),
                         }
-                    },
-                    "serverInfo": {
-                        "name": "computer-use-mcp",
-                        "version": env!("CARGO_PKG_VERSION"),
-                    }
-                })),
-                error: None,
-            },
+                    })),
+                    error: None,
+                }
+            }
             "tools/list" => JsonRpcResponse {
                 jsonrpc: "2.0".into(),
-                id: request.id,
+                id,
                 result: Some(json!({
                     "tools": tools_list(&capabilities)
                 })),
                 error: None,
             },
-            "tools/call" => handle_tool_call(request.id, &request.params, &capabilities),
+            "tools/call" => handle_tool_call(id, &request.params, &capabilities),
             _ => JsonRpcResponse {
                 jsonrpc: "2.0".into(),
-                id: request.id,
+                id,
                 result: None,
                 error: Some(JsonRpcError {
                     code: -32601,
@@ -171,13 +191,27 @@ fn handle_tool_call(
 
     match tool_name {
         "screenshot" => {
-            let max_width = args["max_width"].as_u64().map(|v| v as u32);
-            if let Some(w) = max_width {
-                if w == 0 {
-                    return invalid_params("max_width must be > 0".into());
+            let max_width = if args.get("max_width").is_some_and(|v| !v.is_null()) {
+                match args["max_width"].as_u64() {
+                    Some(0) => return invalid_params("max_width must be > 0".into()),
+                    Some(v) => Some(v as u32),
+                    None => return invalid_params("max_width must be a positive integer".into()),
                 }
-            }
-            let monitor_index = args["monitor_index"].as_u64().map(|v| v as usize);
+            } else {
+                None
+            };
+            let monitor_index = if args.get("monitor_index").is_some_and(|v| !v.is_null()) {
+                match args["monitor_index"].as_u64() {
+                    Some(v) => Some(v as usize),
+                    None => {
+                        return invalid_params(
+                            "monitor_index must be a non-negative integer".into(),
+                        );
+                    }
+                }
+            } else {
+                None
+            };
             match computer_use_core::screenshot::capture_and_scale(max_width, monitor_index) {
                 Ok(result) => JsonRpcResponse {
                     jsonrpc: "2.0".into(),
@@ -192,6 +226,8 @@ fn handle_tool_call(
                             "nativeSize": result.native_size,
                             "scaledSize": result.scaled_size,
                             "scaleFactor": result.scale_factor,
+                            "monitorOrigin": result.monitor_origin,
+                            "monitorIndex": result.monitor_index,
                         }
                     })),
                     error: None,
@@ -264,14 +300,22 @@ fn handle_tool_call(
                     if key.is_empty() {
                         return invalid_params("key must not be empty".into());
                     }
-                    let modifiers: Vec<String> = args["modifiers"]
-                        .as_array()
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        })
-                        .unwrap_or_default();
+                    let modifiers: Vec<String> =
+                        if let Some(val) = args.get("modifiers").filter(|v| !v.is_null()) {
+                            match val.as_array() {
+                                Some(arr) => arr
+                                    .iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect(),
+                                None => {
+                                    return invalid_params(
+                                        "modifiers must be an array of strings".into(),
+                                    );
+                                }
+                            }
+                        } else {
+                            Vec::new()
+                        };
                     if modifiers.is_empty() {
                         ctrl.key_event(key, "click").map(|_| json!({"key": key}))
                     } else {

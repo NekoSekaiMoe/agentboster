@@ -401,17 +401,26 @@ mod linux {
         build_node(elem, depth)
     }
 
-    fn find_focused(elem: &atspi::Accessible, depth: u32) -> Result<AxNode, String> {
+    fn find_focused(elem: &atspi::Accessible, display_depth: u32) -> Result<AxNode, String> {
+        const MAX_SEARCH_DEPTH: u32 = 50;
+        search_focused(elem, display_depth, MAX_SEARCH_DEPTH)
+    }
+
+    fn search_focused(
+        elem: &atspi::Accessible,
+        display_depth: u32,
+        search_depth: u32,
+    ) -> Result<AxNode, String> {
         if let Ok(state_set) = elem.state_set() {
             if state_set.contains(atspi::State::Focused) {
-                return build_node(elem, depth);
+                return build_node(elem, display_depth);
             }
         }
-        if depth > 0 {
+        if search_depth > 0 {
             if let Ok(child_count) = elem.child_count() {
                 for i in 0..child_count {
                     if let Ok(child) = elem.child_at_index(i) {
-                        if let Ok(node) = find_focused(&child, depth - 1) {
+                        if let Ok(node) = search_focused(&child, display_depth, search_depth - 1) {
                             return Ok(node);
                         }
                     }
