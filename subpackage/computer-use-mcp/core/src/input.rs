@@ -16,7 +16,8 @@ impl InputController {
 
     pub fn mouse_move(&mut self, x: f64, y: f64) -> Result<(), Box<dyn std::error::Error>> {
         let (nx, ny) = self.coord_mapper.to_native(x, y);
-        self.enigo.move_mouse(nx as i32, ny as i32, Coordinate::Abs)?;
+        self.enigo
+            .move_mouse(nx as i32, ny as i32, Coordinate::Abs)?;
         Ok(())
     }
 
@@ -51,10 +52,12 @@ impl InputController {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (fx, fy) = self.coord_mapper.to_native(from_x, from_y);
         let (tx, ty) = self.coord_mapper.to_native(to_x, to_y);
-        self.enigo.move_mouse(fx as i32, fy as i32, Coordinate::Abs)?;
+        self.enigo
+            .move_mouse(fx as i32, fy as i32, Coordinate::Abs)?;
         self.enigo
             .button(enigo::Button::Left, enigo::Direction::Press)?;
-        self.enigo.move_mouse(tx as i32, ty as i32, Coordinate::Abs)?;
+        self.enigo
+            .move_mouse(tx as i32, ty as i32, Coordinate::Abs)?;
         self.enigo
             .button(enigo::Button::Left, enigo::Direction::Release)?;
         Ok(())

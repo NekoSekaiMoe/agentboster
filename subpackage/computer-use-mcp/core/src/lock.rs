@@ -57,11 +57,9 @@ impl ComputerUseLock {
         }
 
         // Cross-check the other app's lock
-        let parent = config_dir.parent().ok_or_else(|| {
-            LockError::Io(std::io::Error::other(
-                "config_dir has no parent",
-            ))
-        })?;
+        let parent = config_dir
+            .parent()
+            .ok_or_else(|| LockError::Io(std::io::Error::other("config_dir has no parent")))?;
         let other_dir = if config_dir.ends_with("agentboster-desktop") {
             parent.join("agentboster-cli")
         } else {
