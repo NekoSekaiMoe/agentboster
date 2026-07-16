@@ -240,7 +240,7 @@ export async function buildSystemPrompt(
         '- Search for code or text patterns on their filesystem',
         '- Generate files locally (e.g., create a PowerPoint presentation)',
         '',
-        'Do NOT use sandbox tools (sandbox.readFile, sandbox.writeFile, sandbox.exec) for tasks that should happen on the user\'s local computer. The sandbox is a separate Linux container that exists only for this conversation.',
+        "Do NOT use sandbox tools (sandbox.readFile, sandbox.writeFile, sandbox.exec) for tasks that should happen on the user's local computer. The sandbox is a separate Linux container that exists only for this conversation.",
       ]),
     );
   }

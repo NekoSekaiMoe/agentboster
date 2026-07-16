@@ -50,7 +50,9 @@ export async function executeAttachCommand(opts: {
   if (!targetSession) {
     return {
       sessionId: currentSession.id,
-      text: t(locale, 'cmd.attach.sessionNotFound', { sessionId: targetSessionId }),
+      text: t(locale, 'cmd.attach.sessionNotFound', {
+        sessionId: targetSessionId,
+      }),
       runId: currentSession.workflowRunId,
     };
   }
@@ -58,7 +60,9 @@ export async function executeAttachCommand(opts: {
   if (targetSession.channel !== 'cli') {
     return {
       sessionId: currentSession.id,
-      text: t(locale, 'cmd.attach.notCliSession', { sessionId: targetSessionId }),
+      text: t(locale, 'cmd.attach.notCliSession', {
+        sessionId: targetSessionId,
+      }),
       runId: currentSession.workflowRunId,
     };
   }

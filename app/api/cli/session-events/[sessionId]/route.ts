@@ -6,7 +6,6 @@ import {
   unregisterCliListener,
   drainKvEvents,
   markCliOnline,
-  renewCliHeartbeat,
 } from '@/lib/cli/remote-control';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -57,7 +56,11 @@ export async function GET(
       };
 
       // Register in-process listener
-      registerCliListener(sessionId, { send, sessionId, connectedAt: Date.now() });
+      registerCliListener(sessionId, {
+        send,
+        sessionId,
+        connectedAt: Date.now(),
+      });
 
       // Send initial heartbeat
       send('heartbeat', { timestamp: Date.now() });
@@ -140,7 +143,12 @@ export async function POST(
     cwd: cwd || undefined,
   });
 
-  logger.info('CLI registered as online', { sessionId, tools, capabilities, cwd });
+  logger.info('CLI registered as online', {
+    sessionId,
+    tools,
+    capabilities,
+    cwd,
+  });
 
   return new Response(JSON.stringify({ ok: true }), {
     headers: { 'content-type': 'application/json' },

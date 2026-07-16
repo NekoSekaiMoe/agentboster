@@ -495,7 +495,8 @@ export const enUS = {
   'cmd.attach.failed': 'Failed to attach: {error}',
   'cmd.detach.noSession': 'No active session.',
   'cmd.detach.imOnly': 'Remote control detachment is only available for IM.',
-  'cmd.detach.notAttached': 'This thread is not attached to any remote session.',
+  'cmd.detach.notAttached':
+    'This thread is not attached to any remote session.',
   'cmd.detach.success': 'Detached from remote control.',
   'cmd.detach.failed': 'Failed to detach: {error}',
   'cmd.remote.noSession': 'No active session.',

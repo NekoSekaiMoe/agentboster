@@ -222,7 +222,9 @@ export async function chatWorkflow(
     resolveMainAgentModelParams(effectiveConfig, user, requestModel);
 
   // Fetch CLI remote state if session has an online CLI
-  let cliRemoteState: { cwd: string; platform: string; hasDisplay: boolean } | undefined;
+  let cliRemoteState:
+    | { cwd: string; platform: string; hasDisplay: boolean }
+    | undefined;
   if (source.type !== 'cli') {
     try {
       const { getCliCapabilities } = await import('@/lib/cli/remote-control');

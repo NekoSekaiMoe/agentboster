@@ -461,7 +461,8 @@ export const zhCN = {
   'cmd.attach.sessionNotFound': '未找到会话 {sessionId}。',
   'cmd.attach.notCliSession': '会话 {sessionId} 不是 CLI/Desktop 会话。',
   'cmd.attach.cliOffline': '会话 {sessionId} 的 CLI/Desktop 已离线。',
-  'cmd.attach.success': '已附加到 CLI/Desktop 会话 {sessionId}。远程控制已激活。',
+  'cmd.attach.success':
+    '已附加到 CLI/Desktop 会话 {sessionId}。远程控制已激活。',
   'cmd.attach.failed': '附加失败：{error}',
   'cmd.detach.noSession': '没有活动会话。',
   'cmd.detach.imOnly': '远程控制断开仅适用于 IM。',
@@ -472,7 +473,8 @@ export const zhCN = {
   'cmd.remote.imOnly': '远程控制列表仅适用于 IM。',
   'cmd.remote.noCliSessions': '没有可用的 CLI/Desktop 会话。',
   'cmd.remote.header': '可用的 CLI/Desktop 会话：',
-  'cmd.remote.entry': '{index}. 会话 {sessionId} - {status} - {device} ({platform})',
+  'cmd.remote.entry':
+    '{index}. 会话 {sessionId} - {status} - {device} ({platform})',
   'cmd.remote.attachHint': '使用 /attach <session-id> 进行远程控制。',
   'cmd.remote.failed': '列出远程会话失败：{error}',
   'slash.command.help.description': '显示斜杠命令帮助',
@@ -502,7 +504,8 @@ export const zhCN = {
   'slash.command.version.description': '显示 AgentBoster 版本信息',
   'slash.command.id.description': '显示当前会话和用户 ID',
   'slash.command.lang.description': '更改界面语言',
-  'slash.command.attach.description': '将此 IM 线程附加到 CLI/Desktop 会话以进行远程控制',
+  'slash.command.attach.description':
+    '将此 IM 线程附加到 CLI/Desktop 会话以进行远程控制',
   'slash.command.detach.description': '断开此 IM 线程的远程控制',
   'slash.command.remote.description': '显示可用于控制的远程 CLI/Desktop 会话',
   'slash.command.help.hint': '/help',
