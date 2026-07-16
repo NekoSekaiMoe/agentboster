@@ -117,7 +117,7 @@ fn tools_list(
     let mut tools = vec![
         json!({
             "name": "screenshot",
-            "description": "Capture the screen. Returns a scaled PNG image. Terminal windows are excluded.",
+            "description": "Capture the screen. Returns a scaled PNG image.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -165,7 +165,7 @@ fn handle_tool_call(
     match tool_name {
         "screenshot" => {
             let max_width = args["max_width"].as_u64().map(|v| v as u32);
-            match computer_use_core::screenshot::capture_and_scale(max_width, true) {
+            match computer_use_core::screenshot::capture_and_scale(max_width) {
                 Ok(result) => JsonRpcResponse {
                     jsonrpc: "2.0".into(),
                     id,
@@ -194,7 +194,7 @@ fn handle_tool_call(
                 },
             }
         }
-        "mouse_move" | "mouse_click" | "mouse_drag" | "type_text" => {
+        "mouse_move" | "mouse_click" | "mouse_drag" | "type_text" | "key_event" => {
             let mut ctrl = match computer_use_core::input::InputController::new(caps.scale_factor) {
                 Ok(c) => c,
                 Err(e) => {
@@ -236,6 +236,24 @@ fn handle_tool_call(
                     let text = args["text"].as_str().unwrap_or("");
                     ctrl.type_text(text)
                         .map(|_| json!({"typed": text}))
+                }
+                "key_event" => {
+                    let key = args["key"].as_str().unwrap_or("");
+                    let modifiers: Vec<String> = args["modifiers"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if modifiers.is_empty() {
+                        ctrl.key_event(key, "click")
+                            .map(|_| json!({"key": key}))
+                    } else {
+                        ctrl.key_combo(key, &modifiers)
+                            .map(|_| json!({"key": key, "modifiers": modifiers}))
+                    }
                 }
                 _ => unreachable!(),
             };

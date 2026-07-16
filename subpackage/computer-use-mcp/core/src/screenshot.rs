@@ -13,7 +13,6 @@ pub struct ScreenshotResult {
 
 pub fn capture_and_scale(
     max_width: Option<u32>,
-    _exclude_terminals: bool,
 ) -> Result<ScreenshotResult, Box<dyn std::error::Error>> {
     let max_w = max_width.unwrap_or(DEFAULT_MAX_WIDTH);
     let monitors = Monitor::all()?;

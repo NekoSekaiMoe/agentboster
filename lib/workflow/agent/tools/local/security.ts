@@ -7,7 +7,10 @@ export interface RiskAssessment {
 }
 
 const DANGEROUS_COMMANDS =
-  /\b(rm\s+(-[rfRF]+\s+)+|mkfs\.|dd\s+.*of=\/dev\/|fdisk|format\s+[a-z]:|shutdown|reboot|init\s+[06]|systemctl\s+(halt|poweroff|reboot)|halt\b)/;
+  /\b(rm\s+(-[-rfRF]+\s+)+|rm\s+--recursive|rm\s+--force|mkfs\.|dd\s+.*of=\/dev\/|fdisk|format\s+[a-z]:|shutdown|reboot|init\s+[06]|systemctl\s+(halt|poweroff|reboot)|halt\b)/;
+
+const DANGEROUS_COMMANDS_IFS =
+  /rm\s*\$\{?IFS\}?-[rfRF]/;
 
 const ADMIN_COMMANDS =
   /\b(sudo\s|su\s|doas\s|pkexec\s|runas\s|gsudo\s|chmod\s+(777|666|u\+s|4[0-7]{3})|chown\s)/;
@@ -19,7 +22,7 @@ const PACKAGE_INSTALL =
   /\b(npm\s+install|yarn\s+add|pip\s+install|apt\s+install|apt-get\s+install|brew\s+install|pacman\s+-S|dnf\s+install|yum\s+install|gem\s+install|cargo\s+install)/;
 
 const SENSITIVE_PATHS =
-  /\/(etc\/(passwd|shadow|sudoers|ssh|ssl)|\.ssh\/|\.gnupg\/|\.aws\/|\.config\/)/;
+  /(\/(etc\/(passwd|shadow|sudoers|ssh|ssl)|\.ssh\/|\.gnupg\/|\.aws\/|\.config\/)|[A-Za-z]:\\.*\\(\.ssh|\.gnupg|\.aws)\\)/;
 
 const DANGEROUS_KEY_COMBOS =
   /^(ctrl\+alt\+del(ete)?|alt\+f4|ctrl\+alt\+f[1-9])$/i;
@@ -64,7 +67,7 @@ export function assessLocalToolRisk(
 }
 
 function assessExecRisk(command: string): RiskAssessment {
-  if (DANGEROUS_COMMANDS.test(command)) {
+  if (DANGEROUS_COMMANDS.test(command) || DANGEROUS_COMMANDS_IFS.test(command)) {
     return {
       level: 'block',
       reason: 'Destructive system command',

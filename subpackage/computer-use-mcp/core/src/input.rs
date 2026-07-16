@@ -77,6 +77,26 @@ impl InputController {
         self.enigo.key(k, dir);
         Ok(())
     }
+
+    pub fn key_combo(
+        &mut self,
+        key: &str,
+        modifiers: &[String],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let k = parse_key(key)?;
+        let mods: Vec<enigo::Key> = modifiers
+            .iter()
+            .map(|m| parse_key(m))
+            .collect::<Result<_, _>>()?;
+        for m in &mods {
+            self.enigo.key(*m, enigo::Direction::Press);
+        }
+        self.enigo.key(k, enigo::Direction::Click);
+        for m in mods.iter().rev() {
+            self.enigo.key(*m, enigo::Direction::Release);
+        }
+        Ok(())
+    }
 }
 
 pub fn parse_key(s: &str) -> Result<enigo::Key, Box<dyn std::error::Error>> {

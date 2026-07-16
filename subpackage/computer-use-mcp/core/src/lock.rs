@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize)]
@@ -57,10 +58,16 @@ impl ComputerUseLock {
         }
 
         // Cross-check the other app's lock
+        let parent = config_dir.parent().ok_or_else(|| {
+            LockError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "config_dir has no parent",
+            ))
+        })?;
         let other_dir = if config_dir.ends_with("agentboster-desktop") {
-            config_dir.parent().unwrap().join("agentboster-cli")
+            parent.join("agentboster-cli")
         } else {
-            config_dir.parent().unwrap().join("agentboster-desktop")
+            parent.join("agentboster-desktop")
         };
         let other_lock = other_dir.join("computer-use.lock");
         if other_lock.exists() {
@@ -76,15 +83,30 @@ impl ComputerUseLock {
             }
         }
 
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let info = LockInfo {
             pid: std::process::id(),
             session_id: session_id.to_string(),
             acquired_at: chrono::Utc::now().to_rfc3339(),
         };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, serde_json::to_string(&info).unwrap())?;
+        let content = serde_json::to_string(&info).unwrap();
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    LockError::Io(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        "lock file was re-created by another process",
+                    ))
+                } else {
+                    LockError::Io(e)
+                }
+            })?;
+        file.write_all(content.as_bytes())?;
 
         Ok(Self { path })
     }
@@ -101,7 +123,19 @@ fn process_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
-#[cfg(not(unix))]
+#[cfg(target_os = "windows")]
+fn process_alive(pid: u32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output()
+        .map(|o| {
+            let out = String::from_utf8_lossy(&o.stdout);
+            out.contains(&pid.to_string())
+        })
+        .unwrap_or(false)
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
 fn process_alive(_pid: u32) -> bool {
     false
 }

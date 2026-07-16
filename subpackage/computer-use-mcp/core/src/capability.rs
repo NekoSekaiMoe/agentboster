@@ -90,8 +90,7 @@ fn detect_resolution() -> Result<(u32, u32), Box<dyn std::error::Error>> {
 fn check_accessibility_permission() -> bool {
     #[cfg(target_os = "macos")]
     {
-        // AXIsProcessTrusted() via accessibility-sys
-        true // placeholder — real impl calls accessibility_sys::AXIsProcessTrusted()
+        unsafe { accessibility_sys::AXIsProcessTrusted() }
     }
 
     #[cfg(not(target_os = "macos"))]

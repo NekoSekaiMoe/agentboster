@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export interface LocalCapabilities {
   hasDisplay: boolean;
@@ -54,8 +55,14 @@ function detectDisplayServer(platform: string): {
 } {
   switch (platform) {
     case 'darwin':
+      if (process.env.SSH_CONNECTION && !process.env.DISPLAY) {
+        return { hasDisplay: false, displayServer: null };
+      }
       return { hasDisplay: true, displayServer: 'quartz' };
     case 'win32':
+      if (process.env.SSH_CONNECTION && !process.env.SESSIONNAME) {
+        return { hasDisplay: false, displayServer: null };
+      }
       return { hasDisplay: true, displayServer: 'win32' };
     case 'linux':
       if (process.env.WAYLAND_DISPLAY) {
@@ -73,7 +80,7 @@ function detectDisplayServer(platform: string): {
 function resolveMcpBinary(): string | null {
   const binaryName =
     process.platform === 'win32' ? 'computer-use-mcp.exe' : 'computer-use-mcp';
-  const selfDir = dirname(process.argv[1] || __filename);
+  const selfDir = dirname(process.argv[1] ?? fileURLToPath(import.meta.url));
   const siblingPath = join(selfDir, binaryName);
   if (existsSync(siblingPath)) {
     return siblingPath;
