@@ -30,8 +30,6 @@ tar = "0.4"
 futures-util = "0.3"
 
 # ── computer use (cross-platform) ─────────────────────────────────
-# Shared core library for screenshot, input, coord, key parsing.
-computer-use-core = { path = "../../../../computer-use-mcp/core" }
 # Screenshots (all platforms) — returns image::RgbaImage.
 xcap = "0.9"
 # Re-encode the captured image to PNG bytes.
