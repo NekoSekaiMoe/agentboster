@@ -62,6 +62,11 @@ import { executeStartCommand } from './commands/start';
 import { executeVersionCommand } from './commands/version';
 import { executeWhoamiCommand } from './commands/whoami';
 import {
+  executeAttachCommand,
+  executeDetachCommand,
+  executeRemoteCommand,
+} from './commands/remote';
+import {
   checkDuplicate,
   checkIdempotencyDuplicate,
   recordIdempotencyMessage,
@@ -1460,6 +1465,28 @@ async function executeCommand(input: {
         text: result.text,
         runId: session?.workflowRunId ?? null,
       };
+    }
+    case 'attach': {
+      return executeAttachCommand({
+        args: input.args,
+        currentSession: session,
+        source: input.source,
+        locale,
+      });
+    }
+    case 'detach': {
+      return executeDetachCommand({
+        currentSession: session,
+        source: input.source,
+        locale,
+      });
+    }
+    case 'remote': {
+      return executeRemoteCommand({
+        currentSession: session,
+        source: input.source,
+        locale,
+      });
     }
     default:
       return {

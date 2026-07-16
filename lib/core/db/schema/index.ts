@@ -1,4 +1,5 @@
 export { messages, sessions } from './chat';
+export type { ChatSession } from './chat';
 export { cliDevices } from './cli-devices';
 export { kvStore, kvSets } from './kv';
 export type { KvRow, NewKvRow, KvSetRow, NewKvSetRow } from './kv';

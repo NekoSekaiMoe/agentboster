@@ -44,6 +44,16 @@ export type BuildSystemPromptOptions = {
    * tools are gone.
    */
   planMode?: boolean;
+  /**
+   * CLI remote control state (when a CLI is online for this session).
+   * When set, injects a "Local Machine Access" section explaining that
+   * the user's local computer is accessible via local_* tools.
+   */
+  cliRemoteState?: {
+    cwd: string;
+    platform: string;
+    hasDisplay: boolean;
+  };
 };
 
 function createSection(title: string, lines: string[]) {
@@ -207,6 +217,30 @@ export async function buildSystemPrompt(
         '```````',
         agentsMdTrimmed,
         '```````',
+      ]),
+    );
+  }
+
+  // CLI remote control mode: when a CLI is online, inject local machine context
+  if (options.cliRemoteState) {
+    const { cwd, platform, hasDisplay } = options.cliRemoteState;
+    sections.push(
+      createSection('Local Machine Access', [
+        "You have access to the user's local computer via the `local_*` tools (local_read_file, local_write_file, local_exec, local_grep).",
+        `The CLI is running on **${platform}** with working directory: \`${cwd}\``,
+        hasDisplay
+          ? 'The machine has a display (GUI operations are possible).'
+          : 'The machine is headless (no display available).',
+        '',
+        '**Important**: All file paths in `local_*` tools are relative to the CLI working directory unless you provide an absolute path. When the user asks you to work on files "here" or "in this directory", they mean the CLI\'s cwd.',
+        '',
+        'Use these tools when the user asks you to:',
+        '- Read or edit files on their local machine',
+        '- Run commands in their local terminal (git, npm, build tools, etc.)',
+        '- Search for code or text patterns on their filesystem',
+        '- Generate files locally (e.g., create a PowerPoint presentation)',
+        '',
+        'Do NOT use sandbox tools (sandbox.readFile, sandbox.writeFile, sandbox.exec) for tasks that should happen on the user\'s local computer. The sandbox is a separate Linux container that exists only for this conversation.',
       ]),
     );
   }

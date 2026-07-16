@@ -296,6 +296,9 @@ export const COMMANDS = [
   'version',
   'id',
   'lang',
+  'attach',
+  'detach',
+  'remote',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
