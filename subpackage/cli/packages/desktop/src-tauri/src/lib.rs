@@ -13,9 +13,6 @@ use tauri::{AppHandle, Emitter, Manager};
 // with CLI releases.
 const CLI_RELEASES_API: &str = "https://api.github.com/repos/anomalyco/agentboster/releases/latest";
 
- // Native computer-use commands (screenshots, input injection, AX tree).
- mod computer_use;
-
 #[derive(Default)]
 struct RpcProcessHandle {
     generation: u64,
@@ -1468,15 +1465,6 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
              run_git_command,
              get_desktop_runtime_info,
              open_path_in_default_app,
-             // computer-use commands
-             computer_use::screenshot,
-             computer_use::mouse_move,
-             computer_use::mouse_click,
-             computer_use::mouse_drag,
-             computer_use::key_event,
-             computer_use::type_text,
-             computer_use::get_ax_at_point,
-             computer_use::get_focused_ax,
          ])
          .run(tauri::generate_context!())
          .expect("error while running tauri application");

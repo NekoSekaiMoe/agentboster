@@ -20,16 +20,6 @@ import {
 import { html, render, type TemplateResult } from 'lit';
 import { rpcBridge } from '../rpc/bridge.js';
 
-/** Convert a Uint8Array to a base64 string without Node's Buffer (this runs in the WebView). */
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
 /**
  * Explicit desktop capability contract for extension UI requests.
  * Keep this surface small and grow it intentionally.
@@ -1082,80 +1072,17 @@ export class ExtensionUiHandler {
 
   /**
    * Computer-use reverse-RPC: the CLI agent invoked one of the
-   * computer_use tools (screenshot / mouse_* / key_event / type_text /
-   * get_ax_*). Forward the call to the matching Tauri command in
-   * src-tauri/src/computer_use.rs and reply with the result.
-   *
-   * Screenshots return raw PNG bytes; we base64-encode them so the
-   * value can travel as a JSON string back through the RPC channel and
-   * be re-attached as an ImageContent by the CLI tool.
+   * computer_use tools. In the new architecture, computer-use goes
+   * through CLI → computer-use-mcp binary (stdio MCP), not through
+   * Desktop Tauri commands. This handler is kept as a fallback that
+   * returns an actionable error if the CLI mistakenly routes here.
    */
   private async handleComputerUse(request: ExtensionUiRequest): Promise<void> {
-    const action = typeof request.action === 'string' ? request.action : '';
-    const params =
-      request.params && typeof request.params === 'object'
-        ? (request.params as Record<string, unknown>)
-        : {};
-    const invoke = (
-      window as unknown as {
-        __TAURI__?: {
-          core?: {
-            invoke: (
-              cmd: string,
-              args?: Record<string, unknown>,
-            ) => Promise<unknown>;
-          };
-        };
-      }
-    ).__TAURI__?.core?.invoke;
-    if (!invoke) {
-      await this.sendResponse(request.id, {
-        error: 'Tauri invoke bridge is not available',
-      });
-      return;
-    }
-
-    // Map RPC action names to Tauri command names. They line up
-    // 1:1 with the #[tauri::command] functions in computer_use.rs.
-    const supportedActions = new Set([
-      'screenshot',
-      'mouse_move',
-      'mouse_click',
-      'mouse_drag',
-      'key_event',
-      'type_text',
-      'get_ax_at_point',
-      'get_focused_ax',
-    ]);
-    if (!supportedActions.has(action)) {
-      await this.sendResponse(request.id, {
-        error: `Unknown computer_use action: ${action}`,
-      });
-      return;
-    }
-
-    try {
-      const result = await invoke(action, params);
-      // screenshot returns a byte array (Tauri serializes Vec<u8> as
-      // a JSON number array); convert to base64 so the CLI tool can
-      // reconstruct the image attachment.
-      if (action === 'screenshot' && Array.isArray(result)) {
-        const bytes = new Uint8Array(result as number[]);
-        const base64 = bytesToBase64(bytes);
-        await this.sendResponse(request.id, {
-          value: JSON.stringify({ data: base64, mimeType: 'image/png' }),
-        });
-        return;
-      }
-      // Everything else (mouse/key/type returns null/void; AX tree
-      // returns the AxNode object) serializes through JSON.
-      await this.sendResponse(request.id, {
-        value: JSON.stringify(result ?? null),
-      });
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      await this.sendResponse(request.id, { error: message });
-    }
+    await this.sendResponse(request.id, {
+      error:
+        'Computer-use tools are now handled by the CLI via the computer-use-mcp binary. ' +
+        'Update the CLI to use --remote-control mode with MCP support.',
+    });
   }
 
   private showOverlay(template: TemplateResult): void {
