@@ -84,7 +84,7 @@ fn detect_display_server() -> (bool, Option<String>) {
 fn detect_resolution() -> Result<(u32, u32), Box<dyn std::error::Error>> {
     let monitors = xcap::Monitor::all()?;
     let m = monitors.first().ok_or("No monitors")?;
-    Ok((m.width(), m.height()))
+    Ok((m.width()?, m.height()?))
 }
 
 fn check_accessibility_permission() -> bool {

@@ -40,7 +40,7 @@ pub fn capture_and_scale(
             (idx, &monitors[idx])
         }
     };
-    let origin = (monitor.x(), monitor.y());
+    let origin = (monitor.x()?, monitor.y()?);
     let frame = monitor.capture_image()?;
     let (w, h) = (frame.width(), frame.height());
 

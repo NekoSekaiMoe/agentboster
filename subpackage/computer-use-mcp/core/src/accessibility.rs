@@ -397,18 +397,28 @@ mod linux {
             .map_err(|e| e.to_string())?;
         let name = obj_ref.name_as_str().ok_or("Null accessible reference")?;
         let path = obj_ref.path_as_str();
-        AccessibleProxy::new(conn, name, path)
+        AccessibleProxy::builder(conn)
+            .destination(name)
+            .map_err(|e| e.to_string())?
+            .path(path)
+            .map_err(|e| e.to_string())?
+            .build()
             .await
             .map_err(|e| e.to_string())
     }
 
-    async fn component_for(
-        conn: &zbus::Connection,
+    async fn component_for<'a>(
+        conn: &'a zbus::Connection,
         accessible: &AccessibleProxy<'_>,
-    ) -> Option<ComponentProxy<'_>> {
+    ) -> Option<ComponentProxy<'a>> {
         let dest = accessible.inner().destination().to_string();
         let path = accessible.inner().path().to_string();
-        ComponentProxy::new(conn, dest.as_str(), path.as_str())
+        ComponentProxy::builder(conn)
+            .destination(dest.as_str())
+            .ok()?
+            .path(path.as_str())
+            .ok()?
+            .build()
             .await
             .ok()
     }

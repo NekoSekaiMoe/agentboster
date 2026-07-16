@@ -175,20 +175,20 @@ fn resolve_home_dir() -> Option<PathBuf> {
 
 fn expand_tilde_path(raw: &str) -> PathBuf {
     let trimmed = raw.trim();
-    if trimmed == "~" {
-        if let Some(home) = resolve_home_dir() {
-            return home;
-        }
+    if trimmed == "~"
+        && let Some(home) = resolve_home_dir()
+    {
+        return home;
     }
-    if let Some(rest) = trimmed.strip_prefix("~/") {
-        if let Some(home) = resolve_home_dir() {
-            return home.join(rest);
-        }
+    if let Some(rest) = trimmed.strip_prefix("~/")
+        && let Some(home) = resolve_home_dir()
+    {
+        return home.join(rest);
     }
-    if let Some(rest) = trimmed.strip_prefix("~\\") {
-        if let Some(home) = resolve_home_dir() {
-            return home.join(rest);
-        }
+    if let Some(rest) = trimmed.strip_prefix("~\\")
+        && let Some(home) = resolve_home_dir()
+    {
+        return home.join(rest);
     }
     PathBuf::from(trimmed)
 }
@@ -376,10 +376,10 @@ fn discover_pi_from_env_override() -> Option<PathBuf> {
         "PI_DESKTOP_PI_PATH",
         "PI_CLI_PATH",
     ] {
-        if let Ok(raw) = std::env::var(key) {
-            if let Some(path) = resolve_explicit_pi_path(&raw) {
-                return Some(path);
-            }
+        if let Ok(raw) = std::env::var(key)
+            && let Some(path) = resolve_explicit_pi_path(&raw)
+        {
+            return Some(path);
         }
     }
     None
@@ -492,7 +492,7 @@ async fn fetch_latest_release(
 /// Pick the universal tarball asset. The packaging script names it
 /// `agentboster-cli-<tag>.tar.gz`; we don't pin the tag here so this
 /// keeps working as the version moves.
-fn pick_tarball_asset<'a>(release: &'a GithubRelease) -> Result<&'a GithubAsset, String> {
+fn pick_tarball_asset(release: &GithubRelease) -> Result<&GithubAsset, String> {
     release
         .assets
         .iter()
@@ -699,7 +699,7 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
 
     let bin_dir = install_target_bin_dir()?;
     let staging = bin_dir.join(format!(".download-{}.tar.gz", release.tag_name));
-    fs::create_dir_all(&staging.parent().unwrap_or(Path::new(".")))
+    fs::create_dir_all(staging.parent().unwrap_or(Path::new(".")))
         .map_err(|e| format!("Failed to create staging dir: {}", e))?;
 
     // Best-effort cleanup of any previous half-finished download.
@@ -841,10 +841,10 @@ fn build_command(pi: &PiProcess, options: &RpcStartOptions) -> Command {
 
     // If using a script-based pi binary (e.g. npm global install), ensure its bin dir
     // is on PATH so shebangs like `#!/usr/bin/env node` can resolve node in GUI launches.
-    if let PiProcess::PathBinary { path } = pi {
-        if let Some(parent) = path.parent() {
-            prepend_bin_dir_to_path(&mut cmd, parent);
-        }
+    if let PiProcess::PathBinary { path } = pi
+        && let Some(parent) = path.parent()
+    {
+        prepend_bin_dir_to_path(&mut cmd, parent);
     }
 
     // On Windows, prevent console window from appearing
@@ -1285,10 +1285,10 @@ fn build_plain_command(pi: &PiProcess, options: &PiCliCommandOptions) -> Command
         }
     }
 
-    if let PiProcess::PathBinary { path } = pi {
-        if let Some(parent) = path.parent() {
-            prepend_bin_dir_to_path(&mut cmd, parent);
-        }
+    if let PiProcess::PathBinary { path } = pi
+        && let Some(parent) = path.parent()
+    {
+        prepend_bin_dir_to_path(&mut cmd, parent);
     }
 
     #[cfg(target_os = "windows")]
