@@ -537,7 +537,7 @@ mod linux {
             let child_count = elem.child_count().await.unwrap_or(0);
             for i in 0..child_count {
                 if let Ok(child) = child_accessible(conn, elem, i).await {
-                    if let Ok(node) = build_node(conn, &child, depth - 1).await {
+                    if let Ok(node) = Box::pin(build_node(conn, &child, depth - 1)).await {
                         children.push(node);
                     }
                 }
