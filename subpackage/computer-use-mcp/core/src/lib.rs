@@ -1,3 +1,4 @@
+pub mod accessibility;
 pub mod capability;
 pub mod coord;
 pub mod input;

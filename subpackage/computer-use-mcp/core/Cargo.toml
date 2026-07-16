@@ -17,12 +17,13 @@ chrono = { version = "0.4", features = ["serde"] }
 accessibility-sys = "0.2"
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
+core-graphics = "0.24"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 uiautomation = "0.25"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-atspi = "0.30"
+atspi = { version = "0.30", features = ["zbus"] }
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 
 [target.'cfg(unix)'.dependencies]

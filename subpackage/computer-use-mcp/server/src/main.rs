@@ -134,6 +134,8 @@ fn tools_list(
             json!({ "name": "mouse_drag", "description": "Drag from one point to another.", "inputSchema": { "type": "object", "properties": { "from_x": { "type": "number" }, "from_y": { "type": "number" }, "to_x": { "type": "number" }, "to_y": { "type": "number" } }, "required": ["from_x", "from_y", "to_x", "to_y"] } }),
             json!({ "name": "key_event", "description": "Press a key combination.", "inputSchema": { "type": "object", "properties": { "key": { "type": "string" }, "modifiers": { "type": "array", "items": { "type": "string" } } }, "required": ["key"] } }),
             json!({ "name": "type_text", "description": "Type a string.", "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] } }),
+            json!({ "name": "get_accessibility_tree", "description": "Get the accessibility element at screen coordinates.", "inputSchema": { "type": "object", "properties": { "x": { "type": "integer" }, "y": { "type": "integer" } }, "required": ["x", "y"] } }),
+            json!({ "name": "get_focused_element", "description": "Get the currently focused accessibility element.", "inputSchema": { "type": "object", "properties": {} } }),
         ]);
     }
 
@@ -252,6 +254,68 @@ fn handle_tool_call(
                     error: Some(JsonRpcError {
                         code: -32000,
                         message: format!("Tool failed: {e}"),
+                    }),
+                },
+            }
+        }
+        "get_accessibility_tree" => {
+            if !caps.accessibility_granted {
+                return JsonRpcResponse {
+                    jsonrpc: "2.0".into(),
+                    id,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32000,
+                        message: "Accessibility permission not granted".into(),
+                    }),
+                };
+            }
+            let x = args["x"].as_i64().unwrap_or(0) as i32;
+            let y = args["y"].as_i64().unwrap_or(0) as i32;
+            match computer_use_core::accessibility::get_ax_at_point(x, y) {
+                Ok(node) => JsonRpcResponse {
+                    jsonrpc: "2.0".into(),
+                    id,
+                    result: Some(json!({"content": [{"type": "text", "text": serde_json::to_string(&node).unwrap_or_default()}]})),
+                    error: None,
+                },
+                Err(e) => JsonRpcResponse {
+                    jsonrpc: "2.0".into(),
+                    id,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32000,
+                        message: format!("get_ax_at_point failed: {e}"),
+                    }),
+                },
+            }
+        }
+        "get_focused_element" => {
+            if !caps.accessibility_granted {
+                return JsonRpcResponse {
+                    jsonrpc: "2.0".into(),
+                    id,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32000,
+                        message: "Accessibility permission not granted".into(),
+                    }),
+                };
+            }
+            match computer_use_core::accessibility::get_focused_ax() {
+                Ok(node) => JsonRpcResponse {
+                    jsonrpc: "2.0".into(),
+                    id,
+                    result: Some(json!({"content": [{"type": "text", "text": serde_json::to_string(&node).unwrap_or_default()}]})),
+                    error: None,
+                },
+                Err(e) => JsonRpcResponse {
+                    jsonrpc: "2.0".into(),
+                    id,
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32000,
+                        message: format!("get_focused_ax failed: {e}"),
                     }),
                 },
             }
