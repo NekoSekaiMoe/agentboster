@@ -14,6 +14,7 @@ import chalk from 'chalk';
 import { getStoredAuth } from '@agentboster/adapter';
 import { createLogger } from '../../utils/logger.ts';
 import { getBackendUrl } from '../../core/backend-url.ts';
+import { detectLocalCapabilities } from '../../core/capability-detect.ts';
 
 const logger = createLogger('remote-control');
 
@@ -52,6 +53,35 @@ export async function runRemoteControlMode(
   console.log(chalk.cyan('Remote control mode started'));
   console.log(chalk.dim(`Session ID: ${sessionId}`));
   console.log(chalk.dim(`Backend: ${backendUrl}`));
+
+  // Detect local capabilities and show guidance
+  const capabilities = detectLocalCapabilities();
+  if (capabilities.issues.length > 0) {
+    console.log();
+    for (const issue of capabilities.issues) {
+      console.log(chalk.yellow(`  ! ${issue}`));
+    }
+  }
+
+  const availableTools = [
+    'local_read_file',
+    'local_write_file',
+    'local_exec',
+    'local_grep',
+  ];
+  if (capabilities.hasMcpBinary && capabilities.hasDisplay) {
+    availableTools.push(
+      'screenshot',
+      'mouse_move',
+      'mouse_click',
+      'mouse_drag',
+      'key_event',
+      'type_text',
+      'get_accessibility_tree',
+      'get_focused_element',
+    );
+  }
+
   console.log();
   console.log(
     chalk.green(
@@ -83,12 +113,12 @@ export async function runRemoteControlMode(
         },
         body: JSON.stringify({
           capabilities: {
-            hasDisplay: process.platform !== 'linux' || !!process.env.DISPLAY,
-            platform: process.platform,
-            isAdmin: process.getuid?.() === 0,
-            scaleFactor: 1,
+            hasDisplay: capabilities.hasDisplay,
+            platform: capabilities.platform,
+            isAdmin: capabilities.isAdmin,
+            scaleFactor: capabilities.scaleFactor,
           },
-          tools: ['local_read_file', 'local_write_file', 'local_exec', 'local_grep'],
+          tools: availableTools,
           cwd: process.cwd(),
         }),
       });
