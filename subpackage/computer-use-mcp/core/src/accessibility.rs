@@ -342,39 +342,88 @@ mod macos {
 #[cfg(target_os = "linux")]
 mod linux {
     use super::AxNode;
-    use atspi::{AccessibilityConnection, ComponentProxy, Role};
-    use zbus::blocking::Connection;
+    use atspi::proxy::accessible::AccessibleProxy;
+    use atspi::proxy::component::ComponentProxy;
+    use atspi::{AccessibilityConnection, CoordType, State};
 
     pub fn get_ax_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
-        let conn = Connection::session().map_err(|e| e.to_string())?;
-        let acc = AccessibilityConnection::new(&conn).map_err(|e| e.to_string())?;
-        let desktop = acc.desktop(0).map_err(|e| e.to_string())?;
-
-        find_at_point(&desktop, x, y, max_depth)
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?;
+        rt.block_on(get_ax_at_point_async(x, y, max_depth))
     }
 
     pub fn get_focused_ax(max_depth: u32) -> Result<AxNode, String> {
-        let conn = Connection::session().map_err(|e| e.to_string())?;
-        let acc = AccessibilityConnection::new(&conn).map_err(|e| e.to_string())?;
-        let desktop = acc.desktop(0).map_err(|e| e.to_string())?;
-
-        find_focused(&desktop, max_depth)
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?;
+        rt.block_on(get_focused_ax_async(max_depth))
     }
 
-    fn find_at_point(
-        elem: &atspi::Accessible,
+    async fn get_ax_at_point_async(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
+        let a11y = AccessibilityConnection::new()
+            .await
+            .map_err(|e| e.to_string())?;
+        let conn = a11y.connection();
+        let root = a11y
+            .root_accessible_on_registry()
+            .await
+            .map_err(|e| e.to_string())?;
+        find_at_point(conn, &root, x, y, max_depth).await
+    }
+
+    async fn get_focused_ax_async(max_depth: u32) -> Result<AxNode, String> {
+        let a11y = AccessibilityConnection::new()
+            .await
+            .map_err(|e| e.to_string())?;
+        let conn = a11y.connection();
+        let root = a11y
+            .root_accessible_on_registry()
+            .await
+            .map_err(|e| e.to_string())?;
+        find_focused(conn, &root, max_depth).await
+    }
+
+    async fn child_accessible<'a>(
+        conn: &'a zbus::Connection,
+        parent: &AccessibleProxy<'_>,
+        index: i32,
+    ) -> Result<AccessibleProxy<'a>, String> {
+        let obj_ref = parent
+            .get_child_at_index(index)
+            .await
+            .map_err(|e| e.to_string())?;
+        let name = obj_ref.name_as_str().ok_or("Null accessible reference")?;
+        let path = obj_ref.path_as_str();
+        AccessibleProxy::new(conn, name, path)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn component_for(
+        conn: &zbus::Connection,
+        accessible: &AccessibleProxy<'_>,
+    ) -> Option<ComponentProxy<'_>> {
+        let dest = accessible.inner().destination().to_string();
+        let path = accessible.inner().path().to_string();
+        ComponentProxy::new(conn, dest.as_str(), path.as_str())
+            .await
+            .ok()
+    }
+
+    async fn find_at_point(
+        conn: &zbus::Connection,
+        elem: &AccessibleProxy<'_>,
         x: i32,
         y: i32,
         depth: u32,
     ) -> Result<AxNode, String> {
-        let contains_point = if let Ok(component) = ComponentProxy::from(elem.clone()) {
-            if let Ok(extents) = component.extents(atspi::CoordType::Screen) {
-                x >= extents.x()
-                    && x < extents.x() + extents.width()
-                    && y >= extents.y()
-                    && y < extents.y() + extents.height()
-            } else {
-                true
+        let contains_point = if let Some(component) = component_for(conn, elem).await {
+            match component.get_extents(CoordType::Screen).await {
+                Ok((ex, ey, ew, eh)) => x >= ex && x < ex + ew && y >= ey && y < ey + eh,
+                Err(_) => true,
             }
         } else {
             true
@@ -385,44 +434,54 @@ mod linux {
         }
 
         if depth > 0 {
-            if let Ok(child_count) = elem.child_count() {
-                for i in 0..child_count {
-                    if let Ok(child) = elem.child_at_index(i) {
-                        if let Ok(node) = find_at_point(&child, x, y, depth - 1) {
-                            if !node.role.is_empty() {
-                                return Ok(node);
-                            }
+            let child_count = elem.child_count().await.unwrap_or(0);
+            for i in 0..child_count {
+                if let Ok(child) = child_accessible(conn, elem, i).await {
+                    if let Ok(node) = Box::pin(find_at_point(conn, &child, x, y, depth - 1)).await {
+                        if !node.role.is_empty() {
+                            return Ok(node);
                         }
                     }
                 }
             }
         }
 
-        build_node(elem, depth)
+        build_node(conn, elem, depth).await
     }
 
-    fn find_focused(elem: &atspi::Accessible, display_depth: u32) -> Result<AxNode, String> {
+    async fn find_focused(
+        conn: &zbus::Connection,
+        elem: &AccessibleProxy<'_>,
+        display_depth: u32,
+    ) -> Result<AxNode, String> {
         const MAX_SEARCH_DEPTH: u32 = 50;
-        search_focused(elem, display_depth, MAX_SEARCH_DEPTH)
+        search_focused(conn, elem, display_depth, MAX_SEARCH_DEPTH).await
     }
 
-    fn search_focused(
-        elem: &atspi::Accessible,
+    async fn search_focused(
+        conn: &zbus::Connection,
+        elem: &AccessibleProxy<'_>,
         display_depth: u32,
         search_depth: u32,
     ) -> Result<AxNode, String> {
-        if let Ok(state_set) = elem.state_set() {
-            if state_set.contains(atspi::State::Focused) {
-                return build_node(elem, display_depth);
+        if let Ok(state_set) = elem.get_state().await {
+            if state_set.contains(State::Focused) {
+                return build_node(conn, elem, display_depth).await;
             }
         }
         if search_depth > 0 {
-            if let Ok(child_count) = elem.child_count() {
-                for i in 0..child_count {
-                    if let Ok(child) = elem.child_at_index(i) {
-                        if let Ok(node) = search_focused(&child, display_depth, search_depth - 1) {
-                            return Ok(node);
-                        }
+            let child_count = elem.child_count().await.unwrap_or(0);
+            for i in 0..child_count {
+                if let Ok(child) = child_accessible(conn, elem, i).await {
+                    if let Ok(node) = Box::pin(search_focused(
+                        conn,
+                        &child,
+                        display_depth,
+                        search_depth - 1,
+                    ))
+                    .await
+                    {
+                        return Ok(node);
                     }
                 }
             }
@@ -430,44 +489,50 @@ mod linux {
         Err("No focused element".into())
     }
 
-    fn build_node(elem: &atspi::Accessible, depth: u32) -> Result<AxNode, String> {
+    async fn build_node(
+        conn: &zbus::Connection,
+        elem: &AccessibleProxy<'_>,
+        depth: u32,
+    ) -> Result<AxNode, String> {
         let role = elem
-            .role()
+            .get_role()
+            .await
             .ok()
-            .map(|r| format!("{:?}", r))
+            .map(|r| format!("{r:?}"))
             .unwrap_or_default();
-        let name = elem.name().ok().unwrap_or_default();
-        let value = elem.description().ok();
+        let name = elem.name().await.ok().unwrap_or_default();
+        let value = elem.description().await.ok();
 
-        let (x, y, w, h) = if let Ok(component) = ComponentProxy::from(elem.clone()) {
-            if let Ok(extents) = component.extents(atspi::CoordType::Screen) {
-                (extents.x(), extents.y(), extents.width(), extents.height())
-            } else {
-                (0, 0, 0, 0)
-            }
+        let (x, y, w, h) = if let Some(component) = component_for(conn, elem).await {
+            component
+                .get_extents(CoordType::Screen)
+                .await
+                .unwrap_or((0, 0, 0, 0))
         } else {
             (0, 0, 0, 0)
         };
 
-        let enabled = elem
-            .state_set()
-            .ok()
-            .map(|s| s.contains(atspi::State::Enabled))
+        let state_set = elem.get_state().await.ok();
+        let enabled = state_set
+            .as_ref()
+            .map(|s| s.contains(State::Enabled))
             .unwrap_or(false);
-        let focused = elem
-            .state_set()
-            .ok()
-            .map(|s| s.contains(atspi::State::Focused))
+        let focused = state_set
+            .as_ref()
+            .map(|s| s.contains(State::Focused))
             .unwrap_or(false);
 
-        let children = if depth == 0 {
-            Vec::new()
-        } else {
-            (0..elem.child_count().unwrap_or(0))
-                .filter_map(|i| elem.child_at_index(i).ok())
-                .filter_map(|c| build_node(&c, depth - 1).ok())
-                .collect()
-        };
+        let mut children = Vec::new();
+        if depth > 0 {
+            let child_count = elem.child_count().await.unwrap_or(0);
+            for i in 0..child_count {
+                if let Ok(child) = child_accessible(conn, elem, i).await {
+                    if let Ok(node) = build_node(conn, &child, depth - 1).await {
+                        children.push(node);
+                    }
+                }
+            }
+        }
 
         Ok(AxNode {
             role,

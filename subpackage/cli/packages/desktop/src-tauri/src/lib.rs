@@ -137,14 +137,14 @@ fn discover_sidecar(app: &AppHandle) -> Option<PathBuf> {
         candidate_dirs.push(resource_dir.join("binaries"));
     }
 
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            candidate_dirs.push(parent.to_path_buf());
-            candidate_dirs.push(parent.join("binaries"));
-            candidate_dirs.push(parent.join(".."));
-            candidate_dirs.push(parent.join("..").join("Resources"));
-            candidate_dirs.push(parent.join("..").join("Resources").join("binaries"));
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        candidate_dirs.push(parent.to_path_buf());
+        candidate_dirs.push(parent.join("binaries"));
+        candidate_dirs.push(parent.join(".."));
+        candidate_dirs.push(parent.join("..").join("Resources"));
+        candidate_dirs.push(parent.join("..").join("Resources").join("binaries"));
     }
 
     for dir in candidate_dirs {
@@ -160,15 +160,15 @@ fn discover_sidecar(app: &AppHandle) -> Option<PathBuf> {
 }
 
 fn resolve_home_dir() -> Option<PathBuf> {
-    if let Ok(home) = std::env::var("HOME") {
-        if !home.trim().is_empty() {
-            return Some(PathBuf::from(home));
-        }
+    if let Ok(home) = std::env::var("HOME")
+        && !home.trim().is_empty()
+    {
+        return Some(PathBuf::from(home));
     }
-    if let Ok(user_profile) = std::env::var("USERPROFILE") {
-        if !user_profile.trim().is_empty() {
-            return Some(PathBuf::from(user_profile));
-        }
+    if let Ok(user_profile) = std::env::var("USERPROFILE")
+        && !user_profile.trim().is_empty()
+    {
+        return Some(PathBuf::from(user_profile));
     }
     None
 }
@@ -1111,6 +1111,7 @@ async fn rpc_ui_response(
     }
 }
 
+#[allow(dead_code)]
 fn get_pi_agent_dir() -> Option<PathBuf> {
     // Respect explicit env override first
     if let Ok(raw) = std::env::var("PI_CODING_AGENT_DIR") {
@@ -1540,10 +1541,10 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(target_os = "macos")]
             {
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = _app.get_webview_window("main") {
                     let _ =
                         window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
                     let _ = window.set_shadow(true);
