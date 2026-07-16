@@ -121,7 +121,8 @@ fn tools_list(
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "max_width": { "type": "integer", "description": "Max width in pixels (default: 1400)" }
+                    "max_width": { "type": "integer", "description": "Max width in pixels (default: 1400)" },
+                    "monitor_index": { "type": "integer", "description": "Monitor index (default: primary)" }
                 }
             }
         }),
@@ -130,12 +131,12 @@ fn tools_list(
     if caps.has_display && caps.accessibility_granted {
         tools.extend([
             json!({ "name": "mouse_move", "description": "Move cursor to (x, y) in screenshot scale.", "inputSchema": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "required": ["x", "y"] } }),
-            json!({ "name": "mouse_click", "description": "Click at (x, y).", "inputSchema": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "button": { "type": "string", "enum": ["left", "right", "middle"] }, "click_type": { "type": "string", "enum": ["single", "double"] } }, "required": ["x", "y"] } }),
+            json!({ "name": "mouse_click", "description": "Click at (x, y).", "inputSchema": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "button": { "type": "string", "enum": ["left", "right", "middle", "back", "forward"] }, "click_type": { "type": "string", "enum": ["single", "double"] } }, "required": ["x", "y"] } }),
             json!({ "name": "mouse_drag", "description": "Drag from one point to another.", "inputSchema": { "type": "object", "properties": { "from_x": { "type": "number" }, "from_y": { "type": "number" }, "to_x": { "type": "number" }, "to_y": { "type": "number" } }, "required": ["from_x", "from_y", "to_x", "to_y"] } }),
             json!({ "name": "key_event", "description": "Press a key combination.", "inputSchema": { "type": "object", "properties": { "key": { "type": "string" }, "modifiers": { "type": "array", "items": { "type": "string" } } }, "required": ["key"] } }),
             json!({ "name": "type_text", "description": "Type a string.", "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] } }),
-            json!({ "name": "get_accessibility_tree", "description": "Get the accessibility element at screen coordinates.", "inputSchema": { "type": "object", "properties": { "x": { "type": "integer" }, "y": { "type": "integer" } }, "required": ["x", "y"] } }),
-            json!({ "name": "get_focused_element", "description": "Get the currently focused accessibility element.", "inputSchema": { "type": "object", "properties": {} } }),
+            json!({ "name": "get_accessibility_tree", "description": "Get the accessibility element at screen coordinates.", "inputSchema": { "type": "object", "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "max_depth": { "type": "integer", "description": "Tree depth limit (default: 3, max: 5)" } }, "required": ["x", "y"] } }),
+            json!({ "name": "get_focused_element", "description": "Get the currently focused accessibility element.", "inputSchema": { "type": "object", "properties": { "max_depth": { "type": "integer", "description": "Tree depth limit (default: 3, max: 5)" } } } }),
         ]);
     }
 
@@ -165,7 +166,8 @@ fn handle_tool_call(
     match tool_name {
         "screenshot" => {
             let max_width = args["max_width"].as_u64().map(|v| v as u32);
-            match computer_use_core::screenshot::capture_and_scale(max_width) {
+            let monitor_index = args["monitor_index"].as_u64().map(|v| v as usize);
+            match computer_use_core::screenshot::capture_and_scale(max_width, monitor_index) {
                 Ok(result) => JsonRpcResponse {
                     jsonrpc: "2.0".into(),
                     id,
@@ -290,7 +292,8 @@ fn handle_tool_call(
             }
             let x = args["x"].as_i64().unwrap_or(0) as i32;
             let y = args["y"].as_i64().unwrap_or(0) as i32;
-            match computer_use_core::accessibility::get_ax_at_point(x, y) {
+            let max_depth = args["max_depth"].as_u64().map(|v| v as u32);
+            match computer_use_core::accessibility::get_ax_at_point(x, y, max_depth) {
                 Ok(node) => JsonRpcResponse {
                     jsonrpc: "2.0".into(),
                     id,
@@ -320,7 +323,9 @@ fn handle_tool_call(
                     }),
                 };
             }
-            match computer_use_core::accessibility::get_focused_ax() {
+            match computer_use_core::accessibility::get_focused_ax(
+                args["max_depth"].as_u64().map(|v| v as u32),
+            ) {
                 Ok(node) => JsonRpcResponse {
                     jsonrpc: "2.0".into(),
                     id,

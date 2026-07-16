@@ -44,32 +44,35 @@ impl Default for AxNode {
 
 /// Get the accessibility node at the given screen coordinates.
 ///
-/// Platform-specific implementation; returns the deepest accessible element
-/// at (x, y) along with its ancestor chain.
-pub fn get_ax_at_point(x: i32, y: i32) -> Result<AxNode, String> {
+/// `max_depth` limits recursion depth (default 3, capped at 5).
+pub fn get_ax_at_point(x: i32, y: i32, max_depth: Option<u32>) -> Result<AxNode, String> {
+    let _depth = max_depth.unwrap_or(3).min(5);
     #[cfg(target_os = "windows")]
-    return windows::get_ax_at_point(x, y);
+    return windows::get_ax_at_point(x, y, _depth);
 
     #[cfg(target_os = "macos")]
-    return macos::get_ax_at_point(x, y);
+    return macos::get_ax_at_point(x, y, _depth);
 
     #[cfg(target_os = "linux")]
-    return linux::get_ax_at_point(x, y);
+    return linux::get_ax_at_point(x, y, _depth);
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     Err("Accessibility not supported on this platform".into())
 }
 
 /// Get the currently focused accessibility element.
-pub fn get_focused_ax() -> Result<AxNode, String> {
+///
+/// `max_depth` limits recursion depth (default 3, capped at 5).
+pub fn get_focused_ax(max_depth: Option<u32>) -> Result<AxNode, String> {
+    let _depth = max_depth.unwrap_or(3).min(5);
     #[cfg(target_os = "windows")]
-    return windows::get_focused_ax();
+    return windows::get_focused_ax(_depth);
 
     #[cfg(target_os = "macos")]
-    return macos::get_focused_ax();
+    return macos::get_focused_ax(_depth);
 
     #[cfg(target_os = "linux")]
-    return linux::get_focused_ax();
+    return linux::get_focused_ax(_depth);
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     Err("Accessibility not supported on this platform".into())
@@ -84,21 +87,21 @@ mod windows {
     use super::AxNode;
     use uiautomation::{UIAutomation, UIElement};
 
-    pub fn get_ax_at_point(x: i32, y: i32) -> Result<AxNode, String> {
+    pub fn get_ax_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
         let uia = UIAutomation::new().map_err(|e| e.to_string())?;
         let elem = uia
             .element_from_point(uiautomation::types::Point::new(x, y))
             .map_err(|e| e.to_string())?;
-        build_node(&elem)
+        build_node(&elem, max_depth)
     }
 
-    pub fn get_focused_ax() -> Result<AxNode, String> {
+    pub fn get_focused_ax(max_depth: u32) -> Result<AxNode, String> {
         let uia = UIAutomation::new().map_err(|e| e.to_string())?;
         let elem = uia.get_focused_element().map_err(|e| e.to_string())?;
-        build_node(&elem)
+        build_node(&elem, max_depth)
     }
 
-    fn build_node(elem: &UIElement) -> Result<AxNode, String> {
+    fn build_node(elem: &UIElement, depth_remaining: u32) -> Result<AxNode, String> {
         let role = elem
             .get_control_type()
             .ok()
@@ -110,13 +113,16 @@ mod windows {
         let enabled = elem.get_is_enabled().ok().unwrap_or(false);
         let focused = elem.get_has_keyboard_focus().ok().unwrap_or(false);
 
-        let children = elem
-            .get_children()
-            .ok()
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|c| build_node(&c).ok())
-            .collect();
+        let children = if depth_remaining == 0 {
+            Vec::new()
+        } else {
+            elem.get_children()
+                .ok()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|c| build_node(&c, depth_remaining - 1).ok())
+                .collect()
+        };
 
         Ok(AxNode {
             role,
@@ -152,7 +158,7 @@ mod macos {
     use core_graphics::geometry::{CGPoint, CGSize};
     use std::ptr;
 
-    pub fn get_ax_at_point(x: i32, y: i32) -> Result<AxNode, String> {
+    pub fn get_ax_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
         unsafe {
             let system_wide = AXUIElementCreateSystemWide();
             let mut elem = ptr::null_mut();
@@ -165,11 +171,11 @@ mod macos {
             if result != 0 || elem.is_null() {
                 return Err(format!("AXUIElementCopyElementAtPosition failed: {}", result));
             }
-            build_node(elem)
+            build_node(elem, max_depth)
         }
     }
 
-    pub fn get_focused_ax() -> Result<AxNode, String> {
+    pub fn get_focused_ax(max_depth: u32) -> Result<AxNode, String> {
         unsafe {
             let system_wide = AXUIElementCreateSystemWide();
             let focused_attr = CFString::new("AXFocusedUIElement");
@@ -179,11 +185,11 @@ mod macos {
             if result != 0 || value.is_null() {
                 return Err(format!("AXUIElementCopyAttributeValue(AXFocusedUIElement) failed: {}", result));
             }
-            build_node(value as *mut _)
+            build_node(value as *mut _, max_depth)
         }
     }
 
-    unsafe fn build_node(elem: *mut std::ffi::c_void) -> Result<AxNode, String> {
+    unsafe fn build_node(elem: *mut std::ffi::c_void, depth_remaining: u32) -> Result<AxNode, String> {
         fn get_string_attr(elem: *mut std::ffi::c_void, attr: &str) -> String {
             unsafe {
                 let cf_attr = CFString::new(attr);
@@ -247,7 +253,10 @@ mod macos {
             }
         }
 
-        fn get_children(elem: *mut std::ffi::c_void) -> Vec<AxNode> {
+        fn get_children(elem: *mut std::ffi::c_void, depth: u32) -> Vec<AxNode> {
+            if depth == 0 {
+                return Vec::new();
+            }
             unsafe {
                 let cf_attr = CFString::new("AXChildren");
                 let mut value = ptr::null_mut();
@@ -259,7 +268,7 @@ mod macos {
                         return (0..arr.len())
                             .filter_map(|i| {
                                 let child = arr.get(i);
-                                build_node(child.as_void_ptr() as *mut _).ok()
+                                build_node(child.as_void_ptr() as *mut _, depth - 1).ok()
                             })
                             .collect();
                     }
@@ -282,7 +291,7 @@ mod macos {
         let (w, h) = get_size(elem);
         let enabled = get_bool_attr(elem, "AXEnabled");
         let focused = get_bool_attr(elem, "AXFocused");
-        let children = get_children(elem);
+        let children = get_children(elem, depth_remaining);
 
         Ok(AxNode {
             role,
@@ -309,32 +318,28 @@ mod linux {
     use atspi::{AccessibilityConnection, ComponentProxy, Role};
     use zbus::blocking::Connection;
 
-    pub fn get_ax_at_point(x: i32, y: i32) -> Result<AxNode, String> {
+    pub fn get_ax_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
         let conn = Connection::session().map_err(|e| e.to_string())?;
         let acc = AccessibilityConnection::new(&conn).map_err(|e| e.to_string())?;
         let desktop = acc.desktop(0).map_err(|e| e.to_string())?;
 
-        // Walk desktop's children to find the element at (x, y)
-        // AT-SPI doesn't have a direct "element at point" API; we must
-        // recursively check bounding boxes.
-        find_at_point(&desktop, x, y)
+        find_at_point(&desktop, x, y, max_depth)
     }
 
-    pub fn get_focused_ax() -> Result<AxNode, String> {
+    pub fn get_focused_ax(max_depth: u32) -> Result<AxNode, String> {
         let conn = Connection::session().map_err(|e| e.to_string())?;
         let acc = AccessibilityConnection::new(&conn).map_err(|e| e.to_string())?;
         let desktop = acc.desktop(0).map_err(|e| e.to_string())?;
 
-        // Walk tree to find focused element
-        find_focused(&desktop)
+        find_focused(&desktop, max_depth)
     }
 
     fn find_at_point(
         elem: &atspi::Accessible,
         x: i32,
         y: i32,
+        depth: u32,
     ) -> Result<AxNode, String> {
-        // Check if this element contains (x, y)
         if let Ok(component) = ComponentProxy::from(elem.clone()) {
             if let Ok(extents) = component.extents(atspi::CoordType::Screen) {
                 let ex = extents.x();
@@ -342,38 +347,39 @@ mod linux {
                 let ew = extents.width();
                 let eh = extents.height();
                 if x >= ex && x < ex + ew && y >= ey && y < ey + eh {
-                    // This element contains the point; recurse into children
-                    if let Ok(child_count) = elem.child_count() {
-                        for i in 0..child_count {
-                            if let Ok(child) = elem.child_at_index(i) {
-                                if let Ok(node) = find_at_point(&child, x, y) {
-                                    if !node.role.is_empty() {
-                                        return Ok(node);
+                    if depth > 0 {
+                        if let Ok(child_count) = elem.child_count() {
+                            for i in 0..child_count {
+                                if let Ok(child) = elem.child_at_index(i) {
+                                    if let Ok(node) = find_at_point(&child, x, y, depth - 1) {
+                                        if !node.role.is_empty() {
+                                            return Ok(node);
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                    // No children matched; return this element
-                    return build_node(elem);
+                    return build_node(elem, depth);
                 }
             }
         }
         Err("No element at point".into())
     }
 
-    fn find_focused(elem: &atspi::Accessible) -> Result<AxNode, String> {
+    fn find_focused(elem: &atspi::Accessible, depth: u32) -> Result<AxNode, String> {
         if let Ok(state_set) = elem.state_set() {
             if state_set.contains(atspi::State::Focused) {
-                return build_node(elem);
+                return build_node(elem, depth);
             }
         }
-        // Recurse into children
-        if let Ok(child_count) = elem.child_count() {
-            for i in 0..child_count {
-                if let Ok(child) = elem.child_at_index(i) {
-                    if let Ok(node) = find_focused(&child) {
-                        return Ok(node);
+        if depth > 0 {
+            if let Ok(child_count) = elem.child_count() {
+                for i in 0..child_count {
+                    if let Ok(child) = elem.child_at_index(i) {
+                        if let Ok(node) = find_focused(&child, depth - 1) {
+                            return Ok(node);
+                        }
                     }
                 }
             }
@@ -381,7 +387,7 @@ mod linux {
         Err("No focused element".into())
     }
 
-    fn build_node(elem: &atspi::Accessible) -> Result<AxNode, String> {
+    fn build_node(elem: &atspi::Accessible, depth: u32) -> Result<AxNode, String> {
         let role = elem
             .role()
             .ok()
@@ -416,10 +422,14 @@ mod linux {
             .map(|s| s.contains(atspi::State::Focused))
             .unwrap_or(false);
 
-        let children = (0..elem.child_count().unwrap_or(0))
-            .filter_map(|i| elem.child_at_index(i).ok())
-            .filter_map(|c| build_node(&c).ok())
-            .collect();
+        let children = if depth == 0 {
+            Vec::new()
+        } else {
+            (0..elem.child_count().unwrap_or(0))
+                .filter_map(|i| elem.child_at_index(i).ok())
+                .filter_map(|c| build_node(&c, depth - 1).ok())
+                .collect()
+        };
 
         Ok(AxNode {
             role,

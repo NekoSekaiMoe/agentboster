@@ -13,10 +13,21 @@ pub struct ScreenshotResult {
 
 pub fn capture_and_scale(
     max_width: Option<u32>,
+    monitor_index: Option<usize>,
 ) -> Result<ScreenshotResult, Box<dyn std::error::Error>> {
     let max_w = max_width.unwrap_or(DEFAULT_MAX_WIDTH);
     let monitors = Monitor::all()?;
-    let monitor = monitors.first().ok_or("No monitors found")?;
+    if monitors.is_empty() {
+        return Err("No monitors found".into());
+    }
+    let monitor = match monitor_index {
+        Some(idx) if idx < monitors.len() => &monitors[idx],
+        _ => monitors
+            .iter()
+            .find(|m| m.is_primary().unwrap_or(false))
+            .or(monitors.first())
+            .ok_or("No usable monitor")?,
+    };
     let frame = monitor.capture_image()?;
     let (w, h) = (frame.width(), frame.height());
 

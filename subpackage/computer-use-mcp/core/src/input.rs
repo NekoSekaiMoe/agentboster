@@ -31,6 +31,8 @@ impl InputController {
         let btn = match button {
             "right" => enigo::Button::Right,
             "middle" => enigo::Button::Middle,
+            "back" | "Back" => enigo::Button::Back,
+            "forward" | "Forward" => enigo::Button::Forward,
             _ => enigo::Button::Left,
         };
         self.enigo.button(btn, enigo::Direction::Click);
@@ -107,6 +109,8 @@ pub fn parse_key(s: &str) -> Result<enigo::Key, Box<dyn std::error::Error>> {
         "Escape" | "escape" | "Esc" | "esc" => enigo::Key::Escape,
         "Backspace" | "backspace" => enigo::Key::Backspace,
         "Delete" | "delete" | "Del" | "del" => enigo::Key::Delete,
+        #[cfg(any(target_os = "windows", all(unix, not(target_os = "macos"))))]
+        "Insert" | "insert" => enigo::Key::Insert,
         "Home" | "home" => enigo::Key::Home,
         "End" | "end" => enigo::Key::End,
         "PageUp" | "pageup" => enigo::Key::PageUp,

@@ -3,7 +3,7 @@ name = "agentboster-desktop"
 version = "0.1.0"
 description = "Agentboster Desktop - Tauri shell with computer use"
 authors = ["Agentboster contributors"]
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "agentboster_desktop_lib"
