@@ -65,6 +65,9 @@ const COMMAND_ICONS: Record<Command, typeof Wand2> = {
   version: Info,
   id: Hash,
   lang: Languages,
+  remote: Search,
+  attach: Play,
+  detach: X,
 };
 
 /**

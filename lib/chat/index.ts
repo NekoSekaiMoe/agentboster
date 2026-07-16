@@ -1536,7 +1536,7 @@ export async function chatMain(
     if (command.text === INIT_AGENTS_MD_MARKER) {
       chatMainLogger.info('chatMain:init_agents_md_workflow');
       return runInitAgentsMdWorkflow({
-        sessionId: command.sessionId,
+        sessionId: command.sessionId ?? 'none',
         source: envelope.source,
         currentSession,
       });
@@ -1546,7 +1546,7 @@ export async function chatMain(
     return {
       kind: 'command',
       result: {
-        sessionId: command.sessionId,
+        sessionId: command.sessionId ?? 'none',
         text: command.text,
         runId: command.runId ?? null,
       },

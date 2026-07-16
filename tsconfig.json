@@ -32,5 +32,5 @@
     ".next/types/**/*.ts",
     "next.config.js"
   ],
-  "exclude": ["node_modules", "ref", "memoh", "cli", "subpackage"]
+  "exclude": ["node_modules", "ref", "memoh", "landing_memoh", "cli", "subpackage"]
 }
