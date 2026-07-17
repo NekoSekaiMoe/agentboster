@@ -98,14 +98,12 @@ export default defineBuildInTool({
     if (!sessionId || !runId) return null;
 
     // Only register when CLI is online and has display capabilities
-    let hasDisplay = false;
     try {
       const { getCliCapabilities } = await import('@/lib/cli/remote-control');
       const caps = await getCliCapabilities(sessionId);
       if (!caps?.online || !caps.capabilities.hasDisplay) {
         return null;
       }
-      hasDisplay = true;
     } catch {
       return null;
     }
@@ -115,8 +113,6 @@ export default defineBuildInTool({
     if (source?.type !== 'cli' && !isRemoteIm) {
       return null;
     }
-
-    if (!hasDisplay) return null;
 
     const sid = sessionId;
     const rid = runId;
