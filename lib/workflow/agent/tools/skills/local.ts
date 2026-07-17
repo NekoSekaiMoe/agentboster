@@ -89,10 +89,28 @@ function resolveExecutionSurface(
  * gray-matter and isomorphic-git, but we still keep the step boundary
  * here because the file also imports lib/extra/agent/agentd-tools-
  * client, which itself transitively reaches third-party packages.)
+ *
+ * Node pinning (review fix): when the caller does not supply an
+ * explicit nodeId, we resolve the best node ONCE via selectBestNode
+ * and reuse that id for the cleanup, every write, and the final exec.
+ * Previously each call re-ran selectBestNode, so a multi-node install
+ * could probe A, write B/C, then exec on D. When the caller supplies
+ * an explicit nodeId, that id is honored for every call (still subject
+ * to the allowedNodes allowlist enforced inside execToolOnAgentd).
+ *
+ * Cleanup (review fix): the destination `skills/<name>` directory is
+ * wiped before any new file is written, so files removed/renamed in a
+ * skill update cannot linger and be loaded by the entrypoint.
+ *
+ * Error capture (review fix): execToolOnAgentd throws on HTTP/transport
+ * failure; those throws are converted into structured syncErrors /
+ * execResult instead of bubbling out of the step, matching the
+ * Vercel-Sandbox variant's behavior.
  */
 async function materializeAndRunOnAgentd(input: {
   sessionId: string;
   nodeId?: string;
+  allowedNodes?: readonly string[];
   skillName: string;
   entrypoint: string;
   runtime: 'python' | 'bash';
@@ -106,48 +124,109 @@ async function materializeAndRunOnAgentd(input: {
     error?: string;
     node?: { id: string; name?: string; ip: string };
   } | null;
+  execError: string | null;
 }> {
   'use step';
 
   const { execToolOnAgentd } = await import(
     '@/lib/extra/agent/agentd-tools-client'
   );
+  const { selectBestNode } = await import('@/lib/workflow/agent/dispatch');
+
+  // Resolve the node id ONCE so cleanup + every write + the final
+  // exec all land on the same daemon. An explicit nodeId wins; the
+  // allowedNodes allowlist is enforced later inside execToolOnAgentd.
+  let pinnedNodeId = input.nodeId;
+  if (!pinnedNodeId) {
+    const picked = await selectBestNode(undefined, input.allowedNodes);
+    if (!picked) {
+      return {
+        syncErrors: [],
+        execResult: null,
+        execError: 'No Agent Daemon nodes available',
+      };
+    }
+    pinnedNodeId = picked.nodeID;
+  }
 
   const files = await listSkillFilesWithContentFromBlob(input.skillName);
   const syncErrors: Array<{ path: string; error: string }> = [];
+
+  // Wipe the destination directory so stale files from a previous
+  // version of this skill cannot be picked up by the entrypoint. We
+  // ignore failures here — if the dir does not exist yet, `rm -rf`
+  // is a no-op; a real failure will surface on the subsequent write.
+  try {
+    await execToolOnAgentd(
+      input.sessionId,
+      'exec',
+      {
+        command: `rm -rf ${shellQuote(`skills/${input.skillName}`)}`,
+        timeout: 30,
+        working_dir: '.',
+      },
+      pinnedNodeId,
+      input.allowedNodes,
+    );
+  } catch (err) {
+    syncErrors.push({
+      path: '.',
+      error: `failed to clean skills/${input.skillName}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    });
+  }
+
   for (const file of files) {
     const relPath = file.path.replace(/^\/+/, '');
-    const writeResult = await execToolOnAgentd(
-      input.sessionId,
-      'write',
-      {
-        path: `skills/${input.skillName}/${relPath}`,
-        content: file.content,
-      },
-      input.nodeId,
-    );
-    if (!writeResult.success) {
+    try {
+      const writeResult = await execToolOnAgentd(
+        input.sessionId,
+        'write',
+        {
+          path: `skills/${input.skillName}/${relPath}`,
+          content: file.content,
+        },
+        pinnedNodeId,
+        input.allowedNodes,
+      );
+      if (!writeResult.success) {
+        syncErrors.push({
+          path: relPath,
+          error: writeResult.error ?? 'unknown write error',
+        });
+      }
+    } catch (err) {
       syncErrors.push({
         path: relPath,
-        error: writeResult.error ?? 'unknown write error',
+        error: err instanceof Error ? err.message : String(err),
       });
     }
   }
   if (syncErrors.length > 0) {
-    return { syncErrors, execResult: null };
+    return { syncErrors, execResult: null, execError: null };
   }
 
-  const execResult = await execToolOnAgentd(
-    input.sessionId,
-    'exec',
-    {
-      command: input.fullCommand,
-      timeout: input.execTimeoutSeconds,
-      working_dir: '.',
-    },
-    input.nodeId,
-  );
-  return { syncErrors, execResult };
+  try {
+    const execResult = await execToolOnAgentd(
+      input.sessionId,
+      'exec',
+      {
+        command: input.fullCommand,
+        timeout: input.execTimeoutSeconds,
+        working_dir: '.',
+      },
+      pinnedNodeId,
+      input.allowedNodes,
+    );
+    return { syncErrors, execResult, execError: null };
+  } catch (err) {
+    return {
+      syncErrors,
+      execResult: null,
+      execError: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /**
@@ -187,6 +266,23 @@ async function materializeAndRunOnVercelSandbox(input: {
 
   const files = await listSkillFilesWithContentFromBlob(input.skillName);
   const syncErrors: Array<{ path: string; error: string }> = [];
+
+  // Wipe the destination directory so stale files from a previous
+  // version of this skill cannot be picked up by the entrypoint.
+  try {
+    await runSandboxCommandAction({
+      sessionId: input.sessionId,
+      command: `rm -rf ${shellQuote(`skills/${input.skillName}`)}`,
+    });
+  } catch (err) {
+    syncErrors.push({
+      path: '.',
+      error: `failed to clean skills/${input.skillName}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    });
+  }
+
   for (const file of files) {
     const relPath = file.path.replace(/^\/+/, '');
     try {
@@ -261,6 +357,29 @@ async function materializeOnCliHost(input: {
   const files = await listSkillFilesWithContentFromBlob(input.skillName);
   const skillDir = `skills/${input.skillName}`;
   const syncErrors: Array<{ path: string; error: string }> = [];
+
+  // Wipe the destination directory so stale files from a previous
+  // version of this skill cannot be picked up by the entrypoint.
+  // Routed through the same local_exec IPC the rest of this helper
+  // uses, so the attached CLI host honors it consistently.
+  const cleanCallId = `runSkill:${input.skillName}:clean:${randomUUID()}`;
+  const cleanResult = await waitForLocalToolResult({
+    toolCallId: cleanCallId,
+    toolName: 'local_exec',
+    toolInput: { command: `rm -rf ${shellQuote(skillDir)}` },
+    sessionId: input.sessionId,
+    runId: input.runId,
+    isRemoteControl: input.isRemoteControl,
+  });
+  if (!cleanResult.ok) {
+    syncErrors.push({
+      path: '.',
+      error: `failed to clean ${skillDir}: ${
+        cleanResult.error ?? 'unknown clean error'
+      }`,
+    });
+  }
+
   for (const file of files) {
     const relPath = file.path.replace(/^\/+/, '');
     const callId = `runSkill:${input.skillName}:write:${relPath}:${randomUUID()}`;
@@ -292,6 +411,14 @@ export default defineBuildInTool({
     const sessionId = ctx?.sessionId ?? '';
     const runId = ctx?.runId ?? '';
     const source = ctx?.source;
+    // P3.1: surface the current agent's allowed_nodes (if any) so
+    // runSkill can pass it down to execToolOnAgentd. Without this,
+    // a model-supplied nodeId could route to any registered daemon
+    // node and bypass per-agent node authorization.
+    const allowedNodes =
+      ctx?.appConfig && ctx.agentName
+        ? (ctx.appConfig.agents?.[ctx.agentName]?.allowed_nodes ?? undefined)
+        : undefined;
     return {
       listSkills: tool({
         title: 'List Skills',
@@ -528,7 +655,7 @@ export default defineBuildInTool({
             .string()
             .optional()
             .describe(
-              'Specific agentd node id (only meaningful for sandbox surface with multi-node).',
+              'Specific agentd node id (only meaningful for sandbox surface with multi-node). Must be in the current agent allowed_nodes allowlist when one is configured.',
             ),
         }),
         execute: async ({ name, args, nodeId }) => {
@@ -642,9 +769,14 @@ export default defineBuildInTool({
           const agentdReachable = await isAgentdAvailable();
 
           if (agentdReachable) {
-            const { syncErrors, execResult } = await materializeAndRunOnAgentd({
+            const {
+              syncErrors,
+              execResult,
+              execError: agentdExecError,
+            } = await materializeAndRunOnAgentd({
               sessionId,
               nodeId,
+              allowedNodes,
               skillName: name,
               entrypoint,
               runtime,
@@ -661,8 +793,19 @@ export default defineBuildInTool({
                 errors: syncErrors,
               };
             }
-            // materializeAndRunOnAgentd guarantees execResult is non-null
-            // when syncErrors is empty (it short-circuits otherwise).
+            if (agentdExecError) {
+              return {
+                ok: false as const,
+                phase: 'exec' as const,
+                surface: 'agentd' as const,
+                runtime,
+                entrypoint,
+                command: fullCommand,
+                error: agentdExecError,
+              };
+            }
+            // materializeAndRunOnAgentd guarantees execResult is
+            // non-null when syncErrors and execError are both empty.
             if (!execResult) {
               return {
                 ok: false as const,
