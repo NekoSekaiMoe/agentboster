@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 
 /**
  * Package the agentboster-cli into a self-contained tarball.
@@ -77,15 +77,16 @@ chmodSync(join(stagingInner, "agentboster-cli"), 0o755);
 packageComputerUseMcp(stagingInner);
 
 // 4) Create the tarball with reproducible metadata.
-//    GNU tar and BSD tar (macOS default /usr/bin/tar) take different
-//    flags for forcing owner/group/mtime. Detect which one is on PATH
-//    and use the matching invocation — otherwise macOS runners fail
-//    with "tar: Option --mtime=@0 is not supported".
-execSync(buildTarCommand({
-	stagingDir,
-	outPath,
-	dirName,
-}), { stdio: "inherit" });
+//    Pass argv directly via execFileSync (no shell) so paths containing
+//    spaces or drive letters (Windows D:\…) don't need shell-specific
+//    quoting. Going through cmd.exe via execSync(string) would wrap each
+//    arg in single quotes that cmd treats as literal characters, making
+//    tar try to open a filename like 'D:\…\foo.tar.gz' (with the quote
+//    chars in the name).
+{
+	const { binary, args } = buildTarInvocation({ stagingDir, outPath, dirName });
+	execFileSync(binary, args, { stdio: "inherit" });
+}
 
 // Cleanup staging.
 rmSync(stagingDir, { recursive: true, force: true });
@@ -111,51 +112,36 @@ function resolveRoot() {
 	return here;
 }
 
-function shellQuote(s) {
-	return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
 /**
- * Build a reproducible tar(1) command for the staging directory.
+ * Build a reproducible tar invocation for the staging directory.
+ *
+ * Returns `{ binary, args }` so the caller can use execFileSync(argv)
+ * directly — no shell, no quoting. This matters on Windows, where
+ * execSync(string) goes through cmd.exe and a Unix-style single-quote
+ * wrap becomes part of the filename (`tar: Failed to open ''D:\…''`).
  *
  * Reproducibility flags (`--owner=0 --group=0 --mtime=@0 --format=ustar`)
  * are GNU tar syntax. macOS ships libarchive's bsdtar as `/usr/bin/tar`,
- * and although bsdtar 3.x documents some GNU-compatible long options, the
- * version actually installed on GitHub's macos-26 runner rejects
- * `--mtime` outright ("Option --mtime is not supported") — the bsdtar
- * wrapper there only honors `--uid`/`--gid`, not `--mtime`. So relying
- * on bsdtar's partial GNU compatibility is fragile.
+ * but the version on GitHub's macos-26 runner rejects `--mtime`
+ * outright, so we prefer `gtar` (Homebrew GNU Tar, present on every
+ * GitHub macOS runner) when available.
  *
  * Strategy (in order):
- *   1. `gtar` — Homebrew's GNU Tar, present on every GitHub macOS runner
- *      as the `gtar` alias (see actions/runner-images macos-*-Readme).
- *      Preferring it on macOS gives us the full GNU flag set.
- *   2. `tar` whose `--version` advertises "GNU tar" — Linux distributions.
- *   3. Anything else (unexpected tar, weird container) — fall back to a
- *      plain `tar -czf` with no reproducibility flags. We always prefer
- *      producing a tarball over crashing; reproducibility is best-effort.
- *
- * Note: GNU tar accepts `--mtime='@0'` (@ prefix = epoch seconds). The
- * @ syntax is GNU-only; do not use it under any non-GNU tar.
+ *   1. `gtar` whose --version advertises "GNU tar" — macOS via Homebrew.
+ *   2. `tar` whose --version advertises "GNU tar" — Linux distros.
+ *   3. Plain `tar` (Windows ships libarchive bsdtar as tar.exe; bare
+ *      metal containers may have only busybox tar). Emit a plain
+ *      `-czf` invocation: still produces a valid tarball, just not
+ *      byte-reproducible.
  */
-function buildTarCommand({ stagingDir, outPath, dirName }) {
+function buildTarInvocation({ stagingDir, outPath, dirName }) {
 	const binary = resolveTarBinary();
-	const args = [binary, "-C", shellQuote(stagingDir)];
+	const args = ["-C", stagingDir];
 	if (binary !== null) {
-		args.push(
-			"--owner=0",
-			"--group=0",
-			"--mtime=@0",
-			"--format=ustar",
-		);
-	} else {
-		// No GNU tar found. Emit a plain command — still produces a valid
-		// tarball, just not byte-reproducible (mtime/owner come from the
-		// build user). This is the safe degradation path.
-		args[0] = "tar";
+		args.push("--owner=0", "--group=0", "--mtime=@0", "--format=ustar");
 	}
-	args.push("-czf", shellQuote(outPath), shellQuote(dirName));
-	return args.join(" ");
+	args.push("-czf", outPath, dirName);
+	return { binary: binary ?? "tar", args };
 }
 
 /**
