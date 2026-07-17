@@ -91,7 +91,17 @@ jobs:
 
       - name: Rust check (cargo check)
         working-directory: subpackage/cli/packages/desktop
-        run: cargo check --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
+        # tauri.conf.json declares `bundle.resources: ["resources/*"]`, and
+        # tauri_build::build() validates that glob at build-script time —
+        # which runs even under `cargo check`. The resources/ dir is normally
+        # populated by scripts/prepare-resources.sh with real per-target
+        # binaries (agentd, computer-use-mcp); for a check-only job we don't
+        # need those, but the directory must exist and be non-empty so the
+        # glob matches at least one entry. Drop a .gitkeep placeholder.
+        run: |
+          mkdir -p src-tauri/resources
+          : > src-tauri/resources/.gitkeep
+          cargo check --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
 
   ts-check:
     name: TypeScript check (Linux)

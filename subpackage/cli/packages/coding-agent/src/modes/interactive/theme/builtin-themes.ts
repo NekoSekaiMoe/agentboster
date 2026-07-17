@@ -1,7 +1,7 @@
 /**
  * Built-in color themes, inlined into the bundle via esbuild's JSON
  * loader. Replaces the previous readFileSync-at-runtime load (which
- * required dark.json/light.json to ship alongside agentboster.cjs).
+ * required dark.json/light.json to ship alongside agentboster-cli.cjs).
  */
 import darkJson from './dark.json' with { type: 'json' };
 import lightJson from './light.json' with { type: 'json' };

@@ -292,8 +292,8 @@ Each `local_*` invocation passes through `evaluateLocalCommand` in the adapter b
 | `yarn build` | Per-package `dist/` |
 | `yarn clean` | Remove build artifacts |
 | `yarn check:lint` | Biome check with writes enabled, then `tsgo --noEmit` |
-| `yarn bundle` | `packages/coding-agent/dist/agentboster.cjs` (single file, all assets inlined) |
-| `yarn package` | `agentboster-cli-<version>.tar.gz` (2 files: `agentboster-cli` wrapper + `agentboster.cjs`) |
+| `yarn bundle` | `packages/coding-agent/dist/agentboster-cli.cjs` (single file, all assets inlined) |
+| `yarn package` | `agentboster-cli-<version>.tar.gz` (2 files: `agentboster-cli` wrapper + `agentboster-cli.cjs`) |
 
 ```bash
 cd subpackage/cli
