@@ -179,7 +179,7 @@ Browser automation uses an in-sandbox Playwright bridge (`internal/agent/browser
 ### Prerequisites
 
 - Linux **amd64** (ARM binaries on x86 hosts fail with shell syntax errors)
-- Go **1.26.2** for building
+- Go **1.26.4** for building
 - Web URL reachable from the daemon host
 - Docker and/or LXC as required by `[sandbox].default`
 
