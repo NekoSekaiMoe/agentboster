@@ -183,53 +183,53 @@ function resolveTarBinary() {
 
 /**
  * Package computer-use-mcp binary into the tarball.
- * The binary must be built beforehand (cargo build --release).
+ *
+ * Binary lookup order (first hit wins):
+ *   1. `$MCP_BINARY_PATH/<name>` — set by CI workflows that already
+ *      built the per-target binary in a separate job and downloaded it
+ *      via actions/download-artifact (e.g. build-all.yml's package-cli
+ *      job). This is the only path that works on every runner OS,
+ *      because the cargo build that produced the binary ran on a
+ *      dedicated job with the right system deps installed.
+ *   2. `subpackage/computer-use-mcp/target/<rust-target>/release/<name>`
+ *      — local dev: user ran `cargo build --release --target <triple>`.
+ *   3. `subpackage/computer-use-mcp/target/release/<name>`
+ *      — local dev: user ran `cargo build --release` (host triple).
+ *
+ * We deliberately do NOT auto-invoke `cargo build` when no binary is
+ * found. The previous behavior did, and it broke CI: package-cli runs
+ * on macOS/Windows/Linux runners without the Linux-only system deps
+ * (libwayland-dev, libpipewire-0.3-dev, …) that computer-use-mcp's
+ * build script needs, so the auto-build panicked mid-tarball. Local
+ * users get a clear warning telling them to build first.
  */
 function packageComputerUseMcp(destDir) {
 	const binaryName = process.platform === 'win32' ? 'computer-use-mcp.exe' : 'computer-use-mcp';
 	const mcpWorkspaceDir = resolve(root, '..', 'computer-use-mcp');
-	const mcpCrateDir = join(mcpWorkspaceDir, 'server');
-
-	if (!existsSync(mcpCrateDir)) {
-		console.warn(`⚠️  computer-use-mcp crate not found at ${mcpCrateDir}, skipping`);
-		console.warn('    CLI will work without computer-use capabilities.');
-		return;
-	}
-
-	// Try to find pre-built binary (CI or local cargo build)
-	// Cargo puts artifacts in the workspace-level target/, not server/target/
 	const rustTarget = getRustTarget();
-	const candidates = [
-		rustTarget ? join(mcpWorkspaceDir, 'target', rustTarget, 'release', binaryName) : null,
-		join(mcpWorkspaceDir, 'target', 'release', binaryName),
-	].filter(Boolean);
 
-	let sourcePath = null;
-	for (const candidate of candidates) {
-		if (existsSync(candidate)) {
-			sourcePath = candidate;
-			break;
-		}
+	// 1) CI artifact directory (MCP_BINARY_PATH). Absolute or relative
+	//    to the cli workspace root.
+	const candidates = [];
+	const envPath = process.env.MCP_BINARY_PATH;
+	if (envPath) {
+		candidates.push(resolve(root, envPath, binaryName));
 	}
-
-	// If not found, try to build it
-	if (!sourcePath && rustTarget) {
-		try {
-			console.log(`Building computer-use-mcp for ${rustTarget}...`);
-			execSync(`cargo build --release --target ${rustTarget}`, {
-				cwd: mcpCrateDir,
-				stdio: 'inherit',
-			});
-			sourcePath = join(mcpWorkspaceDir, 'target', rustTarget, 'release', binaryName);
-		} catch (err) {
-			console.warn(`⚠️  Failed to build computer-use-mcp: ${err.message}`);
-			console.warn('    CLI will work without computer-use capabilities.');
-			return;
-		}
+	// 2) Local cargo build with explicit --target.
+	if (rustTarget) {
+		candidates.push(join(mcpWorkspaceDir, 'target', rustTarget, 'release', binaryName));
 	}
+	// 3) Local cargo build on host triple.
+	candidates.push(join(mcpWorkspaceDir, 'target', 'release', binaryName));
 
-	if (!sourcePath || !existsSync(sourcePath)) {
-		console.warn('⚠️  computer-use-mcp binary not found after build attempt, skipping');
+	const sourcePath = candidates.find(existsSync);
+	if (!sourcePath) {
+		console.warn('⚠️  computer-use-mcp binary not found.');
+		console.warn('    Searched:');
+		for (const c of candidates) console.warn(`      - ${c}`);
+		console.warn('    Set MCP_BINARY_PATH to a directory containing the');
+		console.warn(`    pre-built ${binaryName} (CI), or run \`cargo build --release\``);
+		console.warn('    in subpackage/computer-use-mcp (local dev).');
 		console.warn('    CLI will work without computer-use capabilities.');
 		return;
 	}
@@ -240,7 +240,7 @@ function packageComputerUseMcp(destDir) {
 	if (process.platform !== 'win32') {
 		chmodSync(destPath, 0o755);
 	}
-	console.log(`✓ Copied computer-use-mcp → ${binaryName}`);
+	console.log(`✓ Copied computer-use-mcp → ${binaryName} (from ${sourcePath})`);
 }
 
 function getRustTarget() {
