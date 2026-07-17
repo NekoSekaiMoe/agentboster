@@ -20,6 +20,20 @@ export const skillFrontmatterSchema = z
   .default({});
 export type SkillFrontmatter = z.infer<typeof skillFrontmatterSchema>;
 
+/**
+ * Runtimes that a skill can declare in its SKILL.md frontmatter via
+ * `runtime: <value>`. When declared, the skill's `entrypoint` becomes
+ * executable on an agentd sandbox via the `runSkill` workflow tool
+ * (lib/workflow/agent/tools/skills/local.ts). When absent, all non-md
+ * files in the skill are treated as read-only reference material and
+ * `runSkill` will refuse to dispatch.
+ */
+export const skillRuntimeSchema = z.enum(['python', 'bash']);
+export type SkillRuntime = z.infer<typeof skillRuntimeSchema>;
+
+export const SKILL_RUNTIMES: readonly SkillRuntime[] =
+  skillRuntimeSchema.options;
+
 // --- Skill detail (directory-level model) ---
 
 export const skillDetailSchema = z.object({
@@ -92,6 +106,53 @@ export function getSkillEntrypointPath(
   }
 
   return detail.files[0]?.path ?? null;
+}
+
+/**
+ * Resolve the declared runtime of a skill from its SKILL.md frontmatter.
+ *
+ * Returns the runtime literal (`'python' | 'bash'`) only when the author
+ * has explicitly opted in via `runtime: <value>` in the frontmatter.
+ * Returns `null` otherwise — in which case `runSkill` must refuse to
+ * dispatch and callers should treat all non-md files as read-only
+ * reference material (see lib/workflow/agent/tools/skills/local.ts).
+ *
+ * Unknown string values are coerced to `null` rather than thrown, so a
+ * typo in a third-party SKILL.md degrades to "read-only" instead of
+ * breaking the skill loader.
+ */
+export function getSkillRuntime(
+  detail: Pick<SkillDetail, 'frontmatter'>,
+): SkillRuntime | null {
+  const raw = detail.frontmatter.runtime;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().toLowerCase();
+  const parsed = skillRuntimeSchema.safeParse(trimmed);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Build the shell command an agentd sandbox should run to launch the
+ * skill's entrypoint for the given runtime. The entrypoint path is
+ * always relative to the sandbox workspace skill directory
+ * (`workspace/skills/<name>/<entrypoint>`), which is how the `write`
+ * + `exec` agentd tools lay it out.
+ *
+ * Returns `null` if the runtime is not executable (i.e. the skill did
+ * not declare a supported runtime). Callers must treat `null` as
+ * "read-only, do not execute".
+ */
+export function buildSkillExecCommand(
+  runtime: SkillRuntime,
+  entrypointPath: string,
+): string {
+  const quoted = `'${entrypointPath.replace(/'/g, `'\\''`)}'`;
+  switch (runtime) {
+    case 'python':
+      return `python3 ${quoted}`;
+    case 'bash':
+      return `bash ${quoted}`;
+  }
 }
 
 // --- Skill meta (lightweight list projection) ---
