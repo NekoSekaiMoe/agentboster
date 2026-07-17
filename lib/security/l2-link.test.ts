@@ -145,8 +145,8 @@ describe('signL2Link / verifyL2Link', () => {
 
   it('throws a clear error when AUTH_SECRET is unset during signing', async () => {
     delete process.env.AUTH_SECRET;
-    await expect(() => signL2Link({ decisionId: 'd', action: 'a' })).rejects.toThrowError(
-      /AUTH_SECRET/,
-    );
+    await expect(() =>
+      signL2Link({ decisionId: 'd', action: 'a' }),
+    ).rejects.toThrowError(/AUTH_SECRET/);
   });
 });

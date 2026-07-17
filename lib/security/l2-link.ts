@@ -50,7 +50,11 @@ export async function signL2Link(input: {
       ? input.ttlSeconds
       : DEFAULT_L2_LINK_TTL_SECONDS;
   const expires = Math.floor(Date.now() / 1000) + ttl;
-  const signature = await computeSignature(input.decisionId, input.action, expires);
+  const signature = await computeSignature(
+    input.decisionId,
+    input.action,
+    expires,
+  );
   const params = `t=${expires}&s=${signature}`;
   return { expires, signature, params };
 }
