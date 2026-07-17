@@ -118,34 +118,30 @@ function shellQuote(s) {
 /**
  * Build a reproducible tar(1) command for the staging directory.
  *
- * GNU tar (Linux) and BSD tar (macOS /usr/bin/tar) take incompatible
- * flags for forcing owner/group/mtime:
- *   - GNU: `--owner=0 --group=0 --mtime=@0 --format=ustar`
- *   - BSD: `--uid 0 --gid 0 --mtime 0 --format ustar`
+ * Reproducibility flags (`--owner=0 --group=0 --mtime=@0 --format=ustar`)
+ * are GNU tar syntax. macOS ships libarchive's bsdtar as `/usr/bin/tar`,
+ * and although bsdtar 3.x documents some GNU-compatible long options, the
+ * version actually installed on GitHub's macos-26 runner rejects
+ * `--mtime` outright ("Option --mtime is not supported") — the bsdtar
+ * wrapper there only honors `--uid`/`--gid`, not `--mtime`. So relying
+ * on bsdtar's partial GNU compatibility is fragile.
  *
- * Detect which binary is on PATH and emit the matching invocation.
- * Falls back to plain `tar` (no reproducibility flags) if the version
- * string doesn't match either known pattern, so we always produce a
- * tarball rather than crash on an unexpected tar implementation.
+ * Strategy (in order):
+ *   1. `gtar` — Homebrew's GNU Tar, present on every GitHub macOS runner
+ *      as the `gtar` alias (see actions/runner-images macos-*-Readme).
+ *      Preferring it on macOS gives us the full GNU flag set.
+ *   2. `tar` whose `--version` advertises "GNU tar" — Linux distributions.
+ *   3. Anything else (unexpected tar, weird container) — fall back to a
+ *      plain `tar -czf` with no reproducibility flags. We always prefer
+ *      producing a tarball over crashing; reproducibility is best-effort.
  *
- * Note: GNU tar accepts `--mtime='@0'` (epoch seconds via @ prefix);
- * BSD tar's `--mtime` takes a literal epoch integer, no @.
+ * Note: GNU tar accepts `--mtime='@0'` (@ prefix = epoch seconds). The
+ * @ syntax is GNU-only; do not use it under any non-GNU tar.
  */
 function buildTarCommand({ stagingDir, outPath, dirName }) {
-	const isGnuTar = (() => {
-		try {
-			const out = execSync("tar --version", { stdio: ["ignore", "pipe", "ignore"] }).toString();
-			return /GNU tar/i.test(out);
-		} catch {
-			return false;
-		}
-	})();
-
-	const args = [
-		"tar",
-		"-C", shellQuote(stagingDir),
-	];
-	if (isGnuTar) {
+	const binary = resolveTarBinary();
+	const args = [binary, "-C", shellQuote(stagingDir)];
+	if (binary !== null) {
 		args.push(
 			"--owner=0",
 			"--group=0",
@@ -153,21 +149,36 @@ function buildTarCommand({ stagingDir, outPath, dirName }) {
 			"--format=ustar",
 		);
 	} else {
-		// BSD tar (macOS default). `--mtime 0` is the epoch; the @ prefix
-		// is GNU-only and BSD tar rejects it with "Option --mtime=@0 is
-		// not supported". `--format ustar` is BSD's syntax (space, not =).
-		args.push(
-			"--uid", "0",
-			"--gid", "0",
-			"--mtime", "0",
-			"--format", "ustar",
-		);
+		// No GNU tar found. Emit a plain command — still produces a valid
+		// tarball, just not byte-reproducible (mtime/owner come from the
+		// build user). This is the safe degradation path.
+		args[0] = "tar";
 	}
-	args.push(
-		"-czf", shellQuote(outPath),
-		shellQuote(dirName),
-	);
+	args.push("-czf", shellQuote(outPath), shellQuote(dirName));
 	return args.join(" ");
+}
+
+/**
+ * Locate a GNU tar binary, or return null if none is available.
+ *
+ * Prefers `gtar` (macOS Homebrew alias) over `tar` so macOS runners use
+ * real GNU tar instead of the partial-compat bsdtar wrapper.
+ */
+function resolveTarBinary() {
+	const candidates = ["gtar", "tar"];
+	for (const cand of candidates) {
+		try {
+			const out = execSync(`${cand} --version`, {
+				stdio: ["ignore", "pipe", "ignore"],
+			}).toString();
+			if (/GNU tar/i.test(out)) {
+				return cand;
+			}
+		} catch {
+			// Binary not on PATH; try the next candidate.
+		}
+	}
+	return null;
 }
 
 /**
