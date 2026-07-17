@@ -76,6 +76,19 @@ jobs:
             libegl-dev \
             libgbm-dev
 
+      - name: Prepare desktop resources placeholder
+        # tauri.conf.json declares `bundle.resources: ["resources/*"]` and
+        # tauri_build::build() validates that glob at build-script time,
+        # which also runs under `cargo clippy`. The resources/ dir is
+        # normally populated by prepare-resources.sh with real per-target
+        # binaries; for lint we only need the directory to exist and be
+        # non-empty so the glob matches. Mirrors desktop-ci.yml.
+        if: matrix.package == 'desktop'
+        working-directory: subpackage/cli/packages/desktop
+        run: |
+          mkdir -p src-tauri/resources
+          : > src-tauri/resources/.gitkeep
+
       - name: cargo clippy
         run: cargo clippy --manifest-path ${{ matrix.manifest }} --all-targets -- -D warnings
 
