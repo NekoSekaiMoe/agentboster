@@ -1,4 +1,4 @@
-import { listSkillMetas } from '@/lib/core/kv/skills';
+import { listSkillDetails } from '@/lib/core/kv/skills';
 import {
   getBuiltinMemorySection,
   listBuiltinMemorySections,
@@ -155,7 +155,7 @@ export async function buildSystemPrompt(
       : DEFAULT_SYSTEM_PROMPT;
 
   const builtinSectionsList = await listBuiltinMemorySections();
-  const skills = await listSkillMetas();
+  const skills = await listSkillDetails();
 
   const soulSection = await getBuiltinMemorySection('SOUL');
   const soulTemplate = parseFollowUpTemplate(soulSection.content);
@@ -282,10 +282,19 @@ export async function buildSystemPrompt(
     }
   }
 
-  const skillsList = skills.map(
-    (skill) =>
-      `- [${getSkillFamilyLabel(skill)}] \`${skill.name}\`: ${skill.description}`,
-  );
+  const skillsList = skills.map((skill) => {
+    const header = `- [${getSkillFamilyLabel(skill)}] \`${skill.name}\`: ${skill.description}`;
+    // Surface every file path so the model knows exactly which assets the
+    // skill ships (e.g. helper scripts, requirements.txt, data files) and
+    // can fetch them via getSkillFile(name, <path>) without guessing.
+    // Without this list, the model has no way to discover that a skill
+    // references e.g. `tools/build.py` until it reads the entrypoint and
+    // sees the path mentioned in prose — and even then it does not know
+    // whether the path is relative to the skill root or to its own cwd.
+    if (skill.files.length === 0) return header;
+    const fileList = skill.files.map((f) => `  - \`${f.path}\``).join('\n');
+    return `${header}\n  Files (read with \`getSkillFile("${skill.name}", <path>)\`):\n${fileList}`;
+  });
 
   const mcpSubsection = await buildMCPSubsection();
   const enableFollowUpSuggestions =
@@ -328,6 +337,8 @@ export async function buildSystemPrompt(
     createSubsection('Skills', [
       `Use skill tools to read or write skills. When inquiring about technical or professional knowledge, you have skills you should first read.`,
       `If you've learned new knowledge or encountered an error somewhere but eventually resolved it, please add these to your skills.`,
+      `Each skill lists its files. To read a file inside a skill, call \`getSkillFile(name, path)\` with the path exactly as shown (paths are relative to the skill root, not to your cwd).`,
+      `To execute a skill whose frontmatter declares \`runtime: python|bash\`, call \`runSkill(name, ...)\`. runSkill routes to the execution surface that matches where this conversation originated: web / IM / scheduled sources use the Sandbox surface (an agentd node first when one is reachable, otherwise the Vercel Sandbox); a CLI source uses the user's own machine; an IM conversation with a CLI attached uses that attached host. runSkill materializes the skill's files onto the resolved surface and runs the declared entrypoint there. Do NOT try to execute skill files via \`sandbox.exec\` / \`local_exec\` yourself — they are not on a runtime path until runSkill places them.`,
       `All available skills are listed below:`,
 
       skillsList.join('\n'),

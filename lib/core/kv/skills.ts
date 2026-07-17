@@ -351,7 +351,7 @@ export async function persistManualSkill(input: {
         description: parsedClawHub.data.description,
       }
     : skillMd
-      ? parseSkillManifest(skillMd.content)
+      ? await parseSkillManifest(skillMd.content)
       : { frontmatter: {}, description: '' };
 
   const now = Date.now();
@@ -408,7 +408,7 @@ export async function updateSkillFile(
     };
     existing.description = parsedClawHub.description;
   } else if (trimmedPath === 'SKILL.md') {
-    const { frontmatter, description } = parseSkillManifest(content);
+    const { frontmatter, description } = await parseSkillManifest(content);
     existing.frontmatter = frontmatter;
     if (description) {
       existing.description = description;

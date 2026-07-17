@@ -167,6 +167,21 @@ export async function execToolOnAgentd(
   } | null = null;
 
   if (nodeId) {
+    // P3.1 (nodeId hardening): an explicit nodeId MUST still respect
+    // the caller's allowedNodes allowlist. Without this check, a tool
+    // caller (e.g. runSkill with a model-supplied nodeId) could route
+    // to any registered daemon node and bypass per-agent node
+    // authorization. The auto-pick branch already enforces this via
+    // selectBestNode; this mirrors the constraint for the explicit
+    // path. Empty/undefined allowedNodes means "any node".
+    if (allowedNodes && allowedNodes.length > 0) {
+      const allow = new Set(allowedNodes);
+      if (!allow.has(nodeId)) {
+        throw new Error(
+          `Node ${nodeId} is not in the allowedNodes set for this agent`,
+        );
+      }
+    }
     const rows = await db
       .select()
       .from(agentdNodes)

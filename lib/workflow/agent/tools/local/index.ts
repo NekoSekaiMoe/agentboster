@@ -14,7 +14,7 @@ import { assessLocalToolRisk, shouldRequireApproval } from './security';
  * Local-tool execution result returned by the CLI after running a
  * `local_*` tool against its own filesystem.
  */
-type LocalToolResult = {
+export type LocalToolResult = {
   ok: boolean;
   output?: unknown;
   error?: string;
@@ -83,8 +83,15 @@ async function waitForLocalToolApproval(input: {
  *
  * When isRemoteControl is true, this function first assesses risk and requests
  * via the L2 approval flow before executing the tool on the CLI.
+ *
+ * Exported so that non-local-cli tools (specifically `runSkill` in
+ * lib/workflow/agent/tools/skills/local.ts) can reuse the same CLI IPC
+ * channel when the conversation is cli-sourced and the user has not
+ * /switch-ed to agentd. The caller is responsible for generating a
+ * unique `toolCallId` (e.g. `crypto.randomUUID()`) since it is not
+ * coming from an ai-sdk tool-call frame in that case.
  */
-async function waitForLocalToolResult(input: {
+export async function waitForLocalToolResult(input: {
   toolCallId: string;
   toolName: string;
   toolInput: unknown;
