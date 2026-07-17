@@ -347,10 +347,18 @@ export type IMChatSource = {
   locale?: BotLocale;
   /**
    * True when this IM message was routed to a CLI session via /attach.
-   * Used by L2 approval flow to route approval requests back to the IM
-   * adapter instead of prompting in the CLI's TUI.
+   * Used by tool registration (enables local_* and computer-use tools)
+   * and L2 approval flow (routes approval to IM instead of CLI TUI).
    */
-  remoteControlled?: boolean;
+  remoteIm?: boolean;
+  /**
+   * IM adapter name when remoteIm is true (e.g., 'telegram', 'discord').
+   */
+  remoteAdapter?: string;
+  /**
+   * IM thread ID when remoteIm is true.
+   */
+  remoteThreadId?: string;
 };
 
 /**
@@ -411,7 +419,9 @@ const imChatSourceSchema = z.object({
   userId: z.string().nullable().optional(),
   userName: z.string().nullable().optional(),
   locale: botLocaleSchema.optional(),
-  remoteControlled: z.boolean().optional(),
+  remoteIm: z.boolean().optional(),
+  remoteAdapter: z.string().optional(),
+  remoteThreadId: z.string().optional(),
 });
 
 const cliChatSourceSchema = z.object({

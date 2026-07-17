@@ -1536,8 +1536,11 @@ export async function chatMain(
             source: {
               ...source,
               // Mark this as remote-controlled so downstream logic can adjust
-              // (e.g., L2 approval routing back to IM instead of CLI prompt)
-              remoteControlled: true,
+              // (e.g., tool registration enables local_* and computer-use tools,
+              // L2 approval routing back to IM instead of CLI prompt)
+              remoteIm: true,
+              remoteAdapter: source.adapter,
+              remoteThreadId: source.threadId,
             } as ChatSource,
           },
         );

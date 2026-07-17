@@ -16,8 +16,10 @@ import { createLogger } from '../../utils/logger.ts';
 import { getBackendUrl } from '../../core/backend-url.ts';
 import { detectLocalCapabilities } from '../../core/capability-detect.ts';
 import { startMcpServer, stopMcpServer } from './mcp-client.ts';
+import { RemoteControlLock } from '../../core/remote-control-lock.ts';
 
 const logger = createLogger('remote-control');
+const remoteControlLock = new RemoteControlLock();
 
 export interface RemoteControlModeOptions {
   sessionId?: string;
@@ -180,6 +182,16 @@ export async function runRemoteControlMode(
               console.log(chalk.green(`✓ Completed: ${request.toolName}`));
             } else if (event.event === 'heartbeat') {
               logger.debug('Heartbeat received');
+            } else if (event.event === 'lock-acquired') {
+              const lockData = JSON.parse(event.data);
+              logger.info('Remote workflow started, acquiring lock', { runId: lockData.runId });
+              remoteControlLock.acquire();
+              console.log(chalk.yellow('🔒 Remote Control Active — session locked by IM workflow'));
+            } else if (event.event === 'lock-released') {
+              const lockData = JSON.parse(event.data);
+              logger.info('Remote workflow completed, releasing lock', { runId: lockData.runId });
+              remoteControlLock.release();
+              console.log(chalk.green('🔓 Remote Control Released — session unlocked'));
             }
           }
         }

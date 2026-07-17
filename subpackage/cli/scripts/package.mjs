@@ -1,5 +1,6 @@
 import {
 	chmodSync,
+	copyFileSync,
 	existsSync,
 	mkdirSync,
 	readFileSync,
@@ -7,7 +8,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 
@@ -72,7 +73,10 @@ const entryScript = [
 writeFileSync(join(stagingInner, "agentboster-cli"), entryScript, { mode: 0o755 });
 chmodSync(join(stagingInner, "agentboster-cli"), 0o755);
 
-// 3) Create the tarball. GNU tar; --owner=0 --group=0 --mtime=@0 for
+// 3) computer-use-mcp binary (same directory)
+packageComputerUseMcp(stagingInner);
+
+// 4) Create the tarball. GNU tar; --owner=0 --group=0 --mtime=@0 for
 //    reproducible output (same inputs → byte-identical archive).
 execSync(
 	`tar -C ${shellQuote(stagingDir)} ` +
@@ -109,3 +113,75 @@ function resolveRoot() {
 function shellQuote(s) {
 	return `'${s.replace(/'/g, `'\\''`)}'`;
 }
+
+/**
+ * Package computer-use-mcp binary into the tarball.
+ * The binary must be built beforehand (cargo build --release).
+ */
+function packageComputerUseMcp(destDir) {
+	const binaryName = process.platform === 'win32' ? 'computer-use-mcp.exe' : 'computer-use-mcp';
+	const mcpCrateDir = resolve(root, '..', 'computer-use-mcp', 'server');
+
+	if (!existsSync(mcpCrateDir)) {
+		console.warn(`⚠️  computer-use-mcp crate not found at ${mcpCrateDir}, skipping`);
+		console.warn('    CLI will work without computer-use capabilities.');
+		return;
+	}
+
+	// Try to find pre-built binary (CI or local cargo build)
+	const rustTarget = getRustTarget();
+	const candidates = [
+		rustTarget ? join(mcpCrateDir, 'target', rustTarget, 'release', binaryName) : null,
+		join(mcpCrateDir, 'target', 'release', binaryName),
+	].filter(Boolean);
+
+	let sourcePath = null;
+	for (const candidate of candidates) {
+		if (existsSync(candidate)) {
+			sourcePath = candidate;
+			break;
+		}
+	}
+
+	// If not found, try to build it
+	if (!sourcePath && rustTarget) {
+		try {
+			console.log(`Building computer-use-mcp for ${rustTarget}...`);
+			execSync(`cargo build --release --target ${rustTarget}`, {
+				cwd: mcpCrateDir,
+				stdio: 'inherit',
+			});
+			sourcePath = join(mcpCrateDir, 'target', rustTarget, 'release', binaryName);
+		} catch (err) {
+			console.warn(`⚠️  Failed to build computer-use-mcp: ${err.message}`);
+			console.warn('    CLI will work without computer-use capabilities.');
+			return;
+		}
+	}
+
+	if (!sourcePath || !existsSync(sourcePath)) {
+		console.warn('⚠️  computer-use-mcp binary not found after build attempt, skipping');
+		console.warn('    CLI will work without computer-use capabilities.');
+		return;
+	}
+
+	// Copy to destDir (same level as agentboster-cli)
+	const destPath = join(destDir, binaryName);
+	copyFileSync(sourcePath, destPath);
+	if (process.platform !== 'win32') {
+		chmodSync(destPath, 0o755);
+	}
+	console.log(`✓ Copied computer-use-mcp → ${binaryName}`);
+}
+
+function getRustTarget() {
+	const targets = {
+		'darwin-arm64': 'aarch64-apple-darwin',
+		'darwin-x64': 'x86_64-apple-darwin',
+		'linux-x64': 'x86_64-unknown-linux-gnu',
+		'linux-arm64': 'aarch64-unknown-linux-gnu',
+		'win32-x64': 'x86_64-pc-windows-msvc',
+	};
+	return targets[`${process.platform}-${process.arch}`] || null;
+}
+

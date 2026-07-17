@@ -131,3 +131,142 @@ export function shouldRequireApproval(
   if (!isRemoteControlMode) return false;
   return risk.level === 'high' || risk.level === 'medium';
 }
+
+/**
+ * Request L2 approval for a remote tool execution via IM.
+ *
+ * Sends a notification to the IM thread with approve/reject buttons,
+ * then waits for the user's decision via KV polling.
+ *
+ * @param params - Tool execution context and risk information
+ * @returns 'approved', 'rejected', or 'timeout'
+ */
+export async function requestL2ApprovalForRemoteTool(params: {
+  sessionId: string;
+  toolName: string;
+  toolInput: unknown;
+  decisionId: string;
+  riskReason: string;
+  requiresAdmin: boolean;
+  remoteAdapter?: string;
+  remoteThreadId?: string;
+  userId?: string;
+}): Promise<'approved' | 'rejected' | 'timeout'> {
+  const {
+    sessionId,
+    toolName,
+    toolInput,
+    decisionId,
+    riskReason,
+    requiresAdmin,
+    remoteAdapter,
+    remoteThreadId,
+    userId,
+  } = params;
+
+  // Send IM notification with approval buttons
+  try {
+    const { sendNotification } = await import(
+      '@/lib/extra/channels/send-notification'
+    );
+
+    if (!remoteAdapter || !remoteThreadId) {
+      return 'rejected';
+    }
+
+    // Construct L2 notification message body
+    let body = `Risk: ${riskReason}`;
+    if (requiresAdmin) {
+      body += `\n⚠️ This operation requires administrator privileges. CLI will request elevation if approved.`;
+    }
+
+    // Add tool input preview (truncated)
+    if (typeof toolInput === 'object' && toolInput !== null) {
+      const preview = JSON.stringify(toolInput, null, 2).slice(0, 500);
+      body += `\n\`\`\`\n${preview}${preview.length >= 500 ? '\n...' : ''}\n\`\`\``;
+    }
+
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutes
+
+    await sendNotification({
+      source: {
+        type: 'im' as const,
+        adapter: remoteAdapter as any, // Type will be validated by sendNotification
+        origin: 'remote-control',
+        threadId: remoteThreadId,
+      },
+      payload: {
+        type: 'decision',
+        taskId: sessionId,
+        decisionId,
+        title: `Authorize: ${toolName}`,
+        body,
+        command: toolName,
+        score: 50,
+        reason: riskReason,
+        options: ['pass_once', 'reject_once'] as const,
+        expiresAt,
+      },
+      userId,
+    });
+  } catch (_error) {
+    // If notification fails, reject by default for safety
+    return 'rejected';
+  }
+
+  // Wait for user decision via KV polling
+  const result = await waitForL2Decision(decisionId, {
+    timeoutMs: 5 * 60 * 1000, // 5 minutes
+    escalationMs: 3 * 60 * 1000, // 3 minutes escalation
+  });
+
+  return result;
+}
+
+/**
+ * Poll KV for L2 approval decision.
+ * Reuses the same KV key pattern as agentd L2 decisions.
+ */
+async function waitForL2Decision(
+  decisionId: string,
+  options: { timeoutMs: number; escalationMs: number },
+): Promise<'approved' | 'rejected' | 'timeout'> {
+  const kvModule = await import('@/lib/core/kv');
+  const startTime = Date.now();
+  const pollInterval = 1000; // 1 second
+
+  while (Date.now() - startTime < options.timeoutMs) {
+    // Check KV for decision
+    const decision = await kvModule.get(`l2-decision:${decisionId}`);
+
+    if (decision) {
+      const parsed =
+        typeof decision === 'string' ? JSON.parse(decision) : decision;
+
+      if (parsed.approved === true) {
+        await kvModule.del(`l2-decision:${decisionId}`);
+        return 'approved';
+      }
+      if (parsed.approved === false) {
+        await kvModule.del(`l2-decision:${decisionId}`);
+        return 'rejected';
+      }
+    }
+
+    // Escalation reminder after 3 minutes
+    const elapsed = Date.now() - startTime;
+    if (
+      elapsed >= options.escalationMs &&
+      elapsed < options.escalationMs + pollInterval
+    ) {
+      // Could send an escalation notification here
+      // For now, just continue waiting
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+  }
+
+  // Timeout - clean up and return
+  await kvModule.del(`l2-decision:${decisionId}`);
+  return 'timeout';
+}
