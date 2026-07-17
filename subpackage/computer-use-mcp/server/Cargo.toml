@@ -11,3 +11,4 @@ path = "src/main.rs"
 computer-use-core = { path = "../core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+dirs = "5"

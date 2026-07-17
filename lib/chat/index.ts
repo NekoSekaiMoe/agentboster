@@ -1508,6 +1508,51 @@ export async function chatMain(
     sourceType: source.type,
   });
 
+  // Remote control routing: if this is an IM message and the IM thread is
+  // attached to a CLI session, route the message to that CLI session instead
+  // of the IM session.
+  if (source.type === 'im') {
+    const { getAttachedSessionId, isCliOnlineForSession } = await import(
+      '@/lib/cli/remote-control'
+    );
+    const targetSessionId = await getAttachedSessionId(
+      source.adapter,
+      source.threadId,
+    );
+
+    if (targetSessionId) {
+      const cliOnline = await isCliOnlineForSession(targetSessionId);
+      if (cliOnline) {
+        chatMainLogger.info('chatMain:routing_to_cli', {
+          imThread: source.threadId,
+          targetSession: targetSessionId,
+        });
+
+        // Route to the target CLI session by overriding the sessionId
+        return chatMain(
+          { ...request, sessionId: targetSessionId },
+          {
+            ...options,
+            source: {
+              ...source,
+              // Mark this as remote-controlled so downstream logic can adjust
+              // (e.g., L2 approval routing back to IM instead of CLI prompt)
+              remoteControlled: true,
+            } as ChatSource,
+          },
+        );
+      }
+
+      chatMainLogger.warn('chatMain:cli_offline', {
+        imThread: source.threadId,
+        targetSession: targetSessionId,
+      });
+      // CLI is offline — detach and continue with normal IM session
+      const { clearImAttachment } = await import('@/lib/cli/remote-control');
+      await clearImAttachment(source.adapter, source.threadId);
+    }
+  }
+
   const envelope = parseChatInputEnvelope({
     sessionId: request.sessionId,
     uiMessageId: request.uiMessageId ?? generateUUID(),

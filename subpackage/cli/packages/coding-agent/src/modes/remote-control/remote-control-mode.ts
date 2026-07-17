@@ -15,6 +15,7 @@ import { getStoredAuth } from '@agentboster/adapter';
 import { createLogger } from '../../utils/logger.ts';
 import { getBackendUrl } from '../../core/backend-url.ts';
 import { detectLocalCapabilities } from '../../core/capability-detect.ts';
+import { startMcpServer, stopMcpServer } from './mcp-client.ts';
 
 const logger = createLogger('remote-control');
 
@@ -69,17 +70,30 @@ export async function runRemoteControlMode(
     'local_exec',
     'local_grep',
   ];
+
+  // Try to start MCP server for computer-use tools
+  let mcpStarted = false;
   if (capabilities.hasMcpBinary && capabilities.hasDisplay) {
-    availableTools.push(
-      'screenshot',
-      'mouse_move',
-      'mouse_click',
-      'mouse_drag',
-      'key_event',
-      'type_text',
-      'get_accessibility_tree',
-      'get_focused_element',
-    );
+    try {
+      await startMcpServer(sessionId);
+      mcpStarted = true;
+      availableTools.push(
+        'screenshot',
+        'mouse_move',
+        'mouse_click',
+        'mouse_drag',
+        'key_event',
+        'type_text',
+        'get_accessibility_tree',
+        'get_focused_element',
+      );
+      console.log(chalk.green('✓ Computer-use tools enabled'));
+    } catch (error) {
+      logger.error('Failed to start MCP server', { error });
+      console.log(
+        chalk.yellow('  ! Computer-use tools unavailable (MCP server failed to start)'),
+      );
+    }
   }
 
   console.log();
@@ -179,6 +193,9 @@ export async function runRemoteControlMode(
     }
   } finally {
     clearInterval(heartbeatInterval);
+    if (mcpStarted) {
+      await stopMcpServer();
+    }
     await releaseCliNode(backendUrl, auth.token, sessionId);
   }
 

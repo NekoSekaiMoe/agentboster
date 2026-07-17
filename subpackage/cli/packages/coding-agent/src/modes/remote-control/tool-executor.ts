@@ -1,6 +1,6 @@
 /**
  * Local tool executor for remote control mode.
- * Executes local_* tools on the CLI's filesystem.
+ * Executes local_* tools on the CLI's filesystem and computer-use tools via MCP.
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
@@ -8,6 +8,7 @@ import { dirname } from 'node:path';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createLogger } from '../../utils/logger.ts';
+import { callMcpMethod, isMcpServerRunning } from './mcp-client.ts';
 
 const execAsync = promisify(exec);
 const logger = createLogger('tool-executor');
@@ -53,6 +54,18 @@ export async function executeLocalTool(
       return executeLocalExec(toolInput as LocalExecInput);
     case 'local_grep':
       return executeLocalGrep(toolInput as LocalGrepInput);
+
+    // Computer-use tools via MCP
+    case 'screenshot':
+    case 'mouse_move':
+    case 'mouse_click':
+    case 'mouse_drag':
+    case 'key_event':
+    case 'type_text':
+    case 'get_accessibility_tree':
+    case 'get_focused_element':
+      return executeComputerUseTool(toolName, toolInput);
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -121,4 +134,32 @@ async function executeLocalGrep(input: LocalGrepInput): Promise<string> {
   }
 
   return stdout || 'No matches found';
+}
+
+/**
+ * Execute a computer-use tool via the MCP server.
+ */
+async function executeComputerUseTool(
+  toolName: string,
+  toolInput: unknown,
+): Promise<unknown> {
+  if (!isMcpServerRunning()) {
+    throw new Error('MCP server is not running. Computer-use tools are unavailable.');
+  }
+
+  logger.info('Forwarding to MCP', { toolName, toolInput });
+
+  // Call the MCP server via JSON-RPC
+  const result = await callMcpMethod('tools/call', {
+    name: toolName,
+    arguments: toolInput,
+  });
+
+  // MCP returns { content: [...] } format
+  // Extract the actual result
+  if (result && typeof result === 'object' && 'content' in result) {
+    return result;
+  }
+
+  return result;
 }

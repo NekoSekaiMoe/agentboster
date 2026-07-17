@@ -1,7 +1,9 @@
 use computer_use_core::capability::detect_capabilities;
+use computer_use_core::lock::ComputerUseLock;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
+use std::path::PathBuf;
 
 #[derive(Deserialize)]
 struct JsonRpcRequest {
@@ -31,6 +33,26 @@ struct JsonRpcError {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Acquire the computer-use lock before starting
+    // Lock lifetime = process lifetime, released on exit
+    let config_dir = std::env::var("CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("agentboster-cli")
+        });
+
+    let session_id = std::env::var("SESSION_ID").unwrap_or_else(|_| "mcp-server".to_string());
+
+    let _lock = match ComputerUseLock::acquire(&session_id, &config_dir) {
+        Ok(lock) => lock,
+        Err(e) => {
+            eprintln!("Failed to acquire computer-use lock: {}", e);
+            std::process::exit(1);
+        }
+    };
+
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
 
