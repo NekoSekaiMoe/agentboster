@@ -91,6 +91,10 @@ jobs:
 
       - name: Rust check (cargo check)
         working-directory: subpackage/cli/packages/desktop
+        # Explicit bash: the matrix includes windows-latest, whose default
+        # shell is PowerShell — it doesn't understand `mkdir -p` or bash
+        # redirections. Git for Windows ships bash on every Windows runner.
+        shell: bash
         # tauri.conf.json declares `bundle.resources: ["resources/*"]`, and
         # tauri_build::build() validates that glob at build-script time —
         # which runs even under `cargo check`. The resources/ dir is normally
@@ -100,7 +104,7 @@ jobs:
         # glob matches at least one entry. Drop a .gitkeep placeholder.
         run: |
           mkdir -p src-tauri/resources
-          : > src-tauri/resources/.gitkeep
+          touch src-tauri/resources/.gitkeep
           cargo check --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
 
   ts-check:

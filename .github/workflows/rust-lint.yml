@@ -87,7 +87,7 @@ jobs:
         working-directory: subpackage/cli/packages/desktop
         run: |
           mkdir -p src-tauri/resources
-          : > src-tauri/resources/.gitkeep
+          touch src-tauri/resources/.gitkeep
 
       - name: cargo clippy
         run: cargo clippy --manifest-path ${{ matrix.manifest }} --all-targets -- -D warnings
