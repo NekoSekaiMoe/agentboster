@@ -220,6 +220,27 @@ export async function chatWorkflow(
   const agentName = MAIN_AGENT_NAME;
   const { modelId, temperature, contextLimit, outputLimit } =
     resolveMainAgentModelParams(effectiveConfig, user, requestModel);
+
+  // Fetch CLI remote state if session has an online CLI
+  let cliRemoteState:
+    | { cwd: string; platform: string; hasDisplay: boolean }
+    | undefined;
+  if (source.type !== 'cli') {
+    try {
+      const { getCliCapabilities } = await import('@/lib/cli/remote-control');
+      const caps = await getCliCapabilities(sessionId);
+      if (caps) {
+        cliRemoteState = {
+          cwd: caps.cwd ?? process.cwd(),
+          platform: caps.capabilities.platform,
+          hasDisplay: caps.capabilities.hasDisplay,
+        };
+      }
+    } catch {
+      // Module or network unavailable
+    }
+  }
+
   const system = await buildSystemPrompt(effectiveConfig, {
     agentName,
     enableFollowUpSuggestions:
@@ -230,6 +251,7 @@ export async function chatWorkflow(
       source.type === 'im'
         ? (source.locale ?? effectiveConfig.language?.bot_locale)
         : undefined,
+    sessionId,
     // Inject AGENTS.md content only for CLI sources — it is project-supplied
     // reference data forwarded by the CLI host, never synthesized on the web
     // side. Web/IM sessions have no "local project" to source from.
@@ -238,6 +260,11 @@ export async function chatWorkflow(
     // tools are gone. Purely informational; the actual toolset filter
     // happens in buildAgentTools.
     planMode,
+    // Inject CLI remote state (cwd, platform, hasDisplay) when an online CLI
+    // is attached to this session. This tells the LLM it can use local_* tools
+    // to control the user's local machine.
+    cliRemoteState,
+    source,
   });
   const writable = createWritable();
   const tools = await buildAgentTools(effectiveConfig, sessionId, {

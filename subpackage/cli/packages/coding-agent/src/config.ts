@@ -163,16 +163,24 @@ export function expandTildePath(path: string): string {
 }
 
 // =============================================================================
-// User Config Paths (~/.pi/agent/*)
+// User Config Paths (~/.config/agentboster-cli/agent/*)
 // =============================================================================
 
-/** Get the agent config directory (e.g., ~/.pi/agent/) */
+/** Get the agent config directory (e.g., ~/.config/agentboster-cli/agent/) */
 export function getAgentDir(): string {
   const envDir = process.env[ENV_AGENT_DIR];
   if (envDir) {
     return expandTildePath(envDir);
   }
-  return join(homedir(), CONFIG_DIR_NAME, 'agent');
+  const home = homedir();
+  switch (process.platform) {
+    case 'darwin':
+      return join(home, 'Library', 'Application Support', 'agentboster-cli', 'agent');
+    case 'win32':
+      return join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'agentboster-cli', 'agent');
+    default:
+      return join(home, '.config', 'agentboster-cli', 'agent');
+  }
 }
 
 /** Get path to user's custom themes directory */

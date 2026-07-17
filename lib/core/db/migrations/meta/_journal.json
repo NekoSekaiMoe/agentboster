@@ -141,6 +141,13 @@
       "when": 1784104780322,
       "tag": "0019_melted_secret_warriors",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1784269815870,
+      "tag": "0020_salty_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

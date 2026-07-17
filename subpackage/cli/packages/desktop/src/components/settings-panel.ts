@@ -444,7 +444,7 @@ export class SettingsPanel {
         '@tauri-apps/plugin-fs'
       );
       const home = await homeDir();
-      const themesRoot = `${home.replace(/\\/g, '/').replace(/\/+$/, '')}/.pi/agent/themes`;
+      const themesRoot = `${home.replace(/\\/g, '/').replace(/\/+$/, '')}/.config/agentboster-cli/agent/themes`;
       if (!(await exists(themesRoot))) {
         this.availableThemes = [];
         return;
@@ -1004,7 +1004,7 @@ export class SettingsPanel {
     );
     const home = (await homeDir()).replace(/\\/g, '/').replace(/\/+$/, '');
     const themesRoot = this.joinFsPath(
-      this.joinFsPath(this.joinFsPath(home, '.pi'), 'agent'),
+      this.joinFsPath(this.joinFsPath(this.joinFsPath(home, '.config'), 'agentboster-cli'), 'agent'),
       'themes',
     );
     await mkdir(themesRoot, { recursive: true });
@@ -1029,7 +1029,7 @@ export class SettingsPanel {
       this.applyAppearanceProfileForCurrentResolvedTheme();
     }
     await this.refreshThemeCatalog();
-    this.themeCatalogMessage = `Created theme ${fileStem}.json in ~/.pi/agent/themes`;
+    this.themeCatalogMessage = `Created theme ${fileStem}.json in ~/.config/agentboster-cli/agent/themes`;
   }
 
   private normalizePiBinaryPath(
@@ -1373,7 +1373,7 @@ export class SettingsPanel {
     const { homeDir } = await import('@tauri-apps/api/path');
     const home = (await homeDir()).replace(/\\/g, '/').replace(/\/+$/, '');
     const agentDir = this.joinFsPath(
-      this.joinFsPath(home, '.agentboster'),
+      this.joinFsPath(this.joinFsPath(home, '.config'), 'agentboster'),
       'agent',
     );
     return this.joinFsPath(agentDir, 'settings.json');
@@ -2174,7 +2174,7 @@ export class SettingsPanel {
 							<div class="settings-section-title">Account (work in progress)</div>
 							<div class="settings-desc">This section is being redesigned for real account features.</div>
 							<div class="settings-desc">Planned direction: GitHub/Google sign-in, profile/avatar in the app sidebar, and optional cloud sync for preferences.</div>
-							<div class="settings-desc">For agentboster platform: use <code>agentboster login</code> from the CLI to authenticate with your Web backend.</div>
+							<div class="settings-desc">For agentboster platform: use <code>agentboster-cli login</code> from the CLI to authenticate with your Web backend.</div>
 						</div>
 					</section>
 				</div>
@@ -2221,14 +2221,14 @@ export class SettingsPanel {
 						<div class="settings-row settings-row-top">
 							<div>
 								<div class="settings-label">CLI binary path override (optional)</div>
-								<div class="settings-desc">Set an absolute path to your <code>agentboster</code> binary if Desktop cannot discover it automatically.</div>
-								<div class="settings-desc">Examples: <code>~/.npm-global/bin/agentboster</code>, <code>/usr/local/bin/agentboster</code>, <code>C:\\Users\\you\\AppData\\Roaming\\npm\\agentboster.cmd</code></div>
+								<div class="settings-desc">Set an absolute path to your <code>agentboster-cli</code> binary if Desktop cannot discover it automatically.</div>
+								<div class="settings-desc">Examples: <code>~/.npm-global/bin/agentboster-cli</code>, <code>/usr/local/bin/agentboster-cli</code>, <code>C:\\Users\\you\\AppData\\Roaming\\npm\\agentboster-cli.cmd</code></div>
 							</div>
 						</div>
 						<input
 							type="text"
 							class="settings-path-input"
-							placeholder="/absolute/path/to/agentboster"
+							placeholder="/absolute/path/to/agentboster-cli"
 							.value=${this.state.piBinaryPath}
 							@input=${(e: Event) => this.setPiBinaryPathDraft((e.target as HTMLInputElement).value)}
 						/>

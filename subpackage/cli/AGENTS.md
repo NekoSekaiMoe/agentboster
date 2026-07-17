@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This directory is a Yarn Classic monorepo for the `agentboster` CLI. The root
+This directory is a Yarn Classic monorepo for the `agentboster-cli` CLI. The root
 `package.json` manages workspaces under `packages/`:
 
 - `packages/ai`: shared AI type surface and compatibility stubs.
@@ -63,5 +63,5 @@ changes. Note any auth, config, or packaging impact.
 ## Security & Configuration Tips
 
 The CLI is a thin client: model calls go through the Web backend, not local
-provider SDKs. Do not commit tokens or `~/.agentboster/config.json` contents.
+provider SDKs. Do not commit tokens or `~/.config/agentboster-cli/config.json` contents.
 Node `>=22.19.0` is required.

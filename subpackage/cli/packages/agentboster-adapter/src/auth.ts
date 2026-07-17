@@ -2,7 +2,7 @@
  * Auth storage for the Agentboster adapter.
  *
  * Stores `{ url, token, username }` at `$AGENTBOSTER_HOME/config.json`
- * (default `~/.agentboster`).
+ * (default `~/.config/agentboster-cli`).
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -32,7 +32,16 @@ export interface AgentbosterStoredConfig {
 }
 
 export function getAgentbosterHome(): string {
-  return process.env.AGENTBOSTER_HOME ?? join(homedir(), '.agentboster');
+  if (process.env.AGENTBOSTER_HOME) return process.env.AGENTBOSTER_HOME;
+  const home = homedir();
+  switch (process.platform) {
+    case 'darwin':
+      return join(home, 'Library', 'Application Support', 'agentboster-cli');
+    case 'win32':
+      return join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'agentboster-cli');
+    default:
+      return join(home, '.config', 'agentboster-cli');
+  }
 }
 
 export function getConfigPath(): string {

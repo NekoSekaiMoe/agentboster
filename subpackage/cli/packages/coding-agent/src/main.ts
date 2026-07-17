@@ -92,6 +92,7 @@ import {
 import { handleLoginCommand } from './cli/login.ts';
 import { handleAuthCommand } from './cli/auth-commands.ts';
 import { handleMcpCommand } from './cli/mcp-commands.ts';
+import { handleRemoteCommand } from './cli/remote-control-commands.ts';
 import { isLocalPath, resolvePath } from './utils/paths.ts';
 
 const EXTENSION_LOAD_FAILURE_HINT =
@@ -557,6 +558,10 @@ export async function main(args: string[], options?: MainOptions) {
     return;
   }
 
+  if (await handleRemoteCommand(args)) {
+    return;
+  }
+
   if (
     await handlePackageCommand(args, {
       extensionFactories: options?.extensionFactories,
@@ -591,7 +596,7 @@ export async function main(args: string[], options?: MainOptions) {
   // are dispatched above and exit before reaching here.
   if (!getStoredAuth()) {
     console.error(
-      'Not logged in. Run `agentboster login` first, then re-run this command.',
+      'Not logged in. Run `agentboster-cli login` first, then re-run this command.',
     );
     process.exit(1);
   }
@@ -1533,7 +1538,7 @@ function readMergedAgentsMd(resourceLoader: {
 /**
  * Resolve an optional stream function override for the Agentboster web backend.
  *
- * When `AGENTBOSTER_URL` is set and `~/.agentboster/config.json` contains a
+ * When `AGENTBOSTER_URL` is set and `~/.config/agentboster-cli/config.json` contains a
  * saved auth token, we build a streamFn that talks to the web backend. This
  * lets pi run as a thin client to the Agentboster server. When the env var
  * is absent, returns undefined and pi uses its built-in provider SDKs.

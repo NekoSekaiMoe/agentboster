@@ -1,10 +1,10 @@
 /**
- * `agentboster login` — top-level subcommand.
+ * `agentboster-cli login` — top-level subcommand.
  *
  * Replaces pi's auth flow (Google OAuth / API key / Vertex) with
  * Agentboster server credentials: url + (username+password OR pair code).
  *
- * Result is written to ~/.agentboster/config.json by way of
+ * Result is written to ~/.config/agentboster-cli/config.json by way of
  * @agentboster/adapter's writeStoredConfig.
  */
 
@@ -42,7 +42,7 @@ export interface LoginOptions {
 }
 
 /**
- * Dispatch `agentboster login [...]` from argv.
+ * Dispatch `agentboster-cli login [...]` from argv.
  *
  * Returns true if the first arg was `login` (handled, caller should exit).
  * Returns false otherwise (caller should keep dispatching).
@@ -85,12 +85,12 @@ function parseLoginArgs(args: string[]): LoginOptions {
 function printLoginHelp(): void {
   output.write(
     [
-      'agentboster login — authenticate with the Agentboster server',
+      'agentboster-cli login — authenticate with the Agentboster server',
       '',
       'Usage:',
-      '  agentboster login                                 # interactive',
-      '  agentboster login -u <url> --username <u> --password <p>',
-      '  agentboster login -u <url> --pair-code <code>',
+      '  agentboster-cli login                                 # interactive',
+      '  agentboster-cli login -u <url> --username <u> --password <p>',
+      '  agentboster-cli login -u <url> --pair-code <code>',
       '',
       'Options:',
       '  -u, --url <url>         Server URL (e.g. https://claw.example.com)',

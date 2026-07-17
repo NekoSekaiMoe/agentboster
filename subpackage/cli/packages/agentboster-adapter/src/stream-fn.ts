@@ -88,7 +88,7 @@ export function createAgentbosterStreamFn(
           content: [
             {
               type: 'text',
-              text: 'Not logged in. Run `agentboster login` first.',
+              text: 'Not logged in. Run `agentboster-cli login` first.',
             },
           ],
           stopReason: 'error',

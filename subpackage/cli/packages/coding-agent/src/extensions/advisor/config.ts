@@ -1,5 +1,5 @@
 /**
- * config — persist advisor settings inside ~/.agentboster/config.json.
+ * config — persist advisor settings inside ~/.config/agentboster-cli/config.json.
  *
  * The advisor extension is a client-side one-shot: it calls a provider API
  * directly rather than routing through the web backend (which only forwards

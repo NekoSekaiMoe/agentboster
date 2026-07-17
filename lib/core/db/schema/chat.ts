@@ -13,6 +13,7 @@ export const sessions = pgTable('sessions', {
   id: uuid('id').defaultRandom().primaryKey(),
   title: text('title'),
   channel: text('channel').default('web').notNull(),
+  channelOrigin: text('channel_origin'),
   externalThreadId: text('external_thread_id'),
   userId: text('user_id'),
   model: text('model'),
@@ -25,6 +26,7 @@ export const sessions = pgTable('sessions', {
     .notNull(),
   workflowRunId: text('workflow_run_id'),
   sandboxId: text('sandbox_id'),
+  remoteControlNodeId: text('remote_control_node_id'),
   totalTokens: integer('total_tokens').default(0).notNull(),
   latestTokenUsage:
     jsonb('latest_token_usage').$type<Record<string, unknown>>(),
@@ -63,3 +65,5 @@ export const messages = pgTable(
     ),
   }),
 );
+
+export type ChatSession = typeof sessions.$inferSelect;

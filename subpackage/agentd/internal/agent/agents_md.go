@@ -30,7 +30,7 @@ type LoadAgentsMdResult struct {
 // — both are kept):
 //
 //  1. User-level branded: <brandHome>/AGENTS.md (brandHome is typically the
-//     agentboster config dir, e.g. ~/.agentboster). Skipped when brandHome is
+//     agentboster config dir, e.g. ~/.config/agentboster-cli). Skipped when brandHome is
 //     empty.
 //  2. User-level generic: <realHome>/.agents/AGENTS.md
 //  3. Project-level: for each directory from sandboxPath up to the project
@@ -105,9 +105,9 @@ type agentFile struct {
 }
 
 // agentBosterBrandHome returns the brand-scoped config dir used for the
-// user-level AGENTS.md lookup. Defaults to ~/.agentboster to match the CLI's
-// config dir (cli/AGENTS.md: ~/.agentboster/config.json). The AGENTBOSTER_HOME
-// env var overrides it for tests and self-hosted setups that relocate the dir.
+// user-level AGENTS.md lookup. Defaults to ~/.config/agentboster-cli to match the
+// CLI's config dir. The AGENTBOSTER_HOME env var overrides it for tests and
+// self-hosted setups that relocate the dir.
 func agentBosterBrandHome() string {
 	if v := os.Getenv("AGENTBOSTER_HOME"); v != "" {
 		return v
@@ -116,7 +116,7 @@ func agentBosterBrandHome() string {
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".agentboster")
+	return filepath.Join(home, ".config", "agentboster-cli")
 }
 
 // readAgentFile reads and trims an AGENTS.md file. Returns (file, false) when

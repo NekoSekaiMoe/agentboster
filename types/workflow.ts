@@ -296,6 +296,9 @@ export const COMMANDS = [
   'version',
   'id',
   'lang',
+  'attach',
+  'detach',
+  'remote',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -342,6 +345,20 @@ export type IMChatSource = {
   rawImUserId?: string | null;
   userName?: string | null;
   locale?: BotLocale;
+  /**
+   * True when this IM message was routed to a CLI session via /attach.
+   * Used by tool registration (enables local_* and computer-use tools)
+   * and L2 approval flow (routes approval to IM instead of CLI TUI).
+   */
+  remoteIm?: boolean;
+  /**
+   * IM adapter name when remoteIm is true (e.g., 'telegram', 'discord').
+   */
+  remoteAdapter?: AdapterName;
+  /**
+   * IM thread ID when remoteIm is true.
+   */
+  remoteThreadId?: string;
 };
 
 /**
@@ -402,6 +419,9 @@ const imChatSourceSchema = z.object({
   userId: z.string().nullable().optional(),
   userName: z.string().nullable().optional(),
   locale: botLocaleSchema.optional(),
+  remoteIm: z.boolean().optional(),
+  remoteAdapter: adapterNameSchema.optional(),
+  remoteThreadId: z.string().optional(),
 });
 
 const cliChatSourceSchema = z.object({

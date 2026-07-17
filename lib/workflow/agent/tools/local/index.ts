@@ -1,8 +1,14 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { localToolResultHookBuilder } from '../../hooks';
-import { writeLocalToolRequest } from '../../sender/writers';
+import { approvalHookBuilder, localToolResultHookBuilder } from '../../hooks';
+import {
+  writeLocalToolRequest,
+  writeToolApprovalRequest,
+  writeToolOutputDenied,
+} from '../../sender/writers';
+import { sendApprovalRequestReminderStep } from '../../sender/bot-steps';
 import { defineBuildInTool } from '../define';
+import { assessLocalToolRisk, shouldRequireApproval } from './security';
 
 /**
  * Local-tool execution result returned by the CLI after running a
@@ -13,6 +19,51 @@ type LocalToolResult = {
   output?: unknown;
   error?: string;
 };
+
+type LocalToolApprovalResponse = {
+  approved: boolean;
+  reason?: string;
+};
+
+/**
+ * Wait for L2 approval for a local tool execution. Mirrors the approval
+ * flow in sanbox.ts (waitForSandboxApproval), but adapted for local tools.
+ */
+async function waitForLocalToolApproval(input: {
+  sessionId: string;
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  toolInput: unknown;
+}): Promise<LocalToolApprovalResponse> {
+  await writeToolApprovalRequest({
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+  });
+
+  await sendApprovalRequestReminderStep({
+    source: { type: 'web' },
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+  });
+
+  using hook = approvalHookBuilder.create({ token: input.toolCallId });
+
+  let approval: LocalToolApprovalResponse = { approved: false };
+  for await (const payload of hook) {
+    approval = payload;
+    break;
+  }
+
+  if (!approval.approved) {
+    await writeToolOutputDenied({
+      toolCallId: input.toolCallId,
+    });
+  }
+
+  return approval;
+}
 
 /**
  * Execute-body shared by all local_* tools. Emits a `local-tool-request`
@@ -29,17 +80,72 @@ type LocalToolResult = {
  * `defineHook().create()` fails with "can only be called inside a
  * workflow function" because the step is dispatched outside the
  * workflow function's invocation context.
+ *
+ * When isRemoteControl is true, this function first assesses risk and requests
+ * via the L2 approval flow before executing the tool on the CLI.
  */
 async function waitForLocalToolResult(input: {
   toolCallId: string;
   toolName: string;
   toolInput: unknown;
+  sessionId?: string;
+  runId?: string;
+  isRemoteControl?: boolean;
 }): Promise<LocalToolResult> {
+  // Risk-based approval for remote control mode
+  if (input.isRemoteControl && input.sessionId && input.runId) {
+    const risk = assessLocalToolRisk(
+      input.toolName,
+      input.toolInput as Record<string, unknown>,
+    );
+
+    if (risk.level === 'block') {
+      return {
+        ok: false,
+        error: `Tool execution blocked: ${risk.reason}`,
+      };
+    }
+
+    if (shouldRequireApproval(risk, true)) {
+      const approvalResult = await waitForLocalToolApproval({
+        sessionId: input.sessionId,
+        runId: input.runId,
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        toolInput: input.toolInput,
+      });
+
+      if (!approvalResult.approved) {
+        return {
+          ok: false,
+          error: `Tool execution denied by user: ${approvalResult.reason ?? 'no reason provided'}`,
+        };
+      }
+    }
+  }
+
   await writeLocalToolRequest({
     toolCallId: input.toolCallId,
     toolName: input.toolName,
     toolInput: input.toolInput,
   });
+
+  // Also push to the session-events SSE listener (for IM-triggered workflows
+  // where the CLI is not consuming the workflow stream directly).
+  if (input.sessionId) {
+    try {
+      const { pushToCliSession } = await import('@/lib/cli/remote-control');
+      await pushToCliSession(input.sessionId, 'tool-request', {
+        toolCallId: input.toolCallId,
+        toolName: input.toolName,
+        toolInput: input.toolInput,
+        runId: input.runId,
+        sessionId: input.sessionId,
+      });
+    } catch {
+      // best-effort — listener may not be connected
+    }
+  }
 
   using hook = localToolResultHookBuilder.create({
     token: input.toolCallId,
@@ -83,16 +189,32 @@ function formatToolResult(result: LocalToolResult): {
 
 export default defineBuildInTool({
   id: 'local-cli',
-  description: `File and shell tools executed on the user's local machine via the agentboster CLI client. Only available when the session was started from the CLI (channel 'cli:<clientId>'). Useful for editing files the user can see locally but that are not on agentd (e.g. files on a developer's laptop). All operations are performed by the CLI process with the user's own permissions.`,
+  description: `File and shell tools executed on the user's local machine via the agentboster CLI client. Only available when the session was started from the CLI (channel 'cli:<clientId>') or when a CLI is online in remote control mode. Useful for editing files the user can see locally but that are not on agentd (e.g. files on a developer's laptop). All operations are performed by the CLI process with the user's own permissions.`,
   requiredConfig: [],
   optionalConfig: [],
-  factory: async (_config, { source }) => {
-    // Gate: only register for CLI-originated sessions. Web/IM/scheduled
-    // sessions have no CLI peer connected and would block forever on the
-    // localToolResultHookBuilder.
+  factory: async (_config, { source, sessionId, runId }) => {
+    // Gate: register for CLI-originated sessions, or for sessions where
+    // a CLI is online in remote control mode (IM controlling a CLI session).
+    let isRemoteControlMode = false;
     if (source?.type !== 'cli') {
-      return null;
+      let cliOnline = false;
+      if (sessionId) {
+        try {
+          const { isCliOnlineForSession } = await import(
+            '@/lib/cli/remote-control'
+          );
+          cliOnline = await isCliOnlineForSession(sessionId);
+          isRemoteControlMode = cliOnline;
+        } catch {
+          // module unavailable
+        }
+      }
+      if (!cliOnline) return null;
     }
+
+    const sid = sessionId;
+    const rid = runId;
+    const remoteControl = isRemoteControlMode;
 
     return {
       local_read_file: tool({
@@ -109,6 +231,9 @@ export default defineBuildInTool({
             toolCallId,
             toolName: 'local_read_file',
             toolInput: input,
+            sessionId: sid,
+            runId: rid,
+            isRemoteControl: remoteControl,
           });
           return formatToolResult(result);
         },
@@ -129,6 +254,9 @@ export default defineBuildInTool({
             toolCallId,
             toolName: 'local_write_file',
             toolInput: input,
+            sessionId: sid,
+            runId: rid,
+            isRemoteControl: remoteControl,
           });
           return formatToolResult(result);
         },
@@ -151,6 +279,9 @@ export default defineBuildInTool({
             toolCallId,
             toolName: 'local_exec',
             toolInput: input,
+            sessionId: sid,
+            runId: rid,
+            isRemoteControl: remoteControl,
           });
           return formatToolResult(result);
         },
@@ -159,11 +290,11 @@ export default defineBuildInTool({
       local_grep: tool({
         title: 'Search file contents on local machine',
         description:
-          `Search file contents on the user's local machine using ripgrep ` +
+          "Search file contents on the user's local machine using ripgrep " +
           '(rg). Returns matching lines with file paths and line numbers, ' +
           'respects .gitignore. The CLI host auto-downloads rg on first ' +
           'use if missing. Use this when you need to find code, configs, ' +
-          'or text patterns on the user’s own filesystem rather than on ' +
+          "or text patterns on the user's own filesystem rather than on " +
           'agentd.',
         inputSchema: z.object({
           pattern: z
@@ -212,6 +343,9 @@ export default defineBuildInTool({
             toolCallId,
             toolName: 'local_grep',
             toolInput: input,
+            sessionId: sid,
+            runId: rid,
+            isRemoteControl: remoteControl,
           });
           return formatToolResult(result);
         },
@@ -252,6 +386,9 @@ export default defineBuildInTool({
             toolCallId,
             toolName: 'local_ask_question',
             toolInput: input,
+            sessionId: sid,
+            runId: rid,
+            isRemoteControl: false,
           });
           return formatToolResult(result);
         },

@@ -340,6 +340,9 @@ func Load(path string) (*Config, error) {
 		v.SetConfigName("agentd")
 		v.SetConfigType("toml")
 		v.AddConfigPath(".")
+		if home, err := os.UserHomeDir(); err == nil {
+			v.AddConfigPath(filepath.Join(home, ".config", "agentd"))
+		}
 		v.AddConfigPath("/etc/agentd")
 	}
 

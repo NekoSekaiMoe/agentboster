@@ -3,7 +3,7 @@ name = "agentboster-desktop"
 version = "0.1.0"
 description = "Agentboster Desktop - Tauri shell with computer use"
 authors = ["Agentboster contributors"]
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "agentboster_desktop_lib"
@@ -28,29 +28,3 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 flate2 = "1"
 tar = "0.4"
 futures-util = "0.3"
-
-# ── computer use (cross-platform) ─────────────────────────────────
-# Screenshots (all platforms) — returns image::RgbaImage.
-xcap = "0.9"
-# Re-encode the captured image to PNG bytes.
-image = { version = "0.25", default-features = false, features = ["png"] }
-# Input injection (mouse + keyboard) — all platforms.
-enigo = "0.6"
-
-# Accessibility tree consumer. Per-platform backends are gated behind
-# `#[cfg(target_os = ...)]` in computer_use.rs and only one is pulled in
-# per build target.
-#   Windows UIAutomation (COM client)
-[target.'cfg(target_os = "windows")'.dependencies]
-uiautomation = "0.25"
-
-#   macOS Accessibility (AXUIElement C API)
-[target.'cfg(target_os = "macos")'.dependencies]
-accessibility-sys = "0.2"
-core-foundation = "0.10"
-core-foundation-sys = "0.8"
-
-#   Linux AT-SPI (D-Bus accessibility)
-[target.'cfg(target_os = "linux")'.dependencies]
-atspi = "0.30"
-zbus = { version = "5", default-features = false, features = ["tokio"] }

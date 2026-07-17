@@ -488,6 +488,32 @@ export const ja = {
   'cmd.lang.prompt': '言語を選択してください：',
   'cmd.lang.success': '言語を {language} に切り替えました',
   'cmd.lang.failed': '言語の切り替えに失敗しました：{error}',
+  'cmd.attach.noSession': 'アクティブなセッションがありません。',
+  'cmd.attach.imOnly': 'リモートコントロールの接続は IM でのみ利用できます。',
+  'cmd.attach.missingSessionId': '使い方: /attach <session-id>',
+  'cmd.attach.sessionNotFound': 'セッション {sessionId} が見つかりません。',
+  'cmd.attach.notCliSession':
+    'セッション {sessionId} は CLI/Desktop セッションではありません。',
+  'cmd.attach.cliOffline':
+    'セッション {sessionId} の CLI/Desktop はオフラインです。',
+  'cmd.attach.success':
+    'CLI/Desktop セッション {sessionId} に接続しました。リモートコントロールが有効です。',
+  'cmd.attach.failed': '接続に失敗しました：{error}',
+  'cmd.detach.noSession': 'アクティブなセッションがありません。',
+  'cmd.detach.imOnly': 'リモートコントロールの切断は IM でのみ利用できます。',
+  'cmd.detach.notAttached':
+    'このスレッドはリモートセッションに接続されていません。',
+  'cmd.detach.success': 'リモートコントロールから切断しました。',
+  'cmd.detach.failed': '切断に失敗しました：{error}',
+  'cmd.remote.noSession': 'アクティブなセッションがありません。',
+  'cmd.remote.imOnly': 'リモートコントロール一覧は IM でのみ利用できます。',
+  'cmd.remote.noCliSessions': '利用可能な CLI/Desktop セッションがありません。',
+  'cmd.remote.header': '利用可能な CLI/Desktop セッション：',
+  'cmd.remote.entry':
+    '{index}. セッション {sessionId} - {status} - {device} ({platform})',
+  'cmd.remote.attachHint':
+    '/attach <session-id> でリモートコントロールできます。',
+  'cmd.remote.failed': 'リモートセッション一覧の取得に失敗しました：{error}',
   'slash.command.help.description': 'スラッシュコマンドのヘルプを表示',
   'slash.command.new.description': '新しいセッションを作成して切替',
   'slash.command.compact.description': 'コンテキストの圧縮を強制',
@@ -548,6 +574,14 @@ export const ja = {
   'slash.command.version.hint': '/version',
   'slash.command.id.hint': '/id',
   'slash.command.lang.hint': '/lang [language-code]',
+  'slash.command.attach.description':
+    'IM スレッドを CLI/Desktop セッションに接続してリモートコントロール',
+  'slash.command.attach.hint': '/attach <session-id>',
+  'slash.command.detach.description': 'IM スレッドのリモートコントロールを切断',
+  'slash.command.detach.hint': '/detach',
+  'slash.command.remote.description':
+    'リモートコントロール可能な CLI/Desktop セッションを表示',
+  'slash.command.remote.hint': '/remote',
   'cmd.help.header': '利用可能なスラッシュコマンド：',
   'cmd.status.noSession':
     '現在このスレッドにバインドされているセッションはありません。',

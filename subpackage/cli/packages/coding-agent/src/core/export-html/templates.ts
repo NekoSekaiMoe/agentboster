@@ -2,7 +2,7 @@
  * Export-HTML templates and vendored libraries, inlined into the bundle
  * via esbuild's text loader (`*.html`, `*.css`) and JS loader
  * (`*.js`). Replaces the previous readFileSync-at-runtime load (which
- * required the template files to ship alongside agentboster.cjs).
+ * required the template files to ship alongside agentboster-cli.cjs).
  */
 import templateHtml from './template.html';
 import templateCss from './template.css';

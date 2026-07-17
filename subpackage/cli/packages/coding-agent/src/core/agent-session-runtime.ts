@@ -268,7 +268,7 @@ export class AgentSessionRuntime {
     const { fetchRemoteMessages } = await import('./remote-sessions.ts');
     const auth = getStoredAuth();
     if (!auth) {
-      throw new Error('Not logged in. Run `agentboster login` first.');
+      throw new Error('Not logged in. Run `agentboster-cli login` first.');
     }
     const { session, messages } = await fetchRemoteMessages(auth, sessionId);
     const previousSessionFile = this.session.sessionFile;

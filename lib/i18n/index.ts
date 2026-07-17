@@ -123,7 +123,7 @@ export function translate(
     return template;
   }
 
-  return template.replace(/\{(\w+)\}/g, (match, token: string) => {
+  return template.replace(/\{(\w+)\}/g, (match: string, token: string) => {
     const value = values[token];
     return value === undefined ? match : String(value);
   });

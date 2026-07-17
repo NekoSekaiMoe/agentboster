@@ -6499,7 +6499,7 @@ export class InteractiveMode {
    *
    * Prompts for server URL → username → password (or pair code), calls
    * /api/auth/login or /api/auth/pair-exchange, writes the result to
-   * ~/.agentboster/config.json, then hot-swaps the running session's
+   * ~/.config/agentboster-cli/config.json, then hot-swaps the running session's
    * streamFn + model registry so the user can immediately keep
    * chatting — no restart needed.
    */

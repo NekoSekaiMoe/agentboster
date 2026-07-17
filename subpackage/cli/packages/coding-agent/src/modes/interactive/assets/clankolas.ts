@@ -1,7 +1,7 @@
 /**
  * Inline base64 of the announcement image. The .base64 file is a plain
  * text file produced from `base64 -w0 clankolas.png`, bundled by
- * esbuild's text loader so the PNG ships inside agentboster.cjs.
+ * esbuild's text loader so the PNG ships inside agentboster-cli.cjs.
  */
 import data from './clankolas.png.base64';
 import fs from 'node:fs';

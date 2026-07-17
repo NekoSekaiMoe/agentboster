@@ -483,6 +483,30 @@ export const enUS = {
   'cmd.lang.prompt': 'Please select your language:',
   'cmd.lang.success': 'Language changed to {language}',
   'cmd.lang.failed': 'Failed to change language: {error}',
+  'cmd.attach.noSession': 'No active session.',
+  'cmd.attach.imOnly': 'Remote control attachment is only available for IM.',
+  'cmd.attach.missingSessionId': 'Usage: /attach <session-id>',
+  'cmd.attach.sessionNotFound': 'Session {sessionId} not found.',
+  'cmd.attach.notCliSession':
+    'Session {sessionId} is not a CLI/Desktop session.',
+  'cmd.attach.cliOffline': 'CLI/Desktop for session {sessionId} is offline.',
+  'cmd.attach.success':
+    'Attached to CLI/Desktop session {sessionId}. Remote control active.',
+  'cmd.attach.failed': 'Failed to attach: {error}',
+  'cmd.detach.noSession': 'No active session.',
+  'cmd.detach.imOnly': 'Remote control detachment is only available for IM.',
+  'cmd.detach.notAttached':
+    'This thread is not attached to any remote session.',
+  'cmd.detach.success': 'Detached from remote control.',
+  'cmd.detach.failed': 'Failed to detach: {error}',
+  'cmd.remote.noSession': 'No active session.',
+  'cmd.remote.imOnly': 'Remote control listing is only available for IM.',
+  'cmd.remote.noCliSessions': 'No CLI/Desktop sessions available.',
+  'cmd.remote.header': 'Available CLI/Desktop sessions:',
+  'cmd.remote.entry':
+    '{index}. Session {sessionId} - {status} - {device} ({platform})',
+  'cmd.remote.attachHint': 'Use /attach <session-id> to control remotely.',
+  'cmd.remote.failed': 'Failed to list remote sessions: {error}',
   'slash.command.help.description': 'Show slash command help',
   'slash.command.help.hint': '/help',
   'slash.command.new.description': 'Create and switch to a new session',
@@ -545,6 +569,15 @@ export const enUS = {
   'slash.command.id.hint': '/id',
   'slash.command.lang.description': 'Change interface language',
   'slash.command.lang.hint': '/lang [language-code]',
+  'slash.command.attach.description':
+    'Attach this IM thread to a CLI/Desktop session for remote control',
+  'slash.command.attach.hint': '/attach <session-id>',
+  'slash.command.detach.description':
+    'Detach this IM thread from remote control',
+  'slash.command.detach.hint': '/detach',
+  'slash.command.remote.description':
+    'Show remote CLI/Desktop sessions available for control',
+  'slash.command.remote.hint': '/remote',
   'cmd.help.header': 'Available slash commands:',
   'cmd.status.noSession': 'No session is currently bound to this thread.',
   'cmd.session.switch.imOnly':

@@ -6,7 +6,7 @@ import * as fs from "node:fs";
  * Bundle agentboster CLI into a single JS file.
  *
  * Entry:  packages/coding-agent/src/cli.ts
- * Output: packages/coding-agent/dist/agentboster.js (standalone, ESM, node22)
+ * Output: packages/coding-agent/dist/agentboster-cli.js (standalone, ESM, node22)
  *
  * All workspace packages (tui, ai, agent, adapter, coding-agent) and
  * their TS sources are inlined into the bundle. Native deps (node:
@@ -15,7 +15,7 @@ import * as fs from "node:fs";
  */
 
 const entry = "packages/coding-agent/src/cli.ts";
-const outfile = "packages/coding-agent/dist/agentboster.cjs";
+const outfile = "packages/coding-agent/dist/agentboster-cli.cjs";
 
 /** Packages to keep external (don't try to bundle). */
 const external = [

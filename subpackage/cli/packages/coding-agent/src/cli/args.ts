@@ -350,11 +350,11 @@ ${chalk.bold('Examples:')}
   ${APP_NAME} --exclude-tools ask_question
 
   # Export a session file to HTML
-  ${APP_NAME} --export ~/${CONFIG_DIR_NAME}/agent/sessions/--path--/session.jsonl
+  ${APP_NAME} --export ~/.config/agentboster-cli/agent/sessions/--path--/session.jsonl
   ${APP_NAME} --export session.jsonl output.html
 
 ${chalk.bold('Environment Variables:')}
-  ${ENV_AGENT_DIR.padEnd(32)} - Config directory (default: ~/${CONFIG_DIR_NAME}/agent)
+  ${ENV_AGENT_DIR.padEnd(32)} - Config directory (default: ~/.config/agentboster-cli/agent)
   PI_PACKAGE_DIR                   - Override package directory (for Nix/Guix store paths)
   PI_OFFLINE                       - Disable startup network operations when set to 1/true/yes
 

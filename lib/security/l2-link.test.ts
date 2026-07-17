@@ -21,12 +21,12 @@ afterEach(() => {
 });
 
 describe('signL2Link / verifyL2Link', () => {
-  it('round-trips a valid link', () => {
-    const signed = signL2Link({
+  it('round-trips a valid link', async () => {
+    const signed = await signL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
     });
-    const result = verifyL2Link({
+    const result = await verifyL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
       expiresParam: String(signed.expires),
@@ -35,32 +35,32 @@ describe('signL2Link / verifyL2Link', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('produces URL-safe params containing t and s', () => {
-    const signed = signL2Link({
+  it('produces URL-safe params containing t and s', async () => {
+    const signed = await signL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
     });
     expect(signed.params).toMatch(/^t=\d+&s=[0-9a-f]+$/);
   });
 
-  it('uses the default TTL of 1 hour when not overridden', () => {
+  it('uses the default TTL of 1 hour when not overridden', async () => {
     const before = Math.floor(Date.now() / 1000);
-    const signed = signL2Link({
+    const signed = await signL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
     });
     expect(signed.expires - before).toBe(DEFAULT_L2_LINK_TTL_SECONDS);
   });
 
-  it('honors a custom TTL', () => {
-    const signed = signL2Link({
+  it('honors a custom TTL', async () => {
+    const signed = await signL2Link({
       decisionId: 'd',
       action: 'a',
       ttlSeconds: 60,
     });
     expect(signed.params.startsWith('t=')).toBe(true);
     // Verify still succeeds (60s is in the future).
-    const result = verifyL2Link({
+    const result = await verifyL2Link({
       decisionId: 'd',
       action: 'a',
       expiresParam: String(signed.expires),
@@ -69,12 +69,12 @@ describe('signL2Link / verifyL2Link', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('rejects a tampered action (signature is action-bound)', () => {
-    const signed = signL2Link({
+  it('rejects a tampered action (signature is action-bound)', async () => {
+    const signed = await signL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
     });
-    const result = verifyL2Link({
+    const result = await verifyL2Link({
       decisionId: 'dec_abc',
       action: 'reject_once',
       expiresParam: String(signed.expires),
@@ -84,12 +84,12 @@ describe('signL2Link / verifyL2Link', () => {
     if (!result.ok) expect(result.reason).toBe('invalid');
   });
 
-  it('rejects a tampered decisionId', () => {
-    const signed = signL2Link({
+  it('rejects a tampered decisionId', async () => {
+    const signed = await signL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
     });
-    const result = verifyL2Link({
+    const result = await verifyL2Link({
       decisionId: 'dec_other',
       action: 'pass_once',
       expiresParam: String(signed.expires),
@@ -99,14 +99,14 @@ describe('signL2Link / verifyL2Link', () => {
     if (!result.ok) expect(result.reason).toBe('invalid');
   });
 
-  it('rejects an expired link', () => {
+  it('rejects an expired link', async () => {
     // Build a signature for a timestamp in the past directly (signL2Link
     // rejects non-positive TTLs by falling back to the default).
     const pastExpires = Math.floor(Date.now() / 1000) - 3600;
     const signature = createHmac('sha256', 'test-secret-do-not-use-in-prod')
       .update(`dec_abc:pass_once:${pastExpires}`)
       .digest('hex');
-    const result = verifyL2Link({
+    const result = await verifyL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
       expiresParam: String(pastExpires),
@@ -116,8 +116,8 @@ describe('signL2Link / verifyL2Link', () => {
     if (!result.ok) expect(result.reason).toBe('expired');
   });
 
-  it('rejects missing params', () => {
-    const result = verifyL2Link({
+  it('rejects missing params', async () => {
+    const result = await verifyL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
       expiresParam: null,
@@ -127,13 +127,13 @@ describe('signL2Link / verifyL2Link', () => {
     if (!result.ok) expect(result.reason).toBe('missing');
   });
 
-  it('rejects a signature signed with a different AUTH_SECRET', () => {
-    const signed = signL2Link({
+  it('rejects a signature signed with a different AUTH_SECRET', async () => {
+    const signed = await signL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
     });
     process.env.AUTH_SECRET = 'a-different-secret';
-    const result = verifyL2Link({
+    const result = await verifyL2Link({
       decisionId: 'dec_abc',
       action: 'pass_once',
       expiresParam: String(signed.expires),
@@ -143,10 +143,10 @@ describe('signL2Link / verifyL2Link', () => {
     if (!result.ok) expect(result.reason).toBe('invalid');
   });
 
-  it('throws a clear error when AUTH_SECRET is unset during signing', () => {
+  it('throws a clear error when AUTH_SECRET is unset during signing', async () => {
     delete process.env.AUTH_SECRET;
-    expect(() => signL2Link({ decisionId: 'd', action: 'a' })).toThrowError(
-      /AUTH_SECRET/,
-    );
+    await expect(() =>
+      signL2Link({ decisionId: 'd', action: 'a' }),
+    ).rejects.toThrowError(/AUTH_SECRET/);
   });
 });

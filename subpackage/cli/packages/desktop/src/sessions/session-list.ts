@@ -33,7 +33,7 @@ interface SessionEntry {
 async function getSessionsDir(): Promise<string> {
   const { homeDir } = await import('@tauri-apps/api/path');
   const home = await homeDir();
-  return `${home}/.agentboster/agent/sessions`;
+  return `${home}/.config/agentboster-cli/agent/sessions`;
 }
 
 async function collectJsonlFiles(dir: string): Promise<string[]> {

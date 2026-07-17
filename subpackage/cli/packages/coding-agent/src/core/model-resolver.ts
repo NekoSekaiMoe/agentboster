@@ -389,7 +389,7 @@ export function resolveCliModel(options: {
       model: undefined,
       warning: undefined,
       error:
-        'No models available. Run `agentboster login` first; the model catalog is fetched from the server.',
+        'No models available. Run `agentboster-cli login` first; the model catalog is fetched from the server.',
     };
   }
 

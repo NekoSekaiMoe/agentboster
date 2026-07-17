@@ -29,8 +29,6 @@
  *     any other signed-URL flow (password reset, email verify).
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
-
 const ALGO = 'sha256';
 
 /** Default link lifetime in seconds (1 hour). */
@@ -42,17 +40,21 @@ export const DEFAULT_L2_LINK_TTL_SECONDS = 60 * 60;
  * Returns query-string-ready `t=<expires>&s=<hex>` (already
  * URL-component-safe). Caller appends as `?${params}` to the route.
  */
-export function signL2Link(input: {
+export async function signL2Link(input: {
   decisionId: string;
   action: string;
   ttlSeconds?: number;
-}): { expires: number; signature: string; params: string } {
+}): Promise<{ expires: number; signature: string; params: string }> {
   const ttl =
     input.ttlSeconds && input.ttlSeconds > 0
       ? input.ttlSeconds
       : DEFAULT_L2_LINK_TTL_SECONDS;
   const expires = Math.floor(Date.now() / 1000) + ttl;
-  const signature = computeSignature(input.decisionId, input.action, expires);
+  const signature = await computeSignature(
+    input.decisionId,
+    input.action,
+    expires,
+  );
   const params = `t=${expires}&s=${signature}`;
   return { expires, signature, params };
 }
@@ -64,14 +66,15 @@ export function signL2Link(input: {
  * failure (missing params, wrong signature, expired). Constant-time
  * comparison guards against timing attacks on the signature.
  */
-export function verifyL2Link(input: {
+export async function verifyL2Link(input: {
   decisionId: string;
   action: string;
   expiresParam: string | null | undefined;
   signatureParam: string | null | undefined;
-}):
+}): Promise<
   | { ok: true; expires: number }
-  | { ok: false; reason: 'missing' | 'expired' | 'invalid' } {
+  | { ok: false; reason: 'missing' | 'expired' | 'invalid' }
+> {
   const { decisionId, action, expiresParam, signatureParam } = input;
   if (!expiresParam || !signatureParam) {
     return { ok: false, reason: 'missing' };
@@ -85,11 +88,12 @@ export function verifyL2Link(input: {
   if (Math.floor(Date.now() / 1000) >= expires) {
     return { ok: false, reason: 'expired' };
   }
-  const expected = computeSignature(decisionId, action, expires);
+  const expected = await computeSignature(decisionId, action, expires);
   const given = signatureParam;
   if (expected.length !== given.length) {
     return { ok: false, reason: 'invalid' };
   }
+  const { timingSafeEqual } = await import('node:crypto');
   const a = Buffer.from(expected, 'utf8');
   const b = Buffer.from(given, 'utf8');
   if (!timingSafeEqual(a, b)) {
@@ -98,17 +102,18 @@ export function verifyL2Link(input: {
   return { ok: true, expires };
 }
 
-function computeSignature(
+async function computeSignature(
   decisionId: string,
   action: string,
   expires: number,
-): string {
+): Promise<string> {
   const secret = process.env.AUTH_SECRET;
   if (!secret) {
     throw new Error(
       'AUTH_SECRET is required to sign/verify L2 links. Set it in your environment.',
     );
   }
+  const { createHmac } = await import('node:crypto');
   const message = `${decisionId}:${action}:${expires}`;
   return createHmac(ALGO, secret).update(message).digest('hex');
 }

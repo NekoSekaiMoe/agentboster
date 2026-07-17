@@ -5,16 +5,16 @@ import {
 } from '../core/mcp-services.ts';
 
 function printMcpHelp(): void {
-  console.log(`${chalk.bold('agentboster mcp')} - discover and run local MCP/LSP services
+  console.log(`${chalk.bold('agentboster-cli mcp')} - discover and run local MCP/LSP services
 
 ${chalk.bold('Usage:')}
-  agentboster mcp list [--json]
-  agentboster mcp start <service> [--json]
+  agentboster-cli mcp list [--json]
+  agentboster-cli mcp start <service> [--json]
 
 ${chalk.bold('Examples:')}
-  agentboster mcp list
-  agentboster mcp start clangd
-  agentboster mcp start config:filesystem --json
+  agentboster-cli mcp list
+  agentboster-cli mcp start clangd
+  agentboster-cli mcp start config:filesystem --json
 `);
 }
 
@@ -80,7 +80,7 @@ export async function handleMcpCommand(args: string[]): Promise<boolean> {
     );
     if (!target) {
       console.error('Error: Missing service name');
-      console.error('Usage: agentboster mcp start <service>');
+      console.error('Usage: agentboster-cli mcp start <service>');
       process.exit(1);
     }
 

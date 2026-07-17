@@ -11,10 +11,8 @@ use tauri::{AppHandle, Emitter, Manager};
 // `/releases/latest` endpoint at runtime to discover the current version
 // (tag_name) and download URL, so Desktop never needs to be in lock-step
 // with CLI releases.
-const CLI_RELEASES_API: &str = "https://api.github.com/repos/anomalyco/agentboster/releases/latest";
-
- // Native computer-use commands (screenshots, input injection, AX tree).
- mod computer_use;
+const CLI_RELEASES_API: &str =
+    "https://api.github.com/repos/NekoSekaiMoe/agentboster/releases/latest";
 
 #[derive(Default)]
 struct RpcProcessHandle {
@@ -108,6 +106,49 @@ fn find_sidecar_in_dir(dir: &Path, expected_name: &str) -> Option<PathBuf> {
     None
 }
 
+fn sidecar_candidate_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        dirs.push(resource_dir.clone());
+        dirs.push(resource_dir.join("binaries"));
+    }
+
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        dirs.push(parent.to_path_buf());
+        dirs.push(parent.join("binaries"));
+        dirs.push(parent.join(".."));
+        dirs.push(parent.join("..").join("Resources"));
+        dirs.push(parent.join("..").join("Resources").join("binaries"));
+    }
+
+    dirs
+}
+
+fn discover_mcp_binary(app: &AppHandle) -> Option<PathBuf> {
+    let extension = if cfg!(target_os = "windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    let expected_name = format!("computer-use-mcp{}", extension);
+
+    let candidate_dirs = sidecar_candidate_dirs(app);
+
+    for dir in candidate_dirs {
+        if !dir.exists() || !dir.is_dir() {
+            continue;
+        }
+        if let Some(found) = find_sidecar_in_dir(&dir, &expected_name) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
 fn discover_sidecar(app: &AppHandle) -> Option<PathBuf> {
     let default_target = if cfg!(target_os = "windows") {
         format!("{}-pc-windows-msvc", std::env::consts::ARCH)
@@ -130,24 +171,9 @@ fn discover_sidecar(app: &AppHandle) -> Option<PathBuf> {
     } else {
         ""
     };
-    let expected_name = format!("agentboster-{}{}", target, extension);
+    let expected_name = format!("agentboster-cli-{}{}", target, extension);
 
-    let mut candidate_dirs: Vec<PathBuf> = Vec::new();
-
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        candidate_dirs.push(resource_dir.clone());
-        candidate_dirs.push(resource_dir.join("binaries"));
-    }
-
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            candidate_dirs.push(parent.to_path_buf());
-            candidate_dirs.push(parent.join("binaries"));
-            candidate_dirs.push(parent.join(".."));
-            candidate_dirs.push(parent.join("..").join("Resources"));
-            candidate_dirs.push(parent.join("..").join("Resources").join("binaries"));
-        }
-    }
+    let candidate_dirs = sidecar_candidate_dirs(app);
 
     for dir in candidate_dirs {
         if !dir.exists() || !dir.is_dir() {
@@ -162,35 +188,35 @@ fn discover_sidecar(app: &AppHandle) -> Option<PathBuf> {
 }
 
 fn resolve_home_dir() -> Option<PathBuf> {
-    if let Ok(home) = std::env::var("HOME") {
-        if !home.trim().is_empty() {
-            return Some(PathBuf::from(home));
-        }
+    if let Ok(home) = std::env::var("HOME")
+        && !home.trim().is_empty()
+    {
+        return Some(PathBuf::from(home));
     }
-    if let Ok(user_profile) = std::env::var("USERPROFILE") {
-        if !user_profile.trim().is_empty() {
-            return Some(PathBuf::from(user_profile));
-        }
+    if let Ok(user_profile) = std::env::var("USERPROFILE")
+        && !user_profile.trim().is_empty()
+    {
+        return Some(PathBuf::from(user_profile));
     }
     None
 }
 
 fn expand_tilde_path(raw: &str) -> PathBuf {
     let trimmed = raw.trim();
-    if trimmed == "~" {
-        if let Some(home) = resolve_home_dir() {
-            return home;
-        }
+    if trimmed == "~"
+        && let Some(home) = resolve_home_dir()
+    {
+        return home;
     }
-    if let Some(rest) = trimmed.strip_prefix("~/") {
-        if let Some(home) = resolve_home_dir() {
-            return home.join(rest);
-        }
+    if let Some(rest) = trimmed.strip_prefix("~/")
+        && let Some(home) = resolve_home_dir()
+    {
+        return home.join(rest);
     }
-    if let Some(rest) = trimmed.strip_prefix("~\\") {
-        if let Some(home) = resolve_home_dir() {
-            return home.join(rest);
-        }
+    if let Some(rest) = trimmed.strip_prefix("~\\")
+        && let Some(home) = resolve_home_dir()
+    {
+        return home.join(rest);
     }
     PathBuf::from(trimmed)
 }
@@ -219,16 +245,16 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
         if let Ok(app_data) = std::env::var("APPDATA") {
             let app_data_dir = PathBuf::from(app_data);
-            candidates.push(app_data_dir.join("npm").join("agentboster.cmd"));
-            candidates.push(app_data_dir.join("npm").join("agentboster.exe"));
-            candidates.push(app_data_dir.join("npm").join("agentboster.bat"));
-            candidates.push(app_data_dir.join("npm").join("agentboster"));
+            candidates.push(app_data_dir.join("npm").join("agentboster-cli.cmd"));
+            candidates.push(app_data_dir.join("npm").join("agentboster-cli.exe"));
+            candidates.push(app_data_dir.join("npm").join("agentboster-cli.bat"));
+            candidates.push(app_data_dir.join("npm").join("agentboster-cli"));
         }
 
         if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
             let local_app_data_dir = PathBuf::from(local_app_data);
-            candidates.push(local_app_data_dir.join("npm").join("agentboster.cmd"));
-            candidates.push(local_app_data_dir.join("npm").join("agentboster.exe"));
+            candidates.push(local_app_data_dir.join("npm").join("agentboster-cli.cmd"));
+            candidates.push(local_app_data_dir.join("npm").join("agentboster-cli.exe"));
         }
 
         if let Ok(user_profile) = std::env::var("USERPROFILE") {
@@ -238,47 +264,73 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
                     .join("AppData")
                     .join("Roaming")
                     .join("npm")
-                    .join("agentboster.cmd"),
+                    .join("agentboster-cli.cmd"),
             );
             candidates.push(
                 user_dir
                     .join("AppData")
                     .join("Roaming")
                     .join("npm")
-                    .join("agentboster.exe"),
+                    .join("agentboster-cli.exe"),
             );
-            candidates.push(user_dir.join("scoop").join("shims").join("agentboster.cmd"));
+            candidates.push(
+                user_dir
+                    .join("scoop")
+                    .join("shims")
+                    .join("agentboster-cli.cmd"),
+            );
         }
 
         if let Ok(program_files) = std::env::var("ProgramFiles") {
-            candidates.push(PathBuf::from(program_files).join("nodejs").join("agentboster.cmd"));
+            candidates.push(
+                PathBuf::from(program_files)
+                    .join("nodejs")
+                    .join("agentboster-cli.cmd"),
+            );
         }
 
         if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
-            candidates.push(PathBuf::from(program_files_x86).join("nodejs").join("agentboster.cmd"));
+            candidates.push(
+                PathBuf::from(program_files_x86)
+                    .join("nodejs")
+                    .join("agentboster-cli.cmd"),
+            );
         }
 
         if let Ok(program_data) = std::env::var("ProgramData") {
             let program_data_dir = PathBuf::from(program_data);
-            candidates.push(program_data_dir.join("npm").join("agentboster.cmd"));
-            candidates.push(program_data_dir.join("npm").join("agentboster.exe"));
+            candidates.push(program_data_dir.join("npm").join("agentboster-cli.cmd"));
+            candidates.push(program_data_dir.join("npm").join("agentboster-cli.exe"));
         }
 
         if let Ok(nvm_home) = std::env::var("NVM_HOME") {
-            candidates.push(PathBuf::from(nvm_home).join("agentboster.cmd"));
+            candidates.push(PathBuf::from(nvm_home).join("agentboster-cli.cmd"));
         }
 
         if let Ok(nvm_symlink) = std::env::var("NVM_SYMLINK") {
-            candidates.push(PathBuf::from(nvm_symlink).join("agentboster.cmd"));
+            candidates.push(PathBuf::from(nvm_symlink).join("agentboster-cli.cmd"));
         }
 
         // Auto-installed by `install_cli` (this Desktop app). The installer
-        // writes agentboster.cmd next to the .cjs bundle here.
+        // writes agentboster-cli.cmd next to the .cjs bundle here.
         if let Some(home_dir) = resolve_home_dir() {
-            let installed_bin = home_dir.join(".agentboster").join("agent").join("bin");
-            candidates.push(installed_bin.join("agentboster.cmd"));
-            candidates.push(installed_bin.join("agentboster.exe"));
-            candidates.push(installed_bin.join("agentboster"));
+            if let Ok(local) = std::env::var("LOCALAPPDATA") {
+                let installed_bin = PathBuf::from(local)
+                    .join("agentboster-cli")
+                    .join("agent")
+                    .join("bin");
+                candidates.push(installed_bin.join("agentboster-cli.cmd"));
+                candidates.push(installed_bin.join("agentboster-cli.exe"));
+                candidates.push(installed_bin.join("agentboster-cli"));
+            }
+            let installed_bin = home_dir
+                .join(".config")
+                .join("agentboster-cli")
+                .join("agent")
+                .join("bin");
+            candidates.push(installed_bin.join("agentboster-cli.cmd"));
+            candidates.push(installed_bin.join("agentboster-cli.exe"));
+            candidates.push(installed_bin.join("agentboster-cli"));
         }
 
         return candidates.into_iter().find(|candidate| candidate.is_file());
@@ -286,31 +338,33 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
 
     if let Some(home_dir) = resolve_home_dir() {
         // nvm installations (common for npm global installs)
-        candidates.push(home_dir.join(".nvm/versions/node/current/bin/agentboster"));
+        candidates.push(home_dir.join(".nvm/versions/node/current/bin/agentboster-cli"));
         let nvm_versions_dir = home_dir.join(".nvm/versions/node");
         if let Ok(entries) = fs::read_dir(nvm_versions_dir) {
             let mut version_dirs: Vec<PathBuf> = entries
                 .filter_map(|entry| {
                     let path = entry.ok()?.path();
-                    if path.is_dir() {
-                        Some(path)
-                    } else {
-                        None
-                    }
+                    if path.is_dir() { Some(path) } else { None }
                 })
                 .collect();
             version_dirs.sort_by(|a, b| b.cmp(a));
             for version_dir in version_dirs {
-                candidates.push(version_dir.join("bin/agentboster"));
+                candidates.push(version_dir.join("bin/agentboster-cli"));
             }
         }
 
         // Other common per-user install locations
-        candidates.push(home_dir.join(".agentboster/agent/bin/agentboster"));
-        candidates.push(home_dir.join(".volta/bin/agentboster"));
-        candidates.push(home_dir.join(".local/bin/agentboster"));
-        candidates.push(home_dir.join(".npm-global/bin/agentboster"));
-        candidates.push(home_dir.join(".npm/bin/agentboster"));
+        if cfg!(target_os = "macos") {
+            candidates.push(
+                home_dir
+                    .join("Library/Application Support/agentboster-cli/agent/bin/agentboster-cli"),
+            );
+        }
+        candidates.push(home_dir.join(".config/agentboster-cli/agent/bin/agentboster-cli"));
+        candidates.push(home_dir.join(".volta/bin/agentboster-cli"));
+        candidates.push(home_dir.join(".local/bin/agentboster-cli"));
+        candidates.push(home_dir.join(".npm-global/bin/agentboster-cli"));
+        candidates.push(home_dir.join(".npm/bin/agentboster-cli"));
     }
 
     // npm custom prefix installs (common on Linux/macOS desktop launches)
@@ -318,16 +372,16 @@ fn discover_pi_from_common_locations() -> Option<PathBuf> {
         if let Ok(prefix) = std::env::var(key) {
             let trimmed = prefix.trim();
             if !trimmed.is_empty() {
-                candidates.push(PathBuf::from(trimmed).join("bin/agentboster"));
-                candidates.push(PathBuf::from(trimmed).join("agentboster"));
+                candidates.push(PathBuf::from(trimmed).join("bin/agentboster-cli"));
+                candidates.push(PathBuf::from(trimmed).join("agentboster-cli"));
             }
         }
     }
 
     // Common system install locations
-    candidates.push(PathBuf::from("/opt/homebrew/bin/agentboster"));
-    candidates.push(PathBuf::from("/usr/local/bin/agentboster"));
-    candidates.push(PathBuf::from("/usr/bin/agentboster"));
+    candidates.push(PathBuf::from("/opt/homebrew/bin/agentboster-cli"));
+    candidates.push(PathBuf::from("/usr/local/bin/agentboster-cli"));
+    candidates.push(PathBuf::from("/usr/bin/agentboster-cli"));
 
     candidates.into_iter().find(|candidate| candidate.is_file())
 }
@@ -343,15 +397,17 @@ fn prepend_bin_dir_to_path(cmd: &mut Command, bin_dir: &Path) {
     }
 }
 
-
-
-
 fn discover_pi_from_env_override() -> Option<PathBuf> {
-    for key in ["AGENTBOSTER_DESKTOP_BIN_PATH", "AGENTBOSTER_CLI_PATH", "PI_DESKTOP_PI_PATH", "PI_CLI_PATH"] {
-        if let Ok(raw) = std::env::var(key) {
-            if let Some(path) = resolve_explicit_pi_path(&raw) {
-                return Some(path);
-            }
+    for key in [
+        "AGENTBOSTER_DESKTOP_BIN_PATH",
+        "AGENTBOSTER_CLI_PATH",
+        "PI_DESKTOP_PI_PATH",
+        "PI_CLI_PATH",
+    ] {
+        if let Ok(raw) = std::env::var(key)
+            && let Some(path) = resolve_explicit_pi_path(&raw)
+        {
+            return Some(path);
         }
     }
     None
@@ -359,7 +415,7 @@ fn discover_pi_from_env_override() -> Option<PathBuf> {
 
 fn missing_pi_cli_error(additional: Option<String>) -> String {
     let mut message = String::from(
-        "Could not find the agentboster CLI.\n\nInstall it by building subpackage/cli/ (see its README) and placing the `agentboster` binary on your PATH.\n\nThen restart the app.",
+        "Could not find the agentboster CLI.\n\nInstall it by building subpackage/cli/ (see its README) and placing the `agentboster-cli` binary on your PATH.\n\nThen restart the app.",
     );
     if let Some(extra) = additional {
         let trimmed = extra.trim();
@@ -375,15 +431,15 @@ fn missing_pi_cli_error(additional: Option<String>) -> String {
 //
 // Resolves the latest CLI release from GitHub, downloads the universal
 // `agentboster-cli-<tag>.tar.gz` tarball, extracts it into the existing
-// per-user bin dir (`~/.agentboster/agent/bin/` — already on the
+// per-user bin dir (`~/.config/agentboster-cli/agent/bin/` — already on the
 // discovery candidate list), and emits progress events to the frontend.
 //
 // The tarball layout (per `subpackage/cli/scripts/package.mjs`) is:
 //   agentboster-cli-<tag>/
-//     agentboster        # shell wrapper, execs node agentboster.cjs
-//     agentboster.cjs    # single-file esbuild bundle
+//     agentboster-cli        # shell wrapper, execs node agentboster-cli.cjs
+//     agentboster-cli.cjs    # single-file esbuild bundle
 //
-// After extraction we point Desktop at `<bin_dir>/agentboster` and let
+// After extraction we point Desktop at `<bin_dir>/agentboster-cli` and let
 // the existing discovery path pick it up on the next rpc_start.
 
 #[derive(Debug, Deserialize)]
@@ -408,7 +464,7 @@ struct InstallProgressPayload {
 
 #[derive(Debug, Serialize)]
 struct InstallResult {
-    /// Absolute path to the installed `agentboster` entry script.
+    /// Absolute path to the installed `agentboster-cli` entry script.
     bin_path: String,
     /// Release tag the installer pulled (e.g. "v0.1.5").
     version: String,
@@ -430,7 +486,12 @@ async fn fetch_latest_release(
     client: &reqwest::Client,
     app: &AppHandle,
 ) -> Result<GithubRelease, String> {
-    emit_progress(app, "checking", None, Some("Looking up latest CLI release…".into()));
+    emit_progress(
+        app,
+        "checking",
+        None,
+        Some("Looking up latest CLI release…".into()),
+    );
     let resp = client
         .get(CLI_RELEASES_API)
         .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -459,13 +520,11 @@ async fn fetch_latest_release(
 /// Pick the universal tarball asset. The packaging script names it
 /// `agentboster-cli-<tag>.tar.gz`; we don't pin the tag here so this
 /// keeps working as the version moves.
-fn pick_tarball_asset<'a>(release: &'a GithubRelease) -> Result<&'a GithubAsset, String> {
+fn pick_tarball_asset(release: &GithubRelease) -> Result<&GithubAsset, String> {
     release
         .assets
         .iter()
-        .find(|a| {
-            a.name.ends_with(".tar.gz") && a.name.starts_with("agentboster-cli-")
-        })
+        .find(|a| a.name.ends_with(".tar.gz") && a.name.starts_with("agentboster-cli-"))
         .ok_or_else(|| {
             let available: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
             format!(
@@ -480,9 +539,36 @@ fn pick_tarball_asset<'a>(release: &'a GithubRelease) -> Result<&'a GithubAsset,
 /// already on the discovery candidate list (`discover_pi_from_common_locations`),
 /// so no extra wiring is needed for `rpc_start` to find the new binary.
 fn install_target_bin_dir() -> Result<PathBuf, String> {
-    let home = resolve_home_dir()
-        .ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
-    Ok(home.join(".agentboster").join("agent").join("bin"))
+    let home =
+        resolve_home_dir().ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
+    if cfg!(target_os = "macos") {
+        Ok(home
+            .join("Library")
+            .join("Application Support")
+            .join("agentboster-cli")
+            .join("agent")
+            .join("bin"))
+    } else if cfg!(target_os = "windows") {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            Ok(PathBuf::from(local)
+                .join("agentboster-cli")
+                .join("agent")
+                .join("bin"))
+        } else {
+            Ok(home
+                .join("AppData")
+                .join("Local")
+                .join("agentboster-cli")
+                .join("agent")
+                .join("bin"))
+        }
+    } else {
+        Ok(home
+            .join(".config")
+            .join("agentboster-cli")
+            .join("agent")
+            .join("bin"))
+    }
 }
 
 /// Stream the asset to a temp file, emitting download progress events.
@@ -494,7 +580,12 @@ async fn download_tarball(
 ) -> Result<(), String> {
     use futures_util::StreamExt;
 
-    emit_progress(app, "downloading", Some(0.0), Some(format!("Fetching {}", url)));
+    emit_progress(
+        app,
+        "downloading",
+        Some(0.0),
+        Some(format!("Fetching {}", url)),
+    );
     let resp = client
         .get(url)
         .send()
@@ -531,33 +622,41 @@ async fn download_tarball(
                 Some(format!(
                     "{} / {} bytes",
                     received,
-                    if total > 0 { total.to_string() } else { "?".to_string() }
+                    if total > 0 {
+                        total.to_string()
+                    } else {
+                        "?".to_string()
+                    }
                 )),
             );
             last_emit = std::time::Instant::now();
         }
     }
 
-    file.flush().map_err(|e| format!("Failed flushing download: {}", e))?;
+    file.flush()
+        .map_err(|e| format!("Failed flushing download: {}", e))?;
     emit_progress(app, "downloading", Some(1.0), None);
     Ok(())
 }
 
 /// Extract the tarball into the bin dir. The archive contains a single
-/// top-level dir (`agentboster-cli-<tag>/`) with `agentboster` and
-/// `agentboster.cjs`; we flatten that prefix so the files land directly
+/// top-level dir (`agentboster-cli-<tag>/`) with `agentboster-cli` and
+/// `agentboster-cli.cjs`; we flatten that prefix so the files land directly
 /// in `bin_dir/`. Existing files are overwritten.
 fn extract_tarball(tarball: &Path, bin_dir: &Path, app: &AppHandle) -> Result<(), String> {
     emit_progress(app, "extracting", None, Some("Unpacking archive…".into()));
     fs::create_dir_all(bin_dir)
         .map_err(|e| format!("Failed to create {}: {}", bin_dir.display(), e))?;
 
-    let f = fs::File::open(tarball)
-        .map_err(|e| format!("Failed to open downloaded tarball: {}", e))?;
+    let f =
+        fs::File::open(tarball).map_err(|e| format!("Failed to open downloaded tarball: {}", e))?;
     let gz = flate2::read::GzDecoder::new(f);
     let mut archive = tar::Archive::new(gz);
 
-    for entry in archive.entries().map_err(|e| format!("tar read error: {}", e))? {
+    for entry in archive
+        .entries()
+        .map_err(|e| format!("tar read error: {}", e))?
+    {
         let mut entry = entry.map_err(|e| format!("tar entry error: {}", e))?;
         let path = entry.path().map_err(|e| format!("tar path error: {}", e))?;
         let path = path.into_owned();
@@ -575,7 +674,11 @@ fn extract_tarball(tarball: &Path, bin_dir: &Path, app: &AppHandle) -> Result<()
         // Guard against path traversal (defense-in-depth; tar already
         // rejects absolute / `..` paths when unpack_in_prefix is used,
         // but we unpack manually here).
-        if relative.is_absolute() || relative.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
             continue;
         }
 
@@ -602,12 +705,7 @@ fn extract_tarball(tarball: &Path, bin_dir: &Path, app: &AppHandle) -> Result<()
     Ok(())
 }
 
-fn emit_progress(
-    app: &AppHandle,
-    stage: &str,
-    progress: Option<f64>,
-    message: Option<String>,
-) {
+fn emit_progress(app: &AppHandle, stage: &str, progress: Option<f64>, message: Option<String>) {
     let _ = app.emit(
         install_progress_event_name(),
         InstallProgressPayload {
@@ -618,7 +716,7 @@ fn emit_progress(
     );
 }
 
-/// Install the latest CLI release into `~/.agentboster/agent/bin/`.
+/// Install the latest CLI release into `~/.config/agentboster-cli/agent/bin/`.
 /// Emits `cli-install-progress` events as it goes. Returns the path to
 /// the installed `agentboster` entry script + the release tag.
 #[tauri::command]
@@ -629,7 +727,7 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
 
     let bin_dir = install_target_bin_dir()?;
     let staging = bin_dir.join(format!(".download-{}.tar.gz", release.tag_name));
-    fs::create_dir_all(&staging.parent().unwrap_or(Path::new(".")))
+    fs::create_dir_all(staging.parent().unwrap_or(Path::new(".")))
         .map_err(|e| format!("Failed to create staging dir: {}", e))?;
 
     // Best-effort cleanup of any previous half-finished download.
@@ -640,7 +738,7 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
 
     let _ = fs::remove_file(&staging);
 
-    let bin_path = bin_dir.join("agentboster");
+    let bin_path = bin_dir.join("agentboster-cli");
     if !bin_path.exists() {
         return Err(format!(
             "Extraction completed but {} is missing. The tarball may have an unexpected layout.",
@@ -649,27 +747,28 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
     }
 
     // The packaging script ships a POSIX shell wrapper
-    // (`#!/bin/sh ... exec node agentboster.cjs`). That wrapper works on
+    // (`#!/bin/sh ... exec node agentboster-cli.cjs`). That wrapper works on
     // macOS/Linux, but Windows can't execute `#!/bin/sh`. Synthesize a
-    // `agentboster.cmd` shim next to the .cjs so Windows discovery finds
+    // `agentboster-cli.cmd` shim next to the .cjs so Windows discovery finds
     // an executable that actually runs.
     #[cfg(target_os = "windows")]
-    {
-        let cjs_path = bin_dir.join("agentboster.cjs");
-        let cmd_path = bin_dir.join("agentboster.cmd");
-        let cmd_body = format!(
-            "@echo off\r\nnode \"%~dp0agentboster.cjs\" %*\r\n"
-        );
+    let bin_path = {
+        let cjs_path = bin_dir.join("agentboster-cli.cjs");
+        let cmd_path = bin_dir.join("agentboster-cli.cmd");
+        if !cjs_path.is_file() {
+            return Err(format!("Missing {}", cjs_path.display()));
+        }
+        let cmd_body = format!("@echo off\r\nnode \"%~dp0agentboster-cli.cjs\" %*\r\n");
         fs::write(&cmd_path, cmd_body)
             .map_err(|e| format!("Failed to write {}: {}", cmd_path.display(), e))?;
-        let _ = cjs_path; // referenced for clarity
-    }
+        cmd_path
+    };
 
     emit_progress(
         &app,
         "done",
         None,
-        Some(format!("Installed agentboster CLI {}", release.tag_name)),
+        Some(format!("Installed agentboster-cli {}", release.tag_name)),
     );
 
     Ok(InstallResult {
@@ -727,7 +826,7 @@ fn discover_pi(app: &AppHandle, options: &RpcStartOptions) -> Result<PiProcess, 
     }
 
     // Fallback: pi on PATH
-    if let Ok(path) = which::which("agentboster") {
+    if let Ok(path) = which::which("agentboster-cli") {
         return Ok(PiProcess::PathBinary { path });
     }
 
@@ -773,10 +872,10 @@ fn build_command(pi: &PiProcess, options: &RpcStartOptions) -> Command {
 
     // If using a script-based pi binary (e.g. npm global install), ensure its bin dir
     // is on PATH so shebangs like `#!/usr/bin/env node` can resolve node in GUI launches.
-    if let PiProcess::PathBinary { path } = pi {
-        if let Some(parent) = path.parent() {
-            prepend_bin_dir_to_path(&mut cmd, parent);
-        }
+    if let PiProcess::PathBinary { path } = pi
+        && let Some(parent) = path.parent()
+    {
+        prepend_bin_dir_to_path(&mut cmd, parent);
     }
 
     // On Windows, prevent console window from appearing
@@ -834,6 +933,11 @@ async fn rpc_start(
     let discovery_label = format!("{:?}", pi);
 
     let mut cmd = build_command(&pi, &options);
+
+    if let Some(mcp_path) = discover_mcp_binary(&app) {
+        cmd.env("COMPUTER_USE_MCP_PATH", &mcp_path);
+    }
+
     let mut child = cmd.spawn().map_err(|e| {
         let lower = e.to_string().to_lowercase();
         let missing_executable = matches!(e.raw_os_error(), Some(2) | Some(3))
@@ -938,10 +1042,16 @@ async fn rpc_send(
             if let Some(ref mut stdin) = handle.stdin_writer {
                 write_rpc_line(stdin, &command)
             } else {
-                Err(format!("RPC process not started for instance '{}'", instance_id))
+                Err(format!(
+                    "RPC process not started for instance '{}'",
+                    instance_id
+                ))
             }
         } else {
-            Err(format!("RPC process not started for instance '{}'", instance_id))
+            Err(format!(
+                "RPC process not started for instance '{}'",
+                instance_id
+            ))
         }
     } else {
         Err("Failed to acquire RPC instances lock".to_string())
@@ -950,7 +1060,10 @@ async fn rpc_send(
 
 /// Stop an RPC process instance
 #[tauri::command]
-async fn rpc_stop(state: tauri::State<'_, RpcState>, instance_id: Option<String>) -> Result<(), String> {
+async fn rpc_stop(
+    state: tauri::State<'_, RpcState>,
+    instance_id: Option<String>,
+) -> Result<(), String> {
     let instance_id = normalize_instance_id(instance_id);
     if let Ok(mut instances) = state.instances.lock() {
         if let Some(mut handle) = instances.remove(&instance_id) {
@@ -977,7 +1090,10 @@ async fn rpc_stop_all(state: tauri::State<'_, RpcState>) -> Result<(), String> {
 
 /// Check if an RPC process instance is running
 #[tauri::command]
-async fn rpc_is_running(state: tauri::State<'_, RpcState>, instance_id: Option<String>) -> Result<bool, String> {
+async fn rpc_is_running(
+    state: tauri::State<'_, RpcState>,
+    instance_id: Option<String>,
+) -> Result<bool, String> {
     let instance_id = normalize_instance_id(instance_id);
     if let Ok(mut instances) = state.instances.lock() {
         if let Some(handle) = instances.get_mut(&instance_id) {
@@ -1015,44 +1131,21 @@ async fn rpc_ui_response(
             if let Some(ref mut stdin) = handle.stdin_writer {
                 write_rpc_line(stdin, &response)
             } else {
-                Err(format!("RPC process not started for instance '{}'", instance_id))
+                Err(format!(
+                    "RPC process not started for instance '{}'",
+                    instance_id
+                ))
             }
         } else {
-            Err(format!("RPC process not started for instance '{}'", instance_id))
+            Err(format!(
+                "RPC process not started for instance '{}'",
+                instance_id
+            ))
         }
     } else {
         Err("Failed to acquire RPC instances lock".to_string())
     }
 }
-
-fn get_pi_agent_dir() -> Option<PathBuf> {
-    // Respect explicit env override first
-    if let Ok(raw) = std::env::var("PI_CODING_AGENT_DIR") {
-        let trimmed = raw.trim();
-        if !trimmed.is_empty() {
-            if trimmed == "~" {
-                return std::env::var_os("HOME")
-                    .or(std::env::var_os("USERPROFILE"))
-                    .map(PathBuf::from);
-            }
-            if let Some(rest) = trimmed
-                .strip_prefix("~/")
-                .or_else(|| trimmed.strip_prefix("~\\"))
-            {
-                return std::env::var_os("HOME")
-                    .or(std::env::var_os("USERPROFILE"))
-                    .map(|home| PathBuf::from(home).join(rest));
-            }
-            return Some(PathBuf::from(trimmed));
-        }
-    }
-
-    // Default: ~/.agentboster/agent
-    std::env::var_os("HOME")
-        .or(std::env::var_os("USERPROFILE"))
-        .map(|home| PathBuf::from(home).join(".agentboster").join("agent"))
-}
-
 
 /// Settings structure
 #[derive(Debug, Serialize, Deserialize)]
@@ -1087,13 +1180,32 @@ impl Default for AppSettings {
     }
 }
 
+fn desktop_config_dir() -> Result<PathBuf, String> {
+    let home =
+        resolve_home_dir().ok_or_else(|| "Could not resolve $HOME / USERPROFILE".to_string())?;
+    if cfg!(target_os = "macos") {
+        Ok(home
+            .join("Library")
+            .join("Application Support")
+            .join("agentboster-desktop"))
+    } else if cfg!(target_os = "windows") {
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            Ok(PathBuf::from(local).join("agentboster-desktop"))
+        } else {
+            Ok(home
+                .join("AppData")
+                .join("Local")
+                .join("agentboster-desktop"))
+        }
+    } else {
+        Ok(home.join(".config").join("agentboster-desktop"))
+    }
+}
+
 /// Save app settings
 #[tauri::command]
-async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+async fn save_settings(_app: AppHandle, settings: AppSettings) -> Result<(), String> {
+    let data_dir = desktop_config_dir()?;
 
     // Ensure directory exists
     fs::create_dir_all(&data_dir).map_err(|e| format!("Failed to create data dir: {}", e))?;
@@ -1108,14 +1220,27 @@ async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), Stri
 /// Load app settings
 #[tauri::command]
 async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-
+    let data_dir = desktop_config_dir()?;
     let settings_path = data_dir.join("settings.json");
 
     if !settings_path.exists() {
+        // Migrate from legacy Tauri app_data_dir if available
+        if let Ok(legacy_dir) = app.path().app_data_dir() {
+            let legacy_path = legacy_dir.join("settings.json");
+            if legacy_path.exists() {
+                let content = fs::read_to_string(&legacy_path)
+                    .map_err(|e| format!("Failed to read legacy settings: {}", e))?;
+                let settings: AppSettings = serde_json::from_str(&content)
+                    .map_err(|e| format!("Failed to parse legacy settings: {}", e))?;
+                fs::create_dir_all(&data_dir)
+                    .map_err(|e| format!("Failed to create settings directory: {}", e))?;
+                let serialized = serde_json::to_string_pretty(&settings)
+                    .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+                fs::write(&settings_path, serialized)
+                    .map_err(|e| format!("Failed to migrate settings: {}", e))?;
+                return Ok(settings);
+            }
+        }
         return Ok(AppSettings::default());
     }
 
@@ -1148,7 +1273,6 @@ struct PiCliCommandResult {
     exit_code: i32,
     discovery: String,
 }
-
 
 #[derive(Debug, Deserialize)]
 struct GitCommandOptions {
@@ -1198,10 +1322,10 @@ fn build_plain_command(pi: &PiProcess, options: &PiCliCommandOptions) -> Command
         }
     }
 
-    if let PiProcess::PathBinary { path } = pi {
-        if let Some(parent) = path.parent() {
-            prepend_bin_dir_to_path(&mut cmd, parent);
-        }
+    if let PiProcess::PathBinary { path } = pi
+        && let Some(parent) = path.parent()
+    {
+        prepend_bin_dir_to_path(&mut cmd, parent);
     }
 
     #[cfg(target_os = "windows")]
@@ -1225,7 +1349,10 @@ async fn run_pi_cli_command(
 
     let resolved_cwd = options.cwd.clone().unwrap_or_else(|| ".".to_string());
     if !Path::new(&resolved_cwd).is_dir() {
-        return Err(format!("Working directory does not exist: {}", resolved_cwd));
+        return Err(format!(
+            "Working directory does not exist: {}",
+            resolved_cwd
+        ));
     }
 
     let discovery_opts = RpcStartOptions {
@@ -1251,9 +1378,6 @@ async fn run_pi_cli_command(
         discovery: discovery_label,
     })
 }
-
-
-
 
 #[tauri::command]
 async fn run_git_command(options: GitCommandOptions) -> Result<GitCommandResult, String> {
@@ -1365,7 +1489,10 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
 
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
-            format!("Could not open file (exit code {})", output.status.code().unwrap_or(-1))
+            format!(
+                "Could not open file (exit code {})",
+                output.status.code().unwrap_or(-1)
+            )
         } else {
             format!("Could not open file: {}", stderr)
         });
@@ -1387,7 +1514,10 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
 
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
-            format!("Could not open file (exit code {})", output.status.code().unwrap_or(-1))
+            format!(
+                "Could not open file (exit code {})",
+                output.status.code().unwrap_or(-1)
+            )
         } else {
             format!("Could not open file: {}", stderr)
         });
@@ -1397,24 +1527,25 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
     Err("Unsupported platform for open_path_in_default_app".to_string())
 }
 
- pub fn run() {
-     tauri::Builder::default()
-         .plugin(tauri_plugin_shell::init())
-         .plugin(tauri_plugin_fs::init())
-         .plugin(tauri_plugin_dialog::init())
-         .plugin(tauri_plugin_notification::init())
-         .setup(|app| {
-             #[cfg(target_os = "macos")]
-             {
-                 if let Some(window) = app.get_webview_window("main") {
-                     let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
-                     let _ = window.set_shadow(true);
-                 }
-             }
-             Ok(())
-         })
-         .manage(RpcState::default())
-         .invoke_handler(tauri::generate_handler![
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .setup(|_app| {
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(window) = _app.get_webview_window("main") {
+                    let _ =
+                        window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
+                    let _ = window.set_shadow(true);
+                }
+            }
+            Ok(())
+        })
+        .manage(RpcState::default())
+        .invoke_handler(tauri::generate_handler![
             rpc_start,
             rpc_send,
             rpc_stop,
@@ -1423,22 +1554,13 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
             rpc_ui_response,
             install_cli,
             save_settings,
-             load_settings,
-             open_file_dialog,
-             run_pi_cli_command,
-             run_git_command,
-             get_desktop_runtime_info,
-             open_path_in_default_app,
-             // computer-use commands
-             computer_use::screenshot,
-             computer_use::mouse_move,
-             computer_use::mouse_click,
-             computer_use::mouse_drag,
-             computer_use::key_event,
-             computer_use::type_text,
-             computer_use::get_ax_at_point,
-             computer_use::get_focused_ax,
-         ])
-         .run(tauri::generate_context!())
-         .expect("error while running tauri application");
- }
+            load_settings,
+            open_file_dialog,
+            run_pi_cli_command,
+            run_git_command,
+            get_desktop_runtime_info,
+            open_path_in_default_app,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

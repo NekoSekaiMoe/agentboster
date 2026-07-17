@@ -261,7 +261,7 @@ export class AgentdVncView {
       if (!auth) {
         this.enabled = false;
         this.nodes = [];
-        this.message = 'Not logged in. Run agentboster login first.';
+        this.message = 'Not logged in. Run agentboster-cli login first.';
         this.connectionState = 'unavailable';
         this.render();
         return;

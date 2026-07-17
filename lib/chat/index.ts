@@ -62,6 +62,11 @@ import { executeStartCommand } from './commands/start';
 import { executeVersionCommand } from './commands/version';
 import { executeWhoamiCommand } from './commands/whoami';
 import {
+  executeAttachCommand,
+  executeDetachCommand,
+  executeRemoteCommand,
+} from './commands/remote';
+import {
   checkDuplicate,
   checkIdempotencyDuplicate,
   recordIdempotencyMessage,
@@ -1461,6 +1466,28 @@ async function executeCommand(input: {
         runId: session?.workflowRunId ?? null,
       };
     }
+    case 'attach': {
+      return executeAttachCommand({
+        args: input.args,
+        currentSession: session,
+        source: input.source,
+        locale,
+      });
+    }
+    case 'detach': {
+      return executeDetachCommand({
+        currentSession: session,
+        source: input.source,
+        locale,
+      });
+    }
+    case 'remote': {
+      return executeRemoteCommand({
+        currentSession: session,
+        source: input.source,
+        locale,
+      });
+    }
     default:
       return {
         sessionId: currentSessionId,
@@ -1480,6 +1507,61 @@ export async function chatMain(
   chatMainLogger.info('chatMain:source_normalized', {
     sourceType: source.type,
   });
+
+  // Remote control routing: if this is an IM message and the IM thread is
+  // attached to a CLI session, route the message to that CLI session instead
+  // of the IM session. Skip if already routed (remoteIm) to prevent recursion.
+  if (source.type === 'im' && !source.remoteIm) {
+    const { getAttachedSessionId, isCliOnlineForSession } = await import(
+      '@/lib/cli/remote-control'
+    );
+    const targetSessionId = await getAttachedSessionId(
+      source.adapter,
+      source.threadId,
+    );
+
+    if (targetSessionId) {
+      const cliOnline = await isCliOnlineForSession(targetSessionId);
+      if (cliOnline) {
+        chatMainLogger.info('chatMain:routing_to_cli', {
+          imThread: source.threadId,
+          targetSession: targetSessionId,
+        });
+
+        // Route to the target CLI session by overriding the sessionId
+        return chatMain(
+          { ...request, sessionId: targetSessionId },
+          {
+            ...options,
+            source: {
+              ...source,
+              // Mark this as remote-controlled so downstream logic can adjust
+              // (e.g., tool registration enables local_* and computer-use tools,
+              // L2 approval routing back to IM instead of CLI prompt)
+              remoteIm: true,
+              remoteAdapter: source.adapter,
+              remoteThreadId: source.threadId,
+            } as ChatSource,
+          },
+        );
+      }
+
+      chatMainLogger.warn('chatMain:cli_offline', {
+        imThread: source.threadId,
+        targetSession: targetSessionId,
+      });
+      // CLI is offline — fully detach (KV + DB) and continue with normal IM session
+      const { clearImAttachment } = await import('@/lib/cli/remote-control');
+      await clearImAttachment(source.adapter, source.threadId);
+      const { db } = await import('@/lib/core/db');
+      const { sessions } = await import('@/lib/core/db/schema');
+      const { eq } = await import('drizzle-orm');
+      await db
+        .update(sessions)
+        .set({ remoteControlNodeId: null })
+        .where(eq(sessions.id, targetSessionId));
+    }
+  }
 
   const envelope = parseChatInputEnvelope({
     sessionId: request.sessionId,
@@ -1509,7 +1591,7 @@ export async function chatMain(
     if (command.text === INIT_AGENTS_MD_MARKER) {
       chatMainLogger.info('chatMain:init_agents_md_workflow');
       return runInitAgentsMdWorkflow({
-        sessionId: command.sessionId,
+        sessionId: command.sessionId ?? 'none',
         source: envelope.source,
         currentSession,
       });
@@ -1519,7 +1601,7 @@ export async function chatMain(
     return {
       kind: 'command',
       result: {
-        sessionId: command.sessionId,
+        sessionId: command.sessionId ?? 'none',
         text: command.text,
         runId: command.runId ?? null,
       },

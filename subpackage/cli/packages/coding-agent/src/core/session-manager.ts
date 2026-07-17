@@ -845,7 +845,7 @@ export class SessionManager {
     newSessionOptions?: NewSessionOptions,
   ) {
     this.cwd = resolvePath(cwd);
-    // Session files go to the OS tmpdir, not ~/.agentboster/. They are
+    // Session files go to the OS tmpdir, not ~/.config/agentboster-cli/. They are
     // ephemeral working copies — the Web backend owns durable state.
     // registerTempSessionCleanup() deletes them on process exit.
     this.sessionDir = sessionDir ?? getTmpSessionDir();
