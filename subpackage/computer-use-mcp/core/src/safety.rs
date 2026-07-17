@@ -53,6 +53,21 @@ fn terminal_window_ids_macos() -> Vec<WindowId> {
         "com.mitchellh.ghostty",
     ];
 
+    let terminal_owner_names = [
+        "terminal",
+        "iterm",
+        "alacritty",
+        "wezterm",
+        "warp",
+        "hyper",
+        "kitty",
+        "ghostty",
+        "rio",
+        "tabby",
+        "contour",
+        "foot",
+    ];
+
     let mut window_ids = Vec::new();
 
     unsafe {
@@ -74,12 +89,12 @@ fn terminal_window_ids_macos() -> Vec<WindowId> {
                     let owner_name_cf: CFString = CFType::wrap_under_get_rule(*owner_name as _);
                     let owner_str = owner_name_cf.to_string();
 
-                    let is_terminal = terminal_bundle_ids.iter().any(|bundle_id| {
-                        owner_str.contains(bundle_id)
-                            || owner_str.to_lowercase().contains("terminal")
-                            || owner_str.to_lowercase().contains("iterm")
-                            || owner_str.to_lowercase().contains("alacritty")
-                    });
+                    let is_terminal = terminal_bundle_ids
+                        .iter()
+                        .any(|bundle_id| owner_str.contains(bundle_id))
+                        || terminal_owner_names
+                            .iter()
+                            .any(|name| owner_str.to_lowercase().contains(name));
 
                     if is_terminal {
                         let id_key = CFString::from_static_string("kCGWindowNumber");

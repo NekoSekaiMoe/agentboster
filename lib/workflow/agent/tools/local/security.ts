@@ -240,16 +240,24 @@ async function waitForL2Decision(
     const decision = await kvModule.get(`l2-decision:${decisionId}`);
 
     if (decision) {
-      const parsed =
-        typeof decision === 'string' ? JSON.parse(decision) : decision;
-
-      if (parsed.approved === true) {
-        await kvModule.del(`l2-decision:${decisionId}`);
-        return 'approved';
-      }
-      if (parsed.approved === false) {
+      let parsed: unknown;
+      try {
+        parsed =
+          typeof decision === 'string' ? JSON.parse(decision) : decision;
+      } catch {
         await kvModule.del(`l2-decision:${decisionId}`);
         return 'rejected';
+      }
+
+      if (parsed && typeof parsed === 'object' && 'approved' in parsed) {
+        if ((parsed as { approved: boolean }).approved === true) {
+          await kvModule.del(`l2-decision:${decisionId}`);
+          return 'approved';
+        }
+        if ((parsed as { approved: boolean }).approved === false) {
+          await kvModule.del(`l2-decision:${decisionId}`);
+          return 'rejected';
+        }
       }
     }
 

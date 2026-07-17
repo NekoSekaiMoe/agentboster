@@ -1510,8 +1510,8 @@ export async function chatMain(
 
   // Remote control routing: if this is an IM message and the IM thread is
   // attached to a CLI session, route the message to that CLI session instead
-  // of the IM session.
-  if (source.type === 'im') {
+  // of the IM session. Skip if already routed (remoteIm) to prevent recursion.
+  if (source.type === 'im' && !source.remoteIm) {
     const { getAttachedSessionId, isCliOnlineForSession } = await import(
       '@/lib/cli/remote-control'
     );
@@ -1550,9 +1550,13 @@ export async function chatMain(
         imThread: source.threadId,
         targetSession: targetSessionId,
       });
-      // CLI is offline — detach and continue with normal IM session
+      // CLI is offline — fully detach (KV + DB) and continue with normal IM session
       const { clearImAttachment } = await import('@/lib/cli/remote-control');
       await clearImAttachment(source.adapter, source.threadId);
+      const { db } = await import('@/lib/core/db');
+      const { sessions } = await import('@/lib/core/db/schema');
+      const { eq } = await import('drizzle-orm');
+      await db.update(sessions).set({ remoteControlNodeId: null }).where(eq(sessions.id, targetSessionId));
     }
   }
 

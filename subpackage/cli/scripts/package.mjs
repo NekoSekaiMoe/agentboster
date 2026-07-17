@@ -120,7 +120,8 @@ function shellQuote(s) {
  */
 function packageComputerUseMcp(destDir) {
 	const binaryName = process.platform === 'win32' ? 'computer-use-mcp.exe' : 'computer-use-mcp';
-	const mcpCrateDir = resolve(root, '..', 'computer-use-mcp', 'server');
+	const mcpWorkspaceDir = resolve(root, '..', 'computer-use-mcp');
+	const mcpCrateDir = join(mcpWorkspaceDir, 'server');
 
 	if (!existsSync(mcpCrateDir)) {
 		console.warn(`⚠️  computer-use-mcp crate not found at ${mcpCrateDir}, skipping`);
@@ -129,10 +130,11 @@ function packageComputerUseMcp(destDir) {
 	}
 
 	// Try to find pre-built binary (CI or local cargo build)
+	// Cargo puts artifacts in the workspace-level target/, not server/target/
 	const rustTarget = getRustTarget();
 	const candidates = [
-		rustTarget ? join(mcpCrateDir, 'target', rustTarget, 'release', binaryName) : null,
-		join(mcpCrateDir, 'target', 'release', binaryName),
+		rustTarget ? join(mcpWorkspaceDir, 'target', rustTarget, 'release', binaryName) : null,
+		join(mcpWorkspaceDir, 'target', 'release', binaryName),
 	].filter(Boolean);
 
 	let sourcePath = null;
@@ -151,7 +153,7 @@ function packageComputerUseMcp(destDir) {
 				cwd: mcpCrateDir,
 				stdio: 'inherit',
 			});
-			sourcePath = join(mcpCrateDir, 'target', rustTarget, 'release', binaryName);
+			sourcePath = join(mcpWorkspaceDir, 'target', rustTarget, 'release', binaryName);
 		} catch (err) {
 			console.warn(`⚠️  Failed to build computer-use-mcp: ${err.message}`);
 			console.warn('    CLI will work without computer-use capabilities.');

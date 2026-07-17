@@ -354,7 +354,7 @@ export type IMChatSource = {
   /**
    * IM adapter name when remoteIm is true (e.g., 'telegram', 'discord').
    */
-  remoteAdapter?: string;
+  remoteAdapter?: AdapterName;
   /**
    * IM thread ID when remoteIm is true.
    */
@@ -420,7 +420,7 @@ const imChatSourceSchema = z.object({
   userName: z.string().nullable().optional(),
   locale: botLocaleSchema.optional(),
   remoteIm: z.boolean().optional(),
-  remoteAdapter: z.string().optional(),
+  remoteAdapter: adapterNameSchema.optional(),
   remoteThreadId: z.string().optional(),
 });
 

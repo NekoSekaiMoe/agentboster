@@ -1,4 +1,5 @@
 use crate::coord::CoordMapper;
+use crate::safety::WindowId;
 use enigo::{Coordinate, Enigo, Keyboard, Mouse, Settings};
 
 pub struct InputController {
@@ -11,6 +12,16 @@ impl InputController {
         Ok(Self {
             enigo: Enigo::new(&Settings::default()).map_err(|e| e.to_string())?,
             coord_mapper: CoordMapper::new(scale_factor),
+        })
+    }
+
+    pub fn new_with_origin(
+        scale_factor: f64,
+        origin: (i32, i32),
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self {
+            enigo: Enigo::new(&Settings::default()).map_err(|e| e.to_string())?,
+            coord_mapper: CoordMapper::new_with_origin(scale_factor, origin),
         })
     }
 
@@ -154,4 +165,65 @@ pub fn parse_key(s: &str) -> Result<enigo::Key, Box<dyn std::error::Error>> {
             }
         }
     })
+}
+
+pub fn get_foreground_window_id() -> Option<WindowId> {
+    #[cfg(target_os = "macos")]
+    {
+        use core_foundation::array::CFArray;
+        use core_foundation::base::{CFType, TCFType};
+        use core_foundation::dictionary::CFDictionary;
+        use core_foundation::number::CFNumber;
+        use core_foundation::string::CFString;
+        use core_graphics::window::{kCGNullWindowID, kCGWindowListOptionOnScreenOnly};
+
+        unsafe {
+            let window_list = core_graphics::window::CGWindowListCopyWindowInfo(
+                kCGWindowListOptionOnScreenOnly,
+                kCGNullWindowID,
+            );
+            if window_list.is_null() {
+                return None;
+            }
+            let windows: CFArray<CFDictionary> = CFArray::wrap_under_create_rule(window_list as _);
+            let layer_key = CFString::from_static_string("kCGWindowLayer");
+            let id_key = CFString::from_static_string("kCGWindowNumber");
+            for i in 0..windows.len() {
+                if let Some(dict) = windows.get(i) {
+                    if let Some(layer_val) = dict.find(&layer_key as *const _ as *const _) {
+                        let layer: CFNumber = CFType::wrap_under_get_rule(*layer_val as _);
+                        if layer.to_i32() == Some(0) {
+                            if let Some(id_val) = dict.find(&id_key as *const _ as *const _) {
+                                let id: CFNumber = CFType::wrap_under_get_rule(*id_val as _);
+                                return id.to_i64().map(|v| v as WindowId);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        unsafe {
+            let hwnd = winapi::um::winuser::GetForegroundWindow();
+            if hwnd.is_null() {
+                None
+            } else {
+                Some(hwnd as WindowId)
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        None
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        None
+    }
 }

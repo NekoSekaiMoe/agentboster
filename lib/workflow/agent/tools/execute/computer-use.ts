@@ -98,12 +98,14 @@ export default defineBuildInTool({
     if (!sessionId || !runId) return null;
 
     // Only register when CLI is online and has display capabilities
+    let hasAccessibility = false;
     try {
       const { getCliCapabilities } = await import('@/lib/cli/remote-control');
       const caps = await getCliCapabilities(sessionId);
       if (!caps?.online || !caps.capabilities.hasDisplay) {
         return null;
       }
+      hasAccessibility = caps.tools.includes('mouse_move');
     } catch {
       return null;
     }
@@ -117,7 +119,7 @@ export default defineBuildInTool({
     const sid = sessionId;
     const rid = runId;
 
-    return {
+    const tools: Record<string, any> = {
       screenshot: tool({
         description:
           'Capture the screen and return a scaled PNG image. Terminal windows are automatically excluded. All coordinates in the image match the scaled resolution.',
@@ -137,153 +139,159 @@ export default defineBuildInTool({
           );
         },
       }),
-
-      mouse_move: tool({
-        description:
-          'Move the mouse cursor to the specified coordinates. Coordinates are in the screenshot coordinate space (scaled resolution).',
-        inputSchema: z.object({
-          x: z.number().describe('X coordinate (screenshot scale)'),
-          y: z.number().describe('Y coordinate (screenshot scale)'),
-        }),
-        execute: async (input: any, { toolCallId }: any) => {
-          return await dispatchToCliMcp(
-            sid,
-            rid,
-            toolCallId,
-            'mouse_move',
-            input,
-          );
-        },
-      }),
-
-      mouse_click: tool({
-        description:
-          'Click at the specified coordinates. Coordinates are in the screenshot coordinate space.',
-        inputSchema: z.object({
-          x: z.number().describe('X coordinate (screenshot scale)'),
-          y: z.number().describe('Y coordinate (screenshot scale)'),
-          button: z
-            .enum(['left', 'right', 'middle'])
-            .optional()
-            .default('left')
-            .describe('Mouse button to click'),
-          click_type: z
-            .enum(['single', 'double'])
-            .optional()
-            .default('single')
-            .describe('Single or double click'),
-        }),
-        execute: async (input: any, { toolCallId }: any) => {
-          return await dispatchToCliMcp(
-            sid,
-            rid,
-            toolCallId,
-            'mouse_click',
-            input,
-          );
-        },
-      }),
-
-      mouse_drag: tool({
-        description:
-          'Drag the mouse from one point to another. Coordinates are in the screenshot coordinate space.',
-        inputSchema: z.object({
-          from_x: z.number().describe('Start X coordinate'),
-          from_y: z.number().describe('Start Y coordinate'),
-          to_x: z.number().describe('End X coordinate'),
-          to_y: z.number().describe('End Y coordinate'),
-        }),
-        execute: async (input: any, { toolCallId }: any) => {
-          return await dispatchToCliMcp(
-            sid,
-            rid,
-            toolCallId,
-            'mouse_drag',
-            input,
-          );
-        },
-      }),
-
-      key_event: tool({
-        description:
-          'Press a key or key combination. Use for shortcuts (e.g., "ctrl+s", "alt+tab") or special keys (e.g., "enter", "escape", "tab").',
-        inputSchema: z.object({
-          key: z
-            .string()
-            .describe(
-              'Key name (e.g., "enter", "tab", "a", "F5", "escape", "backspace")',
-            ),
-          modifiers: z
-            .array(z.string())
-            .optional()
-            .describe('Modifier keys: "ctrl", "alt", "shift", "meta"'),
-        }),
-        execute: async (input: any, { toolCallId }: any) => {
-          return await dispatchToCliMcp(
-            sid,
-            rid,
-            toolCallId,
-            'key_event',
-            input,
-          );
-        },
-      }),
-
-      type_text: tool({
-        description:
-          'Type a string of text as keyboard input. Use for entering text into focused input fields.',
-        inputSchema: z.object({
-          text: z.string().describe('Text to type'),
-        }),
-        execute: async (input: any, { toolCallId }: any) => {
-          return await dispatchToCliMcp(
-            sid,
-            rid,
-            toolCallId,
-            'type_text',
-            input,
-          );
-        },
-      }),
-
-      get_accessibility_tree: tool({
-        description:
-          'Get the UI accessibility tree. Returns a structured representation of UI elements with their roles, names, values, and bounding boxes. Useful for finding interactive elements programmatically.',
-        inputSchema: z.object({
-          app_name: z
-            .string()
-            .optional()
-            .describe('Filter to a specific application name'),
-          max_depth: z
-            .number()
-            .optional()
-            .describe('Maximum tree depth to traverse (default: unlimited)'),
-        }),
-        execute: async (input: any, { toolCallId }: any) => {
-          return await dispatchToCliMcp(
-            sid,
-            rid,
-            toolCallId,
-            'get_accessibility_tree',
-            input,
-          );
-        },
-      }),
-
-      get_focused_element: tool({
-        description:
-          'Get the currently focused UI element. Returns the element that would receive keyboard input.',
-        inputSchema: z.object({}),
-        execute: async (input: any, { toolCallId }: any) => {
-          return await dispatchToCliMcp(
-            sid,
-            rid,
-            toolCallId,
-            'get_focused_element',
-            input,
-          );
-        },
-      }),
     };
+
+    if (!hasAccessibility) {
+      return tools;
+    }
+
+    tools.mouse_move = tool({
+      description:
+        'Move the mouse cursor to the specified coordinates. Coordinates are in the screenshot coordinate space (scaled resolution).',
+      inputSchema: z.object({
+        x: z.number().describe('X coordinate (screenshot scale)'),
+        y: z.number().describe('Y coordinate (screenshot scale)'),
+      }),
+      execute: async (input: any, { toolCallId }: any) => {
+        return await dispatchToCliMcp(
+          sid,
+          rid,
+          toolCallId,
+          'mouse_move',
+          input,
+        );
+      },
+    });
+
+    tools.mouse_click = tool({
+      description:
+        'Click at the specified coordinates. Coordinates are in the screenshot coordinate space.',
+      inputSchema: z.object({
+        x: z.number().describe('X coordinate (screenshot scale)'),
+        y: z.number().describe('Y coordinate (screenshot scale)'),
+        button: z
+          .enum(['left', 'right', 'middle'])
+          .optional()
+          .default('left')
+          .describe('Mouse button to click'),
+        click_type: z
+          .enum(['single', 'double'])
+          .optional()
+          .default('single')
+          .describe('Single or double click'),
+      }),
+      execute: async (input: any, { toolCallId }: any) => {
+        return await dispatchToCliMcp(
+          sid,
+          rid,
+          toolCallId,
+          'mouse_click',
+          input,
+        );
+      },
+    });
+
+    tools.mouse_drag = tool({
+      description:
+        'Drag the mouse from one point to another. Coordinates are in the screenshot coordinate space.',
+      inputSchema: z.object({
+        from_x: z.number().describe('Start X coordinate'),
+        from_y: z.number().describe('Start Y coordinate'),
+        to_x: z.number().describe('End X coordinate'),
+        to_y: z.number().describe('End Y coordinate'),
+      }),
+      execute: async (input: any, { toolCallId }: any) => {
+        return await dispatchToCliMcp(
+          sid,
+          rid,
+          toolCallId,
+          'mouse_drag',
+          input,
+        );
+      },
+    });
+
+    tools.key_event = tool({
+      description:
+        'Press a key or key combination. Use for shortcuts (e.g., "ctrl+s", "alt+tab") or special keys (e.g., "enter", "escape", "tab").',
+      inputSchema: z.object({
+        key: z
+          .string()
+          .describe(
+            'Key name (e.g., "enter", "tab", "a", "F5", "escape", "backspace")',
+          ),
+        modifiers: z
+          .array(z.string())
+          .optional()
+          .describe('Modifier keys: "ctrl", "alt", "shift", "meta"'),
+      }),
+      execute: async (input: any, { toolCallId }: any) => {
+        return await dispatchToCliMcp(
+          sid,
+          rid,
+          toolCallId,
+          'key_event',
+          input,
+        );
+      },
+    });
+
+    tools.type_text = tool({
+      description:
+        'Type a string of text as keyboard input. Use for entering text into focused input fields.',
+      inputSchema: z.object({
+        text: z.string().describe('Text to type'),
+      }),
+      execute: async (input: any, { toolCallId }: any) => {
+        return await dispatchToCliMcp(
+          sid,
+          rid,
+          toolCallId,
+          'type_text',
+          input,
+        );
+      },
+    });
+
+    tools.get_accessibility_tree = tool({
+      description:
+        'Get the UI accessibility tree. Returns a structured representation of UI elements with their roles, names, values, and bounding boxes. Useful for finding interactive elements programmatically.',
+      inputSchema: z.object({
+        app_name: z
+          .string()
+          .optional()
+          .describe('Filter to a specific application name'),
+        max_depth: z
+          .number()
+          .optional()
+          .describe('Maximum tree depth to traverse (default: unlimited)'),
+      }),
+      execute: async (input: any, { toolCallId }: any) => {
+        return await dispatchToCliMcp(
+          sid,
+          rid,
+          toolCallId,
+          'get_accessibility_tree',
+          input,
+        );
+      },
+    });
+
+    tools.get_focused_element = tool({
+      description:
+        'Get the currently focused UI element. Returns the element that would receive keyboard input.',
+      inputSchema: z.object({}),
+      execute: async (input: any, { toolCallId }: any) => {
+        return await dispatchToCliMcp(
+          sid,
+          rid,
+          toolCallId,
+          'get_focused_element',
+          input,
+        );
+      },
+    });
+
+    return tools;
   },
 });

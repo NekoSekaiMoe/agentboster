@@ -106,7 +106,7 @@ export async function runRemoteControlMode(
   );
 
   // Register this CLI as online
-  await registerCliNode(backendUrl, auth.token, sessionId);
+  await registerCliNode(backendUrl, auth.token, sessionId, availableTools, capabilities);
 
   // Connect to SSE stream
   const sseUrl = `${backendUrl}/api/cli/session-events/${sessionId}`;
@@ -218,6 +218,8 @@ async function registerCliNode(
   backendUrl: string,
   token: string,
   sessionId: string,
+  tools: string[],
+  capabilities: ReturnType<typeof detectLocalCapabilities>,
 ): Promise<void> {
   const response = await fetch(
     `${backendUrl}/api/cli/session-events/${sessionId}/register`,
@@ -229,12 +231,12 @@ async function registerCliNode(
       },
       body: JSON.stringify({
         capabilities: {
-          hasDisplay: process.platform !== 'linux' || !!process.env.DISPLAY,
-          platform: process.platform,
-          isAdmin: process.getuid?.() === 0,
-          scaleFactor: 1,
+          hasDisplay: capabilities.hasDisplay,
+          platform: capabilities.platform,
+          isAdmin: capabilities.isAdmin,
+          scaleFactor: capabilities.scaleFactor,
         },
-        tools: ['local_read_file', 'local_write_file', 'local_exec', 'local_grep'],
+        tools,
         cwd: process.cwd(),
       }),
     },
@@ -290,7 +292,7 @@ async function postToolResult(
   result: ToolResult,
 ): Promise<void> {
   const response = await fetch(
-    `${backendUrl}/api/ai/${sessionId}/tool-result`,
+    `${backendUrl}/api/cli/tool-result`,
     {
       method: 'POST',
       headers: {
@@ -298,8 +300,11 @@ async function postToolResult(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        sessionId,
         toolCallId,
-        result,
+        ok: result.ok,
+        output: result.output,
+        error: result.error,
       }),
     },
   );
@@ -308,6 +313,7 @@ async function postToolResult(
     logger.warn('Failed to post tool result', {
       status: response.status,
       statusText: response.statusText,
+      toolCallId,
     });
   }
 }

@@ -1,18 +1,35 @@
 pub struct CoordMapper {
     pub scale_factor: f64,
+    pub origin: (i32, i32),
 }
 
 impl CoordMapper {
     pub fn new(scale_factor: f64) -> Self {
-        Self { scale_factor }
+        Self {
+            scale_factor,
+            origin: (0, 0),
+        }
+    }
+
+    pub fn new_with_origin(scale_factor: f64, origin: (i32, i32)) -> Self {
+        Self {
+            scale_factor,
+            origin,
+        }
     }
 
     pub fn to_native(&self, x: f64, y: f64) -> (f64, f64) {
-        (x * self.scale_factor, y * self.scale_factor)
+        (
+            x * self.scale_factor + self.origin.0 as f64,
+            y * self.scale_factor + self.origin.1 as f64,
+        )
     }
 
     pub fn to_scaled(&self, x: f64, y: f64) -> (f64, f64) {
-        (x / self.scale_factor, y / self.scale_factor)
+        (
+            (x - self.origin.0 as f64) / self.scale_factor,
+            (y - self.origin.1 as f64) / self.scale_factor,
+        )
     }
 }
 
@@ -49,5 +66,14 @@ mod tests {
         let mapper = CoordMapper::new(2.5);
         assert_eq!(mapper.to_native(0.0, 0.0), (0.0, 0.0));
         assert_eq!(mapper.to_scaled(0.0, 0.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn with_origin_offset() {
+        let mapper = CoordMapper::new_with_origin(2.0, (1920, 0));
+        assert_eq!(mapper.to_native(50.0, 100.0), (2020.0, 200.0));
+        let (sx, sy) = mapper.to_scaled(2020.0, 200.0);
+        assert!((sx - 50.0).abs() < 1e-10);
+        assert!((sy - 100.0).abs() < 1e-10);
     }
 }

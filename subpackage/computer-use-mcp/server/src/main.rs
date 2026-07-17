@@ -33,19 +33,17 @@ struct JsonRpcError {
 }
 
 /// Server-level settings received from the client during `initialize`.
+#[derive(Default)]
 struct ServerSettings {
     /// When true, terminal windows are NOT masked in screenshots and the model
-    /// can type into terminals freely. When false (default), terminal windows
-    /// are masked and typing is restricted.
+    /// can interact with terminals. When false (default), terminal windows
+    /// are masked and input operations targeting a terminal are rejected.
     allow_terminal_edit: bool,
 }
 
-impl Default for ServerSettings {
-    fn default() -> Self {
-        Self {
-            allow_terminal_edit: true,
-        }
-    }
+struct LastScreenshot {
+    scale_factor: f64,
+    monitor_origin: (i32, i32),
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -72,6 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let capabilities = detect_capabilities();
     let mut settings = ServerSettings::default();
+    let mut last_screenshot: Option<LastScreenshot> = None;
 
     for line in stdin.lock().lines() {
         let line = line?;
@@ -162,7 +161,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })),
                 error: None,
             },
-            "tools/call" => handle_tool_call(id, &request.params, &capabilities, &settings),
+            "tools/call" => handle_tool_call(
+                id,
+                &request.params,
+                &capabilities,
+                &settings,
+                &mut last_screenshot,
+            ),
             _ => JsonRpcResponse {
                 jsonrpc: "2.0".into(),
                 id,
@@ -214,6 +219,7 @@ fn handle_tool_call(
     params: &Value,
     caps: &computer_use_core::capability::Capabilities,
     settings: &ServerSettings,
+    last_screenshot: &mut Option<LastScreenshot>,
 ) -> JsonRpcResponse {
     let tool_name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
@@ -269,25 +275,31 @@ fn handle_tool_call(
                 monitor_index,
                 Some(exclude_terminals),
             ) {
-                Ok(result) => JsonRpcResponse {
-                    jsonrpc: "2.0".into(),
-                    id,
-                    result: Some(json!({
-                        "content": [{
-                            "type": "image",
-                            "data": result.png_base64,
-                            "mimeType": "image/png"
-                        }],
-                        "_meta": {
-                            "nativeSize": result.native_size,
-                            "scaledSize": result.scaled_size,
-                            "scaleFactor": result.scale_factor,
-                            "monitorOrigin": result.monitor_origin,
-                            "monitorIndex": result.monitor_index,
-                        }
-                    })),
-                    error: None,
-                },
+                Ok(result) => {
+                    *last_screenshot = Some(LastScreenshot {
+                        scale_factor: result.scale_factor,
+                        monitor_origin: result.monitor_origin,
+                    });
+                    JsonRpcResponse {
+                        jsonrpc: "2.0".into(),
+                        id,
+                        result: Some(json!({
+                            "content": [{
+                                "type": "image",
+                                "data": result.png_base64,
+                                "mimeType": "image/png"
+                            }],
+                            "_meta": {
+                                "nativeSize": result.native_size,
+                                "scaledSize": result.scaled_size,
+                                "scaleFactor": result.scale_factor,
+                                "monitorOrigin": result.monitor_origin,
+                                "monitorIndex": result.monitor_index,
+                            }
+                        })),
+                        error: None,
+                    }
+                }
                 Err(e) => JsonRpcResponse {
                     jsonrpc: "2.0".into(),
                     id,
@@ -300,7 +312,37 @@ fn handle_tool_call(
             }
         }
         "mouse_move" | "mouse_click" | "mouse_drag" | "type_text" | "key_event" => {
-            let mut ctrl = match computer_use_core::input::InputController::new(caps.scale_factor) {
+            if !settings.allow_terminal_edit {
+                let terminal_ids = computer_use_core::safety::terminal_window_ids();
+                if !terminal_ids.is_empty()
+                    && let Some(fg_id) = computer_use_core::input::get_foreground_window_id()
+                    && terminal_ids.contains(&fg_id)
+                {
+                    return JsonRpcResponse {
+                        jsonrpc: "2.0".into(),
+                        id,
+                        result: None,
+                        error: Some(JsonRpcError {
+                            code: -32000,
+                            message: "Input rejected: foreground window is a terminal. Set allow_terminal_edit=true to allow.".into(),
+                        }),
+                    };
+                }
+            }
+
+            let input_scale = last_screenshot
+                .as_ref()
+                .map(|s| s.scale_factor)
+                .unwrap_or(caps.scale_factor);
+            let input_origin = last_screenshot
+                .as_ref()
+                .map(|s| s.monitor_origin)
+                .unwrap_or((0, 0));
+
+            let mut ctrl = match computer_use_core::input::InputController::new_with_origin(
+                input_scale,
+                input_origin,
+            ) {
                 Ok(c) => c,
                 Err(e) => {
                     return JsonRpcResponse {

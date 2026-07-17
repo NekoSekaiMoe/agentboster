@@ -144,12 +144,27 @@ fn mask_terminal_windows(
                                                 w_num.to_i64(),
                                                 h_num.to_i64(),
                                             ) {
-                                                let rx = (x as i32 - monitor_x).max(0) as u32;
-                                                let ry = (y as i32 - monitor_y).max(0) as u32;
-                                                if rx < frame.width() && ry < frame.height() {
-                                                    draw_black_rect(
-                                                        &mut frame, rx, ry, w as u32, h as u32,
-                                                    );
+                                                // Compute intersection of window rect with current monitor
+                                                let win_left = x as i32;
+                                                let win_top = y as i32;
+                                                let win_right = win_left + w as i32;
+                                                let win_bottom = win_top + h as i32;
+                                                let mon_left = monitor_x;
+                                                let mon_top = monitor_y;
+                                                let mon_right = monitor_x + frame.width() as i32;
+                                                let mon_bottom = monitor_y + frame.height() as i32;
+
+                                                let ix_left = win_left.max(mon_left);
+                                                let iy_top = win_top.max(mon_top);
+                                                let ix_right = win_right.min(mon_right);
+                                                let iy_bottom = win_bottom.min(mon_bottom);
+
+                                                if ix_left < ix_right && iy_top < iy_bottom {
+                                                    let rx = (ix_left - monitor_x) as u32;
+                                                    let ry = (iy_top - monitor_y) as u32;
+                                                    let rw = (ix_right - ix_left) as u32;
+                                                    let rh = (iy_bottom - iy_top) as u32;
+                                                    draw_black_rect(&mut frame, rx, ry, rw, rh);
                                                 }
                                             }
                                         }
@@ -174,11 +189,22 @@ fn mask_terminal_windows(
                 let hwnd = window_id as winapi::shared::windef::HWND;
                 let mut rect: RECT = std::mem::zeroed();
                 if GetWindowRect(hwnd, &mut rect) != 0 {
-                    let rx = (rect.left - monitor_x).max(0) as u32;
-                    let ry = (rect.top - monitor_y).max(0) as u32;
-                    let w = (rect.right - rect.left) as u32;
-                    let h = (rect.bottom - rect.top) as u32;
-                    if rx < frame.width() && ry < frame.height() {
+                    // Compute intersection of window rect with current monitor
+                    let win_right = rect.right;
+                    let win_bottom = rect.bottom;
+                    let mon_right = monitor_x + frame.width() as i32;
+                    let mon_bottom = monitor_y + frame.height() as i32;
+
+                    let ix_left = rect.left.max(monitor_x);
+                    let iy_top = rect.top.max(monitor_y);
+                    let ix_right = win_right.min(mon_right);
+                    let iy_bottom = win_bottom.min(mon_bottom);
+
+                    if ix_left < ix_right && iy_top < iy_bottom {
+                        let rx = (ix_left - monitor_x) as u32;
+                        let ry = (iy_top - monitor_y) as u32;
+                        let w = (ix_right - ix_left) as u32;
+                        let h = (iy_bottom - iy_top) as u32;
                         draw_black_rect(&mut frame, rx, ry, w, h);
                     }
                 }

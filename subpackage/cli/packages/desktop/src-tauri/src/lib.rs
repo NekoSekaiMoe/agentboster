@@ -752,14 +752,17 @@ async fn install_cli(app: AppHandle) -> Result<InstallResult, String> {
     // `agentboster-cli.cmd` shim next to the .cjs so Windows discovery finds
     // an executable that actually runs.
     #[cfg(target_os = "windows")]
-    {
+    let bin_path = {
         let cjs_path = bin_dir.join("agentboster-cli.cjs");
         let cmd_path = bin_dir.join("agentboster-cli.cmd");
+        if !cjs_path.is_file() {
+            return Err(format!("Missing {}", cjs_path.display()));
+        }
         let cmd_body = format!("@echo off\r\nnode \"%~dp0agentboster-cli.cjs\" %*\r\n");
         fs::write(&cmd_path, cmd_body)
             .map_err(|e| format!("Failed to write {}: {}", cmd_path.display(), e))?;
-        let _ = cjs_path; // referenced for clarity
-    }
+        cmd_path
+    };
 
     emit_progress(
         &app,
@@ -1229,11 +1232,12 @@ async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
                     .map_err(|e| format!("Failed to read legacy settings: {}", e))?;
                 let settings: AppSettings = serde_json::from_str(&content)
                     .map_err(|e| format!("Failed to parse legacy settings: {}", e))?;
-                let _ = fs::create_dir_all(&data_dir);
-                let _ = fs::write(
-                    &settings_path,
-                    serde_json::to_string_pretty(&settings).unwrap_or_default(),
-                );
+                fs::create_dir_all(&data_dir)
+                    .map_err(|e| format!("Failed to create settings directory: {}", e))?;
+                let serialized = serde_json::to_string_pretty(&settings)
+                    .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+                fs::write(&settings_path, serialized)
+                    .map_err(|e| format!("Failed to migrate settings: {}", e))?;
                 return Ok(settings);
             }
         }

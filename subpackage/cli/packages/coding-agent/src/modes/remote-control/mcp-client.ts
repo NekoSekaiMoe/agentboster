@@ -4,6 +4,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createLogger } from '../../utils/logger.ts';
 
@@ -116,9 +117,14 @@ export async function startMcpServer(sessionId: string): Promise<void> {
   });
 
   // Initialize the MCP server
-  await callMcpMethod('initialize', {
-    protocolVersion: '2024-11-05',
-  });
+  try {
+    await callMcpMethod('initialize', {
+      protocolVersion: '2024-11-05',
+    });
+  } catch (error) {
+    await stopMcpServer();
+    throw error;
+  }
 
   logger.info('MCP server started');
 }
@@ -206,7 +212,6 @@ export function isMcpServerRunning(): boolean {
 function findMcpBinary(): string | null {
   // Desktop passes the MCP binary path via env
   if (process.env.COMPUTER_USE_MCP_PATH) {
-    const { existsSync } = require('node:fs');
     if (existsSync(process.env.COMPUTER_USE_MCP_PATH)) {
       return process.env.COMPUTER_USE_MCP_PATH;
     }
@@ -216,12 +221,8 @@ function findMcpBinary(): string | null {
     // Production: same directory as the CLI binary
     join(process.execPath, '..', 'computer-use-mcp'),
     join(process.execPath, '..', 'computer-use-mcp.exe'),
-    // Development: relative to project root
-    join(process.cwd(), 'subpackage', 'computer-use-mcp', 'target', 'debug', 'computer-use-mcp'),
-    join(process.cwd(), 'subpackage', 'computer-use-mcp', 'target', 'release', 'computer-use-mcp'),
   ];
 
-  const { existsSync } = require('node:fs');
   for (const path of possiblePaths) {
     if (existsSync(path)) {
       return path;

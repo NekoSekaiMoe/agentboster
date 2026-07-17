@@ -5,12 +5,13 @@
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createLogger } from '../../utils/logger.ts';
 import { callMcpMethod, isMcpServerRunning } from './mcp-client.ts';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const logger = createLogger('tool-executor');
 
 interface LocalReadFileInput {
@@ -43,7 +44,7 @@ export async function executeLocalTool(
   toolName: string,
   toolInput: unknown,
 ): Promise<unknown> {
-  logger.info('Executing tool', { toolName, toolInput });
+  logger.info('Executing tool', { toolName });
 
   switch (toolName) {
     case 'local_read_file':
@@ -123,7 +124,7 @@ async function executeLocalGrep(input: LocalGrepInput): Promise<string> {
     args.push('.');
   }
 
-  const { stdout, stderr } = await execAsync(args.join(' '), {
+  const { stdout, stderr } = await execFileAsync('rg', args.slice(1), {
     cwd: input.cwd || process.cwd(),
     maxBuffer: 10 * 1024 * 1024,
     timeout: 60000,
@@ -147,7 +148,7 @@ async function executeComputerUseTool(
     throw new Error('MCP server is not running. Computer-use tools are unavailable.');
   }
 
-  logger.info('Forwarding to MCP', { toolName, toolInput });
+  logger.info('Forwarding to MCP', { toolName });
 
   // Call the MCP server via JSON-RPC
   const result = await callMcpMethod('tools/call', {
