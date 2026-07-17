@@ -20,6 +20,22 @@ export const skillFrontmatterSchema = z
   .default({});
 export type SkillFrontmatter = z.infer<typeof skillFrontmatterSchema>;
 
+/**
+ * Runtimes a skill can declare in its SKILL.md frontmatter via
+ * `runtime: <value>`. When declared, `runSkill` will execute the skill's
+ * `entrypoint` on the active execution surface (Vercel Sandbox / agentd /
+ * CLI host, depending on where the conversation originated). When absent,
+ * all non-md files in the skill are treated as read-only reference
+ * material and `runSkill` refuses to dispatch — closing the gray path
+ * where the model could otherwise try to execute them via an unrelated
+ * shell tool without knowing where the file actually lives.
+ */
+export const skillRuntimeSchema = z.enum(['python', 'bash']);
+export type SkillRuntime = z.infer<typeof skillRuntimeSchema>;
+
+export const SKILL_RUNTIMES: readonly SkillRuntime[] =
+  skillRuntimeSchema.options;
+
 // --- Skill detail (directory-level model) ---
 
 export const skillDetailSchema = z.object({
@@ -92,6 +108,48 @@ export function getSkillEntrypointPath(
   }
 
   return detail.files[0]?.path ?? null;
+}
+
+/**
+ * Resolve the declared runtime of a skill from its SKILL.md frontmatter.
+ *
+ * Returns the runtime literal only when the author has explicitly opted
+ * in via `runtime: <value>`. Returns `null` otherwise — in which case
+ * `runSkill` refuses to dispatch and callers must treat all non-md files
+ * as read-only reference material. Unknown string values coerce to
+ * `null` rather than throwing, so a typo in a third-party SKILL.md
+ * degrades to "read-only" instead of breaking the skill loader.
+ */
+export function getSkillRuntime(
+  detail: Pick<SkillDetail, 'frontmatter'>,
+): SkillRuntime | null {
+  const raw = detail.frontmatter.runtime;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().toLowerCase();
+  const parsed = skillRuntimeSchema.safeParse(trimmed);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Build the shell command a sandbox/host should run to launch the skill's
+ * entrypoint for the given runtime. `entrypointPath` is always relative
+ * to the skill's own directory (i.e. the path the caller passed to
+ * `writeFile` / `local_write_file` when materializing the skill). The
+ * caller is responsible for `cd`-ing into that directory before running
+ * this command, so that relative imports / file reads inside the script
+ * resolve correctly.
+ */
+export function buildSkillExecCommand(
+  runtime: SkillRuntime,
+  entrypointPath: string,
+): string {
+  const quoted = `'${entrypointPath.replace(/'/g, `'\\''`)}'`;
+  switch (runtime) {
+    case 'python':
+      return `python3 ${quoted}`;
+    case 'bash':
+      return `bash ${quoted}`;
+  }
 }
 
 // --- Skill meta (lightweight list projection) ---
