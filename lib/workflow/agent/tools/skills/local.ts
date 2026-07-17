@@ -40,6 +40,77 @@ const RUN_SKILL_MAX_FILES = 500;
  */
 const RUN_SKILL_EXEC_TIMEOUT_SECONDS = 120;
 
+/**
+ * POSIX single-quote a string so it is safe to interpolate into a shell
+ * command. Used for the skill directory (sourced from an external skill
+ * name) before it is placed into `cd <dir> && ...`. Centralized here
+ * rather than reusing buildSkillExecCommand because the entrypoint path
+ * already goes through that helper; only the directory does not.
+ */
+function shellQuotePOSIX(input: string): string {
+  return `'${input.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * A skill name is safe to splice into a sandbox-relative path only when
+ * it is a single path segment with no separators or traversal. This
+ * rejects `\`, `/`, `..`, leading dots, control chars, and shell
+ * metacharacters that could otherwise rewrite the skill directory
+ * (`skills/${name}`) into an arbitrary workspace or absolute path.
+ */
+function assertSafeSkillName(name: string): void {
+  // A single path segment: no separators of any kind. We also reject any
+  // character with code <= 0x20 (control chars + space) without spelling
+  // them out in the regex literal — Biome flags explicit control chars in
+  // regexes, so we test the char code instead.
+  if (/[\\]/.test(name) || name.includes('/')) {
+    throw new Error(`Skill name "${name}" contains invalid characters`);
+  }
+  for (let i = 0; i < name.length; i++) {
+    if (name.charCodeAt(i) <= 0x20) {
+      throw new Error(`Skill name "${name}" contains invalid characters`);
+    }
+  }
+  // No traversal components.
+  if (name === '.' || name === '..' || name.includes('..')) {
+    throw new Error(`Skill name "${name}" must not be a path`);
+  }
+  // Reject anything that looks like shell metacharacters / absolute paths.
+  if (name.startsWith('.') || name.startsWith('/')) {
+    throw new Error(`Skill name "${name}" must not start with a dot or slash`);
+  }
+}
+
+/**
+ * Normalize a file path stored in Blob so it is a *relative* path inside
+ * the skill directory and cannot escape it. Rejects:
+ *   - absolute paths (`/etc/passwd`, `C:\...` after backslash stripping)
+ *   - any segment equal to `..` (parent traversal)
+ *   - empty / whitespace-only paths
+ * Leading slashes are stripped defensively, but that alone is not enough
+ * — `../` segments must also be rejected because the agentd `write` tool
+ * resolves paths against the sandbox workspace root, so `skills/x/../../y`
+ * would land outside the skill dir.
+ */
+function normalizeSkillRelativePath(rawPath: string): string {
+  // Strip Windows backslashes and leading slashes defensively.
+  const cleaned = rawPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const segments = cleaned.split('/');
+  for (const seg of segments) {
+    if (seg === '..') {
+      throw new Error(
+        `Skill file path "${rawPath}" contains a parent-traversal segment ("..") and cannot be materialized safely.`,
+      );
+    }
+    if (seg === '') {
+      throw new Error(
+        `Skill file path "${rawPath}" is empty or contains an empty segment.`,
+      );
+    }
+  }
+  return cleaned;
+}
+
 export default defineBuildInTool({
   id: 'skills',
   description: `Manage local skills stored in KV and Blob.`,
@@ -286,10 +357,21 @@ export default defineBuildInTool({
             );
           }
 
-          const entrypoint = getSkillEntrypointPath(detail);
+          // runSkill requires an *explicitly declared* entrypoint in the
+          // frontmatter. We deliberately do NOT use getSkillEntrypointPath()
+          // here, because that helper falls back to `SKILL.md` / first file
+          // when no `entrypoint:` is set — a fallback that would happily
+          // dispatch `python3 SKILL.md` for a skill that only declared
+          // `runtime: python`, violating the tool's strict runtime contract.
+          const frontmatterEntrypoint = detail.frontmatter.entrypoint;
+          const entrypoint =
+            typeof frontmatterEntrypoint === 'string' &&
+            frontmatterEntrypoint.trim()
+              ? frontmatterEntrypoint.trim()
+              : null;
           if (!entrypoint) {
             throw new Error(
-              `Skill "${name}" has no entrypoint to run. Set \`entrypoint\` in the frontmatter.`,
+              `Skill "${name}" does not declare an \`entrypoint\` in its frontmatter. Set \`entrypoint:\` to the file runSkill should launch.`,
             );
           }
 
@@ -310,20 +392,46 @@ export default defineBuildInTool({
             throw new Error(`Skill "${name}" has no files in blob storage`);
           }
 
+          // Re-check the sync limit against the actual Blob contents. The
+          // check above used detail.files.length (KV metadata); when the KV
+          // index and Blob storage have drifted, the live file set can be
+          // larger than what the metadata claims and would silently bypass
+          // the cap. Reject oversized blobs before writing anything.
+          if (files.length > RUN_SKILL_MAX_FILES) {
+            throw new Error(
+              `Skill "${name}" has ${files.length} files in blob storage, exceeding the ${RUN_SKILL_MAX_FILES}-file sync limit for runSkill.`,
+            );
+          }
+
           // Workspace-relative directory the agentd `write` tool targets.
           // The agentd workspace layout always has `skills/` as a writable
           // top-level dir (see subpackage/agentd internal/sandbox/workspace.go).
+          // The skill name is validated as a single safe path segment so it
+          // cannot escape or rewrite the directory.
+          assertSafeSkillName(name);
           const skillDir = `skills/${name}`;
+          // Shell-quoted form, used everywhere skillDir is interpolated into
+          // a command (`cd ${skillDirQuoted} && ...`).
+          const skillDirQuoted = shellQuotePOSIX(skillDir);
 
           // Phase 1 — materialize every file into the sandbox. We deliberately
           // do not skip files based on extension: SKILL.md, requirements.txt,
           // helper scripts, data files — all are needed for the entrypoint to
           // run correctly. The agentd `write` tool creates parent dirs.
+          //
+          // Node pinning: when the caller did not specify a nodeId, the first
+          // successful write pins the node used for *all* subsequent writes
+          // and the final exec. Otherwise each execToolOnAgentd() call would
+          // re-run selectBestNode() and could scatter files across multiple
+          // nodes, leaving the entrypoint's node missing files. We still
+          // honor an explicit caller-provided nodeId throughout.
           const syncErrors: Array<{ path: string; error: string }> = [];
+          let pinnedNodeId = nodeId;
           for (const file of files) {
-            // Defensive: agentd `write` resolves paths against the sandbox
-            // workspace root, so any leading slash would escape skillDir.
-            const relPath = file.path.replace(/^\/+/, '');
+            // Defensive: reject any path that could escape skillDir. Only
+            // stripping leading slashes is not enough — `..` segments can
+            // still write outside skills/<name>/.
+            const relPath = normalizeSkillRelativePath(file.path);
             const writeResult = await execToolOnAgentd(
               sessionId,
               'write',
@@ -331,13 +439,20 @@ export default defineBuildInTool({
                 path: `${skillDir}/${relPath}`,
                 content: file.content,
               },
-              nodeId,
+              pinnedNodeId,
             );
             if (!writeResult.success) {
               syncErrors.push({
                 path: relPath,
                 error: writeResult.error ?? 'unknown write error',
               });
+              continue;
+            }
+            // Pin the node that actually accepted the first successful write.
+            // Subsequent iterations and the final exec will pass this id, so
+            // no further selectBestNode() round-trips happen.
+            if (!pinnedNodeId && writeResult.node?.id) {
+              pinnedNodeId = writeResult.node.id;
             }
           }
 
@@ -355,16 +470,16 @@ export default defineBuildInTool({
           // Phase 2 — execute the entrypoint from inside skillDir so that
           // `import` / relative paths Just Work. We pass the runtime-derived
           // command through buildSkillExecCommand to keep quoting centralized
-          // (types/skills), then append user-supplied args. Args are shell-
-          // quoted inline; we don't pull in a dedicated quoter for this.
+          // (types/skills), then append user-supplied args. Args and skillDir
+          // are POSIX-quoted to neutralize shell metacharacters.
           const baseCommand = buildSkillExecCommand(runtime, entrypoint);
           const argString = (args ?? [])
             .map((a) => `'${a.replace(/'/g, `'\\''`)}'`)
             .join(' ');
           const fullCommand =
             argString.length > 0
-              ? `cd ${skillDir} && ${baseCommand} ${argString}`
-              : `cd ${skillDir} && ${baseCommand}`;
+              ? `cd ${skillDirQuoted} && ${baseCommand} ${argString}`
+              : `cd ${skillDirQuoted} && ${baseCommand}`;
 
           const execResult = await execToolOnAgentd(
             sessionId,
@@ -374,7 +489,7 @@ export default defineBuildInTool({
               timeout: RUN_SKILL_EXEC_TIMEOUT_SECONDS,
               working_dir: '.',
             },
-            nodeId,
+            pinnedNodeId,
           );
 
           if (!execResult.success) {
