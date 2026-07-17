@@ -32,9 +32,23 @@ struct JsonRpcError {
     message: String,
 }
 
+/// Server-level settings received from the client during `initialize`.
+struct ServerSettings {
+    /// When true, terminal windows are NOT masked in screenshots and the model
+    /// can type into terminals freely. When false (default), terminal windows
+    /// are masked and typing is restricted.
+    allow_terminal_edit: bool,
+}
+
+impl Default for ServerSettings {
+    fn default() -> Self {
+        Self {
+            allow_terminal_edit: true,
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Acquire the computer-use lock before starting
-    // Lock lifetime = process lifetime, released on exit
     let config_dir = std::env::var("CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
@@ -57,6 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stdout = std::io::stdout();
 
     let capabilities = detect_capabilities();
+    let mut settings = ServerSettings::default();
 
     for line in stdin.lock().lines() {
         let line = line?;
@@ -81,7 +96,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        // JSON-RPC notifications have no id — don't send a response
         if request.id.is_none() {
             continue;
         }
@@ -89,6 +103,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let response = match request.method.as_str() {
             "initialize" => {
+                // Read allow_terminal_edit from client params if provided
+                if let Some(val) = request
+                    .params
+                    .get("settings")
+                    .and_then(|s| s.get("allow_terminal_edit"))
+                    .and_then(|v| v.as_bool())
+                {
+                    settings.allow_terminal_edit = val;
+                }
+
                 let supported = ["2024-11-05"];
                 let client_version = request
                     .params
@@ -122,6 +146,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "serverInfo": {
                             "name": "computer-use-mcp",
                             "version": env!("CARGO_PKG_VERSION"),
+                        },
+                        "settings": {
+                            "allow_terminal_edit": settings.allow_terminal_edit,
                         }
                     })),
                     error: None,
@@ -135,7 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })),
                 error: None,
             },
-            "tools/call" => handle_tool_call(id, &request.params, &capabilities),
+            "tools/call" => handle_tool_call(id, &request.params, &capabilities, &settings),
             _ => JsonRpcResponse {
                 jsonrpc: "2.0".into(),
                 id,
@@ -186,6 +213,7 @@ fn handle_tool_call(
     id: Value,
     params: &Value,
     caps: &computer_use_core::capability::Capabilities,
+    settings: &ServerSettings,
 ) -> JsonRpcResponse {
     let tool_name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
@@ -235,7 +263,12 @@ fn handle_tool_call(
             } else {
                 None
             };
-            match computer_use_core::screenshot::capture_and_scale(max_width, monitor_index) {
+            let exclude_terminals = !settings.allow_terminal_edit;
+            match computer_use_core::screenshot::capture_and_scale(
+                max_width,
+                monitor_index,
+                Some(exclude_terminals),
+            ) {
                 Ok(result) => JsonRpcResponse {
                     jsonrpc: "2.0".into(),
                     id,

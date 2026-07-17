@@ -47,9 +47,8 @@ pub fn capture_and_scale(
     let mut frame = monitor.capture_image()?;
     let (w, h) = (frame.width(), frame.height());
 
-    // Exclude terminal windows from screenshot for privacy
     if exclude_terminals.unwrap_or(true) {
-        frame = mask_terminal_windows(frame)?;
+        frame = mask_terminal_windows(frame, origin)?;
     }
 
     let (scaled, scaled_size) = if w > max_w {
@@ -77,25 +76,22 @@ pub fn capture_and_scale(
     })
 }
 
-/// Mask terminal windows by drawing black rectangles over them.
 fn mask_terminal_windows(
-    frame: image::RgbaImage,
+    mut frame: image::RgbaImage,
+    monitor_origin: (i32, i32),
 ) -> Result<image::RgbaImage, Box<dyn std::error::Error>> {
     let terminal_ids = terminal_window_ids();
 
-    if terminal_ids.is_empty() {
-        return Ok(frame);
-    }
-
-    // Get window bounds for each terminal window and mask them
     #[cfg(target_os = "macos")]
-    {
+    if !terminal_ids.is_empty() {
         use core_foundation::array::CFArray;
         use core_foundation::base::{CFType, TCFType};
         use core_foundation::dictionary::CFDictionary;
         use core_foundation::number::CFNumber;
         use core_foundation::string::CFString;
         use core_graphics::window::{kCGNullWindowID, kCGWindowListOptionOnScreenOnly};
+
+        let (monitor_x, monitor_y) = monitor_origin;
 
         unsafe {
             let window_list = core_graphics::window::CGWindowListCopyWindowInfo(
@@ -109,13 +105,11 @@ fn mask_terminal_windows(
 
                 for i in 0..windows.len() {
                     if let Some(window_dict) = windows.get(i) {
-                        // Get window ID
                         let id_key = CFString::from_static_string("kCGWindowNumber");
                         if let Some(window_id) = window_dict.find(&id_key as *const _ as *const _) {
                             let id_cf: CFNumber = CFType::wrap_under_get_rule(*window_id as _);
                             if let Some(id) = id_cf.to_i64() {
                                 if terminal_ids.contains(&(id as u64)) {
-                                    // Get window bounds
                                     let bounds_key =
                                         CFString::from_static_string("kCGWindowBounds");
                                     if let Some(bounds_dict) =
@@ -150,11 +144,13 @@ fn mask_terminal_windows(
                                                 w_num.to_i64(),
                                                 h_num.to_i64(),
                                             ) {
-                                                // Draw black rectangle over terminal window
-                                                draw_black_rect(
-                                                    &mut frame, x as u32, y as u32, w as u32,
-                                                    h as u32,
-                                                );
+                                                let rx = (x as i32 - monitor_x).max(0) as u32;
+                                                let ry = (y as i32 - monitor_y).max(0) as u32;
+                                                if rx < frame.width() && ry < frame.height() {
+                                                    draw_black_rect(
+                                                        &mut frame, rx, ry, w as u32, h as u32,
+                                                    );
+                                                }
                                             }
                                         }
                                     }
@@ -168,20 +164,23 @@ fn mask_terminal_windows(
     }
 
     #[cfg(target_os = "windows")]
-    {
+    if !terminal_ids.is_empty() {
         use winapi::shared::windef::RECT;
         use winapi::um::winuser::GetWindowRect;
 
+        let (monitor_x, monitor_y) = monitor_origin;
         for window_id in terminal_ids {
             unsafe {
                 let hwnd = window_id as winapi::shared::windef::HWND;
                 let mut rect: RECT = std::mem::zeroed();
                 if GetWindowRect(hwnd, &mut rect) != 0 {
-                    let x = rect.left as u32;
-                    let y = rect.top as u32;
+                    let rx = (rect.left - monitor_x).max(0) as u32;
+                    let ry = (rect.top - monitor_y).max(0) as u32;
                     let w = (rect.right - rect.left) as u32;
                     let h = (rect.bottom - rect.top) as u32;
-                    draw_black_rect(&mut frame, x, y, w, h);
+                    if rx < frame.width() && ry < frame.height() {
+                        draw_black_rect(&mut frame, rx, ry, w, h);
+                    }
                 }
             }
         }
@@ -189,15 +188,21 @@ fn mask_terminal_windows(
 
     #[cfg(target_os = "linux")]
     {
-        // Linux: window bounds detection is complex due to X11/Wayland differences
-        // For now, skip masking on Linux (terminal_window_ids_linux returns empty vec anyway)
+        // Official Anthropic/claude-code do NOT mask terminal windows on Linux.
+        // Conservative fallback: mask bottom 1/3 of screen where terminals typically sit.
+        // Controlled by the allow_terminal_edit setting — when allow_terminal_edit=false
+        // the caller passes exclude_terminals=true and we reach this code path.
         let _ = terminal_ids;
+        let _ = monitor_origin;
+        let fh = frame.height();
+        let fw = frame.width();
+        let mask_y = (fh * 2) / 3;
+        draw_black_rect(&mut frame, 0, mask_y, fw, fh - mask_y);
     }
 
     Ok(frame)
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn draw_black_rect(frame: &mut image::RgbaImage, x: u32, y: u32, w: u32, h: u32) {
     let (img_w, img_h) = (frame.width(), frame.height());
     let black = image::Rgba([0, 0, 0, 255]);
