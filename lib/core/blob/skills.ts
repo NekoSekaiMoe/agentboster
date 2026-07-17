@@ -1,5 +1,3 @@
-import matter from 'gray-matter';
-import git from 'isomorphic-git';
 import { ofetch } from 'ofetch';
 import { z } from 'zod';
 import { del, getBlob, list, put } from './';
@@ -222,8 +220,18 @@ interface ParsedSkillManifest {
   description: string;
 }
 
-export function parseSkillManifest(markdown: string): ParsedSkillManifest {
+export async function parseSkillManifest(
+  markdown: string,
+): Promise<ParsedSkillManifest> {
   try {
+    // gray-matter is loaded lazily so that this file stays free of
+    // top-level third-party imports that depend on node:* — the
+    // workflow DevKit bundler statically walks any module reached from
+    // a workflow body, and skills.ts is reached via the runSkill tool
+    // (lib/workflow/agent/tools/skills/local.ts). Top-level `import
+    // matter from 'gray-matter'` would trip the workflow-node-module-
+    // error build plugin. Same pattern as nodeFs/nodePath/nodeOs below.
+    const { default: matter } = await import('gray-matter');
     const { data, content } = matter(markdown);
     const fm: SkillFrontmatter =
       data && typeof data === 'object' ? (data as SkillFrontmatter) : {};
@@ -363,6 +371,11 @@ export async function cloneRepoToTmp(gitURL: string): Promise<ClonedRepo> {
   const repoDir = path.join(tempDir, repoName);
 
   try {
+    // isomorphic-git is loaded lazily for the same reason as gray-matter
+    // above: it transitively depends on node:* builtins and would trip
+    // the workflow-node-module-error bundler plugin if imported at the
+    // top of this file.
+    const git = (await import('isomorphic-git')).default;
     await git.clone({
       fs,
       http,
@@ -427,7 +440,8 @@ export async function scanSkillsFromRepo(
     if (!manifestStat?.isFile()) continue;
 
     const manifestContent = await readFile(manifestPath, 'utf8');
-    const { frontmatter, description } = parseSkillManifest(manifestContent);
+    const { frontmatter, description } =
+      await parseSkillManifest(manifestContent);
     const filePaths = await listSkillFilesRecursive(skillDir);
 
     totalFileCount += filePaths.length;
@@ -482,7 +496,8 @@ async function scanRootSkillFromRepo(
   }
 
   const manifestContent = await readFile(manifestPath, 'utf8');
-  const { frontmatter, description } = parseSkillManifest(manifestContent);
+  const { frontmatter, description } =
+    await parseSkillManifest(manifestContent);
   const frontmatterName =
     typeof frontmatter.name === 'string' ? frontmatter.name.trim() : '';
   const filePaths = await listSkillFilesRecursive(repoDir);
@@ -736,7 +751,7 @@ export async function downloadAndSyncSkillFromClawHub(input: {
     const skillMdPath = path.join(tempDir, SKILL_MANIFEST);
     const skillMd = await readFile(skillMdPath, 'utf8').catch(() => '');
     const parsedSkillMd = skillMd
-      ? parseSkillManifest(skillMd)
+      ? await parseSkillManifest(skillMd)
       : { description: '', frontmatter: {} };
     const description =
       parsedSkillMd.description || skillPayload.skill.summary || '';
