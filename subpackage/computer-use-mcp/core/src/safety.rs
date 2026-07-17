@@ -86,7 +86,9 @@ fn terminal_window_ids_macos() -> Vec<WindowId> {
         for i in 0..windows.len() {
             if let Some(window_dict) = windows.get(i) {
                 let owner_key = CFString::from_static_string("kCGWindowOwnerName");
-                if let Some(owner_name) = window_dict.find(owner_key.as_concrete_TypeRef() as *const c_void) {
+                if let Some(owner_name) =
+                    window_dict.find(owner_key.as_concrete_TypeRef() as *const c_void)
+                {
                     let owner_name_cf = CFType::wrap_under_get_rule(*owner_name as _);
                     let owner_str = if let Some(s) = owner_name_cf.downcast::<CFString>() {
                         s.to_string()
@@ -103,7 +105,9 @@ fn terminal_window_ids_macos() -> Vec<WindowId> {
 
                     if is_terminal {
                         let id_key = CFString::from_static_string("kCGWindowNumber");
-                        if let Some(window_id) = window_dict.find(id_key.as_concrete_TypeRef() as *const c_void) {
+                        if let Some(window_id) =
+                            window_dict.find(id_key.as_concrete_TypeRef() as *const c_void)
+                        {
                             let id_cf = CFType::wrap_under_get_rule(*window_id as _);
                             if let Some(id_num) = id_cf.downcast::<CFNumber>() {
                                 if let Some(id) = id_num.to_i64() {

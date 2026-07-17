@@ -155,12 +155,8 @@ mod macos {
         unsafe {
             let system_wide = AXUIElementCreateSystemWide();
             let mut elem: AXUIElementRef = ptr::null_mut();
-            let result = AXUIElementCopyElementAtPosition(
-                system_wide,
-                x as f32,
-                y as f32,
-                &mut elem,
-            );
+            let result =
+                AXUIElementCopyElementAtPosition(system_wide, x as f32, y as f32, &mut elem);
             CFRelease(system_wide as CFTypeRef);
             if result != 0 || elem.is_null() {
                 return Err(format!(

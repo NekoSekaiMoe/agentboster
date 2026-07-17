@@ -191,11 +191,15 @@ pub fn get_foreground_window_id() -> Option<WindowId> {
             let id_key = CFString::from_static_string("kCGWindowNumber");
             for i in 0..windows.len() {
                 if let Some(dict) = windows.get(i) {
-                    if let Some(layer_val) = dict.find(layer_key.as_concrete_TypeRef() as *const c_void) {
+                    if let Some(layer_val) =
+                        dict.find(layer_key.as_concrete_TypeRef() as *const c_void)
+                    {
                         let layer = CFType::wrap_under_get_rule(*layer_val as _);
                         if let Some(layer_num) = layer.downcast::<CFNumber>() {
                             if layer_num.to_i32() == Some(0) {
-                                if let Some(id_val) = dict.find(id_key.as_concrete_TypeRef() as *const c_void) {
+                                if let Some(id_val) =
+                                    dict.find(id_key.as_concrete_TypeRef() as *const c_void)
+                                {
                                     let id_cf = CFType::wrap_under_get_rule(*id_val as _);
                                     if let Some(id_num) = id_cf.downcast::<CFNumber>() {
                                         return id_num.to_i64().map(|v| v as WindowId);

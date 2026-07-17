@@ -107,29 +107,34 @@ fn mask_terminal_windows(
                 for i in 0..windows.len() {
                     if let Some(window_dict) = windows.get(i) {
                         let id_key = CFString::from_static_string("kCGWindowNumber");
-                        if let Some(window_id) = window_dict.find(id_key.as_concrete_TypeRef() as *const c_void) {
+                        if let Some(window_id) =
+                            window_dict.find(id_key.as_concrete_TypeRef() as *const c_void)
+                        {
                             let id_cf = CFType::wrap_under_get_rule(*window_id as _);
-                            let id = id_cf
-                                .downcast::<CFNumber>()
-                                .and_then(|n| n.to_i64());
+                            let id = id_cf.downcast::<CFNumber>().and_then(|n| n.to_i64());
                             if let Some(id) = id {
                                 if terminal_ids.contains(&(id as u64)) {
                                     let bounds_key =
                                         CFString::from_static_string("kCGWindowBounds");
-                                    if let Some(bounds_dict) =
-                                        window_dict.find(bounds_key.as_concrete_TypeRef() as *const c_void)
+                                    if let Some(bounds_dict) = window_dict
+                                        .find(bounds_key.as_concrete_TypeRef() as *const c_void)
                                     {
                                         let bounds_cf =
                                             CFType::wrap_under_get_rule(*bounds_dict as _);
 
-                                        if let Some(bounds_cf) = bounds_cf.downcast::<CFDictionary>() {
+                                        if let Some(bounds_cf) =
+                                            bounds_cf.downcast::<CFDictionary>()
+                                        {
                                             let x_key = CFString::from_static_string("X");
                                             let y_key = CFString::from_static_string("Y");
                                             let w_key = CFString::from_static_string("Width");
                                             let h_key = CFString::from_static_string("Height");
 
                                             let get_i64 = |key: &CFString| -> Option<i64> {
-                                                let val = bounds_cf.find(key.as_concrete_TypeRef() as *const c_void)?;
+                                                let val =
+                                                    bounds_cf
+                                                        .find(key.as_concrete_TypeRef()
+                                                            as *const c_void)?;
                                                 let num = CFType::wrap_under_get_rule(*val as _);
                                                 num.downcast::<CFNumber>()?.to_i64()
                                             };
