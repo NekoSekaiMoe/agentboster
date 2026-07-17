@@ -76,15 +76,16 @@ chmodSync(join(stagingInner, "agentboster-cli"), 0o755);
 // 3) computer-use-mcp binary (same directory)
 packageComputerUseMcp(stagingInner);
 
-// 4) Create the tarball. GNU tar; --owner=0 --group=0 --mtime=@0 for
-//    reproducible output (same inputs → byte-identical archive).
-execSync(
-	`tar -C ${shellQuote(stagingDir)} ` +
-		`--owner=0 --group=0 --mtime=@0 ` +
-		`--format=ustar ` +
-		`-czf ${shellQuote(outPath)} ${shellQuote(dirName)}`,
-	{ stdio: "inherit" },
-);
+// 4) Create the tarball with reproducible metadata.
+//    GNU tar and BSD tar (macOS default /usr/bin/tar) take different
+//    flags for forcing owner/group/mtime. Detect which one is on PATH
+//    and use the matching invocation — otherwise macOS runners fail
+//    with "tar: Option --mtime=@0 is not supported".
+execSync(buildTarCommand({
+	stagingDir,
+	outPath,
+	dirName,
+}), { stdio: "inherit" });
 
 // Cleanup staging.
 rmSync(stagingDir, { recursive: true, force: true });
@@ -112,6 +113,61 @@ function resolveRoot() {
 
 function shellQuote(s) {
 	return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Build a reproducible tar(1) command for the staging directory.
+ *
+ * GNU tar (Linux) and BSD tar (macOS /usr/bin/tar) take incompatible
+ * flags for forcing owner/group/mtime:
+ *   - GNU: `--owner=0 --group=0 --mtime=@0 --format=ustar`
+ *   - BSD: `--uid 0 --gid 0 --mtime 0 --format ustar`
+ *
+ * Detect which binary is on PATH and emit the matching invocation.
+ * Falls back to plain `tar` (no reproducibility flags) if the version
+ * string doesn't match either known pattern, so we always produce a
+ * tarball rather than crash on an unexpected tar implementation.
+ *
+ * Note: GNU tar accepts `--mtime='@0'` (epoch seconds via @ prefix);
+ * BSD tar's `--mtime` takes a literal epoch integer, no @.
+ */
+function buildTarCommand({ stagingDir, outPath, dirName }) {
+	const isGnuTar = (() => {
+		try {
+			const out = execSync("tar --version", { stdio: ["ignore", "pipe", "ignore"] }).toString();
+			return /GNU tar/i.test(out);
+		} catch {
+			return false;
+		}
+	})();
+
+	const args = [
+		"tar",
+		"-C", shellQuote(stagingDir),
+	];
+	if (isGnuTar) {
+		args.push(
+			"--owner=0",
+			"--group=0",
+			"--mtime=@0",
+			"--format=ustar",
+		);
+	} else {
+		// BSD tar (macOS default). `--mtime 0` is the epoch; the @ prefix
+		// is GNU-only and BSD tar rejects it with "Option --mtime=@0 is
+		// not supported". `--format ustar` is BSD's syntax (space, not =).
+		args.push(
+			"--uid", "0",
+			"--gid", "0",
+			"--mtime", "0",
+			"--format", "ustar",
+		);
+	}
+	args.push(
+		"-czf", shellQuote(outPath),
+		shellQuote(dirName),
+	);
+	return args.join(" ");
 }
 
 /**
