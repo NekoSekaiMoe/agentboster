@@ -57,9 +57,13 @@ export async function startMcpServer(sessionId: string): Promise<void> {
   mcpProcess = spawn(mcpBinaryPath, [], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
-      ...process.env,
-      SESSION_ID: sessionId,
-      // CONFIG_DIR is inherited from process.env
+      HOME: process.env.HOME ?? '',
+      PATH: '',
+      DISPLAY: process.env.DISPLAY ?? '',
+      WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY ?? '',
+      XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? '',
+      COMPUTER_USE_SESSION_ID: sessionId,
+      COMPUTER_USE_CONFIG_DIR: process.env.CONFIG_DIR ?? '',
     },
   });
 
@@ -200,8 +204,14 @@ export function isMcpServerRunning(): boolean {
  * Looks in the same directory as the CLI binary.
  */
 function findMcpBinary(): string | null {
-  // When bundled, __dirname is the bundle directory
-  // When in development, it's the source directory
+  // Desktop passes the MCP binary path via env
+  if (process.env.COMPUTER_USE_MCP_PATH) {
+    const { existsSync } = require('node:fs');
+    if (existsSync(process.env.COMPUTER_USE_MCP_PATH)) {
+      return process.env.COMPUTER_USE_MCP_PATH;
+    }
+  }
+
   const possiblePaths = [
     // Production: same directory as the CLI binary
     join(process.execPath, '..', 'computer-use-mcp'),

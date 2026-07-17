@@ -106,6 +106,49 @@ fn find_sidecar_in_dir(dir: &Path, expected_name: &str) -> Option<PathBuf> {
     None
 }
 
+fn sidecar_candidate_dirs(app: &AppHandle) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        dirs.push(resource_dir.clone());
+        dirs.push(resource_dir.join("binaries"));
+    }
+
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        dirs.push(parent.to_path_buf());
+        dirs.push(parent.join("binaries"));
+        dirs.push(parent.join(".."));
+        dirs.push(parent.join("..").join("Resources"));
+        dirs.push(parent.join("..").join("Resources").join("binaries"));
+    }
+
+    dirs
+}
+
+fn discover_mcp_binary(app: &AppHandle) -> Option<PathBuf> {
+    let extension = if cfg!(target_os = "windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    let expected_name = format!("computer-use-mcp{}", extension);
+
+    let candidate_dirs = sidecar_candidate_dirs(app);
+
+    for dir in candidate_dirs {
+        if !dir.exists() || !dir.is_dir() {
+            continue;
+        }
+        if let Some(found) = find_sidecar_in_dir(&dir, &expected_name) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
 fn discover_sidecar(app: &AppHandle) -> Option<PathBuf> {
     let default_target = if cfg!(target_os = "windows") {
         format!("{}-pc-windows-msvc", std::env::consts::ARCH)
@@ -130,22 +173,7 @@ fn discover_sidecar(app: &AppHandle) -> Option<PathBuf> {
     };
     let expected_name = format!("agentboster-cli-{}{}", target, extension);
 
-    let mut candidate_dirs: Vec<PathBuf> = Vec::new();
-
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        candidate_dirs.push(resource_dir.clone());
-        candidate_dirs.push(resource_dir.join("binaries"));
-    }
-
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent()
-    {
-        candidate_dirs.push(parent.to_path_buf());
-        candidate_dirs.push(parent.join("binaries"));
-        candidate_dirs.push(parent.join(".."));
-        candidate_dirs.push(parent.join("..").join("Resources"));
-        candidate_dirs.push(parent.join("..").join("Resources").join("binaries"));
-    }
+    let candidate_dirs = sidecar_candidate_dirs(app);
 
     for dir in candidate_dirs {
         if !dir.exists() || !dir.is_dir() {
@@ -902,6 +930,11 @@ async fn rpc_start(
     let discovery_label = format!("{:?}", pi);
 
     let mut cmd = build_command(&pi, &options);
+
+    if let Some(mcp_path) = discover_mcp_binary(&app) {
+        cmd.env("COMPUTER_USE_MCP_PATH", &mcp_path);
+    }
+
     let mut child = cmd.spawn().map_err(|e| {
         let lower = e.to_string().to_lowercase();
         let missing_executable = matches!(e.raw_os_error(), Some(2) | Some(3))

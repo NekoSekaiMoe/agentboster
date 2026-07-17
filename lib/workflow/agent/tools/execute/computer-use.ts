@@ -109,7 +109,7 @@ export default defineBuildInTool({
     }
 
     // Only for CLI sessions or remote-controlled sessions
-    const isRemoteIm = (source as any)?.remoteIm === true;
+    const isRemoteIm = source?.type === 'im' && source.remoteIm === true;
     if (source?.type !== 'cli' && !isRemoteIm) {
       return null;
     }

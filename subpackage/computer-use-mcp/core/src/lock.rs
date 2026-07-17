@@ -133,3 +133,64 @@ fn process_alive(pid: u32) -> bool {
 fn process_alive(_pid: u32) -> bool {
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_config_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("computer-use-lock-test")
+            .join(name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn acquire_and_release() {
+        let dir = temp_config_dir("acquire_release");
+        let lock_path = dir.join("computer-use.lock");
+        {
+            let lock = ComputerUseLock::acquire("session-1", &dir).unwrap();
+            assert!(lock_path.exists());
+            drop(lock);
+        }
+        assert!(!lock_path.exists());
+    }
+
+    #[test]
+    fn same_session_cannot_double_acquire() {
+        let dir = temp_config_dir("double_acquire");
+        let _lock = ComputerUseLock::acquire("session-1", &dir).unwrap();
+        let result = ComputerUseLock::acquire("session-2", &dir);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn stale_lock_is_reclaimed() {
+        let dir = temp_config_dir("stale_lock");
+        let lock_path = dir.join("computer-use.lock");
+        let info = LockInfo {
+            pid: 999_999_999,
+            session_id: "old-session".to_string(),
+            acquired_at: "2020-01-01T00:00:00Z".to_string(),
+        };
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(&lock_path, serde_json::to_string(&info).unwrap()).unwrap();
+
+        let lock = ComputerUseLock::acquire("new-session", &dir);
+        assert!(lock.is_ok());
+    }
+
+    #[test]
+    fn lock_error_display() {
+        let err = LockError::Held {
+            session_id: "s1".to_string(),
+            pid: 42,
+        };
+        assert!(err.to_string().contains("s1"));
+        assert!(err.to_string().contains("42"));
+    }
+}

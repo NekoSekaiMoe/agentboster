@@ -264,6 +264,7 @@ export async function chatWorkflow(
     // is attached to this session. This tells the LLM it can use local_* tools
     // to control the user's local machine.
     cliRemoteState,
+    source,
   });
   const writable = createWritable();
   const tools = await buildAgentTools(effectiveConfig, sessionId, {

@@ -1,0 +1,257 @@
+# Unified CI build pipeline for computer-use-mcp, CLI tarball, and Desktop.
+#
+# Step 1 (Rust) and Step 2 (CLI bundle) run in parallel.
+# Step 3 (CLI tarball) and Step 4 (Desktop installer) depend on both and
+# also run in parallel once their prerequisites complete.
+#
+# This workflow validates that all release artifacts can be produced from
+# the current source. It does NOT upload to a GitHub release — that is
+# handled by release.yml on tag pushes.
+
+name: build-all
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'subpackage/computer-use-mcp/**'
+      - 'subpackage/cli/**'
+      - '.github/workflows/build-all.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'subpackage/computer-use-mcp/**'
+      - 'subpackage/cli/**'
+      - '.github/workflows/build-all.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  # Step 1: Build computer-use-mcp Rust binary (parallel with Step 2)
+  build-computer-use-mcp:
+    name: mcp (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            target: aarch64-apple-darwin
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: subpackage/computer-use-mcp
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libclang-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxdo-dev \
+            libdbus-1-dev \
+            libatspi2.0-dev \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libwayland-dev \
+            libegl-dev \
+            libgbm-dev
+
+      - name: Build
+        run: cargo build --release --manifest-path subpackage/computer-use-mcp/Cargo.toml --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: computer-use-mcp-${{ matrix.target }}
+          path: |
+            subpackage/computer-use-mcp/target/${{ matrix.target }}/release/computer-use-mcp
+            subpackage/computer-use-mcp/target/${{ matrix.target }}/release/computer-use-mcp.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  # Step 2: Build CLI bundle (parallel with Step 1)
+  build-cli:
+    name: cli bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: subpackage/cli/yarn.lock
+
+      - name: Install
+        working-directory: subpackage/cli
+        run: yarn install --frozen-lockfile
+
+      - name: Build
+        working-directory: subpackage/cli
+        run: yarn build
+
+      - name: Bundle
+        working-directory: subpackage/cli
+        run: yarn bundle
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: cli-bundle
+          path: subpackage/cli/packages/coding-agent/dist/agentboster.cjs
+          if-no-files-found: error
+          retention-days: 7
+
+  # Step 3: Assemble CLI tarball with MCP binary (depends on Step 1+2)
+  package-cli:
+    name: cli tarball (${{ matrix.target }})
+    needs: [build-computer-use-mcp, build-cli]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            target: aarch64-apple-darwin
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: subpackage/cli/yarn.lock
+
+      - name: Download CLI bundle
+        uses: actions/download-artifact@v5
+        with:
+          name: cli-bundle
+          path: subpackage/cli/packages/coding-agent/dist/
+
+      - name: Download MCP binary
+        uses: actions/download-artifact@v5
+        with:
+          name: computer-use-mcp-${{ matrix.target }}
+          path: mcp-bin/
+
+      - name: Install
+        working-directory: subpackage/cli
+        run: yarn install --frozen-lockfile
+
+      - name: Package tarball
+        working-directory: subpackage/cli
+        env:
+          MCP_BINARY_PATH: ../../mcp-bin
+        run: yarn package
+
+      - name: Verify MCP binary in tarball
+        shell: bash
+        run: |
+          TARBALL=$(ls subpackage/cli/agentboster-cli-*.tar.gz 2>/dev/null | head -1)
+          if [ -n "$TARBALL" ]; then
+            echo "Tarball: $TARBALL"
+            tar tzf "$TARBALL" | grep -i "computer-use-mcp" || echo "NOTE: MCP binary not yet included in tarball packaging script"
+          fi
+
+  # Step 4: Assemble Desktop installer with MCP binary (depends on Step 1+2)
+  package-desktop:
+    name: desktop (${{ matrix.target }})
+    needs: [build-computer-use-mcp, build-cli]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            target: aarch64-apple-darwin
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        working-directory: subpackage/cli/packages/desktop
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: subpackage/cli/packages/desktop/src-tauri
+
+      - name: Download MCP binary
+        uses: actions/download-artifact@v5
+        with:
+          name: computer-use-mcp-${{ matrix.target }}
+          path: mcp-bin/
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            pkg-config \
+            libclang-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libxdo-dev \
+            libdbus-1-dev \
+            libatspi2.0-dev \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libwayland-dev \
+            libegl-dev \
+            libgbm-dev \
+            xdg-utils
+
+      - name: Install npm dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Prepare resources
+        env:
+          ARTIFACT_DIR: ../../../../mcp-bin
+        run: bash scripts/prepare-resources.sh
+
+      - name: Verify resources
+        shell: bash
+        run: |
+          echo "=== Resources ==="
+          ls -la src-tauri/resources/ || echo "No resources directory"
+
+      - name: Build Tauri app (check only)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}

@@ -6,6 +6,7 @@ import {
 import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import type { AppConfig } from '@/types/config';
 import type { BotLocale } from '@/types/config/language';
+import type { ChatSource } from '@/types/workflow';
 import { BUILTIN_MEMORY_MAX_LENGTH } from '@/types/memory';
 import { getSkillFamilyLabel } from '@/types/skills';
 import { localeLabels } from '@/lib/i18n';
@@ -54,6 +55,7 @@ export type BuildSystemPromptOptions = {
     platform: string;
     hasDisplay: boolean;
   };
+  source?: ChatSource;
 };
 
 function createSection(title: string, lines: string[]) {
@@ -243,6 +245,41 @@ export async function buildSystemPrompt(
         "Do NOT use sandbox tools (sandbox.readFile, sandbox.writeFile, sandbox.exec) for tasks that should happen on the user's local computer. The sandbox is a separate Linux container that exists only for this conversation.",
       ]),
     );
+
+    const isRemoteIm =
+      options.source?.type === 'im' && options.source.remoteIm === true;
+    if (isRemoteIm && hasDisplay) {
+      sections.push(
+        createSection('Remote Control Mode', [
+          "You are remotely controlling the user's computer via IM.",
+          'The user is NOT sitting at the computer — they are interacting through a messaging app.',
+          `Platform: ${platform}`,
+          '',
+          '## Computer Use Tools Available',
+          '',
+          'You have access to computer-use tools for GUI automation:',
+          '- `screenshot` — capture the screen (auto-scaled, terminals excluded)',
+          '- `mouse_move`, `mouse_click`, `mouse_drag` — mouse control (coordinates match screenshot scale)',
+          '- `key_event`, `type_text` — keyboard input',
+          '- `get_accessibility_tree`, `get_focused_element` — read UI structure',
+          '',
+          'Workflow for GUI tasks:',
+          '1. Take a screenshot to see the current state',
+          '2. Use accessibility tree to identify interactive elements',
+          '3. Click/type to interact',
+          '4. Screenshot again to verify the result',
+          '',
+          "All coordinates are in the screenshot's coordinate space (auto-scaled).",
+          'Do NOT ask the user to look at the screen — they are remote. Always screenshot first.',
+          '',
+          '## Security',
+          '',
+          'High-risk operations (file deletion, sudo, system changes) will trigger an L2 approval.',
+          'The user will receive an approval button in their IM app.',
+          'Wait for approval before proceeding — do not retry or skip.',
+        ]),
+      );
+    }
   }
 
   const skillsList = skills.map(
