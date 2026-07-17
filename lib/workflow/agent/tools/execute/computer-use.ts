@@ -226,13 +226,7 @@ export default defineBuildInTool({
           .describe('Modifier keys: "ctrl", "alt", "shift", "meta"'),
       }),
       execute: async (input: any, { toolCallId }: any) => {
-        return await dispatchToCliMcp(
-          sid,
-          rid,
-          toolCallId,
-          'key_event',
-          input,
-        );
+        return await dispatchToCliMcp(sid, rid, toolCallId, 'key_event', input);
       },
     });
 
@@ -243,13 +237,7 @@ export default defineBuildInTool({
         text: z.string().describe('Text to type'),
       }),
       execute: async (input: any, { toolCallId }: any) => {
-        return await dispatchToCliMcp(
-          sid,
-          rid,
-          toolCallId,
-          'type_text',
-          input,
-        );
+        return await dispatchToCliMcp(sid, rid, toolCallId, 'type_text', input);
       },
     });
 

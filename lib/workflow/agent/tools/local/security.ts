@@ -242,8 +242,7 @@ async function waitForL2Decision(
     if (decision) {
       let parsed: unknown;
       try {
-        parsed =
-          typeof decision === 'string' ? JSON.parse(decision) : decision;
+        parsed = typeof decision === 'string' ? JSON.parse(decision) : decision;
       } catch {
         await kvModule.del(`l2-decision:${decisionId}`);
         return 'rejected';

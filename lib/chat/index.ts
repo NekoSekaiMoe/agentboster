@@ -1556,7 +1556,10 @@ export async function chatMain(
       const { db } = await import('@/lib/core/db');
       const { sessions } = await import('@/lib/core/db/schema');
       const { eq } = await import('drizzle-orm');
-      await db.update(sessions).set({ remoteControlNodeId: null }).where(eq(sessions.id, targetSessionId));
+      await db
+        .update(sessions)
+        .set({ remoteControlNodeId: null })
+        .where(eq(sessions.id, targetSessionId));
     }
   }
 
