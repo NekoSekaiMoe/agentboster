@@ -61,3 +61,7 @@ subpackage/cli/agentboster.cjs
 subpackage/cli/agentboster-cli-*.tar.gz
 subpackage/cli/.pkg-staging/
 error.md
+review.md
+review_*.md
+landing_memoh
+Cargo.lock
