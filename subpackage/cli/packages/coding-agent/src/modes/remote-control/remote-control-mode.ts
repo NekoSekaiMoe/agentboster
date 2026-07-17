@@ -93,20 +93,26 @@ export async function runRemoteControlMode(
     } catch (error) {
       logger.error('Failed to start MCP server', { error });
       console.log(
-        chalk.yellow('  ! Computer-use tools unavailable (MCP server failed to start)'),
+        chalk.yellow(
+          '  ! Computer-use tools unavailable (MCP server failed to start)',
+        ),
       );
     }
   }
 
   console.log();
   console.log(
-    chalk.green(
-      'Waiting for commands from IM/Web... (Press Ctrl+C to exit)',
-    ),
+    chalk.green('Waiting for commands from IM/Web... (Press Ctrl+C to exit)'),
   );
 
   // Register this CLI as online
-  await registerCliNode(backendUrl, auth.token, sessionId, availableTools, capabilities);
+  await registerCliNode(
+    backendUrl,
+    auth.token,
+    sessionId,
+    availableTools,
+    capabilities,
+  );
 
   // Connect to SSE stream
   const sseUrl = `${backendUrl}/api/cli/session-events/${sessionId}`;
@@ -121,23 +127,26 @@ export async function runRemoteControlMode(
   // Heartbeat interval (every 30s)
   const heartbeatInterval = setInterval(async () => {
     try {
-      await fetch(`${backendUrl}/api/cli/session-events/${sessionId}/register`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${auth.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          capabilities: {
-            hasDisplay: capabilities.hasDisplay,
-            platform: capabilities.platform,
-            isAdmin: capabilities.isAdmin,
-            scaleFactor: capabilities.scaleFactor,
+      await fetch(
+        `${backendUrl}/api/cli/session-events/${sessionId}/register`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${auth.token}`,
+            'Content-Type': 'application/json',
           },
-          tools: availableTools,
-          cwd: process.cwd(),
-        }),
-      });
+          body: JSON.stringify({
+            capabilities: {
+              hasDisplay: capabilities.hasDisplay,
+              platform: capabilities.platform,
+              isAdmin: capabilities.isAdmin,
+              scaleFactor: capabilities.scaleFactor,
+            },
+            tools: availableTools,
+            cwd: process.cwd(),
+          }),
+        },
+      );
     } catch (error) {
       logger.warn('Heartbeat failed', { error });
     }
@@ -155,7 +164,9 @@ export async function runRemoteControlMode(
         });
 
         if (!response.ok) {
-          throw new Error(`SSE connection failed: ${response.status} ${response.statusText}`);
+          throw new Error(
+            `SSE connection failed: ${response.status} ${response.statusText}`,
+          );
         }
 
         if (!response.body) {
@@ -167,32 +178,48 @@ export async function runRemoteControlMode(
           .pipeThrough(new EventSourceParserStream());
 
         for await (const event of stream) {
-          if (event.type === 'event') {
-            if (event.event === 'tool-request') {
-              const request: ToolRequest = JSON.parse(event.data);
-              logger.info('Received tool request', { toolName: request.toolName });
-              console.log(chalk.blue(`→ Executing: ${request.toolName}`));
+          if (event.event === 'tool-request') {
+            const request: ToolRequest = JSON.parse(event.data);
+            logger.info('Received tool request', {
+              toolName: request.toolName,
+            });
+            console.log(chalk.blue(`→ Executing: ${request.toolName}`));
 
-              // Execute tool
-              const result = await executeLocalTool(request);
+            // Execute tool
+            const result = await executeLocalTool(request);
 
-              // Post result back
-              await postToolResult(backendUrl, auth.token, sessionId, request.toolCallId, result);
+            // Post result back
+            await postToolResult(
+              backendUrl,
+              auth.token,
+              sessionId,
+              request.toolCallId,
+              result,
+            );
 
-              console.log(chalk.green(`✓ Completed: ${request.toolName}`));
-            } else if (event.event === 'heartbeat') {
-              logger.debug('Heartbeat received');
-            } else if (event.event === 'lock-acquired') {
-              const lockData = JSON.parse(event.data);
-              logger.info('Remote workflow started, acquiring lock', { runId: lockData.runId });
-              remoteControlLock.acquire();
-              console.log(chalk.yellow('🔒 Remote Control Active — session locked by IM workflow'));
-            } else if (event.event === 'lock-released') {
-              const lockData = JSON.parse(event.data);
-              logger.info('Remote workflow completed, releasing lock', { runId: lockData.runId });
-              remoteControlLock.release();
-              console.log(chalk.green('🔓 Remote Control Released — session unlocked'));
-            }
+            console.log(chalk.green(`✓ Completed: ${request.toolName}`));
+          } else if (event.event === 'heartbeat') {
+            logger.debug('Heartbeat received');
+          } else if (event.event === 'lock-acquired') {
+            const lockData = JSON.parse(event.data);
+            logger.info('Remote workflow started, acquiring lock', {
+              runId: lockData.runId,
+            });
+            remoteControlLock.acquire();
+            console.log(
+              chalk.yellow(
+                '🔒 Remote Control Active — session locked by IM workflow',
+              ),
+            );
+          } else if (event.event === 'lock-released') {
+            const lockData = JSON.parse(event.data);
+            logger.info('Remote workflow completed, releasing lock', {
+              runId: lockData.runId,
+            });
+            remoteControlLock.release();
+            console.log(
+              chalk.green('🔓 Remote Control Released — session unlocked'),
+            );
           }
         }
       } catch (error: unknown) {
@@ -200,7 +227,7 @@ export async function runRemoteControlMode(
           break;
         }
         logger.error('SSE stream error, reconnecting...', { error });
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
   } finally {
@@ -243,7 +270,9 @@ async function registerCliNode(
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to register: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Failed to register: ${response.status} ${response.statusText}`,
+    );
   }
 
   logger.info('Registered as online', { sessionId });
@@ -255,15 +284,12 @@ async function releaseCliNode(
   sessionId: string,
 ): Promise<void> {
   try {
-    await fetch(
-      `${backendUrl}/api/cli/session-events/${sessionId}/release`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+    await fetch(`${backendUrl}/api/cli/session-events/${sessionId}/release`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
       },
-    );
+    });
     logger.info('Released online state', { sessionId });
   } catch (error) {
     logger.warn('Failed to release', { error });
@@ -291,23 +317,20 @@ async function postToolResult(
   toolCallId: string,
   result: ToolResult,
 ): Promise<void> {
-  const response = await fetch(
-    `${backendUrl}/api/cli/tool-result`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sessionId,
-        toolCallId,
-        ok: result.ok,
-        output: result.output,
-        error: result.error,
-      }),
+  const response = await fetch(`${backendUrl}/api/cli/tool-result`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
     },
-  );
+    body: JSON.stringify({
+      sessionId,
+      toolCallId,
+      ok: result.ok,
+      output: result.output,
+      error: result.error,
+    }),
+  });
 
   if (!response.ok) {
     logger.warn('Failed to post tool result', {

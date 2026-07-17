@@ -145,7 +145,9 @@ async function executeComputerUseTool(
   toolInput: unknown,
 ): Promise<unknown> {
   if (!isMcpServerRunning()) {
-    throw new Error('MCP server is not running. Computer-use tools are unavailable.');
+    throw new Error(
+      'MCP server is not running. Computer-use tools are unavailable.',
+    );
   }
 
   logger.info('Forwarding to MCP', { toolName });

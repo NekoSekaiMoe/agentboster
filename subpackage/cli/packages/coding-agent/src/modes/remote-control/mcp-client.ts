@@ -83,9 +83,7 @@ export async function startMcpServer(sessionId: string): Promise<void> {
           if (pending) {
             pendingRequests.delete(response.id);
             if (response.error) {
-              pending.reject(
-                new Error(`MCP error: ${response.error.message}`),
-              );
+              pending.reject(new Error(`MCP error: ${response.error.message}`));
             } else {
               pending.resolve(response.result);
             }
@@ -180,7 +178,7 @@ export async function callMcpMethod(
   return new Promise((resolve, reject) => {
     pendingRequests.set(id, { resolve, reject });
 
-    const line = JSON.stringify(request) + '\n';
+    const line = `${JSON.stringify(request)}\n`;
     mcpProcess!.stdin?.write(line, (error) => {
       if (error) {
         pendingRequests.delete(id);

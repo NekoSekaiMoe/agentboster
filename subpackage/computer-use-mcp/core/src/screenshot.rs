@@ -90,6 +90,7 @@ fn mask_terminal_windows(
         use core_foundation::number::CFNumber;
         use core_foundation::string::CFString;
         use core_graphics::window::{kCGNullWindowID, kCGWindowListOptionOnScreenOnly};
+        use std::ffi::c_void;
 
         let (monitor_x, monitor_y) = monitor_origin;
 
@@ -106,43 +107,38 @@ fn mask_terminal_windows(
                 for i in 0..windows.len() {
                     if let Some(window_dict) = windows.get(i) {
                         let id_key = CFString::from_static_string("kCGWindowNumber");
-                        if let Some(window_id) = window_dict.find(&id_key as *const _ as *const _) {
-                            let id_cf: CFNumber = CFType::wrap_under_get_rule(*window_id as _);
-                            if let Some(id) = id_cf.to_i64() {
+                        if let Some(window_id) = window_dict.find(id_key.as_concrete_TypeRef() as *const c_void) {
+                            let id_cf = CFType::wrap_under_get_rule(*window_id as _);
+                            let id = id_cf
+                                .downcast::<CFNumber>()
+                                .and_then(|n| n.to_i64());
+                            if let Some(id) = id {
                                 if terminal_ids.contains(&(id as u64)) {
                                     let bounds_key =
                                         CFString::from_static_string("kCGWindowBounds");
                                     if let Some(bounds_dict) =
-                                        window_dict.find(&bounds_key as *const _ as *const _)
+                                        window_dict.find(bounds_key.as_concrete_TypeRef() as *const c_void)
                                     {
-                                        let bounds_cf: CFDictionary =
+                                        let bounds_cf =
                                             CFType::wrap_under_get_rule(*bounds_dict as _);
 
-                                        let x_key = CFString::from_static_string("X");
-                                        let y_key = CFString::from_static_string("Y");
-                                        let w_key = CFString::from_static_string("Width");
-                                        let h_key = CFString::from_static_string("Height");
+                                        if let Some(bounds_cf) = bounds_cf.downcast::<CFDictionary>() {
+                                            let x_key = CFString::from_static_string("X");
+                                            let y_key = CFString::from_static_string("Y");
+                                            let w_key = CFString::from_static_string("Width");
+                                            let h_key = CFString::from_static_string("Height");
 
-                                        if let (Some(x), Some(y), Some(w), Some(h)) = (
-                                            bounds_cf.find(&x_key as *const _ as *const _),
-                                            bounds_cf.find(&y_key as *const _ as *const _),
-                                            bounds_cf.find(&w_key as *const _ as *const _),
-                                            bounds_cf.find(&h_key as *const _ as *const _),
-                                        ) {
-                                            let x_num: CFNumber =
-                                                CFType::wrap_under_get_rule(*x as _);
-                                            let y_num: CFNumber =
-                                                CFType::wrap_under_get_rule(*y as _);
-                                            let w_num: CFNumber =
-                                                CFType::wrap_under_get_rule(*w as _);
-                                            let h_num: CFNumber =
-                                                CFType::wrap_under_get_rule(*h as _);
+                                            let get_i64 = |key: &CFString| -> Option<i64> {
+                                                let val = bounds_cf.find(key.as_concrete_TypeRef() as *const c_void)?;
+                                                let num = CFType::wrap_under_get_rule(*val as _);
+                                                num.downcast::<CFNumber>()?.to_i64()
+                                            };
 
                                             if let (Some(x), Some(y), Some(w), Some(h)) = (
-                                                x_num.to_i64(),
-                                                y_num.to_i64(),
-                                                w_num.to_i64(),
-                                                h_num.to_i64(),
+                                                get_i64(&x_key),
+                                                get_i64(&y_key),
+                                                get_i64(&w_key),
+                                                get_i64(&h_key),
                                             ) {
                                                 // Compute intersection of window rect with current monitor
                                                 let win_left = x as i32;

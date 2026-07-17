@@ -68,6 +68,7 @@ pub fn get_focused_ax(max_depth: Option<u32>) -> Result<AxNode, String> {
 #[cfg(target_os = "windows")]
 mod windows {
     use super::AxNode;
+    use uiautomation::types::UIProperty;
     use uiautomation::{UIAutomation, UIElement};
 
     pub fn get_ax_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
@@ -75,35 +76,42 @@ mod windows {
         let elem = uia
             .element_from_point(uiautomation::types::Point::new(x, y))
             .map_err(|e| e.to_string())?;
-        build_node(&elem, max_depth)
+        build_node(&uia, &elem, max_depth)
     }
 
     pub fn get_focused_ax(max_depth: u32) -> Result<AxNode, String> {
         let uia = UIAutomation::new().map_err(|e| e.to_string())?;
         let elem = uia.get_focused_element().map_err(|e| e.to_string())?;
-        build_node(&elem, max_depth)
+        build_node(&uia, &elem, max_depth)
     }
 
-    fn build_node(elem: &UIElement, depth_remaining: u32) -> Result<AxNode, String> {
+    fn build_node(
+        uia: &UIAutomation,
+        elem: &UIElement,
+        depth_remaining: u32,
+    ) -> Result<AxNode, String> {
         let role = elem
             .get_control_type()
-            .ok()
-            .and_then(|ct| ct.name().ok())
+            .map(|ct| ct.to_string())
             .unwrap_or_default();
-        let name = elem.get_name().ok().unwrap_or_default();
-        let value = elem.get_value().ok();
+        let name = elem.get_name().unwrap_or_default();
+        let value = elem
+            .get_property_value(UIProperty::ValueValue)
+            .ok()
+            .and_then(|v| v.get_string().ok());
         let rect = elem.get_bounding_rectangle().ok().unwrap_or_default();
-        let enabled = elem.get_is_enabled().ok().unwrap_or(false);
-        let focused = elem.get_has_keyboard_focus().ok().unwrap_or(false);
+        let enabled = elem.is_enabled().unwrap_or(false);
+        let focused = elem.has_keyboard_focus().unwrap_or(false);
 
         let children = if depth_remaining == 0 {
             Vec::new()
         } else {
-            elem.get_children()
-                .ok()
+            let walker = uia.create_tree_walker().map_err(|e| e.to_string())?;
+            walker
+                .get_children(elem)
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(|c| build_node(&c, depth_remaining - 1).ok())
+                .filter_map(|c| build_node(uia, &c, depth_remaining - 1).ok())
                 .collect()
         };
 
@@ -131,7 +139,8 @@ mod macos {
     use super::AxNode;
     use accessibility_sys::{
         AXUIElementCopyAttributeValue, AXUIElementCopyElementAtPosition,
-        AXUIElementCreateSystemWide, AXValueGetValue, kAXValueTypeCGPoint, kAXValueTypeCGSize,
+        AXUIElementCreateSystemWide, AXUIElementRef, AXValueGetValue, kAXValueTypeCGPoint,
+        kAXValueTypeCGSize,
     };
     use core_foundation::{
         array::CFArray,
@@ -139,17 +148,20 @@ mod macos {
         boolean::CFBoolean,
         string::CFString,
     };
+    use core_foundation_sys::base::CFTypeRef;
     use core_graphics::geometry::{CGPoint, CGSize};
-    use std::ffi::c_void;
     use std::ptr;
-
     pub fn get_ax_at_point(x: i32, y: i32, max_depth: u32) -> Result<AxNode, String> {
         unsafe {
             let system_wide = AXUIElementCreateSystemWide();
-            let mut elem = ptr::null_mut();
-            let result =
-                AXUIElementCopyElementAtPosition(system_wide, x as f64, y as f64, &mut elem);
-            CFRelease(system_wide as *const c_void);
+            let mut elem: AXUIElementRef = ptr::null_mut();
+            let result = AXUIElementCopyElementAtPosition(
+                system_wide,
+                x as f32,
+                y as f32,
+                &mut elem,
+            );
+            CFRelease(system_wide as CFTypeRef);
             if result != 0 || elem.is_null() {
                 return Err(format!(
                     "AXUIElementCopyElementAtPosition failed: {}",
@@ -157,7 +169,7 @@ mod macos {
                 ));
             }
             let node = build_node(elem, max_depth);
-            CFRelease(elem as *const c_void);
+            CFRelease(elem as CFTypeRef);
             node
         }
     }
@@ -166,30 +178,31 @@ mod macos {
         unsafe {
             let system_wide = AXUIElementCreateSystemWide();
             let focused_attr = CFString::new("AXFocusedUIElement");
-            let mut value = ptr::null_mut();
+            let mut value: CFTypeRef = ptr::null_mut();
             let result = AXUIElementCopyAttributeValue(
                 system_wide,
                 focused_attr.as_concrete_TypeRef(),
                 &mut value,
             );
-            CFRelease(system_wide as *const c_void);
+            CFRelease(system_wide as CFTypeRef);
             if result != 0 || value.is_null() {
                 return Err(format!(
                     "AXUIElementCopyAttributeValue(AXFocusedUIElement) failed: {}",
                     result
                 ));
             }
-            let node = build_node(value as *mut _, max_depth);
+            let elem = value as AXUIElementRef;
+            let node = build_node(elem, max_depth);
             CFRelease(value);
             node
         }
     }
 
-    unsafe fn build_node(elem: *mut c_void, depth_remaining: u32) -> Result<AxNode, String> {
-        fn get_string_attr(elem: *mut c_void, attr: &str) -> String {
+    unsafe fn build_node(elem: AXUIElementRef, depth_remaining: u32) -> Result<AxNode, String> {
+        fn get_string_attr(elem: AXUIElementRef, attr: &str) -> String {
             unsafe {
                 let cf_attr = CFString::new(attr);
-                let mut value = ptr::null_mut();
+                let mut value: CFTypeRef = ptr::null_mut();
                 if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
                     == 0
                     && !value.is_null()
@@ -203,10 +216,10 @@ mod macos {
             }
         }
 
-        fn get_bool_attr(elem: *mut c_void, attr: &str) -> bool {
+        fn get_bool_attr(elem: AXUIElementRef, attr: &str) -> bool {
             unsafe {
                 let cf_attr = CFString::new(attr);
-                let mut value = ptr::null_mut();
+                let mut value: CFTypeRef = ptr::null_mut();
                 if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
                     == 0
                     && !value.is_null()
@@ -220,10 +233,10 @@ mod macos {
             }
         }
 
-        fn get_position(elem: *mut c_void) -> (i32, i32) {
+        fn get_position(elem: AXUIElementRef) -> (i32, i32) {
             unsafe {
                 let cf_attr = CFString::new("AXPosition");
-                let mut value = ptr::null_mut();
+                let mut value: CFTypeRef = ptr::null_mut();
                 if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
                     == 0
                     && !value.is_null()
@@ -243,10 +256,10 @@ mod macos {
             }
         }
 
-        fn get_size(elem: *mut c_void) -> (i32, i32) {
+        fn get_size(elem: AXUIElementRef) -> (i32, i32) {
             unsafe {
                 let cf_attr = CFString::new("AXSize");
-                let mut value = ptr::null_mut();
+                let mut value: CFTypeRef = ptr::null_mut();
                 if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
                     == 0
                     && !value.is_null()
@@ -266,13 +279,13 @@ mod macos {
             }
         }
 
-        fn get_children(elem: *mut c_void, depth: u32) -> Vec<AxNode> {
+        fn get_children(elem: AXUIElementRef, depth: u32) -> Vec<AxNode> {
             if depth == 0 {
                 return Vec::new();
             }
             unsafe {
                 let cf_attr = CFString::new("AXChildren");
-                let mut value = ptr::null_mut();
+                let mut value: CFTypeRef = ptr::null_mut();
                 if AXUIElementCopyAttributeValue(elem, cf_attr.as_concrete_TypeRef(), &mut value)
                     == 0
                     && !value.is_null()
@@ -281,8 +294,9 @@ mod macos {
                     if let Some(arr) = cf_val.downcast::<CFArray>() {
                         return (0..arr.len())
                             .filter_map(|i| {
-                                let child = arr.get(i);
-                                build_node(child.as_void_ptr() as *mut _, depth - 1).ok()
+                                let child = arr.get(i)?;
+                                let child_ref = *child as AXUIElementRef;
+                                build_node(child_ref, depth - 1).ok()
                             })
                             .collect();
                     }
