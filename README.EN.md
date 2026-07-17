@@ -12,7 +12,7 @@
   <img alt="Node.js" src="https://img.shields.io/badge/node.js-%E2%9C%93-339933?logo=node.js" />
   <img alt="Go" src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-yellow" />
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-blue" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-blue" />
   <a href="https://deepwiki.com/NekoSekaiMoe/agentboster">
     <img src="https://deepwiki.com/badge.svg" alt="DeepWiki" />
   </a>
@@ -26,6 +26,11 @@ AgentBoster is a multi-surface AI platform made of **three independently deploya
 - **Web (Next.js 15)**: browser UI, sessions and config, IM integration, durable Workflow orchestration, L2 approvals, and node registry (Postgres)
 - **agentd (Go)**: Linux daemon for sandboxed tools, L0/L1/L2 security, local session runtime, and multi-node heartbeats
 - **CLI ([`agentboster`](./subpackage/cli), based on [pi](https://github.com/earendil-works/pi))**: terminal coding agent; pairs to the Web backend with `agentboster login`. All model calls, model/tool orchestration, and session persistence are owned by Web; the CLI is a thin client for local TUI UX and `local_*` tools (shell / file I/O on the user's machine).
+
+Two additional supporting subpackages:
+
+- **[computer-use-mcp](./subpackage/computer-use-mcp) (Rust)**: cross-platform MCP server providing screenshot capture, mouse/keyboard input and accessibility tree queries for the CLI desktop app
+- **[dbushelper](./subpackage/dbushelper) (Go)**: pure-Go AT-SPI2 accessibility D-Bus client, runs inside the agentd LXC sandbox and powers `desktop_inspect` / `desktop_a11y_click` / `desktop_a11y_type` tools
 
 Web owns UX and orchestration, the daemon owns execution isolation and safety, and the CLI owns local developer terminals. They cooperate over HTTPS APIs and can be upgraded on different schedules.
 
@@ -48,11 +53,14 @@ flowchart TB
     direction TB
     AD["agentd"]
     SB["Sandboxes docker / lxc"]
+    A11Y["dbushelper (AT-SPI2)"]
     AD --> SB
+    SB --> A11Y
   end
 
   subgraph tier3["③ CLI — agentboster terminal"]
     CLI["@agentboster-cli/core + @agentboster/adapter"]
+    CU["computer-use-mcp (desktop control)"]
   end
 
   subgraph clients["User entry"]
@@ -147,6 +155,7 @@ Tool execution always crosses **three independent security checks**, any one of 
 - L0 rules → L1 scoring → L2 user approval
 - Node registration, heartbeats, resource metrics
 - Event bus and dynamic worker pools
+- AT-SPI2 accessibility tools (dbushelper): `desktop_inspect`, `desktop_a11y_click`, `desktop_a11y_type`
 
 ### CLI
 
@@ -155,6 +164,7 @@ Tool execution always crosses **three independent security checks**, any one of 
 - All LLM calls, model/tool orchestration, and session persistence are owned by Web; the CLI only runs `local_*` tools (local shell / file I/O)
 - Yarn Classic monorepo: `packages/ai` → `packages/agent` → `packages/agentboster-adapter` → `packages/coding-agent`
 - `packages/desktop` is a separate Tauri desktop app and is not part of the CLI root workspace build chain
+- Desktop app uses `computer-use-mcp` for computer control capabilities (screenshot capture, mouse/keyboard input, accessibility tree queries)
 - Release: `yarn bundle` / `yarn package` under `subpackage/cli/`
 
 | CLI package | Role |
@@ -232,6 +242,8 @@ CLI usually needs no env vars; login writes `~/.agentboster/config.json`. Option
 | Web | `yarn dev`, `yarn build`, `yarn lint:check`, `yarn test`, `yarn db:push` |
 | agentd | `go test ./...`, `go build -o agentd ./cmd/agentd/` (from `subpackage/agentd/`) |
 | CLI | `yarn build`, `yarn check:lint`, `yarn bundle`, `yarn package` (from `subpackage/cli/`) |
+| computer-use-mcp | `cargo build`, `cargo test` (from `subpackage/computer-use-mcp/`) |
+| dbushelper | `go test ./...`, `go build ./...` (from `subpackage/dbushelper/`) |
 
 ---
 
@@ -246,8 +258,11 @@ CLI usually needs no env vars; login writes `~/.agentboster/config.json`. Option
 | Document | Content |
 |----------|---------|
 | [`README.md`](./README.md) | Chinese README (same scope) |
+| [`subpackage/README.md`](./subpackage/README.md) | Subpackage overview |
 | [`subpackage/agentd/README.md`](./subpackage/agentd/README.md) | Daemon |
 | [`subpackage/cli/README.md`](./subpackage/cli/README.md) | Terminal CLI |
+| [`subpackage/computer-use-mcp/README.md`](./subpackage/computer-use-mcp/README.md) | Desktop control MCP server |
+| [`subpackage/dbushelper/README.md`](./subpackage/dbushelper/README.md) | AT-SPI2 accessibility client |
 | [`AGENTS.md`](./AGENTS.md) | Contributors and OpenCode notes |
 
 ---

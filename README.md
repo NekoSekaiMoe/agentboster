@@ -13,7 +13,7 @@
   <img alt="Node.js" src="https://img.shields.io/badge/node.js-%E2%9C%93-339933?logo=node.js" />
   <img alt="Go" src="https://img.shields.io/badge/go-1.26-00ADD8?logo=go" />
   <img alt="License" src="https://img.shields.io/badge/license-MIT-yellow" />
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-blue" />
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-blue" />
   <a href="https://deepwiki.com/NekoSekaiMoe/agentboster">
     <img src="https://deepwiki.com/badge.svg" alt="DeepWiki" />
   </a>
@@ -27,6 +27,11 @@ AgentBoster 是多端协作的 AI 平台，由 **三个可独立部署/安装的
 - **Web（Next.js 15）**：浏览器 UI、会话与配置、IM 接入、Workflow 持久化编排、L2 审批与节点注册（Postgres）
 - **agentd（Go）**：Linux 守护进程，沙箱内执行工具、L0/L1/L2 安全、本地会话运行时与多节点心跳
 - **CLI（[`agentboster`](./subpackage/cli)，基于 [pi](https://github.com/earendil-works/pi)）**：终端编码 Agent；通过 `agentboster login` 配对到 Web 后端，所有模型调用、模型/工具编排、会话持久化都由 Web 负责，CLI 仅作为瘦客户端负责本地 TUI 与 `local_*` 工具（在本机执行 shell/读写文件）
+
+此外还有两个辅助子包：
+
+- **[computer-use-mcp](./subpackage/computer-use-mcp)（Rust）**：跨平台 MCP 服务器，为 CLI 桌面应用提供屏幕截图、鼠标/键盘输入、无障碍树查询等计算机操控能力
+- **[dbushelper](./subpackage/dbushelper)（Go）**：纯 Go AT-SPI2 无障碍 D-Bus 客户端，运行于 agentd LXC 沙箱内部，驱动 `desktop_inspect` / `desktop_a11y_click` / `desktop_a11y_type` 等工具
 
 Web 负责体验与编排，Daemon 负责执行隔离与安全边界，CLI 负责开发者本机终端场景；三者通过 HTTPS API 协作，部署环境可分开升级。
 
@@ -49,11 +54,14 @@ flowchart TB
     direction TB
     AD["agentd"]
     SB["沙箱 docker / lxc"]
+    A11Y["dbushelper (AT-SPI2)"]
     AD --> SB
+    SB --> A11Y
   end
 
   subgraph tier3["③ CLI — agentboster 终端"]
     CLI["@agentboster-cli/core + @agentboster/adapter"]
+    CU["computer-use-mcp (桌面操控)"]
   end
 
   subgraph clients["用户接入"]
@@ -148,6 +156,7 @@ CLI 的 `trigger: 'regenerate-message'` 复用同一条 chatMain:Web 侧 `delete
 - L0 规则 → L1 打分 → L2 用户授权
 - 节点注册、心跳、资源指标上报
 - 事件总线与动态 worker pool
+- AT-SPI2 无障碍工具（dbushelper）：`desktop_inspect`、`desktop_a11y_click`、`desktop_a11y_type`
 
 ### CLI 侧
 
@@ -156,6 +165,7 @@ CLI 的 `trigger: 'regenerate-message'` 复用同一条 chatMain:Web 侧 `delete
 - 所有 LLM 调用、模型/工具编排、会话持久化都由 Web 负责；CLI 仅运行 `local_*` 工具（本机 shell / 读写文件）
 - Yarn Classic monorepo：`packages/ai` → `packages/agent` → `packages/agentboster-adapter` → `packages/coding-agent`
 - `packages/desktop` 是独立 Tauri 桌面应用，不在 CLI 根 workspace 构建链内
+- 桌面版通过 `computer-use-mcp` 提供计算机操控能力（屏幕截图、鼠标/键盘输入、无障碍树查询）
 - 打包：`subpackage/cli/` 下 `yarn bundle` / `yarn package`
 
 | CLI 包 | 作用 |
@@ -233,6 +243,8 @@ CLI 端通常无需 env 变量；登录信息写入 `~/.agentboster/config.json`
 | Web | `yarn dev`、`yarn build`、`yarn lint:check`、`yarn test`、`yarn db:push` |
 | agentd | `go test ./...`、`go build -o agentd ./cmd/agentd/`（在 `subpackage/agentd/`） |
 | CLI | `yarn build`、`yarn check:lint`、`yarn bundle`、`yarn package`（在 `subpackage/cli/`） |
+| computer-use-mcp | `cargo build`、`cargo test`（在 `subpackage/computer-use-mcp/`） |
+| dbushelper | `go test ./...`、`go build ./...`（在 `subpackage/dbushelper/`） |
 
 ---
 
@@ -247,8 +259,11 @@ CLI 端通常无需 env 变量；登录信息写入 `~/.agentboster/config.json`
 | 文档 | 内容 |
 |------|------|
 | [`README.EN.md`](./README.EN.md) | 英文 README（与本文同结构） |
+| [`subpackage/README.md`](./subpackage/README.md) | 子包总览 |
 | [`subpackage/agentd/README.md`](./subpackage/agentd/README.md) | 守护进程 |
 | [`subpackage/cli/README.md`](./subpackage/cli/README.md) | 终端 CLI |
+| [`subpackage/computer-use-mcp/README.md`](./subpackage/computer-use-mcp/README.md) | 桌面操控 MCP 服务器 |
+| [`subpackage/dbushelper/README.md`](./subpackage/dbushelper/README.md) | AT-SPI2 无障碍客户端 |
 | [`AGENTS.md`](./AGENTS.md) | 贡献者与 OpenCode 说明 |
 
 ---
