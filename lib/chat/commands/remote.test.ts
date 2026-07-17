@@ -53,7 +53,6 @@ import {
   executeDetachCommand,
   executeRemoteCommand,
 } from '@/lib/chat/commands/remote';
-import { isCliOnlineForSession } from '@/lib/cli/remote-control';
 import type { IMChatSource, CLIChatSource } from '@/types/workflow';
 
 const imSource: IMChatSource = {

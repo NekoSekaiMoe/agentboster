@@ -20,11 +20,11 @@ function validateAgentdResponse(
   extractData?: false,
 ): void;
 function validateAgentdResponse<T>(
-  method: string,
-  path: string,
+  _method: string,
+  _path: string,
   text: string,
   extractData?: boolean,
-): T | void {
+): T | undefined {
   const json = JSON.parse(text) as {
     success: boolean;
     data?: T;
