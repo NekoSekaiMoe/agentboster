@@ -83,7 +83,7 @@ export class QQNotificationChannel implements NotificationChannel {
 
       const content =
         payload.type === 'decision'
-          ? this.renderDecision(payload)
+          ? await this.renderDecision(payload)
           : this.renderText(payload);
 
       const resp = await fetch(
@@ -147,7 +147,7 @@ export class QQNotificationChannel implements NotificationChannel {
     return `${emoji} **${payload.title}**\n\n${payload.summary}`;
   }
 
-  private renderDecision(payload: DecisionNotification): string {
+  private async renderDecision(payload: DecisionNotification): Promise<string> {
     const locale: Locale = payload.locale ?? defaultLocale;
     const actions: { action: string; label: string }[] = [
       { action: 'pass_once', label: `✅ ${t(locale, 'notify.l2.passOnce')}` },
@@ -166,14 +166,16 @@ export class QQNotificationChannel implements NotificationChannel {
     ];
 
     const origin = process.env.NEXT_PUBLIC_APP_URL ?? '';
-    const lines = actions.map(({ action, label }) => {
-      const { params } = signL2Link({
-        decisionId: payload.decisionId,
-        action,
-      });
-      const url = `${origin}/api/l2/${payload.decisionId}/${action}?${params}`;
-      return `- [${label}](${url})`;
-    });
+    const lines = await Promise.all(
+      actions.map(async ({ action, label }) => {
+        const { params } = await signL2Link({
+          decisionId: payload.decisionId,
+          action,
+        });
+        const url = `${origin}/api/l2/${payload.decisionId}/${action}?${params}`;
+        return `- [${label}](${url})`;
+      }),
+    );
 
     return [
       `**${payload.title}**`,

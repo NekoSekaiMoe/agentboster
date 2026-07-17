@@ -51,7 +51,7 @@ export async function GET(
     });
   }
 
-  const verify = verifyL2Link({
+  const verify = await verifyL2Link({
     decisionId,
     action,
     expiresParam: url.searchParams.get('t'),

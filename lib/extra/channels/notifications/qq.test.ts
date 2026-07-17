@@ -122,7 +122,7 @@ describe('QQNotificationChannel — L2 markdown-link fallback', () => {
       expect(urlMatches.length).toBe(4);
       for (const m of urlMatches) {
         const [, action, expires, signature] = m;
-        const result = verifyL2Link({
+        const result = await verifyL2Link({
           decisionId: 'dec_qq_1',
           action,
           expiresParam: expires,
