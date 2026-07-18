@@ -15,6 +15,11 @@ import { getStoredAuth } from '@agentboster/adapter';
 import { createLogger } from '../../utils/logger.ts';
 import { getBackendUrl } from '../../core/backend-url.ts';
 import { detectLocalCapabilities } from '../../core/capability-detect.ts';
+import {
+  generateCliSessionId,
+  startCliSessionRegistrar,
+  type RegistrarHandle,
+} from '../../core/cli-session-registrar.ts';
 import { startMcpServer, stopMcpServer } from './mcp-client.ts';
 import { RemoteControlLock } from '../../core/remote-control-lock.ts';
 
@@ -51,7 +56,7 @@ export async function runRemoteControlMode(
   }
 
   const backendUrl = getBackendUrl();
-  const sessionId = options.sessionId || generateSessionId();
+  const sessionId = options.sessionId || generateCliSessionId();
 
   console.log(chalk.cyan('Remote control mode started'));
   console.log(chalk.dim(`Session ID: ${sessionId}`));
@@ -105,52 +110,57 @@ export async function runRemoteControlMode(
     chalk.green('Waiting for commands from IM/Web... (Press Ctrl+C to exit)'),
   );
 
-  // Register this CLI as online
-  await registerCliNode(
+  // Register this CLI as online + keep KV TTL fresh. The registrar owns
+  // the heartbeat interval and the release POST on shutdown.
+  const registrar: RegistrarHandle = await startCliSessionRegistrar({
     backendUrl,
-    auth.token,
+    token: auth.token,
     sessionId,
-    availableTools,
+    tools: availableTools,
     capabilities,
-  );
+    cwd: process.cwd(),
+  });
 
   // Connect to SSE stream
   const sseUrl = `${backendUrl}/api/cli/session-events/${sessionId}`;
   logger.info('Connecting to SSE', { sseUrl });
 
   const controller = new AbortController();
-  process.on('SIGINT', () => {
-    console.log(chalk.yellow('\nShutting down...'));
-    controller.abort();
-  });
-
-  // Heartbeat interval (every 30s)
-  const heartbeatInterval = setInterval(async () => {
-    try {
-      await fetch(
-        `${backendUrl}/api/cli/session-events/${sessionId}/register`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${auth.token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            capabilities: {
-              hasDisplay: capabilities.hasDisplay,
-              platform: capabilities.platform,
-              isAdmin: capabilities.isAdmin,
-              scaleFactor: capabilities.scaleFactor,
-            },
-            tools: availableTools,
-            cwd: process.cwd(),
-          }),
-        },
-      );
-    } catch (error) {
-      logger.warn('Heartbeat failed', { error });
-    }
-  }, 30000);
+  // Trigger cleanup for every termination signal we can intercept.
+  // SIGINT (Ctrl+C), SIGTERM (default `kill` / container stop), and
+  // SIGHUP (terminal closed) all need to flush registrar.release() and
+  // stopMcpServer() — otherwise the Web backend holds a stale online
+  // capability entry until the 120s KV TTL expires and the MCP child
+  // process leaks until the OS reaps it.
+  //
+  // Bounded forced-exit: abort() asks in-flight tools to stop, but a
+  // tool that ignores its AbortSignal (or a stuck MCP call) could
+  // otherwise hold the process hostage. After GRACE_PERIOD_MS we
+  // unconditionally process.exit so the OS reaps children.
+  const GRACE_PERIOD_MS = 5_000;
+  let forceExitTimer: NodeJS.Timeout | null = null;
+  const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const signalHandlers = new Map<NodeJS.Signals, NodeJS.SignalsListener>();
+  for (const sig of shutdownSignals) {
+    const handler = () => {
+      console.log(chalk.yellow(`\nReceived ${sig}, shutting down...`));
+      controller.abort();
+      // Only arm the forced-exit timer once, even if multiple signals
+      // arrive in succession.
+      if (!forceExitTimer) {
+        forceExitTimer = setTimeout(() => {
+          console.error(
+            chalk.red(
+              `Grace period expired after ${GRACE_PERIOD_MS}ms, forcing exit`,
+            ),
+          );
+          process.exit(128 + 15); // SIGTERM convention
+        }, GRACE_PERIOD_MS).unref();
+      }
+    };
+    process.on(sig, handler);
+    signalHandlers.set(sig, handler);
+  }
 
   try {
     while (true) {
@@ -185,8 +195,9 @@ export async function runRemoteControlMode(
             });
             console.log(chalk.blue(`→ Executing: ${request.toolName}`));
 
-            // Execute tool
-            const result = await executeLocalTool(request);
+            // Execute tool. Pass the abort signal so termination
+            // signals can interrupt in-flight tools.
+            const result = await executeLocalTool(request, controller.signal);
 
             // Post result back
             await postToolResult(
@@ -231,76 +242,40 @@ export async function runRemoteControlMode(
       }
     }
   } finally {
-    clearInterval(heartbeatInterval);
+    for (const [sig, handler] of signalHandlers) {
+      process.off(sig, handler);
+    }
+    await registrar.stop();
     if (mcpStarted) {
       await stopMcpServer();
     }
-    await releaseCliNode(backendUrl, auth.token, sessionId);
+    // Clean exit — disarm the forced-exit timer so it doesn't fire
+    // after the finally block completes.
+    if (forceExitTimer) {
+      clearTimeout(forceExitTimer);
+      forceExitTimer = null;
+    }
   }
 
   process.exit(0);
 }
 
-async function registerCliNode(
-  backendUrl: string,
-  token: string,
-  sessionId: string,
-  tools: string[],
-  capabilities: ReturnType<typeof detectLocalCapabilities>,
-): Promise<void> {
-  const response = await fetch(
-    `${backendUrl}/api/cli/session-events/${sessionId}/register`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        capabilities: {
-          hasDisplay: capabilities.hasDisplay,
-          platform: capabilities.platform,
-          isAdmin: capabilities.isAdmin,
-          scaleFactor: capabilities.scaleFactor,
-        },
-        tools,
-        cwd: process.cwd(),
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to register: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  logger.info('Registered as online', { sessionId });
-}
-
-async function releaseCliNode(
-  backendUrl: string,
-  token: string,
-  sessionId: string,
-): Promise<void> {
-  try {
-    await fetch(`${backendUrl}/api/cli/session-events/${sessionId}/release`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    logger.info('Released online state', { sessionId });
-  } catch (error) {
-    logger.warn('Failed to release', { error });
-  }
-}
-
-async function executeLocalTool(request: ToolRequest): Promise<ToolResult> {
+async function executeLocalTool(
+  request: ToolRequest,
+  signal?: AbortSignal,
+): Promise<ToolResult> {
   try {
     // Import tool executors dynamically to avoid loading heavy deps in main bundle
     const { executeLocalTool: exec } = await import('./tool-executor.ts');
-    const output = await exec(request.toolName, request.toolInput);
+    // Remote-control mode has no interactive approver; pass auth so the
+    // L0/L1 gate runs, but any L2-confirm is rejected fail-closed.
+    // Pass the AbortController's signal so SIGTERM/SIGINT/SIGHUP can
+    // interrupt a long-running local_exec / MCP call instead of
+    // blocking shutdown until the tool's own timeout expires.
+    const output = await exec(request.toolName, request.toolInput, {
+      auth: getStoredAuth(),
+      signal,
+    });
     return { ok: true, output };
   } catch (error: unknown) {
     return {
@@ -317,30 +292,57 @@ async function postToolResult(
   toolCallId: string,
   result: ToolResult,
 ): Promise<void> {
-  const response = await fetch(`${backendUrl}/api/cli/tool-result`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      sessionId,
-      toolCallId,
-      ok: result.ok,
-      output: result.output,
-      error: result.error,
-    }),
+  // Bounded retry. Idempotent on toolCallId so re-POSTing is safe.
+  const MAX_ATTEMPTS = 3;
+  const BACKOFF_MS = [0, 500, 2_000];
+  const REQUEST_TIMEOUT_MS = 8_000;
+  const url = `${backendUrl}/api/cli/tool-result`;
+  const body = JSON.stringify({
+    sessionId,
+    toolCallId,
+    ok: result.ok,
+    output: result.output,
+    error: result.error,
   });
 
-  if (!response.ok) {
-    logger.warn('Failed to post tool result', {
-      status: response.status,
-      statusText: response.statusText,
-      toolCallId,
-    });
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (BACKOFF_MS[attempt]) {
+      await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+    }
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (response.ok) return;
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 429
+      ) {
+        logger.error('tool-result POST permanently rejected', {
+          status: response.status,
+          toolCallId,
+        });
+        return;
+      }
+      logger.warn('tool-result POST failed, retrying', {
+        status: response.status,
+        attempt,
+        toolCallId,
+      });
+    } catch (error) {
+      logger.warn('tool-result POST threw, retrying', {
+        attempt,
+        toolCallId,
+        error,
+      });
+    }
   }
-}
-
-function generateSessionId(): string {
-  return `cli-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  logger.error('tool-result POST exhausted retries', { toolCallId });
 }

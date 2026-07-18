@@ -4,8 +4,12 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager};
+use std::sync::{Arc, Mutex, OnceLock};
+use tauri::{
+    AppHandle, Emitter, Manager, RunEvent, WindowEvent,
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
 
 // GitHub releases feed for the CLI tarballs. The installer queries the
 // `/releases/latest` endpoint at runtime to discover the current version
@@ -65,8 +69,27 @@ fn normalize_instance_id(instance_id: Option<String>) -> String {
 }
 
 fn stop_rpc_instance(handle: &mut RpcProcessHandle) {
+    // Drop the stdin writer first. RPC mode's `process.stdin.on('end')`
+    // handler triggers its `shutdown()` path, which POSTs `/release` to
+    // the Web backend — that clears the KV online state promptly
+    // instead of waiting for the 120s TTL after a hard kill.
     handle.stdin_writer = None;
     if let Some(mut child) = handle.process.take() {
+        // Give the CLI up to ~2s to exit on its own after stdin closed.
+        // `try_wait` is non-blocking, so we poll every 50ms.
+        const GRACE_MS: u64 = 2000;
+        const POLL_MS: u64 = 50;
+        let mut waited_ms = 0u64;
+        while waited_ms < GRACE_MS {
+            match child.try_wait() {
+                Ok(Some(_status)) => return, // exited cleanly
+                Ok(None) => {
+                    std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
+                    waited_ms += POLL_MS;
+                }
+                Err(_) => break, // weird state; fall through to kill
+            }
+        }
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -84,6 +107,13 @@ struct RpcStartOptions {
     provider: Option<String>,
     model: Option<String>,
     env: Option<std::collections::HashMap<String, String>>,
+    /// When set together with `backend_url`, the CLI registers itself
+    /// with the Web backend as online for this session id and listens
+    /// for incoming tool-request events. Lets Web-side `computer-use-remote`
+    /// dispatch to a CLI that Desktop spawned.
+    session_id: Option<String>,
+    /// Web backend base URL. Paired with `session_id`.
+    backend_url: Option<String>,
 }
 
 /// How the pi process was resolved
@@ -857,6 +887,17 @@ fn build_command(pi: &PiProcess, options: &RpcStartOptions) -> Command {
     if let Some(ref model) = options.model {
         cmd.arg("--model").arg(model);
     }
+    // Forward Web session identity so the CLI can register itself online
+    // with the Web backend. Without this, Web-side `computer-use-remote`
+    // can't dispatch to a Desktop-spawned CLI (silent capability gap).
+    // Named `--web-session-id` (not `--session-id`) because the CLI
+    // already has a `--session-id` flag for chat history sessions.
+    if let Some(ref backend_url) = options.backend_url
+        && let Some(ref session_id) = options.session_id
+    {
+        cmd.arg("--backend-url").arg(backend_url);
+        cmd.arg("--web-session-id").arg(session_id);
+    }
 
     cmd.current_dir(&options.cwd)
         .stdin(Stdio::piped())
@@ -1161,6 +1202,13 @@ pub struct AppSettings {
     pub model_provider: Option<String>,
     pub model_id: Option<String>,
     pub pi_path: Option<String>,
+    /// What happens when the user clicks the window close button.
+    ///   - `"ask"`: pop a dialog the first time, then remember the choice
+    ///   - `"tray"`: hide to tray, keep the app running
+    ///   - `"quit"`: quit the app
+    ///
+    /// Any other value is treated as `"ask"`.
+    pub close_action: String,
 }
 
 impl Default for AppSettings {
@@ -1176,8 +1224,121 @@ impl Default for AppSettings {
             model_provider: None,
             model_id: None,
             pi_path: None,
+            close_action: "ask".to_string(),
         }
     }
+}
+
+/// Normalized close-action enum resolved from the persisted string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloseAction {
+    Ask,
+    Tray,
+    Quit,
+}
+
+impl CloseAction {
+    fn from_settings(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "tray" | "minimize" | "background" => CloseAction::Tray,
+            "quit" | "exit" => CloseAction::Quit,
+            _ => CloseAction::Ask,
+        }
+    }
+}
+
+/// Sync read of `close_action` from disk. Used on the close-request hot path
+/// where we can't await an IPC round-trip to the frontend.
+fn load_close_action_sync() -> CloseAction {
+    let Ok(dir) = desktop_config_dir() else {
+        return CloseAction::Ask;
+    };
+    let path = dir.join("settings.json");
+    let Ok(content) = fs::read_to_string(&path) else {
+        return CloseAction::Ask;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return CloseAction::Ask;
+    };
+    match value.get("close_action").and_then(|v| v.as_str()) {
+        Some(s) => CloseAction::from_settings(s),
+        None => CloseAction::Ask,
+    }
+}
+
+/// Process-wide lock serializing all read-modify-write cycles against
+/// settings.json. Without this, `persist_close_action_sync` (fired from
+/// the close dialog) and `save_settings` (fired from the renderer's
+/// periodic save) can interleave and clobber each other. Atomic rename
+/// alone doesn't help because each side reads-then-writes the whole
+/// object; the lock makes the entire RMW atomic.
+fn settings_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Atomically write `path` by writing to `<path>.tmp.<pid>` then
+/// renaming. Returns the underlying IO error if either step fails.
+/// Callers must hold `settings_lock()` for RMW sequences — atomic
+/// rename alone does not prevent last-writer-wins data loss when
+/// two writers each read the same base, mutate, and write back.
+fn atomic_write(path: &Path, contents: &str) -> std::io::Result<()> {
+    let dir = path.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent")
+    })?;
+    fs::create_dir_all(dir)?;
+    let tmp = dir.join(format!(
+        ".{}.tmp.{}",
+        path.file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("settings.json"),
+        std::process::id(),
+    ));
+    {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(contents.as_bytes())?;
+        // Best-effort fsync so a crash immediately after the rename
+        // doesn't leave an empty file on disk. Ignore errors on
+        // platforms that don't support it.
+        let _ = f.sync_all();
+    }
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// Persist `close_action` without touching any other settings field. Used
+/// when the user picks "Always tray" / "Always quit" from the first-close
+/// dialog so the choice survives restarts even if the renderer hasn't saved
+/// its full settings blob yet.
+fn persist_close_action_sync(action: CloseAction) -> Result<(), String> {
+    let dir = desktop_config_dir()?;
+    let path = dir.join("settings.json");
+    // Take the lock for the whole RMW; ignore poisoning since a panicked
+    // writer still leaves a valid (if stale) file on disk.
+    let _guard = settings_lock()
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {}", e))?;
+    let mut root: serde_json::Value = match fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|_| serde_json::json!({})),
+        Err(_) => serde_json::json!({}),
+    };
+    if !root.is_object() {
+        root = serde_json::json!({});
+    }
+    let obj = root.as_object_mut().unwrap();
+    let label = match action {
+        CloseAction::Tray => "tray",
+        CloseAction::Quit => "quit",
+        CloseAction::Ask => "ask",
+    };
+    obj.insert("close_action".to_string(), serde_json::json!(label));
+    atomic_write(
+        &path,
+        serde_json::to_string_pretty(&root)
+            .unwrap_or_default()
+            .as_str(),
+    )
+    .map_err(|e| format!("Failed to persist close action: {}", e))
 }
 
 fn desktop_config_dir() -> Result<PathBuf, String> {
@@ -1214,7 +1375,13 @@ async fn save_settings(_app: AppHandle, settings: AppSettings) -> Result<(), Str
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
 
-    fs::write(settings_path, json).map_err(|e| format!("Failed to write settings: {}", e))
+    // Take the lock + do an atomic rename so a concurrent
+    // `persist_close_action_sync` (close dialog) can't clobber this
+    // write, and a crash mid-write can't leave a truncated file.
+    let _guard = settings_lock()
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {}", e))?;
+    atomic_write(&settings_path, &json).map_err(|e| format!("Failed to write settings: {}", e))
 }
 
 /// Load app settings
@@ -1362,6 +1529,8 @@ async fn run_pi_cli_command(
         provider: None,
         model: None,
         env: options.env.clone(),
+        session_id: None,
+        backend_url: None,
     };
 
     let pi = discover_pi(&app, &discovery_opts)?;
@@ -1527,22 +1696,153 @@ async fn open_path_in_default_app(path: String) -> Result<(), String> {
     Err("Unsupported platform for open_path_in_default_app".to_string())
 }
 
+/// Build the tray context menu: Show / New Chat / --- / Quit.
+/// `new_chat` and `show` are disabled when no main window is connected to
+/// the renderer yet, but Tauri 2's menu API doesn't easily let us toggle
+/// items at build time without holding MenuItem handles — so we keep it
+/// simple and let the click handlers themselves decide what to do.
+fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let show = MenuItem::with_id(app, "tray-show", "Show Agentboster", true, None::<&str>)?;
+    let new_chat = MenuItem::with_id(app, "tray-new-chat", "New Chat", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(app, "tray-quit", "Quit Agentboster", true, None::<&str>)?;
+    Menu::with_items(app, &[&show, &new_chat, &sep, &quit])
+}
+
+/// Show, focus, and un-minimize the main window. Restores taskbar/Dock
+/// presence that `hide_main_window_to_tray` stripped.
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_skip_taskbar(false);
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Dispatch a `tray-show` / `tray-new-chat` event to the renderer. The
+/// renderer decides what "new chat" means (start a fresh session in the
+/// current workspace, or open the project picker if none is active).
+fn emit_tray_event(app: &AppHandle, name: &str) {
+    let _ = app.emit(name, ());
+}
+
+/// Hide the main window to the tray. Also drops it from the taskbar /
+/// macOS Dock via `set_skip_taskbar` so the app is truly backgrounded
+/// until the user summons it back from the tray.
+fn hide_main_window_to_tray(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+        let _ = window.set_skip_taskbar(true);
+    }
+}
+
+/// Stop all RPC child processes and exit the app. Called from the tray
+/// Quit item, from `RunEvent::ExitRequested`, and from the renderer when
+/// the user picks "Quit" in the first-close dialog.
+fn quit_app(app: &AppHandle) {
+    // Drain RPC instances via the managed state, mirroring `rpc_stop_all`.
+    if let Some(state) = app.try_state::<RpcState>()
+        && let Ok(mut instances) = state.instances.lock()
+    {
+        for (_, mut handle) in instances.drain() {
+            stop_rpc_instance(&mut handle);
+        }
+    }
+    app.exit(0);
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .setup(|_app| {
+        .setup(|app| {
             #[cfg(target_os = "macos")]
             {
-                if let Some(window) = _app.get_webview_window("main") {
+                if let Some(window) = app.get_webview_window("main") {
                     let _ =
                         window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
                     let _ = window.set_shadow(true);
                 }
             }
+
+            // Attach the tray icon + context menu. The `trayIcon` block in
+            // tauri.conf.json already registers a `main-tray` instance at
+            // build time, so reuse it via `tray_by_id` instead of building a
+            // second one with the same id (which would otherwise panic or
+            // create a duplicate icon depending on the Tauri version). If the
+            // config-declared tray is ever removed, fall back to building it.
+            let menu = build_tray_menu(app.handle())?;
+            let existing = app.tray_by_id("main-tray");
+            let tray = match existing {
+                Some(tray) => {
+                    tray.set_menu(Some(menu))?;
+                    tray.set_tooltip(Some("Agentboster Desktop"))?;
+                    tray.set_show_menu_on_left_click(false)?;
+                    tray.on_menu_event(|app, event| handle_tray_menu_event(app, &event));
+                    tray.on_tray_icon_event(|tray, event| {
+                        handle_tray_icon_event(tray.app_handle(), &event);
+                    });
+                    // The config-declared tray uses `iconAsTemplate: false`
+                    // already; keep its icon as-is (it loads iconPath from
+                    // the bundle).
+                    tray
+                }
+                None => {
+                    let mut builder = TrayIconBuilder::with_id("main-tray")
+                        .menu(&menu)
+                        .show_menu_on_left_click(false)
+                        .tooltip("Agentboster Desktop")
+                        .on_menu_event(|app, event| handle_tray_menu_event(app, &event))
+                        .on_tray_icon_event(|tray, event| {
+                            handle_tray_icon_event(tray.app_handle(), &event);
+                        });
+                    if let Some(image) = app.default_window_icon() {
+                        // `to_owned` promotes `Image<'a>` to `Image<'static>` so the
+                        // builder doesn't borrow from `app`.
+                        builder = builder.icon(image.to_owned());
+                    }
+                    builder.build(app)?
+                }
+            };
+            let _ = tray;
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Close-to-tray interception. We only care about the main window;
+            // any auxiliary windows (none currently, but defensive) fall
+            // through to default behavior.
+            if window.label() != "main" {
+                return;
+            }
+            // WindowEvent is #[non_exhaustive]; the wildcard arm is
+            // intentionally omitted because clippy::single_match flags it
+            // and we only care about CloseRequested here. Other variants
+            // fall through to default Tauri behavior.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let action = load_close_action_sync();
+                match action {
+                    CloseAction::Tray => {
+                        api.prevent_close();
+                        hide_main_window_to_tray(window.app_handle());
+                    }
+                    CloseAction::Quit => {
+                        // Allow the close to proceed; the last-window
+                        // exit path drains RPC state in the RunEvent
+                        // handler below.
+                    }
+                    CloseAction::Ask => {
+                        // Prevent the close; the renderer will pop a
+                        // dialog and call `resolve_close_action` once
+                        // the user picks.
+                        api.prevent_close();
+                        let _ = window.app_handle().emit("close-requested", ());
+                    }
+                }
+            }
         })
         .manage(RpcState::default())
         .invoke_handler(tauri::generate_handler![
@@ -1560,7 +1860,121 @@ pub fn run() {
             run_git_command,
             get_desktop_runtime_info,
             open_path_in_default_app,
+            resolve_close_action,
+            set_close_action,
+            show_main_window_cmd,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // On the last window closing, Tauri wants to exit. We want the
+            // app to keep running (so the tray can bring it back). When the
+            // user actually asked to quit (via tray Quit or close_action=quit),
+            // `quit_app` is invoked explicitly from those handlers — but
+            // `close_action = "quit"` falls through here when the main window
+            // closes. So we drain RPC state on every ExitRequested; harmless
+            // when there's nothing to drain, essential when the user just
+            // closed the window with quit semantics.
+            if let RunEvent::ExitRequested { .. } = event
+                && let Some(state) = app.try_state::<RpcState>()
+                && let Ok(mut instances) = state.instances.lock()
+            {
+                for (_, mut handle) in instances.drain() {
+                    stop_rpc_instance(&mut handle);
+                }
+            }
+        });
+}
+
+fn handle_tray_menu_event(app: &AppHandle, event: &MenuEvent) {
+    match event.id().as_ref() {
+        "tray-show" => show_main_window(app),
+        "tray-new-chat" => {
+            // Bring the window forward first so the user can see the result
+            // of the new-chat action, then ask the renderer to start one.
+            show_main_window(app);
+            emit_tray_event(app, "tray-new-chat");
+        }
+        "tray-quit" => quit_app(app),
+        _ => {}
+    }
+}
+
+fn handle_tray_icon_event(app: &AppHandle, event: &TrayIconEvent) {
+    // Left-click toggles the main window (show if hidden, hide if visible).
+    // Right-click falls through to the default behavior of showing the
+    // context menu, which Tauri handles for us.
+    if let TrayIconEvent::Click {
+        button: MouseButton::Left,
+        button_state: MouseButtonState::Up,
+        ..
+    } = event
+    {
+        if let Some(window) = app.get_webview_window("main") {
+            match window.is_visible() {
+                Ok(true) => hide_main_window_to_tray(app),
+                _ => show_main_window(app),
+            }
+        } else {
+            show_main_window(app);
+        }
+    }
+    // TrayIconEvent is #[non_exhaustive]; other variants (DoubleClick,
+    // Enter, Move, Leave) are intentionally ignored, and future variants
+    // fall through here too.
+}
+
+/// Renderer → main: the user answered the first-close dialog. `action` is
+/// one of `"tray"` / `"quit"` / `"ask"` (ask = "ask again next time", i.e.
+/// don't persist a choice). `remember` decides whether to persist.
+#[tauri::command]
+async fn resolve_close_action(
+    app: AppHandle,
+    action: String,
+    remember: bool,
+) -> Result<(), String> {
+    let resolved = CloseAction::from_settings(&action);
+    if remember && resolved != CloseAction::Ask {
+        persist_close_action_sync(resolved)?;
+    }
+
+    match resolved {
+        CloseAction::Tray => {
+            hide_main_window_to_tray(&app);
+        }
+        CloseAction::Quit => {
+            quit_app(&app);
+        }
+        CloseAction::Ask => {
+            // User chose "ask again next time" but picked "hide for now"
+            // from the dialog — just hide. The next close will ask again.
+            // We infer intent from the action string: "ask-tray" means hide
+            // this once without persisting; "ask-quit" means quit this once.
+            match action.as_str() {
+                "ask-tray" => hide_main_window_to_tray(&app),
+                "ask-quit" => quit_app(&app),
+                _ => {
+                    // No-op: the dialog was dismissed (e.g. Esc). Keep the
+                    // window open and let the user decide later.
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Renderer → main: settings panel changed the close_action preference.
+#[tauri::command]
+async fn set_close_action(action: String) -> Result<(), String> {
+    let resolved = CloseAction::from_settings(&action);
+    persist_close_action_sync(resolved)?;
+    Ok(())
+}
+
+/// Renderer → main: explicitly show and focus the main window (used after
+/// clicking the tray's "Show" entry when the window is hidden).
+#[tauri::command]
+async fn show_main_window_cmd(app: AppHandle) -> Result<(), String> {
+    show_main_window(&app);
+    Ok(())
 }

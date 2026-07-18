@@ -1042,7 +1042,10 @@ export async function main(args: string[], options?: MainOptions) {
 
   if (appMode === 'rpc') {
     printTimings();
-    await runRpcMode(runtime);
+    await runRpcMode(runtime, {
+      backendUrl: parsed.backendUrl,
+      sessionId: parsed.cliSessionId,
+    });
   } else if (appMode === 'interactive') {
     const interactiveMode = new InteractiveMode(runtime, {
       migratedProviders,
