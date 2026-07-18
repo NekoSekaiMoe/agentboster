@@ -33,6 +33,7 @@ import {
   fetchDesktopUpdateStatus,
   type DesktopUpdateStatus,
 } from './desktop-updates.js';
+import { readAgentbosterDesktopAuth } from './agentboster-auth.js';
 import {
   RpcBridge,
   type RpcSessionState,
@@ -110,6 +111,13 @@ interface SessionRuntime {
   tabId: string;
   projectPath: string;
   lastKnownSessionPath: string | null;
+  /**
+   * Web-side CLI session id assigned the first time this runtime connects.
+   * Reused across reconnects so the Web backend's `cli-remote:<sessionId>`
+   * KV entry stays stable for the lifetime of this Desktop session tab,
+   * letting `computer-use-remote` redispatch after a CLI restart.
+   */
+  webCliSessionId: string | null;
   running: boolean;
   draftInitialized: boolean;
   phase:
@@ -697,6 +705,7 @@ function getOrCreateRuntimeForTab(
     tabId,
     projectPath,
     lastKnownSessionPath: null,
+    webCliSessionId: null,
     running: false,
     draftInitialized: false,
     phase: 'idle',
@@ -3435,10 +3444,27 @@ async function ensureRuntimeForSessionTab(
       recordDebugTrace(
         `ensureRuntime:start-bridge instance=${runtime.instanceId}`,
       );
+      // Resolve Web backend URL + assign a stable CLI session id so the
+      // CLI can register itself online (computer-use-remote dispatch).
+      // If auth is missing the CLI still runs in pure local mode.
+      if (!runtime.webCliSessionId) {
+        runtime.webCliSessionId = `desktop-${crypto.randomUUID()}`;
+      }
+      let webBackendUrl: string | null = null;
+      try {
+        const auth = await readAgentbosterDesktopAuth();
+        webBackendUrl = auth?.url ?? null;
+      } catch (err) {
+        recordDebugTrace(
+          `ensureRuntime:web-auth-read-failed ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       await bridge.start({
         cliPath: findCliPath(),
         piPath: findPiBinaryPath(),
         cwd: projectPath,
+        sessionId: runtime.webCliSessionId,
+        backendUrl: webBackendUrl,
       });
       recordDebugTrace(
         `ensureRuntime:bridge-started instance=${runtime.instanceId} discovery=${bridge.discoveryInfo ?? '-'}`,

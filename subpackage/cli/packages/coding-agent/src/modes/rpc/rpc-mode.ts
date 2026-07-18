@@ -29,6 +29,16 @@ import { McpServiceManager } from '../../core/mcp-services.ts';
 import { killTrackedDetachedChildren } from '../../utils/shell.ts';
 import { type Theme, theme } from '../interactive/theme/theme.ts';
 import { attachJsonlLineReader, serializeJsonLine } from './jsonl.ts';
+import {
+  startCliSessionRegistrar,
+  connectSessionEventStream,
+  type RegistrarHandle,
+  type SessionEventStreamHandle,
+} from '../../core/cli-session-registrar.ts';
+import { detectLocalCapabilities } from '../../core/capability-detect.ts';
+import { getStoredAuth } from '@agentboster/adapter';
+import { createLogger } from '../../utils/logger.ts';
+import { startMcpServer } from '../remote-control/mcp-client.ts';
 import type {
   RpcCommand,
   RpcExtensionUIRequest,
@@ -47,12 +57,37 @@ export type {
   RpcSessionState,
 } from './rpc-types.ts';
 
+const rpcLogger = createLogger('rpc-mode');
+
+// Web session registrar + SSE listener handles. Populated only when
+// RPC mode is launched with --backend-url + --web-session-id. Stopped on
+// shutdown to release the KV online state promptly. RPC mode is
+// single-instance per process so module-level state is safe.
+let registrarHandle: RegistrarHandle | null = null;
+let sessionStreamHandle: SessionEventStreamHandle | null = null;
+
+export interface RpcModeOptions {
+  /**
+   * If set together with `sessionId`, RPC mode will register itself with
+   * the Web backend as an online CLI session and listen for incoming
+   * tool-request events on the session-events SSE stream.
+   *
+   * This lets Web-side providers (e.g. `computer-use-remote`) dispatch
+   * computer-use tool calls to a CLI that Desktop spawned. Without this,
+   * Desktop-launched RPC CLIs are invisible to the Web's remote tool
+   * dispatch even though the MCP binary is loaded.
+   */
+  backendUrl?: string;
+  sessionId?: string;
+}
+
 /**
  * Run in RPC mode.
  * Listens for JSON commands on stdin, outputs events and responses on stdout.
  */
 export async function runRpcMode(
   runtimeHost: AgentSessionRuntime,
+  options: RpcModeOptions = {},
 ): Promise<never> {
   takeOverStdout();
   let session = runtimeHost.session;
@@ -834,6 +869,12 @@ export async function runRpcMode(
     for (const cleanup of signalCleanupHandlers) {
       cleanup();
     }
+    if (sessionStreamHandle) {
+      await sessionStreamHandle.stop();
+    }
+    if (registrarHandle) {
+      await registrarHandle.stop();
+    }
     unsubscribe?.();
     unsubscribeBackpressure?.();
     await mcpServices.stopAll();
@@ -920,6 +961,168 @@ export async function runRpcMode(
     };
   })();
 
+  // Optional Web backend registration. When Desktop (or another
+  // embedder) passes --backend-url + --session-id, RPC mode also:
+  //   1. Registers itself online for that session so Web-side tool
+  //      providers like `computer-use-remote` can dispatch to it.
+  //   2. Listens on the session-events SSE stream for incoming
+  //      tool-request events from the Web LLM, executing them locally
+  //      and POSTing the result back. This is what closes the loop
+  //      "Desktop starts CLI -> remote LLM can call screenshot/etc."
+  //
+  // Without this, the MCP binary is loaded but invisible to the Web's
+  // remote tool dispatch (silent capability gap).
+  if (options.backendUrl && options.sessionId) {
+    try {
+      await startWebSessionBridge(options.backendUrl, options.sessionId);
+    } catch (error) {
+      rpcLogger.warn('Failed to start Web session bridge', { error });
+    }
+  }
+
   // Keep process alive forever
   return new Promise(() => {});
+}
+
+/**
+ * Wire RPC mode into the Web backend for `sessionId`:
+ *   - detect local capabilities (display + MCP binary)
+ *   - start the MCP server if applicable (so computer-use tools actually work)
+ *   - start the registrar (heartbeat + register)
+ *   - connect the SSE stream so Web-dispatched tool-requests reach us
+ *
+ * On any failure we log and continue — RPC mode's primary stdio loop
+ * still works; only the Web remote-control path is degraded.
+ */
+async function startWebSessionBridge(
+  backendUrl: string,
+  sessionId: string,
+): Promise<void> {
+  const auth = getStoredAuth();
+  if (!auth) {
+    rpcLogger.warn(
+      'Web session bridge disabled: not authenticated (run agentboster-cli login)',
+    );
+    return;
+  }
+
+  const capabilities = detectLocalCapabilities();
+  const tools: string[] = [
+    'local_read_file',
+    'local_write_file',
+    'local_exec',
+    'local_grep',
+  ];
+
+  // process.cwd() is the project path Desktop launched the CLI with
+  // (spawn cwd), which is the most accurate "what project is this CLI
+  // working on" signal we have at this layer.
+  const cwd = process.cwd();
+
+  if (capabilities.hasMcpBinary && capabilities.hasDisplay) {
+    try {
+      await startMcpServer(sessionId);
+      tools.push(
+        'screenshot',
+        'mouse_move',
+        'mouse_click',
+        'mouse_drag',
+        'key_event',
+        'type_text',
+        'get_accessibility_tree',
+        'get_focused_element',
+      );
+    } catch (error) {
+      rpcLogger.warn(
+        'MCP server failed to start; computer-use tools disabled',
+        {
+          error,
+        },
+      );
+    }
+  }
+
+  registrarHandle = await startCliSessionRegistrar({
+    backendUrl,
+    token: auth.token,
+    sessionId,
+    tools,
+    capabilities,
+    cwd,
+  });
+
+  sessionStreamHandle = await connectSessionEventStream({
+    backendUrl,
+    token: auth.token,
+    sessionId,
+    onToolRequest: async (request) => {
+      // Execute the tool locally and POST the result back. We reuse
+      // remote-control-mode's executor since the tool set is identical.
+      try {
+        const { executeLocalTool } = await import(
+          '../remote-control/tool-executor.ts'
+        );
+        const output = await executeLocalTool(
+          request.toolName,
+          request.toolInput,
+        );
+        await postToolResult(backendUrl, auth.token, sessionId, {
+          toolCallId: request.toolCallId,
+          ok: true,
+          output,
+        });
+      } catch (error: unknown) {
+        await postToolResult(backendUrl, auth.token, sessionId, {
+          toolCallId: request.toolCallId,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  });
+
+  // Best-effort: also stop the MCP server on shutdown. The remote-control
+  // importer exposes stopMcpServer; we call it via a shutdown hook below.
+  // We can't extend signalCleanupHandlers from here cleanly, so we rely
+  // on process exit to reap the MCP child if RPC mode shuts down via a
+  // signal that bypasses shutdown(). For SIGTERM/SIGINT path, the main
+  // shutdown() function will run and we already stop registrar/stream
+  // above; MCP gets cleaned up when the process dies.
+}
+
+async function postToolResult(
+  backendUrl: string,
+  token: string,
+  sessionId: string,
+  result: {
+    toolCallId: string;
+    ok: boolean;
+    output?: unknown;
+    error?: string;
+  },
+): Promise<void> {
+  try {
+    const response = await fetch(`${backendUrl}/api/cli/tool-result`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId,
+        toolCallId: result.toolCallId,
+        ok: result.ok,
+        output: result.output,
+        error: result.error,
+      }),
+    });
+    if (!response.ok) {
+      rpcLogger.warn('tool-result POST failed', {
+        status: response.status,
+        toolCallId: result.toolCallId,
+      });
+    }
+  } catch (error) {
+    rpcLogger.warn('tool-result POST threw', { error });
+  }
 }

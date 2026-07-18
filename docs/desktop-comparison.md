@@ -1,12 +1,12 @@
 # Agentboster 与 Memoh 的 Desktop 形态对比
 
-> 对比基于当前工作区代码，初次分析日期为 2026-07-18，最近一次更新为 2026-07-18（补充 Agentboster Desktop 系统托盘与关闭到托盘流程）。本文中的 Memoh 指仓库根目录下的 `memoh/` 参考项目。代码持续演进，本文描述的是当前实现，而不是未来路线图。
+> 对比基于当前工作区代码，初次分析日期为 2026-07-18，最近一次更新为 2026-07-18（合流 Desktop RPC mode 与 Remote-Control Registration Gate，使远程 LLM 能直接调度 Desktop 启动的 CLI 的物理桌面能力）。本文中的 Memoh 指仓库根目录下的 `memoh/` 参考项目。代码持续演进，本文描述的是当前实现，而不是未来路线图。
 
 ## 1. 结论摘要
 
 Agentboster Desktop 和 Memoh Desktop 都提供聊天、文件、终端和远程工作区能力，但两者的产品中心不同：
 
-- **Agentboster Desktop 是本地编码 Agent 工作台。** 它以用户当前电脑上的项目、目录、会话和 CLI Runtime 为中心。桌面壳直接启动本地 `agentboster-cli --mode rpc` 子进程，通过 stdin/stdout RPC 驱动聊天和工具执行，并打包 `computer-use-mcp` 作为物理桌面能力；远程 LLM 使用该能力还要求 Session 满足当前的 Remote-Control Registration Gate。
+- **Agentboster Desktop 是本地编码 Agent 工作台。** 它以用户当前电脑上的项目、目录、会话和 CLI Runtime 为中心。桌面壳直接启动本地 `agentboster-cli --mode rpc` 子进程，通过 stdin/stdout RPC 驱动聊天和工具执行，并打包 `computer-use-mcp` 作为物理桌面能力。RPC mode 启动时还会把 Session 注册到 Web backend（带 `hasDisplay`），让远程 LLM 通过 `computer-use-remote` 直接调度用户桌面。
 - **Memoh Desktop 是多 Bot 平台的常驻原生客户端。** 它以 Memoh Cloud 或自托管 Memoh Server 为中心，复用 Web UI 的 Bot、聊天、Workspace、记忆、渠道和管理能力。Electron 壳不内置 Memoh Server，但可以把当前电脑作为受约束的 Remote Runtime 反向连接给服务器。
 
 最简化的定位是：
@@ -36,7 +36,7 @@ Agentboster Desktop 和 Memoh Desktop 都提供聊天、文件、终端和远程
 | 本地依赖 | 需要或自动安装 `agentboster-cli`，可携带 `computer-use-mcp` | 不启动本地 Server、不安装 companion CLI；内嵌 Remote Runtime SDK |
 | 服务端关系 | Web 是模型、Workflow、会话和持久化的权威端 | Memoh Server 是 Bot、Agent、记忆、渠道和 Workspace 的权威端 |
 | 本地文件/命令 | CLI 直接针对当前项目目录执行 `local_*` 能力 | 可选 Remote Runtime，在服务器授权的 Workspace scope 内提供 `fs` 和 `exec` |
-| 本机 Computer Use | `computer-use-mcp` 可截图、无障碍检查、鼠标/键盘输入；远程 LLM Tool 还受 Session Registration Gate 约束 | Remote Runtime M1 未声明截图、输入或无障碍能力 |
+| 本机 Computer Use | `computer-use-mcp` 可截图、无障碍检查、鼠标/键盘输入；Desktop RPC mode 启动时自动向 Web 注册 `hasDisplay`，远程 LLM 可经 `computer-use-remote` 调度 | Remote Runtime M1 未声明截图、输入或无障碍能力 |
 | 隔离桌面 | agentd LXC 中的 X11 + noVNC，可在 Desktop 中查看 | 每个 Bot Workspace 的 Xvnc 桌面，通过 Web UI/Desktop 查看和接管 |
 | 浏览器形态 | 本机/CLI 工具加 agentd 沙箱浏览器 | Workspace 内 Browser Use，和 Workspace Desktop 统一归 Bot 所有 |
 | UI 信息架构 | Workspace -> Project -> Session/File Tab | Bot -> Session/Workspace Panel |
@@ -398,22 +398,30 @@ Web 使用带 TTL 的在线状态判断是否注册 Computer Use Tool。工具�
 
 CLI 离线、Session 不匹配、MCP 未启动、系统权限未授予或 Tool Result 回调超时时，模型只会得到工具错误，不会自动获得另一台电脑的控制权。
 
-#### Desktop RPC 与 Remote-Control Gate 的当前实现限定
+#### Desktop RPC 与 Remote-Control Gate 的合流
 
-Agentboster 当前存在两种容易被混为一谈的 CLI 通信方式：
+Agentboster 历史上存在两种容易被混为一谈的 CLI 通信方式：
 
 1. **Desktop/交互式 CLI Chat**：调用 `/api/cli/chat`，服务端把 `local-tool-request` 写入同一条聊天响应 Stream，前台 CLI 收到后执行本地工具并回传。
 2. **Detached Remote-Control Mode**：CLI 长期连接 `/api/cli/session-events/[sessionId]`，注册显示能力并等待来自 IM 或其他入口的远程 Tool Request。
 
-Desktop 的 Tauri 后端会发现 `computer-use-mcp`，设置 `COMPUTER_USE_MCP_PATH`，然后启动 `agentboster-cli --mode rpc`。但是 Web 侧 `computer-use-remote` Tool Provider 当前还会调用 `getCliCapabilities(sessionId)`，只有对应 Session 已通过 Remote-Control Registration 标记为 Online 且 `hasDisplay: true` 时才注册截图工具。
+Desktop 的 Tauri 后端会发现 `computer-use-mcp`、设置 `COMPUTER_USE_MCP_PATH`，然后启动 `agentboster-cli --mode rpc`。Desktop renderer 在 `rpc_start` 时会生成一个稳定的 `webCliSessionId` 并读取 `~/.config/agentboster-cli/config.json` 的 Web backend URL，通过 CLI 参数 `--backend-url` + `--web-session-id` 传给 CLI。
 
-因此，按当前代码应区分：
+CLI 在 RPC mode 启动时，如果两个参数都存在且 auth token 可用，会同时做两件事：
 
-- **打包能力**：Desktop 确实携带并向 CLI 暴露 Computer Use Sidecar。
-- **Web Tool 可见性**：取决于 Session 是否完成 Remote-Control Capability Registration。
-- **普通 RPC 启动**：仅有 `--mode rpc` 和 `COMPUTER_USE_MCP_PATH`，并不能从 Web 侧代码证明该 Session 一定满足 Remote-Control Gate。
+- 调用 `startCliSessionRegistrar` 注册 online + 30s heartbeat，把 `cli-remote:<sessionId>` KV 写入 Web，使 `getCliCapabilities(sessionId)` 返回 `online=true`、`hasDisplay=true`、`tools=[screenshot, mouse_*, ...]`。
+- 调用 `connectSessionEventStream` 监听同一条 session-events SSE，承接 Web 推过来的 `tool-request`，本地执行（复用 remote-control 的 `executeLocalTool`）后 `POST /api/cli/tool-result` 回去。
 
-换言之，Agentboster 已具备远程 LLM 物理桌面的各个组件和 Detached Remote-Control 链路，但 Desktop RPC 是否自动完成同 Session 的能力登记，需要额外运行时接线或集成验证，不能只根据打包配置下结论。本文其他位置所说的“Agentboster Desktop 物理桌面能力”，应理解为已打包的本机能力；所说的“远程 LLM 控制物理桌面”，特指 Remote-Control Gate 已满足的 Session。
+这样 Web 侧 `computer-use-remote` Tool Provider 在 factory 检查 `getCliCapabilities(sessionId)` 时会拿到注册状态，把 screenshot / mouse_* / key_event / accessibility 工具注册给模型；模型调用时通过 `writeLocalToolRequest` + `pushToCliSession` 双写，CLI 通过 SSE 收到并执行。
+
+此外 `core/capability-detect.ts:resolveMcpBinary` 现在也读 `COMPUTER_USE_MCP_PATH`（之前只看 sibling 路径，Desktop 注入的 MCP 路径无法被 capability 检测看到，导致 register 时 `hasMcpBinary=false`）。
+
+进程退出方面，Desktop Rust 端 `stop_rpc_instance` 改为 SIGTERM-first：先关闭 stdin（触发 RPC mode 的 `process.stdin.on('end')` → `shutdown()` → `registrar.stop()` 调 `POST /release`），轮询 2s 等优雅退出，超时再 SIGKILL。即便 SIGKILL 兜底，KV TTL 120s 也会最终清理。
+
+剩余的限定：
+
+- **CLI RPC mode 收到 remote tool-request 时不会获取 RemoteControlLock**。Detached Remote-Control Mode 在收到 `lock-acquired`/`lock-released` 时会调 `remoteControlLock.acquire/release` 防止 IM 远程回合跟 CLI 本地输入串扰；RPC mode 当前忽略这两个事件，因为 Desktop embedder 才是本地输入的拥有者。如果未来要让 Desktop 与 Web LLM 协同输入，需要补这一层。
+- **`getStoredAuth()` 必须有 token**。Desktop 用户必须先在 CLI 跑过 `agentboster-cli login`。否则 RPC mode 跳过 Web session bridge，CLI 仍能跑 Desktop 本地任务，但 `computer-use-remote` 在 Web 侧不会注册。
 
 ### 6.2 Agentboster：远程 LLM 控制 agentd 沙箱桌面
 
@@ -875,7 +883,7 @@ Agentboster 的 Web 是 Workflow、模型和会话权威端；Memoh Desktop 也�
 Agentboster Desktop
 = 本地项目工作台
 + 本地 CLI RPC Host
-+ 物理桌面 Computer Use（远程控制需满足 Registration Gate）
++ 物理桌面 Computer Use（Desktop RPC mode 自动注册到 Web backend）
 + agentd 沙箱桌面的查看入口
 + 系统托盘常驻与可配置的关闭到托盘流程
 
@@ -902,11 +910,16 @@ Memoh Desktop
 - [`subpackage/cli/packages/desktop/src/main.ts`](../subpackage/cli/packages/desktop/src/main.ts)（事件监听部分）：监听主进程 `close-requested` 事件，弹原生对话框并回传用户选择；监听 `tray-new-chat` 触发新会话。
 - [`subpackage/cli/packages/desktop/src/components/settings-panel.ts`](../subpackage/cli/packages/desktop/src/components/settings-panel.ts)（Window & tray 分组）：暴露 `close_action` 三选一，调 `set_close_action` 持久化。
 - [`subpackage/computer-use-mcp/README.md`](../subpackage/computer-use-mcp/README.md)：跨平台本机 Computer Use Server。
-- [`lib/workflow/agent/tools/execute/computer-use.ts`](../lib/workflow/agent/tools/execute/computer-use.ts)：远程 LLM 到 CLI/MCP 的 Computer Use 注册门槛和 Tool Result 回路。
+- [`lib/workflow/agent/tools/execute/computer-use.ts`](../lib/workflow/agent/tools/execute/computer-use.ts)：远程 LLM 到 CLI/MCP 的 Computer Use 注册门槛（`getCliCapabilities(sessionId).online && hasDisplay`）和 Tool Result 回路。
 - [`lib/workflow/agent/tools/execute/desktop.ts`](../lib/workflow/agent/tools/execute/desktop.ts)：agentd 沙箱 Desktop 工具。
 - [`app/api/cli/session-events/[sessionId]/route.ts`](../app/api/cli/session-events/[sessionId]/route.ts)：Detached Remote-Control 的 SSE、能力登记和 KV 降级入口。
 - [`lib/cli/remote-control.ts`](../lib/cli/remote-control.ts)：CLI 在线状态、Event Queue、IM Attachment 和 Session Lock。
-- [`subpackage/cli/packages/coding-agent/src/modes/remote-control/remote-control-mode.ts`](../subpackage/cli/packages/coding-agent/src/modes/remote-control/remote-control-mode.ts)：CLI Remote-Control 长连接和 Tool Executor。
+- [`subpackage/cli/packages/coding-agent/src/core/cli-session-registrar.ts`](../subpackage/cli/packages/coding-agent/src/core/cli-session-registrar.ts)：register/heartbeat/release 公共模块（remote-control-mode 和 rpc-mode 共用）+ session-events SSE 监听。
+- [`subpackage/cli/packages/coding-agent/src/modes/rpc/rpc-mode.ts`](../subpackage/cli/packages/coding-agent/src/modes/rpc/rpc-mode.ts)（`startWebSessionBridge`）：RPC mode 启动时如带 `--backend-url` + `--web-session-id`，注册 online + 监听 SSE tool-request。
+- [`subpackage/cli/packages/coding-agent/src/core/capability-detect.ts`](../subpackage/cli/packages/coding-agent/src/core/capability-detect.ts)：`resolveMcpBinary` 现在也读 `COMPUTER_USE_MCP_PATH`。
+- [`subpackage/cli/packages/desktop/src/rpc/bridge.ts`](../subpackage/cli/packages/desktop/src/rpc/bridge.ts)（`RpcStartOptions.sessionId/backendUrl`）：Desktop renderer 生成 stable `webCliSessionId` + 从 `agentboster-auth` 读 backendUrl 传给 Rust。
+- [`subpackage/cli/packages/desktop/src-tauri/src/lib.rs`](../subpackage/cli/packages/desktop/src-tauri/src/lib.rs)（`build_command` + `stop_rpc_instance`）：Rust 端转发 `--backend-url`/`--web-session-id`；SIGTERM-first 的 stop 让 CLI 优雅 release，避免 KV 幽灵在线。
+- [`subpackage/cli/packages/coding-agent/src/modes/remote-control/remote-control-mode.ts`](../subpackage/cli/packages/coding-agent/src/modes/remote-control/remote-control-mode.ts)：CLI Remote-Control 长连接和 Tool Executor（已改用 cli-session-registrar）。
 
 ### Memoh
 

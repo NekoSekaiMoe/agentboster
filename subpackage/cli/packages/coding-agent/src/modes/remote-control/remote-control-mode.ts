@@ -15,6 +15,11 @@ import { getStoredAuth } from '@agentboster/adapter';
 import { createLogger } from '../../utils/logger.ts';
 import { getBackendUrl } from '../../core/backend-url.ts';
 import { detectLocalCapabilities } from '../../core/capability-detect.ts';
+import {
+  generateCliSessionId,
+  startCliSessionRegistrar,
+  type RegistrarHandle,
+} from '../../core/cli-session-registrar.ts';
 import { startMcpServer, stopMcpServer } from './mcp-client.ts';
 import { RemoteControlLock } from '../../core/remote-control-lock.ts';
 
@@ -51,7 +56,7 @@ export async function runRemoteControlMode(
   }
 
   const backendUrl = getBackendUrl();
-  const sessionId = options.sessionId || generateSessionId();
+  const sessionId = options.sessionId || generateCliSessionId();
 
   console.log(chalk.cyan('Remote control mode started'));
   console.log(chalk.dim(`Session ID: ${sessionId}`));
@@ -105,14 +110,16 @@ export async function runRemoteControlMode(
     chalk.green('Waiting for commands from IM/Web... (Press Ctrl+C to exit)'),
   );
 
-  // Register this CLI as online
-  await registerCliNode(
+  // Register this CLI as online + keep KV TTL fresh. The registrar owns
+  // the heartbeat interval and the release POST on shutdown.
+  const registrar: RegistrarHandle = await startCliSessionRegistrar({
     backendUrl,
-    auth.token,
+    token: auth.token,
     sessionId,
-    availableTools,
+    tools: availableTools,
     capabilities,
-  );
+    cwd: process.cwd(),
+  });
 
   // Connect to SSE stream
   const sseUrl = `${backendUrl}/api/cli/session-events/${sessionId}`;
@@ -123,34 +130,6 @@ export async function runRemoteControlMode(
     console.log(chalk.yellow('\nShutting down...'));
     controller.abort();
   });
-
-  // Heartbeat interval (every 30s)
-  const heartbeatInterval = setInterval(async () => {
-    try {
-      await fetch(
-        `${backendUrl}/api/cli/session-events/${sessionId}/register`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${auth.token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            capabilities: {
-              hasDisplay: capabilities.hasDisplay,
-              platform: capabilities.platform,
-              isAdmin: capabilities.isAdmin,
-              scaleFactor: capabilities.scaleFactor,
-            },
-            tools: availableTools,
-            cwd: process.cwd(),
-          }),
-        },
-      );
-    } catch (error) {
-      logger.warn('Heartbeat failed', { error });
-    }
-  }, 30000);
 
   try {
     while (true) {
@@ -231,69 +210,13 @@ export async function runRemoteControlMode(
       }
     }
   } finally {
-    clearInterval(heartbeatInterval);
+    await registrar.stop();
     if (mcpStarted) {
       await stopMcpServer();
     }
-    await releaseCliNode(backendUrl, auth.token, sessionId);
   }
 
   process.exit(0);
-}
-
-async function registerCliNode(
-  backendUrl: string,
-  token: string,
-  sessionId: string,
-  tools: string[],
-  capabilities: ReturnType<typeof detectLocalCapabilities>,
-): Promise<void> {
-  const response = await fetch(
-    `${backendUrl}/api/cli/session-events/${sessionId}/register`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        capabilities: {
-          hasDisplay: capabilities.hasDisplay,
-          platform: capabilities.platform,
-          isAdmin: capabilities.isAdmin,
-          scaleFactor: capabilities.scaleFactor,
-        },
-        tools,
-        cwd: process.cwd(),
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to register: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  logger.info('Registered as online', { sessionId });
-}
-
-async function releaseCliNode(
-  backendUrl: string,
-  token: string,
-  sessionId: string,
-): Promise<void> {
-  try {
-    await fetch(`${backendUrl}/api/cli/session-events/${sessionId}/release`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    logger.info('Released online state', { sessionId });
-  } catch (error) {
-    logger.warn('Failed to release', { error });
-  }
 }
 
 async function executeLocalTool(request: ToolRequest): Promise<ToolResult> {
@@ -339,8 +262,4 @@ async function postToolResult(
       toolCallId,
     });
   }
-}
-
-function generateSessionId(): string {
-  return `cli-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }

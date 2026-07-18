@@ -69,8 +69,27 @@ fn normalize_instance_id(instance_id: Option<String>) -> String {
 }
 
 fn stop_rpc_instance(handle: &mut RpcProcessHandle) {
+    // Drop the stdin writer first. RPC mode's `process.stdin.on('end')`
+    // handler triggers its `shutdown()` path, which POSTs `/release` to
+    // the Web backend — that clears the KV online state promptly
+    // instead of waiting for the 120s TTL after a hard kill.
     handle.stdin_writer = None;
     if let Some(mut child) = handle.process.take() {
+        // Give the CLI up to ~2s to exit on its own after stdin closed.
+        // `try_wait` is non-blocking, so we poll every 50ms.
+        const GRACE_MS: u64 = 2000;
+        const POLL_MS: u64 = 50;
+        let mut waited_ms = 0u64;
+        while waited_ms < GRACE_MS {
+            match child.try_wait() {
+                Ok(Some(_status)) => return, // exited cleanly
+                Ok(None) => {
+                    std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
+                    waited_ms += POLL_MS;
+                }
+                Err(_) => break, // weird state; fall through to kill
+            }
+        }
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -88,6 +107,13 @@ struct RpcStartOptions {
     provider: Option<String>,
     model: Option<String>,
     env: Option<std::collections::HashMap<String, String>>,
+    /// When set together with `backend_url`, the CLI registers itself
+    /// with the Web backend as online for this session id and listens
+    /// for incoming tool-request events. Lets Web-side `computer-use-remote`
+    /// dispatch to a CLI that Desktop spawned.
+    session_id: Option<String>,
+    /// Web backend base URL. Paired with `session_id`.
+    backend_url: Option<String>,
 }
 
 /// How the pi process was resolved
@@ -860,6 +886,17 @@ fn build_command(pi: &PiProcess, options: &RpcStartOptions) -> Command {
     }
     if let Some(ref model) = options.model {
         cmd.arg("--model").arg(model);
+    }
+    // Forward Web session identity so the CLI can register itself online
+    // with the Web backend. Without this, Web-side `computer-use-remote`
+    // can't dispatch to a Desktop-spawned CLI (silent capability gap).
+    // Named `--web-session-id` (not `--session-id`) because the CLI
+    // already has a `--session-id` flag for chat history sessions.
+    if let Some(ref backend_url) = options.backend_url {
+        if let Some(ref session_id) = options.session_id {
+            cmd.arg("--backend-url").arg(backend_url);
+            cmd.arg("--web-session-id").arg(session_id);
+        }
     }
 
     cmd.current_dir(&options.cwd)

@@ -78,6 +78,16 @@ function detectDisplayServer(platform: string): {
 }
 
 function resolveMcpBinary(): string | null {
+  // Desktop (and other embedders) pass the MCP binary path via env.
+  // This must be checked before the sibling-path heuristic, otherwise
+  // capability detection reports hasMcpBinary=false even though the
+  // binary is reachable via COMPUTER_USE_MCP_PATH.
+  if (process.env.COMPUTER_USE_MCP_PATH) {
+    if (existsSync(process.env.COMPUTER_USE_MCP_PATH)) {
+      return process.env.COMPUTER_USE_MCP_PATH;
+    }
+  }
+
   const binaryName =
     process.platform === 'win32' ? 'computer-use-mcp.exe' : 'computer-use-mcp';
   const selfDir = dirname(process.argv[1] ?? fileURLToPath(import.meta.url));
