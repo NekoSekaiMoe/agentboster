@@ -32,7 +32,9 @@ function makeMockProcess(): {
   emitData: (line: string) => void;
 } {
   const dataListeners: Array<(chunk: Buffer) => void> = [];
-  const exitListeners: Array<(code: number | null, signal: NodeJS.Signals | null) => void> = [];
+  const exitListeners: Array<
+    (code: number | null, signal: NodeJS.Signals | null) => void
+  > = [];
   return {
     stdout: {
       on: vi.fn((_event: string, cb: (chunk: Buffer) => void) => {

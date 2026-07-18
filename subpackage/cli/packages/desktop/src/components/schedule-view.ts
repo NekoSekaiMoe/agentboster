@@ -512,11 +512,28 @@ export class ScheduleView {
     try {
       const auth = await readAgentbosterDesktopAuth();
       this.auth = auth;
+      // Use allSettled so a Web-side failure (offline backend, expired
+      // token, agentd-node list 500) doesn't prevent local tasks from
+      // rendering. Local tasks live entirely in localStorage and must
+      // stay manageable even when the backend is unreachable — that's
+      // the whole point of having a separate local task source. The
+      // previous Promise.all form propagated the first rejection and
+      // left this.tasks empty, locking the user out of local task
+      // management during any backend outage.
       const [webTasks, channels, localTasks, nodes] = await Promise.all([
-        auth ? this.fetchWebTasks(auth) : Promise.resolve([]),
-        auth ? fetchImChannels() : Promise.resolve([]),
+        auth
+          ? this.fetchWebTasks(auth).catch((err) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              // Surface via the desktop notification toast (wired in
+              // main.ts) so the user understands why Web tasks are
+              // missing without blocking local task management.
+              this.notify(`Web 任务加载失败：${msg}`, 'error');
+              return [] as WebScheduleTask[];
+            })
+          : Promise.resolve([]),
+        auth ? fetchImChannels().catch(() => []) : Promise.resolve([]),
         Promise.resolve(loadLocalScheduleTasks()),
-        auth ? fetchAgentdNodes() : Promise.resolve([]),
+        auth ? fetchAgentdNodes().catch(() => []) : Promise.resolve([]),
       ]);
       this.imChannels = channels;
       this.agentdNodes = nodes;

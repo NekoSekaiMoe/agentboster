@@ -179,15 +179,6 @@ export class ScheduleService {
   // mergeFiredResults to detect concurrent edits during the fire await.
   // Reset to null when a tick completes.
   private preFireSnapshot: Map<string, LocalScheduleTask> | null = null;
-  // In-memory record of task ids we've already fired and successfully
-  // persisted the post-fire state for. Used as a fallback dedup layer
-  // when persistence fails: without it, the next tick would re-read
-  // the stale storage state (which still has nextRunAt in the past),
-  // re-fire the same task, and loop forever.
-  //
-  // Cleared only when the task's row changes from underneath us
-  // (i.e. the user edited or re-enabled it) — see mergeFiredResults.
-  private successfullyPersistedFires: Set<string> = new Set();
   // Whether the scheduler has permanently stopped due to an
   // unrecoverable persistence failure. Once true the service refuses
   // new ticks until `reset()` / restart.
@@ -253,13 +244,13 @@ export class ScheduleService {
         const runAt = new Date(task.nextRunAt);
         if (!Number.isFinite(runAt.getTime())) continue;
         if (runAt.getTime() > now) continue;
-        // Dedup: skip tasks we've already fired and persisted in a
-        // previous tick. This prevents the catastrophic loop where
-        // persistence fails, the next tick re-reads stale storage,
-        // and fires the same task every 30s until the user notices.
-        // The entry is cleared in mergeFiredResults when the task row
-        // changes (user edit / re-enable).
-        if (this.successfullyPersistedFires.has(task.id)) continue;
+        // No in-memory dedup: persistence failure halts the scheduler
+        // (see mergeFiredResults) so we can't loop forever, and a
+        // dedup Set that's keyed only by task id would skip future
+        // legitimate fires of daily tasks (every fire of the same
+        // task has the same id but a different nextRunAt). The
+        // previous dedup-on-id form caused daily tasks to fire only
+        // once per process lifetime — see review follow-up.
 
         const result = await this.fire(task);
         const triggeredAt = new Date().toISOString();
@@ -382,23 +373,11 @@ export class ScheduleService {
     if (mutated) {
       try {
         saveLocalScheduleTasks(merged);
-        // Persistence succeeded — record dedup entries for every task
-        // we just fired+merged. This protects against a future
-        // persistence failure in some OTHER tick from re-dispatching
-        // these already-fired tasks.
-        for (const f of fired) {
-          this.successfullyPersistedFires.add(f.id);
-        }
-        // Any task row that has since been edited by the user (and
-        // therefore skipped above) should have its dedup entry
-        // cleared so the new scheduling takes effect.
-        for (const task of latest) {
-          if (!updatesByTaskId.has(task.id)) continue;
-          const preFire = preFireSnapshot.get(task.id);
-          if (preFire && preFire.updatedAt !== task.updatedAt) {
-            this.successfullyPersistedFires.delete(task.id);
-          }
-        }
+        // No in-memory dedup bookkeeping on the success path. The
+        // scheduler is durable here (state written to disk), so the
+        // next tick's load() will see the new nextRunAt and skip
+        // naturally. Recording dedup-on-id would break daily tasks
+        // (see comment in tick()).
       } catch (err) {
         // Persistence failed (quota / privacy mode). Halt the scheduler
         // so we don't enter an infinite re-fire loop: without the

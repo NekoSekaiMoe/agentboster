@@ -156,43 +156,83 @@ async function resolveDispatchNode(input: {
  * layer reads `metadata.scheduleNodeConstraints` and intersects it
  * with the agent's `allowed_nodes` config.
  *
- * Returns the original metadata so the caller can restore it (via
- * {@link clearNodeConstraintFromSession}) once the dispatch run
- * completes. Without restoring, every subsequent non-scheduled chat
- * on this session would keep being forced to the same node.
+ * ## Why we use a dispatch token instead of full-metadata snapshot/restore
+ *
+ * A previous implementation snapshotted the entire `session.metadata`
+ * field before writing the constraint, then restored the snapshot in
+ * a `finally` after the dispatch run. That raced under concurrent
+ * dispatches of the same session:
+ *
+ *   t0: A reads metadata (empty), writes {scn: A}
+ *   t1: B reads metadata ({scn: A}), writes {scn: B}  ← A's constraint lost
+ *   t2: B finishes, restores "previous" ({scn: A})    ← B's constraint lost AND A's restored
+ *   t3: A finishes, restores "previous" (empty)       ← also wipes anything else written during the window
+ *
+ * The token-based form below only ever touches the
+ * `scheduleNodeConstraints` key, leaving every other metadata field
+ * untouched. The token is captured at write time; cleanup is a no-op
+ * when the current value's token doesn't match (meaning another
+ * dispatch superseded ours). This serializes correctly:
+ *
+ *   t0: A writes {scn: {node, token: A}}
+ *   t1: B writes {scn: {node, token: B}} (A's value overwritten)
+ *   t2: B finishes, clears scn (token matches)
+ *   t3: A finishes, sees token=B (!= A), leaves scn alone
+ *
+ * Edge case: if A and B finish in the opposite order from how they
+ * started, A's clear runs first (token matches), then B's clear is a
+ * no-op (current token is now undefined). Either order ends with no
+ * leftover constraint — the goal.
  */
 async function applyNodeConstraintToSession(input: {
   sessionId: string;
   nodeId: string;
-}): Promise<Record<string, unknown> | null> {
+}): Promise<{ token: string } | null> {
   const session = await getSession(input.sessionId);
   if (!session) return null;
+  const token = `${input.sessionId}:${input.nodeId}:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const previousMetadata = session.metadata ?? {};
   const metadata = {
     ...previousMetadata,
-    scheduleNodeConstraints: { preferredNodeId: input.nodeId },
+    scheduleNodeConstraints: { preferredNodeId: input.nodeId, token },
   };
   await updateSession(input.sessionId, { metadata });
-  return previousMetadata;
+  return { token };
 }
 
 /**
- * Restore session.metadata to its pre-dispatch state. Called in a
- * `finally` after the chat dispatch completes (or fails) so the
- * constraint only applies to tool calls issued by THIS dispatch run.
+ * Conditionally clear `scheduleNodeConstraints` from session.metadata
+ * — but only when the stored `token` matches the one we wrote. This
+ * is the CAS that makes the constraint safe under concurrent
+ * dispatches of the same session. See
+ * {@link applyNodeConstraintToSession} for the full rationale.
  *
  * Best-effort: errors are logged but don't change the dispatch
- * outcome. If cleanup fails the metadata stays stale and the next
- * non-scheduled chat would route to the same node — a soft degradation,
- * not a correctness bug for the dispatch that just ran.
+ * outcome. If cleanup fails the constraint stays and the next
+ * non-scheduled chat would route to the same node until something
+ * else writes metadata — a soft degradation, not a correctness bug
+ * for the dispatch that just ran.
  */
 async function clearNodeConstraintFromSession(input: {
   sessionId: string;
-  previousMetadata: Record<string, unknown> | null;
+  token: string;
 }): Promise<void> {
-  if (!input.previousMetadata) return;
   try {
-    await updateSession(input.sessionId, { metadata: input.previousMetadata });
+    const session = await getSession(input.sessionId);
+    if (!session) return;
+    const metadata = session.metadata ?? {};
+    const stored = (
+      metadata as { scheduleNodeConstraints?: { token?: string } }
+    ).scheduleNodeConstraints;
+    if (!stored || stored.token !== input.token) {
+      // Another dispatch has since overwritten our constraint (or
+      // already cleared it). Doing anything here would clobber the
+      // newer state. Leave it alone.
+      return;
+    }
+    const nextMetadata = { ...metadata };
+    delete nextMetadata.scheduleNodeConstraints;
+    await updateSession(input.sessionId, { metadata: nextMetadata });
   } catch (err) {
     logger.warn('deliver:clear_node_constraint_failed', {
       sessionId: input.sessionId,
@@ -265,11 +305,14 @@ export async function deliverScheduledTask(input: {
   //
   // The resolved node constraint is written to session.metadata for
   // the duration of the chat dispatch below so execToolOnAgentd picks
-  // it up, then restored in the `finally` block. Leaving it in place
+  // it up, then cleared in the `finally` block. Leaving it in place
   // would force every subsequent non-scheduled chat on this session
   // to the same daemon.
-  let previousSessionMetadata: Record<string, unknown> | null = null;
-  let nodeConstraintApplied = false;
+  //
+  // We capture a dispatch token on write and only delete our own
+  // constraint on cleanup — see applyNodeConstraintToSession for why
+  // this matters under concurrent dispatches of the same session.
+  let nodeConstraintToken: string | null = null;
   if (!task.remoteControl && task.preferredNodeId) {
     const resolution = await resolveDispatchNode({
       preferredNodeId: task.preferredNodeId,
@@ -282,11 +325,13 @@ export async function deliverScheduledTask(input: {
     }
     if ('node' in resolution && resolution.node) {
       try {
-        previousSessionMetadata = await applyNodeConstraintToSession({
+        const applied = await applyNodeConstraintToSession({
           sessionId: task.sessionId,
           nodeId: resolution.node.nodeID,
         });
-        nodeConstraintApplied = true;
+        if (applied) {
+          nodeConstraintToken = applied.token;
+        }
       } catch (err) {
         // Best-effort: if we can't write the constraint, the LLM tool
         // layer will fall back to selectBestNode. Log and continue.
@@ -360,10 +405,12 @@ export async function deliverScheduledTask(input: {
     // Restore session.metadata so the node constraint only applies to
     // this dispatch run. Without this, every subsequent non-scheduled
     // chat on the same session would route to the same daemon.
-    if (nodeConstraintApplied) {
+    // The token-based clear is a CAS: if a concurrent dispatch has
+    // since overwritten our constraint, this is a no-op.
+    if (nodeConstraintToken) {
       await clearNodeConstraintFromSession({
         sessionId: task.sessionId,
-        previousMetadata: previousSessionMetadata,
+        token: nodeConstraintToken,
       });
     }
   }

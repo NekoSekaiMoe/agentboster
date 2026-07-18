@@ -71,14 +71,21 @@ jobs:
       - name: Install
         run: yarn install --frozen-lockfile
 
-      # Mirrors `yarn check:lint` from subpackage/cli/package.json.
-      # `--write` is intentional: biome auto-fixes safe issues here,
-      # then tsgo does a pure typecheck. Errors still fail the job.
-      - name: Biome + tsgo
-        run: yarn check:lint
+      # CI lint must NOT auto-fix: `yarn check:lint` from
+      # subpackage/cli/package.json runs `biome check --write`, which
+      # mutates the runner's checkout and then succeeds against the
+      # mutated tree — the PR itself never gets fixed and the gate
+      # is bypassed. Run biome without --write so failures actually
+      # surface here; developers run `yarn check:lint` locally to
+      # auto-format.
+      - name: Biome (no --write)
+        run: yarn biome check --error-on-warnings .
+
+      - name: tsgo
+        run: yarn tsgo --noEmit
 
   test:
-    name: vitest (coding-agent)
+    name: vitest
     runs-on: ubuntu-24.04
 
     defaults:
@@ -101,9 +108,15 @@ jobs:
       - name: Install
         run: yarn install --frozen-lockfile
 
-      # Vitest is configured at the workspace root (subpackage/cli/) to
-      # pick up tests from every package; see `vitest.config.ts`. Running
-      # `yarn workspace @agentboster-cli/core test` invokes the coding-
-      # agent package's test script, which is the suite that has tests.
-      - name: Run unit tests
+      # Run vitest in every workspace package that declares a test
+      # script. Currently that's @agentboster-cli/ai,
+      # @agentboster-cli/agent, and @agentboster-cli/core (coding-agent);
+      # the first two have no .test.ts files yet but their `test`
+      # script still exits 0, and gating them in CI means new tests
+      # actually run the moment they're added.
+      - name: Run unit tests (@agentboster-cli/ai)
+        run: yarn workspace @agentboster-cli/ai test
+      - name: Run unit tests (@agentboster-cli/agent)
+        run: yarn workspace @agentboster-cli/agent test
+      - name: Run unit tests (@agentboster-cli/core)
         run: yarn workspace @agentboster-cli/core test
