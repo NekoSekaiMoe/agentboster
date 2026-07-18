@@ -1315,7 +1315,9 @@ fn persist_close_action_sync(action: CloseAction) -> Result<(), String> {
     let path = dir.join("settings.json");
     // Take the lock for the whole RMW; ignore poisoning since a panicked
     // writer still leaves a valid (if stale) file on disk.
-    let _guard = settings_lock().lock().map_err(|e| format!("Lock poisoned: {}", e))?;
+    let _guard = settings_lock()
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {}", e))?;
     let mut root: serde_json::Value = match fs::read_to_string(&path) {
         Ok(s) => serde_json::from_str(&s).unwrap_or_else(|_| serde_json::json!({})),
         Err(_) => serde_json::json!({}),
@@ -1332,7 +1334,9 @@ fn persist_close_action_sync(action: CloseAction) -> Result<(), String> {
     obj.insert("close_action".to_string(), serde_json::json!(label));
     atomic_write(
         &path,
-        serde_json::to_string_pretty(&root).unwrap_or_default().as_str(),
+        serde_json::to_string_pretty(&root)
+            .unwrap_or_default()
+            .as_str(),
     )
     .map_err(|e| format!("Failed to persist close action: {}", e))
 }
@@ -1374,9 +1378,10 @@ async fn save_settings(_app: AppHandle, settings: AppSettings) -> Result<(), Str
     // Take the lock + do an atomic rename so a concurrent
     // `persist_close_action_sync` (close dialog) can't clobber this
     // write, and a crash mid-write can't leave a truncated file.
-    let _guard = settings_lock().lock().map_err(|e| format!("Lock poisoned: {}", e))?;
-    atomic_write(&settings_path, &json)
-        .map_err(|e| format!("Failed to write settings: {}", e))
+    let _guard = settings_lock()
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {}", e))?;
+    atomic_write(&settings_path, &json).map_err(|e| format!("Failed to write settings: {}", e))
 }
 
 /// Load app settings
