@@ -28,9 +28,7 @@ export async function handleRemoteCommand(args: string[]): Promise<boolean> {
     return true;
   }
 
-  console.error(
-    chalk.red(`Unknown remote subcommand: ${subcommand}`),
-  );
+  console.error(chalk.red(`Unknown remote subcommand: ${subcommand}`));
   console.error('Run `agentboster-cli remote --help` for usage.');
   process.exit(1);
 }

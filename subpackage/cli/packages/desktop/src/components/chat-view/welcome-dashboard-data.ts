@@ -100,7 +100,10 @@ async function collectThemeNames(themesRoot: string): Promise<string[]> {
 export async function loadWelcomeDashboardInventory(): Promise<WelcomeDashboardInventory> {
   const { homeDir } = await import('@tauri-apps/api/path');
   const home = await homeDir();
-  const agentRoot = joinFsPath(joinFsPath(joinFsPath(home, '.config'), 'agentboster-cli'), 'agent');
+  const agentRoot = joinFsPath(
+    joinFsPath(joinFsPath(home, '.config'), 'agentboster-cli'),
+    'agent',
+  );
   const skillsRoot = joinFsPath(agentRoot, 'skills');
   const extensionsRoot = joinFsPath(agentRoot, 'extensions');
   const themesRoot = joinFsPath(agentRoot, 'themes');

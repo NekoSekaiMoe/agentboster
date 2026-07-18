@@ -38,7 +38,10 @@ export function getAgentbosterHome(): string {
     case 'darwin':
       return join(home, 'Library', 'Application Support', 'agentboster-cli');
     case 'win32':
-      return join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'agentboster-cli');
+      return join(
+        process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'),
+        'agentboster-cli',
+      );
     default:
       return join(home, '.config', 'agentboster-cli');
   }

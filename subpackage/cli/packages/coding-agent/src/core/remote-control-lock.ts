@@ -17,13 +17,17 @@ export class RemoteControlLock {
   acquire(): void {
     if (this.locked) return;
     this.locked = true;
-    this.onChangeCallbacks.forEach((cb) => cb(true));
+    this.onChangeCallbacks.forEach((cb) => {
+      cb(true);
+    });
   }
 
   release(): void {
     if (!this.locked) return;
     this.locked = false;
-    this.onChangeCallbacks.forEach((cb) => cb(false));
+    this.onChangeCallbacks.forEach((cb) => {
+      cb(false);
+    });
   }
 
   isLocked(): boolean {
