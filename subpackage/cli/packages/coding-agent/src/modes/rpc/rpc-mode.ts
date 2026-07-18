@@ -38,7 +38,7 @@ import {
 import { detectLocalCapabilities } from '../../core/capability-detect.ts';
 import { getStoredAuth } from '@agentboster/adapter';
 import { createLogger } from '../../utils/logger.ts';
-import { startMcpServer } from '../remote-control/mcp-client.ts';
+import { startMcpServer, stopMcpServer } from '../remote-control/mcp-client.ts';
 import type {
   RpcCommand,
   RpcExtensionUIRequest,
@@ -133,7 +133,7 @@ export async function runRpcMode(
   // Shutdown request flag
   let shutdownRequested = false;
   let shuttingDown = false;
-  const signalCleanupHandlers: Array<() => void> = [];
+  const signalCleanupHandlers: Array<() => unknown> = [];
 
   /** Helper for dialog methods with signal/timeout support */
   function createDialogPromise<T>(
@@ -866,9 +866,12 @@ export async function runRpcMode(
       process.exit(exitCode);
     }
     shuttingDown = true;
-    for (const cleanup of signalCleanupHandlers) {
-      cleanup();
-    }
+    // Run cleanup handlers in parallel — they're independent and any
+    // failure shouldn't block the rest (each handler is responsible for
+    // its own error handling).
+    await Promise.allSettled(
+      signalCleanupHandlers.map((cleanup) => Promise.resolve(cleanup())),
+    );
     if (sessionStreamHandle) {
       await sessionStreamHandle.stop();
     }
@@ -974,7 +977,11 @@ export async function runRpcMode(
   // remote tool dispatch (silent capability gap).
   if (options.backendUrl && options.sessionId) {
     try {
-      await startWebSessionBridge(options.backendUrl, options.sessionId);
+      const bridgeCleanup = await startWebSessionBridge(
+        options.backendUrl,
+        options.sessionId,
+      );
+      if (bridgeCleanup) signalCleanupHandlers.push(bridgeCleanup);
     } catch (error) {
       rpcLogger.warn('Failed to start Web session bridge', { error });
     }
@@ -997,11 +1004,27 @@ export async function runRpcMode(
 async function startWebSessionBridge(
   backendUrl: string,
   sessionId: string,
-): Promise<void> {
+): Promise<(() => Promise<void>) | undefined> {
   const auth = getStoredAuth();
   if (!auth) {
     rpcLogger.warn(
       'Web session bridge disabled: not authenticated (run agentboster-cli login)',
+    );
+    return;
+  }
+
+  // Security: never send the stored Bearer token to an arbitrary host.
+  // `backendUrl` comes from the CLI `--backend-url` flag (set by Desktop
+  // or any other embedder). Force its origin to match `auth.url` — the
+  // URL the user actually logged in to. Otherwise a malicious embedder
+  // could exfiltrate the token by pointing --backend-url at their own
+  // server. We compare the fully-normalized origin (protocol+host+port).
+  const authOrigin = safeOrigin(auth.url);
+  const backendOrigin = safeOrigin(backendUrl);
+  if (!authOrigin || !backendOrigin || authOrigin !== backendOrigin) {
+    rpcLogger.warn(
+      'Web session bridge disabled: --backend-url origin does not match the logged-in auth URL',
+      { backendUrl, authUrl: auth.url },
     );
     return;
   }
@@ -1058,6 +1081,8 @@ async function startWebSessionBridge(
     onToolRequest: async (request) => {
       // Execute the tool locally and POST the result back. We reuse
       // remote-control-mode's executor since the tool set is identical.
+      // Pass `auth` so write/exec tools go through the L0/L1/L2 gate.
+      // RPC mode has no TTY/approver, so any L2-confirm is fail-closed.
       try {
         const { executeLocalTool } = await import(
           '../remote-control/tool-executor.ts'
@@ -1065,6 +1090,7 @@ async function startWebSessionBridge(
         const output = await executeLocalTool(
           request.toolName,
           request.toolInput,
+          { auth },
         );
         await postToolResult(backendUrl, auth.token, sessionId, {
           toolCallId: request.toolCallId,
@@ -1081,13 +1107,19 @@ async function startWebSessionBridge(
     },
   });
 
-  // Best-effort: also stop the MCP server on shutdown. The remote-control
-  // importer exposes stopMcpServer; we call it via a shutdown hook below.
-  // We can't extend signalCleanupHandlers from here cleanly, so we rely
-  // on process exit to reap the MCP child if RPC mode shuts down via a
-  // signal that bypasses shutdown(). For SIGTERM/SIGINT path, the main
-  // shutdown() function will run and we already stop registrar/stream
-  // above; MCP gets cleaned up when the process dies.
+  // Best-effort: stop the computer-use MCP child process on shutdown.
+  // `mcpServices.stopAll()` only drains the interactive MCP services
+  // spawned via McpServiceManager; the Web-bridge MCP server is tracked
+  // separately by the remote-control module and needs its own call.
+  // Return the cleanup to the caller so it can register it on its own
+  // shutdown pipeline (this function doesn't have access to it).
+  return async () => {
+    try {
+      await stopMcpServer();
+    } catch (error) {
+      rpcLogger.warn('Failed to stop MCP server during shutdown', { error });
+    }
+  };
 }
 
 async function postToolResult(
@@ -1101,28 +1133,86 @@ async function postToolResult(
     error?: string;
   },
 ): Promise<void> {
-  try {
-    const response = await fetch(`${backendUrl}/api/cli/tool-result`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sessionId,
-        toolCallId: result.toolCallId,
-        ok: result.ok,
-        output: result.output,
-        error: result.error,
-      }),
-    });
-    if (!response.ok) {
-      rpcLogger.warn('tool-result POST failed', {
+  // Bounded retry: 3 attempts with 500ms / 2s backoff. The receiver is
+  // idempotent on `toolCallId`, so re-POSTing after a network blip is
+  // safe. The previous "log and forget" behavior left local side
+  // effects applied while the Web side timed out waiting for the
+  // result — this narrows that window without unbounded blocking.
+  const MAX_ATTEMPTS = 3;
+  const BACKOFF_MS = [0, 500, 2_000];
+  const REQUEST_TIMEOUT_MS = 8_000;
+  const url = `${backendUrl}/api/cli/tool-result`;
+  const body = JSON.stringify({
+    sessionId,
+    toolCallId: result.toolCallId,
+    ok: result.ok,
+    output: result.output,
+    error: result.error,
+  });
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (BACKOFF_MS[attempt]) {
+      await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+    }
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (response.ok) {
+        return;
+      }
+      // 4xx (except 429) — receiver rejected the payload; retrying
+      // won't help. Surface the failure so the SSE handler can log
+      // it (the toolCallId is now "lost" on the Web side).
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 429
+      ) {
+        rpcLogger.error('tool-result POST permanently rejected', {
+          status: response.status,
+          toolCallId: result.toolCallId,
+        });
+        return;
+      }
+      // 5xx / 429 / network error — try again.
+      rpcLogger.warn('tool-result POST failed, retrying', {
         status: response.status,
+        attempt,
         toolCallId: result.toolCallId,
       });
+    } catch (error) {
+      rpcLogger.warn('tool-result POST threw, retrying', {
+        attempt,
+        toolCallId: result.toolCallId,
+        error,
+      });
     }
-  } catch (error) {
-    rpcLogger.warn('tool-result POST threw', { error });
+  }
+  // Exhausted. This is the unrecoverable case — surface it loudly.
+  rpcLogger.error('tool-result POST exhausted retries', {
+    toolCallId: result.toolCallId,
+  });
+}
+
+/**
+ * Normalize a URL down to its origin (protocol+host+port) for safe
+ * same-origin comparison. Returns null if the URL is not parseable or
+ * not an http(s) URL. Used to gate token-bearing requests so the stored
+ * Bearer token can never be sent to an arbitrary host.
+ */
+function safeOrigin(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return null;
   }
 }

@@ -77,34 +77,54 @@ export async function startCliSessionRegistrar(
   });
 
   let stopped = false;
+  // Tracks the in-flight register fetch so the heartbeat never overlaps
+  // a previous slow request (e.g. hung TCP connection). `unref`-friendly
+  // because we `await` it before issuing the next beat.
+  let inflight: Promise<void> | null = null;
+  const REQUEST_TIMEOUT_MS = 8_000;
 
   const doRegister = async (): Promise<void> => {
     if (stopped) return;
-    try {
-      const response = await fetch(
-        `${backendUrl}/api/cli/session-events/${sessionId}/register`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body,
-        },
-      );
-      if (!response.ok) {
-        logger.warn('Register failed', {
-          sessionId,
-          status: response.status,
-          statusText: response.statusText,
-        });
-      }
-    } catch (error) {
-      // Heartbeat is best-effort; the KV TTL is the real source of truth
-      // and a brief network blip won't take the session offline (TTL=120s,
-      // heartbeat=30s, so 3 missed heartbeats are tolerable).
-      logger.warn('Register request threw', { sessionId, error });
+    if (inflight) {
+      // Previous beat still running — skip rather than queue. Next
+      // interval tick will retry. Avoids the "every 30s a new request
+      // piles up on a hung socket" failure mode.
+      logger.warn('Skipped heartbeat: previous register still in flight', {
+        sessionId,
+      });
+      return;
     }
+    inflight = (async () => {
+      try {
+        const response = await fetch(
+          `${backendUrl}/api/cli/session-events/${sessionId}/register`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body,
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          },
+        );
+        if (!response.ok) {
+          logger.warn('Register failed', {
+            sessionId,
+            status: response.status,
+            statusText: response.statusText,
+          });
+        }
+      } catch (error) {
+        // Heartbeat is best-effort; the KV TTL is the real source of truth
+        // and a brief network blip won't take the session offline (TTL=120s,
+        // heartbeat=30s, so 3 missed heartbeats are tolerable).
+        logger.warn('Register request threw', { sessionId, error });
+      } finally {
+        inflight = null;
+      }
+    })();
+    await inflight;
   };
 
   // Initial registration.
@@ -126,12 +146,24 @@ export async function startCliSessionRegistrar(
     stopped = true;
     clearInterval(interval);
     try {
-      await fetch(`${backendUrl}/api/cli/session-events/${sessionId}/release`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
+      const response = await fetch(
+        `${backendUrl}/api/cli/session-events/${sessionId}/release`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         },
-      });
+      );
+      if (!response.ok) {
+        logger.warn('Release failed', {
+          sessionId,
+          status: response.status,
+          statusText: response.statusText,
+        });
+        return;
+      }
       logger.info('Registrar released', { sessionId });
     } catch (error) {
       logger.warn('Release request threw', { sessionId, error });

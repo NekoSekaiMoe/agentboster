@@ -1323,13 +1323,20 @@ export class SettingsPanel {
     closeAction: CloseActionPreference,
   ): Promise<void> {
     const normalized = this.normalizeCloseAction(closeAction);
+    // Snapshot the previous value so we can roll back the UI if the
+    // persist call fails. Without this, the user sees the new selection
+    // even though the main process kept the old one — a mismatch that
+    // only surfaces after a restart.
+    const previous = this.state.closeAction;
     this.state.closeAction = normalized;
     this.render();
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       await invoke('set_close_action', { action: normalized });
     } catch (err) {
-      console.error('Failed to persist close action:', err);
+      console.error('Failed to persist close action, rolling back UI:', err);
+      this.state.closeAction = previous;
+      this.render();
     }
   }
 

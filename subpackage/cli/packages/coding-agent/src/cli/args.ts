@@ -20,9 +20,11 @@ export interface Args {
   version?: boolean;
   mode?: Mode;
   /**
-   * Web backend base URL. When set together with `sessionId` in RPC mode,
-   * the CLI registers itself as online for that session so Web-side tool
-   * providers (e.g. computer-use-remote) can dispatch to it.
+   * Web backend base URL. When set together with `cliSessionId` in RPC
+   * mode, the CLI registers itself as online for that session so
+   * Web-side tool providers (e.g. computer-use-remote) can dispatch to
+   * it. Must match the origin of the URL the user logged in to
+   * (`agentboster-cli login`); otherwise the bridge is disabled.
    */
   backendUrl?: string;
   /**

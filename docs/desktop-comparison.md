@@ -405,7 +405,9 @@ Agentboster 历史上存在两种容易被混为一谈的 CLI 通信方式：
 1. **Desktop/交互式 CLI Chat**：调用 `/api/cli/chat`，服务端把 `local-tool-request` 写入同一条聊天响应 Stream，前台 CLI 收到后执行本地工具并回传。
 2. **Detached Remote-Control Mode**：CLI 长期连接 `/api/cli/session-events/[sessionId]`，注册显示能力并等待来自 IM 或其他入口的远程 Tool Request。
 
-Desktop 的 Tauri 后端会发现 `computer-use-mcp`、设置 `COMPUTER_USE_MCP_PATH`，然后启动 `agentboster-cli --mode rpc`。Desktop renderer 在 `rpc_start` 时会生成一个稳定的 `webCliSessionId` 并读取 `~/.config/agentboster-cli/config.json` 的 Web backend URL，通过 CLI 参数 `--backend-url` + `--web-session-id` 传给 CLI。
+Desktop 的 Tauri 后端会发现 `computer-use-mcp`、设置 `COMPUTER_USE_MCP_PATH`，然后启动 `agentboster-cli --mode rpc`。Desktop renderer 在 `rpc_start` 时会生成一个稳定的 `webCliSessionId` 并读取 CLI auth 配置（`agentboster-cli login` 写入的 `config.json`）里的 Web backend URL，通过 CLI 参数 `--backend-url` + `--web-session-id` 传给 CLI。
+
+> 配置路径按平台不同：Linux 为 `~/.config/agentboster-cli/config.json`，macOS 为 `~/Library/Application Support/agentboster-cli/config.json`，Windows 为 `%LOCALAPPDATA%\agentboster-cli\config.json`。由 `getAgentbosterHome()` 在 `@agentboster/adapter` 内部解析。
 
 CLI 在 RPC mode 启动时，如果两个参数都存在且 auth token 可用，会同时做两件事：
 

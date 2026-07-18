@@ -4,7 +4,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{
     AppHandle, Emitter, Manager, RunEvent, WindowEvent,
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
@@ -892,11 +892,11 @@ fn build_command(pi: &PiProcess, options: &RpcStartOptions) -> Command {
     // can't dispatch to a Desktop-spawned CLI (silent capability gap).
     // Named `--web-session-id` (not `--session-id`) because the CLI
     // already has a `--session-id` flag for chat history sessions.
-    if let Some(ref backend_url) = options.backend_url {
-        if let Some(ref session_id) = options.session_id {
-            cmd.arg("--backend-url").arg(backend_url);
-            cmd.arg("--web-session-id").arg(session_id);
-        }
+    if let Some(ref backend_url) = options.backend_url
+        && let Some(ref session_id) = options.session_id
+    {
+        cmd.arg("--backend-url").arg(backend_url);
+        cmd.arg("--web-session-id").arg(session_id);
     }
 
     cmd.current_dir(&options.cwd)
@@ -1206,6 +1206,7 @@ pub struct AppSettings {
     ///   - `"ask"`: pop a dialog the first time, then remember the choice
     ///   - `"tray"`: hide to tray, keep the app running
     ///   - `"quit"`: quit the app
+    ///
     /// Any other value is treated as `"ask"`.
     pub close_action: String,
 }
@@ -1265,15 +1266,56 @@ fn load_close_action_sync() -> CloseAction {
     }
 }
 
+/// Process-wide lock serializing all read-modify-write cycles against
+/// settings.json. Without this, `persist_close_action_sync` (fired from
+/// the close dialog) and `save_settings` (fired from the renderer's
+/// periodic save) can interleave and clobber each other. Atomic rename
+/// alone doesn't help because each side reads-then-writes the whole
+/// object; the lock makes the entire RMW atomic.
+fn settings_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Atomically write `path` by writing to `<path>.tmp.<pid>` then
+/// renaming. Returns the underlying IO error if either step fails.
+/// Callers must hold `settings_lock()` for RMW sequences — atomic
+/// rename alone does not prevent last-writer-wins data loss when
+/// two writers each read the same base, mutate, and write back.
+fn atomic_write(path: &Path, contents: &str) -> std::io::Result<()> {
+    let dir = path.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent")
+    })?;
+    fs::create_dir_all(dir)?;
+    let tmp = dir.join(format!(
+        ".{}.tmp.{}",
+        path.file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("settings.json"),
+        std::process::id(),
+    ));
+    {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(contents.as_bytes())?;
+        // Best-effort fsync so a crash immediately after the rename
+        // doesn't leave an empty file on disk. Ignore errors on
+        // platforms that don't support it.
+        let _ = f.sync_all();
+    }
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
 /// Persist `close_action` without touching any other settings field. Used
 /// when the user picks "Always tray" / "Always quit" from the first-close
 /// dialog so the choice survives restarts even if the renderer hasn't saved
 /// its full settings blob yet.
-fn persist_close_action_sync(action: CloseAction) {
-    let Ok(dir) = desktop_config_dir() else {
-        return;
-    };
+fn persist_close_action_sync(action: CloseAction) -> Result<(), String> {
+    let dir = desktop_config_dir()?;
     let path = dir.join("settings.json");
+    // Take the lock for the whole RMW; ignore poisoning since a panicked
+    // writer still leaves a valid (if stale) file on disk.
+    let _guard = settings_lock().lock().map_err(|e| format!("Lock poisoned: {}", e))?;
     let mut root: serde_json::Value = match fs::read_to_string(&path) {
         Ok(s) => serde_json::from_str(&s).unwrap_or_else(|_| serde_json::json!({})),
         Err(_) => serde_json::json!({}),
@@ -1288,13 +1330,11 @@ fn persist_close_action_sync(action: CloseAction) {
         CloseAction::Ask => "ask",
     };
     obj.insert("close_action".to_string(), serde_json::json!(label));
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let _ = fs::write(
+    atomic_write(
         &path,
-        serde_json::to_string_pretty(&root).unwrap_or_default(),
-    );
+        serde_json::to_string_pretty(&root).unwrap_or_default().as_str(),
+    )
+    .map_err(|e| format!("Failed to persist close action: {}", e))
 }
 
 fn desktop_config_dir() -> Result<PathBuf, String> {
@@ -1331,7 +1371,12 @@ async fn save_settings(_app: AppHandle, settings: AppSettings) -> Result<(), Str
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
 
-    fs::write(settings_path, json).map_err(|e| format!("Failed to write settings: {}", e))
+    // Take the lock + do an atomic rename so a concurrent
+    // `persist_close_action_sync` (close dialog) can't clobber this
+    // write, and a crash mid-write can't leave a truncated file.
+    let _guard = settings_lock().lock().map_err(|e| format!("Lock poisoned: {}", e))?;
+    atomic_write(&settings_path, &json)
+        .map_err(|e| format!("Failed to write settings: {}", e))
 }
 
 /// Load app settings
@@ -1692,11 +1737,11 @@ fn hide_main_window_to_tray(app: &AppHandle) {
 /// the user picks "Quit" in the first-close dialog.
 fn quit_app(app: &AppHandle) {
     // Drain RPC instances via the managed state, mirroring `rpc_stop_all`.
-    if let Some(state) = app.try_state::<RpcState>() {
-        if let Ok(mut instances) = state.instances.lock() {
-            for (_, mut handle) in instances.drain() {
-                stop_rpc_instance(&mut handle);
-            }
+    if let Some(state) = app.try_state::<RpcState>()
+        && let Ok(mut instances) = state.instances.lock()
+    {
+        for (_, mut handle) in instances.drain() {
+            stop_rpc_instance(&mut handle);
         }
     }
     app.exit(0);
@@ -1718,25 +1763,46 @@ pub fn run() {
                 }
             }
 
-            // Build and attach the tray icon + context menu. Tauri 2 does
-            // not auto-load the `trayIcon.iconPath` from tauri.conf.json at
-            // build time, so we fall back to the app's default window icon
-            // (which is bundled via electron-builder-style icons already).
+            // Attach the tray icon + context menu. The `trayIcon` block in
+            // tauri.conf.json already registers a `main-tray` instance at
+            // build time, so reuse it via `tray_by_id` instead of building a
+            // second one with the same id (which would otherwise panic or
+            // create a duplicate icon depending on the Tauri version). If the
+            // config-declared tray is ever removed, fall back to building it.
             let menu = build_tray_menu(app.handle())?;
-            let mut builder = TrayIconBuilder::with_id("main-tray")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .tooltip("Agentboster Desktop")
-                .on_menu_event(|app, event| handle_tray_menu_event(app, &event))
-                .on_tray_icon_event(|tray, event| {
-                    handle_tray_icon_event(tray.app_handle(), &event);
-                });
-            if let Some(image) = app.default_window_icon() {
-                // `to_owned` promotes `Image<'a>` to `Image<'static>` so the
-                // builder doesn't borrow from `app`.
-                builder = builder.icon(image.to_owned());
-            }
-            let _tray = builder.build(app)?;
+            let existing = app.tray_by_id("main-tray");
+            let tray = match existing {
+                Some(tray) => {
+                    tray.set_menu(Some(menu))?;
+                    tray.set_tooltip(Some("Agentboster Desktop"))?;
+                    tray.set_show_menu_on_left_click(false)?;
+                    tray.on_menu_event(|app, event| handle_tray_menu_event(app, &event));
+                    tray.on_tray_icon_event(|tray, event| {
+                        handle_tray_icon_event(tray.app_handle(), &event);
+                    });
+                    // The config-declared tray uses `iconAsTemplate: false`
+                    // already; keep its icon as-is (it loads iconPath from
+                    // the bundle).
+                    tray
+                }
+                None => {
+                    let mut builder = TrayIconBuilder::with_id("main-tray")
+                        .menu(&menu)
+                        .show_menu_on_left_click(false)
+                        .tooltip("Agentboster Desktop")
+                        .on_menu_event(|app, event| handle_tray_menu_event(app, &event))
+                        .on_tray_icon_event(|tray, event| {
+                            handle_tray_icon_event(tray.app_handle(), &event);
+                        });
+                    if let Some(image) = app.default_window_icon() {
+                        // `to_owned` promotes `Image<'a>` to `Image<'static>` so the
+                        // builder doesn't borrow from `app`.
+                        builder = builder.icon(image.to_owned());
+                    }
+                    builder.build(app)?
+                }
+            };
+            let _ = tray;
 
             Ok(())
         })
@@ -1747,32 +1813,30 @@ pub fn run() {
             if window.label() != "main" {
                 return;
             }
-            // WindowEvent is #[non_exhaustive]; match future variants with
-            // an explicit wildcard arm so the build doesn't break when Tauri
-            // adds new events.
-            match event {
-                WindowEvent::CloseRequested { api, .. } => {
-                    let action = load_close_action_sync();
-                    match action {
-                        CloseAction::Tray => {
-                            api.prevent_close();
-                            hide_main_window_to_tray(window.app_handle());
-                        }
-                        CloseAction::Quit => {
-                            // Allow the close to proceed; the last-window
-                            // exit path drains RPC state in the RunEvent
-                            // handler below.
-                        }
-                        CloseAction::Ask => {
-                            // Prevent the close; the renderer will pop a
-                            // dialog and call `resolve_close_action` once
-                            // the user picks.
-                            api.prevent_close();
-                            let _ = window.app_handle().emit("close-requested", ());
-                        }
+            // WindowEvent is #[non_exhaustive]; the wildcard arm is
+            // intentionally omitted because clippy::single_match flags it
+            // and we only care about CloseRequested here. Other variants
+            // fall through to default Tauri behavior.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let action = load_close_action_sync();
+                match action {
+                    CloseAction::Tray => {
+                        api.prevent_close();
+                        hide_main_window_to_tray(window.app_handle());
+                    }
+                    CloseAction::Quit => {
+                        // Allow the close to proceed; the last-window
+                        // exit path drains RPC state in the RunEvent
+                        // handler below.
+                    }
+                    CloseAction::Ask => {
+                        // Prevent the close; the renderer will pop a
+                        // dialog and call `resolve_close_action` once
+                        // the user picks.
+                        api.prevent_close();
+                        let _ = window.app_handle().emit("close-requested", ());
                     }
                 }
-                _ => {}
             }
         })
         .manage(RpcState::default())
@@ -1806,13 +1870,12 @@ pub fn run() {
             // closes. So we drain RPC state on every ExitRequested; harmless
             // when there's nothing to drain, essential when the user just
             // closed the window with quit semantics.
-            if let RunEvent::ExitRequested { .. } = event {
-                if let Some(state) = app.try_state::<RpcState>() {
-                    if let Ok(mut instances) = state.instances.lock() {
-                        for (_, mut handle) in instances.drain() {
-                            stop_rpc_instance(&mut handle);
-                        }
-                    }
+            if let RunEvent::ExitRequested { .. } = event
+                && let Some(state) = app.try_state::<RpcState>()
+                && let Ok(mut instances) = state.instances.lock()
+            {
+                for (_, mut handle) in instances.drain() {
+                    stop_rpc_instance(&mut handle);
                 }
             }
         });
@@ -1867,7 +1930,7 @@ async fn resolve_close_action(
 ) -> Result<(), String> {
     let resolved = CloseAction::from_settings(&action);
     if remember && resolved != CloseAction::Ask {
-        persist_close_action_sync(resolved);
+        persist_close_action_sync(resolved)?;
     }
 
     match resolved {
@@ -1899,7 +1962,7 @@ async fn resolve_close_action(
 #[tauri::command]
 async fn set_close_action(action: String) -> Result<(), String> {
     let resolved = CloseAction::from_settings(&action);
-    persist_close_action_sync(resolved);
+    persist_close_action_sync(resolved)?;
     Ok(())
 }
 

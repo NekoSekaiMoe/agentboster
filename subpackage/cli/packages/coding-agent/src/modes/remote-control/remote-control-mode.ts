@@ -126,10 +126,22 @@ export async function runRemoteControlMode(
   logger.info('Connecting to SSE', { sseUrl });
 
   const controller = new AbortController();
-  process.on('SIGINT', () => {
-    console.log(chalk.yellow('\nShutting down...'));
-    controller.abort();
-  });
+  // Trigger cleanup for every termination signal we can intercept.
+  // SIGINT (Ctrl+C), SIGTERM (default `kill` / container stop), and
+  // SIGHUP (terminal closed) all need to flush registrar.release() and
+  // stopMcpServer() — otherwise the Web backend holds a stale online
+  // capability entry until the 120s KV TTL expires and the MCP child
+  // process leaks until the OS reaps it.
+  const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+  const signalHandlers = new Map<NodeJS.Signals, NodeJS.SignalsListener>();
+  for (const sig of shutdownSignals) {
+    const handler = () => {
+      console.log(chalk.yellow(`\nReceived ${sig}, shutting down...`));
+      controller.abort();
+    };
+    process.on(sig, handler);
+    signalHandlers.set(sig, handler);
+  }
 
   try {
     while (true) {
@@ -210,6 +222,9 @@ export async function runRemoteControlMode(
       }
     }
   } finally {
+    for (const [sig, handler] of signalHandlers) {
+      process.off(sig, handler);
+    }
     await registrar.stop();
     if (mcpStarted) {
       await stopMcpServer();
@@ -223,7 +238,11 @@ async function executeLocalTool(request: ToolRequest): Promise<ToolResult> {
   try {
     // Import tool executors dynamically to avoid loading heavy deps in main bundle
     const { executeLocalTool: exec } = await import('./tool-executor.ts');
-    const output = await exec(request.toolName, request.toolInput);
+    // Remote-control mode has no interactive approver; pass auth so the
+    // L0/L1 gate runs, but any L2-confirm is rejected fail-closed.
+    const output = await exec(request.toolName, request.toolInput, {
+      auth: getStoredAuth(),
+    });
     return { ok: true, output };
   } catch (error: unknown) {
     return {
@@ -240,26 +259,57 @@ async function postToolResult(
   toolCallId: string,
   result: ToolResult,
 ): Promise<void> {
-  const response = await fetch(`${backendUrl}/api/cli/tool-result`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      sessionId,
-      toolCallId,
-      ok: result.ok,
-      output: result.output,
-      error: result.error,
-    }),
+  // Bounded retry. Idempotent on toolCallId so re-POSTing is safe.
+  const MAX_ATTEMPTS = 3;
+  const BACKOFF_MS = [0, 500, 2_000];
+  const REQUEST_TIMEOUT_MS = 8_000;
+  const url = `${backendUrl}/api/cli/tool-result`;
+  const body = JSON.stringify({
+    sessionId,
+    toolCallId,
+    ok: result.ok,
+    output: result.output,
+    error: result.error,
   });
 
-  if (!response.ok) {
-    logger.warn('Failed to post tool result', {
-      status: response.status,
-      statusText: response.statusText,
-      toolCallId,
-    });
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (BACKOFF_MS[attempt]) {
+      await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
+    }
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (response.ok) return;
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 429
+      ) {
+        logger.error('tool-result POST permanently rejected', {
+          status: response.status,
+          toolCallId,
+        });
+        return;
+      }
+      logger.warn('tool-result POST failed, retrying', {
+        status: response.status,
+        attempt,
+        toolCallId,
+      });
+    } catch (error) {
+      logger.warn('tool-result POST threw, retrying', {
+        attempt,
+        toolCallId,
+        error,
+      });
+    }
   }
+  logger.error('tool-result POST exhausted retries', { toolCallId });
 }
