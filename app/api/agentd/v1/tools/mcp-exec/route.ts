@@ -6,10 +6,16 @@
  * (the @ai-sdk/mcp client lives in this web app), so this route
  * proxies the call.
  *
- * Currently supports builtin MCP servers (web, browser, firecrawl,
- * github, context7). Remote user-configured MCP servers will be
- * supported in a follow-up — they require 'use step' boundaries
- * (createMCPClient) which route handlers can't host directly.
+ * Supports two server sources:
+ *   - Builtin (web, firecrawl, github, context7) via executeBuiltinMcpTool
+ *   - Remote user-configured (http/sse) via executeRemoteMcpTool, sourced
+ *     from AppConfig.mcp (see types/config/mcp.ts)
+ *
+ * Remote servers are addressed by their key in the `mcp` config map,
+ * which the agent allowlist (`mcp_servers`) treats identically to
+ * builtin names. A name that exists in both maps resolves to builtin
+ * first — keep your remote server keys distinct from builtin names
+ * (web/firecrawl/github/context7) to avoid surprises.
  *
  * The daemon gates this route behind agentCfg.MCPEnabled — only
  * agents with mcp_enabled=true register the mcp_call tool. This route
@@ -19,6 +25,7 @@
 export const dynamic = 'force-dynamic';
 
 import { executeBuiltinMcpTool } from '@/lib/mcp/builtin';
+import { executeRemoteMcpTool } from '@/lib/mcp/remote';
 import { getConfig } from '@/lib/core/kv/config';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
@@ -50,12 +57,14 @@ export async function POST(request: Request) {
 
   const { server_name, tool_name, args, agent_id, session_id } = parsed.data;
 
-  // Defense-in-depth: verify the agent is allowed to use this MCP server.
-  // The daemon should have already gated this, but a misconfigured or
-  // hostile daemon shouldn't be able to bypass.
+  // Load config once for both the allowlist check and the remote lookup.
+  // The allowlist check below is defense-in-depth — the daemon should
+  // have already gated, but a misconfigured or hostile daemon shouldn't
+  // be able to bypass.
+  const config = await getConfig();
+  const agentCfg = config.agents?.[agent_id];
+
   try {
-    const config = await getConfig();
-    const agentCfg = config.agents?.[agent_id];
     if (!agentCfg?.mcp_enabled) {
       logger.warn('mcp-exec denied: agent does not have MCP enabled', {
         agent_id,
@@ -88,43 +97,92 @@ export async function POST(request: Request) {
       );
     }
   } catch (err) {
-    logger.error('mcp-exec config check failed', {
+    logger.error('mcp-exec allowlist check failed', {
       agent_id,
       error: err instanceof Error ? err.message : String(err),
     });
-    // Fail open — daemon already gated. Don't block on a config fetch bug.
+    // Fail open — daemon already gated. Don't block on a programming bug
+    // in the allowlist logic itself (the actual config fetch happened
+    // above and would have thrown before reaching here).
   }
 
-  // Invoke the builtin server directly (no 'use step' required).
-  const result = await executeBuiltinMcpTool(
-    server_name,
-    tool_name,
-    args,
-    session_id ? { sessionId: session_id, agentName: agent_id } : undefined,
-  );
+  // Resolve the server source. Builtin names take precedence; anything
+  // else is looked up in AppConfig.mcp as a remote server. We probe the
+  // builtin call first because executeBuiltinMcpTool returns ok:false
+  // (not throw) on unknown server/tool, which lets us fall through to
+  // the remote path without try/catch noise.
+  const remoteMcpConfig = config.mcp ?? {};
 
-  if (!result.ok) {
-    logger.warn('mcp-exec failed', {
+  // Short-circuit: if the server name matches a remote config key
+  // directly, skip the builtin probe and go straight to remote. This
+  // matters for remote servers whose names happen to collide with an
+  // unknown builtin-tool scenario — we don't want to log a spurious
+  // "builtin failed" warning for every remote call.
+  const isRemoteKey = Boolean(remoteMcpConfig[server_name]);
+
+  if (!isRemoteKey) {
+    // Builtin path
+    const result = await executeBuiltinMcpTool(
       server_name,
       tool_name,
-      error: result.error,
-    });
-    return Response.json({
-      success: false,
-      error: result.error,
-    });
+      args,
+      session_id ? { sessionId: session_id, agentName: agent_id } : undefined,
+    );
+
+    if (result.ok) {
+      logger.info('mcp-exec ok (builtin)', {
+        server_name,
+        tool_name,
+        agent_id,
+      });
+      return Response.json({
+        success: true,
+        data: JSON.stringify(result.result),
+      });
+    }
+
+    // If the error is "unknown builtin server", fall through to the
+    // remote path — the caller may have added a new remote server
+    // since the daemon last refreshed its server list. Other errors
+    // (tool-not-found, exec failure) are real and should return.
+    const isUnknownBuiltinServer = result.error.startsWith(
+      'unknown builtin MCP server:',
+    );
+    if (!isUnknownBuiltinServer) {
+      logger.warn('mcp-exec failed (builtin)', {
+        server_name,
+        tool_name,
+        error: result.error,
+      });
+      return Response.json({ success: false, error: result.error });
+    }
   }
 
-  logger.info('mcp-exec ok', {
+  // Remote path
+  const remoteResult = await executeRemoteMcpTool({
+    config: remoteMcpConfig,
+    serverName: server_name,
+    toolName: tool_name,
+    args,
+  });
+
+  if (!remoteResult.ok) {
+    logger.warn('mcp-exec failed (remote)', {
+      server_name,
+      tool_name,
+      error: remoteResult.error,
+    });
+    return Response.json({ success: false, error: remoteResult.error });
+  }
+
+  logger.info('mcp-exec ok (remote)', {
     server_name,
     tool_name,
     agent_id,
   });
 
-  // Flatten the BuiltinMcpToolResult into a JSON string for the daemon's
-  // ToolResult.Data field (the agent sees a single string).
   return Response.json({
     success: true,
-    data: JSON.stringify(result.result),
+    data: JSON.stringify(remoteResult.result),
   });
 }

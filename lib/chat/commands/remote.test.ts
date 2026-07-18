@@ -53,7 +53,9 @@ import {
   executeDetachCommand,
   executeRemoteCommand,
 } from '@/lib/chat/commands/remote';
+// biome-ignore lint/correctness/noUnusedImports: referenced as the vi.mock() target on the next non-import line; biome's heuristic misses string-argument mocks
 import { isCliOnlineForSession } from '@/lib/cli/remote-control';
+import type { ChatSession } from '@/lib/core/db/schema';
 import type { IMChatSource, CLIChatSource } from '@/types/workflow';
 
 const imSource: IMChatSource = {
@@ -83,7 +85,7 @@ describe('executeAttachCommand', () => {
   it('rejects non-IM sources', async () => {
     const result = await executeAttachCommand({
       args: 'target-session',
-      currentSession: mockSession as any,
+      currentSession: mockSession as ChatSession,
       source: cliSource,
       locale: 'en-US',
     });
@@ -93,7 +95,7 @@ describe('executeAttachCommand', () => {
   it('requires a target session ID', async () => {
     const result = await executeAttachCommand({
       args: '',
-      currentSession: mockSession as any,
+      currentSession: mockSession as ChatSession,
       source: imSource,
       locale: 'en-US',
     });
@@ -118,7 +120,7 @@ describe('executeDetachCommand', () => {
 
   it('rejects non-IM sources', async () => {
     const result = await executeDetachCommand({
-      currentSession: mockSession as any,
+      currentSession: mockSession as ChatSession,
       source: cliSource,
       locale: 'en-US',
     });
@@ -127,7 +129,10 @@ describe('executeDetachCommand', () => {
 
   it('returns error when not attached', async () => {
     const result = await executeDetachCommand({
-      currentSession: { ...mockSession, remoteControlNodeId: null } as any,
+      currentSession: {
+        ...mockSession,
+        remoteControlNodeId: null,
+      } as ChatSession,
       source: imSource,
       locale: 'en-US',
     });
@@ -142,7 +147,7 @@ describe('executeRemoteCommand', () => {
 
   it('rejects non-IM sources', async () => {
     const result = await executeRemoteCommand({
-      currentSession: mockSession as any,
+      currentSession: mockSession as ChatSession,
       source: cliSource,
       locale: 'en-US',
     });

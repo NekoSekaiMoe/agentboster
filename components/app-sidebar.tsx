@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Sparkles,
   SquareTerminal,
+  Plug,
   Sun,
   Users,
   Wrench,
@@ -169,6 +170,11 @@ const workspaceGroups: readonly WorkspaceGroup[] = [
         labelKey: 'nav.agentDaemon',
         href: '/config/agentd',
         icon: ShieldCheck,
+      },
+      {
+        labelKey: 'nav.mcp',
+        href: '/config/mcp',
+        icon: Plug,
       },
       {
         labelKey: 'nav.auditLogs',

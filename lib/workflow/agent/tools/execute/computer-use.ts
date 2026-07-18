@@ -1,4 +1,4 @@
-import { tool } from 'ai';
+import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { defineBuildInTool } from '../define';
 import { localToolResultHookBuilder } from '../../hooks';
@@ -75,9 +75,17 @@ async function dispatchToCliMcp(
 
   // screenshot returns image content
   if (toolName === 'screenshot' && typeof result.output === 'object') {
-    const output = result.output as any;
-    if (output.content?.[0]?.type === 'image') {
-      return { content: output.content };
+    const output = result.output as
+      | { content?: Array<{ type: string; data?: string; mimeType?: string }> }
+      | null
+      | undefined;
+    if (output?.content?.[0]?.type === 'image') {
+      return {
+        content: output.content as Array<
+          | { type: 'text'; text: string }
+          | { type: 'image'; data: string; mimeType: string }
+        >,
+      };
     }
   }
 
@@ -119,7 +127,7 @@ export default defineBuildInTool({
     const sid = sessionId;
     const rid = runId;
 
-    const tools: Record<string, any> = {
+    const tools: ToolSet = {
       screenshot: tool({
         description:
           'Capture the screen and return a scaled PNG image. Terminal windows are automatically excluded. All coordinates in the image match the scaled resolution.',
@@ -129,7 +137,7 @@ export default defineBuildInTool({
             .optional()
             .describe('Maximum width in pixels (default: 1400)'),
         }),
-        execute: async (input: any, { toolCallId }: any) => {
+        execute: async (input, { toolCallId }) => {
           return await dispatchToCliMcp(
             sid,
             rid,
@@ -152,7 +160,7 @@ export default defineBuildInTool({
         x: z.number().describe('X coordinate (screenshot scale)'),
         y: z.number().describe('Y coordinate (screenshot scale)'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,
@@ -180,7 +188,7 @@ export default defineBuildInTool({
           .default('single')
           .describe('Single or double click'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,
@@ -200,7 +208,7 @@ export default defineBuildInTool({
         to_x: z.number().describe('End X coordinate'),
         to_y: z.number().describe('End Y coordinate'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,
@@ -225,7 +233,7 @@ export default defineBuildInTool({
           .optional()
           .describe('Modifier keys: "ctrl", "alt", "shift", "meta"'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(sid, rid, toolCallId, 'key_event', input);
       },
     });
@@ -236,7 +244,7 @@ export default defineBuildInTool({
       inputSchema: z.object({
         text: z.string().describe('Text to type'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(sid, rid, toolCallId, 'type_text', input);
       },
     });
@@ -254,7 +262,7 @@ export default defineBuildInTool({
           .optional()
           .describe('Maximum tree depth to traverse (default: unlimited)'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,
@@ -269,7 +277,7 @@ export default defineBuildInTool({
       description:
         'Get the currently focused UI element. Returns the element that would receive keyboard input.',
       inputSchema: z.object({}),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,

@@ -1,3 +1,5 @@
+import type { AdapterName } from '@/types/config/channels';
+
 export type RiskLevel = 'low' | 'medium' | 'high' | 'block';
 
 export interface RiskAssessment {
@@ -191,7 +193,7 @@ export async function requestL2ApprovalForRemoteTool(params: {
     await sendNotification({
       source: {
         type: 'im' as const,
-        adapter: remoteAdapter as any, // Type will be validated by sendNotification
+        adapter: remoteAdapter as AdapterName,
         origin: 'remote-control',
         threadId: remoteThreadId,
       },

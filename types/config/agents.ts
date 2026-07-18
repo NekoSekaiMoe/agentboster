@@ -40,7 +40,12 @@ export const agentInstanceConfigSchema = z.object({
 
   /** Enable MCP tool bridge (mcp_call) for this agent. Default: false. */
   mcp_enabled: z.boolean().optional(),
-  /** Whitelist of MCP server names (matches lib/mcp/builtin servers). */
+  /**
+   * Allowlist of MCP server names this agent may call. Names match
+   * either lib/mcp/builtin servers (web/firecrawl/github/context7) or
+   * keys in AppConfig.mcp (remote http/sse servers). Empty = allow all
+   * servers reachable by the mcp_call tool.
+   */
   mcp_servers: z.array(z.string().min(1)).optional(),
 
   /**
