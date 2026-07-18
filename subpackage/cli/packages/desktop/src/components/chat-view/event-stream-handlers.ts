@@ -220,12 +220,6 @@ export function handleMessageStreamEvent(
           customType === 'workflow.subagent' ||
           customType === 'workflow.subagent.batch'
         ) {
-          const subagentId =
-            typeof details?.subagentId === 'string'
-              ? details.subagentId
-              : typeof details?.batchId === 'string'
-                ? details.batchId
-                : '';
           const event = typeof details?.event === 'string' ? details.event : '';
           const task =
             typeof details?.task === 'string'

@@ -1,0 +1,151 @@
+# Go CI for agentd (the sandboxed execution daemon) and dbushelper
+# (the pure-Go AT-SPI2 D-Bus client consumed by agentd's tools_a11y.go).
+#
+# Both subprojects are Linux-only at build time — agentd's source files
+# carry `//go:build linux` so they don't compile on macOS/Windows, and
+# dbushelper's only meaningful tests exercise AT-SPI2 over the D-Bus
+# session bus (Linux-only). We therefore run everything on Ubuntu and
+# skip the cross-platform matrix the TS/Rust workflows use.
+#
+# The trigger fires on any change under subpackage/agentd/ or
+# subpackage/dbushelper/, but per-job `if:` guards check the same diff
+# via dorny/paths-filter so we only run the job whose subproject
+# actually changed. A PR touching only dbushelper therefore skips the
+# (much longer) agentd job, and vice versa.
+
+name: go-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'subpackage/agentd/**'
+      - 'subpackage/dbushelper/**'
+      - '.github/workflows/go-ci.yml'
+  pull_request:
+    paths:
+      - 'subpackage/agentd/**'
+      - 'subpackage/dbushelper/**'
+      - '.github/workflows/go-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  # Single job that decides which subprojects need to run. The two
+  # downstream jobs depend on this output via `needs:` and an `if:`
+  # guard, so a no-op subproject doesn't waste a runner.
+  changes:
+    name: detect changes
+    runs-on: ubuntu-24.04
+    outputs:
+      agentd: ${{ steps.filter.outputs.agentd }}
+      dbushelper: ${{ steps.filter.outputs.dbushelper }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # The workflow file itself counts as both — if CI config
+          # changes, run both jobs to be safe.
+          filters: |
+            agentd:
+              - 'subpackage/agentd/**'
+              - '.github/workflows/go-ci.yml'
+            dbushelper:
+              - 'subpackage/dbushelper/**'
+              - '.github/workflows/go-ci.yml'
+
+  agentd:
+    name: agentd (vet + build + test)
+    needs: changes
+    if: needs.changes.outputs.agentd == 'true'
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: subpackage/agentd
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: subpackage/agentd/go.mod
+          cache-dependency-path: subpackage/agentd/go.sum
+
+      # agentd depends on the sibling dbushelper module via
+      # tools_a11y.go (it shells out to the a11y-helper binary). The
+      # agentd go.mod uses a `replace ../dbushelper` directive, so go
+      # build resolves it locally — no extra setup needed. AT-SPI2 dev
+      # headers are required because the test binary links CGO against
+      # libdbus/libatspi for some unit tests.
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libdbus-1-dev \
+            libatspi2.0-dev \
+            libclang-dev
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        run: go test ./...
+
+  dbushelper:
+    name: dbushelper (vet + build + test)
+    needs: changes
+    if: needs.changes.outputs.dbushelper == 'true'
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: subpackage/dbushelper
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: subpackage/dbushelper/go.mod
+          cache-dependency-path: subpackage/dbushelper/go.sum
+
+      # dbushelper's CLI e2e tests (conn_unix_test.go) build the
+      # a11y-helper binary as a subprocess, so we need the AT-SPI2
+      # dev headers at test time as well.
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libdbus-1-dev \
+            libatspi2.0-dev
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        # The dbushelper test suite includes both pure unit tests and
+        # CLI e2e tests that build a11y-helper as a subprocess. The
+        # e2e tests skip themselves if `go` is not on PATH; on CI it
+        # is, so they will run.
+        run: go test ./...

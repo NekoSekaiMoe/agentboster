@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -152,6 +151,14 @@ func (s *Store) Count() int {
 }
 
 // ArchiveOldest marks oldest sessions for removal beyond maxCount.
+// Returns the session ids that exceed the capacity, in
+// least-recently-used order (front of the accessOrder queue = oldest).
+//
+// NOTE: this is advisory only — it does NOT remove the sessions from
+// the map or disk; the caller is responsible for that. Also note the
+// function does not consult LastAccessTime; accessOrder is updated
+// on every Get/Put via touch(), so the queue order IS the access
+// recency signal.
 func (s *Store) ArchiveOldest() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -160,8 +167,11 @@ func (s *Store) ArchiveOldest() []string {
 		return nil
 	}
 
-	sort.Strings(s.accessOrder)
-
+	// Do NOT sort accessOrder alphabetically — the slice is already in
+	// LRU order (front = least recently used; back = most recently
+	// used). A previous implementation called sort.Strings here, which
+	// destroyed the LRU signal and made the function return sessions
+	// in arbitrary id-alphabetical order.
 	toArchive := make([]string, 0)
 	for len(s.sessions)-len(toArchive) > s.maxCount && len(s.accessOrder) > 0 {
 		oldest := s.accessOrder[0]

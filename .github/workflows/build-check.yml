@@ -1,30 +1,114 @@
+# Root-project (Next.js Web app) lint + typecheck + build + unit tests.
+#
+# Scoped to the root project: anything under subpackage/ has its own
+# workflow (cli-ci.yml, desktop-ci.yml, go-ci.yml). Touching files in
+# those subprojects should NOT trigger this workflow — they have their
+# own toolchains (separate yarn.lock, separate Go modules, separate
+# TypeScript configs) and running root `yarn build` against them would
+# either fail or be redundant.
+#
+# Path exclusions are applied at trigger time so a PR that only touches
+# the CLI doesn't burn a root-node runner.
+
 name: Build Check
 
 on:
   push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'hooks/**'
+      - 'lib/**'
+      - 'public/**'
+      - 'styles/**'
+      - 'middleware.ts'
+      - 'next.config.ts'
+      - 'drizzle.config.ts'
+      - 'push.py'
+      - 'tsconfig.json'
+      - 'vitest.config.ts'
+      - 'biome.jsonc'
+      - 'package.json'
+      - 'yarn.lock'
+      - '.github/workflows/build-check.yml'
   pull_request:
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'hooks/**'
+      - 'lib/**'
+      - 'public/**'
+      - 'styles/**'
+      - 'middleware.ts'
+      - 'next.config.ts'
+      - 'drizzle.config.ts'
+      - 'push.py'
+      - 'tsconfig.json'
+      - 'vitest.config.ts'
+      - 'biome.jsonc'
+      - 'package.json'
+      - 'yarn.lock'
+      - '.github/workflows/build-check.yml'
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  lint-and-build:
+    name: lint + build (node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
         node-version: [22, 24]
 
     steps:
-    - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v6
-      with:
-        node-version: ${{ matrix.node-version }}
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
 
-    - name: Build
-      run: |
-        yarn install --force
-        yarn check:lint
-        yarn build
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      - name: Lint + Typecheck
+        run: yarn check:lint
+
+      - name: Build
+        run: yarn build
+
+  test:
+    name: vitest (node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: yarn
+
+      - name: Install
+        # Vitest doesn't need next/css/tailwind to be set up, but the
+        # root test suite imports from `@/lib/...` which resolves via
+        # node_modules — frozen-lockfile install is enough.
+        run: yarn install --frozen-lockfile
+
+      - name: Run unit tests
+        run: yarn test

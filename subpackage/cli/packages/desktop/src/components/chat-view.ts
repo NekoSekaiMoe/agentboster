@@ -883,6 +883,16 @@ export class ChatView {
     return this.state;
   }
 
+  /**
+   * Return the currently active backend session UUID, if any. The session
+   * id is sourced from the latest RPC state sync; it is null until the
+   * bridge has reported at least one state update.
+   */
+  getActiveBackendSessionId(): string | null {
+    const sid = this.state?.sessionId?.trim();
+    return sid && sid.length > 0 ? sid : null;
+  }
+
   private getComposerTextarea(): HTMLTextAreaElement | null {
     return this.container.querySelector(
       '#chat-input',

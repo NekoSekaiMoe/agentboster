@@ -154,6 +154,34 @@ export async function execToolOnAgentd(
   const { db } = await import('@/lib/core/db');
   const { eq } = await import('drizzle-orm');
 
+  // Scheduled-task node preference: when no explicit nodeId was passed
+  // by the caller (i.e. the LLM didn't request a specific node), check
+  // whether the current session carries a `scheduleNodeConstraints`
+  // metadata entry written by `deliverScheduledTask`. If so, honor the
+  // preferred node so the dispatched task's tool calls actually land on
+  // the daemon the user picked (or the fallback node that resolved).
+  //
+  // This is a no-op for non-scheduled runs: those sessions don't carry
+  // the metadata key, so the historical auto-pick path is preserved.
+  let effectiveNodeId = nodeId;
+  if (!effectiveNodeId && sessionId) {
+    try {
+      const { sessions } = await import('@/lib/core/db/schema');
+      const [row] = await db
+        .select({ metadata: sessions.metadata })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .limit(1);
+      const constraint = ((row?.metadata ?? {}) as Record<string, unknown>)
+        .scheduleNodeConstraints as { preferredNodeId?: string } | undefined;
+      if (constraint?.preferredNodeId) {
+        effectiveNodeId = constraint.preferredNodeId;
+      }
+    } catch {
+      // Best-effort: fall through to auto-pick on any error.
+    }
+  }
+
   let node: {
     nodeID: string;
     ip: string;
@@ -166,7 +194,7 @@ export async function execToolOnAgentd(
     sandboxMemPeakTotal?: number | null;
   } | null = null;
 
-  if (nodeId) {
+  if (effectiveNodeId) {
     // P3.1 (nodeId hardening): an explicit nodeId MUST still respect
     // the caller's allowedNodes allowlist. Without this check, a tool
     // caller (e.g. runSkill with a model-supplied nodeId) could route
@@ -176,19 +204,19 @@ export async function execToolOnAgentd(
     // path. Empty/undefined allowedNodes means "any node".
     if (allowedNodes && allowedNodes.length > 0) {
       const allow = new Set(allowedNodes);
-      if (!allow.has(nodeId)) {
+      if (!allow.has(effectiveNodeId)) {
         throw new Error(
-          `Node ${nodeId} is not in the allowedNodes set for this agent`,
+          `Node ${effectiveNodeId} is not in the allowedNodes set for this agent`,
         );
       }
     }
     const rows = await db
       .select()
       .from(agentdNodes)
-      .where(eq(agentdNodes.nodeID, nodeId))
+      .where(eq(agentdNodes.nodeID, effectiveNodeId))
       .limit(1);
     if (rows.length === 0) {
-      throw new Error(`Node ${nodeId} not found`);
+      throw new Error(`Node ${effectiveNodeId} not found`);
     }
     node = {
       nodeID: rows[0].nodeID,

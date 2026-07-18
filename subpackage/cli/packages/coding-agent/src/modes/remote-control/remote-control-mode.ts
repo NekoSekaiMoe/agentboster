@@ -187,7 +187,17 @@ export async function runRemoteControlMode(
           .pipeThrough(new TextDecoderStream())
           .pipeThrough(new EventSourceParserStream());
 
-        for await (const event of stream) {
+        // Manual reader loop instead of `for await ... of stream` —
+        // coding-agent's tsconfig lib config doesn't declare
+        // ReadableStream's asyncIterator, so the for-await form fails
+        // tsgo/tsc even though it works at runtime. Mirrors the same
+        // workaround in cli-session-registrar.ts.
+        const reader = stream.getReader();
+        while (true) {
+          if (controller.signal.aborted) break;
+          const { value: event, done } = await reader.read();
+          if (done) break;
+          if (!event) continue;
           if (event.event === 'tool-request') {
             const request: ToolRequest = JSON.parse(event.data);
             logger.info('Received tool request', {

@@ -1,0 +1,122 @@
+# Lint + typecheck + unit tests for the agentboster-cli package tree
+# (subpackage/cli). Separate from build-all.yml because:
+#  - build-all.yml produces release artifacts on three OSes; it's
+#    heavyweight and only runs on main.
+#  - cli-ci.yml gates PRs that touch the CLI on lint+test, which is
+#    what catches regressions during development.
+#
+# Path filter excludes `subpackage/cli/packages/desktop/` because that
+# package is gated by desktop-ci.yml (it has its own tsgo config and
+# biome cache). Desktop changes therefore trigger desktop-ci only; CLI
+# changes trigger cli-ci only; both run in parallel when a PR touches
+# both.
+#
+# GitHub Actions paths filters don't support negation globs, so the
+# positive list enumerates the CLI code locations explicitly.
+
+name: cli-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'subpackage/cli/packages/ai/**'
+      - 'subpackage/cli/packages/agent/**'
+      - 'subpackage/cli/packages/agentboster-adapter/**'
+      - 'subpackage/cli/packages/coding-agent/**'
+      - 'subpackage/cli/package.json'
+      - 'subpackage/cli/yarn.lock'
+      - 'subpackage/cli/biome.json'
+      - 'subpackage/cli/tsconfig.json'
+      - 'subpackage/cli/tsconfig.base.json'
+      - '.github/workflows/cli-ci.yml'
+  pull_request:
+    paths:
+      - 'subpackage/cli/packages/ai/**'
+      - 'subpackage/cli/packages/agent/**'
+      - 'subpackage/cli/packages/agentboster-adapter/**'
+      - 'subpackage/cli/packages/coding-agent/**'
+      - 'subpackage/cli/package.json'
+      - 'subpackage/cli/yarn.lock'
+      - 'subpackage/cli/biome.json'
+      - 'subpackage/cli/tsconfig.json'
+      - 'subpackage/cli/tsconfig.base.json'
+      - '.github/workflows/cli-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-typecheck:
+    name: biome + tsgo
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: subpackage/cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: subpackage/cli/yarn.lock
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      # CI lint must NOT auto-fix: `yarn check:lint` from
+      # subpackage/cli/package.json runs `biome check --write`, which
+      # mutates the runner's checkout and then succeeds against the
+      # mutated tree — the PR itself never gets fixed and the gate
+      # is bypassed. Run biome without --write so failures actually
+      # surface here; developers run `yarn check:lint` locally to
+      # auto-format.
+      - name: Biome (no --write)
+        run: yarn biome check --error-on-warnings .
+
+      - name: tsgo
+        run: yarn tsgo --noEmit
+
+  test:
+    name: vitest
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: subpackage/cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: subpackage/cli/yarn.lock
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      # Run vitest in every workspace package that declares a test
+      # script. Currently that's @agentboster-cli/ai,
+      # @agentboster-cli/agent, and @agentboster-cli/core (coding-agent);
+      # the first two have no .test.ts files yet but their `test`
+      # script still exits 0, and gating them in CI means new tests
+      # actually run the moment they're added.
+      - name: Run unit tests (@agentboster-cli/ai)
+        run: yarn workspace @agentboster-cli/ai test
+      - name: Run unit tests (@agentboster-cli/agent)
+        run: yarn workspace @agentboster-cli/agent test
+      - name: Run unit tests (@agentboster-cli/core)
+        run: yarn workspace @agentboster-cli/core test

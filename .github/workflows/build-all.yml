@@ -44,7 +44,9 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -75,7 +77,7 @@ jobs:
       - name: Build
         run: cargo build --release --manifest-path subpackage/computer-use-mcp/Cargo.toml --target ${{ matrix.target }}
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: computer-use-mcp-${{ matrix.target }}
           path: |
@@ -89,9 +91,11 @@ jobs:
     name: cli bundle
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: yarn
@@ -123,7 +127,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: cli-bundle
           path: subpackage/cli/packages/coding-agent/dist/agentboster-cli.cjs
@@ -147,22 +151,24 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: yarn
           cache-dependency-path: subpackage/cli/yarn.lock
 
       - name: Download CLI bundle
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: cli-bundle
           path: subpackage/cli/packages/coding-agent/dist/
 
       - name: Download MCP binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: computer-use-mcp-${{ matrix.target }}
           path: mcp-bin/
@@ -207,9 +213,11 @@ jobs:
         working-directory: subpackage/cli/packages/desktop
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
 
@@ -222,7 +230,7 @@ jobs:
           workspaces: subpackage/cli/packages/desktop/src-tauri
 
       - name: Download MCP binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: computer-use-mcp-${{ matrix.target }}
           path: mcp-bin/

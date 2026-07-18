@@ -2,12 +2,16 @@
 
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import {
-  type ScheduledTaskType,
   deleteScheduledTask,
   getScheduledTask,
   listScheduledTasks,
   updateScheduledTask,
 } from '@/lib/core/db/scheduled';
+import {
+  serializeScheduledTask,
+  type PersistedScheduledTask,
+  type ScheduleTaskRecord,
+} from '@/lib/cli/schedule-serialization';
 import { createLogger } from '@/lib/utils/logger';
 import { scheduledTaskWorkflow } from '@/lib/workflow/scheduled';
 import {
@@ -44,31 +48,9 @@ const updateTaskSchema = z.discriminatedUnion('type', [
   dailyTaskSchema,
 ]);
 
-type PersistedScheduledTask = Awaited<
-  ReturnType<typeof listScheduledTasks>
->[number];
+export type { PersistedScheduledTask, ScheduleTaskRecord };
 
 export type DisplayStatus = 'scheduled' | 'archived';
-
-export type ScheduleTaskRecord = {
-  id: string;
-  sessionId: string;
-  type: ScheduledTaskType;
-  title: string | null;
-  prompt: string;
-  timezone: string | null;
-  dailyTime: string | null;
-  nextRunAt: string | null;
-  lastTriggeredAt: string | null;
-  lastFiredFor: string | null;
-  scheduleWorkflowRunId: string | null;
-  lastChatRunId: string | null;
-  active: boolean;
-  archived: boolean;
-  displayStatus: DisplayStatus;
-  createdAt: string;
-  updatedAt: string;
-};
 
 export type UpdateScheduleTaskInput = z.infer<typeof updateTaskSchema>;
 
@@ -83,43 +65,8 @@ async function requireAuth() {
   return authSession;
 }
 
-function deriveDisplayStatus(task: PersistedScheduledTask) {
-  const now = Date.now();
-  const archived =
-    task.type === 'delay' &&
-    (task.lastTriggeredAt !== null ||
-      (!task.active && task.nextRunAt === null) ||
-      (task.nextRunAt !== null && task.nextRunAt.getTime() <= now));
-
-  return {
-    ...task,
-    archived,
-    displayStatus: archived ? ('archived' as const) : ('scheduled' as const),
-  };
-}
-
 function serializeTask(task: PersistedScheduledTask): ScheduleTaskRecord {
-  const withStatus = deriveDisplayStatus(task);
-
-  return {
-    id: withStatus.id,
-    sessionId: withStatus.sessionId,
-    type: withStatus.type,
-    title: withStatus.title,
-    prompt: withStatus.prompt,
-    timezone: withStatus.timezone,
-    dailyTime: withStatus.dailyTime,
-    nextRunAt: withStatus.nextRunAt?.toISOString() ?? null,
-    lastTriggeredAt: withStatus.lastTriggeredAt?.toISOString() ?? null,
-    lastFiredFor: withStatus.lastFiredFor?.toISOString() ?? null,
-    scheduleWorkflowRunId: withStatus.scheduleWorkflowRunId,
-    lastChatRunId: withStatus.lastChatRunId,
-    active: withStatus.active,
-    archived: withStatus.archived,
-    displayStatus: withStatus.displayStatus,
-    createdAt: withStatus.createdAt.toISOString(),
-    updatedAt: withStatus.updatedAt.toISOString(),
-  };
+  return serializeScheduledTask(task);
 }
 
 async function cancelScheduleRun(runId: string | null | undefined) {

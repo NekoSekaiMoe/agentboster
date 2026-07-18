@@ -306,6 +306,7 @@ export class Sidebar {
   private sessionReloadQueued = new Set<string>();
   private packagesOpen = false;
   private agentdVncOpen = false;
+  private scheduleOpen = false;
   private openProjectMenuId: string | null = null;
   private modeFilterMenuOpen = false;
   private desktopUpdateAvailable = false;
@@ -342,6 +343,7 @@ export class Sidebar {
   private onOpenSettings: (() => void) | null = null;
   private onTogglePackages: (() => void) | null = null;
   private onOpenAgentdVnc: (() => void) | null = null;
+  private onOpenSchedule: (() => void) | null = null;
   private onWorkspaceSelect: ((workspaceId: string) => void) | null = null;
   private onWorkspaceCreate:
     | ((workspace?: { title?: string; emoji?: string | null }) => void)
@@ -502,6 +504,10 @@ export class Sidebar {
     this.onOpenAgentdVnc = cb;
   }
 
+  setOnOpenSchedule(cb: () => void): void {
+    this.onOpenSchedule = cb;
+  }
+
   setOnWorkspaceSelect(cb: (workspaceId: string) => void): void {
     this.onWorkspaceSelect = cb;
   }
@@ -620,6 +626,12 @@ export class Sidebar {
   setAgentdVncOpen(open: boolean): void {
     if (this.agentdVncOpen === open) return;
     this.agentdVncOpen = open;
+    this.render();
+  }
+
+  setScheduleOpen(open: boolean): void {
+    if (this.scheduleOpen === open) return;
+    this.scheduleOpen = open;
     this.render();
   }
 
@@ -4814,9 +4826,12 @@ export class Sidebar {
 								<button class="sidebar-top-action-btn ${this.packagesOpen ? 'active' : ''}" title="Packages" @click=${() => this.onTogglePackages?.()}>
 									<span>Packages</span>
 								</button>
-								<button class="sidebar-top-action-btn ${this.agentdVncOpen ? 'active' : ''}" title="AgentD VNC" @click=${() => this.onOpenAgentdVnc?.()}>
-									<span>VNC</span>
-								</button>
+							<button class="sidebar-top-action-btn ${this.agentdVncOpen ? 'active' : ''}" title="AgentD VNC" @click=${() => this.onOpenAgentdVnc?.()}>
+								<span>VNC</span>
+							</button>
+							<button class="sidebar-top-action-btn ${this.scheduleOpen ? 'active' : ''}" title="定时任务" @click=${() => this.onOpenSchedule?.()}>
+								<span>任务</span>
+							</button>
 							</div>
 						`
           }

@@ -59,9 +59,19 @@ function getAgentDir(): string {
   const home = homedir();
   switch (process.platform) {
     case 'darwin':
-      return path.join(home, 'Library', 'Application Support', 'agentboster-cli', 'agent');
+      return path.join(
+        home,
+        'Library',
+        'Application Support',
+        'agentboster-cli',
+        'agent',
+      );
     case 'win32':
-      return path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'agentboster-cli', 'agent');
+      return path.join(
+        process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'),
+        'agentboster-cli',
+        'agent',
+      );
     default:
       return path.join(home, '.config', 'agentboster-cli', 'agent');
   }

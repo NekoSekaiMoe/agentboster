@@ -16,6 +16,8 @@ import {
 import { FileViewer } from './components/file-viewer.js';
 import { AgentdVncView } from './components/agentd-vnc-view.js';
 import { PackagesView } from './components/packages-view.js';
+import { ScheduleView } from './components/schedule-view.js';
+import { ScheduleService } from './schedule/schedule-service.js';
 import { SessionBrowser } from './components/session-browser.js';
 import {
   SettingsPanel,
@@ -91,7 +93,14 @@ interface WorkspaceState {
   emoji: string | null;
   pinned: boolean;
   leftMode: SidebarMode;
-  pane: 'chat' | 'file' | 'packages' | 'settings' | 'terminal' | 'agentd-vnc';
+  pane:
+    | 'chat'
+    | 'file'
+    | 'packages'
+    | 'settings'
+    | 'terminal'
+    | 'agentd-vnc'
+    | 'schedule';
   activeProjectId: string | null;
   activeProjectPath: string | null;
   filePath: string | null;
@@ -178,6 +187,8 @@ let fileViewer: FileViewer | null = null;
 let terminalPanel: TerminalPanel | null = null;
 let packagesView: PackagesView | null = null;
 let agentdVncView: AgentdVncView | null = null;
+let scheduleView: ScheduleView | null = null;
+let scheduleService: ScheduleService | null = null;
 let connectionError: string | null = null;
 
 // CLI auto-installer state. Populated when the user clicks
@@ -2920,9 +2931,11 @@ function syncWorkspaceContextChrome(
   const packagesOpen = workspace?.pane === 'packages';
   const settingsOpen = workspace?.pane === 'settings';
   const agentdVncOpen = workspace?.pane === 'agentd-vnc';
+  const scheduleOpen = workspace?.pane === 'schedule';
   workspaceTabsBar?.setPackagesToolbarVisible(packagesOpen);
   sidebar?.setPackagesOpen(packagesOpen);
   sidebar?.setAgentdVncOpen(agentdVncOpen);
+  sidebar?.setScheduleOpen(scheduleOpen);
   sidebar?.setSettingsShellActive(Boolean(settingsOpen));
   if (settingsOpen) syncSidebarSettingsNavigation();
 }
@@ -3181,6 +3194,7 @@ function setPaneVisibility(
   const packagesPane = document.getElementById('packages-pane');
   const settingsPane = document.getElementById('settings-pane');
   const agentdVncPane = document.getElementById('agentd-vnc-pane');
+  const schedulePane = document.getElementById('schedule-pane');
   if (
     !chatFileLayout ||
     !sessionPane ||
@@ -3188,7 +3202,8 @@ function setPaneVisibility(
     !filePane ||
     !packagesPane ||
     !settingsPane ||
-    !agentdVncPane
+    !agentdVncPane ||
+    !schedulePane
   )
     return;
 
@@ -3202,6 +3217,7 @@ function setPaneVisibility(
   packagesPane.classList.toggle('hidden-pane', pane !== 'packages');
   settingsPane.classList.toggle('hidden-pane', pane !== 'settings');
   agentdVncPane.classList.toggle('hidden-pane', pane !== 'agentd-vnc');
+  schedulePane.classList.toggle('hidden-pane', pane !== 'schedule');
   if (!showChatLayout) {
     terminalPane?.classList.add('hidden-pane');
     terminalPane?.classList.remove('terminal-dock-visible');
@@ -3339,6 +3355,21 @@ async function applyWorkspacePane(
     if (isStale()) return;
     setPaneVisibility('agentd-vnc');
     await agentdVncView?.open();
+    if (isStale()) return;
+    syncDebugOverlay();
+    return;
+  }
+
+  if (workspace.pane === 'schedule') {
+    syncTerminalDockVisibility({
+      ...workspace,
+      terminalOpen: false,
+      pane: 'schedule',
+    });
+    settingsPanel?.hideWithoutClearing();
+    if (isStale()) return;
+    setPaneVisibility('schedule');
+    await scheduleView?.open();
     if (isStale()) return;
     syncDebugOverlay();
     return;
@@ -4384,6 +4415,15 @@ function openAgentdVncPane(): void {
   void applyWorkspacePane(workspace);
 }
 
+function openSchedulePane(): void {
+  const workspace = getActiveWorkspace();
+  if (!workspace) return;
+  workspace.pane = 'schedule';
+  persistWorkspaces();
+  syncWorkspaceTabsBar();
+  void applyWorkspacePane(workspace);
+}
+
 function toggleTerminalDock(forceOpen?: boolean): void {
   const workspace = getActiveWorkspace();
   if (!workspace) return;
@@ -4546,6 +4586,11 @@ function wireCommandPaletteBuiltins(): void {
       name: 'agentd-vnc',
       description: 'Open AgentD VNC viewer',
       action: async () => openAgentdVncPane(),
+    },
+    {
+      name: 'schedule',
+      description: 'Open scheduled tasks',
+      action: async () => openSchedulePane(),
     },
     {
       name: 'terminal',
@@ -4999,6 +5044,7 @@ function renderApp(): void {
 						</div>
 						<div id="packages-pane" class="hidden-pane"></div>
 						<div id="agentd-vnc-pane" class="hidden-pane"></div>
+						<div id="schedule-pane" class="hidden-pane"></div>
 						<div id="settings-pane" class="hidden-pane"></div>
 					</div>
 				</div>
@@ -5348,6 +5394,79 @@ function renderApp(): void {
     });
   }
 
+  const schedulePaneEl = document.getElementById('schedule-pane');
+  if (schedulePaneEl) {
+    scheduleView = new ScheduleView(schedulePaneEl);
+    scheduleView.setOnBack(() => {
+      const workspace = getActiveWorkspace();
+      if (!workspace) return;
+      workspace.pane = 'chat';
+      persistWorkspaces();
+      syncWorkspaceTabsBar();
+      void applyWorkspacePane(workspace);
+    });
+    scheduleView.setOnNotify((message, kind) => {
+      chatView?.notify(message, kind);
+    });
+    // Provide the active backend session id so Web scheduled-task creation
+    // can attach to a real session. The provider reads the chat-view's
+    // last known backend session id (which is refreshed every time the
+    // chat state syncs); when it is null (no chat view yet, or the
+    // runtime has not bound to a backend session), the form falls back
+    // to the user's most recent backend session via GET /api/cli/sessions.
+    scheduleView.setSessionIdProvider(() => {
+      try {
+        const sid = chatView?.getActiveBackendSessionId?.() ?? null;
+        return sid && sid.length > 0 ? sid : null;
+      } catch {
+        return null;
+      }
+    });
+
+    scheduleService = new ScheduleService();
+    scheduleService.setTriggerCallback(async (task) => {
+      const runtime = getActiveRuntime();
+      const bridge = runtime?.bridge ?? rpcBridge;
+      if (!bridge) {
+        return { ok: false, error: 'No active CLI session' };
+      }
+      try {
+        await bridge.prompt(task.prompt);
+        return { ok: true };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    });
+    scheduleService.setNotificationCallback(async (task, result) => {
+      try {
+        const { isPermissionGranted, requestPermission, sendNotification } =
+          await import('@tauri-apps/plugin-notification');
+        let granted = await isPermissionGranted();
+        if (!granted) {
+          const permission = await requestPermission();
+          granted = permission === 'granted';
+        }
+        if (!granted) return;
+        const title = task.title?.trim() || 'AgentBoster 定时任务';
+        const body =
+          result.status === 'completed'
+            ? `任务已完成：${task.prompt.slice(0, 120)}`
+            : `任务失败：${result.error ?? '未知错误'}`;
+        sendNotification({
+          title,
+          body,
+          autoCancel: true,
+        });
+      } catch {
+        // notification failures are non-fatal
+      }
+    });
+    scheduleService.start();
+  }
+
   const sidebarContainer = document.getElementById('sidebar-container');
   if (!sidebarContainer) return;
   sidebar = new Sidebar(sidebarContainer);
@@ -5441,6 +5560,15 @@ function renderApp(): void {
     const workspace = getActiveWorkspace();
     if (!workspace) return;
     workspace.pane = workspace.pane === 'agentd-vnc' ? 'chat' : 'agentd-vnc';
+    persistWorkspaces();
+    syncWorkspaceTabsBar();
+    void applyWorkspacePane(workspace);
+  });
+
+  sidebar.setOnOpenSchedule(() => {
+    const workspace = getActiveWorkspace();
+    if (!workspace) return;
+    workspace.pane = workspace.pane === 'schedule' ? 'chat' : 'schedule';
     persistWorkspaces();
     syncWorkspaceTabsBar();
     void applyWorkspacePane(workspace);
