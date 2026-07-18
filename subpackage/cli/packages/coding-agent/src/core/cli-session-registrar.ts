@@ -21,6 +21,7 @@
 import { createLogger } from '../utils/logger.ts';
 import type { LocalCapabilities } from './capability-detect.ts';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
+import { randomUUID } from 'node:crypto';
 
 const logger = createLogger('cli-session-registrar');
 
@@ -146,7 +147,7 @@ export async function startCliSessionRegistrar(
  * distinguish "Desktop-spawned" sessions from "standalone CLI" sessions.
  */
 export function generateCliSessionId(): string {
-  return `cli-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `cli-${Date.now()}-${randomUUID()}`;
 }
 
 // ---------------------------------------------------------------------------

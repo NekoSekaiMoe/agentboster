@@ -7,7 +7,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tauri::{
     AppHandle, Emitter, Manager, RunEvent, WindowEvent,
-    menu::{Menu, MenuItem, PredefinedMenuItem, MenuEvent},
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
@@ -1289,10 +1289,13 @@ fn persist_close_action_sync(action: CloseAction) {
         CloseAction::Ask => "ask",
     };
     obj.insert("close_action".to_string(), serde_json::json!(label));
-    if let Ok(parent) = path.parent() {
+    if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let _ = fs::write(&path, serde_json::to_string_pretty(&root).unwrap_or_default());
+    let _ = fs::write(
+        &path,
+        serde_json::to_string_pretty(&root).unwrap_or_default(),
+    );
 }
 
 fn desktop_config_dir() -> Result<PathBuf, String> {
@@ -1477,6 +1480,8 @@ async fn run_pi_cli_command(
         provider: None,
         model: None,
         env: options.env.clone(),
+        session_id: None,
+        backend_url: None,
     };
 
     let pi = discover_pi(&app, &discovery_opts)?;
