@@ -1278,11 +1278,10 @@ fn persist_close_action_sync(action: CloseAction) {
         Ok(s) => serde_json::from_str(&s).unwrap_or_else(|_| serde_json::json!({})),
         Err(_) => serde_json::json!({}),
     };
-    let obj = root.as_object_mut().unwrap_or_else(|| {
-        // value isn't an object — replace it with an empty object
+    if !root.is_object() {
         root = serde_json::json!({});
-        root.as_object_mut().unwrap()
-    });
+    }
+    let obj = root.as_object_mut().unwrap();
     let label = match action {
         CloseAction::Tray => "tray",
         CloseAction::Quit => "quit",
