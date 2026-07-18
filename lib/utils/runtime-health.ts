@@ -1,5 +1,5 @@
 import { isProductionDeployment } from '@/lib/bot/webhook';
-import { hasConfiguredPublicAppUrl, isVercel } from '@/lib/deploy';
+import { hasConfiguredPublicAppUrl, isVercel } from '@/lib/extra/deploy';
 
 export type RuntimeDependencyKey =
   | 'database'

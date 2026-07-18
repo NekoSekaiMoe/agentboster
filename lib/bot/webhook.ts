@@ -6,7 +6,7 @@ import {
   translate,
   type TranslationKey,
 } from '@/lib/i18n';
-import { getPublicAppUrl } from '@/lib/deploy';
+import { getPublicAppUrl } from '@/lib/extra/deploy';
 
 export function isProductionDeployment(): boolean {
   const vercelEnvironment =

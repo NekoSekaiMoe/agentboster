@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
 
 import { requireAdminAccess } from '@/lib/auth/access';
 import { getConfig } from '@/lib/core/kv/config';
-import { getPublicAppUrl } from '@/lib/deploy';
+import { getPublicAppUrl } from '@/lib/extra/deploy';
 import {
   OAUTH_COOKIE_NAMES,
   buildAuthorizeUrl,

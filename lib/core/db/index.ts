@@ -1,6 +1,6 @@
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeon } from 'drizzle-orm/neon-http';
-import { isVercel } from '@/lib/deploy';
+import { isVercel } from '@/lib/extra/deploy';
 import * as schema from './schema';
 
 /**

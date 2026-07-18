@@ -2,7 +2,7 @@
  * Tests for the throttled self-hosted KV sweep driver.
  *
  * The unit under test is the gating/throttle logic in maybeSweepExpiredKv —
- * NOT the sweep SQL (that lives in pg-backend). We mock both `@/lib/deploy`
+ * NOT the sweep SQL (that lives in pg-backend). We mock both `@/lib/extra/deploy`
  * (deployment mode) and `./pg-backend` (the actual DELETE) so these tests
  * exercise only: the self-hosted gate, the per-process time throttle, and the
  * in-flight de-dup.
@@ -16,11 +16,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const sweepExpiredKv = vi.fn<() => Promise<number>>();
 
 // isSelfHosted is read at maybeSweepExpiredKv call time (not module load), but
-// the value comes from `@/lib/deploy` which reads env once at load. We mock the
+// the value comes from `@/lib/extra/deploy` which reads env once at load. We mock the
 // module wholesale and flip `isSelfHosted` per test via the factory closure.
 let selfHosted = true;
 
-vi.mock('@/lib/deploy', () => ({
+vi.mock('@/lib/extra/deploy', () => ({
   get isSelfHosted() {
     return selfHosted;
   },

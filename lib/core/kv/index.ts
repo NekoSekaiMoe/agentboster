@@ -1,4 +1,4 @@
-import { isVercel } from '@/lib/deploy';
+import { isVercel } from '@/lib/extra/deploy';
 
 /**
  * KV layer with two interchangeable backends, selected by deployment mode:
