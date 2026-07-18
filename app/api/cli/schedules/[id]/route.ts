@@ -35,6 +35,12 @@ const baseTaskSchema = z.object({
   title: z.string().trim().min(1).nullable().optional(),
   prompt: z.string().trim().min(1),
   active: z.boolean().default(true),
+  // Node-routing overrides (same shape as POST). Allowed on PATCH so
+  // the user can re-pick a preferred node or toggle auto-fallback
+  // without recreating the task.
+  preferredNodeId: z.string().trim().min(1).nullable().optional(),
+  allowedNodes: z.array(z.string().trim().min(1)).nullable().optional(),
+  autoFallbackNode: z.boolean().optional(),
 });
 
 const delayTaskSchema = baseTaskSchema.extend({
@@ -116,6 +122,11 @@ export const PATCH = withCliAuth(async (request, { userId }) => {
   const now = new Date();
   const notifyChannel = task.notifyChannel?.trim() || null;
   const remoteControl = task.remoteControl ?? false;
+  const preferredNodeId = task.preferredNodeId?.trim() || null;
+  const allowedNodesRaw = task.allowedNodes ?? null;
+  const allowedNodes =
+    allowedNodesRaw && allowedNodesRaw.length > 0 ? allowedNodesRaw : null;
+  const autoFallbackNode = task.autoFallbackNode ?? false;
 
   const normalized =
     task.type === 'delay'
@@ -158,7 +169,16 @@ export const PATCH = withCliAuth(async (request, { userId }) => {
       metadata: normalized.metadata,
       notifyChannel,
       remoteControl,
+      preferredNodeId,
+      allowedNodes,
+      autoFallbackNode,
       scheduleWorkflowRunId: null,
+      // When the user explicitly re-enables a task (active=true via
+      // PATCH) reset the consecutive-failure counter and clear the
+      // auto-disable flag — give the task a fresh start. Re-disabling
+      // (active=false) leaves the counter intact so the next enable
+      // still starts from zero by definition.
+      ...(task.active ? { failureCount: 0, disabledByFailure: false } : {}),
     },
     { userId },
   );

@@ -39,6 +39,16 @@ import { z } from 'zod';
 
 const logger = createLogger('api.cli.schedules');
 
+// Node-routing constraints. Only meaningful for backend-dispatched
+// tasks (i.e. remoteControl is false); accepted on both delay/daily
+// variants but ignored when the task ends up routing through the
+// user's CLI remote-control session.
+const nodeRoutingSchema = z.object({
+  preferredNodeId: z.string().trim().min(1).nullable().optional(),
+  allowedNodes: z.array(z.string().trim().min(1)).nullable().optional(),
+  autoFallbackNode: z.boolean().optional(),
+});
+
 const createSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('delay'),
@@ -48,6 +58,7 @@ const createSchema = z.discriminatedUnion('type', [
     runAt: z.iso.datetime(),
     notifyChannel: z.string().trim().optional().nullable(),
     remoteControl: z.boolean().optional(),
+    ...nodeRoutingSchema.shape,
   }),
   z.object({
     type: z.literal('daily'),
@@ -58,6 +69,7 @@ const createSchema = z.discriminatedUnion('type', [
     timezone: z.string().trim().min(1).optional(),
     notifyChannel: z.string().trim().optional().nullable(),
     remoteControl: z.boolean().optional(),
+    ...nodeRoutingSchema.shape,
   }),
 ]);
 
@@ -93,6 +105,14 @@ export const POST = withCliAuth(async (req, { userId }) => {
   const now = new Date();
   const notifyChannel = input.notifyChannel?.trim() || null;
   const remoteControl = input.remoteControl ?? false;
+  // Node-routing constraints. Only meaningful for backend-dispatched
+  // (non-remoteControl) tasks; we accept and persist them regardless
+  // so a user can flip remoteControl off later without re-entering.
+  const preferredNodeId = input.preferredNodeId?.trim() || null;
+  const allowedNodesRaw = input.allowedNodes ?? null;
+  const allowedNodes =
+    allowedNodesRaw && allowedNodesRaw.length > 0 ? allowedNodesRaw : null;
+  const autoFallbackNode = input.autoFallbackNode ?? false;
 
   if (input.type === 'delay') {
     const nextRunAt = parseDelayTarget({ runAt: input.runAt, now });
@@ -106,6 +126,9 @@ export const POST = withCliAuth(async (req, { userId }) => {
       metadata: { runAt: input.runAt },
       notifyChannel,
       remoteControl,
+      preferredNodeId,
+      allowedNodes,
+      autoFallbackNode,
     });
 
     let run: Awaited<ReturnType<typeof start>>;
@@ -178,6 +201,9 @@ export const POST = withCliAuth(async (req, { userId }) => {
     metadata: { timezone: timeZone, dailyTime: input.dailyTime },
     notifyChannel,
     remoteControl,
+    preferredNodeId,
+    allowedNodes,
+    autoFallbackNode,
   });
 
   let run: Awaited<ReturnType<typeof start>>;

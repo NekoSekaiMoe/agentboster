@@ -19,6 +19,9 @@ export async function createScheduledTask(input: {
   metadata?: ScheduledTaskMetadata;
   notifyChannel?: string | null;
   remoteControl?: boolean;
+  preferredNodeId?: string | null;
+  allowedNodes?: string[] | null;
+  autoFallbackNode?: boolean;
 }) {
   logger.info('create:start', {
     sessionId: input.sessionId,
@@ -38,6 +41,9 @@ export async function createScheduledTask(input: {
       metadata: input.metadata ?? null,
       notifyChannel: input.notifyChannel ?? null,
       remoteControl: input.remoteControl ?? false,
+      preferredNodeId: input.preferredNodeId ?? null,
+      allowedNodes: input.allowedNodes ?? null,
+      autoFallbackNode: input.autoFallbackNode ?? false,
     })
     .returning();
 
@@ -147,6 +153,11 @@ export async function updateScheduledTask(
     metadata?: ScheduledTaskMetadata | null;
     notifyChannel?: string | null;
     remoteControl?: boolean;
+    preferredNodeId?: string | null;
+    allowedNodes?: string[] | null;
+    autoFallbackNode?: boolean;
+    failureCount?: number;
+    disabledByFailure?: boolean;
   },
   options?: { userId?: string },
 ) {

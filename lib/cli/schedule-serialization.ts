@@ -27,6 +27,16 @@ export type ScheduleTaskRecord = {
   displayStatus: DisplayStatus;
   notifyChannel: string | null;
   remoteControl: boolean;
+  // Node-routing preferences (Web tasks only; ignored for remoteControl).
+  preferredNodeId: string | null;
+  allowedNodes: string[] | null;
+  autoFallbackNode: boolean;
+  // Failure tracking. failureCount is consecutive failures (cleared on
+  // any success); disabledByFailure is true when the task was auto-
+  // disabled by the dispatch path, distinguishing it from a user
+  // manually setting active=false.
+  failureCount: number;
+  disabledByFailure: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -69,6 +79,11 @@ export function serializeScheduledTask(
     displayStatus: withStatus.displayStatus,
     notifyChannel: withStatus.notifyChannel,
     remoteControl: withStatus.remoteControl ?? false,
+    preferredNodeId: withStatus.preferredNodeId ?? null,
+    allowedNodes: withStatus.allowedNodes ?? null,
+    autoFallbackNode: withStatus.autoFallbackNode ?? false,
+    failureCount: withStatus.failureCount ?? 0,
+    disabledByFailure: withStatus.disabledByFailure ?? false,
     createdAt: withStatus.createdAt.toISOString(),
     updatedAt: withStatus.updatedAt.toISOString(),
   };

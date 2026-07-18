@@ -10,6 +10,14 @@ export interface LocalScheduleTask {
   active: boolean;
   notifyChannel: string | null;
   remoteControl: boolean;
+  // Consecutive-failure tracking, mirroring the Web-task schema. The
+  // local scheduler increments this on every failed fire (CLI offline,
+  // trigger callback error, etc.) and resets to 0 on success. After
+  // MAX_LOCAL_SCHEDULE_FAILURES (3) ticks the task is auto-disabled
+  // (`active=false`, `disabledByFailure=true`). Re-enabling via the UI
+  // clears both fields.
+  failureCount: number;
+  disabledByFailure: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -58,6 +66,11 @@ function normalizeTask(value: unknown): LocalScheduleTask | null {
     notifyChannel:
       typeof task.notifyChannel === 'string' ? task.notifyChannel : null,
     remoteControl: task.remoteControl === true,
+    failureCount:
+      typeof task.failureCount === 'number' && task.failureCount >= 0
+        ? task.failureCount
+        : 0,
+    disabledByFailure: task.disabledByFailure === true,
     createdAt:
       typeof task.createdAt === 'string'
         ? task.createdAt

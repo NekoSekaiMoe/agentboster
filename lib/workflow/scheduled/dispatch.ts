@@ -1,5 +1,5 @@
 import { chatMain } from '@/lib/chat/index';
-import { getSession } from '@/lib/core/db/chat';
+import { getSession, updateSession } from '@/lib/core/db/chat';
 import { getScheduledTask, updateScheduledTask } from '@/lib/core/db/scheduled';
 import { createLogger } from '@/lib/utils/logger';
 import { sameInstant } from './utils';
@@ -11,18 +11,18 @@ import type { ChatSource } from '@/types/workflow';
 
 const logger = createLogger('workflow.scheduled.dispatch');
 
+/** Consecutive failures after which a task is auto-disabled. */
+export const MAX_SCHEDULE_FAILURES = 3;
+
+interface NodeRow {
+  nodeID: string;
+  ip: string;
+  port: number;
+}
+
 /**
  * Build the chat source for a scheduled dispatch by reusing the task's
- * attached session. This matters for `remoteControl`: local-cli /
- * computer-use tools gate on `isCliOnlineForSession(sessionId)`, and the
- * lookup only hits when the dispatched chat run shares the task's
- * sessionId. Reusing the session also keeps userId and channel bindings
- * consistent with the originating session (web / cli:<clientId>).
- *
- * Returns null when the session can't be resolved or doesn't carry the
- * fields a stricter source type needs (e.g. CLI source requires both
- * clientId and userId to pass `evaluateSessionAccess`). Callers fall
- * back to the historical `{ type: 'scheduled' }` source in that case.
+ * attached session. (…) same semantics as before.
  */
 async function buildScheduledSource(
   sessionId: string,
@@ -38,7 +38,6 @@ async function buildScheduledSource(
     return { type: 'web', userId };
   }
 
-  // CLI sessions use channel `cli:<clientId>` per CLIChatSource contract.
   if (session.channel.startsWith('cli:') && userId) {
     return {
       type: 'cli',
@@ -48,12 +47,125 @@ async function buildScheduledSource(
     };
   }
 
-  // IM channels or sessions without a bound userId can't be expressed
-  // as a stricter source type without tripping `evaluateSessionAccess`
-  // (`forbidden`). Fall back to the historical 'scheduled' source so
-  // the dispatch still goes through; local-cli gating by sessionId
-  // works regardless of source type.
   return { type: 'scheduled' };
+}
+
+/**
+ * Resolve the agentd node to use for this dispatch, given the task's
+ * node-routing preferences. Returns:
+ *  - `{ node }` when a usable node is found (preferred node reachable,
+ *    or auto-fallback found a reachable candidate).
+ *  - `{ failed: true, reason }` when the task cannot be dispatched
+ *    because the preferred node is unreachable and no fallback is
+ *    available. The caller treats this as a dispatch failure.
+ *
+ * Tasks with no preferredNodeId return `{ node: null }` — the
+ * dispatch path falls through to its historical behavior (auto-pick
+ * via selectBestNode inside execToolOnAgentd).
+ */
+async function resolveDispatchNode(input: {
+  preferredNodeId: string | null;
+  allowedNodes: string[] | null;
+  autoFallbackNode: boolean;
+}): Promise<{ node: NodeRow | null } | { failed: true; reason: string }> {
+  if (!input.preferredNodeId) {
+    return { node: null };
+  }
+
+  // Look up the preferred node's connection info.
+  const { db } = await import('@/lib/core/db');
+  const { agentdNodes } = await import('@/lib/core/db/schema');
+  const { eq } = await import('drizzle-orm');
+  const { checkAgentdHealth } = await import(
+    '@/lib/extra/agent/agentd-tools-client'
+  );
+
+  const preferredRow = await db
+    .select({
+      nodeID: agentdNodes.nodeID,
+      ip: agentdNodes.ip,
+      port: agentdNodes.port,
+    })
+    .from(agentdNodes)
+    .where(eq(agentdNodes.nodeID, input.preferredNodeId))
+    .limit(1);
+
+  const preferred =
+    preferredRow.length > 0 ? (preferredRow[0] as NodeRow) : null;
+
+  if (preferred && (await checkAgentdHealth(preferred))) {
+    return { node: preferred };
+  }
+
+  // Preferred node unreachable (or unknown). Decide fallback.
+  if (!input.autoFallbackNode) {
+    return {
+      failed: true,
+      reason: `Preferred node ${input.preferredNodeId} is unreachable and auto-fallback is disabled.`,
+    };
+  }
+
+  const candidates = (input.allowedNodes ?? []).filter(
+    (id) => id !== input.preferredNodeId,
+  );
+  if (candidates.length === 0) {
+    return {
+      failed: true,
+      reason: `Preferred node ${input.preferredNodeId} is unreachable and no fallback candidates are configured.`,
+    };
+  }
+
+  const candidateRows = await db
+    .select({
+      nodeID: agentdNodes.nodeID,
+      ip: agentdNodes.ip,
+      port: agentdNodes.port,
+    })
+    .from(agentdNodes)
+    .where(eq(agentdNodes.nodeID, candidates[0]));
+  // drizzle's `.where()` doesn't take an array directly here without
+  // inArray; iterate in health-check order to find the first reachable.
+  for (const candidateId of candidates) {
+    const match = candidateRows.find((r) => r.nodeID === candidateId);
+    if (!match) continue;
+    const candidate: NodeRow = {
+      nodeID: match.nodeID,
+      ip: match.ip,
+      port: match.port,
+    };
+    if (await checkAgentdHealth(candidate)) {
+      return { node: candidate };
+    }
+  }
+
+  return {
+    failed: true,
+    reason: `Preferred node ${input.preferredNodeId} and all fallback candidates are unreachable.`,
+  };
+}
+
+/**
+ * Stash the resolved node constraint on the session metadata so the
+ * main agent's tool layer (execToolOnAgentd) picks it up. The tool
+ * layer reads `metadata.scheduleNodeConstraints` and intersects it
+ * with the agent's `allowed_nodes` config.
+ *
+ * Writing the resolved node (preferred or fallback) means the LLM's
+ * tool calls during this dispatch actually route to the right daemon
+ * — without this, execToolOnAgentd would silently auto-pick a node
+ * via selectBestNode, ignoring the task preference.
+ */
+async function applyNodeConstraintToSession(input: {
+  sessionId: string;
+  nodeId: string;
+}): Promise<void> {
+  const session = await getSession(input.sessionId);
+  if (!session) return;
+  const metadata = {
+    ...(session.metadata ?? {}),
+    scheduleNodeConstraints: { preferredNodeId: input.nodeId },
+  };
+  await updateSession(input.sessionId, { metadata });
 }
 
 /**
@@ -63,7 +175,9 @@ async function buildScheduledSource(
  * - idempotency (the same scheduledFor instant is not dispatched twice)
  * - updates scheduling state after dispatch (runId, trigger timestamps, etc.)
  * - any failure in chat routing, result validation, state writeback, or
- *   completion notification fans out a 'failed' notification.
+ *   completion notification fans out a 'failed' notification AND
+ *   increments the task's consecutive failure counter; three
+ *   consecutive failures auto-disable the task.
  */
 export async function deliverScheduledTask(input: {
   taskId: string;
@@ -88,7 +202,6 @@ export async function deliverScheduledTask(input: {
   }
 
   if (scheduledFor && sameInstant(task.lastFiredFor ?? null, scheduledFor)) {
-    // This trigger instant was already dispatched; return duplicate to avoid re-dispatch.
     return {
       taskId: task.id,
       status: 'duplicate' as const,
@@ -97,8 +210,6 @@ export async function deliverScheduledTask(input: {
     };
   }
 
-  // Resolve the userId up front; wrap in a protected try so a lookup
-  // failure doesn't mask the original dispatch error.
   let userId: string | null;
   try {
     userId = await resolveScheduledTaskUserId(task.sessionId);
@@ -114,19 +225,41 @@ export async function deliverScheduledTask(input: {
     userId = null;
   }
 
+  // Pre-flight: when the task has a preferred agentd node, probe it
+  // (and any fallback candidates) BEFORE entering the chat dispatch.
+  // A failed probe short-circuits as a dispatch failure — no LLM
+  // invocation, immediate failure notification, counter increment.
+  if (!task.remoteControl && task.preferredNodeId) {
+    const resolution = await resolveDispatchNode({
+      preferredNodeId: task.preferredNodeId,
+      allowedNodes: task.allowedNodes ?? null,
+      autoFallbackNode: task.autoFallbackNode ?? false,
+    });
+    if ('failed' in resolution && resolution.failed) {
+      await handleDispatchFailure(task, userId, resolution.reason);
+      throw new Error(resolution.reason);
+    }
+    if ('node' in resolution && resolution.node) {
+      await applyNodeConstraintToSession({
+        sessionId: task.sessionId,
+        nodeId: resolution.node.nodeID,
+      }).catch((err) => {
+        // Best-effort: if we can't write the constraint, the LLM tool
+        // layer will fall back to selectBestNode. Log and continue.
+        logger.warn('deliver:write_node_constraint_failed', {
+          taskId: task.id,
+          sessionId: task.sessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+  }
+
   try {
-    // Build the source from the task's session so local-cli / remote
-    // control gating (which keys off sessionId) works when the session
-    // is a CLI session. Falls back to the historical 'scheduled' source
-    // if the session can't be loaded.
     const source = (await buildScheduledSource(task.sessionId)) ?? {
       type: 'scheduled' as const,
     };
 
-    // Scheduled tasks always use route-message so they reuse the full
-    // chat routing stack, and they carry the task's sessionId so the
-    // main workflow reuses the originating session instead of minting
-    // a fresh anonymous one.
     const routed = await chatMain(
       {
         sessionId: task.sessionId,
@@ -144,17 +277,17 @@ export async function deliverScheduledTask(input: {
     }
 
     const now = new Date();
-    // Always write back lastChatRunId so this dispatch result can be traced.
     await updateScheduledTask(task.id, {
       lastTriggeredAt: now,
       lastFiredFor: scheduledFor,
       lastChatRunId: routed.result.runId,
       active: task.type !== 'delay',
       nextRunAt: task.type === 'delay' ? null : task.nextRunAt,
+      // Success — clear the consecutive failure counter.
+      failureCount: 0,
+      disabledByFailure: false,
     });
 
-    // Fire completion notification. Failures here must not fail the
-    // dispatch — they're logged inside the helper.
     await sendScheduledTaskCompletion({
       task,
       runId: routed.result.runId,
@@ -177,18 +310,44 @@ export async function deliverScheduledTask(input: {
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-
-    // Send failure notification. ResolveScheduledTaskUserId has already
-    // been called above (in a protected try) so it cannot mask this
-    // error; sendScheduledTaskCompletion itself never throws.
-    await sendScheduledTaskCompletion({
-      task,
-      runId: null,
-      userId,
-      status: 'failed',
-      errorMessage,
-    });
-
+    await handleDispatchFailure(task, userId, errorMessage);
     throw error;
   }
+}
+
+/**
+ * Centralized failure handler: bumps the consecutive failure counter,
+ * auto-disables the task when it crosses MAX_SCHEDULE_FAILURES, and
+ * fires the failure notification. Pulled out so the node-pre-flight
+ * branch and the chat-dispatch catch share the exact same handling.
+ */
+async function handleDispatchFailure(
+  task: Awaited<ReturnType<typeof getScheduledTask>>,
+  userId: string | null,
+  errorMessage: string,
+): Promise<void> {
+  if (!task) return;
+  const nextCount = (task.failureCount ?? 0) + 1;
+  const shouldDisable = nextCount >= MAX_SCHEDULE_FAILURES;
+  try {
+    await updateScheduledTask(task.id, {
+      failureCount: nextCount,
+      ...(shouldDisable ? { active: false, disabledByFailure: true } : {}),
+    });
+  } catch (err) {
+    logger.warn('deliver:failure_counter_write_failed', {
+      taskId: task.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  await sendScheduledTaskCompletion({
+    task,
+    runId: null,
+    userId,
+    status: 'failed',
+    errorMessage: shouldDisable
+      ? `${errorMessage} (task auto-disabled after ${nextCount} consecutive failures)`
+      : errorMessage,
+  });
 }

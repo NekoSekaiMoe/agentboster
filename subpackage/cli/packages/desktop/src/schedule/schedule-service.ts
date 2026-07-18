@@ -23,6 +23,13 @@ export type ScheduleNotificationCallback = (
 const TICK_INTERVAL_MS = 30_000;
 
 /**
+ * Consecutive failure threshold for auto-disabling local schedule
+ * tasks. Mirrors the Web-task constant
+ * `MAX_SCHEDULE_FAILURES` in `lib/workflow/scheduled/dispatch.ts`.
+ */
+const MAX_LOCAL_SCHEDULE_FAILURES = 3;
+
+/**
  * Compute the next daily fire instant from a task's wall-clock dailyTime
  * in its own timezone. Adding a fixed 24h offset (the previous
  * implementation) drifts by an hour across DST transitions and ignores
@@ -269,11 +276,41 @@ export class ScheduleService {
       }
       mutated = true;
       const isDelay = task.type === 'delay';
+      const succeeded = update.result.status === 'completed';
+
+      // Failure accounting mirrors the Web-task schema:
+      //  - success clears failureCount + disabledByFailure
+      //  - failure increments failureCount; when it reaches the
+      //    threshold the task is auto-disabled (active=false,
+      //    disabledByFailure=true) so it stops firing until the user
+      //    re-enables it. Delay tasks that failed are a special case:
+      //    they were going to be disabled anyway (isDelay → active=
+      //    false), but we still set disabledByFailure so the UI can
+      //    distinguish "fired once and done" from "failed and gave up".
+      let failureCount = task.failureCount ?? 0;
+      let disabledByFailure = task.disabledByFailure ?? false;
+      if (succeeded) {
+        failureCount = 0;
+        disabledByFailure = false;
+      } else {
+        failureCount = failureCount + 1;
+        if (failureCount >= MAX_LOCAL_SCHEDULE_FAILURES) {
+          disabledByFailure = true;
+        }
+      }
+
+      // Whether the task stays active after this fire:
+      //  - delay: always set inactive after one fire (success or fail).
+      //  - daily: stays active UNLESS auto-disabled by failure count.
+      const staysActive = isDelay ? false : !disabledByFailure;
+
       return {
         ...task,
         lastTriggeredAt: triggeredAt,
-        active: isDelay ? false : task.active,
+        active: staysActive,
         nextRunAt: update.nextRunAt,
+        failureCount,
+        disabledByFailure,
         updatedAt: triggeredAt,
       };
     });

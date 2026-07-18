@@ -40,9 +40,20 @@ interface WebScheduleTask {
   updatedAt: string;
   notifyChannel: string | null;
   remoteControl: boolean;
+  preferredNodeId: string | null;
+  allowedNodes: string[] | null;
+  autoFallbackNode: boolean;
+  failureCount: number;
+  disabledByFailure: boolean;
 }
 
 interface ImChannel extends ImChannelEntry {}
+
+interface AgentdNodeOption {
+  id: string;
+  label: string;
+  status: 'online' | 'offline';
+}
 
 type FilterKind = 'all' | 'web' | 'local' | 'active' | 'archived';
 
@@ -55,6 +66,10 @@ interface FormState {
   runAt: string;
   notifyChannel: string;
   remoteControl: boolean;
+  // Web-task agentd node routing. Only meaningful when source='web'
+  // and remoteControl=false; ignored for local tasks.
+  preferredNodeId: string; // '' = auto
+  autoFallbackNode: boolean;
   source: TaskSource;
 }
 
@@ -103,6 +118,18 @@ function normalizeWebTask(value: unknown): WebScheduleTask | null {
         : new Date().toISOString(),
     notifyChannel: asString(task.notifyChannel),
     remoteControl: task.remoteControl === true,
+    preferredNodeId: asString(task.preferredNodeId),
+    allowedNodes:
+      Array.isArray(task.allowedNodes) &&
+      task.allowedNodes.every((v) => typeof v === 'string')
+        ? (task.allowedNodes as string[])
+        : null,
+    autoFallbackNode: task.autoFallbackNode === true,
+    failureCount:
+      typeof task.failureCount === 'number' && task.failureCount >= 0
+        ? task.failureCount
+        : 0,
+    disabledByFailure: task.disabledByFailure === true,
   };
 }
 
@@ -143,6 +170,35 @@ export async function fetchImChannels(): Promise<ImChannel[]> {
     return items
       .map((entry) => normalizeImChannel(entry))
       .filter((entry): entry is ImChannel => Boolean(entry));
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchAgentdNodes(): Promise<AgentdNodeOption[]> {
+  const auth = await readAgentbosterDesktopAuth();
+  if (!auth) return [];
+  try {
+    const root = auth.url.replace(/\/+$/, '');
+    const response = await fetch(`${root}/api/cli/agentd-nodes`, {
+      headers: { authorization: `Bearer ${auth.token}` },
+    });
+    const body = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) return [];
+    const list = asRecord(body);
+    const items = Array.isArray(list.nodes) ? list.nodes : [];
+    const nodes: AgentdNodeOption[] = [];
+    for (const entry of items) {
+      const node = asRecord(entry);
+      const id = asString(node.id);
+      if (!id) continue;
+      nodes.push({
+        id,
+        label: asString(node.label) ?? asString(node.ip) ?? id,
+        status: node.status === 'online' ? 'online' : 'offline',
+      });
+    }
+    return nodes;
   } catch {
     return [];
   }
@@ -190,6 +246,8 @@ function emptyForm(): FormState {
     runAt: '',
     notifyChannel: getDefaultImChannel(),
     remoteControl: false,
+    preferredNodeId: '',
+    autoFallbackNode: false,
     source: 'local',
   };
 }
@@ -364,6 +422,10 @@ export class ScheduleView {
   private auth: AgentbosterDesktopAuth | null = null;
   private tasks: UnifiedTask[] = [];
   private imChannels: ImChannel[] = [];
+  // agentd nodes fetched lazily when the user opens the Web-task form.
+  // Empty list = either not yet loaded or single-node install; the form
+  // gracefully renders just "自动" in that case.
+  private agentdNodes: AgentdNodeOption[] = [];
   private loading = false;
   private error: string | null = null;
 
@@ -450,12 +512,14 @@ export class ScheduleView {
     try {
       const auth = await readAgentbosterDesktopAuth();
       this.auth = auth;
-      const [webTasks, channels, localTasks] = await Promise.all([
+      const [webTasks, channels, localTasks, nodes] = await Promise.all([
         auth ? this.fetchWebTasks(auth) : Promise.resolve([]),
         auth ? fetchImChannels() : Promise.resolve([]),
         Promise.resolve(loadLocalScheduleTasks()),
+        auth ? fetchAgentdNodes() : Promise.resolve([]),
       ]);
       this.imChannels = channels;
+      this.agentdNodes = nodes;
       this.tasks = [
         ...webTasks.map((raw) => ({ source: 'web' as const, raw })),
         ...localTasks.map((raw) => ({ source: 'local' as const, raw })),
@@ -556,6 +620,16 @@ export class ScheduleView {
       runAt: delayLocal,
       notifyChannel: raw.notifyChannel ?? getDefaultImChannel(),
       remoteControl: raw.remoteControl,
+      // Node routing only exists on Web tasks; for local tasks leave
+      // the form fields at their defaults — they're hidden in the UI.
+      preferredNodeId:
+        source === 'web'
+          ? ((raw as WebScheduleTask).preferredNodeId ?? '')
+          : '',
+      autoFallbackNode:
+        source === 'web'
+          ? ((raw as WebScheduleTask).autoFallbackNode ?? false)
+          : false,
       source,
     };
     this.showCreateForm = true;
@@ -626,6 +700,13 @@ export class ScheduleView {
       timezone: form.timezone.trim() || DEFAULT_TIMEZONE,
       notifyChannel: form.notifyChannel || null,
       remoteControl: form.remoteControl,
+      // Node routing — sent even for local-target tasks because the
+      // server ignores it when remoteControl is true; the values stay
+      // in the DB so the user can flip remoteControl later without
+      // losing their node preference. An empty preferredNodeId means
+      // "auto" (server stores null).
+      preferredNodeId: form.preferredNodeId.trim() || null,
+      autoFallbackNode: form.autoFallbackNode,
     };
     if (form.type === 'daily') {
       payload.dailyTime = form.dailyTime;
@@ -690,6 +771,10 @@ export class ScheduleView {
       active: existing ? existing.active : true,
       notifyChannel: form.notifyChannel || null,
       remoteControl: false,
+      // Preserve failure history when editing existing tasks. Reset
+      // only happens on explicit re-enable via toggleActive.
+      failureCount: existing?.failureCount ?? 0,
+      disabledByFailure: existing?.disabledByFailure ?? false,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -728,6 +813,16 @@ export class ScheduleView {
         if (target) {
           target.active = active;
           target.updatedAt = new Date().toISOString();
+          // Re-enabling a task gives it a fresh start — clear the
+          // failure counter and the auto-disable flag. Disabling
+          // leaves the counter intact so the next enable still starts
+          // from zero (failureCount is only meaningfully read on the
+          // auto-disable path, where it has just been bumped to the
+          // threshold).
+          if (active) {
+            target.failureCount = 0;
+            target.disabledByFailure = false;
+          }
           upsertLocalScheduleTask(target);
         }
         await this.refresh();
@@ -1054,6 +1149,60 @@ export class ScheduleView {
           <span>远程操控（将通过 IM 渠道反向控制）</span>
         </label>
         ${
+          // Node routing only applies to backend-dispatched Web tasks
+          // that are NOT remote-controlling a CLI session. Hidden for
+          // local tasks and remote-control tasks — in both cases the
+          // execution target is a CLI process, not an agentd node.
+          form.source === 'web' && !form.remoteControl
+            ? html`
+              <label class="schedule-field">
+                <span class="schedule-field-label">运行节点</span>
+                <select
+                  class="schedule-select"
+                  .value=${form.preferredNodeId}
+                  @change=${(e: Event) => {
+                    this.form.preferredNodeId = (
+                      e.currentTarget as HTMLSelectElement
+                    ).value;
+                    this.render();
+                  }}
+                >
+                  <option value="" ?selected=${!form.preferredNodeId}>
+                    自动（由后端选择）
+                  </option>
+                  ${this.agentdNodes.map(
+                    (node) => html`
+                      <option
+                        value=${node.id}
+                        ?selected=${form.preferredNodeId === node.id}
+                      >
+                        ${node.label}${
+                          node.status === 'offline' ? '（离线）' : ''
+                        }
+                      </option>
+                    `,
+                  )}
+                </select>
+              </label>
+              <label class="schedule-checkbox">
+                <input
+                  type="checkbox"
+                  .checked=${form.autoFallbackNode}
+                  ?disabled=${!form.preferredNodeId}
+                  @change=${(e: Event) => {
+                    this.form.autoFallbackNode = (
+                      e.currentTarget as HTMLInputElement
+                    ).checked;
+                  }}
+                />
+                <span>
+                  节点离线时自动切换（默认关闭，失败计入连续失败计数）
+                </span>
+              </label>
+            `
+            : nothing
+        }
+        ${
           isImRoute && form.source === 'local'
             ? html`<div class="schedule-hint">
               远程操控任务将创建在 Web 后端。
@@ -1086,6 +1235,16 @@ export class ScheduleView {
     const raw = entry.raw;
     const id = taskId(raw);
     const archived = isArchived(raw) || !raw.active;
+    // Web and local tasks both carry disabledByFailure (Web via API,
+    // local via localStorage); distinguish "auto-disabled by repeated
+    // failure" from "user manually disabled" so the user understands
+    // why the task stopped and knows to re-enable it.
+    const disabledByFailure =
+      (raw as { disabledByFailure?: boolean }).disabledByFailure === true;
+    const failureCount =
+      typeof (raw as { failureCount?: number }).failureCount === 'number'
+        ? ((raw as { failureCount?: number }).failureCount as number)
+        : 0;
     return html`
       <div class="schedule-card ${archived ? 'archived' : ''}">
         <div class="schedule-card-head">
@@ -1104,7 +1263,24 @@ export class ScheduleView {
               : nothing
           }
           ${
-            archived
+            // Show "失败 N/3" badge on any non-zero failure count, even
+            // when the task is still active — gives the user early
+            // warning before auto-disable trips.
+            !disabledByFailure && failureCount > 0
+              ? html`<span class="schedule-badge warn">
+                  失败 ${failureCount}/3
+                </span>`
+              : nothing
+          }
+          ${
+            disabledByFailure
+              ? html`<span class="schedule-badge inactive">
+                  已自动停用（连续失败 ${failureCount} 次）
+                </span>`
+              : nothing
+          }
+          ${
+            archived && !disabledByFailure
               ? html`<span class="schedule-badge inactive">已停用</span>`
               : nothing
           }
