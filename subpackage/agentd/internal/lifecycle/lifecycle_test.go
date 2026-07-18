@@ -189,6 +189,18 @@ func TestCheckCmdline_NamedAgentd(t *testing.T) {
 		_, _ = cmd.Process.Wait()
 	}()
 
+	// Wait for the child's exec() to land so /proc/<pid>/cmdline reflects
+	// argv[0] = ".../agentd-sleep" rather than the still-empty pre-exec
+	// state. Without this polling the test races against the kernel and
+	// intermittently fails with an empty cmdline read.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if checkCmdline(cmd.Process.Pid) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	// argv[0] is sleepNamed; basename is "agentd-sleep" → HasPrefix("agentd").
 	if !checkCmdline(cmd.Process.Pid) {
 		t.Fatalf("checkCmdline should accept argv[0] basename starting with 'agentd'")

@@ -1,12 +1,18 @@
 # Lint + typecheck + unit tests for the agentboster-cli package tree
-# (subpackage/cli). This is separate from build-all.yml because:
-#  - build-all.yml produces release artifacts and runs on three OSes;
-#    it's heavyweight and only runs on main.
-#  - cli-ci.yml runs lint + tests on every PR that touches the CLI,
-#    which is what catches regressions during development.
+# (subpackage/cli). Separate from build-all.yml because:
+#  - build-all.yml produces release artifacts on three OSes; it's
+#    heavyweight and only runs on main.
+#  - cli-ci.yml gates PRs that touch the CLI on lint+test, which is
+#    what catches regressions during development.
 #
-# Path-scoped to subpackage/cli/** so root-only changes don't trigger
-# a redundant CLI runner.
+# Path filter excludes `subpackage/cli/packages/desktop/` because that
+# package is gated by desktop-ci.yml (it has its own tsgo config and
+# biome cache). Desktop changes therefore trigger desktop-ci only; CLI
+# changes trigger cli-ci only; both run in parallel when a PR touches
+# both.
+#
+# GitHub Actions paths filters don't support negation globs, so the
+# positive list enumerates the CLI code locations explicitly.
 
 name: cli-ci
 
@@ -14,11 +20,27 @@ on:
   push:
     branches: [main]
     paths:
-      - 'subpackage/cli/**'
+      - 'subpackage/cli/packages/ai/**'
+      - 'subpackage/cli/packages/agent/**'
+      - 'subpackage/cli/packages/agentboster-adapter/**'
+      - 'subpackage/cli/packages/coding-agent/**'
+      - 'subpackage/cli/package.json'
+      - 'subpackage/cli/yarn.lock'
+      - 'subpackage/cli/biome.json'
+      - 'subpackage/cli/tsconfig.json'
+      - 'subpackage/cli/tsconfig.base.json'
       - '.github/workflows/cli-ci.yml'
   pull_request:
     paths:
-      - 'subpackage/cli/**'
+      - 'subpackage/cli/packages/ai/**'
+      - 'subpackage/cli/packages/agent/**'
+      - 'subpackage/cli/packages/agentboster-adapter/**'
+      - 'subpackage/cli/packages/coding-agent/**'
+      - 'subpackage/cli/package.json'
+      - 'subpackage/cli/yarn.lock'
+      - 'subpackage/cli/biome.json'
+      - 'subpackage/cli/tsconfig.json'
+      - 'subpackage/cli/tsconfig.base.json'
       - '.github/workflows/cli-ci.yml'
 
 permissions:
