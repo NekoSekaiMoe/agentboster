@@ -48,17 +48,27 @@ export const mcpOAuthConfigSchema = z.object({
   vaultKey: z.string().optional(),
 });
 
-export const mcpRemoteServerConfigSchema = z.object({
-  type: z.enum(['http', 'sse']).default('http'),
-  url: z.url('MCP server URL must be a valid URL'),
-  headers: z.record(z.string(), z.string()).optional(),
-  auth: z
-    .object({
-      mode: z.enum(['none', 'static-headers', 'oauth']).default('none'),
-      oauth: mcpOAuthConfigSchema.optional(),
-    })
-    .default({ mode: 'none' }),
-});
+export const mcpRemoteServerConfigSchema = z
+  .object({
+    type: z.enum(['http', 'sse']).default('http'),
+    url: z.url('MCP server URL must be a valid URL'),
+    headers: z.record(z.string(), z.string()).optional(),
+    auth: z
+      .object({
+        mode: z.enum(['none', 'static-headers', 'oauth']).default('none'),
+        oauth: mcpOAuthConfigSchema.optional(),
+      })
+      .default({ mode: 'none' }),
+  })
+  .superRefine((server, ctx) => {
+    if (server.auth?.mode === 'oauth' && !server.auth.oauth) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['auth', 'oauth'],
+        message: 'OAuth config is required when auth.mode is "oauth"',
+      });
+    }
+  });
 
 export const builtinMcpServerConfigSchema = z.object({
   enabled: z.boolean().default(true),
@@ -72,9 +82,18 @@ export type BuiltinMcpServerConfig = z.infer<
 
 /**
  * MCP remote server map configuration schema.
+ *
+ * The record key (server name) is constrained to the Vault key charset
+ * (`[a-zA-Z0-9_.:-]`, 1-64 chars). This matches `buildOAuthVaultKey` in
+ * lib/mcp/oauth-store.ts — without it, a server name like `a/b` would
+ * be silently rewritten to `a-b` and collide with a server literally
+ * named `a-b`, crossing credential boundaries.
  */
 export const mcpRemotesServersConfigSchema = z
-  .record(z.string(), mcpRemoteServerConfigSchema)
+  .record(
+    z.string().regex(/^[a-zA-Z0-9_.:-]{1,64}$/),
+    mcpRemoteServerConfigSchema,
+  )
   .default({});
 
 export const builtinMcpServersConfigSchema = z

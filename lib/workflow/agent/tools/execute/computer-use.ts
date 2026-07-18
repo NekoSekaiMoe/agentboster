@@ -73,19 +73,47 @@ async function dispatchToCliMcp(
     };
   }
 
-  // screenshot returns image content
+  // screenshot returns image content. Validate each image item is
+  // actually a complete image payload (type=image + non-empty data +
+  // non-empty mimeType) before casting — don't blindly assert the
+  // whole array matches the strict union, since CLI/MCP transports can
+  // surface other shapes when something downstream misbehaves.
   if (toolName === 'screenshot' && typeof result.output === 'object') {
     const output = result.output as
-      | { content?: Array<{ type: string; data?: string; mimeType?: string }> }
+      | {
+          content?: Array<{
+            type?: string;
+            data?: unknown;
+            mimeType?: unknown;
+          }>;
+        }
       | null
       | undefined;
-    if (output?.content?.[0]?.type === 'image') {
-      return {
-        content: output.content as Array<
-          | { type: 'text'; text: string }
-          | { type: 'image'; data: string; mimeType: string }
-        >,
-      };
+    const items = output?.content;
+    if (Array.isArray(items)) {
+      const validImages: Array<{
+        type: 'image';
+        data: string;
+        mimeType: string;
+      }> = [];
+      for (const item of items) {
+        if (
+          item?.type === 'image' &&
+          typeof item.data === 'string' &&
+          item.data.length > 0 &&
+          typeof item.mimeType === 'string' &&
+          item.mimeType.length > 0
+        ) {
+          validImages.push({
+            type: 'image',
+            data: item.data,
+            mimeType: item.mimeType,
+          });
+        }
+      }
+      if (validImages.length > 0) {
+        return { content: validImages };
+      }
     }
   }
 

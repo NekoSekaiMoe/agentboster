@@ -37,18 +37,55 @@ export type RemoteMcpToolResult =
   | { ok: false; error: string };
 
 /**
+ * In-process single-flight map for OAuth refreshes. Keyed by vault key
+ * (not server name — renamed servers share the bundle via vaultKey).
+ *
+ * The atomic vault upsert alone does NOT make concurrent refreshes
+ * safe: two parallel calls would BOTH hit the provider's token endpoint
+ * with the same refresh_token. RFC 6749 §6 allows providers to revoke
+ * the entire credential family on a second use of an already-consumed
+ * refresh_token — so the loser of the race would invalidate the winner's
+ * fresh token too, bricking the connection until the operator reconnects.
+ *
+ * The single-flight dedupes refresh attempts within this process. For
+ * multi-process deployments a full fix needs a distributed lock, but
+ * the in-process guard already eliminates the common single-server race.
+ */
+const refreshInFlight = new Map<string, Promise<McpOAuthTokenBundle | null>>();
+
+async function refreshBundleOnce(params: {
+  vaultKey: string;
+  serverName: string;
+  refresh: () => Promise<McpOAuthTokenBundle | null>;
+}): Promise<McpOAuthTokenBundle | null> {
+  const existing = refreshInFlight.get(params.vaultKey);
+  if (existing) return existing;
+  const p = params.refresh().finally(() => {
+    refreshInFlight.delete(params.vaultKey);
+  });
+  refreshInFlight.set(params.vaultKey, p);
+  return p;
+}
+
+/**
  * Resolve the headers to send for a given server, applying OAuth bearer
  * token injection when the server is configured with mode 'oauth'.
  *
- * Mutates the bundle in vault if a refresh happened (idempotent — if two
- * concurrent calls race the refresh, both will write the same new token
- * bundle from the server; vault upsert is atomic per key).
+ * `allowRefresh: false` skips the refresh attempt entirely — used by
+ * `testRemoteMcpServer` so a connectivity test surfaces the real 401
+ * instead of silently rotating the token.
+ *
+ * Mutates the bundle in vault if a refresh happened. Concurrent refreshes
+ * for the same vault key are deduped in-process (see `refreshBundleOnce`).
  */
 async function resolveHeadersForServer(params: {
   serverName: string;
   serverConfig: MCPRemoteServerConfig;
+  allowRefresh?: boolean;
 }): Promise<Record<string, string>> {
   const { serverName, serverConfig } = params;
+  const allowRefresh = params.allowRefresh ?? true;
+  // Copy the base headers so we never mutate the caller's config object.
   const baseHeaders: Record<string, string> = {
     ...(serverConfig.headers ?? {}),
   };
@@ -58,32 +95,42 @@ async function resolveHeadersForServer(params: {
   }
 
   const oauth = serverConfig.auth.oauth;
-  let bundle = await readOAuthTokenBundle(serverName);
+  let bundle = await readOAuthTokenBundle({
+    serverName,
+    vaultKey: oauth.vaultKey,
+  });
 
-  if (!isTokenFresh(bundle) && bundle?.refreshToken) {
-    try {
-      logger.info('mcp_oauth_refreshing', { serverName });
-      const refreshed = await refreshAccessToken({
-        oauth,
-        refreshToken: bundle.refreshToken,
-      });
-      if (refreshed) {
-        const next: McpOAuthTokenBundle = {
-          accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken ?? bundle.refreshToken,
-          expiresAt: refreshed.expiresAt,
-          tokenType: refreshed.tokenType ?? bundle.tokenType,
-          scope: refreshed.scope ?? bundle.scope,
-        };
-        await storeOAuthTokenBundle({ serverName, bundle: next });
-        bundle = next;
-      }
-    } catch (error) {
-      logger.warn('mcp_oauth_refresh_failed', {
-        serverName,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  if (allowRefresh && !isTokenFresh(bundle) && bundle?.refreshToken) {
+    const vaultKey = oauth.vaultKey ?? `mcp:oauth:${serverName}`;
+    bundle = await refreshBundleOnce({
+      vaultKey,
+      serverName,
+      refresh: async () => {
+        try {
+          logger.info('mcp_oauth_refreshing', { serverName });
+          const refreshed = await refreshAccessToken({
+            oauth,
+            refreshToken: bundle?.refreshToken ?? '',
+          });
+          if (!refreshed) return bundle;
+          const next: McpOAuthTokenBundle = {
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken ?? bundle?.refreshToken,
+            expiresAt: refreshed.expiresAt,
+            tokenType: refreshed.tokenType ?? bundle?.tokenType,
+            scope: refreshed.scope ?? bundle?.scope,
+          };
+          await storeOAuthTokenBundle({ serverName, bundle: next });
+          return next;
+        } catch (error) {
+          logger.warn('mcp_oauth_refresh_failed', {
+            serverName,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return bundle;
+        }
+      },
+    });
   }
 
   if (!bundle?.accessToken) {
@@ -92,9 +139,15 @@ async function resolveHeadersForServer(params: {
     return baseHeaders;
   }
 
-  // Per RFC 6750 §2.1: "Authorization: Bearer <token>". Override any
-  // caller-supplied Authorization header to avoid sending a stale PAT
-  // alongside the OAuth bearer.
+  // Per RFC 6750 §2.1: "Authorization: Bearer <token>". Strip EVERY
+  // existing authorization header from baseHeaders (case-insensitive)
+  // before injecting ours, so we never send a stale PAT alongside the
+  // OAuth bearer. (Headers can be either case from user config.)
+  for (const key of Object.keys(baseHeaders)) {
+    if (key.toLowerCase() === 'authorization') {
+      delete baseHeaders[key];
+    }
+  }
   return {
     ...baseHeaders,
     authorization: `Bearer ${bundle.accessToken}`,
@@ -123,15 +176,17 @@ export async function executeRemoteMcpTool(params: {
   const headers = await resolveHeadersForServer({ serverName, serverConfig });
 
   const { createMCPClient } = await import('@ai-sdk/mcp');
-  const client = await createMCPClient({
-    transport: {
-      type: serverConfig.type,
-      url: serverConfig.url,
-      headers,
-    },
-  });
+  let client: Awaited<ReturnType<typeof createMCPClient>> | null = null;
 
   try {
+    client = await createMCPClient({
+      transport: {
+        type: serverConfig.type,
+        url: serverConfig.url,
+        headers,
+      },
+    });
+
     const definitions = await client.listTools();
     const tools = client.toolsFromDefinitions(definitions);
     const tool = tools[toolName];
@@ -158,7 +213,21 @@ export async function executeRemoteMcpTool(params: {
     });
     return { ok: false, error: message };
   } finally {
-    await client.close();
+    // Guard: if createMCPClient threw before assignment there's nothing
+    // to close. Wrap close() in its own try/catch so a cleanup failure
+    // can't turn a successful tool result into a rejection.
+    if (client) {
+      try {
+        await client.close();
+      } catch (closeErr) {
+        logger.warn('remote_mcp_close_failed', {
+          serverName,
+          toolName,
+          error:
+            closeErr instanceof Error ? closeErr.message : String(closeErr),
+        });
+      }
+    }
   }
 }
 
@@ -170,37 +239,63 @@ export async function executeRemoteMcpTool(params: {
  * Unlike executeRemoteMcpTool, this does NOT lazy-refresh OAuth tokens
  * — a failed test with an expired token surfaces the real error so the
  * operator knows to reconnect.
+ *
+ * Hard 15s timeout: an unresponsive server must not hold the test
+ * request open indefinitely (the operator is staring at a spinner).
  */
+const REMOTE_MCP_TEST_TIMEOUT_MS = 15_000;
+
 export async function testRemoteMcpServer(params: {
   serverName: string;
   serverConfig: MCPRemoteServerConfig;
 }): Promise<RemoteMcpTestResult> {
   const { serverName, serverConfig } = params;
-  const headers = await resolveHeadersForServer({ serverName, serverConfig });
+  const headers = await resolveHeadersForServer({
+    serverName,
+    serverConfig,
+    allowRefresh: false,
+  });
 
   const { createMCPClient } = await import('@ai-sdk/mcp');
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    REMOTE_MCP_TEST_TIMEOUT_MS,
+  );
+  let client: Awaited<ReturnType<typeof createMCPClient>> | null = null;
   try {
-    const client = await createMCPClient({
+    client = await createMCPClient({
       transport: {
         type: serverConfig.type,
         url: serverConfig.url,
         headers,
       },
     });
-    try {
-      const definitions = await client.listTools();
-      return {
-        ok: true,
-        toolCount: definitions.tools.length,
-        sampleToolNames: definitions.tools.slice(0, 5).map((t) => t.name),
-      };
-    } finally {
-      await client.close();
-    }
+    const definitions = await client.listTools({
+      options: { signal: controller.signal },
+    });
+    return {
+      ok: true,
+      toolCount: definitions.tools.length,
+      sampleToolNames: definitions.tools.slice(0, 5).map((t) => t.name),
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logger.info('mcp_test_failed', { serverName, error: message });
     return { ok: false, error: message };
+  } finally {
+    clearTimeout(timeout);
+    if (client) {
+      try {
+        await client.close();
+      } catch (closeErr) {
+        logger.info('mcp_test_close_failed', {
+          serverName,
+          error:
+            closeErr instanceof Error ? closeErr.message : String(closeErr),
+        });
+      }
+    }
   }
 }
 

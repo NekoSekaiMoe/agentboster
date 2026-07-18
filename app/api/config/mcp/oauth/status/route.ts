@@ -16,6 +16,7 @@
 export const dynamic = 'force-dynamic';
 
 import { requireAdminAccess } from '@/lib/auth/access';
+import { getConfig } from '@/lib/core/kv/config';
 import { readOAuthTokenBundle, isTokenFresh } from '@/lib/mcp/oauth-store';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
@@ -50,7 +51,13 @@ export async function GET(request: Request) {
     );
   }
 
-  const bundle = await readOAuthTokenBundle(parsed.data.serverName);
+  const config = await getConfig();
+  const oauth = config.mcp?.[parsed.data.serverName]?.auth?.oauth;
+
+  const bundle = await readOAuthTokenBundle({
+    serverName: parsed.data.serverName,
+    vaultKey: oauth?.vaultKey,
+  });
   if (!bundle) {
     return Response.json({
       success: true,

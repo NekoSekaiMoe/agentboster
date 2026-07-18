@@ -1,4 +1,4 @@
-import type { AdapterName } from '@/types/config/channels';
+import { ADAPTER_NAMES, type AdapterName } from '@/types/config/channels';
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'block';
 
@@ -176,6 +176,17 @@ export async function requestL2ApprovalForRemoteTool(params: {
       return 'rejected';
     }
 
+    // Validate the remote-supplied adapter name against the constant
+    // tuple before forwarding — `sendNotification`'s source.adapter
+    // field is a typed AdapterName, and an unverified cast would let
+    // an attacker-controlled string through the type boundary. Reject
+    // unknown values rather than guessing a fallback so the operator
+    // sees the failure rather than getting a silently dropped notify.
+    if (!ADAPTER_NAMES.includes(remoteAdapter as AdapterName)) {
+      return 'rejected';
+    }
+    const adapter = remoteAdapter as AdapterName;
+
     // Construct L2 notification message body
     let body = `Risk: ${riskReason}`;
     if (requiresAdmin) {
@@ -193,7 +204,7 @@ export async function requestL2ApprovalForRemoteTool(params: {
     await sendNotification({
       source: {
         type: 'im' as const,
-        adapter: remoteAdapter as AdapterName,
+        adapter,
         origin: 'remote-control',
         threadId: remoteThreadId,
       },

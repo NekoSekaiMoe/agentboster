@@ -97,13 +97,22 @@ export async function POST(request: Request) {
       );
     }
   } catch (err) {
-    logger.error('mcp-exec allowlist check failed', {
+    // Fail closed: the allowlist is defense-in-depth, but a programming
+    // bug in this check must NOT silently let the call through. Deny
+    // explicitly so the failure is visible rather than dispatching a
+    // remote tool that may not have been authorized.
+    logger.error('mcp-exec allowlist check failed — denying', {
       agent_id,
+      server_name,
       error: err instanceof Error ? err.message : String(err),
     });
-    // Fail open — daemon already gated. Don't block on a programming bug
-    // in the allowlist logic itself (the actual config fetch happened
-    // above and would have thrown before reaching here).
+    return Response.json(
+      {
+        success: false,
+        error: 'MCP allowlist check failed',
+      },
+      { status: 500 },
+    );
   }
 
   // Resolve the server source. Builtin names take precedence; anything
@@ -111,17 +120,19 @@ export async function POST(request: Request) {
   // builtin call first because executeBuiltinMcpTool returns ok:false
   // (not throw) on unknown server/tool, which lets us fall through to
   // the remote path without try/catch noise.
+  //
+  // NOTE: we deliberately do NOT short-circuit on `isRemoteKey` here.
+  // A user-configured remote whose key happens to collide with a builtin
+  // name (e.g. `web`) used to bypass the builtin path entirely; that
+  // silently replaced an approved builtin with an attacker-controllable
+  // remote endpoint. We now always probe builtin first and only fall
+  // through to remote when builtin reports "unknown server" — colliding
+  // remote keys are still reachable under distinct names but the
+  // builtin is never transparently shadowed.
   const remoteMcpConfig = config.mcp ?? {};
 
-  // Short-circuit: if the server name matches a remote config key
-  // directly, skip the builtin probe and go straight to remote. This
-  // matters for remote servers whose names happen to collide with an
-  // unknown builtin-tool scenario — we don't want to log a spurious
-  // "builtin failed" warning for every remote call.
-  const isRemoteKey = Boolean(remoteMcpConfig[server_name]);
-
-  if (!isRemoteKey) {
-    // Builtin path
+  // Builtin path
+  {
     const result = await executeBuiltinMcpTool(
       server_name,
       tool_name,
@@ -141,10 +152,11 @@ export async function POST(request: Request) {
       });
     }
 
-    // If the error is "unknown builtin server", fall through to the
-    // remote path — the caller may have added a new remote server
-    // since the daemon last refreshed its server list. Other errors
-    // (tool-not-found, exec failure) are real and should return.
+    // If the error is anything other than "unknown builtin server",
+    // surface it — don't fall through to remote for tool-not-found or
+    // execution failures. Only unknown-server falls through because the
+    // caller may have added a new remote server since the daemon last
+    // refreshed its server list.
     const isUnknownBuiltinServer = result.error.startsWith(
       'unknown builtin MCP server:',
     );

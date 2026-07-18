@@ -70,7 +70,10 @@ export async function POST(request: Request) {
   // provider-side revocation before mutating anything locally.
   const config = await getConfig();
   const oauth = config.mcp?.[serverName]?.auth?.oauth;
-  const bundle = await readOAuthTokenBundle(serverName);
+  const bundle = await readOAuthTokenBundle({
+    serverName,
+    vaultKey: oauth?.vaultKey,
+  });
 
   // Phase 1 — best-effort provider-side revocation. Only attempt if the
   // user has configured a revokeUrl AND we have a bundle to revoke from.
@@ -95,6 +98,7 @@ export async function POST(request: Request) {
   // Phase 2 — local cleanup.
   const wasDeleted = await deleteOAuthTokenBundle({
     serverName,
+    vaultKey: oauth?.vaultKey,
     userId: access.session.userId,
   });
 

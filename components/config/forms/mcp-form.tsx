@@ -108,7 +108,7 @@ function readAuthMode(server: MCPRemoteServerConfig | undefined): AuthMode {
 
 function startOAuthFlow(serverName: string): Promise<{
   success: boolean;
-  data?: { authorizeUrl: string };
+  data?: { authorizeUrl: string; redirectUri?: string };
   error?: string;
 }> {
   return fetch('/api/config/mcp/oauth/authorize', {
@@ -187,7 +187,7 @@ function ServerRow(props: {
   rowId: string;
   servers: MCPRemoteServersConfig;
   updateValue: (next: MCPRemoteServersConfig) => void;
-  onRemove: (key: string) => void;
+  onRemove: (key: string) => void | Promise<void>;
   onRename: (oldKey: string, newKey: string, rowId: string) => void;
 }) {
   const {
@@ -203,6 +203,34 @@ function ServerRow(props: {
   const queryClient = useQueryClient();
 
   const authMode = readAuthMode(serverValue);
+
+  // Canonical OAuth callback URL for this deployment, surfaced in the
+  // hint so the admin can copy-paste it into the provider's allow-list.
+  // Populated lazily once on mount by the same authorize call we'd
+  // issue for the Connect button — that route is the single source of
+  // truth for the resolved redirect URI (derived from getPublicAppUrl).
+  const [callbackUrl, setCallbackUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (authMode !== 'oauth' || callbackUrl) return;
+    let cancelled = false;
+    fetch('/api/config/mcp/oauth/authorize', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ serverName: serverKey }),
+    })
+      .then((r) => r.json())
+      .then((json: { success: boolean; data?: { redirectUri?: string } }) => {
+        if (!cancelled && json.success && json.data?.redirectUri) {
+          setCallbackUrl(json.data.redirectUri);
+        }
+      })
+      .catch(() => {
+        /* best-effort; the hint just won't show the URL */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authMode, serverKey, callbackUrl]);
 
   // Poll OAuth status only when this server is in OAuth mode. The query
   // is keyed by serverKey so rows don't clobber each other.
@@ -248,6 +276,16 @@ function ServerRow(props: {
       } else {
         toast.error(data.error ?? t('config.forms.mcp.oauthRevokeFailed'));
       }
+    },
+    onError: (error) => {
+      // Network/parse failure on the revoke request itself — without
+      // this handler react-query silently swallows the error and the
+      // UI keeps showing "Revoke" with no feedback.
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t('config.forms.mcp.oauthRevokeFailed'),
+      );
     },
   });
 
@@ -466,31 +504,19 @@ function ServerRow(props: {
               {t('config.forms.mcp.oauthRevoke')}
             </Button>
 
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => testMutation.mutate(serverKey)}
-              disabled={
-                testMutation.isPending ||
-                !serverValue.url ||
-                !serverValue.url.startsWith('http')
-              }
-            >
-              {testMutation.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <RefreshCw className="size-4" />
-              )}
-              {t('config.forms.mcp.testButton')}
-            </Button>
-
             <StatusBadge status={statusQuery.data} />
           </div>
 
           <p className="text-muted-foreground text-xs">
             {t('config.forms.mcp.oauthHint')}
           </p>
+          {callbackUrl && (
+            <p className="text-muted-foreground text-xs">
+              <code className="break-all rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                {callbackUrl}
+              </code>
+            </p>
+          )}
         </div>
       )}
 
@@ -501,11 +527,39 @@ function ServerRow(props: {
         </div>
       )}
 
+      {/* Connection test lives outside the auth-mode branches so it's
+          available for public, static-header, AND OAuth servers — every
+          remote MCP server speaks tools/list regardless of auth mode. */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => testMutation.mutate(serverKey)}
+          disabled={
+            testMutation.isPending ||
+            !serverValue.url ||
+            !serverValue.url.startsWith('http')
+          }
+        >
+          {testMutation.isPending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <RefreshCw className="size-4" />
+          )}
+          {t('config.forms.mcp.testButton')}
+        </Button>
+      </div>
+
       <div className="mt-4 flex justify-end">
         <Button
           type="button"
           variant="outline"
-          onClick={() => onRemove(serverKey)}
+          onClick={() => {
+            // Fire-and-forget — toast handlers inside handleRemove
+            // surface failures; we don't need to await here.
+            void onRemove(serverKey);
+          }}
         >
           <Trash2 className="size-4" />
           {t('config.forms.mcp.removeServer')}
@@ -540,22 +594,60 @@ export function McpForm() {
     });
   }, [entries]);
 
-  function handleRemove(key: string) {
+  async function handleRemove(key: string) {
+    // If this server has an OAuth connection (or static-headers that
+    // could leave a PAT live at the provider), revoke / disconnect it
+    // FIRST so deleting the config row can't strand a credential that
+    // only this config knew about. Surface the failure and refuse to
+    // proceed — better to leave the row in place than to leave an
+    // orphaned, still-valid token at the provider.
+    const server = servers[key];
+    if (server?.auth?.mode === 'oauth') {
+      const r = await revokeOAuth(key);
+      if (!r.success) {
+        toast.error(r.error ?? t('config.forms.mcp.oauthRevokeFailed'));
+        return;
+      }
+    }
     const nextServers = { ...servers };
     delete nextServers[key];
     updateValue(nextServers);
   }
 
   function handleRename(oldKey: string, newKey: string, rowId: string) {
+    const trimmed = newKey.trim();
+    // Validate before mutating any state. Empty / overlong / colliding
+    // renames are rejected so the config and the row-id map stay in
+    // sync — previously a bad rename would silently overwrite another
+    // server's row or leave an orphan rowId pointing at nothing.
+    if (!trimmed) {
+      toast.error(t('config.forms.mcp.serverNameRequired'));
+      return;
+    }
+    if (trimmed.length > 64) {
+      toast.error(t('config.forms.mcp.serverNameTooLong'));
+      return;
+    }
+    // Vault key charset — must match lib/mcp/oauth-store.ts so the
+    // renamed server can still find its OAuth bundle.
+    if (!/^[a-zA-Z0-9_.:-]{1,64}$/.test(trimmed)) {
+      toast.error(t('config.forms.mcp.serverNameInvalid'));
+      return;
+    }
+    if (trimmed !== oldKey && Object.hasOwn(servers, trimmed)) {
+      toast.error(t('config.forms.mcp.serverNameInUse'));
+      return;
+    }
+
     setServerRowIds((current) => {
       const next = { ...current };
       delete next[oldKey];
-      next[newKey] = rowId;
+      next[trimmed] = rowId;
       return next;
     });
 
     const nextServers = { ...servers };
-    nextServers[newKey] = nextServers[oldKey];
+    nextServers[trimmed] = nextServers[oldKey];
     delete nextServers[oldKey];
     updateValue(nextServers);
   }
@@ -622,16 +714,25 @@ export function McpForm() {
           <Button
             type="button"
             variant="secondary"
-            onClick={() =>
+            onClick={() => {
+              // Find the first unused `server-N` key rather than
+              // deriving N from the entry count. Deriving from count
+              // collides when a user has deleted server-2 out of
+              // server-1/2/3 — adding then reuses `server-3`.
+              let n = 1;
+              while (Object.hasOwn(servers, `server-${n}`)) {
+                n++;
+              }
+              const newKey = `server-${n}`;
               updateValue({
                 ...servers,
-                [`server-${entries.length + 1}`]: {
+                [newKey]: {
                   type: 'http',
                   url: '',
                   auth: defaultAuth(),
                 },
-              })
-            }
+              });
+            }}
           >
             <Plus className="size-4" />
             {t('config.forms.mcp.addServer')}

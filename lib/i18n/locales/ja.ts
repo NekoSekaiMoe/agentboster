@@ -327,6 +327,13 @@ export const ja = {
   'config.forms.mcp.customServers': 'カスタムリモートサーバー',
   'config.forms.mcp.removeServer': 'サーバーを削除',
   'config.forms.mcp.serverName': 'サーバー名',
+  'config.forms.mcp.serverNameRequired': 'サーバー名を入力してください。',
+  'config.forms.mcp.serverNameTooLong':
+    'サーバー名は 64 文字以内にしてください。',
+  'config.forms.mcp.serverNameInvalid':
+    'サーバー名には英数字・アンダースコア・ドット・コロン・ハイフンのみ使用できます。',
+  'config.forms.mcp.serverNameInUse':
+    'この名前は別のサーバーが使用しています。別の名前を選んでください。',
   'config.forms.mcp.tools': 'ツール: {tools}',
   'config.forms.mcp.transportPlaceholder': 'トランスポートを選択',
   'config.forms.mcp.type': '種類',
@@ -335,7 +342,7 @@ export const ja = {
   'config.forms.mcp.authModeStaticHeaders': '静的ヘッダー(PAT)',
   'config.forms.mcp.authModeOauth': 'OAuth(認可コード + PKCE)',
   'config.forms.mcp.staticHeadersHint':
-    'Authorization ヘッダーを追加してください(例: "Bearer ghp_xxx")。トークンはグローバル設定に保存されます。ユーザーごとの認証には OAuth モードを使用してください。',
+    'Authorization ヘッダーを追加してください(例: "Bearer ghp_xxx")。このトークンはグローバル設定に保存されます。OAuth モードではトークンはグローバル設定に保存されず、Vault で暗号化され管理者権限で MCP サーバー共有の認証情報として管理されます。',
   'config.forms.mcp.noAuthHint':
     '認証が設定されていません。公開 MCP サーバーのみで使用してください。',
   'config.forms.mcp.oauthClientId': 'クライアント ID',
@@ -351,7 +358,7 @@ export const ja = {
   'config.forms.mcp.oauthStateConnected': '接続済み',
   'config.forms.mcp.oauthStateDisconnected': '未接続',
   'config.forms.mcp.oauthStateExpired': '期限切れ — 再連携',
-  'config.forms.mcp.oauthStateExpiredRefreshable': '更新中',
+  'config.forms.mcp.oauthStateExpiredRefreshable': '期限切れ(更新可能)',
   'config.forms.mcp.oauthStartFailed': 'OAuth フローを開始できませんでした',
   'config.forms.mcp.oauthRevokeOk':
     '切断しました。Vault からトークンを削除しました。',

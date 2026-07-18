@@ -91,24 +91,33 @@ export async function POST(request: Request) {
     codeChallenge: challenge,
   });
 
+  // Derive `secure` from the resolved public URL: HTTPS → set, HTTP →
+  // unset (so local-dev cookies actually land in the browser). All four
+  // cookies share the same value so the browser behavior matches the
+  // protocol the callback will actually be served over.
+  const secure = getPublicAppUrl().startsWith('https://');
+
   // Cookie attributes: HttpOnly (JS can't read), Secure (production only —
-  // Next sets this via the 'secure' flag automatically when not on http),
+  // derived from the resolved public URL so HTTP localhost still works),
   // SameSite=Lax (lets the OAuth callback land top-level), path=/ (the
   // callback is in a different URL prefix than the authorizer).
   cookieStore.set(OAUTH_COOKIE_NAMES.pkce, verifier, {
     httpOnly: true,
+    secure,
     sameSite: 'lax',
     maxAge: COOKIE_MAX_AGE_SECONDS,
     path: '/',
   });
   cookieStore.set(OAUTH_COOKIE_NAMES.state, state, {
     httpOnly: true,
+    secure,
     sameSite: 'lax',
     maxAge: COOKIE_MAX_AGE_SECONDS,
     path: '/',
   });
   cookieStore.set(OAUTH_COOKIE_NAMES.server, serverName, {
     httpOnly: true,
+    secure,
     sameSite: 'lax',
     maxAge: COOKIE_MAX_AGE_SECONDS,
     path: '/',
@@ -116,6 +125,7 @@ export async function POST(request: Request) {
   if (returnTo) {
     cookieStore.set(OAUTH_COOKIE_NAMES.returnTo, returnTo, {
       httpOnly: true,
+      secure,
       sameSite: 'lax',
       maxAge: COOKIE_MAX_AGE_SECONDS,
       path: '/',
@@ -124,6 +134,6 @@ export async function POST(request: Request) {
 
   return Response.json({
     success: true,
-    data: { authorizeUrl, serverName },
+    data: { authorizeUrl, redirectUri, serverName },
   });
 }

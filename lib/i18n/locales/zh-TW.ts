@@ -301,6 +301,11 @@ export const zhTW = {
   'config.forms.mcp.customServers': '自訂遠端伺服器',
   'config.forms.mcp.removeServer': '刪除伺服器',
   'config.forms.mcp.serverName': '伺服器名稱',
+  'config.forms.mcp.serverNameRequired': '請填寫伺服器名稱。',
+  'config.forms.mcp.serverNameTooLong': '伺服器名稱不能超過 64 個字元。',
+  'config.forms.mcp.serverNameInvalid':
+    '伺服器名稱只能包含字母、數字、底線、點、冒號或連字號。',
+  'config.forms.mcp.serverNameInUse': '已有其他伺服器使用了該名稱,請換一個。',
   'config.forms.mcp.tools': '工具：{tools}',
   'config.forms.mcp.transportPlaceholder': '選擇傳輸方式',
   'config.forms.mcp.type': '類型',
@@ -309,7 +314,7 @@ export const zhTW = {
   'config.forms.mcp.authModeStaticHeaders': '靜態 Header(PAT)',
   'config.forms.mcp.authModeOauth': 'OAuth(授權碼 + PKCE)',
   'config.forms.mcp.staticHeadersHint':
-    '請新增 Authorization 標頭(例如 "Bearer ghp_xxx")。Token 會儲存在全域設定中 —— 如需依使用者儲存,請改用 OAuth 模式。',
+    '請新增 Authorization 標頭(例如 "Bearer ghp_xxx")。此 Token 會儲存在全域設定中;OAuth 模式則不會將 Token 寫入全域設定(加密儲存於 Vault,由管理員授權、MCP 伺服器共享)。',
   'config.forms.mcp.noAuthHint':
     '未設定鑑權。僅適用於本主機可達的公開 MCP 伺服器。',
   'config.forms.mcp.oauthClientId': 'Client ID',
@@ -325,7 +330,7 @@ export const zhTW = {
   'config.forms.mcp.oauthStateConnected': '已連接',
   'config.forms.mcp.oauthStateDisconnected': '未連接',
   'config.forms.mcp.oauthStateExpired': '已過期 —— 請重新連接',
-  'config.forms.mcp.oauthStateExpiredRefreshable': '重新整理中',
+  'config.forms.mcp.oauthStateExpiredRefreshable': '已過期,可自動重新整理',
   'config.forms.mcp.oauthStartFailed': '啟動 OAuth 流程失敗',
   'config.forms.mcp.oauthRevokeOk': '已中斷。Token 已從 Vault 移除。',
   'config.forms.mcp.oauthRevokeFailed': '中斷失敗',

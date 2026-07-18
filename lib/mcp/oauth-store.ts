@@ -22,6 +22,13 @@ const KEY_PREFIX = 'mcp:oauth:';
 export const OAUTH_TOKEN_TTL_BUFFER_MS = 60_000; // treat tokens as expired 60s early
 
 /**
+ * Vault key charset — must match `validateVaultKey` in lib/vault/index.ts.
+ * Used to reject (not silently rewrite) server names that would otherwise
+ * collide after sanitization (e.g. `a/b` and `a.b` both mapping to `a-b`).
+ */
+const VAULT_KEY_CHARSET = /^[a-zA-Z0-9_.:-]{1,128}$/;
+
+/**
  * The encrypted bundle stored under `mcp:oauth:<serverName>`.
  *
  * Field naming matches RFC 6749:
@@ -39,14 +46,23 @@ export type McpOAuthTokenBundle = {
   scope?: string;
 };
 
+/**
+ * Build the canonical Vault key for a server name.
+ *
+ * Server names must already match the Vault key charset (`[a-zA-Z0-9_.:-]`).
+ * We deliberately DO NOT sanitize here — silently rewriting disallowed
+ * characters to `-` caused collision bugs (e.g. `a/b` and `a.b` both
+ * producing `a-b`). Callers must validate the name at the config-schema
+ * boundary; this function throws on invalid input so the bug surfaces
+ * loudly instead of corrupting a different server's credential.
+ */
 export function buildOAuthVaultKey(serverName: string): string {
-  // Vault key charset is [a-zA-Z0-9_.:-], so the serverName itself must
-  // be sanitized. We allow the same charset as vault keys for server
-  // names — anything outside is rejected at the config-schema level
-  // (mcpRemotesServersConfigSchema uses z.record(z.string(), ...), but
-  // the key-edit UI clamps to alnum + dash anyway).
-  const safe = serverName.replace(/[^a-zA-Z0-9_.:-]/g, '-');
-  return `${KEY_PREFIX}${safe}`;
+  if (!VAULT_KEY_CHARSET.test(serverName)) {
+    throw new Error(
+      `Invalid MCP server name "${serverName}": must be 1-128 chars and contain only [a-zA-Z0-9_.:-].`,
+    );
+  }
+  return `${KEY_PREFIX}${serverName}`;
 }
 
 export async function storeOAuthTokenBundle(params: {
@@ -63,10 +79,22 @@ export async function storeOAuthTokenBundle(params: {
   return vaultKey;
 }
 
-export async function readOAuthTokenBundle(
-  serverName: string,
-): Promise<McpOAuthTokenBundle | null> {
-  const entry = await readVaultValue({ key: buildOAuthVaultKey(serverName) });
+/**
+ * Read the stored bundle. Accepts either an explicit `vaultKey` (the
+ * canonical locator, set in AppConfig after a successful OAuth flow) or
+ * a `serverName` (legacy fallback — used only when an older config lacks
+ * `vaultKey`, e.g. for servers connected before this field existed).
+ *
+ * Preferring `vaultKey` keeps the bundle reachable after a server rename
+ * — the pointer travels with the config row instead of being re-derived
+ * from a name that no longer exists.
+ */
+export async function readOAuthTokenBundle(params: {
+  serverName: string;
+  vaultKey?: string;
+}): Promise<McpOAuthTokenBundle | null> {
+  const key = params.vaultKey ?? buildOAuthVaultKey(params.serverName);
+  const entry = await readVaultValue({ key });
   if (!entry) return null;
   try {
     return JSON.parse(entry.value) as McpOAuthTokenBundle;
@@ -83,12 +111,11 @@ export async function readOAuthTokenBundle(
  */
 export async function deleteOAuthTokenBundle(input: {
   serverName: string;
+  vaultKey?: string;
   userId?: string;
 }): Promise<boolean> {
-  return deleteVaultEntry({
-    key: buildOAuthVaultKey(input.serverName),
-    userId: input.userId,
-  });
+  const key = input.vaultKey ?? buildOAuthVaultKey(input.serverName);
+  return deleteVaultEntry({ key, userId: input.userId });
 }
 
 /**

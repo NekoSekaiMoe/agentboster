@@ -177,7 +177,11 @@ export async function exchangeCodeForTokens(params: {
       typeof payload.refresh_token === 'string'
         ? payload.refresh_token
         : undefined,
-    expiresAt: expiresIn ? Date.now() + expiresIn * 1000 : undefined,
+    // Note: `expires_in: 0` is a valid (if unusual) value meaning
+    // "expired immediately". Use an `!== undefined` check rather than
+    // truthiness so we don't accidentally turn a 0 into "no expiry".
+    expiresAt:
+      expiresIn !== undefined ? Date.now() + expiresIn * 1000 : undefined,
     tokenType:
       typeof payload.token_type === 'string' ? payload.token_type : 'Bearer',
     scope: typeof payload.scope === 'string' ? payload.scope : undefined,
@@ -254,7 +258,10 @@ export async function refreshAccessToken(params: {
       typeof payload.refresh_token === 'string'
         ? payload.refresh_token
         : params.refreshToken, // many servers don't return new refresh
-    expiresAt: expiresIn ? Date.now() + expiresIn * 1000 : undefined,
+    // `expires_in: 0` is a valid value; use `!== undefined` so it
+    // becomes Date.now() rather than silently becoming undefined.
+    expiresAt:
+      expiresIn !== undefined ? Date.now() + expiresIn * 1000 : undefined,
     tokenType:
       typeof payload.token_type === 'string' ? payload.token_type : 'Bearer',
     scope: typeof payload.scope === 'string' ? payload.scope : undefined,

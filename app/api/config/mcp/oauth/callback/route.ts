@@ -18,6 +18,8 @@ export const dynamic = 'force-dynamic';
 
 import { requireAdminAccess } from '@/lib/auth/access';
 import { getConfig, setConfig } from '@/lib/core/kv/config';
+import { get } from '@/lib/core/kv';
+import { CONFIG_KEY } from '@/types/config';
 import { getPublicAppUrl } from '@/lib/extra/deploy';
 import { createLogger } from '@/lib/utils/logger';
 import {
@@ -27,7 +29,7 @@ import {
   exchangeCodeForTokens,
 } from '@/lib/mcp/oauth-flow';
 import { storeOAuthTokenBundle } from '@/lib/mcp/oauth-store';
-import { appConfigSchema } from '@/types/config';
+import { appConfigSchema, type AppConfig } from '@/types/config';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
@@ -46,6 +48,15 @@ export async function GET(request: Request) {
   const returnTo =
     cookieStore.get(OAUTH_COOKIE_NAMES.returnTo)?.value ?? DEFAULT_RETURN_PATH;
 
+  // Read flow cookies BEFORE handling provider errors or clearing them.
+  // A missing/mismatched state means the callback is invalid regardless
+  // of whether the provider also sent `error=` — handling the error
+  // branch first would let an attacker supply a forged `error` param to
+  // trigger a redirect on a callback with no legitimate flow context.
+  const verifier = cookieStore.get(OAUTH_COOKIE_NAMES.pkce)?.value;
+  const expectedState = cookieStore.get(OAUTH_COOKIE_NAMES.state)?.value;
+  const serverName = cookieStore.get(OAUTH_COOKIE_NAMES.server)?.value;
+
   // Clear flow cookies regardless of outcome — they're single-use.
   const clearCookies = () => {
     for (const name of Object.values(OAUTH_COOKIE_NAMES)) {
@@ -53,27 +64,9 @@ export async function GET(request: Request) {
     }
   };
 
-  // Server-side error (e.g. user denied consent) — redirect with error.
-  if (errorParam) {
-    clearCookies();
-    return redirectToConfig(returnTo, {
-      error: errorParam,
-      error_description: errorDescription ?? '',
-    });
-  }
-
-  if (!code || !state) {
-    clearCookies();
-    return redirectToConfig(returnTo, {
-      error: 'invalid_callback',
-      error_description: 'Missing code or state in OAuth callback',
-    });
-  }
-
-  const verifier = cookieStore.get(OAUTH_COOKIE_NAMES.pkce)?.value;
-  const expectedState = cookieStore.get(OAUTH_COOKIE_NAMES.state)?.value;
-  const serverName = cookieStore.get(OAUTH_COOKIE_NAMES.server)?.value;
-
+  // No flow context → reject before any other branch. We don't even
+  // surface the provider's `error`/`error_description` here because we
+  // can't bind them to a legitimate flow.
   if (!verifier || !expectedState || !serverName) {
     clearCookies();
     return redirectToConfig(returnTo, {
@@ -83,10 +76,44 @@ export async function GET(request: Request) {
     });
   }
 
+  // Validate state against the flow cookie before honoring any query
+  // params. Only AFTER state validation succeeds do we trust that this
+  // callback corresponds to a flow we started.
+  if (!state || !constantTimeEqual(state, expectedState)) {
+    clearCookies();
+    logger.warn('oauth_state_mismatch', { serverName });
+    return redirectToConfig(returnTo, {
+      error: 'state_mismatch',
+      error_description: 'OAuth state validation failed',
+    });
+  }
+
+  // Server-side error (e.g. user denied consent). State is valid, so
+  // the error is genuine — surface it.
+  if (errorParam) {
+    clearCookies();
+    return redirectToConfig(returnTo, {
+      error: errorParam,
+      error_description: errorDescription ?? '',
+    });
+  }
+
+  if (!code) {
+    clearCookies();
+    return redirectToConfig(returnTo, {
+      error: 'invalid_callback',
+      error_description: 'Missing code in OAuth callback',
+    });
+  }
+
   // Admin check — the callback URL itself isn't session-protected by
   // middleware if the OAuth provider opens it in a new browser context.
+  // Preserve the admin's userId so the vault write attributes the
+  // credential to the operator who actually authorized it.
+  let adminUserId: string | undefined;
   try {
-    await requireAdminAccess(cookieStore);
+    const access = await requireAdminAccess(cookieStore);
+    adminUserId = access.session.userId;
   } catch (error) {
     clearCookies();
     const status =
@@ -96,15 +123,6 @@ export async function GET(request: Request) {
     return redirectToConfig(returnTo, {
       error: status === 403 ? 'forbidden' : 'unauthorized',
       error_description: 'Admin access required',
-    });
-  }
-
-  if (!constantTimeEqual(state, expectedState)) {
-    clearCookies();
-    logger.warn('oauth_state_mismatch', { serverName });
-    return redirectToConfig(returnTo, {
-      error: 'state_mismatch',
-      error_description: 'OAuth state validation failed',
     });
   }
 
@@ -133,14 +151,28 @@ export async function GET(request: Request) {
     const vaultKey = await storeOAuthTokenBundle({
       serverName,
       bundle: tokens,
+      userId: adminUserId,
     });
 
-    // Record the vaultKey back into AppConfig so the bridge knows where
-    // to load tokens from. Mutating the local config object + setConfig
-    // is safe — getConfig deduped within this request gave us the latest
-    // KV state, and setConfig re-validates with appConfigSchema.
-    serverConfig.auth.oauth.vaultKey = vaultKey;
-    await setConfig(appConfigSchema.parse(config));
+    // Narrow-field update: re-read the current KV config AFTER the
+    // external token exchange so a concurrent admin edit (e.g. another
+    // server's settings) isn't clobbered by our stale snapshot. We only
+    // touch `mcp[serverName].auth.oauth.vaultKey`, leaving every other
+    // field as the freshest KV state. If the server row was removed or
+    // de-OAuthed in the interim, abort without writing — the bundle we
+    // just stored is orphaned but harmless (no vaultKey points at it,
+    // and it will be reaped on next reconnect).
+    const raw = await get(CONFIG_KEY);
+    const latest: AppConfig | null = raw
+      ? (appConfigSchema.parse(raw) as AppConfig)
+      : null;
+    const targetServer = latest?.mcp?.[serverName];
+    if (targetServer?.auth?.oauth) {
+      targetServer.auth.oauth.vaultKey = vaultKey;
+      await setConfig(appConfigSchema.parse(latest));
+    } else {
+      logger.warn('oauth_callback_server_disappeared', { serverName });
+    }
   } catch (error) {
     clearCookies();
     const message = error instanceof Error ? error.message : String(error);

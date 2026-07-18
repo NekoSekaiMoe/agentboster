@@ -323,6 +323,13 @@ export const enUS = {
   'config.forms.mcp.customServers': 'Custom remote servers',
   'config.forms.mcp.removeServer': 'Remove server',
   'config.forms.mcp.serverName': 'Server name',
+  'config.forms.mcp.serverNameRequired': 'Server name is required.',
+  'config.forms.mcp.serverNameTooLong':
+    'Server name must be 64 characters or fewer.',
+  'config.forms.mcp.serverNameInvalid':
+    'Server name may only contain letters, digits, underscore, dot, colon, or dash.',
+  'config.forms.mcp.serverNameInUse':
+    'Another server already uses this name. Choose a different name.',
   'config.forms.mcp.tools': 'Tools: {tools}',
   'config.forms.mcp.transportPlaceholder': 'Choose a transport',
   'config.forms.mcp.type': 'Type',
@@ -331,7 +338,7 @@ export const enUS = {
   'config.forms.mcp.authModeStaticHeaders': 'Static headers (PAT)',
   'config.forms.mcp.authModeOauth': 'OAuth (Authorization Code + PKCE)',
   'config.forms.mcp.staticHeadersHint':
-    'Add an Authorization header (e.g. "Bearer ghp_xxx"). Tokens are stored in the global config — use OAuth mode for per-user credentials.',
+    'Add an Authorization header (e.g. "Bearer ghp_xxx"). This token is stored in the global config; OAuth mode keeps the token out of the global config (encrypted in the Vault, admin-authorized and shared by the MCP server).',
   'config.forms.mcp.noAuthHint':
     'No authentication configured. Only suitable for public MCP servers reachable from this host.',
   'config.forms.mcp.oauthClientId': 'Client ID',
@@ -347,7 +354,7 @@ export const enUS = {
   'config.forms.mcp.oauthStateConnected': 'Connected',
   'config.forms.mcp.oauthStateDisconnected': 'Not connected',
   'config.forms.mcp.oauthStateExpired': 'Expired — reconnect',
-  'config.forms.mcp.oauthStateExpiredRefreshable': 'Refreshing',
+  'config.forms.mcp.oauthStateExpiredRefreshable': 'Expired — refreshable',
   'config.forms.mcp.oauthStartFailed': 'Failed to start OAuth flow',
   'config.forms.mcp.oauthRevokeOk': 'Disconnected. Tokens removed from Vault.',
   'config.forms.mcp.oauthRevokeFailed': 'Failed to disconnect',
