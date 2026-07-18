@@ -2,6 +2,10 @@ import { chatMain } from '@/lib/chat/index';
 import { getScheduledTask, updateScheduledTask } from '@/lib/core/db/scheduled';
 import { createLogger } from '@/lib/utils/logger';
 import { sameInstant } from './utils';
+import {
+  resolveScheduledTaskUserId,
+  sendScheduledTaskCompletion,
+} from './notify';
 
 const logger = createLogger('workflow.scheduled.dispatch');
 
@@ -46,20 +50,33 @@ export async function deliverScheduledTask(input: {
 
   // Scheduled tasks always use route-message so they reuse the full chat routing stack.
   // Each fire must create a fresh persisted session for the main workflow.
-  const routed = await chatMain(
-    {
-      trigger: 'route-message',
-      input: {
-        text: task.prompt,
-        parts: [{ type: 'text', text: task.prompt }],
+  let routed: Awaited<ReturnType<typeof chatMain>>;
+  try {
+    routed = await chatMain(
+      {
+        trigger: 'route-message',
+        input: {
+          text: task.prompt,
+          parts: [{ type: 'text', text: task.prompt }],
+        },
       },
-    },
-    {
-      source: {
-        type: 'scheduled',
+      {
+        source: {
+          type: 'scheduled',
+        },
       },
-    },
-  );
+    );
+  } catch (error) {
+    const userId = await resolveScheduledTaskUserId(task.sessionId);
+    await sendScheduledTaskCompletion({
+      task,
+      runId: null,
+      userId,
+      status: 'failed',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   if (routed.kind !== 'message') {
     throw new Error('Scheduled dispatch must return a message result.');
@@ -73,6 +90,15 @@ export async function deliverScheduledTask(input: {
     lastChatRunId: routed.result.runId,
     active: task.type !== 'delay',
     nextRunAt: task.type === 'delay' ? null : task.nextRunAt,
+  });
+
+  // Fire-and-forget completion notification. The helper never throws.
+  const userId = await resolveScheduledTaskUserId(task.sessionId);
+  await sendScheduledTaskCompletion({
+    task,
+    runId: routed.result.runId,
+    userId,
+    status: 'completed',
   });
 
   logger.info('deliver:success', {

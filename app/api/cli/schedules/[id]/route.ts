@@ -1,17 +1,23 @@
-'use server';
+/**
+ * PATCH  /api/cli/schedules/[id]
+ * DELETE /api/cli/schedules/[id]
+ *
+ * Update or delete a scheduled task. Mirrors
+ * `updateScheduleTaskAction` / `deleteScheduleTaskAction` from
+ * `app/(schedule)/actions.ts` but as a JSON API for the Desktop
+ * client. Both handlers are scoped to the caller via
+ * `getScheduledTask(id, { userId })` — a 404 is returned when the
+ * task belongs to another user or does not exist.
+ */
 
-import { readAuthSessionFromCookies } from '@/lib/auth';
+export const dynamic = 'force-dynamic';
+
+import { withCliAuth } from '@/lib/cli/auth';
 import {
   deleteScheduledTask,
   getScheduledTask,
-  listScheduledTasks,
   updateScheduledTask,
 } from '@/lib/core/db/scheduled';
-import {
-  serializeScheduledTask,
-  type PersistedScheduledTask,
-  type ScheduleTaskRecord,
-} from '@/lib/cli/schedule-serialization';
 import { createLogger } from '@/lib/utils/logger';
 import { scheduledTaskWorkflow } from '@/lib/workflow/scheduled';
 import {
@@ -20,11 +26,10 @@ import {
   parseDelayTarget,
   validateTimezone,
 } from '@/lib/workflow/scheduled/utils';
-import { cookies } from 'next/headers';
 import { getRun, start } from 'workflow/api';
 import { z } from 'zod';
 
-const logger = createLogger('actions.schedules');
+const logger = createLogger('api.cli.schedules.id');
 
 const baseTaskSchema = z.object({
   title: z.string().trim().min(1).nullable().optional(),
@@ -35,45 +40,32 @@ const baseTaskSchema = z.object({
 const delayTaskSchema = baseTaskSchema.extend({
   type: z.literal('delay'),
   runAt: z.iso.datetime(),
+  notifyChannel: z.string().trim().optional().nullable(),
+  remoteControl: z.boolean().optional(),
 });
 
 const dailyTaskSchema = baseTaskSchema.extend({
   type: z.literal('daily'),
   dailyTime: z.string().trim().min(1),
   timezone: z.string().trim().min(1).optional(),
+  notifyChannel: z.string().trim().optional().nullable(),
+  remoteControl: z.boolean().optional(),
 });
 
-const updateTaskSchema = z.discriminatedUnion('type', [
+const updateSchema = z.discriminatedUnion('type', [
   delayTaskSchema,
   dailyTaskSchema,
 ]);
 
-export type { PersistedScheduledTask, ScheduleTaskRecord };
-
-export type DisplayStatus = 'scheduled' | 'archived';
-
-export type UpdateScheduleTaskInput = z.infer<typeof updateTaskSchema>;
-
-async function requireAuth() {
-  const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-
-  if (!authSession) {
-    throw new Error('Unauthorized');
-  }
-
-  return authSession;
-}
-
-function serializeTask(task: PersistedScheduledTask): ScheduleTaskRecord {
-  return serializeScheduledTask(task);
+function getTaskIdFromUrl(request: Request): string | null {
+  const match = request.url.match(/\/api\/cli\/schedules\/([^/]+)(?:\/|$)/);
+  return match?.[1] ?? null;
 }
 
 async function cancelScheduleRun(runId: string | null | undefined) {
   if (!runId) {
     return;
   }
-
   try {
     await getRun(runId).cancel();
   } catch (error) {
@@ -84,55 +76,50 @@ async function cancelScheduleRun(runId: string | null | undefined) {
   }
 }
 
-export async function listScheduleTasksAction() {
-  const authSession = await requireAuth();
-
-  const tasks = await listScheduledTasks({ userId: authSession.userId });
-  return {
-    tasks: tasks.map(serializeTask),
-  };
+function notFound() {
+  return Response.json({ ok: false, error: 'Task not found' }, { status: 404 });
 }
 
-export async function updateScheduleTaskAction(input: {
-  id: string;
-  task: UpdateScheduleTaskInput;
-}) {
-  const authSession = await requireAuth();
-
-  const taskId = input.id.trim();
+export const PATCH = withCliAuth(async (request, { userId }) => {
+  const taskId = getTaskIdFromUrl(request);
   if (!taskId) {
-    throw new Error('Task id is required');
+    return Response.json(
+      { ok: false, error: 'Missing task id.' },
+      { status: 400 },
+    );
   }
 
-  const existing = await getScheduledTask(taskId, {
-    userId: authSession.userId,
-  });
+  const existing = await getScheduledTask(taskId, { userId });
   if (!existing) {
-    throw new Error('Task not found');
+    return notFound();
   }
 
-  const parsed = updateTaskSchema.safeParse(input.task);
+  const body = await request.json().catch(() => null);
+  const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
-    throw new Error(
-      parsed.error.issues[0]?.message ?? 'Invalid schedule task payload',
+    return Response.json(
+      {
+        ok: false,
+        error:
+          parsed.error.issues[0]?.message ?? 'Invalid schedule task payload.',
+      },
+      { status: 400 },
     );
   }
 
   const task = parsed.data;
   const now = new Date();
+  const notifyChannel = task.notifyChannel?.trim() || null;
+  const remoteControl = task.remoteControl ?? false;
+
   const normalized =
     task.type === 'delay'
       ? {
           type: 'delay' as const,
           timezone: null,
           dailyTime: null,
-          nextRunAt: parseDelayTarget({
-            runAt: task.runAt,
-            now,
-          }),
-          metadata: {
-            runAt: task.runAt,
-          },
+          nextRunAt: parseDelayTarget({ runAt: task.runAt, now }),
+          metadata: { runAt: task.runAt },
         }
       : {
           type: 'daily' as const,
@@ -164,40 +151,41 @@ export async function updateScheduleTaskAction(input: {
       nextRunAt: normalized.nextRunAt,
       active: task.active,
       metadata: normalized.metadata,
+      notifyChannel,
+      remoteControl,
       scheduleWorkflowRunId: null,
     },
-    { userId: authSession.userId },
+    { userId },
   );
 
   if (task.active) {
     const run = await start(scheduledTaskWorkflow, [taskId]);
     await updateScheduledTask(
       taskId,
-      {
-        scheduleWorkflowRunId: run.runId,
-      },
-      { userId: authSession.userId },
+      { scheduleWorkflowRunId: run.runId },
+      { userId },
     );
   }
 
-  return { ok: true as const };
-}
+  return Response.json({ ok: true });
+});
 
-export async function deleteScheduleTaskAction(taskId: string) {
-  const authSession = await requireAuth();
-
-  const id = taskId.trim();
-  if (!id) {
-    throw new Error('Task id is required');
+export const DELETE = withCliAuth(async (request, { userId }) => {
+  const taskId = getTaskIdFromUrl(request);
+  if (!taskId) {
+    return Response.json(
+      { ok: false, error: 'Missing task id.' },
+      { status: 400 },
+    );
   }
 
-  const existing = await getScheduledTask(id, { userId: authSession.userId });
+  const existing = await getScheduledTask(taskId, { userId });
   if (!existing) {
-    throw new Error('Task not found');
+    return notFound();
   }
 
   await cancelScheduleRun(existing.scheduleWorkflowRunId);
-  await deleteScheduledTask(id, { userId: authSession.userId });
+  await deleteScheduledTask(taskId, { userId });
 
-  return { ok: true as const };
-}
+  return Response.json({ ok: true });
+});

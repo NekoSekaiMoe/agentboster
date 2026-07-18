@@ -25,6 +25,17 @@ export const scheduledTasks = pgTable('scheduled_tasks', {
   lastChatRunId: text('last_chat_run_id'),
   active: boolean('active').default(true).notNull(),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  // Notification routing for task-triggered outcomes.
+  // - null/'default': follow the user's notification_preferences
+  // - 'desktop':     push to the online Desktop client (system notification)
+  // - 'im:auto':     use user's preferredChannel (IM)
+  // - 'im:<adapter>':force a specific IM adapter (telegram/discord/slack/feishu/...)
+  notifyChannel: text('notify_channel'),
+  // When true, the dispatched chat run is routed through the user's
+  // online CLI remote-control session so the LLM can use local_* and
+  // computer-use tools on the user's physical machine. When false or
+  // null, the task runs on whatever backend session it was attached to.
+  remoteControl: boolean('remote_control').default(false),
   createdAt: timestamp('created_at', { withTimezone: true })
     .defaultNow()
     .notNull(),

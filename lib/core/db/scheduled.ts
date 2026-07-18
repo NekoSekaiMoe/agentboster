@@ -17,6 +17,8 @@ export async function createScheduledTask(input: {
   dailyTime?: string;
   nextRunAt?: Date | null;
   metadata?: ScheduledTaskMetadata;
+  notifyChannel?: string | null;
+  remoteControl?: boolean;
 }) {
   logger.info('create:start', {
     sessionId: input.sessionId,
@@ -34,6 +36,8 @@ export async function createScheduledTask(input: {
       dailyTime: input.dailyTime ?? null,
       nextRunAt: input.nextRunAt ?? null,
       metadata: input.metadata ?? null,
+      notifyChannel: input.notifyChannel ?? null,
+      remoteControl: input.remoteControl ?? false,
     })
     .returning();
 
@@ -141,6 +145,8 @@ export async function updateScheduledTask(
     lastChatRunId?: string | null;
     active?: boolean;
     metadata?: ScheduledTaskMetadata | null;
+    notifyChannel?: string | null;
+    remoteControl?: boolean;
   },
   options?: { userId?: string },
 ) {

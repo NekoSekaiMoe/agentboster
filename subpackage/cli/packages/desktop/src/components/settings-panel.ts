@@ -51,6 +51,72 @@ interface ThemeColorDraft {
   foreground: string;
 }
 
+interface ImChannelOption {
+  id: string;
+  label: string;
+  adapter: string;
+}
+
+const DEFAULT_IM_CHANNEL_STORAGE_KEY = 'desktop-schedule-default-channel.v1';
+
+function loadDefaultImChannel(): string {
+  try {
+    return localStorage.getItem(DEFAULT_IM_CHANNEL_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveDefaultImChannel(value: string): void {
+  try {
+    localStorage.setItem(DEFAULT_IM_CHANNEL_STORAGE_KEY, value);
+  } catch {
+    // ignore
+  }
+}
+
+async function fetchImChannelsForSettings(): Promise<ImChannelOption[]> {
+  try {
+    const { readAgentbosterDesktopAuth } = await import(
+      '../agentboster-auth.js'
+    );
+    const auth = await readAgentbosterDesktopAuth();
+    if (!auth) return [];
+    const root = auth.url.replace(/\/+$/, '');
+    const response = await fetch(`${root}/api/cli/im-channels`, {
+      headers: { authorization: `Bearer ${auth.token}` },
+    });
+    const body = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) return [];
+    const record =
+      body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+    const list: unknown[] = Array.isArray(record.channels)
+      ? record.channels
+      : Array.isArray(record.items)
+        ? record.items
+        : Array.isArray(body)
+          ? body
+          : [];
+    const channels: ImChannelOption[] = [];
+    for (const entry of list) {
+      const item =
+        entry && typeof entry === 'object'
+          ? (entry as Record<string, unknown>)
+          : {};
+      const id = typeof item.id === 'string' ? item.id : null;
+      if (!id) continue;
+      const adapter =
+        typeof item.adapter === 'string' ? item.adapter : 'unknown';
+      const label =
+        (typeof item.label === 'string' && item.label) || adapter || id;
+      channels.push({ id, label, adapter });
+    }
+    return channels;
+  } catch {
+    return [];
+  }
+}
+
 interface SettingsState {
   theme: DesktopThemeMode;
   autoCompactionEnabled: boolean;
@@ -60,6 +126,7 @@ interface SettingsState {
   clientSpoof: ClientSpoof;
   piBinaryPath: string;
   closeAction: CloseActionPreference;
+  defaultImChannel: string;
 }
 
 export type CloseActionPreference = 'ask' | 'tray' | 'quit';
@@ -105,6 +172,7 @@ export class SettingsPanel {
     clientSpoof: 'off',
     piBinaryPath: '',
     closeAction: 'ask',
+    defaultImChannel: loadDefaultImChannel(),
   };
   private onClose: (() => void) | null = null;
   private onRequestAddProject: (() => void) | null = null;
@@ -151,6 +219,8 @@ export class SettingsPanel {
   private scopedModelsSettingsPath: string | null = null;
   private scopedModelsUnknownPatterns: string[] = [];
   private activeSection: SettingsSectionId = 'general';
+  private imChannels: ImChannelOption[] = [];
+  private imChannelsLoading = false;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -1166,6 +1236,7 @@ export class SettingsPanel {
     const refreshTasks: Promise<void>[] = [
       this.refreshDesktopStatus(),
       this.refreshThemeCatalog(),
+      this.refreshImChannels(),
     ];
     if (runtimeReady) {
       refreshTasks.push(
@@ -1190,6 +1261,27 @@ export class SettingsPanel {
       this.render();
       this.onDesktopStatusChange?.(this.desktopStatus);
     }
+  }
+
+  private async refreshImChannels(): Promise<void> {
+    this.imChannelsLoading = true;
+    this.render();
+    try {
+      this.imChannels = await fetchImChannelsForSettings();
+    } catch {
+      this.imChannels = [];
+    } finally {
+      this.imChannelsLoading = false;
+      this.render();
+    }
+  }
+
+  private setDefaultImChannel(value: string): void {
+    const next = value ?? '';
+    if (this.state.defaultImChannel === next) return;
+    this.state.defaultImChannel = next;
+    saveDefaultImChannel(next);
+    this.render();
   }
 
   private async openDesktopUpdateNow(): Promise<void> {
@@ -2313,16 +2405,46 @@ export class SettingsPanel {
                 <div class="settings-label">When closing the window</div>
                 <div class="settings-desc">Controls what happens when you click the window close button. The tray icon is always available for bringing the app back.</div>
               </div>
-              <select class="settings-select" .value=${this.state.closeAction} @change=${(e: Event) => this.setCloseAction((e.target as HTMLSelectElement).value as CloseActionPreference)}>
+              <select class="settings_select" .value=${this.state.closeAction} @change=${(e: Event) => this.setCloseAction((e.target as HTMLSelectElement).value as CloseActionPreference)}>
                 <option value="ask">Ask every time</option>
                 <option value="tray">Minimize to tray</option>
                 <option value="quit">Quit Agentboster</option>
               </select>
             </div>
           </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Scheduled tasks</div>
+            <div class="settings-row">
+              <div>
+                <div class="settings-label">Default notification channel</div>
+                <div class="settings-desc">Pre-selected channel when creating a new scheduled task. Choose “System notification” to use desktop notifications.</div>
+              </div>
+              <select
+                class="settings_select"
+                ?disabled=${this.imChannelsLoading}
+                .value=${this.state.defaultImChannel}
+                @change=${(e: Event) =>
+                  this.setDefaultImChannel(
+                    (e.target as HTMLSelectElement).value,
+                  )}
+              >
+                <option value="">系统通知</option>
+                <option value="desktop">系统通知（Desktop）</option>
+                <option value="im:auto">IM：自动选择</option>
+                ${this.imChannels.map(
+                  (channel) => html`
+                    <option value=${`im:${channel.adapter}`}>
+                      IM：${channel.label}
+                    </option>
+                  `,
+                )}
+              </select>
+            </div>
+          </div>
         </section>
       </div>
-		`;
+	`;
   }
 
   private renderActiveSection(
