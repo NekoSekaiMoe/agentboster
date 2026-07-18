@@ -115,6 +115,12 @@ async function resolveDispatchNode(input: {
     };
   }
 
+  // Look up ALL fallback candidates in one query so we can probe them
+  // in the order they appear in the allowlist. The previous form used
+  // `eq(agentdNodes.nodeID, candidates[0])`, which only loaded the
+  // first candidate — the loop then `continue`d past every other id
+  // (no matching row) and the fallback path was effectively dead.
+  const { inArray } = await import('drizzle-orm');
   const candidateRows = await db
     .select({
       nodeID: agentdNodes.nodeID,
@@ -122,9 +128,9 @@ async function resolveDispatchNode(input: {
       port: agentdNodes.port,
     })
     .from(agentdNodes)
-    .where(eq(agentdNodes.nodeID, candidates[0]));
-  // drizzle's `.where()` doesn't take an array directly here without
-  // inArray; iterate in health-check order to find the first reachable.
+    .where(inArray(agentdNodes.nodeID, candidates));
+  // Iterate in allowlist order (NOT row order) so the user's expressed
+  // preference is honored — first reachable candidate wins.
   for (const candidateId of candidates) {
     const match = candidateRows.find((r) => r.nodeID === candidateId);
     if (!match) continue;
@@ -150,22 +156,49 @@ async function resolveDispatchNode(input: {
  * layer reads `metadata.scheduleNodeConstraints` and intersects it
  * with the agent's `allowed_nodes` config.
  *
- * Writing the resolved node (preferred or fallback) means the LLM's
- * tool calls during this dispatch actually route to the right daemon
- * — without this, execToolOnAgentd would silently auto-pick a node
- * via selectBestNode, ignoring the task preference.
+ * Returns the original metadata so the caller can restore it (via
+ * {@link clearNodeConstraintFromSession}) once the dispatch run
+ * completes. Without restoring, every subsequent non-scheduled chat
+ * on this session would keep being forced to the same node.
  */
 async function applyNodeConstraintToSession(input: {
   sessionId: string;
   nodeId: string;
-}): Promise<void> {
+}): Promise<Record<string, unknown> | null> {
   const session = await getSession(input.sessionId);
-  if (!session) return;
+  if (!session) return null;
+  const previousMetadata = session.metadata ?? {};
   const metadata = {
-    ...(session.metadata ?? {}),
+    ...previousMetadata,
     scheduleNodeConstraints: { preferredNodeId: input.nodeId },
   };
   await updateSession(input.sessionId, { metadata });
+  return previousMetadata;
+}
+
+/**
+ * Restore session.metadata to its pre-dispatch state. Called in a
+ * `finally` after the chat dispatch completes (or fails) so the
+ * constraint only applies to tool calls issued by THIS dispatch run.
+ *
+ * Best-effort: errors are logged but don't change the dispatch
+ * outcome. If cleanup fails the metadata stays stale and the next
+ * non-scheduled chat would route to the same node — a soft degradation,
+ * not a correctness bug for the dispatch that just ran.
+ */
+async function clearNodeConstraintFromSession(input: {
+  sessionId: string;
+  previousMetadata: Record<string, unknown> | null;
+}): Promise<void> {
+  if (!input.previousMetadata) return;
+  try {
+    await updateSession(input.sessionId, { metadata: input.previousMetadata });
+  } catch (err) {
+    logger.warn('deliver:clear_node_constraint_failed', {
+      sessionId: input.sessionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**
@@ -229,6 +262,14 @@ export async function deliverScheduledTask(input: {
   // (and any fallback candidates) BEFORE entering the chat dispatch.
   // A failed probe short-circuits as a dispatch failure — no LLM
   // invocation, immediate failure notification, counter increment.
+  //
+  // The resolved node constraint is written to session.metadata for
+  // the duration of the chat dispatch below so execToolOnAgentd picks
+  // it up, then restored in the `finally` block. Leaving it in place
+  // would force every subsequent non-scheduled chat on this session
+  // to the same daemon.
+  let previousSessionMetadata: Record<string, unknown> | null = null;
+  let nodeConstraintApplied = false;
   if (!task.remoteControl && task.preferredNodeId) {
     const resolution = await resolveDispatchNode({
       preferredNodeId: task.preferredNodeId,
@@ -240,10 +281,13 @@ export async function deliverScheduledTask(input: {
       throw new Error(resolution.reason);
     }
     if ('node' in resolution && resolution.node) {
-      await applyNodeConstraintToSession({
-        sessionId: task.sessionId,
-        nodeId: resolution.node.nodeID,
-      }).catch((err) => {
+      try {
+        previousSessionMetadata = await applyNodeConstraintToSession({
+          sessionId: task.sessionId,
+          nodeId: resolution.node.nodeID,
+        });
+        nodeConstraintApplied = true;
+      } catch (err) {
         // Best-effort: if we can't write the constraint, the LLM tool
         // layer will fall back to selectBestNode. Log and continue.
         logger.warn('deliver:write_node_constraint_failed', {
@@ -251,7 +295,7 @@ export async function deliverScheduledTask(input: {
           sessionId: task.sessionId,
           error: err instanceof Error ? err.message : String(err),
         });
-      });
+      }
     }
   }
 
@@ -312,6 +356,16 @@ export async function deliverScheduledTask(input: {
     const errorMessage = error instanceof Error ? error.message : String(error);
     await handleDispatchFailure(task, userId, errorMessage);
     throw error;
+  } finally {
+    // Restore session.metadata so the node constraint only applies to
+    // this dispatch run. Without this, every subsequent non-scheduled
+    // chat on the same session would route to the same daemon.
+    if (nodeConstraintApplied) {
+      await clearNodeConstraintFromSession({
+        sessionId: task.sessionId,
+        previousMetadata: previousSessionMetadata,
+      });
+    }
   }
 }
 

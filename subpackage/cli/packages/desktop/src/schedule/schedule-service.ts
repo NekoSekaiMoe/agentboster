@@ -20,6 +20,15 @@ export type ScheduleNotificationCallback = (
   result: ScheduleFireResult,
 ) => void;
 
+/**
+ * Called once when the scheduler permanently halts itself due to an
+ * unrecoverable error (e.g. localStorage quota exhaustion — see
+ * mergeFiredResults). The argument is the error that triggered the
+ * halt. Wired by main.ts to surface a user-visible warning so the
+ * user understands why their scheduled tasks stopped firing.
+ */
+export type ScheduleHaltedCallback = (error: unknown) => void;
+
 const TICK_INTERVAL_MS = 30_000;
 
 /**
@@ -46,21 +55,41 @@ function computeNextDailyInstant(
   dailyTime: string | null,
   timezone: string | null,
 ): Date {
+  // `currentRunAt` is retained in the signature for caller stability
+  // but no longer used as the anchor — see the function body comments
+  // for why we anchor at `now` instead.
+  void currentRunAt;
+  const nowMs = Date.now();
+
   if (!dailyTime || !timezone) {
-    return new Date(currentRunAt.getTime() + 24 * 60 * 60 * 1000);
+    // Without timezone info we can't do a wall-clock lookup; fall back
+    // to +24h from NOW (not currentRunAt) so the result is always
+    // strictly in the future. Anchoring to currentRunAt could return
+    // a past instant when the task was overdue, causing the scheduler
+    // to fire the same task every 30s as it slowly caught up day by
+    // day.
+    return new Date(nowMs + 24 * 60 * 60 * 1000);
   }
   const match = /^(\d{1,2}):(\d{2})$/.exec(dailyTime.trim());
   if (!match) {
-    return new Date(currentRunAt.getTime() + 24 * 60 * 60 * 1000);
+    return new Date(nowMs + 24 * 60 * 60 * 1000);
   }
   const hour = Number.parseInt(match[1], 10);
   const minute = Number.parseInt(match[2], 10);
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    return new Date(currentRunAt.getTime() + 24 * 60 * 60 * 1000);
+    return new Date(nowMs + 24 * 60 * 60 * 1000);
   }
 
-  for (let offsetDays = 1; offsetDays <= 3; offsetDays++) {
-    const base = new Date(currentRunAt);
+  // Anchor the day-walk at NOW (not currentRunAt) so that a task that
+  // has been overdue for more than 3 days (e.g. machine was off for a
+  // week) still resolves to a future instant. Walking from currentRunAt
+  // could produce candidates that are all still in the past, then fall
+  // through to the +24h fallback also in the past — looping forever.
+  // Starting at today and walking forward up to 7 days guarantees we
+  // find the next wall-clock occurrence.
+  const now = new Date();
+  for (let offsetDays = 0; offsetDays <= 7; offsetDays++) {
+    const base = new Date(now);
     base.setUTCDate(base.getUTCDate() + offsetDays);
     const year = base.getUTCFullYear();
     const month = base.getUTCMonth();
@@ -72,11 +101,14 @@ function computeNextDailyInstant(
     const iso = wallClockToIso(wallLocal, timezone);
     if (!iso) continue;
     const instant = new Date(iso);
-    if (instant.getTime() > Date.now()) {
+    if (instant.getTime() > nowMs) {
       return instant;
     }
   }
-  return new Date(currentRunAt.getTime() + 24 * 60 * 60 * 1000);
+
+  // All 7 candidates were in the past (only possible if the timezone
+  // conversion is broken). Anchor to now to guarantee forward progress.
+  return new Date(nowMs + 24 * 60 * 60 * 1000);
 }
 
 /**
@@ -142,10 +174,24 @@ export class ScheduleService {
   private ticking = false;
   private triggerCallback: ScheduleTriggerCallback | null = null;
   private notificationCallback: ScheduleNotificationCallback | null = null;
+  private haltedCallback: ScheduleHaltedCallback | null = null;
   // Snapshot of tasks captured at the start of each tick(), used by
   // mergeFiredResults to detect concurrent edits during the fire await.
   // Reset to null when a tick completes.
   private preFireSnapshot: Map<string, LocalScheduleTask> | null = null;
+  // In-memory record of task ids we've already fired and successfully
+  // persisted the post-fire state for. Used as a fallback dedup layer
+  // when persistence fails: without it, the next tick would re-read
+  // the stale storage state (which still has nextRunAt in the past),
+  // re-fire the same task, and loop forever.
+  //
+  // Cleared only when the task's row changes from underneath us
+  // (i.e. the user edited or re-enabled it) — see mergeFiredResults.
+  private successfullyPersistedFires: Set<string> = new Set();
+  // Whether the scheduler has permanently stopped due to an
+  // unrecoverable persistence failure. Once true the service refuses
+  // new ticks until `reset()` / restart.
+  private halted = false;
 
   setTriggerCallback(cb: ScheduleTriggerCallback): void {
     this.triggerCallback = cb;
@@ -153,6 +199,16 @@ export class ScheduleService {
 
   setNotificationCallback(cb: ScheduleNotificationCallback): void {
     this.notificationCallback = cb;
+  }
+
+  /**
+   * Install a one-shot callback invoked when the scheduler halts
+   * itself due to an unrecoverable error (currently only persistence
+   * failure — see mergeFiredResults). main.ts uses this to surface a
+   * desktop notification so the user knows tasks are paused.
+   */
+  setHaltedCallback(cb: ScheduleHaltedCallback): void {
+    this.haltedCallback = cb;
   }
 
   start(): void {
@@ -172,6 +228,7 @@ export class ScheduleService {
 
   private async tick(): Promise<void> {
     if (this.ticking) return;
+    if (this.halted) return; // scheduler halted by unrecoverable error
     this.ticking = true;
     try {
       // Snapshot the tasks we intend to fire BEFORE awaiting the external
@@ -196,6 +253,13 @@ export class ScheduleService {
         const runAt = new Date(task.nextRunAt);
         if (!Number.isFinite(runAt.getTime())) continue;
         if (runAt.getTime() > now) continue;
+        // Dedup: skip tasks we've already fired and persisted in a
+        // previous tick. This prevents the catastrophic loop where
+        // persistence fails, the next tick re-reads stale storage,
+        // and fires the same task every 30s until the user notices.
+        // The entry is cleared in mergeFiredResults when the task row
+        // changes (user edit / re-enable).
+        if (this.successfullyPersistedFires.has(task.id)) continue;
 
         const result = await this.fire(task);
         const triggeredAt = new Date().toISOString();
@@ -318,16 +382,49 @@ export class ScheduleService {
     if (mutated) {
       try {
         saveLocalScheduleTasks(merged);
+        // Persistence succeeded — record dedup entries for every task
+        // we just fired+merged. This protects against a future
+        // persistence failure in some OTHER tick from re-dispatching
+        // these already-fired tasks.
+        for (const f of fired) {
+          this.successfullyPersistedFires.add(f.id);
+        }
+        // Any task row that has since been edited by the user (and
+        // therefore skipped above) should have its dedup entry
+        // cleared so the new scheduling takes effect.
+        for (const task of latest) {
+          if (!updatesByTaskId.has(task.id)) continue;
+          const preFire = preFireSnapshot.get(task.id);
+          if (preFire && preFire.updatedAt !== task.updatedAt) {
+            this.successfullyPersistedFires.delete(task.id);
+          }
+        }
       } catch (err) {
-        // Persistence failed (quota / privacy mode). Log so the failure
-        // is at least visible in the dev console — the service itself
-        // has no UI to surface it. The merged state stays in memory
-        // for this tick; the next tick will re-read storage from
-        // scratch and attempt to fire again.
-        console.warn(
-          '[schedule] failed to persist fired task state — task may re-fire',
+        // Persistence failed (quota / privacy mode). Halt the scheduler
+        // so we don't enter an infinite re-fire loop: without the
+        // post-fire state on disk, the next tick would re-read stale
+        // storage and dispatch every just-fired task again.
+        //
+        // The in-memory dedup set still keeps this tick's fired ids
+        // from re-firing on subsequent ticks that DID somehow run
+        // (e.g. via test harness), but halting is the correct
+        // top-level response: there's no point running the loop when
+        // we can't durably commit results. The UI is notified via
+        // the optional onHalted callback (wired by main.ts).
+        this.halted = true;
+        if (this.timer) {
+          clearInterval(this.timer);
+          this.timer = null;
+        }
+        console.error(
+          '[schedule] persistence failed — scheduler halted to prevent re-fire loop',
           err,
         );
+        try {
+          this.haltedCallback?.(err);
+        } catch {
+          // Best-effort.
+        }
       }
     }
   }

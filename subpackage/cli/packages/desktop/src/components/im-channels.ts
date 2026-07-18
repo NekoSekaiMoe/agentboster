@@ -39,16 +39,25 @@ function asRecord(value: unknown): Record<string, unknown> {
 export function normalizeImChannel(value: unknown): ImChannelEntry | null {
   const channel = asRecord(value);
 
-  // Some legacy paths may already pass a composite id; honor it when both
-  // adapter and imUserId are present so the composite is deterministic.
   const adapter = asString(channel.adapter);
-  const imUserId = asString(channel.imUserId) ?? asString(channel.id);
-
   if (!adapter) return null;
-  if (!imUserId) return null;
 
-  const id =
-    adapter && imUserId ? `${adapter}:${imUserId}` : (imUserId ?? adapter);
+  // Backend (app/api/cli/im-channels/route.ts) returns entries shaped
+  // `{ adapter, imUserId, imUserName, pairedAt }` with NO composite id.
+  // Some legacy paths may already pass a composite `id` like
+  // "telegram:12345" (e.g. cached localStorage state from older
+  // builds). If we prepend `${adapter}:` again we'd get
+  // "telegram:telegram:12345" and break saved selections.
+  //
+  // Detect the legacy composite by checking whether the candidate
+  // value already starts with `<adapter>:`; if so, preserve it as-is.
+  // Otherwise build the canonical `<adapter>:<imUserId>` form.
+  const rawImUserId = asString(channel.imUserId) ?? asString(channel.id);
+  if (!rawImUserId) return null;
+
+  const hasAdapterPrefix = rawImUserId.startsWith(`${adapter}:`);
+  const imUserId = rawImUserId;
+  const id = hasAdapterPrefix ? imUserId : `${adapter}:${imUserId}`;
 
   const label =
     asString(channel.imUserName) ?? asString(channel.label) ?? adapter ?? id;

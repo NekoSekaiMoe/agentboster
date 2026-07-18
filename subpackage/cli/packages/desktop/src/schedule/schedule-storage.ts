@@ -39,6 +39,23 @@ export class ScheduleStorageError extends Error {
 
 const STORAGE_KEY = 'desktop-schedule-tasks.v1';
 
+/**
+ * Sentinel timestamp used when a persisted task is missing createdAt /
+ * updatedAt (legacy data from before those fields were required).
+ *
+ * Why not `new Date().toISOString()`: the scheduler's
+ * `mergeFiredResults` uses `preFire.updatedAt !== task.updatedAt` to
+ * detect concurrent edits during a fire. If `load()` synthesized a
+ * fresh `now` timestamp on every call, the snapshot taken before
+ * firing and the snapshot re-read for merge would never match, and
+ * fired results would be silently dropped — re-dispatching the task
+ * every 30s forever. This sentinel is stable across calls so the
+ * comparison works; `load()` also eagerly migrates any task that
+ * still has the sentinel by writing the migrated form back to disk,
+ * so subsequent loads see a real timestamp.
+ */
+const MISSING_TIMESTAMP = new Date(0).toISOString();
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object'
     ? (value as Record<string, unknown>)
@@ -72,13 +89,9 @@ function normalizeTask(value: unknown): LocalScheduleTask | null {
         : 0,
     disabledByFailure: task.disabledByFailure === true,
     createdAt:
-      typeof task.createdAt === 'string'
-        ? task.createdAt
-        : new Date().toISOString(),
+      typeof task.createdAt === 'string' ? task.createdAt : MISSING_TIMESTAMP,
     updatedAt:
-      typeof task.updatedAt === 'string'
-        ? task.updatedAt
-        : new Date().toISOString(),
+      typeof task.updatedAt === 'string' ? task.updatedAt : MISSING_TIMESTAMP,
   };
 }
 
@@ -88,9 +101,32 @@ export function loadLocalScheduleTasks(): LocalScheduleTask[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const tasks = parsed
       .map((entry) => normalizeTask(entry))
       .filter((entry): entry is LocalScheduleTask => Boolean(entry));
+
+    // Eager migration: if any task still carries the sentinel timestamp
+    // (i.e. it was missing from disk), persist a real timestamp NOW so
+    // the next `load()` returns a stable value. Without this, two
+    // consecutive `load()` calls in the same tick would each synthesize
+    // a different `new Date().toISOString()` fallback and break the
+    // scheduler's edit-detection. Best-effort: if the write fails (e.g.
+    // quota), we still return the in-memory tasks — callers can keep
+    // working, and the next successful write will migrate them.
+    if (tasks.some((t) => t.updatedAt === MISSING_TIMESTAMP)) {
+      const migrateAt = new Date().toISOString();
+      for (const t of tasks) {
+        if (t.createdAt === MISSING_TIMESTAMP) t.createdAt = migrateAt;
+        if (t.updatedAt === MISSING_TIMESTAMP) t.updatedAt = migrateAt;
+      }
+      try {
+        saveLocalScheduleTasks(tasks);
+      } catch {
+        // Migration failed — non-fatal, see comment above.
+      }
+    }
+
+    return tasks;
   } catch {
     return [];
   }

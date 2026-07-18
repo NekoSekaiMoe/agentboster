@@ -740,7 +740,6 @@ export class ScheduleView {
     payload.sessionId = sessionId;
     await this.apiRequest('/api/cli/schedules', 'POST', payload);
   }
-
   private saveLocalTask(form: FormState): void {
     const now = new Date().toISOString();
     const editingId =
@@ -758,6 +757,23 @@ export class ScheduleView {
       form.type === 'daily'
         ? computeDailyNextRunAt(form.dailyTime, form.timezone)
         : computeDelayNextRunAt(form.runAt, form.timezone);
+
+    // Reject saving an active task with no valid next fire time. This
+    // happens when the form carried invalid dailyTime/runAt —
+    // computeDailyNextRunAt returns null on bad input, and
+    // computeDelayNextRunAt returns null on empty/invalid datetime-local.
+    // Persisting such a task with active=true would put it in a zombie
+    // state: the UI shows "active" but the scheduler skips it every
+    // tick (it does `if (!task.nextRunAt) continue;`).
+    const incomingActive = existing ? existing.active : true;
+    if (incomingActive && !nextRunAt) {
+      throw new Error(
+        form.type === 'delay'
+          ? '请输入有效的触发时间'
+          : '请输入有效的每日时间（HH:mm）',
+      );
+    }
+
     const task: LocalScheduleTask = {
       id,
       type: form.type,
@@ -780,7 +796,6 @@ export class ScheduleView {
     };
     upsertLocalScheduleTask(task);
   }
-
   private async deleteTask(source: TaskSource, id: string): Promise<void> {
     if (source === 'local') {
       try {
@@ -811,6 +826,20 @@ export class ScheduleView {
         const tasks = loadLocalScheduleTasks();
         const target = tasks.find((entry) => entry.id === id);
         if (target) {
+          // Don't re-enable a task that has no valid next fire time.
+          // Delay tasks clear nextRunAt after firing; re-enabling them
+          // without setting a new time would put them in a zombie
+          // state (UI shows active, scheduler skips every tick). Ask
+          // the user to edit the task with a fresh time first.
+          if (active && !target.nextRunAt) {
+            this.notify(
+              target.type === 'delay'
+                ? '请编辑任务设置新的触发时间后再启用'
+                : '请编辑任务设置有效的每日时间后再启用',
+              'error',
+            );
+            return;
+          }
           target.active = active;
           target.updatedAt = new Date().toISOString();
           // Re-enabling a task gives it a fresh start — clear the
