@@ -5975,8 +5975,119 @@ function setupThemeSyncListeners(): void {
   );
 }
 
+// ── Close-to-tray dialog ────────────────────────────────────────────────
+//
+// The main process intercepts the window's CloseRequested event and, when
+// `close_action == "ask"`, calls `api.prevent_close()` then emits
+// `close-requested`. We own the UX here: pop a native dialog that lets the
+// user pick between hiding to tray or quitting, optionally persisting the
+// choice so we never ask again.
+//
+// Sequence:
+//   1. confirm("Hide Agentboster to the tray?") → OK = hide (tray)
+//                                                  Cancel = move on
+//   2. confirm("Quit Agentboster entirely?")     → OK = quit
+//                                                  Cancel = do nothing
+//   3. (if 1 or 2 picked) confirm("Remember this choice?")
+//
+// When the user picked something and asked to remember, we persist via
+// `set_close_action`; otherwise we send an `ask-*` action so the main
+// process hides/quits once without writing settings.
+function setupCloseRequestHandler(): void {
+  void (async () => {
+    let unlisten: UnlistenFn | null = null;
+    try {
+      unlisten = await listen('close-requested', () => {
+        void handleCloseRequest();
+      });
+    } catch (err) {
+      console.warn('Failed to register close-requested listener:', err);
+    }
+    return unlisten;
+  })();
+}
+
+let closeDialogInFlight = false;
+async function handleCloseRequest(): Promise<void> {
+  if (closeDialogInFlight) return;
+  closeDialogInFlight = true;
+  try {
+    const { confirm } = await import('@tauri-apps/plugin-dialog');
+
+    // Step 1: tray?
+    const wantsTray = await confirm(
+      'Hide Agentboster to the tray? (Click Cancel to choose Quit instead.)',
+      { title: 'Close to tray', kind: 'info' },
+    );
+    if (wantsTray) {
+      const remember = await confirm(
+        'Always hide to the tray instead of quitting? You can change this later in Settings.',
+        { title: 'Remember choice', kind: 'info' },
+      );
+      await invoke('resolve_close_action', {
+        action: remember ? 'tray' : 'ask-tray',
+        remember,
+      });
+      return;
+    }
+
+    // Step 2: quit?
+    const wantsQuit = await confirm('Quit Agentboster entirely?', {
+      title: 'Quit',
+      kind: 'warning',
+    });
+    if (!wantsQuit) {
+      // User cancelled both — leave the window as-is.
+      return;
+    }
+    const remember = await confirm(
+      'Always quit when closing the window? You can change this later in Settings.',
+      { title: 'Remember choice', kind: 'info' },
+    );
+    await invoke('resolve_close_action', {
+      action: remember ? 'quit' : 'ask-quit',
+      remember,
+    });
+  } catch (err) {
+    console.error('Close-request dialog failed:', err);
+  } finally {
+    closeDialogInFlight = false;
+  }
+}
+
+// ── Tray menu events ────────────────────────────────────────────────────
+//
+// The tray context menu (Show / New Chat / Quit) is built in the Rust
+// main process. The "New Chat" item emits `tray-new-chat`; we forward it
+// to the same code path as the sidebar's "new session" button. The "Show"
+// item is handled entirely in Rust (it just calls window.show + set_focus),
+// so we don't need to listen for it here.
+function setupTrayEventListeners(): void {
+  void (async () => {
+    try {
+      await listen('tray-new-chat', () => {
+        const workspace = getActiveWorkspace();
+        if (!workspace) {
+          chatView?.notify('Open a project first to start a new chat', 'info');
+          return;
+        }
+        const projectPath = getWorkspaceActiveProjectPath(workspace);
+        if (!projectPath) {
+          chatView?.notify('Select a project in the sidebar first', 'info');
+          return;
+        }
+        void startFreshSessionTab({ forceNewTab: true });
+      });
+    } catch (err) {
+      console.warn('Failed to register tray-new-chat listener:', err);
+    }
+  })();
+}
+
 applyInitialTheme();
 void applyNativeWindowVisualFixes();
 setupThemeSyncListeners();
 setupKeyboardShortcuts();
+setupCloseRequestHandler();
+setupTrayEventListeners();
 void initialize();

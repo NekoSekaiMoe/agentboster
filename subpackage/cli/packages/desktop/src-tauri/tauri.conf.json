@@ -14,6 +14,7 @@
 		"macOSPrivateApi": true,
 		"windows": [
 			{
+				"label": "main",
 				"title": "Agentboster Desktop",
 				"width": 1100,
 				"height": 750,
@@ -26,6 +27,13 @@
 				"center": true
 			}
 		],
+		"trayIcon": {
+			"id": "main-tray",
+			"iconPath": "icons/icon.png",
+			"iconAsTemplate": false,
+			"menuOnLeftClick": false,
+			"tooltip": "Agentboster Desktop"
+		},
 		"security": {
 			"csp": null
 		}

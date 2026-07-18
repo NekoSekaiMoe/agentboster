@@ -59,7 +59,10 @@ interface SettingsState {
   followUpMode: QueueMode;
   clientSpoof: ClientSpoof;
   piBinaryPath: string;
+  closeAction: CloseActionPreference;
 }
+
+export type CloseActionPreference = 'ask' | 'tray' | 'quit';
 
 interface ScopedModelOption {
   fullId: string;
@@ -101,6 +104,7 @@ export class SettingsPanel {
     followUpMode: 'one-at-a-time',
     clientSpoof: 'off',
     piBinaryPath: '',
+    closeAction: 'ask',
   };
   private onClose: (() => void) | null = null;
   private onRequestAddProject: (() => void) | null = null;
@@ -1004,7 +1008,10 @@ export class SettingsPanel {
     );
     const home = (await homeDir()).replace(/\\/g, '/').replace(/\/+$/, '');
     const themesRoot = this.joinFsPath(
-      this.joinFsPath(this.joinFsPath(this.joinFsPath(home, '.config'), 'agentboster-cli'), 'agent'),
+      this.joinFsPath(
+        this.joinFsPath(this.joinFsPath(home, '.config'), 'agentboster-cli'),
+        'agent',
+      ),
       'themes',
     );
     await mkdir(themesRoot, { recursive: true });
@@ -1132,6 +1139,7 @@ export class SettingsPanel {
         auto_retry?: boolean;
         client_spoof?: string;
         pi_path?: string | null;
+        close_action?: string;
       };
       if (
         saved.theme === 'dark' ||
@@ -1150,6 +1158,7 @@ export class SettingsPanel {
       const normalizedPiPath = this.normalizePiBinaryPath(saved.pi_path);
       this.state.piBinaryPath = normalizedPiPath ?? '';
       this.onPiBinaryPathChange?.(normalizedPiPath);
+      this.state.closeAction = this.normalizeCloseAction(saved.close_action);
     } catch {
       // ignore missing persisted settings
     }
@@ -1302,6 +1311,25 @@ export class SettingsPanel {
       await this.saveSettings();
     } catch (err) {
       console.error('Failed to set client spoof:', err);
+    }
+  }
+
+  private normalizeCloseAction(value: unknown): CloseActionPreference {
+    if (value === 'tray' || value === 'quit') return value;
+    return 'ask';
+  }
+
+  private async setCloseAction(
+    closeAction: CloseActionPreference,
+  ): Promise<void> {
+    const normalized = this.normalizeCloseAction(closeAction);
+    this.state.closeAction = normalized;
+    this.render();
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('set_close_action', { action: normalized });
+    } catch (err) {
+      console.error('Failed to persist close action:', err);
     }
   }
 
@@ -1793,6 +1821,7 @@ export class SettingsPanel {
           model_provider: null,
           model_id: null,
           pi_path: this.normalizePiBinaryPath(this.state.piBinaryPath),
+          close_action: this.normalizeCloseAction(this.state.closeAction),
         },
       });
     } catch (err) {
@@ -2265,12 +2294,27 @@ export class SettingsPanel {
                       : null
                   }
 								</details>
-							`
+              `
                 : html`<div class="settings-desc">Open a project to enable CLI runtime diagnostics.</div>`
             }
-					</div>
-				</section>
-			</div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Window &amp; tray</div>
+            <div class="settings-row">
+              <div>
+                <div class="settings-label">When closing the window</div>
+                <div class="settings-desc">Controls what happens when you click the window close button. The tray icon is always available for bringing the app back.</div>
+              </div>
+              <select class="settings-select" .value=${this.state.closeAction} @change=${(e: Event) => this.setCloseAction((e.target as HTMLSelectElement).value as CloseActionPreference)}>
+                <option value="ask">Ask every time</option>
+                <option value="tray">Minimize to tray</option>
+                <option value="quit">Quit Agentboster</option>
+              </select>
+            </div>
+          </div>
+        </section>
+      </div>
 		`;
   }
 
