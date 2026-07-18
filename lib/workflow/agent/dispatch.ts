@@ -57,11 +57,23 @@ export interface AgentNodeStatus {
  * P3.1: `allowedNodes` narrows the candidate pool to the agent's
  * configured node allowlist. Empty/undefined = any node.
  *
+ * Session affinity: when `affinityNodeId` is supplied AND that node
+ * still passes the online/sandbox/allowlist/hard-threshold filters,
+ * it is returned immediately without running the score race. This
+ * lets a chat session reuse the same daemon across consecutive tool
+ * calls (preserving any warmed state — git clones, npm installs,
+ * browser sessions) instead of being re-dispatched to whichever node
+ * happens to be lightly loaded. Affinity is strictly best-effort:
+ * if the prior node is offline, missing the sandbox type, outside
+ * the allowlist, or over the hard load threshold, the normal scoring
+ * path runs and the affinity hint is silently replaced.
+ *
  * Returns null if no node is available → caller should fall back to Vercel Sandbox.
  */
 export async function selectBestNode(
   requiredSandbox?: string,
   allowedNodes?: readonly string[],
+  affinityNodeId?: string,
 ): Promise<AgentNodeStatus | null> {
   try {
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
@@ -97,6 +109,39 @@ export async function selectBestNode(
       : filtered;
 
     if (filtered.length === 0) return null;
+
+    // Session affinity: if the caller named a previously-used node
+    // and it survived the filters above, confirm it also clears the
+    // same hard load thresholds as the scoring path (cpu/mem/disk),
+    // then short-circuit. Going through the same hard-cutoff check
+    // guarantees affinity never parks a session on a node the
+    // scorer would have rejected.
+    if (affinityNodeId) {
+      const affinityNode = filtered.find(
+        (n: Row) => n.nodeID === affinityNodeId,
+      );
+      if (affinityNode) {
+        const cpu =
+          affinityNode.cpuUsage != null ? affinityNode.cpuUsage / 100 : 0.5;
+        const mem =
+          affinityNode.memAvail != null ? affinityNode.memAvail / 100 : 0.5;
+        const disk =
+          affinityNode.diskAvail != null ? affinityNode.diskAvail / 100 : 0.5;
+        if (cpu < 0.9 && mem > 0.1 && disk > 0.1) {
+          return {
+            nodeID: affinityNode.nodeID,
+            ip: affinityNode.ip,
+            port: affinityNode.port,
+            sandboxes: (affinityNode.sandboxes as string[]) || [],
+            cpuUsage: affinityNode.cpuUsage,
+            memAvail: affinityNode.memAvail,
+            diskAvail: affinityNode.diskAvail,
+            activeTasks: affinityNode.activeTasks || 0,
+            sandboxMemPeakTotal: affinityNode.sandboxMemPeakTotal,
+          };
+        }
+      }
+    }
 
     const scored: { node: Row; score: number }[] = [];
     for (const n of filtered) {
