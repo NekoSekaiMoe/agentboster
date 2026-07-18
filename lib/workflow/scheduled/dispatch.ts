@@ -1,5 +1,5 @@
 import { chatMain } from '@/lib/chat/index';
-import { getSession, updateSession } from '@/lib/core/db/chat';
+import { getSession } from '@/lib/core/db/chat';
 import { getScheduledTask, updateScheduledTask } from '@/lib/core/db/scheduled';
 import { createLogger } from '@/lib/utils/logger';
 import { sameInstant } from './utils';
@@ -156,7 +156,7 @@ async function resolveDispatchNode(input: {
  * layer reads `metadata.scheduleNodeConstraints` and intersects it
  * with the agent's `allowed_nodes` config.
  *
- * ## Why we use a dispatch token instead of full-metadata snapshot/restore
+ * ## Why token + SQL-level CAS
  *
  * A previous implementation snapshotted the entire `session.metadata`
  * field before writing the constraint, then restored the snapshot in
@@ -164,48 +164,63 @@ async function resolveDispatchNode(input: {
  * dispatches of the same session:
  *
  *   t0: A reads metadata (empty), writes {scn: A}
- *   t1: B reads metadata ({scn: A}), writes {scn: B}  ← A's constraint lost
- *   t2: B finishes, restores "previous" ({scn: A})    ← B's constraint lost AND A's restored
- *   t3: A finishes, restores "previous" (empty)       ← also wipes anything else written during the window
+ *   t1: B reads metadata ({scn: A}), writes {scn: B}  (A's constraint lost)
+ *   t2: B finishes, restores "previous" ({scn: A})    (B's constraint lost AND A's restored)
+ *   t3: A finishes, restores "previous" (empty)       (also wipes anything else written during the window)
  *
- * The token-based form below only ever touches the
- * `scheduleNodeConstraints` key, leaving every other metadata field
- * untouched. The token is captured at write time; cleanup is a no-op
- * when the current value's token doesn't match (meaning another
- * dispatch superseded ours). This serializes correctly:
+ * The token-based form below writes via an atomic jsonb concatenation
+ * (`metadata || jsonb_build_object(...)`) and clears via a SQL-level
+ * conditional UPDATE that only fires when the stored token still
+ * matches ours. The clear is therefore a true compare-and-set:
  *
- *   t0: A writes {scn: {node, token: A}}
- *   t1: B writes {scn: {node, token: B}} (A's value overwritten)
- *   t2: B finishes, clears scn (token matches)
- *   t3: A finishes, sees token=B (!= A), leaves scn alone
+ *   t0: A writes scn={token:A}              (atomic, other keys untouched)
+ *   t1: B writes scn={token:B}              (atomic, overwrites scn only)
+ *   t2: B's clear: WHERE token=B -> OK      (only B's scn removed)
+ *   t3: A's clear: WHERE token=A -> no-op   (current token is null, not A)
  *
- * Edge case: if A and B finish in the opposite order from how they
- * started, A's clear runs first (token matches), then B's clear is a
- * no-op (current token is now undefined). Either order ends with no
- * leftover constraint — the goal.
+ * We bypass `updateSession()` (the drizzle wrapper) because it can't
+ * express the `WHERE jsonb path = value` predicate — that requires a
+ * raw SQL conditional UPDATE. The write uses `metadata || ...` so we
+ * only touch the `scheduleNodeConstraints` key, never the entire
+ * metadata field.
  */
 async function applyNodeConstraintToSession(input: {
   sessionId: string;
   nodeId: string;
 }): Promise<{ token: string } | null> {
-  const session = await getSession(input.sessionId);
-  if (!session) return null;
+  const { db } = await import('@/lib/core/db');
+  const { sql } = await import('drizzle-orm');
   const token = `${input.sessionId}:${input.nodeId}:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const previousMetadata = session.metadata ?? {};
-  const metadata = {
-    ...previousMetadata,
-    scheduleNodeConstraints: { preferredNodeId: input.nodeId, token },
-  };
-  await updateSession(input.sessionId, { metadata });
-  return { token };
+  // Atomically merge our key into the metadata jsonb. The || operator
+  // shallow-merges jsonb objects, so this only overwrites
+  // scheduleNodeConstraints and preserves every other metadata key.
+  const result = await db.execute(sql`
+    UPDATE sessions
+       SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+             'scheduleNodeConstraints',
+             jsonb_build_object('preferredNodeId', ${input.nodeId}, 'token', ${token})
+           ),
+           updated_at = NOW()
+     WHERE id = ${input.sessionId}
+     RETURNING id
+  `);
+  // drizzle's execute() unwraps `.rows`, so we get back an array-like.
+  // Both neon-http and node-postgres drivers end up here. An empty
+  // result means no session matched the id — surface as null to the
+  // caller so it can treat that as a dispatch failure.
+  const rowCount = Array.isArray(result)
+    ? result.length
+    : ((result as { rowCount?: number }).rowCount ?? 0);
+  return rowCount > 0 ? { token } : null;
 }
 
 /**
  * Conditionally clear `scheduleNodeConstraints` from session.metadata
- * — but only when the stored `token` matches the one we wrote. This
- * is the CAS that makes the constraint safe under concurrent
- * dispatches of the same session. See
- * {@link applyNodeConstraintToSession} for the full rationale.
+ * — but only when the stored `token` matches the one we wrote. The
+ * WHERE clause makes this a true CAS at the SQL layer: between our
+ * logical "read" (the WHERE predicate) and the UPDATE itself, no
+ * other dispatch can sneak in a change, because PG holds the row
+ * lock for the duration of this single statement.
  *
  * Best-effort: errors are logged but don't change the dispatch
  * outcome. If cleanup fails the constraint stays and the next
@@ -218,21 +233,19 @@ async function clearNodeConstraintFromSession(input: {
   token: string;
 }): Promise<void> {
   try {
-    const session = await getSession(input.sessionId);
-    if (!session) return;
-    const metadata = session.metadata ?? {};
-    const stored = (
-      metadata as { scheduleNodeConstraints?: { token?: string } }
-    ).scheduleNodeConstraints;
-    if (!stored || stored.token !== input.token) {
-      // Another dispatch has since overwritten our constraint (or
-      // already cleared it). Doing anything here would clobber the
-      // newer state. Leave it alone.
-      return;
-    }
-    const nextMetadata = { ...metadata };
-    delete nextMetadata.scheduleNodeConstraints;
-    await updateSession(input.sessionId, { metadata: nextMetadata });
+    const { db } = await import('@/lib/core/db');
+    const { sql } = await import('drizzle-orm');
+    // PG jsonb path lookup: metadata->'scheduleNodeConstraints'->>'token'
+    // returns the token as text. Only delete the scn key when that
+    // token matches ours. The `metadata - 'key'` operator removes a
+    // single top-level key from a jsonb object.
+    await db.execute(sql`
+      UPDATE sessions
+         SET metadata = metadata - 'scheduleNodeConstraints',
+             updated_at = NOW()
+       WHERE id = ${input.sessionId}
+         AND metadata->'scheduleNodeConstraints'->>'token' = ${input.token}
+    `);
   } catch (err) {
     logger.warn('deliver:clear_node_constraint_failed', {
       sessionId: input.sessionId,
@@ -324,26 +337,33 @@ export async function deliverScheduledTask(input: {
       throw new Error(resolution.reason);
     }
     if ('node' in resolution && resolution.node) {
-      try {
-        const applied = await applyNodeConstraintToSession({
-          sessionId: task.sessionId,
-          nodeId: resolution.node.nodeID,
-        });
-        if (applied) {
-          nodeConstraintToken = applied.token;
-        }
-      } catch (err) {
-        // Best-effort: if we can't write the constraint, the LLM tool
-        // layer will fall back to selectBestNode. Log and continue.
-        logger.warn('deliver:write_node_constraint_failed', {
-          taskId: task.id,
-          sessionId: task.sessionId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+      // If we can't write the constraint to session.metadata, the
+      // LLM tool layer (execToolOnAgentd) would silently fall back
+      // to selectBestNode — routing the task to whatever node the
+      // scheduler happens to pick, ignoring the user's explicit
+      // preferredNodeId. That's worse than failing the dispatch:
+      // the user picked a specific node because they need its
+      // hardware/data/locality, and silently running elsewhere
+      // would do the wrong thing without telling them. Treat the
+      // write as required and fail-stop on error.
+      const applied = await applyNodeConstraintToSession({
+        sessionId: task.sessionId,
+        nodeId: resolution.node.nodeID,
+      });
+      if (!applied) {
+        const reason = `Failed to apply node constraint to session ${task.sessionId} for task ${task.id}.`;
+        await handleDispatchFailure(task, userId, reason);
+        throw new Error(reason);
       }
+      nodeConstraintToken = applied.token;
     }
   }
-
+  let dispatchResult: {
+    taskId: string;
+    sessionId: string;
+    runId: string;
+    status: 'dispatched';
+  } | null = null;
   try {
     const source = (await buildScheduledSource(task.sessionId)) ?? {
       type: 'scheduled' as const,
@@ -377,12 +397,12 @@ export async function deliverScheduledTask(input: {
       disabledByFailure: false,
     });
 
-    await sendScheduledTaskCompletion({
-      task,
+    dispatchResult = {
+      taskId: task.id,
+      sessionId: routed.result.sessionId,
       runId: routed.result.runId,
-      userId,
-      status: 'completed',
-    });
+      status: 'dispatched' as const,
+    };
 
     logger.info('deliver:success', {
       taskId: task.id,
@@ -390,13 +410,6 @@ export async function deliverScheduledTask(input: {
       runId: routed.result.runId,
       type: task.type,
     });
-
-    return {
-      taskId: task.id,
-      sessionId: routed.result.sessionId,
-      runId: routed.result.runId,
-      status: 'dispatched' as const,
-    };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     await handleDispatchFailure(task, userId, errorMessage);
@@ -414,6 +427,31 @@ export async function deliverScheduledTask(input: {
       });
     }
   }
+
+  // Completion notification runs OUTSIDE the dispatch try/catch so a
+  // notification failure cannot bump the task's failure counter or
+  // flip it into auto-disabled state — the dispatch already
+  // succeeded (state is persisted, runId is recorded). A buggy or
+  // transient notification error is logged but doesn't undo that.
+  // sendScheduledTaskCompletion internally swallows most errors, but
+  // we don't want to depend on that contract for correctness.
+  try {
+    await sendScheduledTaskCompletion({
+      task,
+      runId: dispatchResult.runId,
+      userId,
+      status: 'completed',
+    });
+  } catch (notifError) {
+    logger.warn('deliver:completion_notify_failed', {
+      taskId: task.id,
+      runId: dispatchResult.runId,
+      error:
+        notifError instanceof Error ? notifError.message : String(notifError),
+    });
+  }
+
+  return dispatchResult;
 }
 
 /**

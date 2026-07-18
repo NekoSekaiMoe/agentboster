@@ -40,6 +40,14 @@ function joinFsPath(base: string, child: string): string {
  *  - Linux/other: ~/.config/agentboster-cli/agent
  */
 async function resolveAgentDir(home: string): Promise<string> {
+  // NOTE: `navigator.platform` is deprecated in the Web spec but
+  // Chromium still ships it and Tauri's WebView inherits that. The
+  // correct long-term fix is `@tauri-apps/plugin-os`'s `platform()`
+  // (returns 'macos' | 'windows' | 'linux' | ...), but adding that
+  // dependency reshapes packages/desktop's yarn.lock and is tracked
+  // separately. The empty-string fallback ensures we degrade to the
+  // Linux default rather than throwing if some future Chromium
+  // build removes navigator.platform entirely.
   const platform = (navigator.platform || '').toLowerCase();
   if (platform.includes('mac')) {
     return joinFsPath(

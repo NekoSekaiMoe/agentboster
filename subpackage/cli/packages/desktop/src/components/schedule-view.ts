@@ -740,6 +740,12 @@ export class ScheduleView {
         (entry) => entry.source === 'web' && taskId(entry.raw) === editingId,
       );
       payload.active = existing ? Boolean(existing.raw.active) : true;
+      // allowedNodes has no form field (the UI only exposes
+      // preferredNodeId + autoFallbackNode). Transparently carry over
+      // the existing value so PATCH doesn't wipe a fallback list the
+      // user previously configured through the API.
+      const existingRaw = existing?.raw as WebScheduleTask | undefined;
+      payload.allowedNodes = existingRaw?.allowedNodes ?? null;
       await this.apiRequest(
         `/api/cli/schedules/${editingId}`,
         'PATCH',
@@ -896,6 +902,13 @@ export class ScheduleView {
       timezone: raw.timezone ?? DEFAULT_TIMEZONE,
       notifyChannel: raw.notifyChannel ?? null,
       remoteControl: raw.remoteControl,
+      // Carry over node routing fields — the server's PATCH handler
+      // treats missing fields as null/false, so omitting them here
+      // would silently clear the user's preferredNodeId / fallback
+      // config every time the user toggles the task on or off.
+      preferredNodeId: raw.preferredNodeId ?? null,
+      allowedNodes: raw.allowedNodes ?? null,
+      autoFallbackNode: raw.autoFallbackNode ?? false,
       active,
     };
     if (raw.type === 'daily') {
