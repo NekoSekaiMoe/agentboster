@@ -1,0 +1,83 @@
+# Lint + typecheck + unit tests for the agentboster-cli package tree
+# (subpackage/cli). This is separate from build-all.yml because:
+#  - build-all.yml produces release artifacts and runs on three OSes;
+#    it's heavyweight and only runs on main.
+#  - cli-ci.yml runs lint + tests on every PR that touches the CLI,
+#    which is what catches regressions during development.
+#
+# Path-scoped to subpackage/cli/** so root-only changes don't trigger
+# a redundant CLI runner.
+
+name: cli-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'subpackage/cli/**'
+      - '.github/workflows/cli-ci.yml'
+  pull_request:
+    paths:
+      - 'subpackage/cli/**'
+      - '.github/workflows/cli-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-typecheck:
+    name: biome + tsgo
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: subpackage/cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: subpackage/cli/yarn.lock
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      # Mirrors `yarn check:lint` from subpackage/cli/package.json.
+      # `--write` is intentional: biome auto-fixes safe issues here,
+      # then tsgo does a pure typecheck. Errors still fail the job.
+      - name: Biome + tsgo
+        run: yarn check:lint
+
+  test:
+    name: vitest (coding-agent)
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: subpackage/cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: subpackage/cli/yarn.lock
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      # Vitest is configured at the workspace root (subpackage/cli/) to
+      # pick up tests from every package; see `vitest.config.ts`. Running
+      # `yarn workspace @agentboster-cli/core test` invokes the coding-
+      # agent package's test script, which is the suite that has tests.
+      - name: Run unit tests
+        run: yarn workspace @agentboster-cli/core test
