@@ -80,6 +80,7 @@ async function fetchImChannelsForSettings(): Promise<ImChannelOption[]> {
     const { readAgentbosterDesktopAuth } = await import(
       '../agentboster-auth.js'
     );
+    const { normalizeImChannel } = await import('./im-channels.js');
     const auth = await readAgentbosterDesktopAuth();
     if (!auth) return [];
     const root = auth.url.replace(/\/+$/, '');
@@ -99,17 +100,16 @@ async function fetchImChannelsForSettings(): Promise<ImChannelOption[]> {
           : [];
     const channels: ImChannelOption[] = [];
     for (const entry of list) {
-      const item =
-        entry && typeof entry === 'object'
-          ? (entry as Record<string, unknown>)
-          : {};
-      const id = typeof item.id === 'string' ? item.id : null;
-      if (!id) continue;
-      const adapter =
-        typeof item.adapter === 'string' ? item.adapter : 'unknown';
-      const label =
-        (typeof item.label === 'string' && item.label) || adapter || id;
-      channels.push({ id, label, adapter });
+      // Reuse the shared parser so the settings picker stays in sync with
+      // the ScheduleView picker — both must accept the same backend shape
+      // (which has no `id` field, only adapter + imUserId).
+      const normalized = normalizeImChannel(entry);
+      if (!normalized) continue;
+      channels.push({
+        id: normalized.id,
+        label: normalized.label,
+        adapter: normalized.adapter,
+      });
     }
     return channels;
   } catch {
@@ -2405,7 +2405,7 @@ export class SettingsPanel {
                 <div class="settings-label">When closing the window</div>
                 <div class="settings-desc">Controls what happens when you click the window close button. The tray icon is always available for bringing the app back.</div>
               </div>
-              <select class="settings_select" .value=${this.state.closeAction} @change=${(e: Event) => this.setCloseAction((e.target as HTMLSelectElement).value as CloseActionPreference)}>
+              <select class="settings-select" .value=${this.state.closeAction} @change=${(e: Event) => this.setCloseAction((e.target as HTMLSelectElement).value as CloseActionPreference)}>
                 <option value="ask">Ask every time</option>
                 <option value="tray">Minimize to tray</option>
                 <option value="quit">Quit Agentboster</option>
@@ -2421,7 +2421,7 @@ export class SettingsPanel {
                 <div class="settings-desc">Pre-selected channel when creating a new scheduled task. Choose “System notification” to use desktop notifications.</div>
               </div>
               <select
-                class="settings_select"
+                class="settings-select"
                 ?disabled=${this.imChannelsLoading}
                 .value=${this.state.defaultImChannel}
                 @change=${(e: Event) =>

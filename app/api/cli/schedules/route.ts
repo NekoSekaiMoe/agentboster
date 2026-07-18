@@ -20,6 +20,7 @@ import {
 } from '@/lib/cli/schedule-serialization';
 import {
   createScheduledTask,
+  deleteScheduledTask,
   getScheduledTask,
   listScheduledTasks,
   updateScheduledTask,
@@ -107,9 +108,42 @@ export const POST = withCliAuth(async (req, { userId }) => {
       remoteControl,
     });
 
-    const run = await start(scheduledTaskWorkflow, [task.id]);
+    let run: Awaited<ReturnType<typeof start>>;
+    try {
+      run = await start(scheduledTaskWorkflow, [task.id]);
+    } catch (error) {
+      // Workflow start failed — roll back the task so we don't leave an
+      // active row with no run instance tracking it.
+      await deleteScheduledTask(task.id).catch((deleteError) => {
+        logger.warn('create:delay:rollback_failed', {
+          taskId: task.id,
+          error:
+            deleteError instanceof Error
+              ? deleteError.message
+              : String(deleteError),
+        });
+      });
+      throw error;
+    }
+
     await updateScheduledTask(task.id, {
       scheduleWorkflowRunId: run.runId,
+    }).catch(async (updateError) => {
+      // runId write failed — cancel the orphan run so it doesn't fire
+      // untracked, then surface the error.
+      try {
+        const { getRun } = await import('workflow/api');
+        await getRun(run.runId).cancel();
+      } catch (cancelError) {
+        logger.warn('create:delay:cancel_orphan_failed', {
+          runId: run.runId,
+          error:
+            cancelError instanceof Error
+              ? cancelError.message
+              : String(cancelError),
+        });
+      }
+      throw updateError;
     });
 
     logger.info('create:delay:started', {
@@ -117,7 +151,12 @@ export const POST = withCliAuth(async (req, { userId }) => {
       runId: run.runId,
     });
 
-    return Response.json({ ok: true, task: serializeScheduledTask(task) });
+    // Re-fetch so the response carries the persisted scheduleWorkflowRunId.
+    const refreshed = await getScheduledTask(task.id, { userId });
+    return Response.json({
+      ok: true,
+      task: serializeScheduledTask(refreshed ?? task),
+    });
   }
 
   const timeZone = input.timezone ?? getDefaultScheduleTimezone();
@@ -141,9 +180,38 @@ export const POST = withCliAuth(async (req, { userId }) => {
     remoteControl,
   });
 
-  const run = await start(scheduledTaskWorkflow, [task.id]);
+  let run: Awaited<ReturnType<typeof start>>;
+  try {
+    run = await start(scheduledTaskWorkflow, [task.id]);
+  } catch (error) {
+    await deleteScheduledTask(task.id).catch((deleteError) => {
+      logger.warn('create:daily:rollback_failed', {
+        taskId: task.id,
+        error:
+          deleteError instanceof Error
+            ? deleteError.message
+            : String(deleteError),
+      });
+    });
+    throw error;
+  }
+
   await updateScheduledTask(task.id, {
     scheduleWorkflowRunId: run.runId,
+  }).catch(async (updateError) => {
+    try {
+      const { getRun } = await import('workflow/api');
+      await getRun(run.runId).cancel();
+    } catch (cancelError) {
+      logger.warn('create:daily:cancel_orphan_failed', {
+        runId: run.runId,
+        error:
+          cancelError instanceof Error
+            ? cancelError.message
+            : String(cancelError),
+      });
+    }
+    throw updateError;
   });
 
   logger.info('create:daily:started', {

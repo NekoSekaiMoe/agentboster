@@ -62,7 +62,9 @@ function getTaskIdFromUrl(request: Request): string | null {
   return match?.[1] ?? null;
 }
 
-async function cancelScheduleRun(runId: string | null | undefined) {
+async function cancelScheduleRun(
+  runId: string | null | undefined,
+): Promise<void> {
   if (!runId) {
     return;
   }
@@ -73,6 +75,9 @@ async function cancelScheduleRun(runId: string | null | undefined) {
       runId,
       error: error instanceof Error ? error.message : String(error),
     });
+    throw new Error(
+      `Failed to cancel previous schedule run ${runId}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -159,12 +164,54 @@ export const PATCH = withCliAuth(async (request, { userId }) => {
   );
 
   if (task.active) {
-    const run = await start(scheduledTaskWorkflow, [taskId]);
-    await updateScheduledTask(
-      taskId,
-      { scheduleWorkflowRunId: run.runId },
-      { userId },
-    );
+    let run: Awaited<ReturnType<typeof start>>;
+    try {
+      run = await start(scheduledTaskWorkflow, [taskId]);
+    } catch (startError) {
+      // Start failed — mark the task inactive so it doesn't read as
+      // "active but unscheduled", and surface the error. The previous
+      // run was already cancelled, so we don't need to cancel again.
+      await updateScheduledTask(taskId, { active: false }, { userId }).catch(
+        (markError) => {
+          logger.warn('schedule:patch:mark_inactive_failed', {
+            taskId,
+            error:
+              markError instanceof Error
+                ? markError.message
+                : String(markError),
+          });
+        },
+      );
+      throw startError;
+    }
+
+    try {
+      await updateScheduledTask(
+        taskId,
+        { scheduleWorkflowRunId: run.runId },
+        { userId },
+      );
+    } catch (updateError) {
+      // runId write failed — cancel the orphan run so it doesn't fire
+      // untracked, and mark the task inactive.
+      try {
+        await getRun(run.runId).cancel();
+      } catch (cancelError) {
+        logger.warn('schedule:patch:cancel_orphan_failed', {
+          runId: run.runId,
+          error:
+            cancelError instanceof Error
+              ? cancelError.message
+              : String(cancelError),
+        });
+      }
+      await updateScheduledTask(taskId, { active: false }, { userId }).catch(
+        () => {
+          // best-effort
+        },
+      );
+      throw updateError;
+    }
   }
 
   return Response.json({ ok: true });
@@ -184,7 +231,11 @@ export const DELETE = withCliAuth(async (request, { userId }) => {
     return notFound();
   }
 
+  // Cancel the live run first. If cancellation fails we MUST NOT delete the
+  // task row — otherwise the orphaned run will fire against a missing task
+  // and there will be no handle to retry cancellation later.
   await cancelScheduleRun(existing.scheduleWorkflowRunId);
+
   await deleteScheduledTask(taskId, { userId });
 
   return Response.json({ ok: true });

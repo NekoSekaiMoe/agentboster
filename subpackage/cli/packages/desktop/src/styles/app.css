@@ -8491,7 +8491,7 @@ kbd {
 	-webkit-line-clamp: 3;
 	-webkit-box-orient: vertical;
 	white-space: pre-wrap;
-	word-break: break-word;
+	overflow-wrap: anywhere;
 }
 
 .schedule-card-meta {

@@ -14,6 +14,21 @@ export interface LocalScheduleTask {
   updatedAt: string;
 }
 
+/**
+ * Error thrown when persisting schedule tasks fails (quota exceeded,
+ * serialization error, storage disabled in privacy modes, etc.).
+ * Callers should surface this to the user instead of pretending the
+ * write succeeded.
+ */
+export class ScheduleStorageError extends Error {
+  readonly cause: unknown;
+  constructor(message: string, cause: unknown) {
+    super(message);
+    this.name = 'ScheduleStorageError';
+    this.cause = cause;
+  }
+}
+
 const STORAGE_KEY = 'desktop-schedule-tasks.v1';
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -27,33 +42,30 @@ function normalizeTask(value: unknown): LocalScheduleTask | null {
   if (typeof task.id !== 'string' || task.id.length === 0) return null;
   const type = task.type === 'daily' ? 'daily' : 'delay';
   const title =
-    typeof task.title === 'string' && task.title.length > 0
-      ? task.title
-      : null;
+    typeof task.title === 'string' && task.title.length > 0 ? task.title : null;
   if (typeof task.prompt !== 'string' || task.prompt.length === 0) return null;
   return {
     id: task.id,
     type,
     title,
     prompt: task.prompt,
-    timezone:
-      typeof task.timezone === 'string' ? task.timezone : null,
-    dailyTime:
-      typeof task.dailyTime === 'string' ? task.dailyTime : null,
-    nextRunAt:
-      typeof task.nextRunAt === 'string' ? task.nextRunAt : null,
+    timezone: typeof task.timezone === 'string' ? task.timezone : null,
+    dailyTime: typeof task.dailyTime === 'string' ? task.dailyTime : null,
+    nextRunAt: typeof task.nextRunAt === 'string' ? task.nextRunAt : null,
     lastTriggeredAt:
-      typeof task.lastTriggeredAt === 'string'
-        ? task.lastTriggeredAt
-        : null,
+      typeof task.lastTriggeredAt === 'string' ? task.lastTriggeredAt : null,
     active: task.active !== false,
     notifyChannel:
       typeof task.notifyChannel === 'string' ? task.notifyChannel : null,
     remoteControl: task.remoteControl === true,
     createdAt:
-      typeof task.createdAt === 'string' ? task.createdAt : new Date().toISOString(),
+      typeof task.createdAt === 'string'
+        ? task.createdAt
+        : new Date().toISOString(),
     updatedAt:
-      typeof task.updatedAt === 'string' ? task.updatedAt : new Date().toISOString(),
+      typeof task.updatedAt === 'string'
+        ? task.updatedAt
+        : new Date().toISOString(),
   };
 }
 
@@ -71,13 +83,27 @@ export function loadLocalScheduleTasks(): LocalScheduleTask[] {
   }
 }
 
-export function saveLocalScheduleTasks(
-  tasks: LocalScheduleTask[],
-): void {
+export function saveLocalScheduleTasks(tasks: LocalScheduleTask[]): void {
+  // Surface persistence failures to the caller. Quota-exceeded, private
+  // mode storage being unavailable, and serialization errors all need
+  // to be reported — otherwise the UI shows "saved" while nothing was
+  // actually written, and the user loses the task on next reload.
+  let serialized: string;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-  } catch {
-    // ignore quota / serialization errors
+    serialized = JSON.stringify(tasks);
+  } catch (err) {
+    throw new ScheduleStorageError(
+      'Failed to serialize schedule tasks for storage.',
+      err,
+    );
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, serialized);
+  } catch (err) {
+    throw new ScheduleStorageError(
+      'Failed to persist schedule tasks to local storage (quota or access denied).',
+      err,
+    );
   }
 }
 
@@ -95,9 +121,7 @@ export function upsertLocalScheduleTask(
   return tasks;
 }
 
-export function deleteLocalScheduleTask(
-  id: string,
-): LocalScheduleTask[] {
+export function deleteLocalScheduleTask(id: string): LocalScheduleTask[] {
   const tasks = loadLocalScheduleTasks().filter((entry) => entry.id !== id);
   saveLocalScheduleTasks(tasks);
   return tasks;

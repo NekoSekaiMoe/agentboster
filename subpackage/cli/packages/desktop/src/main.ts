@@ -93,7 +93,14 @@ interface WorkspaceState {
   emoji: string | null;
   pinned: boolean;
   leftMode: SidebarMode;
-  pane: 'chat' | 'file' | 'packages' | 'settings' | 'terminal' | 'agentd-vnc' | 'schedule';
+  pane:
+    | 'chat'
+    | 'file'
+    | 'packages'
+    | 'settings'
+    | 'terminal'
+    | 'agentd-vnc'
+    | 'schedule';
   activeProjectId: string | null;
   activeProjectPath: string | null;
   filePath: string | null;
@@ -5401,6 +5408,20 @@ function renderApp(): void {
     scheduleView.setOnNotify((message, kind) => {
       chatView?.notify(message, kind);
     });
+    // Provide the active backend session id so Web scheduled-task creation
+    // can attach to a real session. The provider reads the chat-view's
+    // last known backend session id (which is refreshed every time the
+    // chat state syncs); when it is null (no chat view yet, or the
+    // runtime has not bound to a backend session), the form falls back
+    // to the user's most recent backend session via GET /api/cli/sessions.
+    scheduleView.setSessionIdProvider(() => {
+      try {
+        const sid = chatView?.getActiveBackendSessionId?.() ?? null;
+        return sid && sid.length > 0 ? sid : null;
+      } catch {
+        return null;
+      }
+    });
 
     scheduleService = new ScheduleService();
     scheduleService.setTriggerCallback(async (task) => {
@@ -5430,9 +5451,10 @@ function renderApp(): void {
         }
         if (!granted) return;
         const title = task.title?.trim() || 'AgentBoster 定时任务';
-        const body = result.status === 'completed'
-          ? `任务已完成：${task.prompt.slice(0, 120)}`
-          : `任务失败：${result.error ?? '未知错误'}`;
+        const body =
+          result.status === 'completed'
+            ? `任务已完成：${task.prompt.slice(0, 120)}`
+            : `任务失败：${result.error ?? '未知错误'}`;
         sendNotification({
           title,
           body,

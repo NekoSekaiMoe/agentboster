@@ -9,6 +9,7 @@ import {
   upsertLocalScheduleTask,
   type LocalScheduleTask,
 } from '../schedule/schedule-storage.js';
+import { normalizeImChannel, type ImChannelEntry } from './im-channels.js';
 
 type TaskSource = 'web' | 'local';
 
@@ -41,11 +42,7 @@ interface WebScheduleTask {
   remoteControl: boolean;
 }
 
-interface ImChannel {
-  id: string;
-  label: string;
-  adapter: string;
-}
+interface ImChannel extends ImChannelEntry {}
 
 type FilterKind = 'all' | 'web' | 'local' | 'active' | 'archived';
 
@@ -109,20 +106,6 @@ function normalizeWebTask(value: unknown): WebScheduleTask | null {
   };
 }
 
-function normalizeImChannel(value: unknown): ImChannel | null {
-  const channel = asRecord(value);
-  const id = asString(channel.id);
-  if (!id) return null;
-  return {
-    id,
-    label:
-      asString(channel.label) ??
-      asString(channel.adapter) ??
-      id,
-    adapter: asString(channel.adapter) ?? 'unknown',
-  };
-}
-
 export function getDefaultImChannel(): string {
   try {
     return localStorage.getItem(DEFAULT_CHANNEL_STORAGE_KEY) ?? '';
@@ -178,7 +161,10 @@ function formatDate(value: string | null): string {
 }
 
 function newTaskId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
     return crypto.randomUUID();
   }
   return `t_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -208,12 +194,127 @@ function emptyForm(): FormState {
   };
 }
 
-function computeDelayNextRunAt(runAtLocal: string, timezone: string): string | null {
-  if (!runAtLocal) return null;
-  const date = new Date(runAtLocal);
-  if (!Number.isFinite(date.getTime())) return null;
-  void timezone;
-  return date.toISOString();
+/**
+ * Format an ISO timestamp into the value expected by
+ * `<input type="datetime-local">` (`YYYY-MM-DDTHH:mm`, no timezone suffix),
+ * interpreted in the given IANA timezone. Returns empty string when the
+ * input is not parseable so the input clears instead of silently falling
+ * back to the browser's local zone.
+ */
+function isoToDatetimeLocal(iso: string | null, timezone: string): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || undefined,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const get = (type: string): string =>
+      parts.find((p) => p.type === type)?.value ?? '';
+    const year = get('year');
+    const month = get('month');
+    const day = get('day');
+    const hour = get('hour') === '24' ? '00' : get('hour');
+    const minute = get('minute');
+    if (!year || !month || !day || !hour || !minute) return '';
+    return `${year}-${month}-${day}T${hour}:${minute}`;
+  } catch {
+    // Invalid timezone — fall back to local interpretation.
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+      date.getDate(),
+    )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+}
+
+/**
+ * Parse a `datetime-local` string (interpreted in the given IANA timezone)
+ * into an ISO string. Returns null when the input is empty or invalid.
+ *
+ * `datetime-local` inputs yield a wall-clock string with no zone; to turn
+ * that into an absolute instant we have to tell the runtime which zone the
+ * wall clock is in. We do that with the long-form "wall-time → UTC"
+ * algorithm: pin the wall-clock fields, walk to the next midnight in the
+ * target zone, and compare the wall-time delta. This avoids pulling in a
+ * heavy tz data dependency at runtime.
+ */
+function datetimeLocalToIso(local: string, timezone: string): string | null {
+  if (!local) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(local.trim());
+  if (!match) return null;
+  const [, y, mo, d, h, mi] = match;
+  const year = Number.parseInt(y, 10);
+  const month = Number.parseInt(mo, 10);
+  const day = Number.parseInt(d, 10);
+  const hour = Number.parseInt(h, 10);
+  const minute = Number.parseInt(mi, 10);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute)
+  ) {
+    return null;
+  }
+
+  // Build the same wall-clock instant in UTC and in the target zone, then
+  // diff. The diff is the offset we need to subtract from the UTC instant
+  // to get the actual moment the user meant.
+  const wallUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  try {
+    // Intl can throw on invalid timezone — guard with try/catch.
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone || undefined,
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    const parts = formatter.formatToParts(new Date(wallUtc));
+    const get = (type: string): number => {
+      const v = parts.find((p) => p.type === type)?.value ?? '';
+      return Number.parseInt(v, 10);
+    };
+    const zYear = get('year');
+    const zMonth = get('month');
+    const zDay = get('day');
+    const zHour = get('hour') === 24 ? 0 : get('hour');
+    const zMinute = get('minute');
+    const zSecond = get('second');
+    const wallInZone = Date.UTC(
+      zYear,
+      zMonth - 1,
+      zDay,
+      zHour,
+      zMinute,
+      zSecond,
+      0,
+    );
+    const offsetMs = wallInZone - wallUtc;
+    const absolute = wallUtc - offsetMs;
+    return new Date(absolute).toISOString();
+  } catch {
+    // Invalid timezone — treat as browser local.
+    const localDate = new Date(year, month - 1, day, hour, minute, 0, 0);
+    return localDate.toISOString();
+  }
+}
+
+function computeDelayNextRunAt(
+  runAtLocal: string,
+  timezone: string,
+): string | null {
+  return datetimeLocalToIso(runAtLocal, timezone);
 }
 
 function computeDailyNextRunAt(
@@ -225,15 +326,31 @@ function computeDailyNextRunAt(
   const hour = Number.parseInt(match[1], 10);
   const minute = Number.parseInt(match[2], 10);
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+  // Find the next wall-clock occurrence of `hour:minute` in `timezone`
+  // that is strictly after now. Walk day-by-day (max 2 days to skip
+  // a same-day slot that already passed).
   const now = new Date();
-  const candidate = new Date();
-  candidate.setSeconds(0, 0);
-  candidate.setHours(hour, minute, 0);
-  if (candidate.getTime() <= now.getTime()) {
-    candidate.setDate(candidate.getDate() + 1);
+  for (let offsetDays = 0; offsetDays < 3; offsetDays++) {
+    const candidate = new Date(now);
+    candidate.setUTCDate(candidate.getUTCDate() + offsetDays);
+    const year = candidate.getUTCFullYear();
+    const month = candidate.getUTCMonth();
+    const day = candidate.getUTCDate();
+    // Construct a datetime-local-style string and reuse the local→ISO
+    // conversion so DST and timezone offsets are handled consistently.
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const local = `${year}-${pad(month + 1)}-${pad(day)}T${pad(hour)}:${pad(
+      minute,
+    )}`;
+    const iso = datetimeLocalToIso(local, timezone);
+    if (!iso) continue;
+    const instant = new Date(iso).getTime();
+    if (instant > now.getTime()) {
+      return iso;
+    }
   }
-  void timezone;
-  return candidate.toISOString();
+  return null;
 }
 
 export class ScheduleView {
@@ -242,6 +359,7 @@ export class ScheduleView {
   private onNotify:
     | ((message: string, kind: 'info' | 'success' | 'error') => void)
     | null = null;
+  private sessionIdProvider: (() => string | null) | null = null;
 
   private auth: AgentbosterDesktopAuth | null = null;
   private tasks: UnifiedTask[] = [];
@@ -264,6 +382,18 @@ export class ScheduleView {
     this.onBack = callback;
   }
 
+  /**
+   * Inject a provider returning the currently active backend session UUID,
+   * if any. Scheduled tasks must reference an existing backend session, so
+   * the Web-task creation flow reads this value (or, when null, falls back
+   * to the user's most recent session on the backend). When neither is
+   * available, creating or migrating to a Web task is blocked with an
+   * actionable error.
+   */
+  setSessionIdProvider(provider: () => string | null): void {
+    this.sessionIdProvider = provider;
+  }
+
   setOnNotify(
     callback: (message: string, kind: 'info' | 'success' | 'error') => void,
   ): void {
@@ -278,8 +408,39 @@ export class ScheduleView {
     // nothing persistent to tear down
   }
 
-  private notify(message: string, kind: 'info' | 'success' | 'error' = 'info'): void {
+  private notify(
+    message: string,
+    kind: 'info' | 'success' | 'error' = 'info',
+  ): void {
     this.onNotify?.(message, kind);
+  }
+
+  /**
+   * Resolve a backend session id for the Web-task payload. Prefer the
+   * injected provider (the currently active chat session). When that is
+   * missing, fall back to the user's most recently updated backend
+   * session. Returns null when neither is available (e.g. the user has
+   * never opened a backend session from this account).
+   */
+  private async resolveWebSessionId(): Promise<string | null> {
+    const direct = this.sessionIdProvider?.() ?? null;
+    if (direct) return direct;
+
+    if (!this.auth) return null;
+    try {
+      const root = this.auth.url.replace(/\/+$/, '');
+      const response = await fetch(`${root}/api/cli/sessions?limit=1`, {
+        headers: { authorization: `Bearer ${this.auth.token}` },
+      });
+      const body = (await response.json().catch(() => null)) as unknown;
+      if (!response.ok) return null;
+      const list = asRecord(body);
+      const sessions = Array.isArray(list.sessions) ? list.sessions : [];
+      const first = asRecord(sessions[0]);
+      return asString(first.id);
+    } catch {
+      return null;
+    }
   }
 
   private async refresh(): Promise<void> {
@@ -376,14 +537,23 @@ export class ScheduleView {
     );
     if (!task) return;
     const raw = task.raw;
+    const timezone = raw.timezone ?? DEFAULT_TIMEZONE;
+    // Convert the ISO nextRunAt back into the wall-clock value the
+    // `<input type="datetime-local">` expects, interpreted in the
+    // task's own timezone. Feeding the raw ISO string directly clears
+    // the input in most browsers.
+    const delayLocal =
+      raw.type === 'delay'
+        ? isoToDatetimeLocal(raw.nextRunAt ?? '', timezone)
+        : '';
     this.editing = { source, id };
     this.form = {
       type: raw.type,
       title: raw.title ?? '',
       prompt: raw.prompt,
-      timezone: raw.timezone ?? DEFAULT_TIMEZONE,
+      timezone,
       dailyTime: raw.dailyTime ?? '09:00',
-      runAt: raw.nextRunAt ?? '',
+      runAt: delayLocal,
       notifyChannel: raw.notifyChannel ?? getDefaultImChannel(),
       remoteControl: raw.remoteControl,
       source,
@@ -405,7 +575,21 @@ export class ScheduleView {
       this.notify('请输入任务提示词', 'error');
       return;
     }
-    const isImRoute = form.remoteControl || form.notifyChannel.startsWith('im:');
+    const isImRoute =
+      form.remoteControl || form.notifyChannel.startsWith('im:');
+    // When editing an existing local task we MUST NOT silently migrate it
+    // to a Web task: the user picked "local" when they created it, and a
+    // PATCH/POST against the Web API would orphan the local row. Block the
+    // implicit migration and ask the user to delete + recreate instead.
+    const editingLocal =
+      this.editing !== null && this.editing.source === 'local';
+    if (editingLocal && isImRoute) {
+      this.notify(
+        '当前为本地任务，无法切换到 IM/远程控制路由。请删除后新建 Web 任务。',
+        'error',
+      );
+      return;
+    }
     const targetSource: TaskSource = isImRoute ? 'web' : form.source;
 
     this.saving = true;
@@ -421,10 +605,7 @@ export class ScheduleView {
       this.notify('已保存任务', 'success');
       await this.refresh();
     } catch (err) {
-      this.notify(
-        err instanceof Error ? err.message : String(err),
-        'error',
-      );
+      this.notify(err instanceof Error ? err.message : String(err), 'error');
     } finally {
       this.saving = false;
       this.render();
@@ -432,6 +613,12 @@ export class ScheduleView {
   }
 
   private async saveWebTask(form: FormState): Promise<void> {
+    const editingId =
+      this.editing && this.editing.source === 'web' ? this.editing.id : null;
+
+    // For PATCH we need to send the full task body (the server recomputes
+    // times and rebuilds the workflow run from the payload). For POST we
+    // also need sessionId — the backend rejects the request without it.
     const payload: Record<string, unknown> = {
       type: form.type,
       title: form.title.trim() || null,
@@ -447,25 +634,44 @@ export class ScheduleView {
       if (!next) throw new Error('请输入有效的触发时间');
       payload.runAt = next;
     }
-    const editingId =
-      this.editing && this.editing.source === 'web' ? this.editing.id : null;
+
     if (editingId) {
+      // Carry over `active` from the existing task so PATCH doesn't
+      // accidentally re-enable a disabled task (or disable an active one).
+      const existing = this.tasks.find(
+        (entry) => entry.source === 'web' && taskId(entry.raw) === editingId,
+      );
+      payload.active = existing ? Boolean(existing.raw.active) : true;
       await this.apiRequest(
         `/api/cli/schedules/${editingId}`,
         'PATCH',
         payload,
       );
-    } else {
-      await this.apiRequest('/api/cli/schedules', 'POST', payload);
+      return;
     }
+
+    const sessionId = await this.resolveWebSessionId();
+    if (!sessionId) {
+      throw new Error(
+        '未找到可关联的后端会话。请先在 Web 端创建会话，或在桌面端打开一个聊天会话后再试。',
+      );
+    }
+    payload.sessionId = sessionId;
+    await this.apiRequest('/api/cli/schedules', 'POST', payload);
   }
 
   private saveLocalTask(form: FormState): void {
     const now = new Date().toISOString();
     const editingId =
-      this.editing && this.editing.source === 'local'
-        ? this.editing.id
-        : null;
+      this.editing && this.editing.source === 'local' ? this.editing.id : null;
+
+    // When editing, preserve the existing active / lastTriggeredAt /
+    // createdAt so we don't reset task history or silently re-enable a
+    // disabled task. Only the form-editable fields are overwritten.
+    const existing = editingId
+      ? loadLocalScheduleTasks().find((entry) => entry.id === editingId)
+      : null;
+
     const id = editingId ?? newTaskId();
     const nextRunAt =
       form.type === 'daily'
@@ -479,11 +685,12 @@ export class ScheduleView {
       timezone: form.timezone.trim() || null,
       dailyTime: form.type === 'daily' ? form.dailyTime : null,
       nextRunAt,
-      lastTriggeredAt: null,
-      active: true,
+      // Preserve execution state when editing; fresh defaults for new tasks.
+      lastTriggeredAt: existing?.lastTriggeredAt ?? null,
+      active: existing ? existing.active : true,
       notifyChannel: form.notifyChannel || null,
       remoteControl: false,
-      createdAt: now,
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
     upsertLocalScheduleTask(task);
@@ -491,9 +698,13 @@ export class ScheduleView {
 
   private async deleteTask(source: TaskSource, id: string): Promise<void> {
     if (source === 'local') {
-      deleteLocalScheduleTask(id);
-      this.notify('已删除本地任务', 'success');
-      await this.refresh();
+      try {
+        deleteLocalScheduleTask(id);
+        this.notify('已删除本地任务', 'success');
+        await this.refresh();
+      } catch (err) {
+        this.notify(err instanceof Error ? err.message : String(err), 'error');
+      }
       return;
     }
     try {
@@ -511,18 +722,56 @@ export class ScheduleView {
     active: boolean,
   ): Promise<void> {
     if (source === 'local') {
-      const tasks = loadLocalScheduleTasks();
-      const target = tasks.find((entry) => entry.id === id);
-      if (target) {
-        target.active = active;
-        target.updatedAt = new Date().toISOString();
-        upsertLocalScheduleTask(target);
+      try {
+        const tasks = loadLocalScheduleTasks();
+        const target = tasks.find((entry) => entry.id === id);
+        if (target) {
+          target.active = active;
+          target.updatedAt = new Date().toISOString();
+          upsertLocalScheduleTask(target);
+        }
+        await this.refresh();
+      } catch (err) {
+        this.notify(err instanceof Error ? err.message : String(err), 'error');
       }
-      await this.refresh();
       return;
     }
+    // Web PATCH expects a full task body (the server recomputes times and
+    // rebuilds the workflow from the payload). Sending only `{ active }`
+    // would 400 because prompt / type / etc. are required. Re-fetch the
+    // task from the cached list and send the full body.
+    const existing = this.tasks.find(
+      (entry) => entry.source === 'web' && taskId(entry.raw) === id,
+    );
+    if (!existing) {
+      this.notify('找不到任务，无法切换状态', 'error');
+      return;
+    }
+    const raw = existing.raw as WebScheduleTask;
+    const payload: Record<string, unknown> = {
+      type: raw.type,
+      title: raw.title ?? null,
+      prompt: raw.prompt,
+      timezone: raw.timezone ?? DEFAULT_TIMEZONE,
+      notifyChannel: raw.notifyChannel ?? null,
+      remoteControl: raw.remoteControl,
+      active,
+    };
+    if (raw.type === 'daily') {
+      payload.dailyTime = raw.dailyTime ?? '09:00';
+    } else {
+      // For delay tasks, fall back to nextRunAt when the task hasn't
+      // fired yet; if it has, the server still needs a valid future
+      // instant to schedule. Use the original nextRunAt if it's still
+      // in the future, otherwise push it out by a day.
+      const fallback =
+        raw.nextRunAt && new Date(raw.nextRunAt).getTime() > Date.now()
+          ? raw.nextRunAt
+          : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      payload.runAt = fallback;
+    }
     try {
-      await this.apiRequest(`/api/cli/schedules/${id}`, 'PATCH', { active });
+      await this.apiRequest(`/api/cli/schedules/${id}`, 'PATCH', payload);
       await this.refresh();
     } catch (err) {
       this.notify(err instanceof Error ? err.message : String(err), 'error');
@@ -651,7 +900,8 @@ export class ScheduleView {
     if (!this.showCreateForm) return html``;
     const form = this.form;
     const editingWeb = this.editing?.source === 'web';
-    const isImRoute = form.remoteControl || form.notifyChannel.startsWith('im:');
+    const isImRoute =
+      form.remoteControl || form.notifyChannel.startsWith('im:');
     return html`
       <div class="schedule-form-panel">
         <div class="schedule-form-header">
@@ -742,8 +992,9 @@ export class ScheduleView {
             }}
           />
         </label>
-        ${form.type === 'daily'
-          ? html`
+        ${
+          form.type === 'daily'
+            ? html`
               <label class="schedule-field">
                 <span class="schedule-field-label">每日时间（HH:mm）</span>
                 <input
@@ -751,12 +1002,14 @@ export class ScheduleView {
                   type="time"
                   .value=${form.dailyTime}
                   @input=${(e: Event) => {
-                    this.form.dailyTime = (e.currentTarget as HTMLInputElement).value;
+                    this.form.dailyTime = (
+                      e.currentTarget as HTMLInputElement
+                    ).value;
                   }}
                 />
               </label>
             `
-          : html`
+            : html`
               <label class="schedule-field">
                 <span class="schedule-field-label">触发时间</span>
                 <input
@@ -764,18 +1017,23 @@ export class ScheduleView {
                   type="datetime-local"
                   .value=${form.runAt}
                   @input=${(e: Event) => {
-                    this.form.runAt = (e.currentTarget as HTMLInputElement).value;
+                    this.form.runAt = (
+                      e.currentTarget as HTMLInputElement
+                    ).value;
                   }}
                 />
               </label>
-            `}
+            `
+        }
         <label class="schedule-field">
           <span class="schedule-field-label">通知渠道</span>
           <select
             class="schedule-select"
             .value=${form.notifyChannel}
             @change=${(e: Event) => {
-              this.form.notifyChannel = (e.currentTarget as HTMLSelectElement).value;
+              this.form.notifyChannel = (
+                e.currentTarget as HTMLSelectElement
+              ).value;
               this.render();
             }}
           >
@@ -787,17 +1045,21 @@ export class ScheduleView {
             type="checkbox"
             .checked=${form.remoteControl}
             @change=${(e: Event) => {
-              this.form.remoteControl = (e.currentTarget as HTMLInputElement).checked;
+              this.form.remoteControl = (
+                e.currentTarget as HTMLInputElement
+              ).checked;
               this.render();
             }}
           />
           <span>远程操控（将通过 IM 渠道反向控制）</span>
         </label>
-        ${isImRoute && form.source === 'local'
-          ? html`<div class="schedule-hint">
+        ${
+          isImRoute && form.source === 'local'
+            ? html`<div class="schedule-hint">
               远程操控任务将创建在 Web 后端。
             </div>`
-          : nothing}
+            : nothing
+        }
         <div class="schedule-form-actions">
           <button
             class="schedule-action-btn"
@@ -836,12 +1098,16 @@ export class ScheduleView {
           <span class="schedule-badge channel">
             ${describeChannel(raw.notifyChannel)}
           </span>
-          ${raw.remoteControl
-            ? html`<span class="schedule-badge remote">远程</span>`
-            : nothing}
-          ${archived
-            ? html`<span class="schedule-badge inactive">已停用</span>`
-            : nothing}
+          ${
+            raw.remoteControl
+              ? html`<span class="schedule-badge remote">远程</span>`
+              : nothing
+          }
+          ${
+            archived
+              ? html`<span class="schedule-badge inactive">已停用</span>`
+              : nothing
+          }
           <span class="schedule-card-spacer"></span>
           <button
             class="schedule-icon-btn"

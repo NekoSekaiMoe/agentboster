@@ -73,8 +73,17 @@ export async function sendScheduledTaskCompletion(input: {
   const remoteControl = task.remoteControl ?? false;
 
   try {
-    const useDesktop =
-      notifyChannel === 'desktop' || (!notifyChannel && !remoteControl);
+    // Routing rules (see schema/scheduled.ts notifyChannel comment):
+    //  - 'desktop':        force a desktop KV notification.
+    //  - null/'default':   follow the user's notification_preferences via
+    //                      the IM path; falls back to desktop if no IM
+    //                      preference is configured.
+    //  - 'im:auto'/...:    explicit IM routing (handled below).
+    // When `remoteControl` is true the user expects the task to drive a
+    // CLI / IM session, so a desktop KV notification is not useful —
+    // route through the IM path even when notifyChannel is empty.
+    const explicitDesktop = notifyChannel === 'desktop';
+    const useDesktop = explicitDesktop && !remoteControl;
 
     if (useDesktop) {
       await writeDesktopNotification({
