@@ -1042,70 +1042,123 @@ async function startWebSessionBridge(
   // working on" signal we have at this layer.
   const cwd = process.cwd();
 
-  if (capabilities.hasMcpBinary && capabilities.hasDisplay) {
-    try {
-      await startMcpServer(sessionId);
-      tools.push(
-        'screenshot',
-        'mouse_move',
-        'mouse_click',
-        'mouse_drag',
-        'key_event',
-        'type_text',
-        'get_accessibility_tree',
-        'get_focused_element',
-      );
-    } catch (error) {
-      rpcLogger.warn(
-        'MCP server failed to start; computer-use tools disabled',
-        {
-          error,
-        },
-      );
-    }
-  }
+  // Transactional startup: each successful step records a rollback
+  // action; if a later step fails, we run the rollbacks in reverse
+  // order. Only when *every* step succeeds do we publish the handles
+  // to the module-level vars that shutdown() drains. Otherwise a
+  // partial start would leave the registrar advertising this CLI as
+  // online with no SSE listener to serve tool-requests, plus a leaked
+  // MCP child process.
+  const rollbacks: Array<() => Promise<void>> = [];
+  let localMcpStarted = false;
+  let localRegistrar: RegistrarHandle | null = null;
+  let localStream: SessionEventStreamHandle | null = null;
 
-  registrarHandle = await startCliSessionRegistrar({
-    backendUrl,
-    token: auth.token,
-    sessionId,
-    tools,
-    capabilities,
-    cwd,
-  });
-
-  sessionStreamHandle = await connectSessionEventStream({
-    backendUrl,
-    token: auth.token,
-    sessionId,
-    onToolRequest: async (request) => {
-      // Execute the tool locally and POST the result back. We reuse
-      // remote-control-mode's executor since the tool set is identical.
-      // Pass `auth` so write/exec tools go through the L0/L1/L2 gate.
-      // RPC mode has no TTY/approver, so any L2-confirm is fail-closed.
+  try {
+    if (capabilities.hasMcpBinary && capabilities.hasDisplay) {
       try {
-        const { executeLocalTool } = await import(
-          '../remote-control/tool-executor.ts'
-        );
-        const output = await executeLocalTool(
-          request.toolName,
-          request.toolInput,
-          { auth },
-        );
-        await postToolResult(backendUrl, auth.token, sessionId, {
-          toolCallId: request.toolCallId,
-          ok: true,
-          output,
+        await startMcpServer(sessionId);
+        localMcpStarted = true;
+        rollbacks.push(async () => {
+          try {
+            await stopMcpServer();
+          } catch (err) {
+            rpcLogger.warn('Rollback: MCP stop failed', { error: err });
+          }
         });
-      } catch (error: unknown) {
-        await postToolResult(backendUrl, auth.token, sessionId, {
-          toolCallId: request.toolCallId,
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        tools.push(
+          'screenshot',
+          'mouse_move',
+          'mouse_click',
+          'mouse_drag',
+          'key_event',
+          'type_text',
+          'get_accessibility_tree',
+          'get_focused_element',
+        );
+      } catch (error) {
+        // MCP failure is non-fatal: degrade capabilities and continue.
+        // No rollback recorded because nothing was started.
+        rpcLogger.warn(
+          'MCP server failed to start; computer-use tools disabled',
+          { error },
+        );
       }
-    },
-  });
+    }
+
+    localRegistrar = await startCliSessionRegistrar({
+      backendUrl,
+      token: auth.token,
+      sessionId,
+      tools,
+      capabilities,
+      cwd,
+    });
+    rollbacks.push(async () => {
+      try {
+        await localRegistrar?.stop();
+      } catch (err) {
+        rpcLogger.warn('Rollback: registrar stop failed', { error: err });
+      }
+    });
+
+    localStream = await connectSessionEventStream({
+      backendUrl,
+      token: auth.token,
+      sessionId,
+      onToolRequest: async (request) => {
+        // Execute the tool locally and POST the result back. We reuse
+        // remote-control-mode's executor since the tool set is identical.
+        // Pass `auth` so write/exec tools go through the L0/L1/L2 gate.
+        // RPC mode has no TTY/approver, so any L2-confirm is fail-closed.
+        try {
+          const { executeLocalTool } = await import(
+            '../remote-control/tool-executor.ts'
+          );
+          const output = await executeLocalTool(
+            request.toolName,
+            request.toolInput,
+            { auth },
+          );
+          await postToolResult(backendUrl, auth.token, sessionId, {
+            toolCallId: request.toolCallId,
+            ok: true,
+            output,
+          });
+        } catch (error: unknown) {
+          await postToolResult(backendUrl, auth.token, sessionId, {
+            toolCallId: request.toolCallId,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+    });
+    rollbacks.push(async () => {
+      try {
+        await localStream?.stop();
+      } catch (err) {
+        rpcLogger.warn('Rollback: stream stop failed', { error: err });
+      }
+    });
+
+    // All steps succeeded — publish to module-level handles so the
+    // main shutdown() path can drain them.
+    registrarHandle = localRegistrar;
+    sessionStreamHandle = localStream;
+  } catch (error) {
+    rpcLogger.error(
+      'Web session bridge startup failed; rolling back partially-started resources',
+      { error },
+    );
+    while (rollbacks.length > 0) {
+      const rb = rollbacks.pop();
+      if (rb) await rb();
+    }
+    // Re-throw so the caller knows the bridge is unhealthy and can
+    // skip registering a (meaningless) cleanup handler.
+    throw error;
+  }
 
   // Best-effort: stop the computer-use MCP child process on shutdown.
   // `mcpServices.stopAll()` only drains the interactive MCP services
@@ -1113,7 +1166,11 @@ async function startWebSessionBridge(
   // separately by the remote-control module and needs its own call.
   // Return the cleanup to the caller so it can register it on its own
   // shutdown pipeline (this function doesn't have access to it).
+  // Capture `localMcpStarted` in the closure; if MCP was never started
+  // (or already stopped during a rollback), this is a no-op.
+  const shouldStopMcp = localMcpStarted;
   return async () => {
+    if (!shouldStopMcp) return;
     try {
       await stopMcpServer();
     } catch (error) {

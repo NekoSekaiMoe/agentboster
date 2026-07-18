@@ -132,12 +132,31 @@ export async function runRemoteControlMode(
   // stopMcpServer() — otherwise the Web backend holds a stale online
   // capability entry until the 120s KV TTL expires and the MCP child
   // process leaks until the OS reaps it.
+  //
+  // Bounded forced-exit: abort() asks in-flight tools to stop, but a
+  // tool that ignores its AbortSignal (or a stuck MCP call) could
+  // otherwise hold the process hostage. After GRACE_PERIOD_MS we
+  // unconditionally process.exit so the OS reaps children.
+  const GRACE_PERIOD_MS = 5_000;
+  let forceExitTimer: NodeJS.Timeout | null = null;
   const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
   const signalHandlers = new Map<NodeJS.Signals, NodeJS.SignalsListener>();
   for (const sig of shutdownSignals) {
     const handler = () => {
       console.log(chalk.yellow(`\nReceived ${sig}, shutting down...`));
       controller.abort();
+      // Only arm the forced-exit timer once, even if multiple signals
+      // arrive in succession.
+      if (!forceExitTimer) {
+        forceExitTimer = setTimeout(() => {
+          console.error(
+            chalk.red(
+              `Grace period expired after ${GRACE_PERIOD_MS}ms, forcing exit`,
+            ),
+          );
+          process.exit(128 + 15); // SIGTERM convention
+        }, GRACE_PERIOD_MS).unref();
+      }
     };
     process.on(sig, handler);
     signalHandlers.set(sig, handler);
@@ -176,8 +195,9 @@ export async function runRemoteControlMode(
             });
             console.log(chalk.blue(`→ Executing: ${request.toolName}`));
 
-            // Execute tool
-            const result = await executeLocalTool(request);
+            // Execute tool. Pass the abort signal so termination
+            // signals can interrupt in-flight tools.
+            const result = await executeLocalTool(request, controller.signal);
 
             // Post result back
             await postToolResult(
@@ -229,19 +249,32 @@ export async function runRemoteControlMode(
     if (mcpStarted) {
       await stopMcpServer();
     }
+    // Clean exit — disarm the forced-exit timer so it doesn't fire
+    // after the finally block completes.
+    if (forceExitTimer) {
+      clearTimeout(forceExitTimer);
+      forceExitTimer = null;
+    }
   }
 
   process.exit(0);
 }
 
-async function executeLocalTool(request: ToolRequest): Promise<ToolResult> {
+async function executeLocalTool(
+  request: ToolRequest,
+  signal?: AbortSignal,
+): Promise<ToolResult> {
   try {
     // Import tool executors dynamically to avoid loading heavy deps in main bundle
     const { executeLocalTool: exec } = await import('./tool-executor.ts');
     // Remote-control mode has no interactive approver; pass auth so the
     // L0/L1 gate runs, but any L2-confirm is rejected fail-closed.
+    // Pass the AbortController's signal so SIGTERM/SIGINT/SIGHUP can
+    // interrupt a long-running local_exec / MCP call instead of
+    // blocking shutdown until the tool's own timeout expires.
     const output = await exec(request.toolName, request.toolInput, {
       auth: getStoredAuth(),
+      signal,
     });
     return { ok: true, output };
   } catch (error: unknown) {
