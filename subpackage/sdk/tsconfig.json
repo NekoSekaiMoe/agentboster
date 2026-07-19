@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "@agentboster-cli/core": ["./vendor/core.d.ts"],
+      "ai": ["./vendor/workflow/ai-sdk.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "vendor/**/*.d.ts"],
+  "exclude": ["node_modules", "examples"]
+}

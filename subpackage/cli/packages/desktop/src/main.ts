@@ -7,7 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ChatView } from './components/chat-view.js';
 import { CommandPalette } from './components/command-palette.js';
-import { ContentTabs } from './components/content-tabs.js';
+import { ContentTabs, type MainContentTab } from './components/content-tabs.js';
 import {
   ExtensionUiHandler,
   normalizeExtensionUiRequest,
@@ -105,6 +105,7 @@ interface WorkspaceState {
   activeProjectPath: string | null;
   filePath: string | null;
   terminalOpen: boolean;
+  terminalActive: boolean;
   sessionTitle: string;
   sessionTabs: WorkspaceSessionTab[];
   activeSessionTabId: string | null;
@@ -2610,6 +2611,7 @@ function defaultWorkspace(): WorkspaceState {
     activeProjectPath: null,
     filePath: null,
     terminalOpen: false,
+    terminalActive: false,
     sessionTitle: NEW_SESSION_TAB_TITLE,
     sessionTabs: [seedSessionTab],
     activeSessionTabId: seedSessionTab.id,
@@ -2640,6 +2642,7 @@ function createWorkspace(
     activeProjectPath: null,
     filePath: null,
     terminalOpen: false,
+    terminalActive: false,
     sessionTitle: NEW_SESSION_TAB_TITLE,
     sessionTabs: [seedSessionTab],
     activeSessionTabId: seedSessionTab.id,
@@ -2832,6 +2835,9 @@ function loadWorkspaces(): void {
             activeProjectPath: normalizeStoredPath(w.activeProjectPath),
             filePath: typeof w.filePath === 'string' ? w.filePath : null,
             terminalOpen: Boolean(w.terminalOpen || w.pane === 'terminal'),
+            terminalActive: Boolean(
+              w.terminalActive ?? w.terminalOpen ?? w.pane === 'terminal',
+            ),
             sessionTitle: fallbackSessionTitle,
             sessionTabs,
             activeSessionTabId:
@@ -3122,6 +3128,20 @@ function listVisibleSessionTabsForContentBar(
   });
 }
 
+// Terminal lives as a real content tab. This helper encodes the rule
+// for "is the terminal tab currently the active content tab?" — used by
+// syncContentTabsBar (to pick the active tab id), syncTerminalDockVisibility
+// (to toggle CSS classes), and applyWorkspacePane (to decide whether to
+// show the file split). Keep all three call sites consistent by routing
+// through this single function.
+function isTerminalTabActive(
+  workspace: WorkspaceState | null | undefined,
+): boolean {
+  return Boolean(
+    workspace && workspace.pane === 'chat' && workspace.terminalActive,
+  );
+}
+
 function getVisibleContentTabCount(workspace: WorkspaceState): number {
   const visibleSessionTabs = listVisibleSessionTabsForContentBar(workspace);
   return visibleSessionTabs.length;
@@ -3163,7 +3183,7 @@ function syncContentTabsBar(
   ensureWorkspaceContentState(workspace);
 
   const visibleSessionTabs = listVisibleSessionTabsForContentBar(workspace);
-  const tabs = visibleSessionTabs.map((tab) => ({
+  const tabs: MainContentTab[] = visibleSessionTabs.map((tab) => ({
     id: tab.id,
     type: 'session' as const,
     title: tab.title || NEW_SESSION_TAB_TITLE,
@@ -3171,12 +3191,24 @@ function syncContentTabsBar(
     attentionLabel: tab.attentionMessage ?? undefined,
     closable: visibleSessionTabs.length > 1 || Boolean(tab.sessionPath),
   }));
+  // Terminal lives as a real pinned, non-closable tab at the tail of the
+  // row. Clicking it sets terminalActive=true (chat hidden, terminal takes
+  // the full session-pane height). It coexists with session tabs and can
+  // be flipped away from like any other tab.
+  tabs.push({
+    id: 'terminal',
+    type: 'terminal' as const,
+    title: 'Terminal',
+    closable: false,
+    pinned: true,
+  });
 
-  const activeTabId = workspace.activeSessionTabId;
+  const terminalActive = isTerminalTabActive(workspace);
+  const activeTabId = terminalActive
+    ? 'terminal'
+    : workspace.activeSessionTabId;
 
-  contentTabsBar.setTerminalActive(
-    workspace.pane === 'chat' && workspace.terminalOpen,
-  );
+  contentTabsBar.setTerminalActive(terminalActive);
   contentTabsBar.setTabs(tabs, activeTabId);
 }
 
@@ -3227,18 +3259,22 @@ function setPaneVisibility(
 function syncTerminalDockVisibility(
   workspace: WorkspaceState | null = getActiveWorkspace(),
 ): void {
+  const sessionPane = document.getElementById('session-pane');
   const terminalPane = document.getElementById('terminal-pane');
-  if (!terminalPane) return;
+  if (!terminalPane || !sessionPane) return;
   terminalPane.style.setProperty(
     '--terminal-dock-height',
     `${terminalDockHeightPx}px`,
   );
-  const shouldShow = Boolean(
-    workspace && workspace.pane === 'chat' && workspace.terminalOpen,
-  );
-  terminalPane.classList.toggle('hidden-pane', !shouldShow);
-  terminalPane.classList.toggle('terminal-dock-visible', shouldShow);
-  if (shouldShow && workspace) {
+  // Tab mode: when the terminal tab is active, terminal-pane takes the
+  // full session-pane height and chat-container hides. When terminal is
+  // not the active tab, terminal-pane hides regardless of terminalOpen
+  // (terminalOpen just remembers the user has used it before).
+  const terminalActive = isTerminalTabActive(workspace);
+  sessionPane.classList.toggle('terminal-active', terminalActive);
+  terminalPane.classList.toggle('hidden-pane', !terminalActive);
+  terminalPane.classList.toggle('terminal-dock-visible', terminalActive);
+  if (terminalActive && workspace) {
     terminalPanel?.setProjectPath(getWorkspaceActiveProjectPath(workspace));
   }
 }
@@ -3279,6 +3315,7 @@ async function applyWorkspacePane(
   if (workspace.pane === 'terminal') {
     workspace.pane = 'chat';
     workspace.terminalOpen = true;
+    workspace.terminalActive = true;
     persistWorkspaces();
     syncWorkspaceTabsBar();
   }
@@ -3305,8 +3342,13 @@ async function applyWorkspacePane(
   if (isStale()) return;
 
   const activeFileTab =
-    workspace.pane === 'chat' ? getActiveFileTab(workspace) : null;
-  const showFileSplit = workspace.pane === 'chat' && Boolean(activeFileTab);
+    workspace.pane === 'chat' && !workspace.terminalActive
+      ? getActiveFileTab(workspace)
+      : null;
+  const showFileSplit =
+    workspace.pane === 'chat' &&
+    !workspace.terminalActive &&
+    Boolean(activeFileTab);
   if (showFileSplit && activeFileTab) {
     const draftBasePath = isDraftFileTab(activeFileTab)
       ? normalizeStoredPath(activeFileTab.draftDirectoryPath)
@@ -3332,6 +3374,7 @@ async function applyWorkspacePane(
     syncTerminalDockVisibility({
       ...workspace,
       terminalOpen: false,
+      terminalActive: false,
       pane: 'packages',
     });
     settingsPanel?.hideWithoutClearing();
@@ -3349,6 +3392,7 @@ async function applyWorkspacePane(
     syncTerminalDockVisibility({
       ...workspace,
       terminalOpen: false,
+      terminalActive: false,
       pane: 'agentd-vnc',
     });
     settingsPanel?.hideWithoutClearing();
@@ -3364,6 +3408,7 @@ async function applyWorkspacePane(
     syncTerminalDockVisibility({
       ...workspace,
       terminalOpen: false,
+      terminalActive: false,
       pane: 'schedule',
     });
     settingsPanel?.hideWithoutClearing();
@@ -3379,6 +3424,7 @@ async function applyWorkspacePane(
     syncTerminalDockVisibility({
       ...workspace,
       terminalOpen: false,
+      terminalActive: false,
       pane: 'settings',
     });
     if (isStale()) return;
@@ -3406,7 +3452,7 @@ async function applyWorkspacePane(
   syncActiveChatRuntimeBinding(workspace);
   setPaneVisibility('chat', { showFileSplit });
   syncTerminalDockVisibility(workspace);
-  if (workspace.terminalOpen) {
+  if (workspace.terminalActive) {
     terminalPanel?.focusInput();
   } else {
     chatView?.focusInput();
@@ -4427,13 +4473,14 @@ function openSchedulePane(): void {
 function toggleTerminalDock(forceOpen?: boolean): void {
   const workspace = getActiveWorkspace();
   if (!workspace) return;
-  const shouldOpen =
-    typeof forceOpen === 'boolean'
-      ? forceOpen
-      : workspace.pane !== 'chat'
-        ? true
-        : !workspace.terminalOpen;
-  workspace.terminalOpen = shouldOpen;
+  // Terminal is now a tab: toggling flips terminalActive (chat hides,
+  // terminal takes the full session-pane height). terminalOpen stays
+  // true once toggled on for the first time so the tab remains in the
+  // strip even when the user switches back to a session tab.
+  const nextActive =
+    typeof forceOpen === 'boolean' ? forceOpen : !workspace.terminalActive;
+  workspace.terminalActive = nextActive;
+  if (nextActive) workspace.terminalOpen = true;
   workspace.pane = 'chat';
   persistWorkspaces();
   syncWorkspaceTabsBar();
@@ -5086,6 +5133,7 @@ function renderApp(): void {
 
       if (tabId === 'terminal') {
         workspace.terminalOpen = true;
+        workspace.terminalActive = true;
         workspace.pane = 'chat';
         pruneEphemeralTabsWhenLeavingDraft(workspace);
         persistWorkspaces();
@@ -5093,6 +5141,9 @@ function renderApp(): void {
         void applyWorkspacePane(workspace);
         return;
       }
+      // Selecting any non-terminal tab deactivates the terminal tab —
+      // chat-container reclaims the full session-pane height.
+      workspace.terminalActive = false;
 
       const candidateSessionTab =
         workspace.sessionTabs.find((tab) => tab.id === tabId) ?? null;
@@ -5137,9 +5188,6 @@ function renderApp(): void {
         },
       );
     });
-    contentTabsBar.setOnOpenTerminal(() => {
-      toggleTerminalDock();
-    });
     contentTabsBar.setOnCreateTab(() => {
       void startFreshSessionTab({
         forceNewTab: true,
@@ -5172,6 +5220,7 @@ function renderApp(): void {
 
       if (tabId === 'terminal') {
         workspace.terminalOpen = false;
+        workspace.terminalActive = false;
         workspace.pane = 'chat';
         persistWorkspaces();
         syncWorkspaceTabsBar();
@@ -5350,6 +5399,7 @@ function renderApp(): void {
       const workspace = getActiveWorkspace();
       if (!workspace) return;
       workspace.terminalOpen = false;
+      workspace.terminalActive = false;
       workspace.pane = 'chat';
       persistWorkspaces();
       syncWorkspaceTabsBar();
@@ -5592,6 +5642,11 @@ function renderApp(): void {
     const workspace = getActiveWorkspace();
     if (!workspace) return;
     ensureWorkspaceContentState(workspace);
+    // Sidebar-driven project switches must never inherit the terminal-tab
+    // fullscreen state — otherwise switching projects leaves the UI stuck
+    // in the terminal view. Applies to every branch below (same-project
+    // reselect, clear, preferred-session restore, new empty session).
+    workspace.terminalActive = false;
 
     const currentProjectId = getWorkspaceActiveProjectId(workspace);
     const currentProjectPath = getWorkspaceActiveProjectPath(workspace);
@@ -5729,6 +5784,9 @@ function renderApp(): void {
   sidebar.setOnNewSessionInProject((project) => {
     const workspace = getActiveWorkspace();
     if (!workspace) return;
+    // New session in a project starts on the chat panel, not the terminal
+    // tab. Reset to avoid fullscreen leftover from a previous context.
+    workspace.terminalActive = false;
 
     setWorkspaceActiveProject(workspace, project);
     pruneInactiveEphemeralSessionTabs(workspace);
@@ -5769,6 +5827,10 @@ function renderApp(): void {
   sidebar.setOnNewFileInProject((project) => {
     const workspace = getActiveWorkspace();
     if (!workspace) return;
+    // Opening a new file tab should reveal the file split, not keep the
+    // terminal in fullscreen. Reset so applyWorkspacePane can show the
+    // file viewer alongside chat.
+    workspace.terminalActive = false;
     const draftDirectoryPath =
       normalizeStoredPath(project.directoryPath) ??
       normalizeStoredPath(project.path);
@@ -5802,6 +5864,11 @@ function renderApp(): void {
     const workspace = getActiveWorkspace();
     const project = sidebar?.getProjectById(projectId);
     if (!workspace || !project) return;
+    // Activating an existing session via the sidebar (setOnSessionSelect
+    // and setOnSessionFork) should leave the terminal fullscreen state
+    // behind — the user is asking to view a session, not stay in the
+    // terminal. Reset before applyWorkspacePane so the chat panel shows.
+    workspace.terminalActive = false;
 
     const autoTabCountBefore = getVisibleContentTabCount(workspace);
     const canAutoCreateTab =
@@ -6093,6 +6160,11 @@ function renderApp(): void {
     const workspace = getActiveWorkspace();
     const project = sidebar?.getProjectById(projectId);
     if (!workspace || !project) return;
+    // Opening an existing file should reveal the file split, not keep the
+    // terminal in fullscreen. Reset so applyWorkspacePane can show the
+    // file viewer alongside chat — matches showFileSplit's expectation
+    // (pane === 'chat' && !terminalActive).
+    workspace.terminalActive = false;
 
     setWorkspaceActiveProject(workspace, project);
     openOrActivateFileTab(workspace, filePath, project.id, project.path, {

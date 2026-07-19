@@ -4,23 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent/desktop"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 )
 
 // registerDesktopScreenshot exposes desktop_screenshot — captures the
-// Xvfb framebuffer as a base64 PNG and returns it for vision-capable
-// models. On first call, EnsureDesktop provisions the full X11 +
-// icewm + x11vnc + noVNC stack inside the sandbox (idempotent; large
-// apt install only fires once per sandbox lifetime).
+// Xvfb framebuffer as a base64 image (default JPEG q80; PNG for lossless)
+// and returns it for vision-capable models. On first call, EnsureDesktop
+// provisions the full X11 + icewm + x11vnc + noVNC stack inside the
+// sandbox (idempotent; large apt install only fires once per sandbox
+// lifetime).
 //
 // The tool also reports the noVNC HTTP path so the model can tell the
 // user how to open the live desktop in a browser via sandbox.public_port.
 func registerDesktopScreenshot(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContext) {
 	registry.Register(ToolDefinition{
 		Name: "desktop_screenshot",
-		Description: "Capture the X11 desktop inside the sandbox as a base64 PNG. " +
+		Description: "Capture the X11 desktop inside the sandbox as a base64 image (default JPEG quality 80; " +
+			"pass format=\"png\" for lossless). " +
 			"Use this to debug GUI applications (Electron / Tauri / Qt / GTK) running in the persistent LXC sandbox — " +
 			"the vision-capable model can read the screenshot and reason about window state, layout, and error dialogs. " +
 			"On first call, the full desktop stack (Xvfb + icewm + x11vnc + noVNC) is provisioned automatically; " +
@@ -28,8 +31,18 @@ func registerDesktopScreenshot(registry *ToolRegistry, sbMgr *sandbox.Manager, c
 			"expose the noVNC port with sandbox.public_port and share the returned /vnc.html URL.",
 		MinUserType: "trusted",
 		Parameters: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
+			"type": "object",
+			"properties": map[string]any{
+				"format": map[string]any{
+					"type":        "string",
+					"enum":        []string{"png", "jpeg"},
+					"description": "Image format. Default: jpeg (5-10x smaller than PNG, negligible vision loss at q80). Use png when pixel-perfect output is required.",
+				},
+				"quality": map[string]any{
+					"type":        "number",
+					"description": "JPEG quality 1-100. Ignored for png. Default: 80.",
+				},
+			},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
 		// Resolve the current sandbox id from the agent context.
@@ -39,7 +52,15 @@ func registerDesktopScreenshot(registry *ToolRegistry, sbMgr *sandbox.Manager, c
 			return &ToolResult{Success: false, Error: "desktop_screenshot requires an active sandbox (none in agent context)"}, nil
 		}
 
-		b64, err := desktop.Screenshot(sbMgr, sandboxID)
+		var params struct {
+			Format  string `json:"format"`
+			Quality int    `json:"quality"`
+		}
+		if toolErr := unmarshalToolArgs(args, &params); toolErr != nil {
+			return toolErr, nil
+		}
+
+		b64, mime, err := desktop.Screenshot(sbMgr, sandboxID, params.Format, params.Quality)
 		if err != nil {
 			// EnsureDesktop / Screenshot already format the error with
 			// any AGENTD_DESKTOP_INSTALL_HINT the install script emitted,
@@ -55,8 +76,8 @@ func registerDesktopScreenshot(registry *ToolRegistry, sbMgr *sandbox.Manager, c
 		// as an AI SDK image content block — so vision-capable models
 		// reached via CLI / IM / scheduled sessions see the screenshot.
 		payload, _ := json.Marshal(map[string]any{
-			"image":      "data:image/png;base64," + string(b64),
-			"format":     "png",
+			"image":      "data:" + mime + ";base64," + string(b64),
+			"format":     strings.TrimPrefix(mime, "image/"),
 			"display":    desktop.Display(),
 			"novnc_port": desktop.WebPort(),
 			"novnc_path": "/vnc.html",

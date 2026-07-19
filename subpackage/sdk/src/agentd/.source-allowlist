@@ -1,0 +1,60 @@
+# Struct allowlist for the agentd SDK surface.
+#
+# One Go struct name per line. Lines starting with `#` and blank
+# lines are ignored. The text after `#` on each entry line is a
+# short rationale / skip reason — it is parsed as a comment, not
+# structure.
+#
+# Drift detector: `scripts/regen-agentd.py`.
+#
+# Status conventions:
+#   PORTED   — Go struct has a TypeScript mirror in src/agentd/
+#   SKIP     — intentionally not ported (rationale required)
+#
+# When adding a new Go struct under agentd/internal/**, either port
+# it (then add it here as PORTED) or list it as SKIP with a reason.
+# Unlisted structs are reported as drift by regen-agentd.py.
+
+# ── PORTED (TypeScript mirror exists in src/agentd/) ──
+AgentCgroupStat   # PORTED → node.ts
+AgentConfig       # PORTED → paths.ts
+BotCapabilities   # PORTED → paths.ts
+BotSource         # PORTED → paths.ts
+HealthResponse    # PORTED → paths.ts
+KeyFact           # PORTED → paths.ts
+L0Rule            # PORTED → security.ts (TS wins: l0-engine.ts is fuller)
+L1Result          # PORTED → security.ts as L1ScoreResult
+Memory            # PORTED → paths.ts
+Message           # PORTED → paths.ts
+SandboxMeta       # PORTED → sandbox.ts
+Session           # PORTED → paths.ts
+Task              # PORTED → paths.ts
+ToolDefinition    # PORTED → tools.ts (MinUserType field omitted, daemon-only)
+ToolExecRequest   # PORTED → tools.ts
+ToolExecResponse  # PORTED → tools.ts
+ToolResult        # PORTED → tools.ts
+
+# ── SKIP (intentionally not ported — rationale) ──
+AgentStat             # SKIP — daemon-internal stats record, superseded by AgentCgroupStat on the wire
+BotCapabilitiesResponse  # SKIP — Web-tier route response wrapper, lives under lib/extra/agent/ on TS side
+Collector             # SKIP — Go implementation type (metrics collector), not wire
+Decision              # SKIP — clawless-side per-task summary struct; clashes name with the Web's L2 Decision (security.ts). Web Decision is authoritative; this struct is a task-summary shape.
+ExecResult            # SKIP — sandbox-internal provider return type (not exposed over HTTP; HTTP path uses ToolExecResponse/ToolResult)
+GitInfo               # SKIP — completion-notification-only struct, not part of the tool protocol surface
+KnowledgeSearchResult # SKIP — RAG result type; lives under lib/core/knowledge on TS side
+L1Client              # SKIP — Go HTTP client implementation, not wire
+LLMProxyRequest       # SKIP — proxy-internal, not part of tool protocol
+Manager               # SKIP — Go daemon singleton, not wire
+Mount                 # SKIP — SandboxSpec sub-field, daemon-internal config
+Notification          # SKIP — Web-tier Notification schema (lib/extra/agent) is authoritative
+NotificationSendResponse  # SKIP — Web-tier response wrapper
+ReviewLog             # SKIP — persisted audit row, not part of the tool protocol surface
+Sandbox               # SKIP — SandboxMeta is the wire shape; `Sandbox` is the daemon-internal struct
+SandboxSpec           # SKIP — daemon-internal sandbox creation config (TOML/runtime knobs)
+Server                # SKIP — Go HTTP server struct, not wire
+TaskMemoryRequest     # SKIP — Web-tier post-task memory extraction request, not tool protocol
+TaskSummary           # SKIP — Web-tier long-running task state, mirrored from TS already
+ToolActivityLog       # SKIP — persisted audit row, not part of the tool protocol surface
+ToolRegistry          # SKIP — Go daemon registry implementation, not wire
+UploadResult          # SKIP — Web-tier blob-upload response, lives under lib/core/blob on TS side
+Workspace             # SKIP — Web-tier organization-unit row, not part of the tool protocol

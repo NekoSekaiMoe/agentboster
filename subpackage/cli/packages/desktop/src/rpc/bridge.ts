@@ -87,12 +87,6 @@ export interface PiAuthProviderStatus {
   kind: 'api_key' | 'oauth' | 'unknown';
 }
 
-export interface GitCommandResult {
-  stdout: string;
-  stderr: string;
-  exit_code: number;
-}
-
 export type McpServiceProtocol = 'mcp' | 'lsp';
 export type McpServiceSource = 'builtin' | 'project-config';
 
@@ -627,18 +621,6 @@ export class RpcBridge {
     });
   }
 
-  async runGitCommand(
-    args: string[],
-    options: { cwd?: string } = {},
-  ): Promise<GitCommandResult> {
-    return invoke<GitCommandResult>('run_git_command', {
-      options: {
-        args,
-        cwd: options.cwd ?? null,
-      },
-    });
-  }
-
   async checkRpcCompatibility(): Promise<RpcCompatibilityReport> {
     const checks: string[] = [];
     if (!this.isConnected) {
@@ -1155,13 +1137,6 @@ class ActiveRpcBridgeProxy {
     } = {},
   ): Promise<PiCliCommandResult> {
     return this.activeBridge.runPiCliCommand(args, options);
-  }
-
-  async runGitCommand(
-    args: string[],
-    options: { cwd?: string } = {},
-  ): Promise<GitCommandResult> {
-    return this.activeBridge.runGitCommand(args, options);
   }
 
   async checkRpcCompatibility(): Promise<RpcCompatibilityReport> {

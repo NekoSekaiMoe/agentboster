@@ -1,0 +1,191 @@
+# Lint + typecheck + drift detection for the @agentboster/sdk package
+# (subpackage/sdk). Separate from build-check.yml (root Web) and
+# cli-ci.yml (subpackage/cli) because:
+#
+#   - The SDK has its own tsconfig, biome cache, and toolchain. Running
+#     root `yarn build` doesn't typecheck the SDK, and the CLI's
+#     `tsgo --noEmit` doesn't reach into subpackage/sdk/.
+#   - The SDK depends on every other tier's public types (CLI runtime,
+#     Web routes, Workflow chunks, Desktop Rust/TS, Agentd Go structs).
+#     Without its own CI, the SDK silently drifts when any of those
+#     tiers change — the drift detector scripts under
+#     subpackage/sdk/scripts/ are the only thing that catches this.
+#
+# The SDK ships as TypeScript source (no build step, no runtime deps);
+# it needs only `tsc`, `biome`, and `python3` to validate. All three are
+# available in the repo root's node_modules + the runner image, so this
+# job installs nothing — it reuses the root toolchain. (Same pattern
+# build-check.yml uses for the Web app's biome cache.)
+#
+# Triggers fire on ANY change that can affect the SDK: SDK files
+# themselves, AND the source-of-truth files in every tier the SDK
+# mirrors. Touching lib/auth/session.ts therefore runs this workflow
+# even if no SDK file changed — because the SDK's src/web/auth.ts may
+# need to mirror the new shape.
+
+name: sdk-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # SDK itself
+      - 'subpackage/sdk/**'
+      # CLI runtime (mirrored by src/cli/)
+      - 'subpackage/cli/packages/coding-agent/src/index.ts'
+      - 'subpackage/cli/packages/coding-agent/src/core/extensions/types.ts'
+      - 'subpackage/cli/packages/coding-agent/src/core/extensions/index.ts'
+      # Web HTTP API (mirrored by src/web/)
+      - 'lib/auth/**'
+      - 'lib/cli/**'
+      - 'lib/extra/auth/**'
+      - 'lib/security/**'
+      - 'app/api/cli/**'
+      - 'app/api/agentd/v1/**'
+      # Workflow DevKit (mirrored by src/workflow/)
+      - 'types/workflow.ts'
+      - 'lib/workflow/**'
+      - 'lib/chat/message-utils.ts'
+      # Desktop IPC (mirrored by src/desktop/)
+      - 'subpackage/cli/packages/desktop/src-tauri/src/lib.rs'
+      - 'subpackage/cli/packages/desktop/src/rpc/bridge.ts'
+      - 'subpackage/cli/packages/desktop/src/main.ts'
+      # Agentd protocol (mirrored by src/agentd/)
+      - 'subpackage/agentd/internal/clawless/**'
+      - 'subpackage/agentd/internal/agent/**'
+      - 'subpackage/agentd/internal/lifecycle/**'
+      - 'subpackage/agentd/internal/metrics/**'
+      - 'subpackage/agentd/internal/server/exec_stream.go'
+      # Root toolchain — the SDK reuses root node_modules (typescript,
+      # @biomejs/biome), so a version bump in the root manifest or
+      # lockfile can break the SDK's type-check/lint even when no SDK
+      # source file changed.
+      - 'package.json'
+      - 'yarn.lock'
+      # Workflow itself
+      - '.github/workflows/sdk-ci.yml'
+  pull_request:
+    paths:
+      # SDK itself
+      - 'subpackage/sdk/**'
+      # CLI runtime (mirrored by src/cli/)
+      - 'subpackage/cli/packages/coding-agent/src/index.ts'
+      - 'subpackage/cli/packages/coding-agent/src/core/extensions/types.ts'
+      - 'subpackage/cli/packages/coding-agent/src/core/extensions/index.ts'
+      # Web HTTP API (mirrored by src/web/)
+      - 'lib/auth/**'
+      - 'lib/cli/**'
+      - 'lib/extra/auth/**'
+      - 'lib/security/**'
+      - 'app/api/cli/**'
+      - 'app/api/agentd/v1/**'
+      # Workflow DevKit (mirrored by src/workflow/)
+      - 'types/workflow.ts'
+      - 'lib/workflow/**'
+      - 'lib/chat/message-utils.ts'
+      # Desktop IPC (mirrored by src/desktop/)
+      - 'subpackage/cli/packages/desktop/src-tauri/src/lib.rs'
+      - 'subpackage/cli/packages/desktop/src/rpc/bridge.ts'
+      - 'subpackage/cli/packages/desktop/src/main.ts'
+      # Agentd protocol (mirrored by src/agentd/)
+      - 'subpackage/agentd/internal/clawless/**'
+      - 'subpackage/agentd/internal/agent/**'
+      - 'subpackage/agentd/internal/lifecycle/**'
+      - 'subpackage/agentd/internal/metrics/**'
+      - 'subpackage/agentd/internal/server/exec_stream.go'
+      # Root toolchain — see push.paths comment above.
+      - 'package.json'
+      - 'yarn.lock'
+      # Workflow itself
+      - '.github/workflows/sdk-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-typecheck:
+    name: biome + tsc
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: subpackage/sdk
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      # Install the repo-root toolchain (typescript, @biomejs/biome) so
+      # we don't need a separate SDK lockfile. The SDK itself has zero
+      # runtime deps — it's consumed as TypeScript source — so there is
+      # no `subpackage/sdk/yarn.lock` to freeze.
+      - name: Install root toolchain
+        run: yarn install --frozen-lockfile
+        working-directory: .
+
+      # Biome must NOT run with --write in CI: that would mutate the
+      # runner checkout and silently pass against the formatted tree.
+      # Run plain `biome check` so failures surface here; developers
+      # run `yarn biome check --write` locally to auto-format.
+      - name: Biome (no --write)
+        run: node ../../node_modules/@biomejs/biome/bin/biome check --error-on-warnings src/ examples/ scripts/
+
+      # SDK uses TypeScript 5 features (import type, satisfies, etc.).
+      # The root's `typescript` is currently 6.x preview; the
+      # `--ignoreDeprecations 6.0` flag silences the TS5101 warning
+      # about baseUrl, which is the only TS-6-specific noise we hit.
+      - name: tsc (sdk)
+        run: node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit --ignoreDeprecations 6.0
+
+      - name: tsc (examples)
+        run: node ../../node_modules/typescript/bin/tsc -p examples/tsconfig.json --noEmit --ignoreDeprecations 6.0
+
+  drift-detection:
+    name: regen drift
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: subpackage/sdk
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      # Each regen-*.py script scans its source-of-truth tier and
+      # reports drift against the SDK mirror. Exit code 0 means the
+      # mirror is in sync; exit 1 means a source-tier export has no SDK
+      # counterpart (or a struct was removed from the allowlist).
+      #
+      # We do NOT run regen-cli's stub regenerator (regen-stubs.py +
+      # regen-exports.py) here — those WRITE files. CI should only
+      # detect drift, not auto-fix it (otherwise the runner silently
+      # passes against the regenerated tree and the PR never gets
+      # updated). The drift-only detectors below are read-only.
+      - name: Web surface drift
+        run: python3 scripts/regen-web.py
+
+      - name: Workflow surface drift
+        run: python3 scripts/regen-workflow.py
+
+      - name: Desktop surface drift
+        run: python3 scripts/regen-desktop.py
+
+      - name: Agentd surface drift
+        run: python3 scripts/regen-agentd.py

@@ -1,0 +1,16 @@
+{
+  "name": "@agentboster-example/llm-context",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Extension that reads the current session context, sends it to a model via fetch, and returns the response. Demonstrates buildSessionContext + resolveModelApiKey.",
+  "type": "module",
+  "main": "index.ts",
+  "agentboster": { "extensions": ["index.ts"] },
+  "pi": { "extensions": ["index.ts"] },
+  "dependencies": {
+    "typebox": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@agentboster/sdk": "^0.1.0"
+  }
+}

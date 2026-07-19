@@ -27,10 +27,11 @@ AgentBoster is a multi-surface AI platform made of **three independently deploya
 - **agentd (Go)**: Linux daemon for sandboxed tools, L0/L1/L2 security, local session runtime, and multi-node heartbeats
 - **CLI ([`agentboster`](./subpackage/cli), based on [pi](https://github.com/earendil-works/pi))**: terminal coding agent; pairs to the Web backend with `agentboster login`. All model calls, model/tool orchestration, and session persistence are owned by Web; the CLI is a thin client for local TUI UX and `local_*` tools (shell / file I/O on the user's machine).
 
-Two additional supporting subpackages:
+Three additional supporting subpackages:
 
 - **[computer-use-mcp](./subpackage/computer-use-mcp) (Rust)**: cross-platform MCP server providing screenshot capture, mouse/keyboard input and accessibility tree queries for the CLI desktop app
 - **[dbushelper](./subpackage/dbushelper) (Go)**: pure-Go AT-SPI2 accessibility D-Bus client, runs inside the agentd LXC sandbox and powers `desktop_inspect` / `desktop_a11y_click` / `desktop_a11y_type` tools
+- **[sdk](./subpackage/sdk) (TypeScript)**: cross-tier SDK (`@agentboster/sdk`) unifying the public types and contracts across the CLI / Web / Desktop tiers. CLI extensions (extension/skill/prompt/theme) are ready; Web HTTP API contracts, Workflow DevKit types, Desktop IPC/bridge types, and the Agentd tool protocol are on the roadmap. Ships as TypeScript source, compiled at load by JITI.
 
 Web owns UX and orchestration, the daemon owns execution isolation and safety, and the CLI owns local developer terminals. They cooperate over HTTPS APIs and can be upgraded on different schedules.
 
@@ -263,6 +264,7 @@ CLI usually needs no env vars; login writes `~/.agentboster/config.json`. Option
 | [`subpackage/cli/README.md`](./subpackage/cli/README.md) | Terminal CLI |
 | [`subpackage/computer-use-mcp/README.md`](./subpackage/computer-use-mcp/README.md) | Desktop control MCP server |
 | [`subpackage/dbushelper/README.md`](./subpackage/dbushelper/README.md) | AT-SPI2 accessibility client |
+| [`subpackage/sdk/README.md`](./subpackage/sdk/README.md) | Cross-tier SDK (CLI / Web / Desktop) |
 | [`AGENTS.md`](./AGENTS.md) | Contributors and OpenCode notes |
 
 ---

@@ -1,0 +1,13 @@
+{
+  "name": "@agentboster-example/commands-and-hooks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Extension showing slash command patterns + lifecycle hooks (session_start, before_provider_request, message_end, agent_end).",
+  "type": "module",
+  "main": "index.ts",
+  "agentboster": { "extensions": ["index.ts"] },
+  "pi": { "extensions": ["index.ts"] },
+  "peerDependencies": {
+    "@agentboster/sdk": "^0.1.0"
+  }
+}
