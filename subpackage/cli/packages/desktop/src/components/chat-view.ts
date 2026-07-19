@@ -13,11 +13,6 @@ import {
   rpcBridge,
 } from '../rpc/bridge.js';
 import {
-  buildGitBranchIndex,
-  findGitBranchEntryByQuery,
-  type GitBranchEntry,
-} from '../git/branches.js';
-import {
   createSlashPaletteItems,
   filterSlashPaletteItemsByQuery,
   findSlashPaletteItemByName,
@@ -88,19 +83,12 @@ import {
 } from './chat-view/event-stream-handlers.js';
 import { handleRuntimeStatusEvent } from './chat-view/event-runtime-status-handlers.js';
 import {
-  createAndCheckoutBranchAction,
-  fetchGitRemotesAction,
-  switchGitBranchAction,
-  switchRemoteTrackingBranchAction,
-} from './chat-view/git-branch-actions.js';
-import {
   extractAssistantPartialContent as extractAssistantPartialContentValue,
   extractImagesFromContent,
   extractTextContent,
   extractToolOutputText,
   mergeStreamingText as mergeStreamingTextValue,
 } from './chat-view/message-content-utils.js';
-import { renderGitRepoControlView } from './chat-view/git-repo-control-view.js';
 import {
   clearActiveDraggedFilePaths,
   peekActiveDraggedFilePaths,
@@ -229,18 +217,6 @@ interface SessionStatsSummary {
   pendingCount: number;
   contextWindow: number | null;
   usageRatio: number | null;
-  updatedAt: number;
-}
-
-interface GitSummary {
-  isRepo: boolean;
-  branch: string | null;
-  branches: string[];
-  branchEntries: GitBranchEntry[];
-  hasRemoteBranches: boolean;
-  dirtyFiles: number;
-  additions: number;
-  deletions: number;
   updatedAt: number;
 }
 
@@ -452,8 +428,7 @@ function uiIcon(
     | 'stop'
     | 'spinner'
     | 'spark'
-    | 'terminal'
-    | 'git',
+    | 'terminal',
 ): TemplateResult {
   switch (name) {
     case 'edit':
@@ -480,8 +455,6 @@ function uiIcon(
       return html`<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5l1.3 3.1 3.2 1.3-3.2 1.3L8 11.3l-1.3-3.1-3.2-1.3 3.2-1.3z"></path></svg>`;
     case 'terminal':
       return html`<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.2h10v9.6H3z"></path><path d="M5.1 6.2l1.9 1.8-1.9 1.8"></path><path d="M8.6 9.8h2.6"></path></svg>`;
-    case 'git':
-      return html`<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="3.6" r="1.2"></circle><circle cx="4" cy="12.4" r="1.2"></circle><circle cx="12" cy="8" r="1.2"></circle><path d="M4 4.8v6.4"></path><path d="M5 4.2l5.8 2.9"></path><path d="M5 11.8l5.8-2.9"></path></svg>`;
   }
 }
 
@@ -651,26 +624,8 @@ export class ChatView {
   private lastAssistantContextTokens: number | null = null;
   private refreshingSessionStats = false;
   private sessionStatsHover = false;
-  private gitSummary: GitSummary = {
-    isRepo: false,
-    branch: null,
-    branches: [],
-    branchEntries: [],
-    hasRemoteBranches: false,
-    dirtyFiles: 0,
-    additions: 0,
-    deletions: 0,
-    updatedAt: 0,
-  };
-  private refreshingGitSummary = false;
-  private gitMenuOpen = false;
-  private gitBranchQuery = '';
-  private switchingGitBranch = false;
-  private fetchingGitRemotes = false;
-  private creatingGitRepo = false;
   private projectPath: string | null = null;
   private bindingStatusText: string | null = null;
-  private gitKnownBranchesByProject = new Map<string, string[]>();
   private welcomeDashboard: WelcomeDashboardSummary = {
     loading: false,
     skills: [],
@@ -833,7 +788,6 @@ export class ChatView {
       }
     ).__PI_DESKTOP_PUSH_TRACE__;
     push?.(`chat:setProjectPath ${previous ?? '-'} -> ${path ?? '-'}`);
-    this.gitMenuOpen = false;
     this.welcomeProjectMenuOpen = false;
     this.resetSessionUiTransientState();
     this.modelCatalogLoadedAt = 0;
@@ -853,7 +807,6 @@ export class ChatView {
       this.resetRunActivityState();
       void this.refreshWelcomeDashboard(true);
     }
-    void this.refreshGitSummary(true);
     this.render();
   }
 
@@ -2006,7 +1959,6 @@ export class ChatView {
       this.render();
       this.scrollToBottom();
       void this.refreshSessionStats(true);
-      void this.refreshGitSummary(true);
       if (!this.loadingModels && this.availableModels.length === 0) {
         void this.loadAvailableModels();
       }
@@ -2486,329 +2438,6 @@ export class ChatView {
     return { additions, deletions };
   }
 
-  private async runGit(
-    args: string[],
-  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    if (!this.projectPath) {
-      return { stdout: '', stderr: 'No active project', exitCode: -1 };
-    }
-    try {
-      const raw = await rpcBridge.runGitCommand(args, {
-        cwd: this.projectPath,
-      });
-      return this.parseBashResult(raw);
-    } catch (err) {
-      return {
-        stdout: '',
-        stderr: err instanceof Error ? err.message : String(err),
-        exitCode: -1,
-      };
-    }
-  }
-
-  private knownBranchesForCurrentProject(): string[] {
-    if (!this.projectPath) return [];
-    return this.gitKnownBranchesByProject.get(this.projectPath) ?? [];
-  }
-
-  private rememberGitBranches(branches: string[]): void {
-    if (!this.projectPath) return;
-    const clean = branches.map((branch) => branch.trim()).filter(Boolean);
-    if (clean.length === 0) return;
-    const current = this.gitKnownBranchesByProject.get(this.projectPath) ?? [];
-    this.gitKnownBranchesByProject.set(this.projectPath, [
-      ...new Set([...current, ...clean]),
-    ]);
-  }
-
-  private clearKnownBranchesForCurrentProject(): void {
-    if (!this.projectPath) return;
-    this.gitKnownBranchesByProject.delete(this.projectPath);
-  }
-
-  private async hasGitHeadCommit(): Promise<boolean> {
-    const probe = await this.runGit(['rev-parse', '--verify', 'HEAD']);
-    return probe.exitCode === 0;
-  }
-
-  private async switchUnbornHeadBranch(
-    branch: string,
-  ): Promise<{ ok: boolean; error: string }> {
-    const bySymbolic = await this.runGit([
-      'symbolic-ref',
-      'HEAD',
-      `refs/heads/${branch}`,
-    ]);
-    if (bySymbolic.exitCode === 0) {
-      return { ok: true, error: '' };
-    }
-    const orphan = await this.runGit(['checkout', '--orphan', branch]);
-    if (orphan.exitCode === 0) {
-      return { ok: true, error: '' };
-    }
-    return {
-      ok: false,
-      error:
-        orphan.stderr.trim() ||
-        bySymbolic.stderr.trim() ||
-        orphan.stdout.trim() ||
-        bySymbolic.stdout.trim(),
-    };
-  }
-
-  private async refreshGitSummary(force = false): Promise<void> {
-    if (this.refreshingGitSummary) return;
-    if (!force && Date.now() - this.gitSummary.updatedAt < 2200) return;
-    this.refreshingGitSummary = true;
-    this.render();
-    try {
-      if (!this.projectPath) {
-        this.gitSummary = {
-          isRepo: false,
-          branch: null,
-          branches: [],
-          branchEntries: [],
-          hasRemoteBranches: false,
-          dirtyFiles: 0,
-          additions: 0,
-          deletions: 0,
-          updatedAt: Date.now(),
-        };
-        this.gitMenuOpen = false;
-        this.gitBranchQuery = '';
-        return;
-      }
-
-      const probe = await this.runGit(['rev-parse', '--is-inside-work-tree']);
-      const inRepo = probe.exitCode === 0 && probe.stdout.trim() === 'true';
-      if (!inRepo) {
-        this.clearKnownBranchesForCurrentProject();
-        this.gitSummary = {
-          isRepo: false,
-          branch: null,
-          branches: [],
-          branchEntries: [],
-          hasRemoteBranches: false,
-          dirtyFiles: 0,
-          additions: 0,
-          deletions: 0,
-          updatedAt: Date.now(),
-        };
-        this.gitMenuOpen = false;
-        this.gitBranchQuery = '';
-        return;
-      }
-
-      const [
-        branchPrimary,
-        refsResult,
-        statusResult,
-        diffResult,
-        stagedResult,
-        hasCommit,
-      ] = await Promise.all([
-        this.runGit(['symbolic-ref', '--short', 'HEAD']),
-        this.runGit([
-          'for-each-ref',
-          '--format=%(refname)',
-          'refs/heads',
-          'refs/remotes',
-        ]),
-        this.runGit(['status', '--porcelain']),
-        this.runGit(['diff', '--numstat']),
-        this.runGit(['diff', '--cached', '--numstat']),
-        this.hasGitHeadCommit(),
-      ]);
-
-      let branch = branchPrimary.stdout.trim() || null;
-      if (!branch || branchPrimary.exitCode !== 0) {
-        const fallback = await this.runGit([
-          'rev-parse',
-          '--abbrev-ref',
-          'HEAD',
-        ]);
-        const fallbackBranch = fallback.stdout.trim();
-        branch =
-          fallbackBranch && fallbackBranch !== 'HEAD' ? fallbackBranch : null;
-      } else if (branch === 'HEAD') {
-        branch = null;
-      }
-
-      const refs = refsResult.stdout
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      const branchIndex = buildGitBranchIndex(refs, {
-        currentBranch: branch,
-        knownLocalBranches: hasCommit
-          ? []
-          : this.knownBranchesForCurrentProject(),
-      });
-      const branches = branchIndex.localNames;
-
-      this.rememberGitBranches(branches);
-      if (branch) this.rememberGitBranches([branch]);
-
-      const dirtyFiles = statusResult.stdout
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean).length;
-
-      const unstaged = this.parseNumstat(diffResult.stdout);
-      const staged = this.parseNumstat(stagedResult.stdout);
-
-      this.gitSummary = {
-        isRepo: true,
-        branch,
-        branches,
-        branchEntries: branchIndex.entries,
-        hasRemoteBranches: branchIndex.hasRemoteEntries,
-        dirtyFiles,
-        additions: unstaged.additions + staged.additions,
-        deletions: unstaged.deletions + staged.deletions,
-        updatedAt: Date.now(),
-      };
-    } catch {
-      this.gitSummary = {
-        isRepo: false,
-        branch: null,
-        branches: [],
-        branchEntries: [],
-        hasRemoteBranches: false,
-        dirtyFiles: 0,
-        additions: 0,
-        deletions: 0,
-        updatedAt: Date.now(),
-      };
-      this.gitMenuOpen = false;
-      this.gitBranchQuery = '';
-    } finally {
-      this.refreshingGitSummary = false;
-      this.render();
-    }
-  }
-
-  private resolveGitBranchSelection(query: string): GitBranchEntry | null {
-    return findGitBranchEntryByQuery(query, this.gitSummary.branchEntries);
-  }
-
-  private async switchGitBranchEntry(entry: GitBranchEntry): Promise<void> {
-    if (entry.scope === 'remote') {
-      await this.switchRemoteTrackingBranch(entry);
-      return;
-    }
-    await this.switchGitBranch(entry.name);
-  }
-
-  private async switchRemoteTrackingBranch(
-    entry: GitBranchEntry,
-  ): Promise<void> {
-    await switchRemoteTrackingBranchAction({
-      entry,
-      branches: this.gitSummary.branches,
-      switchGitBranch: this.switchGitBranch.bind(this),
-      isSwitchingGitBranch: () => this.switchingGitBranch,
-      setSwitchingGitBranch: (next) => {
-        this.switchingGitBranch = next;
-      },
-      render: this.render.bind(this),
-      closeGitMenu: () => {
-        this.gitMenuOpen = false;
-        this.gitBranchQuery = '';
-      },
-      pushNotice: this.pushNotice.bind(this),
-      runGit: this.runGit.bind(this),
-      hasGitHeadCommit: this.hasGitHeadCommit.bind(this),
-      switchUnbornHeadBranch: this.switchUnbornHeadBranch.bind(this),
-      refreshGitSummary: this.refreshGitSummary.bind(this),
-    });
-  }
-
-  private async fetchGitRemotes(): Promise<void> {
-    await fetchGitRemotesAction({
-      isRepo: this.gitSummary.isRepo,
-      fetchingGitRemotes: this.fetchingGitRemotes,
-      isSwitchingGitBranch: () => this.switchingGitBranch,
-      setFetchingGitRemotes: (next) => {
-        this.fetchingGitRemotes = next;
-      },
-      render: this.render.bind(this),
-      pushNotice: this.pushNotice.bind(this),
-      runGit: this.runGit.bind(this),
-      refreshGitSummary: this.refreshGitSummary.bind(this),
-    });
-  }
-
-  private async switchGitBranch(branch: string): Promise<void> {
-    await switchGitBranchAction({
-      branch,
-      currentBranch: this.gitSummary.branch || '',
-      isSwitchingGitBranch: () => this.switchingGitBranch,
-      setSwitchingGitBranch: (next) => {
-        this.switchingGitBranch = next;
-      },
-      render: this.render.bind(this),
-      closeGitMenu: () => {
-        this.gitMenuOpen = false;
-        this.gitBranchQuery = '';
-      },
-      pushNotice: this.pushNotice.bind(this),
-      runGit: this.runGit.bind(this),
-      hasGitHeadCommit: this.hasGitHeadCommit.bind(this),
-      switchUnbornHeadBranch: this.switchUnbornHeadBranch.bind(this),
-      refreshGitSummary: this.refreshGitSummary.bind(this),
-    });
-  }
-
-  private async createAndCheckoutBranch(rawName = ''): Promise<void> {
-    await createAndCheckoutBranchAction({
-      rawName,
-      gitBranchQuery: this.gitBranchQuery,
-      resolveGitBranchSelection: this.resolveGitBranchSelection.bind(this),
-      switchGitBranchEntry: this.switchGitBranchEntry.bind(this),
-      isSwitchingGitBranch: () => this.switchingGitBranch,
-      setSwitchingGitBranch: (next) => {
-        this.switchingGitBranch = next;
-      },
-      render: this.render.bind(this),
-      closeGitMenu: () => {
-        this.gitMenuOpen = false;
-        this.gitBranchQuery = '';
-      },
-      pushNotice: this.pushNotice.bind(this),
-      runGit: this.runGit.bind(this),
-      hasGitHeadCommit: this.hasGitHeadCommit.bind(this),
-      switchUnbornHeadBranch: this.switchUnbornHeadBranch.bind(this),
-      refreshGitSummary: this.refreshGitSummary.bind(this),
-    });
-  }
-
-  private renderGitRepoControl(): TemplateResult {
-    return renderGitRepoControlView({
-      summary: this.gitSummary,
-      creatingGitRepo: this.creatingGitRepo,
-      refreshingGitSummary: this.refreshingGitSummary,
-      switchingGitBranch: this.switchingGitBranch,
-      fetchingGitRemotes: this.fetchingGitRemotes,
-      gitMenuOpen: this.gitMenuOpen,
-      gitBranchQuery: this.gitBranchQuery,
-      resolveGitBranchSelection: this.resolveGitBranchSelection.bind(this),
-      gitIcon: () => uiIcon('git'),
-      onCreateRepo: this.createGitRepository.bind(this),
-      onToggleMenu: () => {
-        this.gitMenuOpen = !this.gitMenuOpen;
-        if (!this.gitMenuOpen) this.gitBranchQuery = '';
-        this.render();
-      },
-      onSetBranchQuery: (value) => {
-        this.gitBranchQuery = value;
-        this.render();
-      },
-      onCreateAndCheckoutBranch: this.createAndCheckoutBranch.bind(this),
-      onFetchRemotes: this.fetchGitRemotes.bind(this),
-      onSwitchGitBranchEntry: this.switchGitBranchEntry.bind(this),
-    });
-  }
 
   private extractRuntimeErrorMessage(
     event: Record<string, unknown> | null | undefined,
@@ -3114,7 +2743,6 @@ export class ChatView {
               this.pendingDeliveryMode = state.isStreaming ? 'steer' : 'prompt';
               this.onStateChange?.(state);
               void this.refreshSessionStats(true);
-              void this.refreshGitSummary(true);
               this.render();
             })
             .catch(() => {
@@ -4036,42 +3664,6 @@ export class ChatView {
     } catch (err) {
       console.error('Failed to export HTML:', err);
       this.pushNotice('Failed to export session', 'error');
-    }
-  }
-
-  private async createGitRepository(): Promise<void> {
-    if (this.creatingGitRepo) return;
-    this.creatingGitRepo = true;
-    this.render();
-    try {
-      const init = await this.runGit(['init']);
-      if (init.exitCode !== 0) {
-        this.pushNotice(
-          init.stderr.trim() ||
-            init.stdout.trim() ||
-            'Failed to create git repository',
-          'error',
-        );
-        return;
-      }
-
-      const setMain = await this.runGit([
-        'symbolic-ref',
-        'HEAD',
-        'refs/heads/main',
-      ]);
-      if (setMain.exitCode !== 0) {
-        await this.runGit(['branch', '-M', 'main']);
-      }
-
-      this.pushNotice('Git repository ready', 'success');
-      await this.refreshGitSummary(true);
-    } catch (err) {
-      console.error('Failed to create git repository:', err);
-      this.pushNotice('Failed to create git repository', 'error');
-    } finally {
-      this.creatingGitRepo = false;
-      this.render();
     }
   }
 
@@ -5375,7 +4967,6 @@ export class ChatView {
 					</div>
 
 					<div class="composer-under-row">
-						${this.renderGitRepoControl()}
 						${renderComposerStatsView({
               hover: this.sessionStatsHover,
               refreshing: this.refreshingSessionStats,
@@ -5528,12 +5119,6 @@ export class ChatView {
             !target.closest('#chat-input')
           ) {
             this.closeSlashPalette();
-            changed = true;
-          }
-
-          if (this.gitMenuOpen && !target.closest('.git-branch-wrap')) {
-            this.gitMenuOpen = false;
-            this.gitBranchQuery = '';
             changed = true;
           }
 

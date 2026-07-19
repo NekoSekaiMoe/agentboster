@@ -1482,19 +1482,6 @@ struct PiCliCommandResult {
     discovery: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct GitCommandOptions {
-    args: Vec<String>,
-    cwd: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct GitCommandResult {
-    stdout: String,
-    stderr: String,
-    exit_code: i32,
-}
-
 #[derive(Debug, Serialize)]
 struct DesktopRuntimeInfo {
     platform: String,
@@ -1586,41 +1573,6 @@ async fn run_pi_cli_command(
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         exit_code: output.status.code().unwrap_or(-1),
         discovery: discovery_label,
-    })
-}
-
-#[tauri::command]
-async fn run_git_command(options: GitCommandOptions) -> Result<GitCommandResult, String> {
-    if options.args.is_empty() {
-        return Err("No git command arguments provided".to_string());
-    }
-
-    let git_path = which::which("git").map_err(|_| "git was not found on PATH".to_string())?;
-
-    let mut cmd = Command::new(git_path);
-    cmd.args(&options.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if let Some(cwd) = options.cwd {
-        cmd.current_dir(cwd);
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run git command: {}", e))?;
-
-    Ok(GitCommandResult {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code().unwrap_or(-1),
     })
 }
 
@@ -1898,7 +1850,6 @@ pub fn run() {
             load_settings,
             open_file_dialog,
             run_pi_cli_command,
-            run_git_command,
             get_desktop_runtime_info,
             open_path_in_default_app,
             resolve_close_action,
