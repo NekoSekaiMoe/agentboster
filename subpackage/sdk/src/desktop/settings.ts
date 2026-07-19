@@ -24,19 +24,32 @@
 // them visible in this file's JSDoc hover / type-narrowing context.
 import type { ClientSpoof, QueueMode, ThinkingLevel } from './rpc.js';
 
+// Source: subpackage/cli/packages/desktop/src-tauri/src/lib.rs:1206
+// (AppSettings.theme field — Rust `String`; SDK narrows the runtime-
+// normalized values 'dark' | 'light' | 'system' into a union).
 /** Theme preference (Desktop normalizes to 'dark' | 'light' | 'system'). */
 export type ThemeMode = 'dark' | 'light' | 'system';
 
+// Source: subpackage/cli/packages/desktop/src-tauri/src/lib.rs:1222
+// (AppSettings.close_action field — Rust `String`; the daemon-side
+// CloseAction::from_settings also accepts the aliases 'minimize'/
+// 'background' (→ tray) and 'exit' (→ quit), but only the canonical
+// three are exposed here. Any other value resolves to 'ask'.)
 /** What happens when the user closes the main window. */
 export type CloseAction = 'ask' | 'tray' | 'quit';
 
+// Source: subpackage/cli/packages/desktop/src-tauri/src/lib.rs:1228
+// (AppSettings.screenshot_format field — Rust `String`; SDK narrows
+// the documented values 'jpeg' | 'png'.)
 /** Screenshot format for computer-use-mcp. */
 export type ScreenshotFormat = 'jpeg' | 'png';
 
+// Source: subpackage/cli/packages/desktop/src-tauri/src/lib.rs:1205-1233
+// (pub struct AppSettings).
 /**
  * Persisted Desktop settings, written to:
  *   macOS:   ~/Library/Application Support/agentboster-desktop/settings.json
- *   Windows: %LOCALAPPDATA%\agentboster-desktop\settings.json
+ *   Windows: %LOCALAPPDATA%\agentboster-desktop/settings.json
  *   Linux:   ~/.config/agentboster-desktop/settings.json
  *
  * Mirrors the Rust `AppSettings` struct 1:1 (snake_case, serde-default).
@@ -81,6 +94,8 @@ export interface AppSettings {
   screenshot_quality: number;
 }
 
+// Source: subpackage/cli/packages/desktop/src-tauri/src/lib.rs:1235-1253
+// (impl Default for AppSettings).
 /**
  * Defaults for `AppSettings` — mirrors the Rust `Default` impl at
  * lib.rs:1235-1253 verbatim. Use as the merge base when patching a
