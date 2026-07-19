@@ -1455,10 +1455,19 @@ body.file-split-resizing #file-split-resize-handle::after {
 	min-height: 0;
 }
 
+/* Tab mode: when the terminal tab is active, terminal-pane takes the
+ * full session-pane height and chat-container hides. The dock-height
+ * rule below only fires when terminal is visible but NOT the active
+ * tab (currently never, but kept as a compatibility fallback). */
+#session-pane.terminal-active > #chat-container {
+	display: none;
+}
+
+#session-pane.terminal-active > #terminal-pane,
 #terminal-pane.terminal-dock-visible {
 	display: flex;
-	flex: 0 0 var(--terminal-dock-height, 280px);
-	height: var(--terminal-dock-height, 280px);
+	flex: 1 1 auto;
+	height: auto;
 	background: color-mix(in srgb, var(--bg-elev) 96%, var(--bg));
 }
 

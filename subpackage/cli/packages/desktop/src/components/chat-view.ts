@@ -2367,27 +2367,6 @@ export class ChatView {
     return lines.join('\n');
   }
 
-  private parseBashResult(raw: unknown): {
-    stdout: string;
-    stderr: string;
-    exitCode: number;
-  } {
-    const source =
-      raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-    const output = typeof source.output === 'string' ? source.output : '';
-    const stdout = typeof source.stdout === 'string' ? source.stdout : output;
-    const stderr = typeof source.stderr === 'string' ? source.stderr : '';
-    const exit = source.exitCode ?? source.exit_code;
-    if (typeof exit === 'number' && Number.isFinite(exit)) {
-      return { stdout, stderr, exitCode: exit };
-    }
-    if (typeof exit === 'string') {
-      const parsed = Number(exit);
-      if (Number.isFinite(parsed)) return { stdout, stderr, exitCode: parsed };
-    }
-    return { stdout, stderr, exitCode: 0 };
-  }
-
   private extractLatestChangelogSections(
     markdown: string,
     maxSections = 2,
@@ -2420,24 +2399,6 @@ export class ChatView {
     // Changelog removed - CLI updates are no longer managed by Desktop
     return '# Changelog\n\nCLI changelog has been removed. Check the CLI repository for release notes.';
   }
-
-  private parseNumstat(output: string): {
-    additions: number;
-    deletions: number;
-  } {
-    let additions = 0;
-    let deletions = 0;
-    for (const line of output.split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      const [rawAdd, rawDel] = line.split(/\t+/);
-      const add = Number(rawAdd);
-      const del = Number(rawDel);
-      if (Number.isFinite(add)) additions += add;
-      if (Number.isFinite(del)) deletions += del;
-    }
-    return { additions, deletions };
-  }
-
 
   private extractRuntimeErrorMessage(
     event: Record<string, unknown> | null | undefined,
