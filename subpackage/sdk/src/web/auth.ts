@@ -42,15 +42,17 @@ export interface PairCodeListing {
 
 // Source: /lib/extra/auth/types.ts
 //
-// The source `User` interface extends a `StoredUser` row that pulls in
-// drizzle-orm inferred column types. The wire shape (returned to API
-// consumers) carries only the serializable fields below; the password
-// hash is included because it lives on the auth response object the
-// server-side provider emits, but consumers should never log it.
+// Wire-safe subset of the source `User` interface. The source extends
+// a `StoredUser` row that pulls in drizzle-orm inferred column types
+// and includes `passwordHash`; the SDK surface omits `passwordHash`
+// because it is a server-side credential that must never appear in
+// SDK-facing DTOs or be sent over the wire to extension authors and
+// external integrators. Web tier routes that return a user to SDK
+// consumers should map internal `StoredUser` rows through a sanitizer
+// that drops `passwordHash` before serialization.
 export interface User {
   id: string;
   username: string;
-  passwordHash?: string;
   roles: string[];
   apiKeys: ApiKey[];
   createdAt: number;

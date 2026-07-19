@@ -76,6 +76,12 @@ INTENTIONAL_OMISSIONS = {
     "localToolResultPayloadSchema",
     "runtimeEventPayloadSchema",
     "messagePartSchema",
+    # types/workflow.ts — runtime command array. The SDK mirrors only
+    # the derived `Command` type (a `typeof COMMANDS[number]` alias);
+    # exporting the array itself would create a second source of truth
+    # that drifts from the runtime list the moment either side adds or
+    # removes an entry. See `src/workflow/chunks.ts` for the rationale.
+    "COMMANDS",
     # workflow UIDataPart helper types (deep ai-sdk generics)
     "WorkflowUIPart",
     "WorkflowDataUIPart",

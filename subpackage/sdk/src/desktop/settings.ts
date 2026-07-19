@@ -17,12 +17,12 @@
 //   exactly; the renderer's reactive settings store reads these names
 //   directly off the JSON payload.
 
-// `QueueMode` and `ClientSpoof` are defined canonically in
-// `./rpc.js` (mirrored from bridge.ts:8,10). They are NOT redefined
-// here to avoid a duplicate-export conflict when `desktop/index.ts`
-// re-exports both modules. The `import type` keeps them visible in
-// this file's JSDoc hover / type-narrowing context.
-import type { ClientSpoof, QueueMode } from './rpc.js';
+// `QueueMode`, `ClientSpoof`, and `ThinkingLevel` are defined
+// canonically in `./rpc.js` (mirrored from bridge.ts:8,10,23). They
+// are NOT redefined here to avoid a duplicate-export conflict when
+// `desktop/index.ts` re-exports both modules. The `import type` keeps
+// them visible in this file's JSDoc hover / type-narrowing context.
+import type { ClientSpoof, QueueMode, ThinkingLevel } from './rpc.js';
 
 /** Theme preference (Desktop normalizes to 'dark' | 'light' | 'system'). */
 export type ThemeMode = 'dark' | 'light' | 'system';
@@ -32,15 +32,6 @@ export type CloseAction = 'ask' | 'tray' | 'quit';
 
 /** Screenshot format for computer-use-mcp. */
 export type ScreenshotFormat = 'jpeg' | 'png';
-
-/** Default thinking level (always 'medium' in current Desktop). */
-export type ThinkingLevelValue =
-  | 'off'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh';
 
 /**
  * Persisted Desktop settings, written to:
@@ -59,7 +50,7 @@ export interface AppSettings {
   /** Rust `String`. Runtime-normalized; unknown values fall back to `'dark'`. */
   theme: ThemeMode | string;
   /** Rust `String`. Runtime-normalized; unknown values fall back to `'medium'`. */
-  thinking_level: ThinkingLevelValue | string;
+  thinking_level: ThinkingLevel | string;
   /** Rust `bool`. */
   auto_compaction: boolean;
   /** Rust `bool`. */

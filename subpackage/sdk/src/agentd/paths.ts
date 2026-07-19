@@ -11,6 +11,8 @@
 //
 // Drift is reported by `scripts/regen-agentd.py`.
 
+import type { AgentSandboxOverrides } from './sandbox.js';
+
 // Source: subpackage/agentd/internal/clawless/types.go:5-15
 /**
  * Task lifecycle status. Emitted by the daemon on task state
@@ -115,12 +117,15 @@ export interface Session {
 /**
  * Agent configuration from ClawLess. Carried from the Web tier to
  * the daemon via `/api/agentd/v1/config`. Per-agent sandbox
- * resource overrides live in `AgentSandboxOverrides` (see
- * `sandbox.ts`); the five `sandbox_*` fields are mirrored here too
- * for direct field access when an SDK consumer already holds a
- * full `AgentConfig` row.
+ * resource overrides (`sandbox_cpu` / `sandbox_mem` / `sandbox_pids`
+ * / `sandbox_disk` / `sandbox_blkio_weight`) are composed in from
+ * {@link AgentSandboxOverrides} rather than redeclared here, so the
+ * five sandbox_* fields have a single source of truth (sandbox.ts).
+ * The composition is positional: callers that already hold a full
+ * `AgentConfig` row can still access `agentConfig.sandbox_cpu` etc.
+ * directly.
  */
-export interface AgentConfig {
+export interface AgentConfig extends AgentSandboxOverrides {
   agent_id: string;
   default_sandbox: string;
   available_sandboxes: string[];
@@ -132,12 +137,6 @@ export interface AgentConfig {
   blocked_paths: string[];
   memory_enabled: boolean;
   system_prompt?: string;
-  // P1.1: per-agent sandbox resource overrides.
-  sandbox_cpu?: number;
-  sandbox_mem?: string;
-  sandbox_pids?: number;
-  sandbox_disk?: string;
-  sandbox_blkio_weight?: number;
   // P1.2: MCP bridge toggle and server allowlist.
   mcp_enabled: boolean;
   mcp_servers?: string[];

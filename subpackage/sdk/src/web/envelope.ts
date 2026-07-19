@@ -25,7 +25,12 @@ export type CliResult<
  *
  * `success: true` wraps the payload under `data`; `success: false`
  * carries a single `error` string. Used by `/api/agentd/v1/**`.
+ *
+ * `data` is optional on the success branch — the source Go envelope
+ * (`clawless.APIResponse[T]`) marks `Data` with `omitempty`, so
+ * endpoints that only signal success (delete, ack) return
+ * `{ success: true }` with no payload.
  */
 export type AgentdResult<T> =
-  | { success: true; data: T }
+  | { success: true; data?: T }
   | { success: false; error: string };

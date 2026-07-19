@@ -427,10 +427,15 @@ export type PersistedMessageRole =
 /**
  * Source: types/workflow.ts — `COMMANDS`.
  *
- * The runtime declares this as an `as const` array. The SDK mirrors
- * the type only; if a command is added or removed upstream, regenerate.
+ * Internal mirror of the runtime's `as const` command list. Kept
+ * module-private (not exported) so the SDK only surfaces the derived
+ * `Command` type — exporting a second runtime command array would
+ * create a parallel source of truth that drifts from the upstream
+ * list the moment either side adds or removes an entry. Regenerate
+ * by diffing against the source `COMMANDS` when `Command` consumers
+ * report an unknown value.
  */
-export const COMMANDS = [
+const COMMANDS = [
   'help',
   'status',
   'new',

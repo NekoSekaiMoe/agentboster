@@ -126,16 +126,41 @@ build step.
 | Tool | Purpose |
 |---|---|
 | TypeScript (target ES2022, module ESNext, moduleResolution Bundler) | type-check |
-| Biome 2.x | formatter/linter (matches root) |
+| Biome 2.x | sole formatter + linter (no ESLint, no Prettier, no import sorters — `organizeImports` is off) |
+
+Biome is configured by `biome.json` at the SDK root. The SDK has no
+`yarn.lock` and ships no runtime deps — Biome and TypeScript are
+provided by the repo root's `node_modules`, so all commands assume
+you've run `yarn install` at the repo root first.
 
 ## Commands
 
+There is no `yarn install` for the SDK package itself — it has no
+runtime dependencies. From the repo root after `yarn install`:
+
 ```bash
-yarn install              # or npm install
-yarn run check:lint       # tsc --noEmit
+# Type-check (SDK + examples). Use the repo-root binaries; the SDK
+# package itself doesn't ship tsc.
+node node_modules/typescript/bin/tsc -p subpackage/sdk/tsconfig.json --noEmit --ignoreDeprecations 6.0
+node node_modules/typescript/bin/tsc -p subpackage/sdk/examples/tsconfig.json --noEmit --ignoreDeprecations 6.0
+
+# Biome lint (no --write; --write mutates the tree and hides failures).
+node node_modules/@biomejs/biome/bin/biome check --error-on-warnings subpackage/sdk/src/ subpackage/sdk/examples/ subpackage/sdk/scripts/
+
+# Drift detection (read-only; reports mismatches between source tiers
+# and the SDK mirrors). See the per-surface regen sections below.
+python3 subpackage/sdk/scripts/regen-web.py
+python3 subpackage/sdk/scripts/regen-workflow.py
+python3 subpackage/sdk/scripts/regen-desktop.py
+python3 subpackage/sdk/scripts/regen-agentd.py
 ```
 
+The `--ignoreDeprecations 6.0` flag silences TS 6.x's TS5101 warning
+about `baseUrl`, which is the only TS-6-specific noise the SDK hits.
+
 There is no `build` script — the SDK is consumed as `.ts` source.
+The CLI runtime compiles extensions on load via jiti; other surfaces
+are pure type re-exports consumed at type-check time.
 
 ## Conventions
 

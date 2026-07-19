@@ -6,6 +6,19 @@
 // which are injected by Tauri and never passed by the caller), and
 // each `XxxResult` mirrors the `Result<T, String>` success payload.
 //
+// Source-convention for this file: commands are grouped in sections
+// delimited by `// ---` banners. Each banner carries the
+// `command_name — lib.rs:<start>-<end>` source pointer that covers
+// every Args/Result interface in that section (the Args fields are
+// 1:1 with the Rust signature in that line range; the Result is the
+// success arm of the Rust `Result<T, String>` return). The banner
+// form was chosen over per-interface `// Source:` headers because
+// each command contributes 2-4 small interfaces whose provenance is
+// the same Rust function — repeating the lib.rs:<lines> pointer on
+// every Args/Result would be pure noise. The convention is reviewed
+// by `scripts/regen-desktop.py`, which diffs the
+// `#[tauri::command]` list against this file's section banners.
+//
 // Wire-shape rules (see SDK root AGENTS.md → "Rust → TS port"):
 //   - `Option<T>` arg → `T | null | undefined` (Tauri serializes missing
 //     keys as `null` on the JS side, and the Rust `Option` deserializer

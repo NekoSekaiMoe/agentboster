@@ -11,6 +11,16 @@
 // exported; if it ever is, replace these copies with a re-export.
 // Until then, drift is detected by scripts/regen-desktop.py (it
 // diffs the interface bodies in main.ts against this file).
+//
+// Why ASPIRATIONAL rather than making main.ts export these now:
+// main.ts is a ~6,300-line renderer entry point. Promoting its
+// private interfaces to public exports would force every internal
+// helper type it references into the Desktop package's public
+// surface, which is a separate (much larger) refactor. The current
+// ASPIRATIONAL mirror + drift detector is the lowest-risk way to
+// give SDK consumers a typed shape today — the detector catches
+// shape changes; the ASPIRATIONAL marker reminds reviewers that
+// the source-of-truth move is still pending.
 
 /** Source: components/sidebar.ts:12 (SidebarMode). */
 export type SidebarMode = 'projects' | 'files';

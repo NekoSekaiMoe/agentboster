@@ -93,16 +93,32 @@ export interface L1ScoreResult {
 }
 
 // Source: subpackage/agentd/internal/clawless/l1_client.go:107-114
+// Source: app/api/agentd/v1/l1-score/route.ts:26-44 (Web authoritative —
+// zod discriminated union; the Go struct uses omitempty fields but the
+// Web tier enforces the per-branch required payload at the route layer).
 /**
  * L1 score request wire shape, sent to `/api/agentd/v1/l1-score`.
- * `type` selects between command and output scoring; the matching
- * payload field (`command` or `output`) must be populated.
+ *
+ * Discriminated by `type`: when scoring a command, `command` is
+ * required and `output` is rejected; when scoring command output,
+ * `output` is required and `command` is rejected. The shared optional
+ * fields (`work_dir`, `context_summary`, `model_id`) apply to both.
  */
-export interface L1ScoreRequest {
-  type: 'command' | 'output';
-  command?: string;
-  output?: string;
+export type L1ScoreRequest = L1CommandScoreRequest | L1OutputScoreRequest;
+
+// Source: app/api/agentd/v1/l1-score/route.ts:26-32 (commandScoreRequestSchema)
+export interface L1CommandScoreRequest {
+  type: 'command';
+  command: string;
   work_dir?: string;
+  context_summary?: string;
+  model_id?: string;
+}
+
+// Source: app/api/agentd/v1/l1-score/route.ts:34-39 (outputScoreRequestSchema)
+export interface L1OutputScoreRequest {
+  type: 'output';
+  output: string;
   context_summary?: string;
   model_id?: string;
 }

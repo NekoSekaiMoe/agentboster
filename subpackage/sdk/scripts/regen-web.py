@@ -161,13 +161,13 @@ def main() -> int:
         stale = sdk_names - source_union
 
         if skipped:
-            print(f"  SKIP (intentional; see INTENTIONALLY_SKIPPED in script):")
+            print("  SKIP (intentional; see INTENTIONALLY_SKIPPED in script):")
             for name in sorted(skipped):
                 print(f"    . {name}")
 
         if missing:
             has_drift = True
-            print(f"  MISSING (source declares, SDK does not mirror):")
+            print("  MISSING (source declares, SDK does not mirror):")
             for name in sorted(missing):
                 print(f"    ! {name}")
         else:
