@@ -1,0 +1,43 @@
+{
+  "name": "@agentboster/sdk",
+  "version": "0.1.0",
+  "description": "agentboster extension SDK: types, helpers, and docs for building extensions, skills, prompts, and themes that run inside the agentboster-cli runtime.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "docs",
+    "examples"
+  ],
+  "scripts": {
+    "check:lint": "tsc --noEmit",
+    "build": "echo 'SDK ships as TypeScript source — no build step. The runtime (jiti) compiles on load.' && exit 0"
+  },
+  "keywords": [
+    "agentboster",
+    "sdk",
+    "extension",
+    "plugin",
+    "coding-agent"
+  ],
+  "peerDependencies": {
+    "@agentboster-cli/core": "^0.1.0",
+    "typebox": "^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@agentboster-cli/core": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
+  "license": "MIT"
+}
