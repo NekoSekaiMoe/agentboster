@@ -1,7 +1,7 @@
 {
   "name": "@agentboster/sdk",
   "version": "0.1.0",
-  "description": "agentboster extension SDK: types, helpers, and docs for building extensions, skills, prompts, and themes that run inside the agentboster-cli runtime.",
+  "description": "Cross-tier SDK for the AgentBoster platform: unifies public types and contracts across the CLI runtime, the Web HTTP API, the Workflow DevKit, the Desktop IPC bridge, and the agentd tool protocol.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -18,7 +18,13 @@
   ],
   "scripts": {
     "check:lint": "tsc -p tsconfig.json --noEmit && tsc -p examples/tsconfig.json --noEmit",
+    "regen-cli": "python3 scripts/regen-stubs.py && python3 scripts/regen-exports.py",
     "regen-stubs": "python3 scripts/regen-stubs.py && python3 scripts/regen-exports.py",
+    "regen-web": "python3 scripts/regen-web.py",
+    "regen-workflow": "python3 scripts/regen-workflow.py",
+    "regen-desktop": "python3 scripts/regen-desktop.py",
+    "regen-agentd": "python3 scripts/regen-agentd.py",
+    "regen-all": "python3 scripts/regen-stubs.py && python3 scripts/regen-exports.py && python3 scripts/regen-web.py && python3 scripts/regen-workflow.py && python3 scripts/regen-desktop.py && python3 scripts/regen-agentd.py",
     "build": "echo 'SDK ships as TypeScript source — no build step. The runtime (jiti) compiles on load.' && exit 0"
   },
   "keywords": [

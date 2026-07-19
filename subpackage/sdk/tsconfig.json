@@ -10,11 +10,13 @@
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
     "noEmit": true,
-    "lib": ["ES2022"],
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022", "DOM"],
     "types": [],
     "baseUrl": ".",
     "paths": {
-      "@agentboster-cli/core": ["./vendor/core.d.ts"]
+      "@agentboster-cli/core": ["./vendor/core.d.ts"],
+      "ai": ["./vendor/workflow/ai-sdk.d.ts"]
     }
   },
   "include": ["src/**/*.ts", "vendor/**/*.d.ts"],

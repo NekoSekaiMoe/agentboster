@@ -37,17 +37,23 @@ consumed at type-check time.
 
 ## Surfaces and maturity
 
-The SDK is split into five surfaces. Each has a maturity level — **ready**
-(re-exported today, additive within a major version) or **roadmap** (types
-still being sourced; expect churn between minor versions).
+The SDK is split into five surfaces. Each has a dedicated subdirectory
+under `src/` and a regen script under `scripts/` that detects drift
+against its source-of-truth tier.
 
-| Surface | Covers | Maturity |
-|---|---|---|
-| **CLI runtime** | Extension/skill/prompt/theme authoring, tool and agent primitives, session lifecycle. Re-exported from `@agentboster-cli/core`. | Ready |
-| **Web HTTP API** | Request/response shapes for `/api/cli/*`, `/api/agentd/v1/*`, the four auth patterns (cookie / CLI token / agentd-key / signed URL), chat and session-events SSE, subagent stream. | Roadmap |
-| **Workflow DevKit** | Step definitions, event persistence, hook builders, run identity — lets external schedulers or tests construct and resume workflow runs against the Web runtime. | Roadmap |
-| **Desktop IPC & bridge** | Tauri `invoke` contracts, RPC bridge messages (Desktop ↔ CLI `--mode rpc`), pane/workspace state, settings schema (`close_action`, `screenshot_format`, `screenshot_quality`). | Roadmap |
-| **Agentd tool protocol** | Tool exec envelope `{ success, data, error }`, sandbox profiles (`docker` / `docker-strict` / `lxc`), L0/L1/L2 event schema, node register/heartbeat shapes. | Roadmap |
+| Surface | Covers | Source of truth | Maturity |
+|---|---|---|---|
+| **CLI runtime** (`src/cli/`) | Extension/skill/prompt/theme authoring, tool and agent primitives, session lifecycle. Re-exported from `@agentboster-cli/core`; runtime injects real types via jiti. | `cli/packages/coding-agent/src/index.ts` | Ready |
+| **Web HTTP API** (`src/web/`) | Request/response shapes for `/api/cli/*`, `/api/agentd/v1/*`, the four auth patterns (cookie / CLI token / agentd-key / signed URL), chat and session-events SSE, subagent stream. | `lib/auth/`, `lib/cli/`, `app/api/cli/**`, `lib/security/` | Ready (core; route bodies expanding) |
+| **Workflow DevKit** (`src/workflow/`) | `WorkflowUIMessageChunk` / `WorkflowStatusData`, hook payloads (approval / instruction / localTool), message persistence shapes, dispatch facade types. | `types/workflow.ts`, `lib/workflow/agent/**`, `lib/chat/message-utils.ts` | Ready |
+| **Desktop IPC & bridge** (`src/desktop/`) | Tauri `invoke` command map (16 commands), RPC bridge messages, `AppSettings`, workspace state, tray/window events. | `subpackage/cli/packages/desktop/src-tauri/src/lib.rs`, `src/rpc/bridge.ts`, `src/main.ts` | Ready |
+| **Agentd tool protocol** (`src/agentd/`) | `APIResponse<T>` envelope, tool exec / SSE stream, sandbox profiles, L0/L1/L2 security events, node register/heartbeat wire. | `subpackage/agentd/internal/clawless/types.go`, `internal/agent/*`, `internal/lifecycle/*` | Ready |
+
+The CLI surface is re-exported flat at the package root for backwards
+compatibility (extensions do `import { ExtensionAPI } from '@agentboster/sdk'`).
+The other four surfaces are exported as namespaces
+(`import { web, workflow, desktop, agentd } from '@agentboster/sdk'`)
+to avoid name collisions with the flat CLI surface.
 
 ## Why one SDK, not five
 

@@ -20,7 +20,7 @@ from pathlib import Path
 
 SDK_ROOT = Path(__file__).resolve().parent.parent
 STUB_PATH = SDK_ROOT / "vendor/core.d.ts"
-INDEX_PATH = SDK_ROOT / "src/index.ts"
+INDEX_PATH = SDK_ROOT / "src/cli/index.ts"
 
 HEADER = """\
 /**
@@ -101,7 +101,7 @@ def main() -> int:
 
     # Compat helpers (SDK-only)
     lines.append("// ── SDK-only compatibility helpers ──────────────────────────────")
-    lines.append("export { resolveModelApiKey } from './compat.js';")
+    lines.append("export { resolveModelApiKey } from '../compat.js';")
     lines.append("")
 
     INDEX_PATH.write_text("\n".join(lines), encoding="utf-8")

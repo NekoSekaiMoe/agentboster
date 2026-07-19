@@ -18,21 +18,28 @@ so that:
 - tool / sandbox authors writing for agentd (or a third-party execution node)
   share the same protocol types as the daemon itself.
 
-The SDK is organized into five surfaces. Each surface has a maturity level —
-**ready** (re-exported today, locked within a major version) or **roadmap**
-(types still being sourced; safe to depend on but expect churn).
+The SDK is organized into five surfaces. Each surface has a dedicated
+subdirectory under `src/` and a regen script under `scripts/` that
+detects drift against its source-of-truth tier.
 
-| Surface | Covers | Maturity |
-|---|---|---|
-| **CLI runtime** | Extensions, skills, prompts, themes, tool/agent primitives, session lifecycle. Re-exported from `@agentboster-cli/core`. Loaded by the CLI runtime via jiti. | **Ready** |
-| **Web HTTP API** | Request/response shapes for `/api/cli/*`, `/api/agentd/v1/*`, auth (cookie / CLI token / agentd-key / signed URL), event schemas (chat stream, session-events SSE, subagent stream). | Roadmap |
-| **Workflow DevKit** | Step definitions, event persistence, hook builders, run identity — so external schedulers and tests can construct/resume workflow runs against the Web runtime. | Roadmap |
-| **Desktop IPC & bridge** | Tauri `invoke` command contracts, RPC bridge messages (Desktop ↔ CLI `--mode rpc`), pane/workspace state shapes, settings schema (`close_action`, `screenshot_format`, etc.). | Roadmap |
-| **Agentd tool protocol** | Tool exec envelope (`{ success, data, error }`), sandbox profiles (`docker` / `docker-strict` / `lxc`), L0/L1/L2 event schema, node registration & heartbeat shapes. | Roadmap |
+| Surface | Covers | Source of truth | Maturity |
+|---|---|---|---|
+| **CLI runtime** (`src/cli/`) | Extensions, skills, prompts, themes, tool/agent primitives, session lifecycle. Re-exported from `@agentboster-cli/core`. Loaded by the CLI runtime via jiti. | `cli/packages/coding-agent/src/index.ts` | **Ready** |
+| **Web HTTP API** (`src/web/`) | Auth (cookie / CLI token / agentd-key / signed URL), SSE event schemas, request/response shapes for `/api/cli/*` and `/api/agentd/v1/*` routes. | `lib/auth/`, `lib/cli/`, `app/api/cli/**`, `lib/security/` | **Ready** (core; route bodies expanding) |
+| **Workflow DevKit** (`src/workflow/`) | `WorkflowUIMessageChunk` / `WorkflowStatusData`, hook payloads, message persistence shapes, dispatch facade types. | `types/workflow.ts`, `lib/workflow/agent/**`, `lib/chat/message-utils.ts` | **Ready** |
+| **Desktop IPC & bridge** (`src/desktop/`) | Tauri `invoke` command map, RPC bridge messages, `AppSettings`, workspace state, tray/window events. | `subpackage/cli/packages/desktop/src-tauri/src/lib.rs`, `src/rpc/bridge.ts`, `src/main.ts` | **Ready** |
+| **Agentd tool protocol** (`src/agentd/`) | `APIResponse<T>` envelope, tool exec / SSE stream, sandbox profiles, L0/L1/L2 security events, node register/heartbeat wire. | `subpackage/agentd/internal/clawless/types.go`, `internal/agent/*`, `internal/lifecycle/*` | **Ready** |
+
+The CLI surface is re-exported flat at the package root for backwards
+compatibility (extensions do `import { ExtensionAPI } from '@agentboster/sdk'`).
+The other four surfaces are exported as namespaces
+(`import { web, workflow, desktop, agentd } from '@agentboster/sdk'`) to
+avoid name collisions with the flat CLI surface and to make call-site
+intent clearer.
 
 Everything ships as TypeScript source — there is no build step. The CLI
-runtime compiles extensions on load via jiti; other surfaces are pure type
-re-exports consumed at type-check time.
+runtime compiles extensions on load via jiti; the other surfaces are
+pure type re-exports consumed at type-check time.
 
 ## Install
 
@@ -86,11 +93,16 @@ the CLI — the runtime discovers and loads it via jiti.
 
 | Path | What |
 |---|---|
-| `src/index.ts` | Public type + value re-exports (CLI surface today; other surfaces land here as they mature) |
+| `src/index.ts` | Package entry — re-exports CLI flat + the four newer surfaces as namespaces |
+| `src/cli/index.ts` | CLI runtime surface (re-export from `@agentboster-cli/core`; regen via `regen-cli`) |
+| `src/web/` | Web HTTP API surface: `auth.ts`, `envelope.ts`, `sse.ts`, `routes.ts` |
+| `src/workflow/` | Workflow DevKit surface: `chunks.ts`, `hooks.ts`, `messages.ts`, `dispatch.ts`, `types.ts` |
+| `src/desktop/` | Desktop IPC surface: `settings.ts`, `invoke.ts`, `rpc.ts`, `events.ts`, `workspace.ts` |
+| `src/agentd/` | Agentd protocol surface: `envelope.ts`, `tools.ts`, `sandbox.ts`, `security.ts`, `node.ts`, `paths.ts` |
 | `src/compat.ts` | Cross-version helpers (`resolveModelApiKey`) |
-| `vendor/core.d.ts` | Minimal type stub for standalone SDK type-check |
-| `scripts/regen-stubs.py` | Regenerate `vendor/core.d.ts` from the runtime's exports |
-| `scripts/regen-exports.py` | Regenerate `src/index.ts` explicit export list |
+| `vendor/core.d.ts` | CLI runtime type stub for standalone type-check |
+| `vendor/workflow/ai-sdk.d.ts` | Minimal stub for the `ai` package referenced by Workflow chunks |
+| `scripts/regen-*.py` | One regen script per surface — drift detectors that scan each surface's source-of-truth files and report mismatches against the SDK mirror |
 | `docs/ARCHITECTURE.md` | AgentBoster tier model and how the SDK maps onto it |
 | `docs/PACKAGES.md` | Philosophy: what belongs in an extension vs the host |
 | `docs/CAPABILITY_MODEL.md` | The `extension_ui_request` capability whitelist |
@@ -118,5 +130,13 @@ extensions on load via jiti, so there is no build step and no dist output
 to keep in sync.
 
 Target the version of `@agentboster/sdk` that matches your runtime
-version. Within a major version, the **ready** surface is additive; the
-**roadmap** surfaces may move between minor versions until they stabilize.
+version. Within a major version:
+
+- The **CLI surface** is re-exported flat at the package root and stays
+  additive (existing extensions keep working).
+- The **Web / Workflow / Desktop / Agentd surfaces** are exported as
+  namespaces and may gain new types between minor versions; existing
+  types are additive only.
+- Each surface has a regen script (`scripts/regen-<surface>.py`) that
+  reports drift against its source-of-truth tier — run them in CI to
+  catch unmirrored changes.
