@@ -265,7 +265,12 @@ export async function execToolOnAgentd(
     // Persist the actually-picked node so the next tool call in this
     // session can reuse it. Skipped when sessionId is empty (no
     // session to remember) or when the picker returned null (caller
-    // will throw below; nothing to record).
+    // will throw below; nothing to record). Also skipped when the
+    // picker returned the exact node already recorded as
+    // `lastAgentdNodeId` (i.e. affinity hit): in that case the value
+    // in memory came from the row we'd be writing back to, so the
+    // UPDATE would be a no-op and just adds write amplification on
+    // hot tool-call paths.
     //
     // Atomic jsonb merge (not read-modify-write): the previous form
     // did `getSession` + spread + `updateSession`, which is a whole-
@@ -278,7 +283,7 @@ export async function execToolOnAgentd(
     // every other metadata field (source, scheduleNodeConstraints,
     // locale, contextUsage, …) untouched regardless of what other
     // writers commit in parallel.
-    if (sessionId && node) {
+    if (sessionId && node && node.nodeID !== affinityNodeId) {
       try {
         const { sql } = await import('drizzle-orm');
         await db.execute(sql`

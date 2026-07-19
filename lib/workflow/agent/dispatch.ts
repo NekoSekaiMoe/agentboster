@@ -47,6 +47,26 @@ export interface AgentNodeStatus {
 }
 
 /**
+ * Hard load thresholds. A node is rejected ( scorer skips it, affinity
+ * short-circuit falls through ) when CPU is saturated, or free memory /
+ * free disk drops at-or-below the cutoff. These values MUST stay in
+ * sync between the affinity branch and the scoring loop in
+ * `selectBestNode` — both call this helper so they cannot drift.
+ *
+ * Normalized inputs: cpu/mem/disk are fractions in [0, 1]:
+ *   - cpu   = cpuUsage / 100          (higher = busier)
+ *   - mem   = memAvail  / 100         (higher = more free)
+ *   - disk  = diskAvail / 100         (higher = more free)
+ */
+const CPU_SATURATION = 0.9;
+const MEM_FLOOR = 0.1;
+const DISK_FLOOR = 0.1;
+
+function isNodeHealthy(cpu: number, mem: number, disk: number): boolean {
+  return cpu < CPU_SATURATION && mem > MEM_FLOOR && disk > DISK_FLOOR;
+}
+
+/**
  * selectBestNode finds the best Agent Daemon node based on:
  * 1. Online status (heartbeat within 2 minutes)
  * 2. Required sandbox type availability
@@ -127,7 +147,7 @@ export async function selectBestNode(
           affinityNode.memAvail != null ? affinityNode.memAvail / 100 : 0.5;
         const disk =
           affinityNode.diskAvail != null ? affinityNode.diskAvail / 100 : 0.5;
-        if (cpu < 0.9 && mem > 0.1 && disk > 0.1) {
+        if (isNodeHealthy(cpu, mem, disk)) {
           return {
             nodeID: affinityNode.nodeID,
             ip: affinityNode.ip,
@@ -150,7 +170,7 @@ export async function selectBestNode(
       const disk = n.diskAvail != null ? n.diskAvail / 100 : 0.5;
 
       // Skip overloaded nodes
-      if (cpu >= 0.9 || mem <= 0.1 || disk <= 0.1) continue;
+      if (!isNodeHealthy(cpu, mem, disk)) continue;
 
       // P3.1: add a small active-tasks penalty so a busy node loses
       // to an idle one even when their CPU/mem look similar. The
