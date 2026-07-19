@@ -1,14 +1,11 @@
 'use client';
 
-import { Bot } from 'lucide-react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
-import { Loader2, PlusIcon, SquareIcon } from './icons';
+import { Loader2, SquareIcon } from './icons';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 type SessionStatus =
@@ -39,7 +36,6 @@ function PureChatHeader({
   chatId?: string;
   onAbort?: () => void;
 }) {
-  const router = useRouter();
   const { t } = useI18n();
   const [aborting, setAborting] = useState(false);
 
@@ -127,18 +123,6 @@ function PureChatHeader({
               </span>
               <span className="text-lg text-muted-foreground">ChatUI</span>
             </div>
-
-            <Button
-              asChild
-              size="sm"
-              variant="outline"
-              className="ml-auto hidden h-8 md:inline-flex"
-            >
-              <Link href="/config/monitoring">
-                <Bot className="size-3.5" />
-                {t('nav.bot')}
-              </Link>
-            </Button>
           </div>
 
           <div className="mt-2 flex min-h-8 min-w-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-1 text-muted-foreground text-xs [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -235,26 +219,6 @@ function PureChatHeader({
               <TooltipContent>{t('chatHeader.abortSession')}</TooltipContent>
             </Tooltip>
           )}
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                className="shrink-0 px-2 md:h-fit"
-                aria-label={t('chatHeader.newChat')}
-                onClick={() => {
-                  router.push('/');
-                  router.refresh();
-                }}
-              >
-                <PlusIcon />
-                <span className="hidden md:inline">
-                  {t('chatHeader.newChat')}
-                </span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('chatHeader.newChat')}</TooltipContent>
-          </Tooltip>
         </div>
       </div>
     </header>

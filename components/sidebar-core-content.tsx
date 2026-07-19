@@ -437,18 +437,29 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
           <Logo width={24} height={24} />
           <span className="font-semibold text-lg">AgentBoster</span>
         </Link>
-        <Button
-          variant="ghost"
-          type="button"
-          size="icon"
-          onClick={() => {
-            onClose();
-            router.push('/');
-            router.refresh();
-          }}
-        >
-          <Plus className="size-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            type="button"
+            className="h-9 w-9 p-0 md:hidden"
+            onClick={onClose}
+            aria-label="Close sidebar"
+          >
+            <span className="text-base">&lt;</span>
+          </Button>
+          <Button
+            variant="ghost"
+            type="button"
+            size="icon"
+            onClick={() => {
+              onClose();
+              router.push('/');
+              router.refresh();
+            }}
+          >
+            <Plus className="size-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Navigation */}

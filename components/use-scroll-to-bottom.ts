@@ -5,6 +5,7 @@ const PINNED_TO_BOTTOM_THRESHOLD = 64;
 export function useScrollToBottom<T extends HTMLElement>(
   trackedItem: unknown,
   secondarySignal: unknown = null,
+  options?: { scrollOnMount?: boolean },
 ): [RefObject<T | null>, RefObject<T | null>] {
   const containerRef = useRef<T | null>(null);
   const endRef = useRef<T | null>(null);
@@ -13,6 +14,7 @@ export function useScrollToBottom<T extends HTMLElement>(
   const previousTrackedItemRef = useRef<unknown>(null);
   const previousSecondarySignalRef = useRef<unknown>(null);
   const touchStartYRef = useRef<number | null>(null);
+  const scrollOnMount = options?.scrollOnMount ?? true;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -87,11 +89,18 @@ export function useScrollToBottom<T extends HTMLElement>(
       // First mount: pin to the bottom so opening a session shows the
       // latest message. Defer one frame so layout is flushed first.
       hasMountedRef.current = true;
-      isPinnedToBottomRef.current = true;
-      const frame = requestAnimationFrame(() => {
-        end.scrollIntoView({ behavior: 'instant', block: 'end' });
-      });
-      return () => cancelAnimationFrame(frame);
+
+      if (scrollOnMount) {
+        isPinnedToBottomRef.current = true;
+        const frame = requestAnimationFrame(() => {
+          end.scrollIntoView({ behavior: 'instant', block: 'end' });
+        });
+        return () => cancelAnimationFrame(frame);
+      }
+
+      // New session: stay at top, let user scroll manually
+      isPinnedToBottomRef.current = false;
+      return;
     }
 
     if (!hasRelevantChange || !isPinnedToBottomRef.current) {
@@ -99,7 +108,7 @@ export function useScrollToBottom<T extends HTMLElement>(
     }
 
     end.scrollIntoView({ behavior: 'instant', block: 'end' });
-  }, [trackedItem, secondarySignal]);
+  }, [trackedItem, secondarySignal, scrollOnMount]);
 
   return [containerRef, endRef];
 }

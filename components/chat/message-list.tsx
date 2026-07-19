@@ -182,7 +182,9 @@ function PureMessages({
     lastMessage.role === 'assistant' &&
     !hasRenderableAssistantParts(lastMessage);
   const [messagesContainerRef, messagesEndRef] =
-    useScrollToBottom<HTMLDivElement>(lastMessage, shouldShowThinking);
+    useScrollToBottom<HTMLDivElement>(lastMessage, shouldShowThinking, {
+      scrollOnMount: messages.length > 0,
+    });
 
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [showScrollToTop, setShowScrollToTop] = useState(false);
