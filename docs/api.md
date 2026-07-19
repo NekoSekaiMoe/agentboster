@@ -118,7 +118,7 @@ Start an OAuth Authorization Code + PKCE flow for an MCP server. Sets short-live
 OAuth callback handler. Validates state against cookie, exchanges code+verifier for tokens, stores encrypted bundle in Vault, redirects to config UI. A single callback URL serves all MCP servers via cookie context. Auth: cookie (admin).
 
 ### POST /api/config/mcp/oauth/revoke
-Disconnect an MCP server's OAuth connection. Revokes tokens at the provider (RFC 7009), then deletes the encrypted bundle from Vault. Auth: cookie (admin).
+Disconnect an MCP server's OAuth connection. Provider-side revocation (RFC 7009 when `revokeUrl` is configured) is best-effort — network failures and 404/405 responses are reported in the response but don't block local cleanup. The encrypted Vault bundle is deleted and the `vaultKey` pointer is cleared regardless of provider-revocation outcome. Auth: cookie (admin).
 
 ---
 

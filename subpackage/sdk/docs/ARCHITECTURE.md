@@ -155,8 +155,12 @@ extension authoring, see [`PACKAGE_CAPABILITY_TEMPLATE.md`](./PACKAGE_CAPABILITY
 Each tier keeps its own security boundary:
 
 - **CLI** extensions run inside the CLI process; the runtime injects
-  types via virtual-module aliases, so extensions never need to ship
-  the runtime themselves.
+  the host packages (`@agentboster-cli/core`, `typebox`, etc.) via
+  module aliases so extensions never need to ship the runtime
+  themselves. The alias mechanism differs by runtime: the compiled
+  Bun binary uses jiti's `virtualModules` (in-memory bundles), while
+  Node.js / dev mode uses jiti's `alias` option pointing at workspace
+  paths (see `cli/packages/coding-agent/src/core/extensions/loader.ts`).
 - **Web** endpoints enforce their own auth (cookie / CLI token /
   agentd-key / signed URL); SDK types do not grant access, they only
   describe the shapes.
