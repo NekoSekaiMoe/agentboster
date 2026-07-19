@@ -8,7 +8,7 @@ Sibling projects that ship alongside the Web app at the repo root. Each subdirec
 | [`cli/`](./cli/README.md) | TypeScript + Biome 2.3.5, yarn classic | self-contained repo with its own `package.json` | The `agentboster` terminal coding agent. Thin TUI client of the Web backend — no direct provider mode; every LLM call goes through `POST /api/cli/chat`. |
 | [`computer-use-mcp/`](./computer-use-mcp/README.md) | Rust (edition 2024), Cargo workspace | two crates: `computer-use-core` + `computer-use-mcp-server` | Cross-platform MCP server for computer use: screenshots, mouse/keyboard input, accessibility tree queries. Used by the CLI desktop app. |
 | [`dbushelper/`](./dbushelper/README.md) | Go 1.26.4 | standalone `go.mod` | Pure-Go AT-SPI2 accessibility D-Bus client. Runs inside the agentd LXC sandbox; powers `desktop_inspect` / `desktop_a11y_click` / `desktop_a11y_type`. |
-| [`sdk/`](./sdk/README.md) | TypeScript, Biome 2.x | standalone npm package (`@agentboster/sdk`) | Public SDK for building extensions, skills, prompts, and themes. Ships as TypeScript source (compiled at load by jiti). Re-exports types from the CLI runtime. |
+| [`sdk/`](./sdk/README.md) | TypeScript, Biome 2.x | standalone npm package (`@agentboster/sdk`) | Cross-tier SDK unifying public types and contracts across CLI / Web / Desktop. Ships as TypeScript source (compiled at load by jiti). CLI extension surface ready; Web/Workflow/Desktop-IPC/Agentd surfaces on roadmap. |
 
 ## Working across boundaries
 
