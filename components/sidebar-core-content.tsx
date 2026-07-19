@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 
 import { logoutAction } from '@/app/(auth)/actions';
 import { useI18n } from '@/components/i18n-provider';
+import { SidebarTrigger } from '@/components/ui/sidebar';
 import {
   deleteSessionAction,
   isAgentdEnabled,
@@ -438,28 +439,27 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
           <span className="font-semibold text-lg">AgentBoster</span>
         </Link>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            type="button"
-            className="h-9 w-9 p-0 md:hidden"
-            onClick={onClose}
-            aria-label="Close sidebar"
-          >
-            <span className="text-base">&lt;</span>
-          </Button>
-          <Button
-            variant="ghost"
-            type="button"
-            size="icon"
-            onClick={() => {
-              onClose();
-              router.push('/');
-              router.refresh();
-            }}
-          >
-            <Plus className="size-4" />
-          </Button>
+          <SidebarTrigger
+            className="size-8 shrink-0 rounded-lg md:hidden"
+            aria-label={t('common.openNavigation')}
+          />
         </div>
+      </div>
+
+      <div className="p-4 pb-0">
+        <Button
+          variant="outline"
+          type="button"
+          className="h-9 w-full justify-start gap-2 rounded-xl"
+          onClick={() => {
+            onClose();
+            router.push('/');
+            router.refresh();
+          }}
+        >
+          <Plus className="size-4" />
+          {t('chat.newChat')}
+        </Button>
       </div>
 
       {/* Navigation */}
