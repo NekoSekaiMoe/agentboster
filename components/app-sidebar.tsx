@@ -63,6 +63,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
   SidebarSeparator,
+  SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
 import type { TranslationKey } from '@/lib/i18n';
@@ -294,6 +295,10 @@ export function AppSidebar() {
               </span>
             )}
           </Link>
+          <SidebarTrigger
+            className="size-8 shrink-0 rounded-lg md:hidden"
+            aria-label={t('common.openNavigation')}
+          />
         </div>
 
         <Button
