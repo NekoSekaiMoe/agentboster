@@ -101,8 +101,13 @@ function decryptValue(input: {
     : new Error('Failed to decrypt vault value.');
 }
 
-async function auditVault(action: string, key: string, userId?: string | null) {
-  await db.insert(vaultAuditLogs).values({
+async function auditVault(
+  action: string,
+  key: string,
+  userId?: string | null,
+  tx: Pick<typeof db, 'insert'> = db,
+) {
+  await tx.insert(vaultAuditLogs).values({
     action,
     key,
     userId: userId ?? null,
@@ -190,4 +195,31 @@ export async function readVaultValue(input: {
   const value = decryptValue(entry);
   await auditVault('read', key, input.userId);
   return { key: entry.key, value, updatedAt: entry.updatedAt };
+}
+
+/**
+ * Delete a vault entry by key. Returns true if a row was deleted, false
+ * if the key didn't exist. Used by credential-revocation flows (e.g.
+ * disconnecting an MCP OAuth connection) — we delete rather than blank
+ * so that the key doesn't show up in listVaultKeyNames() anymore, and
+ * the audit log is the only record of the prior credential.
+ *
+ * The delete and its audit record run inside a single transaction so an
+ * audit failure rolls back the deletion — callers never end up with the
+ * credential gone but no audit trail.
+ */
+export async function deleteVaultEntry(input: {
+  key: string;
+  userId?: string | null;
+}): Promise<boolean> {
+  const key = validateVaultKey(input.key);
+  const deletedKeys = await db.transaction(async (tx) => {
+    const result = await tx
+      .delete(vaultEntries)
+      .where(eq(vaultEntries.key, key))
+      .returning({ key: vaultEntries.key });
+    await auditVault('delete', key, input.userId, tx);
+    return result;
+  });
+  return deletedKeys.length > 0;
 }

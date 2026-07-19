@@ -184,6 +184,111 @@ describe('selectBestNode', () => {
     // is not skipped (would be the case under hard cutoff).
     expect(result?.nodeID).toBe('idle');
   });
+
+  describe('session affinity', () => {
+    it('returns the affinity node directly when it is healthy', async () => {
+      // 'busy' would normally win the score race (lower cpuUsage) but
+      // affinity for 'previously-used' must override the scorer.
+      mockRows.push(
+        makeRow({
+          nodeID: 'previously-used',
+          cpuUsage: 50,
+          memAvail: 50,
+          diskAvail: 80,
+          activeTasks: 2,
+        }),
+        makeRow({
+          nodeID: 'busy',
+          cpuUsage: 10,
+          memAvail: 90,
+          diskAvail: 80,
+          activeTasks: 0,
+        }),
+      );
+      const result = await selectBestNode(
+        undefined,
+        undefined,
+        'previously-used',
+      );
+      expect(result?.nodeID).toBe('previously-used');
+    });
+
+    it('falls back to scoring when affinity node is offline (not in rows)', async () => {
+      mockRows.push(
+        makeRow({ nodeID: 'only-online', cpuUsage: 30, activeTasks: 0 }),
+      );
+      const result = await selectBestNode(undefined, undefined, 'gone-offline');
+      expect(result?.nodeID).toBe('only-online');
+    });
+
+    it('falls back to scoring when affinity node is over the cpu hard threshold', async () => {
+      // The affinity node IS online and passes filters, but cpu >= 0.9
+      // would have caused the scorer to skip it. Affinity must honor
+      // the same hard threshold — never park a session on a node the
+      // scorer would reject.
+      mockRows.push(
+        makeRow({
+          nodeID: 'overloaded',
+          cpuUsage: 95,
+          memAvail: 50,
+          diskAvail: 80,
+        }),
+        makeRow({ nodeID: 'healthy', cpuUsage: 30 }),
+      );
+      const result = await selectBestNode(undefined, undefined, 'overloaded');
+      expect(result?.nodeID).toBe('healthy');
+    });
+
+    it('falls back to scoring when affinity node is over the mem hard threshold', async () => {
+      mockRows.push(
+        makeRow({
+          nodeID: 'low-mem',
+          cpuUsage: 30,
+          memAvail: 5, // <= 0.1 hard cutoff
+          diskAvail: 80,
+        }),
+        makeRow({ nodeID: 'healthy', memAvail: 50 }),
+      );
+      const result = await selectBestNode(undefined, undefined, 'low-mem');
+      expect(result?.nodeID).toBe('healthy');
+    });
+
+    it('falls back when affinity node is outside allowedNodes', async () => {
+      // The allowedNodes filter runs before the affinity check, so a
+      // node that the caller explicitly excludes cannot be re-selected
+      // via affinity — would defeat per-agent node authorization.
+      mockRows.push(
+        makeRow({ nodeID: 'a', cpuUsage: 30 }),
+        makeRow({ nodeID: 'b', cpuUsage: 30 }),
+      );
+      const result = await selectBestNode(undefined, ['b'], 'a');
+      expect(result?.nodeID).toBe('b');
+    });
+
+    it('respects required sandbox type even with affinity', async () => {
+      // affinity node exists but lacks the required sandbox type →
+      // affinity must not bypass the sandbox filter.
+      mockRows.push(
+        makeRow({ nodeID: 'affinity-node', sandboxes: ['docker'] }),
+        makeRow({ nodeID: 'lxc-node', sandboxes: ['lxc'] }),
+      );
+      const result = await selectBestNode('lxc', undefined, 'affinity-node');
+      expect(result?.nodeID).toBe('lxc-node');
+    });
+
+    it('returns null when affinity is set but no nodes are online at all', async () => {
+      const result = await selectBestNode(undefined, undefined, 'affinity');
+      expect(result).toBeNull();
+    });
+
+    it('treats empty-string affinityNodeId as no affinity', async () => {
+      // Defensive: callers that pass `metadata.lastAgentdNodeId` without
+      // checking emptiness should not get surprising behavior.
+      mockRows.push(makeRow({ nodeID: 'only' }));
+      const result = await selectBestNode(undefined, undefined, '');
+      expect(result?.nodeID).toBe('only');
+    });
+  });
 });
 
 describe('isAgentdAvailable', () => {

@@ -32,7 +32,7 @@
  *                          (MinIO needs path-style addressing)
  */
 
-import { getPublicAppUrl } from '@/lib/deploy';
+import { getPublicAppUrl } from '@/lib/extra/deploy';
 import { signBlobUrl } from './proxy-link';
 
 // The client and command types are inferred from `buildClient()` below via

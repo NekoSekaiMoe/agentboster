@@ -1,5 +1,5 @@
 import type { PutBlobResult, PutCommandOptions } from '@vercel/blob';
-import { isVercel } from '@/lib/deploy';
+import { isVercel } from '@/lib/extra/deploy';
 
 export type BlobAccess = 'public' | 'private';
 type VercelBlobModule = typeof import('@vercel/blob');

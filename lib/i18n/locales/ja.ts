@@ -327,9 +327,45 @@ export const ja = {
   'config.forms.mcp.customServers': 'カスタムリモートサーバー',
   'config.forms.mcp.removeServer': 'サーバーを削除',
   'config.forms.mcp.serverName': 'サーバー名',
+  'config.forms.mcp.serverNameRequired': 'サーバー名を入力してください。',
+  'config.forms.mcp.serverNameTooLong':
+    'サーバー名は 64 文字以内にしてください。',
+  'config.forms.mcp.serverNameInvalid':
+    'サーバー名には英数字・アンダースコア・ドット・コロン・ハイフンのみ使用できます。',
+  'config.forms.mcp.serverNameInUse':
+    'この名前は別のサーバーが使用しています。別の名前を選んでください。',
   'config.forms.mcp.tools': 'ツール: {tools}',
   'config.forms.mcp.transportPlaceholder': 'トランスポートを選択',
   'config.forms.mcp.type': '種類',
+  'config.forms.mcp.authMode': '認証',
+  'config.forms.mcp.authModeNone': 'なし(公開)',
+  'config.forms.mcp.authModeStaticHeaders': '静的ヘッダー(PAT)',
+  'config.forms.mcp.authModeOauth': 'OAuth(認可コード + PKCE)',
+  'config.forms.mcp.staticHeadersHint':
+    'Authorization ヘッダーを追加してください(例: "Bearer ghp_xxx")。このトークンはグローバル設定に保存されます。OAuth モードではトークンはグローバル設定に保存されず、Vault で暗号化され管理者権限で MCP サーバー共有の認証情報として管理されます。',
+  'config.forms.mcp.noAuthHint':
+    '認証が設定されていません。公開 MCP サーバーのみで使用してください。',
+  'config.forms.mcp.oauthClientId': 'クライアント ID',
+  'config.forms.mcp.oauthAuthorizeUrl': '認可 URL',
+  'config.forms.mcp.oauthTokenUrl': 'トークン URL',
+  'config.forms.mcp.oauthRevokeUrl': 'Revoke URL(RFC 7009)',
+  'config.forms.mcp.oauthScope': 'スコープ(スペース区切り)',
+  'config.forms.mcp.oauthResource': 'リソース(RFC 8707)',
+  'config.forms.mcp.oauthConnect': '連携',
+  'config.forms.mcp.oauthRevoke': '切断',
+  'config.forms.mcp.oauthHint':
+    'トークンは Vault に暗号化されて保存されます。コールバック URL をプロバイダーに登録してください。',
+  'config.forms.mcp.oauthStateConnected': '接続済み',
+  'config.forms.mcp.oauthStateDisconnected': '未接続',
+  'config.forms.mcp.oauthStateExpired': '期限切れ — 再連携',
+  'config.forms.mcp.oauthStateExpiredRefreshable': '期限切れ(更新可能)',
+  'config.forms.mcp.oauthStartFailed': 'OAuth フローを開始できませんでした',
+  'config.forms.mcp.oauthRevokeOk':
+    '切断しました。Vault からトークンを削除しました。',
+  'config.forms.mcp.oauthRevokeFailed': '切断に失敗しました',
+  'config.forms.mcp.testButton': 'テスト',
+  'config.forms.mcp.testOk': '接続成功 — {count} 個のツールが利用可能',
+  'config.forms.mcp.testFailed': 'テスト失敗',
   'config.forms.models.addProvider': 'Provider を追加',
   'config.forms.models.bareModelHelp':
     '裸のモデル名は OpenAI Legacy provider に解決されます。特定 provider を指定するには provider/model-id を使用します。',
@@ -439,6 +475,7 @@ export const ja = {
   'menu.signingOut': 'サインアウト中...',
   'menu.signOut': 'サインアウト',
   'nav.agentDaemon': 'Agent Daemon',
+  'nav.mcp': 'MCP サーバー',
   'nav.agents': 'エージェント',
   'nav.alerts': 'アラート',
   'nav.auditLogs': '監査ログ',

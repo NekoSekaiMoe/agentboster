@@ -24,7 +24,7 @@
  * top-level `node:*` imports out of caution — it only touches ./pg-backend
  * (drizzle) and ../deploy (pure env reader).
  */
-import { isSelfHosted } from '@/lib/deploy';
+import { isSelfHosted } from '@/lib/extra/deploy';
 
 /** Minimum wall-clock gap between physical sweeps in a single process. */
 export const SWEEP_MIN_INTERVAL_MS = 5 * 60 * 1000;

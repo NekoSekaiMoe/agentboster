@@ -324,9 +324,45 @@ export const ko = {
   'config.forms.mcp.customServers': '사용자 정의 원격 서버',
   'config.forms.mcp.removeServer': '서버 제거',
   'config.forms.mcp.serverName': '서버 이름',
+  'config.forms.mcp.serverNameRequired': '서버 이름을 입력하세요.',
+  'config.forms.mcp.serverNameTooLong': '서버 이름은 64자 이하여야 합니다.',
+  'config.forms.mcp.serverNameInvalid':
+    '서버 이름은 영문자, 숫자, 밑줄, 마침표, 콜론, 하이픈만 포함할 수 있습니다.',
+  'config.forms.mcp.serverNameInUse':
+    '이미 다른 서버가 이 이름을 사용 중입니다. 다른 이름을 선택하세요.',
   'config.forms.mcp.tools': '도구: {tools}',
   'config.forms.mcp.transportPlaceholder': '전송 방식 선택',
   'config.forms.mcp.type': '유형',
+  'config.forms.mcp.authMode': '인증',
+  'config.forms.mcp.authModeNone': '없음(공개)',
+  'config.forms.mcp.authModeStaticHeaders': '정적 헤더(PAT)',
+  'config.forms.mcp.authModeOauth': 'OAuth(인증 코드 + PKCE)',
+  'config.forms.mcp.staticHeadersHint':
+    'Authorization 헤더를 추가하세요(예: "Bearer ghp_xxx"). 이 토큰은 전역 설정에 저장됩니다. OAuth 모드에서는 토큰이 전역 설정에 저장되지 않고 Vault에 암호화되어 관리자가 인증하고 MCP 서버가 공유하는 자격 증명으로 관리됩니다.',
+  'config.forms.mcp.noAuthHint':
+    '인증이 구성되지 않았습니다. 공개 MCP 서버에만 적합합니다.',
+  'config.forms.mcp.oauthClientId': '클라이언트 ID',
+  'config.forms.mcp.oauthAuthorizeUrl': '인증 URL',
+  'config.forms.mcp.oauthTokenUrl': '토큰 URL',
+  'config.forms.mcp.oauthRevokeUrl': 'Revoke URL(RFC 7009)',
+  'config.forms.mcp.oauthScope': '스코프(공백 구분)',
+  'config.forms.mcp.oauthResource': '리소스(RFC 8707)',
+  'config.forms.mcp.oauthConnect': '연결',
+  'config.forms.mcp.oauthRevoke': '연결 해제',
+  'config.forms.mcp.oauthHint':
+    '토큰은 Vault에 암호화되어 저장됩니다. 콜백 URL을 제공자에 등록하세요.',
+  'config.forms.mcp.oauthStateConnected': '연결됨',
+  'config.forms.mcp.oauthStateDisconnected': '연결되지 않음',
+  'config.forms.mcp.oauthStateExpired': '만료됨 — 재연결',
+  'config.forms.mcp.oauthStateExpiredRefreshable':
+    '만료됨 — 자동 새로고침 가능',
+  'config.forms.mcp.oauthStartFailed': 'OAuth 흐름을 시작하지 못했습니다',
+  'config.forms.mcp.oauthRevokeOk':
+    '연결이 해제되었습니다. Vault에서 토큰이 제거되었습니다.',
+  'config.forms.mcp.oauthRevokeFailed': '연결 해제 실패',
+  'config.forms.mcp.testButton': '테스트',
+  'config.forms.mcp.testOk': '연결 성공 — 도구 {count}개 사용 가능',
+  'config.forms.mcp.testFailed': '테스트 실패',
   'config.forms.models.addProvider': '공급자 추가',
   'config.forms.models.bareModelHelp':
     '단독 모델 이름은 OpenAI Legacy 공급자로 해석됩니다. 특정 공급자를 지정하려면 provider/model-id를 사용하세요.',
@@ -435,6 +471,7 @@ export const ko = {
   'menu.signingOut': '로그아웃 중...',
   'menu.signOut': '로그아웃',
   'nav.agentDaemon': 'Agent Daemon',
+  'nav.mcp': 'MCP 서버',
   'nav.agents': '에이전트',
   'nav.alerts': '알림',
   'nav.auditLogs': '감사 로그',

@@ -40,7 +40,12 @@ function normalizeBaseUrl(baseUrl: string): string {
 }
 
 function withScheme(host: string): string {
-  return host.startsWith('http') ? host : `https://${host}`;
+  // Only treat the value as already-schemed when it starts with a
+  // complete `http://` or `https://` scheme. A bare host like
+  // `http.example.com` would otherwise pass a `startsWith('http')`
+  // check and end up with no scheme, breaking URL construction for
+  // OAuth callback URIs, blob links, and webhook URLs.
+  return /^https?:\/\//i.test(host) ? host : `https://${host}`;
 }
 
 /**
@@ -77,13 +82,18 @@ export function getPublicAppUrl(): string {
  * Whether a public app URL has been explicitly configured (as opposed to
  * silently falling back to localhost). Used by health checks to flag a
  * self-hosted deployment that forgot to set PUBLIC_APP_URL.
+ *
+ * Note: Vercel preview/deployment URLs (`VERCEL_BRANCH_URL`, `VERCEL_URL`)
+ * are intentionally EXCLUDED — they are ephemeral per-deployment URLs and
+ * must not be reported as a configured production origin (otherwise OAuth
+ * callback URIs and webhook URLs would silently point at a throwaway URL
+ * that disappears on the next deploy). Only `PUBLIC_APP_URL` and the
+ * Vercel production project URL count.
  */
 export function hasConfiguredPublicAppUrl(): boolean {
   return (
     readEnv('PUBLIC_APP_URL') !== undefined ||
     readEnv('NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL') !== undefined ||
-    readEnv('VERCEL_PROJECT_PRODUCTION_URL') !== undefined ||
-    readEnv('VERCEL_BRANCH_URL') !== undefined ||
-    readEnv('VERCEL_URL') !== undefined
+    readEnv('VERCEL_PROJECT_PRODUCTION_URL') !== undefined
   );
 }

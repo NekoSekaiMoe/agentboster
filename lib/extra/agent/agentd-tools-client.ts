@@ -154,16 +154,19 @@ export async function execToolOnAgentd(
   const { db } = await import('@/lib/core/db');
   const { eq } = await import('drizzle-orm');
 
-  // Scheduled-task node preference: when no explicit nodeId was passed
-  // by the caller (i.e. the LLM didn't request a specific node), check
-  // whether the current session carries a `scheduleNodeConstraints`
-  // metadata entry written by `deliverScheduledTask`. If so, honor the
-  // preferred node so the dispatched task's tool calls actually land on
-  // the daemon the user picked (or the fallback node that resolved).
+  // One metadata read for both concerns, so we never hit the DB twice
+  // for the same row in the same call:
+  //   - `scheduleNodeConstraints` (written by `deliverScheduledTask`)
+  //     — if present, the LLM didn't request a node, but the scheduler
+  //     did, and we should land on the daemon the user picked.
+  //   - `lastAgentdNodeId` (written by us on prior calls) — affinity
+  //     hint so consecutive tool calls from the same session reuse
+  //     the same daemon and its warmed state.
   //
-  // This is a no-op for non-scheduled runs: those sessions don't carry
-  // the metadata key, so the historical auto-pick path is preserved.
+  // Both are best-effort: any read error degrades to the historical
+  // unconstrained auto-pick.
   let effectiveNodeId = nodeId;
+  let affinityNodeId: string | undefined;
   if (!effectiveNodeId && sessionId) {
     try {
       const { sessions } = await import('@/lib/core/db/schema');
@@ -172,10 +175,17 @@ export async function execToolOnAgentd(
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .limit(1);
-      const constraint = ((row?.metadata ?? {}) as Record<string, unknown>)
-        .scheduleNodeConstraints as { preferredNodeId?: string } | undefined;
+      const meta = (row?.metadata ?? {}) as Record<string, unknown>;
+      const constraint = meta.scheduleNodeConstraints as
+        | { preferredNodeId?: string }
+        | undefined;
       if (constraint?.preferredNodeId) {
         effectiveNodeId = constraint.preferredNodeId;
+      } else {
+        const lastId = meta.lastAgentdNodeId as string | undefined;
+        if (lastId && typeof lastId === 'string' && lastId.length > 0) {
+          affinityNodeId = lastId;
+        }
       }
     } catch {
       // Best-effort: fall through to auto-pick on any error.
@@ -193,6 +203,11 @@ export async function execToolOnAgentd(
     activeTasks: number;
     sandboxMemPeakTotal?: number | null;
   } | null = null;
+  // Tracks how the dispatch actually resolved for the log line below.
+  // 'explicit' = caller-supplied nodeId (or scheduleNodeConstraints).
+  // 'affinity' = auto-pick that reused session's lastAgentdNodeId.
+  // 'auto'     = unconstrained scoring race.
+  let selectedBy: 'explicit' | 'affinity' | 'auto' = 'auto';
 
   if (effectiveNodeId) {
     // P3.1 (nodeId hardening): an explicit nodeId MUST still respect
@@ -229,9 +244,55 @@ export async function execToolOnAgentd(
       activeTasks: rows[0].activeTasks || 0,
       sandboxMemPeakTotal: rows[0].sandboxMemPeakTotal,
     };
+    selectedBy = 'explicit';
   } else {
     // P3.1: pass per-agent allowedNodes filter to the node picker.
-    node = await selectBestNode(undefined, allowedNodes);
+    //
+    // Session affinity: `affinityNodeId` was resolved from the same
+    // metadata read as `effectiveNodeId` above (no second DB hit).
+    // selectBestNode returns the same node directly if it is still
+    // online + passes the sandbox/allowlist/hard-threshold filters;
+    // otherwise it runs the normal scoring race. This keeps
+    // consecutive tool calls from a chat session on the same daemon
+    // so warmed state (git clones, npm installs, browser sessions)
+    // survives across tool calls instead of being re-dispatched to a
+    // different node each time.
+    node = await selectBestNode(undefined, allowedNodes, affinityNodeId);
+    if (affinityNodeId && node?.nodeID === affinityNodeId) {
+      selectedBy = 'affinity';
+    }
+
+    // Persist the actually-picked node so the next tool call in this
+    // session can reuse it. Skipped when sessionId is empty (no
+    // session to remember) or when the picker returned null (caller
+    // will throw below; nothing to record).
+    //
+    // Atomic jsonb merge (not read-modify-write): the previous form
+    // did `getSession` + spread + `updateSession`, which is a whole-
+    // column overwrite and races with concurrent writers. The same
+    // race is documented in lib/workflow/scheduled/dispatch.ts's
+    // `applyNodeConstraintToSession` — that module bypassed
+    // `updateSession` for exactly this reason. We follow the same
+    // pattern: `metadata || jsonb_build_object('lastAgentdNodeId',
+    // ...)` shallow-merges jsonb, touching only our key and leaving
+    // every other metadata field (source, scheduleNodeConstraints,
+    // locale, contextUsage, …) untouched regardless of what other
+    // writers commit in parallel.
+    if (sessionId && node) {
+      try {
+        const { sql } = await import('drizzle-orm');
+        await db.execute(sql`
+          UPDATE sessions
+             SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                   'lastAgentdNodeId', ${node.nodeID}
+                 ),
+                 updated_at = NOW()
+           WHERE id = ${sessionId}
+        `);
+      } catch {
+        // Best-effort: do not fail the tool call over a metadata write.
+      }
+    }
   }
 
   if (!node) {
@@ -290,7 +351,7 @@ export async function execToolOnAgentd(
     nodeIp: node.ip,
     cpuUsage: node.cpuUsage,
     memAvail: node.memAvail,
-    selectedBy: nodeId ? 'explicit' : 'auto',
+    selectedBy,
   });
 
   // User-facing node label from dashboard config (agentd.nodes[].name),

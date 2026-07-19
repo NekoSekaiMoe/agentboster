@@ -7,7 +7,7 @@ import { getAgentdClientConfig } from './agentd-tools-client';
  * Uses mTLS + API key authentication.
  */
 
-function validateAgentdResponse<T = void>(
+function validateAgentdResponse<T = undefined>(
   method: string,
   path: string,
   text: string,
@@ -18,24 +18,27 @@ function validateAgentdResponse(
   path: string,
   text: string,
   extractData?: false,
-): void;
+): undefined;
 function validateAgentdResponse<T>(
   method: string,
   path: string,
   text: string,
   extractData?: boolean,
-): T | void {
+): T | undefined {
   const json = JSON.parse(text) as {
     success: boolean;
     data?: T;
     error?: string;
   };
   if (!json.success) {
-    throw new Error(`AgentDaemon error: ${json.error ?? 'unknown'}`);
+    throw new Error(
+      `AgentDaemon error at ${method} ${path}: ${json.error ?? 'unknown'}`,
+    );
   }
   if (extractData) {
     return json.data as T;
   }
+  return undefined;
 }
 
 async function agentdRequestRaw(

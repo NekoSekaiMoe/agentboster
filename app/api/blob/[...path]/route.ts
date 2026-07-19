@@ -12,7 +12,7 @@
  */
 import { getBlob } from '@/lib/core/blob';
 import { verifyBlobUrl } from '@/lib/core/blob/proxy-link';
-import { isVercel } from '@/lib/deploy';
+import { isVercel } from '@/lib/extra/deploy';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';

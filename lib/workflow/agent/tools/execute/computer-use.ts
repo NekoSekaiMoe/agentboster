@@ -1,4 +1,4 @@
-import { tool } from 'ai';
+import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { defineBuildInTool } from '../define';
 import { localToolResultHookBuilder } from '../../hooks';
@@ -73,11 +73,47 @@ async function dispatchToCliMcp(
     };
   }
 
-  // screenshot returns image content
+  // screenshot returns image content. Validate each image item is
+  // actually a complete image payload (type=image + non-empty data +
+  // non-empty mimeType) before casting — don't blindly assert the
+  // whole array matches the strict union, since CLI/MCP transports can
+  // surface other shapes when something downstream misbehaves.
   if (toolName === 'screenshot' && typeof result.output === 'object') {
-    const output = result.output as any;
-    if (output.content?.[0]?.type === 'image') {
-      return { content: output.content };
+    const output = result.output as
+      | {
+          content?: Array<{
+            type?: string;
+            data?: unknown;
+            mimeType?: unknown;
+          }>;
+        }
+      | null
+      | undefined;
+    const items = output?.content;
+    if (Array.isArray(items)) {
+      const validImages: Array<{
+        type: 'image';
+        data: string;
+        mimeType: string;
+      }> = [];
+      for (const item of items) {
+        if (
+          item?.type === 'image' &&
+          typeof item.data === 'string' &&
+          item.data.length > 0 &&
+          typeof item.mimeType === 'string' &&
+          item.mimeType.length > 0
+        ) {
+          validImages.push({
+            type: 'image',
+            data: item.data,
+            mimeType: item.mimeType,
+          });
+        }
+      }
+      if (validImages.length > 0) {
+        return { content: validImages };
+      }
     }
   }
 
@@ -119,7 +155,7 @@ export default defineBuildInTool({
     const sid = sessionId;
     const rid = runId;
 
-    const tools: Record<string, any> = {
+    const tools: ToolSet = {
       screenshot: tool({
         description:
           'Capture the screen and return a scaled PNG image. Terminal windows are automatically excluded. All coordinates in the image match the scaled resolution.',
@@ -129,7 +165,7 @@ export default defineBuildInTool({
             .optional()
             .describe('Maximum width in pixels (default: 1400)'),
         }),
-        execute: async (input: any, { toolCallId }: any) => {
+        execute: async (input, { toolCallId }) => {
           return await dispatchToCliMcp(
             sid,
             rid,
@@ -152,7 +188,7 @@ export default defineBuildInTool({
         x: z.number().describe('X coordinate (screenshot scale)'),
         y: z.number().describe('Y coordinate (screenshot scale)'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,
@@ -180,7 +216,7 @@ export default defineBuildInTool({
           .default('single')
           .describe('Single or double click'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,
@@ -200,7 +236,7 @@ export default defineBuildInTool({
         to_x: z.number().describe('End X coordinate'),
         to_y: z.number().describe('End Y coordinate'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,
@@ -225,7 +261,7 @@ export default defineBuildInTool({
           .optional()
           .describe('Modifier keys: "ctrl", "alt", "shift", "meta"'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(sid, rid, toolCallId, 'key_event', input);
       },
     });
@@ -236,7 +272,7 @@ export default defineBuildInTool({
       inputSchema: z.object({
         text: z.string().describe('Text to type'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(sid, rid, toolCallId, 'type_text', input);
       },
     });
@@ -254,7 +290,7 @@ export default defineBuildInTool({
           .optional()
           .describe('Maximum tree depth to traverse (default: unlimited)'),
       }),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,
@@ -269,7 +305,7 @@ export default defineBuildInTool({
       description:
         'Get the currently focused UI element. Returns the element that would receive keyboard input.',
       inputSchema: z.object({}),
-      execute: async (input: any, { toolCallId }: any) => {
+      execute: async (input, { toolCallId }) => {
         return await dispatchToCliMcp(
           sid,
           rid,
