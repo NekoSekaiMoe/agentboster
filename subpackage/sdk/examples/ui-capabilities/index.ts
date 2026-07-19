@@ -19,12 +19,7 @@
  */
 
 import { Type } from 'typebox';
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ExtensionShortcut,
-  ExtensionFlag,
-} from '@agentboster/sdk';
+import type { ExtensionAPI, ExtensionShortcut } from '@agentboster/sdk';
 
 // Custom message type — anything the extension wants to render in chat.
 // Common use cases: progress cards, structured tool results, custom
@@ -63,7 +58,7 @@ export default function uiCapabilities(pi: ExtensionAPI): void {
   //     a custom message with type='progress-card', we render it as a
   //     TUI progress bar. The desktop app renders it as a card.
   pi.registerMessageRenderer('progress-card', {
-    render(message, { theme }) {
+    render(message) {
       const card = message as ProgressCard;
       const bar = renderProgressBar(card.percent);
       return {

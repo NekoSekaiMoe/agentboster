@@ -45,6 +45,7 @@
 // We don't use `export *` so the SDK type-checks standalone against
 // vendor/core.d.ts. When the runtime adds an export, regenerate this file.
 
+
 export type {
   AgentEndEvent,
   AgentSessionConfig,

@@ -20,7 +20,6 @@ import {
   convertToLlm,
   resolveModelApiKey,
   type ExtensionAPI,
-  type ExtensionContext,
 } from '@agentboster/sdk';
 
 const SUMMARY_PROMPT =

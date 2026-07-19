@@ -54,6 +54,31 @@ SOURCE_FILES: list[tuple[str, Path]] = [
     # exported name for the script to track.
 ]
 
+# Source exports intentionally NOT mirrored in the SDK. These are either
+# runtime helpers (functions, factories) that don't belong in a
+# type-only surface, or internal row types whose wire shape the SDK
+# hand-ports under a different name. Review this list when the source
+# tier changes the corresponding symbol — the type may need to be
+# re-imported under its new shape.
+#
+# Format: bare symbol names. The drift detector skips them when
+# computing MISSING (source has, SDK doesn't). They are still printed
+# for visibility (as SKIP) so reviewers see them on every run.
+INTENTIONALLY_SKIPPED: set[str] = {
+    # lib/auth/session.ts
+    "getAuthCookieOptions",        # runtime helper (Set-Cookie header builder)
+    "getExpiredAuthCookieOptions", # runtime helper
+    # lib/cli/schedule-serialization.ts
+    "PersistedScheduledTask",      # DB row type; SDK ports wire shape as ScheduleTaskRecord
+    "DisplayStatus",               # internal row discriminator; SDK has ScheduleDisplayStatus
+    "deriveDisplayStatus",         # runtime helper
+    "serializeScheduledTask",      # runtime helper
+    # lib/cli/remote-control.ts
+    "registerCliListener",         # runtime helper
+    "unregisterCliListener",       # runtime helper
+    "getCliListener",              # runtime helper
+}
+
 # Matches:
 #   export interface Foo
 #   export type Foo = ...
@@ -127,8 +152,18 @@ def main() -> int:
         sdk_names = collect_sdk_mirror_names(sdk_module)
         print(f"  mirror: {sdk_module.relative_to(SDK_ROOT)} ({len(sdk_names)} exports)")
 
-        missing = source_union - sdk_names
+        # Apply allowlist: source exports we've consciously decided not
+        # to mirror (helpers, runtime types ported under different names).
+        # These are reported as SKIP for visibility but don't count as
+        # MISSING — they're intentional omissions, reviewed per change.
+        skipped = source_union & INTENTIONALLY_SKIPPED
+        missing = source_union - sdk_names - INTENTIONALLY_SKIPPED
         stale = sdk_names - source_union
+
+        if skipped:
+            print(f"  SKIP (intentional; see INTENTIONALLY_SKIPPED in script):")
+            for name in sorted(skipped):
+                print(f"    . {name}")
 
         if missing:
             has_drift = True
