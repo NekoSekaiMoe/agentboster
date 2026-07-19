@@ -56,6 +56,12 @@ on:
       - 'subpackage/agentd/internal/lifecycle/**'
       - 'subpackage/agentd/internal/metrics/**'
       - 'subpackage/agentd/internal/server/exec_stream.go'
+      # Root toolchain — the SDK reuses root node_modules (typescript,
+      # @biomejs/biome), so a version bump in the root manifest or
+      # lockfile can break the SDK's type-check/lint even when no SDK
+      # source file changed.
+      - 'package.json'
+      - 'yarn.lock'
       # Workflow itself
       - '.github/workflows/sdk-ci.yml'
   pull_request:
@@ -87,6 +93,9 @@ on:
       - 'subpackage/agentd/internal/lifecycle/**'
       - 'subpackage/agentd/internal/metrics/**'
       - 'subpackage/agentd/internal/server/exec_stream.go'
+      # Root toolchain — see push.paths comment above.
+      - 'package.json'
+      - 'yarn.lock'
       # Workflow itself
       - '.github/workflows/sdk-ci.yml'
 
