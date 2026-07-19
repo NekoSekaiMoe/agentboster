@@ -1,6 +1,6 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
-use image::imageops::FilterType;
 use image::ImageFormat;
+use image::imageops::FilterType;
 use xcap::Monitor;
 
 use crate::safety::terminal_window_ids;
@@ -122,7 +122,8 @@ pub fn capture_and_scale(
             // them; for genuine translucent UI pixels the loss is
             // imperceptible at q80).
             let rgb = image::DynamicImage::ImageRgba8(scaled.to_rgba8()).to_rgb8();
-            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality);
+            let mut encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality);
             encoder.encode_image(&image::DynamicImage::ImageRgb8(rgb))?;
         }
     }
