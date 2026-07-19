@@ -1,0 +1,13 @@
+{
+  "name": "@agentboster-example/ui-capabilities",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Extension exercising the UI surface: notify, setStatus, setFooter, registerShortcut, registerFlag, registerMessageRenderer. Demonstrates how extensions integrate with the chat/TUI chrome.",
+  "type": "module",
+  "main": "index.ts",
+  "agentboster": { "extensions": ["index.ts"] },
+  "pi": { "extensions": ["index.ts"] },
+  "peerDependencies": {
+    "@agentboster/sdk": "^0.1.0"
+  }
+}

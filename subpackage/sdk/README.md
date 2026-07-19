@@ -58,13 +58,20 @@ the CLI — the runtime discovers and loads it via jiti.
 
 | Path | What |
 |---|---|
-| `src/index.ts` | Public type + helper re-exports |
+| `src/index.ts` | Public type + value re-exports (~350 names mirroring the runtime) |
 | `src/compat.ts` | Cross-version helpers (`resolveModelApiKey`) |
+| `vendor/core.d.ts` | Minimal type stub for standalone SDK type-check |
+| `scripts/regen-stubs.py` | Regenerate `vendor/core.d.ts` from the runtime's exports |
+| `scripts/regen-exports.py` | Regenerate `src/index.ts` explicit export list |
 | `docs/PACKAGES.md` | Philosophy: what belongs in an extension vs the host |
 | `docs/CAPABILITY_MODEL.md` | The `extension_ui_request` capability whitelist |
 | `docs/PACKAGE_CAPABILITY_TEMPLATE.md` | Step-by-step extension authoring guide + PR checklist |
 | `docs/ARCHITECTURE.md` | Three-layer host model: Desktop → CLI → extensions |
-| `examples/hello-tool/` | Reference extension (tool + command + lifecycle hook) |
+| `examples/hello-tool/` | Minimal tool + command + lifecycle hook |
+| `examples/llm-context/` | Read session context, call a provider via fetch |
+| `examples/custom-provider/` | Register an OpenAI-compatible provider (Ollama) |
+| `examples/ui-capabilities/` | Shortcuts, flags, message renderers, status line |
+| `examples/commands-and-hooks/` | Slash command patterns + 4 lifecycle hooks |
 
 ## Manifest field
 
