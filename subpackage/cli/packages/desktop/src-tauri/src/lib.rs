@@ -979,6 +979,17 @@ async fn rpc_start(
         cmd.env("COMPUTER_USE_MCP_PATH", &mcp_path);
     }
 
+    // Forward screenshot-format settings to the CLI (and from there to the
+    // computer-use-mcp subprocess) so the user's choice in the Settings
+    // panel is honored as the per-session default for `screenshot` calls.
+    // We read from the on-disk settings.json (sync, locked) rather than
+    // going through the renderer's IPC, because the spawn happens in the
+    // RPC bootstrap path before any settings have necessarily been pushed.
+    if let Some((fmt, q)) = read_screenshot_settings_sync() {
+        cmd.env("COMPUTER_USE_SCREENSHOT_FORMAT", &fmt);
+        cmd.env("COMPUTER_USE_SCREENSHOT_QUALITY", q.to_string());
+    }
+
     let mut child = cmd.spawn().map_err(|e| {
         let lower = e.to_string().to_lowercase();
         let missing_executable = matches!(e.raw_os_error(), Some(2) | Some(3))
@@ -1209,6 +1220,16 @@ pub struct AppSettings {
     ///
     /// Any other value is treated as `"ask"`.
     pub close_action: String,
+    /// Default output format for computer-use screenshots spawned via the
+    /// `computer-use-mcp` binary. Forwarded to the MCP server as the env
+    /// var `COMPUTER_USE_SCREENSHOT_FORMAT`. `"jpeg"` (default) is 5-10x
+    /// smaller than PNG at q80 with negligible vision-model recognition
+    /// loss; `"png"` is lossless.
+    pub screenshot_format: String,
+    /// JPEG quality 1-100 for computer-use screenshots. Ignored when
+    /// `screenshot_format == "png"`. Forwarded as
+    /// `COMPUTER_USE_SCREENSHOT_QUALITY`. Default 80.
+    pub screenshot_quality: i64,
 }
 
 impl Default for AppSettings {
@@ -1225,6 +1246,8 @@ impl Default for AppSettings {
             model_id: None,
             pi_path: None,
             close_action: "ask".to_string(),
+            screenshot_format: "jpeg".to_string(),
+            screenshot_quality: 80,
         }
     }
 }
@@ -1264,6 +1287,24 @@ fn load_close_action_sync() -> CloseAction {
         Some(s) => CloseAction::from_settings(s),
         None => CloseAction::Ask,
     }
+}
+
+/// Sync read of screenshot format/quality from disk. Used on the CLI
+/// spawn path so the computer-use-mcp subprocess inherits the user's
+/// Settings panel choice without an IPC round-trip to the renderer.
+/// Returns None if either field is missing or unparsable — callers
+/// fall back to the MCP server's built-in defaults (jpeg q80).
+fn read_screenshot_settings_sync() -> Option<(String, i64)> {
+    let dir = desktop_config_dir().ok()?;
+    let path = dir.join("settings.json");
+    let content = fs::read_to_string(&path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let fmt = value
+        .get("screenshot_format")
+        .and_then(|v| v.as_str())
+        .filter(|s| *s == "png" || *s == "jpeg")?;
+    let q = value.get("screenshot_quality").and_then(|v| v.as_i64())?;
+    Some((fmt.to_string(), q))
 }
 
 /// Process-wide lock serializing all read-modify-write cycles against

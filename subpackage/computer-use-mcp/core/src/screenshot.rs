@@ -1,13 +1,58 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use image::imageops::FilterType;
+use image::ImageFormat;
 use xcap::Monitor;
 
 use crate::safety::terminal_window_ids;
 
 const DEFAULT_MAX_WIDTH: u32 = 1400;
 
+/// Output format for screenshots. PNG is lossless; JPEG is ~5-10x smaller
+/// at quality 80 with negligible vision-model recognition loss. Default
+/// is JPEG to keep per-turn vision input cost and upload latency low.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenshotFormat {
+    Png,
+    Jpeg,
+}
+
+impl ScreenshotFormat {
+    /// Parse a format string ("png" | "jpeg"); unknown values fall back
+    /// to JPEG, the cost-effective default.
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "png" => ScreenshotFormat::Png,
+            _ => ScreenshotFormat::Jpeg,
+        }
+    }
+
+    pub fn mime(self) -> &'static str {
+        match self {
+            ScreenshotFormat::Png => "image/png",
+            ScreenshotFormat::Jpeg => "image/jpeg",
+        }
+    }
+
+    pub fn image_format(self) -> ImageFormat {
+        match self {
+            ScreenshotFormat::Png => ImageFormat::Png,
+            ScreenshotFormat::Jpeg => ImageFormat::Jpeg,
+        }
+    }
+}
+
+/// Clamp JPEG quality to the valid 1..=100 range; PNG ignores it.
+pub fn clamp_quality(q: Option<i32>) -> u8 {
+    match q {
+        Some(v) if (1..=100).contains(&v) => v as u8,
+        _ => 80,
+    }
+}
+
 pub struct ScreenshotResult {
-    pub png_base64: String,
+    /// Base64-encoded image bytes (PNG or JPEG depending on `format`).
+    pub image_base64: String,
+    pub format: ScreenshotFormat,
     pub native_size: (u32, u32),
     pub scaled_size: (u32, u32),
     pub scale_factor: f64,
@@ -19,6 +64,8 @@ pub fn capture_and_scale(
     max_width: Option<u32>,
     monitor_index: Option<usize>,
     exclude_terminals: Option<bool>,
+    format: ScreenshotFormat,
+    quality: u8,
 ) -> Result<ScreenshotResult, Box<dyn std::error::Error>> {
     let max_w = max_width.unwrap_or(DEFAULT_MAX_WIDTH);
     let monitors = Monitor::all()?;
@@ -60,14 +107,29 @@ pub fn capture_and_scale(
         (image::DynamicImage::ImageRgba8(frame), (w, h))
     };
 
-    let mut png_bytes = Vec::new();
-    scaled.write_to(
-        &mut std::io::Cursor::new(&mut png_bytes),
-        image::ImageFormat::Png,
-    )?;
+    let mut bytes = Vec::new();
+    match format {
+        ScreenshotFormat::Png => {
+            scaled.write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )?;
+        }
+        ScreenshotFormat::Jpeg => {
+            // JPEG has no alpha channel — flatten to RGB over a black
+            // background (matches the terminal-mask convention: masked
+            // regions are already opaque black, so this is a no-op for
+            // them; for genuine translucent UI pixels the loss is
+            // imperceptible at q80).
+            let rgb = image::DynamicImage::ImageRgba8(scaled.to_rgba8()).to_rgb8();
+            let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, quality);
+            encoder.encode_image(&image::DynamicImage::ImageRgb8(rgb))?;
+        }
+    }
 
     Ok(ScreenshotResult {
-        png_base64: STANDARD.encode(&png_bytes),
+        image_base64: STANDARD.encode(&bytes),
+        format,
         native_size: (w, h),
         scaled_size,
         scale_factor: w as f64 / scaled_size.0 as f64,

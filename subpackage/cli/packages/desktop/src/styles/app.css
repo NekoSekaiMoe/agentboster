@@ -7922,6 +7922,25 @@ body.file-split-resizing #file-split-resize-handle::after {
 	font-size: 12px;
 }
 
+.settings-range {
+	width: 160px;
+	accent-color: var(--accent);
+	cursor: pointer;
+}
+
+.settings-range:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.settings-range-value {
+	min-width: 28px;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	font-size: 12px;
+	color: var(--text-muted, var(--text));
+}
+
 .settings-actions {
 	display: flex;
 	gap: 8px;

@@ -65,6 +65,13 @@ export async function startMcpServer(sessionId: string): Promise<void> {
       XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR ?? '',
       COMPUTER_USE_SESSION_ID: sessionId,
       COMPUTER_USE_CONFIG_DIR: process.env.CONFIG_DIR ?? '',
+      // Forward screenshot-format settings from the desktop app's Settings
+      // panel (set as env when desktop spawns the CLI). The MCP server
+      // uses these as session defaults for the `screenshot` tool.
+      COMPUTER_USE_SCREENSHOT_FORMAT:
+        process.env.COMPUTER_USE_SCREENSHOT_FORMAT ?? '',
+      COMPUTER_USE_SCREENSHOT_QUALITY:
+        process.env.COMPUTER_USE_SCREENSHOT_QUALITY ?? '',
     },
   });
 

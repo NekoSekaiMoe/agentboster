@@ -127,9 +127,12 @@ interface SettingsState {
   piBinaryPath: string;
   closeAction: CloseActionPreference;
   defaultImChannel: string;
+  screenshotFormat: ScreenshotFormatPreference;
+  screenshotQuality: number;
 }
 
 export type CloseActionPreference = 'ask' | 'tray' | 'quit';
+export type ScreenshotFormatPreference = 'jpeg' | 'png';
 
 interface ScopedModelOption {
   fullId: string;
@@ -173,6 +176,8 @@ export class SettingsPanel {
     piBinaryPath: '',
     closeAction: 'ask',
     defaultImChannel: loadDefaultImChannel(),
+    screenshotFormat: 'jpeg',
+    screenshotQuality: 80,
   };
   private onClose: (() => void) | null = null;
   private onRequestAddProject: (() => void) | null = null;
@@ -1210,6 +1215,8 @@ export class SettingsPanel {
         client_spoof?: string;
         pi_path?: string | null;
         close_action?: string;
+        screenshot_format?: string;
+        screenshot_quality?: number;
       };
       if (
         saved.theme === 'dark' ||
@@ -1229,6 +1236,12 @@ export class SettingsPanel {
       this.state.piBinaryPath = normalizedPiPath ?? '';
       this.onPiBinaryPathChange?.(normalizedPiPath);
       this.state.closeAction = this.normalizeCloseAction(saved.close_action);
+      this.state.screenshotFormat = this.normalizeScreenshotFormat(
+        saved.screenshot_format,
+      );
+      this.state.screenshotQuality = this.normalizeScreenshotQuality(
+        saved.screenshot_quality,
+      );
     } catch {
       // ignore missing persisted settings
     }
@@ -1409,6 +1422,33 @@ export class SettingsPanel {
   private normalizeCloseAction(value: unknown): CloseActionPreference {
     if (value === 'tray' || value === 'quit') return value;
     return 'ask';
+  }
+
+  private normalizeScreenshotFormat(
+    value: unknown,
+  ): ScreenshotFormatPreference {
+    return value === 'png' ? 'png' : 'jpeg';
+  }
+
+  private normalizeScreenshotQuality(value: unknown): number {
+    if (typeof value === 'number' && Number.isInteger(value)) {
+      return Math.min(100, Math.max(1, value));
+    }
+    return 80;
+  }
+
+  private async setScreenshotFormat(
+    format: ScreenshotFormatPreference,
+  ): Promise<void> {
+    this.state.screenshotFormat = format;
+    this.render();
+    await this.saveSettings();
+  }
+
+  private async setScreenshotQuality(quality: number): Promise<void> {
+    this.state.screenshotQuality = this.normalizeScreenshotQuality(quality);
+    this.render();
+    await this.saveSettings();
   }
 
   private async setCloseAction(
@@ -1921,6 +1961,8 @@ export class SettingsPanel {
           model_id: null,
           pi_path: this.normalizePiBinaryPath(this.state.piBinaryPath),
           close_action: this.normalizeCloseAction(this.state.closeAction),
+          screenshot_format: this.state.screenshotFormat,
+          screenshot_quality: this.state.screenshotQuality,
         },
       });
     } catch (err) {
@@ -2280,6 +2322,39 @@ export class SettingsPanel {
 								<option value="one-at-a-time">One at a time</option>
 								<option value="all">All queued</option>
 							</select>
+						</div>
+					</div>
+				</section>
+
+				<section class="settings-group">
+					<div class="settings-section">
+						<div class="settings-section-title">Computer use</div>
+						<div class="settings-row">
+							<div>
+								<div class="settings-label">Screenshot format</div>
+								<div class="settings-desc">Output format for screenshots taken via the computer-use MCP server. JPEG q80 is ~5-10x smaller than PNG with negligible vision-model recognition loss. Use PNG when you need pixel-perfect output (OCR on tiny text, sub-pixel rendering comparisons). The model can still override per-call.</div>
+							</div>
+							<select class="settings-select" .value=${this.state.screenshotFormat} @change=${(e: Event) => this.setScreenshotFormat((e.target as HTMLSelectElement).value as ScreenshotFormatPreference)}>
+								<option value="jpeg">JPEG (compressed, default)</option>
+								<option value="png">PNG (lossless)</option>
+							</select>
+						</div>
+						<div class="settings-row">
+							<div>
+								<div class="settings-label">JPEG quality</div>
+								<div class="settings-desc">Quality 1-100. Lower = smaller files + lower vision fidelity. 80 is a good default; 60 saves more tokens; 95 is near-lossless. Only applies when format is JPEG.</div>
+							</div>
+							<input
+								type="range"
+								min="1"
+								max="100"
+								step="1"
+								class="settings-range"
+								.value=${String(this.state.screenshotQuality)}
+								?disabled=${this.state.screenshotFormat !== 'jpeg'}
+								@input=${(e: Event) => this.setScreenshotQuality(Number((e.target as HTMLInputElement).value))}
+							/>
+							<span class="settings-range-value">${this.state.screenshotFormat === 'jpeg' ? `${this.state.screenshotQuality}` : '—'}</span>
 						</div>
 					</div>
 				</section>

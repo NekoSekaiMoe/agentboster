@@ -1,5 +1,6 @@
 use computer_use_core::capability::detect_capabilities;
 use computer_use_core::lock::ComputerUseLock;
+use computer_use_core::screenshot::{ScreenshotFormat, clamp_quality};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
@@ -33,12 +34,42 @@ struct JsonRpcError {
 }
 
 /// Server-level settings received from the client during `initialize`.
-#[derive(Default)]
 struct ServerSettings {
     /// When true, terminal windows are NOT masked in screenshots and the model
     /// can interact with terminals. When false (default), terminal windows
     /// are masked and input operations targeting a terminal are rejected.
     allow_terminal_edit: bool,
+    /// Default screenshot output format. Overridable per-call via the
+    /// `format` argument. Read from COMPUTER_USE_SCREENSHOT_FORMAT env
+    /// (set by the desktop app from its Settings panel). Defaults to
+    /// "jpeg" — ~5-10x smaller than PNG at q80, with negligible vision
+    /// recognition loss.
+    screenshot_format: ScreenshotFormat,
+    /// Default JPEG quality 1-100. Overridable per-call via `quality`.
+    /// Read from COMPUTER_USE_SCREENSHOT_QUALITY env. Defaults to 80.
+    screenshot_quality: u8,
+}
+
+impl ServerSettings {
+    /// Read defaults from the environment (set by the desktop app when
+    /// it spawns the CLI, which in turn spawns us). The desktop app
+    /// owns these as first-class settings panel entries; the server
+    /// treats them as session defaults that per-call args can override.
+    fn from_env() -> Self {
+        let format = std::env::var("COMPUTER_USE_SCREENSHOT_FORMAT")
+            .map(|s| ScreenshotFormat::parse(&s))
+            .unwrap_or(ScreenshotFormat::Jpeg);
+        let quality = clamp_quality(
+            std::env::var("COMPUTER_USE_SCREENSHOT_QUALITY")
+                .ok()
+                .and_then(|s| s.parse::<i32>().ok()),
+        );
+        ServerSettings {
+            allow_terminal_edit: false,
+            screenshot_format: format,
+            screenshot_quality: quality,
+        }
+    }
 }
 
 struct LastScreenshot {
@@ -69,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stdout = std::io::stdout();
 
     let capabilities = detect_capabilities();
-    let mut settings = ServerSettings::default();
+    let mut settings = ServerSettings::from_env();
     let mut last_screenshot: Option<LastScreenshot> = None;
 
     for line in stdin.lock().lines() {
@@ -189,12 +220,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn tools_list(caps: &computer_use_core::capability::Capabilities) -> Vec<Value> {
     let mut tools = vec![json!({
         "name": "screenshot",
-        "description": "Capture the screen. Returns a scaled PNG image.",
+        "description": "Capture the screen. Returns a scaled image (default JPEG quality 80 — 5-10x smaller than PNG at q80 with negligible vision loss; pass format=\"png\" for pixel-perfect output).",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "max_width": { "type": "integer", "description": "Max width in pixels (default: 1400)" },
-                "monitor_index": { "type": "integer", "description": "Monitor index (default: primary)" }
+                "monitor_index": { "type": "integer", "description": "Monitor index (default: primary)" },
+                "format": { "type": "string", "enum": ["png", "jpeg"], "description": "Image format. Default: jpeg (set by desktop Settings panel; overrides per-call)." },
+                "quality": { "type": "integer", "description": "JPEG quality 1-100. Ignored for png. Default: 80 (set by desktop Settings panel; overrides per-call)." }
             }
         }
     })];
@@ -269,11 +302,27 @@ fn handle_tool_call(
             } else {
                 None
             };
+            // Per-call override of session defaults (which themselves default
+            // from COMPUTER_USE_SCREENSHOT_FORMAT/QUALITY env vars set by the
+            // desktop app's Settings panel).
+            let format = args
+                .get("format")
+                .and_then(|v| v.as_str())
+                .map(ScreenshotFormat::parse)
+                .unwrap_or(settings.screenshot_format);
+            let quality = clamp_quality(
+                args.get("quality")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v as i32)
+                    .or(Some(settings.screenshot_quality as i32)),
+            );
             let exclude_terminals = !settings.allow_terminal_edit;
             match computer_use_core::screenshot::capture_and_scale(
                 max_width,
                 monitor_index,
                 Some(exclude_terminals),
+                format,
+                quality,
             ) {
                 Ok(result) => {
                     *last_screenshot = Some(LastScreenshot {
@@ -286,8 +335,8 @@ fn handle_tool_call(
                         result: Some(json!({
                             "content": [{
                                 "type": "image",
-                                "data": result.png_base64,
-                                "mimeType": "image/png"
+                                "data": result.image_base64,
+                                "mimeType": result.format.mime()
                             }],
                             "_meta": {
                                 "nativeSize": result.native_size,
@@ -295,6 +344,10 @@ fn handle_tool_call(
                                 "scaleFactor": result.scale_factor,
                                 "monitorOrigin": result.monitor_origin,
                                 "monitorIndex": result.monitor_index,
+                                "format": match result.format {
+                                    ScreenshotFormat::Png => "png",
+                                    ScreenshotFormat::Jpeg => "jpeg",
+                                },
                             }
                         })),
                         error: None,
