@@ -18,6 +18,7 @@
 
 import { createLogger } from '@/lib/utils/logger';
 import { getConfig } from '@/lib/core/kv/config';
+import { withKvLock } from '@/lib/core/kv/lock';
 import {
   isTokenFresh,
   readOAuthTokenBundle,
@@ -47,9 +48,26 @@ export type RemoteMcpToolResult =
  * refresh_token — so the loser of the race would invalidate the winner's
  * fresh token too, bricking the connection until the operator reconnects.
  *
- * The single-flight dedupes refresh attempts within this process. For
- * multi-process deployments a full fix needs a distributed lock, but
- * the in-process guard already eliminates the common single-server race.
+ * Two layers of dedup:
+ *
+ *   1. In-process (`refreshInFlight`): coalesces concurrent refresh
+ *      attempts WITHIN one Node process — common single-server race.
+ *      Cheap (one Map lookup); always on.
+ *
+ *   2. Cross-process (`withKvLock` over the KV-backed lock primitive in
+ *      lib/core/kv/lock.ts): a distributed lease that covers multi-
+ *      instance deployments (Vercel with >1 instance, self-hosted with
+ *      multiple containers). The lease key is per-vault-key, so
+ *      unrelated servers don't serialize. Inside the lease the caller
+ *      RE-READS the bundle and re-checks `isTokenFresh` — the first
+ *      instance to win the lease performs the refresh and writes the
+ *      new bundle; subsequent losers see a fresh bundle on re-read and
+ *      skip the provider call entirely.
+ *
+ * The lease has a 30s TTL (default) so a crashed holder can't deadlock
+ * the credential. The in-process single-flight still runs as the fast
+ * path inside each instance — the lock only adds round-trips when the
+ * process-local map misses.
  */
 const refreshInFlight = new Map<string, Promise<McpOAuthTokenBundle | null>>();
 
@@ -106,29 +124,62 @@ async function resolveHeadersForServer(params: {
       vaultKey,
       serverName,
       refresh: async () => {
-        try {
-          logger.info('mcp_oauth_refreshing', { serverName });
-          const refreshed = await refreshAccessToken({
-            oauth,
-            refreshToken: bundle?.refreshToken ?? '',
-          });
-          if (!refreshed) return bundle;
-          const next: McpOAuthTokenBundle = {
-            accessToken: refreshed.accessToken,
-            refreshToken: refreshed.refreshToken ?? bundle?.refreshToken,
-            expiresAt: refreshed.expiresAt,
-            tokenType: refreshed.tokenType ?? bundle?.tokenType,
-            scope: refreshed.scope ?? bundle?.scope,
-          };
-          await storeOAuthTokenBundle({ serverName, bundle: next });
-          return next;
-        } catch (error) {
-          logger.warn('mcp_oauth_refresh_failed', {
-            serverName,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          return bundle;
-        }
+        // Cross-process lease: another instance may have already
+        // rotated this token while we were waiting on the lock.
+        // Re-read + re-check freshness inside the lease; only hit
+        // the provider if the bundle is still stale.
+        return withKvLock(
+          `mcp:oauth:refresh:${vaultKey}`,
+          async () => {
+            const current = await readOAuthTokenBundle({
+              serverName,
+              vaultKey,
+            });
+            if (isTokenFresh(current)) {
+              // Another instance refreshed under our feet; reuse it.
+              return current;
+            }
+            const refreshToken = (current ?? bundle)?.refreshToken;
+            if (!refreshToken) return current ?? bundle;
+            try {
+              logger.info('mcp_oauth_refreshing', { serverName });
+              const refreshed = await refreshAccessToken({
+                oauth,
+                refreshToken,
+              });
+              if (!refreshed) return current ?? bundle;
+              const next: McpOAuthTokenBundle = {
+                accessToken: refreshed.accessToken,
+                refreshToken:
+                  refreshed.refreshToken ?? (current ?? bundle)?.refreshToken,
+                expiresAt: refreshed.expiresAt,
+                tokenType:
+                  refreshed.tokenType ?? (current ?? bundle)?.tokenType,
+                scope: refreshed.scope ?? (current ?? bundle)?.scope,
+              };
+              await storeOAuthTokenBundle({
+                serverName,
+                bundle: next,
+                vaultKey,
+              });
+              return next;
+            } catch (error) {
+              logger.warn('mcp_oauth_refresh_failed', {
+                serverName,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return current ?? bundle;
+            }
+          },
+          {
+            // Refresh round-trips are short; 30s TTL is generous but
+            // still releases fast if the holder crashes. Acquire
+            // timeout matches the default — callers will fall through
+            // to a 401 and the operator can retry.
+            ttlMs: 30_000,
+            acquireTimeoutMs: 10_000,
+          },
+        );
       },
     });
   }
@@ -160,7 +211,14 @@ async function resolveHeadersForServer(params: {
  * Mirrors `executeMCPTool` in lib/workflow/agent/tools/mcp.ts minus the
  * 'use step' marker. Returns ok:false on transport / protocol errors
  * (callers — route handlers — translate to HTTP).
+ *
+ * Hard 15s timeout shared by `listTools` and `tool.execute`: an
+ * unresponsive remote must not hold the daemon's mcp_call (and the
+ * agent's tool loop) open indefinitely. The timeout matches the test
+ * path (`testRemoteMcpServer`); keep them in sync.
  */
+const REMOTE_MCP_EXEC_TIMEOUT_MS = 15_000;
+
 export async function executeRemoteMcpTool(params: {
   config: MCPRemoteServersConfig;
   serverName: string;
@@ -176,6 +234,14 @@ export async function executeRemoteMcpTool(params: {
   const headers = await resolveHeadersForServer({ serverName, serverConfig });
 
   const { createMCPClient } = await import('@ai-sdk/mcp');
+  // One signal shared across listTools + tool.execute so the deadline
+  // covers the entire server round-trip, not just the call. Aborting
+  // also tears down any in-flight SSE stream the transport is holding.
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    REMOTE_MCP_EXEC_TIMEOUT_MS,
+  );
   let client: Awaited<ReturnType<typeof createMCPClient>> | null = null;
 
   try {
@@ -187,7 +253,9 @@ export async function executeRemoteMcpTool(params: {
       },
     });
 
-    const definitions = await client.listTools();
+    const definitions = await client.listTools({
+      options: { signal: controller.signal },
+    });
     const tools = client.toolsFromDefinitions(definitions);
     const tool = tools[toolName];
 
@@ -201,18 +269,28 @@ export async function executeRemoteMcpTool(params: {
     const result = await tool.execute(args, {
       toolCallId: `${serverName}:${toolName}`,
       messages: [],
+      abortSignal: controller.signal,
     });
 
     return { ok: true, result };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const aborted =
+      controller.signal.aborted &&
+      (error instanceof Error ? error.name === 'AbortError' : true);
+    const message = aborted
+      ? `MCP exec timed out after ${REMOTE_MCP_EXEC_TIMEOUT_MS}ms`
+      : error instanceof Error
+        ? error.message
+        : String(error);
     logger.warn('remote_mcp_exec_failed', {
       serverName,
       toolName,
       error: message,
+      aborted,
     });
     return { ok: false, error: message };
   } finally {
+    clearTimeout(timeout);
     // Guard: if createMCPClient threw before assignment there's nothing
     // to close. Wrap close() in its own try/catch so a cleanup failure
     // can't turn a successful tool result into a rejection.

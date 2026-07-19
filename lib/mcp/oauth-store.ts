@@ -69,8 +69,20 @@ export async function storeOAuthTokenBundle(params: {
   serverName: string;
   bundle: McpOAuthTokenBundle;
   userId?: string;
+  /**
+   * Explicit vault key to write under. When omitted, the key is derived
+   * from `serverName` via `buildOAuthVaultKey`.
+   *
+   * Passing an explicit key is required when the caller located the
+   * bundle via an `oauth.vaultKey` pointer that does NOT match the
+   * canonical `mcp:oauth:<serverName>` form — most notably after a
+   * server rename, where reading through the old pointer must write
+   * back to the SAME location or the next read will miss the rotated
+   * refresh_token and replay the now-consumed one.
+   */
+  vaultKey?: string;
 }): Promise<string> {
-  const vaultKey = buildOAuthVaultKey(params.serverName);
+  const vaultKey = params.vaultKey ?? buildOAuthVaultKey(params.serverName);
   await upsertVaultEntry({
     key: vaultKey,
     value: JSON.stringify(params.bundle),

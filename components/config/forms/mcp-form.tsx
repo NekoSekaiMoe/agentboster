@@ -206,18 +206,17 @@ function ServerRow(props: {
 
   // Canonical OAuth callback URL for this deployment, surfaced in the
   // hint so the admin can copy-paste it into the provider's allow-list.
-  // Populated lazily once on mount by the same authorize call we'd
-  // issue for the Connect button — that route is the single source of
-  // truth for the resolved redirect URI (derived from getPublicAppUrl).
+  // Fetched from the side-effect-free metadata endpoint — NOT from the
+  // authorize endpoint, which mints PKCE/state and writes flow cookies
+  // on every call. Hitting authorize on every row-mount caused cookie
+  // collisions when multiple OAuth rows mounted together or when the
+  // mount raced the user's Connect click (state/server mismatch on
+  // callback). The metadata route only reads getPublicAppUrl.
   const [callbackUrl, setCallbackUrl] = useState<string | null>(null);
   useEffect(() => {
     if (authMode !== 'oauth' || callbackUrl) return;
     let cancelled = false;
-    fetch('/api/config/mcp/oauth/authorize', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ serverName: serverKey }),
-    })
+    fetch('/api/config/mcp/oauth/metadata')
       .then((r) => r.json())
       .then((json: { success: boolean; data?: { redirectUri?: string } }) => {
         if (!cancelled && json.success && json.data?.redirectUri) {
@@ -230,7 +229,7 @@ function ServerRow(props: {
     return () => {
       cancelled = true;
     };
-  }, [authMode, serverKey, callbackUrl]);
+  }, [authMode, callbackUrl]);
 
   // Poll OAuth status only when this server is in OAuth mode. The query
   // is keyed by serverKey so rows don't clobber each other.
@@ -603,7 +602,24 @@ export function McpForm() {
     // orphaned, still-valid token at the provider.
     const server = servers[key];
     if (server?.auth?.mode === 'oauth') {
-      const r = await revokeOAuth(key);
+      let r: { success: boolean; error?: string } | null = null;
+      try {
+        r = await revokeOAuth(key);
+      } catch (error) {
+        // Network or response-parsing failure — the fetch rejected
+        // (transport error, non-JSON body, etc.). revokeOAuth itself
+        // never throws on provider-side 4xx/5xx (those are surfaced
+        // via { success: false, error }), so an exception here is
+        // always a transport-level issue. Without this catch the
+        // promise would reject unhandled AND the user would see no
+        // feedback before the row was deleted.
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t('config.forms.mcp.oauthRevokeFailed'),
+        );
+        return;
+      }
       if (!r.success) {
         toast.error(r.error ?? t('config.forms.mcp.oauthRevokeFailed'));
         return;
@@ -616,6 +632,18 @@ export function McpForm() {
 
   function handleRename(oldKey: string, newKey: string, rowId: string) {
     const trimmed = newKey.trim();
+    // No-op when the trimmed value matches the existing key. Without
+    // this guard, renaming `foo` → ` foo ` would run the full mutate
+    // path: delete `foo` from serverRowIds + servers, then re-insert
+    // under the same trimmed key. The two writes happen to round-trip
+    // correctly in the common case, but the row-id map churn can race
+    // with concurrent effects (status polling, OAuth mount) that key
+    // off the server name, and any throw mid-mutate would leave the
+    // row deleted with no replacement. Treat equal-key renames as a
+    // pure no-op instead.
+    if (trimmed === oldKey) {
+      return;
+    }
     // Validate before mutating any state. Empty / overlong / colliding
     // renames are rejected so the config and the row-id map stay in
     // sync — previously a bad rename would silently overwrite another
