@@ -7,7 +7,15 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**/*.ts", "**/*.js", "!**/node_modules/**", "!**/dist/**"]
+    "includes": [
+      "**/*.ts",
+      "**/*.js",
+      "**/*.py",
+      "!**/node_modules/**",
+      "!**/dist/**",
+      "!vendor/**",
+      "!src/cli/index.ts"
+    ]
   },
   "formatter": {
     "enabled": true,

@@ -2323,40 +2323,7 @@ export class SettingsPanel {
 								<option value="all">All queued</option>
 							</select>
 						</div>
-					</div>
-				</section>
-
-				<section class="settings-group">
-					<div class="settings-section">
-						<div class="settings-section-title">Computer use</div>
-						<div class="settings-row">
-							<div>
-								<div class="settings-label">Screenshot format</div>
-								<div class="settings-desc">Output format for screenshots taken via the computer-use MCP server. JPEG q80 is ~5-10x smaller than PNG with negligible vision-model recognition loss. Use PNG when you need pixel-perfect output (OCR on tiny text, sub-pixel rendering comparisons). The model can still override per-call.</div>
-							</div>
-							<select class="settings-select" .value=${this.state.screenshotFormat} @change=${(e: Event) => this.setScreenshotFormat((e.target as HTMLSelectElement).value as ScreenshotFormatPreference)}>
-								<option value="jpeg">JPEG (compressed, default)</option>
-								<option value="png">PNG (lossless)</option>
-							</select>
-						</div>
-						<div class="settings-row">
-							<div>
-								<div class="settings-label">JPEG quality</div>
-								<div class="settings-desc">Quality 1-100. Lower = smaller files + lower vision fidelity. 80 is a good default; 60 saves more tokens; 95 is near-lossless. Only applies when format is JPEG.</div>
-							</div>
-							<input
-								type="range"
-								min="1"
-								max="100"
-								step="1"
-								class="settings-range"
-								.value=${String(this.state.screenshotQuality)}
-								?disabled=${this.state.screenshotFormat !== 'jpeg'}
-								@input=${(e: Event) => this.setScreenshotQuality(Number((e.target as HTMLInputElement).value))}
-							/>
-							<span class="settings-range-value">${this.state.screenshotFormat === 'jpeg' ? `${this.state.screenshotQuality}` : '—'}</span>
-						</div>
-					</div>
+ 					</div>
 				</section>
 
 				<section class="settings-group settings-group-full">
@@ -2485,6 +2452,37 @@ export class SettingsPanel {
                 <option value="tray">Minimize to tray</option>
                 <option value="quit">Quit Agentboster</option>
               </select>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Computer use</div>
+            <div class="settings-row">
+              <div>
+                <div class="settings-label">Screenshot format</div>
+                <div class="settings-desc">Output format for screenshots taken via the computer-use MCP server. JPEG q80 is ~5-10x smaller than PNG with negligible vision-model recognition loss. Use PNG when you need pixel-perfect output (OCR on tiny text, sub-pixel rendering comparisons). The model can still override per-call.</div>
+              </div>
+              <select class="settings-select" .value=${this.state.screenshotFormat} @change=${(e: Event) => this.setScreenshotFormat((e.target as HTMLSelectElement).value as ScreenshotFormatPreference)}>
+                <option value="jpeg">JPEG (compressed, default)</option>
+                <option value="png">PNG (lossless)</option>
+              </select>
+            </div>
+            <div class="settings-row">
+              <div>
+                <div class="settings-label">JPEG quality</div>
+                <div class="settings-desc">Quality 1-100. Lower = smaller files + lower vision fidelity. 80 is a good default; 60 saves more tokens; 95 is near-lossless. Only applies when format is JPEG.</div>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="100"
+                step="1"
+                class="settings-range"
+                .value=${String(this.state.screenshotQuality)}
+                ?disabled=${this.state.screenshotFormat !== 'jpeg'}
+                @input=${(e: Event) => this.setScreenshotQuality(Number((e.target as HTMLInputElement).value))}
+              />
+              <span class="settings-range-value">${this.state.screenshotFormat === 'jpeg' ? `${this.state.screenshotQuality}` : '—'}</span>
             </div>
           </div>
 

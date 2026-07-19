@@ -14,7 +14,8 @@
     "baseUrl": ".",
     "paths": {
       "@agentboster/sdk": ["../src/index.ts"],
-      "@agentboster-cli/core": ["../vendor/core.d.ts"]
+      "@agentboster-cli/core": ["../vendor/core.d.ts"],
+      "typebox": ["../vendor/typebox.d.ts"]
     }
   },
   "include": ["**/*.ts", "../vendor/**/*.d.ts"]

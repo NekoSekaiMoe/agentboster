@@ -42,11 +42,16 @@ export default function turnCounter(pi: ExtensionAPI): void {
   // request pass through unchanged; return an object to override.
   pi.on('before_provider_request', (event) => {
     // Example: log model + token estimate. Real extensions might also
-    // mutate headers here.
-    const e = event as { model?: string; messages?: unknown[] };
+    // mutate headers here. The runtime emits `{ type, payload }`; the
+    // model id and messages live inside `payload`.
+    const payload = (event as { payload?: unknown }).payload as
+      | { model?: string; messages?: unknown[] }
+      | undefined;
     console.debug('[turn-counter] provider request', {
-      model: e.model,
-      messageCount: Array.isArray(e.messages) ? e.messages.length : 0,
+      model: payload?.model,
+      messageCount: Array.isArray(payload?.messages)
+        ? payload.messages.length
+        : 0,
     });
   });
 

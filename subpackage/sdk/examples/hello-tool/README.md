@@ -34,7 +34,7 @@ You should see `Hello, Ada!` in the tool result.
 
 Or run the slash command:
 
-```
+```text
 /hello
 ```
 
@@ -42,7 +42,7 @@ It will prompt for a default name and show a confirmation notice.
 
 ## Layout
 
-```
+```text
 hello-tool/
 ├── package.json     # declares "agentboster" / "pi" manifest field
 └── index.ts         # default export = ExtensionFactory

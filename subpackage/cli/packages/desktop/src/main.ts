@@ -3128,6 +3128,20 @@ function listVisibleSessionTabsForContentBar(
   });
 }
 
+// Terminal lives as a real content tab. This helper encodes the rule
+// for "is the terminal tab currently the active content tab?" — used by
+// syncContentTabsBar (to pick the active tab id), syncTerminalDockVisibility
+// (to toggle CSS classes), and applyWorkspacePane (to decide whether to
+// show the file split). Keep all three call sites consistent by routing
+// through this single function.
+function isTerminalTabActive(
+  workspace: WorkspaceState | null | undefined,
+): boolean {
+  return Boolean(
+    workspace && workspace.pane === 'chat' && workspace.terminalActive,
+  );
+}
+
 function getVisibleContentTabCount(workspace: WorkspaceState): number {
   const visibleSessionTabs = listVisibleSessionTabsForContentBar(workspace);
   return visibleSessionTabs.length;
@@ -3189,7 +3203,7 @@ function syncContentTabsBar(
     pinned: true,
   });
 
-  const terminalActive = workspace.pane === 'chat' && workspace.terminalActive;
+  const terminalActive = isTerminalTabActive(workspace);
   const activeTabId = terminalActive
     ? 'terminal'
     : workspace.activeSessionTabId;
@@ -3256,9 +3270,7 @@ function syncTerminalDockVisibility(
   // full session-pane height and chat-container hides. When terminal is
   // not the active tab, terminal-pane hides regardless of terminalOpen
   // (terminalOpen just remembers the user has used it before).
-  const terminalActive = Boolean(
-    workspace && workspace.pane === 'chat' && workspace.terminalActive,
-  );
+  const terminalActive = isTerminalTabActive(workspace);
   sessionPane.classList.toggle('terminal-active', terminalActive);
   terminalPane.classList.toggle('hidden-pane', !terminalActive);
   terminalPane.classList.toggle('terminal-dock-visible', terminalActive);
@@ -5630,6 +5642,11 @@ function renderApp(): void {
     const workspace = getActiveWorkspace();
     if (!workspace) return;
     ensureWorkspaceContentState(workspace);
+    // Sidebar-driven project switches must never inherit the terminal-tab
+    // fullscreen state — otherwise switching projects leaves the UI stuck
+    // in the terminal view. Applies to every branch below (same-project
+    // reselect, clear, preferred-session restore, new empty session).
+    workspace.terminalActive = false;
 
     const currentProjectId = getWorkspaceActiveProjectId(workspace);
     const currentProjectPath = getWorkspaceActiveProjectPath(workspace);
@@ -5767,6 +5784,9 @@ function renderApp(): void {
   sidebar.setOnNewSessionInProject((project) => {
     const workspace = getActiveWorkspace();
     if (!workspace) return;
+    // New session in a project starts on the chat panel, not the terminal
+    // tab. Reset to avoid fullscreen leftover from a previous context.
+    workspace.terminalActive = false;
 
     setWorkspaceActiveProject(workspace, project);
     pruneInactiveEphemeralSessionTabs(workspace);
@@ -5807,6 +5827,10 @@ function renderApp(): void {
   sidebar.setOnNewFileInProject((project) => {
     const workspace = getActiveWorkspace();
     if (!workspace) return;
+    // Opening a new file tab should reveal the file split, not keep the
+    // terminal in fullscreen. Reset so applyWorkspacePane can show the
+    // file viewer alongside chat.
+    workspace.terminalActive = false;
     const draftDirectoryPath =
       normalizeStoredPath(project.directoryPath) ??
       normalizeStoredPath(project.path);
@@ -5840,6 +5864,11 @@ function renderApp(): void {
     const workspace = getActiveWorkspace();
     const project = sidebar?.getProjectById(projectId);
     if (!workspace || !project) return;
+    // Activating an existing session via the sidebar (setOnSessionSelect
+    // and setOnSessionFork) should leave the terminal fullscreen state
+    // behind — the user is asking to view a session, not stay in the
+    // terminal. Reset before applyWorkspacePane so the chat panel shows.
+    workspace.terminalActive = false;
 
     const autoTabCountBefore = getVisibleContentTabCount(workspace);
     const canAutoCreateTab =
@@ -6131,6 +6160,11 @@ function renderApp(): void {
     const workspace = getActiveWorkspace();
     const project = sidebar?.getProjectById(projectId);
     if (!workspace || !project) return;
+    // Opening an existing file should reveal the file split, not keep the
+    // terminal in fullscreen. Reset so applyWorkspacePane can show the
+    // file viewer alongside chat — matches showFileSplit's expectation
+    // (pane === 'chat' && !terminalActive).
+    workspace.terminalActive = false;
 
     setWorkspaceActiveProject(workspace, project);
     openOrActivateFileTab(workspace, filePath, project.id, project.path, {
