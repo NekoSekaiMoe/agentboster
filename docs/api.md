@@ -102,6 +102,24 @@ Return active sandbox/task counts and system metrics. Auth: cookie.
 ### GET /api/config/monitoring/nodes
 List all registered agentd nodes with computed liveness status. Auth: cookie.
 
+### POST /api/config/mcp/test
+Test connection to a configured MCP server. Calls tools/list on the server using current credentials. Auth: cookie (admin).
+
+### GET /api/config/mcp/oauth/metadata
+Get the OAuth redirect URI for MCP server configuration. Read-only, no side effects — safe to call on every mount. Auth: cookie (admin).
+
+### GET /api/config/mcp/oauth/status?serverName=
+Check OAuth connection status for a specific MCP server. Returns whether a token bundle exists and is usable (not expired, or refreshable). Does not return tokens. Auth: cookie (admin).
+
+### POST /api/config/mcp/oauth/authorize
+Start an OAuth Authorization Code + PKCE flow for an MCP server. Sets short-lived cookies (verifier, state, server name) and responds with the authorize URL. Auth: cookie (admin).
+
+### GET /api/config/mcp/oauth/callback?code=&state=
+OAuth callback handler. Validates state against cookie, exchanges code+verifier for tokens, stores encrypted bundle in Vault, redirects to config UI. A single callback URL serves all MCP servers via cookie context. Auth: cookie (admin).
+
+### POST /api/config/mcp/oauth/revoke
+Disconnect an MCP server's OAuth connection. Revokes tokens at the provider (RFC 7009), then deletes the encrypted bundle from Vault. Auth: cookie (admin).
+
 ---
 
 ## CLI
@@ -148,6 +166,9 @@ Merge-patch the caller's model preferences. Auth: cli-token.
 ### GET /api/cli/nodes
 List online agentd nodes for the CLI /switch command (no ip/port exposed). Auth: cli-token.
 
+### GET /api/cli/agentd-nodes
+List agentd nodes for the Desktop schedule form's "preferred node" dropdown. Returns id, display label, computed effective status (heartbeat-freshness-based). Distinct from `/api/agentd/v1/nodes/status`. Auth: cli-token.
+
 ### GET /api/cli/l0-rules
 Download enabled global command L0 rules for client-side enforcement. Auth: cli-token.
 
@@ -157,6 +178,9 @@ Score a shell command via the L1 LLM security scorer. Auth: cli-token.
 ### POST /api/cli/exec-on-agentd
 Proxy a local_* tool call from a CLI session to a remote agentd node. Auth: cli-token.
 
+### POST /api/cli/tool-result
+Resume a `local_*` tool call blocked on `localToolResultHookBuilder` in the workflow agent loop. Called by CLI after executing a tool request received via session-events SSE. Accepts `sessionId` in body. Auth: cookie or cli-token.
+
 ### GET /api/cli/agentd/vnc
 Fetch VNC session info and noVNC viewer URL for a CLI session running on agentd. Auth: cli-token.
 
@@ -165,6 +189,36 @@ Return info about a specific subagent (proxied to agentd). Auth: cli-token.
 
 ### GET /api/cli/subagent-batch/[batchId]
 Return status of a subagent batch with aggregate counts. Auth: cli-token.
+
+### GET /api/cli/subagent/[subagentId]/stream
+SSE proxy — streams subagent messages from agentd in real time. Currently polls the messages endpoint and returns as a single SSE frame. Auth: cli-token.
+
+### GET /api/cli/subagent/[subagentId]/messages
+Return the conversation messages of a specific subagent. Proxied to agentd. Auth: cli-token.
+
+### GET /api/cli/schedules
+List scheduled tasks for the caller. Auth: cli-token.
+
+### POST /api/cli/schedules
+Create a new scheduled task (delay or daily). Supports node-routing constraints (preferredNodeId, allowedNodes, autoFallbackNode). Auth: cli-token.
+
+### PATCH /api/cli/schedules/[id]
+Update a scheduled task. Cancels the previous workflow run and starts a new one if active. Auth: cli-token.
+
+### DELETE /api/cli/schedules/[id]
+Delete a scheduled task. Cancels the live run first, then deletes the row. Auth: cli-token.
+
+### GET /api/cli/im-channels
+List the caller's paired IM adapters for the schedule "notify via" picker. Returns adapter slug, IM user id, display name, pairing timestamp. Auth: cli-token.
+
+### GET /api/cli/session-events/[sessionId]
+SSE endpoint for CLI remote control mode. CLI connects here to receive tool requests and heartbeat events. Auth: cookie or cli-token.
+
+### POST /api/cli/session-events/[sessionId]/register
+Register CLI as online with capabilities (hasDisplay, platform, scale, tools) and bind to a session. Auth: cli-token.
+
+### POST /api/cli/session-events/[sessionId]/release
+Mark CLI as offline for a session (graceful disconnect). Auth: cookie or cli-token.
 
 ---
 
@@ -463,6 +517,27 @@ Return session-specific SOUL content (falls back to global). Auth: agentd-key or
 
 ### POST /api/sandbox/tools
 Execute sandbox tool actions (read/write file, run command) in a session's sandbox. Auth: cookie.
+
+---
+
+## Pair
+
+### POST /api/pair/generate
+Generate a one-shot pair code for adapter pairing (separate from CLI pair flow). Used to pair IM adapters like Telegram. Body: `{ adapter }`. Auth: cookie.
+
+---
+
+## Export
+
+### GET /api/export
+Export data as a JSON attachment. Query params: `items` (comma-separated: `config`, `builtin_memories`, `long_term_memories`, `l0_rules`), `redact` (default true). Admin-only for config/builtin/l0 items. Auth: cookie (admin for most items).
+
+---
+
+## Import
+
+### POST /api/import
+Import data from the JSON body produced by GET `/api/export`. Query params: `items` (restrict which sections to apply), `merge` (default true — merge config with existing). Admin-only for config and l0 rules. Auth: cookie (admin for most items).
 
 ---
 

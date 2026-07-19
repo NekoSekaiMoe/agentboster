@@ -28,10 +28,11 @@ AgentBoster 是多端协作的 AI 平台，由 **三个可独立部署/安装的
 - **agentd（Go）**：Linux 守护进程，沙箱内执行工具、L0/L1/L2 安全、本地会话运行时与多节点心跳
 - **CLI（[`agentboster`](./subpackage/cli)，基于 [pi](https://github.com/earendil-works/pi)）**：终端编码 Agent；通过 `agentboster login` 配对到 Web 后端，所有模型调用、模型/工具编排、会话持久化都由 Web 负责，CLI 仅作为瘦客户端负责本地 TUI 与 `local_*` 工具（在本机执行 shell/读写文件）
 
-此外还有两个辅助子包：
+此外还有三个辅助子包：
 
 - **[computer-use-mcp](./subpackage/computer-use-mcp)（Rust）**：跨平台 MCP 服务器，为 CLI 桌面应用提供屏幕截图、鼠标/键盘输入、无障碍树查询等计算机操控能力
 - **[dbushelper](./subpackage/dbushelper)（Go）**：纯 Go AT-SPI2 无障碍 D-Bus 客户端，运行于 agentd LXC 沙箱内部，驱动 `desktop_inspect` / `desktop_a11y_click` / `desktop_a11y_type` 等工具
+- **[sdk](./subpackage/sdk)（TypeScript）**：公共 SDK 包（`@agentboster/sdk`），用于构建扩展（extension）、技能（skill）、提示词（prompt）和主题（theme）。以 TypeScript 源码发布，由 JITI 运行时编译，重导出 CLI 运行时的公共类型
 
 Web 负责体验与编排，Daemon 负责执行隔离与安全边界，CLI 负责开发者本机终端场景；三者通过 HTTPS API 协作，部署环境可分开升级。
 
@@ -264,6 +265,7 @@ CLI 端通常无需 env 变量；登录信息写入 `~/.agentboster/config.json`
 | [`subpackage/cli/README.md`](./subpackage/cli/README.md) | 终端 CLI |
 | [`subpackage/computer-use-mcp/README.md`](./subpackage/computer-use-mcp/README.md) | 桌面操控 MCP 服务器 |
 | [`subpackage/dbushelper/README.md`](./subpackage/dbushelper/README.md) | AT-SPI2 无障碍客户端 |
+| [`subpackage/sdk/README.md`](./subpackage/sdk/README.md) | 扩展 SDK（`@agentboster/sdk`） |
 | [`AGENTS.md`](./AGENTS.md) | 贡献者与 OpenCode 说明 |
 
 ---

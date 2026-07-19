@@ -53,8 +53,9 @@ Agentboster Desktop 位于 `subpackage/cli/packages/desktop/`，是独立于 CLI
 - 发现、安装和启动 `agentboster-cli`；
 - 为不同会话管理独立的 RPC 子进程；
 - 通过 stdin/stdout 转发逐行 JSON RPC；
-- 提供文件系统、Shell、Git 和原生窗口集成；
-- 将打包的 `computer-use-mcp` 路径注入 CLI 运行环境。
+- 提供文件系统、Shell 和原生窗口集成；
+- 将打包的 `computer-use-mcp` 路径注入 CLI 运行环境；
+- 管理系统托盘行为和关闭策略（ask/tray/quit 三种 close_action）。
 
 窗口配置体现了它的工作台定位：
 
@@ -72,6 +73,7 @@ Agentboster Desktop 位于 `subpackage/cli/packages/desktop/`，是独立于 CLI
 - `settings`
 - `terminal`
 - `agentd-vnc`
+- `schedule`
 
 同时维护：
 
@@ -79,11 +81,13 @@ Agentboster Desktop 位于 `subpackage/cli/packages/desktop/`，是独立于 CLI
 - 每个 Workspace 的项目选择；
 - 多会话标签；
 - 多文件标签；
-- 底部终端 Dock；
+- 全屏终端标签页（取代底部 Terminal Dock）；
 - 文件/聊天分栏；
 - Session Browser 和历史分叉；
 - 包、扩展、Skill、Prompt、Theme 管理；
-- AgentD VNC 远程桌面标签。
+- AgentD VNC 远程桌面标签；
+- Schedule 定时任务面板；
+- Computer Use 截图格式/质量设置（JPEG/PNG 切换，质量滑块 1-100）。
 
 因此，Agentboster Desktop 的“桌面化”不是把 Web 聊天页放进窗口，而是把 CLI 编码 Agent 的能力重新组织成图形工作台。
 
@@ -663,7 +667,8 @@ Workspace
   -> Project
     -> Session Tab
     -> File Tab
-    -> Terminal
+    -> Terminal Tab
+    -> Schedule
     -> Packages / Settings / AgentD VNC
 ```
 
@@ -674,10 +679,11 @@ Workspace
 - 多会话同时保持 Runtime；
 - 文件预览和编辑；
 - 可调整宽度的聊天/文件分栏；
-- 可调整高度的 Terminal Dock；
-- Git 分支操作；
+- 全屏终端标签页（取代底部 Terminal Dock）；
 - 模型和 Thinking Level 快速切换；
 - Session Fork、历史查看和 HTML 导出；
+- 定时任务管理（Schedule Pane：delay/daily 类型，节点路由偏好，IM 通知渠道选择）；
+- Computer Use 截图格式/质量设置（JPEG/PNG + 质量滑块）；
 - 扩展 UI 的 select、confirm、input、editor 等原生 Overlay；
 - Package、Skill、Prompt、Theme 和命令面板。
 
@@ -904,9 +910,8 @@ Memoh Desktop
 
 - [`README.md`](../README.md)：Web、agentd、CLI、computer-use-mcp 的总体职责。
 - [`subpackage/cli/packages/desktop/README.md`](../subpackage/cli/packages/desktop/README.md)：Tauri Desktop 和本机 Computer Use 定位。
-- [`subpackage/cli/packages/desktop/docs/ARCHITECTURE.md`](../subpackage/cli/packages/desktop/docs/ARCHITECTURE.md)：Desktop Host、CLI Runtime 和 Extensions 分层。
 - [`subpackage/cli/packages/desktop/FEATURE_MAPPING.md`](../subpackage/cli/packages/desktop/FEATURE_MAPPING.md)：聊天、Session、包管理和扩展 UI 能力映射。
-- [`subpackage/cli/packages/desktop/src/main.ts`](../subpackage/cli/packages/desktop/src/main.ts)：Workspace、Session/File Tab、Terminal、Packages 和 AgentD VNC 布局。
+- [`subpackage/cli/packages/desktop/src/main.ts`](../subpackage/cli/packages/desktop/src/main.ts)：Workspace、Session/File Tab、Terminal、Schedule、Packages 和 AgentD VNC 布局。
 - [`subpackage/cli/packages/desktop/src-tauri/src/lib.rs`](../subpackage/cli/packages/desktop/src-tauri/src/lib.rs)：CLI 发现/安装、RPC 子进程和 computer-use-mcp 注入；托盘菜单、关闭到托盘拦截、`close_action` 持久化、退出时 drain RPC。
 - [`subpackage/cli/packages/desktop/src-tauri/tauri.conf.json`](../subpackage/cli/packages/desktop/src-tauri/tauri.conf.json)：窗口和 Tauri 打包配置；`app.trayIcon` 声明。
 - [`subpackage/cli/packages/desktop/src/main.ts`](../subpackage/cli/packages/desktop/src/main.ts)（事件监听部分）：监听主进程 `close-requested` 事件，弹原生对话框并回传用户选择；监听 `tray-new-chat` 触发新会话。
