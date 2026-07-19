@@ -171,17 +171,39 @@ export default defineBuildInTool({
 
     return {
       desktop_screenshot: tool({
-        title: 'Capture the X11 desktop as a PNG',
+        title: 'Capture the X11 desktop',
         description:
-          'Capture a lossless PNG of the X11 framebuffer in the sandbox. Returns an image content block (vision-capable models see the actual screenshot) plus the noVNC connection info so you can guide the user to open the live desktop view. On first call, provisions Xvfb + icewm + x11vnc + noVNC inside the sandbox (~30s); subsequent calls are fast. Use this to debug GUI applications, verify layout, or capture visual state for the user.',
+          'Capture the X11 framebuffer in the sandbox as an image. Defaults to JPEG quality 80 — 5-10x smaller than PNG on both upload latency and per-turn vision token cost, with negligible recognition loss. Set format="png" when pixel-perfect output is required. Returns an image content block (vision-capable models see the actual screenshot) plus the noVNC connection info so you can guide the user to open the live desktop view. On first call, provisions Xvfb + icewm + x11vnc + noVNC inside the sandbox (~30s); subsequent calls are fast. Use this to debug GUI applications, verify layout, or capture visual state for the user.',
         inputSchema: z.object({
+          format: z
+            .enum(['png', 'jpeg'])
+            .optional()
+            .describe(
+              'Image format. Default "jpeg" (5-10x smaller than PNG at q80, negligible vision loss). Use "png" for pixel-perfect output.',
+            ),
+          quality: z
+            .number()
+            .int()
+            .min(1)
+            .max(100)
+            .optional()
+            .describe('JPEG quality (1-100). Default 80. PNG ignores this.'),
           nodeId: nodeIdParam,
         }),
         execute: (input) =>
           dispatchDesktopTool({
             ...ctx,
             toolName: 'desktop_screenshot',
-            toolInput: {},
+            // Default to JPEG q80 to cut screenshot cost ~5-10x vs PNG.
+            // The agentd desktop_screenshot tool already accepts these
+            // fields; backfill defaults so an unspecified call goes down
+            // as a small JPEG rather than a ~1.5MB PNG. The LLM can
+            // still explicitly ask for format="png" when it needs
+            // lossless.
+            toolInput: {
+              format: input.format ?? 'jpeg',
+              quality: input.quality ?? 80,
+            },
             nodeId: input.nodeId,
           }),
       }),

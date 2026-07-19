@@ -503,39 +503,70 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	return nil
 }
 
-// Screenshot captures the Xvfb framebuffer as a PNG and returns it
-// base64-encoded. Uses ImageMagick's `import` (the canonical X11
-// framebuffer grab) rather than xdotool-scraping or noVNC canvas
-// re-encoding — single hop, lossless.
+// Screenshot captures the Xvfb framebuffer and returns it base64-encoded.
+// Uses ImageMagick's `import` (the canonical X11 framebuffer grab) rather
+// than xdotool-scraping or noVNC canvas re-encoding — single hop.
+//
+// format: "png" (lossless) or "jpeg" (lossy, much smaller). Default "jpeg".
+// quality: JPEG quality 1-100. Ignored for PNG. Default 80.
+//
+// JPEG is the default because a 1280x720 framebuffer is ~1-2 MB as PNG
+// (~1500-3000 vision tokens per screenshot) vs ~150-300 KB at JPEG q80 —
+// 5-10x cheaper on both upload latency and per-turn vision input cost,
+// with negligible OCR/recognition loss for current vision models. Callers
+// that need pixel-perfect output (e.g. comparing sub-pixel rendering)
+// pass format="png".
 //
 // The caller (the desktop_screenshot tool) wraps the base64 blob in a
 // data: URL for the LLM.
-func Screenshot(sbMgr *sandbox.Manager, sandboxID string) ([]byte, error) {
+func Screenshot(sbMgr *sandbox.Manager, sandboxID string, format string, quality int) ([]byte, string, error) {
 	if err := EnsureDesktop(sbMgr, sandboxID); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	// `import -window root` writes a PNG to a temp file, base64-encode it,
-	// then unconditionally remove the file — even on the success path.
-	// We use mktemp rather than a fixed name so concurrent screenshot
-	// calls (rare but possible if the agent fires two in parallel) don't
+	// Normalize parameters.
+	if format != "png" && format != "jpeg" {
+		format = "jpeg"
+	}
+	if quality < 1 || quality > 100 {
+		quality = 80
+	}
+
+	// `import -window root` grabs the framebuffer to a temp PNG; for JPEG
+	// we then run `convert` to re-encode at the requested quality. PNG
+	// skips the convert step entirely (lossless passthrough).
+	//
+	// mktemp rather than a fixed name so concurrent screenshot calls
+	// (rare but possible if the agent fires two in parallel) don't
 	// clobber each other's file. Binary-over-lxc-attach pipe can be
-	// lossy on some transports, which is why we route through a file +
-	// `base64 -w0` instead of `import png:- | base64`.
+	// lossy on some transports, which is why we route through files +
+	// `base64 -w0` instead of piping bytes directly.
+	srcExt := "." + format
 	captureCmd := fmt.Sprintf(
-		`tmpFile=$(mktemp /tmp/agentd-shot-XXXXXX.png) && `+
+		`tmpFile=$(mktemp /tmp/agentd-shot-XXXXXX%s) && `+
 			`trap 'rm -f "$tmpFile"' EXIT && `+
-			`DISPLAY=%s import -window root "$tmpFile" && `+
-			`base64 -w0 "$tmpFile"`,
-		defaultDisplay,
+			`DISPLAY=%s import -window root "$tmpFile"`,
+		srcExt, defaultDisplay,
 	)
+	if format == "jpeg" {
+		// PNG → JPEG re-encode at requested quality. `import` writes a
+		// real JPEG directly when given a .jpg extension, but ImageMagick
+		// defaults to q92; re-encode explicitly to hit our target.
+		captureCmd += fmt.Sprintf(` && convert "$tmpFile" -quality %d "$tmpFile"`, quality)
+	}
+	captureCmd += ` && base64 -w0 "$tmpFile"`
+
 	out, err := runScriptRaw(sbMgr, sandboxID, captureCmd, 30)
 	if err != nil {
-		return nil, fmt.Errorf("desktop: screenshot capture failed: %w", err)
+		return nil, "", fmt.Errorf("desktop: screenshot capture failed: %w", err)
 	}
 	// `base64 -w0` already returns a single line; trim any trailing
 	// whitespace the shell may have added.
-	return []byte(strings.TrimSpace(out)), nil
+	mime := "image/" + format
+	if format == "jpeg" {
+		mime = "image/jpeg"
+	}
+	return []byte(strings.TrimSpace(out)), mime, nil
 }
 
 // WebPort returns the noVNC HTTP port. Exposed so the desktop_screenshot

@@ -372,7 +372,7 @@ export default defineBuildInTool({
       browser_screenshot: tool({
         title: 'Capture a screenshot',
         description:
-          'Capture a screenshot of the page (full_page=true for the entire scrollable document) or a specific element (selector). Useful for visual verification, debugging layout issues, and capturing canvas-based content that browser_get_text cannot read.',
+          'Capture a screenshot of the page (full_page=true for the entire scrollable document) or a specific element (selector). Defaults to JPEG quality 80 — 5-10x smaller than PNG on both upload latency and per-turn vision token cost, with negligible recognition loss. Set type="png" when pixel-perfect output is required (e.g. comparing sub-pixel rendering). Useful for visual verification, debugging layout issues, and capturing canvas-based content that browser_get_text cannot read.',
         inputSchema: z.object({
           selector: z
             .string()
@@ -382,14 +382,19 @@ export default defineBuildInTool({
             .boolean()
             .optional()
             .describe('Capture the full scrollable page. Default false.'),
-          type: z.enum(['png', 'jpeg']).optional(),
+          type: z
+            .enum(['png', 'jpeg'])
+            .optional()
+            .describe(
+              'Image format. Default "jpeg" (5-10x smaller than PNG at q80, negligible vision loss). Use "png" for pixel-perfect output.',
+            ),
           quality: z
             .number()
             .int()
             .min(1)
             .max(100)
             .optional()
-            .describe('JPEG quality (1-100). PNG ignores this.'),
+            .describe('JPEG quality (1-100). Default 80. PNG ignores this.'),
           timeout_ms: timeoutParam,
           profile: profileParam,
           nodeId: nodeIdParam,
@@ -398,7 +403,16 @@ export default defineBuildInTool({
           dispatchBrowserTool({
             ...ctx,
             toolName: 'browser_screenshot',
-            toolInput: input,
+            // Default to JPEG q80 to cut screenshot cost ~5-10x vs PNG.
+            // The agentd bridge already accepts these fields; we just
+            // backfill defaults so an unspecified call goes down as a
+            // small JPEG rather than a ~1.5MB PNG. The LLM can still
+            // explicitly ask for type="png" when it needs lossless.
+            toolInput: {
+              ...input,
+              type: input.type ?? 'jpeg',
+              quality: input.quality ?? 80,
+            },
             nodeId: input.nodeId,
           }),
       }),
