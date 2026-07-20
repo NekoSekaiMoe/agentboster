@@ -246,7 +246,7 @@ func typeText(text string) error {
 			return fmt.Errorf("failed to create keyboard event")
 		}
 
-		cgEventKeyboardSetUnicodeString(event, uintptr(len(utf16Chars)), &utf16Chars[0])
+		cgEventKeyboardSetUnicodeString(event, uint64(len(utf16Chars)), &utf16Chars[0])
 		cgEventPost(kCGHIDEventTap, event)
 		cfRelease(event)
 
@@ -254,7 +254,7 @@ func typeText(text string) error {
 
 		upEvent := cgEventCreateKeyboardEvent(0, 0, false)
 		if upEvent != 0 {
-			cgEventKeyboardSetUnicodeString(upEvent, uintptr(len(utf16Chars)), &utf16Chars[0])
+			cgEventKeyboardSetUnicodeString(upEvent, uint64(len(utf16Chars)), &utf16Chars[0])
 			cgEventPost(kCGHIDEventTap, upEvent)
 			cfRelease(upEvent)
 		}

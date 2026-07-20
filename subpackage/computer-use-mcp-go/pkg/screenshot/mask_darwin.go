@@ -4,6 +4,7 @@ package screenshot
 
 import (
 	"image"
+	"strings"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -24,6 +25,7 @@ var (
 	cfNumberGetValue             func(number uintptr, theType int32, valuePtr unsafe.Pointer) bool
 	cfStringGetCString           func(theString uintptr, buffer *byte, bufferSize int64, encoding uint32) bool
 	cfStringGetLength            func(theString uintptr) int64
+	cfStringGetMaximumSizeForEncoding func(theString uintptr, encoding uint32) int64
 	cgRectMakeWithDict           func(dict uintptr, rect unsafe.Pointer) bool
 
 	// CoreGraphics functions
@@ -43,6 +45,12 @@ var (
 )
 
 func init() {
+	// If anything below panics (missing symbol, partial framework), recover
+	// and leave all func vars nil so getTerminalWindowIDs returns nil cleanly.
+	defer func() {
+		_ = recover()
+	}()
+
 	var err error
 	coreGraphics, err = purego.Dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", purego.RTLD_NOW|purego.RTLD_GLOBAL)
 	if err != nil {
@@ -65,6 +73,7 @@ func init() {
 	purego.RegisterLibFunc(&cfNumberGetValue, coreFoundation, "CFNumberGetValue")
 	purego.RegisterLibFunc(&cfStringGetCString, coreFoundation, "CFStringGetCString")
 	purego.RegisterLibFunc(&cfStringGetLength, coreFoundation, "CFStringGetLength")
+	purego.RegisterLibFunc(&cfStringGetMaximumSizeForEncoding, coreFoundation, "CFStringGetMaximumSizeForEncoding")
 	purego.RegisterLibFunc(&cgRectMakeWithDict, coreFoundation, "CGRectMakeWithDictionaryRepresentation")
 
 	// Register CoreGraphics functions
@@ -92,7 +101,7 @@ func createCFString(s string) uintptr {
 }
 
 func cfStringToGoString(cfStr uintptr) string {
-	if cfStr == 0 || cfStringGetLength == nil || cfStringGetCString == nil {
+	if cfStr == 0 || cfStringGetLength == nil || cfStringGetCString == nil || cfStringGetMaximumSizeForEncoding == nil {
 		return ""
 	}
 
@@ -101,9 +110,18 @@ func cfStringToGoString(cfStr uintptr) string {
 		return ""
 	}
 
-	// Allocate buffer (length + 1 for null terminator)
-	buf := make([]byte, length+1)
-	if !cfStringGetCString(cfStr, &buf[0], length+1, kCFStringEncodingUTF8) {
+	// CFStringGetLength returns UTF-16 code unit count, not bytes. Size the
+	// buffer for the worst-case UTF-8 expansion plus the NUL terminator, so
+	// supplementary-plane characters (emoji) do not overflow.
+	maxBytes := cfStringGetMaximumSizeForEncoding(cfStr, kCFStringEncodingUTF8)
+	bufSize := maxBytes + 1
+	if bufSize < 1 {
+		// Defensive: overflow / negative — bail out rather than under-allocate.
+		return ""
+	}
+
+	buf := make([]byte, bufSize)
+	if !cfStringGetCString(cfStr, &buf[0], bufSize, kCFStringEncodingUTF8) {
 		return ""
 	}
 
@@ -117,40 +135,9 @@ func cfStringToGoString(cfStr uintptr) string {
 }
 
 func isTerminalApp(ownerName string) bool {
+	lower := strings.ToLower(ownerName)
 	for _, term := range terminalIdentifiers {
-		// Case-insensitive substring match
-		if containsCaseInsensitive(ownerName, term) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsCaseInsensitive(s, substr string) bool {
-	sLower := toLower(s)
-	substrLower := toLower(substr)
-	return contains(sLower, substrLower)
-}
-
-func toLower(s string) string {
-	runes := []rune(s)
-	for i, r := range runes {
-		if r >= 'A' && r <= 'Z' {
-			runes[i] = r + 32
-		}
-	}
-	return string(runes)
-}
-
-func contains(s, substr string) bool {
-	if len(substr) == 0 {
-		return true
-	}
-	if len(substr) > len(s) {
-		return false
-	}
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
+		if strings.Contains(lower, strings.ToLower(term)) {
 			return true
 		}
 	}

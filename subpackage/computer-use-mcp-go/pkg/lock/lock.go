@@ -44,8 +44,10 @@ func New(path string) (*Lock, error) {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
 	}
 
-	// Try to acquire exclusive lock (non-blocking)
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	// Try to acquire exclusive lock (non-blocking, platform-specific).
+	// On Windows there is no syscall.Flock equivalent; lockFileEx is used
+	// via the platform-specific lockFile / unlockFile helpers.
+	if err := lockFile(int(file.Fd())); err != nil {
 		if closeErr := file.Close(); closeErr != nil {
 			return nil, fmt.Errorf("failed to acquire lock: %w (additionally failed to close lock file: %v)", err, closeErr)
 		}
@@ -96,8 +98,8 @@ func (l *Lock) Release() error {
 		return nil
 	}
 
-	// Release flock
-	if err := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); err != nil {
+	// Release advisory lock (platform-specific)
+	if err := unlockFile(int(l.file.Fd())); err != nil {
 		return fmt.Errorf("failed to release lock: %w", err)
 	}
 

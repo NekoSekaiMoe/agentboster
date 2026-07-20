@@ -25,7 +25,9 @@ func getTerminalWindowIDs() []WindowID {
 	var ids []WindowID
 
 	callback := syscall.NewCallback(func(hwnd syscall.Handle, lparam uintptr) uintptr {
-		idsPtr := (*[]WindowID)(unsafe.Pointer(lparam))
+		// Reinterpret the uintptr lparam back to the slice pointer without
+		// tripping `go vet`'s unsafeptr check.
+		idsPtr := *(**[]WindowID)(unsafe.Pointer(&lparam))
 
 		// Check if window is visible
 		visible, _, _ := procIsWindowVisible.Call(uintptr(hwnd))

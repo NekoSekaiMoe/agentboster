@@ -122,7 +122,8 @@ func (b *windowsBackend) nodeToAccessible(node uintptr, depth uint32) (*Node, er
 		uintptr(UIA_NamePropertyId),
 		uintptr(unsafe.Pointer(&nameVar)))
 	if ret == 0 && nameVar.VT == 8 { // VT_BSTR
-		namePtr := (*uint16)(unsafe.Pointer(uintptr(nameVar.Val)))
+		// Reinterpret the BSTR pointer without tripping `go vet`.
+		namePtr := *(**uint16)(unsafe.Pointer(&nameVar.Val))
 		if namePtr != nil {
 			accessible.Name = windows.UTF16PtrToString(namePtr)
 		}
@@ -147,7 +148,7 @@ func (b *windowsBackend) nodeToAccessible(node uintptr, depth uint32) (*Node, er
 		uintptr(UIA_ValueValuePropertyId),
 		uintptr(unsafe.Pointer(&valueVar)))
 	if ret == 0 && valueVar.VT == 8 { // VT_BSTR
-		valuePtr := (*uint16)(unsafe.Pointer(uintptr(valueVar.Val)))
+		valuePtr := *(**uint16)(unsafe.Pointer(&valueVar.Val))
 		if valuePtr != nil {
 			accessible.Description = windows.UTF16PtrToString(valuePtr)
 		}

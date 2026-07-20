@@ -8,15 +8,20 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
-	"github.com/ebitengine/purego"
+	"golang.org/x/sys/windows"
 )
 
 var (
-	user32             uintptr
-	sendInput          func(nInputs uint32, pInputs uintptr, cbSize int32) uint32
-	getCursorPos       func(lpPoint uintptr) bool
-	getAsyncKeyState   func(vKey int32) int16
-	getSystemMetrics   func(nIndex int32) int32
+	user32           = windows.NewLazySystemDLL("user32.dll")
+	procSendInput    = user32.NewProc("SendInput")
+	procGetCursorPos = user32.NewProc("GetCursorPos")
+	procGetAsyncKeyState = user32.NewProc("GetAsyncKeyState")
+	procGetSystemMetrics = user32.NewProc("GetSystemMetrics")
+
+	sendInput        func(nInputs uint32, pInputs uintptr, cbSize int32) uint32
+	getCursorPos     func(lpPoint uintptr) bool
+	getAsyncKeyState func(vKey int32) int16
+	getSystemMetrics func(nIndex int32) int32
 )
 
 const (
@@ -101,16 +106,35 @@ type INPUT struct {
 }
 
 func init() {
-	var err error
-	user32, err = purego.Dlopen("user32.dll", purego.RTLD_NOW|purego.RTLD_GLOBAL)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to load user32.dll: %v", err))
+	if err := procSendInput.Find(); err != nil {
+		panic(fmt.Sprintf("Failed to find SendInput: %v", err))
+	}
+	if err := procGetCursorPos.Find(); err != nil {
+		panic(fmt.Sprintf("Failed to find GetCursorPos: %v", err))
+	}
+	if err := procGetAsyncKeyState.Find(); err != nil {
+		panic(fmt.Sprintf("Failed to find GetAsyncKeyState: %v", err))
+	}
+	if err := procGetSystemMetrics.Find(); err != nil {
+		panic(fmt.Sprintf("Failed to find GetSystemMetrics: %v", err))
 	}
 
-	purego.RegisterLibFunc(&sendInput, user32, "SendInput")
-	purego.RegisterLibFunc(&getCursorPos, user32, "GetCursorPos")
-	purego.RegisterLibFunc(&getAsyncKeyState, user32, "GetAsyncKeyState")
-	purego.RegisterLibFunc(&getSystemMetrics, user32, "GetSystemMetrics")
+	sendInput = func(nInputs uint32, pInputs uintptr, cbSize int32) uint32 {
+		ret, _, _ := procSendInput.Call(uintptr(nInputs), pInputs, uintptr(cbSize))
+		return uint32(ret)
+	}
+	getCursorPos = func(lpPoint uintptr) bool {
+		ret, _, _ := procGetCursorPos.Call(lpPoint)
+		return ret != 0
+	}
+	getAsyncKeyState = func(vKey int32) int16 {
+		ret, _, _ := procGetAsyncKeyState.Call(uintptr(vKey))
+		return int16(ret)
+	}
+	getSystemMetrics = func(nIndex int32) int32 {
+		ret, _, _ := procGetSystemMetrics.Call(uintptr(nIndex))
+		return int32(ret)
+	}
 }
 
 func mouseMove(x, y int) error {

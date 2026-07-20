@@ -27,6 +27,7 @@ type darwinBackend struct {
 	cfStringCreateWithCString    func(alloc uintptr, cStr *byte, encoding uint32) uintptr
 	cfStringGetCString           func(theString uintptr, buffer *byte, bufferSize int64, encoding uint32) bool
 	cfStringGetLength            func(theString uintptr) int64
+	cfStringGetMaximumSizeForEncoding func(theString uintptr, encoding uint32) int64
 	cfArrayGetCount              func(array uintptr) int64
 	cfArrayGetValueAtIndex       func(array uintptr, idx int64) uintptr
 	cfBooleanGetValue            func(boolean uintptr) bool
@@ -92,6 +93,7 @@ func newDarwinBackend() (*darwinBackend, error) {
 	purego.RegisterLibFunc(&b.cfStringCreateWithCString, b.coreFoundation, "CFStringCreateWithCString")
 	purego.RegisterLibFunc(&b.cfStringGetCString, b.coreFoundation, "CFStringGetCString")
 	purego.RegisterLibFunc(&b.cfStringGetLength, b.coreFoundation, "CFStringGetLength")
+	purego.RegisterLibFunc(&b.cfStringGetMaximumSizeForEncoding, b.coreFoundation, "CFStringGetMaximumSizeForEncoding")
 	purego.RegisterLibFunc(&b.cfArrayGetCount, b.coreFoundation, "CFArrayGetCount")
 	purego.RegisterLibFunc(&b.cfArrayGetValueAtIndex, b.coreFoundation, "CFArrayGetValueAtIndex")
 	purego.RegisterLibFunc(&b.cfBooleanGetValue, b.coreFoundation, "CFBooleanGetValue")
@@ -137,8 +139,19 @@ func (b *darwinBackend) cfStringToGo(cfStr uintptr) string {
 		return ""
 	}
 
-	buf := make([]byte, length+1)
-	if !b.cfStringGetCString(cfStr, &buf[0], length+1, kCFStringEncodingUTF8) {
+	// CFStringGetLength returns the number of UTF-16 code units, NOT the
+	// UTF-8 byte count. Size the buffer using the worst-case UTF-8 expansion
+	// (CFStringGetMaximumSizeForEncoding) plus one byte for the NUL terminator,
+	// otherwise supplementary-plane characters (emoji, etc.) overflow the buffer.
+	maxBytes := b.cfStringGetMaximumSizeForEncoding(cfStr, kCFStringEncodingUTF8)
+	bufSize := maxBytes + 1
+	if bufSize < 1 {
+		// Defensive: overflow / negative — bail out rather than under-allocate.
+		return ""
+	}
+
+	buf := make([]byte, bufSize)
+	if !b.cfStringGetCString(cfStr, &buf[0], bufSize, kCFStringEncodingUTF8) {
 		return ""
 	}
 
