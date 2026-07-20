@@ -1,4 +1,4 @@
-module github.com/yourusername/computer-use-mcp-go
+module github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp
 
 go 1.25.5
 

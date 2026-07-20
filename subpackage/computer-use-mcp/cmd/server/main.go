@@ -12,17 +12,19 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/yourusername/computer-use-mcp-go/pkg/capability"
-	"github.com/yourusername/computer-use-mcp-go/pkg/escape"
-	"github.com/yourusername/computer-use-mcp-go/pkg/input"
-	"github.com/yourusername/computer-use-mcp-go/pkg/lock"
-	"github.com/yourusername/computer-use-mcp-go/pkg/screenshot"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/accessibility"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/capability"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/escape"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/input"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/lock"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/screenshot"
 )
 
 var (
 	lastScreenshotResult   *screenshot.Result
 	inputController        *input.Controller
 	keyboardOnlyController *input.Controller
+	accessibilityClient    *accessibility.Client
 )
 
 func main() {
@@ -111,6 +113,7 @@ func main() {
 		// Register input tools if accessibility is granted
 		if caps.AccessibilityGranted {
 			registerInputTools(s)
+			registerAccessibilityTools(s)
 		}
 	}
 

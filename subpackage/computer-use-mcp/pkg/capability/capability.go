@@ -4,7 +4,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/yourusername/computer-use-mcp-go/pkg/screenshot"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/screenshot"
 )
 
 // Capabilities describes what the computer-use server can do on this platform.

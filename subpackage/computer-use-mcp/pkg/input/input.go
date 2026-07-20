@@ -1,7 +1,7 @@
 package input
 
 import (
-	"github.com/yourusername/computer-use-mcp-go/pkg/coord"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/coord"
 )
 
 // Controller simulates mouse and keyboard input.
