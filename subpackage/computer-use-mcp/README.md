@@ -191,7 +191,7 @@ Core logic (coord, lock, safety, capability detection) has high coverage. Input/
 |--------|------|--------|
 | Core features | ✅ | ✅ |
 | Accessibility | ✅ Full | ✅ **Full (recursive tree)** |
-| CGo deps | ✅ enigo | ✅ **Zero (purego everywhere)** |
+| CGo deps | ✅ enigo (C FFI on Linux/macOS) | ✅ **Zero (purego everywhere)** |
 | Cross-compile | 🟡 Complex | ✅ **One command** |
 | Binary size | ~8MB | ~9MB |
 | Test coverage | Good | **Good** |

@@ -1,16 +1,16 @@
-# CLAUDE.md — computer-use-mcp-go/
+# AGENTS.md — computer-use-mcp/
 
-Compact guide for AI coding sessions working in the `computer-use-mcp-go/` package. Go implementation of the computer-use MCP server, providing screenshots, input simulation, and accessibility APIs.
+Compact guide for AI coding sessions working in the `subpackage/computer-use-mcp/` package. Go implementation of the computer-use MCP server, providing screenshots, input simulation, accessibility APIs, clipboard access, and GIF screen recording. All platform paths are purego — no CGo anywhere in the tree.
 
 ## Read first
 
 - `README.md` is the best architecture map — covers features, build instructions, platform support matrix.
 - This is a **standalone Go module**, NOT part of the root yarn workspace or the agentd Go module.
-- The package is **CGo-optional**: core features (screenshot, input, terminal masking, session lock) use pure Go or purego; only accessibility APIs require CGo.
+- This is a **CGo-free** Go module: every platform path (screenshot, input, terminal masking, session lock, accessibility, clipboard, GIF recording) uses pure Go or purego (`purego.Dlopen` + `purego.RegisterLibFunc`). There is no `import "C"` or `#cgo` anywhere in the tree — verified by `grep -rn '#cgo\|import "C"' pkg/` returning nothing.
 
 ## Module
 
-Go module (`go 1.23.2`), completely independent from:
+Go module (`go 1.25.5`), completely independent from:
 - Root yarn workspace (Web app)
 - `subpackage/agentd/` (Go daemon, separate `go.mod`)
 - `subpackage/dbushelper/` (Go AT-SPI2 client, separate `go.mod`)
@@ -72,7 +72,7 @@ The binary is `computer-use-mcp` (~9MB).
 - **Session lock is cross-app**: Lock checks `~/.config/agentboster-cli/` and `~/.config/agentboster-desktop/` to prevent CLI and desktop app from using computer-use simultaneously.
 - **Escape hook runs on a background thread**: Cannot be cleanly joined; meant to live for the process lifetime.
 - **purego is CGo-free but platform-specific**: Input simulation uses `purego.Dlopen` + `purego.RegisterLibFunc` to call system APIs (libX11/libXtst on Linux, CoreGraphics on macOS, user32.dll on Windows). Each platform has its own `input_{linux,darwin,windows}.go`.
-- **Accessibility is optional**: The `pkg/accessibility/` package requires CGo on Linux (AT-SPI2) and macOS (AX API), but uses purego on Windows (UIAutomation). Core features (screenshot, input) work without it.
+- **Accessibility is purego on every platform**: Linux loads `libatspi.so.0` (plus glib/gobject) via purego; macOS loads `ApplicationServices`/`CoreFoundation` frameworks via purego; Windows uses `golang.org/x/sys/windows` (LazySystemDLL) for `uiautomationcore.dll`. No CGo, no `#cgo pkg-config`, cross-compiles trivially. The a11y backend is optional only in the sense that it fails at runtime with a clear error if the platform library/permission is missing; core features (screenshot, input) keep working regardless.
 
 ## Testing
 
@@ -86,21 +86,21 @@ The binary is `computer-use-mcp` (~9MB).
 
 - **Headless environments**: Tests that need a display (screenshot capture, input simulation) detect `screenshot.NumActiveDisplays() == 0` and skip with `t.Skip()`. They don't fail.
 - **Build tags**: Platform-specific files use `// +build linux`, `// +build darwin`, `// +build windows`. The `stub.go` file covers unsupported platforms.
-- **Linux AT-SPI2 CGo**: The `pkg/accessibility/linux.go` file uses `#cgo pkg-config: atspi-2`. If `libatspi2.0-dev` is not installed, the build fails. To build without accessibility, use build tags (not yet implemented).
+- **Linux AT-SPI2 is purego, not CGo**: `pkg/accessibility/linux.go` loads `libatspi.so.0` at runtime via `purego.Dlopen`. There is no `#cgo pkg-config: atspi-2`. `libatspi2.0-dev` is NOT a build-time requirement — only the runtime shared library (shipped by `libatspi2.0-0` on Debian/Ubuntu) must be present, and only if accessibility tools are actually called. A system without it still builds and runs all core features.
 - **purego limitations**: `purego.Dlopen` requires library names (e.g., `libX11.so.6` on Linux, `user32.dll` on Windows). Library paths vary across distros; the code uses common names that work on most systems.
 - **Windows VARIANT handling**: `pkg/accessibility/windows.go` uses `oleaut32.dll` `VariantClear` to free COM memory. Forgetting this causes leaks.
 - **macOS Accessibility permission**: The `AXIsProcessTrusted()` call in `darwin.go` returns `false` if the app doesn't have Accessibility permission. The backend creation fails with a clear error.
 
 ## Cross-compilation
 
-**Pure Go targets** (no CGo) compile trivially:
+Everything (including accessibility) is purego, so all targets cross-compile trivially from any host:
 ```bash
 GOOS=darwin GOARCH=amd64 go build ./cmd/server   # macOS
 GOOS=windows GOARCH=amd64 go build ./cmd/server  # Windows
 GOOS=linux GOARCH=amd64 go build ./cmd/server    # Linux
 ```
 
-**With accessibility (CGo)**, you must build on the target platform or use a cross-compilation toolchain (complex).
+Platform libraries (libatspi, ApplicationServices, uiautomationcore) are resolved by `purego.Dlopen` at **runtime** on the target host, not at link time. If a library is missing on the target, the corresponding a11y tool calls return a clear runtime error while core features (screenshot, input, clipboard, recording) keep working.
 
 ## Comparison with Rust version
 
@@ -112,12 +112,12 @@ GOOS=linux GOARCH=amd64 go build ./cmd/server    # Linux
 | Terminal masking | ✅ (Linux better) | 🟡 (Linux crude) |
 | Session lock | ✅ | ✅ |
 | Escape hook | ✅ rdev | ✅ purego |
-| Accessibility | ✅ Full tree traversal | 🟡 Basic (node-by-ID, click) |
+| Accessibility | ✅ Full tree traversal | ✅ Full tree traversal (purego) |
 | Cross-compile | 🟡 Complex (Rust + C toolchains) | ✅ One command (pure Go) |
 | Binary size | ~8MB | ~9MB |
 | Test coverage | Good | Good (core 70%+) |
 
-**Recommendation:** Use Go version for easier deployment. Use Rust version if you need full accessibility tree traversal.
+**Recommendation:** Use the Go version for easier builds and deployment (purego everywhere, one-command cross-compile). Both versions now offer full accessibility tree traversal; the Go version additionally avoids CGo entirely.
 
 ## Design decisions
 
@@ -136,8 +136,7 @@ GOOS=linux GOARCH=amd64 go build ./cmd/server    # Linux
 
 ## Future work
 
-- [ ] Build tags to disable accessibility (optional CGo)
-- [ ] Better Linux terminal detection (via D-Bus or /proc)
-- [ ] Full accessibility tree traversal (currently only node-by-ID)
+- [ ] Optional custom build tag (e.g. `noaccessibility`) to strip the a11y package at compile time for smaller binaries (NOT needed for CGo avoidance — there is no CGo to avoid)
+- [ ] Better Linux terminal window-geometry detection (map `/proc`-detected terminals to actual X11 window bounds; D-Bus path)
 - [ ] Clipboard integration (read/write)
 - [ ] Screen recording (video capture)
