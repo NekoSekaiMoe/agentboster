@@ -1,0 +1,128 @@
+# Go CI for computer-use-mcp-go (cross-platform MCP server for computer use)
+#
+# This MCP server provides screenshot, input simulation, and accessibility
+# tree access. Unlike agentd/dbushelper (Linux-only), this is a cross-platform
+# project targeting macOS, Windows, and Linux. However, platform-specific code
+# uses CGO (CoreGraphics on macOS, WinAPI on Windows, X11/AT-SPI2 on Linux),
+# so we cannot cross-compile and must build natively on each platform.
+#
+# The CI matrix runs:
+# - Linux: full build + test (CGO against X11, AT-SPI2)
+# - macOS: build only (requires Xcode, Accessibility framework)
+# - Windows: build only (uses syscall, no external deps)
+#
+# Tests are Linux-only because they require a display server and accessibility
+# permissions that are not practical to set up in CI runners.
+
+name: computer-use-mcp-go-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'subpackage/computer-use-mcp/**'
+      - '.github/workflows/computer-use-mcp-go-ci.yml'
+  pull_request:
+    paths:
+      - 'subpackage/computer-use-mcp/**'
+      - '.github/workflows/computer-use-mcp-go-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    name: Linux (build + test)
+    runs-on: ubuntu-24.04
+
+    defaults:
+      run:
+        working-directory: subpackage/computer-use-mcp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: subpackage/computer-use-mcp/go.mod
+          cache-dependency-path: subpackage/computer-use-mcp/go.sum
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libx11-dev \
+            libxtst-dev \
+            libxinerama-dev \
+            libdbus-1-dev \
+            libatspi2.0-dev \
+            libclang-dev
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test
+        # Unit tests only (screenshot/input tests require a display server)
+        run: go test -short ./pkg/coord ./pkg/lock ./pkg/capability
+
+  build-macos:
+    name: macOS (build only)
+    runs-on: macos-14
+
+    defaults:
+      run:
+        working-directory: subpackage/computer-use-mcp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: subpackage/computer-use-mcp/go.mod
+          cache-dependency-path: subpackage/computer-use-mcp/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        env:
+          CGO_ENABLED: 1
+        run: go build ./...
+
+  build-windows:
+    name: Windows (build only)
+    runs-on: windows-2022
+
+    defaults:
+      run:
+        working-directory: subpackage/computer-use-mcp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: subpackage/computer-use-mcp/go.mod
+          cache-dependency-path: subpackage/computer-use-mcp/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...

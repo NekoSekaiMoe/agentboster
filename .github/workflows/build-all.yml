@@ -1,6 +1,6 @@
 # Unified CI build pipeline for computer-use-mcp, CLI tarball, and Desktop.
 #
-# Step 1 (Rust) and Step 2 (CLI bundle) run in parallel.
+# Step 1 (Go MCP binary) and Step 2 (CLI bundle) run in parallel.
 # Step 3 (CLI tarball) and Step 4 (Desktop installer) depend on both and
 # also run in parallel once their prerequisites complete.
 #
@@ -28,7 +28,14 @@ permissions:
   contents: read
 
 jobs:
-  # Step 1: Build computer-use-mcp Rust binary (parallel with Step 2)
+  # Step 1: Build computer-use-mcp Go binary (parallel with Step 2).
+  #
+  # The MCP server was originally a Rust crate (cargo + matrix targets).
+  # It has been rewritten in Go using purego for platform bindings, so
+  # this job now invokes `go build` on each native runner instead of
+  # `cargo build`. The artifact name (`computer-use-mcp-${target}`) and
+  # the produced binary names are preserved so the downstream
+  # package-cli / package-desktop jobs do not need to change.
   build-computer-use-mcp:
     name: mcp (${{ matrix.target }})
     strategy:
@@ -37,24 +44,31 @@ jobs:
         include:
           - os: macos-26
             target: aarch64-apple-darwin
+            goenv: { GOOS: darwin, GOARCH: arm64 }
+            binary: computer-use-mcp
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            goenv: { GOOS: linux, GOARCH: amd64 }
+            binary: computer-use-mcp
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            goenv: { GOOS: windows, GOARCH: amd64 }
+            binary: computer-use-mcp.exe
     runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        working-directory: subpackage/computer-use-mcp
 
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v6
         with:
-          targets: ${{ matrix.target }}
-
-      - uses: swatinem/rust-cache@v2
-        with:
-          workspaces: subpackage/computer-use-mcp
+          go-version-file: subpackage/computer-use-mcp/go.mod
+          cache-dependency-path: subpackage/computer-use-mcp/go.sum
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -62,27 +76,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             pkg-config \
-            libclang-dev \
-            libxcb1-dev \
-            libxrandr-dev \
-            libxdo-dev \
+            libx11-dev \
+            libxtst-dev \
+            libxinerama-dev \
             libdbus-1-dev \
             libatspi2.0-dev \
-            libpipewire-0.3-dev \
-            libspa-0.2-dev \
-            libwayland-dev \
-            libegl-dev \
-            libgbm-dev
+            libclang-dev
 
       - name: Build
-        run: cargo build --release --manifest-path subpackage/computer-use-mcp/Cargo.toml --target ${{ matrix.target }}
+        env:
+          GOOS: ${{ matrix.goenv.GOOS }}
+          GOARCH: ${{ matrix.goenv.GOARCH }}
+          # CGO is only required on macOS for the CoreGraphics AX API;
+          # leaving it enabled elsewhere does no harm because the Linux
+          # backend uses purego (no cgo), and the Windows backend uses
+          # purego as well.
+          CGO_ENABLED: '1'
+        run: |
+          mkdir -p ../../out
+          go build -trimpath -ldflags="-s -w" -o "../../out/${{ matrix.binary }}" ./cmd/server
 
       - uses: actions/upload-artifact@v6
         with:
           name: computer-use-mcp-${{ matrix.target }}
-          path: |
-            subpackage/computer-use-mcp/target/${{ matrix.target }}/release/computer-use-mcp
-            subpackage/computer-use-mcp/target/${{ matrix.target }}/release/computer-use-mcp.exe
+          path: out/${{ matrix.binary }}
           if-no-files-found: error
           retention-days: 7
 
