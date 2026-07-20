@@ -9,7 +9,6 @@ import (
 	"image/png"
 
 	"github.com/disintegration/imaging"
-	"github.com/kbinani/screenshot"
 )
 
 const DefaultMaxWidth = 1400
@@ -66,23 +65,27 @@ func CaptureAndScale(maxWidth *int, monitorIndex *int, excludeTerminals bool, fo
 		maxW = *maxWidth
 	}
 
-	n := screenshot.NumActiveDisplays()
-	if n == 0 {
+	displays, err := GetDisplays()
+	if err != nil {
+		return nil, fmt.Errorf("failed to enumerate displays: %w", err)
+	}
+
+	if len(displays) == 0 {
 		return nil, fmt.Errorf("no monitors found")
 	}
 
 	selectedIndex := 0
 	if monitorIndex != nil {
-		if *monitorIndex >= n {
-			return nil, fmt.Errorf("monitor_index %d out of range (available: 0..%d)", *monitorIndex, n-1)
+		if *monitorIndex >= len(displays) {
+			return nil, fmt.Errorf("monitor_index %d out of range (available: 0..%d)", *monitorIndex, len(displays)-1)
 		}
 		selectedIndex = *monitorIndex
 	}
 
-	bounds := screenshot.GetDisplayBounds(selectedIndex)
+	bounds := displays[selectedIndex].Bounds
 	origin := [2]int{bounds.Min.X, bounds.Min.Y}
 
-	img, err := screenshot.CaptureDisplay(selectedIndex)
+	img, err := CaptureDisplay(selectedIndex)
 	if err != nil {
 		return nil, fmt.Errorf("screenshot capture failed: %w", err)
 	}

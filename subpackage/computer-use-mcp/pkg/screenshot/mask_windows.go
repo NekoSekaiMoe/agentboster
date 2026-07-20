@@ -6,14 +6,11 @@ import (
 	"image"
 	"syscall"
 	"unsafe"
-
-	"golang.org/x/sys/windows"
 )
 
 type WindowID uint64
 
 var (
-	user32                  = windows.NewLazySystemDLL("user32.dll")
 	procEnumWindows         = user32.NewProc("EnumWindows")
 	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
 	procGetClassNameW       = user32.NewProc("GetClassNameW")

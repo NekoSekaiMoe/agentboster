@@ -31,12 +31,11 @@ var (
 	// CoreGraphics functions
 	cgWindowListCopyWindowInfo func(option uint32, relativeToWindow uint32) uintptr
 
-	// Constants
-	kCGWindowListOptionOnScreenOnly uint32 = 0x01
-	kCGNullWindowID                 uint32 = 0
-	kCFStringEncodingUTF8           uint32 = 0x08000100
-	kCFCompareCaseInsensitive       uint32 = 1
-	kCFNumberSInt32Type             int32  = 3
+	// Constants (shared with capture_darwin.go)
+	kCGNullWindowID           uint32 = 0
+	kCFStringEncodingUTF8     uint32 = 0x08000100
+	kCFCompareCaseInsensitive uint32 = 1
+	kCFNumberSInt32Type       int32  = 3
 
 	// Keys (as Go strings, we'll convert them on demand)
 	kCGWindowOwnerName = "kCGWindowOwnerName"

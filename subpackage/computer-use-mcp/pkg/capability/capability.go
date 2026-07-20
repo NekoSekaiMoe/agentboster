@@ -4,7 +4,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/kbinani/screenshot"
+	"github.com/yourusername/computer-use-mcp-go/pkg/screenshot"
 )
 
 // Capabilities describes what the computer-use server can do on this platform.
@@ -86,12 +86,12 @@ func detectDisplayServer() (bool, *string) {
 }
 
 func detectResolution() *[2]int {
-	n := screenshot.NumActiveDisplays()
-	if n == 0 {
+	displays, err := screenshot.GetDisplays()
+	if err != nil || len(displays) == 0 {
 		return nil
 	}
 
-	bounds := screenshot.GetDisplayBounds(0)
+	bounds := displays[0].Bounds
 	w := bounds.Dx()
 	h := bounds.Dy()
 
