@@ -11,6 +11,15 @@ type Hook struct {
 	running  bool
 	mu       sync.Mutex
 	stopChan chan struct{}
+
+	// wakeLoop and wakeThreadID are platform hooks used by startPlatform
+	// (currently only on Windows) to unblock the message loop on the
+	// dedicated hook thread when Stop is called from another goroutine.
+	// Defined as no-ops on platforms that don't need them.
+	wakeLoop func()
+	// wakeThreadID holds the OS thread id of the hook loop on platforms
+	// that publish it (Windows). Always accessed under h.mu.
+	wakeThreadID uint32
 }
 
 // New creates a new escape hook with the given callback.
@@ -38,9 +47,20 @@ func (h *Hook) Start() error {
 // Stop stops the escape hook.
 func (h *Hook) Stop() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.running {
-		close(h.stopChan)
-		h.running = false
+	if !h.running {
+		h.mu.Unlock()
+		return
+	}
+	close(h.stopChan)
+	h.running = false
+	wake := h.wakeLoop
+	h.mu.Unlock()
+
+	// Give platform implementations a chance to unblock their event loop
+	// (no-op on platforms where reading stopChan is sufficient). Called
+	// AFTER releasing h.mu because the platform hook typically re-acquires
+	// it to read a published thread id.
+	if wake != nil {
+		wake()
 	}
 }

@@ -1,8 +1,12 @@
-# Rust linting for computer-use-mcp and desktop packages.
+# Rust linting for the desktop package.
 #
 # Runs cargo clippy and rustfmt --check on every push/PR that touches
 # Rust source. Linux-only for clippy (platform AX backends are gated
 # by #[cfg] so cross-platform check isn't needed for lint).
+#
+# Note: computer-use-mcp has migrated from Rust to Go and is now linted
+# by computer-use-mcp-go-ci.yml. The old `computer-use-mcp` matrix entry
+# and its path trigger were removed when the Rust source was dropped.
 
 name: rust-lint
 
@@ -10,13 +14,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'subpackage/computer-use-mcp/**'
       - 'subpackage/cli/packages/desktop/src-tauri/**'
       - '.github/workflows/rust-lint.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'subpackage/computer-use-mcp/**'
       - 'subpackage/cli/packages/desktop/src-tauri/**'
       - '.github/workflows/rust-lint.yml'
 
@@ -31,8 +33,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - package: computer-use-mcp
-            manifest: subpackage/computer-use-mcp/Cargo.toml
           - package: desktop
             manifest: subpackage/cli/packages/desktop/src-tauri/Cargo.toml
 
@@ -99,8 +99,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - package: computer-use-mcp
-            path: subpackage/computer-use-mcp
           - package: desktop
             path: subpackage/cli/packages/desktop/src-tauri
 

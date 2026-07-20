@@ -3,6 +3,7 @@
 package input
 
 import (
+	"errors"
 	"fmt"
 	"time"
 	"unicode/utf16"
@@ -137,6 +138,26 @@ func init() {
 	}
 }
 
+// errSendInputNothingQueued is returned (wrapped) when SendInput reports
+// that zero of the requested events were actually injected into the
+// input stream. The Win32 SendInput contract returns the count of events
+// successfully inserted; a return of 0 with no GetLastError change is
+// usually a UIPI/blocking issue rather than a benign condition.
+var errSendInputNothingQueued = errors.New("SendInput injected no events")
+
+// sendInputChecked calls SendInput and surfaces a failure when zero
+// events were accepted. SendInput returns the number of events it
+// inserted; anything less than requested is treated as a hard failure
+// so callers don't silently proceed with half-applied input (e.g.
+// mouse-down with no matching mouse-up).
+func sendInputChecked(input *INPUT) error {
+	ret := sendInput(1, uintptr(unsafe.Pointer(input)), int32(unsafe.Sizeof(*input)))
+	if ret == 0 {
+		return fmt.Errorf("%w: GetLastError=%d", errSendInputNothingQueued, windows.GetLastError())
+	}
+	return nil
+}
+
 func mouseMove(x, y int) error {
 	screenWidth := getSystemMetrics(SM_CXSCREEN)
 	screenHeight := getSystemMetrics(SM_CYSCREEN)
@@ -153,8 +174,7 @@ func mouseMove(x, y int) error {
 	mi.Dy = absY
 	mi.DwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
 
-	sendInput(1, uintptr(unsafe.Pointer(&input)), int32(unsafe.Sizeof(input)))
-	return nil
+	return sendInputChecked(&input)
 }
 
 func mouseClick(button string) error {
@@ -177,7 +197,9 @@ func mouseClick(button string) error {
 	inputDown.Type = INPUT_MOUSE
 	mi := (*MOUSEINPUT)(unsafe.Pointer(&inputDown.Mi[0]))
 	mi.DwFlags = downFlag
-	sendInput(1, uintptr(unsafe.Pointer(&inputDown)), int32(unsafe.Sizeof(inputDown)))
+	if err := sendInputChecked(&inputDown); err != nil {
+		return fmt.Errorf("mouse click press: %w", err)
+	}
 
 	time.Sleep(10 * time.Millisecond)
 
@@ -186,7 +208,9 @@ func mouseClick(button string) error {
 	inputUp.Type = INPUT_MOUSE
 	mi = (*MOUSEINPUT)(unsafe.Pointer(&inputUp.Mi[0]))
 	mi.DwFlags = upFlag
-	sendInput(1, uintptr(unsafe.Pointer(&inputUp)), int32(unsafe.Sizeof(inputUp)))
+	if err := sendInputChecked(&inputUp); err != nil {
+		return fmt.Errorf("mouse click release: %w", err)
+	}
 
 	return nil
 }
@@ -194,7 +218,7 @@ func mouseClick(button string) error {
 func mouseDrag(fromX, fromY, toX, toY int) error {
 	// Move to start
 	if err := mouseMove(fromX, fromY); err != nil {
-		return err
+		return fmt.Errorf("drag move-to-start: %w", err)
 	}
 
 	time.Sleep(10 * time.Millisecond)
@@ -204,13 +228,15 @@ func mouseDrag(fromX, fromY, toX, toY int) error {
 	inputDown.Type = INPUT_MOUSE
 	mi := (*MOUSEINPUT)(unsafe.Pointer(&inputDown.Mi[0]))
 	mi.DwFlags = MOUSEEVENTF_LEFTDOWN
-	sendInput(1, uintptr(unsafe.Pointer(&inputDown)), int32(unsafe.Sizeof(inputDown)))
+	if err := sendInputChecked(&inputDown); err != nil {
+		return fmt.Errorf("drag press: %w", err)
+	}
 
 	time.Sleep(10 * time.Millisecond)
 
 	// Move to end
 	if err := mouseMove(toX, toY); err != nil {
-		return err
+		return fmt.Errorf("drag move-to-end: %w", err)
 	}
 
 	time.Sleep(10 * time.Millisecond)
@@ -220,7 +246,9 @@ func mouseDrag(fromX, fromY, toX, toY int) error {
 	inputUp.Type = INPUT_MOUSE
 	mi = (*MOUSEINPUT)(unsafe.Pointer(&inputUp.Mi[0]))
 	mi.DwFlags = MOUSEEVENTF_LEFTUP
-	sendInput(1, uintptr(unsafe.Pointer(&inputUp)), int32(unsafe.Sizeof(inputUp)))
+	if err := sendInputChecked(&inputUp); err != nil {
+		return fmt.Errorf("drag release: %w", err)
+	}
 
 	return nil
 }
@@ -230,7 +258,7 @@ func typeText(text string) error {
 	runes := []rune(text)
 	utf16Chars := utf16.Encode(runes)
 
-	for _, utf16Char := range utf16Chars {
+	for i, utf16Char := range utf16Chars {
 		// Press
 		var inputDown INPUT
 		inputDown.Type = INPUT_KEYBOARD
@@ -238,7 +266,9 @@ func typeText(text string) error {
 		ki.WVk = 0
 		ki.WScan = utf16Char
 		ki.DwFlags = KEYEVENTF_UNICODE
-		sendInput(1, uintptr(unsafe.Pointer(&inputDown)), int32(unsafe.Sizeof(inputDown)))
+		if err := sendInputChecked(&inputDown); err != nil {
+			return fmt.Errorf("typeText press at rune %d: %w", i, err)
+		}
 
 		time.Sleep(10 * time.Millisecond)
 
@@ -249,7 +279,9 @@ func typeText(text string) error {
 		ki.WVk = 0
 		ki.WScan = utf16Char
 		ki.DwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
-		sendInput(1, uintptr(unsafe.Pointer(&inputUp)), int32(unsafe.Sizeof(inputUp)))
+		if err := sendInputChecked(&inputUp); err != nil {
+			return fmt.Errorf("typeText release at rune %d: %w", i, err)
+		}
 	}
 	return nil
 }
@@ -271,7 +303,9 @@ func keyEvent(key string, direction string) error {
 		ki.DwFlags = KEYEVENTF_KEYUP
 	}
 
-	sendInput(1, uintptr(unsafe.Pointer(&input)), int32(unsafe.Sizeof(input)))
+	if err := sendInputChecked(&input); err != nil {
+		return fmt.Errorf("keyEvent %s %s: %w", key, direction, err)
+	}
 
 	if direction == "click" {
 		time.Sleep(10 * time.Millisecond)
@@ -280,7 +314,9 @@ func keyEvent(key string, direction string) error {
 		ki = (*KEYBDINPUT)(unsafe.Pointer(&inputUp.Mi[0]))
 		ki.WVk = vk
 		ki.DwFlags = KEYEVENTF_KEYUP
-		sendInput(1, uintptr(unsafe.Pointer(&inputUp)), int32(unsafe.Sizeof(inputUp)))
+		if err := sendInputChecked(&inputUp); err != nil {
+			return fmt.Errorf("keyEvent %s release: %w", key, err)
+		}
 	}
 
 	return nil

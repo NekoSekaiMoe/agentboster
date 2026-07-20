@@ -20,11 +20,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'subpackage/computer-use-mcp-go/**'
+      - 'subpackage/computer-use-mcp/**'
       - '.github/workflows/computer-use-mcp-go-ci.yml'
   pull_request:
     paths:
-      - 'subpackage/computer-use-mcp-go/**'
+      - 'subpackage/computer-use-mcp/**'
       - '.github/workflows/computer-use-mcp-go-ci.yml'
 
 permissions:
@@ -37,7 +37,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: subpackage/computer-use-mcp-go
+        working-directory: subpackage/computer-use-mcp
 
     steps:
       - name: Checkout
@@ -48,8 +48,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: subpackage/computer-use-mcp-go/go.mod
-          cache-dependency-path: subpackage/computer-use-mcp-go/go.sum
+          go-version-file: subpackage/computer-use-mcp/go.mod
+          cache-dependency-path: subpackage/computer-use-mcp/go.sum
 
       - name: Install Linux build deps
         run: |
@@ -79,7 +79,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: subpackage/computer-use-mcp-go
+        working-directory: subpackage/computer-use-mcp
 
     steps:
       - name: Checkout
@@ -90,8 +90,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: subpackage/computer-use-mcp-go/go.mod
-          cache-dependency-path: subpackage/computer-use-mcp-go/go.sum
+          go-version-file: subpackage/computer-use-mcp/go.mod
+          cache-dependency-path: subpackage/computer-use-mcp/go.sum
 
       - name: go vet
         run: go vet ./...
@@ -107,7 +107,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: subpackage/computer-use-mcp-go
+        working-directory: subpackage/computer-use-mcp
 
     steps:
       - name: Checkout
@@ -118,8 +118,8 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: subpackage/computer-use-mcp-go/go.mod
-          cache-dependency-path: subpackage/computer-use-mcp-go/go.sum
+          go-version-file: subpackage/computer-use-mcp/go.mod
+          cache-dependency-path: subpackage/computer-use-mcp/go.sum
 
       - name: go vet
         run: go vet ./...

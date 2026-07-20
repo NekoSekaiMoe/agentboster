@@ -4,6 +4,7 @@ package accessibility
 
 import (
 	"fmt"
+	"strings"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -28,6 +29,10 @@ type linuxBackend struct {
 	atspiComponentGetExtents         func(component uintptr, coordType int32, error *uintptr) uintptr
 	atspiComponentGetAccessibleAtPoint func(component uintptr, x int32, y int32, coordType int32, error *uintptr) uintptr
 	atspiActionDoAction              func(obj uintptr, index int32, error *uintptr) bool
+	atspiActionGetNActions           func(obj uintptr, error *uintptr) int32
+	atspiActionGetName               func(obj uintptr, index int32, error *uintptr) uintptr
+	atspiActionGetDescription        func(obj uintptr, index int32, error *uintptr) uintptr
+	atspiActionGetKeyBinding         func(obj uintptr, index int32, error *uintptr) uintptr
 	atspiRoleGetName                 func(role int32) uintptr
 	atspiStateSetContains            func(stateSet uintptr, state int32) bool
 
@@ -82,6 +87,10 @@ func newLinuxBackend() (*linuxBackend, error) {
 	purego.RegisterLibFunc(&b.atspiComponentGetExtents, b.libatspi, "atspi_component_get_extents")
 	purego.RegisterLibFunc(&b.atspiComponentGetAccessibleAtPoint, b.libatspi, "atspi_component_get_accessible_at_point")
 	purego.RegisterLibFunc(&b.atspiActionDoAction, b.libatspi, "atspi_action_do_action")
+	purego.RegisterLibFunc(&b.atspiActionGetNActions, b.libatspi, "atspi_action_get_n_actions")
+	purego.RegisterLibFunc(&b.atspiActionGetName, b.libatspi, "atspi_action_get_name")
+	purego.RegisterLibFunc(&b.atspiActionGetDescription, b.libatspi, "atspi_action_get_description")
+	purego.RegisterLibFunc(&b.atspiActionGetKeyBinding, b.libatspi, "atspi_action_get_key_binding")
 	purego.RegisterLibFunc(&b.atspiRoleGetName, b.libatspi, "atspi_role_get_name")
 	purego.RegisterLibFunc(&b.atspiStateSetContains, b.libatspi, "atspi_state_set_contains")
 
@@ -184,9 +193,52 @@ func (b *linuxBackend) PerformAction(id string, action string) error {
 	}
 	defer b.gObjectUnref(accessible)
 
-	// Perform action (index 0 is usually the default action like "click")
+	// Resolve the action index by matching the requested action name
+	// against the accessible's exposed AT-SPI actions. Each Action
+	// interface exposes a localized name (e.g. "click", "press", "open")
+	// and/or a key binding; we match case-insensitively against the name
+	// and fall back to index 0 (the canonical default action) if no
+	// match is found. The default fallback preserves the legacy
+	// behavior expected by callers that pass generic action names like
+	// "click".
 	gerror = 0
-	if !b.atspiActionDoAction(accessible, 0, &gerror) {
+	nActions := b.atspiActionGetNActions(accessible, &gerror)
+	if gerror != 0 {
+		b.gErrorFree(gerror)
+		return fmt.Errorf("failed to enumerate actions for %s", id)
+	}
+
+	var actionIndex int32 = 0
+	matched := false
+	if action != "" {
+		for i := int32(0); i < nActions; i++ {
+			gerror = 0
+			namePtr := b.atspiActionGetName(accessible, i, &gerror)
+			if gerror != 0 {
+				b.gErrorFree(gerror)
+				continue
+			}
+			if namePtr == 0 {
+				continue
+			}
+			nameBytes := uintptrToStringSlice(namePtr)
+			if strings.EqualFold(nameBytes, action) {
+				actionIndex = i
+				matched = true
+				break
+			}
+		}
+	}
+	if !matched && action != "" && nActions > 0 {
+		// Caller asked for a specific action we don't expose. Return an
+		// explicit error instead of silently invoking index 0, which
+		// could be a destructive action (e.g. "press" on a button when
+		// the caller wanted "release").
+		return fmt.Errorf("unsupported action %q on %s (available: %d)", action, id, nActions)
+	}
+
+	gerror = 0
+	if !b.atspiActionDoAction(accessible, actionIndex, &gerror) {
 		if gerror != 0 {
 			b.gErrorFree(gerror)
 		}
@@ -194,6 +246,39 @@ func (b *linuxBackend) PerformAction(id string, action string) error {
 	}
 
 	return nil
+}
+
+// uintptrToStringSlice reads a NUL-terminated C string starting at the
+// given uintptr address into a Go string. The pointer must come from a
+// libatspi call that returns freshly allocated GLib memory owned by the
+// caller.
+//
+// We use the same double-indirection idiom as the existing code paths
+// in this file (see the rectPtr / p re-interpretations further down):
+// take the address of the uintptr storage and dereference it through
+// `*unsafe.Pointer` to convert the C-returned address into a Go pointer
+// without tripping go vet's unsafeptr check.
+func uintptrToStringSlice(p uintptr) string {
+	if p == 0 {
+		return ""
+	}
+	ptr := *(*unsafe.Pointer)(unsafe.Pointer(&p))
+	if ptr == nil {
+		return ""
+	}
+	// First pass: find length by scanning for NUL.
+	var n int
+	for cur := ptr; ; n++ {
+		if *(*byte)(cur) == 0 {
+			break
+		}
+		cur = unsafe.Add(cur, 1)
+	}
+	if n == 0 {
+		return ""
+	}
+	buf := unsafe.Slice((*byte)(ptr), n)
+	return string(buf)
 }
 
 func (b *linuxBackend) accessibleToNode(accessible uintptr, depth int) (*Node, error) {
