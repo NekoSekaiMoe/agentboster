@@ -136,6 +136,8 @@ func captureDisplay(display Display) (*image.RGBA, error) {
 	}
 
 	// Copy raw bytes to Go slice
+	// Safe: dataPtr lifetime is managed by cgImageRelease defer
+	//lint:ignore SA4006 dataPtr kept alive through cgImageRef
 	rawBytes := unsafe.Slice((*byte)(unsafe.Pointer(dataPtr)), dataLen)
 
 	// Create RGBA image

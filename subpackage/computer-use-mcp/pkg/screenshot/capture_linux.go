@@ -146,7 +146,7 @@ func captureDisplay(display Display) (*image.RGBA, error) {
 
 	// Cast to xImage struct
 	// Safe: ximagePtr is kept alive through defer xDestroyImage(ximagePtr)
-	//nolint:govet
+	//lint:ignore SA4006 ximagePtr kept alive through defer
 	ximg := (*xImage)(unsafe.Pointer(ximagePtr))
 	w := int(ximg.width)
 	h := int(ximg.height)
@@ -158,7 +158,7 @@ func captureDisplay(display Display) (*image.RGBA, error) {
 		bytesPerPixel = 4 // fallback
 	}
 	// Safe: ximg.data is kept alive through ximg which is kept alive through ximagePtr
-	//nolint:govet
+	//lint:ignore SA4006 ximg.data kept alive through ximagePtr defer
 	data := unsafe.Slice((*byte)(unsafe.Pointer(ximg.data)), h*int(ximg.bytesPerLine))
 
 	for py := 0; py < h; py++ {
