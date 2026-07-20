@@ -71,7 +71,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.16",
+    "@biomejs/biome": "2.5.4",
     "@tailwindcss/typography": "^0.5.19",
     "@types/node": "^25.6.0",
     "@types/pg": "8.11.10",
@@ -93,7 +93,7 @@
     "push": "python3 push.py",
     "build": "next build",
     "build:agentd": "cd agentd && go build -o agentd ./cmd/agentd/main.go",
-    "check:lint": "tsc --noEmit && biome check app components lib hooks middleware.ts next.config.ts drizzle.config.ts push.py",
+    "check:lint": "tsc --noEmit && biome check app components lib hooks middleware.ts next.config.ts drizzle.config.ts",
     "check:sh": "shellcheck agentd/internal/agent/browser/node_install.sh agentd/internal/agent/desktop/desktop_install.sh",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -36,45 +36,46 @@ describe('i18n all-locale completeness', () => {
   // compiler (acorn can't parse the `.ts` syntax in these files) and
   // walk every ObjectLiteralExpression, flagging any literal key that
   // appears more than once in the same object.
-  it.each(
-    locales,
-  )('%s source has no duplicate keys within a single object literal', (locale) => {
-    const file = readFileSync(
-      join(process.cwd(), 'lib', 'i18n', 'locales', `${locale}.ts`),
-      'utf8',
-    );
-    const source = ts.createSourceFile(
-      `${locale}.ts`,
-      file,
-      ts.ScriptTarget.Latest,
-      /* setParentNodes */ false,
-    );
+  it.each(locales)(
+    '%s source has no duplicate keys within a single object literal',
+    (locale) => {
+      const file = readFileSync(
+        join(process.cwd(), 'lib', 'i18n', 'locales', `${locale}.ts`),
+        'utf8',
+      );
+      const source = ts.createSourceFile(
+        `${locale}.ts`,
+        file,
+        ts.ScriptTarget.Latest,
+        /* setParentNodes */ false,
+      );
 
-    const offenders: Array<{ key: string; count: number }> = [];
+      const offenders: Array<{ key: string; count: number }> = [];
 
-    const visit = (node: ts.Node): void => {
-      if (ts.isObjectLiteralExpression(node)) {
-        const seen = new Map<string, number>();
-        for (const prop of node.properties) {
-          if (!ts.isPropertyAssignment(prop)) continue;
-          let keyName: string | null = null;
-          if (ts.isStringLiteral(prop.name)) keyName = prop.name.text;
-          else if (ts.isIdentifier(prop.name)) keyName = prop.name.text;
-          else if (ts.isNumericLiteral(prop.name)) keyName = prop.name.text;
-          if (keyName === null) continue;
-          seen.set(keyName, (seen.get(keyName) ?? 0) + 1);
+      const visit = (node: ts.Node): void => {
+        if (ts.isObjectLiteralExpression(node)) {
+          const seen = new Map<string, number>();
+          for (const prop of node.properties) {
+            if (!ts.isPropertyAssignment(prop)) continue;
+            let keyName: string | null = null;
+            if (ts.isStringLiteral(prop.name)) keyName = prop.name.text;
+            else if (ts.isIdentifier(prop.name)) keyName = prop.name.text;
+            else if (ts.isNumericLiteral(prop.name)) keyName = prop.name.text;
+            if (keyName === null) continue;
+            seen.set(keyName, (seen.get(keyName) ?? 0) + 1);
+          }
+          for (const [key, count] of seen) {
+            if (count > 1) offenders.push({ key, count });
+          }
         }
-        for (const [key, count] of seen) {
-          if (count > 1) offenders.push({ key, count });
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
+        ts.forEachChild(node, visit);
+      };
 
-    visit(source);
+      visit(source);
 
-    expect(offenders).toEqual([]);
-  });
+      expect(offenders).toEqual([]);
+    },
+  );
 
   // Sanity: locale list matches the files on disk (guards against a
   // new locale file appearing without being wired into the registry).

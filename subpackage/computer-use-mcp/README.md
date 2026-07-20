@@ -1,16 +1,22 @@
-# computer-use-mcp-go
+# computer-use-mcp
 
 Go implementation of the MCP server for computer use (screenshots, input, accessibility). Cross-platform alternative to the Rust version.
 
+- **Module:** `github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp`
+- **Go version:** 1.25.5+
+- **Standalone Go module** — independent from the root yarn workspace and from `subpackage/agentd/` / `subpackage/dbushelper/`.
+
 ## Features
 
-✅ **Screenshot capture** with Lanczos3 scaling and coordinate mapping  
-✅ **Cross-platform input simulation** (mouse, keyboard) via purego (zero CGo for input)  
-✅ **Terminal window masking** for safety  
-✅ **Session lock** with zombie process cleanup  
-✅ **Escape hook** for emergency stop  
-✅ **Platform capability detection**  
-🟡 **Accessibility tree API** (optional, requires platform libraries)  
+✅ **Screenshot capture** with Lanczos3 scaling and coordinate mapping
+✅ **Cross-platform input simulation** (mouse, keyboard) via purego (zero CGo for input)
+✅ **Terminal window masking** for safety, with configurable safety level
+✅ **Session lock** with zombie process cleanup
+✅ **Escape hook** for emergency stop
+✅ **Platform capability detection**
+✅ **Accessibility tree API** (optional, full recursive traversal on all platforms — purego, no CGo)
+✅ **Clipboard read/write** (text + PNG image, via `golang.design/x/clipboard` — native Wayland + X11 wire protocol, macOS Pasteboard, Win32 user32, all CGo-free)
+✅ **Screen recording → animated GIF** (pure stdlib `image/gif`, no ffmpeg)
 
 ## Architecture
 
@@ -23,7 +29,10 @@ pkg/
   coord/             Coordinate mapping (screenshot ↔ native)
   lock/              Session lock with PID tracking
   escape/            Global escape key listener
-  accessibility/     Accessibility tree (optional CGo)
+  safety/            Terminal safety policy (level, allow_terminal_edit, whitelists, /proc scanning)
+  accessibility/     Accessibility tree (optional, purego on all platforms)
+  clipboard/         Clipboard read/write adapter (wraps golang.design/x/clipboard)
+  recorder/          GIF screen recording (stdlib image/gif, reuses pkg/screenshot)
 ```
 
 ## Build
@@ -38,23 +47,27 @@ Binary: ~9MB, zero CGo dependencies for core features.
 
 ### With accessibility support
 
-**Linux:**
+Accessibility is implemented with **purego** (no CGo) on every platform — it loads the platform a11y library at runtime via `purego.Dlopen`:
+
+| Platform | Library | Requirement |
+|----------|---------|-------------|
+| Linux    | `libatspi.so.0` (via glib/gobject) | `libatspi2.0-dev` runtime libs, AT-SPI2 bus running |
+| macOS    | `ApplicationServices` + `CoreFoundation` | Accessibility permission in System Settings |
+| Windows  | `uiautomationcore.dll` + `oleaut32.dll` | None (ships with Windows) |
+
 ```bash
+# Linux — install runtime libs, then build normally
 sudo apt-get install libatspi2.0-dev
 go build -o computer-use-mcp ./cmd/server
-```
 
-**macOS:**
-```bash
-# Requires Accessibility permission in System Preferences
+# macOS — grant Accessibility permission, then build
+go build -o computer-use-mcp ./cmd/server
+
+# Windows — no extra setup
 go build -o computer-use-mcp ./cmd/server
 ```
 
-**Windows:**
-```bash
-# Uses UIAutomation via purego
-go build -o computer-use-mcp ./cmd/server
-```
+On any platform that lacks the a11y libraries, the build still succeeds. At runtime, if `accessibility.New()` fails to find the platform library or permission, the accessibility tools are simply not registered with the MCP server — clients never see them. All core features (screenshot, input, clipboard, recording, lock, escape) remain available regardless.
 
 ## Test
 
@@ -86,6 +99,8 @@ echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mouse_move
 
 ## MCP Tools
 
+### Core tools
+
 | Tool | Description |
 |------|-------------|
 | `screenshot` | Capture screen with optional scaling |
@@ -95,6 +110,35 @@ echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mouse_move
 | `type_text` | Type text string |
 | `key_event` | Press/release/click key |
 | `capabilities` | Get platform capabilities |
+
+### Accessibility tools (optional)
+
+Returned only when the platform a11y backend initializes successfully.
+
+| Tool | Description |
+|------|-------------|
+| `get_accessibility_tree` | Full recursive accessibility tree from the root (depth-limited) |
+| `get_focused_element` | The currently focused element |
+| `get_element_at_position` | Element at a screen coordinate |
+| `perform_accessibility_action` | Invoke an action (click, focus, ...) on a node by ID |
+
+### Clipboard tools
+
+| Tool | Description |
+|------|-------------|
+| `clipboard_read` | Read the system clipboard as UTF-8 text or a base64 PNG image (`format`: `text` \| `image`, default `text`) |
+| `clipboard_write` | Write to the clipboard — `text` (UTF-8) **or** `image_base64` (base64-encoded image bytes; PNG stored verbatim, JPEG/GIF auto-normalized to PNG via the stdlib decoders this server blank-imports) |
+
+**Linux backend:** the upstream `golang.design/x/clipboard` v0.8 speaks the Wayland wire protocol natively — it dials `$WAYLAND_DISPLAY`, implements `wl_registry`/`wl_seat`/data-control (preferring the standardized `ext_data_control_manager_v1`, falling back to `zwlr_data_control_manager_v1`), and passes file descriptors via `SCM_RIGHTS`. X11 is spoken directly too (no libX11.so at runtime). macOS uses Pasteboard, Windows uses `user32` (OpenClipboard/GetClipboardData). All CGo-free on desktop; no `wl-paste`/`wl-copy`/`xclip` subprocesses required.
+
+### Screen recording tools
+
+| Tool | Description |
+|------|-------------|
+| `screen_record_start` | Begin capturing the screen as an animated GIF. Returns immediately; pair with `screen_record_stop`. Args: `duration_seconds` (default 15, cap 60), `fps` (default 4, cap 10), `max_width` (default 800), `monitor_index`, `exclude_terminals` (default true) |
+| `screen_record_stop` | Stop the recording and return the encoded GIF as base64 (`image/gif`). Errors if no recording is active or zero frames were captured |
+
+**Format choice:** GIF is encoded entirely with the Go standard library (`image/gif`) — no ffmpeg, no external codec, no CGo. Trade-off: 256-color per-frame palette (photographic banding), no audio. For UI-automation replay fed into a vision model this is the right shape: the bytes go straight into the context window, where a binary video codec would be useless anyway. Each frame is captured via `pkg/screenshot.CaptureDisplay` and quantized to the plan9 palette for speed.
 
 ## Cross-compilation
 
@@ -109,7 +153,7 @@ GOOS=windows GOARCH=amd64 go build ./cmd/server
 GOOS=linux GOARCH=amd64 go build ./cmd/server
 ```
 
-**Caveat:** Accessibility package requires CGo and cannot be cross-compiled. Build on the target platform or disable with build tags.
+Because accessibility is purego (no CGo), it cross-compiles with the rest of the binary. The a11y libraries are resolved at runtime on the target host; if absent, a11y tool calls fail gracefully while core features still work.
 
 ## Platform support
 
@@ -117,38 +161,49 @@ GOOS=linux GOARCH=amd64 go build ./cmd/server
 |---------|-------|-------|---------|
 | Screenshot | ✅ X11/Wayland | ✅ Quartz | ✅ GDI |
 | Input | ✅ X11/Xtst | ✅ CoreGraphics | ✅ SendInput |
-| Terminal mask | 🟡 Fallback | ✅ CGWindowList | ✅ EnumWindows |
-| Accessibility | 🟡 AT-SPI2 (CGo) | 🟡 AX API (CGo) | 🟡 UIAutomation (purego) |
+| Terminal mask | 🟡 /proc scan + bottom-1/3 fallback | ✅ CGWindowList | ✅ EnumWindows |
+| Accessibility | 🟡 AT-SPI2 (purego) | 🟡 AX API (purego) | 🟡 UIAutomation (purego) |
+| Clipboard | ✅ Wayland wire protocol / X11 wire protocol | ✅ Pasteboard (purego) | ✅ user32 (purego) |
+| Screen recording (GIF) | ✅ stdlib image/gif | ✅ stdlib image/gif | ✅ stdlib image/gif |
 | Escape hook | ✅ X11 | ✅ CoreGraphics | ✅ GetAsyncKeyState |
 
-**Legend:**  
-✅ Full support  
-🟡 Requires extra dependencies or has limitations  
+**Legend:**
+✅ Full support
+🟡 Requires extra runtime libraries / permissions, or has limitations
 
 ## Test coverage
 
 ```
-pkg/capability    56.1%
-pkg/coord         87.5%
-pkg/input         27.1% (headless limitations)
-pkg/lock          69.4%
-pkg/screenshot    13.0% (headless limitations)
+pkg/accessibility  16.5% (requires platform a11y permission; most paths are platform syscalls)
+pkg/capability     56.1%
+pkg/coord          87.5%
+pkg/input          27.1% (headless limitations)
+pkg/lock           65.2%
+pkg/safety         78.3%
+pkg/screenshot     20.2% (headless limitations)
 ```
 
-Core logic (coord, lock, capability detection) has high coverage. Input/screenshot tests require real display servers.
+Core logic (coord, lock, safety, capability detection) has high coverage. Input/screenshot/accessibility tests require a real display server and platform permissions.
 
 ## Comparison with Rust version
 
 | Aspect | Rust | **Go** |
 |--------|------|--------|
 | Core features | ✅ | ✅ |
-| Accessibility | ✅ Full | 🟡 Basic |
+| Accessibility | ✅ Full | ✅ **Full (recursive tree)** |
+| CGo deps | ✅ enigo (C FFI on Linux/macOS) | ✅ **Zero (purego everywhere)** |
 | Cross-compile | 🟡 Complex | ✅ **One command** |
-| CGo deps | ✅ enigo | ✅ **Zero (core)** |
 | Binary size | ~8MB | ~9MB |
 | Test coverage | Good | **Good** |
 
-**Recommendation:** Use Go version for easier builds and deployment. Use Rust version if you need full accessibility tree traversal on all platforms.
+**Recommendation:** Use the Go version for easier builds and deployment. Both versions now offer full accessibility tree traversal; the Go version additionally avoids CGo entirely.
+
+## Roadmap
+
+- [ ] Better Linux terminal window-geometry detection (map `/proc`-detected terminals to actual X11 window bounds; D-Bus path)
+- [ ] Optional custom build tag (e.g. `noaccessibility`) to strip the a11y package at compile time for minimal binaries
+- [ ] Clipboard image write: accept WebP input (blank-import `golang.org/x/image/webp` in `cmd/server/main.go`)
+- [ ] Screen recording: optional MP4/WebM output via optional ffmpeg subprocess for callers that need audio or smaller files
 
 ## License
 

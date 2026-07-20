@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/yourusername/computer-use-mcp-go/pkg/capability"
-	"github.com/yourusername/computer-use-mcp-go/pkg/input"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/capability"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/input"
 )
 
 func handleMouseMove(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

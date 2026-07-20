@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	_ "image/gif"  // register GIF decoder so clipboard.WriteImage normalizes GIF input to PNG
+	_ "image/jpeg" // register JPEG decoder so clipboard.WriteImage normalizes JPEG input to PNG
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -12,11 +14,11 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/yourusername/computer-use-mcp-go/pkg/capability"
-	"github.com/yourusername/computer-use-mcp-go/pkg/escape"
-	"github.com/yourusername/computer-use-mcp-go/pkg/input"
-	"github.com/yourusername/computer-use-mcp-go/pkg/lock"
-	"github.com/yourusername/computer-use-mcp-go/pkg/screenshot"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/capability"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/escape"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/input"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/lock"
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/screenshot"
 )
 
 var (
@@ -24,6 +26,9 @@ var (
 	inputController        *input.Controller
 	keyboardOnlyController *input.Controller
 )
+
+// accessibilityClient is declared in accessibility_client.go and lazily
+// initialized through ensureAccessibilityClient (sync.Once-guarded).
 
 func main() {
 	// Acquire session lock
@@ -81,6 +86,9 @@ func main() {
 
 	// Register screenshot tool (always available if display exists)
 	if caps.HasDisplay {
+		registerClipboardTools(s)
+		registerRecorderTools(s)
+
 		s.AddTool(mcp.Tool{
 			Name:        "screenshot",
 			Description: "Capture the screen. Returns a scaled image (default JPEG quality 80 — 5-10x smaller than PNG with negligible vision loss; pass format=\"png\" for pixel-perfect output).",
@@ -111,6 +119,7 @@ func main() {
 		// Register input tools if accessibility is granted
 		if caps.AccessibilityGranted {
 			registerInputTools(s)
+			registerAccessibilityTools(s)
 		}
 	}
 
