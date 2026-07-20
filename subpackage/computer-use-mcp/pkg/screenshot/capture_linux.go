@@ -1,6 +1,5 @@
 //go:build linux
 
-//nolint:govet
 package screenshot
 
 import (
@@ -14,21 +13,21 @@ import (
 var (
 	libX11 uintptr
 
-	xOpenDisplay      func(displayName *byte) uintptr
-	xCloseDisplay     func(display uintptr) int
-	xDefaultScreen    func(display uintptr) int
-	xDisplayWidth     func(display uintptr, screen int) int
-	xDisplayHeight    func(display uintptr, screen int) int
-	xRootWindow       func(display uintptr, screen int) uintptr
-	xGetImage         func(display uintptr, drawable uintptr, x, y int, width, height uint, planeMask uintptr, format int) uintptr
-	xDestroyImage     func(ximage uintptr) int
-	xGetPixel         func(ximage uintptr, x, y int) uint32
-	xImageByteOrder   func(display uintptr) int
-	xDefaultDepth     func(display uintptr, screen int) int
-	xDefaultVisual    func(display uintptr, screen int) uintptr
-	xDefaultColormap  func(display uintptr, screen int) uintptr
-	xQueryColor       func(display uintptr, colormap uintptr, color *xColor) int
-	xFree             func(data uintptr) int
+	xOpenDisplay      func(displayName *byte) unsafe.Pointer
+	xCloseDisplay     func(display unsafe.Pointer) int
+	xDefaultScreen    func(display unsafe.Pointer) int
+	xDisplayWidth     func(display unsafe.Pointer, screen int) int
+	xDisplayHeight    func(display unsafe.Pointer, screen int) int
+	xRootWindow       func(display unsafe.Pointer, screen int) uintptr
+	xGetImage         func(display unsafe.Pointer, drawable uintptr, x, y int, width, height uint, planeMask uintptr, format int) unsafe.Pointer
+	xDestroyImage     func(ximage unsafe.Pointer) int
+	xGetPixel         func(ximage unsafe.Pointer, x, y int) uint32
+	xImageByteOrder   func(display unsafe.Pointer) int
+	xDefaultDepth     func(display unsafe.Pointer, screen int) int
+	xDefaultVisual    func(display unsafe.Pointer, screen int) uintptr
+	xDefaultColormap  func(display unsafe.Pointer, screen int) uintptr
+	xQueryColor       func(display unsafe.Pointer, colormap uintptr, color *xColor) int
+	xFree             func(data unsafe.Pointer) int
 )
 
 const (
@@ -41,7 +40,7 @@ type xImage struct {
 	height        int32
 	xoffset       int32
 	format        int32
-	data          uintptr
+	data          unsafe.Pointer
 	byteOrder     int32
 	bitmapUnit    int32
 	bitmapBitOrder int32
@@ -97,7 +96,7 @@ func getDisplays() ([]Display, error) {
 	}
 
 	display := xOpenDisplay(nil)
-	if display == 0 {
+	if display == nil {
 		return nil, fmt.Errorf("cannot open X display")
 	}
 	defer xCloseDisplay(display)
@@ -124,7 +123,7 @@ func captureDisplay(display Display) (*image.RGBA, error) {
 	}
 
 	dpy := xOpenDisplay(nil)
-	if dpy == 0 {
+	if dpy == nil {
 		return nil, fmt.Errorf("cannot open X display")
 	}
 	defer xCloseDisplay(dpy)
@@ -139,15 +138,13 @@ func captureDisplay(display Display) (*image.RGBA, error) {
 
 	// Capture the screen using XGetImage
 	ximagePtr := xGetImage(dpy, root, x, y, width, height, allPlanes, zPixmap)
-	if ximagePtr == 0 {
+	if ximagePtr == nil {
 		return nil, fmt.Errorf("XGetImage failed")
 	}
 	defer xDestroyImage(ximagePtr)
 
-	// Cast to xImage struct
-	// Safe: ximagePtr is kept alive through defer xDestroyImage(ximagePtr)
-	//lint:ignore SA4006 ximagePtr kept alive through defer
-	ximg := (*xImage)(unsafe.Pointer(ximagePtr))
+	// Cast to xImage struct - now safe with unsafe.Pointer
+	ximg := (*xImage)(ximagePtr)
 	w := int(ximg.width)
 	h := int(ximg.height)
 	rgba := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -157,9 +154,8 @@ func captureDisplay(display Display) (*image.RGBA, error) {
 	if bytesPerPixel == 0 {
 		bytesPerPixel = 4 // fallback
 	}
-	// Safe: ximg.data is kept alive through ximg which is kept alive through ximagePtr
-	//lint:ignore SA4006 ximg.data kept alive through ximagePtr defer
-	data := unsafe.Slice((*byte)(unsafe.Pointer(ximg.data)), h*int(ximg.bytesPerLine))
+	// Direct access to data - now safe with unsafe.Pointer
+	data := unsafe.Slice((*byte)(ximg.data), h*int(ximg.bytesPerLine))
 
 	for py := 0; py < h; py++ {
 		for px := 0; px < w; px++ {

@@ -59,10 +59,8 @@ type BITMAPINFO struct {
 	bmiColors [1]uint32
 }
 
-var collectedDisplays []Display
-
 func getDisplays() ([]Display, error) {
-	collectedDisplays = nil
+	var displays []Display
 
 	callback := syscall.NewCallback(func(hMonitor, hdcMonitor, lprcMonitor, dwData uintptr) uintptr {
 		var mi MONITORINFO
@@ -80,8 +78,8 @@ func getDisplays() ([]Display, error) {
 			int(mi.rcMonitor.Bottom),
 		)
 
-		collectedDisplays = append(collectedDisplays, Display{
-			Index:  len(collectedDisplays),
+		displays = append(displays, Display{
+			Index:  len(displays),
 			Bounds: bounds,
 		})
 
@@ -93,7 +91,7 @@ func getDisplays() ([]Display, error) {
 		return nil, fmt.Errorf("EnumDisplayMonitors failed")
 	}
 
-	return collectedDisplays, nil
+	return displays, nil
 }
 
 func captureDisplay(display Display) (*image.RGBA, error) {

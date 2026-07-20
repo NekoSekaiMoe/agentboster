@@ -23,7 +23,7 @@ var (
 	cgImageGetDataProvider   func(image uintptr) uintptr
 	cgDataProviderCopyData   func(provider uintptr) uintptr
 	cfDataGetLength          func(theData uintptr) int64
-	cfDataGetBytePtr         func(theData uintptr) uintptr
+	cfDataGetBytePtr         func(theData uintptr) unsafe.Pointer
 )
 
 const (
@@ -131,14 +131,12 @@ func captureDisplay(display Display) (*image.RGBA, error) {
 
 	dataLen := cfDataGetLength(data)
 	dataPtr := cfDataGetBytePtr(data)
-	if dataPtr == 0 {
+	if dataPtr == nil {
 		return nil, fmt.Errorf("CFDataGetBytePtr returned null")
 	}
 
-	// Copy raw bytes to Go slice
-	// Safe: dataPtr lifetime is managed by cgImageRelease defer
-	//lint:ignore SA4006 dataPtr kept alive through cgImageRef
-	rawBytes := unsafe.Slice((*byte)(unsafe.Pointer(dataPtr)), dataLen)
+	// Copy raw bytes to Go slice - now safe with unsafe.Pointer directly
+	rawBytes := unsafe.Slice((*byte)(dataPtr), dataLen)
 
 	// Create RGBA image
 	rgba := image.NewRGBA(image.Rect(0, 0, width, height))

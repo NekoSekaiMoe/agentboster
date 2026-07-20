@@ -64,7 +64,7 @@ jobs:
             libclang-dev
 
       - name: go vet
-        run: go vet -unsafeptr=false ./...
+        run: go vet ./...
 
       - name: go build
         run: go build ./...
@@ -94,7 +94,7 @@ jobs:
           cache-dependency-path: subpackage/computer-use-mcp/go.sum
 
       - name: go vet
-        run: go vet -unsafeptr=false ./...
+        run: go vet ./...
 
       - name: go build
         env:
@@ -122,7 +122,7 @@ jobs:
           cache-dependency-path: subpackage/computer-use-mcp/go.sum
 
       - name: go vet
-        run: go vet -unsafeptr=false ./...
+        run: go vet ./...
 
       - name: go build
         run: go build ./...
