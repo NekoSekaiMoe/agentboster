@@ -222,6 +222,9 @@ func (b *linuxBackend) PerformAction(id string, action string) error {
 				continue
 			}
 			nameBytes := uintptrToStringSlice(namePtr)
+			// Always free the returned gchar* regardless of match
+			b.gFree(namePtr)
+
 			if strings.EqualFold(nameBytes, action) {
 				actionIndex = i
 				matched = true

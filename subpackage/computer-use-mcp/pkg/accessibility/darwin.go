@@ -80,28 +80,42 @@ func newDarwinBackend() (*darwinBackend, error) {
 		return nil, fmt.Errorf("failed to load CoreFoundation: %w", err)
 	}
 
-	// Register AX functions
-	purego.RegisterLibFunc(&b.axIsProcessTrusted, b.appServices, "AXIsProcessTrusted")
-	purego.RegisterLibFunc(&b.axUIElementCreateSystemWide, b.appServices, "AXUIElementCreateSystemWide")
-	purego.RegisterLibFunc(&b.axUIElementCopyElementAtPosition, b.appServices, "AXUIElementCopyElementAtPosition")
-	purego.RegisterLibFunc(&b.axUIElementCopyAttributeValue, b.appServices, "AXUIElementCopyAttributeValue")
-	purego.RegisterLibFunc(&b.axUIElementPerformAction, b.appServices, "AXUIElementPerformAction")
+	// Register AX and CF functions with panic recovery
+	err = func() (regErr error) {
+		defer func() {
+			if r := recover(); r != nil {
+				regErr = fmt.Errorf("symbol registration failed: %v", r)
+			}
+		}()
 
-	// Register CF functions
-	purego.RegisterLibFunc(&b.cfRelease, b.coreFoundation, "CFRelease")
-	purego.RegisterLibFunc(&b.cfRetain, b.coreFoundation, "CFRetain")
-	purego.RegisterLibFunc(&b.cfStringCreateWithCString, b.coreFoundation, "CFStringCreateWithCString")
-	purego.RegisterLibFunc(&b.cfStringGetCString, b.coreFoundation, "CFStringGetCString")
-	purego.RegisterLibFunc(&b.cfStringGetLength, b.coreFoundation, "CFStringGetLength")
-	purego.RegisterLibFunc(&b.cfStringGetMaximumSizeForEncoding, b.coreFoundation, "CFStringGetMaximumSizeForEncoding")
-	purego.RegisterLibFunc(&b.cfArrayGetCount, b.coreFoundation, "CFArrayGetCount")
-	purego.RegisterLibFunc(&b.cfArrayGetValueAtIndex, b.coreFoundation, "CFArrayGetValueAtIndex")
-	purego.RegisterLibFunc(&b.cfBooleanGetValue, b.coreFoundation, "CFBooleanGetValue")
-	purego.RegisterLibFunc(&b.cfGetTypeID, b.coreFoundation, "CFGetTypeID")
-	purego.RegisterLibFunc(&b.cfStringGetTypeID, b.coreFoundation, "CFStringGetTypeID")
-	purego.RegisterLibFunc(&b.cfArrayGetTypeID, b.coreFoundation, "CFArrayGetTypeID")
-	purego.RegisterLibFunc(&b.cfBooleanGetTypeID, b.coreFoundation, "CFBooleanGetTypeID")
-	purego.RegisterLibFunc(&b.axValueGetValue, b.appServices, "AXValueGetValue")
+		// Register AX functions
+		purego.RegisterLibFunc(&b.axIsProcessTrusted, b.appServices, "AXIsProcessTrusted")
+		purego.RegisterLibFunc(&b.axUIElementCreateSystemWide, b.appServices, "AXUIElementCreateSystemWide")
+		purego.RegisterLibFunc(&b.axUIElementCopyElementAtPosition, b.appServices, "AXUIElementCopyElementAtPosition")
+		purego.RegisterLibFunc(&b.axUIElementCopyAttributeValue, b.appServices, "AXUIElementCopyAttributeValue")
+		purego.RegisterLibFunc(&b.axUIElementPerformAction, b.appServices, "AXUIElementPerformAction")
+
+		// Register CF functions
+		purego.RegisterLibFunc(&b.cfRelease, b.coreFoundation, "CFRelease")
+		purego.RegisterLibFunc(&b.cfRetain, b.coreFoundation, "CFRetain")
+		purego.RegisterLibFunc(&b.cfStringCreateWithCString, b.coreFoundation, "CFStringCreateWithCString")
+		purego.RegisterLibFunc(&b.cfStringGetCString, b.coreFoundation, "CFStringGetCString")
+		purego.RegisterLibFunc(&b.cfStringGetLength, b.coreFoundation, "CFStringGetLength")
+		purego.RegisterLibFunc(&b.cfStringGetMaximumSizeForEncoding, b.coreFoundation, "CFStringGetMaximumSizeForEncoding")
+		purego.RegisterLibFunc(&b.cfArrayGetCount, b.coreFoundation, "CFArrayGetCount")
+		purego.RegisterLibFunc(&b.cfArrayGetValueAtIndex, b.coreFoundation, "CFArrayGetValueAtIndex")
+		purego.RegisterLibFunc(&b.cfBooleanGetValue, b.coreFoundation, "CFBooleanGetValue")
+		purego.RegisterLibFunc(&b.cfGetTypeID, b.coreFoundation, "CFGetTypeID")
+		purego.RegisterLibFunc(&b.cfStringGetTypeID, b.coreFoundation, "CFStringGetTypeID")
+		purego.RegisterLibFunc(&b.cfArrayGetTypeID, b.coreFoundation, "CFArrayGetTypeID")
+		purego.RegisterLibFunc(&b.cfBooleanGetTypeID, b.coreFoundation, "CFBooleanGetTypeID")
+		purego.RegisterLibFunc(&b.axValueGetValue, b.appServices, "AXValueGetValue")
+
+		return nil
+	}()
+	if err != nil {
+		return nil, err
+	}
 
 	// Check accessibility permission
 	if !b.axIsProcessTrusted() {

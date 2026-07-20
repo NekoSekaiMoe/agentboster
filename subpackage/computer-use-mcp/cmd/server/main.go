@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -19,25 +20,38 @@ import (
 )
 
 var (
-	lastScreenshotResult *screenshot.Result
-	inputController      *input.Controller
+	lastScreenshotResult   *screenshot.Result
+	inputController        *input.Controller
+	keyboardOnlyController *input.Controller
 )
 
 func main() {
 	// Acquire session lock
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to resolve home directory: %v\n", err)
+		os.Exit(1)
+	}
 	lockPath := filepath.Join(homeDir, ".config", "agentboster-cli", "computer-use.lock")
 	sessionLock, err := lock.New(lockPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to acquire session lock: %v\n", err)
 		os.Exit(1)
 	}
-	defer sessionLock.Release()
+
+	// Shared shutdown function to prevent double-release
+	var shutdownOnce sync.Once
+	doShutdown := func() {
+		shutdownOnce.Do(func() {
+			sessionLock.Release()
+		})
+	}
+	defer doShutdown()
 
 	// Setup escape hook
 	escapeHook := escape.New(func() {
 		fmt.Fprintf(os.Stderr, "Emergency stop: Escape key pressed\n")
-		sessionLock.Release()
+		doShutdown()
 		os.Exit(0)
 	})
 	if err := escapeHook.Start(); err != nil {
@@ -52,7 +66,7 @@ func main() {
 		<-sigChan
 		fmt.Fprintf(os.Stderr, "Received shutdown signal\n")
 		escapeHook.Stop()
-		sessionLock.Release()
+		doShutdown()
 		os.Exit(0)
 	}()
 

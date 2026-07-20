@@ -10,18 +10,19 @@ import (
 )
 
 var (
-	oleaut32                      = windows.NewLazySystemDLL("oleaut32.dll")
-	procVariantClear              = oleaut32.NewProc("VariantClear")
+	oleaut32         = windows.NewLazySystemDLL("oleaut32.dll")
+	procVariantClear = oleaut32.NewProc("VariantClear")
 
-	uiautomationcore              = windows.NewLazySystemDLL("uiautomationcore.dll")
-	procUiaGetRootNode            = uiautomationcore.NewProc("UiaGetRootNode")
-	procUiaNodeFromPoint          = uiautomationcore.NewProc("UiaNodeFromPoint")
-	procUiaGetPropertyValue       = uiautomationcore.NewProc("UiaGetPropertyValue")
-	procUiaGetBoundingRectangle   = uiautomationcore.NewProc("UiaGetBoundingRectangle")
-	procUiaGetRuntimeId           = uiautomationcore.NewProc("UiaGetRuntimeId")
-	procUiaInvoke                 = uiautomationcore.NewProc("UiaInvoke")
-	procUiaNavigate               = uiautomationcore.NewProc("UiaNavigate")
-	procUiaGetChildren            = uiautomationcore.NewProc("UiaGetChildren")
+	uiautomationcore            = windows.NewLazySystemDLL("uiautomationcore.dll")
+	procUiaGetRootNode          = uiautomationcore.NewProc("UiaGetRootNode")
+	procUiaNodeFromPoint        = uiautomationcore.NewProc("UiaNodeFromPoint")
+	procUiaGetPropertyValue     = uiautomationcore.NewProc("UiaGetPropertyValue")
+	procUiaGetBoundingRectangle = uiautomationcore.NewProc("UiaGetBoundingRectangle")
+	procUiaGetRuntimeId         = uiautomationcore.NewProc("UiaGetRuntimeId")
+	procUiaInvoke               = uiautomationcore.NewProc("UiaInvoke")
+	procUiaNavigate             = uiautomationcore.NewProc("UiaNavigate")
+	procUiaGetChildren          = uiautomationcore.NewProc("UiaGetChildren")
+	procUiaNodeRelease          = uiautomationcore.NewProc("UiaNodeRelease")
 )
 
 const (
@@ -63,6 +64,7 @@ func (b *windowsBackend) GetTree() (*Node, error) {
 	if rootNode == 0 {
 		return nil, fmt.Errorf("got null root node")
 	}
+	defer procUiaNodeRelease.Call(rootNode)
 
 	return b.nodeToAccessible(rootNode, 3) // Default depth 3
 }
@@ -86,6 +88,7 @@ func (b *windowsBackend) GetNodeByID(id string) (*Node, error) {
 	if elementNode == 0 {
 		return nil, fmt.Errorf("no element at position %s", id)
 	}
+	defer procUiaNodeRelease.Call(elementNode)
 
 	return b.nodeToAccessible(elementNode, 3) // Default depth 3
 }
@@ -105,6 +108,7 @@ func (b *windowsBackend) PerformAction(id string, action string) error {
 	if ret != 0 || elementNode == 0 {
 		return fmt.Errorf("element not found at %s", id)
 	}
+	defer procUiaNodeRelease.Call(elementNode)
 
 	// Try to invoke the element (click action)
 	// This is simplified - full implementation would check for InvokePattern support
@@ -219,6 +223,7 @@ func (b *windowsBackend) getChildren(node uintptr, depth uint32) []*Node {
 	if ret != 0 || firstChild == 0 {
 		return children
 	}
+	defer procUiaNodeRelease.Call(firstChild)
 
 	// Process first child
 	if childNode, err := b.nodeToAccessible(firstChild, depth); err == nil {
@@ -237,6 +242,7 @@ func (b *windowsBackend) getChildren(node uintptr, depth uint32) []*Node {
 		if ret != 0 || nextSibling == 0 {
 			break
 		}
+		defer procUiaNodeRelease.Call(nextSibling)
 
 		if childNode, err := b.nodeToAccessible(nextSibling, depth); err == nil {
 			children = append(children, childNode)

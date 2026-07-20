@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/yourusername/computer-use-mcp-go/pkg/capability"
 	"github.com/yourusername/computer-use-mcp-go/pkg/input"
 )
 
@@ -109,12 +110,17 @@ func handleTypeText(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 
 	text, _ := argsMap["text"].(string)
 
-	if inputController == nil {
-		// Initialize a basic controller without coordinate mapping for keyboard-only ops
-		inputController, _ = input.New(1.0)
+	// Use separate keyboard-only controller initialized with detected display scale
+	if keyboardOnlyController == nil {
+		caps := capability.Detect()
+		scale := caps.ScaleFactor
+		if scale == 0 {
+			scale = 1.0
+		}
+		keyboardOnlyController, _ = input.New(scale)
 	}
 
-	if err := inputController.TypeText(text); err != nil {
+	if err := keyboardOnlyController.TypeText(text); err != nil {
 		return nil, err
 	}
 
@@ -140,8 +146,14 @@ func handleKeyEvent(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 		direction = "click"
 	}
 
-	if inputController == nil {
-		inputController, _ = input.New(1.0)
+	// Use separate keyboard-only controller initialized with detected display scale
+	if keyboardOnlyController == nil {
+		caps := capability.Detect()
+		scale := caps.ScaleFactor
+		if scale == 0 {
+			scale = 1.0
+		}
+		keyboardOnlyController, _ = input.New(scale)
 	}
 
 	// Handle modifiers if present
@@ -151,7 +163,7 @@ func handleKeyEvent(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 			for i, m := range modifiersList {
 				modifiers[i], _ = m.(string)
 			}
-			if err := inputController.KeyCombo(key, modifiers); err != nil {
+			if err := keyboardOnlyController.KeyCombo(key, modifiers); err != nil {
 				return nil, err
 			}
 			return &mcp.CallToolResult{
@@ -166,7 +178,7 @@ func handleKeyEvent(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 	}
 
 	// Simple key event
-	if err := inputController.KeyEvent(key, direction); err != nil {
+	if err := keyboardOnlyController.KeyEvent(key, direction); err != nil {
 		return nil, err
 	}
 
