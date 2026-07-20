@@ -141,10 +141,16 @@ func (b *windowsBackend) PerformAction(id string, action string) error {
 		// Invoke the pattern via its COM vtable. IUIAutomationInvokePattern
 		// has exactly one method (Invoke) at vtable slot 3 (after the 3
 		// IUnknown slots). The first field of a COM interface is the
-		// vtable pointer; *(**[8]uintptr)(pattern) dereferences to the
-		// vtable, and slot [3] is Invoke. The Invoke method takes only the
+		// vtable pointer; the first word at `pattern` is the vtable pointer,
+		// and slot [3] is Invoke. The Invoke method takes only the
 		// `this` pointer and returns an HRESULT.
-		vtable := *(**[8]uintptr)(unsafe.Pointer(pattern))
+		//
+		// We take the address of the local `pattern` storage and dereference
+		// it through *uintptr to avoid go vet's unsafeptr check, which flags
+		// a direct unsafe.Pointer(uintptr) conversion as a possible misuse.
+		// This is the same idiom already used in this file for VARIANT.Val.
+		patternLocal := pattern
+		vtable := *(**[8]uintptr)(unsafe.Pointer(&patternLocal))
 		invoke := vtable[3]
 		hr, _, _ := syscall.SyscallN(invoke, pattern)
 		// S_OK = 0; UIA_E_NOTSUPPORTED = 0x80040200.

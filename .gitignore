@@ -46,6 +46,7 @@ agentd/agentd
 agentd/a11y-helper
 subpackage/dbushelper/a11y-helper
 subpackage/dbushelper/cmd/a11y-helper/a11y-helper
+subpackage/computer-use-mcp/computer-use-mcp
 .atomcode/
 .qoder/
 
