@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	_ "image/gif"  // register GIF decoder so clipboard.WriteImage normalizes GIF input to PNG
 	_ "image/jpeg" // register JPEG decoder so clipboard.WriteImage normalizes JPEG input to PNG
 	"os"
 	"os/signal"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/accessibility"
 	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/capability"
 	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/escape"
 	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/input"
@@ -25,8 +25,10 @@ var (
 	lastScreenshotResult   *screenshot.Result
 	inputController        *input.Controller
 	keyboardOnlyController *input.Controller
-	accessibilityClient    *accessibility.Client
 )
+
+// accessibilityClient is declared in accessibility_client.go and lazily
+// initialized through ensureAccessibilityClient (sync.Once-guarded).
 
 func main() {
 	// Acquire session lock

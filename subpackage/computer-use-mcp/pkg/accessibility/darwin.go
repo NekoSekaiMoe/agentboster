@@ -38,6 +38,7 @@ type darwinBackend struct {
 	cfArrayGetTypeID             func() uint64
 	cfBooleanGetTypeID           func() uint64
 	axValueGetValue              func(value uintptr, theType int32, valuePtr unsafe.Pointer) bool
+	cfBooleanCreate              func(alloc uintptr, value bool) uintptr // CFBooleanCreate — returns a CFBooleanRef the caller must CFRelease
 
 	// Cached attribute strings
 	kAXFocusedApplicationAttribute uintptr
@@ -108,16 +109,24 @@ func newDarwinBackend() (*darwinBackend, error) {
 		purego.RegisterLibFunc(&b.cfArrayGetCount, b.coreFoundation, "CFArrayGetCount")
 		purego.RegisterLibFunc(&b.cfArrayGetValueAtIndex, b.coreFoundation, "CFArrayGetValueAtIndex")
 		purego.RegisterLibFunc(&b.cfBooleanGetValue, b.coreFoundation, "CFBooleanGetValue")
-	// kCFBooleanTrue / kCFBooleanFalse are exported as global symbols by
-	// CoreFoundation; resolve them with Dlsym (purego.Dlsym returns the
-	// address of the symbol and an error; the address is itself a
-	// CFBooleanRef singleton).
-	b.cfBooleanTrue, _ = purego.Dlsym(b.coreFoundation, "kCFBooleanTrue")
 		purego.RegisterLibFunc(&b.cfGetTypeID, b.coreFoundation, "CFGetTypeID")
 		purego.RegisterLibFunc(&b.cfStringGetTypeID, b.coreFoundation, "CFStringGetTypeID")
 		purego.RegisterLibFunc(&b.cfArrayGetTypeID, b.coreFoundation, "CFArrayGetTypeID")
 		purego.RegisterLibFunc(&b.cfBooleanGetTypeID, b.coreFoundation, "CFBooleanGetTypeID")
+		purego.RegisterLibFunc(&b.cfBooleanCreate, b.coreFoundation, "CFBooleanCreate")
 		purego.RegisterLibFunc(&b.axValueGetValue, b.appServices, "AXValueGetValue")
+
+		// Obtain a CFBooleanRef for `true` via CFBooleanCreate(alloc, true).
+		// kCFBooleanTrue is the idiomatic singleton, but resolving a global
+		// C variable through purego.Dlsym returns a uintptr symbol address
+		// that must be dereferenced — and that deref trips go vet's
+		// unsafeptr check (which CI enforces). CFBooleanCreate instead
+		// returns the ref as a normal function return value, needs no
+		// unsafe deref, and is equivalent for our purpose (AX stores it by
+		// value; the ref is retained by the element's attribute until
+		// cleared). We create it once at backend init and release it in
+		// Close().
+		b.cfBooleanTrue = b.cfBooleanCreate(0, true)
 
 		return nil
 	}()
@@ -441,6 +450,9 @@ func (b *darwinBackend) Close() error {
 	}
 	if b.kAXPressAction != 0 {
 		b.cfRelease(b.kAXPressAction)
+	}
+	if b.cfBooleanTrue != 0 {
+		b.cfRelease(b.cfBooleanTrue)
 	}
 	return nil
 }

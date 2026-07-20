@@ -67,7 +67,7 @@ go build -o computer-use-mcp ./cmd/server
 go build -o computer-use-mcp ./cmd/server
 ```
 
-On any platform that lacks the a11y libraries, the build still succeeds — the accessibility tool calls return a clear "backend unavailable" error at runtime, and all core features (screenshot, input, lock, escape) keep working.
+On any platform that lacks the a11y libraries, the build still succeeds. At runtime, if `accessibility.New()` fails to find the platform library or permission, the accessibility tools are simply not registered with the MCP server — clients never see them. All core features (screenshot, input, clipboard, recording, lock, escape) remain available regardless.
 
 ## Test
 
@@ -127,7 +127,7 @@ Returned only when the platform a11y backend initializes successfully.
 | Tool | Description |
 |------|-------------|
 | `clipboard_read` | Read the system clipboard as UTF-8 text or a base64 PNG image (`format`: `text` \| `image`, default `text`) |
-| `clipboard_write` | Write to the clipboard — `text` (UTF-8) **or** `image_base64` (PNG recommended; JPEG/GIF/WebP auto-normalized to PNG) |
+| `clipboard_write` | Write to the clipboard — `text` (UTF-8) **or** `image_base64` (base64-encoded image bytes; PNG stored verbatim, JPEG/GIF auto-normalized to PNG via the stdlib decoders this server blank-imports) |
 
 **Linux backend:** the upstream `golang.design/x/clipboard` v0.8 speaks the Wayland wire protocol natively — it dials `$WAYLAND_DISPLAY`, implements `wl_registry`/`wl_seat`/data-control (preferring the standardized `ext_data_control_manager_v1`, falling back to `zwlr_data_control_manager_v1`), and passes file descriptors via `SCM_RIGHTS`. X11 is spoken directly too (no libX11.so at runtime). macOS uses Pasteboard, Windows uses `user32` (OpenClipboard/GetClipboardData). All CGo-free on desktop; no `wl-paste`/`wl-copy`/`xclip` subprocesses required.
 

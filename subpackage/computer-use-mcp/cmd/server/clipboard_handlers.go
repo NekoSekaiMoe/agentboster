@@ -31,7 +31,7 @@ func registerClipboardTools(s *server.MCPServer) {
 
 	s.AddTool(mcp.Tool{
 		Name:        "clipboard_write",
-		Description: "Write to the system clipboard. Either pass text (UTF-8 string) or image_base64 (base64-encoded image bytes — PNG/JPEG/GIF/WebP accepted; PNG input is stored verbatim, others are normalized to PNG). Exactly one of text or image_base64 must be provided.",
+		Description: "Write to the system clipboard. Either pass text (UTF-8 string) or image_base64 (base64-encoded image bytes — PNG accepted verbatim; JPEG/GIF auto-normalized to PNG). Exactly one of text or image_base64 must be provided.",
 		InputSchema: mcp.ToolInputSchema{
 			Type: "object",
 			Properties: map[string]any{
@@ -41,7 +41,7 @@ func registerClipboardTools(s *server.MCPServer) {
 				},
 				"image_base64": map[string]any{
 					"type":        "string",
-					"description": "Base64-encoded image bytes (PNG recommended; JPEG/GIF/WebP auto-converted to PNG).",
+					"description": "Base64-encoded image bytes (PNG stored verbatim; JPEG/GIF auto-converted to PNG).",
 				},
 			},
 		},
@@ -49,7 +49,11 @@ func registerClipboardTools(s *server.MCPServer) {
 }
 
 func handleClipboardRead(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	format, _ := request.Params.Arguments.(map[string]any)["format"].(string)
+	argsMap, ok := request.Params.Arguments.(map[string]any)
+	if !ok {
+		argsMap = map[string]any{} // defensive: treat nil/missing args as empty so the text default still applies
+	}
+	format, _ := argsMap["format"].(string)
 	if format == "" {
 		format = "text"
 	}
@@ -98,9 +102,13 @@ func handleClipboardWrite(ctx context.Context, request mcp.CallToolRequest) (*mc
 	case text != "" && imgB64 != "":
 		return nil, fmt.Errorf("provide exactly one of text or image_base64, not both")
 	case imgB64 != "":
-		// Accept any image format the upstream library can normalize. The server
-		// blank-imports image/jpeg so JPEG input is handled automatically; GIF/WebP
-		// would need a blank import if a caller ever sends them.
+		// Accept PNG verbatim, and any format the upstream library can decode
+		// and normalize to PNG. This server blank-imports the JPEG and GIF
+		// decoders (stdlib) so both are handled. Other formats (e.g. WebP,
+		// BMP, TIFF) would pass through unchanged because no decoder is
+		// registered for them — the clipboard would then advertise them as
+		// PNG while holding the wrong bytes. Detect that case up front with
+		// a PNG signature check on non-decodable input and refuse loudly.
 		raw, err := base64.StdEncoding.DecodeString(imgB64)
 		if err != nil {
 			return nil, fmt.Errorf("image_base64 is not valid base64: %w", err)

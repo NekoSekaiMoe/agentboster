@@ -75,16 +75,12 @@ func registerAccessibilityTools(s *server.MCPServer) {
 }
 
 func handleGetAccessibilityTree(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Lazy initialize accessibility client
-	if accessibilityClient == nil {
-		var err error
-		accessibilityClient, err = accessibility.New()
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize accessibility client: %w", err)
-		}
+	client, err := ensureAccessibilityClient()
+	if err != nil {
+		return nil, err
 	}
 
-	tree, err := accessibilityClient.GetTree()
+	tree, err := client.GetTree()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get accessibility tree: %w", err)
 	}
@@ -105,17 +101,13 @@ func handleGetAccessibilityTree(ctx context.Context, request mcp.CallToolRequest
 }
 
 func handleGetFocusedElement(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Lazy initialize accessibility client
-	if accessibilityClient == nil {
-		var err error
-		accessibilityClient, err = accessibility.New()
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize accessibility client: %w", err)
-		}
+	client, err := ensureAccessibilityClient()
+	if err != nil {
+		return nil, err
 	}
 
 	// Get the tree and find the focused element
-	tree, err := accessibilityClient.GetTree()
+	tree, err := client.GetTree()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get accessibility tree: %w", err)
 	}
@@ -153,21 +145,20 @@ func handleGetElementAtPosition(ctx context.Context, request mcp.CallToolRequest
 		return nil, fmt.Errorf("invalid arguments type")
 	}
 
-	x, _ := argsMap["x"].(float64)
-	y, _ := argsMap["y"].(float64)
+	x, xok := argsMap["x"].(float64)
+	y, yok := argsMap["y"].(float64)
+	if !xok || !yok {
+		return nil, fmt.Errorf("missing or non-numeric 'x'/'y' parameters")
+	}
 
-	// Lazy initialize accessibility client
-	if accessibilityClient == nil {
-		var err error
-		accessibilityClient, err = accessibility.New()
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize accessibility client: %w", err)
-		}
+	client, err := ensureAccessibilityClient()
+	if err != nil {
+		return nil, err
 	}
 
 	// Use coordinates as ID
 	elementID := fmt.Sprintf("%d,%d", int(x), int(y))
-	node, err := accessibilityClient.GetNodeByID(elementID)
+	node, err := client.GetNodeByID(elementID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get element at position: %w", err)
 	}
@@ -193,22 +184,21 @@ func handlePerformAccessibilityAction(ctx context.Context, request mcp.CallToolR
 		return nil, fmt.Errorf("invalid arguments type")
 	}
 
-	elementID, _ := argsMap["element_id"].(string)
+	elementID, idok := argsMap["element_id"].(string)
+	if !idok || elementID == "" {
+		return nil, fmt.Errorf("missing or empty 'element_id' parameter")
+	}
 	action, _ := argsMap["action"].(string)
 	if action == "" {
 		action = "click"
 	}
 
-	// Lazy initialize accessibility client
-	if accessibilityClient == nil {
-		var err error
-		accessibilityClient, err = accessibility.New()
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize accessibility client: %w", err)
-		}
+	client, err := ensureAccessibilityClient()
+	if err != nil {
+		return nil, err
 	}
 
-	if err := accessibilityClient.PerformAction(elementID, action); err != nil {
+	if err := client.PerformAction(elementID, action); err != nil {
 		return nil, fmt.Errorf("failed to perform action: %w", err)
 	}
 
