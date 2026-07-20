@@ -5,6 +5,13 @@ import (
 	"image/color"
 )
 
+// MaskTerminals blacks out terminal windows in the given image. It is the
+// exported form of maskTerminalWindows so other packages (e.g. pkg/recorder)
+// can reuse the same terminal-safety masking without re-implementing it.
+func MaskTerminals(img image.Image, monitorOrigin [2]int) image.Image {
+	return maskTerminalWindows(img, monitorOrigin)
+}
+
 // maskTerminalWindows blacks out terminal windows in the screenshot.
 func maskTerminalWindows(img image.Image, monitorOrigin [2]int) image.Image {
 	terminalIDs := getTerminalWindowIDs()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	_ "image/jpeg" // register JPEG decoder so clipboard.WriteImage normalizes JPEG input to PNG
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -83,6 +84,9 @@ func main() {
 
 	// Register screenshot tool (always available if display exists)
 	if caps.HasDisplay {
+		registerClipboardTools(s)
+		registerRecorderTools(s)
+
 		s.AddTool(mcp.Tool{
 			Name:        "screenshot",
 			Description: "Capture the screen. Returns a scaled image (default JPEG quality 80 — 5-10x smaller than PNG with negligible vision loss; pass format=\"png\" for pixel-perfect output).",
