@@ -54,7 +54,7 @@ func registerAccessibilityTools(s *server.MCPServer) {
 	// Register perform_accessibility_action tool
 	s.AddTool(mcp.Tool{
 		Name:        "perform_accessibility_action",
-		Description: "Perform an accessibility action on an element (e.g., 'click', 'press'). The element is identified by its ID from a previous accessibility query.",
+		Description: "Perform an accessibility action on an element. The element is identified by its ID from a previous accessibility query (an \"x,y\" screen coordinate). Supported actions: click, press, focus.",
 		InputSchema: mcp.ToolInputSchema{
 			Type: "object",
 			Properties: map[string]any{
@@ -64,7 +64,8 @@ func registerAccessibilityTools(s *server.MCPServer) {
 				},
 				"action": map[string]any{
 					"type":        "string",
-					"description": "Action to perform (e.g., 'click', 'press', 'focus')",
+					"enum":        []string{"click", "press", "focus"},
+					"description": "Action to perform. click and press both activate the element (button press); focus sets keyboard focus to the element.",
 					"default":     "click",
 				},
 			},

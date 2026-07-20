@@ -28,6 +28,7 @@ type linuxBackend struct {
 	atspiAccessibleGetComponentIface func(obj uintptr) uintptr
 	atspiComponentGetExtents         func(component uintptr, coordType int32, error *uintptr) uintptr
 	atspiComponentGetAccessibleAtPoint func(component uintptr, x int32, y int32, coordType int32, error *uintptr) uintptr
+	atspiComponentGrabFocus          func(component uintptr, error *uintptr) bool
 	atspiActionDoAction              func(obj uintptr, index int32, error *uintptr) bool
 	atspiActionGetNActions           func(obj uintptr, error *uintptr) int32
 	atspiActionGetName               func(obj uintptr, index int32, error *uintptr) uintptr
@@ -86,6 +87,7 @@ func newLinuxBackend() (*linuxBackend, error) {
 	purego.RegisterLibFunc(&b.atspiAccessibleGetComponentIface, b.libatspi, "atspi_accessible_get_component_iface")
 	purego.RegisterLibFunc(&b.atspiComponentGetExtents, b.libatspi, "atspi_component_get_extents")
 	purego.RegisterLibFunc(&b.atspiComponentGetAccessibleAtPoint, b.libatspi, "atspi_component_get_accessible_at_point")
+	purego.RegisterLibFunc(&b.atspiComponentGrabFocus, b.libatspi, "atspi_component_grab_focus")
 	purego.RegisterLibFunc(&b.atspiActionDoAction, b.libatspi, "atspi_action_do_action")
 	purego.RegisterLibFunc(&b.atspiActionGetNActions, b.libatspi, "atspi_action_get_n_actions")
 	purego.RegisterLibFunc(&b.atspiActionGetName, b.libatspi, "atspi_action_get_name")
@@ -192,6 +194,31 @@ func (b *linuxBackend) PerformAction(id string, action string) error {
 		return fmt.Errorf("no accessible at position %s", id)
 	}
 	defer b.gObjectUnref(accessible)
+
+	// focus is not an AT-SPI Action interface action — it is a property of
+	// the Component interface (atspi_component_grab_focus requests keyboard
+	// focus on the accessible). Short-circuit it here so the advertised
+	// "focus" action works even on elements that don't expose "focus" as an
+	// Action name. click / press fall through to the Action interface below.
+	if action == "focus" {
+		component2 := b.atspiAccessibleGetComponentIface(accessible)
+		if component2 == 0 {
+			return fmt.Errorf("element %s has no component interface for focus", id)
+		}
+		defer b.gObjectUnref(component2)
+		var focusErr uintptr
+		if !b.atspiComponentGrabFocus(component2, &focusErr) {
+			if focusErr != 0 {
+				b.gErrorFree(focusErr)
+			}
+			return fmt.Errorf("failed to grab focus on %s", id)
+		}
+		if focusErr != 0 {
+			b.gErrorFree(focusErr)
+			return fmt.Errorf("failed to grab focus on %s", id)
+		}
+		return nil
+	}
 
 	// Resolve the action index by matching the requested action name
 	// against the accessible's exposed AT-SPI actions. Each Action

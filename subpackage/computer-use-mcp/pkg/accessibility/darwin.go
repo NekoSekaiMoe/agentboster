@@ -19,6 +19,7 @@ type darwinBackend struct {
 	axUIElementCreateSystemWide     func() uintptr
 	axUIElementCopyElementAtPosition func(element uintptr, x float32, y float32, outElement *uintptr) int32
 	axUIElementCopyAttributeValue   func(element uintptr, attribute uintptr, value *uintptr) int32
+	axUIElementSetAttributeValue   func(element uintptr, attribute uintptr, value uintptr) int32
 	axUIElementPerformAction        func(element uintptr, action uintptr) int32
 
 	// CF functions
@@ -31,6 +32,7 @@ type darwinBackend struct {
 	cfArrayGetCount              func(array uintptr) int64
 	cfArrayGetValueAtIndex       func(array uintptr, idx int64) uintptr
 	cfBooleanGetValue            func(boolean uintptr) bool
+	cfBooleanTrue                uintptr // kCFBooleanTrue singleton, obtained from CoreFoundation
 	cfGetTypeID                  func(cf uintptr) uint64
 	cfStringGetTypeID            func() uint64
 	cfArrayGetTypeID             func() uint64
@@ -93,6 +95,7 @@ func newDarwinBackend() (*darwinBackend, error) {
 		purego.RegisterLibFunc(&b.axUIElementCreateSystemWide, b.appServices, "AXUIElementCreateSystemWide")
 		purego.RegisterLibFunc(&b.axUIElementCopyElementAtPosition, b.appServices, "AXUIElementCopyElementAtPosition")
 		purego.RegisterLibFunc(&b.axUIElementCopyAttributeValue, b.appServices, "AXUIElementCopyAttributeValue")
+		purego.RegisterLibFunc(&b.axUIElementSetAttributeValue, b.appServices, "AXUIElementSetAttributeValue")
 		purego.RegisterLibFunc(&b.axUIElementPerformAction, b.appServices, "AXUIElementPerformAction")
 
 		// Register CF functions
@@ -105,6 +108,11 @@ func newDarwinBackend() (*darwinBackend, error) {
 		purego.RegisterLibFunc(&b.cfArrayGetCount, b.coreFoundation, "CFArrayGetCount")
 		purego.RegisterLibFunc(&b.cfArrayGetValueAtIndex, b.coreFoundation, "CFArrayGetValueAtIndex")
 		purego.RegisterLibFunc(&b.cfBooleanGetValue, b.coreFoundation, "CFBooleanGetValue")
+	// kCFBooleanTrue / kCFBooleanFalse are exported as global symbols by
+	// CoreFoundation; resolve them with Dlsym (purego.Dlsym returns the
+	// address of the symbol and an error; the address is itself a
+	// CFBooleanRef singleton).
+	b.cfBooleanTrue, _ = purego.Dlsym(b.coreFoundation, "kCFBooleanTrue")
 		purego.RegisterLibFunc(&b.cfGetTypeID, b.coreFoundation, "CFGetTypeID")
 		purego.RegisterLibFunc(&b.cfStringGetTypeID, b.coreFoundation, "CFStringGetTypeID")
 		purego.RegisterLibFunc(&b.cfArrayGetTypeID, b.coreFoundation, "CFArrayGetTypeID")
@@ -242,16 +250,32 @@ func (b *darwinBackend) PerformAction(id string, action string) error {
 	}
 	defer b.cfRelease(element)
 
-	var actionStr uintptr
+	// The advertised action set (see cmd/server/accessibility_handlers.go's
+	// tool description) is click / press / focus. On macOS:
+	//
+	//   - click and press both map to AXPress (the canonical button-press
+	//     action). AXUIElementPerformAction is the supported entry point;
+	//     there is no separate "release" action in the AX API.
+	//   - focus sets the AXFocused attribute to true via
+	//     AXUIElementSetAttributeValue, which is how keyboard focus is
+	//     programmatically granted to an AXUIElement.
+	//
+	// Any other action name is rejected explicitly so callers learn the
+	// supported set rather than getting a silent no-op.
 	switch action {
-	case "click":
-		actionStr = b.kAXPressAction
+	case "click", "press":
+		if b.axUIElementPerformAction(element, b.kAXPressAction) != kAXErrorSuccess {
+			return fmt.Errorf("failed to perform action %s", action)
+		}
+	case "focus":
+		if b.cfBooleanTrue == 0 {
+			return fmt.Errorf("focus action unavailable: kCFBooleanTrue not resolved")
+		}
+		if b.axUIElementSetAttributeValue(element, b.kAXFocusedAttribute, b.cfBooleanTrue) != kAXErrorSuccess {
+			return fmt.Errorf("failed to set focus on element %s", id)
+		}
 	default:
-		return fmt.Errorf("unsupported action: %s", action)
-	}
-
-	if b.axUIElementPerformAction(element, actionStr) != kAXErrorSuccess {
-		return fmt.Errorf("failed to perform action %s", action)
+		return fmt.Errorf("unsupported action: %s (supported: click, press, focus)", action)
 	}
 
 	return nil

@@ -4,6 +4,7 @@ package accessibility
 
 import (
 	"fmt"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -19,10 +20,12 @@ var (
 	procUiaGetPropertyValue     = uiautomationcore.NewProc("UiaGetPropertyValue")
 	procUiaGetBoundingRectangle = uiautomationcore.NewProc("UiaGetBoundingRectangle")
 	procUiaGetRuntimeId         = uiautomationcore.NewProc("UiaGetRuntimeId")
-	procUiaInvoke               = uiautomationcore.NewProc("UiaInvoke")
+	procUiaGetPatternProvider   = uiautomationcore.NewProc("UiaGetPatternProvider")
+	procUiaSetFocus             = uiautomationcore.NewProc("UiaSetFocus")
 	procUiaNavigate             = uiautomationcore.NewProc("UiaNavigate")
 	procUiaGetChildren          = uiautomationcore.NewProc("UiaGetChildren")
 	procUiaNodeRelease          = uiautomationcore.NewProc("UiaNodeRelease")
+	procUiaPatternRelease       = uiautomationcore.NewProc("UiaPatternRelease")
 )
 
 const (
@@ -110,10 +113,54 @@ func (b *windowsBackend) PerformAction(id string, action string) error {
 	}
 	defer procUiaNodeRelease.Call(elementNode)
 
-	// Try to invoke the element (click action)
-	// This is simplified - full implementation would check for InvokePattern support
-	// For now, return success if we found the element
-	return nil
+	// The advertised action set is click / press / focus. On Windows:
+	//
+	//   - click and press both map to the Invoke control pattern
+	//     (IUIAutomationInvokePattern::Invoke). UiaGetPatternProvider returns
+	//     an opaque pattern handle; Invoke is vtable slot 3 (index 0 is
+	//     QueryInterface, 1 is AddRef, 2 is Release, 3 is Invoke). Elements
+	//     that don't implement InvokePattern (e.g. static text) return
+	//     UIA_E_NOTSUPPORTED — we surface that as "element does not support
+	//     click" rather than a silent no-op.
+	//   - focus sets keyboard focus via the flat C API UiaSetFocus.
+	//
+	// Any other action is rejected explicitly so the caller learns the
+	// supported set.
+	switch action {
+	case "click", "press":
+		var pattern uintptr
+		ret, _, _ := procUiaGetPatternProvider.Call(
+			elementNode,
+			uintptr(UIA_InvokePatternId),
+			uintptr(unsafe.Pointer(&pattern)))
+		if ret != 0 || pattern == 0 {
+			return fmt.Errorf("element at %s does not support click (InvokePattern unavailable)", id)
+		}
+		defer procUiaPatternRelease.Call(pattern)
+
+		// Invoke the pattern via its COM vtable. IUIAutomationInvokePattern
+		// has exactly one method (Invoke) at vtable slot 3 (after the 3
+		// IUnknown slots). The first field of a COM interface is the
+		// vtable pointer; *(**[8]uintptr)(pattern) dereferences to the
+		// vtable, and slot [3] is Invoke. The Invoke method takes only the
+		// `this` pointer and returns an HRESULT.
+		vtable := *(**[8]uintptr)(unsafe.Pointer(pattern))
+		invoke := vtable[3]
+		hr, _, _ := syscall.SyscallN(invoke, pattern)
+		// S_OK = 0; UIA_E_NOTSUPPORTED = 0x80040200.
+		if hr != 0 {
+			return fmt.Errorf("Invoke on %s failed: hr=0x%08x", id, uint32(hr))
+		}
+		return nil
+	case "focus":
+		ret, _, _ := procUiaSetFocus.Call(elementNode)
+		if ret != 0 {
+			return fmt.Errorf("UiaSetFocus on %s failed: hr=0x%08x", id, uint32(ret))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported action: %s (supported: click, press, focus)", action)
+	}
 }
 
 func (b *windowsBackend) nodeToAccessible(node uintptr, depth uint32) (*Node, error) {
