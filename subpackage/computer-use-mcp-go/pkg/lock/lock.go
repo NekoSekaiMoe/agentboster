@@ -46,7 +46,9 @@ func New(path string) (*Lock, error) {
 
 	// Try to acquire exclusive lock (non-blocking)
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to acquire lock: %w (additionally failed to close lock file: %v)", err, closeErr)
+		}
 		// Check if another process holds the lock
 		if existingPID, appName := readLockFile(path); existingPID != 0 {
 			return nil, fmt.Errorf("computer-use session already active (PID %d, app: %s)", existingPID, appName)
@@ -61,19 +63,27 @@ func New(path string) (*Lock, error) {
 	}
 	content := fmt.Sprintf("%d\n%s\n%d", os.Getpid(), appName, time.Now().Unix())
 	if err := file.Truncate(0); err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to truncate lock file: %w (additionally failed to close lock file: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to truncate lock file: %w", err)
 	}
 	if _, err := file.Seek(0, 0); err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to seek lock file: %w (additionally failed to close lock file: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to seek lock file: %w", err)
 	}
 	if _, err := file.WriteString(content); err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to write lock file: %w (additionally failed to close lock file: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to write lock file: %w", err)
 	}
 	if err := file.Sync(); err != nil {
-		file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			return nil, fmt.Errorf("failed to sync lock file: %w (additionally failed to close lock file: %v)", err, closeErr)
+		}
 		return nil, fmt.Errorf("failed to sync lock file: %w", err)
 	}
 

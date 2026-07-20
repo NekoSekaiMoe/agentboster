@@ -4,7 +4,6 @@ package accessibility
 
 import (
 	"fmt"
-	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -99,7 +98,7 @@ func (b *windowsBackend) PerformAction(id string, action string) error {
 	}
 
 	var elementNode uintptr
-	ret, _, _ := syscall.SyscallN(procUiaNodeFromPoint,
+	ret, _, _ := procUiaNodeFromPoint.Call(
 		uintptr(x),
 		uintptr(y),
 		uintptr(unsafe.Pointer(&elementNode)))
@@ -114,9 +113,7 @@ func (b *windowsBackend) PerformAction(id string, action string) error {
 }
 
 func (b *windowsBackend) nodeToAccessible(node uintptr, depth uint32) (*Node, error) {
-	accessible := &Node{
-		Attributes: make(map[string]string),
-	}
+	accessible := &Node{}
 
 	// Get name
 	var nameVar VARIANT
@@ -143,7 +140,7 @@ func (b *windowsBackend) nodeToAccessible(node uintptr, depth uint32) (*Node, er
 		procVariantClear.Call(uintptr(unsafe.Pointer(&ctrlTypeVar)))
 	}
 
-	// Get value
+	// Get value as description
 	var valueVar VARIANT
 	ret, _, _ = procUiaGetPropertyValue.Call(
 		node,
@@ -152,7 +149,7 @@ func (b *windowsBackend) nodeToAccessible(node uintptr, depth uint32) (*Node, er
 	if ret == 0 && valueVar.VT == 8 { // VT_BSTR
 		valuePtr := (*uint16)(unsafe.Pointer(uintptr(valueVar.Val)))
 		if valuePtr != nil {
-			accessible.Value = windows.UTF16PtrToString(valuePtr)
+			accessible.Description = windows.UTF16PtrToString(valuePtr)
 		}
 		procVariantClear.Call(uintptr(unsafe.Pointer(&valueVar)))
 	}
@@ -187,11 +184,11 @@ func (b *windowsBackend) nodeToAccessible(node uintptr, depth uint32) (*Node, er
 		node,
 		uintptr(unsafe.Pointer(&rect)))
 	if ret == 0 {
-		accessible.Bounds = Bounds{
-			X:      int(rect.Left),
-			Y:      int(rect.Top),
-			Width:  int(rect.Width),
-			Height: int(rect.Height),
+		accessible.BoundingBox = [4]int{
+			int(rect.Left),
+			int(rect.Top),
+			int(rect.Width),
+			int(rect.Height),
 		}
 		// Use center as ID
 		accessible.ID = fmt.Sprintf("%d,%d",

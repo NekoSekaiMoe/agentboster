@@ -5,6 +5,7 @@ package input
 import (
 	"fmt"
 	"time"
+	"unicode/utf16"
 
 	"github.com/ebitengine/purego"
 )
@@ -237,15 +238,15 @@ func mouseDrag(fromX, fromY, toX, toY int) error {
 
 func typeText(text string) error {
 	for _, ch := range text {
-		// Convert rune to UTF-16
-		utf16Char := uint16(ch)
+		// Convert rune to UTF-16, handling surrogate pairs for supplementary characters
+		utf16Chars := utf16.Encode([]rune{ch})
 
 		event := cgEventCreateKeyboardEvent(0, 0, true)
 		if event == 0 {
 			return fmt.Errorf("failed to create keyboard event")
 		}
 
-		cgEventKeyboardSetUnicodeString(event, 1, &utf16Char)
+		cgEventKeyboardSetUnicodeString(event, uintptr(len(utf16Chars)), &utf16Chars[0])
 		cgEventPost(kCGHIDEventTap, event)
 		cfRelease(event)
 
@@ -253,7 +254,7 @@ func typeText(text string) error {
 
 		upEvent := cgEventCreateKeyboardEvent(0, 0, false)
 		if upEvent != 0 {
-			cgEventKeyboardSetUnicodeString(upEvent, 1, &utf16Char)
+			cgEventKeyboardSetUnicodeString(upEvent, uintptr(len(utf16Chars)), &utf16Chars[0])
 			cgEventPost(kCGHIDEventTap, upEvent)
 			cfRelease(upEvent)
 		}

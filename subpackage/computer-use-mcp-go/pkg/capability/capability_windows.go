@@ -1,6 +1,10 @@
-// +build windows
+//go:build windows
 
 package capability
+
+import (
+	"golang.org/x/sys/windows"
+)
 
 func checkAccessibilityPermission() bool {
 	// Windows doesn't require explicit accessibility permission
@@ -8,6 +12,8 @@ func checkAccessibilityPermission() bool {
 }
 
 func checkAdminStatus() bool {
-	// TODO: Check if running as admin on Windows
-	return false
+	// Check if running as admin using Windows token elevation status
+	token := windows.GetCurrentProcessToken()
+	elevated := token.IsElevated()
+	return elevated
 }

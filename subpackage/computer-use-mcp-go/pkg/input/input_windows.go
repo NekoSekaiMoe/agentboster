@@ -4,8 +4,8 @@ package input
 
 import (
 	"fmt"
-	"syscall"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -202,13 +202,17 @@ func mouseDrag(fromX, fromY, toX, toY int) error {
 }
 
 func typeText(text string) error {
-	for _, ch := range text {
+	// Convert string to UTF-16 to handle surrogate pairs for supplementary characters
+	runes := []rune(text)
+	utf16Chars := utf16.Encode(runes)
+
+	for _, utf16Char := range utf16Chars {
 		// Press
 		var inputDown INPUT
 		inputDown.Type = INPUT_KEYBOARD
 		ki := (*KEYBDINPUT)(unsafe.Pointer(&inputDown.Mi[0]))
 		ki.WVk = 0
-		ki.WScan = uint16(ch)
+		ki.WScan = utf16Char
 		ki.DwFlags = KEYEVENTF_UNICODE
 		sendInput(1, uintptr(unsafe.Pointer(&inputDown)), int32(unsafe.Sizeof(inputDown)))
 
@@ -219,7 +223,7 @@ func typeText(text string) error {
 		inputUp.Type = INPUT_KEYBOARD
 		ki = (*KEYBDINPUT)(unsafe.Pointer(&inputUp.Mi[0]))
 		ki.WVk = 0
-		ki.WScan = uint16(ch)
+		ki.WScan = utf16Char
 		ki.DwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
 		sendInput(1, uintptr(unsafe.Pointer(&inputUp)), int32(unsafe.Sizeof(inputUp)))
 	}

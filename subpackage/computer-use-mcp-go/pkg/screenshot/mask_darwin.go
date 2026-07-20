@@ -2,193 +2,315 @@
 
 package screenshot
 
-/*
-#cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework CoreGraphics -framework Foundation
-
-#include <CoreGraphics/CoreGraphics.h>
-#include <Foundation/Foundation.h>
-
-// Get all terminal window IDs
-void getTerminalWindows(CFArrayRef windowList, uint64_t** ids, int* count) {
-    CFIndex windowCount = CFArrayGetCount(windowList);
-    int terminalCount = 0;
-    uint64_t* terminalIDs = malloc(sizeof(uint64_t) * windowCount);
-
-    // Known terminal bundle IDs
-    const char* terminalBundles[] = {
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.github.wez.wezterm",
-        "net.kovidgoyal.kitty",
-        "com.ragnar-brynjulfsson.hyperterm",
-        "co.zeit.hyper",
-        "com.sublimetext.4",
-        "com.microsoft.VSCode",
-        NULL
-    };
-
-    for (CFIndex i = 0; i < windowCount; i++) {
-        CFDictionaryRef window = CFArrayGetValueAtIndex(windowList, i);
-
-        // Get owner name (bundle ID)
-        CFStringRef owner = CFDictionaryGetValue(window, kCGWindowOwnerName);
-        if (!owner) continue;
-
-        // Check if it's a terminal
-        bool isTerminal = false;
-        for (int j = 0; terminalBundles[j] != NULL; j++) {
-            CFStringRef terminalName = CFStringCreateWithCString(NULL, terminalBundles[j], kCFStringEncodingUTF8);
-            if (CFStringFind(owner, terminalName, kCFCompareCaseInsensitive).location != kCFNotFound) {
-                isTerminal = true;
-                CFRelease(terminalName);
-                break;
-            }
-            CFRelease(terminalName);
-        }
-
-        if (isTerminal) {
-            CFNumberRef windowID = CFDictionaryGetValue(window, kCGWindowNumber);
-            if (windowID) {
-                uint32_t wid;
-                CFNumberGetValue(windowID, kCFNumberSInt32Type, &wid);
-                terminalIDs[terminalCount++] = (uint64_t)wid;
-            }
-        }
-    }
-
-    *ids = terminalIDs;
-    *count = terminalCount;
-}
-
-// Get window bounds for given window IDs
-void getWindowRects(CFArrayRef windowList, uint64_t* ids, int idCount,
-                   int monitorX, int monitorY, int screenWidth, int screenHeight,
-                   int** rects, int* rectCount) {
-    int found = 0;
-    int* bounds = malloc(sizeof(int) * idCount * 4); // x, y, width, height per window
-
-    CFIndex windowCount = CFArrayGetCount(windowList);
-    for (int i = 0; i < idCount; i++) {
-        uint64_t targetID = ids[i];
-
-        for (CFIndex j = 0; j < windowCount; j++) {
-            CFDictionaryRef window = CFArrayGetValueAtIndex(windowList, j);
-            CFNumberRef windowID = CFDictionaryGetValue(window, kCGWindowNumber);
-            if (!windowID) continue;
-
-            uint32_t wid;
-            CFNumberGetValue(windowID, kCFNumberSInt32Type, &wid);
-
-            if ((uint64_t)wid == targetID) {
-                CFDictionaryRef boundsDict = CFDictionaryGetValue(window, kCGWindowBounds);
-                if (boundsDict) {
-                    CGRect rect;
-                    CGRectMakeWithDictionaryRepresentation(boundsDict, &rect);
-
-                    // Convert to screen coordinates relative to monitor
-                    int x = (int)rect.origin.x - monitorX;
-                    int y = (int)rect.origin.y - monitorY;
-                    int w = (int)rect.size.width;
-                    int h = (int)rect.size.height;
-
-                    // Clamp to screen bounds
-                    if (x < 0) { w += x; x = 0; }
-                    if (y < 0) { h += y; y = 0; }
-                    if (x + w > screenWidth) w = screenWidth - x;
-                    if (y + h > screenHeight) h = screenHeight - y;
-
-                    if (w > 0 && h > 0) {
-                        bounds[found * 4 + 0] = x;
-                        bounds[found * 4 + 1] = y;
-                        bounds[found * 4 + 2] = w;
-                        bounds[found * 4 + 3] = h;
-                        found++;
-                    }
-                }
-                break;
-            }
-        }
-    }
-
-    *rects = bounds;
-    *rectCount = found;
-}
-*/
-import "C"
 import (
 	"image"
 	"unsafe"
+
+	"github.com/ebitengine/purego"
 )
 
 type WindowID uint64
 
+var (
+	coreGraphics uintptr
+
+	// CoreFoundation functions
+	cfRelease                    func(cf uintptr)
+	cfArrayGetCount              func(array uintptr) int64
+	cfArrayGetValueAtIndex       func(array uintptr, idx int64) uintptr
+	cfDictionaryGetValue         func(dict uintptr, key uintptr) uintptr
+	cfStringCreateWithCString    func(alloc uintptr, cStr *byte, encoding uint32) uintptr
+	cfStringFind                 func(theString uintptr, stringToFind uintptr, compareOptions uint32) (location int64, length int64)
+	cfNumberGetValue             func(number uintptr, theType int32, valuePtr unsafe.Pointer) bool
+	cfStringGetCString           func(theString uintptr, buffer *byte, bufferSize int64, encoding uint32) bool
+	cfStringGetLength            func(theString uintptr) int64
+	cgRectMakeWithDict           func(dict uintptr, rect unsafe.Pointer) bool
+
+	// CoreGraphics functions
+	cgWindowListCopyWindowInfo func(option uint32, relativeToWindow uint32) uintptr
+
+	// Constants
+	kCGWindowListOptionOnScreenOnly uint32 = 0x01
+	kCGNullWindowID                 uint32 = 0
+	kCFStringEncodingUTF8           uint32 = 0x08000100
+	kCFCompareCaseInsensitive       uint32 = 1
+	kCFNumberSInt32Type             int32  = 3
+
+	// Keys (as Go strings, we'll convert them on demand)
+	kCGWindowOwnerName = "kCGWindowOwnerName"
+	kCGWindowNumber    = "kCGWindowNumber"
+	kCGWindowBounds    = "kCGWindowBounds"
+)
+
+func init() {
+	var err error
+	coreGraphics, err = purego.Dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+	if err != nil {
+		// Silently fail - getTerminalWindowIDs will return nil
+		return
+	}
+
+	coreFoundation, err := purego.Dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+	if err != nil {
+		return
+	}
+
+	// Register CoreFoundation functions
+	purego.RegisterLibFunc(&cfRelease, coreFoundation, "CFRelease")
+	purego.RegisterLibFunc(&cfArrayGetCount, coreFoundation, "CFArrayGetCount")
+	purego.RegisterLibFunc(&cfArrayGetValueAtIndex, coreFoundation, "CFArrayGetValueAtIndex")
+	purego.RegisterLibFunc(&cfDictionaryGetValue, coreFoundation, "CFDictionaryGetValue")
+	purego.RegisterLibFunc(&cfStringCreateWithCString, coreFoundation, "CFStringCreateWithCString")
+	purego.RegisterLibFunc(&cfStringFind, coreFoundation, "CFStringFind")
+	purego.RegisterLibFunc(&cfNumberGetValue, coreFoundation, "CFNumberGetValue")
+	purego.RegisterLibFunc(&cfStringGetCString, coreFoundation, "CFStringGetCString")
+	purego.RegisterLibFunc(&cfStringGetLength, coreFoundation, "CFStringGetLength")
+	purego.RegisterLibFunc(&cgRectMakeWithDict, coreFoundation, "CGRectMakeWithDictionaryRepresentation")
+
+	// Register CoreGraphics functions
+	purego.RegisterLibFunc(&cgWindowListCopyWindowInfo, coreGraphics, "CGWindowListCopyWindowInfo")
+}
+
+// Known terminal bundle IDs and app names
+var terminalIdentifiers = []string{
+	"Terminal",
+	"iTerm",
+	"iTerm2",
+	"WezTerm",
+	"kitty",
+	"Hyper",
+	"Alacritty",
+	"Code", // VSCode integrated terminal
+}
+
+func createCFString(s string) uintptr {
+	if cfStringCreateWithCString == nil {
+		return 0
+	}
+	cstr := append([]byte(s), 0)
+	return cfStringCreateWithCString(0, &cstr[0], kCFStringEncodingUTF8)
+}
+
+func cfStringToGoString(cfStr uintptr) string {
+	if cfStr == 0 || cfStringGetLength == nil || cfStringGetCString == nil {
+		return ""
+	}
+
+	length := cfStringGetLength(cfStr)
+	if length == 0 {
+		return ""
+	}
+
+	// Allocate buffer (length + 1 for null terminator)
+	buf := make([]byte, length+1)
+	if !cfStringGetCString(cfStr, &buf[0], length+1, kCFStringEncodingUTF8) {
+		return ""
+	}
+
+	// Find null terminator
+	for i, b := range buf {
+		if b == 0 {
+			return string(buf[:i])
+		}
+	}
+	return string(buf)
+}
+
+func isTerminalApp(ownerName string) bool {
+	for _, term := range terminalIdentifiers {
+		// Case-insensitive substring match
+		if containsCaseInsensitive(ownerName, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsCaseInsensitive(s, substr string) bool {
+	sLower := toLower(s)
+	substrLower := toLower(substr)
+	return contains(sLower, substrLower)
+}
+
+func toLower(s string) string {
+	runes := []rune(s)
+	for i, r := range runes {
+		if r >= 'A' && r <= 'Z' {
+			runes[i] = r + 32
+		}
+	}
+	return string(runes)
+}
+
+func contains(s, substr string) bool {
+	if len(substr) == 0 {
+		return true
+	}
+	if len(substr) > len(s) {
+		return false
+	}
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 func getTerminalWindowIDs() []WindowID {
-	windowList := C.CGWindowListCopyWindowInfo(C.kCGWindowListOptionOnScreenOnly, C.kCGNullWindowID)
+	if cgWindowListCopyWindowInfo == nil {
+		return nil
+	}
+
+	windowList := cgWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
 	if windowList == 0 {
 		return nil
 	}
-	defer C.CFRelease(C.CFTypeRef(windowList))
+	defer cfRelease(windowList)
 
-	var ids *C.uint64_t
-	var count C.int
-	C.getTerminalWindows(C.CFArrayRef(windowList), &ids, &count)
-	if count == 0 {
+	windowCount := cfArrayGetCount(windowList)
+	if windowCount == 0 {
 		return nil
 	}
-	defer C.free(unsafe.Pointer(ids))
 
-	result := make([]WindowID, int(count))
-	idSlice := unsafe.Slice(ids, int(count))
-	for i, id := range idSlice {
-		result[i] = WindowID(id)
+	var terminalIDs []WindowID
+	keyOwnerName := createCFString(kCGWindowOwnerName)
+	if keyOwnerName != 0 {
+		defer cfRelease(keyOwnerName)
 	}
-	return result
+	keyWindowNumber := createCFString(kCGWindowNumber)
+	if keyWindowNumber != 0 {
+		defer cfRelease(keyWindowNumber)
+	}
+
+	for i := int64(0); i < windowCount; i++ {
+		window := cfArrayGetValueAtIndex(windowList, i)
+		if window == 0 {
+			continue
+		}
+
+		// Get owner name
+		ownerNameCF := cfDictionaryGetValue(window, keyOwnerName)
+		if ownerNameCF == 0 {
+			continue
+		}
+
+		ownerName := cfStringToGoString(ownerNameCF)
+		if !isTerminalApp(ownerName) {
+			continue
+		}
+
+		// Get window ID
+		windowNumberCF := cfDictionaryGetValue(window, keyWindowNumber)
+		if windowNumberCF == 0 {
+			continue
+		}
+
+		var wid uint32
+		if cfNumberGetValue(windowNumberCF, kCFNumberSInt32Type, unsafe.Pointer(&wid)) {
+			terminalIDs = append(terminalIDs, WindowID(wid))
+		}
+	}
+
+	return terminalIDs
+}
+
+type cgRect struct {
+	x, y, width, height float64
 }
 
 func getTerminalWindowRects(ids []WindowID, monitorOrigin [2]int, screenWidth, screenHeight int) []image.Rectangle {
-	if len(ids) == 0 {
+	if len(ids) == 0 || cgWindowListCopyWindowInfo == nil {
 		return nil
 	}
 
-	windowList := C.CGWindowListCopyWindowInfo(C.kCGWindowListOptionOnScreenOnly, C.kCGNullWindowID)
+	windowList := cgWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
 	if windowList == 0 {
 		return nil
 	}
-	defer C.CFRelease(C.CFTypeRef(windowList))
+	defer cfRelease(windowList)
 
-	cIDs := make([]C.uint64_t, len(ids))
-	for i, id := range ids {
-		cIDs[i] = C.uint64_t(id)
-	}
-
-	var rects *C.int
-	var rectCount C.int
-	C.getWindowRects(
-		C.CFArrayRef(windowList),
-		&cIDs[0],
-		C.int(len(ids)),
-		C.int(monitorOrigin[0]),
-		C.int(monitorOrigin[1]),
-		C.int(screenWidth),
-		C.int(screenHeight),
-		&rects,
-		&rectCount,
-	)
-	if rectCount == 0 {
+	windowCount := cfArrayGetCount(windowList)
+	if windowCount == 0 {
 		return nil
 	}
-	defer C.free(unsafe.Pointer(rects))
 
-	result := make([]image.Rectangle, int(rectCount))
-	rectSlice := unsafe.Slice(rects, int(rectCount)*4)
-	for i := 0; i < int(rectCount); i++ {
-		result[i] = image.Rect(
-			int(rectSlice[i*4+0]),
-			int(rectSlice[i*4+1]),
-			int(rectSlice[i*4+0])+int(rectSlice[i*4+2]),
-			int(rectSlice[i*4+1])+int(rectSlice[i*4+3]),
-		)
+	keyWindowNumber := createCFString(kCGWindowNumber)
+	if keyWindowNumber != 0 {
+		defer cfRelease(keyWindowNumber)
 	}
-	return result
+	keyWindowBounds := createCFString(kCGWindowBounds)
+	if keyWindowBounds != 0 {
+		defer cfRelease(keyWindowBounds)
+	}
+
+	// Build a map for quick lookup
+	idMap := make(map[WindowID]bool, len(ids))
+	for _, id := range ids {
+		idMap[id] = true
+	}
+
+	var rects []image.Rectangle
+
+	for i := int64(0); i < windowCount; i++ {
+		window := cfArrayGetValueAtIndex(windowList, i)
+		if window == 0 {
+			continue
+		}
+
+		// Get window ID
+		windowNumberCF := cfDictionaryGetValue(window, keyWindowNumber)
+		if windowNumberCF == 0 {
+			continue
+		}
+
+		var wid uint32
+		if !cfNumberGetValue(windowNumberCF, kCFNumberSInt32Type, unsafe.Pointer(&wid)) {
+			continue
+		}
+
+		// Check if this is one of our target windows
+		if !idMap[WindowID(wid)] {
+			continue
+		}
+
+		// Get window bounds
+		boundsDict := cfDictionaryGetValue(window, keyWindowBounds)
+		if boundsDict == 0 {
+			continue
+		}
+
+		var rect cgRect
+		if !cgRectMakeWithDict(boundsDict, unsafe.Pointer(&rect)) {
+			continue
+		}
+
+		// Convert to screen coordinates relative to monitor
+		x := int(rect.x) - monitorOrigin[0]
+		y := int(rect.y) - monitorOrigin[1]
+		w := int(rect.width)
+		h := int(rect.height)
+
+		// Clamp to screen bounds
+		if x < 0 {
+			w += x
+			x = 0
+		}
+		if y < 0 {
+			h += y
+			y = 0
+		}
+		if x+w > screenWidth {
+			w = screenWidth - x
+		}
+		if y+h > screenHeight {
+			h = screenHeight - y
+		}
+
+		if w > 0 && h > 0 {
+			rects = append(rects, image.Rect(x, y, x+w, y+h))
+		}
+	}
+
+	return rects
 }

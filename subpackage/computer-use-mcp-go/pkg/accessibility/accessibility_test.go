@@ -72,7 +72,7 @@ func TestGetNodeByID(t *testing.T) {
 		t.Error("Node should have an ID")
 	}
 
-	t.Logf("Found node: role=%s name=%s bounds=%+v", node.Role, node.Name, node.Bounds)
+	t.Logf("Found node: role=%s name=%s bounds=%+v", node.Role, node.Name, node.BoundingBox)
 }
 
 func TestInvalidNodeID(t *testing.T) {
@@ -112,16 +112,9 @@ func TestNodeStructure(t *testing.T) {
 		Role:        "button",
 		Name:        "Click Me",
 		Description: "A test button",
-		Value:       "pressed",
-		Bounds: Bounds{
-			X:      100,
-			Y:      200,
-			Width:  80,
-			Height: 30,
-		},
-		Attributes: map[string]string{
-			"state": "enabled",
-		},
+		BoundingBox: [4]int{100, 200, 80, 30},
+		Enabled:     true,
+		Focused:     false,
 	}
 
 	// Marshal to JSON
@@ -147,21 +140,16 @@ func TestNodeStructure(t *testing.T) {
 	if decoded.Name != node.Name {
 		t.Errorf("Name mismatch: got %s, want %s", decoded.Name, node.Name)
 	}
-	if decoded.Bounds.X != node.Bounds.X {
-		t.Errorf("Bounds.X mismatch: got %d, want %d", decoded.Bounds.X, node.Bounds.X)
+	if decoded.BoundingBox[0] != node.BoundingBox[0] {
+		t.Errorf("BoundingBox[0] mismatch: got %d, want %d", decoded.BoundingBox[0], node.BoundingBox[0])
 	}
 }
 
 func TestBoundsCenter(t *testing.T) {
-	bounds := Bounds{
-		X:      100,
-		Y:      200,
-		Width:  80,
-		Height: 40,
-	}
+	bbox := [4]int{100, 200, 80, 40} // x, y, width, height
 
-	centerX := bounds.X + bounds.Width/2   // 140
-	centerY := bounds.Y + bounds.Height/2  // 220
+	centerX := bbox[0] + bbox[2]/2 // 140
+	centerY := bbox[1] + bbox[3]/2 // 220
 
 	if centerX != 140 {
 		t.Errorf("Center X: got %d, want 140", centerX)
