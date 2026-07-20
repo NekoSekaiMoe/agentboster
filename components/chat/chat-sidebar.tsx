@@ -23,6 +23,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
 import { generateUUID } from '@/lib/utils';
@@ -277,7 +278,7 @@ export function ChatSidebar() {
       <Sidebar className="border-r-0">
         {/* Header */}
         <SidebarHeader className="border-sidebar-border border-b p-3">
-          {!isMobile && (
+          {!isMobile ? (
             <div className="mb-2 flex min-h-[36px] items-center">
               <Button
                 variant="ghost"
@@ -291,6 +292,13 @@ export function ChatSidebar() {
                   }`}
                 />
               </Button>
+            </div>
+          ) : (
+            <div className="mb-2 flex min-h-[36px] items-center justify-end">
+              <SidebarTrigger
+                className="size-8 shrink-0 rounded-lg"
+                aria-label={t('common.openNavigation')}
+              />
             </div>
           )}
 
