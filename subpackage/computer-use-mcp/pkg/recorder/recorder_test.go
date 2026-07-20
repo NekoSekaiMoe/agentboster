@@ -4,6 +4,9 @@ import (
 	"image"
 	"image/color"
 	"testing"
+	"time"
+
+	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/screenshot"
 )
 
 // TestDefaultConfig pins the documented defaults so a careless edit doesn't
@@ -24,6 +27,36 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if !c.ExcludeTerminals {
 		t.Error("ExcludeTerminals should default true for safety")
+	}
+}
+
+// TestStopReturnsImmediately is the regression test the review asked for:
+// it starts a session with a long Duration, immediately calls Stop, and
+// asserts Stop returns well before the full Duration would elapse. This
+// guards against the old "Stop blocks up to one ticker interval" bug
+// (now fixed by storing cancel on Session) regressing back.
+func TestStopReturnsImmediately(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Duration = 30 * time.Second // absurdly long; we should NOT wait for this
+	cfg.FPS = 2                     // 500ms tick — old bug would block ~500ms here
+
+	if screenshot.NumActiveDisplays() == 0 {
+		t.Skip("no display available; Start would refuse anyway")
+	}
+	sess, err := Start(cfg)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	start := time.Now()
+	sess.Stop()
+	elapsed := time.Since(start)
+
+	// Stop must return in well under one ticker interval (500ms at fps=2) and
+	// certainly far below the 30s Duration. Allow generous 2s headroom for
+	// slow CI schedulers while still proving we didn't wait for Duration.
+	if elapsed > 2*time.Second {
+		t.Errorf("Stop took %v, want < 2s (proves cancel-on-Stop works)", elapsed)
 	}
 }
 

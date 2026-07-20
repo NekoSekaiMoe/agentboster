@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -11,16 +12,18 @@ import (
 	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/recorder"
 )
 
-// currentRecording holds the in-progress recording session across MCP calls,
-// so that one tools/call starts it and a second tools/call stops it and
-// fetches the GIF. The recorder package additionally enforces only one active
-// session at a time.
-var currentRecording *recorder.Session
+// recordingMu guards currentRecording across the start/stop MCP tool calls.
+// The MCP server may dispatch tools/call concurrently; without this a
+// start writing and a stop reading currentRecording would race.
+var (
+	recordingMu      sync.Mutex
+	currentRecording *recorder.Session
+)
 
 func registerRecorderTools(s *server.MCPServer) {
 	s.AddTool(mcp.Tool{
 		Name:        "screen_record_start",
-		Description: "Start capturing the screen as an animated GIF. Returns immediately with a session id and metadata; pair with screen_record_stop to obtain the GIF. Only one recording may be active at a time. The recording also self-terminates when its duration elapses.",
+		Description: "Start capturing the screen as an animated GIF. Returns immediately with recording metadata; pair with screen_record_stop to obtain the GIF. Only one recording may be active at a time. The recording also self-terminates when its duration elapses.",
 		InputSchema: mcp.ToolInputSchema{
 			Type: "object",
 			Properties: map[string]any{
@@ -82,7 +85,9 @@ func handleScreenRecordStart(ctx context.Context, request mcp.CallToolRequest) (
 	if err != nil {
 		return nil, fmt.Errorf("screen_record_start: %w", err)
 	}
+	recordingMu.Lock()
 	currentRecording = session
+	recordingMu.Unlock()
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
@@ -96,11 +101,14 @@ func handleScreenRecordStart(ctx context.Context, request mcp.CallToolRequest) (
 }
 
 func handleScreenRecordStop(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	recordingMu.Lock()
 	if currentRecording == nil {
+		recordingMu.Unlock()
 		return nil, fmt.Errorf("no recording in progress; call screen_record_start first")
 	}
 	session := currentRecording
 	currentRecording = nil
+	recordingMu.Unlock()
 
 	gifBytes, err := session.GIF() // GIF() calls Stop() internally if still running
 	if err != nil {

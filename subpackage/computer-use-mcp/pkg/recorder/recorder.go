@@ -69,6 +69,7 @@ type Session struct {
 	done    chan struct{}
 	startAt time.Time
 	stopped bool
+	cancel  context.CancelFunc // stops the capture goroutine on Stop
 }
 
 var (
@@ -108,12 +109,16 @@ func Start(cfg Config) (*Session, error) {
 	if screenshot.NumActiveDisplays() == 0 {
 		return nil, fmt.Errorf("no display available for capture")
 	}
+	if cfg.MonitorIndex < 0 || cfg.MonitorIndex >= screenshot.NumActiveDisplays() {
+		return nil, fmt.Errorf("monitor_index %d out of range (available: 0..%d)", cfg.MonitorIndex, screenshot.NumActiveDisplays()-1)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Duration)
 	s := &Session{
 		cfg:     cfg,
 		done:    make(chan struct{}),
 		startAt: time.Now(),
+		cancel:  cancel,
 	}
 	active = s
 
@@ -126,9 +131,7 @@ func Start(cfg Config) (*Session, error) {
 		for {
 			select {
 			case <-ctx.Done():
-				return
-			case <-time.After(time.Until(s.startAt.Add(cfg.Duration)) + 1):
-				// Belt-and-suspenders against ticker drift past the hard cap.
+				// Either the Duration elapsed (timeout) or Stop() called cancel.
 				return
 			case now := <-ticker.C:
 				s.captureFrame(now)
@@ -162,6 +165,15 @@ func (s *Session) captureFrame(now time.Time) {
 		return
 	}
 
+	// Display origin is needed for correct terminal-window coordinate
+	// alignment on non-primary monitors: the macOS/Windows maskers subtract
+	// monitorOrigin from absolute window bounds. Use the configured monitor's
+	// Bounds.Min rather than [2]int{} (which only works for the primary).
+	origin := [2]int{}
+	if db := screenshot.GetDisplayBounds(s.cfg.MonitorIndex); !db.Empty() {
+		origin = [2]int{db.Min.X, db.Min.Y}
+	}
+
 	// Scale to MaxWidth maintaining aspect ratio (Lanczos3, same kernel the
 	// screenshot tool uses).
 	img := image.Image(raw)
@@ -175,9 +187,10 @@ func (s *Session) captureFrame(now time.Time) {
 
 	// Terminal masking is applied by blacking out rectangles post-scale; defer
 	// to the screenshot package's masker if ExcludeTerminals is set. The masker
-	// expects the monitor origin; for recording the active monitor is fine at 0.
+	// expects the monitor origin so window coordinates align on multi-monitor
+	// setups (see origin resolution above).
 	if s.cfg.ExcludeTerminals {
-		img = screenshot.MaskTerminals(img, [2]int{})
+		img = screenshot.MaskTerminals(img, origin)
 	}
 
 	p := palettize(img)
@@ -202,7 +215,15 @@ func (s *Session) Stop() {
 		return
 	}
 	s.stopped = true
+	cancel := s.cancel
 	s.mu.Unlock()
+
+	// Cancel the capture context so the goroutine unblocks immediately on
+	// ctx.Done() rather than waiting up to one tick (250ms at the default 4
+	// fps) before noticing s.stopped.
+	if cancel != nil {
+		cancel()
+	}
 
 	activeMu.Lock()
 	if active == s {
@@ -210,8 +231,8 @@ func (s *Session) Stop() {
 	}
 	activeMu.Unlock()
 
-	// The capture goroutine observes s.stopped on its next tick; wait for its
-	// done channel so GIF() sees a fully-populated frame slice.
+	// Wait for the goroutine to finish so GIF() sees a fully-populated frame
+	// slice.
 	<-s.done
 }
 
