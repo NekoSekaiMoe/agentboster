@@ -1078,7 +1078,7 @@ export function Chat({
               </div>
             </div>
           ) : (
-            <form className="relative z-20 shrink-0 border-t bg-background/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] shadow-[0_-12px_30px_rgba(15,23,42,0.06)] backdrop-blur md:pb-6">
+            <form className="relative z-20 shrink-0 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-6">
               <div className="mx-auto flex w-full gap-2 md:max-w-4xl">
                 <MultimodalInput
                   chatId={id}

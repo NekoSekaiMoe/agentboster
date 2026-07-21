@@ -23,7 +23,6 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
 import { generateUUID } from '@/lib/utils';
@@ -98,7 +97,7 @@ function getChannelIcon(channel: string) {
 export function ChatSidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { open, setOpen, isMobile, setOpenMobile } = useSidebar();
+  const { open, isMobile, setOpenMobile } = useSidebar();
   const { theme = 'system', setTheme } = useTheme();
   const { t } = useI18n();
 
@@ -278,27 +277,17 @@ export function ChatSidebar() {
       <Sidebar className="border-r-0">
         {/* Header */}
         <SidebarHeader className="border-sidebar-border border-b p-3">
-          {!isMobile ? (
+          {isMobile && (
             <div className="mb-2 flex min-h-[36px] items-center">
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-10 w-10 rounded-lg"
-                onClick={() => setOpen(!open)}
-              >
-                <ChevronLeft
-                  className={`h-5 w-5 transition-transform ${
-                    isCollapsed ? 'rotate-180' : ''
-                  }`}
-                />
-              </Button>
-            </div>
-          ) : (
-            <div className="mb-2 flex min-h-[36px] items-center justify-end">
-              <SidebarTrigger
-                className="size-8 shrink-0 rounded-lg"
                 aria-label={t('common.openNavigation')}
-              />
+                onClick={() => setOpenMobile(false)}
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </Button>
             </div>
           )}
 
