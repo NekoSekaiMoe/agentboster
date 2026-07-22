@@ -281,6 +281,9 @@ export const ko = {
   'config.forms.experiments.clawhubMinScore': 'ClawHub 최소 점수',
   'config.forms.experiments.clawhubMinScoreHint':
     '제안을 수락하는 데 필요한 최소 관련도 점수(clawhub.ai 검색 기준). 경험상 1.0 미만은 약한 일치입니다.',
+  'config.forms.experiments.curatorIntervalHours': '큐레이터 간격(시간)',
+  'config.forms.experiments.curatorIntervalHoursHint':
+    '초안 스킬 자동 검토 간격(시간). 큐레이터는 저품질 초안을 자동 보관하여 검토 대기열을 정리합니다. 낮추면=더 깔끔함(LLM 호출 증가). 0이면 비활성화.',
   'config.forms.chat.composerDescription':
     '웹 채팅 작성기에서 키보드 단축키가 작동하는 방식을 선택하세요.',
   'config.forms.chat.autoSaveNote':

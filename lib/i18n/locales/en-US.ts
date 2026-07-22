@@ -279,6 +279,9 @@ export const enUS = {
   'config.forms.experiments.clawhubMinScore': 'ClawHub min score',
   'config.forms.experiments.clawhubMinScoreHint':
     'Minimum relevance score (from clawhub.ai search) required to accept a suggestion. Empirically values below ~1.0 are weak matches.',
+  'config.forms.experiments.curatorIntervalHours': 'Curator interval (hours)',
+  'config.forms.experiments.curatorIntervalHoursHint':
+    'Hours between automatic draft-skill review passes. The curator auto-archives low-signal drafts so your review queue stays tidy. Lower = tidier (more LLM calls). Set 0 to disable.',
   'config.forms.chat.composerDescription':
     'Choose how keyboard shortcuts work in the Web chat composer.',
   'config.forms.chat.autoSaveNote':

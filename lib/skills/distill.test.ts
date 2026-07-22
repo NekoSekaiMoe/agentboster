@@ -25,6 +25,19 @@ vi.mock('@/lib/memory/extract', () => ({
   buildConversationContext: vi.fn(),
 }));
 
+vi.mock('./curator', () => ({
+  // distill piggybacks a curator sweep before its review. The sweep's own
+  // behavior is exercised in curator.test.ts; here we only need it to be
+  // a no-op so it doesn't trigger extra LLM / KV calls in the distill tests.
+  maybeCurateSkills: vi.fn().mockResolvedValue({
+    ran: false,
+    reason: 'interval_not_elapsed',
+    reviewed: 0,
+    archived: 0,
+    kept: 0,
+  }),
+}));
+
 vi.mock('@/lib/ai', () => ({
   resolveLanguageModel: vi.fn(() => ({})),
 }));

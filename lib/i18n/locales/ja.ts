@@ -284,6 +284,9 @@ export const ja = {
   'config.forms.experiments.clawhubMinScore': 'ClawHub 最低スコア',
   'config.forms.experiments.clawhubMinScoreHint':
     '提案を受け入れるために必要な最低関連度スコア(clawhub.ai 検索から)。経験上 1.0 未満は弱い一致です。',
+  'config.forms.experiments.curatorIntervalHours': 'キュレーター間隔(時間)',
+  'config.forms.experiments.curatorIntervalHoursHint':
+    'ドラフトスキルの自動レビューの間隔(時間)。キュレーターは低品質なドラフトを自動アーカイブし、レビュー待ち行列を整理します。低く=より整理される(LLM呼び出し増)。0で無効化。',
   'config.forms.chat.composerDescription':
     'Web チャット入力欄のキーボードショートカットを選択します。',
   'config.forms.chat.autoSaveNote':

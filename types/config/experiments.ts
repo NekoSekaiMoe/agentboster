@@ -61,6 +61,14 @@ export const experimentsConfigShapeSchema = z.object({
        * barely-relevant install prompts.
        */
       clawhubMinScore: z.number().min(0).default(1.5),
+      /**
+       * Minimum hours between curator passes. The curator piggybacks on
+       * distill triggers (no standalone scheduler on serverless), reviewing
+       * draft skills and auto-archiving low-signal ones so the Skills-page
+       * review queue stays manageable. Lower = tidier queue (more LLM
+       * calls); higher = hands-off. Set to 0 to disable curator entirely.
+       */
+      curatorIntervalHours: z.number().min(0).default(6),
     })
     .optional(),
 });

@@ -51,6 +51,8 @@ import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { SkillDetail } from '@/types/skills';
 
+import { maybeCurateSkills } from './curator';
+
 const logger = createLogger('skills.distill');
 
 /**
@@ -181,6 +183,23 @@ export async function maybeDistillSkillFromSession(input: {
   if (!modelId) {
     logger.warn('distill:no_model', { sessionId: input.sessionId });
     return { distilled: false, origin: 'skipped', reason: 'no_model' };
+  }
+
+  // ── Lazy curator sweep ──
+  // Piggybacked on the distill trigger (same afterResponse channel).
+  // Runs at most once per CURATOR_INTERVAL_MS; when the interval hasn't
+  // elapsed it returns immediately with no KV write. Runs BEFORE the
+  // distill review so any new draft we're about to stage isn't reviewed
+  // in the same pass (that would be self-defeating — a brand-new draft
+  // hasn't had time to prove useful). Best-effort; failures are logged
+  // inside and never block distill.
+  try {
+    await maybeCurateSkills({ config: input.config, user: input.user });
+  } catch (err) {
+    logger.warn('distill:curator_failed', {
+      sessionId: input.sessionId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   // ── Stage 1: review ──

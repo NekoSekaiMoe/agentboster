@@ -260,6 +260,9 @@ export const zhCN = {
   'config.forms.experiments.clawhubMinScore': 'ClawHub 最低分数',
   'config.forms.experiments.clawhubMinScoreHint':
     '接受建议所需的最低相关度分数(来自 clawhub.ai 搜索)。经验上低于 1.0 的属于弱匹配。',
+  'config.forms.experiments.curatorIntervalHours': '整理间隔(小时)',
+  'config.forms.experiments.curatorIntervalHoursHint':
+    '自动审查草稿技能的间隔小时数。整理器会自动归档低价值草稿以保持审核队列清爽。调低=更整洁(更多 LLM 调用)。设为 0 可禁用。',
   'config.forms.chat.composerDescription':
     '选择 Web 聊天输入框的键盘快捷键行为。',
   'config.forms.chat.autoSaveNote': '修改后自动保存。无需手动保存。',

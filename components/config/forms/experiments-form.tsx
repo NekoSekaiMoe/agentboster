@@ -26,6 +26,7 @@ export function ExperimentsForm() {
     toolCallThreshold: 8,
     preferClawHub: true,
     clawhubMinScore: 1.5,
+    curatorIntervalHours: 6,
   };
 
   function updateDistillation(
@@ -106,6 +107,27 @@ export function ExperimentsForm() {
                       if (!Number.isNaN(parsed)) {
                         updateDistillation({
                           clawhubMinScore: Math.max(0, parsed),
+                        });
+                      }
+                    }}
+                  />
+                </Field>
+
+                <Field
+                  label={t('config.forms.experiments.curatorIntervalHours')}
+                >
+                  <p className="text-muted-foreground text-xs">
+                    {t('config.forms.experiments.curatorIntervalHoursHint')}
+                  </p>
+                  <Input
+                    min="0"
+                    type="number"
+                    value={distillation.curatorIntervalHours}
+                    onChange={(event) => {
+                      const parsed = Number(event.target.value);
+                      if (!Number.isNaN(parsed)) {
+                        updateDistillation({
+                          curatorIntervalHours: Math.max(0, Math.floor(parsed)),
                         });
                       }
                     }}

@@ -261,6 +261,9 @@ export const zhTW = {
   'config.forms.experiments.clawhubMinScore': 'ClawHub 最低分數',
   'config.forms.experiments.clawhubMinScoreHint':
     '接受建議所需的最低相關度分數(來自 clawhub.ai 搜尋)。經驗上低於 1.0 的屬於弱匹配。',
+  'config.forms.experiments.curatorIntervalHours': '整理間隔(小時)',
+  'config.forms.experiments.curatorIntervalHoursHint':
+    '自動審查草稿技能的間隔小時數。整理器會自動歸檔低價值草稿以保持審核佇列清爽。調低=更整潔(更多 LLM 呼叫)。設為 0 可停用。',
   'config.forms.chat.composerDescription':
     '選擇 Web 聊天輸入框的鍵盤快捷鍵行為。',
   'config.forms.chat.autoSaveNote': '修改後自動儲存。無需手動儲存。',
