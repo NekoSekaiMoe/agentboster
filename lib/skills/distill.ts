@@ -74,7 +74,6 @@ const reviewSchema = z.object({
   /** Dotted skill name, e.g. "deploy-vercel-preview". Empty if not distilling. */
   skillName: z
     .string()
-    .min(1)
     .describe(
       'lowercase-hyphenated skill name, <=64 chars, no spaces. Empty string if shouldDistill is false.',
     )

@@ -65,8 +65,8 @@ export const ja = {
     'リモート Agent Daemon 接続、証明書、サンドボックス設定を管理します。',
   'config.sections.agentd.title': 'Agent Daemon',
   'config.sections.experiments.description':
-    'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
-  'config.sections.experiments.title': 'Experiments',
+    'オプトインの実験的機能。デフォルトはオフです。検証中の機能を個別に有効化して試すことができます。',
+  'config.sections.experiments.title': '実験的機能',
   'config.sections.agents.description':
     '名前付きエージェント、プロンプト、モデルの上書きを設定します。',
   'config.sections.agents.title': 'エージェント',

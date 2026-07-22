@@ -62,8 +62,8 @@ export const zhTW = {
     '管理遠端 Agent Daemon 連線、憑證和沙箱設定。',
   'config.sections.agentd.title': 'Agent Daemon',
   'config.sections.experiments.description':
-    'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
-  'config.sections.experiments.title': 'Experiments',
+    '選擇性啟用的實驗性功能。預設關閉；可個別開啟以試用仍在驗證中的能力。',
+  'config.sections.experiments.title': '實驗性功能',
   'config.sections.agents.description': '設定命名智能體、提示詞和模型覆寫。',
   'config.sections.agents.title': '智能體',
   'config.sections.appearance.description': '自訂導覽樣式和顯示偏好。',

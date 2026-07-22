@@ -766,7 +766,11 @@ export default function SkillsPage() {
                         void archiveSkillByName(selectedSkill.name)
                       }
                     >
-                      <Archive className="mr-1 size-4" />
+                      {resolvingDraft === selectedSkill.name ? (
+                        <Loader2 className="mr-1 size-4 animate-spin" />
+                      ) : (
+                        <Archive className="mr-1 size-4" />
+                      )}
                       Discard
                     </Button>
                   </>
@@ -1005,7 +1009,11 @@ export default function SkillsPage() {
                               void archiveSkillByName(draft.name);
                             }}
                           >
-                            <Archive className="size-3.5" />
+                            {resolvingDraft === draft.name ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <Archive className="size-3.5" />
+                            )}
                             <span className="sr-only">Discard</span>
                           </Button>
                         </div>
@@ -1029,11 +1037,14 @@ export default function SkillsPage() {
                   </CardContent>
                 </Card>
               )}
-              {skills.length === 0 && drafts.length === 0 && !importJob && (
-                <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
-                  No skills installed
-                </div>
-              )}
+              {skills.filter((s) => (s.status ?? 'active') === 'active')
+                .length === 0 &&
+                drafts.length === 0 &&
+                !importJob && (
+                  <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
+                    No skills installed
+                  </div>
+                )}
               {skills
                 .filter((s) => (s.status ?? 'active') === 'active')
                 .map((skill) => (

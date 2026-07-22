@@ -90,7 +90,6 @@
   "name": "agentboster",
   "private": true,
   "scripts": {
-    "push": "python3 push.py",
     "build": "next build",
     "build:agentd": "cd agentd && go build -o agentd ./cmd/agentd/main.go",
     "check:lint": "tsc --noEmit && biome check app components lib hooks middleware.ts next.config.ts drizzle.config.ts",
@@ -107,7 +106,7 @@
     "format": "biome format . --write",
     "lint:fix": "biome lint . --write --unsafe",
     "postbuild": "tsx scripts/vercel-postbuild.ts",
-    "publish": "yarn run lint:check && yarn run build && git push",
+    "publish": "yarn run check:lint && yarn run build && git push",
     "start": "next start",
     "workflow:inspect": "workflow inspect runs --web"
   },

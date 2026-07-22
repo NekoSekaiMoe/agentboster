@@ -61,8 +61,8 @@ export const zhCN = {
     '管理远程 Agent Daemon 连接、证书和沙箱设置。',
   'config.sections.agentd.title': 'Agent Daemon',
   'config.sections.experiments.description':
-    'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
-  'config.sections.experiments.title': 'Experiments',
+    '可选实验性功能。默认关闭；可逐个开启以试用仍在验证中的能力。',
+  'config.sections.experiments.title': '实验性功能',
   'config.sections.agents.description': '配置命名智能体、提示词和模型覆盖。',
   'config.sections.agents.title': '智能体',
   'config.sections.appearance.description': '自定义导航样式和显示偏好。',

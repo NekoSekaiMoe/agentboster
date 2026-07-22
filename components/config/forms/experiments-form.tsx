@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+
 import {
   Card,
   CardContent,
@@ -37,6 +39,30 @@ export function ExperimentsForm() {
       skillDistillation: { ...distillation, ...patch },
     });
   }
+
+  // Transient string buffers for the numeric inputs. We keep the raw
+  // editable string here (including intermediate values like "3." or ""),
+  // and apply each field's minimum clamping / integer conversion only on
+  // blur so the user can actually type. The controlled `distillation.*`
+  // value stays as the source of truth and is mirrored back whenever it
+  // changes from outside (e.g. config save).
+  const thresholdText = useNumericInput({
+    value: distillation.toolCallThreshold,
+    onCommit: (n) => updateDistillation({ toolCallThreshold: n }),
+    min: 3,
+    integer: true,
+  });
+  const minScoreText = useNumericInput({
+    value: distillation.clawhubMinScore,
+    onCommit: (n) => updateDistillation({ clawhubMinScore: n }),
+    min: 0,
+  });
+  const intervalText = useNumericInput({
+    value: distillation.curatorIntervalHours,
+    onCommit: (n) => updateDistillation({ curatorIntervalHours: n }),
+    min: 0,
+    integer: true,
+  });
   return (
     <div className="space-y-6">
       <SectionIssues issues={issues} />
@@ -81,15 +107,9 @@ export function ExperimentsForm() {
                   <Input
                     min="3"
                     type="number"
-                    value={distillation.toolCallThreshold}
-                    onChange={(event) => {
-                      const parsed = Number(event.target.value);
-                      if (!Number.isNaN(parsed)) {
-                        updateDistillation({
-                          toolCallThreshold: Math.max(3, Math.floor(parsed)),
-                        });
-                      }
-                    }}
+                    value={thresholdText.value}
+                    onBlur={thresholdText.commit}
+                    onChange={(event) => thresholdText.set(event.target.value)}
                   />
                 </Field>
 
@@ -101,15 +121,9 @@ export function ExperimentsForm() {
                     min="0"
                     step="0.1"
                     type="number"
-                    value={distillation.clawhubMinScore}
-                    onChange={(event) => {
-                      const parsed = Number(event.target.value);
-                      if (!Number.isNaN(parsed)) {
-                        updateDistillation({
-                          clawhubMinScore: Math.max(0, parsed),
-                        });
-                      }
-                    }}
+                    value={minScoreText.value}
+                    onBlur={minScoreText.commit}
+                    onChange={(event) => minScoreText.set(event.target.value)}
                   />
                 </Field>
 
@@ -122,15 +136,9 @@ export function ExperimentsForm() {
                   <Input
                     min="0"
                     type="number"
-                    value={distillation.curatorIntervalHours}
-                    onChange={(event) => {
-                      const parsed = Number(event.target.value);
-                      if (!Number.isNaN(parsed)) {
-                        updateDistillation({
-                          curatorIntervalHours: Math.max(0, Math.floor(parsed)),
-                        });
-                      }
-                    }}
+                    value={intervalText.value}
+                    onBlur={intervalText.commit}
+                    onChange={(event) => intervalText.set(event.target.value)}
                   />
                 </Field>
 
@@ -161,4 +169,48 @@ export function ExperimentsForm() {
       </Card>
     </div>
   );
+}
+
+/**
+ * Buffered numeric input. Keeps the raw editable string locally so the user
+ * can type intermediate values like `""`, `"3."`, or `"0.5"` without the
+ * controlled value fighting them (e.g. `Math.max(3, …)` clobbering a
+ * partial input). Clamping + integer conversion happen on blur, and the
+ * committed number is written back through `onCommit`. When the upstream
+ * `value` changes externally, the buffer resyncs to it.
+ */
+function useNumericInput({
+  value,
+  onCommit,
+  min = 0,
+  integer = false,
+}: {
+  value: number;
+  onCommit: (next: number) => void;
+  min?: number;
+  integer?: boolean;
+}): { value: string; set: (next: string) => void; commit: () => void } {
+  const [text, setText] = useState(String(value));
+
+  // Resync the buffer when the upstream value changes (e.g. after a save).
+  useEffect(() => {
+    setText(String(value));
+  }, [value]);
+
+  function commit() {
+    const parsed = Number(text);
+    if (text.trim() === '' || Number.isNaN(parsed)) {
+      // Invalid / empty input reverts to the floor (and notifies upstream
+      // so the controlled value matches what we display).
+      setText(String(min));
+      if (value !== min) onCommit(min);
+      return;
+    }
+    const clamped = Math.max(min, integer ? Math.floor(parsed) : parsed);
+    const nextText = String(clamped);
+    if (nextText !== text) setText(nextText);
+    if (clamped !== value) onCommit(clamped);
+  }
+
+  return { value: text, set: setText, commit };
 }

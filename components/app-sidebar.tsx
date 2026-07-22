@@ -341,7 +341,7 @@ export function AppSidebar() {
                         </Link>
                       </SidebarMenuButton>
                       {item.href === '/skills' && (
-                        <span className="ml-auto">
+                        <span className="pointer-events-none absolute right-2 top-1">
                           <SkillDraftBadge />
                         </span>
                       )}
