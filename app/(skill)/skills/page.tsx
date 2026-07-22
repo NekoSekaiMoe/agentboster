@@ -485,6 +485,22 @@ export default function SkillsPage() {
       />
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
+        {viewMode !== 'list' && drafts.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setViewMode('list')}
+            className="flex w-full items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 text-left transition-colors hover:bg-primary/10"
+          >
+            <Sparkles className="size-4 shrink-0 text-primary" />
+            <span className="text-sm">
+              <span className="font-medium">{drafts.length}</span> skill draft
+              {drafts.length === 1 ? '' : 's'} pending review.
+            </span>
+            <span className="ml-auto text-muted-foreground text-xs">
+              Review →
+            </span>
+          </button>
+        )}
         <Card>
           <CardHeader>
             <p className="text-muted-foreground text-sm">

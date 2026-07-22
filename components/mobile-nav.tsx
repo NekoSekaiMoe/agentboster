@@ -16,6 +16,7 @@ import type { ComponentType } from 'react';
 
 import { useI18n } from '@/components/i18n-provider';
 import type { TranslationKey } from '@/lib/i18n';
+import { SkillDraftBadge } from '@/components/skill-draft-badge';
 
 const navItems = [
   {
@@ -90,11 +91,18 @@ export function MobileNav() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex min-w-0 flex-col items-center gap-0.5 px-3 py-2 ${
+              className={`relative flex min-w-0 flex-col items-center gap-0.5 px-3 py-2 ${
                 isActive ? 'text-primary' : 'text-muted-foreground'
               }`}
             >
-              <Icon className="size-5" />
+              <span className="relative">
+                <Icon className="size-5" />
+                {item.href === '/skills' && (
+                  <span className="absolute -top-1.5 -right-2">
+                    <SkillDraftBadge />
+                  </span>
+                )}
+              </span>
               <span className="truncate font-medium text-[10px]">
                 {t(item.labelKey)}
               </span>

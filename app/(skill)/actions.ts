@@ -104,6 +104,26 @@ export async function listSkillsByStatusAction(
   return listSkillMetas({ status });
 }
 
+/**
+ * Lightweight count-only variant for nav badges. Cheaper than
+ * listSkillsByStatusAction because it skips deserializing every detail —
+ * the sidebar only needs the integer. Returns 0 on any error so the
+ * badge silently disappears rather than crashing the sidebar render.
+ */
+export async function getDraftSkillCountAction(): Promise<number> {
+  try {
+    await requireAuth();
+  } catch {
+    return 0;
+  }
+  try {
+    const drafts = await listSkillMetas({ status: 'draft' });
+    return drafts.length;
+  } catch {
+    return 0;
+  }
+}
+
 export async function createSkillAction(input: unknown): Promise<SkillDetail> {
   const authSession = await requireAuth();
   const { getUserById } = await import('@/lib/core/db/users');

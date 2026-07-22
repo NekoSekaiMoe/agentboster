@@ -68,6 +68,7 @@ import {
 } from '@/components/ui/sidebar';
 import type { TranslationKey } from '@/lib/i18n';
 import packageJson from '@/package.json';
+import { SkillDraftBadge } from '@/components/skill-draft-badge';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -339,6 +340,11 @@ export function AppSidebar() {
                           <span>{t(item.labelKey)}</span>
                         </Link>
                       </SidebarMenuButton>
+                      {item.href === '/skills' && (
+                        <span className="ml-auto">
+                          <SkillDraftBadge />
+                        </span>
+                      )}
                     </SidebarMenuItem>
                   );
                 })}
