@@ -36,6 +36,32 @@ export type SkillRuntime = z.infer<typeof skillRuntimeSchema>;
 export const SKILL_RUNTIMES: readonly SkillRuntime[] =
   skillRuntimeSchema.options;
 
+// --- Lifecycle status ---
+
+/**
+ * Lifecycle status of a skill.
+ *
+ * - `active` — visible in the system prompt's skill index; the model can
+ *   discover and invoke it. This is the default for any skill that was
+ *   imported (git / ClawHub) or manually created by the user.
+ * - `draft` — staged but not yet visible to the model. Used by the
+ *   experimental skill-distillation loop: when the background reviewer
+ *   proposes a new skill (either self-authored or a ClawHub suggestion),
+ *   it lands here so the user can approve / install / discard it from
+ *   the Skills page without it polluting the prompt until approved.
+ * - `archived` — soft-deleted. Kept on disk (recoverable) but hidden from
+ *   the prompt and from the default Skills listing. The curator promotes
+ *   stale / low-signal skills here instead of hard-deleting them.
+ *
+ * Backward-compat: rows written before this field existed deserialize as
+ * `active` via the `.default('active')` on the schema, so introducing the
+ * field does not migrate or break existing skills.
+ */
+export const skillStatusSchema = z.enum(['draft', 'active', 'archived']);
+export type SkillStatus = z.infer<typeof skillStatusSchema>;
+export const SKILL_STATUS_VALUES: readonly SkillStatus[] =
+  skillStatusSchema.options;
+
 // --- Skill detail (directory-level model) ---
 
 export const skillDetailSchema = z.object({
@@ -47,6 +73,27 @@ export const skillDetailSchema = z.object({
   updatedAt: z.number().int().nonnegative().default(0),
   frontmatter: skillFrontmatterSchema,
   files: z.array(skillFileEntrySchema).default([]),
+  status: skillStatusSchema.default('active'),
+  /**
+   * Free-form provenance for draft skills. Currently populated by the
+   * skill-distillation loop to record how the draft was produced so the
+   * Skills-page review UI can render the right actions ("install from
+   * ClawHub" vs "review generated SKILL.md"). Omitted / empty for
+   * user-created / imported skills.
+   */
+  draft: z
+    .object({
+      /** `'self_authored'` (we generated the SKILL.md) | `'clawhub_suggestion'` (install a remote skill). */
+      origin: z.enum(['self_authored', 'clawhub_suggestion']).optional(),
+      /** ClawHub slug when origin === 'clawhub_suggestion'. */
+      clawhubSlug: z.string().optional(),
+      /** Why the reviewer thought this was worth saving. */
+      rationale: z.string().optional(),
+      /** The session that produced the draft. */
+      sourceSessionId: z.string().optional(),
+      createdAt: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
 });
 
 export type SkillDetail = z.infer<typeof skillDetailSchema>;
@@ -162,6 +209,7 @@ export const skillMetaSchema = z.object({
   isClawHub: z.boolean().default(false),
   updatedAt: z.number().int().nonnegative().default(0),
   fileCount: z.number().int().nonnegative().default(0),
+  status: skillStatusSchema.default('active'),
 });
 
 export type SkillMeta = z.infer<typeof skillMetaSchema>;
@@ -221,6 +269,7 @@ export function toSkillMeta(detail: SkillDetail): SkillMeta {
     isClawHub: detail.sourceType === 'clawhub' || isClawHubSkillDetail(detail),
     updatedAt: detail.updatedAt,
     fileCount: detail.files.length,
+    status: detail.status ?? 'active',
   };
 }
 

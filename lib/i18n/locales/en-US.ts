@@ -62,6 +62,9 @@ export const enUS = {
   'config.sections.agentd.description':
     'Manage remote Agent Daemon connections, certificates, and sandbox settings.',
   'config.sections.agentd.title': 'Agent Daemon',
+  'config.sections.experiments.description':
+    'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
+  'config.sections.experiments.title': 'Experiments',
   'config.sections.agents.description':
     'Configure named agents, prompts, and model overrides.',
   'config.sections.agents.title': 'Agents',
@@ -261,6 +264,21 @@ export const enUS = {
   'config.forms.autonomy.level': 'Level',
   'config.forms.autonomy.maxSteps': 'Max steps',
   'config.forms.autonomy.title': 'Autonomy policy',
+  'config.forms.experiments.title': 'Experimental features',
+  'config.forms.experiments.description':
+    'These features are still under validation. Enable them to try capabilities that are not yet on by default. Each one runs only when turned on.',
+  'config.forms.experiments.skillDistillation': 'Skill distillation',
+  'config.forms.experiments.skillDistillationHint':
+    'After a conversation with enough tool calls closes, a background reviewer may propose a reusable skill (self-authored or a ClawHub install suggestion). Proposals land as drafts on the Skills page for your review — they are never auto-activated.',
+  'config.forms.experiments.toolCallThreshold': 'Tool-call threshold',
+  'config.forms.experiments.toolCallThresholdHint':
+    'Minimum tool calls in one conversation before the reviewer is triggered. Lower = more proposals (noisier); higher = fewer (misses short workflows).',
+  'config.forms.experiments.preferClawHub': 'Search ClawHub first',
+  'config.forms.experiments.preferClawHubHint':
+    'Before self-authoring, search the ClawHub skill hub for an existing skill covering the same capability. Reusing a community skill is usually better than a first guess.',
+  'config.forms.experiments.clawhubMinScore': 'ClawHub min score',
+  'config.forms.experiments.clawhubMinScoreHint':
+    'Minimum relevance score (from clawhub.ai search) required to accept a suggestion. Empirically values below ~1.0 are weak matches.',
   'config.forms.chat.composerDescription':
     'Choose how keyboard shortcuts work in the Web chat composer.',
   'config.forms.chat.autoSaveNote':

@@ -468,6 +468,7 @@ export async function scanSkillsFromRepo(
         updatedAt: now,
         frontmatter,
         files: toFileEntries(filePaths),
+        status: 'active',
       },
       localDir: skillDir,
       filePaths,
@@ -513,6 +514,7 @@ async function scanRootSkillFromRepo(
       updatedAt: Date.now(),
       frontmatter,
       files: toFileEntries(filePaths),
+      status: 'active',
     },
     localDir: repoDir,
     filePaths,
@@ -553,6 +555,7 @@ async function scanClawHubSkillFromRepo(
       updatedAt: Date.now(),
       frontmatter: clawhubManifestToFrontmatter(manifest),
       files: toFileEntries(filePaths),
+      status: 'active',
     },
     localDir: repoDir,
     filePaths,
@@ -653,6 +656,74 @@ async function fetchClawHubJson(url: URL): Promise<unknown> {
   }
 
   return response.json();
+}
+
+// ─── Skill search (for the distillation loop) ───
+
+/**
+ * A single ClawHub skill-search hit. `score` is the hub's own relevance
+ * score (roughly TF-IDF-ish, unbounded but empirically <1 is weak).
+ */
+export interface ClawHubSearchHit {
+  slug: string;
+  displayName: string;
+  summary: string;
+  score: number;
+  /** Epoch ms of the skill's latest version, when the hub reports one. */
+  updatedAt?: number;
+}
+
+const clawhubSearchHitSchema = z.object({
+  slug: z.string().min(1),
+  displayName: z.string().optional().default(''),
+  summary: z.string().optional().default(''),
+  score: z.number().default(0),
+  updatedAt: z.number().optional(),
+});
+
+const clawhubSearchResponseSchema = z.object({
+  results: z.array(clawhubSearchHitSchema).default([]),
+});
+
+/**
+ * Search the ClawHub skill hub for skills matching a natural-language
+ * query. Used by the skill-distillation loop to prefer reusing an
+ * existing community skill over self-authoring one from scratch.
+ *
+ * Best-effort: any network / parse / shape failure returns an empty
+ * array. The caller treats "no hits" as "proceed to self-author".
+ *
+ * The endpoint returns relevance-scored hits; we do no client-side
+ * ranking beyond preserving the hub's ordering. The caller decides
+ * whether the top hit clears its own acceptance threshold (see
+ * `experiments.skillDistillation.clawhubMinScore`).
+ */
+export async function searchClawHubSkills(input: {
+  query: string;
+  limit?: number;
+}): Promise<ClawHubSearchHit[]> {
+  const query = input.query.trim();
+  if (!query) return [];
+  const limit = Math.min(Math.max(input.limit ?? 5, 1), 10);
+
+  try {
+    const url = new URL('/api/search', CLAWHUB_API_BASE_URL);
+    url.searchParams.set('q', query);
+    url.searchParams.set('limit', String(limit));
+
+    const raw = await fetchClawHubJson(url);
+    const parsed = clawhubSearchResponseSchema.parse(raw);
+    return parsed.results.map((r) => ({
+      slug: r.slug,
+      displayName: r.displayName ?? '',
+      summary: r.summary ?? '',
+      score: r.score,
+      updatedAt: r.updatedAt,
+    }));
+  } catch {
+    // Swallow — search is advisory; failures mean "no suggestion".
+    return [];
+  }
 }
 
 async function fetchClawHubFile(input: {
@@ -777,6 +848,7 @@ export async function downloadAndSyncSkillFromClawHub(input: {
           parsedSkillMd.frontmatter.version ?? versionPayload.version.version,
       },
       files: toFileEntries(filePaths),
+      status: 'active',
     };
 
     await syncSkillFilesToBlob(detail.name, tempDir, filePaths);

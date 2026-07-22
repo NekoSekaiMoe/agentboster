@@ -64,6 +64,9 @@ export const ja = {
   'config.sections.agentd.description':
     'リモート Agent Daemon 接続、証明書、サンドボックス設定を管理します。',
   'config.sections.agentd.title': 'Agent Daemon',
+  'config.sections.experiments.description':
+    'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
+  'config.sections.experiments.title': 'Experiments',
   'config.sections.agents.description':
     '名前付きエージェント、プロンプト、モデルの上書きを設定します。',
   'config.sections.agents.title': 'エージェント',
@@ -266,6 +269,21 @@ export const ja = {
   'config.forms.autonomy.level': 'レベル',
   'config.forms.autonomy.maxSteps': '最大ステップ数',
   'config.forms.autonomy.title': '自律ポリシー',
+  'config.forms.experiments.title': '実験的機能',
+  'config.forms.experiments.description':
+    'これらの機能はまだ検証中です。デフォルトで有効になっていない機能を試すために個別に有効化できます。それぞれオンの時のみ動作します。',
+  'config.forms.experiments.skillDistillation': 'スキル蒸留',
+  'config.forms.experiments.skillDistillationHint':
+    'ツール呼び出しが閾値に達した会話が終了すると、バックグラウンドのレビュアーが再利用可能なスキル(自己作成または ClawHub インストール提案)の提案を検討します。提案はスキルページに下書きとして表示され、自動有効化されることはありません。',
+  'config.forms.experiments.toolCallThreshold': 'ツール呼び出し閾値',
+  'config.forms.experiments.toolCallThresholdHint':
+    'レビュアーをトリガーする最小ツール呼び出し回数。低く=提案が増える(うるさい);高く=提案が減る(短いワークフローを見落とす)。',
+  'config.forms.experiments.preferClawHub': 'ClawHub を優先検索',
+  'config.forms.experiments.preferClawHubHint':
+    '自己作成前に、ClawHub スキルハブで同じ機能をカバーする既存スキルを検索します。コミュニティスキルの再利用は、モデルの一回の推測より通常優れています。',
+  'config.forms.experiments.clawhubMinScore': 'ClawHub 最低スコア',
+  'config.forms.experiments.clawhubMinScoreHint':
+    '提案を受け入れるために必要な最低関連度スコア(clawhub.ai 検索から)。経験上 1.0 未満は弱い一致です。',
   'config.forms.chat.composerDescription':
     'Web チャット入力欄のキーボードショートカットを選択します。',
   'config.forms.chat.autoSaveNote':

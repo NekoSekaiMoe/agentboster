@@ -67,6 +67,11 @@ export const configSections = [
     titleKey: 'config.sections.agentd.title',
   },
   {
+    key: 'experiments',
+    descriptionKey: 'config.sections.experiments.description',
+    titleKey: 'config.sections.experiments.title',
+  },
+  {
     key: 'monitoring',
     descriptionKey: 'config.sections.monitoring.description',
     titleKey: 'config.sections.monitoring.title',

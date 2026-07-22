@@ -60,6 +60,9 @@ export const zhCN = {
   'config.sections.agentd.description':
     '管理远程 Agent Daemon 连接、证书和沙箱设置。',
   'config.sections.agentd.title': 'Agent Daemon',
+  'config.sections.experiments.description':
+    'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
+  'config.sections.experiments.title': 'Experiments',
   'config.sections.agents.description': '配置命名智能体、提示词和模型覆盖。',
   'config.sections.agents.title': '智能体',
   'config.sections.appearance.description': '自定义导航样式和显示偏好。',
@@ -242,6 +245,21 @@ export const zhCN = {
   'config.forms.autonomy.level': '级别',
   'config.forms.autonomy.maxSteps': '最大步数',
   'config.forms.autonomy.title': '自主策略',
+  'config.forms.experiments.title': '实验性功能',
+  'config.forms.experiments.description':
+    '这些功能仍在验证中。可单独开启以试用尚未默认启用的能力,每项功能仅在打开时运行。',
+  'config.forms.experiments.skillDistillation': '技能提炼',
+  'config.forms.experiments.skillDistillationHint':
+    '当一次对话中的工具调用达到阈值后,后台审查器会判断是否值得沉淀为可复用技能(自行撰写或 ClawHub 安装建议)。提案会以草稿形式出现在技能页面供你审核——绝不自动激活。',
+  'config.forms.experiments.toolCallThreshold': '工具调用阈值',
+  'config.forms.experiments.toolCallThresholdHint':
+    '触发审查器所需的最少工具调用次数。调低=提案更多(更嘈杂);调高=提案更少(可能漏掉短工作流)。',
+  'config.forms.experiments.preferClawHub': '优先搜索 ClawHub',
+  'config.forms.experiments.preferClawHubHint':
+    '在自行撰写技能前,先在 ClawHub 技能中心搜索是否已有同类技能。复用社区技能通常优于模型的一次性猜测。',
+  'config.forms.experiments.clawhubMinScore': 'ClawHub 最低分数',
+  'config.forms.experiments.clawhubMinScoreHint':
+    '接受建议所需的最低相关度分数(来自 clawhub.ai 搜索)。经验上低于 1.0 的属于弱匹配。',
   'config.forms.chat.composerDescription':
     '选择 Web 聊天输入框的键盘快捷键行为。',
   'config.forms.chat.autoSaveNote': '修改后自动保存。无需手动保存。',

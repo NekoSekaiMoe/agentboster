@@ -34,6 +34,8 @@ import {
   syncRepoSkillDetails,
   upsertSkillDetail,
   updateSkillFile,
+  activateSkillDraft,
+  archiveSkill,
 } from '@/lib/core/kv/skills';
 import type {
   ActiveImportJobSummary,
@@ -89,6 +91,17 @@ async function requireAuth() {
 export async function listSkillsAction(): Promise<SkillMeta[]> {
   await requireAuth();
   return listSkillMetas();
+}
+
+/**
+ * List skills filtered by lifecycle status. Used by the Skills page to
+ * render the drafts review section separately from the active list.
+ */
+export async function listSkillsByStatusAction(
+  status: 'draft' | 'active' | 'archived',
+): Promise<SkillMeta[]> {
+  await requireAuth();
+  return listSkillMetas({ status });
 }
 
 export async function createSkillAction(input: unknown): Promise<SkillDetail> {
@@ -405,4 +418,54 @@ export async function buildSkillArchiveAction(name: string): Promise<{
     mimeType: 'application/x-tar',
     contentBase64: archive.toString('base64'),
   };
+}
+
+// ─── Draft review actions ───
+// These power the "Pending review" section on the Skills page, where the
+// experimental skill-distillation loop stages proposals. Each action is
+// admin-gated, matching the rest of the write surface.
+
+async function requireAdmin() {
+  const authSession = await requireAuth();
+  const { getUserById } = await import('@/lib/core/db/users');
+  const user = await getUserById(authSession.userId);
+  if (!user?.roles.includes('admin')) {
+    throw new Error('Forbidden: admin access required');
+  }
+  return user;
+}
+
+/**
+ * Promote a draft skill to active so it shows up in the agent's system
+ * prompt skill index. For ClawHub-suggestion drafts the staged detail
+ * already contains the fetched files, so this is a pure status flip.
+ */
+export async function activateSkillDraftAction(
+  name: string,
+): Promise<SkillDetail> {
+  await requireAdmin();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Skill name is required');
+  const detail = await activateSkillDraft(trimmed);
+  if (!detail) {
+    throw new Error(`Skill "${trimmed}" not found`);
+  }
+  return detail;
+}
+
+/**
+ * Soft-delete a skill by moving it to archived status. The blob files are
+ * kept so the action is recoverable (vs deleteSkillAction which is hard).
+ * Used for both: retiring an active skill AND discarding a draft without
+ * the destructive hard-delete.
+ */
+export async function archiveSkillAction(name: string): Promise<SkillDetail> {
+  await requireAdmin();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Skill name is required');
+  const detail = await archiveSkill(trimmed);
+  if (!detail) {
+    throw new Error(`Skill "${trimmed}" not found`);
+  }
+  return detail;
 }

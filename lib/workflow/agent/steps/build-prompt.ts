@@ -155,7 +155,10 @@ export async function buildSystemPrompt(
       : DEFAULT_SYSTEM_PROMPT;
 
   const builtinSectionsList = await listBuiltinMemorySections();
-  const skills = await listSkillDetails();
+  // Only `active` skills are surfaced in the prompt. Drafts (proposed by
+  // the skill-distillation loop) and archived skills are intentionally
+  // hidden so the model never acts on an unreviewed or retired skill.
+  const skills = await listSkillDetails({ status: 'active' });
 
   const soulSection = await getBuiltinMemorySection('SOUL');
   const soulTemplate = parseFollowUpTemplate(soulSection.content);

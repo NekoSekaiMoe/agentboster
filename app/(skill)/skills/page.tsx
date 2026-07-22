@@ -1,6 +1,15 @@
 'use client';
 
-import { Download, FileText, Loader2, Plus, Trash2 } from 'lucide-react';
+import {
+  Download,
+  FileText,
+  Loader2,
+  Plus,
+  Sparkles,
+  Trash2,
+  Check,
+  Archive,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -13,6 +22,9 @@ import {
   importClawHubSkillAction,
   listActiveSkillImportJobsAction,
   listSkillsAction,
+  listSkillsByStatusAction,
+  activateSkillDraftAction,
+  archiveSkillAction,
   startSkillImportAction,
   updateSkillFileAction,
 } from '@/app/(skill)/actions';
@@ -63,6 +75,7 @@ type ViewMode = 'list' | 'create' | 'import' | 'detail';
 export default function SkillsPage() {
   const { t } = useI18n();
   const [skills, setSkills] = useState<SkillMeta[]>([]);
+  const [drafts, setDrafts] = useState<SkillMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [loadingFile, setLoadingFile] = useState<string | null>(null);
@@ -100,6 +113,7 @@ export default function SkillsPage() {
   const [pendingDeleteSkill, setPendingDeleteSkill] = useState<string | null>(
     null,
   );
+  const [resolvingDraft, setResolvingDraft] = useState<string | null>(null);
 
   const isAnyLoading =
     loading || loadingDetail || !!loadingFile || importing || importingClawHub;
@@ -107,7 +121,12 @@ export default function SkillsPage() {
   const loadSkills = useCallback(async () => {
     setLoading(true);
     try {
-      setSkills(await listSkillsAction());
+      const [all, draftList] = await Promise.all([
+        listSkillsAction(),
+        listSkillsByStatusAction('draft'),
+      ]);
+      setSkills(all);
+      setDrafts(draftList);
     } catch {
       toast.error(t('toast.skill.listLoadFailed'));
     } finally {
@@ -278,6 +297,7 @@ export default function SkillsPage() {
       await deleteSkillAction(name);
       toast.success(`Skill "${name}" deleted`);
       setSkills((prev) => prev.filter((s) => s.name !== name));
+      setDrafts((prev) => prev.filter((s) => s.name !== name));
       if (selectedSkill?.name === name) {
         setSelectedSkill(null);
         setViewMode('list');
@@ -288,6 +308,44 @@ export default function SkillsPage() {
       );
     } finally {
       setDeleting(null);
+    }
+  }
+
+  async function activateDraft(name: string) {
+    setResolvingDraft(name);
+    try {
+      await activateSkillDraftAction(name);
+      toast.success(`Skill "${name}" activated`);
+      await loadSkills();
+      if (selectedSkill?.name === name) {
+        setSelectedSkill(null);
+        setViewMode('list');
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to activate draft',
+      );
+    } finally {
+      setResolvingDraft(null);
+    }
+  }
+
+  async function archiveSkillByName(name: string) {
+    setResolvingDraft(name);
+    try {
+      await archiveSkillAction(name);
+      toast.success(`Skill "${name}" archived`);
+      await loadSkills();
+      if (selectedSkill?.name === name) {
+        setSelectedSkill(null);
+        setViewMode('list');
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to archive skill',
+      );
+    } finally {
+      setResolvingDraft(null);
     }
   }
 
@@ -628,6 +686,21 @@ export default function SkillsPage() {
                 ← Back
               </Button>
               <h2 className="font-semibold text-lg">{selectedSkill.name}</h2>
+              {selectedSkill.status === 'draft' && (
+                <span className="rounded-full bg-primary/15 px-2 py-0.5 font-medium text-primary text-xs">
+                  Draft
+                </span>
+              )}
+              {selectedSkill.status === 'archived' && (
+                <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground text-xs">
+                  Archived
+                </span>
+              )}
+              {selectedSkill.draft?.rationale && (
+                <span className="text-muted-foreground text-xs italic">
+                  {selectedSkill.draft.rationale}
+                </span>
+              )}
               <div className="ml-auto flex flex-wrap justify-end gap-2">
                 {selectedEntrypointPath ? (
                   <Button
@@ -655,6 +728,48 @@ export default function SkillsPage() {
                   )}
                   Download
                 </Button>
+                {selectedSkill.status === 'draft' && (
+                  <>
+                    <Button
+                      size="sm"
+                      disabled={resolvingDraft === selectedSkill.name}
+                      onClick={() => void activateDraft(selectedSkill.name)}
+                    >
+                      {resolvingDraft === selectedSkill.name ? (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      ) : (
+                        <Check className="mr-1 size-4" />
+                      )}
+                      Activate
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={resolvingDraft === selectedSkill.name}
+                      onClick={() =>
+                        void archiveSkillByName(selectedSkill.name)
+                      }
+                    >
+                      <Archive className="mr-1 size-4" />
+                      Discard
+                    </Button>
+                  </>
+                )}
+                {selectedSkill.status === 'active' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={resolvingDraft === selectedSkill.name}
+                    onClick={() => void archiveSkillByName(selectedSkill.name)}
+                  >
+                    {resolvingDraft === selectedSkill.name ? (
+                      <Loader2 className="mr-1 size-4 animate-spin" />
+                    ) : (
+                      <Archive className="mr-1 size-4" />
+                    )}
+                    Archive
+                  </Button>
+                )}
               </div>
             </div>
             {selectedSkill.description && (
@@ -797,6 +912,93 @@ export default function SkillsPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              {/* Pending review — drafts staged by the skill-distillation loop. */}
+              {drafts.length > 0 && (
+                <Card className="border-primary/30 bg-primary/5">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Sparkles className="size-4 text-primary" />
+                      Pending Review
+                      <span className="ml-1 rounded-full bg-primary/15 px-2 py-0.5 font-medium text-primary text-xs">
+                        {drafts.length}
+                      </span>
+                    </CardTitle>
+                    <CardDescription>
+                      Auto-generated skill proposals from your recent
+                      conversations. Review and activate the ones you want the
+                      agent to use; discard the rest.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {drafts.map((draft) => (
+                      <div
+                        key={draft.name}
+                        className="flex flex-col gap-3 rounded-md border bg-background p-3 sm:flex-row sm:items-start"
+                      >
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left"
+                          onClick={() => viewSkillDetail(draft.name)}
+                          disabled={loadingDetail}
+                        >
+                          <div className="font-medium text-sm">
+                            {draft.name}
+                          </div>
+                          {draft.description && (
+                            <p className="mt-1 line-clamp-2 text-muted-foreground text-xs">
+                              {draft.description}
+                            </p>
+                          )}
+                          <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground text-xs">
+                            {draft.isClawHub ? (
+                              <span className="rounded bg-muted px-1.5 py-0.5">
+                                ClawHub suggestion
+                              </span>
+                            ) : (
+                              <span className="rounded bg-muted px-1.5 py-0.5">
+                                Self-authored
+                              </span>
+                            )}
+                            {draft.updatedAt > 0 && (
+                              <span>{formatTime(draft.updatedAt)}</span>
+                            )}
+                          </div>
+                        </button>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Button
+                            size="sm"
+                            disabled={resolvingDraft === draft.name}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void activateDraft(draft.name);
+                            }}
+                          >
+                            {resolvingDraft === draft.name ? (
+                              <Loader2 className="mr-1 size-3.5 animate-spin" />
+                            ) : (
+                              <Check className="mr-1 size-3.5" />
+                            )}
+                            Activate
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={resolvingDraft === draft.name}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void archiveSkillByName(draft.name);
+                            }}
+                          >
+                            <Archive className="size-3.5" />
+                            <span className="sr-only">Discard</span>
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Optimistic import pending card */}
               {importJob && (
                 <Card className="border-dashed opacity-70">
@@ -811,90 +1013,92 @@ export default function SkillsPage() {
                   </CardContent>
                 </Card>
               )}
-              {skills.length === 0 && !importJob && (
+              {skills.length === 0 && drafts.length === 0 && !importJob && (
                 <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
                   No skills installed
                 </div>
               )}
-              {skills.map((skill) => (
-                <Card
-                  key={skill.name}
-                  className="cursor-pointer transition-colors hover:bg-accent/50"
-                >
-                  <CardContent className="flex items-start justify-between gap-4 pt-4">
-                    <button
-                      type="button"
-                      className="flex-1 text-left"
-                      onClick={() => viewSkillDetail(skill.name)}
-                      disabled={loadingDetail}
-                    >
-                      <div className="font-medium text-sm">{skill.name}</div>
-                      {skill.description && (
-                        <p className="mt-1 text-muted-foreground text-xs">
-                          {skill.description}
-                        </p>
-                      )}
-                      <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground text-xs">
-                        <span>
-                          {getSkillFamilyLabel({
-                            isClawHub: skill.isClawHub,
-                            sourceType: skill.sourceType,
-                          })}
-                        </span>
-                        <span>
-                          {getSkillSourceLabel({
-                            isClawHub: skill.isClawHub,
-                            sourceType: skill.sourceType,
-                          })}
-                        </span>
-                        {skill.gitURL && (
-                          <span className="max-w-48 truncate">
-                            {skill.gitURL}
+              {skills
+                .filter((s) => (s.status ?? 'active') === 'active')
+                .map((skill) => (
+                  <Card
+                    key={skill.name}
+                    className="cursor-pointer transition-colors hover:bg-accent/50"
+                  >
+                    <CardContent className="flex items-start justify-between gap-4 pt-4">
+                      <button
+                        type="button"
+                        className="flex-1 text-left"
+                        onClick={() => viewSkillDetail(skill.name)}
+                        disabled={loadingDetail}
+                      >
+                        <div className="font-medium text-sm">{skill.name}</div>
+                        {skill.description && (
+                          <p className="mt-1 text-muted-foreground text-xs">
+                            {skill.description}
+                          </p>
+                        )}
+                        <div className="mt-1 flex flex-wrap gap-2 text-muted-foreground text-xs">
+                          <span>
+                            {getSkillFamilyLabel({
+                              isClawHub: skill.isClawHub,
+                              sourceType: skill.sourceType,
+                            })}
                           </span>
-                        )}
-                        {skill.updatedAt > 0 && (
-                          <span>{formatTime(skill.updatedAt)}</span>
-                        )}
-                        <span>{skill.fileCount} file(s)</span>
+                          <span>
+                            {getSkillSourceLabel({
+                              isClawHub: skill.isClawHub,
+                              sourceType: skill.sourceType,
+                            })}
+                          </span>
+                          {skill.gitURL && (
+                            <span className="max-w-48 truncate">
+                              {skill.gitURL}
+                            </span>
+                          )}
+                          {skill.updatedAt > 0 && (
+                            <span>{formatTime(skill.updatedAt)}</span>
+                          )}
+                          <span>{skill.fileCount} file(s)</span>
+                        </div>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0"
+                          disabled={downloading === skill.name}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadSkillArchive(skill.name);
+                          }}
+                        >
+                          {downloading === skill.name ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Download className="size-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0 text-destructive"
+                          disabled={deleting === skill.name}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingDeleteSkill(skill.name);
+                          }}
+                        >
+                          {deleting === skill.name ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="size-4" />
+                          )}
+                        </Button>
                       </div>
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0"
-                        disabled={downloading === skill.name}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          downloadSkillArchive(skill.name);
-                        }}
-                      >
-                        {downloading === skill.name ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <Download className="size-4" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 text-destructive"
-                        disabled={deleting === skill.name}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPendingDeleteSkill(skill.name);
-                        }}
-                      >
-                        {deleting === skill.name ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="size-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                ))}
             </div>
           ))}
       </div>
