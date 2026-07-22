@@ -8,7 +8,7 @@ import (
 	"image/jpeg"
 	"image/png"
 
-	"github.com/disintegration/imaging"
+	"github.com/boxes-ltd/imaging"
 )
 
 const DefaultMaxWidth = 1400
