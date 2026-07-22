@@ -38,6 +38,27 @@ import { signBlobUrl } from './proxy-link';
 // The client and command types are inferred from `buildClient()` below via
 // `ReturnType<typeof buildClient>`, so no top-level SDK type reference is
 // needed here — the module is loaded lazily inside getClient().
+//
+// Note on typing: the SDK ships its `send()` method on a deep base class
+// (@smithy/core's Client). TypeScript's inference through the namespace
+// re-exports occasionally fails to resolve `send` on the dynamically-imported
+// S3Client (seen on @aws-sdk/client-s3 3.1085.0), surfacing as
+// `Property 'send' does not exist on type 'S3Client'` even though the runtime
+// method is present. We model the minimal shape we actually call so the
+// dynamic-import path type-checks without depending on that deep re-export.
+
+/** Minimal structural shape of the SDK client surface we use. */
+interface SdkClientLike {
+  send<Input, Output>(command: unknown): Promise<Output>;
+}
+
+/** Command constructors exposed by the dynamically-imported SDK module. */
+interface SdkCommands {
+  PutObjectCommand: new (input: unknown) => unknown;
+  GetObjectCommand: new (input: unknown) => unknown;
+  ListObjectsV2Command: new (input: unknown) => unknown;
+  DeleteObjectsCommand: new (input: unknown) => unknown;
+}
 
 type PutResult = {
   url: string;
@@ -92,8 +113,9 @@ async function buildClient() {
       accessKeyId: requireEnv('S3_ACCESS_KEY_ID'),
       secretAccessKey: requireEnv('S3_SECRET_ACCESS_KEY'),
     },
-  });
-  return { client, bucket: requireEnv('S3_BUCKET'), commands: mod };
+  }) as unknown as SdkClientLike;
+  const commands = mod as unknown as SdkCommands;
+  return { client, bucket: requireEnv('S3_BUCKET'), commands };
 }
 
 function getClient() {
