@@ -8,6 +8,7 @@ import {
 import { parseProviderScopedModelId } from '@/lib/ai';
 import { applyClientSpoofOverride } from '@/lib/ai/client-spoof';
 import { extractMemoriesFromSession } from '@/lib/memory/extract';
+import { maybeDistillSkillFromSession } from '@/lib/skills/distill';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { ClientSpoof } from '@/types/config/ai';
@@ -596,6 +597,28 @@ export async function chatWorkflow(
           });
         } catch (err) {
           logger.warn('memory:extract_failed', {
+            sessionId,
+            runId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        // Experimental skill distillation: if the conversation had enough
+        // tool-call density, run a background reviewer that may stage a
+        // draft skill (self-authored or a ClawHub install suggestion).
+        // Best-effort, off by default (gated by
+        // config.experiments.skillDistillation.enabled). Same discipline as
+        // memory extraction: runs AFTER the response closes on a separate
+        // LLM call, never touches the main conversation's prompt cache.
+        try {
+          await maybeDistillSkillFromSession({
+            sessionId,
+            userId: source.userId as string,
+            config: effectiveConfig,
+            user,
+          });
+        } catch (err) {
+          logger.warn('skills:distill_failed', {
             sessionId,
             runId,
             error: err instanceof Error ? err.message : String(err),

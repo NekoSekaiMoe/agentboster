@@ -66,3 +66,10 @@ review.md
 review_*.md
 landing_memoh
 Cargo.lock
+
+# local task/planning notes (session inputs, not project code)
+/plan.md
+
+# python bytecode caches from skill scripts (.agents/skills/**/scripts)
+.agents/skills/**/__pycache__/
+*.pyc

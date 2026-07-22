@@ -61,6 +61,9 @@ export const zhTW = {
   'config.sections.agentd.description':
     '管理遠端 Agent Daemon 連線、憑證和沙箱設定。',
   'config.sections.agentd.title': 'Agent Daemon',
+  'config.sections.experiments.description':
+    '選擇性啟用的實驗性功能。預設關閉；可個別開啟以試用仍在驗證中的能力。',
+  'config.sections.experiments.title': '實驗性功能',
   'config.sections.agents.description': '設定命名智能體、提示詞和模型覆寫。',
   'config.sections.agents.title': '智能體',
   'config.sections.appearance.description': '自訂導覽樣式和顯示偏好。',
@@ -243,6 +246,24 @@ export const zhTW = {
   'config.forms.autonomy.level': '等級',
   'config.forms.autonomy.maxSteps': '最大步數',
   'config.forms.autonomy.title': '自主策略',
+  'config.forms.experiments.title': '實驗性功能',
+  'config.forms.experiments.description':
+    '這些功能仍在驗證中。可單獨開啟以試用尚未預設啟用的能力,每項功能僅在開啟時運行。',
+  'config.forms.experiments.skillDistillation': '技能提煉',
+  'config.forms.experiments.skillDistillationHint':
+    '當一次對話中的工具呼叫達到閾值後,背景審查器會判斷是否值得沉澱為可複用技能(自行撰寫或 ClawHub 安裝建議)。提案會以草稿形式出現在技能頁面供你審核——絕不自動啟用。',
+  'config.forms.experiments.toolCallThreshold': '工具呼叫閾值',
+  'config.forms.experiments.toolCallThresholdHint':
+    '觸發審查器所需的最少工具呼叫次數。調低=提案更多(更吵);調高=提案更少(可能漏掉短工作流)。',
+  'config.forms.experiments.preferClawHub': '優先搜尋 ClawHub',
+  'config.forms.experiments.preferClawHubHint':
+    '在自行撰寫技能前,先在 ClawHub 技能中心搜尋是否已有同類技能。複用社群技能通常優於模型的一次性猜測。',
+  'config.forms.experiments.clawhubMinScore': 'ClawHub 最低分數',
+  'config.forms.experiments.clawhubMinScoreHint':
+    '接受建議所需的最低相關度分數(來自 clawhub.ai 搜尋)。經驗上低於 1.0 的屬於弱匹配。',
+  'config.forms.experiments.curatorIntervalHours': '整理間隔(小時)',
+  'config.forms.experiments.curatorIntervalHoursHint':
+    '自動審查草稿技能的間隔小時數。整理器會自動歸檔低價值草稿以保持審核佇列清爽。調低=更整潔(更多 LLM 呼叫)。設為 0 可停用。',
   'config.forms.chat.composerDescription':
     '選擇 Web 聊天輸入框的鍵盤快捷鍵行為。',
   'config.forms.chat.autoSaveNote': '修改後自動儲存。無需手動儲存。',

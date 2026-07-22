@@ -6,6 +6,7 @@ import { aiConfigSchema } from './ai';
 import { autonomyConfigSchema } from './autonomy';
 import { chatConfigSchema } from './chat';
 import { channelsConfigSchema } from './channels';
+import { experimentsConfigSchema } from './experiments';
 import { languageConfigSchema } from './language';
 import { mcpRemotesServersConfigSchema } from './mcp';
 import { sandboxConfigSchema } from './sandbox';
@@ -17,6 +18,7 @@ import { ttsConfigSchema } from './tts';
  * Full application configuration schema.
  */
 export * from './channels';
+export * from './experiments';
 export * from './language';
 export const appConfigSchema = z.object({
   /** AI models and provider settings. */
@@ -54,6 +56,9 @@ export const appConfigSchema = z.object({
 
   /** Text-to-Speech configuration (Web auto-play + IM voice replies). */
   tts: ttsConfigSchema.optional(),
+
+  /** Experimental features (off by default). */
+  experiments: experimentsConfigSchema.optional(),
 });
 
 /**

@@ -23,6 +23,7 @@ import {
   toSkillDetailKey,
   toSkillMeta,
 } from '@/types/skills';
+import type { SkillStatus } from '@/types/skills';
 import { z } from 'zod';
 
 const logger = createLogger('kv.skills');
@@ -174,15 +175,23 @@ export async function getSkillIndex(): Promise<SkillIndex> {
   return await readSkillIndexRaw();
 }
 
-export async function listSkillMetas(): Promise<SkillMeta[]> {
+export async function listSkillMetas(filter?: {
+  status?: SkillStatus;
+}): Promise<SkillMeta[]> {
   const index = await readSkillIndexRaw();
-  return index.skills;
+  if (!filter?.status) return index.skills;
+  return index.skills.filter((s) => (s.status ?? 'active') === filter.status);
 }
 
-export async function listSkillDetails(): Promise<SkillDetail[]> {
+export async function listSkillDetails(filter?: {
+  status?: SkillStatus;
+}): Promise<SkillDetail[]> {
   const index = await readSkillIndexRaw();
+  const candidates = filter?.status
+    ? index.skills.filter((s) => (s.status ?? 'active') === filter.status)
+    : index.skills;
   const details: SkillDetail[] = [];
-  for (const meta of index.skills) {
+  for (const meta of candidates) {
     const detail = await readSkillDetailRaw(meta.name);
     if (detail) details.push(detail);
   }
@@ -319,6 +328,14 @@ export async function persistManualSkill(input: {
   name: string;
   description: string;
   files: SkillFile[];
+  /**
+   * Lifecycle status. User-created / imported skills default to
+   * `active`. The skill-distillation loop passes `draft` to stage a
+   * proposal for review without surfacing it to the model.
+   */
+  status?: SkillDetail['status'];
+  /** Provenance block for draft skills; ignored for active skills. */
+  draft?: SkillDetail['draft'];
 }): Promise<SkillDetail> {
   const { name, description, files } = input;
   const trimmedName = name.trim();
@@ -364,6 +381,8 @@ export async function persistManualSkill(input: {
     updatedAt: now,
     frontmatter,
     files: filePaths.map((p) => ({ path: p })),
+    status: input.status ?? 'active',
+    draft: input.status === 'draft' ? input.draft : undefined,
   };
 
   return await upsertSkillDetail(detail);
@@ -424,6 +443,64 @@ export async function updateSkillFile(
   await writeSkillIndexRaw(nextIndex);
 
   return existing;
+}
+
+// ─── Lifecycle status transitions ───
+
+/**
+ * Transition a skill's lifecycle status. Used by the Skills-page review
+ * UI to resolve draft proposals (→ active) and to soft-delete skills
+ * (→ archived) without losing the blob files.
+ *
+ * `active → draft` is intentionally rejected: once a skill is visible
+ * to the model we don't silently demote it; the user should delete and
+ * recreate if they really want that.
+ */
+export async function setSkillStatus(
+  name: string,
+  next: SkillStatus,
+): Promise<SkillDetail | null> {
+  const trimmedName = name.trim();
+  if (!trimmedName) throw new Error('Skill name is required');
+
+  const existing = await readSkillDetailRaw(trimmedName);
+  if (!existing) return null;
+
+  const current = existing.status ?? 'active';
+  if (current === 'active' && next === 'draft') {
+    throw new Error(
+      `Cannot demote an active skill to draft (skill "${trimmedName}"). Delete and recreate it instead.`,
+    );
+  }
+
+  existing.status = next;
+  existing.updatedAt = Date.now();
+  // Activating a draft clears its provenance block — once it's a real
+  // skill, the draft metadata is no longer meaningful.
+  if (next === 'active') {
+    existing.draft = undefined;
+  }
+  await writeSkillDetailRaw(existing);
+
+  const existingIndex = await readSkillIndexRaw();
+  const nextIndex = buildIndexFromDetails(existingIndex, [existing]);
+  await writeSkillIndexRaw(nextIndex);
+
+  return existing;
+}
+
+/**
+ * Convenience wrappers over setSkillStatus for the two transitions the
+ * review UI actually exposes.
+ */
+export async function activateSkillDraft(
+  name: string,
+): Promise<SkillDetail | null> {
+  return setSkillStatus(name, 'active');
+}
+
+export async function archiveSkill(name: string): Promise<SkillDetail | null> {
+  return setSkillStatus(name, 'archived');
 }
 
 // ─── Active import job management ───

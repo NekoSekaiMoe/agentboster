@@ -64,6 +64,9 @@ export const ko = {
   'config.sections.agentd.description':
     '원격 Agent Daemon 연결, 인증서, 샌드박스 설정을 관리합니다.',
   'config.sections.agentd.title': 'Agent Daemon',
+  'config.sections.experiments.description':
+    'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
+  'config.sections.experiments.title': 'Experiments',
   'config.sections.agents.description':
     '이름이 지정된 에이전트, 프롬프트, 모델 재정의를 설정합니다.',
   'config.sections.agents.title': '에이전트',
@@ -263,6 +266,24 @@ export const ko = {
   'config.forms.autonomy.level': '수준',
   'config.forms.autonomy.maxSteps': '최대 단계',
   'config.forms.autonomy.title': '자율 정책',
+  'config.forms.experiments.title': '실험적 기능',
+  'config.forms.experiments.description':
+    '이 기능들은 아직 검증 중입니다. 기본적으로 활성화되지 않은 기능을 시험하려면 개별적으로 활성화하세요. 각 기능은 켤 때만 작동합니다.',
+  'config.forms.experiments.skillDistillation': '스킬 증류',
+  'config.forms.experiments.skillDistillationHint':
+    '도구 호출이 임계값에 도달한 대화가 종료되면, 백그라운드 검토자가 재사용 가능한 스킬(직접 작성 또는 ClawHub 설치 제안)을 제안할지 결정합니다. 제안은 스킬 페이지에 초안으로 표시되며 자동 활성화되지 않습니다.',
+  'config.forms.experiments.toolCallThreshold': '도구 호출 임계값',
+  'config.forms.experiments.toolCallThresholdHint':
+    '검토자를 트리거하는 최소 도구 호출 수. 낮추면=제안 증가(시끄러움); 높이면=제안 감소(짧은 워크플로 누락 가능).',
+  'config.forms.experiments.preferClawHub': 'ClawHub 우선 검색',
+  'config.forms.experiments.preferClawHubHint':
+    '직접 작성 전에 ClawHub 스킬 허브에서 같은 기능을 다루는 기존 스킬을 검색합니다. 커뮤니티 스킬 재사용이 보통 모델의 일회성 추측보다 낫습니다.',
+  'config.forms.experiments.clawhubMinScore': 'ClawHub 최소 점수',
+  'config.forms.experiments.clawhubMinScoreHint':
+    '제안을 수락하는 데 필요한 최소 관련도 점수(clawhub.ai 검색 기준). 경험상 1.0 미만은 약한 일치입니다.',
+  'config.forms.experiments.curatorIntervalHours': '큐레이터 간격(시간)',
+  'config.forms.experiments.curatorIntervalHoursHint':
+    '초안 스킬 자동 검토 간격(시간). 큐레이터는 저품질 초안을 자동 보관하여 검토 대기열을 정리합니다. 낮추면=더 깔끔함(LLM 호출 증가). 0이면 비활성화.',
   'config.forms.chat.composerDescription':
     '웹 채팅 작성기에서 키보드 단축키가 작동하는 방식을 선택하세요.',
   'config.forms.chat.autoSaveNote':
