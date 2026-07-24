@@ -1099,6 +1099,11 @@
   dependencies:
     "@edge-runtime/primitives" "4.1.0"
 
+"@electric-sql/pglite@^0.5.4":
+  version "0.5.4"
+  resolved "https://registry.npmmirror.com/@electric-sql/pglite/-/pglite-0.5.4.tgz#808defde2ab84ce96bd7f6ae04cc76f66f83e4e0"
+  integrity sha512-yYZUyyXrHU7tPlCjwZQJ6hIG9DscdCCn7Uk0mYKwC1FeHX286AbcmFveMiRBEak8e9iPupjsoVImN3yJZVed2g==
+
 "@emnapi/runtime@^1.7.0":
   version "1.11.1"
   resolved "https://registry.npmmirror.com/@emnapi/runtime/-/runtime-1.11.1.tgz#58f1f3d5d81a9b12f793ab688c96371901027c24"

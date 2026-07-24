@@ -84,6 +84,38 @@ export async function createLongTermMemoryRow(
 }
 
 /**
+ * Bulk-insert long-term memory rows. Used by the agentd webhook that
+ * receives multiple memories at once (POST /api/agentd/v1/memories) so the
+ * route handler doesn't reach into drizzle directly — keeps the DAL the
+ * single owner of the longTermMemories table (Repository pattern, AionCore
+ * §2). Empty input is a no-op.
+ */
+export async function createLongTermMemoryRows(
+  rows: Array<{
+    content: string;
+    memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
+    importance?: number;
+    userId?: string;
+    key?: string;
+  }>,
+) {
+  if (rows.length === 0) return [];
+  const inserted = await db
+    .insert(schema.longTermMemories)
+    .values(
+      rows.map((r) => ({
+        content: r.content,
+        userId: r.userId ?? 'system',
+        memoryType: r.memoryType ?? 'fact',
+        importance: r.importance ?? 5,
+        ...(r.key ? { key: r.key } : {}),
+      })),
+    )
+    .returning();
+  return inserted;
+}
+
+/**
  * Upsert a long-term memory by (userId, key).
  *
  * Used by the memory extractor: it always knows the semantic key for a

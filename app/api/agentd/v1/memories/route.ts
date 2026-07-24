@@ -1,8 +1,7 @@
 export const dynamic = 'force-dynamic';
 
-import { db } from '@/lib/core/db';
-import * as schema from '@/lib/core/db/schema';
 import { searchLongTermMemories } from '@/lib/memory/long-term';
+import { createLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
 
@@ -92,7 +91,7 @@ export async function POST(request: Request) {
     }));
 
     if (rows.length > 0) {
-      await db.insert(schema.longTermMemories).values(rows);
+      await createLongTermMemoryRows(rows);
     }
 
     return Response.json({ success: true });

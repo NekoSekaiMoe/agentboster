@@ -1,7 +1,9 @@
 import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
 import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
+import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
 import { db } from './index';
 import {
+  agentdNodes,
   agentL0Rules,
   agentMemories,
   agentReviewLogs,
@@ -10,6 +12,7 @@ import {
   agentTasks,
   agentToolActivityLogs,
   archivedTaskSummaries,
+  notifications,
   sessions,
   taskSummaries,
   users,
@@ -1030,4 +1033,105 @@ export async function archiveWorkspace(
     .where(eq(workspaces.id, id))
     .returning();
   return row ?? null;
+}
+
+// === Agentd Nodes (Repository migration, AionCore §2) =====================
+
+/**
+ * Upsert an agentd node registration. Called by POST /api/agentd/v1/nodes/
+ * register. If a row with the given node_id exists, refresh its ip/port/
+ * sandboxes/version/heartbeat; otherwise insert. The (ip, port) reclaim
+ * path is handled separately by `reclaimNodeAddress` so this function
+ * stays focused on the by-node_id path.
+ */
+export async function upsertAgentdNode(input: {
+  nodeID: string;
+  ip: string;
+  port: number;
+  sandboxes: string[];
+  version: string;
+}) {
+  const existing = await db
+    .select({ nodeID: agentdNodes.nodeID })
+    .from(agentdNodes)
+    .where(eq(agentdNodes.nodeID, input.nodeID))
+    .limit(1);
+  if (existing.length > 0) {
+    await db
+      .update(agentdNodes)
+      .set({
+        ip: input.ip,
+        port: input.port,
+        sandboxes: input.sandboxes,
+        version: input.version,
+        status: 'online',
+        lastHeartbeat: new Date(),
+      })
+      .where(eq(agentdNodes.nodeID, input.nodeID));
+    return { inserted: false };
+  }
+  await db.insert(agentdNodes).values({
+    nodeID: input.nodeID,
+    ip: input.ip,
+    port: input.port,
+    sandboxes: input.sandboxes,
+    version: input.version,
+    status: 'online',
+    lastHeartbeat: new Date(),
+  });
+  return { inserted: true };
+}
+
+/**
+ * Reclaim a stale node row by (ip, port) when the daemon restarts with a
+ * fresh node_id (host reboot wiped the persisted file). Updates the row's
+ * node_id to the new value so subsequent heartbeats land on it. Returns
+ * the reclaimed node_id if a row was found, else null.
+ */
+export async function reclaimNodeAddress(input: {
+  ip: string;
+  port: number;
+  newNodeID: string;
+}): Promise<string | null> {
+  const byAddress = await findNodeByAddress(input.ip, input.port);
+  if (!byAddress) return null;
+  await db
+    .update(agentdNodes)
+    .set({ nodeID: input.newNodeID })
+    .where(eq(agentdNodes.nodeID, byAddress.nodeID));
+  return byAddress.nodeID;
+}
+
+// === Notifications (Repository migration) ================================
+
+/**
+ * Insert a notification row. Called by POST /api/agentd/v1/notifications/send.
+ * Pulled out of the route so the notifications table has a DAL owner
+ * (Repository pattern, AionCore §2). Field shape mirrors the schema in
+ * lib/core/db/schema/notification.ts.
+ */
+export async function createNotification(input: {
+  taskId: string;
+  decisionId?: string | null;
+  notificationType: 'decision' | 'completion' | 'tidy_report';
+  payload: Record<string, unknown>;
+  channel: string;
+  targetChatId: string;
+  targetUserId?: string | null;
+  expiresAt?: Date | null;
+}) {
+  const [row] = await db
+    .insert(notifications)
+    .values({
+      taskId: input.taskId,
+      decisionId: input.decisionId ?? null,
+      notificationType: input.notificationType,
+      payload: input.payload,
+      channel: input.channel,
+      targetChatId: input.targetChatId,
+      targetUserId: input.targetUserId ?? null,
+      expiresAt: input.expiresAt ?? null,
+    })
+    .returning();
+  return row;
 }
