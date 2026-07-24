@@ -3,26 +3,84 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/capability"
 	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/input"
 )
 
-func handleMouseMove(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	argsMap, ok := request.Params.Arguments.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("invalid arguments type")
+// Argument structs for each input tool. mcp-go's BindArguments unmarshals the
+// JSON-RPC params into these via a marshal/unmarshal round-trip, so the field
+// types (float64 for JSON numbers, []string for arrays) match what the wire
+// delivers — no manual `argsMap[k].(float64)` assertions, and a malformed
+// payload surfaces as a bind error instead of a silent zero value.
+type (
+	mouseMoveArgs struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
 	}
 
-	x, _ := argsMap["x"].(float64)
-	y, _ := argsMap["y"].(float64)
+	mouseClickArgs struct {
+		X      float64 `json:"x"`
+		Y      float64 `json:"y"`
+		Button string  `json:"button"`
+		Double bool    `json:"double"`
+	}
+
+	mouseDragArgs struct {
+		FromX float64 `json:"from_x"`
+		FromY float64 `json:"from_y"`
+		ToX   float64 `json:"to_x"`
+		ToY   float64 `json:"to_y"`
+	}
+
+	typeTextArgs struct {
+		Text string `json:"text"`
+	}
+
+	keyEventArgs struct {
+		Key       string   `json:"key"`
+		Direction string   `json:"direction"`
+		Modifiers []string `json:"modifiers"`
+	}
+)
+
+// keyboardControllerOnce serializes the lazy initialization of
+// keyboardOnlyController. The MCP stdio server dispatches tool calls from a
+// pool of worker goroutines, so TypeText / KeyEvent can run concurrently; the
+// previous nil-check pattern raced on keyboardOnlyController and could
+// initialize it (and overwrite a concurrent writer) more than once.
+var keyboardControllerOnce sync.Once
+
+// ensureKeyboardController lazily builds the keyboard-only input controller,
+// initialized with the detected display scale. Shared by the text and key
+// handlers, which previously duplicated this block. The once-guard guarantees
+// a single initialization under concurrent callers; subsequent calls return
+// the shared controller cheaply.
+func ensureKeyboardController() *input.Controller {
+	keyboardControllerOnce.Do(func() {
+		caps := capability.Detect()
+		scale := caps.ScaleFactor
+		if scale == 0 {
+			scale = 1.0
+		}
+		keyboardOnlyController, _ = input.New(scale)
+	})
+	return keyboardOnlyController
+}
+
+func handleMouseMove(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var args mouseMoveArgs
+	if err := request.BindArguments(&args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
 
 	if inputController == nil {
 		return nil, fmt.Errorf("no screenshot taken yet - cannot map coordinates")
 	}
 
-	if err := inputController.MouseMove(x, y); err != nil {
+	if err := inputController.MouseMove(args.X, args.Y); err != nil {
 		return nil, err
 	}
 
@@ -30,36 +88,31 @@ func handleMouseMove(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: fmt.Sprintf("Moved mouse to (%.1f, %.1f)", x, y),
+				Text: fmt.Sprintf("Moved mouse to (%.1f, %.1f)", args.X, args.Y),
 			},
 		},
 	}, nil
 }
 
 func handleMouseClick(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	argsMap, ok := request.Params.Arguments.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("invalid arguments type")
+	var args mouseClickArgs
+	if err := request.BindArguments(&args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
-
-	x, _ := argsMap["x"].(float64)
-	y, _ := argsMap["y"].(float64)
-	button, _ := argsMap["button"].(string)
-	if button == "" {
-		button = "left"
+	if args.Button == "" {
+		args.Button = "left"
 	}
-	double, _ := argsMap["double"].(bool)
 
 	if inputController == nil {
 		return nil, fmt.Errorf("no screenshot taken yet - cannot map coordinates")
 	}
 
-	if err := inputController.MouseClick(x, y, button, double); err != nil {
+	if err := inputController.MouseClick(args.X, args.Y, args.Button, args.Double); err != nil {
 		return nil, err
 	}
 
 	action := "Clicked"
-	if double {
+	if args.Double {
 		action = "Double-clicked"
 	}
 
@@ -67,28 +120,23 @@ func handleMouseClick(ctx context.Context, request mcp.CallToolRequest) (*mcp.Ca
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: fmt.Sprintf("%s %s button at (%.1f, %.1f)", action, button, x, y),
+				Text: fmt.Sprintf("%s %s button at (%.1f, %.1f)", action, args.Button, args.X, args.Y),
 			},
 		},
 	}, nil
 }
 
 func handleMouseDrag(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	argsMap, ok := request.Params.Arguments.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("invalid arguments type")
+	var args mouseDragArgs
+	if err := request.BindArguments(&args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
-
-	fromX, _ := argsMap["from_x"].(float64)
-	fromY, _ := argsMap["from_y"].(float64)
-	toX, _ := argsMap["to_x"].(float64)
-	toY, _ := argsMap["to_y"].(float64)
 
 	if inputController == nil {
 		return nil, fmt.Errorf("no screenshot taken yet - cannot map coordinates")
 	}
 
-	if err := inputController.MouseDrag(fromX, fromY, toX, toY); err != nil {
+	if err := inputController.MouseDrag(args.FromX, args.FromY, args.ToX, args.ToY); err != nil {
 		return nil, err
 	}
 
@@ -96,31 +144,19 @@ func handleMouseDrag(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: fmt.Sprintf("Dragged from (%.1f, %.1f) to (%.1f, %.1f)", fromX, fromY, toX, toY),
+				Text: fmt.Sprintf("Dragged from (%.1f, %.1f) to (%.1f, %.1f)", args.FromX, args.FromY, args.ToX, args.ToY),
 			},
 		},
 	}, nil
 }
 
 func handleTypeText(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	argsMap, ok := request.Params.Arguments.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("invalid arguments type")
+	var args typeTextArgs
+	if err := request.BindArguments(&args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
 
-	text, _ := argsMap["text"].(string)
-
-	// Use separate keyboard-only controller initialized with detected display scale
-	if keyboardOnlyController == nil {
-		caps := capability.Detect()
-		scale := caps.ScaleFactor
-		if scale == 0 {
-			scale = 1.0
-		}
-		keyboardOnlyController, _ = input.New(scale)
-	}
-
-	if err := keyboardOnlyController.TypeText(text); err != nil {
+	if err := ensureKeyboardController().TypeText(args.Text); err != nil {
 		return nil, err
 	}
 
@@ -128,57 +164,40 @@ func handleTypeText(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: fmt.Sprintf("Typed %d characters", len(text)),
+				Text: fmt.Sprintf("Typed %d characters", len(args.Text)),
 			},
 		},
 	}, nil
 }
 
 func handleKeyEvent(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	argsMap, ok := request.Params.Arguments.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("invalid arguments type")
+	var args keyEventArgs
+	if err := request.BindArguments(&args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
+	}
+	if args.Direction == "" {
+		args.Direction = "click"
 	}
 
-	key, _ := argsMap["key"].(string)
-	direction, _ := argsMap["direction"].(string)
-	if direction == "" {
-		direction = "click"
-	}
+	kbd := ensureKeyboardController()
 
-	// Use separate keyboard-only controller initialized with detected display scale
-	if keyboardOnlyController == nil {
-		caps := capability.Detect()
-		scale := caps.ScaleFactor
-		if scale == 0 {
-			scale = 1.0
+	// Modifiers present → treat as a key combo (e.g. Ctrl+C).
+	if len(args.Modifiers) > 0 {
+		if err := kbd.KeyCombo(args.Key, args.Modifiers); err != nil {
+			return nil, err
 		}
-		keyboardOnlyController, _ = input.New(scale)
-	}
-
-	// Handle modifiers if present
-	if modifiersRaw, ok := argsMap["modifiers"]; ok {
-		if modifiersList, ok := modifiersRaw.([]interface{}); ok && len(modifiersList) > 0 {
-			modifiers := make([]string, len(modifiersList))
-			for i, m := range modifiersList {
-				modifiers[i], _ = m.(string)
-			}
-			if err := keyboardOnlyController.KeyCombo(key, modifiers); err != nil {
-				return nil, err
-			}
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					mcp.TextContent{
-						Type: "text",
-						Text: fmt.Sprintf("Pressed %v+%s", modifiers, key),
-					},
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Pressed %v+%s", args.Modifiers, args.Key),
 				},
-			}, nil
-		}
+			},
+		}, nil
 	}
 
 	// Simple key event
-	if err := keyboardOnlyController.KeyEvent(key, direction); err != nil {
+	if err := kbd.KeyEvent(args.Key, args.Direction); err != nil {
 		return nil, err
 	}
 
@@ -186,7 +205,7 @@ func handleKeyEvent(ctx context.Context, request mcp.CallToolRequest) (*mcp.Call
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: fmt.Sprintf("Key %s: %s", direction, key),
+				Text: fmt.Sprintf("Key %s: %s", args.Direction, args.Key),
 			},
 		},
 	}, nil

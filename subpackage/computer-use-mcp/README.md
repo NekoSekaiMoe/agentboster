@@ -111,6 +111,13 @@ echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mouse_move
 | `key_event` | Press/release/click key |
 | `capabilities` | Get platform capabilities |
 
+**Linux X11 vs Wayland:** screenshot and input default to the X11 path (`XGetImage` + `XTest` via purego). Under a **native Wayland** session those X11 calls only reach Xwayland-backed windows — native Wayland windows return black frames from `XGetImage` and ignore synthetic `XTest` events. When `WAYLAND_DISPLAY` is set the server therefore prefers Wayland-native helpers first, falling back to the X11/Xwayland path when they aren't installed or fail:
+
+- **Capture** — [`grim`](https://sr.ht/~emersion/grim/) (wlroots: sway/Hyprland; raw PPM on stdout) then `gnome-screenshot` (GNOME/Mutter).
+- **Input** — [`ydotool`](https://github.com/ReimuNotMoe/ydotool), which drives a kernel `uinput` device through `ydotoold` so the compositor treats it as real hardware. `ydotoold` needs access to `/dev/uinput` (usually root). `type` handles arbitrary Unicode; named keys and combo letters map to Linux evdev keycodes.
+
+The `capabilities` tool reports actionable `issues` when a Wayland session is missing `grim`/`gnome-screenshot` or `ydotool`, so a black-frame or dead-input configuration is visible up front rather than failing silently.
+
 ### Accessibility tools (optional)
 
 Returned only when the platform a11y backend initializes successfully.
@@ -159,8 +166,8 @@ Because accessibility is purego (no CGo), it cross-compiles with the rest of the
 
 | Feature | Linux | macOS | Windows |
 |---------|-------|-------|---------|
-| Screenshot | ✅ X11/Wayland | ✅ Quartz | ✅ GDI |
-| Input | ✅ X11/Xtst | ✅ CoreGraphics | ✅ SendInput |
+| Screenshot | ✅ X11 · 🟡 Wayland (grim/gnome-screenshot) | ✅ Quartz | ✅ GDI |
+| Input | ✅ X11/Xtst · 🟡 Wayland (ydotool) | ✅ CoreGraphics | ✅ SendInput |
 | Terminal mask | 🟡 /proc scan + bottom-1/3 fallback | ✅ CGWindowList | ✅ EnumWindows |
 | Accessibility | 🟡 AT-SPI2 (purego) | 🟡 AX API (purego) | 🟡 UIAutomation (purego) |
 | Clipboard | ✅ Wayland wire protocol / X11 wire protocol | ✅ Pasteboard (purego) | ✅ user32 (purego) |
