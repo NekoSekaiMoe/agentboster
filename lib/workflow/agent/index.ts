@@ -38,6 +38,12 @@ import {
   resolveAgentProviderOptions,
 } from './steps/resolve-model';
 import { buildAgentTools } from './tools';
+import {
+  ToolLoopGuard,
+  describeLoopTrip,
+  inputKeyOf,
+  resolveToolLoopLimits,
+} from './tool-loop-guard';
 import { sanitizeToolName } from './tools/tool-name-guard';
 import { getTokenUsageTotal } from './types';
 import {
@@ -287,6 +293,12 @@ export async function chatWorkflow(
     1,
     effectiveConfig.autonomy?.max_steps ?? DEFAULT_MAIN_MAX_STEPS,
   );
+  // Tool-loop circuit breaker (aionrs breakers). Counts consecutive
+  // malformed / identical-failure / all-error / cycle rounds and aborts the
+  // stream before the model burns max_steps worth of identical retries.
+  const toolLoopGuard = new ToolLoopGuard(
+    resolveToolLoopLimits(effectiveConfig.autonomy?.tool_loop_limits),
+  );
   const instructionQueue: QueuedInstruction[] = [];
   let pendingPersistedInstructions: SerializedMessageForDB[] = [];
   let totalTokensUsed = estimatePromptTokens(
@@ -529,6 +541,43 @@ export async function chatWorkflow(
           });
           await writeStreamError(errorText);
           throw new Error(errorText);
+        }
+
+        // Tool-loop circuit-breaker check. Observe this step's tool round
+        // (input + outcome per call) and abort early if the model is stuck
+        // in a malformed / identical-failure / all-error / cycle pattern.
+        // Borrowed from aionrs breakers — see tool-loop-guard.ts.
+        if (step.toolCalls.length > 0) {
+          const observed = step.toolCalls.map((tc) => {
+            // Pair the call with its result (if any) to learn the outcome.
+            const result = step.toolResults.find(
+              (tr) => tr.toolCallId === tc.toolCallId,
+            );
+            const malformed = 'invalid' in tc ? Boolean(tc.invalid) : false;
+            const errored =
+              malformed || Boolean(result && 'error' in result && result.error);
+            return {
+              name: tc.toolName,
+              inputKey: inputKeyOf(tc.input),
+              malformed,
+              error: errored,
+            };
+          });
+          const loopSnap = toolLoopGuard.observe(observed);
+          const tripReason = toolLoopGuard.tripReason();
+          if (tripReason) {
+            const errorText = describeLoopTrip(tripReason, loopSnap);
+            logger.error('stream:tool_loop_breaker', {
+              sessionId,
+              runId,
+              tripReason,
+              ...loopSnap,
+              providerName,
+              stepNumber: realStepNumber,
+            });
+            await writeStreamError(errorText);
+            throw new Error(`[tool_loop_breaker:${tripReason}] ${errorText}`);
+          }
         }
 
         try {

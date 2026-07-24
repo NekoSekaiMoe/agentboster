@@ -1,4 +1,5 @@
 import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
+import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
 import { db } from './index';
 import {
   agentL0Rules,
@@ -433,6 +434,24 @@ export async function getReviewLogs(taskId: string) {
 
 // === Tool Activity Logs ===
 
+/**
+ * Coerce a sanitized payload back into a nullable text value for text-typed
+ * columns. sanitizeToolActivityPayload may replace an oversized string with
+ * a `{__blob_ref__: ...}` marker object; text columns can't store that, so we
+ * serialize the marker to JSON. Plain strings pass through.
+ */
+function asNullableText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+  // Marker object or any other shape — store as JSON text so the row still
+  // carries the blob reference.
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
 export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
   const taskIdentityCache = new Map<
     string,
@@ -471,6 +490,35 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
       const startedAt =
         normalizeDate(log.startedAt ?? log.started_at) ?? new Date();
       const completedAt = normalizeDate(log.completedAt ?? log.completed_at);
+
+      // Large-payload sanitization (borrowed from AionCore's
+      // sanitize_inline_image_result): offload any string leaf bigger than
+      // 64 KiB (or 8 KiB for inline base64 images) to Blob storage, leaving a
+      // __blob_ref__ marker in the DB row. Without this, a single screenshot
+      // or `cat huge_file` would write multi-MB into the Postgres jsonb
+      // column and bloat SSE broadcasts.
+      const sessionIdForPrefix = log.sessionId ?? log.session_id ?? 'unknown';
+      const taskIdForPrefix = log.taskId ?? log.task_id;
+      const blobPrefix = `tool-activity/sess-${sessionIdForPrefix}${
+        taskIdForPrefix ? `/task-${taskIdForPrefix}` : ''
+      }`;
+      const sanitizeOpts = {
+        pathnamePrefix: blobPrefix,
+      } satisfies Parameters<typeof sanitizeToolActivityPayload>[1];
+      const [argumentsClean, resultClean, outputTextClean, errorClean] =
+        await Promise.all([
+          sanitizeToolActivityPayload(
+            log.arguments ?? log.args ?? null,
+            sanitizeOpts,
+          ),
+          sanitizeToolActivityPayload(log.result ?? null, sanitizeOpts),
+          sanitizeToolActivityPayload(
+            log.outputText ?? log.output_text ?? null,
+            sanitizeOpts,
+          ),
+          sanitizeToolActivityPayload(log.error ?? null, sanitizeOpts),
+        ]);
+
       return {
         taskId: normalizeNullableText(log.taskId ?? log.task_id),
         sessionId: normalizeNullableText(log.sessionId ?? log.session_id),
@@ -485,11 +533,11 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
         toolName: log.toolName ?? log.tool_name ?? 'unknown',
         action: normalizeToolAction(log.action),
         target: normalizeNullableText(log.target),
-        arguments: log.arguments ?? log.args ?? null,
-        result: log.result ?? null,
-        outputText: log.outputText ?? log.output_text ?? null,
+        arguments: argumentsClean.sanitized,
+        result: resultClean.sanitized,
+        outputText: asNullableText(outputTextClean.sanitized),
         success: log.success ?? false,
-        error: log.error ?? null,
+        error: asNullableText(errorClean.sanitized),
         durationMs:
           typeof (log.durationMs ?? log.duration_ms) === 'number'
             ? (log.durationMs ?? log.duration_ms)
