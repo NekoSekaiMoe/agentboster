@@ -39,6 +39,7 @@
     "@vercel/sandbox": "^1.10.2",
     "@vercel/speed-insights": "^2.0.0",
     "@workflow/ai": "^5.0.0",
+    "@xyflow/react": "^12.11.2",
     "ai": "^6.0.221",
     "bcryptjs": "^3.0.3",
     "chat": "4.33.0",

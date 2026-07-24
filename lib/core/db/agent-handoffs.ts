@@ -172,3 +172,27 @@ export async function releaseLinkedBarrier(
     });
   }
 }
+
+/**
+ * List handoffs where the given session is either the producer (from) or the
+ * targeted consumer (to). Broadcasts (toSessionId null) from this session are
+ * included; broadcasts from OTHER sessions are not (they have no specific
+ * recipient and could be claimed by anyone). Used by the read-only
+ * orchestration graph view to draw session-internal handoff edges.
+ */
+export async function listHandoffsForSession(
+  sessionId: string,
+): Promise<AgentHandoff[]> {
+  const recipientExpr = or(
+    eq(agentHandoffs.fromSessionId, sessionId),
+    eq(agentHandoffs.toSessionId, sessionId),
+  );
+  if (!recipientExpr) {
+    return [];
+  }
+  return db
+    .select()
+    .from(agentHandoffs)
+    .where(recipientExpr)
+    .orderBy(asc(agentHandoffs.id));
+}

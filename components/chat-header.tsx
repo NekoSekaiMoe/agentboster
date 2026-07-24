@@ -1,7 +1,9 @@
 'use client';
 
 import { memo, useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
+import { Network } from 'lucide-react';
 
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
@@ -195,6 +197,25 @@ function PureChatHeader({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          {/* Orchestration graph link (Team Mode I read-only view) */}
+          {chatId && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  asChild
+                  className="shrink-0"
+                >
+                  <Link href={`/chat/${chatId}/orchestration`}>
+                    <Network className="size-4" />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>编排图</TooltipContent>
+            </Tooltip>
+          )}
+
           {/* Abort button — only when running */}
           {isRunning && chatId && (
             <Tooltip>
