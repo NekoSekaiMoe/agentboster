@@ -29,6 +29,7 @@ import localSkillTool from './skills/local';
 import aggregateTool from './tasks/aggregate';
 import barrierTool from './tasks/barrier';
 import handoffTool from './tasks/handoff';
+import recordPlanTool from './tasks/record-plan';
 import scheduleTool from './tasks/schedule';
 import subAgentTool from './tasks/sub-agent';
 import taskSummaryTool from './tasks/summary';
@@ -50,6 +51,7 @@ const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   sequentialThinkingTool,
   barrierTool,
   handoffTool,
+  recordPlanTool,
   aggregateTool,
 ];
 

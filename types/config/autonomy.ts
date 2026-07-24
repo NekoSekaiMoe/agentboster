@@ -78,6 +78,14 @@ export const autonomyConfigSchema = z.object({
    */
   yolo: z.boolean().default(false).optional(),
   /**
+   * Team Leader mode (Team Mode III). Injects prompt-level guidance that
+   * coaches the main agent to decompose complex tasks into a subAgent
+   * fan-out plan and coordinate it via barriers/handoffs. The agent already
+   * has those tools; this just makes it actually use them for multi-step
+   * work instead of running everything inline. Off by default.
+   */
+  team_leader: z.boolean().default(false).optional(),
+  /**
    * Tool-loop circuit-breaker overrides. When omitted the defaults from
    * `tool-loop-guard.ts` apply (3/3/8/3). Set a field to 0 to disable that
    * specific breaker.

@@ -272,6 +272,10 @@ export async function chatWorkflow(
     // tools are gone. Purely informational; the actual toolset filter
     // happens in buildAgentTools.
     planMode,
+    // Team Leader mode (Team Mode III): prompt-level guidance nudging the
+    // main agent to decompose complex tasks into subAgent fan-out +
+    // barrier/handoff coordination. Driven by autonomy.team_leader config.
+    teamLeader: effectiveConfig.autonomy?.team_leader === true,
     // Inject CLI remote state (cwd, platform, hasDisplay) when an online CLI
     // is attached to this session. This tells the LLM it can use local_* tools
     // to control the user's local machine.
