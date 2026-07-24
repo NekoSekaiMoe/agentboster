@@ -61,7 +61,7 @@ export function MermaidDiagram({ chart }: { chart: string }) {
           {chart}
         </pre>
         {error && (
-          <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+          <div className="mt-2 text-red-600 text-xs dark:text-red-400">
             {error}
           </div>
         )}

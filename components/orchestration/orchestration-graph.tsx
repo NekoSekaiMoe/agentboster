@@ -134,14 +134,14 @@ function InnerGraph({ sessionId }: { sessionId: string }) {
 
   if (loading) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-64 items-center justify-center text-muted-foreground text-sm">
         加载编排图...
       </div>
     );
   }
   if (error) {
     return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3 text-sm text-red-500">
+      <div className="flex h-64 flex-col items-center justify-center gap-3 text-red-500 text-sm">
         <span>加载失败:{error}</span>
         <Button size="sm" variant="outline" onClick={() => fetchOnce()}>
           <RefreshCcw className="mr-2 size-4" />
@@ -157,7 +157,7 @@ function InnerGraph({ sessionId }: { sessionId: string }) {
     snapshot.handoffs.length === 0
   ) {
     return (
-      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-64 items-center justify-center text-muted-foreground text-sm">
         当前会话暂无多智能体编排活动 (subagent / barrier / handoff)。
         <Button
           size="sm"
@@ -173,7 +173,7 @@ function InnerGraph({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="relative h-[60vh] w-full overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="absolute right-2 top-2 z-10">
+      <div className="absolute top-2 right-2 z-10">
         <Button size="sm" variant="ghost" onClick={() => fetchOnce()}>
           <RefreshCcw className="size-4" />
         </Button>
@@ -319,7 +319,7 @@ function jobNode(job: BatchJob, batchId: string, x: number, y: number): Node {
           <div className="font-semibold" style={{ color }}>
             {job.agentName}
           </div>
-          <div className="text-muted-foreground line-clamp-2 max-w-[180px]">
+          <div className="line-clamp-2 max-w-[180px] text-muted-foreground">
             {job.task}
           </div>
           <div className="text-muted-foreground">{job.status}</div>

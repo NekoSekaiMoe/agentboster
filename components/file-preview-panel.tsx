@@ -31,9 +31,9 @@ export function FilePreviewPanel({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
-      <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-2 dark:border-zinc-700">
+      <div className="flex items-center justify-between border-zinc-200 border-b px-4 py-2 dark:border-zinc-700">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          <div className="truncate font-medium text-sm text-zinc-900 dark:text-zinc-100">
             {file.fileName}
           </div>
           <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
@@ -160,7 +160,7 @@ function MarkdownFetcher({
   }, [url]);
 
   if (error) {
-    return <div className="p-4 text-sm text-red-500">加载失败:{error}</div>;
+    return <div className="p-4 text-red-500 text-sm">加载失败:{error}</div>;
   }
   if (text === null) {
     return <div className="p-4 text-sm text-zinc-400">加载中...</div>;
