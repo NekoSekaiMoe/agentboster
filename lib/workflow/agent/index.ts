@@ -39,6 +39,10 @@ import {
 } from './steps/resolve-model';
 import { buildAgentTools } from './tools';
 import {
+  applyMessageCompat,
+  resolveProviderCompat,
+} from '@/lib/ai/provider-compat';
+import {
   ToolLoopGuard,
   describeLoopTrip,
   inputKeyOf,
@@ -330,6 +334,20 @@ export async function chatWorkflow(
     return keys[0] ?? modelId;
   })();
 
+  // Resolve the provider's message-compat flags once (aionrs ProviderCompat).
+  // Applied in prepareStep to normalize the prompt before each model call —
+  // strips orphan tool calls/results, merges adjacent assistant turns,
+  // enforces user/assistant alternation, etc. Defaults come from the
+  // provider format; users override individual flags via `compat`.
+  const providerConfigForCompat =
+    effectiveConfig.models?.providers?.[providerName];
+  const providerCompat = providerConfigForCompat
+    ? resolveProviderCompat(
+        providerConfigForCompat.format,
+        providerConfigForCompat.compat,
+      )
+    : undefined;
+
   await initializeRunSessionStep({
     sessionId,
     modelId,
@@ -507,8 +525,29 @@ export async function chatWorkflow(
           throw new Error('Run cancelled by instruction hook.');
         }
 
+        // Apply provider message-compat normalization (aionrs ProviderCompat):
+        // repair orphan tool blocks, merge adjacent same-role messages,
+        // enforce alternation. Cheap no-op fast path when nothing is enabled.
+        // Only ModelMessage[] prompts can be normalized; if the AI SDK passed
+        // us an already-low-level LanguageModelV3Prompt we leave it untouched.
+        let finalMessages: typeof nextMessages = nextMessages;
+        if (providerCompat && Array.isArray(nextMessages)) {
+          const maybeModelMessages = nextMessages as unknown[];
+          if (
+            maybeModelMessages.every(
+              (m) =>
+                m !== null && typeof m === 'object' && 'role' in (m as object),
+            )
+          ) {
+            finalMessages = applyMessageCompat(
+              nextMessages as ModelMessage[],
+              providerCompat,
+            ) as typeof nextMessages;
+          }
+        }
+
         return {
-          messages: nextMessages,
+          messages: finalMessages,
         };
       },
       onStepFinish: async (step) => {

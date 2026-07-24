@@ -11,13 +11,13 @@ import (
 )
 
 func dockerCommand(socket string, args ...string) *exec.Cmd {
-	cmd := exec.Command("docker", args...)
+	cmd := NewCommandBuilder("docker", args...).Build()
 	setDockerHost(cmd, socket)
 	return cmd
 }
 
 func dockerCommandContext(ctx context.Context, socket string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := NewCommandBuilder("docker", args...).BuildContext(ctx)
 	setDockerHost(cmd, socket)
 	return cmd
 }
