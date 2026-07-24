@@ -3,6 +3,7 @@
 package screenshot
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"unsafe"
@@ -13,21 +14,21 @@ import (
 var (
 	libX11 uintptr
 
-	xOpenDisplay      func(displayName *byte) unsafe.Pointer
-	xCloseDisplay     func(display unsafe.Pointer) int
-	xDefaultScreen    func(display unsafe.Pointer) int
-	xDisplayWidth     func(display unsafe.Pointer, screen int) int
-	xDisplayHeight    func(display unsafe.Pointer, screen int) int
-	xRootWindow       func(display unsafe.Pointer, screen int) uintptr
-	xGetImage         func(display unsafe.Pointer, drawable uintptr, x, y int, width, height uint, planeMask uintptr, format int) unsafe.Pointer
-	xDestroyImage     func(ximage unsafe.Pointer) int
-	xGetPixel         func(ximage unsafe.Pointer, x, y int) uint32
-	xImageByteOrder   func(display unsafe.Pointer) int
-	xDefaultDepth     func(display unsafe.Pointer, screen int) int
-	xDefaultVisual    func(display unsafe.Pointer, screen int) uintptr
-	xDefaultColormap  func(display unsafe.Pointer, screen int) uintptr
-	xQueryColor       func(display unsafe.Pointer, colormap uintptr, color *xColor) int
-	xFree             func(data unsafe.Pointer) int
+	xOpenDisplay     func(displayName *byte) unsafe.Pointer
+	xCloseDisplay    func(display unsafe.Pointer) int
+	xDefaultScreen   func(display unsafe.Pointer) int
+	xDisplayWidth    func(display unsafe.Pointer, screen int) int
+	xDisplayHeight   func(display unsafe.Pointer, screen int) int
+	xRootWindow      func(display unsafe.Pointer, screen int) uintptr
+	xGetImage        func(display unsafe.Pointer, drawable uintptr, x, y int, width, height uint, planeMask uintptr, format int) unsafe.Pointer
+	xDestroyImage    func(ximage unsafe.Pointer) int
+	xGetPixel        func(ximage unsafe.Pointer, x, y int) uint32
+	xImageByteOrder  func(display unsafe.Pointer) int
+	xDefaultDepth    func(display unsafe.Pointer, screen int) int
+	xDefaultVisual   func(display unsafe.Pointer, screen int) uintptr
+	xDefaultColormap func(display unsafe.Pointer, screen int) uintptr
+	xQueryColor      func(display unsafe.Pointer, colormap uintptr, color *xColor) int
+	xFree            func(data unsafe.Pointer) int
 )
 
 const (
@@ -36,21 +37,21 @@ const (
 )
 
 type xImage struct {
-	width         int32
-	height        int32
-	xoffset       int32
-	format        int32
-	data          unsafe.Pointer
-	byteOrder     int32
-	bitmapUnit    int32
+	width          int32
+	height         int32
+	xoffset        int32
+	format         int32
+	data           unsafe.Pointer
+	byteOrder      int32
+	bitmapUnit     int32
 	bitmapBitOrder int32
-	bitmapPad     int32
-	depth         int32
-	bytesPerLine  int32
-	bitsPerPixel  int32
-	redMask       uint64
-	greenMask     uint64
-	blueMask      uint64
+	bitmapPad      int32
+	depth          int32
+	bytesPerLine   int32
+	bitsPerPixel   int32
+	redMask        uint64
+	greenMask      uint64
+	blueMask       uint64
 }
 
 type xColor struct {
@@ -90,7 +91,36 @@ func init() {
 	purego.RegisterLibFunc(&xFree, libX11, "XFree")
 }
 
+// getDisplays enumerates monitors. Under a Wayland session, Xwayland (if
+// present) still reports accurate screen geometry via the X11 calls below, so
+// we reuse that path for enumeration even though pixel capture must go through
+// a Wayland-native tool. When no X server is reachable at all but a Wayland
+// capture helper exists, we synthesize a single full-desktop display by probing
+// its dimensions — enough for the common single-monitor case.
 func getDisplays() ([]Display, error) {
+	if displays, err := getDisplaysX11(); err == nil && len(displays) > 0 {
+		return displays, nil
+	}
+
+	// No usable X11 enumeration. If we're on Wayland with a capture tool, probe
+	// the full-desktop size by taking one capture and reporting its dimensions.
+	if waylandActive() && waylandCaptureAvailable() {
+		img, err := captureWayland(image.Rectangle{})
+		if err != nil {
+			return nil, fmt.Errorf("wayland display probe failed: %w", err)
+		}
+		return []Display{
+			{
+				Index:  0,
+				Bounds: image.Rect(0, 0, img.Bounds().Dx(), img.Bounds().Dy()),
+			},
+		}, nil
+	}
+
+	return nil, fmt.Errorf("X11 not available")
+}
+
+func getDisplaysX11() ([]Display, error) {
 	if libX11 == 0 {
 		return nil, fmt.Errorf("X11 not available")
 	}
@@ -117,7 +147,28 @@ func getDisplays() ([]Display, error) {
 	}, nil
 }
 
+// captureDisplay grabs pixels for one monitor. On a Wayland session, XGetImage
+// returns black frames for native Wayland windows, so we route through a
+// Wayland-native helper (grim/gnome-screenshot) first and only fall back to the
+// X11/Xwayland path when no such helper is installed. On a pure X11 session the
+// Wayland gate is skipped entirely.
 func captureDisplay(display Display) (*image.RGBA, error) {
+	if waylandActive() {
+		img, err := captureWayland(display.Bounds)
+		if err == nil {
+			return img, nil
+		}
+		// Only fall through to X11/Xwayland when the failure is "no tool
+		// installed" and an X server is actually reachable; otherwise surface
+		// the real capture error.
+		if !errors.Is(err, errNoWaylandCaptureTool) || !x11Available() {
+			return nil, err
+		}
+	}
+	return captureDisplayX11(display)
+}
+
+func captureDisplayX11(display Display) (*image.RGBA, error) {
 	if libX11 == 0 {
 		return nil, fmt.Errorf("X11 not available")
 	}
@@ -167,7 +218,7 @@ func captureDisplay(display Display) (*image.RGBA, error) {
 				rgba.Pix[dstIdx+0] = data[srcIdx+2] // R
 				rgba.Pix[dstIdx+1] = data[srcIdx+1] // G
 				rgba.Pix[dstIdx+2] = data[srcIdx+0] // B
-				rgba.Pix[dstIdx+3] = 255             // A (X11 doesn't provide alpha)
+				rgba.Pix[dstIdx+3] = 255            // A (X11 doesn't provide alpha)
 			}
 		}
 	}

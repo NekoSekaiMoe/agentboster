@@ -130,37 +130,33 @@ func main() {
 	}
 }
 
+// screenshotArgs mirrors the screenshot tool's input schema. The optional
+// integer fields are pointers so an omitted key stays nil (defaults applied
+// downstream) rather than collapsing to a meaningful zero.
+type screenshotArgs struct {
+	MaxWidth     *int   `json:"max_width"`
+	MonitorIndex *int   `json:"monitor_index"`
+	Format       string `json:"format"`
+	Quality      *int   `json:"quality"`
+}
+
 func handleScreenshot(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Type assert Arguments to map[string]any
-	argsMap, ok := request.Params.Arguments.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("invalid arguments type")
+	var args screenshotArgs
+	if err := request.BindArguments(&args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
 
-	var maxWidth *int
-	if val, ok := argsMap["max_width"]; ok {
-		if w, ok := val.(float64); ok {
-			iw := int(w)
-			maxWidth = &iw
-		}
-	}
-
-	var monitorIndex *int
-	if val, ok := argsMap["monitor_index"]; ok {
-		if idx, ok := val.(float64); ok {
-			iidx := int(idx)
-			monitorIndex = &iidx
-		}
-	}
+	maxWidth := args.MaxWidth
+	monitorIndex := args.MonitorIndex
 
 	format := screenshot.FormatJPEG
-	if val, ok := argsMap["format"].(string); ok {
-		format = screenshot.ParseFormat(val)
+	if args.Format != "" {
+		format = screenshot.ParseFormat(args.Format)
 	}
 
 	quality := 80
-	if val, ok := argsMap["quality"].(float64); ok {
-		quality = int(val)
+	if args.Quality != nil {
+		quality = *args.Quality
 	}
 
 	// TODO: Read allow_terminal_edit from session settings

@@ -3,6 +3,8 @@ package recorder
 import (
 	"image"
 	"image/color"
+	"image/color/palette"
+	"image/draw"
 	"testing"
 	"time"
 
@@ -80,5 +82,68 @@ func TestPalettizePlanes(t *testing.T) {
 	r, g, b, _ := p.At(0, 0).RGBA()
 	if r != 0xffff || g != 0xffff || b != 0xffff {
 		t.Errorf("white pixel quantized to (%d,%d,%d), want pure white", r, g, b)
+	}
+}
+
+// TestPalettizeParallelMatchesSerial guards the concurrent banded palettize:
+// its output must be byte-identical to a single-shot draw.Draw over the whole
+// image. A band-boundary off-by-one (rows dropped or double-written) would show
+// up as a differing palette index. The image is tall enough (>GOMAXPROCS*8) to
+// exercise the parallel path and uses a gradient so every band sees distinct
+// colors.
+func TestPalettizeParallelMatchesSerial(t *testing.T) {
+	const w, h = 64, 256
+	src := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			src.SetRGBA(x, y, color.RGBA{
+				R: uint8((x * 4) % 256),
+				G: uint8(y % 256),
+				B: uint8((x + y) % 256),
+				A: 255,
+			})
+		}
+	}
+
+	// Serial reference: one draw.Draw over the whole rectangle.
+	want := image.NewPaletted(src.Bounds(), palette.Plan9)
+	draw.Draw(want, want.Bounds(), src, src.Bounds().Min, draw.Src)
+
+	got := palettize(src)
+	if got.Bounds() != want.Bounds() {
+		t.Fatalf("bounds = %v, want %v", got.Bounds(), want.Bounds())
+	}
+	for i := range want.Pix {
+		if got.Pix[i] != want.Pix[i] {
+			// Recover pixel coordinates for a useful message.
+			idx := i
+			t.Fatalf("palette index mismatch at Pix[%d]: got %d, want %d", idx, got.Pix[i], want.Pix[i])
+		}
+	}
+}
+
+// TestPalettizeNonZeroOrigin verifies the banded split respects a non-zero
+// image origin (Bounds().Min != {0,0}). Sub-images handed to the recorder can
+// carry an offset origin, and a band loop that assumed origin 0 would write to
+// the wrong dst rows.
+func TestPalettizeNonZeroOrigin(t *testing.T) {
+	r := image.Rect(10, 20, 74, 300) // 64x280, origin (10,20)
+	src := image.NewRGBA(r)
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			src.SetRGBA(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 128, A: 255})
+		}
+	}
+	want := image.NewPaletted(r, palette.Plan9)
+	draw.Draw(want, want.Bounds(), src, r.Min, draw.Src)
+
+	got := palettize(src)
+	if got.Bounds() != r {
+		t.Fatalf("bounds = %v, want %v", got.Bounds(), r)
+	}
+	for i := range want.Pix {
+		if got.Pix[i] != want.Pix[i] {
+			t.Fatalf("palette index mismatch at Pix[%d]: got %d, want %d", i, got.Pix[i], want.Pix[i])
+		}
 	}
 }

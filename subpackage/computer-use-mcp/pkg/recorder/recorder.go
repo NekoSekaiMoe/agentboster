@@ -18,10 +18,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"hash/crc32"
 	"image"
 	"image/color/palette"
 	"image/draw"
 	"image/gif"
+	"runtime"
 	"sync"
 	"time"
 
@@ -70,6 +72,14 @@ type Session struct {
 	startAt time.Time
 	stopped bool
 	cancel  context.CancelFunc // stops the capture goroutine on Stop
+
+	// lastHash is the CRC32 of the previous captured RGBA frame's pixels
+	// (post-mask, pre-palettize). When a new frame hashes identically we skip
+	// the scale/mask/palettize work entirely and instead extend the previous
+	// frame's on-screen delay — a static screen collapses to a single encoded
+	// frame. hasFrame gates the first-frame case.
+	lastHash uint32
+	hasFrame bool
 }
 
 var (
@@ -165,6 +175,28 @@ func (s *Session) captureFrame(now time.Time) {
 		return
 	}
 
+	// Per-frame centisecond delay, derived from configured FPS. image/gif uses
+	// centiseconds; round to at least 1.
+	cs := int(float64(100) / float64(s.cfg.FPS))
+	if cs < 1 {
+		cs = 1
+	}
+
+	// Change detection: hash the raw captured pixels. If this frame is
+	// byte-identical to the previous one, skip the expensive scale/mask/
+	// palettize pipeline and just extend the previous encoded frame's delay.
+	// A fully static screen collapses to a single palettized frame regardless
+	// of duration, which is where the bulk of the CPU (and GIF size) savings
+	// come from. crc32 over the pixel buffer is far cheaper than Lanczos +
+	// palette mapping, so the hash is worth it even when frames do change.
+	hash := crc32.ChecksumIEEE(raw.Pix)
+	if s.hasFrame && hash == s.lastHash && len(s.delays) > 0 {
+		s.delays[len(s.delays)-1] += cs
+		return
+	}
+	s.lastHash = hash
+	s.hasFrame = true
+
 	// Display origin is needed for correct terminal-window coordinate
 	// alignment on non-primary monitors: the macOS/Windows maskers subtract
 	// monitorOrigin from absolute window bounds. Use the configured monitor's
@@ -195,13 +227,6 @@ func (s *Session) captureFrame(now time.Time) {
 
 	p := palettize(img)
 	s.frames = append(s.frames, p)
-
-	// Delay in hundredths of a second, derived from configured FPS. image/gif
-	// uses centiseconds; round to at least 1.
-	cs := int(float64(100) / float64(s.cfg.FPS))
-	if cs < 1 {
-		cs = 1
-	}
 	s.delays = append(s.delays, cs)
 }
 
@@ -287,9 +312,44 @@ func (s *Session) isStopped() bool {
 // per-frame) quantization pass. The trade-off is a fixed palette — slightly
 // more banding than per-frame k-means, but an order of magnitude faster and
 // deterministic across runs.
+//
+// The palette mapping (nearest-color search per pixel via draw.Draw into a
+// Paletted dst) is the single most expensive step per frame, and it is
+// embarrassingly parallel: each output pixel is independent. We split the
+// image into GOMAXPROCS horizontal bands and draw each concurrently. The bands
+// are disjoint row ranges writing to distinct byte offsets of the same
+// dst.Pix, so no locking is needed. For small images (or GOMAXPROCS==1) this
+// degrades to the original single draw.Draw call.
 func palettize(src image.Image) *image.Paletted {
 	b := src.Bounds()
 	dst := image.NewPaletted(b, palette.Plan9)
-	draw.Draw(dst, b, src, b.Min, draw.Src)
+
+	workers := runtime.GOMAXPROCS(0)
+	h := b.Dy()
+	// Only bother splitting when there is enough work to amortize goroutine
+	// setup; one row per worker minimum, and skip parallelism for tiny frames.
+	if workers <= 1 || h < workers*8 {
+		draw.Draw(dst, b, src, b.Min, draw.Src)
+		return dst
+	}
+
+	rowsPerBand := (h + workers - 1) / workers
+	var wg sync.WaitGroup
+	for start := b.Min.Y; start < b.Max.Y; start += rowsPerBand {
+		end := start + rowsPerBand
+		if end > b.Max.Y {
+			end = b.Max.Y
+		}
+		band := image.Rect(b.Min.X, start, b.Max.X, end)
+		wg.Add(1)
+		go func(r image.Rectangle) {
+			defer wg.Done()
+			// draw.Draw copies from src[r] into the matching region of dst,
+			// performing the palette lookup. Disjoint r across goroutines means
+			// disjoint dst.Pix writes.
+			draw.Draw(dst, r, src, r.Min, draw.Src)
+		}(band)
+	}
+	wg.Wait()
 	return dst
 }

@@ -61,24 +61,36 @@ func registerRecorderTools(s *server.MCPServer) {
 	}, handleScreenRecordStop)
 }
 
+// recordStartArgs mirrors the screen_record_start input schema. ExcludeTerminals
+// is a pointer so an omitted key preserves the DefaultConfig() value (true)
+// instead of a JSON-zero false silently disabling terminal masking.
+type recordStartArgs struct {
+	DurationSeconds  float64 `json:"duration_seconds"`
+	FPS              int     `json:"fps"`
+	MaxWidth         int     `json:"max_width"`
+	MonitorIndex     int     `json:"monitor_index"`
+	ExcludeTerminals *bool   `json:"exclude_terminals"`
+}
+
 func handleScreenRecordStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	cfg := recorder.DefaultConfig()
 
-	argsMap, _ := request.Params.Arguments.(map[string]any)
-	if v, ok := argsMap["duration_seconds"].(float64); ok && v > 0 {
-		cfg.Duration = time.Duration(v*1000) * time.Millisecond
+	var args recordStartArgs
+	if err := request.BindArguments(&args); err != nil {
+		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
-	if v, ok := argsMap["fps"].(float64); ok && v > 0 {
-		cfg.FPS = int(v)
+	if args.DurationSeconds > 0 {
+		cfg.Duration = time.Duration(args.DurationSeconds*1000) * time.Millisecond
 	}
-	if v, ok := argsMap["max_width"].(float64); ok && v > 0 {
-		cfg.MaxWidth = int(v)
+	if args.FPS > 0 {
+		cfg.FPS = args.FPS
 	}
-	if v, ok := argsMap["monitor_index"].(float64); ok {
-		cfg.MonitorIndex = int(v)
+	if args.MaxWidth > 0 {
+		cfg.MaxWidth = args.MaxWidth
 	}
-	if v, ok := argsMap["exclude_terminals"].(bool); ok {
-		cfg.ExcludeTerminals = v
+	cfg.MonitorIndex = args.MonitorIndex
+	if args.ExcludeTerminals != nil {
+		cfg.ExcludeTerminals = *args.ExcludeTerminals
 	}
 
 	session, err := recorder.Start(cfg)

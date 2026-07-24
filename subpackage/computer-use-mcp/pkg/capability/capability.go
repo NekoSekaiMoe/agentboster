@@ -2,10 +2,19 @@ package capability
 
 import (
 	"os"
+	"os/exec"
 	"runtime"
 
 	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/screenshot"
 )
+
+// hasCmd reports whether an executable is on PATH. Used to detect the optional
+// Wayland helper tools (grim, gnome-screenshot, ydotool) so Detect can warn when
+// a Wayland session lacks the tooling that makes capture/input actually work.
+func hasCmd(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
 
 // Capabilities describes what the computer-use server can do on this platform.
 type Capabilities struct {
@@ -48,6 +57,19 @@ func Detect() Capabilities {
 	}
 	if hasDisplay && !accessibilityGranted && platform == "darwin" {
 		issues = append(issues, "Accessibility permission required. Grant in: System Preferences → Privacy & Security → Accessibility → Enable AgentBoster")
+	}
+	// On a native Wayland session, pixel capture (XGetImage) and synthetic input
+	// (XTest) only work for Xwayland-backed windows — native Wayland windows show
+	// as black frames and ignore the fake events. The Wayland-native helpers close
+	// that gap, so flag them as actionable issues when missing rather than letting
+	// screenshots silently come back black.
+	if hasDisplay && displayServer != nil && *displayServer == "wayland" {
+		if !hasCmd("grim") && !hasCmd("gnome-screenshot") {
+			issues = append(issues, "Wayland session without a screenshot helper: install 'grim' (wlroots: sway/Hyprland) or 'gnome-screenshot' (GNOME), or native-window captures will be black.")
+		}
+		if !hasCmd("ydotool") {
+			issues = append(issues, "Wayland session without 'ydotool': mouse/keyboard input can only reach Xwayland windows. Install ydotool and run ydotoold (needs /dev/uinput) for native Wayland input.")
+		}
 	}
 
 	return Capabilities{
