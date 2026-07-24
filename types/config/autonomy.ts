@@ -69,6 +69,15 @@ export const autonomyConfigSchema = z.object({
     .min(0, 'max_steps cannot be negative')
     .default(20),
   /**
+   * YOLO / full-auto toggle (borrowed from AionUi's per-agent YOLO switch).
+   * When true, ALL three security tiers (L0 blocklist / L1 scoring / L2
+   * approval) are short-circuited for non-destructive tools and the agent
+   * runs without confirmation prompts. Destructive commands (rm -rf, drop,
+   * format) still force L2 regardless. Off by default — this is strictly
+   * opt-in and the UI surfaces a warning when enabled.
+   */
+  yolo: z.boolean().default(false).optional(),
+  /**
    * Tool-loop circuit-breaker overrides. When omitted the defaults from
    * `tool-loop-guard.ts` apply (3/3/8/3). Set a field to 0 to disable that
    * specific breaker.

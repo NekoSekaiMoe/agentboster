@@ -46,6 +46,12 @@ export {
 } from './preferences.ts';
 
 export {
+  fetchRemoteMcpServers,
+  type RemoteMcpServer,
+  type McpServersResponse,
+} from './mcp-servers.ts';
+
+export {
   evaluateLocalCommand,
   formatToolRequest,
   type SecurityDecision,
