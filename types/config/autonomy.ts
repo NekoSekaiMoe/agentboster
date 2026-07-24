@@ -33,6 +33,30 @@ export const toolLoopLimitsSchema = z.object({
 export type ToolLoopLimitsConfig = z.infer<typeof toolLoopLimitsSchema>;
 
 /**
+ * Microcompact config (borrowed from aionrs compact/micro.rs).
+ *
+ * The lightest compaction tier: folds the content of old tool-result parts
+ * into a placeholder without an LLM call, keeping the N most recent intact.
+ * Runs in prepareStep before the autocompact threshold check, so the
+ * heavier LLM-summary compaction only fires when this pass alone isn't
+ * enough to bring the prompt back under budget.
+ */
+export const microcompactConfigSchema = z.object({
+  /** Master switch. Default enabled. */
+  enabled: z.boolean().optional(),
+  /** Keep the N most-recent compactable results intact; fold older. */
+  keep_recent: z.number().int().min(1).optional(),
+  /** Tool names whose results are eligible for folding. */
+  compactable_tools: z.array(z.string()).optional(),
+  /** Run only when live compactable results exceed this count. */
+  min_results_to_trigger: z.number().int().min(0).optional(),
+});
+
+export type MicrocompactConfigOverrides = z.infer<
+  typeof microcompactConfigSchema
+>;
+
+/**
  * Autonomy configuration schema.
  */
 export const autonomyConfigSchema = z.object({
@@ -50,6 +74,12 @@ export const autonomyConfigSchema = z.object({
    * specific breaker.
    */
   tool_loop_limits: toolLoopLimitsSchema.optional(),
+  /**
+   * Microcompact overrides (aionrs compact/micro.rs). Folds old tool-result
+   * content into a placeholder without an LLM call, before the autocompact
+   * threshold check. See `lib/workflow/agent/microcompact.ts`.
+   */
+  microcompact: microcompactConfigSchema.optional(),
 });
 
 export type AutonomyConfig = z.infer<typeof autonomyConfigSchema>;

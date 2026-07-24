@@ -48,6 +48,7 @@ import {
   inputKeyOf,
   resolveToolLoopLimits,
 } from './tool-loop-guard';
+import { microcompact, resolveMicrocompactConfig } from './microcompact';
 import { sanitizeToolName } from './tools/tool-name-guard';
 import { getTokenUsageTotal } from './types';
 import {
@@ -348,6 +349,13 @@ export async function chatWorkflow(
       )
     : undefined;
 
+  // Resolve microcompact config once (aionrs compact/micro.rs). Runs in
+  // prepareStep before the autocompact threshold check to fold old tool
+  // results cheaply (no LLM call) before paying for a summary.
+  const microcompactConfig = resolveMicrocompactConfig(
+    effectiveConfig.autonomy?.microcompact,
+  );
+
   await initializeRunSessionStep({
     sessionId,
     modelId,
@@ -480,6 +488,27 @@ export async function chatWorkflow(
 
         let nextMessages = messages;
         const shouldForceCompact = mappedInstructions.forceCompact;
+
+        // Microcompact (aionrs compact/micro.rs): fold old tool-result
+        // content into a placeholder without an LLM call, keeping the most
+        // recent N intact. Runs before the autocompact threshold check so the
+        // token estimate reflects the folded state; if this alone brings us
+        // back under budget, we skip the expensive LLM summarization entirely.
+        // Only ModelMessage[] prompts can be folded.
+        if (Array.isArray(nextMessages)) {
+          const folded = microcompact(
+            nextMessages as ModelMessage[],
+            microcompactConfig,
+          );
+          if (folded.result.ran) {
+            nextMessages = folded.messages as typeof nextMessages;
+            // Re-estimate tokens after folding so the threshold check below
+            // sees the lighter prompt.
+            totalTokensUsed = estimatePromptTokens(
+              modelMessagesToPrompt(folded.messages),
+            );
+          }
+        }
 
         const compactionDecision = evaluateCompactionNeed({
           totalTokensUsed,
