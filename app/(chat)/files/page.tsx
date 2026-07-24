@@ -3,6 +3,7 @@
 import {
   Download,
   ExternalLink,
+  Eye,
   FileArchive,
   Loader2,
   RefreshCcw,
@@ -27,6 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { WorkspacePageHeader } from '@/components/workspace-page-header';
 import { useI18n } from '@/components/i18n-provider';
+import { FilePreviewPanel } from '@/components/file-preview-panel';
 
 function formatBytes(size: number): string {
   if (!Number.isFinite(size) || size <= 0) {
@@ -72,6 +74,7 @@ export default function FilesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [previewFile, setPreviewFile] = useState<FileRecord | null>(null);
 
   const loadFirstPage = useCallback(async () => {
     setRefreshing(true);
@@ -263,6 +266,14 @@ export default function FilesPage() {
                     </div>
 
                     <div className="flex shrink-0 flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setPreviewFile(item)}
+                      >
+                        <Eye className="mr-2 size-4" />
+                        Preview
+                      </Button>
                       <Button size="sm" variant="outline" asChild>
                         <a
                           href={`/api/files/${item.id}/download`}
@@ -302,6 +313,23 @@ export default function FilesPage() {
           ) : null}
         </div>
       </div>
+
+      {previewFile && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setPreviewFile(null)}
+        >
+          <div
+            className="h-[85vh] w-full max-w-4xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <FilePreviewPanel
+              file={previewFile}
+              onClose={() => setPreviewFile(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
