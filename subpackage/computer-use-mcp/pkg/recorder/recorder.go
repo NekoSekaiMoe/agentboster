@@ -60,6 +60,19 @@ func DefaultConfig() Config {
 	}
 }
 
+// Capture function hooks. Defaulting to the screenshot package's real
+// functions keeps production behavior unchanged; tests override them to feed
+// in-memory frames so captureFrame's change-detection / delay aggregation can
+// be exercised headlessly (no display server required).
+var (
+	captureFrameFn = func(monitorIndex int) (*image.RGBA, error) {
+		return screenshot.CaptureDisplay(monitorIndex)
+	}
+	captureBoundsFn = func(monitorIndex int) image.Rectangle {
+		return screenshot.GetDisplayBounds(monitorIndex)
+	}
+)
+
 // Session is an in-progress or completed recording. Exactly one Session may be
 // active at a time per process (the MCP server is single-user), enforced by a
 // package-level mutex.
@@ -73,11 +86,13 @@ type Session struct {
 	stopped bool
 	cancel  context.CancelFunc // stops the capture goroutine on Stop
 
-	// lastHash is the CRC32 of the previous captured RGBA frame's pixels
-	// (post-mask, pre-palettize). When a new frame hashes identically we skip
-	// the scale/mask/palettize work entirely and instead extend the previous
-	// frame's on-screen delay — a static screen collapses to a single encoded
-	// frame. hasFrame gates the first-frame case.
+	// lastHash is the CRC32 of the previous captured RGBA frame's raw pixel
+	// buffer (raw.Pix) as returned by screenshot.CaptureDisplay — i.e. BEFORE
+	// scale, terminal-masking, and palettize. When a newly captured frame's
+	// raw.Pix hashes identically we skip the expensive scale/mask/palettize
+	// pipeline entirely and instead extend the previous encoded frame's on-screen
+	// delay — a static screen collapses to a single encoded frame. hasFrame gates
+	// the first-frame case. See captureFrame for the exact ordering.
 	lastHash uint32
 	hasFrame bool
 }
@@ -168,7 +183,7 @@ func (s *Session) captureFrame(now time.Time) {
 		return
 	}
 
-	raw, err := screenshot.CaptureDisplay(s.cfg.MonitorIndex)
+	raw, err := captureFrameFn(s.cfg.MonitorIndex)
 	if err != nil {
 		// Skip a bad frame rather than aborting the whole recording; transient
 		// capture hiccups (e.g. a monitor waking) shouldn't kill the session.
@@ -202,7 +217,7 @@ func (s *Session) captureFrame(now time.Time) {
 	// monitorOrigin from absolute window bounds. Use the configured monitor's
 	// Bounds.Min rather than [2]int{} (which only works for the primary).
 	origin := [2]int{}
-	if db := screenshot.GetDisplayBounds(s.cfg.MonitorIndex); !db.Empty() {
+	if db := captureBoundsFn(s.cfg.MonitorIndex); !db.Empty() {
 		origin = [2]int{db.Min.X, db.Min.Y}
 	}
 

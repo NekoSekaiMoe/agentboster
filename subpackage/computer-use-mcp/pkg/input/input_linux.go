@@ -5,6 +5,7 @@ package input
 import (
 	"fmt"
 	"os/exec"
+	"sync"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -46,6 +47,7 @@ const (
 	XK_Left      = 0xff51
 	XK_Right     = 0xff53
 	XK_Shift_L   = 0xffe1
+	XK_Shift_R   = 0xffe2
 	XK_Control_L = 0xffe3
 	XK_Alt_L     = 0xffe9
 	XK_Super_L   = 0xffeb
@@ -82,6 +84,16 @@ func init() {
 	purego.RegisterLibFunc(&xTestFakeButtonEvent, xtest, "XTestFakeButtonEvent")
 	purego.RegisterLibFunc(&xTestFakeKeyEvent, xtest, "XTestFakeKeyEvent")
 }
+
+// xtestTypeTextMu serializes the pure-XTest typeText fallback below. That
+// path calls XChangeKeyboardMapping (via keyMapper.remap/restore) which
+// rewrites the X server's GLOBAL keyboard mapping — not per-connection — so
+// two concurrent typeText calls would clobber each other's spare-keycode
+// assignments and, worse, one call's restore() could revert a mapping the
+// other call was still relying on, producing mistyped or stuck characters.
+// The Wayland/xdotool fast paths don't touch the global mapping and skip this
+// lock; only the XTest fallback acquires it.
+var xtestTypeTextMu sync.Mutex
 
 func mouseMove(x, y int) error {
 	if waylandInputActive() {
@@ -182,14 +194,27 @@ func typeText(text string) error {
 	// Unicode range, not just ASCII: each rune is converted to an X11 keysym,
 	// located on the current layout (respecting the shift level), and — when the
 	// keysym is bound to no key at all — temporarily grafted onto a spare keycode
-	// via XChangeKeyboardMapping so it can still be synthesized.
+	// via XChangeKeyboardMapping so it can still be synthesized. The remap/
+	// restore calls rewrite the X server's GLOBAL keyboard mapping, so the
+	// whole fallback is serialized by xtestTypeTextMu to keep concurrent
+	// typeText calls from cross-contaminating each other's mapping changes.
+	xtestTypeTextMu.Lock()
+	defer xtestTypeTextMu.Unlock()
+
 	display := xOpenDisplay(nil)
 	if display == 0 {
 		return fmt.Errorf("failed to open X display")
 	}
 	defer xCloseDisplay(display)
 
+	// Prefer XK_Shift_L; fall back to XK_Shift_R for layouts that bind only the
+	// right Shift (or have Shift_L unmapped). A 0 result means Shift is entirely
+	// unavailable, in which case shifted characters simply can't be typed and
+	// are emitted unshifted (the existing behavior).
 	shiftKC := xKeysymToKeycode(display, XK_Shift_L)
+	if shiftKC == 0 {
+		shiftKC = xKeysymToKeycode(display, XK_Shift_R)
+	}
 	km := newKeyMapper(display)
 	defer km.restore()
 
@@ -331,6 +356,14 @@ func (km *keyMapper) lookup(keysym uint64) (byte, bool, bool) {
 // remap grafts keysym onto a spare keycode (level 0) via
 // XChangeKeyboardMapping so it can be synthesized, caching the assignment so a
 // repeated rune reuses the same keycode. Returns ok=false when no spare exists.
+//
+// Spares are round-robined: once every spare has been used at least once, the
+// oldest assignment's keycode is overwritten. Before claiming a recycled
+// keycode we evict any prior keysym still pointing at it from the cache, so a
+// later lookup of that evicted keysym doesn't return a keycode the server has
+// already rebound to something else (which would silently type the wrong
+// character). The caller (typeText) holds xtestTypeTextMu, so this mutation is
+// race-free.
 func (km *keyMapper) remap(keysym uint64) (byte, bool) {
 	if xChangeKeyboardMapping == nil || xSync == nil {
 		return 0, false
@@ -345,6 +378,15 @@ func (km *keyMapper) remap(keysym uint64) (byte, bool) {
 	// doesn't exhaust them permanently (each new keysym overwrites the oldest).
 	kc := km.spares[km.nextSpre%len(km.spares)]
 	km.nextSpre++
+
+	// Evict any cached assignment that still points at this keycode; the server
+	// is about to rebind it to our new keysym, so the stale entry would otherwise
+	// cause a future lookup to synthesize the wrong character.
+	for oldKeysym, oldKC := range km.remapped {
+		if oldKC == kc {
+			delete(km.remapped, oldKeysym)
+		}
+	}
 
 	// Assign the keysym to every level of this keycode so Shift state is
 	// irrelevant when we synthesize it.

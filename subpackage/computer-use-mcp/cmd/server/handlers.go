@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/capability"
@@ -45,18 +46,27 @@ type (
 	}
 )
 
+// keyboardControllerOnce serializes the lazy initialization of
+// keyboardOnlyController. The MCP stdio server dispatches tool calls from a
+// pool of worker goroutines, so TypeText / KeyEvent can run concurrently; the
+// previous nil-check pattern raced on keyboardOnlyController and could
+// initialize it (and overwrite a concurrent writer) more than once.
+var keyboardControllerOnce sync.Once
+
 // ensureKeyboardController lazily builds the keyboard-only input controller,
 // initialized with the detected display scale. Shared by the text and key
-// handlers, which previously duplicated this block.
+// handlers, which previously duplicated this block. The once-guard guarantees
+// a single initialization under concurrent callers; subsequent calls return
+// the shared controller cheaply.
 func ensureKeyboardController() *input.Controller {
-	if keyboardOnlyController == nil {
+	keyboardControllerOnce.Do(func() {
 		caps := capability.Detect()
 		scale := caps.ScaleFactor
 		if scale == 0 {
 			scale = 1.0
 		}
 		keyboardOnlyController, _ = input.New(scale)
-	}
+	})
 	return keyboardOnlyController
 }
 

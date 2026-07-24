@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 )
 
 // Wayland input via ydotool.
@@ -25,8 +26,23 @@ import (
 
 // waylandInputActive reports whether synthetic input should be routed through
 // ydotool: a Wayland session is active and the ydotool client is installed.
+//
+// The ydotool-on-PATH check is memoized once per process with sync.Once:
+// mouseMove/Click/Drag/typeText/keyEvent all funnel through this gate on every
+// call, and exec.LookPath is a syscall (scanning $PATH) we don't want to repeat
+// on the input hot path. PATH can't meaningfully change during a process's
+// lifetime in our deployment model, so a one-shot probe is correct; the env
+// check stays live so toggling WAYLAND_DISPLAY still takes effect.
+var (
+	waylandInputOnce  sync.Once
+	waylandInputValue bool
+)
+
 func waylandInputActive() bool {
-	return os.Getenv("WAYLAND_DISPLAY") != "" && hasCmd("ydotool")
+	waylandInputOnce.Do(func() {
+		waylandInputValue = hasCmd("ydotool")
+	})
+	return os.Getenv("WAYLAND_DISPLAY") != "" && waylandInputValue
 }
 
 func hasCmd(name string) bool {

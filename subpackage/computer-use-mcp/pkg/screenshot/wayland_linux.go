@@ -64,16 +64,35 @@ func hasCmd(name string) bool {
 // compositor output" (used when output enumeration was unavailable).
 //
 // It returns errNoWaylandCaptureTool when neither helper is installed so the
-// caller can fall through to X11/Xwayland instead of hard-failing.
+// caller can fall through to X11/Xwayland instead of hard-failing. When grim
+// is installed but FAILS at runtime (typical on GNOME/Mutter, which doesn't
+// implement the wlr-screencopy protocol grim needs), we transparently retry
+// with gnome-screenshot if it is available, rather than surfacing a grim error
+// to a user whose system actually can capture.
 func captureWayland(bounds image.Rectangle) (*image.RGBA, error) {
-	switch {
-	case hasCmd("grim"):
-		return captureGrim(bounds)
-	case hasCmd("gnome-screenshot"):
-		return captureGnome(bounds)
-	default:
-		return nil, errNoWaylandCaptureTool
+	if hasCmd("grim") {
+		img, err := captureGrim(bounds)
+		if err == nil {
+			return img, nil
+		}
+		// grim is present but failed (e.g. compositor lacks wlr-screencopy). If
+		// gnome-screenshot is available, try it before giving up; only surface
+		// the grim error when no fallback exists.
+		if hasCmd("gnome-screenshot") {
+			if img, gErr := captureGnome(bounds); gErr == nil {
+				return img, nil
+			} else {
+				// Both tools present, both failed — combine the errors so the
+				// caller/user can diagnose which stage broke.
+				return nil, fmt.Errorf("grim failed: %v; gnome-screenshot also failed: %w", err, gErr)
+			}
+		}
+		return nil, err
 	}
+	if hasCmd("gnome-screenshot") {
+		return captureGnome(bounds)
+	}
+	return nil, errNoWaylandCaptureTool
 }
 
 // captureGrim runs grim, asking for raw PPM on stdout. PPM (P6) is uncompressed,
