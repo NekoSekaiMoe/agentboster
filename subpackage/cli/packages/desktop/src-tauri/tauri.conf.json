@@ -6,7 +6,7 @@
 	"build": {
 		"beforeDevCommand": "npx vite --port 1420",
 		"devUrl": "http://localhost:1420",
-		"beforeBuildCommand": "bash ../scripts/prepare-resources.sh && npm run build:frontend",
+		"beforeBuildCommand": "bash scripts/prepare-resources.sh && yarn build:frontend",
 		"frontendDist": "../dist"
 	},
 	"app": {
