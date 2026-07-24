@@ -6,6 +6,7 @@ DESKTOP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESOURCES_DIR="$DESKTOP_DIR/src-tauri/resources"
 
 mkdir -p "$RESOURCES_DIR"
+touch "$RESOURCES_DIR/.keep"
 
 # Determine host triple
 case "$(uname -s)-$(uname -m)" in
