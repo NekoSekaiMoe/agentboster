@@ -310,10 +310,17 @@ function mergeConsecutive(
   compat: ProviderCompat,
 ): ModelMessage[] {
   if (messages.length === 0) return messages;
-  const result: ModelMessage[] = [messages[0]!];
+  const first = messages[0];
+  if (!first) return messages;
+  const result: ModelMessage[] = [first];
   for (let i = 1; i < messages.length; i++) {
-    const prev = result[result.length - 1]!;
-    const cur = messages[i]!;
+    const cur = messages[i];
+    if (!cur) continue;
+    const prev = result[result.length - 1];
+    if (!prev) {
+      result.push(cur);
+      continue;
+    }
     const sameRole = prev.role === cur.role;
 
     // mergeAssistantMessages only collapses assistant→assistant.

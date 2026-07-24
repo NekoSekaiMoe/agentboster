@@ -192,7 +192,8 @@ export function microcompact(
 
   for (const [msgIdx, partIdx] of toClear) {
     if (!mutated.has(msgIdx)) {
-      const original = out[msgIdx]!;
+      const original = out[msgIdx];
+      if (!original) continue;
       out[msgIdx] = {
         ...original,
         content: (original.content as readonly unknown[]).slice(),
@@ -202,7 +203,8 @@ export function microcompact(
   }
 
   for (const [msgIdx, partIdx] of toClear) {
-    const msg = out[msgIdx]!;
+    const msg = out[msgIdx];
+    if (!msg) continue;
     const parts = msg.content as unknown[];
     const part = parts[partIdx] as
       | { output?: unknown; content?: unknown }
@@ -288,7 +290,8 @@ function collectCompactableLocations(
 ): Array<[number, number]> {
   const locations: Array<[number, number]> = [];
   for (let mi = 0; mi < messages.length; mi++) {
-    const msg = messages[mi]!;
+    const msg = messages[mi];
+    if (!msg) continue;
     if (msg.role !== 'tool') continue;
     const parts = msg.content as readonly unknown[];
     for (let bi = 0; bi < parts.length; bi++) {

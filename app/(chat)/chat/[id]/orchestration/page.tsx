@@ -1,6 +1,9 @@
 import { OrchestrationGraph } from '@/components/orchestration/orchestration-graph';
+import { PlanEditor } from '@/components/orchestration/plan-editor';
 import { canAccessOwnedResource, requireAuthAccess } from '@/lib/auth/access';
 import { getSession } from '@/lib/core/db/chat';
+import { listPlansBySession } from '@/lib/core/db/agent-orchestration-plans';
+import { getConfig } from '@/lib/core/kv/config';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { cookies } from 'next/headers';
@@ -11,9 +14,10 @@ export const dynamic = 'force-dynamic';
 /**
  * /chat/[id]/orchestration
  *
- * Read-only Team Mode I view: a React Flow graph of the session's subagent
- * batches / jobs / barriers / handoffs. Purely a visibility surface for the
- * multi-agent primitives that already exist in the backend; no write actions.
+ * Team Mode hub: left pane is the read-only React Flow graph (stage 1) of
+ * live subagent batches / barriers / handoffs; right pane is the manual
+ * plan editor (stage 2) where the user can author a fan-out plan and submit
+ * it as a chat instruction.
  */
 export default async function OrchestrationPage({
   params,
@@ -26,30 +30,46 @@ export default async function OrchestrationPage({
   const session = await getSession(sessionId);
   if (!session) notFound();
   if (!canAccessOwnedResource(access, session.userId)) notFound();
-
-  // Bounce read-only cross-channel viewers (they shouldn't see internal
-  // orchestration state of someone else's session).
   if (access.session.userId !== session.userId) {
     redirect(`/chat/${sessionId}`);
   }
 
+  const [plans, config] = await Promise.all([
+    listPlansBySession(sessionId),
+    getConfig(),
+  ]);
+  const agentNames = Object.keys(config.agents ?? {});
+  const agents =
+    agentNames.length > 0
+      ? agentNames.map((name) => ({ name }))
+      : [{ name: 'default' }];
+
   return (
-    <div className="mx-auto flex h-screen max-w-6xl flex-col gap-4 p-4">
+    <div className="mx-auto flex h-screen max-w-7xl flex-col gap-4 p-4">
       <div className="flex items-center gap-3">
         <Link
           href={`/chat/${sessionId}`}
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          className="inline-flex items-center gap-1 text-muted-foreground text-sm hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
           返回会话
         </Link>
-        <h1 className="text-lg font-semibold">编排图</h1>
-        <span className="text-xs text-muted-foreground">
-          只读视图 · 每 3 秒自动刷新
+        <h1 className="font-semibold text-lg">编排</h1>
+        <span className="text-muted-foreground text-xs">
+          左：实时多智能体活动 · 右：手动规划
         </span>
       </div>
-      <div className="flex-1 overflow-hidden">
-        <OrchestrationGraph sessionId={sessionId} />
+      <div className="grid flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[2fr_1fr]">
+        <div className="flex flex-col overflow-hidden">
+          <OrchestrationGraph sessionId={sessionId} />
+        </div>
+        <div className="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+          <PlanEditor
+            sessionId={sessionId}
+            plans={plans as never}
+            agents={agents.length > 0 ? agents : [{ name: 'default' }]}
+          />
+        </div>
       </div>
     </div>
   );

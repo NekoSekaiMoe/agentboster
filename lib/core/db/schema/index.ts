@@ -62,3 +62,13 @@ export type {
   AgentSubagentJob,
   NewAgentSubagentJob,
 } from './agent-subagents';
+export {
+  agentOrchestrationPlans,
+  agentOrchestrationPlanItems,
+} from './agent-orchestration-plans';
+export type {
+  AgentOrchestrationPlan,
+  NewAgentOrchestrationPlan,
+  AgentOrchestrationPlanItem,
+  NewAgentOrchestrationPlanItem,
+} from './agent-orchestration-plans';
