@@ -16,6 +16,7 @@ import {
 } from '@/components/attachments';
 import { ArrowUpIcon, StopIcon } from '@/components/icons';
 import { ModelPicker } from '@/components/chat/model-picker';
+import { Mic } from 'lucide-react';
 import {
   SlashCommandMenu,
   applySlashCommand,
@@ -86,6 +87,90 @@ function PureMultimodalInput({
   const [isDragActive, setIsDragActive] = useState(false);
   const [cursor, setCursor] = useState(0);
   const hasHydratedInputRef = useRef(false);
+
+  const [isRecording, setIsRecording] = useState(false);
+  // biome-ignore lint/suspicious/noExplicitAny: Web Speech API types are not fully available
+  const recognitionRef = useRef<any>(null);
+  const startInputRef = useRef<string>('');
+  const pendingVoiceSubmitRef = useRef(false);
+  const [shouldSubmit, setShouldSubmit] = useState(false);
+
+  const toggleRecording = useCallback(() => {
+    const SpeechRecognition =
+      // biome-ignore lint/suspicious/noExplicitAny: Web Speech API types are not fully available
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error('Voice input is not supported in this browser.');
+      return;
+    }
+
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    startInputRef.current = input;
+    let currentFinal = '';
+
+    recognition.onstart = () => {
+      setIsRecording(true);
+    };
+
+    // biome-ignore lint/suspicious/noExplicitAny: Web Speech API types are not fully available
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      let final = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+
+      currentFinal += final;
+      const space =
+        startInputRef.current && (currentFinal || interim) ? ' ' : '';
+      setInput(startInputRef.current + space + currentFinal + interim);
+
+      requestAnimationFrame(() => {
+        adjustHeight(textareaRef);
+      });
+    };
+
+    // biome-ignore lint/suspicious/noExplicitAny: Web Speech API types are not fully available
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error', event.error);
+      setIsRecording(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+      recognitionRef.current = null;
+      if (pendingVoiceSubmitRef.current) {
+        pendingVoiceSubmitRef.current = false;
+        setShouldSubmit(true);
+      }
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+  }, [input, setInput]);
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -263,6 +348,12 @@ function PureMultimodalInput({
     if (uploadProgress.length > 0) return;
     if (!input.trim() && attachments.length === 0) return;
 
+    if (recognitionRef.current) {
+      pendingVoiceSubmitRef.current = true;
+      recognitionRef.current.stop();
+      return;
+    }
+
     const previousUrl =
       window.location.pathname + window.location.search + window.location.hash;
 
@@ -330,6 +421,13 @@ function PureMultimodalInput({
     width,
   ]);
 
+  useEffect(() => {
+    if (shouldSubmit) {
+      setShouldSubmit(false);
+      void submitForm();
+    }
+  }, [shouldSubmit, submitForm]);
+
   return (
     <div className="relative flex w-full flex-col gap-4">
       <input
@@ -351,9 +449,10 @@ function PureMultimodalInput({
         role="group"
         aria-label="Message composer"
         className={cn(
-          'relative flex flex-col gap-3 rounded-[28px] border border-border/80 bg-card px-4 py-4 shadow-sm transition-colors dark:border-zinc-700',
+          'relative flex flex-col gap-3 rounded-[28px] bg-muted/50 px-4 py-4 transition-all',
+          'focus-within:bg-card focus-within:shadow-sm focus-within:ring-1 focus-within:ring-border/50',
           {
-            'border-primary/60 bg-primary/5': isDragActive,
+            'bg-primary/5 ring-1 ring-primary/60': isDragActive,
           },
           className,
         )}
@@ -435,6 +534,12 @@ function PureMultimodalInput({
           <AttachmentButton onClick={() => fileInputRef.current?.click()} />
           {isLoading ? (
             <StopButton stop={stop} />
+          ) : input.trim().length === 0 && attachments.length === 0 ? (
+            <RecordButton
+              isRecording={isRecording}
+              toggleRecording={toggleRecording}
+              isUploading={uploadProgress.length > 0}
+            />
           ) : (
             <SendButton
               input={input}
@@ -510,5 +615,41 @@ const SendButton = memo(PureSendButton, (prevProps, nextProps) => {
   if (prevProps.input !== nextProps.input) return false;
   if (prevProps.hasAttachments !== nextProps.hasAttachments) return false;
   if (prevProps.isUploading !== nextProps.isUploading) return false;
+  return true;
+});
+
+function PureRecordButton({
+  isRecording,
+  toggleRecording,
+  isUploading,
+}: {
+  isRecording: boolean;
+  toggleRecording: () => void;
+  isUploading: boolean;
+}) {
+  return (
+    <Button
+      className={cn(
+        'size-11 rounded-full border p-0 transition-colors dark:border-zinc-600',
+        isRecording
+          ? 'border-red-500 bg-red-500 text-white hover:bg-red-600'
+          : '',
+      )}
+      onClick={(event) => {
+        event.preventDefault();
+        toggleRecording();
+      }}
+      disabled={isUploading}
+      title={isRecording ? 'Stop recording' : 'Start voice input'}
+    >
+      {isRecording ? <StopIcon size={14} /> : <Mic size={14} />}
+    </Button>
+  );
+}
+
+const RecordButton = memo(PureRecordButton, (prevProps, nextProps) => {
+  if (prevProps.isRecording !== nextProps.isRecording) return false;
+  if (prevProps.isUploading !== nextProps.isUploading) return false;
+  if (prevProps.toggleRecording !== nextProps.toggleRecording) return false;
   return true;
 });

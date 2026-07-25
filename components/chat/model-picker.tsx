@@ -75,11 +75,6 @@ export function ModelPicker({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" collisionPadding={8} side="top">
-        <DropdownMenuLabel className="text-muted-foreground text-xs">
-          {t('chat.modelPicker.title')}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-
         <DropdownMenuItem
           className="gap-2"
           onSelect={() => onSelectModel(null)}

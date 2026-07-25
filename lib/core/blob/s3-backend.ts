@@ -49,7 +49,7 @@ import { signBlobUrl } from './proxy-link';
 
 /** Minimal structural shape of the SDK client surface we use. */
 interface SdkClientLike {
-  send<Input, Output>(command: unknown): Promise<Output>;
+  send<_Input, Output>(command: unknown): Promise<Output>;
 }
 
 /** Command constructors exposed by the dynamically-imported SDK module. */

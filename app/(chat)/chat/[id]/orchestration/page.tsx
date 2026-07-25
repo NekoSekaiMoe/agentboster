@@ -28,7 +28,9 @@ export default async function OrchestrationPage({
   const cookieStore = await cookies();
   const access = await requireAuthAccess(cookieStore);
   const session = await getSession(sessionId);
-  if (!session) notFound();
+  if (!session) {
+    redirect(`/chat/${sessionId}`);
+  }
   if (!canAccessOwnedResource(access, session.userId)) notFound();
   if (access.session.userId !== session.userId) {
     redirect(`/chat/${sessionId}`);

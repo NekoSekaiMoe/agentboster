@@ -198,7 +198,7 @@ function PureChatHeader({
 
         <div className="flex shrink-0 items-center gap-1">
           {/* Orchestration graph link (Team Mode I read-only view) */}
-          {chatId && (
+          {session && chatId && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
