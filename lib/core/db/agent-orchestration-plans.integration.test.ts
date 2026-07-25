@@ -109,9 +109,9 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       })
       .returning();
     expect(row).toBeDefined();
-    expect(row?.planId).toBe('plan-test-1');
-    expect(row?.status).toBe('draft'); // schema default
-    expect(row?.id).toBeDefined(); // uuid PK
+    expect(row.planId).toBe('plan-test-1');
+    expect(row.status).toBe('draft'); // schema default
+    expect(row.id).toBeDefined(); // uuid PK
   });
 
   it('planId unique constraint rejects duplicates', async () => {
@@ -130,19 +130,21 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .insert(agentOrchestrationPlans)
       .values({ planId: 'plan-j', sessionId: SESSION_A, title: 'j' })
       .returning();
+    expect(plan).toBeDefined();
     const [item] = await db
       .insert(agentOrchestrationPlanItems)
       .values({
-        planId: plan?.id,
+        planId: plan.id,
         itemId: 'item-j-1',
         agentName: 'researcher',
         task: 'find sources',
         dependsOn: ['item-x', 'item-y'],
       })
       .returning();
-    expect(item?.dependsOn).toEqual(['item-x', 'item-y']);
-    expect(item?.removed).toBe(false); // schema default
-    expect(item?.order).toBe(0); // schema default
+    expect(item).toBeDefined();
+    expect(item.dependsOn).toEqual(['item-x', 'item-y']);
+    expect(item.removed).toBe(false); // schema default
+    expect(item.order).toBe(0); // schema default
   });
 
   it('soft-delete (removed=true) survives and stays queryable', async () => {
@@ -150,8 +152,9 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .insert(agentOrchestrationPlans)
       .values({ planId: 'plan-s', sessionId: SESSION_A, title: 's' })
       .returning();
+    expect(plan).toBeDefined();
     await db.insert(agentOrchestrationPlanItems).values({
-      planId: plan?.id,
+      planId: plan.id,
       itemId: 'item-s',
       agentName: 'a',
       task: 't',
@@ -164,7 +167,8 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .select()
       .from(agentOrchestrationPlanItems)
       .where(eq(agentOrchestrationPlanItems.itemId, 'item-s'));
-    expect(fetched?.removed).toBe(true);
+    expect(fetched).toBeDefined();
+    expect(fetched.removed).toBe(true);
   });
 
   it('FK cascade: deleting a plan removes its items', async () => {
@@ -172,8 +176,9 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .insert(agentOrchestrationPlans)
       .values({ planId: 'plan-c', sessionId: SESSION_A, title: 'c' })
       .returning();
+    expect(plan).toBeDefined();
     await db.insert(agentOrchestrationPlanItems).values({
-      planId: plan?.id,
+      planId: plan.id,
       itemId: 'item-c',
       agentName: 'a',
       task: 't',
@@ -204,7 +209,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
     const plan = inserted[0];
     expect(plan).toBeDefined();
     await db.insert(agentOrchestrationPlanItems).values({
-      planId: plan?.id as string,
+      planId: plan.id,
       itemId: 'item-sc',
       agentName: 'a',
       task: 't',
@@ -217,7 +222,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
     const otherPlan = insertedOther[0];
     expect(otherPlan).toBeDefined();
     await db.insert(agentOrchestrationPlanItems).values({
-      planId: otherPlan?.id as string,
+      planId: otherPlan.id,
       itemId: 'item-other',
       agentName: 'a',
       task: 't',
@@ -259,15 +264,17 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .insert(agentOrchestrationPlans)
       .values({ planId: 'plan-e', sessionId: SESSION_A, title: 'e' })
       .returning();
+    expect(row).toBeDefined();
     await db
       .update(agentOrchestrationPlans)
       .set({ status: 'submitted' })
-      .where(eq(agentOrchestrationPlans.planId, row?.planId));
+      .where(eq(agentOrchestrationPlans.planId, row.planId));
     const [after] = await db
       .select()
       .from(agentOrchestrationPlans)
       .where(eq(agentOrchestrationPlans.planId, 'plan-e'));
-    expect(after?.status).toBe('submitted');
+    expect(after).toBeDefined();
+    expect(after.status).toBe('submitted');
   });
 
   it('querying by session respects the session index path', async () => {
@@ -300,8 +307,9 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .insert(agentOrchestrationPlans)
       .values({ planId: 'plan-uuid-demo', sessionId: SESSION_A, title: 'u' })
       .returning();
+    expect(plan).toBeDefined();
     await db.insert(agentOrchestrationPlanItems).values({
-      planId: plan?.id, // uuid PK
+      planId: plan.id, // uuid PK
       itemId: 'item-uuid-demo',
       agentName: 'a',
       task: 'original',
@@ -313,7 +321,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       sql`SELECT plan_id FROM agent_orchestration_plan_items WHERE item_id = 'item-uuid-demo'`,
     )) as { rows: Array<{ plan_id: string }> };
     const raw = rawResult.rows[0];
-    expect(raw.plan_id).toBe(plan?.id);
+    expect(raw.plan_id).toBe(plan.id);
     expect(raw.plan_id).not.toBe('plan-uuid-demo'); // text planId is NOT what's stored
 
     // The bug: matching items.plan_id (a uuid column) against the text
@@ -348,6 +356,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .from(agentOrchestrationPlanItems)
       .where(eq(agentOrchestrationPlanItems.planId, resolved.id));
     expect(correctMatch).toHaveLength(1);
-    expect(correctMatch[0]?.itemId).toBe('item-uuid-demo');
+    expect(correctMatch[0]).toBeDefined();
+    expect(correctMatch[0].itemId).toBe('item-uuid-demo');
   });
 });

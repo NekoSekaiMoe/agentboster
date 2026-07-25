@@ -23,15 +23,19 @@ const JAPANESE_POEMS = [
   '露の世は露の世ながらさりながら',
 ];
 
-// Track globally so the typewriter effect only plays once per browser session
-let hasPlayedTypewriter = false;
-
 export const Overview = ({
   onPromptSelect,
 }: {
   onPromptSelect?: (prompt: string) => void;
 }) => {
   const { locale } = useI18n();
+
+  const [hasPlayedTypewriter, setHasPlayedTypewriter] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('hasPlayedTypewriter') === 'true';
+    }
+    return false;
+  });
 
   const poem = useMemo(() => {
     let poems = ENGLISH_POEMS;
@@ -48,7 +52,10 @@ export const Overview = ({
   );
 
   useEffect(() => {
-    if (hasPlayedTypewriter) return;
+    if (hasPlayedTypewriter) {
+      setDisplayedText(poem);
+      return;
+    }
 
     let i = 0;
     const interval = setInterval(() => {
@@ -56,12 +63,13 @@ export const Overview = ({
       i++;
       if (i >= poem.length) {
         clearInterval(interval);
-        hasPlayedTypewriter = true;
+        setHasPlayedTypewriter(true);
+        sessionStorage.setItem('hasPlayedTypewriter', 'true');
       }
     }, 80);
 
     return () => clearInterval(interval);
-  }, [poem]);
+  }, [poem, hasPlayedTypewriter]);
 
   return (
     <motion.div

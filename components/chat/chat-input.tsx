@@ -92,6 +92,8 @@ function PureMultimodalInput({
   // biome-ignore lint/suspicious/noExplicitAny: Web Speech API types are not fully available
   const recognitionRef = useRef<any>(null);
   const startInputRef = useRef<string>('');
+  const pendingVoiceSubmitRef = useRef(false);
+  const [shouldSubmit, setShouldSubmit] = useState(false);
 
   const toggleRecording = useCallback(() => {
     const SpeechRecognition =
@@ -103,9 +105,8 @@ function PureMultimodalInput({
       return;
     }
 
-    if (isRecording) {
-      recognitionRef.current?.stop();
-      setIsRecording(false);
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
       return;
     }
 
@@ -147,15 +148,21 @@ function PureMultimodalInput({
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error', event.error);
       setIsRecording(false);
+      recognitionRef.current = null;
     };
 
     recognition.onend = () => {
       setIsRecording(false);
+      recognitionRef.current = null;
+      if (pendingVoiceSubmitRef.current) {
+        pendingVoiceSubmitRef.current = false;
+        setShouldSubmit(true);
+      }
     };
 
     recognition.start();
     recognitionRef.current = recognition;
-  }, [isRecording, input, setInput]);
+  }, [input, setInput]);
 
   useEffect(() => {
     return () => {
@@ -342,8 +349,9 @@ function PureMultimodalInput({
     if (!input.trim() && attachments.length === 0) return;
 
     if (recognitionRef.current) {
+      pendingVoiceSubmitRef.current = true;
       recognitionRef.current.stop();
-      setIsRecording(false);
+      return;
     }
 
     const previousUrl =
@@ -412,6 +420,13 @@ function PureMultimodalInput({
     uploadProgress.length,
     width,
   ]);
+
+  useEffect(() => {
+    if (shouldSubmit) {
+      setShouldSubmit(false);
+      void submitForm();
+    }
+  }, [shouldSubmit, submitForm]);
 
   return (
     <div className="relative flex w-full flex-col gap-4">
@@ -635,5 +650,6 @@ function PureRecordButton({
 const RecordButton = memo(PureRecordButton, (prevProps, nextProps) => {
   if (prevProps.isRecording !== nextProps.isRecording) return false;
   if (prevProps.isUploading !== nextProps.isUploading) return false;
+  if (prevProps.toggleRecording !== nextProps.toggleRecording) return false;
   return true;
 });
