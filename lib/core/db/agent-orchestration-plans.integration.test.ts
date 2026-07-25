@@ -20,20 +20,31 @@
  * refactor — batch #9 part 2) or a top-level vi.mock. Using raw queries is
  * the minimum viable way to prove the schema works.
  */
-import { afterEach, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
-import { agentOrchestrationPlanItems, agentOrchestrationPlans } from './schema';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { and, eq, sql } from 'drizzle-orm';
+import {
+  agentOrchestrationPlanItems,
+  agentOrchestrationPlans,
+  sessions,
+} from './schema';
 import { resetDb, setupPgLiteTestDb } from '@/lib/extra/test/pglite-harness';
 
-// Minimal DDL for the two tables this test exercises. Mirrors the schema in
-// lib/core/db/schema/agent-orchestration-plans.ts. If the schema drifts from
-// this DDL, the drizzle queries below fail — which is exactly the signal we
-// want from a schema-integration test.
+// Minimal DDL for the tables this test exercises. Mirrors the schema in
+// lib/core/db/schema/agent-orchestration-plans.ts (+ sessions for the FK).
+// If the schema drifts from this DDL, the drizzle queries below fail —
+// which is exactly the signal we want from a schema-integration test.
 const DDL = [
+  // Minimal sessions table — only the id column is referenced by the FK, but
+  // we create the full primary-key shape so ON DELETE CASCADE has a real
+  // parent row to delete when the session-cascade test runs.
+  `CREATE TABLE "sessions" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    "created_at" timestamptz DEFAULT now() NOT NULL
+  )`,
   `CREATE TABLE "agent_orchestration_plans" (
     "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
     "plan_id" text NOT NULL UNIQUE,
-    "session_id" uuid NOT NULL,
+    "session_id" uuid NOT NULL REFERENCES "sessions"("id") ON DELETE CASCADE,
     "title" text NOT NULL,
     "description" text,
     "status" text DEFAULT 'draft' NOT NULL,
@@ -62,6 +73,7 @@ const DDL = [
 const TABLES = [
   'agent_orchestration_plan_items',
   'agent_orchestration_plans',
+  'sessions',
 ] as const;
 
 const { db } = setupPgLiteTestDb(DDL);
@@ -70,6 +82,19 @@ const SESSION_A = '00000000-0000-0000-0000-0000000000a1';
 const SESSION_B = '00000000-0000-0000-0000-0000000000b2';
 
 describe('orchestration-plans schema (PGlite integration)', () => {
+  beforeEach(async () => {
+    // Both sessions the FK-referencing tests use. Seeding them here means the
+    // pre-existing tests (written when session_id was a bare uuid) don't have
+    // to touch sessions at all; only the session-cascade test deletes one.
+    // Raw SQL because the drizzle `sessions` table object carries the full
+    // production column set (title/channel/...), but this test only created
+    // the minimal columns the FK needs — a drizzle insert would emit columns
+    // the test DDL doesn't have.
+    await db.execute(
+      sql`INSERT INTO "sessions" ("id") VALUES (${SESSION_A}), (${SESSION_B})`,
+    );
+  });
+
   afterEach(async () => {
     await resetDb(db, TABLES);
   });
@@ -161,6 +186,68 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .from(agentOrchestrationPlanItems)
       .where(eq(agentOrchestrationPlanItems.itemId, 'item-c'));
     expect(orphans).toEqual([]); // cascaded
+  });
+
+  it('FK cascade: deleting a session removes its plans and their items', async () => {
+    // Two-level cascade: session -> plans -> plan items. The FK added in
+    // migration 0024 (agent_orchestration_plans.session_id -> sessions.id
+    // ON DELETE CASCADE) plus the long-standing plan_items -> plans cascade
+    // must together clear everything owned by the session. If the session FK
+    // is ever dropped or changed to ON DELETE NO ACTION, this test fails —
+    // which is exactly the regression the review asked us to guard against.
+    // SESSION_A and SESSION_B are seeded by beforeEach; both survive until we
+    // delete SESSION_A below.
+    const inserted = await db
+      .insert(agentOrchestrationPlans)
+      .values({ planId: 'plan-sc', sessionId: SESSION_A, title: 'sc' })
+      .returning();
+    const plan = inserted[0];
+    expect(plan).toBeDefined();
+    await db.insert(agentOrchestrationPlanItems).values({
+      planId: plan?.id as string,
+      itemId: 'item-sc',
+      agentName: 'a',
+      task: 't',
+    });
+    // A plan belonging to a different session must survive deleting SESSION_A.
+    const insertedOther = await db
+      .insert(agentOrchestrationPlans)
+      .values({ planId: 'plan-other', sessionId: SESSION_B, title: 'other' })
+      .returning();
+    const otherPlan = insertedOther[0];
+    expect(otherPlan).toBeDefined();
+    await db.insert(agentOrchestrationPlanItems).values({
+      planId: otherPlan?.id as string,
+      itemId: 'item-other',
+      agentName: 'a',
+      task: 't',
+    });
+
+    await db.delete(sessions).where(eq(sessions.id, SESSION_A));
+
+    const remainingPlans = await db
+      .select()
+      .from(agentOrchestrationPlans)
+      .where(eq(agentOrchestrationPlans.sessionId, SESSION_A));
+    expect(remainingPlans).toEqual([]); // plans cascaded off session
+
+    const remainingItems = await db
+      .select()
+      .from(agentOrchestrationPlanItems)
+      .where(eq(agentOrchestrationPlanItems.itemId, 'item-sc'));
+    expect(remainingItems).toEqual([]); // items cascaded off plans
+
+    // The other session's plan + item are untouched.
+    const survivorPlan = await db
+      .select()
+      .from(agentOrchestrationPlans)
+      .where(eq(agentOrchestrationPlans.planId, 'plan-other'));
+    expect(survivorPlan).toHaveLength(1);
+    const survivorItem = await db
+      .select()
+      .from(agentOrchestrationPlanItems)
+      .where(eq(agentOrchestrationPlanItems.itemId, 'item-other'));
+    expect(survivorItem).toHaveLength(1);
   });
 
   it('status enum rejects invalid values at the drizzle layer', async () => {

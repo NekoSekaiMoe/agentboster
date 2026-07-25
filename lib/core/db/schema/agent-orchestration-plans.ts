@@ -10,6 +10,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { sessions } from './chat';
 
 /**
  * agentOrchestrationPlans + agentOrchestrationPlanItems: user-authored
@@ -35,7 +36,15 @@ export const agentOrchestrationPlans = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     /** Stable id for URL/API references (plan_xxx). */
     planId: text('plan_id').notNull().unique(),
-    sessionId: uuid('session_id').notNull(),
+    /**
+     * Owning session. Cascades on delete so killing a session also clears
+     * its user-authored plans (the items cascade off plans in turn). All
+     * other session-owned tables (chat messages, files, memory, scheduled)
+     * already use the same pattern — plans was the odd one out.
+     */
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
     /** Optional user note describing the overall goal. */
     description: text('description'),
