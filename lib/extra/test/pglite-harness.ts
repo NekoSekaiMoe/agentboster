@@ -23,7 +23,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { PGlite } from '@electric-sql/pglite';
 import * as schema from '@/lib/core/db/schema';
 
-const MIGRATIONS_DIR = path.resolve(__dirname, '../core/db/migrations');
+const MIGRATIONS_DIR = path.resolve(__dirname, '../../core/db/migrations');
 
 export interface PgLiteTestDb {
   /** Drizzle client bound to the in-memory Postgres + full schema types. */

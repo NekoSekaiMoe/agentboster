@@ -31,7 +31,7 @@ export const appConfigSchema = z.object({
    * Third-party CLI extensions (AionHub-style manifest list, batch #11).
    * Each entry lets the daemon spawn an external coding-agent CLI
    * (claude-code, codex, opencode) as a subprocess node. Built-in defaults
-   * are merged with these entries — see lib/extensions/manifest.ts.
+   * are merged with these entries — see lib/extra/extensions/manifest.ts.
    */
   extensions: z
     .array(

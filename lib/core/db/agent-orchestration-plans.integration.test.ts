@@ -23,7 +23,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { agentOrchestrationPlanItems, agentOrchestrationPlans } from './schema';
-import { resetDb, setupPgLiteTestDb } from '@/lib/test/pglite-harness';
+import { resetDb, setupPgLiteTestDb } from '@/lib/extra/test/pglite-harness';
 
 // Minimal DDL for the two tables this test exercises. Mirrors the schema in
 // lib/core/db/schema/agent-orchestration-plans.ts. If the schema drifts from

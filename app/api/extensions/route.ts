@@ -1,5 +1,5 @@
 import { getConfig } from '@/lib/core/kv/config';
-import { resolveExtensions } from '@/lib/extensions/manifest';
+import { resolveExtensions } from '@/lib/extra/extensions/manifest';
 
 /**
  * GET /api/extensions
