@@ -133,7 +133,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
     const [item] = await db
       .insert(agentOrchestrationPlanItems)
       .values({
-        planId: plan!.id,
+        planId: plan?.id,
         itemId: 'item-j-1',
         agentName: 'researcher',
         task: 'find sources',
@@ -151,7 +151,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .values({ planId: 'plan-s', sessionId: SESSION_A, title: 's' })
       .returning();
     await db.insert(agentOrchestrationPlanItems).values({
-      planId: plan!.id,
+      planId: plan?.id,
       itemId: 'item-s',
       agentName: 'a',
       task: 't',
@@ -173,7 +173,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .values({ planId: 'plan-c', sessionId: SESSION_A, title: 'c' })
       .returning();
     await db.insert(agentOrchestrationPlanItems).values({
-      planId: plan!.id,
+      planId: plan?.id,
       itemId: 'item-c',
       agentName: 'a',
       task: 't',
@@ -262,7 +262,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
     await db
       .update(agentOrchestrationPlans)
       .set({ status: 'submitted' })
-      .where(eq(agentOrchestrationPlans.planId, row!.planId));
+      .where(eq(agentOrchestrationPlans.planId, row?.planId));
     const [after] = await db
       .select()
       .from(agentOrchestrationPlans)
@@ -301,7 +301,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       .values({ planId: 'plan-uuid-demo', sessionId: SESSION_A, title: 'u' })
       .returning();
     await db.insert(agentOrchestrationPlanItems).values({
-      planId: plan!.id, // uuid PK
+      planId: plan?.id, // uuid PK
       itemId: 'item-uuid-demo',
       agentName: 'a',
       task: 'original',
@@ -313,7 +313,7 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       sql`SELECT plan_id FROM agent_orchestration_plan_items WHERE item_id = 'item-uuid-demo'`,
     )) as { rows: Array<{ plan_id: string }> };
     const raw = rawResult.rows[0];
-    expect(raw.plan_id).toBe(plan!.id);
+    expect(raw.plan_id).toBe(plan?.id);
     expect(raw.plan_id).not.toBe('plan-uuid-demo'); // text planId is NOT what's stored
 
     // The bug: matching items.plan_id (a uuid column) against the text

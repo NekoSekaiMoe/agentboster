@@ -13,7 +13,7 @@ function item(
   order = 0,
 ) {
   return {
-    id: 'pk-' + itemId,
+    id: `pk-${itemId}`,
     planId: 'plan-pk',
     itemId,
     agentName,
@@ -47,7 +47,7 @@ describe('computeWaves', () => {
     const items = [item('a', 'r', 't1', [], 2), item('b', 'r', 't2', [], 1)];
     const waves = computeWaves(items);
     expect(waves).toHaveLength(1);
-    expect(waves[0]!.map((i) => i.itemId)).toEqual(['b', 'a']);
+    expect(waves[0]?.map((i) => i.itemId)).toEqual(['b', 'a']);
   });
 
   it('depends_on sequences across waves', () => {
@@ -58,9 +58,9 @@ describe('computeWaves', () => {
     ];
     const waves = computeWaves(items);
     expect(waves).toHaveLength(3);
-    expect(waves[0]![0]!.itemId).toBe('a');
-    expect(waves[1]![0]!.itemId).toBe('b');
-    expect(waves[2]![0]!.itemId).toBe('c');
+    expect(waves[0]?.[0]?.itemId).toBe('a');
+    expect(waves[1]?.[0]?.itemId).toBe('b');
+    expect(waves[2]?.[0]?.itemId).toBe('c');
   });
 
   it('parallel within a wave, then a join', () => {
@@ -71,8 +71,8 @@ describe('computeWaves', () => {
     ];
     const waves = computeWaves(items);
     expect(waves).toHaveLength(2);
-    expect(waves[0]!.map((i) => i.itemId).sort()).toEqual(['a', 'b']);
-    expect(waves[1]![0]!.itemId).toBe('c');
+    expect(waves[0]?.map((i) => i.itemId).sort()).toEqual(['a', 'b']);
+    expect(waves[1]?.[0]?.itemId).toBe('c');
   });
 
   it('cycle does not infinite-loop (stragglers dumped into a wave)', () => {

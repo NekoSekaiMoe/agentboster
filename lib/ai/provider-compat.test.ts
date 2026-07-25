@@ -177,7 +177,7 @@ describe('applyMessageCompat', () => {
     });
     const toolMessages = out.filter((m) => m.role === 'tool');
     expect(toolMessages).toHaveLength(1);
-    const parts = toolMessages[0]!.content as unknown as { output: string }[];
+    const parts = toolMessages[0]?.content as unknown as { output: string }[];
     expect(parts[0]?.output).toBe('second');
   });
 
