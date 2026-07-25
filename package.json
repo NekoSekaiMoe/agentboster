@@ -121,6 +121,7 @@
   "resolutions": {
     "gcp-metadata": "8.1.2",
     "@swc/helpers": "0.5.17",
-    "@codemirror/view": "6.41.0"
+    "@codemirror/view": "6.41.0",
+    "js-yaml": "4.3.0"
   }
 }

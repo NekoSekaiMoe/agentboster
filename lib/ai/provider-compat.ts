@@ -30,7 +30,10 @@
  * override any flag via `compat` on the provider config.
  */
 import type { ModelMessage } from 'ai';
-import type { AIProviderConfig } from '@/types/config/ai';
+import {
+  type AIProviderConfig,
+  type ProviderCompatOverrides,
+} from '@/types/config/ai';
 
 /**
  * Resolved compatibility flags (all booleans, defaults already applied).
@@ -53,14 +56,9 @@ export interface ProviderCompat {
 }
 
 /** User-facing override shape (every field optional, snake_case). */
-export interface ProviderCompatOverrides {
-  merge_assistant_messages?: boolean;
-  clean_orphan_tool_results?: boolean;
-  clean_orphan_tool_calls?: boolean;
-  dedup_tool_results?: boolean;
-  ensure_alternation?: boolean;
-  merge_same_role?: boolean;
-}
+// `ProviderCompatOverrides` is reused from `@/types/config/ai` (Zod-inferred
+// from `providerCompatSchema`) so the canonical schema lives in one place.
+// See types/config/ai.ts for the field list.
 
 /**
  * Defaults per provider format, mirroring aionrs' `anthropic_defaults()` and
@@ -228,20 +226,22 @@ function stripOrphanToolBlocks(
   messages: ModelMessage[],
   compat: ProviderCompat,
 ): ModelMessage[] {
-  // Pass 1: collect every tool_call_id that has a matching tool_result and
-  // vice versa. (aionrs `sanitize_session_messages`.)
-  const callsWithResult = new Set<string>();
+  // Collect the set of tool_call_ids that appear in an assistant tool-call
+  // part (`allCallIds`) and those that appear in a tool-result part
+  // (`resultsWithCall`). Their intersection (`callsHaveResult`) is exactly
+  // the set of calls with a matching result; its complement (relative to
+  // resultsWithCall) is the set of orphan results. (aionrs
+  // `sanitize_session_messages`.)
+  const allCallIds = new Set<string>();
   const resultsWithCall = new Set<string>();
   for (const m of messages) {
     if (m.role === 'assistant') {
       for (const part of m.content as readonly unknown[]) {
-        const id = (part as { type?: string; toolCallId?: string }).toolCallId;
         if (
-          typeof id === 'string' &&
-          (part as { type?: string }).type === 'tool-call'
+          (part as { type?: string }).type === 'tool-call' &&
+          typeof (part as { toolCallId?: string }).toolCallId === 'string'
         ) {
-          // mark as seen; resolved below
-          if (!callsWithResult.has(id)) callsWithResult.add(`${id}__pending`);
+          allCallIds.add((part as { toolCallId: string }).toolCallId);
         }
       }
     } else if (m.role === 'tool') {
@@ -251,14 +251,14 @@ function stripOrphanToolBlocks(
       }
     }
   }
-  // Resolve pending -> real set of calls that DO have a result.
+  // Calls that DO have a matching result (intersection).
   const callsHaveResult = new Set<string>();
-  for (const marker of callsWithResult) {
-    const id = marker.replace(/__pending$/, '');
+  for (const id of allCallIds) {
     if (resultsWithCall.has(id)) callsHaveResult.add(id);
   }
 
-  // Pass 2: walk messages, filtering parts.
+  // Walk messages, filtering parts. Orphan calls = a call id not in
+  // `callsHaveResult`; orphan results = a result id not in `allCallIds`.
   const result: ModelMessage[] = [];
   for (const m of messages) {
     if (m.role === 'assistant' && compat.cleanOrphanToolCalls) {
@@ -278,7 +278,7 @@ function stripOrphanToolBlocks(
         const id = (part as { toolCallId?: string }).toolCallId;
         if (typeof id !== 'string') return true;
         // Keep only results whose call still exists somewhere.
-        return callExists(messages, id);
+        return allCallIds.has(id);
       });
       if (filtered.length > 0) {
         result.push({ ...m, content: filtered as typeof m.content });
@@ -288,21 +288,6 @@ function stripOrphanToolBlocks(
     }
   }
   return result;
-}
-
-function callExists(messages: ModelMessage[], toolCallId: string): boolean {
-  for (const m of messages) {
-    if (m.role !== 'assistant') continue;
-    for (const part of m.content as readonly unknown[]) {
-      if (
-        (part as { type?: string }).type === 'tool-call' &&
-        (part as { toolCallId?: string }).toolCallId === toolCallId
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
 }
 
 function mergeConsecutive(

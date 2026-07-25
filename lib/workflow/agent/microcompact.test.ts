@@ -28,12 +28,6 @@ function toolMsg(
     content: [{ type: 'tool-result', toolCallId, output }],
   } as unknown as ModelMessage;
 }
-function user(text: string): ModelMessage {
-  return {
-    role: 'user',
-    content: [{ type: 'text', text }],
-  } as unknown as ModelMessage;
-}
 
 describe('resolveMicrocompactConfig', () => {
   it('returns defaults with no override', () => {

@@ -79,13 +79,13 @@ export async function addPlanItemAction(input: {
 
 export async function updatePlanItemAction(
   itemId: string,
-  patch: Parameters<typeof updatePlanItem>[1],
+  patch: Parameters<typeof updatePlanItem>[2],
   planId: string,
 ) {
   const plan = await getPlan(planId);
   if (!plan) throw new Error('Plan not found');
   await requireSessionOwned(plan.sessionId);
-  await updatePlanItem(itemId, patch);
+  await updatePlanItem(itemId, planId, patch);
   revalidatePath(`/chat/${plan.sessionId}/orchestration`);
 }
 
@@ -93,7 +93,7 @@ export async function removePlanItemAction(itemId: string, planId: string) {
   const plan = await getPlan(planId);
   if (!plan) throw new Error('Plan not found');
   await requireSessionOwned(plan.sessionId);
-  await removePlanItem(itemId);
+  await removePlanItem(itemId, planId);
   revalidatePath(`/chat/${plan.sessionId}/orchestration`);
 }
 

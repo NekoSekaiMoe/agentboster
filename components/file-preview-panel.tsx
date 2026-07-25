@@ -1,7 +1,7 @@
 'use client';
 
 import { X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { FileRecord } from '@/app/(files)/actions';
 import { Markdown } from '@/components/markdown';
@@ -28,6 +28,25 @@ export function FilePreviewPanel({
   onClose?: () => void;
 }) {
   const kind = classifyMime(file.mimeType, file.fileName);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  // Focus management: move focus into the panel on mount and restore it to
+  // the previously-focused element (the triggering control) on unmount.
+  // Escape dismisses the preview.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    return () => {
+      previouslyFocused?.focus?.();
+    };
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose?.();
+    }
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
@@ -46,7 +65,15 @@ export function FilePreviewPanel({
           </Button>
         )}
       </div>
-      <div className="flex-1 overflow-auto">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={file.fileName}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+        className="flex-1 overflow-auto outline-none"
+      >
         <PreviewBody file={file} kind={kind} />
       </div>
     </div>

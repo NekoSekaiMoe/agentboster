@@ -60,11 +60,9 @@ export function MermaidDiagram({ chart }: { chart: string }) {
         <pre className="whitespace-pre-wrap break-words text-xs text-zinc-700 dark:text-zinc-300">
           {chart}
         </pre>
-        {error && (
-          <div className="mt-2 text-red-600 text-xs dark:text-red-400">
-            {error}
-          </div>
-        )}
+        <div className="mt-2 text-red-600 text-xs dark:text-red-400">
+          {error}
+        </div>
       </div>
     );
   }

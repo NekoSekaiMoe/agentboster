@@ -283,7 +283,6 @@ export class ToolLoopGuard {
     let best: { period: number; repetitions: number } | null = null;
     for (let period = 2; period <= maxPeriod; period++) {
       const patternStart = n - period;
-      const pattern = this.cycleHistory.slice(patternStart);
       let repetitions = 1;
       let prevEnd = patternStart;
       while (

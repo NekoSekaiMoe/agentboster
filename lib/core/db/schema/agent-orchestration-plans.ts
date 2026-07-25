@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -62,6 +64,13 @@ export const agentOrchestrationPlans = pgTable(
   (table) => [
     index('agent_orchestration_plans_session_idx').on(table.sessionId),
     index('agent_orchestration_plans_status_idx').on(table.status),
+    // The text `enum` above only constrains TypeScript; the column is plain
+    // text at the DB level. Enforce the allowed status set with a CHECK so
+    // an invalid status can never be persisted (mirrors memory_edges.relation).
+    check(
+      'agent_orchestration_plans_status_check',
+      sql`${table.status} IN ('draft', 'submitted', 'archived')`,
+    ),
   ],
 );
 

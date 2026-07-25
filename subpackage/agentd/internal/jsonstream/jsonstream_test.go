@@ -65,6 +65,22 @@ func TestParseLine_MissingTypeDefaultsToLog(t *testing.T) {
 	}
 }
 
+func TestParseLine_UnknownTypeDefaultsToLog(t *testing.T) {
+	// Valid JSON with an unrecognized `type` value. Should not error, and
+	// Kind should fall back to KindLog so partially-conforming children
+	// still surface their text. The message must be preserved verbatim.
+	ev, err := ParseLine(`{"type":"totally_unknown","message":"hey"}`)
+	if err != nil {
+		t.Fatalf("unknown-type should not error, got %v", err)
+	}
+	if ev.Kind != KindLog {
+		t.Errorf("unknown-type kind: got %q want log", ev.Kind)
+	}
+	if ev.Message != "hey" {
+		t.Errorf("message should be preserved, got %q want hey", ev.Message)
+	}
+}
+
 func TestParseLine_MissingTypeWithoutMessageUsesRawLine(t *testing.T) {
 	ev, err := ParseLine(`{"foo":1}`)
 	if err != nil {

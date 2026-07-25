@@ -69,17 +69,18 @@ export async function createLongTermMemoryRow(
     key?: string;
   },
 ) {
-  const [row] = await db
-    .insert(schema.longTermMemories)
-    .values({
+  // Delegate to the bulk path so both write routes share a single field
+  // mapping + default-resolution code path (Repository pattern, AionCore
+  // §2). Avoids drift between the single-row and bulk insert shapes.
+  const [row] = await createLongTermMemoryRows([
+    {
       content,
-      userId: options?.userId ?? 'system',
-      memoryType: options?.memoryType ?? 'fact',
-      importance: options?.importance ?? 5,
-      ...(options?.key ? { key: options.key } : {}),
-    })
-    .returning();
-
+      memoryType: options?.memoryType,
+      importance: options?.importance,
+      userId: options?.userId,
+      key: options?.key,
+    },
+  ]);
   return row;
 }
 

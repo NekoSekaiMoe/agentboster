@@ -16,11 +16,11 @@ import {
 } from './schema';
 
 function generatePlanId(): string {
-  return `plan-${Math.random().toString(36).slice(2, 10)}`;
+  return `plan-${crypto.randomUUID()}`;
 }
 
 function generateItemId(): string {
-  return `item-${Math.random().toString(36).slice(2, 10)}`;
+  return `item-${crypto.randomUUID()}`;
 }
 
 export interface PlanWithItems extends AgentOrchestrationPlan {
@@ -114,6 +114,7 @@ export async function addPlanItem(input: {
 
 export async function updatePlanItem(
   itemId: string,
+  planId: string,
   patch: Partial<
     Pick<
       AgentOrchestrationPlanItem,
@@ -124,16 +125,29 @@ export async function updatePlanItem(
   const [row] = await db
     .update(agentOrchestrationPlanItems)
     .set({ ...patch, updatedAt: new Date() })
-    .where(eq(agentOrchestrationPlanItems.itemId, itemId))
+    .where(
+      and(
+        eq(agentOrchestrationPlanItems.itemId, itemId),
+        eq(agentOrchestrationPlanItems.planId, planId),
+      ),
+    )
     .returning();
   return row ?? null;
 }
 
-export async function removePlanItem(itemId: string): Promise<void> {
+export async function removePlanItem(
+  itemId: string,
+  planId: string,
+): Promise<void> {
   await db
     .update(agentOrchestrationPlanItems)
     .set({ removed: true, updatedAt: new Date() })
-    .where(eq(agentOrchestrationPlanItems.itemId, itemId));
+    .where(
+      and(
+        eq(agentOrchestrationPlanItems.itemId, itemId),
+        eq(agentOrchestrationPlanItems.planId, planId),
+      ),
+    );
 }
 
 export async function markPlanSubmitted(
@@ -248,7 +262,7 @@ export function computeWaves(
   while (remaining.size > 0 && iter < maxIterations) {
     iter += 1;
     const currentWave: AgentOrchestrationPlanItem[] = [];
-    for (const [id, item] of remaining) {
+    for (const item of remaining.values()) {
       const ready =
         item.dependsOn.length === 0 ||
         item.dependsOn.every((dep) => placed.has(dep));

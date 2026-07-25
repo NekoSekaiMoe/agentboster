@@ -94,11 +94,16 @@ func ParseLine(line string) (Event, error) {
 
 	// Default missing/unknown type to log so partially-conforming children
 	// still surface their text. Override the discriminator so downstream
-	// switches don't silently drop the line.
-	if ev.Kind == "" {
+	// switches don't silently drop the line. `json.Unmarshal` happily fills
+	// Kind with any string found under `type`, so we must explicitly detect
+	// values outside the known set (not just the empty zero value).
+	switch ev.Kind {
+	case KindLog, KindProgress, KindResult, KindError:
+		// known kind — keep as-is
+	default:
 		ev.Kind = KindLog
-		// If the JSON had a "message" field but no type, keep it; else
-		// fall back to the raw line so nothing is lost.
+		// If the JSON carried a message, keep it; else fall back to the raw
+		// line so nothing is lost.
 		if ev.Message == "" {
 			ev.Message = trimmed
 		}

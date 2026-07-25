@@ -190,7 +190,7 @@ export function microcompact(
   let clearedCount = 0;
   let tokensFreed = 0;
 
-  for (const [msgIdx, partIdx] of toClear) {
+  for (const [msgIdx] of toClear) {
     if (!mutated.has(msgIdx)) {
       const original = out[msgIdx];
       if (!original) continue;
