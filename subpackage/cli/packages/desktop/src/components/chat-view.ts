@@ -68,6 +68,7 @@ import {
   parseSessionTreeRows,
 } from './chat-view/history-tree-utils.js';
 import { renderHistoryViewerView } from './chat-view/history-viewer-view.js';
+import { renderOrchestrationEditorView } from './chat-view/orchestration-editor-view.js';
 import type {
   ForkOption,
   HistoryTreeRow,
@@ -140,6 +141,7 @@ import {
   unwrapQuotedValue as unwrapQuotedArgValue,
   type OAuthProviderCatalogEntry,
 } from '../auth/provider-auth.js';
+import { readAgentbosterDesktopAuth } from '../agentboster-auth.js';
 
 type DeliveryMode = 'prompt' | 'steer' | 'followUp';
 
@@ -566,6 +568,19 @@ export class ChatView {
   private forkTargetsRequestSeq = 0;
   private historyQuery = '';
   private historyRoleFilter: UiRole | 'all' = 'all';
+  private orchestrationEditorOpen = false;
+  private orchestrationLoading = false;
+  private orchestrationError: string | null = null;
+  private orchestrationPlans: Array<{
+    planId: string;
+    title: string;
+    itemCount: number;
+  }> = [];
+  private orchestrationSelectedPlan: {
+    planId: string;
+    title: string;
+    items: Array<{ itemId: string; agentName: string; task: string }>;
+  } | null = null;
   private autoFollowChat = true;
   private expandedToolWorkflowIds = new Set<string>();
   private expandedToolGroupByWorkflowId = new Map<string, string>();
@@ -1646,6 +1661,7 @@ export class ChatView {
       compactNow: this.compactNow.bind(this),
       onOpenSessionBrowser: this.onOpenSessionBrowser,
       onReloadRuntime: this.onReloadRuntime,
+      onOpenOrchestrationEditor: this.openOrchestrationEditor.bind(this),
       ensureSlashCommandsLoaded: this.ensureSlashCommandsLoaded.bind(this),
       loadProviderAuthStatus: this.loadProviderAuthStatus.bind(this),
       loadOAuthProviderCatalog: this.loadOAuthProviderCatalog.bind(this),
@@ -3908,6 +3924,355 @@ export class ChatView {
     this.render();
   }
 
+  // ---- Orchestration plan editor (multi-agent plan author + submit) ----
+
+  openOrchestrationEditor(): void {
+    this.orchestrationEditorOpen = true;
+    this.orchestrationLoading = true;
+    this.orchestrationError = null;
+    this.orchestrationSelectedPlan = null;
+    this.render();
+    void this.loadOrchestrationPlans();
+  }
+
+  private closeOrchestrationEditor(): void {
+    this.orchestrationEditorOpen = false;
+    this.orchestrationLoading = false;
+    this.orchestrationError = null;
+    this.orchestrationPlans = [];
+    this.orchestrationSelectedPlan = null;
+    this.render();
+  }
+
+  private async loadOrchestrationPlans(): Promise<void> {
+    if (!this.orchestrationEditorOpen) return;
+    const sessionId = this.state?.sessionId?.trim();
+    if (!sessionId) {
+      this.orchestrationError = 'No active session';
+      this.orchestrationLoading = false;
+      this.orchestrationPlans = [];
+      this.render();
+      return;
+    }
+    const auth = await readAgentbosterDesktopAuth();
+    if (!auth) {
+      this.orchestrationError =
+        'Not logged in. Run agentboster-cli login first.';
+      this.orchestrationLoading = false;
+      this.render();
+      return;
+    }
+    try {
+      const root = auth.url.replace(/\/+$/, '');
+      const response = await fetch(
+        `${root}/api/cli/sessions/${encodeURIComponent(sessionId)}/orchestration/plans`,
+        {
+          headers: {
+            authorization: `Bearer ${auth.token}`,
+            cookie: `clawless-auth=${auth.token}`,
+          },
+        },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        plans?: Array<Record<string, unknown>>;
+      } | null;
+      if (!response.ok || !body?.ok) {
+        throw new Error(
+          body?.error ||
+            `Failed to load orchestration plans: HTTP ${response.status}`,
+        );
+      }
+      const rawPlans = Array.isArray(body.plans) ? body.plans : [];
+      this.orchestrationPlans = rawPlans.map((plan) => {
+        const items = Array.isArray(plan.items) ? plan.items : [];
+        return {
+          planId: String(plan.planId ?? ''),
+          title: String(plan.title ?? '(untitled)'),
+          itemCount: items.length,
+        };
+      });
+      this.orchestrationError = null;
+    } catch (err) {
+      console.error('Failed to load orchestration plans:', err);
+      this.orchestrationError =
+        err instanceof Error ? err.message : 'Failed to load plans.';
+      this.orchestrationPlans = [];
+    } finally {
+      this.orchestrationLoading = false;
+      this.render();
+    }
+  }
+
+  private async selectOrchestrationPlan(planId: string): Promise<void> {
+    // An empty planId means "back to list" (deselect).
+    if (!planId) {
+      this.orchestrationSelectedPlan = null;
+      this.render();
+      return;
+    }
+    if (!this.orchestrationEditorOpen) return;
+    const sessionId = this.state?.sessionId?.trim();
+    if (!sessionId) {
+      this.orchestrationError = 'No active session';
+      this.render();
+      return;
+    }
+    this.orchestrationLoading = true;
+    this.orchestrationError = null;
+    this.render();
+    const auth = await readAgentbosterDesktopAuth();
+    if (!auth) {
+      this.orchestrationError =
+        'Not logged in. Run agentboster-cli login first.';
+      this.orchestrationLoading = false;
+      this.render();
+      return;
+    }
+    try {
+      const root = auth.url.replace(/\/+$/, '');
+      const response = await fetch(
+        `${root}/api/cli/sessions/${encodeURIComponent(sessionId)}/orchestration/plans/${encodeURIComponent(planId)}`,
+        {
+          headers: {
+            authorization: `Bearer ${auth.token}`,
+            cookie: `clawless-auth=${auth.token}`,
+          },
+        },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        plan?: Record<string, unknown>;
+      } | null;
+      if (!response.ok || !body?.ok || !body.plan) {
+        throw new Error(
+          body?.error || `Failed to load plan: HTTP ${response.status}`,
+        );
+      }
+      this.orchestrationSelectedPlan = this.mapOrchestrationPlanDetail(
+        body.plan,
+      );
+      this.orchestrationError = null;
+    } catch (err) {
+      console.error('Failed to load orchestration plan:', err);
+      this.orchestrationError =
+        err instanceof Error ? err.message : 'Failed to load plan.';
+      this.orchestrationSelectedPlan = null;
+    } finally {
+      this.orchestrationLoading = false;
+      this.render();
+    }
+  }
+
+  private async createOrchestrationPlan(title: string): Promise<void> {
+    if (!this.orchestrationEditorOpen) return;
+    const sessionId = this.state?.sessionId?.trim();
+    if (!sessionId) {
+      this.orchestrationError = 'No active session';
+      this.render();
+      return;
+    }
+    const auth = await readAgentbosterDesktopAuth();
+    if (!auth) {
+      this.orchestrationError =
+        'Not logged in. Run agentboster-cli login first.';
+      this.render();
+      return;
+    }
+    this.orchestrationLoading = true;
+    this.orchestrationError = null;
+    this.render();
+    try {
+      const root = auth.url.replace(/\/+$/, '');
+      const response = await fetch(
+        `${root}/api/cli/sessions/${encodeURIComponent(sessionId)}/orchestration/plans`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${auth.token}`,
+            cookie: `clawless-auth=${auth.token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ title }),
+        },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        plan?: Record<string, unknown>;
+      } | null;
+      if (!response.ok || !body?.ok || !body.plan) {
+        throw new Error(
+          body?.error || `Failed to create plan: HTTP ${response.status}`,
+        );
+      }
+      const planId = String(body.plan.planId ?? '');
+      // Refresh the list so the new plan shows up, then open it.
+      await this.loadOrchestrationPlans();
+      if (planId) {
+        await this.selectOrchestrationPlan(planId);
+      }
+    } catch (err) {
+      console.error('Failed to create orchestration plan:', err);
+      this.orchestrationError =
+        err instanceof Error ? err.message : 'Failed to create plan.';
+    } finally {
+      this.orchestrationLoading = false;
+      this.render();
+    }
+  }
+
+  private async addOrchestrationItem(
+    planId: string,
+    agentName: string,
+    task: string,
+  ): Promise<void> {
+    if (!this.orchestrationEditorOpen) return;
+    const sessionId = this.state?.sessionId?.trim();
+    if (!sessionId) {
+      this.orchestrationError = 'No active session';
+      this.render();
+      return;
+    }
+    const auth = await readAgentbosterDesktopAuth();
+    if (!auth) {
+      this.orchestrationError =
+        'Not logged in. Run agentboster-cli login first.';
+      this.render();
+      return;
+    }
+    this.orchestrationLoading = true;
+    this.orchestrationError = null;
+    this.render();
+    try {
+      const root = auth.url.replace(/\/+$/, '');
+      const response = await fetch(
+        `${root}/api/cli/sessions/${encodeURIComponent(sessionId)}/orchestration/plans/${encodeURIComponent(planId)}/items`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${auth.token}`,
+            cookie: `clawless-auth=${auth.token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ agentName, task }),
+        },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+      } | null;
+      if (!response.ok || !body?.ok) {
+        throw new Error(
+          body?.error || `Failed to add item: HTTP ${response.status}`,
+        );
+      }
+      // Re-select to refresh the item list.
+      await this.selectOrchestrationPlan(planId);
+    } catch (err) {
+      console.error('Failed to add orchestration item:', err);
+      this.orchestrationError =
+        err instanceof Error ? err.message : 'Failed to add item.';
+    } finally {
+      this.orchestrationLoading = false;
+      this.render();
+    }
+  }
+
+  private async submitOrchestrationPlan(planId: string): Promise<void> {
+    if (!this.orchestrationEditorOpen) return;
+    const sessionId = this.state?.sessionId?.trim();
+    if (!sessionId) {
+      this.orchestrationError = 'No active session';
+      this.render();
+      return;
+    }
+    const auth = await readAgentbosterDesktopAuth();
+    if (!auth) {
+      this.orchestrationError =
+        'Not logged in. Run agentboster-cli login first.';
+      this.render();
+      return;
+    }
+    this.orchestrationLoading = true;
+    this.orchestrationError = null;
+    this.render();
+    let instruction: string | null = null;
+    try {
+      const root = auth.url.replace(/\/+$/, '');
+      const response = await fetch(
+        `${root}/api/cli/sessions/${encodeURIComponent(sessionId)}/orchestration/plans/${encodeURIComponent(planId)}/submit`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${auth.token}`,
+            cookie: `clawless-auth=${auth.token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({}),
+        },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        instruction?: string;
+      } | null;
+      if (!response.ok || !body?.ok) {
+        throw new Error(
+          body?.error || `Failed to submit plan: HTTP ${response.status}`,
+        );
+      }
+      instruction =
+        typeof body.instruction === 'string' ? body.instruction : null;
+    } catch (err) {
+      console.error('Failed to submit orchestration plan:', err);
+      this.orchestrationError =
+        err instanceof Error ? err.message : 'Failed to submit plan.';
+      this.orchestrationLoading = false;
+      this.render();
+      return;
+    }
+    // Close the editor first so the composer is reachable, then send the
+    // synthesized instruction as a normal user message via the bridge.
+    this.closeOrchestrationEditor();
+    if (instruction) {
+      try {
+        await rpcBridge.prompt(instruction);
+      } catch (err) {
+        console.error('Failed to send orchestration instruction:', err);
+        this.pushNotice('Failed to send plan instruction', 'error');
+      }
+    }
+  }
+
+  private mapOrchestrationPlanDetail(plan: Record<string, unknown>): {
+    planId: string;
+    title: string;
+    items: Array<{ itemId: string; agentName: string; task: string }>;
+  } {
+    const rawItems = Array.isArray(plan.items) ? plan.items : [];
+    const items = rawItems
+      .map((item) => {
+        const record =
+          item && typeof item === 'object'
+            ? (item as Record<string, unknown>)
+            : {};
+        return {
+          itemId: String(record.itemId ?? ''),
+          agentName: String(record.agentName ?? ''),
+          task: String(record.task ?? ''),
+        };
+      })
+      .filter((item) => item.agentName || item.task);
+    return {
+      planId: String(plan.planId ?? ''),
+      title: String(plan.title ?? '(untitled)'),
+      items,
+    };
+  }
+
   private async loadForkTargetsForHistory(): Promise<void> {
     if (this.historyViewerMode !== 'fork') return;
     const requestId = ++this.forkTargetsRequestSeq;
@@ -5043,6 +5408,45 @@ export class ChatView {
     });
   }
 
+  private renderOrchestrationEditor(): TemplateResult | typeof nothing {
+    return renderOrchestrationEditorView({
+      open: this.orchestrationEditorOpen,
+      loading: this.orchestrationLoading,
+      plans: this.orchestrationPlans,
+      selectedPlan: this.orchestrationSelectedPlan,
+      error: this.orchestrationError,
+      onClose: () => this.closeOrchestrationEditor(),
+      onRefresh: () => {
+        this.orchestrationLoading = true;
+        this.orchestrationError = null;
+        this.render();
+        void this.loadOrchestrationPlans();
+      },
+      onSelectPlan: (planId) => {
+        // Empty planId = "back to list"; clear selection and reload counts.
+        if (!planId) {
+          this.orchestrationSelectedPlan = null;
+          this.orchestrationLoading = true;
+          this.orchestrationError = null;
+          this.render();
+          void this.loadOrchestrationPlans();
+          return;
+        }
+        void this.selectOrchestrationPlan(planId);
+      },
+      onCreatePlan: (title) => {
+        void this.createOrchestrationPlan(title);
+      },
+      onAddItem: (planId, agentName, task) => {
+        void this.addOrchestrationItem(planId, agentName, task);
+      },
+      onSubmitPlan: (planId) => {
+        void this.submitOrchestrationPlan(planId);
+      },
+      truncate,
+    });
+  }
+
   private doRender(): void {
     const hasProject = Boolean(this.projectPath);
     if (!hasProject && !this.welcomeHeadlineTimer) {
@@ -5118,6 +5522,7 @@ export class ChatView {
 				</div>
 				${hasProject ? this.renderComposer() : nothing}
 				${hasProject ? this.renderHistoryViewer() : nothing}
+				${hasProject ? this.renderOrchestrationEditor() : nothing}
 				${hasProject ? this.renderJumpToLatest() : nothing}
 				${this.renderNotices()}
 			</div>

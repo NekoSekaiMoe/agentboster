@@ -116,5 +116,9 @@ export const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommandDefinition[] = [
     description:
       'Reload runtime (bridge restart + state/models/commands refresh)',
   },
+  {
+    name: 'orchestration',
+    description: 'Author and submit a multi-agent orchestration plan',
+  },
   { name: 'quit', description: 'Quit Desktop app' },
 ];
