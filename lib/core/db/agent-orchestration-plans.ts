@@ -122,13 +122,23 @@ export async function updatePlanItem(
     >
   >,
 ): Promise<AgentOrchestrationPlanItem | null> {
+  // planId here is the stable plan_id (text); resolve to the uuid PK the
+  // items table references, mirroring addPlanItem. The items.planId column
+  // is a uuid FK to agent_orchestration_plans.id, so passing the text planId
+  // through directly would silently match nothing.
+  const [plan] = await db
+    .select({ id: agentOrchestrationPlans.id })
+    .from(agentOrchestrationPlans)
+    .where(eq(agentOrchestrationPlans.planId, planId))
+    .limit(1);
+  if (!plan) throw new Error(`plan ${planId} not found`);
   const [row] = await db
     .update(agentOrchestrationPlanItems)
     .set({ ...patch, updatedAt: new Date() })
     .where(
       and(
         eq(agentOrchestrationPlanItems.itemId, itemId),
-        eq(agentOrchestrationPlanItems.planId, planId),
+        eq(agentOrchestrationPlanItems.planId, plan.id),
       ),
     )
     .returning();
@@ -139,13 +149,20 @@ export async function removePlanItem(
   itemId: string,
   planId: string,
 ): Promise<void> {
+  // Resolve text planId → uuid PK (see updatePlanItem for rationale).
+  const [plan] = await db
+    .select({ id: agentOrchestrationPlans.id })
+    .from(agentOrchestrationPlans)
+    .where(eq(agentOrchestrationPlans.planId, planId))
+    .limit(1);
+  if (!plan) throw new Error(`plan ${planId} not found`);
   await db
     .update(agentOrchestrationPlanItems)
     .set({ removed: true, updatedAt: new Date() })
     .where(
       and(
         eq(agentOrchestrationPlanItems.itemId, itemId),
-        eq(agentOrchestrationPlanItems.planId, planId),
+        eq(agentOrchestrationPlanItems.planId, plan.id),
       ),
     );
 }

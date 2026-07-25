@@ -287,4 +287,67 @@ describe('orchestration-plans schema (PGlite integration)', () => {
       );
     expect(sessionARows.map((r) => r.planId).sort()).toEqual(['p1', 'p2']);
   });
+
+  it('items.planId is a uuid FK: text planId must be resolved before matching', async () => {
+    // Regression guard for a bug where updatePlanItem/removePlanItem used the
+    // text planId (e.g. "plan-abc") directly in a WHERE against the items
+    // table's plan_id column — which is a uuid FK to plans.id, not the text
+    // plan_id. A text value can never equal a uuid, so updates/deletes
+    // silently matched nothing. This test pins the schema fact that makes
+    // that a bug, and exercises the resolve-then-match pattern the DAL now
+    // uses (mirroring addPlanItem).
+    const [plan] = await db
+      .insert(agentOrchestrationPlans)
+      .values({ planId: 'plan-uuid-demo', sessionId: SESSION_A, title: 'u' })
+      .returning();
+    await db.insert(agentOrchestrationPlanItems).values({
+      planId: plan!.id, // uuid PK
+      itemId: 'item-uuid-demo',
+      agentName: 'a',
+      task: 'original',
+    });
+
+    // Schema fact: items.plan_id is a uuid column. Confirm the stored value
+    // is the uuid PK, not the text planId.
+    const rawResult = (await db.execute(
+      sql`SELECT plan_id FROM agent_orchestration_plan_items WHERE item_id = 'item-uuid-demo'`,
+    )) as { rows: Array<{ plan_id: string }> };
+    const raw = rawResult.rows[0];
+    expect(raw.plan_id).toBe(plan!.id);
+    expect(raw.plan_id).not.toBe('plan-uuid-demo'); // text planId is NOT what's stored
+
+    // The bug: matching items.plan_id (a uuid column) against the text
+    // planId doesn't silently return nothing — Postgres rejects it as an
+    // invalid uuid literal (error 22P02), so the DAL call throws. This is
+    // why updatePlanItem/removePlanItem were broken end-to-end before the
+    // fix: every web Server Action call surfaced as a 500. drizzle wraps the
+    // raw error in a "Failed query: ..." message; the underlying cause
+    // carries the uuid syntax error.
+    await expect(
+      db
+        .select()
+        .from(agentOrchestrationPlanItems)
+        .where(
+          eq(agentOrchestrationPlanItems.planId, 'plan-uuid-demo' as never),
+        ),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof Error &&
+        /invalid input syntax for type uuid/i.test(
+          `${err.message} ${String((err as { cause?: unknown }).cause ?? '')}`,
+        ),
+    );
+
+    // The fix: resolve text planId -> uuid PK first, then match.
+    const resolvedResult = (await db.execute(
+      sql`SELECT id FROM agent_orchestration_plans WHERE plan_id = 'plan-uuid-demo'`,
+    )) as { rows: Array<{ id: string }> };
+    const resolved = resolvedResult.rows[0];
+    const correctMatch = await db
+      .select()
+      .from(agentOrchestrationPlanItems)
+      .where(eq(agentOrchestrationPlanItems.planId, resolved.id));
+    expect(correctMatch).toHaveLength(1);
+    expect(correctMatch[0]?.itemId).toBe('item-uuid-demo');
+  });
 });
