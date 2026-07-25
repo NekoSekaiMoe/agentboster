@@ -4,8 +4,6 @@ import {
   archivePlan,
   assertCanAccessPlan,
   getPlan,
-  markPlanSubmitted,
-  synthesizePlanInstruction,
   updatePlan,
 } from '@/lib/core/db/agent-orchestration-plans';
 
