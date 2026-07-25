@@ -27,6 +27,27 @@ export const appConfigSchema = z.object({
   /** Agent/Bot configuration. */
   agents: agentConfigSchema.optional(),
 
+  /**
+   * Third-party CLI extensions (AionHub-style manifest list, batch #11).
+   * Each entry lets the daemon spawn an external coding-agent CLI
+   * (claude-code, codex, opencode) as a subprocess node. Built-in defaults
+   * are merged with these entries — see lib/extra/extensions/manifest.ts.
+   */
+  extensions: z
+    .array(
+      z.object({
+        name: z.string(),
+        label: z.string().optional(),
+        cliCommand: z.string(),
+        defaultCliPath: z.string().optional(),
+        args: z.array(z.string()).optional(),
+        authEnv: z.array(z.string()).optional(),
+        authMode: z.enum(['env', 'oauth', 'terminal']).optional(),
+        description: z.string().optional(),
+      }),
+    )
+    .optional(),
+
   /** Chat UI and reply behavior. */
   chat: chatConfigSchema.optional(),
 

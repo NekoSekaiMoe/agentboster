@@ -46,6 +46,12 @@ export {
 } from './preferences.ts';
 
 export {
+  fetchRemoteMcpServers,
+  type RemoteMcpServer,
+  type McpServersResponse,
+} from './mcp-servers.ts';
+
+export {
   evaluateLocalCommand,
   formatToolRequest,
   type SecurityDecision,
@@ -69,3 +75,17 @@ export {
   type SubagentInfo,
   type SubagentMessage,
 } from './subagent.ts';
+
+export {
+  addRemotePlanItem,
+  archiveRemotePlan,
+  createRemotePlan,
+  getRemotePlan,
+  listRemotePlans,
+  patchRemotePlan,
+  patchRemotePlanItem,
+  removeRemotePlanItem,
+  submitRemotePlan,
+  type RemotePlan,
+  type RemotePlanItem,
+} from './orchestration.ts';

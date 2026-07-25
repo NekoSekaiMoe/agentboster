@@ -1,5 +1,5 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
-import { readVaultValue } from '@/lib/vault';
+import { readVaultValue } from '@/lib/extra/vault';
 import { cookies } from 'next/headers';
 
 export async function POST(request: Request) {

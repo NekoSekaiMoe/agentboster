@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -123,10 +122,10 @@ func (m *Manager) ReapOrphans(ctx context.Context) error {
 // listDockerContainers returns the names of all agentd-managed docker
 // containers (running or stopped). Filters by the agentd- name prefix.
 func listDockerContainers(ctx context.Context) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "ps", "-a",
+	cmd := NewCommandBuilder("docker", "ps", "-a",
 		"--filter", "name="+agentdNamePrefix,
 		"--format", "{{.Names}}",
-	)
+	).CleanCLI().BuildContext(ctx)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("docker ps: %w (stderr: %s)", err, err.Error())
@@ -145,7 +144,7 @@ func listDockerContainers(ctx context.Context) ([]string, error) {
 // listLXCContainers returns the names of all agentd-managed LXC containers.
 // Uses lxc-ls which lists both running and stopped containers.
 func listLXCContainers(ctx context.Context) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "lxc-ls")
+	cmd := NewCommandBuilder("lxc-ls").CleanCLI().BuildContext(ctx)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("lxc-ls: %w", err)
@@ -163,7 +162,7 @@ func listLXCContainers(ctx context.Context) ([]string, error) {
 
 // destroyDockerContainer force-removes a docker container by name.
 func destroyDockerContainer(ctx context.Context, name string) error {
-	cmd := exec.CommandContext(ctx, "docker", "rm", "-f", name)
+	cmd := NewCommandBuilder("docker", "rm", "-f", name).CleanCLI().BuildContext(ctx)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("docker rm -f %s: %w (output: %s)", name, err, string(out))
 	}
@@ -175,7 +174,7 @@ func stopLXCContainer(ctx context.Context, name string) error {
 	// Best-effort stop. We don't know the rootfsBase (-P) here, so rely on
 	// the default search path. lxc-stop on an already-stopped container
 	// returns non-zero; ignore that.
-	cmd := exec.CommandContext(ctx, "lxc-stop", "-n", name)
+	cmd := NewCommandBuilder("lxc-stop", "-n", name).CleanCLI().BuildContext(ctx)
 	_, _ = cmd.CombinedOutput()
 	return nil
 }
@@ -190,7 +189,7 @@ func (m *Manager) stopAllLXC(ctx context.Context) {
 			continue
 		}
 		stop := func(name string) {
-			cmd := exec.CommandContext(ctx, "lxc-stop", "-n", name)
+			cmd := NewCommandBuilder("lxc-stop", "-n", name).CleanCLI().BuildContext(ctx)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				slog.Warn("lxc-stop failed during shutdown",
 					"name", name, "error", err, "output", string(out))
@@ -217,7 +216,7 @@ func (m *Manager) destroyAllDocker(ctx context.Context) {
 	m.mu.RUnlock()
 
 	for _, e := range entries {
-		cmd := exec.CommandContext(ctx, "docker", "rm", "-f", e.path)
+		cmd := NewCommandBuilder("docker", "rm", "-f", e.path).CleanCLI().BuildContext(ctx)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			slog.Warn("docker rm failed during shutdown",
 				"id", e.id, "path", e.path, "error", err, "output", string(out))

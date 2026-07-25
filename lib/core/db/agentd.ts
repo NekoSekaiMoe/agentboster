@@ -1,6 +1,9 @@
 import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
+import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
+import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
 import { db } from './index';
 import {
+  agentdNodes,
   agentL0Rules,
   agentMemories,
   agentReviewLogs,
@@ -9,6 +12,7 @@ import {
   agentTasks,
   agentToolActivityLogs,
   archivedTaskSummaries,
+  notifications,
   sessions,
   taskSummaries,
   users,
@@ -433,6 +437,24 @@ export async function getReviewLogs(taskId: string) {
 
 // === Tool Activity Logs ===
 
+/**
+ * Coerce a sanitized payload back into a nullable text value for text-typed
+ * columns. sanitizeToolActivityPayload may replace an oversized string with
+ * a `{__blob_ref__: ...}` marker object; text columns can't store that, so we
+ * serialize the marker to JSON. Plain strings pass through.
+ */
+function asNullableText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+  // Marker object or any other shape — store as JSON text so the row still
+  // carries the blob reference.
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
 export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
   const taskIdentityCache = new Map<
     string,
@@ -471,6 +493,35 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
       const startedAt =
         normalizeDate(log.startedAt ?? log.started_at) ?? new Date();
       const completedAt = normalizeDate(log.completedAt ?? log.completed_at);
+
+      // Large-payload sanitization (borrowed from AionCore's
+      // sanitize_inline_image_result): offload any string leaf bigger than
+      // 64 KiB (or 8 KiB for inline base64 images) to Blob storage, leaving a
+      // __blob_ref__ marker in the DB row. Without this, a single screenshot
+      // or `cat huge_file` would write multi-MB into the Postgres jsonb
+      // column and bloat SSE broadcasts.
+      const sessionIdForPrefix = log.sessionId ?? log.session_id ?? 'unknown';
+      const taskIdForPrefix = log.taskId ?? log.task_id;
+      const blobPrefix = `tool-activity/sess-${sessionIdForPrefix}${
+        taskIdForPrefix ? `/task-${taskIdForPrefix}` : ''
+      }`;
+      const sanitizeOpts = {
+        pathnamePrefix: blobPrefix,
+      } satisfies Parameters<typeof sanitizeToolActivityPayload>[1];
+      const [argumentsClean, resultClean, outputTextClean, errorClean] =
+        await Promise.all([
+          sanitizeToolActivityPayload(
+            log.arguments ?? log.args ?? null,
+            sanitizeOpts,
+          ),
+          sanitizeToolActivityPayload(log.result ?? null, sanitizeOpts),
+          sanitizeToolActivityPayload(
+            log.outputText ?? log.output_text ?? null,
+            sanitizeOpts,
+          ),
+          sanitizeToolActivityPayload(log.error ?? null, sanitizeOpts),
+        ]);
+
       return {
         taskId: normalizeNullableText(log.taskId ?? log.task_id),
         sessionId: normalizeNullableText(log.sessionId ?? log.session_id),
@@ -485,11 +536,11 @@ export async function writeToolActivityLogs(logs: ToolActivityLogInput[]) {
         toolName: log.toolName ?? log.tool_name ?? 'unknown',
         action: normalizeToolAction(log.action),
         target: normalizeNullableText(log.target),
-        arguments: log.arguments ?? log.args ?? null,
-        result: log.result ?? null,
-        outputText: log.outputText ?? log.output_text ?? null,
+        arguments: argumentsClean.sanitized,
+        result: resultClean.sanitized,
+        outputText: asNullableText(outputTextClean.sanitized),
         success: log.success ?? false,
-        error: log.error ?? null,
+        error: asNullableText(errorClean.sanitized),
         durationMs:
           typeof (log.durationMs ?? log.duration_ms) === 'number'
             ? (log.durationMs ?? log.duration_ms)
@@ -982,4 +1033,105 @@ export async function archiveWorkspace(
     .where(eq(workspaces.id, id))
     .returning();
   return row ?? null;
+}
+
+// === Agentd Nodes (Repository migration, AionCore §2) =====================
+
+/**
+ * Upsert an agentd node registration. Called by POST /api/agentd/v1/nodes/
+ * register. If a row with the given node_id exists, refresh its ip/port/
+ * sandboxes/version/heartbeat; otherwise insert. The (ip, port) reclaim
+ * path is handled separately by `reclaimNodeAddress` so this function
+ * stays focused on the by-node_id path.
+ */
+export async function upsertAgentdNode(input: {
+  nodeID: string;
+  ip: string;
+  port: number;
+  sandboxes: string[];
+  version: string;
+}) {
+  const existing = await db
+    .select({ nodeID: agentdNodes.nodeID })
+    .from(agentdNodes)
+    .where(eq(agentdNodes.nodeID, input.nodeID))
+    .limit(1);
+  if (existing.length > 0) {
+    await db
+      .update(agentdNodes)
+      .set({
+        ip: input.ip,
+        port: input.port,
+        sandboxes: input.sandboxes,
+        version: input.version,
+        status: 'online',
+        lastHeartbeat: new Date(),
+      })
+      .where(eq(agentdNodes.nodeID, input.nodeID));
+    return { inserted: false };
+  }
+  await db.insert(agentdNodes).values({
+    nodeID: input.nodeID,
+    ip: input.ip,
+    port: input.port,
+    sandboxes: input.sandboxes,
+    version: input.version,
+    status: 'online',
+    lastHeartbeat: new Date(),
+  });
+  return { inserted: true };
+}
+
+/**
+ * Reclaim a stale node row by (ip, port) when the daemon restarts with a
+ * fresh node_id (host reboot wiped the persisted file). Updates the row's
+ * node_id to the new value so subsequent heartbeats land on it. Returns
+ * the reclaimed node_id if a row was found, else null.
+ */
+export async function reclaimNodeAddress(input: {
+  ip: string;
+  port: number;
+  newNodeID: string;
+}): Promise<string | null> {
+  const byAddress = await findNodeByAddress(input.ip, input.port);
+  if (!byAddress) return null;
+  await db
+    .update(agentdNodes)
+    .set({ nodeID: input.newNodeID })
+    .where(eq(agentdNodes.nodeID, byAddress.nodeID));
+  return byAddress.nodeID;
+}
+
+// === Notifications (Repository migration) ================================
+
+/**
+ * Insert a notification row. Called by POST /api/agentd/v1/notifications/send.
+ * Pulled out of the route so the notifications table has a DAL owner
+ * (Repository pattern, AionCore §2). Field shape mirrors the schema in
+ * lib/core/db/schema/notification.ts.
+ */
+export async function createNotification(input: {
+  taskId: string;
+  decisionId?: string | null;
+  notificationType: 'decision' | 'completion' | 'tidy_report';
+  payload: Record<string, unknown>;
+  channel: string;
+  targetChatId: string;
+  targetUserId?: string | null;
+  expiresAt?: Date | null;
+}) {
+  const [row] = await db
+    .insert(notifications)
+    .values({
+      taskId: input.taskId,
+      decisionId: input.decisionId ?? null,
+      notificationType: input.notificationType,
+      payload: input.payload,
+      channel: input.channel,
+      targetChatId: input.targetChatId,
+      targetUserId: input.targetUserId ?? null,
+      expiresAt: input.expiresAt ?? null,
+    })
+    .returning();
+  return row;
 }

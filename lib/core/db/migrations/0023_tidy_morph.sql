@@ -1,0 +1,1 @@
+ALTER TABLE "agent_orchestration_plans" ADD CONSTRAINT "agent_orchestration_plans_status_check" CHECK ("agent_orchestration_plans"."status" IN ('draft', 'submitted', 'archived'));

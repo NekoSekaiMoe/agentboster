@@ -57,6 +57,14 @@ subpackage/cli/packages/*/dist/
 
 # vendored reference repos (not project code, see AGENTS.md)
 ref/
+# AionUi/AionCore/AionHub/aionrs are vendored as design reference only
+# (analyzed in ref_aion*.md). Ignored by root tsconfig + biome too.
+AionUi/
+AionCore/
+AionHub/
+aionrs/
+# Aion* analysis notes (derived from the vendored repos above)
+ref_aion*.md
 subpackage/cli/packages/coding-agent/dist/agentboster.cjs
 subpackage/cli/agentboster.cjs
 subpackage/cli/agentboster-cli-*.tar.gz

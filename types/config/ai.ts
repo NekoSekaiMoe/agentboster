@@ -32,6 +32,30 @@ export const clientSpoofEnum = z.enum(['off', 'on']);
 export type ClientSpoof = z.infer<typeof clientSpoofEnum>;
 
 /**
+ * Provider compatibility overrides (borrowed from aionrs' ProviderCompat).
+ *
+ * Every field is optional; absent fields fall back to the defaults resolved
+ * from the provider `format` (see lib/ai/provider-compat.ts). Set a field
+ * explicitly to override the format default for that one flag.
+ */
+export const providerCompatSchema = z.object({
+  /** Merge consecutive assistant messages (text concat + tool_calls merge). */
+  merge_assistant_messages: z.boolean().optional(),
+  /** Remove tool_result parts with no matching tool_call. */
+  clean_orphan_tool_results: z.boolean().optional(),
+  /** Remove tool_call parts with no matching tool_result. */
+  clean_orphan_tool_calls: z.boolean().optional(),
+  /** Deduplicate tool results with the same tool_call_id (keep last). */
+  dedup_tool_results: z.boolean().optional(),
+  /** Ensure messages alternate user/assistant (insert filler if needed). */
+  ensure_alternation: z.boolean().optional(),
+  /** Merge consecutive same-role messages into one. */
+  merge_same_role: z.boolean().optional(),
+});
+
+export type ProviderCompatOverrides = z.infer<typeof providerCompatSchema>;
+
+/**
  * AI provider configuration schema.
  */
 export const aiProviderConfigSchema = z.object({
@@ -57,6 +81,14 @@ export const aiProviderConfigSchema = z.object({
     .describe(
       'When "on", the tool impersonates the native client of each provider port: Codex for OpenAI (Responses only, not Legacy), Claude Code for Anthropic, Antigravity for Google (Gemini). "off" by default. Experimental.',
     ),
+  /**
+   * Message/tool normalization overrides (aionrs ProviderCompat). The AI
+   * SDK already handles transport-level wire shape; these flags control the
+   * *logical* shape of the accumulated message history sent to the model
+   * (orphan tool-call cleanup, assistant merge, alternation, ...). Defaults
+   * are resolved from `format`; override individual flags here.
+   */
+  compat: providerCompatSchema.optional(),
 });
 
 export type AIProviderConfig = z.infer<typeof aiProviderConfigSchema>;

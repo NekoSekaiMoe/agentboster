@@ -362,6 +362,46 @@ export function AgentsForm() {
                     />
                   </Field>
 
+                  <Field label="Allowed paths (sandbox filesystem allowlist, comma-separated)">
+                    <Input
+                      type="text"
+                      placeholder='e.g. "/workspace, /tmp/agent"'
+                      value={(agentValue.allowed_paths ?? []).join(',')}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            allowed_paths: event.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Blocked paths (sandbox filesystem blocklist, comma-separated)">
+                    <Input
+                      type="text"
+                      placeholder='e.g. "/etc, /root/.ssh"'
+                      value={(agentValue.blocked_paths ?? []).join(',')}
+                      onChange={(event) =>
+                        updateValue({
+                          ...agents,
+                          [agentKey]: {
+                            ...agentValue,
+                            blocked_paths: event.target.value
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+
                   {/* P2.2: quick presets for common package registries */}
                   <div className="flex flex-wrap gap-2 text-xs md:col-span-2">
                     <span className="self-center text-muted-foreground">

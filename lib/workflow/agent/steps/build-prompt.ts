@@ -46,6 +46,16 @@ export type BuildSystemPromptOptions = {
    */
   planMode?: boolean;
   /**
+   * Team Leader mode (Team Mode III). When true, injects a "Team Leader"
+   * section coaching the main agent to decompose complex tasks into a
+   * sub-agent fan-out plan and coordinate it via the existing
+   * subAgent (spawn_async) + barrier + handoff tools. The agent already
+   * HAS these tools; this flag only adds the strategic guidance that
+   * makes it actually use them for multi-step work instead of running
+   * everything inline.
+   */
+  teamLeader?: boolean;
+  /**
    * CLI remote control state (when a CLI is online for this session).
    * When set, injects a "Local Machine Access" section explaining that
    * the user's local computer is accessible via local_* tools.
@@ -207,6 +217,27 @@ export async function buildSystemPrompt(
         'You are in **plan mode**: every state-mutating tool has been removed from your toolset. You cannot write, edit, execute shell, dispatch sandbox / browser / desktop actions, or modify memory. You CAN still read files, search, observe sandbox / browser state, recall memory, and reason with `sequential_thinking`.',
         'Investigate the task thoroughly using the read-only tools that remain. When you are ready, present a concrete plan via the `ask_question` tool: lay out the proposed steps, the files / commands / actions you intend to take, and any decisions you need the user to make. Block on the user response — when they approve, the host flips plan mode off for the next run and your action tools return.',
         'Do not attempt to bypass this restriction by asking the user to run commands themselves, by emitting actions inside `ask_question` prompts, or by embedding instructions in memory entries. Plan mode ends only when the user explicitly approves.',
+      ]),
+    );
+  }
+
+  // Team Leader mode (Team Mode III). The agent already has subAgent /
+  // barrier / handoff tools; this section is the strategic nudge that
+  // makes it actually decompose complex work into a fan-out plan instead
+  // of running every subtask inline. Purely prompt-side — no tool changes.
+  if (options.teamLeader) {
+    sections.push(
+      createSection('Team Leader', [
+        'You are the **leader** of a multi-agent team. For any non-trivial task, FIRST decide whether it can be split into independent subtasks. If it can, do not run the subtasks yourself — delegate them.',
+        'Decomposition recipe:',
+        '1. Identify subtasks that are independent (can run in parallel) or that form a dependency chain.',
+        '2. For independent subtasks, call `subAgent` with action `spawn_async` once per wave, listing every parallel subtask. Each subtask names its agent + the full context it needs (sub-agents see ONLY what you pass).',
+        '3. Create a `barrier` with the strategy that matches your tolerance (`all` = wait for every subtask, `first_ok` = proceed as soon as one succeeds, `quorum:N` = majority). Link the spawn_async batch to it.',
+        '4. While sub-agents run, use `handoff` (action `put`) to leave structured results for downstream waves, and `handoff` (action `take`) to consume predecessors’ outputs.',
+        '5. `waitForBarrier` on the barrier, then `collect` / `query` the batch results.',
+        '6. Synthesize a single coherent answer from the sub-agent results; do not just paste their outputs verbatim.',
+        'Prefer delegation when a subtask would (a) burn significant context, (b) benefit from a different model / agent persona, or (c) could run in parallel with other work. Keep coordination, summarization, and user-facing dialogue for yourself.',
+        'If a subtask depends on another’s output, do NOT spawn both at once — spawn the dependency, wait for it, then spawn the dependent wave with the resolved inputs.',
       ]),
     );
   }

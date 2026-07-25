@@ -6,6 +6,10 @@ import { createLogger } from '@/lib/utils/logger';
 const logger = createLogger('audio.cache');
 
 const KEY_PREFIX = 'tts:v1:';
+// Canonical Base64 alphabet (RFC 4648 §4, standard, no URL-safe chars). Used to
+// validate cached values before decoding so a corrupted non-empty string is
+// treated as a miss rather than decoded into garbage audio bytes.
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 // 7 days. TTS audio is small but generates quickly enough that we don't
 // want stale voice/model changes to be served indefinitely.
 const TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -29,6 +33,15 @@ export async function getCachedSpeech(input: {
   try {
     const raw = await get(key);
     if (typeof raw !== 'string' || raw.length === 0) {
+      return null;
+    }
+    // Reject malformed cached values: Node's Buffer.from(str, 'base64')
+    // silently truncates/discards invalid chars instead of throwing, so a
+    // corrupted (non-empty) value would otherwise decode to garbage audio.
+    // Treat any non-canonical Base64 as a cache miss so the caller falls back
+    // to a fresh synthesizeSpeech and overwrites the bad entry.
+    if (raw.length % 4 !== 0 || !BASE64_RE.test(raw)) {
+      logger.warn('cache:malformed_hit', { key, len: raw.length });
       return null;
     }
     const bytes = Buffer.from(raw, 'base64');

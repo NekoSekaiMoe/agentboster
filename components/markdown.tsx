@@ -1,11 +1,27 @@
 import Link from 'next/link';
 import { memo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
+import 'katex/dist/katex.min.css';
+import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import { CodeBlock } from './code-block';
+import { DiffViewer } from './diff-viewer';
+import { MermaidDiagram } from './mermaid-diagram';
 
 const components: Components = {
   code: ({ node, className, children, ...props }) => {
+    const text = extractText(children);
+    const lang = extractLanguage(className);
+    // Route fenced code blocks to specialized renderers when the language
+    // asks for it. ```` ```mermaid ```` -> diagram; ```` ```diff ```` ->
+    // unified-diff view. Everything else falls through to CodeBlock.
+    if (lang === 'mermaid' && text) {
+      return <MermaidDiagram chart={text} />;
+    }
+    if (lang === 'diff' && text) {
+      return <DiffViewer code={text} />;
+    }
     return (
       <CodeBlock {...props} inline={false}>
         {children}
@@ -98,11 +114,40 @@ const components: Components = {
   },
 };
 
-const remarkPlugins = [remarkGfm];
+const remarkPlugins = [remarkGfm, remarkMath];
+const rehypePlugins = [rehypeKatex];
+
+/** Extract the joined string content of a react-markdown `children` value. */
+function extractText(children: unknown): string {
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children)) {
+    return children.map(extractText).join('');
+  }
+  if (
+    children !== null &&
+    typeof children === 'object' &&
+    'props' in children
+  ) {
+    const props = (children as { props?: { children?: unknown } }).props;
+    if (props?.children !== undefined) return extractText(props.children);
+  }
+  return '';
+}
+
+/** Pull the language identifier out of a `language-xxx` className string. */
+function extractLanguage(className?: string): string | undefined {
+  if (!className) return undefined;
+  const match = /language-([a-z0-9+-]+)/i.exec(className);
+  return match?.[1]?.toLowerCase();
+}
 
 const NonMemoizedMarkdown = ({ children }: { children: string }) => {
   return (
-    <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
+      components={components}
+    >
       {children}
     </ReactMarkdown>
   );

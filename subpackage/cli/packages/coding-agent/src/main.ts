@@ -1158,6 +1158,13 @@ async function handleLocalToolRequest(
 
   // Security gate: L0 blocks immediately, L2 requires user confirmation.
   // --yolo skips both tiers (auto-approve every local_* invocation).
+  //
+  // Scope note: this gate runs BEFORE the remote/local fork below, so it
+  // applies to both local execution AND tools forwarded to an agentd node.
+  // --yolo therefore auto-approves remote local_* calls too. The Web server
+  // (app/api/cli/exec-on-agentd) independently re-runs L0 on receipt, so a
+  // yolo/compromised CLI still cannot bypass the server-side deny list.
+  // This flag has no relationship to the Web UI's autonomy.yolo toggle.
   const command =
     toolName === 'local_exec'
       ? String(input.command ?? '')

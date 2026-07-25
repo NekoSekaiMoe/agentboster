@@ -69,18 +69,51 @@ export async function createLongTermMemoryRow(
     key?: string;
   },
 ) {
-  const [row] = await db
-    .insert(schema.longTermMemories)
-    .values({
+  // Delegate to the bulk path so both write routes share a single field
+  // mapping + default-resolution code path (Repository pattern, AionCore
+  // §2). Avoids drift between the single-row and bulk insert shapes.
+  const [row] = await createLongTermMemoryRows([
+    {
       content,
-      userId: options?.userId ?? 'system',
-      memoryType: options?.memoryType ?? 'fact',
-      importance: options?.importance ?? 5,
-      ...(options?.key ? { key: options.key } : {}),
-    })
-    .returning();
-
+      memoryType: options?.memoryType,
+      importance: options?.importance,
+      userId: options?.userId,
+      key: options?.key,
+    },
+  ]);
   return row;
+}
+
+/**
+ * Bulk-insert long-term memory rows. Used by the agentd webhook that
+ * receives multiple memories at once (POST /api/agentd/v1/memories) so the
+ * route handler doesn't reach into drizzle directly — keeps the DAL the
+ * single owner of the longTermMemories table (Repository pattern, AionCore
+ * §2). Empty input is a no-op.
+ */
+export async function createLongTermMemoryRows(
+  rows: Array<{
+    content: string;
+    memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
+    importance?: number;
+    userId?: string;
+    key?: string;
+  }>,
+) {
+  if (rows.length === 0) return [];
+  const inserted = await db
+    .insert(schema.longTermMemories)
+    .values(
+      rows.map((r) => ({
+        content: r.content,
+        userId: r.userId ?? 'system',
+        memoryType: r.memoryType ?? 'fact',
+        importance: r.importance ?? 5,
+        ...(r.key ? { key: r.key } : {}),
+      })),
+    )
+    .returning();
+  return inserted;
 }
 
 /**

@@ -3,7 +3,7 @@ import {
   type SpeechModel,
 } from 'ai';
 
-import { resolveSpeechModel } from '@/lib/audio/speech';
+import { resolveSpeechModel } from '@/lib/extra/audio/speech';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 

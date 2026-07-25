@@ -1,5 +1,5 @@
-import { synthesizeSpeech } from '@/lib/audio/generate';
-import { resolveTtsSettings } from '@/lib/audio/config';
+import { synthesizeSpeech } from '@/lib/extra/audio/generate';
+import { resolveTtsSettings } from '@/lib/extra/audio/config';
 import { getConfig } from '@/lib/core/kv/config';
 import { createLogger } from '@/lib/utils/logger';
 import type { ChatSource } from '@/types/workflow';

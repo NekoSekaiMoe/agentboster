@@ -42,7 +42,9 @@ export class SecurityEngine {
     const { toolName, input, context } = request;
     const autonomyLevel = appConfig.autonomy?.level ?? 'supervised';
 
-    // In 'full' autonomy mode, only hard blocks apply
+    // In 'full' autonomy mode, only hard blocks apply (escalations are
+    // suppressed). 'supervised' (the default) lets escalate rules surface
+    // for review.
     const effectiveActionLimit =
       autonomyLevel === 'full' ? 'block' : 'escalate';
 

@@ -38,6 +38,17 @@ import {
   resolveAgentProviderOptions,
 } from './steps/resolve-model';
 import { buildAgentTools } from './tools';
+import {
+  applyMessageCompat,
+  resolveProviderCompat,
+} from '@/lib/ai/provider-compat';
+import {
+  ToolLoopGuard,
+  describeLoopTrip,
+  inputKeyOf,
+  resolveToolLoopLimits,
+} from './tool-loop-guard';
+import { microcompact, resolveMicrocompactConfig } from './microcompact';
 import { sanitizeToolName } from './tools/tool-name-guard';
 import { getTokenUsageTotal } from './types';
 import {
@@ -261,6 +272,10 @@ export async function chatWorkflow(
     // tools are gone. Purely informational; the actual toolset filter
     // happens in buildAgentTools.
     planMode,
+    // Team Leader mode (Team Mode III): prompt-level guidance nudging the
+    // main agent to decompose complex tasks into subAgent fan-out +
+    // barrier/handoff coordination. Driven by autonomy.team_leader config.
+    teamLeader: effectiveConfig.autonomy?.team_leader === true,
     // Inject CLI remote state (cwd, platform, hasDisplay) when an online CLI
     // is attached to this session. This tells the LLM it can use local_* tools
     // to control the user's local machine.
@@ -286,6 +301,12 @@ export async function chatWorkflow(
   const maxSteps = Math.max(
     1,
     effectiveConfig.autonomy?.max_steps ?? DEFAULT_MAIN_MAX_STEPS,
+  );
+  // Tool-loop circuit breaker (aionrs breakers). Counts consecutive
+  // malformed / identical-failure / all-error / cycle rounds and aborts the
+  // stream before the model burns max_steps worth of identical retries.
+  const toolLoopGuard = new ToolLoopGuard(
+    resolveToolLoopLimits(effectiveConfig.autonomy?.tool_loop_limits),
   );
   const instructionQueue: QueuedInstruction[] = [];
   let pendingPersistedInstructions: SerializedMessageForDB[] = [];
@@ -317,6 +338,27 @@ export async function chatWorkflow(
     const keys = Object.keys(effectiveConfig.models?.providers ?? {});
     return keys[0] ?? modelId;
   })();
+
+  // Resolve the provider's message-compat flags once (aionrs ProviderCompat).
+  // Applied in prepareStep to normalize the prompt before each model call —
+  // strips orphan tool calls/results, merges adjacent assistant turns,
+  // enforces user/assistant alternation, etc. Defaults come from the
+  // provider format; users override individual flags via `compat`.
+  const providerConfigForCompat =
+    effectiveConfig.models?.providers?.[providerName];
+  const providerCompat = providerConfigForCompat
+    ? resolveProviderCompat(
+        providerConfigForCompat.format,
+        providerConfigForCompat.compat,
+      )
+    : undefined;
+
+  // Resolve microcompact config once (aionrs compact/micro.rs). Runs in
+  // prepareStep before the autocompact threshold check to fold old tool
+  // results cheaply (no LLM call) before paying for a summary.
+  const microcompactConfig = resolveMicrocompactConfig(
+    effectiveConfig.autonomy?.microcompact,
+  );
 
   await initializeRunSessionStep({
     sessionId,
@@ -451,6 +493,27 @@ export async function chatWorkflow(
         let nextMessages = messages;
         const shouldForceCompact = mappedInstructions.forceCompact;
 
+        // Microcompact (aionrs compact/micro.rs): fold old tool-result
+        // content into a placeholder without an LLM call, keeping the most
+        // recent N intact. Runs before the autocompact threshold check so the
+        // token estimate reflects the folded state; if this alone brings us
+        // back under budget, we skip the expensive LLM summarization entirely.
+        // Only ModelMessage[] prompts can be folded.
+        if (Array.isArray(nextMessages)) {
+          const folded = microcompact(
+            nextMessages as ModelMessage[],
+            microcompactConfig,
+          );
+          if (folded.result.ran) {
+            nextMessages = folded.messages as typeof nextMessages;
+            // Re-estimate tokens after folding so the threshold check below
+            // sees the lighter prompt.
+            totalTokensUsed = estimatePromptTokens(
+              modelMessagesToPrompt(folded.messages),
+            );
+          }
+        }
+
         const compactionDecision = evaluateCompactionNeed({
           totalTokensUsed,
           contextLimit,
@@ -495,8 +558,29 @@ export async function chatWorkflow(
           throw new Error('Run cancelled by instruction hook.');
         }
 
+        // Apply provider message-compat normalization (aionrs ProviderCompat):
+        // repair orphan tool blocks, merge adjacent same-role messages,
+        // enforce alternation. Cheap no-op fast path when nothing is enabled.
+        // Only ModelMessage[] prompts can be normalized; if the AI SDK passed
+        // us an already-low-level LanguageModelV3Prompt we leave it untouched.
+        let finalMessages: typeof nextMessages = nextMessages;
+        if (providerCompat && Array.isArray(nextMessages)) {
+          const maybeModelMessages = nextMessages as unknown[];
+          if (
+            maybeModelMessages.every(
+              (m) =>
+                m !== null && typeof m === 'object' && 'role' in (m as object),
+            )
+          ) {
+            finalMessages = applyMessageCompat(
+              nextMessages as ModelMessage[],
+              providerCompat,
+            ) as typeof nextMessages;
+          }
+        }
+
         return {
-          messages: nextMessages,
+          messages: finalMessages,
         };
       },
       onStepFinish: async (step) => {
@@ -529,6 +613,43 @@ export async function chatWorkflow(
           });
           await writeStreamError(errorText);
           throw new Error(errorText);
+        }
+
+        // Tool-loop circuit-breaker check. Observe this step's tool round
+        // (input + outcome per call) and abort early if the model is stuck
+        // in a malformed / identical-failure / all-error / cycle pattern.
+        // Borrowed from aionrs breakers — see tool-loop-guard.ts.
+        if (step.toolCalls.length > 0) {
+          const observed = step.toolCalls.map((tc) => {
+            // Pair the call with its result (if any) to learn the outcome.
+            const result = step.toolResults.find(
+              (tr) => tr.toolCallId === tc.toolCallId,
+            );
+            const malformed = 'invalid' in tc ? Boolean(tc.invalid) : false;
+            const errored =
+              malformed || Boolean(result && 'error' in result && result.error);
+            return {
+              name: tc.toolName,
+              inputKey: inputKeyOf(tc.input),
+              malformed,
+              error: errored,
+            };
+          });
+          const loopSnap = toolLoopGuard.observe(observed);
+          const tripReason = toolLoopGuard.tripReason();
+          if (tripReason) {
+            const errorText = describeLoopTrip(tripReason, loopSnap);
+            logger.error('stream:tool_loop_breaker', {
+              sessionId,
+              runId,
+              tripReason,
+              ...loopSnap,
+              providerName,
+              stepNumber: realStepNumber,
+            });
+            await writeStreamError(errorText);
+            throw new Error(`[tool_loop_breaker:${tripReason}] ${errorText}`);
+          }
         }
 
         try {

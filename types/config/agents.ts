@@ -55,6 +55,18 @@ export const agentInstanceConfigSchema = z.object({
   egress_allowlist: z.array(z.string().min(1)).optional(),
 
   /**
+   * Sandbox filesystem allowlist. Paths the agent is allowed to read/write.
+   * Empty = the daemon's default workspace boundary applies. Surfaced in
+   * the Web UI per AionUi's fine-grained risk-whitelist pattern.
+   */
+  allowed_paths: z.array(z.string().min(1)).optional(),
+  /**
+   * Sandbox filesystem blocklist. Paths always denied regardless of
+   * allowed_paths (deny wins). Use for sensitive dirs like /etc, /root/.ssh.
+   */
+  blocked_paths: z.array(z.string().min(1)).optional(),
+
+  /**
    * Use agent-specific L0 rules (sourced from the agentL0Rules table
    * with agentId == this agent's name) in addition to global presets.
    * Default: false (use daemon DefaultPresets only).

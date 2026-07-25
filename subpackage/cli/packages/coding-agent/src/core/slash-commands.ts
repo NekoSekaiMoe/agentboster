@@ -68,6 +68,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
       'Switch local_* tool execution between this machine and a remote Agent Daemon node',
   },
   {
+    name: 'orchestration',
+    description:
+      'Author and submit a multi-agent orchestration plan (Team Mode II)',
+  },
+  {
     name: 'reload',
     description: 'Reload keybindings, extensions, skills, prompts, and themes',
   },

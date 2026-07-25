@@ -16,8 +16,6 @@
 
 export const dynamic = 'force-dynamic';
 
-import { db } from '@/lib/core/db';
-import { notifications } from '@/lib/core/db/schema';
 import { sendNotification } from '@/lib/extra/channels/send-notification';
 import {
   DecisionStatus,
@@ -25,6 +23,7 @@ import {
   type Decision,
 } from '@/lib/security/l2-decision-queue';
 import { getDecisionQueue } from '@/lib/security/l2-index';
+import { createNotification } from '@/lib/core/db/agentd';
 import { chatSourceSchema } from '@/types/workflow';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
@@ -122,9 +121,9 @@ export async function POST(request: Request) {
     });
   }
 
-  // 2. Persist to notifications table.
+  // 2. Persist to notifications table (via DAL — Repository pattern).
   try {
-    await db.insert(notifications).values({
+    await createNotification({
       taskId,
       decisionId,
       notificationType: 'decision',
@@ -139,7 +138,6 @@ export async function POST(request: Request) {
         options: data.options,
         expiresAt: data.expiresAt,
       },
-      status: 'pending',
       channel: isIM ? source.adapter : 'in-app',
       targetChatId: isIM ? source.threadId : sessionId,
       targetUserId: isIM ? (source.userId ?? null) : null,

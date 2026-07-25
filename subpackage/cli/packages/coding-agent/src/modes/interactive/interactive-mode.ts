@@ -118,6 +118,15 @@ import {
   type RemoteExecTarget,
 } from '../../core/remote-exec.ts';
 import {
+  addRemotePlanItem,
+  createRemotePlan,
+  getRemotePlan,
+  listRemotePlans,
+  submitRemotePlan,
+  type RemotePlan,
+  type RemotePlanItem,
+} from '../../core/remote-orchestration.ts';
+import {
   formatMissingSessionCwdPrompt,
   MissingSessionCwdError,
 } from '../../core/session-cwd.ts';
@@ -3110,6 +3119,14 @@ export class InteractiveMode {
           : undefined;
         this.editor.setText('');
         await this.handleSwitchCommand(arg);
+        return;
+      }
+      if (text === '/orchestration' || text.startsWith('/orchestration ')) {
+        const arg = text.startsWith('/orchestration ')
+          ? text.slice('/orchestration '.length).trim()
+          : undefined;
+        this.editor.setText('');
+        await this.handleOrchestrationCommand(arg);
         return;
       }
       if (text === '/exit' || text === '/quit') {
@@ -6492,6 +6509,254 @@ export class InteractiveMode {
     // The model-facing notice (path/working-directory reset) is queued
     // via core/remote-exec.ts's pendingNotice and prepended to the
     // user's next prompt by onSubmit — no extra agent turn here.
+  }
+
+  /**
+   * `/orchestration` — author and submit a multi-agent orchestration
+   * plan against the connected web backend session.
+   *
+   * Plans are persisted server-side (DB) via the remote-orchestration
+   * client; the CLI never holds plan state locally. Submission marks
+   * the plan submitted and returns a synthesized fan-out instruction,
+   * which we then send into the chat as a normal user message — that
+   * is what actually drives the main agent to invoke its subAgent tool
+   * per the plan's waves (mirrors the Web chat submit flow).
+   */
+  private async handleOrchestrationCommand(arg?: string): Promise<void> {
+    const auth = getStoredAuth();
+    if (!auth) {
+      this.showError('Not logged in. Run `/login` first.');
+      return;
+    }
+    const sessionId = this.session.sessionId;
+
+    // Resolve the subcommand from the arg, else ask interactively.
+    let sub = arg?.toLowerCase();
+    if (!sub) {
+      const choice = await this.showExtensionSelector('Orchestration', [
+        'Create new plan',
+        'List existing plans',
+        'Submit a plan',
+      ]);
+      if (!choice) return;
+      if (choice === 'Create new plan') sub = 'new';
+      else if (choice === 'List existing plans') sub = 'list';
+      else if (choice === 'Submit a plan') sub = 'submit';
+      else return;
+    }
+
+    if (sub === 'list') {
+      await this.orchestrationListPlans(auth, sessionId);
+    } else if (sub === 'new' || sub === 'create') {
+      await this.orchestrationCreatePlan(auth, sessionId);
+    } else if (sub === 'submit') {
+      await this.orchestrationSubmitPlan(auth, sessionId);
+    } else {
+      this.showError(
+        `Unknown subcommand "${arg}". Use: list, new, create, or submit.`,
+      );
+    }
+  }
+
+  private async orchestrationListPlans(
+    auth: ReturnType<typeof getStoredAuth>,
+    sessionId: string,
+  ): Promise<void> {
+    let plans: RemotePlan[];
+    try {
+      plans = await listRemotePlans(auth!, sessionId);
+    } catch (err) {
+      this.showError(
+        `Failed to list plans: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return;
+    }
+    if (plans.length === 0) {
+      this.showStatus('No orchestration plans yet. Run `/orchestration new`.');
+      return;
+    }
+    const options = plans.map(
+      (p) =>
+        `${p.title || '(untitled)'}  (${p.planId}) [${
+          p.items?.length ?? '?'
+        } items]`,
+    );
+    const choice = await this.showExtensionSelector(
+      'Select a plan to inspect',
+      options,
+    );
+    if (!choice) return;
+    const picked = plans[options.indexOf(choice)];
+    if (!picked) return;
+
+    // Fetch the full plan (with items) and render inline.
+    let full: RemotePlan | null;
+    try {
+      full = await getRemotePlan(auth!, sessionId, picked.planId);
+    } catch (err) {
+      this.showError(
+        `Failed to load plan: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return;
+    }
+    if (!full) {
+      this.showError('Plan not found.');
+      return;
+    }
+    const items = full.items ?? [];
+    if (items.length === 0) {
+      this.showStatus(`Plan "${full.title}" has no items.`);
+      return;
+    }
+    const rendered = items
+      .filter((it) => !it.removed)
+      .sort((a, b) => a.order - b.order)
+      .map(
+        (it, i) =>
+          `${i + 1}. [${it.agentName}] ${it.task}${
+            it.dependsOn.length > 0
+              ? `  (after: ${it.dependsOn.join(', ')})`
+              : ''
+          }`,
+      );
+    this.showStatus(
+      `Plan "${full.title}" (${full.planId}, ${full.status}):\n${rendered.join('\n')}`,
+    );
+  }
+
+  private async orchestrationCreatePlan(
+    auth: ReturnType<typeof getStoredAuth>,
+    sessionId: string,
+  ): Promise<void> {
+    const title = await this.showExtensionInput(
+      'Plan title',
+      'e.g. Refactor auth module',
+    );
+    if (!title) return;
+
+    let plan: RemotePlan;
+    try {
+      plan = await createRemotePlan(auth!, sessionId, { title });
+    } catch (err) {
+      this.showError(
+        `Failed to create plan: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return;
+    }
+
+    const items: RemotePlanItem[] = [];
+    while (true) {
+      const next = await this.showExtensionSelector(
+        `Plan "${plan.title}" — ${items.length} item(s). What next?`,
+        ['Add item', 'Finish plan'],
+      );
+      if (!next) return;
+      if (next === 'Finish plan') break;
+
+      const agentName = await this.showExtensionInput(
+        'Agent name',
+        'e.g. researcher / coder / reviewer',
+      );
+      if (!agentName) continue;
+      const task = await this.showExtensionInput(
+        'Task description',
+        'What should this agent do?',
+      );
+      if (!task) continue;
+
+      try {
+        const item = await addRemotePlanItem(auth!, sessionId, plan.planId, {
+          agentName,
+          task,
+        });
+        items.push(item);
+      } catch (err) {
+        this.showError(
+          `Failed to add item: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    this.showStatus(
+      `Plan "${plan.title}" created (${plan.planId}) with ${items.length} item(s). Run \`/orchestration submit\` to execute.`,
+    );
+  }
+
+  private async orchestrationSubmitPlan(
+    auth: ReturnType<typeof getStoredAuth>,
+    sessionId: string,
+  ): Promise<void> {
+    let plans: RemotePlan[];
+    try {
+      plans = await listRemotePlans(auth!, sessionId);
+    } catch (err) {
+      this.showError(
+        `Failed to list plans: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return;
+    }
+    const drafts = plans.filter((p) => p.status === 'draft');
+    if (drafts.length === 0) {
+      this.showStatus('No draft plans to submit.');
+      return;
+    }
+    const options = drafts.map(
+      (p) =>
+        `${p.title || '(untitled)'}  (${p.planId}) [${
+          p.items?.length ?? '?'
+        } items]`,
+    );
+    const choice = await this.showExtensionSelector(
+      'Submit which plan?',
+      options,
+    );
+    if (!choice) return;
+    const picked = drafts[options.indexOf(choice)];
+    if (!picked) return;
+
+    const confirm = await this.showExtensionSelector(
+      'Submit this plan now? The instruction will be sent to the agent.',
+      ['Yes, submit', 'No, cancel'],
+    );
+    if (!confirm || confirm !== 'Yes, submit') {
+      this.showStatus('Submit cancelled.');
+      return;
+    }
+
+    let result: { instruction: string; sessionId: string };
+    try {
+      result = await submitRemotePlan(auth!, sessionId, picked.planId);
+    } catch (err) {
+      this.showError(
+        `Failed to submit plan: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return;
+    }
+
+    // Send the synthesized fan-out instruction as a normal user message —
+    // that is what actually drives the main agent to fan the plan out via
+    // its subAgent tool. Mirrors the Web chat submit path.
+    try {
+      await this.session.prompt(result.instruction);
+    } catch (err) {
+      this.showError(
+        `Plan submitted (id ${picked.planId}) but failed to send instruction: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   /**

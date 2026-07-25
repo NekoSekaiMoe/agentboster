@@ -77,6 +77,7 @@ export interface ExecuteBuiltinSlashCommandParams {
   compactNow: (mode?: string) => Promise<unknown>;
   onOpenSessionBrowser: ((query?: string) => void) | null;
   onReloadRuntime: (() => boolean | Promise<boolean>) | null;
+  onOpenOrchestrationEditor: (() => void) | null;
   ensureSlashCommandsLoaded: (force?: boolean) => Promise<void>;
   loadProviderAuthStatus: (force?: boolean) => Promise<void>;
   loadOAuthProviderCatalog: (force?: boolean) => Promise<void>;
@@ -212,6 +213,7 @@ export async function executeBuiltinSlashCommand({
   compactNow,
   onOpenSessionBrowser,
   onReloadRuntime,
+  onOpenOrchestrationEditor,
   ensureSlashCommandsLoaded,
   loadProviderAuthStatus,
   loadOAuthProviderCatalog,
@@ -415,6 +417,14 @@ export async function executeBuiltinSlashCommand({
         loadModelCatalog(true),
       ]);
       pushNotice('Reloaded runtime state', 'success');
+      return;
+    }
+    case 'orchestration': {
+      if (onOpenOrchestrationEditor) {
+        onOpenOrchestrationEditor();
+      } else {
+        pushNotice('Orchestration editor unavailable', 'info');
+      }
       return;
     }
     case 'quit': {
