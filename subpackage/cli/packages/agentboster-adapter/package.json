@@ -13,10 +13,14 @@
   },
   "scripts": {
     "build": "tsgo -p tsconfig.build.json",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
     "@agentboster-cli/agent": "^0.1.0",
     "@agentboster-cli/ai": "^0.1.0"
+  },
+  "devDependencies": {
+    "vitest": "4.1.9"
   }
 }
