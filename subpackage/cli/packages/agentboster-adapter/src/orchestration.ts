@@ -80,7 +80,6 @@ async function readJson<T>(res: Response): Promise<T> {
   return (await res.json().catch(() => ({}))) as T;
 }
 
-
 // ---------------------------------------------------------------------------
 // Plan CRUD
 // ---------------------------------------------------------------------------
@@ -246,9 +245,8 @@ export async function submitRemotePlan(
     headers: { 'content-type': 'application/json', ...authHeaders(auth) },
     body: JSON.stringify({}),
   });
-  const data = await readJson<
-    Envelope<{ instruction?: string; sessionId?: string }>
-  >(res);
+  const data =
+    await readJson<Envelope<{ instruction?: string; sessionId?: string }>>(res);
   if (!res.ok || !data.ok || !data.instruction) {
     throw new Error(data.error ?? `Submit failed (HTTP ${res.status})`);
   }

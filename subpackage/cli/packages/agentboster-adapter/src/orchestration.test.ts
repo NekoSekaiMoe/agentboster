@@ -13,7 +13,6 @@ import {
   getRemotePlan,
   listRemotePlans,
   patchRemotePlan,
-  patchRemotePlanItem,
   removeRemotePlanItem,
   submitRemotePlan,
 } from './orchestration.ts';
@@ -96,16 +95,16 @@ describe('orchestration client (shared adapter)', () => {
 
     it('throws on error envelope', async () => {
       mockFetchOnce(jsonResponse({ ok: false, error: 'bad title' }, 400));
-      await expect(createRemotePlan(AUTH, 'sess-1', { title: '' })).rejects.toThrow(
-        'bad title',
-      );
+      await expect(
+        createRemotePlan(AUTH, 'sess-1', { title: '' }),
+      ).rejects.toThrow('bad title');
     });
 
     it('throws on non-ok with status when error absent', async () => {
       mockFetchOnce(new Response('', { status: 500 }));
-      await expect(createRemotePlan(AUTH, 'sess-1', { title: 'x' })).rejects.toThrow(
-        'HTTP 500',
-      );
+      await expect(
+        createRemotePlan(AUTH, 'sess-1', { title: 'x' }),
+      ).rejects.toThrow('HTTP 500');
     });
   });
 
