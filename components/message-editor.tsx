@@ -250,7 +250,14 @@ export function MessageEditor({
 
         <Textarea
           ref={textareaRef}
-          style={{ border: 'none', background: 'transparent', outline: 'none', boxShadow: 'none', WebkitAppearance: 'none', appearance: 'none' }}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            outline: 'none',
+            boxShadow: 'none',
+            WebkitAppearance: 'none',
+            appearance: 'none',
+          }}
           className="!text-base w-full resize-none overflow-hidden rounded-xl !border-none !bg-transparent px-0 pt-0 pb-10 !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none"
           value={draftContent}
           onChange={handleInput}

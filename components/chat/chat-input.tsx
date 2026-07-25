@@ -494,7 +494,14 @@ function PureMultimodalInput({
           placeholder="Ask AgentBoster..."
           value={input}
           onChange={handleInput}
-          style={{ border: 'none', background: 'transparent', outline: 'none', boxShadow: 'none', WebkitAppearance: 'none', appearance: 'none' }}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            outline: 'none',
+            boxShadow: 'none',
+            WebkitAppearance: 'none',
+            appearance: 'none',
+          }}
           className="!text-base max-h-[calc(75dvh)] min-h-11 resize-none overflow-hidden !border-none !bg-transparent px-0 pt-0 pb-12 !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none"
           rows={1}
           autoFocus={false}

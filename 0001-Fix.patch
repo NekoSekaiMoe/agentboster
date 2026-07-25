@@ -1,0 +1,41 @@
+From 922fc58a37f76447580c2f3efe5f35b761bbfd93 Mon Sep 17 00:00:00 2001
+From: codex <codex@openai.com>
+Date: Sat, 25 Jul 2026 19:31:21 +0800
+Subject: [PATCH] Fix
+
+---
+ components/chat/chat-input.tsx | 3 ++-
+ components/message-editor.tsx  | 3 ++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/components/chat/chat-input.tsx b/components/chat/chat-input.tsx
+index 7ad1535..1090df8 100644
+--- a/components/chat/chat-input.tsx
++++ b/components/chat/chat-input.tsx
+@@ -494,7 +494,8 @@ function PureMultimodalInput({
+           placeholder="Ask AgentBoster..."
+           value={input}
+           onChange={handleInput}
+-          className="!text-base max-h-[calc(75dvh)] min-h-11 resize-none overflow-hidden border-0 bg-transparent px-0 pt-0 pb-12 shadow-none focus-visible:ring-0"
++          style={{ border: 'none', background: 'transparent', outline: 'none', boxShadow: 'none', WebkitAppearance: 'none', appearance: 'none' }}
++          className="!text-base max-h-[calc(75dvh)] min-h-11 resize-none overflow-hidden !border-none !bg-transparent px-0 pt-0 pb-12 !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none"
+           rows={1}
+           autoFocus={false}
+           onClick={(event) => {
+diff --git a/components/message-editor.tsx b/components/message-editor.tsx
+index 3303d62..07c7ddf 100644
+--- a/components/message-editor.tsx
++++ b/components/message-editor.tsx
+@@ -250,7 +250,8 @@ export function MessageEditor({
+ 
+         <Textarea
+           ref={textareaRef}
+-          className="!text-base w-full resize-none overflow-hidden rounded-xl border-0 bg-transparent px-0 pt-0 pb-10 shadow-none outline-none focus-visible:ring-0"
++          style={{ border: 'none', background: 'transparent', outline: 'none', boxShadow: 'none', WebkitAppearance: 'none', appearance: 'none' }}
++          className="!text-base w-full resize-none overflow-hidden rounded-xl !border-none !bg-transparent px-0 pt-0 pb-10 !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none"
+           value={draftContent}
+           onChange={handleInput}
+           onClick={(event) => {
+-- 
+2.53.0
+
