@@ -134,6 +134,7 @@ CLI 的 `trigger: 'regenerate-message'` 复用同一条 chatMain:Web 侧 `delete
 | **L2** | 用户授权(Web UI / CLI TUI) | 高风险操作要求人工 approve/deny |
 
 - **CLI `--yolo`** 跳过三层(用于可信 CI/`--print` 场景),但仅在 CLI 本机 `local_*` 工具上生效;经 Web 派发到 agentd 的工具仍走完整流程。
+- **Web YOLO**(自主策略配置里的 `autonomy.yolo`)作用于 Web workflow 内的工具(`sandbox.*` / exec / browser 等):把 SecurityEngine 的 escalate 降级为不提示,仅保留用户配置的 `block` 黑名单作为硬墙。它**不等于** CLI `--yolo`——两者作用域不相交(CLI 管本机 `local_*`,Web 管 agentd/Web 端工具),状态独立,互不读取。
 - **Web ↔ agentd** 默认 HTTPS + API Key;当节点具备公网 URL 或 frp 通道时,额外启用 mTLS 双向证书(`AGENTD_CLIENT_*`),Web 侧校验 daemon 证书、daemon 侧校验 Web 客户端证书。
 - **Web ↔ CLI** 通过 `agentboster login` 设备配对颁发 token,支持服务端吊销(`withCliAuth` 每次请求校验设备状态);CLI 不接触用户主密码或 session cookie。
 - agentd 沙箱隔离支持 `docker` / `docker-strict` / `lxc` 三档,文件系统、网络、能力位按档位收紧。

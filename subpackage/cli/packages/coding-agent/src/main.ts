@@ -1157,7 +1157,10 @@ async function handleLocalToolRequest(
   const isQuestion = toolName === 'local_ask_question';
 
   // Security gate: L0 blocks immediately, L2 requires user confirmation.
-  // --yolo skips both tiers (auto-approve every local_* invocation).
+  // --yolo skips both tiers (auto-approve every local_* invocation). It
+  // only governs tools this CLI process runs locally; tools dispatched to
+  // agentd via Web go through the Web security engine (which has its own
+  // YOLO toggle) and are not affected by this flag.
   const command =
     toolName === 'local_exec'
       ? String(input.command ?? '')

@@ -91,9 +91,12 @@ export function AutonomyForm() {
         <CardHeader>
           <CardTitle className="text-base">YOLO / 全自动模式</CardTitle>
           <CardDescription>
-            开启后跳过所有 L0/L1/L2 审批提示，agent
-            自主执行。用户显式配置的黑名单规则 (block) 仍然生效，这是 YOLO
-            唯一不会越过的硬墙。等同于 CLI 的 --yolo，但作用于 Web 端会话。
+            开启后，对 Web workflow 内的工具（sandbox/exec/browser 等）跳过 L1
+            风险评分与 L2 审批提示，agent 自主执行。用户显式配置的黑名单 规则
+            (block) 仍然生效，这是 YOLO 唯一不会越过的硬墙。
+            <strong>作用范围仅限 Web 端会话</strong>：CLI 本机执行的{' '}
+            <code>local_*</code> 工具由 CLI 自身的 <code>--yolo</code>{' '}
+            参数独立控制，与本开关无关。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex items-center gap-3">

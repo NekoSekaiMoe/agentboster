@@ -348,6 +348,7 @@ async function materializeOnCliHost(input: {
   sessionId?: string;
   runId?: string;
   isRemoteControl: boolean;
+  yolo?: boolean;
 }): Promise<{
   syncErrors: Array<{ path: string; error: string }>;
 }> {
@@ -370,6 +371,7 @@ async function materializeOnCliHost(input: {
     sessionId: input.sessionId,
     runId: input.runId,
     isRemoteControl: input.isRemoteControl,
+    yolo: input.yolo,
   });
   if (!cleanResult.ok) {
     syncErrors.push({
@@ -393,6 +395,7 @@ async function materializeOnCliHost(input: {
       sessionId: input.sessionId,
       runId: input.runId,
       isRemoteControl: input.isRemoteControl,
+      yolo: input.yolo,
     });
     if (!result.ok) {
       syncErrors.push({
@@ -411,6 +414,9 @@ export default defineBuildInTool({
     const sessionId = ctx?.sessionId ?? '';
     const runId = ctx?.runId ?? '';
     const source = ctx?.source;
+    // Mirrors local-cli tools: respect Web yolo so remote-control skill
+    // sync/exec doesn't prompt when the user has globally opted into YOLO.
+    const yolo = ctx?.appConfig?.autonomy?.yolo === true;
     // P3.1: surface the current agent's allowed_nodes (if any) so
     // runSkill can pass it down to execToolOnAgentd. Without this,
     // a model-supplied nodeId could route to any registered daemon
@@ -724,6 +730,7 @@ export default defineBuildInTool({
               sessionId: sessionId || undefined,
               runId: runId || undefined,
               isRemoteControl: surface.isRemoteControl,
+              yolo,
             });
             if (syncErrors.length > 0) {
               return {
@@ -746,6 +753,7 @@ export default defineBuildInTool({
               sessionId: sessionId || undefined,
               runId: runId || undefined,
               isRemoteControl: surface.isRemoteControl,
+              yolo,
             });
             return {
               ok: execResult.ok as boolean,

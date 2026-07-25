@@ -314,7 +314,7 @@ ${chalk.bold('Options:')}
   --verbose                      Force verbose startup (overrides quietStartup setting)
   --approve, -a                  Trust project-local files for this run
   --no-approve, -na              Ignore project-local files for this run
-  --yolo                         Skip L0/L1/L2 security scoring and confirmation on local_* tools
+  --yolo                         Skip L0/L1/L2 security scoring and confirmation on local_* tools (CLI-local only; tools dispatched to agentd via Web are unaffected)
   --offline                      Disable startup network operations (same as PI_OFFLINE=1)
   --help, -h                     Show this help
   --version, -v                  Show version number
