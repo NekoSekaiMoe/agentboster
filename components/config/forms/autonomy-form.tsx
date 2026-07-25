@@ -29,7 +29,6 @@ export function AutonomyForm() {
   const autonomy = (value ?? {
     level: 'supervised',
     max_steps: 20,
-    yolo: false,
   }) as AutonomyConfig;
   const toolLoop = autonomy.tool_loop_limits ?? {};
   const micro = autonomy.microcompact ?? {};
@@ -84,34 +83,6 @@ export function AutonomyForm() {
               }}
             />
           </Field>
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-none">
-        <CardHeader>
-          <CardTitle className="text-base">YOLO / 全自动模式</CardTitle>
-          <CardDescription>
-            开启后，对 Web workflow 内的工具（sandbox/exec/browser 等）跳过 L1
-            风险评分与 L2 审批提示，agent 自主执行。用户显式配置的黑名单 规则
-            (block) 仍然生效，这是 YOLO 唯一不会越过的硬墙。
-            <strong>作用范围仅限 Web 端会话</strong>：CLI 本机执行的{' '}
-            <code>local_*</code> 工具由 CLI 自身的 <code>--yolo</code>{' '}
-            参数独立控制，与本开关无关。
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center gap-3">
-          <Checkbox
-            id="yolo-toggle"
-            checked={autonomy.yolo === true}
-            onCheckedChange={(checked) =>
-              updateValue({ ...autonomy, yolo: checked === true })
-            }
-          />
-          <Label htmlFor="yolo-toggle" className="text-sm">
-            {autonomy.yolo
-              ? '已开启 — 危险工具仍需确认'
-              : '已关闭 — 每个高危操作都需确认'}
-          </Label>
         </CardContent>
       </Card>
 

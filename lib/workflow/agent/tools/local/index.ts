@@ -98,18 +98,8 @@ export async function waitForLocalToolResult(input: {
   sessionId?: string;
   runId?: string;
   isRemoteControl?: boolean;
-  /**
-   * Web-side YOLO (appConfig.autonomy.yolo). When true, the L2 approval
-   * prompt for remote-control `local_*` invocations is skipped so the
-   * behavior matches what the user configured globally. Hard `block`
-   * risks still fire — block is the one wall YOLO won't breach, same as
-   * it works for sandbox tools in security/engine.ts.
-   */
-  yolo?: boolean;
 }): Promise<LocalToolResult> {
-  // Risk-based approval for remote control mode. YOLO short-circuits the
-  // escalation tier but keeps the hard block (mirrors security/engine.ts
-  // effectiveActionLimit = 'block' when yolo is on).
+  // Risk-based approval for remote control mode
   if (input.isRemoteControl && input.sessionId && input.runId) {
     const risk = assessLocalToolRisk(
       input.toolName,
@@ -123,7 +113,7 @@ export async function waitForLocalToolResult(input: {
       };
     }
 
-    if (!input.yolo && shouldRequireApproval(risk, true)) {
+    if (shouldRequireApproval(risk, true)) {
       const approvalResult = await waitForLocalToolApproval({
         sessionId: input.sessionId,
         runId: input.runId,
@@ -209,7 +199,7 @@ export default defineBuildInTool({
   description: `File and shell tools executed on the user's local machine via the agentboster CLI client. Only available when the session was started from the CLI (channel 'cli:<clientId>') or when a CLI is online in remote control mode. Useful for editing files the user can see locally but that are not on agentd (e.g. files on a developer's laptop). All operations are performed by the CLI process with the user's own permissions.`,
   requiredConfig: [],
   optionalConfig: [],
-  factory: async (_config, { source, sessionId, runId, appConfig }) => {
+  factory: async (_config, { source, sessionId, runId }) => {
     // Gate: register for CLI-originated sessions, or for sessions where
     // a CLI is online in remote control mode (IM controlling a CLI session).
     let isRemoteControlMode = false;
@@ -232,7 +222,6 @@ export default defineBuildInTool({
     const sid = sessionId;
     const rid = runId;
     const remoteControl = isRemoteControlMode;
-    const yolo = appConfig.autonomy?.yolo === true;
 
     return {
       local_read_file: tool({
@@ -252,7 +241,6 @@ export default defineBuildInTool({
             sessionId: sid,
             runId: rid,
             isRemoteControl: remoteControl,
-            yolo,
           });
           return formatToolResult(result);
         },
@@ -276,7 +264,6 @@ export default defineBuildInTool({
             sessionId: sid,
             runId: rid,
             isRemoteControl: remoteControl,
-            yolo,
           });
           return formatToolResult(result);
         },
@@ -302,7 +289,6 @@ export default defineBuildInTool({
             sessionId: sid,
             runId: rid,
             isRemoteControl: remoteControl,
-            yolo,
           });
           return formatToolResult(result);
         },
@@ -367,7 +353,6 @@ export default defineBuildInTool({
             sessionId: sid,
             runId: rid,
             isRemoteControl: remoteControl,
-            yolo,
           });
           return formatToolResult(result);
         },
@@ -411,7 +396,6 @@ export default defineBuildInTool({
             sessionId: sid,
             runId: rid,
             isRemoteControl: false,
-            yolo,
           });
           return formatToolResult(result);
         },

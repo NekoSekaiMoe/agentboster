@@ -354,8 +354,6 @@ Web 返回标准 Vercel AI SDK UI message stream 协议（SSE），chunk 类型�
 
 与 agentd 工具的对比：需要 Docker/LXC/browser 沙箱、长任务的服务端工具由 Web 派发到 agentd 节点，在那里走 agentd 的三层安全。--yolo 只对发回到 CLI 的 local_* 生效（仅作用于 handleLocalToolRequest）；经 Web 派发到 agentd 的工具仍按 agentd 自己的安全策略评估，CLI 完全不参与。
 
-Web 侧另有自己的 YOLO 开关（自主策略配置 `autonomy.yolo`），作用于 Web workflow 内由 SecurityEngine 评估的工具（`sandbox.*` / exec / browser 等）：把 escalate 规则降级为不提示，仅保留用户配置的 `block` 黑名单作为硬墙（见 `lib/workflow/agent/security/engine.ts` 的 `effectiveActionLimit`）。两个 YOLO 开关作用域不相交（CLI 管本机 `local_*`，Web 管 agentd/Web 端工具）、状态独立、互不读取，不要混淆。
-
 ### 4.7 TUI 与 --print 模式
 
 TUI 渲染层完全来自 pi-tui（经 npm 别名 import），提供 TUI、Container、Markdown、OverlayOptions、Keybinding、EditorComponent、ProcessTerminal 等原语。InteractiveMode 类负责装配 Footer、组件树（assistant-message、user-message、bash-execution、tool-execution、tree-selector、model-selector、session-selector 等 30 多个组件）、斜杠命令、剪贴板、键位管理器。流式渲染上，AssistantMessageComponent 订阅 AgentSession 事件，事件流由 agent-loop 通过 EventStream 推送，最终由 web-stream 把 SSE chunk 转成 pi 的 AssistantMessageEvent（text_delta/thinking_delta/toolcall_delta/done 等）。

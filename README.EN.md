@@ -133,7 +133,6 @@ Tool execution always crosses **three independent security checks**, any one of 
 | **L2** | User approval (Web UI / CLI TUI) | High-risk operations require human approve/deny |
 
 - **CLI `--yolo`** skips all three (for trusted CI / `--print` runs) but only affects the CLI's local `local_*` tools; tools dispatched to agentd via Web still run the full pipeline.
-- **Web YOLO** (the `autonomy.yolo` toggle in the Autonomy config) governs tools that run inside the Web workflow (`sandbox.*` / exec / browser): it downgrades SecurityEngine escalations so they don't prompt, keeping only user-configured `block` rules as a hard wall. It is **not equivalent to** CLI `--yolo` — the two have disjoint scopes (CLI owns local-machine `local_*`, Web owns agentd/Web-side tools), independent state, and neither reads the other.
 - **Web ↔ agentd** is HTTPS + API Key by default; when a node has a public URL or frp tunnel, mTLS is added (`AGENTD_CLIENT_*`) so Web verifies the daemon cert and the daemon verifies the Web client cert.
 - **Web ↔ CLI** uses a device-paired token from `agentboster login`, with server-side revocation (`withCliAuth` checks device state on every request); the CLI never touches the user's master password or session cookie.
 - agentd sandbox isolation supports three tiers — `docker` / `docker-strict` / `lxc` — with progressively tightened filesystem, network and capabilities.

@@ -41,15 +41,12 @@ export class SecurityEngine {
   ): SecurityCheckResult {
     const { toolName, input, context } = request;
     const autonomyLevel = appConfig.autonomy?.level ?? 'supervised';
-    // YOLO (aionui-inspired full-auto toggle): short-circuits every
-    // escalation prompt. Block rules still apply (a user's explicit
-    // blocklist is the one hard wall YOLO won't breach). Equivalent to
-    // `level=full` but as a separate flag so UIs can expose both.
-    const yolo = appConfig.autonomy?.yolo === true;
 
-    // In 'full' autonomy mode OR yolo, only hard blocks apply
+    // In 'full' autonomy mode, only hard blocks apply (escalations are
+    // suppressed). 'supervised' (the default) lets escalate rules surface
+    // for review.
     const effectiveActionLimit =
-      autonomyLevel === 'full' || yolo ? 'block' : 'escalate';
+      autonomyLevel === 'full' ? 'block' : 'escalate';
 
     for (const rule of this.rules) {
       if (!rule.enabled) continue;
