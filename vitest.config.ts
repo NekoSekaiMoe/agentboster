@@ -33,6 +33,7 @@ export default defineConfig({
       'components/**/*.test.ts',
       'components/**/*.test.tsx',
       'subpackage/cli/packages/coding-agent/src/**/*.test.ts',
+      'subpackage/cli/packages/agentboster-adapter/src/**/*.test.ts',
     ],
     // The Next/Vercel modules reference Node builtins; tell vitest to
     // not polyfill them.

@@ -1,27 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// First test for a remote-* client in this repo. Mock the auth adapter and
-// global fetch; assert URL construction, headers, envelope unpacking, and
-// the error/throw contract each client function exposes.
+// Tests for the shared orchestration plan client. The fetch logic lives here
+// (used by both CLI and Desktop), so this is the canonical test. Mocks
+// global fetch + the AgentbosterAuth type; asserts URL construction, headers,
+// envelope unpacking, and the throw contract.
 
-vi.mock('@agentboster/adapter', () => ({
-  getStoredAuth: vi.fn(),
-}));
-
-import { getStoredAuth } from '@agentboster/adapter';
+import type { AgentbosterAuth } from './auth.ts';
 import {
   addRemotePlanItem,
   archiveRemotePlan,
   createRemotePlan,
   getRemotePlan,
-  listMyRemotePlans,
   listRemotePlans,
   patchRemotePlan,
+  patchRemotePlanItem,
   removeRemotePlanItem,
   submitRemotePlan,
-} from './remote-orchestration.js';
+} from './orchestration.ts';
 
-const AUTH = { url: 'https://app.test', token: 'tok-1', username: 'u' };
+const AUTH: AgentbosterAuth = {
+  url: 'https://app.test',
+  token: 'tok-1',
+  username: 'u',
+};
 const PLANS_URL =
   'https://app.test/api/cli/sessions/sess-1/orchestration/plans';
 
@@ -36,11 +37,10 @@ function mockFetchOnce(response: Response) {
   vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(response);
 }
 
-describe('remote-orchestration client', () => {
+describe('orchestration client (shared adapter)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
-    vi.mocked(getStoredAuth).mockReturnValue(AUTH);
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -76,16 +76,6 @@ describe('remote-orchestration client', () => {
     });
   });
 
-  describe('listMyRemotePlans', () => {
-    it('returns [] when logged out (no fetch)', async () => {
-      vi.mocked(getStoredAuth).mockReturnValue(null);
-      const fetchSpy = vi.spyOn(globalThis, 'fetch');
-      const plans = await listMyRemotePlans('sess-1');
-      expect(plans).toEqual([]);
-      expect(fetchSpy).not.toHaveBeenCalled();
-    });
-  });
-
   describe('createRemotePlan', () => {
     it('returns plan on success', async () => {
       mockFetchOnce(
@@ -106,16 +96,16 @@ describe('remote-orchestration client', () => {
 
     it('throws on error envelope', async () => {
       mockFetchOnce(jsonResponse({ ok: false, error: 'bad title' }, 400));
-      await expect(
-        createRemotePlan(AUTH, 'sess-1', { title: '' }),
-      ).rejects.toThrow('bad title');
+      await expect(createRemotePlan(AUTH, 'sess-1', { title: '' })).rejects.toThrow(
+        'bad title',
+      );
     });
 
     it('throws on non-ok with status when error absent', async () => {
       mockFetchOnce(new Response('', { status: 500 }));
-      await expect(
-        createRemotePlan(AUTH, 'sess-1', { title: 'x' }),
-      ).rejects.toThrow('HTTP 500');
+      await expect(createRemotePlan(AUTH, 'sess-1', { title: 'x' })).rejects.toThrow(
+        'HTTP 500',
+      );
     });
   });
 
@@ -243,5 +233,14 @@ describe('remote-orchestration client', () => {
       const result = await submitRemotePlan(AUTH, 'sess-1', 'p1');
       expect(result.sessionId).toBe('sess-1');
     });
+  });
+
+  it('encodes sessionId in URL path', async () => {
+    mockFetchOnce(jsonResponse({ ok: true, plans: [] }));
+    await listRemotePlans(AUTH, 'sess with space');
+    expect(fetch).toHaveBeenCalledWith(
+      'https://app.test/api/cli/sessions/sess%20with%20space/orchestration/plans',
+      expect.anything(),
+    );
   });
 });

@@ -75,3 +75,17 @@ export {
   type SubagentInfo,
   type SubagentMessage,
 } from './subagent.ts';
+
+export {
+  addRemotePlanItem,
+  archiveRemotePlan,
+  createRemotePlan,
+  getRemotePlan,
+  listRemotePlans,
+  patchRemotePlan,
+  patchRemotePlanItem,
+  removeRemotePlanItem,
+  submitRemotePlan,
+  type RemotePlan,
+  type RemotePlanItem,
+} from './orchestration.ts';
