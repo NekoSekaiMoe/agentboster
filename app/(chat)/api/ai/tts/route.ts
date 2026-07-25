@@ -1,5 +1,5 @@
-import { synthesizeSpeech } from '@/lib/audio/generate';
-import { getCachedSpeech, setCachedSpeech } from '@/lib/audio/cache';
+import { synthesizeSpeech } from '@/lib/extra/audio/generate';
+import { getCachedSpeech, setCachedSpeech } from '@/lib/extra/audio/cache';
 import { getConfig } from '@/lib/core/kv/config';
 import { readAuthSessionFromCookies } from '@/lib/auth';
 import { createLogger } from '@/lib/utils/logger';
