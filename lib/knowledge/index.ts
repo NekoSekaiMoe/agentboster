@@ -34,7 +34,7 @@ import { getConfig } from '@/lib/core/kv/config';
 import { generateEmbedding, resolveEmbeddingModel } from '@/lib/ai';
 import { searchWithProvider } from '@/lib/knowledge/providers';
 import type { KnowledgeProviderName } from '@/lib/knowledge/providers';
-import { upsertVaultEntry } from '@/lib/vault';
+import { upsertVaultEntry } from '@/lib/extra/vault';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 

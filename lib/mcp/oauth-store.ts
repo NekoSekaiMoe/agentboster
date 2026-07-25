@@ -15,14 +15,14 @@ import {
   upsertVaultEntry,
   readVaultValue,
   deleteVaultEntry,
-} from '@/lib/vault';
+} from '@/lib/extra/vault';
 
 const KEY_PREFIX = 'mcp:oauth:';
 
 export const OAUTH_TOKEN_TTL_BUFFER_MS = 60_000; // treat tokens as expired 60s early
 
 /**
- * Vault key charset — must match `validateVaultKey` in lib/vault/index.ts.
+ * Vault key charset — must match `validateVaultKey` in lib/extra/vault/index.ts.
  * Used to reject (not silently rewrite) server names that would otherwise
  * collide after sanitization (e.g. `a/b` and `a.b` both mapping to `a-b`).
  */

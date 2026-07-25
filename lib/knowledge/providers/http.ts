@@ -1,4 +1,4 @@
-import { readVaultValue } from '@/lib/vault';
+import { readVaultValue } from '@/lib/extra/vault';
 import { createLogger } from '@/lib/utils/logger';
 import type {
   KnowledgeProvider,

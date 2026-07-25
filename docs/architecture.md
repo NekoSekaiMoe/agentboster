@@ -188,7 +188,7 @@ Soul（人格）子系统在 builtin_memories 表，key 在 AGENTS/SOUL/IDENTITY
 
 每次工具调用详细记入 agent_tool_activity_logs（taskId、sessionId、agentId、userId、roles、source、sandboxId、model、step、toolCallId、toolName、action 区分 read/write/execute/search/network/other、target、arguments、result、outputText、success、error、durationMs、startedAt、completedAt），四条索引。由 withToolExecutionLogger（workflow 工具包装）与 daemon 回调 `/api/agentd/v1/tool-activity-logs` 写入。安全决策审计记入 agent_review_logs（taskId、roles、command、level、score、decision、reason）。凭证库读写审计记入 vault_audit_logs。节点监控经 `/api/config/monitoring/{nodes,metrics}` 暴露给配置页 UI。日志规范统一用 `lib/utils/logger.ts` 的 createLogger('namespace')，AGENTS.md 强调禁 console.log。
 
-Vault 子系统在 `lib/vault`。vault_entries 表 key 唯一、encrypted_value 加 nonce（Libsodium/XChaCha20-Poly1305 风格）加 vault_audit_logs。给 daemon 配发的 provider API key、第三方 token 都经 vault 加密存储；`/api/vault/{list,read}` 与 `/api/agentd/v1/vault/list` 提供读取接口。
+Vault 子系统在 `lib/extra/vault`。vault_entries 表 key 唯一、encrypted_value 加 nonce（Libsodium/XChaCha20-Poly1305 风格）加 vault_audit_logs。给 daemon 配发的 provider API key、第三方 token 都经 vault 加密存储；`/api/vault/{list,read}` 与 `/api/agentd/v1/vault/list` 提供读取接口。
 
 ### 2.13 数据库 Schema 概览
 

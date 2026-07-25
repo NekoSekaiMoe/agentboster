@@ -1,5 +1,5 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
-import { listVaultEntries, upsertVaultEntry } from '@/lib/vault';
+import { listVaultEntries, upsertVaultEntry } from '@/lib/extra/vault';
 import { cookies } from 'next/headers';
 
 async function requireUser() {
