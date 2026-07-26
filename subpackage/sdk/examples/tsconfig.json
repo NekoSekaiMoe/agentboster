@@ -12,6 +12,7 @@
     "noEmit": true,
     "lib": ["ES2022", "DOM"],
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@agentboster/sdk": ["../src/index.ts"],
       "@agentboster-cli/core": ["../vendor/core.d.ts"],

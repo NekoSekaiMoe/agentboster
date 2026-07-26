@@ -98,6 +98,7 @@ INTENTIONAL_OMISSIONS = {
     "AgentNodeStatus",
     "selectBestNode",
     "requestCompact",
+    "requestCheckpoint",
     "getWorkflowRun",
     "canResumeRun",
     "pauseWorkflow",

@@ -14,6 +14,7 @@
     "lib": ["ES2022", "DOM"],
     "types": [],
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@agentboster-cli/core": ["./vendor/core.d.ts"],
       "ai": ["./vendor/workflow/ai-sdk.d.ts"]
