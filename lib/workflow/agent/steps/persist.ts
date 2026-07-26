@@ -301,6 +301,14 @@ export async function compactAndPersistSummaryStep(input: {
   sessionId: string;
   config: AppConfig;
   useTurnBasedSelection?: boolean;
+  /**
+   * Optional checkpoint label. When set, the resulting session_memories row
+   * and the matching `role='summary'` message carry `metadata.checkpoint =
+   * { label, createdAt }`, so the UI can surface named restore points
+   * separately from anonymous auto-compactions. The compaction LLM call
+   * is identical either way; only the persisted metadata differs.
+   */
+  checkpointLabel?: string | null;
 }): Promise<CompressResult> {
   'use step';
 
@@ -318,21 +326,36 @@ export async function compactAndPersistSummaryStep(input: {
   }
 
   if (current?.content !== compressed.summaryText) {
+    const checkpointMeta =
+      input.checkpointLabel !== undefined && input.checkpointLabel !== null
+        ? {
+            compactedAt: nowIso(),
+            checkpoint: {
+              label: input.checkpointLabel,
+              createdAt: nowIso(),
+            },
+          }
+        : { compactedAt: nowIso() };
     await writeSummaryFromCompaction({
       sessionId: input.sessionId,
       summaryText: compressed.summaryText,
       createdAt: new Date(),
-      metadata: {
-        compactedAt: nowIso(),
-      },
+      metadata: checkpointMeta,
     });
     await saveMessages([
       serializeSystemMessage({
         sessionId: input.sessionId,
-        text: 'Context compacted.',
+        text:
+          input.checkpointLabel !== undefined && input.checkpointLabel !== null
+            ? `Checkpoint saved: ${input.checkpointLabel}`
+            : 'Context compacted.',
         metadata: {
-          type: 'compaction',
-          compactedAt: nowIso(),
+          type:
+            input.checkpointLabel !== undefined &&
+            input.checkpointLabel !== null
+              ? 'checkpoint'
+              : 'compaction',
+          ...checkpointMeta,
         },
         createdAt: new Date(),
       }),

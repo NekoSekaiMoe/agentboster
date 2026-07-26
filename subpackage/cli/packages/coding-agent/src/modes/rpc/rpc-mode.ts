@@ -36,6 +36,7 @@ import {
   type SessionEventStreamHandle,
 } from '../../core/cli-session-registrar.ts';
 import { detectLocalCapabilities } from '../../core/capability-detect.ts';
+import { collectLocalMcpServersForRegistrar } from '../../cli/local-mcp-collector.ts';
 import { getStoredAuth } from '@agentboster/adapter';
 import { createLogger } from '../../utils/logger.ts';
 import { startMcpServer, stopMcpServer } from '../remote-control/mcp-client.ts';
@@ -1086,6 +1087,7 @@ async function startWebSessionBridge(
       }
     }
 
+    const localMcpServers = await collectLocalMcpServersForRegistrar(cwd);
     localRegistrar = await startCliSessionRegistrar({
       backendUrl,
       token: auth.token,
@@ -1093,6 +1095,7 @@ async function startWebSessionBridge(
       tools,
       capabilities,
       cwd,
+      mcpServers: localMcpServers,
     });
     rollbacks.push(async () => {
       try {

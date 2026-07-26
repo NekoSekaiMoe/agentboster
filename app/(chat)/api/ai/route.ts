@@ -34,6 +34,11 @@ const requestSchema = z.object({
   // Per-message model override from the chat-box picker. Optional; when
   // absent the server falls back to the user preference / global default.
   model: z.string().optional(),
+  // Per-message agent/persona name from the chat-box preset picker.
+  // Optional; when absent the server uses MAIN_AGENT_NAME ('main').
+  // Validated against config.agents keys in chatWorkflow — unknown names
+  // fall back to main rather than throwing, so stale UI state is safe.
+  agent: z.string().optional(),
   input: z
     .object({
       text: z.string().optional(),
@@ -178,6 +183,7 @@ export async function POST(request: Request) {
         sessionId: body.id,
         uiMessageId: body.messageId,
         requestModel: body.model,
+        requestAgent: body.agent,
         input,
         messages,
       },

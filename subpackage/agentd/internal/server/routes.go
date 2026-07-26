@@ -116,6 +116,25 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		// Desktop VNC proxy (WebSocket tunnel to container's websockify)
 		v1.GET("/desktop/vnc", s.handleVNCProxy)
 
+		// Long-lived managed processes (ref_liveagent.md §2.1).
+		// First-cut surface over the existing BackgroundTaskStore; the
+		// SSE stream returns 501 until the polling-over-LastOutput helper
+		// is extracted from exec_stream.go (see processes.go FOLLOW-UP).
+		v1.POST("/processes", s.handleStartProcess)
+		v1.GET("/processes", s.handleListProcesses)
+		v1.GET("/processes/:id", s.handleGetProcess)
+		v1.DELETE("/processes/:id", s.handleStopProcess)
+		v1.GET("/processes/:id/stream", s.handleProcessStream)
+
+		// Public-URL tunnels to sandbox-internal ports (ref_liveagent.md
+		// §2.2). Create/list/delete are live; the byte relay returns 501
+		// until the Hijack body is lifted from vnc_proxy.go (see tunnels.go
+		// FOLLOW-UP).
+		v1.POST("/tunnels", s.handleCreateTunnel)
+		v1.GET("/tunnels", s.handleListTunnels)
+		v1.DELETE("/tunnels/:id", s.handleDeleteTunnel)
+		v1.GET("/t/:slug/*path", s.handleTunnelProxy)
+
 		// Synchronous tool execution (called by ClawLess web when agentd is primary)
 		v1.POST("/tools/exec", s.handleToolExec)
 		// P2.1: Streaming exec output via SSE for long-running commands.

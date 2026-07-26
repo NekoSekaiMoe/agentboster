@@ -20,6 +20,7 @@ import {
   startCliSessionRegistrar,
   type RegistrarHandle,
 } from '../../core/cli-session-registrar.ts';
+import { collectLocalMcpServersForRegistrar } from '../../cli/local-mcp-collector.ts';
 import { startMcpServer, stopMcpServer } from './mcp-client.ts';
 import { RemoteControlLock } from '../../core/remote-control-lock.ts';
 
@@ -112,6 +113,14 @@ export async function runRemoteControlMode(
 
   // Register this CLI as online + keep KV TTL fresh. The registrar owns
   // the heartbeat interval and the release POST on shutdown.
+  // Collect local MCP servers once at startup — discovery hits the
+  // filesystem and we don't want to repeat it on every 30s heartbeat.
+  // The registrar re-sends the same list each heartbeat (the Web re-reads
+  // its allowlist fresh, so an admin enabling a server mid-session takes
+  // effect on the next heartbeat without a CLI restart).
+  const localMcpServers = await collectLocalMcpServersForRegistrar(
+    process.cwd(),
+  );
   const registrar: RegistrarHandle = await startCliSessionRegistrar({
     backendUrl,
     token: auth.token,
@@ -119,6 +128,7 @@ export async function runRemoteControlMode(
     tools: availableTools,
     capabilities,
     cwd: process.cwd(),
+    mcpServers: localMcpServers,
   });
 
   // Connect to SSE stream

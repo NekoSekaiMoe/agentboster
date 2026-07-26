@@ -42,6 +42,8 @@
     "AionUi",
     "AionCore",
     "AionHub",
-    "aionrs"
+    "aionrs",
+    "LiveAgent",
+    "Reviva"
   ]
 }

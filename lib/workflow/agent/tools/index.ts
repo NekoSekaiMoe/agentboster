@@ -20,6 +20,7 @@ export {
 import agentdNodesTool from './agentd/nodes';
 import browserTool from './execute/browser';
 import computerUseRemoteTool from './execute/computer-use';
+import desktopMcpRemoteTool from './execute/desktop-mcp';
 import desktopTool from './execute/desktop';
 import sandboxTool from './execute/sanbox';
 import localCliTool from './local';
@@ -47,6 +48,7 @@ const BUILT_IN_TOOLS: BuildInToolDefinition[] = [
   agentdNodesTool,
   localCliTool,
   computerUseRemoteTool,
+  desktopMcpRemoteTool,
   askQuestionTool,
   sequentialThinkingTool,
   barrierTool,

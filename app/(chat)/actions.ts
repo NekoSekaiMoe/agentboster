@@ -443,3 +443,105 @@ export async function getChatUiSettingsAction(): Promise<{
     enterToSend: config.chat?.enter_to_send ?? true,
   };
 }
+
+export type PersonaOption = {
+  /** The agentName key in config.agents (passed back as `agent` in the request body). */
+  name: string;
+  /** Display label for the picker. */
+  label: string;
+  /** Short description (first line of the system_prompt, when available). */
+  description: string;
+  /** Whether this persona has its own model override. */
+  hasModelOverride: boolean;
+};
+
+/**
+ * List the available chat personas for the Web picker. Always includes the
+ * implicit "main" agent (even when config.agents.main is unset, because the
+ * default system prompt + global model apply). Other entries come from
+ * config.agents. Order: main first, then alphabetical.
+ *
+ * The picker is read-only for non-admins — they can SELECT any persona the
+ * admin has configured, but only admins can CREATE / EDIT personas (still
+ * done via the existing /config/agents admin form). This action is therefore
+ * safe to call from any authed session.
+ */
+export async function listChatPersonasAction(): Promise<{
+  personas: PersonaOption[];
+}> {
+  await requireAuth();
+  const config = await getConfig();
+
+  const personas: PersonaOption[] = [];
+  const agents = config.agents ?? {};
+
+  // "main" is always available even when config.agents.main is unset —
+  // buildSystemPrompt falls back to DEFAULT_SYSTEM_PROMPT in that case.
+  const mainAgent = agents.main;
+  personas.push({
+    name: 'main',
+    label: 'Default',
+    description:
+      mainAgent?.system_prompt?.trim().split('\n')[0]?.slice(0, 120) ??
+      'The default assistant persona.',
+    hasModelOverride: Boolean(mainAgent?.model),
+  });
+
+  for (const [name, agent] of Object.entries(agents)) {
+    if (name === 'main') continue;
+    personas.push({
+      name,
+      label: name,
+      description:
+        agent.system_prompt?.trim().split('\n')[0]?.slice(0, 120) ??
+        'Custom persona.',
+      hasModelOverride: Boolean(agent.model),
+    });
+  }
+
+  personas.sort((a, b) => {
+    if (a.name === 'main') return -1;
+    if (b.name === 'main') return 1;
+    return a.label.localeCompare(b.label);
+  });
+
+  return { personas };
+}
+
+/**
+ * Persist the selected persona onto the session so it survives reloads /
+ * regenerations. Stored on session.metadata.agent (not a new column) to
+ * avoid a schema migration for a UI-only preference. chatMain reads it back
+ * from the session when the request body doesn't carry an explicit override
+ * (e.g. on regenerate).
+ */
+export async function saveSessionPersonaAction(input: {
+  sessionId: string;
+  agent: string | null;
+}): Promise<{ ok: boolean }> {
+  const access = await requireAuth();
+
+  const sessionId = input.sessionId.trim();
+  if (!sessionId) {
+    throw new Error('Missing session id');
+  }
+
+  const existing = await getSession(sessionId);
+  if (!existing) {
+    throw new Error('Session not found');
+  }
+  assertCanAccessOwnedResource(access, existing.userId);
+
+  const agent = input.agent?.trim() || null;
+  const nextMetadata = { ...existing.metadata, agent };
+
+  if (access.isAdmin) {
+    await updateSession(sessionId, { metadata: nextMetadata });
+  } else {
+    await updateSessionForUser(sessionId, access.session.userId, {
+      metadata: nextMetadata,
+    });
+  }
+
+  return { ok: true };
+}

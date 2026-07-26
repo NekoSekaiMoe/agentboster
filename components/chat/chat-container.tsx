@@ -5,6 +5,7 @@ import {
   deleteSessionAction,
   getChatUiSettingsAction,
   saveSessionModelAction,
+  saveSessionPersonaAction,
   updateSessionTitleAction,
 } from '@/app/(chat)/actions';
 import { useChat } from '@ai-sdk/react';
@@ -62,6 +63,12 @@ type ChatSession = {
   channel: string;
   externalThreadId: string | null;
   model: string | null;
+  /**
+   * Selected persona (agentName) persisted via saveSessionPersonaAction.
+   * Optional — older sessions don't have it. Read by chatMain on regenerate
+   * when the request body doesn't carry an explicit `agent`.
+   */
+  metadata?: { agent?: string | null } | null;
   accessDenied?: boolean;
   readOnlyChannel?: { sessionChannel: string } | null;
 } | null;
@@ -126,6 +133,28 @@ function applySelectedModelOption(
     body: {
       ...bodyRecord,
       model: selectedModel,
+    },
+  };
+}
+
+/**
+ * Inject the selected persona (`agent`) into the chat request body, mirroring
+ * applySelectedModelOption. null/undefined = 'main' (default) and is omitted
+ * so the body stays minimal on the default path.
+ */
+function applySelectedAgentOption(
+  options: ChatRequestOptions | undefined,
+  selectedAgent: string | null,
+): ChatRequestOptions | undefined {
+  if (!selectedAgent) {
+    return options;
+  }
+  const bodyRecord = isRecord(options?.body) ? options.body : {};
+  return {
+    ...options,
+    body: {
+      ...bodyRecord,
+      agent: selectedAgent,
     },
   };
 }
@@ -215,6 +244,11 @@ export function Chat({
   const [sessionModel, setSessionModel] = useState<string | null>(
     session?.model ?? null,
   );
+  const [sessionAgent, setSessionAgent] = useState<string | null>(
+    typeof session?.metadata?.agent === 'string'
+      ? (session.metadata.agent as string)
+      : null,
+  );
   const selectedModel = session ? sessionModel : draftModel;
   const setSelectedModel = useCallback(
     (model: string | null) => {
@@ -232,9 +266,36 @@ export function Chat({
     [id, session, setDraftModel],
   );
 
+  // Persist the persona pick onto session.metadata so it survives reload
+  // / regenerate. Mirrors setSelectedModel. In draft (no-session) mode we
+  // only hold it in local state; the request body still carries it for the
+  // first message, and the server persists it when the session is created.
+  const setSelectedAgent = useCallback(
+    (agent: string | null) => {
+      setSessionAgent(agent);
+      if (session) {
+        void saveSessionPersonaAction({ sessionId: id, agent }).catch(
+          (error) => {
+            console.warn('[chat] save session persona failed:', error);
+            toast.error('Failed to save session persona.');
+          },
+        );
+      }
+    },
+    [id, session],
+  );
+
   useEffect(() => {
     setSessionModel(session?.model ?? null);
   }, [session?.model]);
+
+  useEffect(() => {
+    setSessionAgent(
+      typeof session?.metadata?.agent === 'string'
+        ? (session.metadata.agent as string)
+        : null,
+    );
+  }, [session?.metadata?.agent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -758,7 +819,10 @@ export function Chat({
       try {
         await sendComposerMessage(
           message,
-          applySelectedModelOption(options, selectedModel),
+          applySelectedAgentOption(
+            applySelectedModelOption(options, selectedModel),
+            sessionAgent,
+          ),
         );
       } catch (error) {
         if (isFirstMessage) {
@@ -791,7 +855,12 @@ export function Chat({
 
   const regenerateWithSelectedModel = useCallback(
     async (options?: { messageId?: string } & ChatRequestOptions) => {
-      await regenerate(applySelectedModelOption(options, selectedModel));
+      await regenerate(
+        applySelectedAgentOption(
+          applySelectedModelOption(options, selectedModel),
+          sessionAgent,
+        ),
+      );
     },
     [regenerate, selectedModel],
   );
@@ -1094,6 +1163,8 @@ export function Chat({
                   allowedModels={allowedModels}
                   onSelectModel={setSelectedModel}
                   selectedModel={selectedModel}
+                  onSelectAgent={setSelectedAgent}
+                  selectedAgent={sessionAgent}
                 />
               </div>
             </form>

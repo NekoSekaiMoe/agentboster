@@ -21,6 +21,7 @@ import {
   exchangePairCode,
   loginWithPassword,
 } from '../../cli/login.ts';
+import { expandInlineAtMentions } from '../../cli/file-processor.ts';
 import {
   type AssistantMessage,
   getProviders,
@@ -2957,6 +2958,47 @@ export class InteractiveMode {
     this.defaultEditor.onSubmit = async (text: string) => {
       text = text.trim();
       if (!text) return;
+
+      // Expand inline `@file` mentions in NON-command messages only.
+      // Slash commands (`/...`) and bash-mode (`!...`) must pass through
+      // verbatim — they have their own parsers. Expansion replaces each
+      // path-ish @token in-place with a `<file>` block so typing
+      // `fix @src/foo.ts` pulls the file into context exactly like a
+      // startup `@src/foo.ts` CLI arg would.
+      //
+      // Text-only for now: image @mentions are surfaced as missedTokens
+      // with a hint to drag-drop instead, because every session.prompt
+      // branch would otherwise need to thread an `images` array through.
+      // Startup `@img.png` continues to handle images via the dedicated
+      // processFileArguments path. Revisit when the run loop grows a
+      // first-class pending-images channel.
+      if (!text.startsWith('/') && !this.isBashMode) {
+        try {
+          const expanded = await expandInlineAtMentions(
+            text,
+            this.sessionManager.getCwd(),
+            // Skip image discovery in inline mode so we never silently drop
+            // a file: text files expand in-place, image files are reported
+            // as missed so the user knows to drag them in. Startup
+            // `@img.png` continues to handle images via the dedicated
+            // processFileArguments path.
+            { inlineImageHandling: 'skip' },
+          );
+          if (expanded.missedTokens.length > 0) {
+            this.showWarning(
+              `@ mentions: could not resolve ${expanded.missedTokens.map((t) => `@${t}`).join(', ')} (sent as-is)`,
+            );
+          }
+          text = expanded.text;
+        } catch (error: unknown) {
+          // Expansion must never block the send — log and fall back to the
+          // raw text. The model will see literal @tokens, which is the
+          // pre-expansion behavior.
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.showWarning(`@ mention expansion skipped: ${message}`);
+        }
+      }
 
       // Prepend any pending remote-exec switch notice (set by /switch)
       // so the model sees the path/working-directory reset without

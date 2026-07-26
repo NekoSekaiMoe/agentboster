@@ -15,8 +15,14 @@ export const instructionHookSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('control'),
-    command: z.enum(['compact', 'cancel']),
+    command: z.enum(['compact', 'cancel', 'checkpoint']),
     reason: z.string().optional(),
+    /**
+     * Label for a checkpoint command. Optional — when omitted the workflow
+     * auto-labels the checkpoint with its step number. Ignored for non-
+     * checkpoint commands.
+     */
+    label: z.string().optional(),
   }),
 ]);
 

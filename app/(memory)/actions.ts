@@ -16,6 +16,7 @@ import {
   listSessionSummaries,
   setBuiltinMemorySection,
 } from '@/lib/memory';
+import { buildProjectMemoryAggregate } from '@/lib/memory/project-aggregate';
 import {
   createLongTermMemorySchema,
   longTermMemoryListQuerySchema,
@@ -301,4 +302,90 @@ export async function clearSessionSoulAction(sessionId: string) {
     .where(eq(schema.sessions.id, sid));
 
   return { ok: true as const };
+}
+
+export type ProjectMemoryEntryRecord = {
+  id: string;
+  content: string;
+  memoryType: 'fact' | 'preference' | 'decision' | 'conversation';
+  importance: number;
+  updatedAt: string;
+};
+
+export type ProjectMemoryGroupRecord = {
+  projectId: string;
+  label: string;
+  isGlobal: boolean;
+  memoryCount: number;
+  memories: ProjectMemoryEntryRecord[];
+};
+
+/**
+ * Project-aggregate memory view (ref_revica.md §2.1). Returns long-term
+ * memories grouped by project so the memory tab can render a browsable
+ * "what does the agent know about each project" view instead of a flat
+ * list. Admins see the same shape, scoped to their own userId unless they
+ * pass an explicit target (mirroring listLongTermMemoriesAction).
+ */
+export async function listProjectMemoryGroupsAction(input?: {
+  userId?: string | null;
+  projectIdScope?: string | null;
+}): Promise<{ groups: ProjectMemoryGroupRecord[] }> {
+  const access = await requireAuth();
+
+  const targetUserId = !access.isAdmin
+    ? access.session.userId
+    : input?.userId?.trim()
+      ? input.userId.trim()
+      : undefined;
+
+  const groups = await buildProjectMemoryAggregate({
+    userId: targetUserId,
+    projectIdScope: input?.projectIdScope ?? null,
+  });
+
+  return {
+    groups: groups.map((g) => ({
+      projectId: g.projectId,
+      label: g.label,
+      isGlobal: g.isGlobal,
+      memoryCount: g.memories.length,
+      // Trim memories to the most recent N per group for the overview —
+      // the flat Long-term panel remains the place to see/search every
+      // row. Keeps the aggregate view light even for power users.
+      memories: g.memories.slice(0, 8).map((m) => ({
+        id: m.id,
+        content: m.content,
+        memoryType: m.memoryType,
+        importance: m.importance,
+        updatedAt: m.updatedAt.toISOString(),
+      })),
+    })),
+  };
+}
+
+/**
+ * Convenience: list just the distinct project scopes a user has memories
+ * for, without the memory rows. Used by sidebar / filter dropdowns.
+ */
+export async function listProjectScopesAction(input?: {
+  userId?: string | null;
+}): Promise<Array<{ projectId: string; label: string; isGlobal: boolean }>> {
+  const access = await requireAuth();
+
+  const targetUserId = !access.isAdmin
+    ? access.session.userId
+    : input?.userId?.trim()
+      ? input.userId.trim()
+      : undefined;
+
+  const groups = await buildProjectMemoryAggregate({
+    userId: targetUserId,
+  });
+
+  return groups.map((g) => ({
+    projectId: g.projectId,
+    label: g.label,
+    isGlobal: g.isGlobal,
+  }));
 }

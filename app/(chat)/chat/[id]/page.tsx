@@ -59,6 +59,12 @@ export default async function Page({
               channel: session.channel,
               externalThreadId: session.externalThreadId ?? null,
               model: session.model ?? null,
+              metadata: {
+                agent:
+                  typeof session.metadata?.agent === 'string'
+                    ? (session.metadata.agent as string)
+                    : null,
+              },
               accessDenied: hasAccessDeniedMetadata(session.metadata),
               readOnlyChannel,
             }

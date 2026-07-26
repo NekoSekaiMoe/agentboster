@@ -165,6 +165,16 @@ export async function extractMemoriesFromSession(input: {
    * up lazily by the caller's host context if needed).
    */
   user?: { modelPreferences?: { model?: string } | null } | null;
+  /**
+   * Optional project scope for extracted memories. When set, all
+   * project-relevant facts (tech stack, conventions, paths) are written
+   * under this project_id so project-scoped recall and the project-
+   * aggregate view can find them. Null/undefined = global (the
+   * historical default). The LLM prompt still decides whether a fact is
+   * global ("user.location") or project-scoped ("project.tech_stack"),
+   * but the storage scope is fixed per extraction pass.
+   */
+  projectId?: string | null;
 }): Promise<{ extracted: number; created: number; updated: number }> {
   const rows = await getVisibleSessionMessages(input.sessionId);
   if (rows.length === 0) {
@@ -254,6 +264,7 @@ Leave the array empty if nothing is worth changing.`;
             content: item.content,
             memoryType: item.memoryType,
             importance: item.importance,
+            projectId: input.projectId,
             config: input.config,
           });
           created += 1;
@@ -266,6 +277,7 @@ Leave the array empty if nothing is worth changing.`;
             content: item.content,
             memoryType: item.memoryType,
             importance: item.importance,
+            projectId: input.projectId,
             config: input.config,
           });
           if (result.created) {
@@ -280,6 +292,7 @@ Leave the array empty if nothing is worth changing.`;
           const removed = await deleteLongTermMemoryByKey({
             userId: input.userId,
             key: item.key,
+            projectId: input.projectId,
           });
           if (removed) {
             deleted += 1;

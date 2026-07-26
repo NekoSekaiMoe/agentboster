@@ -82,11 +82,18 @@ export const longTermMemories = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     userId: text('user_id').default('system'),
+    // Optional project scope. When set, the memory is partitioned to a
+    // specific project/workspace so recall can be filtered per-project
+    // and the project-aggregate view can group memories by project. Null
+    // means "global / cross-project" (the historical default). Modeled as
+    // a free-text identifier (workspaces.project_id) rather than an FK so
+    // memories survive workspace archival without cascading deletes.
+    projectId: text('project_id'),
     // Optional stable key for dedup during memory extraction. When set,
-    // (userId, key) is unique so the extractor can upsert by key. Manual
-    // memory writes (UI, writeMemory tool) leave this null — there is no
-    // unique constraint on null so multiple null keys coexist fine in
-    // Postgres.
+    // (userId, projectId, key) is unique so the extractor can upsert by
+    // key within a scope. Manual memory writes (UI, writeMemory tool)
+    // leave this null — there is no unique constraint on null so multiple
+    // null keys coexist fine in Postgres.
     key: text('memory_key'),
     content: text('content').notNull(),
     memoryType: text('memory_type', {
@@ -110,10 +117,22 @@ export const longTermMemories = pgTable(
     memoryTypeIdx: index('long_term_memories_memory_type_idx').on(
       table.memoryType,
     ),
-    userKeyIdx: uniqueIndex('long_term_memories_user_key_idx').on(
-      table.userId,
-      table.key,
-    ),
+    // The historical unique index was (userId, key). Adding projectId to
+    // the uniqueness set lets the same logical key (e.g. "tech_stack")
+    // exist once per project without colliding, while global memories
+    // (projectId IS NULL) still dedupe per user. Null projectId still
+    // participates in uniqueness (NULL != NULL in SQL would break this,
+    // so callers MUST always pass projectId consistently for keyed writes
+    // — either a real id or the GLOBAL_PROJECT_ID sentinel).
+    userProjectKeyIdx: uniqueIndex(
+      'long_term_memories_user_project_key_idx',
+    ).on(table.userId, table.projectId, table.key),
+    // Replace the old (userId, key) index with a non-unique covering index
+    // so project-scoped recall queries (`WHERE userId=? AND projectId=?`)
+    // stay fast without being constrained by the uniqueness rule above.
+    userProjectUpdatedIdx: index(
+      'long_term_memories_user_project_updated_idx',
+    ).on(table.userId, table.projectId, table.updatedAt),
   }),
 );
 

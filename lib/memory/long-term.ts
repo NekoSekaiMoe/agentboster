@@ -177,6 +177,7 @@ export async function upsertLongTermMemory(input: {
   content: string;
   memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
   importance?: number;
+  projectId?: string | null;
   config?: AppConfig;
 }) {
   const { row: memory, created } = await upsertLongTermMemoryByKey({
@@ -185,6 +186,7 @@ export async function upsertLongTermMemory(input: {
     content: input.content,
     memoryType: input.memoryType,
     importance: input.importance,
+    projectId: input.projectId,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
