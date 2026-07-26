@@ -449,10 +449,13 @@ function PureMultimodalInput({
         role="group"
         aria-label="Message composer"
         className={cn(
-          'relative flex flex-col gap-3 rounded-[28px] bg-muted/50 px-4 py-4 transition-all',
-          'focus-within:bg-card focus-within:shadow-sm focus-within:ring-1 focus-within:ring-border/50',
+          'relative flex flex-col gap-3 rounded-[28px] border border-border/60 bg-background/95 px-4 py-4',
+          'shadow-[0_10px_35px_-12px_rgba(0,0,0,0.28),0_2px_10px_-4px_rgba(0,0,0,0.16)] backdrop-blur-xl',
+          'transition-[border-color,background-color,box-shadow] duration-200',
+          'focus-within:border-border focus-within:bg-background focus-within:shadow-[0_14px_42px_-12px_rgba(0,0,0,0.32),0_3px_12px_-4px_rgba(0,0,0,0.18)]',
+          'dark:shadow-[0_12px_38px_-12px_rgba(0,0,0,0.65)] dark:focus-within:shadow-[0_16px_44px_-12px_rgba(0,0,0,0.72)]',
           {
-            'bg-primary/5 ring-1 ring-primary/60': isDragActive,
+            'border-primary/60 bg-primary/5': isDragActive,
           },
           className,
         )}
