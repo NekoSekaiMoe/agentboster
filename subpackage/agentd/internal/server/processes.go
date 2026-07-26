@@ -2,77 +2,55 @@
 //
 // processes.go — long-lived process management.
 //
-// BACKGROUND
-//   The CodeAct agent loop is built around one-shot `exec` tool calls that
-//   block until the child exits. That's the right model for git / build /
-//   search commands, but it leaves no way for the agent to drive a
-//   long-running service (a dev server, a watcher, a REPL) and stream its
-//   output back to the conversation. ref_liveagent.md §2.1 calls this gap
-//   out as the single biggest "local-first" feature AgentBoster is missing.
+// This is the HTTP twin of the CodeAct exec_background tool. Both drive
+// the same BackgroundTaskStore via the shared helpers in
+// internal/agent/background.go, so a process started from the tool is
+// visible to /processes (and vice versa).
 //
-//   agentd already has a `tools_exec.go registerExecBackground` path that
-//   forks the command inside the sandbox via `nohup … &`, stores the PID
-//   in BackgroundTaskStore, and exposes status/stop tools. This file adds
-//   the missing HTTP surface for the LLM-driven workflow and for the Web
-//   UI to consume the same process registry without going through the
-//   tool-call interface:
+// Routes:
 //
-//     POST   /api/v1/processes                — start a managed process
-//     GET    /api/v1/processes                — list active processes
-//     GET    /api/v1/processes/:id            — status + tail of stdout
-//     DELETE /api/v1/processes/:id            — stop a process
-//     GET    /api/v1/processes/:id/stream     — SSE log stream
+//	POST   /api/v1/processes             — spawn a managed process
+//	GET    /api/v1/processes             — list active processes
+//	GET    /api/v1/processes/:id         — status + last 4KB of stdout
+//	DELETE /api/v1/processes/:id         — stop (TERM, 5s, KILL)
+//	GET    /api/v1/processes/:id/stream  — SSE log stream (TODO)
 //
-// WHY THIS IS A MINIMAL FIRST CUT
-//   The handler bodies route to the existing AgentContext.BGTaskStore,
-//   reusing the nohup-based spawn and the kill -0 liveness probe. The
-//   stream endpoint is the same polling-over-LastOutput shape as
-//   handleExecStream, so it inherits the "streaming is effectively one
-//   chunk when the process finishes" caveat documented in exec_stream.go.
+// STREAM CAVEAT
 //
-//   The REAL fix (true stdout piping) needs a new SandboxProvider method
-//   that returns an io.ReadCloser per process and a registry that owns
-//   host-side goroutines copying that reader into TaskStreamer. That's a
-//   bigger change — it touches every provider (docker_light / docker /
-//   lxc) and the worker pool. Tracking as a follow-up below; until then
-//   the nohup+tail path is "good enough" for dev-server use cases where
-//   the user mostly wants "did it crash yet?" + "show me the last 4KB".
+// The stream endpoint currently returns 501. The underlying
+// BackgroundTask model buffers the full output to a log file and the
+// status helper tails the last 4KB, so true `tail -f` needs either:
+//   - an offset-aware tail helper that tracks per-client read positions
+//     against BackgroundTask.OutputBytes, or
+//   - a real stdout pipe via a new SandboxProvider.ExecStream method.
 //
-// FOLLOW-UP (real streaming)
-//   1. Add `ExecStream(cmd, env) (io.ReadCloser, *ProcessHandle, error)`
-//      to SandboxProvider.
-//   2. Implement it in docker_light via `docker exec -i` + cmd.StdoutPipe
-//      (do NOT use CombinedOutput — it blocks).
-//   3. Have this registry attach each ProcessHandle's reader to a
-//      TaskStreamer so /processes/:id/stream becomes a true tail -f.
-//   4. Bump main.go version again when the wire format stabilizes.
+// Until then, clients poll GET /processes/:id. The wire format of that
+// response is stable, so adding the stream later won't break consumers.
 package server
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent"
 	"github.com/gin-gonic/gin"
 )
 
-// processStartRequest is the body for POST /api/v1/processes. The fields
-// mirror the existing exec_background tool's args so the underlying spawn
-// path can be shared verbatim.
+// processStartRequest is the body for POST /api/v1/processes. Mirrors the
+// exec_background tool's args (sandboxID falls back to the session's).
 type processStartRequest struct {
-	SessionID string            `json:"session_id"`
-	SandboxID string            `json:"sandbox_id"`
-	Command   string            `json:"command"   binding:"required"`
-	Cwd       string            `json:"cwd"`
-	Env       map[string]string `json:"env"`
+	SessionID string `json:"session_id" binding:"required"`
+	SandboxID string `json:"sandbox_id"`
+	Command   string `json:"command"   binding:"required"`
 }
 
 // handleStartProcess spawns a managed long-lived process.
 //
-// This is a thin wrapper that delegates to the agent tool registration's
-// exec_background spawn path (so we don't duplicate the nohup / log-file /
-// PID-persistence dance). It looks up the AgentContext for the session,
-// invokes the same internal helper the tool uses, and returns the new
-// BackgroundTask ID.
+// Delegates to agent.SpawnBackground so the spawn path is shared with the
+// exec_background tool. The sandbox comes from the session when the
+// request omits sandbox_id (the common case — callers know the session,
+// not the sandbox).
 func (s *Server) handleStartProcess(c *gin.Context) {
 	var req processStartRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -85,16 +63,23 @@ func (s *Server) handleStartProcess(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "session not found"})
 		return
 	}
-	if agentCtx.SandboxID == "" && req.SandboxID == "" {
+
+	sbMgr := s.agentMgr.GetSandboxManager()
+	if sbMgr == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "sandbox manager unavailable"})
+		return
+	}
+
+	sandboxID := req.SandboxID
+	if sandboxID == "" {
+		sandboxID = agentCtx.SandboxID
+	}
+	if sandboxID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "no sandbox for session; start a sandbox first"})
 		return
 	}
 
-	// Delegate to the existing exec_background spawn. The helper sets up
-	// the nohup fork, allocates a bg_<ts> id, persists it to BGTaskStore,
-	// and returns the id + log path. See tools_exec.go registerExecBackground
-	// for the canonical path the tool itself uses.
-	taskID, logPath, err := s.spawnBackgroundTask(agentCtx, req.Command, req.Cwd, req.Env)
+	result, err := agent.SpawnBackground(sbMgr, agentCtx.BGTaskStore, req.SessionID, sandboxID, req.Command)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -103,124 +88,127 @@ func (s *Server) handleStartProcess(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"id":         taskID,
-			"log_path":   logPath,
-			"started_at": time.Now().UTC().Format(time.RFC3339),
-			// Explicit caveat so API consumers don't expect true streaming
-			// yet. See file header FOLLOW-UP section.
-			"streaming":  "polled",
-			"session_id": req.SessionID,
-			"sandbox_id": agentCtx.SandboxID,
+			"id":         result.Task.ID,
+			"pid":        result.Task.PID,
+			"log_path":   result.LogPath,
+			"session_id": result.Task.SessionID,
+			"sandbox_id": result.Task.SandboxID,
+			"command":    result.Task.Command,
+			"started_at": result.Task.StartedAt.UTC().Format(time.RFC3339),
+			// The response surfaces "polled" so clients know to poll until
+			// the SSE stream endpoint is implemented (see file header).
+			"streaming": "polled",
 		},
 	})
 }
 
-// handleListProcesses returns all running background tasks across every
-// session. The Web UI's "processes" panel calls this; the LLM-driven
-// workflow typically uses the per-id status endpoint instead.
+// processListEntry is one row in the GET /processes response. It is the
+// BackgroundTask shape plus a transient alive flag from the latest probe.
+type processListEntry struct {
+	ID         string    `json:"id"`
+	SessionID  string    `json:"session_id"`
+	SandboxID  string    `json:"sandbox_id"`
+	Command    string    `json:"command"`
+	PID        int       `json:"pid"`
+	Status     string    `json:"status"`
+	StartedAt  time.Time `json:"started_at"`
+	Alive      bool      `json:"alive"`
+	LastOutput string    `json:"last_output"`
+}
+
+// handleListProcesses returns every running background task across all
+// sessions, each annotated with a fresh liveness probe + log tail. This
+// is heavier than a pure store dump (one sandbox exec per task), so UI
+// clients should poll at multi-second cadences, not on every render.
 func (s *Server) handleListProcesses(c *gin.Context) {
-	tasks, err := s.listBackgroundTasks()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+	store := s.agentMgr.GetBGTaskStore()
+	if store == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": []processListEntry{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": tasks})
+
+	sbMgr := s.agentMgr.GetSandboxManager()
+	tasks := store.ListRunning()
+	out := make([]processListEntry, 0, len(tasks))
+	for _, t := range tasks {
+		entry := processListEntry{
+			ID: t.ID, SessionID: t.SessionID, SandboxID: t.SandboxID,
+			Command: t.Command, PID: t.PID, Status: t.Status,
+			StartedAt: t.StartedAt,
+		}
+		if sbMgr != nil {
+			if status, ok := agent.StatusBackground(sbMgr, store, t.ID); ok && status != nil {
+				entry.Alive = status.Alive
+				entry.LastOutput = status.LastOutput
+				entry.Status = status.Task.Status
+			}
+		}
+		out = append(out, entry)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": out})
 }
 
 // handleGetProcess returns status + the last 4KB of stdout for one task.
-// Same `tail -c 4096` shape the existing exec_background_status tool uses.
+// Resolves the task's owning session transparently, so callers only need
+// the task id (not the session id).
 func (s *Server) handleGetProcess(c *gin.Context) {
 	id := c.Param("id")
-	task, err := s.getBackgroundTask(id)
-	if err != nil {
+	store := s.agentMgr.GetBGTaskStore()
+	if store == nil {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "process not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": task})
+	sbMgr := s.agentMgr.GetSandboxManager()
+	status, ok := agent.StatusBackground(sbMgr, store, id)
+	if !ok || status == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "process not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"id":          status.Task.ID,
+			"session_id":  status.Task.SessionID,
+			"sandbox_id":  status.Task.SandboxID,
+			"command":     status.Task.Command,
+			"pid":         status.Task.PID,
+			"status":      status.Task.Status,
+			"alive":       status.Alive,
+			"started_at":  status.Task.StartedAt.UTC().Format(time.RFC3339),
+			"last_output": status.LastOutput,
+		},
+	})
 }
 
-// handleStopProcess stops a managed process. Mirrors exec_background_stop:
-// SIGTERM, wait 5s, SIGKILL if still alive (probed via kill -0).
+// handleStopProcess stops a managed process via the shared StopBackground
+// helper (TERM → 5s → KILL ladder). Idempotent.
 func (s *Server) handleStopProcess(c *gin.Context) {
 	id := c.Param("id")
-	if err := s.stopBackgroundTask(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+	store := s.agentMgr.GetBGTaskStore()
+	if store == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "process not found"})
+		return
+	}
+	sbMgr := s.agentMgr.GetSandboxManager()
+	ok, _ := agent.StopBackground(sbMgr, store, id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "process not found"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"id": id, "stopped": true}})
 }
 
-// handleProcessStream is an SSE endpoint over a process's stdout. Identical
-// wire format to handleExecStream (`event: output` / `event: done`), so the
-// same client code can consume both. Until the FOLLOW-UP in the file header
-// lands, this polls BackgroundTask.LastOutput at the same cadence — the
-// `streaming: "polled"` field in the start response tells consumers what
-// they're getting.
-//
-// We deliberately do NOT implement the polling loop inline here. The real
-// implementation belongs in a shared SSE tail helper (extracted from
-// exec_stream.go) so both endpoints stay in sync. For now this handler
-// returns 501 with a clear message — registering the route is enough to
-// let the Web UI detect support and fall back to GET /processes/:id polling.
+// handleProcessStream is an SSE endpoint over a process's stdout. See the
+// file-header STREAM CAVEAT for why this returns 501 — the polling
+// contract from GET /processes/:id is the supported path today.
 func (s *Server) handleProcessStream(c *gin.Context) {
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"success": false,
-		"error":   "process stream not yet implemented; poll GET /processes/:id instead (see processes.go FOLLOW-UP)",
+		"error":   "process stream not yet implemented; poll GET /processes/:id (see processes.go STREAM CAVEAT)",
 	})
 }
 
-// ---------------------------------------------------------------------------
-// spawnBackgroundTask / listBackgroundTasks / getBackgroundTask /
-// stopBackgroundTask delegate to the existing AgentContext.BGTaskStore.
-//
-// These are method-level seams so the HTTP handlers above stay readable.
-// They live on Server for symmetry with handleExecStream, which reaches
-// into agentMgr.GetSession too. The actual implementation is a thin shim
-// over tools_exec.go's existing helpers — wire them up when integrating,
-// the signatures match what those helpers already expose.
-// ---------------------------------------------------------------------------
-
-func (s *Server) spawnBackgroundTask(
-	agentCtx interface{}, // *agent.AgentContext, kept loose to avoid an import cycle here
-	command, cwd string, env map[string]string,
-) (taskID, logPath string, err error) {
-	// TODO(processes): delegate to the same internal helper that
-	// registerExecBackground uses (tools_exec.go). That helper already
-	// knows how to nohup-fork inside the sandbox, allocate bg_<ts>, and
-	// persist to BGTaskStore. Expose it as an unexported method on
-	// AgentContext (or a free function in the agent package) and call it
-	// here. Returning the placeholder error keeps the route registered
-	// and serializable until that wiring lands.
-	return "", "", errProcessSpawningNotWired
-}
-
-func (s *Server) listBackgroundTasks() (any, error) {
-	// TODO(processes): iterate s.agentMgr sessions, collect each
-	// AgentContext.BGTaskStore.ListRunning(). Until then return an empty
-	// list so callers see a stable shape.
-	return []any{}, nil
-}
-
-func (s *Server) getBackgroundTask(id string) (any, error) {
-	// TODO(processes): scan all sessions' BGTaskStore for the id and
-	// return the matching BackgroundTask (with tailed output). Returns
-	// errProcessNotFound to produce a 404 in the handler.
-	return nil, errProcessNotFound
-}
-
-func (s *Server) stopBackgroundTask(id string) error {
-	// TODO(processes): find the owning session, run the same kill -TERM /
-	// sleep 5 / kill -9 ladder as registerExecBackgroundStop.
-	return errProcessNotFound
-}
-
-// Sentinel errors. Declared as values (not errors.New callers) so the
-// handlers can compare with == when they need to pick a status code.
-var (
-	errProcessSpawningNotWired = errString("process spawning not yet wired to BGTaskStore (see processes.go)")
-	errProcessNotFound         = errString("process not found")
-)
-
-type errString string
-
-func (e errString) Error() string { return string(e) }
+// errProcessNotFound is kept for callers that want a sentinel to compare
+// against (none in this file today, but surfaced for future handlers).
+var errProcessNotFound = errors.New("process not found")

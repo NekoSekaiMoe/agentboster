@@ -45,7 +45,12 @@
 package server
 
 import (
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -217,19 +222,102 @@ func (s *Server) handleDeleteTunnel(c *gin.Context) {
 // handleTunnelProxy is the actual byte-for-byte TCP relay. It is the
 // handleVNCProxy skeleton with one substitution: the backend address is
 // (registry[slug].TargetHost, registry[slug].TargetPort) instead of the
-// hardcoded `<containerIP>:6080`.
+// hardcoded `<containerIP>:6080`. The Hijack + io.Copy body is identical
+// to vnc_proxy.go and inherits its single-connection-per-request shape;
+// FOLLOW-UP #2 in the file header tracks lifting that to a connection set.
 //
-// The Hijack + io.Copy body is identical and battle-tested — see
-// vnc_proxy.go. Reusing it verbatim means we inherit its single-connection
-// limitation; FOLLOW-UP #2 in the file header tracks lifting that.
-//
-// TODO(tunnels): port the actual Hijack body from vnc_proxy.go (it's a
-// straight copy with the backend address source swapped). Until then this
-// returns 501 so the route is registered and discoverable but cannot be
-// used to relay bytes — the create/list/delete endpoints above work.
+// Auth: currently NONE. Until the HMAC-signed-query helper from vnc_auth
+// is generalized to cover tunnel slugs (FOLLOW-UP #4), this route MUST
+// only be exposed on trusted networks — anyone who learns a slug can
+// reach the sandbox port. The /tunnels create response surfaces
+// `auth: "todo-hmac"` so consumers know the state.
 func (s *Server) handleTunnelProxy(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"success": false,
-		"error":   "tunnel byte relay not yet wired (see tunnels.go FOLLOW-UP); use the VNC proxy for the desktop case",
-	})
+	slug := c.Param("slug")
+	if slug == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "tunnel slug is required"})
+		return
+	}
+	t, ok := tunnels.get(slug)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "tunnel not found"})
+		return
+	}
+
+	sbMgr := s.agentMgr.GetSandboxManager()
+	if sbMgr == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "sandbox manager unavailable"})
+		return
+	}
+
+	// Re-resolve the container IP on every connect. Sandboxes can move IPs
+	// across restarts, and the cached value on the tunnel record is only a
+	// hint from create-time.
+	host, err := sbMgr.ContainerIP(t.SandboxID)
+	if err != nil || host == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("cannot resolve sandbox IP: %v", err),
+		})
+		return
+	}
+
+	backend := net.JoinHostPort(host, strconv.Itoa(t.TargetPort))
+	backendConn, err := net.DialTimeout("tcp", backend, 5*time.Second)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"success": false,
+			"error":   fmt.Sprintf("cannot connect to tunnel backend %s: %v", backend, err),
+		})
+		return
+	}
+	defer backendConn.Close()
+
+	// Hijack the HTTP connection so we can shovel raw bytes (incl. for
+	// WebSocket upgrade requests, which is how browser-based noVNC / Vite
+	// HMR clients reach the sandbox through this proxy).
+	hijacker, ok := c.Writer.(http.Hijacker)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "server does not support connection hijacking"})
+		return
+	}
+	clientConn, clientBuf, err := hijacker.Hijack()
+	if err != nil {
+		slog.Error("tunnel_proxy: hijack failed", "slug", slug, "error", err)
+		return
+	}
+	defer clientConn.Close()
+
+	// Replay the original HTTP request line + headers to the backend so
+	// protocol-level handshakes (WebSocket, plain HTTP) complete against
+	// the real service, not against agentd.
+	if err := c.Request.Write(backendConn); err != nil {
+		slog.Error("tunnel_proxy: forward request failed", "slug", slug, "error", err)
+		return
+	}
+	// Flush any bytes the client already buffered before the hijack —
+	// common for WebSocket clients that send the upgrade AND a ping in
+	// the same packet.
+	if clientBuf.Reader.Buffered() > 0 {
+		buffered := make([]byte, clientBuf.Reader.Buffered())
+		if _, err := clientBuf.Read(buffered); err == nil {
+			backendConn.Write(buffered)
+		}
+	}
+
+	slog.Info("tunnel_proxy: relay established",
+		"slug", slug, "sandbox_id", t.SandboxID, "backend", backend)
+
+	// Bidirectional copy. Wait for EITHER direction to finish (not both)
+	// — same semantics as vnc_proxy.go: once one side half-closes we tear
+	// the tunnel down.
+	done := make(chan struct{}, 2)
+	go func() {
+		io.Copy(clientConn, backendConn)
+		done <- struct{}{}
+	}()
+	go func() {
+		io.Copy(backendConn, clientConn)
+		done <- struct{}{}
+	}()
+	<-done
 }
