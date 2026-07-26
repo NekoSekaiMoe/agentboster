@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -53,6 +54,31 @@ func APIKeyMiddleware(expectedKey string) gin.HandlerFunc {
 			if validateSignedVNCQuery(
 				expectedKey,
 				c.Query("session_id"),
+				c.Query("exp"),
+				c.Query("sig"),
+				time.Now(),
+			) {
+				c.Next()
+				return
+			}
+		}
+		// Public tunnels (/api/v1/t/<slug>/...): same HMAC-signed-query
+		// pattern as VNC, scope-tagged differently so a VNC signature can't
+		// be replayed against a tunnel route (and vice versa). See
+		// tunnel_auth.go. The slug lives at path position 4 (/api/v1/t/<slug>/...).
+		if key == "" && strings.HasPrefix(c.Request.URL.Path, "/api/v1/t/") {
+			// Extract slug from path. gin populates the param later; the
+			// middleware runs before the route handler, so we parse manually.
+			// Path shape is exactly "/api/v1/t/<slug>/...", so trimming the
+			// "/api/v1/t/" prefix and cutting at the next "/" gives the slug.
+			trimmed := strings.TrimPrefix(c.Request.URL.Path, "/api/v1/t/")
+			slug := trimmed
+			if idx := strings.Index(trimmed, "/"); idx >= 0 {
+				slug = trimmed[:idx]
+			}
+			if slug != "" && validateSignedTunnelQuery(
+				expectedKey,
+				slug,
 				c.Query("exp"),
 				c.Query("sig"),
 				time.Now(),

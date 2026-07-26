@@ -185,6 +185,15 @@ func (s *Server) handleCreateTunnel(c *gin.Context) {
 	}
 	tunnels.add(t)
 
+	// Mint an HMAC-signed URL so browser clients can reach the tunnel
+	// without an X-API-Key header. The middleware validates ?exp / ?sig
+	// against the same clawless_api_key that gates the rest of the API.
+	// Anyone with the API key can mint URLs; anyone without it can't,
+	// even if they learn the slug. See tunnel_auth.go for the trust model.
+	secret := s.cfg.Server.ClawLessAPIKey
+	expires := time.Now().Add(tunnelDefaultTTL).Unix()
+	sig := signTunnelQuery(secret, t.Slug, expires)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
@@ -192,14 +201,15 @@ func (s *Server) handleCreateTunnel(c *gin.Context) {
 			"slug":        t.Slug,
 			"target_host": t.TargetHost,
 			"target_port": t.TargetPort,
-			// URL is the public-facing path. Clients append an HMAC query
-			// per vnc_auth.go (signature covers slug + expiry). Until the
-			// auth helper exists, tunnels are reachable but unauthenticated
-			// — DO NOT enable this route on untrusted networks yet.
-			"url":        "/api/v1/t/" + t.Slug + "/",
+			// Ready-to-use URL: clients append their own path after `/t/<slug>/`.
+			// The signature is bound to (slug, exp) so it's safe to put in a
+			// shareable link — changing either query param invalidates the sig.
+			"url":        fmt.Sprintf("/api/v1/t/%s/?exp=%d&sig=%s", t.Slug, expires, sig),
+			"expires_at": time.Unix(expires, 0).UTC().Format(time.RFC3339),
 			"created_at": t.CreatedAt.Format(time.RFC3339),
-			// See file header FOLLOW-UP #2.
-			"auth":       "todo-hmac",
+			// Surface the auth scheme so consumers know the gap documented in
+			// the previous stub ("todo-hmac") is now closed.
+			"auth": "hmac-sha256-signed-query",
 		},
 	})
 }
@@ -237,6 +247,24 @@ func (s *Server) handleTunnelProxy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "tunnel slug is required"})
 		return
 	}
+
+	// Validate the HMAC-signed query BEFORE consulting the registry. We
+	// do this first so an unknown slug can't be probed via timing — the
+	// signature check is constant-time and secret-bound, the registry
+	// lookup is neither. The middleware has already let us through based
+	// on the same signature, but re-checking here defends in depth against
+	// a future route-table change that widens middleware bypass.
+	if !validateSignedTunnelQuery(
+		s.cfg.Server.ClawLessAPIKey,
+		slug,
+		c.Query("exp"),
+		c.Query("sig"),
+		time.Now(),
+	) {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "error": "invalid or expired tunnel signature"})
+		return
+	}
+
 	t, ok := tunnels.get(slug)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "tunnel not found"})
