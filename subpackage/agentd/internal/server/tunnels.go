@@ -52,71 +52,190 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/persistence"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-// tunnelRecord is the in-memory state for one public→sandbox tunnel.
+// tunnelRecord is the runtime companion to persistence.TunnelRecord: it
+// carries the live connection-set + activity state that we deliberately
+// do NOT persist (open conns die with the process; only the slug→backend
+// mapping survives restart). One tunnelRecord per slug.
 type tunnelRecord struct {
-	ID         string    `json:"id"`
-	Slug       string    `json:"slug"`
-	SessionID  string    `json:"session_id"`
-	SandboxID  string    `json:"sandbox_id"`
-	TargetPort int       `json:"target_port"`
-	CreatedAt  time.Time `json:"created_at"`
-	// TargetHost is the sandbox-internal IP (resolved via sbMgr.ContainerIP).
-	// Resolved lazily on each connect so IP changes after a sandbox restart
-	// don't invalidate the tunnel.
-	TargetHost string `json:"target_host"`
+	// spec is the persisted snapshot (slug, sandbox, port). Read-only after
+	// load — callers mutate runtime fields below, never spec.
+	spec *persistence.TunnelRecord
+
+	// activeConns counts live TCP relays. The idle reaper treats >0 as
+	// "recently used" so an in-flight tunnel is never reaped mid-stream.
+	activeConns atomic.Int64
+
+	// lastActivity is the wall-clock time of the last connect / byte
+	// observed. Reaper uses this to decide idle eviction. Guarded by mu.
+	lastActivity time.Time
 }
 
-// tunnelRegistry holds all active tunnels. Methods are goroutine-safe.
-// In-memory only for now — see FOLLOW-UP #1 in the file header.
+// tunnelRegistry holds all active tunnels. Backed by persistence.TunnelStore
+// for cross-restart durability; the in-memory map caches the live runtime
+// state (connection counts, activity timestamps) that the store doesn't keep.
+// Methods are goroutine-safe.
 type tunnelRegistry struct {
-	mu      sync.RWMutex
-	bySlug  map[string]*tunnelRecord
-	byID    map[string]*tunnelRecord
+	mu     sync.RWMutex
+	bySlug map[string]*tunnelRecord
+
+	store *persistence.TunnelStore
+
+	// reaperOnce ensures only one idle-reaper goroutine runs, started lazily
+	// on the first add(). Mirrors desktop.go's idleReaperOnce pattern.
+	reaperOnce sync.Once
 }
 
 var tunnels = &tunnelRegistry{
 	bySlug: make(map[string]*tunnelRecord),
-	byID:   make(map[string]*tunnelRecord),
 }
 
-func (r *tunnelRegistry) add(t *tunnelRecord) {
+// InitTunnelStore wires the on-disk backing store and restores any
+// previously-persisted tunnels. Called once from main.go during startup.
+// Safe to call with a nil store (in-memory-only mode) — tests use that.
+func InitTunnelStore(store *persistence.TunnelStore) {
+	tunnels.store = store
+	if store == nil {
+		return
+	}
+	for _, spec := range store.ListAll() {
+		// Re-hydrate the in-memory cache. activeConns starts at 0 (no live
+		// conns after a restart) and lastActivity is the persisted value,
+		// so the reaper can immediately evict a tunnel nobody reconnected to.
+		tunnels.bySlug[spec.Slug] = &tunnelRecord{
+			spec:         spec,
+			lastActivity: spec.LastActivity,
+		}
+	}
+}
+
+// tunnelIdleTimeout is how long a tunnel with zero active connections can
+// go unused before the reaper evicts it. Long enough that a developer
+// sharing a link over chat doesn't race the reaper; short enough that
+// abandoned tunnels don't accumulate forever.
+const tunnelIdleTimeout = 30 * time.Minute
+
+// tunnelReaperInterval is how often the background reaper sweeps the
+// registry. Kept coarse — reaping is best-effort cleanup, not real-time.
+const tunnelReaperInterval = 5 * time.Minute
+
+func (r *tunnelRegistry) startReaper() {
+	r.reaperOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(tunnelReaperInterval)
+			defer ticker.Stop()
+			for range ticker.C {
+				r.reapIdle(time.Now())
+			}
+		}()
+	})
+}
+
+// reapIdle removes tunnels that haven't seen activity in tunnelIdleTimeout
+// AND have no live connections. Called periodically by startReaper. Exposed
+// (lowercase) so tests can drive it deterministically instead of waiting
+// on the ticker.
+func (r *tunnelRegistry) reapIdle(now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.bySlug[t.Slug] = t
-	r.byID[t.ID] = t
+	for slug, t := range r.bySlug {
+		if t.activeConns.Load() > 0 {
+			continue
+		}
+		if now.Sub(t.lastActivity) < tunnelIdleTimeout {
+			continue
+		}
+		delete(r.bySlug, slug)
+		if r.store != nil {
+			if err := r.store.Remove(slug); err != nil {
+				slog.Warn("tunnel: reaper store-remove failed",
+					"slug", slug, "error", err)
+			}
+		}
+		slog.Info("tunnel: reaped idle", "slug", slug)
+	}
 }
 
+func (r *tunnelRegistry) add(spec *persistence.TunnelRecord) {
+	r.mu.Lock()
+	r.bySlug[spec.Slug] = &tunnelRecord{
+		spec:         spec,
+		lastActivity: spec.CreatedAt,
+	}
+	r.mu.Unlock()
+	r.startReaper()
+}
+
+// get returns the runtime record for a slug AND marks it active (bumps
+// lastActivity). Callers MUST pair a successful get with release() when
+// the connection ends, so activeConns stays accurate.
 func (r *tunnelRegistry) get(slug string) (*tunnelRecord, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	t, ok := r.bySlug[slug]
-	return t, ok
-}
-
-func (r *tunnelRegistry) remove(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	t, ok := r.byID[id]
+	t, ok := r.bySlug[slug]
 	if !ok {
+		return nil, false
+	}
+	t.activeConns.Add(1)
+	t.lastActivity = time.Now()
+	return t, true
+}
+
+// release decrements the active-connection counter. Safe to call without
+// a prior get (counter would go negative; we clamp at 0).
+func (r *tunnelRegistry) release(slug string) {
+	r.mu.RLock()
+	t, ok := r.bySlug[slug]
+	r.mu.RUnlock()
+	if !ok {
+		return
+	}
+	for {
+		cur := t.activeConns.Load()
+		if cur <= 0 {
+			return
+		}
+		if t.activeConns.CompareAndSwap(cur, cur-1) {
+			return
+		}
+	}
+}
+
+// removeByID deletes a tunnel by its REST id. Returns false when the id
+// isn't registered. Used by DELETE /tunnels/:id.
+func (r *tunnelRegistry) removeByID(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var slug string
+	for s, t := range r.bySlug {
+		if t.spec.ID == id {
+			slug = s
+			break
+		}
+	}
+	if slug == "" {
 		return false
 	}
-	delete(r.byID, id)
-	delete(r.bySlug, t.Slug)
+	delete(r.bySlug, slug)
+	if r.store != nil {
+		_ = r.store.Remove(slug)
+	}
 	return true
 }
 
-func (r *tunnelRegistry) list() []*tunnelRecord {
+func (r *tunnelRegistry) list() []*persistence.TunnelRecord {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]*tunnelRecord, 0, len(r.byID))
-	for _, t := range r.byID {
-		out = append(out, t)
+	out := make([]*persistence.TunnelRecord, 0, len(r.bySlug))
+	for _, t := range r.bySlug {
+		out = append(out, t.spec)
 	}
 	return out
 }
@@ -174,16 +293,29 @@ func (s *Server) handleCreateTunnel(c *gin.Context) {
 	}
 
 	slug := uuid.NewString()[:8]
-	t := &tunnelRecord{
-		ID:         uuid.NewString(),
-		Slug:       slug,
-		SessionID:  req.SessionID,
-		SandboxID:  sandboxID,
-		TargetPort: req.TargetPort,
-		TargetHost: host,
-		CreatedAt:  time.Now().UTC(),
+	now := time.Now().UTC()
+	spec := &persistence.TunnelRecord{
+		ID:           uuid.NewString(),
+		Slug:         slug,
+		SessionID:    req.SessionID,
+		SandboxID:    sandboxID,
+		TargetPort:   req.TargetPort,
+		TargetHost:   host,
+		CreatedAt:    now,
+		LastActivity: now,
 	}
-	tunnels.add(t)
+	// Persist first so a crash between persist and registry-add doesn't
+	// leave a URL that works in-memory but is unrecoverable after restart.
+	// If the store is nil (in-memory mode) this is a no-op.
+	if tunnels.store != nil {
+		if err := tunnels.store.Save(spec); err != nil {
+			slog.Warn("tunnel: persist failed", "slug", slug, "error", err)
+			// Continue — the in-memory registry still serves the URL until
+			// the daemon restarts. Persistence is best-effort for UX, not
+			// a correctness gate.
+		}
+	}
+	tunnels.add(spec)
 
 	// Mint an HMAC-signed URL so browser clients can reach the tunnel
 	// without an X-API-Key header. The middleware validates ?exp / ?sig
@@ -192,21 +324,21 @@ func (s *Server) handleCreateTunnel(c *gin.Context) {
 	// even if they learn the slug. See tunnel_auth.go for the trust model.
 	secret := s.cfg.Server.ClawLessAPIKey
 	expires := time.Now().Add(tunnelDefaultTTL).Unix()
-	sig := signTunnelQuery(secret, t.Slug, expires)
+	sig := signTunnelQuery(secret, spec.Slug, expires)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"id":          t.ID,
-			"slug":        t.Slug,
-			"target_host": t.TargetHost,
-			"target_port": t.TargetPort,
+			"id":          spec.ID,
+			"slug":        spec.Slug,
+			"target_host": spec.TargetHost,
+			"target_port": spec.TargetPort,
 			// Ready-to-use URL: clients append their own path after `/t/<slug>/`.
 			// The signature is bound to (slug, exp) so it's safe to put in a
 			// shareable link — changing either query param invalidates the sig.
-			"url":        fmt.Sprintf("/api/v1/t/%s/?exp=%d&sig=%s", t.Slug, expires, sig),
+			"url":        fmt.Sprintf("/api/v1/t/%s/?exp=%d&sig=%s", spec.Slug, expires, sig),
 			"expires_at": time.Unix(expires, 0).UTC().Format(time.RFC3339),
-			"created_at": t.CreatedAt.Format(time.RFC3339),
+			"created_at": spec.CreatedAt.Format(time.RFC3339),
 			// Surface the auth scheme so consumers know the gap documented in
 			// the previous stub ("todo-hmac") is now closed.
 			"auth": "hmac-sha256-signed-query",
@@ -225,22 +357,23 @@ func (s *Server) handleListTunnels(c *gin.Context) {
 // exist" holds either way).
 func (s *Server) handleDeleteTunnel(c *gin.Context) {
 	id := c.Param("id")
-	tunnels.remove(id)
+	tunnels.removeByID(id)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"id": id, "removed": true}})
 }
 
 // handleTunnelProxy is the actual byte-for-byte TCP relay. It is the
 // handleVNCProxy skeleton with one substitution: the backend address is
-// (registry[slug].TargetHost, registry[slug].TargetPort) instead of the
-// hardcoded `<containerIP>:6080`. The Hijack + io.Copy body is identical
-// to vnc_proxy.go and inherits its single-connection-per-request shape;
-// FOLLOW-UP #2 in the file header tracks lifting that to a connection set.
+// (registry[slug].spec.TargetHost, TargetPort) instead of the hardcoded
+// `<containerIP>:6080`. The Hijack + io.Copy body is identical to
+// vnc_proxy.go.
 //
-// Auth: currently NONE. Until the HMAC-signed-query helper from vnc_auth
-// is generalized to cover tunnel slugs (FOLLOW-UP #4), this route MUST
-// only be exposed on trusted networks — anyone who learns a slug can
-// reach the sandbox port. The /tunnels create response surfaces
-// `auth: "todo-hmac"` so consumers know the state.
+// Multiple concurrent connections per slug are supported: each connect
+// increments the tunnel's active-conns counter and spawns its own pair
+// of io.Copy goroutines. The counter feeds the idle reaper so an active
+// tunnel is never evicted mid-stream.
+//
+// Auth: HMAC-signed query (tunnel_auth.go), enforced both in middleware
+// AND re-checked here for defense in depth.
 func (s *Server) handleTunnelProxy(c *gin.Context) {
 	slug := c.Param("slug")
 	if slug == "" {
@@ -270,6 +403,11 @@ func (s *Server) handleTunnelProxy(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "tunnel not found"})
 		return
 	}
+	// tunnels.get bumped the active-conns counter; release it on exit so
+	// the reaper's idle check reflects reality. Using defer guarantees
+	// release even if any of the early returns below fire (Hijack failure,
+	// backend dial failure, etc.).
+	defer tunnels.release(slug)
 
 	sbMgr := s.agentMgr.GetSandboxManager()
 	if sbMgr == nil {
@@ -280,7 +418,7 @@ func (s *Server) handleTunnelProxy(c *gin.Context) {
 	// Re-resolve the container IP on every connect. Sandboxes can move IPs
 	// across restarts, and the cached value on the tunnel record is only a
 	// hint from create-time.
-	host, err := sbMgr.ContainerIP(t.SandboxID)
+	host, err := sbMgr.ContainerIP(t.spec.SandboxID)
 	if err != nil || host == "" {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"success": false,
@@ -289,7 +427,7 @@ func (s *Server) handleTunnelProxy(c *gin.Context) {
 		return
 	}
 
-	backend := net.JoinHostPort(host, strconv.Itoa(t.TargetPort))
+	backend := net.JoinHostPort(host, strconv.Itoa(t.spec.TargetPort))
 	backendConn, err := net.DialTimeout("tcp", backend, 5*time.Second)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{
@@ -333,11 +471,13 @@ func (s *Server) handleTunnelProxy(c *gin.Context) {
 	}
 
 	slog.Info("tunnel_proxy: relay established",
-		"slug", slug, "sandbox_id", t.SandboxID, "backend", backend)
+		"slug", slug, "sandbox_id", t.spec.SandboxID, "backend", backend,
+		"active_conns", t.activeConns.Load())
 
 	// Bidirectional copy. Wait for EITHER direction to finish (not both)
 	// — same semantics as vnc_proxy.go: once one side half-closes we tear
-	// the tunnel down.
+	// this connection down. Other concurrent connections on the same slug
+	// keep running independently; each one has its own io.Copy pair.
 	done := make(chan struct{}, 2)
 	go func() {
 		io.Copy(clientConn, backendConn)

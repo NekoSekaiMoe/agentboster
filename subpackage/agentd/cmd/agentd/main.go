@@ -320,6 +320,19 @@ func main() {
 	}
 	agentMgr.SetBGTaskStore(bgTaskStore)
 
+	// Tunnel store: persists the slug→(sandbox,port) mapping so public
+	// preview URLs survive daemon restarts. Restored here so the in-memory
+	// registry is warm before the HTTP server accepts traffic. See
+	// server.InitTunnelStore + persistence.TunnelStore.
+	tunnelStore, err := persistence.NewTunnelStore(persistence.TunnelPath(basePath))
+	if err != nil {
+		slog.Warn("tunnel store init failed", "error", err)
+	} else if err := tunnelStore.Restore(); err != nil {
+		slog.Warn("tunnel store restore failed", "error", err)
+	} else {
+		server.InitTunnelStore(tunnelStore)
+	}
+
 	cacheMgr := cache.NewManager(cfg.Cache.Path, cfg.Cache.SessionMaxSize)
 	cacheMgr.SetClawlessClient(clawlessClient)
 	if err := cacheMgr.Init(); err != nil {
