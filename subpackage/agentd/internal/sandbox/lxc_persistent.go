@@ -200,6 +200,41 @@ func (p *LXCPersistentProvider) Exec(sandboxID, cmd string, env map[string]strin
 	return result, nil
 }
 
+// ExecStream is the streaming variant of Exec — see SandboxProvider.
+// Same `lxc-attach` arg shape as Exec, but with StdoutPipe + cancelable
+// context. LXC's lxc-attach is the equivalent of `docker exec` and
+// supports the same pipe semantics.
+func (p *LXCPersistentProvider) ExecStream(sandboxID, cmd string, env map[string]string) (*ExecStreamHandle, error) {
+	p.mu.RLock()
+	sb, ok := p.sandboxes[sandboxID]
+	p.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("sandbox %q not found", sandboxID)
+	}
+
+	lxcArgs := []string{"-n", sb.Path, "-P", p.rootfsBase}
+	for k, v := range env {
+		lxcArgs = append(lxcArgs, "-s", k+"="+v)
+	}
+	lxcArgs = append(lxcArgs, "--", "sh", "-c", cmd)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	execCmd := exec.CommandContext(ctx, "lxc-attach", lxcArgs...)
+
+	stdout, err := execCmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	execCmd.Stderr = execCmd.Stdout
+
+	if err := execCmd.Start(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("start: %w", err)
+	}
+	return withStreamCancel(stdout, execCmd, cancel), nil
+}
+
 // Restart re-launches a stopped LXC persistent container without
 // recreating its rootfs. Used by the HealthChecker when it observes a
 // persistent container has been stopped (host crash, OOM, manual

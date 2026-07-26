@@ -17,23 +17,23 @@
 //
 // STREAM CAVEAT
 //
-// The stream endpoint currently returns 501. The underlying
-// BackgroundTask model buffers the full output to a log file and the
-// status helper tails the last 4KB, so true `tail -f` needs either:
-//   - an offset-aware tail helper that tracks per-client read positions
-//     against BackgroundTask.OutputBytes, or
-//   - a real stdout pipe via a new SandboxProvider.ExecStream method.
-//
-// Until then, clients poll GET /processes/:id. The wire format of that
-// response is stable, so adding the stream later won't break consumers.
+// The stream endpoint uses SandboxProvider.ExecStream (stream.go) to run
+// `tail -F` on the process log file. The stream is real-time, not
+// polled. Older minimal providers that return errExecStreamUnsupported
+// fall back to a 2s polling loop over StatusBackground — same wire
+// format, so clients don't need to detect which path served them.
 package server
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 	"github.com/gin-gonic/gin"
 )
 
@@ -199,14 +199,157 @@ func (s *Server) handleStopProcess(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"id": id, "stopped": true}})
 }
 
-// handleProcessStream is an SSE endpoint over a process's stdout. See the
-// file-header STREAM CAVEAT for why this returns 501 — the polling
-// contract from GET /processes/:id is the supported path today.
+// handleProcessStream is an SSE endpoint over a process's stdout. Uses
+// the new SandboxProvider.ExecStream (stream.go) to tail the process's
+// log file in real time — no polling. The relay ends when the client
+// disconnects, the underlying `tail -F` exits (e.g. log file is
+// rotated away), or the sandbox manager rejects the request.
+//
+// If the provider returns IsExecStreamUnsupported, we fall back to a
+// 15s polling loop over StatusBackground so older / minimal providers
+// still get a useful (if chunkier) stream.
 func (s *Server) handleProcessStream(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"success": false,
-		"error":   "process stream not yet implemented; poll GET /processes/:id (see processes.go STREAM CAVEAT)",
-	})
+	id := c.Param("id")
+	store := s.agentMgr.GetBGTaskStore()
+	if store == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "process not found"})
+		return
+	}
+	task, ok := store.Load(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "process not found"})
+		return
+	}
+
+	sbMgr := s.agentMgr.GetSandboxManager()
+	if sbMgr == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "sandbox manager unavailable"})
+		return
+	}
+
+	// SSE headers, matching handleExecStream.
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no") // nginx: don't buffer
+
+	// Bound the whole stream so a forgotten client tab doesn't keep the
+	// tail running forever. 15 minutes matches handleExecStream's ceiling.
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Minute)
+	defer cancel()
+
+	// Heartbeat so intermediate proxies don't kill the idle connection.
+	// `: heartbeat` is an SSE comment — clients ignore it, but the bytes
+	// keep the TCP connection from looking dead.
+	go func() {
+		t := time.NewTicker(15 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				_, _ = c.Writer.Write([]byte(": heartbeat\n\n"))
+				c.Writer.Flush()
+			}
+		}
+	}()
+
+	// `tail -F` (capital F) follows the file by name and re-opens it if
+	// it's rotated — robust against the log file being moved/truncated.
+	// We also print the last 100 lines up front so a fresh SSE consumer
+	// sees context, not just bytes from now on.
+	tailCmd := fmt.Sprintf("tail -n 100 -F %q 2>/dev/null", task.LogPath)
+	handle, err := sbMgr.ExecStream(task.SandboxID, tailCmd, nil)
+	if err != nil {
+		if sandbox.IsExecStreamUnsupported(err) {
+			s.streamProcessByPolling(c, ctx, store, id)
+			return
+		}
+		writeSSEError(c, fmt.Sprintf("stream open failed: %v", err))
+		return
+	}
+	defer handle.Close()
+
+	// Pump bytes from the pipe into SSE `event: output` frames. 4KB is a
+	// sane chunk — large enough not to frame every byte separately, small
+	// enough that interactive output feels live.
+	buf := make([]byte, 4096)
+	flusher, _ := c.Writer.(http.Flusher)
+	for {
+		n, readErr := handle.Stdout.Read(buf)
+		if n > 0 {
+			encoded := encodeSSEData(buf[:n])
+			_, _ = fmt.Fprintf(c.Writer, "event: output\ndata: %s\n\n", encoded)
+			if flusher != nil {
+				flusher.Flush()
+			} else {
+				c.Writer.Flush()
+			}
+		}
+		if readErr != nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break
+		default:
+		}
+	}
+
+	_, _ = c.Writer.Write([]byte("event: done\ndata: {\"type\":\"done\"}\n\n"))
+	c.Writer.Flush()
+}
+
+// streamProcessByPolling is the fallback when the provider doesn't
+// implement ExecStream (none of the built-ins today, but reserved).
+// Same SSE wire format as the streaming path — clients don't need to
+// know which path served them.
+func (s *Server) streamProcessByPolling(
+	c *gin.Context,
+	ctx context.Context,
+	store *agent.BackgroundTaskStoreAlias,
+	id string,
+) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	var lastOutput string
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sbMgr := s.agentMgr.GetSandboxManager()
+			status, ok := agent.StatusBackground(sbMgr, store, id)
+			if !ok || status == nil {
+				_, _ = c.Writer.Write([]byte("event: done\ndata: {\"type\":\"gone\"}\n\n"))
+				c.Writer.Flush()
+				return
+			}
+			if status.LastOutput != lastOutput {
+				lastOutput = status.LastOutput
+				encoded := encodeSSEData([]byte(lastOutput))
+				_, _ = fmt.Fprintf(c.Writer, "event: output\ndata: %s\n\n", encoded)
+				c.Writer.Flush()
+			}
+			if status.Task.Status != "running" {
+				_, _ = c.Writer.Write([]byte("event: done\ndata: {\"type\":\"done\"}\n\n"))
+				c.Writer.Flush()
+				return
+			}
+		}
+	}
+}
+
+// encodeSSEData wraps a byte slice as a single SSE data line. SSE spec
+// requires newlines in the data to be encoded as separate `data:` lines;
+// since tail output contains raw newlines, we split on them and emit one
+// data line each. The frame is still terminated by a blank line.
+func encodeSSEData(b []byte) string {
+	// Trim a single trailing newline so we don't emit an empty final line.
+	text := strings.TrimSuffix(string(b), "\n")
+	lines := strings.Split(text, "\n")
+	return strings.Join(lines, "\ndata: ")
 }
 
 // errProcessNotFound is kept for callers that want a sentinel to compare

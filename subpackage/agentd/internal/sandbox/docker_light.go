@@ -227,6 +227,48 @@ func (p *DockerLightProvider) Exec(sandboxID, cmd string, env map[string]string,
 	return result, nil
 }
 
+// ExecStream is the streaming variant of Exec — see SandboxProvider.
+// Used by the /processes/:id/stream SSE endpoint to `tail -f` a managed
+// process's output without burning a goroutine on polling.
+//
+// Implementation: same `docker exec` arg shape as Exec, but using
+// exec.Cmd.StdoutPipe + a cancelable context instead of CombinedOutput.
+// The caller owns the lifetime — closing the returned handle cancels the
+// docker exec child and reaps it. No timeout, on purpose.
+func (p *DockerLightProvider) ExecStream(sandboxID, cmd string, env map[string]string) (*ExecStreamHandle, error) {
+	p.mu.RLock()
+	sb, ok := p.sandboxes[sandboxID]
+	p.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("sandbox %q not found", sandboxID)
+	}
+
+	dockerArgs := []string{"exec", "-w", "/workspace"}
+	for k, v := range env {
+		dockerArgs = append(dockerArgs, "-e", k+"="+v)
+	}
+	dockerArgs = append(dockerArgs, sb.Path, "sh", "-c", cmd)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	execCmd := dockerCommandContext(ctx, p.socket, dockerArgs...)
+
+	stdout, err := execCmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	// stderr is folded into stdout so the caller sees the same merged
+	// stream CombinedOutput would have produced. Without this, error
+	// output from the child would be dropped on the floor.
+	execCmd.Stderr = execCmd.Stdout
+
+	if err := execCmd.Start(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("start: %w", err)
+	}
+	return withStreamCancel(stdout, execCmd, cancel), nil
+}
+
 // Destroy stops and removes the Docker container.
 func (p *DockerLightProvider) Destroy(sandboxID string) error {
 	p.mu.Lock()

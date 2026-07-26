@@ -229,6 +229,41 @@ func (p *DockerProvider) Exec(sandboxID, cmd string, env map[string]string, time
 	return result, nil
 }
 
+// ExecStream is the streaming variant of Exec — see SandboxProvider.
+// Same arg shape as DockerProvider.Exec, but with StdoutPipe + cancelable
+// context. Mirrors DockerLightProvider.ExecStream — both docker variants
+// share the `docker exec` CLI surface.
+func (p *DockerProvider) ExecStream(sandboxID, cmd string, env map[string]string) (*ExecStreamHandle, error) {
+	p.mu.RLock()
+	sb, ok := p.sandboxes[sandboxID]
+	p.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("sandbox %q not found", sandboxID)
+	}
+
+	dockerArgs := []string{"exec"}
+	for k, v := range env {
+		dockerArgs = append(dockerArgs, "-e", k+"="+v)
+	}
+	dockerArgs = append(dockerArgs, sb.Path, "bash", "-c", cmd)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	execCmd := dockerCommandContext(ctx, p.socket, dockerArgs...)
+
+	stdout, err := execCmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	execCmd.Stderr = execCmd.Stdout
+
+	if err := execCmd.Start(); err != nil {
+		cancel()
+		return nil, fmt.Errorf("start: %w", err)
+	}
+	return withStreamCancel(stdout, execCmd, cancel), nil
+}
+
 // Destroy stops and removes the Docker container.
 func (p *DockerProvider) Destroy(sandboxID string) error {
 	p.mu.Lock()
