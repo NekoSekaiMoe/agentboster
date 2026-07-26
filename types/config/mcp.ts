@@ -124,10 +124,19 @@ export type BuiltinMcpServersConfig = z.infer<
 export const desktopMcpAllowEntrySchema = z.object({
   enabled: z.boolean().default(true),
   /**
-   * Optional pinned command hash (sha256 of argv joined by spaces). When
-   * set, a desktop reporting the same name but a different command is
-   * rejected at tool-registration time. Empty = trust any command under
-   * this name (less safe, but convenient).
+   * Optional pinned command string (the argv joined by single spaces, e.g.
+   * `"npx -y @mcp/server-fs /home"`). When set, a desktop reporting the
+   * same name but a different command is rejected at tool-registration
+   * time. Empty = trust any command under this name (less safe, but
+   * convenient).
+   *
+   * NOTE: despite the field name, this is a plain string equality check
+   * against `command.join(' ')`, NOT a crypto hash — see
+   * `lib/workflow/agent/tools/execute/desktop-mcp.ts` resolveAllowedDesktopServers.
+   * Admins set the pin by copying the joined command shown in the
+   * desktop report; eyeball-able equality is the goal, so there is no
+   * hashing security benefit (and a real hash would just make configs
+   * harder to read/debug).
    */
   commandHash: z.string().optional(),
 });
