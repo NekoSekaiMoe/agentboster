@@ -540,12 +540,21 @@ export async function saveSessionPersonaAction(input: {
   // written by several paths (contextUsage, latestApproval, AGENTS.md
   // persistence); a full-column `set({ metadata })` here would race and
   // silently clobber one of those writes (TOCTOU).
-  await updateSessionMetadataKey(
+  const updated = await updateSessionMetadataKey(
     sessionId,
     access.isAdmin ? null : access.session.userId,
     'agent',
     agent,
   );
+
+  // updateSessionMetadataKey returns null on not-found / owner mismatch.
+  // We already checked the session exists and the caller can access it, so
+  // a null here means the owner check inside the atomic UPDATE raced and the
+  // row no longer matches — surface that as a failure instead of pretending
+  // the persona was saved.
+  if (!updated) {
+    throw new Error('Session not found or access denied');
+  }
 
   return { ok: true };
 }

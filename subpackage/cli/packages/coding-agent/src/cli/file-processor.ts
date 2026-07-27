@@ -125,8 +125,20 @@ export interface ExpandedMentions {
 // though the underlying file exists. Dots inside a path (`./`, `../`, dirs
 // with dots) remain legal. Extension-style paths (`@foo.ts`, `@bar.min.js`)
 // are still matched by the more specific `\.[A-Za-z0-9]+` branch first.
+//
+// The final bare-filename branch matches common dotless, slashless
+// filenames — Dockerfile / Makefile / Rakefile / Vagrantfile / Justfile,
+// and their lowercase siblings (makefile / rakefile / justfile). It is a
+// closed allowlist rather than an open `[A-Za-z]+` so normal English words
+// (`@john`, `@team`) and acronyms (`@API`) are NOT treated as candidates.
+// Files outside the allowlist can still be referenced via `./name` (slash
+// branch) or `@./name` (dot branch). Because this branch matches whole
+// identifiers only, the sentence-final punctuation exclusion on the other
+// branches is not needed here, but the candidate still flows through
+// resolveReadPath so non-existent tokens are reported as missed, not
+// inlined.
 const INLINE_MENTION_RE =
-  /(?:^|\s)@([^\s@]+(\/[^\s@.,;:!?)\]>"]+|\.[A-Za-z0-9]+|_[A-Za-z0-9]+))/g;
+  /(?:^|\s)@([^\s@]+(\/[^\s@.,;:!?)\]>"]+|\.[A-Za-z0-9]+|_[A-Za-z0-9]+)|[Dd]ockerfile|M[Aa]kefile|R[Aa]kefile|Vagrantfile|Justfile|justfile)/g;
 
 /**
  * Expand inline `@file` / `@dir/file` mentions inside a chat message into

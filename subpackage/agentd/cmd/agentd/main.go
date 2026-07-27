@@ -41,7 +41,7 @@ import (
 )
 
 var (
-	version   = "0.1.3"
+	version   = "0.1.4"
 	buildTime = "unknown"
 )
 
@@ -353,7 +353,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	srv := server.NewServer(cfg, bus, dispatcher, clawlessClient, cacheMgr, agentMgr, l2Manager)
+	srv := server.NewServer(cfg, bus, dispatcher, clawlessClient, cacheMgr, agentMgr, l2Manager, version)
 	srv.RegisterRoutes(r)
 
 	var tlsConfig *tls.Config

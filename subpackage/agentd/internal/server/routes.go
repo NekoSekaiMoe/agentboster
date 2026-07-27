@@ -28,6 +28,7 @@ type Server struct {
 	agentMgr   *agent.Manager
 	l2Mgr      *l2_auth.L2AuthManager
 	startTime  time.Time
+	version    string
 }
 
 // NewServer creates a new HTTP server with all dependencies.
@@ -39,6 +40,7 @@ func NewServer(
 	cacheManager *cache.Manager,
 	agentMgr *agent.Manager,
 	l2Mgr *l2_auth.L2AuthManager,
+	version string,
 ) *Server {
 	return &Server{
 		cfg:        cfg,
@@ -49,6 +51,7 @@ func NewServer(
 		agentMgr:   agentMgr,
 		l2Mgr:      l2Mgr,
 		startTime:  time.Now(),
+		version:    version,
 	}
 }
 
@@ -194,7 +197,7 @@ func (s *Server) handleHealth(c *gin.Context) {
 	data := gin.H{
 		"status":    "ok",
 		"timestamp": time.Now().UTC(),
-		"version":   "0.1.0",
+		"version":   s.version,
 		"uptime":    time.Since(s.startTime).String(),
 	}
 

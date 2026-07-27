@@ -1,5 +1,14 @@
 -- Add project scoping to long_term_memories.
 --
+-- NOTE on CONCURRENTLY: these index DDLs run inside Drizzle's migrate()
+-- transaction (each statement-breakpoint stays in the same txn). PostgreSQL
+-- forbids CREATE/DROP INDEX CONCURRENTLY inside a transaction block, so do
+-- NOT retrofit these statements with CONCURRENTLY without first splitting
+-- them into a standalone, non-transactional custom migration. Evaluate
+-- the long_term_memories row count and the production maintenance window
+-- before doing so — until then, the transactional DROP + CREATE here is
+-- correct and safe for the sizes this table currently sees.
+--
 -- Ordering matters (review-driven): the backfill runs BEFORE the new unique
 -- index is created. If we created the unique index first, a still-running
 -- older app instance could insert duplicate (user_id, NULL, memory_key) rows

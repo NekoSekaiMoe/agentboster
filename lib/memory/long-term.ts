@@ -266,8 +266,16 @@ export async function listLongTermMemories(input?: {
   const page = Math.max(1, input?.page ?? 1);
   const pageSize = Math.max(1, Math.min(input?.pageSize ?? 50, 100));
 
-  // If search query provided, use hybrid search
+  // If search query provided, use hybrid search. searchLongTermMemories does
+  // not accept a project scope, so a caller asking for `search` together
+  // with `projectIdScope` would silently get cross-project results — fail
+  // loudly instead of letting the scope be ignored.
   if (input?.search) {
+    if (input.projectIdScope !== undefined && input.projectIdScope !== null) {
+      throw new Error(
+        'listLongTermMemories: projectIdScope is not supported together with search',
+      );
+    }
     const results = await searchLongTermMemories({
       query: input.search,
       minConfidence: 0.05,

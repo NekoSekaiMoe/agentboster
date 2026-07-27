@@ -39,12 +39,21 @@ func (s *Server) handleGetSession(c *gin.Context) {
 }
 
 // handleUpdateSession updates a session.
+//
+// The target session is selected by the `:id` path parameter, NOT by the
+// id embedded in the JSON body — otherwise a request to PUT /sessions/A
+// carrying `{"id":"B", ...}` would update session B, crossing the
+// resource boundary expressed by the URL. We override body.ID with the
+// path id so the body's own id field can never win, mirroring the
+// clawless client which also uses the path segment as the source of truth.
 func (s *Server) handleUpdateSession(c *gin.Context) {
+	id := c.Param("id")
 	var session clawless.Session
 	if err := c.ShouldBindJSON(&session); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	session.ID = id
 	if err := s.clawless.UpdateSession(c.Request.Context(), &session); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return

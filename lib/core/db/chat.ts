@@ -191,6 +191,12 @@ export async function updateSessionForUser(
  * (clearing a previously-set value), matching saveSessionPersonaAction's
  * `agent || null` semantics.
  *
+ * NOTE: the null branch must produce a JSONB null literal, not SQL NULL.
+ * `to_jsonb(NULL::text)` evaluates to SQL NULL (not JSON null), and when
+ * passed as jsonb_set's `new_value` it replaces the whole target with SQL
+ * NULL — wiping the entire metadata column instead of just one key.
+ * `'null'::jsonb` is the correct JSONB null literal.
+ *
  * Returns the updated row or null (not-found / owner mismatch).
  */
 export async function updateSessionMetadataKey(
@@ -216,11 +222,13 @@ export async function updateSessionMetadataKey(
 
   // jsonb_set(target, text[], new_value, create_if_missing=true).
   // - path: '{key}' as a raw literal (validated above).
-  // - new_value: to_jsonb(<str>::text) → JSON string; or to_jsonb(NULL::text)
-  //   → JSON null when value is null.
+  // - new_value: to_jsonb(<str>::text) → JSON string; or 'null'::jsonb →
+  //   the JSONB null literal when value is null. Do NOT use
+  //   to_jsonb(NULL::text) — that yields SQL NULL, which jsonb_set would
+  //   propagate to the whole target column instead of just one key.
   const pathLiteral = `{${key}}`;
   const newValue =
-    value === null ? sql`to_jsonb(NULL::text)` : sql`to_jsonb(${value}::text)`;
+    value === null ? sql`'null'::jsonb` : sql`to_jsonb(${value}::text)`;
 
   const [session] = await db
     .update(schema.sessions)

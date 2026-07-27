@@ -176,6 +176,11 @@ export interface CliRemoteState {
  * `command` blindly — it cross-references against its own allowlist (admin-
  * configured) before registering tools, so a malicious / naive desktop can't
  * surface arbitrary local binaries to the model.
+ *
+ * Mirror of the canonical definition in lib/cli/remote-control.ts
+ * (CliRemoteMcpServer, around lines 10-19 of that file). Keep these two
+ * declarations in sync — the SDK cannot import from the host app, so the
+ * type is duplicated here by necessity.
  */
 export interface CliRemoteMcpServer {
   /** Stable name (matches the desktop's mcp config key). */
