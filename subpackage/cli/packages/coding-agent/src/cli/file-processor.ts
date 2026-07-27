@@ -118,8 +118,15 @@ export interface ExpandedMentions {
 // or `_` — common in file paths but not in chat handles like `@john`).
 // Anchoring + path-ish filter together eliminate the vast majority of
 // false positives in normal prose without needing a filesystem stat.
+// The slash branch must NOT swallow sentence-final punctuation (`,;:!?)]<>"'`),
+// otherwise a path-ish token at the end of a sentence — `@src/utils,`,
+// `@Makefile.`, `@Dockerfile:` — captures the trailing punctuation as part
+// of the path, fails to resolve, and is mis-reported as a missed token even
+// though the underlying file exists. Dots inside a path (`./`, `../`, dirs
+// with dots) remain legal. Extension-style paths (`@foo.ts`, `@bar.min.js`)
+// are still matched by the more specific `\.[A-Za-z0-9]+` branch first.
 const INLINE_MENTION_RE =
-  /(?:^|\s)@([^\s@]+(\/[^\s@]+|\.[A-Za-z0-9]+|_[A-Za-z0-9]+))/g;
+  /(?:^|\s)@([^\s@]+(\/[^\s@.,;:!?)\]>"]+|\.[A-Za-z0-9]+|_[A-Za-z0-9]+))/g;
 
 /**
  * Expand inline `@file` / `@dir/file` mentions inside a chat message into

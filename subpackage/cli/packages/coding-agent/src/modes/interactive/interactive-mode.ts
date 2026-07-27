@@ -2972,7 +2972,7 @@ export class InteractiveMode {
       // Startup `@img.png` continues to handle images via the dedicated
       // processFileArguments path. Revisit when the run loop grows a
       // first-class pending-images channel.
-      if (!text.startsWith('/') && !this.isBashMode) {
+      if (!text.startsWith('/') && !text.startsWith('!') && !this.isBashMode) {
         try {
           const expanded = await expandInlineAtMentions(
             text,
