@@ -2973,8 +2973,7 @@ export class InteractiveMode {
       // behavior of any individual branch inside.
       const run = () => this.runSubmit(text);
       this.submitChain = this.submitChain.then(run, run).catch((error) => {
-        const message =
-          error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
         this.showError(`submit failed: ${message}`);
       });
     };

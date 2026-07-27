@@ -56,7 +56,8 @@ function migrateMetadata(
       const parts = coerceParts(entry?.parts);
       const createdAt =
         typeof entry?.createdAt === 'string'
-          ? entry.createdAt!
+          ? // biome-ignore lint/style/noNonNullAssertion: narrowed by typeof check above
+            entry.createdAt!
           : new Date().toISOString();
       const version: {
         parts: unknown[];
@@ -82,7 +83,8 @@ function migrateMetadata(
       const parts = coerceParts(entry?.parts);
       const createdAt =
         typeof entry?.createdAt === 'string'
-          ? entry.createdAt!
+          ? // biome-ignore lint/style/noNonNullAssertion: narrowed by typeof check above
+            entry.createdAt!
           : new Date().toISOString();
       versions.push({ parts, createdAt });
     }

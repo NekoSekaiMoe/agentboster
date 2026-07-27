@@ -315,10 +315,12 @@ export default function FilesPage() {
       </div>
 
       {previewFile && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss pattern
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           onClick={() => setPreviewFile(null)}
         >
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: stop propagation wrapper */}
           <div
             className="h-[85vh] w-full max-w-4xl"
             onClick={(e) => e.stopPropagation()}
