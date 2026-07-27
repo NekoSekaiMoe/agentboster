@@ -67,7 +67,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
           cache-dependency-path: subpackage/dbushelper/go.sum
@@ -134,7 +134,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
           cache-dependency-path: subpackage/agentd/go.sum
@@ -198,7 +198,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           # cli/AGENTS.md pins engines.node >=22.19.0. setup-node's
           # node-version is the runner's Node binary used for yarn.
@@ -312,7 +312,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           # desktop ships yarn.lock (not package-lock.json); cache against it.
