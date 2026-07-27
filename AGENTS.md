@@ -42,10 +42,12 @@ These are concrete traps hit during the P0–P3 work. Re-read before touching wo
 ## Repo shape
 
 - Root is the Web app (`Next.js 15.5` + `React 19` + `TypeScript 6`) and uses `yarn`. It is **not** a yarn workspace root.
-- Three sibling subprojects under `subpackage/`, each self-contained with its own `AGENTS.md` — read that before editing inside one:
+- Five sibling subprojects under `subpackage/`, each self-contained with its own `AGENTS.md` (or `README.md`) — read that before editing inside one:
   - `subpackage/agentd/` — Go daemon (Linux-only, `//go:build linux`), own `go.mod` (Go 1.26.4). Runs the sandboxed execution plane.
   - `subpackage/cli/` — separate npm package, own `package.json`, Biome `2.3.5`, `@typescript/native-preview` (tsgo), `engines.node >=22.19.0`. Toolchain versions do **not** match root.
+  - `subpackage/computer-use-mcp/` — Cross-platform MCP server for computer use (Go 1.26.4). Used by the CLI desktop app.
   - `subpackage/dbushelper/` — pure-Go AT-SPI2 D-Bus client (Go 1.26.4), own `go.mod`. Consumed by agentd's `tools_a11y.go` via the `a11y-helper` CLI.
+  - `subpackage/sdk/` — Cross-tier SDK unifying types across CLI, Web, Desktop, and agentd (`@agentboster/sdk`). TypeScript source-only, no build step (compiled via jiti). Uses `scripts/regen-*.py` to detect type drift.
 - `@/*` maps to the repo root (`tsconfig.json` and `vitest.config.ts`); prefer it over long relative imports.
 - Root `tsconfig.json` excludes `node_modules`, `ref`, `memoh`, `cli`, and `subpackage`, so root `tsc --noEmit` does not typecheck any subproject; run checks inside each subdir.
 - `ref/` is vendored reference material, ignored by root TypeScript/Biome; do not edit it as app code.
@@ -67,6 +69,7 @@ These are concrete traps hit during the P0–P3 work. Re-read before touching wo
 
 - agentd / dbushelper (Go): `go build ./...`, `go vet ./...`, `go test ./...`. See each subdir's `AGENTS.md` for release-binary flags and test tags.
 - cli: run `biome check`, `tsgo` (or the subdir's `tsc`), and tests from inside `subpackage/cli/` — root tooling versions do not apply.
+- sdk: run `python scripts/regen-<surface>.py` (inside `subpackage/sdk/`) to verify that the SDK types are in sync with the source-of-truth implementations in Web, CLI, or agentd.
 
 ## Web gotchas
 
@@ -91,6 +94,7 @@ These are concrete traps hit during the P0–P3 work. Re-read before touching wo
 
 ## Cross-cutting conventions
 
+- **SDK Drift Detection**: If you modify Web API shapes (`app/api/**`), agentd protocols (`internal/clawless/types.go`), or desktop IPC contracts, you **MUST** run the corresponding `scripts/regen-*.py` script in `subpackage/sdk/` to ensure the public SDK types have not drifted. If they have, update the SDK types in `subpackage/sdk/src/` to match.
 - **agentd version bump**: when the on-disk cache format or HTTP contract changes, bump the `version` constant in `subpackage/agentd/cmd/agentd/main.go`. All HTTP responses use the `{ success, data, error }` envelope.
 - **dbushelper wire contract**: `a11y-helper` emits one JSON object on stdout (parsed verbatim by agentd); diagnostics go to stderr only. Exit codes: `0` = success or per-action failure (JSON `ok=false`, includes `fallback` coords), `1` = catastrophic (bus unreachable), `2` = usage.
 - **dbushelper refs**: snapshot writes `/tmp/agentd-a11y-refs.json` (overridable via `AGENTD_A11Y_REFS`); click/type/fill read it. Refs are tiered: `eN` = interactive (legal click/type/fill target), `xN` = group (inspect-only). Tests isolate via `t.Setenv("AGENTD_A11Y_REFS", ...)`.
