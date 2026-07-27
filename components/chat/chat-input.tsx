@@ -109,10 +109,25 @@ function PureMultimodalInput({
   const [shouldSubmit, setShouldSubmit] = useState(false);
 
   const toggleRecording = useCallback(() => {
-    const SpeechRecognition =
-      // biome-ignore lint/suspicious/noExplicitAny: Web Speech API types are not fully available
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
+    // Web Speech API types are not in TS's lib.dom yet; access defensively.
+    // The recognition instance is loosely typed because the full event
+    // handler API isn't covered by lib.dom.
+    type SpeechRecognitionCtor = new () => {
+      continuous: boolean;
+      interimResults: boolean;
+      lang: string;
+      start: () => void;
+      stop: () => void;
+      onstart: (() => void) | null;
+      onend: (() => void) | null;
+      onerror: ((e: unknown) => void) | null;
+      onresult: ((e: unknown) => void) | null;
+    };
+    const w = window as unknown as {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
+    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       toast.error('Voice input is not supported in this browser.');
       return;
@@ -563,7 +578,7 @@ function PureMultimodalInput({
             WebkitAppearance: 'none',
             appearance: 'none',
           }}
-          className="!text-base max-h-[calc(75dvh)] min-h-11 resize-none overflow-hidden !border-none !bg-transparent px-0 pt-0 pb-12 !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none"
+          className="!text-base !border-none !bg-transparent !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none max-h-[calc(75dvh)] min-h-11 resize-none overflow-hidden px-0 pt-0 pb-12"
           rows={1}
           autoFocus={false}
           onClick={(event) => {

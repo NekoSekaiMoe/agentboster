@@ -18,7 +18,9 @@ vi.mock('@/lib/core/db/chat', () => ({
   getSession: () => getSessionMock(),
 }));
 
+// biome-ignore lint/suspicious/noExplicitAny: mock signature is intentionally permissive
 const assertCanAccessPlanMock = vi.fn<any>(async () => undefined);
+// biome-ignore lint/suspicious/noExplicitAny: mock signature is intentionally permissive
 const addPlanItemMock = vi.fn<any>(async () => ({
   id: 'item-pk-1',
   planId: 'plan-pk-uuid',
@@ -31,6 +33,7 @@ const addPlanItemMock = vi.fn<any>(async () => ({
   createdAt: new Date(),
   updatedAt: new Date(),
 }));
+// biome-ignore lint/suspicious/noExplicitAny: mock signature is intentionally permissive
 const updatePlanItemMock = vi.fn<any>(async () => ({
   id: 'item-pk-1',
   planId: 'plan-pk-uuid',
@@ -43,6 +46,7 @@ const updatePlanItemMock = vi.fn<any>(async () => ({
   createdAt: new Date(),
   updatedAt: new Date(),
 }));
+// biome-ignore lint/suspicious/noExplicitAny: mock signature is intentionally permissive
 const removePlanItemMock = vi.fn<any>(async () => undefined);
 vi.mock('@/lib/core/db/agent-orchestration-plans', () => ({
   assertCanAccessPlan: (...args: unknown[]) => assertCanAccessPlanMock(...args),

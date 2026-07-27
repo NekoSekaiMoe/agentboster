@@ -138,10 +138,11 @@ export function resolveInvocation(
   }
   if (ext.defaultCliPath) {
     const parts = ext.defaultCliPath.split(/\s+/).filter(Boolean);
-    if (parts.length === 0) return null;
+    const [command, ...rest] = parts;
+    if (!command) return null;
     return {
-      command: parts[0]!,
-      args: [...parts.slice(1), ...(ext.args ?? [])],
+      command,
+      args: [...rest, ...(ext.args ?? [])],
     };
   }
   return null;

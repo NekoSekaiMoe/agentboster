@@ -823,11 +823,11 @@ function ProjectsPanel() {
                 }
               >
                 <div className="flex items-center gap-2">
-                  <span className="font-mono font-medium text-sm">
+                  <span className="font-medium font-mono text-sm">
                     {group.label}
                   </span>
                   {group.isGlobal ? (
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
                       global
                     </span>
                   ) : null}
@@ -856,10 +856,10 @@ function ProjectsPanel() {
                         >
                           {m.memoryType}
                         </span>
-                        <span className="text-muted-foreground text-[10px]">
+                        <span className="text-[10px] text-muted-foreground">
                           importance {m.importance}
                         </span>
-                        <span className="text-muted-foreground text-[10px]">
+                        <span className="text-[10px] text-muted-foreground">
                           {new Date(m.updatedAt).toLocaleDateString()}
                         </span>
                       </div>

@@ -25,6 +25,7 @@ vi.mock('@/lib/core/db/chat', () => ({
 
 // DAL — stub each function the routes call, so we assert the route wires
 // inputs correctly without hitting Postgres.
+// biome-ignore lint/suspicious/noExplicitAny: mock signature is intentionally permissive
 const createPlanMock = vi.fn<any>(async () => ({
   id: 'pk-1',
   planId: 'plan-1',
@@ -36,6 +37,7 @@ const createPlanMock = vi.fn<any>(async () => ({
   createdAt: new Date(),
   updatedAt: new Date(),
 }));
+// biome-ignore lint/suspicious/noExplicitAny: mock signature is intentionally permissive
 const listPlansBySessionMock = vi.fn<any>(async () => []);
 vi.mock('@/lib/core/db/agent-orchestration-plans', () => ({
   createPlan: (input: unknown) => createPlanMock(input),
