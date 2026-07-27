@@ -1,3 +1,5 @@
+//go:build linux
+
 package server
 
 import (
@@ -67,14 +69,19 @@ func APIKeyMiddleware(expectedKey string) gin.HandlerFunc {
 		// be replayed against a tunnel route (and vice versa). See
 		// tunnel_auth.go. The slug lives at path position 4 (/api/v1/t/<slug>/...).
 		if key == "" && strings.HasPrefix(c.Request.URL.Path, "/api/v1/t/") {
-			// Extract slug from path. gin populates the param later; the
-			// middleware runs before the route handler, so we parse manually.
-			// Path shape is exactly "/api/v1/t/<slug>/...", so trimming the
-			// "/api/v1/t/" prefix and cutting at the next "/" gives the slug.
-			trimmed := strings.TrimPrefix(c.Request.URL.Path, "/api/v1/t/")
-			slug := trimmed
-			if idx := strings.Index(trimmed, "/"); idx >= 0 {
-				slug = trimmed[:idx]
+			// gin populates route params during route matching, which happens
+		// before the middleware chain runs, so c.Param("slug") is available
+		// here on a matched /t/:slug/*path route. Falling back to manual
+		// parsing only when the param is empty keeps this robust for
+		// path-shape probes that didn't match the catch-all route.
+			slug := c.Param("slug")
+			if slug == "" {
+				trimmed := strings.TrimPrefix(c.Request.URL.Path, "/api/v1/t/")
+				if idx := strings.Index(trimmed, "/"); idx >= 0 {
+					slug = trimmed[:idx]
+				} else {
+					slug = trimmed
+				}
 			}
 			if slug != "" && validateSignedTunnelQuery(
 				expectedKey,

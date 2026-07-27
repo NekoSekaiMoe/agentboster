@@ -62,10 +62,18 @@ func signTunnelQuery(secret, slug string, expires int64) string {
 // validateSignedVNCQuery exactly except for the scope tag:
 //   - any empty input → reject
 //   - already-expired → reject
+//   - expires too far in the future (past tunnelMaxTTL) → reject
 //   - constant-time compare against the recomputed digest
 //
 // The constant-time compare is the security-critical piece; never replace
 // it with bytes.Equal.
+//
+// The max-TTL ceiling bounds the blast radius of a leaked signed URL:
+// without it a caller that could somehow obtain a far-future expires
+// (or an old build that minted one) would have a permanently valid URL.
+// It is deliberately larger than tunnelDefaultTTL so a create-time
+// request for a longer-than-default validity is honored, but not
+// unbounded.
 func validateSignedTunnelQuery(
 	secret string,
 	slug string,
@@ -78,7 +86,13 @@ func validateSignedTunnelQuery(
 	}
 
 	expires, err := strconv.ParseInt(strings.TrimSpace(expiresParam), 10, 64)
-	if err != nil || expires < now.Unix() {
+	if err != nil {
+		return false
+	}
+	if expires < now.Unix() {
+		return false
+	}
+	if expires-now.Unix() > int64(tunnelMaxTTL.Seconds()) {
 		return false
 	}
 
@@ -95,5 +109,13 @@ func validateSignedTunnelQuery(
 // endpoint doesn't specify an expiry. Tuned long enough for a developer
 // to share a preview link and have a reviewer open it minutes later, but
 // short enough that a leaked URL ages out quickly. The create handler
-// can pass a shorter ttl; this is just the ceiling.
+// can pass a shorter ttl; tunnelMaxTTL is the absolute ceiling.
 const tunnelDefaultTTL = 2 * time.Hour
+
+// tunnelMaxTTL is the maximum validity any signed tunnel URL may carry,
+// regardless of what the create endpoint requested. Enforced in
+// validateSignedTunnelQuery so it applies symmetrically to mint and
+// verify. Larger than tunnelDefaultTTL on purpose — a caller may
+// legitimately want a longer-lived preview link — but bounded so a leaked
+// signature can't be valid essentially forever.
+const tunnelMaxTTL = 24 * time.Hour

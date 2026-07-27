@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package server provides HTTP handlers for the agentd REST API.
 //
 // processes.go — long-lived process management.
@@ -95,9 +97,12 @@ func (s *Server) handleStartProcess(c *gin.Context) {
 			"sandbox_id": result.Task.SandboxID,
 			"command":    result.Task.Command,
 			"started_at": result.Task.StartedAt.UTC().Format(time.RFC3339),
-			// The response surfaces "polled" so clients know to poll until
-			// the SSE stream endpoint is implemented (see file header).
-			"streaming": "polled",
+			// Real-time log stream is available at /processes/:id/stream
+			// (SSE over `tail -F`, with a polling fallback). We surface the
+			// path so clients know the streaming endpoint without hardcoding;
+			// older clients that polled still work, but this is the preferred
+			// live-output channel. See handleProcessStream.
+			"streaming": "/api/v1/processes/" + result.Task.ID + "/stream",
 		},
 	})
 }
@@ -182,7 +187,16 @@ func (s *Server) handleGetProcess(c *gin.Context) {
 }
 
 // handleStopProcess stops a managed process via the shared StopBackground
-// helper (TERM → 5s → KILL ladder). Idempotent.
+// helper (TERM now → KILL after a grace window, escalated in the
+// background). Idempotent for already-stopped tasks.
+//
+// StopBackground returns (stopped, found). We distinguish:
+//   - !found           → 404 (truly unknown id)
+//   - found && !stopped → 409 Conflict (id is valid but we can't stop it
+//                         right now: no sandbox mgr / no PID). Returning
+//                         404 here would hide a real failure from the
+//                         caller; 409 signals "the resource exists, the
+//                         request is unfulfillable in this state".
 func (s *Server) handleStopProcess(c *gin.Context) {
 	id := c.Param("id")
 	store := s.agentMgr.GetBGTaskStore()
@@ -191,9 +205,16 @@ func (s *Server) handleStopProcess(c *gin.Context) {
 		return
 	}
 	sbMgr := s.agentMgr.GetSandboxManager()
-	ok, _ := agent.StopBackground(sbMgr, store, id)
-	if !ok {
+	stopped, found := agent.StopBackground(sbMgr, store, id)
+	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "process not found"})
+		return
+	}
+	if !stopped {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":   "process exists but could not be stopped (no sandbox or PID)",
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"id": id, "stopped": true}})

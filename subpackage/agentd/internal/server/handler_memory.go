@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package server — handler_memory.go
 //
 // Memory + review-log handlers split out of routes.go. These proxy to the

@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package server — handler_l2.go
 //
 // L2 authorization confirm handler split out of routes.go. This is the

@@ -1,3 +1,5 @@
+//go:build linux
+
 package server
 
 import (
@@ -121,10 +123,11 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		// Desktop VNC proxy (WebSocket tunnel to container's websockify)
 		v1.GET("/desktop/vnc", s.handleVNCProxy)
 
-		// Long-lived managed processes (ref_liveagent.md §2.1).
-		// First-cut surface over the existing BackgroundTaskStore; the
-		// SSE stream returns 501 until the polling-over-LastOutput helper
-		// is extracted from exec_stream.go (see processes.go FOLLOW-UP).
+		// Long-lived managed processes (ref_liveagent.md §2.1). Backed by
+		// the persistent BackgroundTaskStore via the shared helpers in
+		// internal/agent/background.go; /processes/:id/stream is a real
+		// SSE tail over the process log (falls back to polling for
+		// providers without ExecStream).
 		v1.POST("/processes", s.handleStartProcess)
 		v1.GET("/processes", s.handleListProcesses)
 		v1.GET("/processes/:id", s.handleGetProcess)
@@ -132,9 +135,10 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		v1.GET("/processes/:id/stream", s.handleProcessStream)
 
 		// Public-URL tunnels to sandbox-internal ports (ref_liveagent.md
-		// §2.2). Create/list/delete are live; the byte relay returns 501
-		// until the Hijack body is lifted from vnc_proxy.go (see tunnels.go
-		// FOLLOW-UP).
+		// §2.2). Create / list / delete + the byte relay are all live;
+		// tunnels persist across daemon restarts via persistence.TunnelStore,
+		// the relay supports N concurrent connections, and an idle reaper
+		// garbage-collects abandoned slugs. See tunnels.go for details.
 		v1.POST("/tunnels", s.handleCreateTunnel)
 		v1.GET("/tunnels", s.handleListTunnels)
 		v1.DELETE("/tunnels/:id", s.handleDeleteTunnel)

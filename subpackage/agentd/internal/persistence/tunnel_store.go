@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package persistence — tunnel_store.go
 //
 // Disk-backed registry of public tunnels (ref_liveagent §2.2 follow-up).

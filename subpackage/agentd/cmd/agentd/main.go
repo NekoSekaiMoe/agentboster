@@ -324,12 +324,20 @@ func main() {
 	// preview URLs survive daemon restarts. Restored here so the in-memory
 	// registry is warm before the HTTP server accepts traffic. See
 	// server.InitTunnelStore + persistence.TunnelStore.
+	//
+	// We always wire the store into the server once it was constructed,
+	// even if Restore failed: without that, any NEW tunnel created after a
+	// restore error would be served purely in-memory and silently lost on
+	// the next restart — a much worse failure mode than starting with an
+	// empty (but writable) store. Restore errors are best-effort: log and
+	// continue. (Same shape as the bgTaskStore block above.)
 	tunnelStore, err := persistence.NewTunnelStore(persistence.TunnelPath(basePath))
 	if err != nil {
 		slog.Warn("tunnel store init failed", "error", err)
-	} else if err := tunnelStore.Restore(); err != nil {
-		slog.Warn("tunnel store restore failed", "error", err)
 	} else {
+		if err := tunnelStore.Restore(); err != nil {
+			slog.Warn("tunnel store restore failed", "error", err)
+		}
 		server.InitTunnelStore(tunnelStore)
 	}
 

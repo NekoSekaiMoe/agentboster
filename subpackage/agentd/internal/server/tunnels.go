@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package server provides HTTP handlers for the agentd REST API.
 //
 // tunnels.go — public-URL tunnels to sandbox-internal ports.
@@ -25,23 +27,29 @@
 //   `/t/<slug>/...` (no auth headers needed — the HMAC query signs the
 //   request); the agent gets back a ready-to-use URL.
 //
-// WHY THIS IS A MINIMAL FIRST CUT
-//   The proxy itself (handleTunnelProxy) reuses handleVNCProxy's Hijack +
-//   io.Copy verbatim — the only change is the backend address source
-//   (tunnel registry vs hardcoded :6080). The registry is in-memory and
-//   per-process; it does NOT survive agentd restarts yet. The signup /
-//   teardown endpoints are stubbed to make the API surface stable while
-//   the persistence + multi-connection pooling work is finished.
-//
-// FOLLOW-UP (production tunnels)
-//   1. Persist the tunnel registry (lib/persistence/kvstore.go's
-//      KeyValueStore[T] is the right shape — same one BackgroundTaskStore
-//      uses) so tunnels survive restart.
-//   2. Support N concurrent connections per tunnel (vnc_proxy is
-//      single-connection; a real tunnel proxy needs a connection set +
-//      per-conn io.Copy goroutines).
-//   3. Expiry / idle reaper (mirror desktop.go's lastActivity pattern).
-//   4. Bump main.go version when the slug + auth format stabilizes.
+// WHAT'S SHIPPED
+//   - Create / list / delete REST surface (handleCreateTunnel /
+//     handleListTunnels / handleDeleteTunnel).
+//   - Persistence: the slug→(sandbox,port) mapping is durably stored via
+//     persistence.TunnelStore (KeyValueStore[TunnelRecord]) so public
+//     preview URLs survive daemon restarts; InitTunnelStore rehydrates
+//     the in-memory cache on startup.
+//   - Multi-connection relay: handleTunnelProxy supports N concurrent
+//     TCP connections per slug — each connect spawns its own io.Copy
+//     pair and bumps an active-conns counter.
+//   - Idle reaper: startReaper sweeps the registry every
+//     tunnelReaperInterval and evicts tunnels that haven't seen activity
+//     in tunnelIdleTimeout AND have zero live connections.
+//   - Slug collision avoidance: slugs are 16 hex chars of UUID entropy
+//     and are re-generated if a collision is detected against the
+//     in-memory map OR the persistent store (handleCreateTunnel).
+//   - Auth: HMAC-SHA256 signed query (tunnel_auth.go), enforced both in
+//     middleware AND re-checked inside handleTunnelProxy for defense in
+//     depth; the proxied request strips exp/sig before reaching the
+//     sandbox so the HMAC credential is never leaked to the backend.
+//   - Proxy path rewrite: handleTunnelProxy forwards only the part of
+//     the path after `/api/v1/t/<slug>` to the backend so plain HTTP and
+//     WebSocket services inside the sandbox resolve correctly.
 package server
 
 import (
@@ -50,7 +58,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,11 +110,20 @@ var tunnels = &tunnelRegistry{
 // InitTunnelStore wires the on-disk backing store and restores any
 // previously-persisted tunnels. Called once from main.go during startup.
 // Safe to call with a nil store (in-memory-only mode) — tests use that.
+//
+// The bySlug map is populated under mu.Lock so concurrent add()/get()
+// callers (once the HTTP server is up) never observe a half-restored
+// registry. The idle reaper is also (re)started here — it is idempotent
+// via reaperOnce — so tunnels restored from disk are garbage-collected
+// even if no new tunnel is ever created (without this, the reaper would
+// only be armed by the first add() call and restored-but-unused tunnels
+// would leak forever).
 func InitTunnelStore(store *persistence.TunnelStore) {
 	tunnels.store = store
 	if store == nil {
 		return
 	}
+	tunnels.mu.Lock()
 	for _, spec := range store.ListAll() {
 		// Re-hydrate the in-memory cache. activeConns starts at 0 (no live
 		// conns after a restart) and lastActivity is the persisted value,
@@ -114,6 +133,8 @@ func InitTunnelStore(store *persistence.TunnelStore) {
 			lastActivity: spec.LastActivity,
 		}
 	}
+	tunnels.mu.Unlock()
+	tunnels.startReaper()
 }
 
 // tunnelIdleTimeout is how long a tunnel with zero active connections can
@@ -208,6 +229,17 @@ func (r *tunnelRegistry) release(slug string) {
 	}
 }
 
+// exists reports whether a slug is already live in the in-memory map.
+// Used by handleCreateTunnel's collision-avoidance loop. (The persistent
+// store is checked separately by the caller, so this only covers the
+// in-memory side.)
+func (r *tunnelRegistry) exists(slug string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.bySlug[slug]
+	return ok
+}
+
 // removeByID deletes a tunnel by its REST id. Returns false when the id
 // isn't registered. Used by DELETE /tunnels/:id.
 func (r *tunnelRegistry) removeByID(id string) bool {
@@ -266,6 +298,17 @@ func (s *Server) handleCreateTunnel(c *gin.Context) {
 	sandboxID := req.SandboxID
 	if sandboxID == "" {
 		sandboxID = agentCtx.SandboxID
+	} else if sandboxID != agentCtx.SandboxID {
+		// Authorization: an explicit sandbox_id must match the session's
+		// own sandbox. Without this check any caller with a valid session
+		// could open a tunnel against another session's sandbox and mint a
+		// signed URL to it. Only the implicit (session-derived) path is
+		// allowed to bypass the check.
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"error":   "sandbox_id does not belong to the given session",
+		})
+		return
 	}
 	if sandboxID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "no sandbox for session"})
@@ -292,7 +335,38 @@ func (s *Server) handleCreateTunnel(c *gin.Context) {
 		return
 	}
 
-	slug := uuid.NewString()[:8]
+	// Slug generation. Use 16 hex chars (64 bits of entropy) instead of
+	// the old 8-char prefix (32 bits) to make brute-force / accidental
+	// guessing impractical, AND check for collisions against both the
+	// in-memory map and the persistent store before accepting a slug.
+	// Without this check a collision would silently overwrite the
+	// existing tunnel's bySlug entry AND the persisted store row,
+	// effectively hijacking the original public URL.
+	const slugCollisionRetries = 8
+	var slug string
+	for i := 0; i < slugCollisionRetries; i++ {
+		candidate := strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+		if tunnels.exists(candidate) {
+			continue
+		}
+		if tunnels.store != nil {
+			if _, ok := tunnels.store.Load(candidate); ok {
+				continue
+			}
+		}
+		slug = candidate
+		break
+	}
+	if slug == "" {
+		// vanishingly unlikely with 64 bits of entropy + 8 retries, but
+		// surface it explicitly instead of silently reusing a colliding
+		// slug and hijacking another tunnel's URL.
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "could not allocate a non-colliding tunnel slug",
+		})
+		return
+	}
 	now := time.Now().UTC()
 	spec := &persistence.TunnelRecord{
 		ID:           uuid.NewString(),
@@ -453,11 +527,63 @@ func (s *Server) handleTunnelProxy(c *gin.Context) {
 	}
 	defer clientConn.Close()
 
-	// Replay the original HTTP request line + headers to the backend so
-	// protocol-level handshakes (WebSocket, plain HTTP) complete against
-	// the real service, not against agentd.
-	if err := c.Request.Write(backendConn); err != nil {
-		slog.Error("tunnel_proxy: forward request failed", "slug", slug, "error", err)
+	// Replay the HTTP request to the backend so protocol-level handshakes
+	// (WebSocket upgrade, plain HTTP) complete against the real service.
+	//
+	// IMPORTANT: we cannot use c.Request.Write verbatim. The incoming URL
+	// is `/api/v1/t/<slug>/index.html?exp=...&sig=...`; a normal sandbox
+	// service (Vite, noVNC, a notebook) has no route under that prefix and
+	// would 404, and worse, the exp/sig query would leak our HMAC
+	// credential to the sandboxed process. So we rewrite:
+	//   1. the request path: strip the `/api/v1/t/<slug>` prefix, keeping
+	//      only the part after it (gin's *path catch-all, which includes
+	//      the leading slash, or "/" when the client hit the bare slug);
+	//   2. the query: drop exp/sig (auth artifacts) but forward any other
+	//      query params the client meant for the backend;
+	//   3. Host header: keep the client's (some backends care), and keep
+	//      all Connection / Upgrade / Sec-WebSocket-* headers so WS
+	//      upgrades still work.
+	remain := c.Param("path")
+	if remain == "" {
+		remain = "/"
+	}
+	// Rebuild the query without the auth artifacts. If the only params
+	// were exp/sig the result is empty and we emit no `?`.
+	var qb strings.Builder
+	for k, vs := range c.Request.URL.Query() {
+		if k == "exp" || k == "sig" {
+			continue
+		}
+		for _, v := range vs {
+			if qb.Len() > 0 {
+				qb.WriteByte('&')
+			}
+			qb.WriteString(url.QueryEscape(k))
+			qb.WriteByte('=')
+			qb.WriteString(url.QueryEscape(v))
+		}
+	}
+	reqTarget := remain
+	if qb.Len() > 0 {
+		reqTarget = remain + "?" + qb.String()
+	}
+	reqLine := fmt.Sprintf("%s %s HTTP/1.1\r\n", c.Request.Method, reqTarget)
+	if _, err := backendConn.Write([]byte(reqLine)); err != nil {
+		slog.Error("tunnel_proxy: forward request-line failed", "slug", slug, "error", err)
+		return
+	}
+	// Forward the headers verbatim. bufio.Writer would be cleaner, but
+	// the http.Header.Write method gives us correct CRLF framing for free
+	// and handles folding / encoding the same way Go's own server does.
+	// We add an explicit Host so the backend sees a syntactically valid
+	// request even if the original had none.
+	c.Request.Header.Set("Host", c.Request.Host)
+	if err := c.Request.Header.Write(backendConn); err != nil {
+		slog.Error("tunnel_proxy: forward headers failed", "slug", slug, "error", err)
+		return
+	}
+	if _, err := backendConn.Write([]byte("\r\n")); err != nil {
+		slog.Error("tunnel_proxy: forward header terminator failed", "slug", slug, "error", err)
 		return
 	}
 	// Flush any bytes the client already buffered before the hijack —
@@ -466,7 +592,10 @@ func (s *Server) handleTunnelProxy(c *gin.Context) {
 	if clientBuf.Reader.Buffered() > 0 {
 		buffered := make([]byte, clientBuf.Reader.Buffered())
 		if _, err := clientBuf.Read(buffered); err == nil {
-			backendConn.Write(buffered)
+			if _, err := backendConn.Write(buffered); err != nil {
+				slog.Error("tunnel_proxy: forward buffered bytes failed", "slug", slug, "error", err)
+				return
+			}
 		}
 	}
 

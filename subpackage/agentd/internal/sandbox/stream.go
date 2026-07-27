@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package sandbox — stream.go
 //
 // Streaming variant of SandboxProvider.Exec, used by the long-lived
@@ -74,7 +76,11 @@ type closerCanceler interface {
 // Close cancels the underlying exec and waits for the child to exit.
 // Idempotent — subsequent calls are no-ops. The returned error is the
 // child's Wait() error (typically nil on clean cancel, or an
-// *exec.ExitError on natural exit); callers usually ignore it.
+// *exec.ExitError on natural exit); callers usually ignore it. We surface
+// the real Wait error rather than always returning nil so a caller that
+// cares about whether the child was reaped cleanly can inspect it — the
+// existing callers (processes.go's `defer handle.Close()`) discard the
+// return value and are unaffected.
 func (h *ExecStreamHandle) Close() error {
 	if h == nil {
 		return nil
@@ -87,7 +93,7 @@ func (h *ExecStreamHandle) Close() error {
 	if h.cmd != nil {
 		// The provider's Wait is responsible for its own context cancel +
 		// process reap — we don't reach into the context from here.
-		_ = h.cmd.Wait()
+		return h.cmd.Wait()
 	}
 	return nil
 }

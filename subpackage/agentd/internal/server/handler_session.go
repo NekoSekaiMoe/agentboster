@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package server — handler_session.go
 //
 // Session lifecycle handlers split out of routes.go for navigation. These
