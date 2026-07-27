@@ -467,6 +467,11 @@ export async function chatWorkflow(
               type: 'control',
               command: payload.command,
               reason: payload.reason,
+              // Forward the optional checkpoint label so named checkpoints
+              // survive the queue. Without this, requestCheckpoint's label
+              // is dropped here and mapInstructionMessages() always sees
+              // undefined → the checkpoint degrades to an anonymous compact.
+              ...(payload.label ? { label: payload.label } : {}),
             });
             break;
         }

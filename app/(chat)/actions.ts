@@ -10,6 +10,7 @@ import {
   listSessions,
   updateSession,
   updateSessionForUser,
+  updateSessionMetadataKey,
 } from '@/lib/core/db/chat';
 import { cleanupChatSession } from '@/lib/chat/session-cleanup';
 import { stopSessionSandbox } from '@/lib/core/sandbox';
@@ -533,15 +534,18 @@ export async function saveSessionPersonaAction(input: {
   assertCanAccessOwnedResource(access, existing.userId);
 
   const agent = input.agent?.trim() || null;
-  const nextMetadata = { ...existing.metadata, agent };
 
-  if (access.isAdmin) {
-    await updateSession(sessionId, { metadata: nextMetadata });
-  } else {
-    await updateSessionForUser(sessionId, access.session.userId, {
-      metadata: nextMetadata,
-    });
-  }
+  // Atomically patch metadata.agent via jsonb_set instead of a read-modify-
+  // write of the whole metadata column. sessions.metadata is concurrently
+  // written by several paths (contextUsage, latestApproval, AGENTS.md
+  // persistence); a full-column `set({ metadata })` here would race and
+  // silently clobber one of those writes (TOCTOU).
+  await updateSessionMetadataKey(
+    sessionId,
+    access.isAdmin ? null : access.session.userId,
+    'agent',
+    agent,
+  );
 
   return { ok: true };
 }

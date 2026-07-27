@@ -436,8 +436,10 @@ function PureMultimodalInput({
           parts: nextParts,
         },
         {
-          ...(selectedModel ? { body: { model: selectedModel } } : {}),
-          ...(selectedAgent ? { body: { agent: selectedAgent } } : {}),
+          body: {
+            ...(selectedModel ? { model: selectedModel } : {}),
+            ...(selectedAgent ? { agent: selectedAgent } : {}),
+          },
         },
       );
 
@@ -639,6 +641,8 @@ export const MultimodalInput = memo(
     if (prevProps.selectedModel !== nextProps.selectedModel) return false;
     if (prevProps.allowedModels !== nextProps.allowedModels) return false;
     if (prevProps.onSelectModel !== nextProps.onSelectModel) return false;
+    if (prevProps.selectedAgent !== nextProps.selectedAgent) return false;
+    if (prevProps.onSelectAgent !== nextProps.onSelectAgent) return false;
 
     return true;
   },

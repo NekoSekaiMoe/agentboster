@@ -325,17 +325,25 @@ export async function compactAndPersistSummaryStep(input: {
     return compressed;
   }
 
-  if (current?.content !== compressed.summaryText) {
-    const checkpointMeta =
-      input.checkpointLabel !== undefined && input.checkpointLabel !== null
-        ? {
-            compactedAt: nowIso(),
-            checkpoint: {
-              label: input.checkpointLabel,
-              createdAt: nowIso(),
-            },
-          }
-        : { compactedAt: nowIso() };
+  // Whether this compaction was triggered as an explicit checkpoint.
+  // `checkpointLabel === undefined` = plain compaction (no checkpoint
+  // requested). `null` / string = a checkpoint WAS requested (anonymous
+  // or named). A checkpoint must ALWAYS leave a restore point, even when
+  // the summary text is unchanged — otherwise the user's explicit "save a
+  // checkpoint now" action silently no-ops when nothing changed.
+  const isCheckpoint = input.checkpointLabel !== undefined;
+  const summaryChanged = current?.content !== compressed.summaryText;
+
+  if (summaryChanged || isCheckpoint) {
+    const checkpointMeta = isCheckpoint
+      ? {
+          compactedAt: nowIso(),
+          checkpoint: {
+            label: input.checkpointLabel,
+            createdAt: nowIso(),
+          },
+        }
+      : { compactedAt: nowIso() };
     await writeSummaryFromCompaction({
       sessionId: input.sessionId,
       summaryText: compressed.summaryText,
@@ -345,16 +353,11 @@ export async function compactAndPersistSummaryStep(input: {
     await saveMessages([
       serializeSystemMessage({
         sessionId: input.sessionId,
-        text:
-          input.checkpointLabel !== undefined && input.checkpointLabel !== null
-            ? `Checkpoint saved: ${input.checkpointLabel}`
-            : 'Context compacted.',
+        text: isCheckpoint
+          ? `Checkpoint saved: ${input.checkpointLabel ?? 'auto'}`
+          : 'Context compacted.',
         metadata: {
-          type:
-            input.checkpointLabel !== undefined &&
-            input.checkpointLabel !== null
-              ? 'checkpoint'
-              : 'compaction',
+          type: isCheckpoint ? 'checkpoint' : 'compaction',
           ...checkpointMeta,
         },
         createdAt: new Date(),

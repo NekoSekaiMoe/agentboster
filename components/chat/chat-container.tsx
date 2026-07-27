@@ -849,6 +849,7 @@ export function Chat({
       selectedModel,
       sendComposerMessage,
       session,
+      sessionAgent,
       sessionState,
     ],
   );
@@ -862,7 +863,7 @@ export function Chat({
         ),
       );
     },
-    [regenerate, selectedModel],
+    [regenerate, selectedModel, sessionAgent],
   );
 
   const submitInlineFollowUp = useCallback(

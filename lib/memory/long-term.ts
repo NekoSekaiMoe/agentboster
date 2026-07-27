@@ -249,6 +249,19 @@ export async function listLongTermMemories(input?: {
   pageSize?: number;
   search?: string;
   userId?: string;
+  /**
+   * Project scope filter (same semantics as listLongTermMemoryRows):
+   * undefined/null = no filter, GLOBAL sentinel = global only, a real
+   * project id = that project + global. Forwarded so callers that write
+   * to a specific project scope (e.g. memory extraction) don't see a
+   * cross-project `existing` list that mismatches the write target.
+   *
+   * NOTE: only applied on the list (non-search) path. The hybrid-search
+   * path (searchLongTermMemories) does not yet accept a scope; callers
+   * that need scoped results should avoid passing `search` together
+   * with `projectIdScope`.
+   */
+  projectIdScope?: string | null;
 }) {
   const page = Math.max(1, input?.page ?? 1);
   const pageSize = Math.max(1, Math.min(input?.pageSize ?? 50, 100));
@@ -276,6 +289,7 @@ export async function listLongTermMemories(input?: {
     limit: pageSize,
     offset: (page - 1) * pageSize,
     userId: input?.userId,
+    projectIdScope: input?.projectIdScope,
   });
 }
 

@@ -3,7 +3,14 @@ import {
   getBuiltinMemorySection,
   listBuiltinMemorySections,
 } from '@/lib/memory';
-import { buildDeveloperProfileSection } from '@/lib/memory/profile';
+// NOTE: buildDeveloperProfileSection is intentionally NOT imported at the
+// top level. Its dependency graph pulls in lib/core/db/memory/long-term →
+// drizzle-orm + @/lib/core/db, which carry top-level node:* / third-party
+// deps that the workflow DevKit bundler rejects (fails the whole yarn
+// build). This file is reachable from a workflow body ('use step'), so we
+// isolate the DB-touching helper behind a dynamic import resolved at
+// runtime on the host. See AGENTS.md "Top-level node:* imports break the
+// workflow bundle".
 import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import type { AppConfig } from '@/types/config';
 import type { BotLocale } from '@/types/config/language';
@@ -208,6 +215,9 @@ export async function buildSystemPrompt(
   // "who I am". Not injected for delegated sub-agents — their job is a
   // narrow task, not user-facing personalization.
   if (!options.delegation) {
+    const { buildDeveloperProfileSection } = await import(
+      '@/lib/memory/profile'
+    );
     const profileSection = await buildDeveloperProfileSection(options.userId);
     if (profileSection) {
       sections.push(profileSection);
