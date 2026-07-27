@@ -16,10 +16,25 @@ package server
 import (
 	"log/slog"
 	"net/http"
+	"regexp"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
 	"github.com/gin-gonic/gin"
 )
+
+// validDurationRe matches the agreed "hhddmmyy" expiry format (8 digits).
+var validDurationRe = regexp.MustCompile(`^\d{8}$`)
+
+// isValidDuration reports whether a duration value is acceptable for
+// pass_until / reject_until. Allowed values: "always", "session", or an
+// 8-digit hhddmmyy expiry string.
+func isValidDuration(d string) bool {
+	switch d {
+	case "always", "session":
+		return true
+	}
+	return validDurationRe.MatchString(d)
+}
 
 // handleL2Confirm receives a user's L2 authorization decision (from the
 // ClawLess web UI) and publishes it onto the event bus.
@@ -78,6 +93,13 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 		if duration == "" {
 			duration = "always"
 		}
+		if !isValidDuration(duration) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "invalid duration value",
+			})
+			return
+		}
 		slog.Info("L2 pass_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
 		s.bus.Publish(eventbus.EventL2AuthApproved, map[string]any{
 			"task_id":  body.TaskID,
@@ -94,6 +116,13 @@ func (s *Server) handleL2Confirm(c *gin.Context) {
 		duration := body.Duration
 		if duration == "" {
 			duration = "always"
+		}
+		if !isValidDuration(duration) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "invalid duration value",
+			})
+			return
 		}
 		slog.Info("L2 reject_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
 		s.bus.Publish(eventbus.EventL2AuthRejected, map[string]any{

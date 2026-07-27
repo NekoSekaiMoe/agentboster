@@ -225,6 +225,7 @@ export function Chat({
     };
   }, []);
   const lastWorkflowEventKeyRef = useRef<string | null>(null);
+  const personaVersionRef = useRef(0);
   const [shouldResumeStream, setShouldResumeStream] = useState(false);
   const [runtimePollingResumeKey, setRuntimePollingResumeKey] = useState(0);
   const [isDeletingAccessDeniedSession, setIsDeletingAccessDeniedSession] =
@@ -274,12 +275,18 @@ export function Chat({
     (agent: string | null) => {
       setSessionAgent(agent);
       if (session) {
-        void saveSessionPersonaAction({ sessionId: id, agent }).catch(
-          (error) => {
+        // Bump version so concurrent in-flight saves from prior selections
+        // are discarded when they complete — only the latest wins.
+        const version = ++personaVersionRef.current;
+        void saveSessionPersonaAction({ sessionId: id, agent })
+          .then(() => {
+            if (personaVersionRef.current !== version) return;
+          })
+          .catch((error) => {
+            if (personaVersionRef.current !== version) return;
             console.warn('[chat] save session persona failed:', error);
             toast.error('Failed to save session persona.');
-          },
-        );
+          });
       }
     },
     [id, session],
@@ -701,9 +708,11 @@ export function Chat({
       });
 
       try {
+        const optionsBody = isRecord(options?.body) ? options.body : {};
         await ofetch(`/api/ai/${runId}/message`, {
           method: 'POST',
           body: {
+            ...optionsBody,
             type: 'user-message',
             message: extractTextFromParts(parts),
             parts,

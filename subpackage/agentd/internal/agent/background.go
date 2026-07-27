@@ -224,7 +224,10 @@ func StatusBackground(
 	if task.Status == "running" && probedDead {
 		task.Status = "completed"
 		task.CompletedAt = time.Now()
-		_ = store.Save(task)
+		if err := store.Save(task); err != nil {
+			slog.Warn("background: failed to persist status completion",
+				"id", task.ID, "error", err)
+		}
 	}
 
 	return status, true
@@ -289,7 +292,10 @@ func StopBackground(
 	// "agentd is done with it", not "the PID has been reaped".
 	task.Status = "completed"
 	task.CompletedAt = time.Now()
-	_ = store.Save(task)
+	if err := store.Save(task); err != nil {
+		slog.Warn("background: failed to persist stop completion",
+			"id", task.ID, "error", err)
+	}
 
 	// Escalate to SIGKILL in the background after the grace period. We
 	// snapshot the fields the goroutine needs so it doesn't race a later

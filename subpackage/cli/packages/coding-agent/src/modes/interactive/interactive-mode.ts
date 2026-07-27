@@ -2972,13 +2972,22 @@ export class InteractiveMode {
       // submission order under rapid re-entry without altering the
       // behavior of any individual branch inside.
       const run = () => this.runSubmit(text);
-      this.submitChain = this.submitChain.then(run, run);
+      this.submitChain = this.submitChain.then(run, run).catch((error) => {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        this.showError(`submit failed: ${message}`);
+      });
     };
   }
 
   private async runSubmit(rawText: string): Promise<void> {
     let text = rawText.trim();
     if (!text) return;
+
+    // Preserve the original user input (with literal @paths) for history
+    // entries. @mention expansion mutates `text` below but history should
+    // reflect what the user actually typed.
+    const originalText = text;
 
     // Expand inline `@file` mentions in NON-command messages only.
     // Slash commands (`/...`) and bash-mode (`!...`) must pass through
@@ -3036,6 +3045,7 @@ export class InteractiveMode {
     if (this.pendingEditVersion) {
       const edit = this.pendingEditVersion;
       this.pendingEditVersion = null;
+      this.editor.addToHistory?.(originalText);
       await this.submitVersionEdit(edit.entryId, edit.originalText, text);
       this.editor.setText('');
       return;
@@ -3245,7 +3255,7 @@ export class InteractiveMode {
     // Queue input during compaction (extension commands execute immediately)
     if (this.session.isCompacting) {
       if (this.isExtensionCommand(text)) {
-        this.editor.addToHistory?.(text);
+        this.editor.addToHistory?.(originalText);
         this.editor.setText('');
         await this.session.prompt(text);
       } else {
@@ -3257,7 +3267,7 @@ export class InteractiveMode {
     // If streaming, use prompt() with steer behavior
     // This handles extension commands (execute immediately), prompt template expansion, and queueing
     if (this.session.isStreaming) {
-      this.editor.addToHistory?.(text);
+      this.editor.addToHistory?.(originalText);
       this.editor.setText('');
       await this.session.prompt(text, { streamingBehavior: 'steer' });
       this.updatePendingMessagesDisplay();
@@ -3274,7 +3284,7 @@ export class InteractiveMode {
     } else {
       this.pendingUserInputs.push(text);
     }
-    this.editor.addToHistory?.(text);
+    this.editor.addToHistory?.(originalText);
     // Plan mode is a one-shot: after submitting, return to normal.
     if (this.isPlanMode) {
       this.isPlanMode = false;

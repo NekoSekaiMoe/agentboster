@@ -88,7 +88,7 @@ export const longTermMemories = pgTable(
     // means "global / cross-project" (the historical default). Modeled as
     // a free-text identifier (workspaces.project_id) rather than an FK so
     // memories survive workspace archival without cascading deletes.
-    projectId: text('project_id'),
+    projectId: text('project_id').default('__global__').notNull(),
     // Optional stable key for dedup during memory extraction. When set,
     // (userId, projectId, key) is unique so the extractor can upsert by
     // key within a scope. Manual memory writes (UI, writeMemory tool)
