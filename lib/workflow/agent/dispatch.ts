@@ -280,6 +280,13 @@ export async function startWorkflow(input: {
    * to chatWorkflow so it can override provider config for this run.
    */
   clientSpoof?: ClientSpoof;
+  /**
+   * Per-message agent/persona name from the Web UI preset picker.
+   * Forwarded to chatWorkflow, which validates it against config.agents
+   * and overrides MAIN_AGENT_NAME for this run when it matches. See
+   * chatWorkflow's param docs.
+   */
+  requestAgent?: string | null;
 }): Promise<{
   runId: string;
   readable: ReadableStream<WorkflowUIMessageChunk>;
@@ -302,6 +309,7 @@ export async function startWorkflow(input: {
       input.planMode,
       input.thinkingLevel,
       input.clientSpoof,
+      input.requestAgent,
     ]),
     new Promise<never>((_, reject) =>
       setTimeout(
@@ -418,6 +426,7 @@ export async function resumeWithMessage(
     type: 'control',
     command: payload.command,
     reason: payload.reason,
+    ...(payload.label ? { label: payload.label } : {}),
   });
 }
 
@@ -429,6 +438,30 @@ export async function requestCompact(runId: string): Promise<boolean> {
   await resumeWithMessage(runId, {
     type: 'control',
     command: 'compact',
+  });
+
+  return true;
+}
+
+/**
+ * Request an explicit named checkpoint. Equivalent to requestCompact but
+ * stamps `label` onto the resulting session_memories row metadata so the
+ * UI can surface it as a user-named restore point rather than an
+ * anonymous auto-compaction. Returns false when the run can't be resumed
+ * (already closed, etc.) — same contract as requestCompact.
+ */
+export async function requestCheckpoint(
+  runId: string,
+  label?: string,
+): Promise<boolean> {
+  if (!(await canResumeRun(runId))) {
+    return false;
+  }
+
+  await resumeWithMessage(runId, {
+    type: 'control',
+    command: 'checkpoint',
+    ...(label ? { label } : {}),
   });
 
   return true;

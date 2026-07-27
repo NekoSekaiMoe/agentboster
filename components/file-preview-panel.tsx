@@ -96,7 +96,7 @@ function PreviewBody({ file, kind }: { file: FileRecord; kind: PreviewKind }) {
     case 'image':
       return (
         <div className="flex min-h-full items-center justify-center bg-zinc-50 p-4 dark:bg-zinc-950/40">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: blob URLs are not compatible with next/image */}
           <img
             src={url}
             alt={file.fileName}

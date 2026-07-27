@@ -3,6 +3,14 @@ import {
   getBuiltinMemorySection,
   listBuiltinMemorySections,
 } from '@/lib/memory';
+// NOTE: buildDeveloperProfileSection is intentionally NOT imported at the
+// top level. Its dependency graph pulls in lib/core/db/memory/long-term →
+// drizzle-orm + @/lib/core/db, which carry top-level node:* / third-party
+// deps that the workflow DevKit bundler rejects (fails the whole yarn
+// build). This file is reachable from a workflow body ('use step'), so we
+// isolate the DB-touching helper behind a dynamic import resolved at
+// runtime on the host. See AGENTS.md "Top-level node:* imports break the
+// workflow bundle".
 import { listBuiltinMCPToolDescriptors } from '@/lib/workflow/agent/tools/mcp';
 import type { AppConfig } from '@/types/config';
 import type { BotLocale } from '@/types/config/language';
@@ -27,6 +35,15 @@ export type BuildSystemPromptOptions = {
   };
   responseLocale?: BotLocale;
   sessionId?: string;
+  /**
+   * The session owner's userId. Used to load the always-on developer
+   * profile (global preferences + high-importance personal facts) which
+   * is injected as a stable system-prompt section so the model applies
+   * them every turn. Read-only here; memory writes still go through the
+   * writeMemory tool. Omit / undefined suppresses the section (e.g.
+   * delegated sub-agents).
+   */
+  userId?: string;
   /**
    * Merged AGENTS.md content forwarded by the CLI host (and persisted on
    * session.metadata). When set, injected as a fenced "Project Instructions
@@ -189,6 +206,24 @@ export async function buildSystemPrompt(
       resolvedPrompt,
     ]),
   ];
+
+  // Always-on developer profile (global preferences / personal context).
+  // Skipped entirely when there is no userId or no qualifying memories —
+  // brand-new users see no section, and delegated sub-agents inherit the
+  // parent's context via the Delegation section below instead. Loaded
+  // AFTER Agent Identity so it reads as "who I'm talking to" rather than
+  // "who I am". Not injected for delegated sub-agents — their job is a
+  // narrow task, not user-facing personalization.
+  if (!options.delegation) {
+    const { buildDeveloperProfileSection } = await import(
+      '@/lib/memory/profile'
+    );
+    const profileSection = await buildDeveloperProfileSection(options.userId);
+    if (profileSection) {
+      sections.push(profileSection);
+    }
+  }
+
   const responseLanguageSection = buildResponseLanguageSection(
     options.responseLocale,
   );

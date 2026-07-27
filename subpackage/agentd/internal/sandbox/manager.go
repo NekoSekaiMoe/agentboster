@@ -31,6 +31,11 @@ const (
 type SandboxProvider interface {
 	Create(spec SandboxSpec) (*Sandbox, error)
 	Exec(sandboxID string, cmd string, env map[string]string, timeout int) (*ExecResult, error)
+	// ExecStream is the streaming variant of Exec — it returns a live
+	// stdout pipe instead of blocking until the child exits. See
+	// stream.go for the contract. Built-in providers always implement it;
+	// future minimal providers may return errExecStreamUnsupported.
+	ExecStream(sandboxID, cmd string, env map[string]string) (*ExecStreamHandle, error)
 	Destroy(sandboxID string) error
 	Status(sandboxID string) (*Sandbox, error)
 	Restart(sandboxID string) error
@@ -327,6 +332,25 @@ func (m *Manager) Exec(sandboxID, cmd string, env map[string]string, timeout int
 	}
 
 	return provider.Exec(sandboxID, cmd, env, timeout)
+}
+
+// ExecStream is the streaming variant of Exec — see SandboxProvider.
+// Routes to the sandbox's provider, returning errExecStreamUnsupported
+// when the provider doesn't implement streaming.
+func (m *Manager) ExecStream(sandboxID, cmd string, env map[string]string) (*ExecStreamHandle, error) {
+	m.mu.RLock()
+	sb, ok := m.sandboxes[sandboxID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("sandbox %q not found", sandboxID)
+	}
+
+	provider, err := m.GetProvider(sb.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	return provider.ExecStream(sandboxID, cmd, env)
 }
 
 // DestroySandbox destroys a sandbox.

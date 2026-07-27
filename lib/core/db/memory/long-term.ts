@@ -4,6 +4,7 @@ import {
   getHybridCandidateLimit,
   mergeHybridSearchCandidates,
 } from '@/lib/memory/search';
+import { resolveProjectId } from '@/lib/memory/scope';
 import { createLogger } from '@/lib/utils/logger';
 import {
   and,
@@ -53,6 +54,36 @@ function containsCjk(value: string) {
   return /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/u.test(value);
 }
 
+/**
+ * Build the projectId WHERE condition for recall/list queries.
+ *
+ * Semantics:
+ * - scope undefined / null → no filter (callers that don't care yet;
+ *   returns ALL memories, matching pre-project-scoping behavior).
+ * - scope = GLOBAL sentinel → only global memories.
+ * - scope = a real project id → that project's memories PLUS global ones.
+ *   This is the key design decision: when a user is working inside a
+ *   project, we never want to hide their global preferences/profile —
+ *   that would be a recall regression ("why did the agent forget I like
+ *   early-return?"). So project scope is an additive filter, not a
+ *   replacement.
+ */
+function buildProjectScopeCondition(projectIdScope?: string | null) {
+  if (projectIdScope === undefined || projectIdScope === null) {
+    return undefined;
+  }
+  const resolved = resolveProjectId(projectIdScope);
+  if (resolved === resolveProjectId(null)) {
+    // Only global.
+    return eq(schema.longTermMemories.projectId, resolved);
+  }
+  // Project + global.
+  return inArray(schema.longTermMemories.projectId, [
+    resolved,
+    resolveProjectId(null),
+  ]);
+}
+
 function escapeLikePattern(value: string) {
   return value
     .replaceAll('\\', '\\\\')
@@ -67,6 +98,7 @@ export async function createLongTermMemoryRow(
     importance?: number;
     userId?: string;
     key?: string;
+    projectId?: string | null;
   },
 ) {
   // Delegate to the bulk path so both write routes share a single field
@@ -79,6 +111,7 @@ export async function createLongTermMemoryRow(
       importance: options?.importance,
       userId: options?.userId,
       key: options?.key,
+      projectId: options?.projectId,
     },
   ]);
   return row;
@@ -98,6 +131,7 @@ export async function createLongTermMemoryRows(
     importance?: number;
     userId?: string;
     key?: string;
+    projectId?: string | null;
   }>,
 ) {
   if (rows.length === 0) return [];
@@ -107,6 +141,9 @@ export async function createLongTermMemoryRows(
       rows.map((r) => ({
         content: r.content,
         userId: r.userId ?? 'system',
+        // Always store the resolved sentinel for global memories — see
+        // lib/memory/scope.ts for why NULL is forbidden.
+        projectId: resolveProjectId(r.projectId),
         memoryType: r.memoryType ?? 'fact',
         importance: r.importance ?? 5,
         ...(r.key ? { key: r.key } : {}),
@@ -137,6 +174,7 @@ export async function upsertLongTermMemoryByKey(input: {
   content: string;
   memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
   importance?: number;
+  projectId?: string | null;
 }): Promise<{
   row: Awaited<ReturnType<typeof createLongTermMemoryRow>>;
   created: boolean;
@@ -147,9 +185,12 @@ export async function upsertLongTermMemoryByKey(input: {
       userId: input.userId,
       memoryType: input.memoryType,
       importance: input.importance,
+      projectId: input.projectId,
     });
     return { row, created: true };
   }
+
+  const resolvedProjectId = resolveProjectId(input.projectId);
 
   const [existing] = await db
     .select({ id: schema.longTermMemories.id })
@@ -157,6 +198,7 @@ export async function upsertLongTermMemoryByKey(input: {
     .where(
       and(
         eq(schema.longTermMemories.userId, input.userId),
+        eq(schema.longTermMemories.projectId, resolvedProjectId),
         eq(schema.longTermMemories.key, trimmedKey),
       ),
     )
@@ -181,6 +223,7 @@ export async function upsertLongTermMemoryByKey(input: {
     memoryType: input.memoryType,
     importance: input.importance,
     key: trimmedKey,
+    projectId: input.projectId,
   });
   return { row, created: true };
 }
@@ -207,6 +250,7 @@ export async function listLongTermMemoryRows(options?: {
   limit?: number;
   offset?: number;
   userId?: string;
+  projectIdScope?: string | null;
 }) {
   const safeLimit = Math.max(1, Math.min(options?.limit ?? 100, 200));
   const safeOffset = Math.max(0, options?.offset ?? 0);
@@ -214,6 +258,10 @@ export async function listLongTermMemoryRows(options?: {
   const conditions: ReturnType<typeof eq>[] = [];
   if (options?.userId) {
     conditions.push(eq(schema.longTermMemories.userId, options.userId));
+  }
+  const scopeCondition = buildProjectScopeCondition(options?.projectIdScope);
+  if (scopeCondition) {
+    conditions.push(scopeCondition);
   }
 
   return db
@@ -225,10 +273,17 @@ export async function listLongTermMemoryRows(options?: {
     .offset(safeOffset);
 }
 
-export async function listAllLongTermMemoryRows(options?: { userId?: string }) {
+export async function listAllLongTermMemoryRows(options?: {
+  userId?: string;
+  projectIdScope?: string | null;
+}) {
   const conditions: ReturnType<typeof eq>[] = [];
   if (options?.userId) {
     conditions.push(eq(schema.longTermMemories.userId, options.userId));
+  }
+  const scopeCondition = buildProjectScopeCondition(options?.projectIdScope);
+  if (scopeCondition) {
+    conditions.push(scopeCondition);
   }
 
   return db
@@ -308,6 +363,7 @@ export async function deleteLongTermMemoryRow(
 export async function deleteLongTermMemoryByKey(input: {
   userId: string;
   key: string;
+  projectId?: string | null;
 }) {
   const trimmedKey = input.key.trim();
   if (!trimmedKey) {
@@ -319,6 +375,10 @@ export async function deleteLongTermMemoryByKey(input: {
     .where(
       and(
         eq(schema.longTermMemories.userId, input.userId),
+        eq(
+          schema.longTermMemories.projectId,
+          resolveProjectId(input.projectId),
+        ),
         eq(schema.longTermMemories.key, trimmedKey),
       ),
     )
@@ -383,6 +443,7 @@ async function listKeywordCandidateRows(options: {
   searchText: string;
   candidateLimit: number;
   userId?: string;
+  projectIdScope?: string | null;
 }) {
   const normalizedSearchText = options.searchText.trim();
   const likePattern = `%${escapeLikePattern(normalizedSearchText)}%`;
@@ -392,6 +453,12 @@ async function listKeywordCandidateRows(options: {
   const userIdCondition = userId
     ? eq(schema.longTermMemories.userId, userId)
     : undefined;
+  const scopeCondition = buildProjectScopeCondition(options.projectIdScope);
+  // projectId scope lives on long_term_memories, so any scope filter forces
+  // the join even when the caller didn't pass a userId (otherwise the
+  // un-joined query would silently ignore the scope and leak cross-project
+  // memories into recall).
+  const needsJoin = Boolean(userId) || Boolean(scopeCondition);
 
   const baseSelect = {
     chunkId: schema.longTermMemoryChunks.id,
@@ -399,25 +466,29 @@ async function listKeywordCandidateRows(options: {
     content: schema.longTermMemoryChunks.content,
   };
 
-  if (useSubstringFallback) {
-    const substringScoreExpr = sql<number>`case when ${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\' then 1 else 0 end`;
+  const tsQueryExpr = sql`websearch_to_tsquery('simple', ${normalizedSearchText})`;
+  const keywordScoreExpr = sql<number>`coalesce(ts_rank(${schema.longTermMemoryChunks.tsv}, ${tsQueryExpr}, 32), 0)`;
+  const substringScoreExpr = sql<number>`case when ${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\' then 1 else 0 end`;
 
-    const baseQuery = db
-      .select({ ...baseSelect, keywordScore: substringScoreExpr })
-      .from(schema.longTermMemoryChunks);
-
-    const query = userId
-      ? baseQuery.innerJoin(
+  const joinMemories = <T extends Parameters<typeof db.select>[0]>(
+    selectCols: T,
+  ) => {
+    const base = db.select(selectCols).from(schema.longTermMemoryChunks);
+    return needsJoin
+      ? base.innerJoin(
           schema.longTermMemories,
           eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
         )
-      : baseQuery;
+      : base;
+  };
 
-    return query
+  if (useSubstringFallback) {
+    return joinMemories({ ...baseSelect, keywordScore: substringScoreExpr })
       .where(
         and(
           sql`${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\'`,
           userIdCondition,
+          scopeCondition,
         ),
       )
       .orderBy(
@@ -427,52 +498,30 @@ async function listKeywordCandidateRows(options: {
       .limit(options.candidateLimit);
   }
 
-  const tsQueryExpr = sql`websearch_to_tsquery('simple', ${normalizedSearchText})`;
-  const keywordScoreExpr = sql<number>`coalesce(ts_rank(${schema.longTermMemoryChunks.tsv}, ${tsQueryExpr}, 32), 0)`;
-
-  const mainQuery = db
-    .select({ ...baseSelect, keywordScore: keywordScoreExpr })
-    .from(schema.longTermMemoryChunks);
-
-  const query = userId
-    ? mainQuery.innerJoin(
-        schema.longTermMemories,
-        eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
-      )
-    : mainQuery;
-
-  const rows = await query
+  const mainRows = await joinMemories({
+    ...baseSelect,
+    keywordScore: keywordScoreExpr,
+  })
     .where(
       and(
         sql`${schema.longTermMemoryChunks.tsv} @@ ${tsQueryExpr}`,
         userIdCondition,
+        scopeCondition,
       ),
     )
     .orderBy(sql`${keywordScoreExpr} DESC`)
     .limit(options.candidateLimit);
 
-  if (rows.length > 0) {
-    return rows;
+  if (mainRows.length > 0) {
+    return mainRows;
   }
 
-  const substringScoreExpr = sql<number>`case when ${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\' then 1 else 0 end`;
-
-  const fallbackMainQuery = db
-    .select({ ...baseSelect, keywordScore: substringScoreExpr })
-    .from(schema.longTermMemoryChunks);
-
-  const fallbackQuery = userId
-    ? fallbackMainQuery.innerJoin(
-        schema.longTermMemories,
-        eq(schema.longTermMemoryChunks.memoryId, schema.longTermMemories.id),
-      )
-    : fallbackMainQuery;
-
-  return fallbackQuery
+  return joinMemories({ ...baseSelect, keywordScore: substringScoreExpr })
     .where(
       and(
         sql`${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\'`,
         userIdCondition,
+        scopeCondition,
       ),
     )
     .orderBy(
@@ -491,6 +540,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
   limit: number;
   offset: number;
   userId?: string;
+  projectIdScope?: string | null;
 }): Promise<HybridSearchRow[]> {
   const {
     queryEmbedding,
@@ -501,6 +551,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
     limit,
     offset,
     userId,
+    projectIdScope,
   } = options;
 
   const hasEmbedding = queryEmbedding && queryEmbedding.length > 0;
@@ -536,6 +587,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
       searchText: normalizedSearchText,
       candidateLimit,
       userId,
+      projectIdScope,
     });
     const mergedRows = mergeHybridSearchCandidates({
       vectorRows: [],
@@ -563,6 +615,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
       searchText: normalizedSearchText,
       candidateLimit,
       userId,
+      projectIdScope,
     });
     const mergedRows = mergeHybridSearchCandidates({
       vectorRows: [],
@@ -601,6 +654,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
       searchText: normalizedSearchText,
       candidateLimit,
       userId,
+      projectIdScope,
     });
     const mergedRows = mergeHybridSearchCandidates({
       vectorRows: [],
@@ -648,6 +702,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
           activeVectorDimensions,
         ),
         userId ? eq(schema.longTermMemories.userId, userId) : undefined,
+        buildProjectScopeCondition(projectIdScope),
       ),
     )
     .orderBy(sql`${vectorScoreExpr} DESC`)
@@ -686,6 +741,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
     searchText: normalizedSearchText,
     candidateLimit,
     userId,
+    projectIdScope,
   });
 
   logger.info('hybrid_search:keyword_candidates', {

@@ -21,7 +21,9 @@ vi.mock('@/lib/core/db/chat', () => ({
 // DAL stubs for the submit path: assertCanAccessPlan (ownership),
 // getPlan (returns the plan with items), synthesizePlanInstruction (pure),
 // markPlanSubmitted (DB write).
+// biome-ignore lint/suspicious/noExplicitAny: mock signature is intentionally permissive
 const assertCanAccessPlanMock = vi.fn<any>(async () => undefined);
+// biome-ignore lint/suspicious/noExplicitAny: mock signature is intentionally permissive
 const markPlanSubmittedMock = vi.fn<any>(async () => undefined);
 let mockPlan: {
   id: string;
@@ -49,6 +51,7 @@ let mockPlan: {
     { itemId: 'item-2', agentName: 'writer', task: 'draft report' },
   ],
 };
+// biome-ignore lint/suspicious/noExplicitAny: mock signature is intentionally permissive
 const getPlanMock = vi.fn<any>(async () => mockPlan);
 vi.mock('@/lib/core/db/agent-orchestration-plans', () => ({
   assertCanAccessPlan: (...args: unknown[]) => assertCanAccessPlanMock(...args),
@@ -152,6 +155,7 @@ describe('POST /api/cli/sessions/:id/orchestration/plans/:planId/submit', () => 
 
   it('returns 400 when plan has no items', async () => {
     mockPlan = {
+      // biome-ignore lint/style/noNonNullAssertion: mockPlan is reset by beforeEach before this test
       ...mockPlan!,
       items: [],
     };

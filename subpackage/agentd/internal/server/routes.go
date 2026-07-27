@@ -1,11 +1,11 @@
+//go:build linux
+
 package server
 
 import (
 	"context"
 	"log/slog"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent"
@@ -28,6 +28,7 @@ type Server struct {
 	agentMgr   *agent.Manager
 	l2Mgr      *l2_auth.L2AuthManager
 	startTime  time.Time
+	version    string
 }
 
 // NewServer creates a new HTTP server with all dependencies.
@@ -39,6 +40,7 @@ func NewServer(
 	cacheManager *cache.Manager,
 	agentMgr *agent.Manager,
 	l2Mgr *l2_auth.L2AuthManager,
+	version string,
 ) *Server {
 	return &Server{
 		cfg:        cfg,
@@ -49,10 +51,18 @@ func NewServer(
 		agentMgr:   agentMgr,
 		l2Mgr:      l2Mgr,
 		startTime:  time.Now(),
+		version:    version,
 	}
 }
 
 // RegisterRoutes registers all API routes on the given gin engine.
+//
+// Handler bodies live in this file (small / stateless ones) or in
+// dedicated handler_*.go files grouped by resource (sessions, memories,
+// L2, subagents, checkpoints, advisor, mcp, processes, tunnels, vnc).
+// This file is only the wiring table + the few handlers too small to
+// justify their own file (health, metrics, tasks, agent-config, L0
+// rules, sandboxes, llm-proxy, the tool-exec wrappers).
 func (s *Server) RegisterRoutes(r *gin.Engine) {
 	// Global middleware
 	r.Use(CORSMiddleware())
@@ -116,6 +126,27 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		// Desktop VNC proxy (WebSocket tunnel to container's websockify)
 		v1.GET("/desktop/vnc", s.handleVNCProxy)
 
+		// Long-lived managed processes (ref_liveagent.md §2.1). Backed by
+		// the persistent BackgroundTaskStore via the shared helpers in
+		// internal/agent/background.go; /processes/:id/stream is a real
+		// SSE tail over the process log (falls back to polling for
+		// providers without ExecStream).
+		v1.POST("/processes", s.handleStartProcess)
+		v1.GET("/processes", s.handleListProcesses)
+		v1.GET("/processes/:id", s.handleGetProcess)
+		v1.DELETE("/processes/:id", s.handleStopProcess)
+		v1.GET("/processes/:id/stream", s.handleProcessStream)
+
+		// Public-URL tunnels to sandbox-internal ports (ref_liveagent.md
+		// §2.2). Create / list / delete + the byte relay are all live;
+		// tunnels persist across daemon restarts via persistence.TunnelStore,
+		// the relay supports N concurrent connections, and an idle reaper
+		// garbage-collects abandoned slugs. See tunnels.go for details.
+		v1.POST("/tunnels", s.handleCreateTunnel)
+		v1.GET("/tunnels", s.handleListTunnels)
+		v1.DELETE("/tunnels/:id", s.handleDeleteTunnel)
+		v1.GET("/t/:slug/*path", s.handleTunnelProxy)
+
 		// Synchronous tool execution (called by ClawLess web when agentd is primary)
 		v1.POST("/tools/exec", s.handleToolExec)
 		// P2.1: Streaming exec output via SSE for long-running commands.
@@ -166,7 +197,7 @@ func (s *Server) handleHealth(c *gin.Context) {
 	data := gin.H{
 		"status":    "ok",
 		"timestamp": time.Now().UTC(),
-		"version":   "0.1.0",
+		"version":   s.version,
 		"uptime":    time.Since(s.startTime).String(),
 	}
 
@@ -260,121 +291,6 @@ func (s *Server) handleUpdateTask(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// handleGetSession returns a session.
-func (s *Server) handleGetSession(c *gin.Context) {
-	id := c.Param("id")
-	session, err := s.clawless.GetSession(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": session})
-}
-
-// handleUpdateSession updates a session.
-func (s *Server) handleUpdateSession(c *gin.Context) {
-	var session clawless.Session
-	if err := c.ShouldBindJSON(&session); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	if err := s.clawless.UpdateSession(c.Request.Context(), &session); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-// handleDeleteSession deletes a session.
-func (s *Server) handleDeleteSession(c *gin.Context) {
-	id := c.Param("id")
-	if err := s.clawless.DeleteSession(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-// handleWriteReviewLogs writes security review logs.
-func (s *Server) handleWriteReviewLogs(c *gin.Context) {
-	var logs []clawless.ReviewLog
-	if err := c.ShouldBindJSON(&logs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	if err := s.clawless.WriteReviewLogs(c.Request.Context(), logs); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-// handleGetMemories searches memories.
-func (s *Server) handleGetMemories(c *gin.Context) {
-	agentID := c.Query("agent_id")
-	limit := 10
-	if rawLimit := c.Query("limit"); rawLimit != "" {
-		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
-	var keywords []string
-	if rawKeywords := c.Query("keywords"); rawKeywords != "" {
-		for _, keyword := range strings.Split(rawKeywords, ",") {
-			if trimmed := strings.TrimSpace(keyword); trimmed != "" {
-				keywords = append(keywords, trimmed)
-			}
-		}
-	}
-	memories, err := s.clawless.GetMemories(c.Request.Context(), agentID, keywords, limit, clawless.MemoryScope{
-		TaskID:    c.Query("task_id"),
-		SessionID: c.Query("session_id"),
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": memories})
-}
-
-// handleWriteMemories writes memories.
-func (s *Server) handleWriteMemories(c *gin.Context) {
-	var body struct {
-		TaskID    string            `json:"task_id"`
-		SessionID string            `json:"session_id"`
-		Memories  []clawless.Memory `json:"memories"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	if len(body.Memories) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "memories cannot be empty"})
-		return
-	}
-	if err := s.clawless.WriteMemories(c.Request.Context(), body.Memories, clawless.MemoryScope{
-		TaskID:    body.TaskID,
-		SessionID: body.SessionID,
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-// handleDeleteMemory deletes a memory.
-func (s *Server) handleDeleteMemory(c *gin.Context) {
-	id := c.Param("id")
-	if err := s.clawless.DeleteMemory(c.Request.Context(), id, clawless.MemoryScope{
-		TaskID:    c.Query("task_id"),
-		SessionID: c.Query("session_id"),
-	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
 // handleGetAgentConfig returns agent configuration.
 func (s *Server) handleGetAgentConfig(c *gin.Context) {
 	id := c.Param("id")
@@ -450,187 +366,6 @@ func (s *Server) handleLLMProxy(c *gin.Context) {
 	}
 
 	c.Data(http.StatusOK, "application/json", data)
-}
-
-// ── Session Management ──────────────────────────────────────────────
-
-func (s *Server) handleListSessions(c *gin.Context) {
-	store := s.agentMgr.GetSessionStore()
-	sessions := store.List(5)
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": sessions})
-}
-
-func (s *Server) handleSwitchSession(c *gin.Context) {
-	var body struct {
-		CurrentSessionID string `json:"current_session_id"`
-		NewSessionID     string `json:"new_session_id"`
-		AgentID          string `json:"agent_id"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	ctx, err := s.agentMgr.SwitchSession(body.CurrentSessionID, body.NewSessionID, body.AgentID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	s.l2Mgr.SetSession(body.NewSessionID)
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"session_id": ctx.SessionID,
-			"agent_id":   ctx.AgentID,
-		},
-	})
-}
-
-func (s *Server) handleCloseSession(c *gin.Context) {
-	var body struct {
-		SessionID string `json:"session_id"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	if err := s.agentMgr.CloseSession(body.SessionID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-func (s *Server) handleDestroySession(c *gin.Context) {
-	sessionID := c.Param("id")
-
-	if err := s.agentMgr.DestroySession(sessionID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-// ── L2 Authorization Confirm ────────────────────────────────────────
-
-func (s *Server) handleL2Confirm(c *gin.Context) {
-	var body struct {
-		TaskID     string `json:"task_id"`
-		DecisionID string `json:"decision_id"`
-		Action     string `json:"action"` // pass_once | pass_until | reject_once | reject_until
-		Pattern    string `json:"pattern"`
-		Duration   string `json:"duration"` // once | always | hhddmmyy
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	switch body.Action {
-	case "pass_once":
-		slog.Info("L2 pass_once", "task_id", body.TaskID, "pattern", body.Pattern)
-		s.bus.Publish(eventbus.EventL2AuthApproved, map[string]any{
-			"task_id":  body.TaskID,
-			"command":  body.Pattern,
-			"action":   "pass",
-			"duration": "once",
-		})
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    gin.H{"message": "✅ 已放行。任务继续执行。"},
-		})
-
-	case "reject_once":
-		slog.Info("L2 reject_once", "task_id", body.TaskID, "pattern", body.Pattern)
-		s.bus.Publish(eventbus.EventL2AuthRejected, map[string]any{
-			"task_id":  body.TaskID,
-			"command":  body.Pattern,
-			"action":   "reject",
-			"duration": "once",
-		})
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    gin.H{"message": "❌ 已拒绝。任务已取消。"},
-		})
-
-	case "pass_until":
-		duration := body.Duration
-		if duration == "" {
-			duration = "always"
-		}
-		slog.Info("L2 pass_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
-		s.bus.Publish(eventbus.EventL2AuthApproved, map[string]any{
-			"task_id":  body.TaskID,
-			"command":  body.Pattern,
-			"action":   "pass",
-			"duration": duration,
-		})
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    gin.H{"message": "✅ 已放行至指定时间。"},
-		})
-
-	case "reject_until":
-		duration := body.Duration
-		if duration == "" {
-			duration = "always"
-		}
-		slog.Info("L2 reject_until", "task_id", body.TaskID, "pattern", body.Pattern, "duration", duration)
-		s.bus.Publish(eventbus.EventL2AuthRejected, map[string]any{
-			"task_id":  body.TaskID,
-			"command":  body.Pattern,
-			"action":   "reject",
-			"duration": duration,
-		})
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data":    gin.H{"message": "🔕 已拒绝至指定时间。"},
-		})
-
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "Unknown action: " + body.Action,
-		})
-	}
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-// ── Session Runtime Control ──────────────────────────────────────────
-
-func (s *Server) handleSessionStatus(c *gin.Context) {
-	sessionID := c.Query("session_id")
-
-	if sessionID != "" {
-		status, ok := s.agentMgr.GetSessionStatus(sessionID)
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "session not found"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": status})
-		return
-	}
-
-	statuses := s.agentMgr.GetAllSessionStatuses()
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": statuses})
-}
-
-func (s *Server) handleAbortSession(c *gin.Context) {
-	sessionID := c.Param("id")
-
-	ok := s.agentMgr.AbortSession(sessionID)
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "session not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 // ── Synchronous Tool Execution ──────────────────────────────────────

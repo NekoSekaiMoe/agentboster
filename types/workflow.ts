@@ -551,8 +551,10 @@ export const chatHookPayloadSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('control'),
-    command: z.enum(['compact', 'cancel']),
+    command: z.enum(['compact', 'cancel', 'checkpoint']),
     reason: z.string().optional(),
+    /** Optional label for a checkpoint command; ignored otherwise. */
+    label: z.string().optional(),
   }),
 ]);
 

@@ -11,6 +11,7 @@ import {
   listBuiltinMemorySectionsAction,
   listLongTermMemoriesAction,
   listMemoryAuthorsAction,
+  listProjectMemoryGroupsAction,
   listSessionSummariesAction,
   setSessionSoulAction,
   updateBuiltinMemorySectionAction,
@@ -39,7 +40,7 @@ import {
   SOUL_MEMORY_MAX_LENGTH,
 } from '@/types/memory/builtin';
 
-type Scope = 'builtin' | 'long_term' | 'session' | 'soul';
+type Scope = 'builtin' | 'long_term' | 'session' | 'soul' | 'projects';
 
 const BUILTIN_KEYS = ['AGENTS', 'SOUL', 'IDENTITY', 'USER'] as const;
 
@@ -79,29 +80,32 @@ export default function MemoryPage() {
 
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
         <div className="flex flex-wrap items-center gap-2">
-          {(['builtin', 'soul', 'long_term', 'session'] as Scope[]).map(
-            (scope) => (
-              <Button
-                key={scope}
-                size="sm"
-                variant={activeScope === scope ? 'default' : 'secondary'}
-                onClick={() => setActiveScope(scope)}
-              >
-                {scope === 'builtin'
-                  ? 'Builtin'
-                  : scope === 'soul'
-                    ? 'SOUL.md'
-                    : scope === 'long_term'
-                      ? 'Long-term'
+          {(
+            ['builtin', 'soul', 'long_term', 'projects', 'session'] as Scope[]
+          ).map((scope) => (
+            <Button
+              key={scope}
+              size="sm"
+              variant={activeScope === scope ? 'default' : 'secondary'}
+              onClick={() => setActiveScope(scope)}
+            >
+              {scope === 'builtin'
+                ? 'Builtin'
+                : scope === 'soul'
+                  ? 'SOUL.md'
+                  : scope === 'long_term'
+                    ? 'Long-term'
+                    : scope === 'projects'
+                      ? 'Projects'
                       : 'Session'}
-              </Button>
-            ),
-          )}
+            </Button>
+          ))}
         </div>
 
         {activeScope === 'builtin' && <BuiltinPanel />}
         {activeScope === 'soul' && <SoulPanel />}
         {activeScope === 'long_term' && <LongTermPanel />}
+        {activeScope === 'projects' && <ProjectsPanel />}
         {activeScope === 'session' && <SessionPanel />}
       </div>
     </div>
@@ -711,6 +715,169 @@ function LongTermPanel() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+/* ─── Projects Panel ───────────────────────────────────────────── */
+
+interface ProjectMemoryEntryUI {
+  id: string;
+  content: string;
+  memoryType: 'fact' | 'preference' | 'decision' | 'conversation';
+  importance: number;
+  updatedAt: string;
+}
+
+interface ProjectMemoryGroupUI {
+  projectId: string;
+  label: string;
+  isGlobal: boolean;
+  memoryCount: number;
+  memories: ProjectMemoryEntryUI[];
+}
+
+const MEMORY_TYPE_BADGE: Record<ProjectMemoryEntryUI['memoryType'], string> = {
+  fact: 'bg-blue-500/10 text-blue-600',
+  preference: 'bg-purple-500/10 text-purple-600',
+  decision: 'bg-amber-500/10 text-amber-600',
+  conversation: 'bg-gray-500/10 text-gray-600',
+};
+
+function ProjectsPanel() {
+  const [groups, setGroups] = useState<ProjectMemoryGroupUI[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+    // Expand the global group by default — most users start there.
+    __global__: true,
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await listProjectMemoryGroupsAction();
+      setGroups(data.groups ?? []);
+    } catch {
+      toast.error('Failed to load project memory view');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Card key={`proj-skeleton-${i}`}>
+            <CardHeader className="pb-2">
+              <Skeleton className="h-4 w-32" />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-12 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (groups.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
+        No project-scoped memories yet. Memories written with a project context
+        will appear here grouped by project.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="space-y-2">
+          <CardTitle className="text-base">Project Memories</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Long-term memories grouped by the project they belong to. The agent
+            uses these to keep project context across sessions. Click a project
+            to expand its memories.
+          </p>
+        </CardHeader>
+      </Card>
+
+      {groups.map((group) => {
+        const isOpen = expanded[group.projectId] ?? false;
+        return (
+          <Card key={group.projectId}>
+            <CardHeader className="pb-2">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between text-left"
+                onClick={() =>
+                  setExpanded((prev) => ({
+                    ...prev,
+                    [group.projectId]: !isOpen,
+                  }))
+                }
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-medium font-mono text-sm">
+                    {group.label}
+                  </span>
+                  {group.isGlobal ? (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+                      global
+                    </span>
+                  ) : null}
+                </div>
+                <span className="text-muted-foreground text-xs">
+                  {group.memoryCount}{' '}
+                  {group.memoryCount === 1 ? 'memory' : 'memories'}
+                </span>
+              </button>
+            </CardHeader>
+            {isOpen && (
+              <CardContent className="space-y-2 pt-0">
+                {group.memories.length === 0 ? (
+                  <p className="text-muted-foreground text-xs">
+                    No memories in this project.
+                  </p>
+                ) : (
+                  group.memories.map((m) => (
+                    <div
+                      key={m.id}
+                      className="rounded-md border bg-muted/20 p-2 text-sm"
+                    >
+                      <div className="mb-1 flex items-center gap-2">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${MEMORY_TYPE_BADGE[m.memoryType]}`}
+                        >
+                          {m.memoryType}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          importance {m.importance}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(m.updatedAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="whitespace-pre-wrap">{m.content}</p>
+                    </div>
+                  ))
+                )}
+                {group.memoryCount > group.memories.length ? (
+                  <p className="text-muted-foreground text-xs">
+                    + {group.memoryCount - group.memories.length} more — open
+                    the Long-term tab to search all memories.
+                  </p>
+                ) : null}
+              </CardContent>
+            )}
+          </Card>
+        );
+      })}
     </div>
   );
 }

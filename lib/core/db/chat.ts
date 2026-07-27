@@ -4,7 +4,7 @@ import type {
 } from '@/lib/chat/message-utils';
 import { db, schema } from '@/lib/core/db';
 import { createLogger } from '@/lib/utils/logger';
-import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 
 const logger = createLogger('db.chat');
 
@@ -177,6 +177,66 @@ export async function updateSessionForUser(
         eq(schema.sessions.userId, userId),
       ),
     )
+    .returning();
+
+  return session ?? null;
+}
+
+/**
+ * Atomically patch a single key on sessions.metadata via jsonb_set, avoiding
+ * the read-modify-write race that a full-column `set({ metadata })` has
+ * when other writers (workflow contextUsage, approval state, AGENTS.md
+ * persistence, …) touch the same jsonb concurrently. `value` is serialized
+ * to jsonb server-side; passing `null` stores JSON null into the key
+ * (clearing a previously-set value), matching saveSessionPersonaAction's
+ * `agent || null` semantics.
+ *
+ * NOTE: the null branch must produce a JSONB null literal, not SQL NULL.
+ * `to_jsonb(NULL::text)` evaluates to SQL NULL (not JSON null), and when
+ * passed as jsonb_set's `new_value` it replaces the whole target with SQL
+ * NULL — wiping the entire metadata column instead of just one key.
+ * `'null'::jsonb` is the correct JSONB null literal.
+ *
+ * Returns the updated row or null (not-found / owner mismatch).
+ */
+export async function updateSessionMetadataKey(
+  sessionId: string,
+  userId: string | null,
+  key: string,
+  value: string | null,
+) {
+  // Validate key: jsonb_set's path is a text array literal '{key}', and we
+  // build it by interpolation, so the key MUST be a plain identifier to
+  // avoid SQL injection. This regex is deliberately strict.
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+    throw new Error(`invalid metadata key: ${key}`);
+  }
+
+  const whereClause =
+    userId === null
+      ? eq(schema.sessions.id, sessionId)
+      : and(
+          eq(schema.sessions.id, sessionId),
+          eq(schema.sessions.userId, userId),
+        );
+
+  // jsonb_set(target, text[], new_value, create_if_missing=true).
+  // - path: '{key}' as a raw literal (validated above).
+  // - new_value: to_jsonb(<str>::text) → JSON string; or 'null'::jsonb →
+  //   the JSONB null literal when value is null. Do NOT use
+  //   to_jsonb(NULL::text) — that yields SQL NULL, which jsonb_set would
+  //   propagate to the whole target column instead of just one key.
+  const pathLiteral = `{${key}}`;
+  const newValue =
+    value === null ? sql`'null'::jsonb` : sql`to_jsonb(${value}::text)`;
+
+  const [session] = await db
+    .update(schema.sessions)
+    .set({
+      metadata: sql`jsonb_set(${schema.sessions.metadata}, ${pathLiteral}::text[], ${newValue}, true)`,
+      updatedAt: new Date(),
+    })
+    .where(whereClause)
     .returning();
 
   return session ?? null;

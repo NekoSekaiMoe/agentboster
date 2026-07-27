@@ -127,6 +127,14 @@ type LegacyChatMainRequest = {
    */
   requestModel?: string;
   /**
+   * Per-message agent/persona name from the chat-box preset picker. When
+   * set, overrides the hardcoded MAIN_AGENT_NAME ('main') for this single
+   * run so the Web UI can switch between presets defined in config.agents.
+   * Falls back to 'main' when absent. Validated against config.agents keys
+   * in chatWorkflow — unknown names fall back to main rather than throwing.
+   */
+  requestAgent?: string;
+  /**
    * Merged AGENTS.md content forwarded by the CLI host. Persisted onto
    * `session.metadata.agentsMd` on first arrival so subsequent regenerations
    * re-read it from the DB rather than asking the CLI to resend. Only set by
@@ -341,6 +349,23 @@ function readSessionAgentsMd(
 ): string | undefined {
   if (!metadata) return undefined;
   const value = metadata.agentsMd;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * Read the session-persisted persona pick (set by the Web UI persona
+ * picker via saveSessionPersonaAction). Used as a fallback on regenerate
+ * when the request body doesn't carry an explicit `agent`. Returns
+ * undefined when no persona has been chosen (the workflow then uses
+ * MAIN_AGENT_NAME).
+ */
+function readSessionAgent(
+  metadata: Record<string, unknown> | null | undefined,
+): string | undefined {
+  if (!metadata) return undefined;
+  const value = metadata.agent;
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
@@ -1877,6 +1902,12 @@ export async function chatMain(
     // resolver, so passing effectiveModelId here would be redundant and
     // would mask the "request actually came from picker" intent in logs.
     requestModel: request.requestModel,
+    // Forward the per-message persona pick from the Web UI preset picker.
+    // chatWorkflow validates this against config.agents and falls back to
+    // MAIN_AGENT_NAME when unset / unknown. Empty for CLI/IM (they don't
+    // switch personas yet). On regenerate the picker state may be missing
+    // from the body, so fall back to the session-persisted pick.
+    requestAgent: request.requestAgent ?? readSessionAgent(session.metadata),
     // Inject the CLI-forwarded AGENTS.md content (now persisted on the
     // session). chatWorkflow forwards it to buildSystemPrompt for CLI
     // sources only; web/IM sessions never set this.

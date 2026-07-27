@@ -34,6 +34,13 @@ export interface RegistrarCapabilitiesView {
   scaleFactor: number;
 }
 
+export interface RegistrarMcpServer {
+  name: string;
+  command: string[];
+  env?: Record<string, string>;
+  transport: 'stdio';
+}
+
 export interface RegistrarStartOptions {
   backendUrl: string;
   token: string;
@@ -42,6 +49,14 @@ export interface RegistrarStartOptions {
   capabilities: LocalCapabilities;
   /** cwd to advertise (Web shows it in the session UI). */
   cwd?: string;
+  /**
+   * Local stdio MCP servers the CLI / desktop can spawn on demand. The
+   * Web admin allowlists a subset via config.desktop_mcp_allowlist;
+   * the registrar reports the full set and the Web decides what to
+   * surface. Optional — older callers / bare CLI without MCP servers
+   * leave this unset.
+   */
+  mcpServers?: RegistrarMcpServer[];
 }
 
 export interface RegistrarHandle {
@@ -74,6 +89,12 @@ export async function startCliSessionRegistrar(
     capabilities: capabilitiesView,
     tools,
     cwd,
+    // Forward local MCP servers so the Web can register the allowlisted
+    // subset as remote-call tools. Omit when empty so the payload stays
+    // minimal for the common no-MCP case.
+    ...(options.mcpServers && options.mcpServers.length > 0
+      ? { mcpServers: options.mcpServers }
+      : {}),
   });
 
   let stopped = false;

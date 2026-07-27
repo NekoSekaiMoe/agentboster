@@ -301,6 +301,14 @@ export async function compactAndPersistSummaryStep(input: {
   sessionId: string;
   config: AppConfig;
   useTurnBasedSelection?: boolean;
+  /**
+   * Optional checkpoint label. When set, the resulting session_memories row
+   * and the matching `role='summary'` message carry `metadata.checkpoint =
+   * { label, createdAt }`, so the UI can surface named restore points
+   * separately from anonymous auto-compactions. The compaction LLM call
+   * is identical either way; only the persisted metadata differs.
+   */
+  checkpointLabel?: string | null;
 }): Promise<CompressResult> {
   'use step';
 
@@ -317,22 +325,40 @@ export async function compactAndPersistSummaryStep(input: {
     return compressed;
   }
 
-  if (current?.content !== compressed.summaryText) {
+  // Whether this compaction was triggered as an explicit checkpoint.
+  // `checkpointLabel === undefined` = plain compaction (no checkpoint
+  // requested). `null` / string = a checkpoint WAS requested (anonymous
+  // or named). A checkpoint must ALWAYS leave a restore point, even when
+  // the summary text is unchanged — otherwise the user's explicit "save a
+  // checkpoint now" action silently no-ops when nothing changed.
+  const isCheckpoint = input.checkpointLabel !== undefined;
+  const summaryChanged = current?.content !== compressed.summaryText;
+
+  if (summaryChanged || isCheckpoint) {
+    const checkpointMeta = isCheckpoint
+      ? {
+          compactedAt: nowIso(),
+          checkpoint: {
+            label: input.checkpointLabel,
+            createdAt: nowIso(),
+          },
+        }
+      : { compactedAt: nowIso() };
     await writeSummaryFromCompaction({
       sessionId: input.sessionId,
       summaryText: compressed.summaryText,
       createdAt: new Date(),
-      metadata: {
-        compactedAt: nowIso(),
-      },
+      metadata: checkpointMeta,
     });
     await saveMessages([
       serializeSystemMessage({
         sessionId: input.sessionId,
-        text: 'Context compacted.',
+        text: isCheckpoint
+          ? `Checkpoint saved: ${input.checkpointLabel ?? 'auto'}`
+          : 'Context compacted.',
         metadata: {
-          type: 'compaction',
-          compactedAt: nowIso(),
+          type: isCheckpoint ? 'checkpoint' : 'compaction',
+          ...checkpointMeta,
         },
         createdAt: new Date(),
       }),

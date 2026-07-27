@@ -24,7 +24,7 @@ const JAPANESE_POEMS = [
 ];
 
 export const Overview = ({
-  onPromptSelect,
+  onPromptSelect: _onPromptSelect,
 }: {
   onPromptSelect?: (prompt: string) => void;
 }) => {
@@ -85,10 +85,10 @@ export const Overview = ({
           <Logo width={64} height={64} />
         </div>
         <div className="min-h-24 max-w-md px-4">
-          <p className="whitespace-pre-line text-muted-foreground text-sm tracking-wide md:text-base leading-relaxed">
+          <p className="whitespace-pre-line text-muted-foreground text-sm leading-relaxed tracking-wide md:text-base">
             {displayedText}
             {!hasPlayedTypewriter && displayedText.length < poem.length && (
-              <span className="inline-block h-4 w-1 animate-pulse bg-muted-foreground align-middle ml-1" />
+              <span className="ml-1 inline-block h-4 w-1 animate-pulse bg-muted-foreground align-middle" />
             )}
           </p>
         </div>

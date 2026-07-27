@@ -177,6 +177,7 @@ export async function upsertLongTermMemory(input: {
   content: string;
   memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
   importance?: number;
+  projectId?: string | null;
   config?: AppConfig;
 }) {
   const { row: memory, created } = await upsertLongTermMemoryByKey({
@@ -185,6 +186,7 @@ export async function upsertLongTermMemory(input: {
     content: input.content,
     memoryType: input.memoryType,
     importance: input.importance,
+    projectId: input.projectId,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
@@ -247,12 +249,33 @@ export async function listLongTermMemories(input?: {
   pageSize?: number;
   search?: string;
   userId?: string;
+  /**
+   * Project scope filter (same semantics as listLongTermMemoryRows):
+   * undefined/null = no filter, GLOBAL sentinel = global only, a real
+   * project id = that project + global. Forwarded so callers that write
+   * to a specific project scope (e.g. memory extraction) don't see a
+   * cross-project `existing` list that mismatches the write target.
+   *
+   * NOTE: only applied on the list (non-search) path. The hybrid-search
+   * path (searchLongTermMemories) does not yet accept a scope; callers
+   * that need scoped results should avoid passing `search` together
+   * with `projectIdScope`.
+   */
+  projectIdScope?: string | null;
 }) {
   const page = Math.max(1, input?.page ?? 1);
   const pageSize = Math.max(1, Math.min(input?.pageSize ?? 50, 100));
 
-  // If search query provided, use hybrid search
+  // If search query provided, use hybrid search. searchLongTermMemories does
+  // not accept a project scope, so a caller asking for `search` together
+  // with `projectIdScope` would silently get cross-project results — fail
+  // loudly instead of letting the scope be ignored.
   if (input?.search) {
+    if (input.projectIdScope !== undefined && input.projectIdScope !== null) {
+      throw new Error(
+        'listLongTermMemories: projectIdScope is not supported together with search',
+      );
+    }
     const results = await searchLongTermMemories({
       query: input.search,
       minConfidence: 0.05,
@@ -274,6 +297,7 @@ export async function listLongTermMemories(input?: {
     limit: pageSize,
     offset: (page - 1) * pageSize,
     userId: input?.userId,
+    projectIdScope: input?.projectIdScope,
   });
 }
 

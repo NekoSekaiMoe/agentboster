@@ -108,6 +108,54 @@ export type BuiltinMcpServersConfig = z.infer<
   typeof builtinMcpServersConfigSchema
 >;
 
+/**
+ * Admin allowlist entry for a desktop-reported MCP server.
+ *
+ * Desktop clients POST their local stdio MCP servers up to
+ * /api/cli/session-events/:sessionId/register. The Web does NOT register
+ * them blindly — the admin must explicitly enable each one here, otherwise
+ * the server is reported but never surfaced to the agent. This is the
+ * trust boundary: a desktop can't unilaterally expose arbitrary local
+ * binaries to the model.
+ *
+ * The key MUST match the name the desktop reports. The admin can also pin
+ * the `command` hash so a renamed binary doesn't bypass the allowlist.
+ */
+export const desktopMcpAllowEntrySchema = z.object({
+  enabled: z.boolean().default(true),
+  /**
+   * Optional pinned command string (the argv joined by single spaces, e.g.
+   * `"npx -y @mcp/server-fs /home"`). When set, a desktop reporting the
+   * same name but a different command is rejected at tool-registration
+   * time. Empty = trust any command under this name (less safe, but
+   * convenient).
+   *
+   * NOTE: despite the field name, this is a plain string equality check
+   * against `command.join(' ')`, NOT a crypto hash — see
+   * `lib/workflow/agent/tools/execute/desktop-mcp.ts` resolveAllowedDesktopServers.
+   * Admins set the pin by copying the joined command shown in the
+   * desktop report; eyeball-able equality is the goal, so there is no
+   * hashing security benefit (and a real hash would just make configs
+   * harder to read/debug).
+   */
+  commandHash: z.string().optional(),
+});
+
+export type DesktopMcpAllowEntry = z.infer<typeof desktopMcpAllowEntrySchema>;
+
+/**
+ * Map of desktop-reported MCP server name → allow entry. Keys NOT in this
+ * map are silently ignored at registration time. Default empty = no
+ * desktop MCP servers are exposed to the agent until the admin opts in.
+ */
+export const desktopMcpAllowlistConfigSchema = z
+  .record(z.string(), desktopMcpAllowEntrySchema)
+  .default({});
+
+export type DesktopMcpAllowlistConfig = z.infer<
+  typeof desktopMcpAllowlistConfigSchema
+>;
+
 export const imageAnalyzeInputSchema = z.object({
   image_path: z.string().min(1),
   prompt: z.string().optional(),

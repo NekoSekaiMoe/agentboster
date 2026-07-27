@@ -155,4 +155,41 @@ export interface CliRemoteState {
   };
   connectedAt: number;
   cwd?: string;
+  /**
+   * MCP servers reachable from the attached CLI / desktop, reported by the
+   * desktop renderer via /api/cli/session-events/:sessionId/register. Each
+   * entry is a stdio command the desktop host is willing to spawn on
+   * behalf of the agent. Workflow tool registration reads this list and,
+   * for each server the Web allows, registers its tools as remote-call
+   * tools dispatched back through the CLI SSE channel (same pattern as
+   * computer-use-remote).
+   *
+   * Empty when the desktop has no MCP servers configured, or when the
+   * connected client is a bare CLI (no desktop) — the field is optional
+   * so older clients that never set it stay forward-compatible.
+   */
+  mcpServers?: CliRemoteMcpServer[];
+}
+
+/**
+ * A single MCP server reported by the desktop. The Web does NOT trust the
+ * `command` blindly — it cross-references against its own allowlist (admin-
+ * configured) before registering tools, so a malicious / naive desktop can't
+ * surface arbitrary local binaries to the model.
+ *
+ * Mirror of the canonical definition in lib/cli/remote-control.ts
+ * (CliRemoteMcpServer, around lines 10-19 of that file). Keep these two
+ * declarations in sync — the SDK cannot import from the host app, so the
+ * type is duplicated here by necessity.
+ */
+export interface CliRemoteMcpServer {
+  /** Stable name (matches the desktop's mcp config key). */
+  name: string;
+  /** Executable + args the desktop would spawn, e.g. ["npx", "-y", ...]. */
+  command: string[];
+  /** Optional env vars the desktop would set. Reported for visibility; the
+   * Web never re-spawns the server itself, it only tells the desktop to. */
+  env?: Record<string, string>;
+  /** Transport the server speaks. stdio is the only one the desktop proxies. */
+  transport: 'stdio';
 }

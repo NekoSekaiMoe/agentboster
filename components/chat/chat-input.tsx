@@ -2,7 +2,7 @@
 
 import type { ChatRequestOptions, CreateUIMessage } from 'ai';
 import type React from 'react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 
@@ -16,7 +16,14 @@ import {
 } from '@/components/attachments';
 import { ArrowUpIcon, StopIcon } from '@/components/icons';
 import { ModelPicker } from '@/components/chat/model-picker';
+import { PersonaPicker } from '@/components/chat/persona-picker';
 import { Mic } from 'lucide-react';
+import {
+  MentionMenu,
+  applyMention,
+  getMentionMatch,
+  useMentionNavigation,
+} from '@/components/chat/mention-menu';
 import {
   SlashCommandMenu,
   applySlashCommand,
@@ -57,6 +64,8 @@ function PureMultimodalInput({
   selectedModel,
   allowedModels,
   onSelectModel,
+  selectedAgent,
+  onSelectAgent,
 }: {
   chatId: string;
   focusTrigger?: number;
@@ -76,6 +85,10 @@ function PureMultimodalInput({
   allowedModels: string[];
   /** Called when the user picks a model (or null for "Use global default"). */
   onSelectModel: (model: string | null) => void;
+  /** Currently selected persona (agentName) for the picker. null = 'main'. */
+  selectedAgent: string | null;
+  /** Called when the user picks a persona (null for the Default persona). */
+  onSelectAgent: (agent: string | null) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -96,10 +109,25 @@ function PureMultimodalInput({
   const [shouldSubmit, setShouldSubmit] = useState(false);
 
   const toggleRecording = useCallback(() => {
-    const SpeechRecognition =
-      // biome-ignore lint/suspicious/noExplicitAny: Web Speech API types are not fully available
-      (window as any).SpeechRecognition ||
-      (window as any).webkitSpeechRecognition;
+    // Web Speech API types are not in TS's lib.dom yet; access defensively.
+    // The recognition instance is loosely typed because the full event
+    // handler API isn't covered by lib.dom.
+    type SpeechRecognitionCtor = new () => {
+      continuous: boolean;
+      interimResults: boolean;
+      lang: string;
+      start: () => void;
+      stop: () => void;
+      onstart: (() => void) | null;
+      onend: (() => void) | null;
+      onerror: ((e: unknown) => void) | null;
+      onresult: ((e: unknown) => void) | null;
+    };
+    const w = window as unknown as {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
+    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       toast.error('Voice input is not supported in this browser.');
       return;
@@ -291,6 +319,37 @@ function PureMultimodalInput({
     insertSlashCommand,
   );
 
+  const insertMention = useCallback(
+    (token: string) => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const match = getMentionMatch(input, cursor);
+      if (!match) return;
+      const { nextValue, nextCursor } = applyMention(input, match, token);
+      setInput(nextValue);
+      setCursor(nextCursor);
+      requestAnimationFrame(() => {
+        textarea.focus();
+        textarea.setSelectionRange(nextCursor, nextCursor);
+        adjustHeight(textareaRef);
+      });
+    },
+    [cursor, input, setInput],
+  );
+
+  // Recent attachment names flow into the @ menu as suggestions so the
+  // user can quickly re-reference something they just dragged in.
+  const mentionAttachments = useMemo(
+    () => attachments.map((a) => ({ name: a.name })),
+    [attachments],
+  );
+  const mentions = useMentionNavigation(
+    input,
+    cursor,
+    mentionAttachments,
+    insertMention,
+  );
+
   const addFiles = useCallback(async (files: FileList | File[]) => {
     const fileArray = Array.from(files);
     if (fileArray.length === 0) {
@@ -391,7 +450,12 @@ function PureMultimodalInput({
         {
           parts: nextParts,
         },
-        selectedModel ? { body: { model: selectedModel } } : undefined,
+        {
+          body: {
+            ...(selectedModel ? { model: selectedModel } : {}),
+            ...(selectedAgent ? { agent: selectedAgent } : {}),
+          },
+        },
       );
 
       if (width && width > 768) {
@@ -414,6 +478,7 @@ function PureMultimodalInput({
     chatId,
     input,
     selectedModel,
+    selectedAgent,
     sendMessage,
     setInput,
     setLocalStorageInput,
@@ -492,6 +557,14 @@ function PureMultimodalInput({
           onSelect={insertSlashCommand}
         />
 
+        <MentionMenu
+          value={input}
+          cursor={cursor}
+          activeIndex={mentions.activeIndex}
+          recentAttachments={mentionAttachments}
+          onSelect={insertMention}
+        />
+
         <Textarea
           ref={textareaRef}
           placeholder="Ask AgentBoster..."
@@ -505,7 +578,7 @@ function PureMultimodalInput({
             WebkitAppearance: 'none',
             appearance: 'none',
           }}
-          className="!text-base max-h-[calc(75dvh)] min-h-11 resize-none overflow-hidden !border-none !bg-transparent px-0 pt-0 pb-12 !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none"
+          className="!text-base !border-none !bg-transparent !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none max-h-[calc(75dvh)] min-h-11 resize-none overflow-hidden px-0 pt-0 pb-12"
           rows={1}
           autoFocus={false}
           onClick={(event) => {
@@ -521,6 +594,9 @@ function PureMultimodalInput({
             if (slashCommands.onKeyDown(event)) {
               return;
             }
+            if (mentions.onKeyDown(event)) {
+              return;
+            }
 
             const shouldSubmit =
               event.key === 'Enter' &&
@@ -534,6 +610,10 @@ function PureMultimodalInput({
         />
 
         <div className="absolute bottom-0 left-0 flex w-fit flex-row items-center gap-2 p-3">
+          <PersonaPicker
+            onSelectAgent={onSelectAgent}
+            selectedAgent={selectedAgent}
+          />
           <ModelPicker
             allowedModels={allowedModels}
             onSelectModel={onSelectModel}
@@ -576,6 +656,8 @@ export const MultimodalInput = memo(
     if (prevProps.selectedModel !== nextProps.selectedModel) return false;
     if (prevProps.allowedModels !== nextProps.allowedModels) return false;
     if (prevProps.onSelectModel !== nextProps.onSelectModel) return false;
+    if (prevProps.selectedAgent !== nextProps.selectedAgent) return false;
+    if (prevProps.onSelectAgent !== nextProps.onSelectAgent) return false;
 
     return true;
   },

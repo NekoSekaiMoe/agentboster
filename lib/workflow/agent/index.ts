@@ -73,8 +73,15 @@ type QueuedInstruction =
     }
   | {
       type: 'control';
-      command: 'compact' | 'cancel';
+      command: 'compact' | 'cancel' | 'checkpoint';
       reason?: string;
+      /**
+       * Label for a checkpoint command. Optional — when omitted the
+       * checkpoint is unnamed (auto-labeled with its step number). The
+       * label is stored on the session_memories row metadata so the user
+       * can later identify / restore a specific checkpoint in the UI.
+       */
+      label?: string;
     };
 
 function mapInstructionMessages(
@@ -89,11 +96,16 @@ function mapInstructionMessages(
   persistedMessages: SerializedMessageForDB[];
   forceCompact: boolean;
   cancelRequested: boolean;
+  checkpointLabel: string | null;
 } {
   const promptMessages: ModelMessage[] = [];
   const persistedMessages: SerializedMessageForDB[] = [];
   let forceCompact = false;
   let cancelRequested = false;
+  // Most-recent checkpoint label (an explicit `null` means "use auto label").
+  // Collected from any checkpoint control instruction in the queue; the
+  // workflow applies it after the forced compact lands.
+  let checkpointLabel: string | null = null;
 
   for (const instruction of instructions) {
     if (instruction.type === 'control') {
@@ -102,6 +114,13 @@ function mapInstructionMessages(
       }
       if (instruction.command === 'cancel') {
         cancelRequested = true;
+      }
+      if (instruction.command === 'checkpoint') {
+        // A checkpoint IS a forced compact that also stamps a label on
+        // the resulting session_memories row. Force compact, capture the
+        // label, and let the run loop's compact branch handle persistence.
+        forceCompact = true;
+        checkpointLabel = instruction.label ?? null;
       }
       continue;
     }
@@ -148,6 +167,7 @@ function mapInstructionMessages(
     persistedMessages,
     forceCompact,
     cancelRequested,
+    checkpointLabel,
   };
 }
 
@@ -224,14 +244,46 @@ export async function chatWorkflow(
    * overrides provider `client_spoof` for this workflow run.
    */
   clientSpoof?: ClientSpoof,
+  /**
+   * Per-message agent/persona name from the Web UI preset picker. When
+   * set AND present in `config.agents`, overrides MAIN_AGENT_NAME for
+   * this single run so buildSystemPrompt loads the matching
+   * system_prompt / model. Unknown / absent names fall back to
+   * MAIN_AGENT_NAME — this is intentional so a stale picker value
+   * (after an admin renames / deletes a persona) degrades gracefully
+   * instead of throwing.
+   */
+  requestAgent?: string | null,
 ) {
   'use workflow';
 
   const effectiveConfig = applyClientSpoofOverride(config, clientSpoof);
   const { workflowRunId: runId } = getWorkflowMetadata();
-  const agentName = MAIN_AGENT_NAME;
+  // Resolve the persona for this run. Only honor requestAgent when it
+  // names a real entry in config.agents — otherwise fall back to main.
+  // This is the single place main chat's agentName becomes variable;
+  // sub-agent delegation still goes through getAgentModelId and is
+  // unaffected.
+  const requestedAgentName = requestAgent?.trim();
+  const agentName =
+    requestedAgentName && effectiveConfig.agents?.[requestedAgentName]
+      ? requestedAgentName
+      : MAIN_AGENT_NAME;
   const { modelId, temperature, contextLimit, outputLimit } =
-    resolveMainAgentModelParams(effectiveConfig, user, requestModel);
+    resolveMainAgentModelParams(
+      effectiveConfig,
+      user,
+      // When a persona is selected, its configured model takes precedence
+      // over the global default but is still overridden by an explicit
+      // per-message picker choice. We surface this by pre-resolving the
+      // persona model and passing it as the requestModel fallback — keeps
+      // the existing precedence chain intact and avoids forking the
+      // resolver.
+      requestModel ??
+        (agentName !== MAIN_AGENT_NAME
+          ? effectiveConfig.agents?.[agentName]?.model
+          : undefined),
+    );
 
   // Fetch CLI remote state if session has an online CLI
   let cliRemoteState:
@@ -264,6 +316,12 @@ export async function chatWorkflow(
         ? (source.locale ?? effectiveConfig.language?.bot_locale)
         : undefined,
     sessionId,
+    // The session owner. Used to load the always-on developer profile
+    // (lib/memory/profile.ts) — a stable block of the user's global
+    // preferences so the model applies them every turn without the user
+    // repeating themselves. We pass this ONLY to read profile data; write
+    // paths still go through the writeMemory tool with its own userId.
+    userId: 'userId' in source ? (source.userId ?? undefined) : undefined,
     // Inject AGENTS.md content only for CLI sources — it is project-supplied
     // reference data forwarded by the CLI host, never synthesized on the web
     // side. Web/IM sessions have no "local project" to source from.
@@ -409,6 +467,11 @@ export async function chatWorkflow(
               type: 'control',
               command: payload.command,
               reason: payload.reason,
+              // Forward the optional checkpoint label so named checkpoints
+              // survive the queue. Without this, requestCheckpoint's label
+              // is dropped here and mapInstructionMessages() always sees
+              // undefined → the checkpoint degrades to an anonymous compact.
+              ...(payload.label ? { label: payload.label } : {}),
             });
             break;
         }
@@ -535,6 +598,7 @@ export async function chatWorkflow(
             sessionId,
             config: effectiveConfig,
             useTurnBasedSelection: true,
+            checkpointLabel: mappedInstructions.checkpointLabel,
           });
           nextMessages = compressed.compressedMessages;
           totalTokensUsed = estimatePromptTokens(nextMessages);

@@ -8,7 +8,10 @@ import { chatConfigSchema } from './chat';
 import { channelsConfigSchema } from './channels';
 import { experimentsConfigSchema } from './experiments';
 import { languageConfigSchema } from './language';
-import { mcpRemotesServersConfigSchema } from './mcp';
+import {
+  desktopMcpAllowlistConfigSchema,
+  mcpRemotesServersConfigSchema,
+} from './mcp';
 import { sandboxConfigSchema } from './sandbox';
 import { securityConfigSchema } from './security';
 import { buildInToolConfigSchema } from './tools';
@@ -71,6 +74,14 @@ export const appConfigSchema = z.object({
 
   /** MCP remote server configuration. */
   mcp: mcpRemotesServersConfigSchema.optional(),
+
+  /**
+   * Admin allowlist for MCP servers reported by desktop clients. Desktops
+   * can POST their local stdio servers to the session register endpoint;
+   * only the ones enabled here are surfaced to the agent. Default empty
+   * = desktop-reported servers are ignored until the admin opts in.
+   */
+  desktop_mcp_allowlist: desktopMcpAllowlistConfigSchema.optional(),
 
   /** Agent Daemon configuration. */
   agentd: agentdConfigSchema.optional(),

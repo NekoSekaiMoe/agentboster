@@ -21,6 +21,7 @@ import {
   exchangePairCode,
   loginWithPassword,
 } from '../../cli/login.ts';
+import { expandInlineAtMentions } from '../../cli/file-processor.ts';
 import {
   type AssistantMessage,
   getProviders,
@@ -370,6 +371,16 @@ export class InteractiveMode {
   private permissionMode: 'manual' | 'yolo' = 'manual';
   private onInputCallback?: (text: string) => void;
   private pendingUserInputs: string[] = [];
+  /** Serializes the editor's onSubmit flow. onSubmit is async (it awaits
+   *  expandInlineAtMentions and various selectors), and the editor can be
+   *  re-entered before a prior submit finishes — e.g. rapid Enter presses,
+   *  or a programmatic submit landing while a /model selector is still
+   *  open. Without serialization the two async flows interleave: the
+   *  second's expansion can overwrite `text` state that the first hasn't
+   *  consumed yet, or both can push into pendingUserInputs out of order.
+   *  Each submit is appended to this chain so submissions run strictly in
+   *  the order they were received. */
+  private submitChain: Promise<void> = Promise.resolve();
   /** When set, the next editor submit builds a new version on this user
    *  message and regenerates instead of sending a brand-new turn. Set by
    *  the tree-selector `e` (editVersion) affordance. */
@@ -2954,273 +2965,330 @@ export class InteractiveMode {
   }
 
   private setupEditorSubmitHandler(): void {
-    this.defaultEditor.onSubmit = async (text: string) => {
-      text = text.trim();
-      if (!text) return;
-
-      // Prepend any pending remote-exec switch notice (set by /switch)
-      // so the model sees the path/working-directory reset without
-      // spending an extra agent turn. Only non-command messages get
-      // the notice — slash commands start with '/'.
-      const switchNotice = text.startsWith('/') ? null : consumePendingNotice();
-      if (switchNotice) {
-        text = `${switchNotice}\n\n${text}`;
-      }
-
-      // Edit-and-resend from a historical version (tree selector `e`).
-      // Build the new versions[], PATCH metadata, set the one-shot
-      // regenerate intent, then fall through into the normal submit
-      // path so the agent loop calls streamFn (which consumes the intent).
-      if (this.pendingEditVersion) {
-        const edit = this.pendingEditVersion;
-        this.pendingEditVersion = null;
-        await this.submitVersionEdit(edit.entryId, edit.originalText, text);
-        this.editor.setText('');
-        return;
-      }
-
-      // Handle commands
-      if (text === '/settings') {
-        this.showSettingsSelector();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/scoped-models') {
-        this.editor.setText('');
-        await this.showModelsSelector();
-        return;
-      }
-      if (text === '/model' || text.startsWith('/model ')) {
-        const searchTerm = text.startsWith('/model ')
-          ? text.slice(7).trim()
-          : undefined;
-        this.editor.setText('');
-        await this.handleModelCommand(searchTerm);
-        return;
-      }
-      if (text === '/export' || text.startsWith('/export ')) {
-        await this.handleExportCommand(text);
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/import' || text.startsWith('/import ')) {
-        await this.handleImportCommand(text);
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/copy') {
-        await this.handleCopyCommand();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/name' || text.startsWith('/name ')) {
-        this.handleNameCommand(text);
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/session') {
-        this.handleSessionCommand();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/hotkeys') {
-        this.handleHotkeysCommand();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/fork') {
-        this.showUserMessageSelector();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/clone') {
-        this.editor.setText('');
-        await this.handleCloneCommand();
-        return;
-      }
-      if (text === '/tree') {
-        this.showTreeSelector();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/trust') {
-        this.showTrustSelector();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/login') {
-        this.editor.setText('');
-        void this.runAgentbosterLogin();
-        return;
-      }
-      if (text === '/logout') {
-        clearStoredAuth();
-        this.showStatus('Logged out. Run `/login` to log in again.');
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/new') {
-        this.editor.setText('');
-        await this.handleClearCommand();
-        return;
-      }
-      if (text === '/compact' || text.startsWith('/compact ')) {
-        const customInstructions = text.startsWith('/compact ')
-          ? text.slice(9).trim()
-          : undefined;
-        this.editor.setText('');
-        await this.handleCompactCommand(customInstructions);
-        return;
-      }
-      if (text === '/effort' || text.startsWith('/effort ')) {
-        const arg = text.startsWith('/effort ')
-          ? text.slice(8).trim()
-          : undefined;
-        this.editor.setText('');
-        this.handleEffortCommand(arg);
-        return;
-      }
-      if (text === '/plan' || text.startsWith('/plan ')) {
-        const arg = text.startsWith('/plan ')
-          ? text.slice(6).trim().toLowerCase()
-          : undefined;
-        this.editor.setText('');
-        this.handlePlanCommand(arg);
-        return;
-      }
-      if (text === '/reload') {
-        this.editor.setText('');
-        await this.handleReloadCommand();
-        return;
-      }
-      if (text === '/debug') {
-        this.handleDebugCommand();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/arminsayshi') {
-        this.handleArminSaysHi();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/dementedelves') {
-        this.handleDementedDelves();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/resume') {
-        this.showSessionSelector();
-        this.editor.setText('');
-        return;
-      }
-      if (text === '/switch' || text.startsWith('/switch ')) {
-        const arg = text.startsWith('/switch ')
-          ? text.slice(8).trim()
-          : undefined;
-        this.editor.setText('');
-        await this.handleSwitchCommand(arg);
-        return;
-      }
-      if (text === '/orchestration' || text.startsWith('/orchestration ')) {
-        const arg = text.startsWith('/orchestration ')
-          ? text.slice('/orchestration '.length).trim()
-          : undefined;
-        this.editor.setText('');
-        await this.handleOrchestrationCommand(arg);
-        return;
-      }
-      if (text === '/exit' || text === '/quit') {
-        this.editor.setText('');
-        await this.shutdown();
-        return;
-      }
-
-      // Handle bash command. Two entry paths converge here:
-      // 1. Bash mode entered via the `!` prefix trigger (consumed): the
-      //    editor text is already the command, and `isBashMode` is true.
-      //    `!`-prefixed text in excluded mode keeps a leading `!`.
-      // 2. Legacy: user pasted/typed `!cmd` and submitted in one go.
-      if (this.isBashMode) {
-        const isExcluded = this.bashExcluded || text.startsWith('!');
-        const command = (
-          isExcluded && text.startsWith('!') ? text.slice(1) : text
-        ).trim();
-        if (command) {
-          if (this.session.isBashRunning) {
-            this.showWarning(
-              'A bash command is already running. Press Esc to cancel it first.',
-            );
-            this.editor.setText(text);
-            return;
-          }
-          this.editor.addToHistory?.(text);
-          await this.handleBashCommand(command, isExcluded);
-          this.isBashMode = false;
-          this.bashExcluded = false;
-          this.updateEditorBorderColor();
-          return;
-        }
-      } else if (text.startsWith('!')) {
-        const isExcluded = text.startsWith('!!');
-        const command = isExcluded
-          ? text.slice(2).trim()
-          : text.slice(1).trim();
-        if (command) {
-          if (this.session.isBashRunning) {
-            this.showWarning(
-              'A bash command is already running. Press Esc to cancel it first.',
-            );
-            this.editor.setText(text);
-            return;
-          }
-          this.editor.addToHistory?.(text);
-          await this.handleBashCommand(command, isExcluded);
-          this.isBashMode = false;
-          this.bashExcluded = false;
-          this.updateEditorBorderColor();
-          return;
-        }
-      }
-
-      // Queue input during compaction (extension commands execute immediately)
-      if (this.session.isCompacting) {
-        if (this.isExtensionCommand(text)) {
-          this.editor.addToHistory?.(text);
-          this.editor.setText('');
-          await this.session.prompt(text);
-        } else {
-          this.queueCompactionMessage(text, 'steer');
-        }
-        return;
-      }
-
-      // If streaming, use prompt() with steer behavior
-      // This handles extension commands (execute immediately), prompt template expansion, and queueing
-      if (this.session.isStreaming) {
-        this.editor.addToHistory?.(text);
-        this.editor.setText('');
-        await this.session.prompt(text, { streamingBehavior: 'steer' });
-        this.updatePendingMessagesDisplay();
-        this.ui.requestRender();
-        return;
-      }
-
-      // Normal message submission
-      // First, move any pending bash components to chat
-      this.flushPendingBashComponents();
-
-      if (this.onInputCallback) {
-        this.onInputCallback(text);
-      } else {
-        this.pendingUserInputs.push(text);
-      }
-      this.editor.addToHistory?.(text);
-      // Plan mode is a one-shot: after submitting, return to normal.
-      if (this.isPlanMode) {
-        this.isPlanMode = false;
-        this.updateEditorBorderColor();
-      }
+    this.defaultEditor.onSubmit = (text: string) => {
+      // Serialize the full submit flow. Each invocation is appended to
+      // submitChain so it only starts once the previous one has fully
+      // resolved (including every await inside runSubmit). This preserves
+      // submission order under rapid re-entry without altering the
+      // behavior of any individual branch inside.
+      const run = () => this.runSubmit(text);
+      this.submitChain = this.submitChain.then(run, run).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.showError(`submit failed: ${message}`);
+      });
     };
+  }
+
+  private async runSubmit(rawText: string): Promise<void> {
+    let text = rawText.trim();
+    if (!text) return;
+
+    // Preserve the original user input (with literal @paths) for history
+    // entries. @mention expansion mutates `text` below but history should
+    // reflect what the user actually typed.
+    const originalText = text;
+
+    // Expand inline `@file` mentions in NON-command messages only.
+    // Slash commands (`/...`) and bash-mode (`!...`) must pass through
+    // verbatim — they have their own parsers. Expansion replaces each
+    // path-ish @token in-place with a `<file>` block so typing
+    // `fix @src/foo.ts` pulls the file into context exactly like a
+    // startup `@src/foo.ts` CLI arg would.
+    //
+    // Text-only for now: image @mentions are surfaced as missedTokens
+    // with a hint to drag-drop instead, because every session.prompt
+    // branch would otherwise need to thread an `images` array through.
+    // Startup `@img.png` continues to handle images via the dedicated
+    // processFileArguments path. Revisit when the run loop grows a
+    // first-class pending-images channel.
+    if (!text.startsWith('/') && !text.startsWith('!') && !this.isBashMode) {
+      try {
+        const expanded = await expandInlineAtMentions(
+          text,
+          this.sessionManager.getCwd(),
+          // Skip image discovery in inline mode so we never silently drop
+          // a file: text files expand in-place, image files are reported
+          // as missed so the user knows to drag them in. Startup
+          // `@img.png` continues to handle images via the dedicated
+          // processFileArguments path.
+          { inlineImageHandling: 'skip' },
+        );
+        if (expanded.missedTokens.length > 0) {
+          this.showWarning(
+            `@ mentions: could not resolve ${expanded.missedTokens.map((t) => `@${t}`).join(', ')} (sent as-is)`,
+          );
+        }
+        text = expanded.text;
+      } catch (error: unknown) {
+        // Expansion must never block the send — log and fall back to the
+        // raw text. The model will see literal @tokens, which is the
+        // pre-expansion behavior.
+        const message = error instanceof Error ? error.message : String(error);
+        this.showWarning(`@ mention expansion skipped: ${message}`);
+      }
+    }
+
+    // Prepend any pending remote-exec switch notice (set by /switch)
+    // so the model sees the path/working-directory reset without
+    // spending an extra agent turn. Only non-command messages get
+    // the notice — slash commands start with '/'.
+    const switchNotice = text.startsWith('/') ? null : consumePendingNotice();
+    if (switchNotice) {
+      text = `${switchNotice}\n\n${text}`;
+    }
+
+    // Edit-and-resend from a historical version (tree selector `e`).
+    // Build the new versions[], PATCH metadata, set the one-shot
+    // regenerate intent, then fall through into the normal submit
+    // path so the agent loop calls streamFn (which consumes the intent).
+    if (this.pendingEditVersion) {
+      const edit = this.pendingEditVersion;
+      this.pendingEditVersion = null;
+      this.editor.addToHistory?.(originalText);
+      await this.submitVersionEdit(edit.entryId, edit.originalText, text);
+      this.editor.setText('');
+      return;
+    }
+
+    // Handle commands
+    if (text === '/settings') {
+      this.showSettingsSelector();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/scoped-models') {
+      this.editor.setText('');
+      await this.showModelsSelector();
+      return;
+    }
+    if (text === '/model' || text.startsWith('/model ')) {
+      const searchTerm = text.startsWith('/model ')
+        ? text.slice(7).trim()
+        : undefined;
+      this.editor.setText('');
+      await this.handleModelCommand(searchTerm);
+      return;
+    }
+    if (text === '/export' || text.startsWith('/export ')) {
+      await this.handleExportCommand(text);
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/import' || text.startsWith('/import ')) {
+      await this.handleImportCommand(text);
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/copy') {
+      await this.handleCopyCommand();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/name' || text.startsWith('/name ')) {
+      this.handleNameCommand(text);
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/session') {
+      this.handleSessionCommand();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/hotkeys') {
+      this.handleHotkeysCommand();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/fork') {
+      this.showUserMessageSelector();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/clone') {
+      this.editor.setText('');
+      await this.handleCloneCommand();
+      return;
+    }
+    if (text === '/tree') {
+      this.showTreeSelector();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/trust') {
+      this.showTrustSelector();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/login') {
+      this.editor.setText('');
+      void this.runAgentbosterLogin();
+      return;
+    }
+    if (text === '/logout') {
+      clearStoredAuth();
+      this.showStatus('Logged out. Run `/login` to log in again.');
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/new') {
+      this.editor.setText('');
+      await this.handleClearCommand();
+      return;
+    }
+    if (text === '/compact' || text.startsWith('/compact ')) {
+      const customInstructions = text.startsWith('/compact ')
+        ? text.slice(9).trim()
+        : undefined;
+      this.editor.setText('');
+      await this.handleCompactCommand(customInstructions);
+      return;
+    }
+    if (text === '/effort' || text.startsWith('/effort ')) {
+      const arg = text.startsWith('/effort ')
+        ? text.slice(8).trim()
+        : undefined;
+      this.editor.setText('');
+      this.handleEffortCommand(arg);
+      return;
+    }
+    if (text === '/plan' || text.startsWith('/plan ')) {
+      const arg = text.startsWith('/plan ')
+        ? text.slice(6).trim().toLowerCase()
+        : undefined;
+      this.editor.setText('');
+      this.handlePlanCommand(arg);
+      return;
+    }
+    if (text === '/reload') {
+      this.editor.setText('');
+      await this.handleReloadCommand();
+      return;
+    }
+    if (text === '/debug') {
+      this.handleDebugCommand();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/arminsayshi') {
+      this.handleArminSaysHi();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/dementedelves') {
+      this.handleDementedDelves();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/resume') {
+      this.showSessionSelector();
+      this.editor.setText('');
+      return;
+    }
+    if (text === '/switch' || text.startsWith('/switch ')) {
+      const arg = text.startsWith('/switch ')
+        ? text.slice(8).trim()
+        : undefined;
+      this.editor.setText('');
+      await this.handleSwitchCommand(arg);
+      return;
+    }
+    if (text === '/orchestration' || text.startsWith('/orchestration ')) {
+      const arg = text.startsWith('/orchestration ')
+        ? text.slice('/orchestration '.length).trim()
+        : undefined;
+      this.editor.setText('');
+      await this.handleOrchestrationCommand(arg);
+      return;
+    }
+    if (text === '/exit' || text === '/quit') {
+      this.editor.setText('');
+      await this.shutdown();
+      return;
+    }
+
+    // Handle bash command. Two entry paths converge here:
+    // 1. Bash mode entered via the `!` prefix trigger (consumed): the
+    //    editor text is already the command, and `isBashMode` is true.
+    //    `!`-prefixed text in excluded mode keeps a leading `!`.
+    // 2. Legacy: user pasted/typed `!cmd` and submitted in one go.
+    if (this.isBashMode) {
+      const isExcluded = this.bashExcluded || text.startsWith('!');
+      const command = (
+        isExcluded && text.startsWith('!') ? text.slice(1) : text
+      ).trim();
+      if (command) {
+        if (this.session.isBashRunning) {
+          this.showWarning(
+            'A bash command is already running. Press Esc to cancel it first.',
+          );
+          this.editor.setText(text);
+          return;
+        }
+        this.editor.addToHistory?.(text);
+        await this.handleBashCommand(command, isExcluded);
+        this.isBashMode = false;
+        this.bashExcluded = false;
+        this.updateEditorBorderColor();
+        return;
+      }
+    } else if (text.startsWith('!')) {
+      const isExcluded = text.startsWith('!!');
+      const command = isExcluded ? text.slice(2).trim() : text.slice(1).trim();
+      if (command) {
+        if (this.session.isBashRunning) {
+          this.showWarning(
+            'A bash command is already running. Press Esc to cancel it first.',
+          );
+          this.editor.setText(text);
+          return;
+        }
+        this.editor.addToHistory?.(text);
+        await this.handleBashCommand(command, isExcluded);
+        this.isBashMode = false;
+        this.bashExcluded = false;
+        this.updateEditorBorderColor();
+        return;
+      }
+    }
+
+    // Queue input during compaction (extension commands execute immediately)
+    if (this.session.isCompacting) {
+      if (this.isExtensionCommand(text)) {
+        this.editor.addToHistory?.(originalText);
+        this.editor.setText('');
+        await this.session.prompt(text);
+      } else {
+        this.queueCompactionMessage(text, 'steer');
+      }
+      return;
+    }
+
+    // If streaming, use prompt() with steer behavior
+    // This handles extension commands (execute immediately), prompt template expansion, and queueing
+    if (this.session.isStreaming) {
+      this.editor.addToHistory?.(originalText);
+      this.editor.setText('');
+      await this.session.prompt(text, { streamingBehavior: 'steer' });
+      this.updatePendingMessagesDisplay();
+      this.ui.requestRender();
+      return;
+    }
+
+    // Normal message submission
+    // First, move any pending bash components to chat
+    this.flushPendingBashComponents();
+
+    if (this.onInputCallback) {
+      this.onInputCallback(text);
+    } else {
+      this.pendingUserInputs.push(text);
+    }
+    this.editor.addToHistory?.(originalText);
+    // Plan mode is a one-shot: after submitting, return to normal.
+    if (this.isPlanMode) {
+      this.isPlanMode = false;
+      this.updateEditorBorderColor();
+    }
   }
 
   private subscribeToAgent(): void {

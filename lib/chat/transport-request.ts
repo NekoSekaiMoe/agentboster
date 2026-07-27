@@ -38,6 +38,20 @@ function getRequestModel(body: Record<string, unknown>): string | undefined {
     : undefined;
 }
 
+/**
+ * Per-request agent/persona name from the chat-box picker. When set,
+ * overrides the hardcoded MAIN_AGENT_NAME ('main') for this single run
+ * so the UI can switch between presets defined in config.agents. Empty /
+ * missing falls back to 'main'. Validated against config.agents keys in
+ * chatWorkflow before use — an unknown name is ignored (falls back to
+ * main) rather than throwing, so stale UI state never breaks the chat.
+ */
+function getRequestAgent(body: Record<string, unknown>): string | undefined {
+  return typeof body.agent === 'string' && body.agent.trim()
+    ? body.agent.trim()
+    : undefined;
+}
+
 export function buildChatSendRequestBody({
   id: chatId,
   messages,
@@ -71,6 +85,7 @@ export function buildChatSendRequestBody({
       trigger,
       messageId,
       model: getRequestModel(bodyRecord),
+      agent: getRequestAgent(bodyRecord),
       input: {
         parts: targetParts,
         text: extractTextFromParts(targetParts),
