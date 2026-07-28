@@ -34,6 +34,7 @@ import type { AppConfig } from '@/types/config';
 import { applyDreamOperations } from './apply';
 import type { DreamOperation } from './types';
 import { consolidatePhase } from './phase1-consolidate';
+import { recombinePhase } from './phase2-recombine';
 import { sanitizeOperations } from './phase3-sanitize';
 
 const logger = createLogger('memory.dream.orchestrator');
@@ -119,11 +120,26 @@ export async function runDreamForUser(input: {
 
     let operations: DreamOperation[] = phase1.operations;
 
-    // ─── Phase 2 placeholder (not yet implemented in P0) ──────────────
-    // When implemented, recombinePhase would push PROPOSE ops onto the
-    // list and bump outcome.proposed. Kept here as a seam so the apply
-    // path already knows how to handle PROPOSE ops.
-    // phasesRun.push('phase2');
+    // ─── Phase 2: recombine (cross-cluster novel findings) ────────────
+    // Run AFTER consolidate so proposals can build on freshly-merged
+    // canonical facts rather than the noisy pre-consolidation set. Failures
+    // here are non-fatal: a failed recombine just yields no PROPOSE ops,
+    // and the rest of the pipeline continues.
+    phasesRun.push('phase2');
+    try {
+      const phase2 = await recombinePhase({
+        userId: input.userId,
+        config,
+      });
+      outcome.proposed = phase2.stats.proposed;
+      operations = operations.concat(phase2.operations);
+    } catch (error) {
+      logger.warn('orchestrator:phase2_skipped', {
+        runId,
+        userId: input.userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     // ─── Phase 3: sanitize (near-dup collapse, self-supersede guard) ──
     phasesRun.push('phase3');
