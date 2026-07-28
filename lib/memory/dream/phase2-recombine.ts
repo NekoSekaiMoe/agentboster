@@ -87,6 +87,13 @@ const recombineSchema = z.object({
         rationale: z
           .string()
           .describe('Why this pair suggests the finding (for audit).'),
+        pairIndex: z
+          .number()
+          .int()
+          .min(1)
+          .describe(
+            'The 1-based index of the candidate pair (from the prompt above) that supports this finding. Used to link provenance back to the exact source memories.',
+          ),
       }),
     )
     .describe(
@@ -222,6 +229,13 @@ export function selectCandidatePairs(
 export async function recombinePhase(input: {
   userId: string;
   config: AppConfig;
+  /**
+   * Pre-fetched active memories for the user. When omitted, phase2 does
+   * the listAllLongTermMemoryRows call itself. The orchestrator passes
+   * the SAME rows it gives phase1 so the per-user memory store is
+   * scanned once per Dream run instead of once per phase.
+   */
+  memories?: MemoryRow[];
 }): Promise<{
   operations: DreamOperation[];
   stats: { candidatePairs: number; proposed: number; skipped: boolean };
@@ -236,9 +250,11 @@ export async function recombinePhase(input: {
     };
   }
 
-  const allMemories = (await listAllLongTermMemoryRows({
-    userId: input.userId,
-  })) as MemoryRow[];
+  const allMemories =
+    input.memories ??
+    ((await listAllLongTermMemoryRows({
+      userId: input.userId,
+    })) as MemoryRow[]);
 
   const rawGroups = groupByPrefix(allMemories);
   if (rawGroups.size < 2) {
@@ -309,7 +325,8 @@ For each finding, provide:
 - memoryType: usually "fact" or "preference".
 - importance: 1-10 (tentative findings cap at 7).
 - confidence: how strongly the pair supports this (typically 0.3-0.6 — these ARE inferences).
-- rationale: one sentence on WHY this pair suggests the finding (recorded for audit).`;
+- rationale: one sentence on WHY this pair suggests the finding (recorded for audit).
+- pairIndex: the 1-based index of the candidate pair (from the list above) that supports this finding. Each finding must trace back to exactly one pair.`;
 
   type RecombineResult = z.infer<typeof recombineSchema>;
   let findings: RecombineResult['findings'] = [];
@@ -337,19 +354,33 @@ For each finding, provide:
     };
   }
 
-  const operations: DreamOperation[] = findings.map((f) => ({
-    type: 'PROPOSE',
-    content: f.content,
-    key: f.key,
-    memoryType: f.memoryType,
-    importance: f.importance,
-    confidence: f.confidence,
-    fromMemoryIds: candidates
-      .slice(0, 2)
-      .flatMap((c) => [c.a.id, c.b.id])
-      .slice(0, 4),
-    rationale: f.rationale,
-  }));
+  // Map each finding back to the source memories of the pair it claims
+  // to derive from (pairIndex is 1-based per the prompt). Guard against
+  // an out-of-range index — a hallucinated pairIndex would otherwise
+  // crash the whole phase.
+  const operations: DreamOperation[] = findings.flatMap((f) => {
+    const candidate = candidates[f.pairIndex - 1];
+    if (!candidate) {
+      logger.warn('phase2:finding_pair_index_out_of_range', {
+        userId: input.userId,
+        pairIndex: f.pairIndex,
+        candidateCount: candidates.length,
+      });
+      return [];
+    }
+    return [
+      {
+        type: 'PROPOSE' as const,
+        content: f.content,
+        key: f.key,
+        memoryType: f.memoryType,
+        importance: f.importance,
+        confidence: f.confidence,
+        fromMemoryIds: [candidate.a.id, candidate.b.id],
+        rationale: f.rationale,
+      },
+    ];
+  });
 
   logger.info('phase2:done', {
     userId: input.userId,

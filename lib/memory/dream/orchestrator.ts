@@ -28,12 +28,14 @@ import {
   completeDreamRun,
   insertDreamRun,
 } from '@/lib/core/db/memory/dream-runs';
+import { listAllLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 
 import { applyDreamOperations } from './apply';
 import type { DreamOperation } from './types';
 import { consolidatePhase } from './phase1-consolidate';
+import type { MemoryRow } from './phase2-recombine';
 import { recombinePhase } from './phase2-recombine';
 import { sanitizeOperations } from './phase3-sanitize';
 
@@ -108,10 +110,24 @@ export async function runDreamForUser(input: {
 
   try {
     // ─── Phase 1: consolidate ──────────────────────────────────────────
+    // Pre-fetch the user's active memories ONCE and share them across
+    // phase1 + phase2. Each phase used to call listAllLongTermMemoryRows
+    // itself, which scanned the user's full memory store twice per run.
+    const sharedMemories = (await listAllLongTermMemoryRows({
+      userId: input.userId,
+    }).catch((error) => {
+      logger.warn('orchestrator:prefetch_failed', {
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    })) as MemoryRow[] | null;
+
     phasesRun.push('phase1');
     const phase1 = await consolidatePhase({
       userId: input.userId,
       config,
+      ...(sharedMemories ? { memories: sharedMemories } : {}),
     });
     outcome.consolidated = phase1.stats.consolidated;
     outcome.deleted = phase1.stats.deleted;
@@ -130,6 +146,7 @@ export async function runDreamForUser(input: {
       const phase2 = await recombinePhase({
         userId: input.userId,
         config,
+        ...(sharedMemories ? { memories: sharedMemories } : {}),
       });
       outcome.proposed = phase2.stats.proposed;
       operations = operations.concat(phase2.operations);

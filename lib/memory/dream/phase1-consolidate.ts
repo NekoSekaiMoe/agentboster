@@ -138,6 +138,13 @@ function dedupeGroupMembers(members: MemoryRow[]): {
 export async function consolidatePhase(input: {
   userId: string;
   config: AppConfig;
+  /**
+   * Pre-fetched active memories for the user. When omitted, phase1 does
+   * the listAllLongTermMemoryRows call itself. The orchestrator passes
+   * the SAME rows it gives phase2 so the per-user memory store is
+   * scanned once per Dream run instead of once per phase.
+   */
+  memories?: MemoryRow[];
 }): Promise<{
   operations: DreamOperation[];
   stats: {
@@ -163,9 +170,11 @@ export async function consolidatePhase(input: {
     };
   }
 
-  const allMemories = (await listAllLongTermMemoryRows({
-    userId: input.userId,
-  })) as MemoryRow[];
+  const allMemories =
+    input.memories ??
+    ((await listAllLongTermMemoryRows({
+      userId: input.userId,
+    })) as MemoryRow[]);
 
   const groups = groupMemoriesByPrefix(allMemories);
   const operations: DreamOperation[] = [];
