@@ -88,7 +88,9 @@ function extractKeyPrefix(key: string): string {
  * in `__keyless__` and are skipped — they have no stable identity to
  * merge against. (Same policy as compact.ts.)
  */
-function groupMemoriesByPrefix(memories: MemoryRow[]): Map<string, MemoryRow[]> {
+function groupMemoriesByPrefix(
+  memories: MemoryRow[],
+): Map<string, MemoryRow[]> {
   const groups = new Map<string, MemoryRow[]>();
   for (const mem of memories) {
     if (!mem.key) continue;

@@ -55,9 +55,15 @@ export async function POST(request: Request): Promise<Response> {
     // No body or non-JSON — that's fine, fan out to all users.
   }
 
-  const userIds = singleUserId ? [singleUserId] : await listDistinctLongTermMemoryUserIds();
+  const userIds = singleUserId
+    ? [singleUserId]
+    : await listDistinctLongTermMemoryUserIds();
   if (userIds.length === 0) {
-    return NextResponse.json({ ok: true, message: 'no users with memories', runs: [] });
+    return NextResponse.json({
+      ok: true,
+      message: 'no users with memories',
+      runs: [],
+    });
   }
 
   logger.info('cron:dream_start', { userCount: userIds.length });

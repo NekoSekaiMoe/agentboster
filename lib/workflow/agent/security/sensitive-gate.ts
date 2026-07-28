@@ -155,9 +155,17 @@ export function withSensitiveGate<TInput, TResult>(
     appConfig: AppConfig;
   },
   wrapped: (input: TInput, ctx: { toolCallId: string }) => Promise<TResult>,
-): (input: TInput, ctx: { toolCallId: string }) => Promise<TResult | undefined> {
+): (
+  input: TInput,
+  ctx: { toolCallId: string },
+) => Promise<TResult | undefined> {
   return async (input, ctx) => {
-    if (!needsSensitiveApproval({ sensitive: options.sensitive, appConfig: options.appConfig })) {
+    if (
+      !needsSensitiveApproval({
+        sensitive: options.sensitive,
+        appConfig: options.appConfig,
+      })
+    ) {
       return wrapped(input, ctx);
     }
 

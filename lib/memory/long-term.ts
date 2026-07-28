@@ -22,6 +22,7 @@ import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { LongTermMemoryIndexing } from '@/types/memory';
 import { deriveEdgesForMemory } from './edges';
+import { invalidateProfileCache } from './profile';
 import { invalidateRecallCache } from './recall';
 
 const logger = createLogger('memory.long_term');
@@ -160,6 +161,7 @@ export async function createLongTermMemory(input: {
   // lands mid-derivation would otherwise rebuild the cache on the stale graph
   // and never be invalidated again. The second invalidation closes that race.
   invalidateRecallCache(input.userId);
+  void invalidateProfileCache(input.userId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
     .finally(() => invalidateRecallCache(input.userId));
@@ -195,6 +197,7 @@ export async function upsertLongTermMemory(input: {
   });
 
   invalidateRecallCache(input.userId);
+  void invalidateProfileCache(input.userId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
     .finally(() => invalidateRecallCache(input.userId));
@@ -220,6 +223,7 @@ export async function updateLongTermMemory(input: {
 
   const ownerId = memory.userId ?? undefined;
   invalidateRecallCache(ownerId);
+  void invalidateProfileCache(ownerId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
     .finally(() => invalidateRecallCache(ownerId));
@@ -234,6 +238,7 @@ export async function deleteLongTermMemory(
   const result = await deleteLongTermMemoryRow(id, options);
   if (result) {
     invalidateRecallCache(options?.userId);
+    void invalidateProfileCache(options?.userId);
   }
   return result;
 }

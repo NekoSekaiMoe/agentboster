@@ -32,7 +32,7 @@ export function hasValidCronSecret(request: NextRequest): boolean {
   const provided =
     request.headers.get('x-api-key') ||
     (request.headers.get('authorization')?.startsWith('Bearer ')
-      ? request.headers.get('authorization')!.slice('Bearer '.length)
+      ? request.headers.get('authorization')?.slice('Bearer '.length)
       : '');
 
   if (!provided) return false;

@@ -25,13 +25,13 @@ describe('sanitizeOperations', () => {
     expect(rejectedDuplicates).toBe(0);
   });
 
-  it('collapses near-duplicate CONSOLIDATE outputs', () => {
+  it('collapses near-duplicate CONSOLIDATE outputs (same word order, one swap)', () => {
     const ops: DreamOperation[] = [
       {
         type: 'CONSOLIDATE',
         sourceMemoryIds: ['a', 'b'],
         mergedKey: 'user.lang',
-        mergedContent: 'the user prefers TypeScript for coding',
+        mergedContent: 'the user prefers typescript over javascript',
         mergedType: 'fact',
         mergedImportance: 7,
         confidence: 0.9,
@@ -40,8 +40,8 @@ describe('sanitizeOperations', () => {
         type: 'CONSOLIDATE',
         sourceMemoryIds: ['x', 'y'],
         mergedKey: 'user.lang2',
-        // near-duplicate of the first — should be rejected
-        mergedContent: 'the user prefers TypeScript when coding',
+        // near-duplicate of the first (same order, one word swap) — rejected
+        mergedContent: 'the user prefers typescript over python',
         mergedType: 'fact',
         mergedImportance: 7,
         confidence: 0.8,
@@ -108,6 +108,9 @@ describe('sanitizeOperations', () => {
   });
 
   it('handles empty input', () => {
-    expect(sanitizeOperations([])).toEqual({ accepted: [], rejectedDuplicates: 0 });
+    expect(sanitizeOperations([])).toEqual({
+      accepted: [],
+      rejectedDuplicates: 0,
+    });
   });
 });

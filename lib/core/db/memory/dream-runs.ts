@@ -8,8 +8,7 @@
 
 import { desc, eq } from 'drizzle-orm';
 
-import { db } from '@/lib/core/db';
-import { schema } from '@/lib/core/db/schema';
+import { db, schema } from '@/lib/core/db';
 
 /**
  * Insert a dream run audit row. Returns the inserted row (with id).

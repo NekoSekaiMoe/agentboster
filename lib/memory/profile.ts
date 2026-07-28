@@ -19,8 +19,12 @@
  * view's job and would bloat the always-on block.
  */
 
+import { del, get, set } from '@/lib/core/kv';
 import { listLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { isGlobalProjectId } from '@/lib/memory/scope';
+import { createLogger } from '@/lib/utils/logger';
+
+const logger = createLogger('memory.profile');
 
 const PROFILE_HEADER = '# `Developer Profile`';
 const PROFILE_PREAMBLE =
@@ -28,6 +32,53 @@ const PROFILE_PREAMBLE =
 
 const MAX_PROFILE_ENTRIES = 12;
 const MAX_IMPORTANCE_FOR_FACT = 8;
+
+/**
+ * Redis cache TTL for the always-on profile.
+ *
+ * The profile is durable (changes only on memory writes), so a long TTL
+ * is safe and pays off across every system-prompt build. Mirrors
+ * AutoGPT's `understanding:{user_id}` 48h cache. We invalidate eagerly
+ * on writes via `invalidateProfileCache()` — see long-term.ts upserts.
+ *
+ * Kept slightly shorter than AutoGPT's 48h to bound staleness if an
+ * eager invalidation is ever missed (e.g. a memory written via a path
+ * that bypasses the DAL).
+ */
+const PROFILE_CACHE_TTL_SECONDS = 24 * 60 * 60;
+
+function profileCacheKey(userId: string): string {
+  return `profile:${userId}`;
+}
+
+/**
+ * Invalidate the cached profile for a user (or all users).
+ *
+ * Call from every long_term_memories write path that could affect the
+ * profile — preference/fact writes, Dream consolidation, manual edits.
+ * The long-term.ts upsert/delete helpers already invalidate recallCache;
+ * they will also call this once profile cache ships.
+ */
+export async function invalidateProfileCache(userId?: string): Promise<void> {
+  if (!userId) {
+    // No way to scan+delete all profile:* keys portably across the KV
+    // backends (pg-backend has no SCAN). Treat undefined userId as a
+    // no-op rather than a dangerous global flush — callers MUST pass
+    // the specific userId. Logged so the silent path is visible.
+    logger.warn('invalidate:no_user_id_skipped');
+    return;
+  }
+  try {
+    await del(profileCacheKey(userId));
+  } catch (error) {
+    // Cache invalidation is best-effort — a stale entry just means the
+    // next prompt build uses a slightly outdated profile until TTL expiry.
+    logger.warn('invalidate:failed', {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 
 export interface ProfileEntry {
   content: string;
@@ -53,8 +104,51 @@ function sortByWeight(a: ProfileEntry, b: ProfileEntry) {
  *
  * Returns a flat list, already sorted by weight. Empty when the user has no
  * qualifying memories yet.
+ *
+ * Caching: backed by Redis (24h TTL) keyed per-user. The DB scan is the
+ * same cost on every prompt build, and the profile changes rarely — so
+ * caching is a clear win across serverless / multi-instance deployments
+ * where a process-local Map (like recallCache) would not be shared.
+ * Invalidation is eager via `invalidateProfileCache()` on memory writes.
  */
 export async function loadDeveloperProfile(
+  userId: string,
+): Promise<ProfileEntry[]> {
+  // Cache lookup first. JSON payload mirrors the on-disk shape; we accept
+  // the small risk that a schema change could mismatch and fall through
+  // to a fresh DB read + overwrite.
+  try {
+    const cached = await get(profileCacheKey(userId));
+    if (cached) {
+      const parsed = parseCachedProfile(cached);
+      if (parsed) return parsed;
+    }
+  } catch (error) {
+    logger.warn('cache_read_failed', {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  const entries = await loadDeveloperProfileFromDb(userId);
+
+  // Best-effort cache write — failure here is non-fatal (next call just
+  // hits the DB again).
+  try {
+    await set(profileCacheKey(userId), serializeProfileForCache(entries), {
+      ex: PROFILE_CACHE_TTL_SECONDS,
+    });
+  } catch (error) {
+    logger.warn('cache_write_failed', {
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return entries;
+}
+
+async function loadDeveloperProfileFromDb(
   userId: string,
 ): Promise<ProfileEntry[]> {
   // Pull a generous window then trim in-memory: the user_project_updated_idx
@@ -112,4 +206,64 @@ export async function buildDeveloperProfileSection(
   });
 
   return [PROFILE_HEADER, PROFILE_PREAMBLE, '', ...lines].join('\n');
+}
+
+// ─── Cache (de)serialization ────────────────────────────────────────
+//
+// Redis stores strings; we serialize with JSON. `updatedAt` becomes an
+// ISO string on the wire and is parsed back to Date on read. Both helpers
+// are defensive: a malformed cache entry returns null / throws nothing,
+// causing the caller to fall through to a fresh DB read.
+
+type SerializedProfileEntry = Omit<ProfileEntry, 'updatedAt'> & {
+  updatedAt: string;
+};
+
+function serializeProfileForCache(entries: ProfileEntry[]): string {
+  const serialized: SerializedProfileEntry[] = entries.map((e) => ({
+    content: e.content,
+    memoryType: e.memoryType,
+    importance: e.importance,
+    updatedAt: e.updatedAt.toISOString(),
+  }));
+  return JSON.stringify(serialized);
+}
+
+function parseCachedProfile(raw: unknown): ProfileEntry[] | null {
+  if (typeof raw !== 'string') return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const entries: ProfileEntry[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object') continue;
+      const obj = item as Record<string, unknown>;
+      const content = obj.content;
+      const memoryType = obj.memoryType;
+      const importance = obj.importance;
+      const updatedAt = obj.updatedAt;
+      if (typeof content !== 'string') continue;
+      if (
+        memoryType !== 'fact' &&
+        memoryType !== 'preference' &&
+        memoryType !== 'decision' &&
+        memoryType !== 'conversation'
+      ) {
+        continue;
+      }
+      if (typeof importance !== 'number') continue;
+      if (typeof updatedAt !== 'string') continue;
+      const ts = Date.parse(updatedAt);
+      if (!Number.isFinite(ts)) continue;
+      entries.push({
+        content,
+        memoryType,
+        importance,
+        updatedAt: new Date(ts),
+      });
+    }
+    return entries;
+  } catch {
+    return null;
+  }
 }

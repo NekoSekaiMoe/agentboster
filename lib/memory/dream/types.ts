@@ -31,7 +31,11 @@
  *                  (provenance) but excluded from recall.
  * - `contradicted`: flagged as wrong by a later observation. Kept for audit.
  */
-export type MemoryStatus = 'active' | 'tentative' | 'superseded' | 'contradicted';
+export type MemoryStatus =
+  | 'active'
+  | 'tentative'
+  | 'superseded'
+  | 'contradicted';
 
 /**
  * Where a memory fact originated.
@@ -123,7 +127,7 @@ export type DreamOperation =
       rationale: string;
     }
   | {
-      type: 'SUPERSede';
+      type: 'SUPERSEDE';
       /** Memory that is being replaced. */
       oldMemoryId: string;
       /** New memory that supersedes it (already written by CONSOLIDATE). */

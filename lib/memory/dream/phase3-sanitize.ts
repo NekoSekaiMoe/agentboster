@@ -46,9 +46,7 @@ function operationContent(op: DreamOperation): string | null {
  * The order of the input is preserved — "first writer wins" so callers
  * should pass higher-confidence / earlier-phase operations first.
  */
-export function sanitizeOperations(
-  operations: DreamOperation[],
-): {
+export function sanitizeOperations(operations: DreamOperation[]): {
   accepted: DreamOperation[];
   rejectedDuplicates: number;
 } {
@@ -94,7 +92,7 @@ export function sanitizeOperations(
       });
       if (dupOf) {
         rejectedDuplicates += 1;
-        logger.debug('phase3:rejected_near_duplicate', {
+        logger.info('phase3:rejected_near_duplicate', {
           type: op.type,
           duplicateOfType: dupOf.type,
         });
