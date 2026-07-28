@@ -51,7 +51,7 @@ export const dreamRuns = pgTable(
       .notNull(),
   },
   (table) => [
-    // Mirrors the index declared in migration 0028_dream_runs.sql so the
+    // Mirrors the index declared in migration 0028_careless_arclight.sql so the
     // schema definition and the DB stay in sync. Backs the "recent runs
     // per user" query (filter by userId, order by startedAt).
     index('dream_runs_user_started_idx').on(table.userId, table.startedAt),
