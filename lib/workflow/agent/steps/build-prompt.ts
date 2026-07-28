@@ -24,7 +24,10 @@ import {
   renderFollowUpInstruction,
 } from '@/lib/chat/follow-up-template';
 import { DEFAULT_SYSTEM_PROMPT } from '../config';
-import { MAIN_AGENT_NAME } from '../utils/agent-config';
+import {
+  getDelegatableAgentNames,
+  MAIN_AGENT_NAME,
+} from '@/lib/workflow/agent/utils/agent-config';
 
 export type BuildSystemPromptOptions = {
   agentName?: string;
@@ -62,6 +65,17 @@ export type BuildSystemPromptOptions = {
    * tools are gone.
    */
   planMode?: boolean;
+  /**
+   * Whether the subAgent tool is actually present in this run's toolset.
+   * When false (e.g. delegated sub-agents, which run with
+   * `allowDelegation: false` to prevent unbounded recursion), the
+   * "Delegation Available" section is suppressed so the prompt never
+   * advertises a tool the model does not have. Defaults to true for
+   * backward compatibility with call sites that build their own
+   * toolset (the main-agent path always wires subAgent in when other
+   * agents are configured).
+   */
+  allowDelegation?: boolean;
   /**
    * Team Leader mode (Team Mode III). When true, injects a "Team Leader"
    * section coaching the main agent to decompose complex tasks into a
@@ -260,6 +274,28 @@ export async function buildSystemPrompt(
   // barrier / handoff tools; this section is the strategic nudge that
   // makes it actually decompose complex work into a fan-out plan instead
   // of running every subtask inline. Purely prompt-side — no tool changes.
+  //
+  // When Team Leader is OFF but other agents are configured, we still
+  // inject a minimal delegation hint below — without it the subAgent tool
+  // sits in the toolset invisibly and the model never delegates even when
+  // it would clearly help (the original activation gap).
+  // `allowDelegation` mirrors the toolset decision made by the caller
+  // (buildAgentTools defaults it to true; sub-agents are built with
+  // allowDelegation: false). Injecting delegation guidance for a run
+  // whose toolset has no subAgent tool would advertise a tool the model
+  // cannot call, so we gate the section on the same flag.
+  const allowDelegation = options.allowDelegation ?? true;
+  const delegatableAgents = getDelegatableAgentNames(config, agentName);
+  if (allowDelegation && !options.teamLeader && delegatableAgents.length > 0) {
+    sections.push(
+      createSection('Delegation Available', [
+        `Other agents are configured and available to you via the \`subAgent\` tool: ${delegatableAgents.map((n) => `\`${n}\``).join(', ')}.`,
+        'You remain the primary agent — do not delegate routine work. But when a subtask would clearly benefit from a specialized agent (different persona/model, or a self-contained chunk that would burn your context), consider delegating it with `subAgent` (action `run` for a single task, `spawn_async` + a `barrier` for a parallel batch).',
+        'Prefer the barrier-paired `spawn_async` over bare `spawn`: `spawn` returns immediately and leaves you to remember to `collect` results later, whereas `spawn_async` gives you a barrier you can `waitForBarrier` on so nothing gets lost.',
+      ]),
+    );
+  }
+
   if (options.teamLeader) {
     sections.push(
       createSection('Team Leader', [

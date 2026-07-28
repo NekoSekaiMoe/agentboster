@@ -34,6 +34,15 @@ export const agentInstanceConfigSchema = z.object({
 
   /** Concurrent sub-agent cap. Daemon default is 3. */
   max_parallel_subagents: z.number().int().positive().max(32).optional(),
+  /**
+   * Per-agent step cap for delegated sub-agent runs (the inner
+   * DurableAgent loop). Default 12. Lower this for cost-sensitive
+   * agents; raise for research-heavy ones. Acts as the inner-loop
+   * equivalent of the parent tool-loop-guard — without it a single
+   * runaway sub-agent could burn 12 × N nested LLM calls before the
+   * parent's guard ever notices.
+   */
+  max_subagent_steps: z.number().int().positive().max(50).optional(),
 
   /** Daemon node IDs this agent is allowed to run on. Empty = any. */
   allowed_nodes: z.array(z.string().min(1)).optional(),

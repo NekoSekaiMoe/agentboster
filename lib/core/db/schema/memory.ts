@@ -5,6 +5,7 @@ import {
   customType,
   index,
   integer,
+  jsonb,
   pgTable,
   real,
   text,
@@ -102,6 +103,54 @@ export const longTermMemories = pgTable(
       .default('fact')
       .notNull(),
     importance: integer('importance').default(5).notNull(),
+    /**
+     * Dream lifecycle state. `active` is the default for back-compat
+     * (legacy rows + normal extractor writes are always active and
+     * participate in recall). Dream Phase 2 writes `tentative`; the
+     * ratification pass flips tentative → active. Phase 1 consolidation
+     * flips superseded sources here instead of deleting them, so the
+     * audit trail survives.
+     *
+     * Kept as a top-level column (not jsonb) so recall can filter
+     * `WHERE dream_status = 'active'` on a partial index without a
+     * jsonb scan. Mirrors AutoGPT's Graphiti edge `status` property.
+     */
+    dreamStatus: text('dream_status', {
+      enum: ['active', 'tentative', 'superseded', 'contradicted'],
+    })
+      .default('active')
+      .notNull(),
+    /**
+     * Optional Dream metadata: confidence, source_kind, provenance,
+     * ratification state. Stored as jsonb because these are write-once-
+     * then-read fields that recall does NOT filter on — only the UI/audit
+     * reads them. Typed loosely (with hinted fields) so different writers
+     * (consolidator, recombine, ratify) can record their own fields
+     * without forcing a schema migration for each new key. Matches the
+     * DreamMeta interface in lib/memory/dream/types.ts.
+     */
+    dreamMeta: jsonb('dream_meta').$type<
+      {
+        confidence?: number;
+        sourceKind?:
+          | 'user_asserted'
+          | 'assistant_observed'
+          | 'tool_observed'
+          | 'dream_consolidated'
+          | 'dream_recombined';
+        provenance?: {
+          sourceMemoryIds?: string[];
+          supersededBy?: string;
+          dreamRunId?: string;
+        };
+        rationale?: string;
+        lastDreamAt?: string;
+        // Ratification pass fields (written by ratifyLongTermMemory).
+        ratified?: boolean;
+        ratifiedAt?: string;
+        reviewNote?: string;
+      } & Record<string, unknown>
+    >(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -133,6 +182,17 @@ export const longTermMemories = pgTable(
     userProjectUpdatedIdx: index(
       'long_term_memories_user_project_updated_idx',
     ).on(table.userId, table.projectId, table.updatedAt),
+    // Partial index: only index rows where Dream lifecycle matters for
+    // filtering. Recall excludes superseded/contradicted/tentative via
+    // `WHERE dream_status = 'active'` — without this index that filter
+    // would seq-scan on large tables. Active rows are the overwhelming
+    // majority so indexing only the non-active tail would be backwards;
+    // instead we index active explicitly so the common path is an index
+    // scan, and the rare non-active lookups (admin UI) tolerate a seq
+    // scan over a small set.
+    dreamStatusActiveIdx: index('long_term_memories_dream_status_active_idx')
+      .on(table.userId, table.dreamStatus)
+      .where(sql`dream_status = 'active'`),
   }),
 );
 

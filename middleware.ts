@@ -40,6 +40,18 @@ function isAlwaysBypassPath(pathname: string): boolean {
     return true;
   }
 
+  // External cron triggers (Vercel Cron / systemd timer / external
+  // scheduler). These endpoints have NO user session — they're called
+  // by the platform scheduler carrying a CRON_SECRET in the
+  // Authorization header (or x-api-key), verified constant-time inside
+  // each route handler. Bypassing the session gate is required because
+  // the scheduler is not a logged-in user. Mirrors the /api/blob and
+  // /api/l2 signed-link pattern: middleware bypass + per-route secret
+  // verification.
+  if (pathname === '/api/cron' || pathname.startsWith('/api/cron/')) {
+    return true;
+  }
+
   // Public L2 decision URL-button endpoint. Used by IM adapters that
   // cannot render native callback buttons (e.g. QQ, which gates button
   // messages behind per-bot permission approval). The link carries an

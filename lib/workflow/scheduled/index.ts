@@ -4,6 +4,18 @@ import { computeNextDailyRunAt, getDefaultScheduleTimezone } from './utils';
 
 const logger = createLogger('workflow.scheduled');
 
+/**
+ * How long a daily task's slot can be in the past before we treat it as a
+ * misfire worth logging + alerting on. A few seconds of skew (workflow
+ * runtime wake-up latency) is normal; minutes+ means the host was down.
+ *
+ * Mirrors APScheduler's `misfire_grace_time` concept but inverted: we
+ * ALWAYS run the missed job (coalesce=True semantics — only the latest
+ * missed slot fires), and use this threshold only to flag it as a
+ * misfire vs. a normal on-time wake.
+ */
+const MISFIRE_THRESHOLD_MS = 60 * 1000;
+
 async function readScheduledTask(taskId: string) {
   'use step';
 
@@ -57,8 +69,30 @@ export async function scheduledTaskWorkflow(taskId: string) {
   }
 
   if (task.type === 'delay') {
-    if (task.nextRunAt && task.nextRunAt.getTime() > Date.now()) {
-      await sleep(task.nextRunAt);
+    // Misfire detection for delay tasks: a nextRunAt in the past means
+    // the workflow runtime woke up late (host restart, long step queue).
+    // We always fire immediately rather than skipping — matches
+    // APScheduler's coalesce=True + misfire_grace_time=None policy.
+    // The misfire is logged + recorded on metadata so operators can
+    // spot chronically late tasks (e.g. a host that reboots every hour
+    // during the slot).
+    if (task.nextRunAt) {
+      const delayMs = Date.now() - task.nextRunAt.getTime();
+      if (delayMs > MISFIRE_THRESHOLD_MS) {
+        logger.warn('delay:misfire', {
+          taskId: task.id,
+          scheduledFor: task.nextRunAt.toISOString(),
+          delayMs,
+        });
+        await persistMisfire(task.id, delayMs);
+      } else {
+        // Non-misfire (includes delayMs <= 0, i.e. nextRunAt still in the
+        // future because the runtime woke slightly early). Always sleep
+        // until the slot so on-time delay tasks wait rather than firing
+        // immediately. (Earlier code only slept when delayMs > 0, which
+        // let the delayMs <= 0 case fall through to an early trigger.)
+        await sleep(task.nextRunAt);
+      }
     }
 
     await postScheduledTrigger(
@@ -73,6 +107,11 @@ export async function scheduledTaskWorkflow(taskId: string) {
     };
   }
 
+  // daily task: a long-lived while-loop that fires once per day at the
+  // configured local time. Misfire handling is coalesce=True: if the
+  // host was down across multiple slots (e.g. down from Mon 09:00 to
+  // Wed 10:00), we fire ONCE for the latest missed slot then advance
+  // to tomorrow — we do NOT replay Tue + Wed + Thu separately.
   while (true) {
     const current = await readScheduledTask(taskId);
     if (!current?.active || current.type !== 'daily') {
@@ -82,20 +121,81 @@ export async function scheduledTaskWorkflow(taskId: string) {
       };
     }
 
-    const nextRunAt = computeNextDailyRunAt({
+    const now = Date.now();
+    const storedNextRunAt = current.nextRunAt?.getTime() ?? null;
+
+    const upcomingRunAt = computeNextDailyRunAt({
       dailyTime: current.dailyTime ?? '09:00',
       timeZone: current.timezone ?? getDefaultScheduleTimezone(),
     });
 
-    await persistNextRunAt(current.id, nextRunAt);
+    // Coalesce=True misfire handling. Two cases:
+    //  - storedNextRunAt is in the past beyond the grace threshold → the
+    //    host missed its slot (possibly across several days). We fire
+    //    ONCE immediately for the latest missed slot (NOT the freshly
+    //    computed future slot), log the misfire, then persist + sleep
+    //    until tomorrow's upcomingRunAt. We do NOT replay each missed
+    //    day separately.
+    //  - otherwise (no stored slot, slot still in the future, or only
+    //    seconds of skew) → normal on-time path: persist upcomingRunAt
+    //    and sleep until it.
+    let fireScheduledFor: Date;
+    let misfireDelayMs: number | null = null;
+    if (storedNextRunAt !== null) {
+      const delay = now - storedNextRunAt;
+      if (delay > MISFIRE_THRESHOLD_MS) {
+        misfireDelayMs = delay;
+        fireScheduledFor = new Date(storedNextRunAt);
+      } else {
+        fireScheduledFor = upcomingRunAt;
+      }
+    } else {
+      fireScheduledFor = upcomingRunAt;
+    }
+
+    if (misfireDelayMs !== null) {
+      logger.warn('daily:misfire', {
+        taskId: current.id,
+        scheduledFor: new Date(storedNextRunAt as number).toISOString(),
+        delayMs: misfireDelayMs,
+        // Human-readable "N missed slots" for daily cadence — helps
+        // operators gauge severity (1 missed slot vs. a week).
+        missedSlots: Math.floor(misfireDelayMs / (24 * 60 * 60 * 1000)),
+      });
+      await persistMisfire(current.id, misfireDelayMs);
+    }
+
+    // Persist the next future slot BEFORE firing/sleeping so a crash
+    // mid-fire does not lose the advance.
+    await persistNextRunAt(current.id, upcomingRunAt);
     logger.info('daily:scheduled', {
       taskId: current.id,
-      nextRunAt: nextRunAt.toISOString(),
+      nextRunAt: upcomingRunAt.toISOString(),
+      coalescing: misfireDelayMs !== null,
     });
 
-    await sleep(nextRunAt);
+    if (misfireDelayMs !== null) {
+      // Coalesce path: fire immediately for the missed slot (no sleep).
+      try {
+        await postScheduledTrigger(current.id, fireScheduledFor.toISOString());
+      } catch (error) {
+        // See the on-time path below for why we swallow FatalError.
+        logger.error('daily:trigger_failed', {
+          taskId: current.id,
+          scheduledFor: fireScheduledFor.toISOString(),
+          error,
+        });
+      }
+      // Then sleep until the freshly-persisted upcoming slot.
+      await sleep(upcomingRunAt);
+      continue;
+    }
+
+    // On-time path: wait until the slot, then fire. sleep with a past
+    // deadline returns immediately (covers tiny skew).
+    await sleep(fireScheduledFor);
     try {
-      await postScheduledTrigger(current.id, nextRunAt.toISOString());
+      await postScheduledTrigger(current.id, fireScheduledFor.toISOString());
     } catch (error) {
       // postScheduledTrigger is a 'use step' — once its internal retries
       // are exhausted, the runtime rejects its promise with FatalError.
@@ -110,9 +210,62 @@ export async function scheduledTaskWorkflow(taskId: string) {
       // advance to the next computeNextDailyRunAt().
       logger.error('daily:trigger_failed', {
         taskId: current.id,
-        scheduledFor: nextRunAt.toISOString(),
+        scheduledFor: fireScheduledFor.toISOString(),
         error,
       });
     }
   }
+}
+
+/**
+ * Persist a misfire event onto the task's metadata.misfire field.
+ *
+ * We keep a bounded rolling window (last 5 misfires) so operators can see
+ * a pattern (e.g. "always misfires around 03:00" → backup job contention)
+ * without unbounded growth. Resets the array's `consecutiveCount` so the
+ * most recent misfire burst is visible at a glance.
+ */
+async function persistMisfire(taskId: string, delayMs: number) {
+  'use step';
+
+  const { getScheduledTask, updateScheduledTask } = await import(
+    '@/lib/core/db/scheduled'
+  );
+  const task = await getScheduledTask(taskId);
+  if (!task) return;
+
+  const meta = (task.metadata ?? {}) as {
+    misfire?: {
+      consecutiveCount?: number;
+      lastAt?: string;
+      lastDelayMs?: number;
+      history?: Array<{ at: string; delayMs: number }>;
+    };
+  };
+
+  const prev = meta.misfire;
+  // Heuristic: if the previous misfire was within 2x the daily cadence,
+  // treat it as the same outage burst (consecutive). Otherwise reset.
+  // For delay-type tasks this is approximate but good enough for alerting.
+  const twoDaysMs = 2 * 24 * 60 * 60 * 1000;
+  const prevAt = prev?.lastAt ? Date.parse(prev.lastAt) : NaN;
+  const isConsecutive =
+    Number.isFinite(prevAt) && Date.now() - prevAt < twoDaysMs;
+
+  const consecutiveCount =
+    (isConsecutive ? (prev?.consecutiveCount ?? 0) : 0) + 1;
+  const entry = { at: new Date().toISOString(), delayMs };
+  const history = [...(prev?.history ?? []), entry].slice(-5);
+
+  await updateScheduledTask(taskId, {
+    metadata: {
+      ...meta,
+      misfire: {
+        consecutiveCount,
+        lastAt: entry.at,
+        lastDelayMs: delayMs,
+        history,
+      },
+    },
+  });
 }

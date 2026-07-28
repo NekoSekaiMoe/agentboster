@@ -21,6 +21,8 @@ export {
   knowledgeDocuments,
 } from './knowledge';
 export { scheduledTasks } from './scheduled';
+export { dreamRuns } from './dream';
+export type { DreamRun } from './dream';
 export {
   agentTasks,
   agentTaskOutputs,
