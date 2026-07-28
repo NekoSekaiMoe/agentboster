@@ -13,6 +13,8 @@ import {
   desc,
   eq,
   inArray,
+  isNotNull,
+  ne,
   sql,
 } from 'drizzle-orm';
 
@@ -291,6 +293,28 @@ export async function listAllLongTermMemoryRows(options?: {
     .from(schema.longTermMemories)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.longTermMemories.updatedAt));
+}
+
+/**
+ * List distinct userIds that own long-term memories. Used by the Dream
+ * orchestrator's nightly fan-out: it needs to run once per user that has
+ * memories to consolidate, without pulling a full table scan into JS.
+ *
+ * Excludes the 'system' sentinel user — Dream is a per-developer feature
+ * and 'system' rows are shared/global facts that don't belong to a single
+ * user's consolidation pass.
+ */
+export async function listDistinctLongTermMemoryUserIds(): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ userId: schema.longTermMemories.userId })
+    .from(schema.longTermMemories)
+    .where(
+      and(
+        isNotNull(schema.longTermMemories.userId),
+        ne(schema.longTermMemories.userId, 'system'),
+      ),
+    );
+  return rows.map((r) => r.userId).filter((id): id is string => Boolean(id));
 }
 
 export async function countLongTermMemoriesByUserIds(userIds: string[]) {
