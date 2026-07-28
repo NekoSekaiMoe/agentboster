@@ -19,8 +19,21 @@ import {
 } from '../../sender/writers';
 import { defineBuildInTool } from '../define';
 
-const SUB_AGENT_MAX_STEPS = 12;
+/** Default step cap for a delegated sub-agent. Overridable per-agent
+ *  via `config.agents[name].max_subagent_steps` (see types/config/agents.ts). */
+const DEFAULT_SUB_AGENT_MAX_STEPS = 12;
 const DEFAULT_MAX_PARALLEL_SUBAGENTS = 3;
+
+function getSubAgentMaxSteps(
+  config: Parameters<typeof getAgentModelId>[0],
+  agentName: string,
+): number {
+  const override = config.agents?.[agentName]?.max_subagent_steps;
+  if (typeof override === 'number' && Number.isFinite(override)) {
+    return Math.max(1, Math.floor(override));
+  }
+  return DEFAULT_SUB_AGENT_MAX_STEPS;
+}
 const logger = createLogger('workflow.agent.tools.sub-agent');
 
 // ── Runtime (in-process hot cache) ────────────────────────────────
@@ -291,6 +304,10 @@ async function runSubagent(
   response: string;
 }> {
   const subagentId = options?.subagentId ?? createSubagentId();
+  // Per-agent step cap: config override → global default. Capped at the
+  // default only when unset so a misconfigured huge value can't flatten
+  // cost — the default itself stays conservative (12 steps).
+  const maxSteps = getSubAgentMaxSteps(context.appConfig, agentName);
   const modelId = getAgentModelId(context.appConfig, agentName);
   const temperature = getAgentTemperature(context.appConfig, agentName);
   const system = await buildSystemPrompt(context.appConfig, {
@@ -348,7 +365,7 @@ Return a concise result with findings, actions taken, and any blockers or assump
       sendStart: false,
       sendFinish: false,
       collectUIMessages: false,
-      maxSteps: SUB_AGENT_MAX_STEPS,
+      maxSteps: maxSteps,
     });
     const response =
       getFinalAssistantText(result.messages) ||
@@ -467,7 +484,7 @@ export default defineBuildInTool({
     return {
       subAgent: tool({
         title: 'Delegate to Sub-Agent',
-        description: `Delegate one focused task, or a small batch of independent tasks, to configured sub-agents. Available agent names: ${availableAgentNames.join(', ')}. Include all necessary context in each task because a sub-agent only sees what you pass here. Actions: \`run\` (sync single), \`spawn\` (async batch, returns immediately), \`spawn_async\` (async batch + creates a barrier; pair with the barrier tool to wait across process restarts), \`query\`/\`collect\`/\`cancel\` (inspect a spawned batch).`,
+        description: `Delegate one focused task, or a small batch of independent tasks, to configured sub-agents. Available agent names: ${availableAgentNames.join(', ')}. Include all necessary context in each task because a sub-agent only sees what you pass here. Actions: \`run\` (sync single), \`spawn_async\` (async batch + creates a barrier — PREFER this for batches so you can \`waitForBarrier\` and not lose results), \`spawn\` (async batch with NO barrier — returns immediately, but you MUST later call \`collect\`/\`query\` with the returned batchId or the results are lost), \`query\`/\`collect\`/\`cancel\` (inspect a spawned batch).`,
         inputSchema: z.object({
           action: z
             .enum(['run', 'spawn', 'spawn_async', 'query', 'collect', 'cancel'])
