@@ -8,7 +8,7 @@ import (
 	"image/jpeg"
 	"image/png"
 
-	"github.com/boxes-ltd/imaging"
+	"github.com/NekoSekaiMoe/imaging"
 )
 
 const DefaultMaxWidth = 1400

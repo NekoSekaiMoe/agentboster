@@ -27,7 +27,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/boxes-ltd/imaging"
+	"github.com/NekoSekaiMoe/imaging"
 	"github.com/nekisekaimoe/agentboster/subpackages/computer-use-mcp/pkg/screenshot"
 )
 
