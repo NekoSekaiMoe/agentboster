@@ -36,6 +36,12 @@ const logger = createLogger('channels.notification.coalesce');
 type PendingEntry<P> = {
   payloads: P[];
   timer: NodeJS.Timeout;
+  /**
+   * The sender passed when the window was opened. Retained so flush()
+   * can dispatch even when the caller doesn't pass a fresh sender —
+   * matches the documented "force-send the pending batch" contract.
+   */
+  sender: (batch: P[]) => Promise<void>;
 };
 
 const DEFAULT_WINDOW_MS = 5_000;
@@ -118,11 +124,29 @@ export class NotificationCoalescer {
     const payloads: P[] = [input.payload];
     const entry: PendingEntry<P> = {
       payloads,
+      sender: input.sender,
+      // try/catch captures a SYNCHRONOUS throw from input.sender (before
+      // it returns a promise); the .catch on the returned promise handles
+      // async rejections. Both paths log + swallow so a broken sender
+      // doesn't escape the setTimeout callback. Using try/catch (rather
+      // than Promise.resolve().then(...)) keeps the sender invocation
+      // synchronous, matching the prior contract that the sender body
+      // runs inside the timer tick — important for fake-timer tests that
+      // assert the call happened during advanceTimersByTime.
       timer: setTimeout(() => {
         this.pending.delete(input.coalesceKey);
-        // Fire-and-forget; sender errors are the caller's concern but we
-        // log them so a broken sender doesn't silently swallow batches.
-        input.sender(payloads).catch((error) => {
+        let result: unknown;
+        try {
+          result = input.sender(payloads);
+        } catch (error) {
+          logger.warn('coalesce:sender_failed', {
+            coalesceKey: input.coalesceKey,
+            batchSize: payloads.length,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return;
+        }
+        Promise.resolve(result as Promise<unknown>).catch((error) => {
           logger.warn('coalesce:sender_failed', {
             coalesceKey: input.coalesceKey,
             batchSize: payloads.length,
@@ -158,9 +182,14 @@ export class NotificationCoalescer {
 
     clearTimeout(entry.timer);
     this.pending.delete(coalesceKey);
-    if (sender) {
+    // Prefer the explicitly-provided sender; fall back to the sender
+    // captured when the window was opened so an omitted-sender flush
+    // still dispatches the pending batch instead of silently dropping it.
+    const effectiveSender =
+      sender ?? (entry.sender as (batch: P[]) => Promise<void>);
+    if (effectiveSender) {
       try {
-        await sender(entry.payloads as P[]);
+        await effectiveSender(entry.payloads as P[]);
       } catch (error) {
         logger.warn('flush:sender_failed', {
           coalesceKey,

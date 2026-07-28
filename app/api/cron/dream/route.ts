@@ -28,7 +28,7 @@ import { NextResponse } from 'next/server';
 import { listDistinctLongTermMemoryUserIds } from '@/lib/core/db/memory/long-term';
 import { runDreamForUser } from '@/lib/memory/dream';
 import { createLogger } from '@/lib/utils/logger';
-import { hasValidCronSecret } from '@/lib/security/cron-auth';
+import { checkCronSecret } from '@/lib/security/cron-auth';
 
 export const dynamic = 'force-dynamic';
 // Dream runs may exceed Vercel's default function timeout; opt into the
@@ -38,8 +38,20 @@ export const maxDuration = 300;
 const logger = createLogger('api.cron.dream');
 
 export async function POST(request: Request): Promise<Response> {
-  if (!hasValidCronSecret(request as never)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = checkCronSecret(request);
+  if (!auth.valid) {
+    // Distinguish "CRON_SECRET not configured" (503, fail-closed) from
+    // "wrong/missing secret" (401). Collapsing both to 401 would hide
+    // misconfiguration as an auth error.
+    return NextResponse.json(
+      {
+        error:
+          auth.reason === 'unconfigured'
+            ? 'CRON_SECRET not configured'
+            : 'Unauthorized',
+      },
+      { status: auth.reason === 'unconfigured' ? 503 : 401 },
+    );
   }
 
   // Optional single-user override — when the body carries { "userId": "..." }

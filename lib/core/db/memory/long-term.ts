@@ -202,11 +202,17 @@ export async function upsertLongTermMemoryByKey(input: {
 }> {
   const trimmedKey = input.key.trim();
   if (!trimmedKey) {
+    // Empty key → fall back to createLongTermMemoryRow. Preserve the
+    // Dream lifecycle fields (status + meta) so a tentative proposal
+    // written under an empty key still lands as tentative, and its
+    // provenance survives. Earlier code dropped both fields here.
     const row = await createLongTermMemoryRow(input.content, {
       userId: input.userId,
       memoryType: input.memoryType,
       importance: input.importance,
       projectId: input.projectId,
+      dreamStatus: input.dreamStatus,
+      dreamMeta: input.dreamMeta,
     });
     return { row, created: true };
   }
@@ -226,6 +232,11 @@ export async function upsertLongTermMemoryByKey(input: {
     .limit(1);
 
   if (existing) {
+    // Only flip dream_status when the caller EXPLICITLY provided one.
+    // Defaulting to 'active' here would silently promote a tentative
+    // (or re-activate a superseded) row just because an unrelated
+    // content refresh omitted the field. Creation paths still default
+    // to 'active' via createLongTermMemoryRow.
     const [row] = await db
       .update(schema.longTermMemories)
       .set({
@@ -233,7 +244,12 @@ export async function upsertLongTermMemoryByKey(input: {
         memoryType: input.memoryType ?? 'fact',
         importance: input.importance ?? 5,
         updatedAt: new Date(),
-        dreamStatus: input.dreamStatus ?? 'active',
+        // Conditionally include dream_status only when explicitly provided,
+        // so an omitted field preserves the stored status. Spread `false`
+        // for the unused branch so the object literal stays a plain object.
+        ...(input.dreamStatus !== undefined
+          ? { dreamStatus: input.dreamStatus }
+          : {}),
         ...(input.dreamMeta ? { dreamMeta: input.dreamMeta } : {}),
       })
       .where(eq(schema.longTermMemories.id, existing.id))
@@ -484,13 +500,29 @@ export async function markLongTermMemorySuperseded(input: {
     conditions.push(eq(schema.longTermMemories.userId, input.userId));
   }
 
+  // Read the current row first so we can DEEP-MERGE provenance into the
+  // existing dream_meta rather than overwriting the whole column. Earlier
+  // code did `dreamMeta: { provenance: {...}, lastDreamAt }` which wiped
+  // any previously-recorded confidence / sourceKind / earlier provenance.
+  const [existing] = await db
+    .select({ dreamMeta: schema.longTermMemories.dreamMeta })
+    .from(schema.longTermMemories)
+    .where(and(...conditions))
+    .limit(1);
+  const prevMeta =
+    (existing?.dreamMeta as Record<string, unknown> | null) ?? {};
+  const prevProvenance =
+    (prevMeta.provenance as Record<string, unknown> | undefined) ?? {};
+
   const [row] = await db
     .update(schema.longTermMemories)
     .set({
       dreamStatus: 'superseded',
       updatedAt: new Date(),
       dreamMeta: {
+        ...prevMeta,
         provenance: {
+          ...prevProvenance,
           ...(input.supersededBy ? { supersededBy: input.supersededBy } : {}),
           ...(input.dreamRunId ? { dreamRunId: input.dreamRunId } : {}),
         },
@@ -534,12 +566,24 @@ export async function ratifyLongTermMemory(input: {
     conditions.push(eq(schema.longTermMemories.userId, input.userId));
   }
 
+  // Read the current row so we can merge into the existing dream_meta
+  // (preserving confidence / sourceKind / provenance from the original
+  // proposal) instead of overwriting it with just the ratification fields.
+  const [existing] = await db
+    .select({ dreamMeta: schema.longTermMemories.dreamMeta })
+    .from(schema.longTermMemories)
+    .where(and(...conditions))
+    .limit(1);
+  const prevMeta =
+    (existing?.dreamMeta as Record<string, unknown> | null) ?? {};
+
   const [row] = await db
     .update(schema.longTermMemories)
     .set({
       dreamStatus: input.ratified ? 'active' : 'contradicted',
       updatedAt: new Date(),
       dreamMeta: {
+        ...prevMeta,
         ratifiedAt: new Date().toISOString(),
         ratified: input.ratified,
         ...(input.note ? { reviewNote: input.note } : {}),
@@ -552,9 +596,45 @@ export async function ratifyLongTermMemory(input: {
 }
 
 /**
- * List Dream Phase 2 tentative proposals for a user. Used by the
- * ratification UI / cron pass to find proposals awaiting review.
+ * Bulk-set the dream_status of ALL of a user's tentative proposals in one
+ * UPDATE — used by the ratify-all / reject-all handler so a 50-proposal
+ * review queue is one round-trip, not 50.
+ *
+ * Scoped to (userId, dream_status='tentative') so it can only promote/demote
+ * pending proposals, never touch active/superseded rows. Merges the
+ * ratification fields into existing dream_meta at the SQL level (jsonb ||).
+ *
+ * @returns the number of rows actually updated (0 if none were tentative).
  */
+export async function bulkSetTentativeStatus(input: {
+  userId: string;
+  /** true → promote to 'active'; false → demote to 'contradicted'. */
+  ratified: boolean;
+}): Promise<number> {
+  const updated = await db
+    .update(schema.longTermMemories)
+    .set({
+      dreamStatus: input.ratified ? 'active' : 'contradicted',
+      updatedAt: new Date(),
+      // Merge ratification fields into whatever dream_meta each row already
+      // carries — coalesce to '{}' so legacy rows (null meta) aren't nulled
+      // out. jsonb || merges top-level keys per row.
+      dreamMeta: sql`coalesce(${schema.longTermMemories.dreamMeta}, '{}'::jsonb) || ${JSON.stringify(
+        {
+          ratifiedAt: new Date().toISOString(),
+          ratified: input.ratified,
+        },
+      )}::jsonb`,
+    })
+    .where(
+      and(
+        eq(schema.longTermMemories.userId, input.userId),
+        eq(schema.longTermMemories.dreamStatus, 'tentative'),
+      ),
+    )
+    .returning({ id: schema.longTermMemories.id });
+  return updated.length;
+}
 export async function listTentativeMemories(input: {
   userId: string;
   limit?: number;

@@ -34,6 +34,71 @@ export interface ModelPricing {
 }
 
 /**
+ * A pricing tier that applies above a token-count threshold.
+ *
+ * Some providers (notably Gemini 2.5 Pro) bill at different rates
+ * depending on request size — e.g. ≤200k tokens at one rate, above at
+ * a higher rate. `threshold` is the cumulative input-token count at/above
+ * which the tier becomes active; tiers are evaluated in order and the
+ * FIRST matching tier wins, so callers should list them lowest-first.
+ */
+export interface PricingTier {
+  /**
+   * Input-token count at/above which this tier applies. 0 = the base
+   * (default) tier, always matched first.
+   */
+  threshold: number;
+  input: number;
+  output: number;
+  cacheRead?: number;
+}
+
+/**
+ * Per-model pricing, either flat (single rate) or tiered by token count.
+ *
+ * `tiers` and the flat `input`/`output`/`cacheRead` fields are mutually
+ * exclusive: when `tiers` is present it takes precedence and the flat
+ * fields are ignored. This keeps the common single-rate case one-line
+ * while still expressing stepped pricing.
+ */
+export interface ModelPricing {
+  input: number;
+  output: number;
+  cacheRead?: number;
+  /**
+   * Optional token-threshold tiers. When present, the FIRST tier whose
+   * `threshold` is <= the request's total input-token count is used.
+   * List tiers lowest-threshold-first so the base rate (threshold: 0)
+   * is the fallback.
+   */
+  tiers?: PricingTier[];
+}
+
+/**
+ * Resolve the effective flat rates (input/output/cacheRead) for a model
+ * at a given input-token count. Returns the longest-prefix match's
+ * tier-aware rates, or null when the model is unknown.
+ */
+function resolveTieredPricing(
+  pricing: ModelPricing,
+  inputTokens: number,
+): { input: number; output: number; cacheRead?: number } {
+  if (pricing.tiers && pricing.tiers.length > 0) {
+    // Tiers are evaluated lowest-threshold-first; pick the last tier
+    // whose threshold is <= inputTokens (i.e. the highest applicable
+    // bracket). Falls back to the lowest tier if none match (e.g.
+    // inputTokens < first threshold, which shouldn't happen when the
+    // base tier has threshold: 0).
+    let match = pricing.tiers[0];
+    for (const tier of pricing.tiers) {
+      if (inputTokens >= tier.threshold) match = tier;
+    }
+    return match;
+  }
+  return pricing;
+}
+
+/**
  * Hand-maintained rate card. Update when providers change pricing; the
  * values are public list prices in USD per 1M tokens.
  *
@@ -65,7 +130,17 @@ const RATE_CARD: Record<string, ModelPricing> = {
   'gemini-1.5-pro': { input: 1.25, output: 5 },
   'gemini-1.5-flash': { input: 0.075, output: 0.3 },
   'gemini-2.0-flash': { input: 0.1, output: 0.4 },
-  'gemini-2.5-pro': { input: 1.25, output: 10 },
+  // Gemini 2.5 Pro has token-threshold pricing: ≤200k tokens billed at
+  // $1.25/$10, >200k at $2.50/$15. Tiers listed lowest-threshold-first
+  // so resolveTieredPricing picks the right bracket.
+  'gemini-2.5-pro': {
+    input: 1.25,
+    output: 10,
+    tiers: [
+      { threshold: 0, input: 1.25, output: 10 },
+      { threshold: 200_001, input: 2.5, output: 15 },
+    ],
+  },
   'gemini-2.5-flash': { input: 0.3, output: 2.5 },
   // DeepSeek
   'deepseek-chat': { input: 0.27, output: 1.1 },
@@ -111,11 +186,17 @@ export function computeUsageCost(
   const outputTokens = getTokenUsageTotal(usage.outputTokens);
   if (inputTokens === 0 && outputTokens === 0) return null;
 
-  // USD per 1M tokens → multiply by (tokens / 1e6).
-  const inputCost = (inputTokens / 1e6) * pricing.input;
-  const outputCost = (outputTokens / 1e6) * pricing.output;
+  // Resolve tiered pricing (no-op for flat-rate models) so stepped
+  // pricing like Gemini 2.5 Pro's 200k-token breakpoint is applied.
+  const tiered = resolveTieredPricing(pricing, inputTokens);
+
+  // USD per 1M tokens → multiply by (tokens / 1e6). Return the raw sum
+  // without fixed-precision rounding so callers/tests can assert exact
+  // values; display layers can round for presentation.
+  const inputCost = (inputTokens / 1e6) * tiered.input;
+  const outputCost = (outputTokens / 1e6) * tiered.output;
   return {
-    costUsd: Number((inputCost + outputCost).toFixed(6)),
+    costUsd: inputCost + outputCost,
     inputTokens,
     outputTokens,
   };
@@ -128,9 +209,47 @@ export function computeUsageCost(
  * The override is merged into the module-level card; prefer using a
  * unique key that won't collide with future built-in entries.
  */
+/**
+ * Register a custom pricing entry at runtime. Lets extensions / config
+ * add provider-specific rates without forking the rate card.
+ *
+ * Validation: rejects blank/whitespace-only prefixes and non-finite or
+ * negative rates (NaN/Infinity would silently corrupt every cost
+ * computation for that prefix). Throws on invalid input so misconfig
+ * surfaces at registration time rather than as weird costs later.
+ *
+ * The override is merged into the module-level card; prefer using a
+ * unique key that won't collide with future built-in entries.
+ */
 export function registerModelPricing(
   modelPrefix: string,
   pricing: ModelPricing,
 ): void {
+  if (!modelPrefix?.trim()) {
+    throw new Error(
+      'registerModelPricing: modelPrefix must be a non-empty string',
+    );
+  }
+  const validateRate = (value: number, field: string) => {
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(
+        `registerModelPricing: ${field} must be a finite non-negative number (got ${value})`,
+      );
+    }
+  };
+  validateRate(pricing.input, 'input');
+  validateRate(pricing.output, 'output');
+  if (pricing.cacheRead !== undefined) {
+    validateRate(pricing.cacheRead, 'cacheRead');
+  }
+  if (pricing.tiers) {
+    for (const [i, tier] of pricing.tiers.entries()) {
+      validateRate(tier.input, `tiers[${i}].input`);
+      validateRate(tier.output, `tiers[${i}].output`);
+      if (tier.cacheRead !== undefined) {
+        validateRate(tier.cacheRead, `tiers[${i}].cacheRead`);
+      }
+    }
+  }
   RATE_CARD[modelPrefix.toLowerCase()] = pricing;
 }

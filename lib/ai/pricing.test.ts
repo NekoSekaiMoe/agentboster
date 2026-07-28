@@ -63,16 +63,32 @@ describe('computeUsageCost', () => {
     ).toBeNull();
   });
 
-  it('rounds cost to 6 decimal places to avoid float noise', () => {
+  it('returns the precise raw cost without rounding', () => {
     const result = computeUsageCost('gemini-2.5-flash', {
       inputTokens: 3,
       outputTokens: 7,
     });
     expect(result).not.toBeNull();
-    // Tiny cost — verify it's a finite number with <= 6 decimals.
-    expect(Number.isFinite(result?.costUsd)).toBe(true);
-    const decimals = result?.costUsd.toString().split('.')[1]?.length ?? 0;
-    expect(decimals).toBeLessThanOrEqual(6);
+    // 3/1e6 * 0.3 + 7/1e6 * 2.5 = 0.0000009 + 0.0000175 = 0.0000184
+    // Precise sum, no toFixed rounding.
+    expect(result?.costUsd).toBeCloseTo(0.0000184, 10);
+  });
+
+  it('applies Gemini 2.5 Pro token-threshold pricing across the 200k boundary', () => {
+    // Exactly at/under 200k → low tier ($1.25/$10).
+    const under = computeUsageCost('gemini-2.5-pro', {
+      inputTokens: 200_000,
+      outputTokens: 0,
+    });
+    expect(under?.costUsd).toBeCloseTo((200_000 / 1e6) * 1.25, 10);
+
+    // 200_001 input tokens → crosses into the high tier ($2.50/$15) for
+    // the WHOLE request (tiered pricing is per-request, not blended).
+    const over = computeUsageCost('gemini-2.5-pro', {
+      inputTokens: 200_001,
+      outputTokens: 0,
+    });
+    expect(over?.costUsd).toBeCloseTo((200_001 / 1e6) * 2.5, 10);
   });
 });
 
@@ -85,5 +101,46 @@ describe('registerModelPricing', () => {
       outputTokens: 0,
     });
     expect(cost?.costUsd).toBe(1);
+  });
+
+  it('rejects blank or whitespace-only prefixes', () => {
+    expect(() => registerModelPricing('   ', { input: 1, output: 2 })).toThrow(
+      /non-empty/,
+    );
+    expect(() => registerModelPricing('', { input: 1, output: 2 })).toThrow(
+      /non-empty/,
+    );
+  });
+
+  it('rejects negative, NaN, or infinite flat rates', () => {
+    expect(() =>
+      registerModelPricing('bad-neg', { input: -1, output: 2 }),
+    ).toThrow(/input/);
+    expect(() =>
+      registerModelPricing('bad-nan', { input: Number.NaN, output: 2 }),
+    ).toThrow(/input/);
+    expect(() =>
+      registerModelPricing('bad-inf', {
+        input: 1,
+        output: Number.POSITIVE_INFINITY,
+      }),
+    ).toThrow(/output/);
+    expect(() =>
+      registerModelPricing('bad-cache', {
+        input: 1,
+        output: 2,
+        cacheRead: -0.1,
+      }),
+    ).toThrow(/cacheRead/);
+  });
+
+  it('rejects invalid rates inside tiers', () => {
+    expect(() =>
+      registerModelPricing('bad-tier', {
+        input: 1,
+        output: 2,
+        tiers: [{ threshold: 0, input: -5, output: 1 }],
+      }),
+    ).toThrow(/tiers\[0\]\.input/);
   });
 });

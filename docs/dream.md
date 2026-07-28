@@ -7,7 +7,7 @@ novel cross-cluster connections as `tentative` memories awaiting
 ratification.
 
 Inspired by AutoGPT's `ref/autogpt_platform/backend/backend/copilot/dream/`
-three-phase pipeline, adapted to agentboster's Postgres-only stack (no
+three-phase pipeline, adapted to Agentboster's Postgres-only stack (no
 Neo4j/FalkorDB dependency).
 
 ## Pipeline
@@ -99,7 +99,8 @@ curl -X POST -H "Authorization: Bearer $CRON_SECRET" \
   guard before writes.
 - **Apply** (shipped): DAL mutations.
 - **Ratification** (shipped): two paths promote tentative → active:
-  - Manual: `GET/PATCH /api/memory/dream/proposals` (per-user review UI)
+  - Manual: `GET /api/memory/dream/proposals` (list) +
+    `PATCH /api/memory/dream/proposals/{id}` (single-proposal approve/reject)
   - Auto: `/api/cron/dream/ratify` weekly cron promotes proposals whose
     observation window has elapsed (HIGH confidence ≥ 0.7: 1 day,
     others: 7 days). Decision logic in `lib/memory/dream/ratify.ts`.

@@ -166,25 +166,26 @@ async function embedBatch(
   if (!embeddingModel || contents.length === 0) {
     return contents.map(() => null);
   }
-  try {
-    // generateEmbedding handles single values; batch by calling per-item
-    // to avoid coupling to a specific batch API. The contents set is
-    // small (≤ MAX_GROUPS * SAMPLE_PER_GROUP), so this is fine.
-    const results = await Promise.all(
-      contents.map((c) =>
-        generateEmbedding(c, embeddingModel, config)
-          .then((r) => r.embedding)
-          .catch(() => null),
-      ),
-    );
-    return results;
-  } catch (error) {
-    logger.warn('phase2:embedding_batch_failed', {
-      embeddingModel,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return contents.map(() => null);
-  }
+  // generateEmbedding handles single values; batch by calling per-item
+  // to avoid coupling to a specific batch API. The contents set is
+  // small (≤ MAX_GROUPS * SAMPLE_PER_GROUP), so this is fine. Each
+  // item converts its own failure to null, so Promise.all never rejects
+  // — no outer try/catch is needed here (the previous outer catch was
+  // unreachable). Per-item errors are logged inside generateEmbedding.
+  const results = await Promise.all(
+    contents.map((c) =>
+      generateEmbedding(c, embeddingModel, config)
+        .then((r) => r.embedding)
+        .catch((error) => {
+          logger.warn('phase2:embedding_item_failed', {
+            embeddingModel,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return null;
+        }),
+    ),
+  );
+  return results;
 }
 
 /**
@@ -267,8 +268,16 @@ export async function recombinePhase(input: {
 
   // Sample representatives + compute their embeddings.
   const sampled = new Map<string, MemoryRow[]>();
-  for (const [prefix, members] of rawGroups) {
-    sampled.set(prefix, sampleGroup(members));
+  // Cap the number of prefixes inspected so a user with 50 prefixes
+  // does not blow up the O(n²) cross-group pairing matrix. Take the
+  // FIRST MAX_GROUPS (insertion order = recency order from the
+  // listAllLongTermMemoryRows ORDER BY updatedAt DESC). Embeddings are
+  // only generated for these truncated groups, so work is not wasted on
+  // prefixes selectCandidatePairs would discard.
+  const inspectedPrefixes = Array.from(rawGroups.keys()).slice(0, MAX_GROUPS);
+  for (const prefix of inspectedPrefixes) {
+    const members = rawGroups.get(prefix);
+    if (members) sampled.set(prefix, sampleGroup(members));
   }
   const flatSampled = Array.from(sampled.values()).flat();
   const embeddings = await embedBatch(

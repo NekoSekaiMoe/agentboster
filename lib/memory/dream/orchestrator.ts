@@ -2,14 +2,15 @@
  * Dream orchestrator — the top-level entry point that runs the offline
  * memory consolidation pipeline for one user.
  *
- * Flow (P0 — Phase 1 only):
+ * Flow:
  *
- *   consolidate  ──►  sanitize  ──►  apply  ──►  audit row
- *   (phase1)         (phase3)       (apply)     (dream_runs)
+ *   consolidate  ──►  recombine  ──►  sanitize  ──►  apply  ──►  audit row
+ *   (phase1)         (phase2)       (phase3)      (apply)    (dream_runs)
  *
- * Phase 2 (recombine / propose novel findings) is intentionally absent
- * in P0; the orchestrator is shaped so it slots in between phase1 and
- * phase3 without touching the apply path.
+ * Phase 1 merges near-duplicate memories within a key-prefix group.
+ * Phase 2 surfaces NOVEL cross-cluster connections as `tentative`
+ * proposals. Phase 3 collapses near-duplicate writes + guards against
+ * double-supersede. Apply writes the surviving ops to the store.
  *
  * Trigger model (see design doc):
  *   External cron → POST /api/cron/dream (CRON_SECRET) → fan out to one
@@ -168,6 +169,7 @@ export async function runDreamForUser(input: {
     phasesRun.push('apply');
     const applyResult = await applyDreamOperations({
       userId: input.userId,
+      runId,
       operations,
       config,
     });
@@ -208,6 +210,7 @@ export async function runDreamForUser(input: {
       auditRow = await completeDreamRun({
         id: auditRow.id,
         finishedAt,
+        phases: outcome.phases,
         operations: [], // P0: operations provenance tracked via dream_runs.result
         result: {
           phases: outcome.phases,

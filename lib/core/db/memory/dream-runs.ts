@@ -38,21 +38,34 @@ export async function insertDreamRun(input: {
 /**
  * Update the finishedAt + result of an in-progress run. Used when the
  * orchestrator starts the run (insert) then applies operations and only
- * later knows the final result.
+ * later knows the final result. `phases` is optional but should be
+ * passed so the top-level `phases` column reflects what actually ran
+ * (previously it was left as the empty string from insert).
  */
 export async function completeDreamRun(input: {
   id: string;
   finishedAt: Date;
+  /** Optional: the phases string (e.g. "phase1+phase2+phase3+apply"). */
+  phases?: string;
   operations: unknown[];
   result: Record<string, unknown>;
 }) {
+  const updateSet: {
+    finishedAt: Date;
+    operations: unknown[];
+    result: Record<string, unknown>;
+    phases?: string;
+  } = {
+    finishedAt: input.finishedAt,
+    operations: input.operations,
+    result: input.result,
+  };
+  if (input.phases !== undefined) {
+    updateSet.phases = input.phases;
+  }
   const [row] = await db
     .update(schema.dreamRuns)
-    .set({
-      finishedAt: input.finishedAt,
-      operations: input.operations,
-      result: input.result,
-    })
+    .set(updateSet)
     .where(eq(schema.dreamRuns.id, input.id))
     .returning();
   return row ?? null;

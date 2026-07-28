@@ -170,10 +170,9 @@ describe('selectCandidatePairs', () => {
   });
 
   it('caps the result to MAX_CANDIDATE_PAIRS', () => {
-    // Build 3 groups × 3 members each, all parallel vectors → every pair
-    // above threshold. That yields 3*C(3,2)... actually cross-group:
-    // 3 groups choose 2 = 3 group-pairs × 3×3 member pairs = 27 candidate
-    // pairs, all with sim=1. Cap (8) should kick in.
+    // 3 groups × 3 members, all parallel vectors → 3 group-pairs ×
+    // 3×3 member pairs = 27 cross-group candidate pairs, all sim=1.
+    // Cap (8) should kick in, so pairs.length is exactly 8.
     const groups = new Map<
       string,
       { memory: MemoryRow; embedding: number[] | null }[]
@@ -189,6 +188,6 @@ describe('selectCandidatePairs', () => {
       );
     }
     const pairs = selectCandidatePairs(groups);
-    expect(pairs.length).toBeLessThanOrEqual(8);
+    expect(pairs).toHaveLength(8);
   });
 });

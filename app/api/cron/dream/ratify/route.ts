@@ -20,6 +20,7 @@
 import { NextResponse } from 'next/server';
 
 import {
+  listDistinctTentativeUserIds,
   listTentativeMemories,
   ratifyLongTermMemory,
 } from '@/lib/core/db/memory/long-term';
@@ -27,7 +28,9 @@ import {
   type RatifyProposalRow,
   readyForAutoRatify,
 } from '@/lib/memory/dream/ratify';
-import { hasValidCronSecret } from '@/lib/security/cron-auth';
+import { invalidateProfileCache } from '@/lib/memory/profile';
+import { invalidateRecallCache } from '@/lib/memory/recall';
+import { checkCronSecret } from '@/lib/security/cron-auth';
 import { createLogger } from '@/lib/utils/logger';
 
 export const dynamic = 'force-dynamic';
@@ -36,16 +39,24 @@ export const maxDuration = 120;
 const logger = createLogger('api.cron.dream.ratify');
 
 export async function POST(request: Request): Promise<Response> {
-  if (!hasValidCronSecret(request as never)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = checkCronSecret(request);
+  if (!auth.valid) {
+    // 503 when CRON_SECRET is unset (fail-closed misconfiguration);
+    // 401 for wrong/missing secret.
+    return NextResponse.json(
+      {
+        error:
+          auth.reason === 'unconfigured'
+            ? 'CRON_SECRET not configured'
+            : 'Unauthorized',
+      },
+      { status: auth.reason === 'unconfigured' ? 503 : 401 },
+    );
   }
 
   // The cron runs across all users (same fan-out model as /api/cron/dream).
   // listDistinctTentativeUserIds lets us fan out per-user without scanning
   // every tentative row in JS.
-  const { listDistinctTentativeUserIds } = await import(
-    '@/lib/core/db/memory/long-term'
-  );
   const userIds = await listDistinctTentativeUserIds();
   if (userIds.length === 0) {
     return NextResponse.json({ ok: true, promoted: 0, users: 0 });
@@ -69,19 +80,31 @@ export async function POST(request: Request): Promise<Response> {
         skipped += 1;
         continue;
       }
-      const ok = await ratifyLongTermMemory({
-        id: proposal.id,
-        userId,
-        ratified: true,
-      }).catch(() => null);
-      if (ok) promoted += 1;
+      try {
+        const ok = await ratifyLongTermMemory({
+          id: proposal.id,
+          userId,
+          ratified: true,
+        });
+        if (ok) promoted += 1;
+      } catch (error) {
+        // Distinguish a genuine DB error from an expected concurrent
+        // state change. A no-rows-affected update (proposal already
+        // ratified/rejected by another path) returns null without
+        // throwing — that's normal fan-out overlap, not a failure.
+        // Genuine DB errors (connection, constraint) bubble here and
+        // must be logged with context rather than silently dropped.
+        logger.warn('cron:ratify_row_failed', {
+          userId,
+          proposalId: proposal.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     if (promoted > 0) {
       // Invalidate caches for this user so the next prompt sees the
       // newly-active memories.
-      const { invalidateRecallCache } = await import('@/lib/memory/recall');
-      const { invalidateProfileCache } = await import('@/lib/memory/profile');
       invalidateRecallCache(userId);
       await invalidateProfileCache(userId);
     }

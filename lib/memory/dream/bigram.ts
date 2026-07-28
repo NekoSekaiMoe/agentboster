@@ -88,6 +88,10 @@ export function isNearDuplicate(
  * proposals per run). Each rejected item is returned with the id of
  * the accepted item it duplicates, so the caller can log the collapse.
  *
+ * Optimization: each content's normalized bigram fingerprint is computed
+ * ONCE up front and reused for every comparison, instead of re-tokenizing
+ * both contents on every call to isNearDuplicate/bigramSimilarity.
+ *
  * @returns `{ accepted, rejected }` where rejected[i] = { index, duplicateOf }
  */
 export function dedupeNearDuplicateContents(input: {
@@ -100,11 +104,36 @@ export function dedupeNearDuplicateContents(input: {
   const threshold = input.threshold ?? DEFAULT_THRESHOLD;
   const accepted: number[] = [];
   const rejected: Array<{ index: number; duplicateOf: number }> = [];
+  // Precompute fingerprints for every content so the O(n²) loop below
+  // compares pre-built Sets instead of re-tokenizing each side per pair.
+  // Each fingerprint also remembers its size for the empty-set short-circuit.
+  const fingerprints = input.contents.map((content) => {
+    const bigrams = wordBigrams(content);
+    return { bigrams, size: bigrams.size };
+  });
 
-  input.contents.forEach((content, index) => {
-    const dupOf = accepted.find((accIdx) =>
-      isNearDuplicate(content, input.contents[accIdx], threshold),
-    );
+  input.contents.forEach((_content, index) => {
+    const here = fingerprints[index];
+    // Empty fingerprint → never a duplicate (matches bigramSimilarity's
+    // empty-set short-circuit). Accept without scanning.
+    if (here.size === 0) {
+      accepted.push(index);
+      return;
+    }
+    const dupOf = accepted.find((accIdx) => {
+      const other = fingerprints[accIdx];
+      if (other.size === 0) return false;
+      // Inline bigramSimilarity over the precomputed sets: iterate the
+      // smaller set against the larger for speed.
+      const [small, large] =
+        here.size <= other.size ? [here, other] : [other, here];
+      let intersection = 0;
+      for (const bg of small.bigrams) {
+        if (large.bigrams.has(bg)) intersection += 1;
+      }
+      const union = here.size + other.size - intersection;
+      return union !== 0 && intersection / union >= threshold;
+    });
     if (dupOf === undefined) {
       accepted.push(index);
     } else {

@@ -36,19 +36,11 @@ import {
   writeToolApprovalRequest,
   writeToolOutputDenied,
 } from '@/lib/workflow/agent/sender/writers';
+import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { ChatSource } from '@/types/workflow';
 
-/**
- * Reason the gate decided to (not) require approval. Useful for logs and
- * for the `withSensitiveGate` caller that wants to know why a call was
- * allowed through without prompting.
- */
-export type SensitiveGateDecision =
-  | 'approved-proceed'
-  | 'denied'
-  | 'skipped-not-sensitive'
-  | 'skipped-unsupervised';
+const logger = createLogger('workflow.security.sensitive_gate');
 
 /**
  * Wait for the user to approve / deny a tool call via the chat UI.
@@ -59,8 +51,11 @@ export type SensitiveGateDecision =
  * Behavior:
  *  1. Emit a `tool-approval-request` chunk so the chat UI shows the
  *     approval card with the tool name + input.
- *  2. Block on the approval hook (resumed by the user's click).
- *  3. On deny, emit `tool-output-denied` and return approved=false.
+ *  2. Send a reminder nudge to the configured channel (best-effort —
+ *     failures are logged but never reject the wait, since the approval
+ *     card is already written and the user can still act on it).
+ *  3. Block on the approval hook (resumed by the user's click).
+ *  4. On deny, emit `tool-output-denied` and return approved=false.
  *
  * @returns `{ approved: boolean, comment?: string }`
  */
@@ -79,12 +74,26 @@ export async function waitForToolApproval(input: {
     toolInput: input.toolInput,
   });
 
-  await sendApprovalRequestReminderStep({
-    source: input.source ?? { type: 'web' },
-    toolCallId: input.toolCallId,
-    toolName: input.toolName,
-  });
+  // The reminder is an optional nudge — the approval card is already
+  // written above, so a reminder delivery failure (adapter outage, bad
+  // channel config) must NOT reject the wait. Swallow + log so the user
+  // can still approve via the already-rendered card.
+  try {
+    await sendApprovalRequestReminderStep({
+      source: input.source ?? { type: 'web' },
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+    });
+  } catch (error) {
+    logger.warn('sensitive_gate:reminder_failed', {
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
+  // The hook token is the toolCallId, which is already unique within a
+  // (sessionId, runId) pair — that scopes resumption to the same run.
   using hook = approvalHookBuilder.create({ token: input.toolCallId });
 
   // The hook yields once per resume; we only care about the first payload.
@@ -125,6 +134,10 @@ export function needsSensitiveApproval(input: {
 /**
  * Wrap a tool `execute` function with the HITL approval gate.
  *
+ * `toolName` is REQUIRED and is forwarded to the approval card so the
+ * user sees the real tool name (e.g. "sendEmail") rather than a generic
+ * "sensitive_tool" placeholder.
+ *
  * Usage:
  *
  * ```ts
@@ -134,7 +147,13 @@ export function needsSensitiveApproval(input: {
  *     sendEmail: tool({
  *       // ...
  *       execute: withSensitiveGate(
- *         { sensitive: true, sessionId: ctx.sessionId, runId: ctx.runId },
+ *         {
+ *           sensitive: true,
+ *           toolName: 'sendEmail',
+ *           sessionId: ctx.sessionId,
+ *           runId: ctx.runId,
+ *           appConfig: config,
+ *         },
  *         async (input) => { /* actually send the email *\/ },
  *       ),
  *     }),
@@ -149,6 +168,8 @@ export function needsSensitiveApproval(input: {
 export function withSensitiveGate<TInput, TResult>(
   options: {
     sensitive: boolean;
+    /** Real tool name, forwarded to the approval card. Required. */
+    toolName: string;
     sessionId: string;
     runId: string;
     source?: ChatSource;
@@ -169,17 +190,11 @@ export function withSensitiveGate<TInput, TResult>(
       return wrapped(input, ctx);
     }
 
-    // The wrapper doesn't know the tool's own name at definition site —
-    // the caller can bake it into toolInput display via the chat UI, but
-    // the approval chunk carries toolCallId which is what the UI keys on.
-    // We synthesize a toolName from the call site if the caller didn't
-    // pass one; the real toolName is attached by the AI SDK to the
-    // tool-input-available chunk emitted inside writeToolApprovalRequest.
     const decision = await waitForToolApproval({
       sessionId: options.sessionId,
       runId: options.runId,
       toolCallId: ctx.toolCallId,
-      toolName: 'sensitive_tool',
+      toolName: options.toolName,
       toolInput: input,
       source: options.source,
     });

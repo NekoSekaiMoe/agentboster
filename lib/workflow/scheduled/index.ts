@@ -85,7 +85,12 @@ export async function scheduledTaskWorkflow(taskId: string) {
           delayMs,
         });
         await persistMisfire(task.id, delayMs);
-      } else if (delayMs > 0) {
+      } else {
+        // Non-misfire (includes delayMs <= 0, i.e. nextRunAt still in the
+        // future because the runtime woke slightly early). Always sleep
+        // until the slot so on-time delay tasks wait rather than firing
+        // immediately. (Earlier code only slept when delayMs > 0, which
+        // let the delayMs <= 0 case fall through to an early trigger.)
         await sleep(task.nextRunAt);
       }
     }
@@ -119,44 +124,78 @@ export async function scheduledTaskWorkflow(taskId: string) {
     const now = Date.now();
     const storedNextRunAt = current.nextRunAt?.getTime() ?? null;
 
-    const nextRunAt = computeNextDailyRunAt({
+    const upcomingRunAt = computeNextDailyRunAt({
       dailyTime: current.dailyTime ?? '09:00',
       timeZone: current.timezone ?? getDefaultScheduleTimezone(),
     });
 
-    // Misfire detection: if the previously-persisted nextRunAt is more
-    // than MISFIRE_THRESHOLD_MS in the past, the host missed its slot.
-    // Coalesce: we still fire now (once), then advance to tomorrow.
-    // Without this log/metadata hook the misfire would be silent — the
-    // sleep(nextRunAt) below returns immediately when nextRunAt is in
-    // the past, so the trigger fires, but nothing distinguishes a
-    // healthy on-time run from a 3-day-late catch-up.
+    // Coalesce=True misfire handling. Two cases:
+    //  - storedNextRunAt is in the past beyond the grace threshold → the
+    //    host missed its slot (possibly across several days). We fire
+    //    ONCE immediately for the latest missed slot (NOT the freshly
+    //    computed future slot), log the misfire, then persist + sleep
+    //    until tomorrow's upcomingRunAt. We do NOT replay each missed
+    //    day separately.
+    //  - otherwise (no stored slot, slot still in the future, or only
+    //    seconds of skew) → normal on-time path: persist upcomingRunAt
+    //    and sleep until it.
+    let fireScheduledFor: Date;
+    let misfireDelayMs: number | null = null;
     if (storedNextRunAt !== null) {
-      const misfireDelayMs = now - storedNextRunAt;
-      if (misfireDelayMs > MISFIRE_THRESHOLD_MS) {
-        logger.warn('daily:misfire', {
-          taskId: current.id,
-          scheduledFor: new Date(storedNextRunAt).toISOString(),
-          delayMs: misfireDelayMs,
-          // Human-readable "N missed slots" for daily cadence — helps
-          // operators gauge severity (1 missed slot vs. a week).
-          missedSlots: Math.floor(misfireDelayMs / (24 * 60 * 60 * 1000)),
-        });
-        await persistMisfire(current.id, misfireDelayMs);
+      const delay = now - storedNextRunAt;
+      if (delay > MISFIRE_THRESHOLD_MS) {
+        misfireDelayMs = delay;
+        fireScheduledFor = new Date(storedNextRunAt);
+      } else {
+        fireScheduledFor = upcomingRunAt;
       }
+    } else {
+      fireScheduledFor = upcomingRunAt;
     }
 
-    await persistNextRunAt(current.id, nextRunAt);
+    if (misfireDelayMs !== null) {
+      logger.warn('daily:misfire', {
+        taskId: current.id,
+        scheduledFor: new Date(storedNextRunAt as number).toISOString(),
+        delayMs: misfireDelayMs,
+        // Human-readable "N missed slots" for daily cadence — helps
+        // operators gauge severity (1 missed slot vs. a week).
+        missedSlots: Math.floor(misfireDelayMs / (24 * 60 * 60 * 1000)),
+      });
+      await persistMisfire(current.id, misfireDelayMs);
+    }
+
+    // Persist the next future slot BEFORE firing/sleeping so a crash
+    // mid-fire does not lose the advance.
+    await persistNextRunAt(current.id, upcomingRunAt);
     logger.info('daily:scheduled', {
       taskId: current.id,
-      nextRunAt: nextRunAt.toISOString(),
+      nextRunAt: upcomingRunAt.toISOString(),
+      coalescing: misfireDelayMs !== null,
     });
 
-    // sleep with a past deadline returns immediately — that's the
-    // coalesce path (misfire catch-up). Otherwise we wait until the slot.
-    await sleep(nextRunAt);
+    if (misfireDelayMs !== null) {
+      // Coalesce path: fire immediately for the missed slot (no sleep).
+      try {
+        await postScheduledTrigger(current.id, fireScheduledFor.toISOString());
+      } catch (error) {
+        // See the on-time path below for why we swallow FatalError.
+        logger.error('daily:trigger_failed', {
+          taskId: current.id,
+          scheduledFor: fireScheduledFor.toISOString(),
+          error,
+        });
+      }
+      // Then sleep until the freshly-persisted upcoming slot.
+      await sleep(upcomingRunAt);
+      continue;
+    }
+
+    // On-time path: wait until the slot, then fire. sleep with a past
+    // deadline returns immediately (covers tiny skew).
+    await sleep(fireScheduledFor);
     try {
-      await postScheduledTrigger(current.id, nextRunAt.toISOString());
+      await postScheduledTrigger(current.id, fireScheduledFor.toISOString());
     } catch (error) {
       // postScheduledTrigger is a 'use step' — once its internal retries
       // are exhausted, the runtime rejects its promise with FatalError.
@@ -171,7 +210,7 @@ export async function scheduledTaskWorkflow(taskId: string) {
       // advance to the next computeNextDailyRunAt().
       logger.error('daily:trigger_failed', {
         taskId: current.id,
-        scheduledFor: nextRunAt.toISOString(),
+        scheduledFor: fireScheduledFor.toISOString(),
         error,
       });
     }

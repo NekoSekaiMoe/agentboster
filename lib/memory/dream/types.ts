@@ -62,7 +62,12 @@ export type SourceKind =
  * they are treated as `status='active'` with no provenance.
  */
 export interface DreamMeta {
-  /** Lifecycle state. Missing = active (back-compat for legacy rows). */
+  /**
+   * Lifecycle state. **Authoritative source is the `dream_status`
+   * column**; this field is retained ONLY for legacy compatibility with
+   * rows written before the column existed. New code must read/filter on
+   * `dream_status`, not `meta.status`. Missing = active (back-compat).
+   */
   status?: MemoryStatus;
   /** Confidence in [0, 1] from the Dream model. Missing = unspecified. */
   confidence?: number;
@@ -77,7 +82,19 @@ export interface DreamMeta {
   provenance?: {
     sourceMemoryIds: string[];
     dreamRunId?: string;
+    /**
+     * For SUPERSEDE-only: id of the canonical fact that retired this row.
+     * Populated by markLongTermMemorySuperseded; forward-traces a
+     * superseded memory to its replacement.
+     */
+    supersededBy?: string;
   };
+  /**
+   * Human-readable rationale for PROPOSE rows — why the recombine pass
+   * thought this finding was worth proposing. Written by apply.ts, read
+   * by the review UI so a reviewer sees the model's reasoning.
+   */
+  rationale?: string;
   /** Last time Dream touched this row (ISO string). */
   lastDreamAt?: string;
 }

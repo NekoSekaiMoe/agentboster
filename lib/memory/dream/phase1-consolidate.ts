@@ -83,21 +83,40 @@ function extractKeyPrefix(key: string): string {
 }
 
 /**
- * Group memories by key prefix (e.g. "user.location" → "user") so the
- * LLM only ever sees related facts in one call. Keyless memories land
+ * Build the composite group key so rows from different projects never
+ * share a consolidation call. Each project owns its own concept namespace
+ * (the same prefix in two projects describes unrelated facts), so merging
+ * them would feed the LLM a confused grab-bag and let one project bleed
+ * into another's canonical rows.
+ */
+function buildGroupKey(projectId: string | null, prefix: string): string {
+  return `${projectId ?? '__null__'}\u0000${prefix}`;
+}
+
+/**
+ * Group memories by (projectId, key prefix) so the LLM only ever sees
+ * related facts from ONE project in one call. Keyless memories land
  * in `__keyless__` and are skipped — they have no stable identity to
  * merge against. (Same policy as compact.ts.)
+ *
+ * The returned group KEY is composite (projectId + prefix) to keep
+ * projects isolated; callers that need the pure prefix (e.g. the
+ * consolidateBatch prompt) read it from group members instead.
  */
 function groupMemoriesByPrefix(
   memories: MemoryRow[],
-): Map<string, MemoryRow[]> {
-  const groups = new Map<string, MemoryRow[]>();
+): Map<string, { prefix: string; members: MemoryRow[] }> {
+  const groups = new Map<string, { prefix: string; members: MemoryRow[] }>();
   for (const mem of memories) {
     if (!mem.key) continue;
     const prefix = extractKeyPrefix(mem.key);
-    const group = groups.get(prefix) ?? [];
-    group.push(mem);
-    groups.set(prefix, group);
+    const groupKey = buildGroupKey(mem.projectId, prefix);
+    const existing = groups.get(groupKey);
+    if (existing) {
+      existing.members.push(mem);
+    } else {
+      groups.set(groupKey, { prefix, members: [mem] });
+    }
   }
   return groups;
 }
@@ -184,7 +203,7 @@ export async function consolidatePhase(input: {
   let rejectedDuplicates = 0;
   let groupsProcessed = 0;
 
-  for (const [prefix, members] of groups) {
+  for (const [, { prefix, members }] of groups) {
     if (members.length < MIN_GROUP_SIZE_FOR_CONSOLIDATE) {
       kept += members.length;
       continue;

@@ -5,10 +5,11 @@
  * maps to a concrete DAL mutation. Failures are isolated — one bad op
  * does not abort the whole run.
  *
- * Provenance note: until the `dream_meta` jsonb column lands (planned
- * Phase 2 follow-up), provenance is recorded in the `dream_runs` audit
- * row at the run level, not per-memory. The per-memory `dream_meta`
- * enrichment is layered in once the migration exists.
+ * Provenance is written per row through `dream_meta`:
+ *  - `dream_meta.provenance.dreamRunId` traces every written / superseded
+ *    row back to the run that produced it.
+ *  - `dream_meta.provenance.sourceMemoryIds` records which source rows a
+ *    consolidated fact was derived from.
  *
  * AutoGPT analogue: ref/.../backend/copilot/dream/apply.py.
  */
@@ -41,11 +42,17 @@ export interface ApplyResult {
  * must run before the SUPERSEDE that points at its output — the
  * orchestrator naturally produces them in that order.
  *
- * `config` is required for PROPOSE (embedding index) but optional for
- * DELETE / SUPERSEDE.
+ * @param input.runId  Required. The Dream run id, written into every
+ *   row's `dream_meta.provenance.dreamRunId` so each mutation traces
+ *   back to the run that produced it.
  */
 export async function applyDreamOperations(input: {
   userId: string;
+  /**
+   * Dream run id, propagated into every written/superseded row's
+   * provenance. Required for run-level traceability.
+   */
+  runId: string;
   operations: DreamOperation[];
   config?: AppConfig;
 }): Promise<ApplyResult> {
@@ -60,8 +67,8 @@ export async function applyDreamOperations(input: {
         case 'CONSOLIDATE': {
           // Upsert the canonical fact by (userId, key) within the source
           // project scope. Marked active + dreamMeta records provenance
-          // (source ids + dream run id, if available) so the canonical
-          // fact can be traced back to the memories it consolidated.
+          // (source ids + dream run id) so the canonical fact can be
+          // traced back to the memories it consolidated.
           const { row } = await upsertLongTermMemoryByKey({
             userId: input.userId,
             key: op.mergedKey,
@@ -75,6 +82,7 @@ export async function applyDreamOperations(input: {
               sourceKind: 'dream_consolidated',
               provenance: {
                 sourceMemoryIds: op.sourceMemoryIds,
+                dreamRunId: input.runId,
               },
               lastDreamAt: new Date().toISOString(),
             },
@@ -83,16 +91,22 @@ export async function applyDreamOperations(input: {
           // Soft-supersede the sources: flip dream_status to 'superseded'
           // rather than deleting, so the originals survive for audit /
           // provenance review. Recall excludes superseded rows via the
-          // partial index on dream_status='active'.
+          // partial index on dream_status='active'. Skip any source id
+          // that equals the newly-written row (an upsert by key can
+          // return the SAME row when the canonical fact already existed
+          // — superseding it would mark the survivor retired).
           await Promise.all(
             op.sourceMemoryIds.map((id) =>
-              markLongTermMemorySuperseded({
-                id,
-                userId: input.userId,
-                supersededBy: row.id,
-              }).catch(() => {
-                /* source may already be gone — non-fatal */
-              }),
+              id === row.id
+                ? Promise.resolve()
+                : markLongTermMemorySuperseded({
+                    id,
+                    userId: input.userId,
+                    supersededBy: row.id,
+                    dreamRunId: input.runId,
+                  }).catch(() => {
+                    /* source may already be gone — non-fatal */
+                  }),
             ),
           );
           applied += 1;
@@ -120,6 +134,7 @@ export async function applyDreamOperations(input: {
               sourceKind: 'dream_recombined',
               provenance: {
                 sourceMemoryIds: op.fromMemoryIds,
+                dreamRunId: input.runId,
               },
               rationale: op.rationale,
               lastDreamAt: new Date().toISOString(),
@@ -145,12 +160,13 @@ export async function applyDreamOperations(input: {
 
         case 'SUPERSEDE': {
           // Soft-supersede: flip dream_status, keep the row for audit.
-          // Provenance (oldMemoryId → newMemoryId mapping) is recorded
-          // in dream_meta.provenance on the retired row.
+          // Provenance (oldMemoryId → newMemoryId mapping + run id) is
+          // recorded in dream_meta.provenance on the retired row.
           const ok = await markLongTermMemorySuperseded({
             id: op.oldMemoryId,
             userId: input.userId,
             supersededBy: op.newMemoryId,
+            dreamRunId: input.runId,
           }).catch(() => null);
           if (ok) {
             applied += 1;

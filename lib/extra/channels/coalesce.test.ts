@@ -141,4 +141,35 @@ describe('NotificationCoalescer', () => {
     // time must not throw out of the timer callback.
     expect(() => vi.advanceTimersByTime(5000)).not.toThrow();
   });
+
+  it('logs (not throws) when the sender throws synchronously', () => {
+    const debouncer = new NotificationCoalescer();
+    // A sender that throws BEFORE returning a promise — a bare
+    // .catch() on the return value would miss this, so the timer
+    // wrapper must use Promise.resolve().then(...) to capture it.
+    const throwingSender = vi.fn(() => {
+      throw new Error('sync boom');
+    });
+
+    debouncer.send({ coalesceKey: 'k', payload: 1, sender: throwingSender });
+
+    // The synchronous throw inside the timer callback must be caught by
+    // the wrapper; advancing time must not throw.
+    expect(() => vi.advanceTimersByTime(5000)).not.toThrow();
+  });
+
+  it('flush dispatches the pending batch using the captured sender when none is passed', async () => {
+    const debouncer = new NotificationCoalescer();
+    const capturedSender = vi.fn().mockResolvedValue(undefined);
+
+    debouncer.send({ coalesceKey: 'k', payload: 'x', sender: capturedSender });
+    debouncer.send({ coalesceKey: 'k', payload: 'y', sender: capturedSender });
+
+    // flush() with NO explicit sender must still dispatch via the
+    // sender captured when the window was opened.
+    const flushed = await debouncer.flush('k');
+    expect(flushed).toBe(true);
+    expect(capturedSender).toHaveBeenCalledTimes(1);
+    expect(capturedSender).toHaveBeenCalledWith(['x', 'y']);
+  });
 });

@@ -22,8 +22,12 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { AuthError, requireAuthAccess } from '@/lib/auth/access';
-import { listTentativeMemories } from '@/lib/core/db/memory/long-term';
+import {
+  bulkSetTentativeStatus,
+  listTentativeMemories,
+} from '@/lib/core/db/memory/long-term';
 import { invalidateProfileCache } from '@/lib/memory/profile';
+import { invalidateRecallCache } from '@/lib/memory/recall';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.memory.dream.proposals');
@@ -99,31 +103,18 @@ export async function POST(request: Request) {
     );
   }
 
-  // Dynamic import to keep the route handler's static graph lean — the
-  // ratification helper pulls in the full DAL.
-  const { ratifyLongTermMemory } = await import(
-    '@/lib/core/db/memory/long-term'
-  );
-
-  const proposals = await listTentativeMemories({
-    userId: access.user.id,
-    limit: 200,
-  });
-
+  // Single bulk UPDATE scoped to (userId, dream_status='tentative') so a
+  // large review queue is one round-trip. Returns the affected-row count;
+  // the action-specific status (active vs contradicted) is derived from
+  // `action`.
   const ratified = action === 'ratify-all';
-  let processed = 0;
-  for (const p of proposals) {
-    const ok = await ratifyLongTermMemory({
-      id: p.id,
-      userId: access.user.id,
-      ratified,
-    });
-    if (ok) processed += 1;
-  }
+  const processed = await bulkSetTentativeStatus({
+    userId: access.user.id,
+    ratified,
+  });
 
   // Batch promotion/demotion changes which memories recall + profile see,
   // so invalidate both caches.
-  const { invalidateRecallCache } = await import('@/lib/memory/recall');
   invalidateRecallCache(access.user.id);
   await invalidateProfileCache(access.user.id);
 
@@ -131,12 +122,10 @@ export async function POST(request: Request) {
     userId: access.user.id,
     action,
     processed,
-    total: proposals.length,
   });
 
   return NextResponse.json({
     action,
     processed,
-    total: proposals.length,
   });
 }
