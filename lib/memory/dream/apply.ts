@@ -15,6 +15,7 @@
 
 import {
   deleteLongTermMemoryRow,
+  markLongTermMemorySuperseded,
   upsertLongTermMemoryByKey,
 } from '@/lib/core/db/memory/long-term';
 import { createLogger } from '@/lib/utils/logger';
@@ -58,8 +59,9 @@ export async function applyDreamOperations(input: {
       switch (op.type) {
         case 'CONSOLIDATE': {
           // Upsert the canonical fact by (userId, key) within the source
-          // project scope. Reuses the extractor's upsert path so the row
-          // gets embedding-indexed + recall-cache-invalidated the same way.
+          // project scope. Marked active + dreamMeta records provenance
+          // (source ids + dream run id, if available) so the canonical
+          // fact can be traced back to the memories it consolidated.
           const { row } = await upsertLongTermMemoryByKey({
             userId: input.userId,
             key: op.mergedKey,
@@ -67,20 +69,30 @@ export async function applyDreamOperations(input: {
             memoryType: op.mergedType,
             importance: op.mergedImportance,
             projectId: op.projectId ?? null,
+            dreamStatus: 'active',
+            dreamMeta: {
+              confidence: op.confidence,
+              sourceKind: 'dream_consolidated',
+              provenance: {
+                sourceMemoryIds: op.sourceMemoryIds,
+              },
+              lastDreamAt: new Date().toISOString(),
+            },
           });
           writtenMemoryIds.push(row.id);
-          // P0: delete the source memories (matches compact.ts behavior).
-          // TODO(Phase 2): once `long_term_memories.dream_meta` lands,
-          // switch this to a soft-supersede (set status='superseded') so
-          // the originals survive for audit / ratification review.
-          // Provenance is currently captured at the dream_runs audit row.
+          // Soft-supersede the sources: flip dream_status to 'superseded'
+          // rather than deleting, so the originals survive for audit /
+          // provenance review. Recall excludes superseded rows via the
+          // partial index on dream_status='active'.
           await Promise.all(
             op.sourceMemoryIds.map((id) =>
-              deleteLongTermMemoryRow(id, { userId: input.userId }).catch(
-                () => {
-                  /* source may already be gone — non-fatal */
-                },
-              ),
+              markLongTermMemorySuperseded({
+                id,
+                userId: input.userId,
+                supersededBy: row.id,
+              }).catch(() => {
+                /* source may already be gone — non-fatal */
+              }),
             ),
           );
           applied += 1;
@@ -88,9 +100,12 @@ export async function applyDreamOperations(input: {
         }
 
         case 'PROPOSE': {
-          // Phase 2 only. Writes a tentative memory — until dream_meta
-          // exists, this lands as a normal row with a special key prefix
-          // so recall can filter it out until ratified.
+          // Phase 2 only. Writes a TENTATIVE memory: dream_status=
+          // 'tentative' excludes it from recall until ratified. The key
+          // still uses the 'dream.proposal.*' prefix for back-compat with
+          // any code that predates the dream_status column, but the
+          // partial index on dream_status='active' is what actually gates
+          // recall now.
           const tentativeKey = `dream.proposal.${op.key}`;
           const { row } = await upsertLongTermMemoryByKey({
             userId: input.userId,
@@ -99,6 +114,16 @@ export async function applyDreamOperations(input: {
             memoryType: op.memoryType,
             importance: op.importance,
             projectId: op.projectId ?? null,
+            dreamStatus: 'tentative',
+            dreamMeta: {
+              confidence: op.confidence,
+              sourceKind: 'dream_recombined',
+              provenance: {
+                sourceMemoryIds: op.fromMemoryIds,
+              },
+              rationale: op.rationale,
+              lastDreamAt: new Date().toISOString(),
+            },
           });
           writtenMemoryIds.push(row.id);
           applied += 1;
@@ -119,11 +144,13 @@ export async function applyDreamOperations(input: {
         }
 
         case 'SUPERSEDE': {
-          // P0: delete the superseded row. Provenance (oldMemoryId →
-          // newMemoryId mapping) is captured in the dream_runs audit row.
-          // TODO(Phase 2): flip to soft-supersede via dream_meta.status.
-          const ok = await deleteLongTermMemoryRow(op.oldMemoryId, {
+          // Soft-supersede: flip dream_status, keep the row for audit.
+          // Provenance (oldMemoryId → newMemoryId mapping) is recorded
+          // in dream_meta.provenance on the retired row.
+          const ok = await markLongTermMemorySuperseded({
+            id: op.oldMemoryId,
             userId: input.userId,
+            supersededBy: op.newMemoryId,
           }).catch(() => null);
           if (ok) {
             applied += 1;

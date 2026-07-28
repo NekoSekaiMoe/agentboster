@@ -89,23 +89,24 @@ curl -X POST -H "Authorization: Bearer $CRON_SECRET" \
 
 - **Phase 1 consolidation** (shipped): merges near-duplicate memories
   within a key-prefix group, records provenance on the `dream_runs`
-  row. Sources are currently deleted (matches `compact.ts` semantics).
+  row. Sources are soft-superseded (`dream_status='superseded'`) so
+  the originals survive for audit.
 - **Phase 2 recombine** (shipped): cross-cluster novel findings. Embeds
   sampled representatives per group, ranks cross-group pairs by cosine,
   and asks the LLM to propose non-obvious insights. Output lands as
-  `dream.proposal.*` tentative keys excluded from recall until ratified.
-  Bounded cost (see `phase2-recombine.ts` caps).
+  `dream.proposal.*` keys with `dream_status='tentative'`.
 - **Phase 3 sanitize** (shipped): near-dup collapse + self-supersede
   guard before writes.
 - **Apply** (shipped): DAL mutations.
-- **TODO: `dream_meta` jsonb column** on `long_term_memories`. Once
-  added, `apply.ts` switches from delete to soft-supersede
-  (`status='superseded'`) so source rows survive for audit, and
-  `dream.proposal.*` rows carry `status='tentative'` inline rather than
-  relying on the key-prefix convention.
-- **TODO: ratification pass** that promotes ratified `tentative`
-  memories to `active` (currently they stay behind the proposal prefix
-  indefinitely).
+- **Ratification** (shipped): two paths promote tentative → active:
+  - Manual: `GET/PATCH /api/memory/dream/proposals` (per-user review UI)
+  - Auto: `/api/cron/dream/ratify` weekly cron promotes proposals whose
+    observation window has elapsed (HIGH confidence ≥ 0.7: 1 day,
+    others: 7 days). Decision logic in `lib/memory/dream/ratify.ts`.
+- **`dream_status` + `dream_meta` columns** (shipped): recall filters
+  `WHERE dream_status='active'` on a partial index; non-active rows are
+  invisible to recall + profile but retained for audit. `dream_meta`
+  jsonb carries confidence / source_kind / provenance / rationale.
 
 ## Relationship to `lib/memory/compact.ts`
 

@@ -101,6 +101,8 @@ export async function createLongTermMemoryRow(
     userId?: string;
     key?: string;
     projectId?: string | null;
+    dreamStatus?: 'active' | 'tentative' | 'superseded' | 'contradicted';
+    dreamMeta?: Record<string, unknown>;
   },
 ) {
   // Delegate to the bulk path so both write routes share a single field
@@ -114,6 +116,8 @@ export async function createLongTermMemoryRow(
       userId: options?.userId,
       key: options?.key,
       projectId: options?.projectId,
+      dreamStatus: options?.dreamStatus,
+      dreamMeta: options?.dreamMeta,
     },
   ]);
   return row;
@@ -134,6 +138,8 @@ export async function createLongTermMemoryRows(
     userId?: string;
     key?: string;
     projectId?: string | null;
+    dreamStatus?: 'active' | 'tentative' | 'superseded' | 'contradicted';
+    dreamMeta?: Record<string, unknown>;
   }>,
 ) {
   if (rows.length === 0) return [];
@@ -149,6 +155,8 @@ export async function createLongTermMemoryRows(
         memoryType: r.memoryType ?? 'fact',
         importance: r.importance ?? 5,
         ...(r.key ? { key: r.key } : {}),
+        dreamStatus: r.dreamStatus ?? 'active',
+        ...(r.dreamMeta ? { dreamMeta: r.dreamMeta } : {}),
       })),
     )
     .returning();
@@ -177,6 +185,17 @@ export async function upsertLongTermMemoryByKey(input: {
   memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
   importance?: number;
   projectId?: string | null;
+  /**
+   * Dream lifecycle state for the written row. Default 'active'.
+   * Pass 'tentative' for Phase 2 proposals so recall excludes them
+   * until ratified.
+   */
+  dreamStatus?: 'active' | 'tentative' | 'superseded' | 'contradicted';
+  /**
+   * Optional Dream metadata (confidence / source_kind / provenance).
+   * Replaces the row's dream_meta jsonb on update.
+   */
+  dreamMeta?: Record<string, unknown>;
 }): Promise<{
   row: Awaited<ReturnType<typeof createLongTermMemoryRow>>;
   created: boolean;
@@ -214,6 +233,8 @@ export async function upsertLongTermMemoryByKey(input: {
         memoryType: input.memoryType ?? 'fact',
         importance: input.importance ?? 5,
         updatedAt: new Date(),
+        dreamStatus: input.dreamStatus ?? 'active',
+        ...(input.dreamMeta ? { dreamMeta: input.dreamMeta } : {}),
       })
       .where(eq(schema.longTermMemories.id, existing.id))
       .returning();
@@ -226,6 +247,8 @@ export async function upsertLongTermMemoryByKey(input: {
     importance: input.importance,
     key: trimmedKey,
     projectId: input.projectId,
+    dreamStatus: input.dreamStatus,
+    dreamMeta: input.dreamMeta,
   });
   return { row, created: true };
 }
@@ -253,6 +276,12 @@ export async function listLongTermMemoryRows(options?: {
   offset?: number;
   userId?: string;
   projectIdScope?: string | null;
+  /**
+   * When true, include tentative/superseded/contradicted rows. Default
+   * false so recall + UI only see active memories. Dream is the main
+   * caller that passes true (it needs the full set to consolidate).
+   */
+  includeInactive?: boolean;
 }) {
   const safeLimit = Math.max(1, Math.min(options?.limit ?? 100, 200));
   const safeOffset = Math.max(0, options?.offset ?? 0);
@@ -264,6 +293,9 @@ export async function listLongTermMemoryRows(options?: {
   const scopeCondition = buildProjectScopeCondition(options?.projectIdScope);
   if (scopeCondition) {
     conditions.push(scopeCondition);
+  }
+  if (!options?.includeInactive) {
+    conditions.push(eq(schema.longTermMemories.dreamStatus, 'active'));
   }
 
   return db
@@ -278,6 +310,12 @@ export async function listLongTermMemoryRows(options?: {
 export async function listAllLongTermMemoryRows(options?: {
   userId?: string;
   projectIdScope?: string | null;
+  /**
+   * When true, include tentative/superseded/contradicted rows. Default
+   * false. Dream phase1/2 pass false (they consolidate active rows
+   * only); admin / audit callers pass true to see the full lifecycle.
+   */
+  includeInactive?: boolean;
 }) {
   const conditions: ReturnType<typeof eq>[] = [];
   if (options?.userId) {
@@ -286,6 +324,9 @@ export async function listAllLongTermMemoryRows(options?: {
   const scopeCondition = buildProjectScopeCondition(options?.projectIdScope);
   if (scopeCondition) {
     conditions.push(scopeCondition);
+  }
+  if (!options?.includeInactive) {
+    conditions.push(eq(schema.longTermMemories.dreamStatus, 'active'));
   }
 
   return db
@@ -411,6 +452,148 @@ export async function deleteLongTermMemoryByKey(input: {
   return row ?? null;
 }
 
+/**
+ * Mark a memory as superseded by a newer canonical fact, without deleting
+ * it. Used by Dream Phase 1 consolidation (CONSOLIDATE op) and by direct
+ * SUPERSEDE ops — replaces the old delete-based behavior so the audit
+ * trail (original content + when it was retired) survives for review.
+ *
+ * The optional `supersededBy` id is recorded in `dream_meta.provenance`
+ * so a reviewer can trace from a retired memory forward to its
+ * replacement. Recall excludes superseded rows via the partial index on
+ * `dream_status = 'active'`.
+ *
+ * Returns the updated row (or null if the id doesn't exist / belongs to
+ * another user).
+ */
+export async function markLongTermMemorySuperseded(input: {
+  id: string;
+  userId?: string;
+  /**
+   * Optional id of the memory that replaces this one. Recorded as
+   * provenance for forward-tracing.
+   */
+  supersededBy?: string;
+  /**
+   * Optional Dream run id that triggered the supersede, for audit.
+   */
+  dreamRunId?: string;
+}) {
+  const conditions = [eq(schema.longTermMemories.id, input.id)];
+  if (input.userId) {
+    conditions.push(eq(schema.longTermMemories.userId, input.userId));
+  }
+
+  const [row] = await db
+    .update(schema.longTermMemories)
+    .set({
+      dreamStatus: 'superseded',
+      updatedAt: new Date(),
+      dreamMeta: {
+        provenance: {
+          ...(input.supersededBy ? { supersededBy: input.supersededBy } : {}),
+          ...(input.dreamRunId ? { dreamRunId: input.dreamRunId } : {}),
+        },
+        lastDreamAt: new Date().toISOString(),
+      },
+    })
+    .where(and(...conditions))
+    .returning();
+
+  return row ?? null;
+}
+
+/**
+ * Promote a tentative Dream proposal to active so it joins recall.
+ *
+ * Called by the ratification pass (auto or manual): Dream Phase 2 writes
+ * proposals with dream_status='tentative'; this flips them to 'active'
+ * once ratified. Optionally down-ranks (demote to 'contradicted') when
+ * a reviewer rejects the proposal — `rejected=true` records the rejection
+ * in dream_meta without deleting the row (so the proposal isn't
+ * re-proposed next run).
+ */
+export async function ratifyLongTermMemory(input: {
+  id: string;
+  userId?: string;
+  /**
+   * true = ratify (tentative → active). false = reject (tentative →
+   * contradicted, recorded so Dream won't re-propose the same finding).
+   */
+  ratified: boolean;
+  /**
+   * Optional reviewer note recorded in dream_meta for audit.
+   */
+  note?: string;
+}) {
+  const conditions = [
+    eq(schema.longTermMemories.id, input.id),
+    eq(schema.longTermMemories.dreamStatus, 'tentative'),
+  ];
+  if (input.userId) {
+    conditions.push(eq(schema.longTermMemories.userId, input.userId));
+  }
+
+  const [row] = await db
+    .update(schema.longTermMemories)
+    .set({
+      dreamStatus: input.ratified ? 'active' : 'contradicted',
+      updatedAt: new Date(),
+      dreamMeta: {
+        ratifiedAt: new Date().toISOString(),
+        ratified: input.ratified,
+        ...(input.note ? { reviewNote: input.note } : {}),
+      },
+    })
+    .where(and(...conditions))
+    .returning();
+
+  return row ?? null;
+}
+
+/**
+ * List Dream Phase 2 tentative proposals for a user. Used by the
+ * ratification UI / cron pass to find proposals awaiting review.
+ */
+export async function listTentativeMemories(input: {
+  userId: string;
+  limit?: number;
+}) {
+  const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+  return db
+    .select()
+    .from(schema.longTermMemories)
+    .where(
+      and(
+        eq(schema.longTermMemories.userId, input.userId),
+        eq(schema.longTermMemories.dreamStatus, 'tentative'),
+      ),
+    )
+    .orderBy(desc(schema.longTermMemories.updatedAt))
+    .limit(limit);
+}
+
+/**
+ * List distinct userIds that own tentative Dream proposals. Used by
+ * the auto-ratify cron to fan out across users without scanning every
+ * row in JS. Symmetric to listDistinctLongTermMemoryUserIds but
+ * filtered to dream_status='tentative' so we only touch users who
+ * actually have proposals pending review.
+ */
+export async function listDistinctTentativeUserIds(): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ userId: schema.longTermMemories.userId })
+    .from(schema.longTermMemories)
+    .where(
+      and(
+        eq(schema.longTermMemories.dreamStatus, 'tentative'),
+        isNotNull(schema.longTermMemories.userId),
+        ne(schema.longTermMemories.userId, 'system'),
+      ),
+    );
+  return rows.map((r) => r.userId).filter((id): id is string => Boolean(id));
+}
+
 export async function replaceLongTermMemoryChunks(
   memoryId: string,
   chunks: LongTermChunkInput[],
@@ -478,11 +661,24 @@ async function listKeywordCandidateRows(options: {
     ? eq(schema.longTermMemories.userId, userId)
     : undefined;
   const scopeCondition = buildProjectScopeCondition(options.projectIdScope);
+  // Recall excludes non-active Dream rows (tentative proposals +
+  // superseded sources + contradicted). Because recall is always
+  // per-user, needsJoin is always true in practice — but we defensively
+  // force the join when this condition is present so the filter can't
+  // be silently dropped on a future caller that passes neither userId
+  // nor scope.
+  const activeStatusCondition = eq(
+    schema.longTermMemories.dreamStatus,
+    'active',
+  );
   // projectId scope lives on long_term_memories, so any scope filter forces
   // the join even when the caller didn't pass a userId (otherwise the
   // un-joined query would silently ignore the scope and leak cross-project
   // memories into recall).
-  const needsJoin = Boolean(userId) || Boolean(scopeCondition);
+  const needsJoin =
+    Boolean(userId) ||
+    Boolean(scopeCondition) ||
+    Boolean(activeStatusCondition);
 
   const baseSelect = {
     chunkId: schema.longTermMemoryChunks.id,
@@ -513,6 +709,7 @@ async function listKeywordCandidateRows(options: {
           sql`${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\'`,
           userIdCondition,
           scopeCondition,
+          activeStatusCondition,
         ),
       )
       .orderBy(
@@ -531,6 +728,7 @@ async function listKeywordCandidateRows(options: {
         sql`${schema.longTermMemoryChunks.tsv} @@ ${tsQueryExpr}`,
         userIdCondition,
         scopeCondition,
+        activeStatusCondition,
       ),
     )
     .orderBy(sql`${keywordScoreExpr} DESC`)
@@ -546,6 +744,7 @@ async function listKeywordCandidateRows(options: {
         sql`${schema.longTermMemoryChunks.content} ilike ${likePattern} escape '\\'`,
         userIdCondition,
         scopeCondition,
+        activeStatusCondition,
       ),
     )
     .orderBy(
@@ -727,6 +926,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
         ),
         userId ? eq(schema.longTermMemories.userId, userId) : undefined,
         buildProjectScopeCondition(projectIdScope),
+        eq(schema.longTermMemories.dreamStatus, 'active'),
       ),
     )
     .orderBy(sql`${vectorScoreExpr} DESC`)
