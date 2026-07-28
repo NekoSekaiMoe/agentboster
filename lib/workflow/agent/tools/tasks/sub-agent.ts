@@ -314,6 +314,10 @@ async function runSubagent(
     agentName,
     useConfiguredAgentPrompt: true,
     delegation: { parentAgentName: context.agentName },
+    // Mirrors the toolset decision below (buildNestedTools with
+    // allowDelegation: false): the sub-agent has no subAgent tool, so the
+    // system prompt must not advertise delegation to it.
+    allowDelegation: false,
     sessionId: context.sessionId,
   });
   const tools = await context.buildNestedTools({

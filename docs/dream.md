@@ -2,9 +2,9 @@
 
 Agentboster's Dream system is the offline pipeline that periodically
 reorganizes a user's long-term memories: merging near-duplicates into
-canonical facts, deleting redundant entries, and (Phase 2, TBD) proposing
+canonical facts, deleting redundant entries, and proposing
 novel cross-cluster connections as `tentative` memories awaiting
-ratification.
+ratification (Phase 2, shipped — see "Current scope" below).
 
 Inspired by AutoGPT's `ref/autogpt_platform/backend/backend/copilot/dream/`
 three-phase pipeline, adapted to Agentboster's Postgres-only stack (no
@@ -70,10 +70,31 @@ Vercel Cron (`vercel.json`):
 }
 ```
 
-Self-hosted (systemd timer / external cron):
+External cron (crontab):
 
 ```cron
 0 3 * * * curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://your-host/api/cron/dream
+```
+
+Self-hosted with systemd (optional alternative to crontab) — drop both
+units into `~/.config/systemd/user/` and `systemctl --user enable
+--now dream-consolidate.timer`:
+
+```ini
+# dream-consolidate.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -fsS -X POST -H "Authorization: Bearer ${CRON_SECRET}" https://your-host/api/cron/dream
+```
+
+```ini
+# dream-consolidate.timer
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=default.target
 ```
 
 Per-user re-run (debugging):

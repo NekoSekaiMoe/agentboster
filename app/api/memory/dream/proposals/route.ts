@@ -50,10 +50,13 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const limit = Math.min(
-    Math.max(Number(url.searchParams.get('limit') ?? '50'), 1),
-    200,
-  );
+  const rawLimit = Number(url.searchParams.get('limit') ?? '50');
+  // Non-numeric / empty / out-of-range input falls back to the default
+  // rather than producing NaN (Math.max(NaN, 1) === NaN) which would
+  // reach the DAL as an undefined limit.
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), 200)
+    : 50;
 
   const proposals = await listTentativeMemories({
     userId: access.user.id,

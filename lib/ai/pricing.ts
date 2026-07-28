@@ -39,13 +39,17 @@ export interface ModelPricing {
  * Some providers (notably Gemini 2.5 Pro) bill at different rates
  * depending on request size — e.g. ≤200k tokens at one rate, above at
  * a higher rate. `threshold` is the cumulative input-token count at/above
- * which the tier becomes active; tiers are evaluated in order and the
- * FIRST matching tier wins, so callers should list them lowest-first.
+ * which the tier becomes active; the HIGHEST applicable threshold (i.e.
+ * the last tier whose `threshold` is <= the request's input-token count)
+ * is selected, so callers should list tiers in strictly increasing
+ * threshold order. The base tier should carry `threshold: 0` so it acts
+ * as the fallback when no higher bracket applies.
  */
 export interface PricingTier {
   /**
    * Input-token count at/above which this tier applies. 0 = the base
-   * (default) tier, always matched first.
+   * (default) tier, always matched when no higher threshold applies.
+   * Must be a finite, non-negative integer.
    */
   threshold: number;
   input: number;
@@ -66,10 +70,11 @@ export interface ModelPricing {
   output: number;
   cacheRead?: number;
   /**
-   * Optional token-threshold tiers. When present, the FIRST tier whose
-   * `threshold` is <= the request's total input-token count is used.
-   * List tiers lowest-threshold-first so the base rate (threshold: 0)
-   * is the fallback.
+   * Optional token-threshold tiers. When present, the tier with the
+   * HIGHEST `threshold` that is <= the request's total input-token count
+   * is selected (i.e. the topmost applicable bracket). List tiers in
+   * strictly increasing threshold order, starting with the base rate
+   * (`threshold: 0`) so it serves as the fallback.
    */
   tiers?: PricingTier[];
 }
@@ -243,7 +248,32 @@ export function registerModelPricing(
     validateRate(pricing.cacheRead, 'cacheRead');
   }
   if (pricing.tiers) {
+    let prevThreshold = -Infinity;
     for (const [i, tier] of pricing.tiers.entries()) {
+      // Thresholds must be finite, non-negative integers. NaN/Infinity
+      // would silently make a tier match every request (or none); a
+      // fractional or negative threshold is meaningless for a token
+      // count and usually a typo.
+      if (
+        !Number.isFinite(tier.threshold) ||
+        tier.threshold < 0 ||
+        !Number.isInteger(tier.threshold)
+      ) {
+        throw new Error(
+          `registerModelPricing: tiers[${i}].threshold must be a finite non-negative integer (got ${tier.threshold})`,
+        );
+      }
+      // Strictly increasing so resolveTieredPricing's "highest
+      // applicable threshold wins" selection is unambiguous. An
+      // unordered list (e.g. [100, 0]) would silently select the wrong
+      // bracket — reject it at registration time rather than let it
+      // corrupt cost math later.
+      if (tier.threshold <= prevThreshold) {
+        throw new Error(
+          `registerModelPricing: tiers must be in strictly increasing threshold order (tiers[${i}].threshold=${tier.threshold} <= previous ${prevThreshold})`,
+        );
+      }
+      prevThreshold = tier.threshold;
       validateRate(tier.input, `tiers[${i}].input`);
       validateRate(tier.output, `tiers[${i}].output`);
       if (tier.cacheRead !== undefined) {
@@ -251,5 +281,11 @@ export function registerModelPricing(
       }
     }
   }
-  RATE_CARD[modelPrefix.toLowerCase()] = pricing;
+  // Normalize the stored key to trimmed + lowercase so a prefix
+  // registered as '  GPT-4o  ' resolves identically to 'gpt-4o'.
+  // resolveModelPricing lowercases the model id and does startsWith,
+  // so any surrounding whitespace in the stored key would make it
+  // effectively unmatchable.
+  const normalizedPrefix = modelPrefix.trim().toLowerCase();
+  RATE_CARD[normalizedPrefix] = pricing;
 }

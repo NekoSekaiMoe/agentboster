@@ -185,6 +185,25 @@ export async function applyDreamOperations(input: {
       failed += 1;
       logger.warn('apply:op_failed', {
         type: op.type,
+        // Per-op identifying fields vary by type; surface whichever this
+        // op carries so two failures of the same type within one run can
+        // be told apart in the logs.
+        opKey:
+          op.type === 'CONSOLIDATE'
+            ? op.mergedKey
+            : op.type === 'PROPOSE'
+              ? op.key
+              : undefined,
+        opIds:
+          op.type === 'CONSOLIDATE'
+            ? op.sourceMemoryIds
+            : op.type === 'PROPOSE'
+              ? op.fromMemoryIds
+              : op.type === 'DELETE'
+                ? op.memoryIds
+                : op.type === 'SUPERSEDE'
+                  ? [op.oldMemoryId, op.newMemoryId]
+                  : undefined,
         error: error instanceof Error ? error.message : String(error),
       });
     }

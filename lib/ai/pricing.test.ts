@@ -143,4 +143,69 @@ describe('registerModelPricing', () => {
       }),
     ).toThrow(/tiers\[0\]\.input/);
   });
+
+  it('rejects non-integer / negative / non-finite tier thresholds', () => {
+    expect(() =>
+      registerModelPricing('bad-thresh-neg', {
+        input: 1,
+        output: 2,
+        tiers: [{ threshold: -1, input: 1, output: 2 }],
+      }),
+    ).toThrow(/tiers\[0\]\.threshold/);
+    expect(() =>
+      registerModelPricing('bad-thresh-frac', {
+        input: 1,
+        output: 2,
+        tiers: [{ threshold: 0.5, input: 1, output: 2 }],
+      }),
+    ).toThrow(/tiers\[0\]\.threshold/);
+    expect(() =>
+      registerModelPricing('bad-thresh-nan', {
+        input: 1,
+        output: 2,
+        tiers: [{ threshold: Number.NaN, input: 1, output: 2 }],
+      }),
+    ).toThrow(/tiers\[0\]\.threshold/);
+  });
+
+  it('rejects tiers that are not in strictly increasing threshold order', () => {
+    // 100 followed by 0 — would silently select the wrong bracket under
+    // resolveTieredPricing's "highest applicable threshold wins" rule.
+    expect(() =>
+      registerModelPricing('bad-order', {
+        input: 1,
+        output: 2,
+        tiers: [
+          { threshold: 100, input: 1, output: 2 },
+          { threshold: 0, input: 2, output: 4 },
+        ],
+      }),
+    ).toThrow(/strictly increasing/);
+    // Equal thresholds are also rejected (strictly increasing, not non-decreasing).
+    expect(() =>
+      registerModelPricing('bad-order-equal', {
+        input: 1,
+        output: 2,
+        tiers: [
+          { threshold: 0, input: 1, output: 2 },
+          { threshold: 0, input: 2, output: 4 },
+        ],
+      }),
+    ).toThrow(/strictly increasing/);
+  });
+
+  it('normalizes the stored prefix to trimmed + lowercase', () => {
+    // Register with surrounding whitespace + mixed case; resolution must
+    // still find it via a clean lowercased model id.
+    registerModelPricing('  Trim-Sample-Model  ', {
+      input: 1,
+      output: 2,
+    });
+    expect(resolveModelPricing('trim-sample-model-v2')).not.toBeNull();
+    const cost = computeUsageCost('trim-sample-model-v2', {
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+    });
+    expect(cost?.costUsd).toBe(1);
+  });
 });

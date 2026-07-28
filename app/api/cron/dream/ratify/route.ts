@@ -11,7 +11,7 @@
  * minutes). Suggested vercel.json entry:
  *   { "path": "/api/cron/dream/ratify", "schedule": "0 4 * * 0" }
  *
- * Auth: CRON_SECRET, verified via hasValidCronSecret.
+ * Auth: CRON_SECRET, verified via checkCronSecret.
  *
  * The decision logic (which proposals are "ready") lives in
  * lib/memory/dream/ratify.ts so it can be unit-tested independently.

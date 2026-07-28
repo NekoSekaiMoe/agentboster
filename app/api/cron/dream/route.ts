@@ -19,7 +19,7 @@
  * (03:00 UTC daily; per-user work is idempotent so overlap is safe.)
  *
  * Auth: `CRON_SECRET` env var, verified constant-time via
- * `hasValidCronSecret`. Returns 503 when CRON_SECRET is unset so
+ * `checkCronSecret`. Returns 503 when CRON_SECRET is unset so
  * misconfiguration fails closed.
  */
 

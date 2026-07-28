@@ -119,13 +119,20 @@ export class NotificationCoalescer {
       };
     }
 
+    // Snapshot the caller's coalesceKey + sender the moment the window
+    // opens. The timer callback closes over these locals rather than over
+    // `input`, so a caller that mutates (or recycles) the input object
+    // after send() returns cannot corrupt the pending.delete() key or
+    // swap the sender under a live timer.
+    const pendingKey = input.coalesceKey;
+    const pendingSender = input.sender;
     // Initiate a new window. The timer fires the sender with the full
     // batch, then clears the slot so the next call starts a fresh window.
     const payloads: P[] = [input.payload];
     const entry: PendingEntry<P> = {
       payloads,
-      sender: input.sender,
-      // try/catch captures a SYNCHRONOUS throw from input.sender (before
+      sender: pendingSender,
+      // try/catch captures a SYNCHRONOUS throw from pendingSender (before
       // it returns a promise); the .catch on the returned promise handles
       // async rejections. Both paths log + swallow so a broken sender
       // doesn't escape the setTimeout callback. Using try/catch (rather
@@ -134,13 +141,13 @@ export class NotificationCoalescer {
       // runs inside the timer tick — important for fake-timer tests that
       // assert the call happened during advanceTimersByTime.
       timer: setTimeout(() => {
-        this.pending.delete(input.coalesceKey);
+        this.pending.delete(pendingKey);
         let result: unknown;
         try {
-          result = input.sender(payloads);
+          result = pendingSender(payloads);
         } catch (error) {
           logger.warn('coalesce:sender_failed', {
-            coalesceKey: input.coalesceKey,
+            coalesceKey: pendingKey,
             batchSize: payloads.length,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -148,7 +155,7 @@ export class NotificationCoalescer {
         }
         Promise.resolve(result as Promise<unknown>).catch((error) => {
           logger.warn('coalesce:sender_failed', {
-            coalesceKey: input.coalesceKey,
+            coalesceKey: pendingKey,
             batchSize: payloads.length,
             error: error instanceof Error ? error.message : String(error),
           });
