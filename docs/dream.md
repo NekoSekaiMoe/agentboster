@@ -10,7 +10,7 @@ Inspired by AutoGPT's `ref/autogpt_platform/backend/backend/copilot/dream/`
 three-phase pipeline, adapted to agentboster's Postgres-only stack (no
 Neo4j/FalkorDB dependency).
 
-## Pipeline (P0 — Phase 1 + 3 + Apply)
+## Pipeline
 
 ```
 external cron
@@ -20,14 +20,14 @@ POST /api/cron/dream  (CRON_SECRET)
    │
    ▼  fans out to one run per user with memories
    │
-┌────────────────────────────────────────────────┐
-│ runDreamForUser(userId)                        │
-│                                                │
-│  phase1            phase3            apply     │
-│  consolidate  ───►  sanitize  ───►   write     │
-│  (LLM merge)       (near-dup       (upsert +   │
-│                     collapse)       delete)    │
-└────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ runDreamForUser(userId)                                  │
+│                                                          │
+│  phase1            phase2            phase3       apply  │
+│  consolidate  ───►  recombine  ───►  sanitize  ───► write │
+│  (LLM merge)       (cross-cluster  (near-dup           │
+│                     findings)        collapse)          │
+└──────────────────────────────────────────────────────────┘
    │
    ▼
 dream_runs audit row (operations + result)
@@ -38,6 +38,7 @@ dream_runs audit row (operations + result)
 | `lib/memory/dream/types.ts` | `DreamOperation` / `DreamMeta` / `MemoryStatus` |
 | `lib/memory/dream/bigram.ts` | Word-bigram Jaccard near-duplicate detection |
 | `lib/memory/dream/phase1-consolidate.ts` | LLM-driven MERGE/DELETE/KEEP per concept group |
+| `lib/memory/dream/phase2-recombine.ts` | Cross-cluster novel findings via embedding + LLM |
 | `lib/memory/dream/phase3-sanitize.ts` | Pre-write dedupe + self-supersede guard |
 | `lib/memory/dream/apply.ts` | DAL mutations (upsert + delete) |
 | `lib/memory/dream/orchestrator.ts` | Phase sequencing + audit-row lifecycle |
@@ -84,16 +85,27 @@ curl -X POST -H "Authorization: Bearer $CRON_SECRET" \
   https://your-host/api/cron/dream
 ```
 
-## P0 scope vs Phase 2+
+## Current scope vs remaining work
 
-- **P0 (current)**: Phase 1 consolidation with provenance audit. Source
-  memories are deleted on consolidation (matches existing `compact.ts`
-  semantics). Provenance is captured at the `dream_runs` row level.
-- **Phase 2 (next)**: add `long_term_memories.dream_meta` jsonb column
-  (`status`, `confidence`, `source_kind`, `provenance`) so source rows
-  can be soft-superseded (kept for audit) instead of deleted. Then
-  implement Phase 2 recombine — propose novel cross-cluster connections
-  as `tentative` memories, gated by a ratification pass.
+- **Phase 1 consolidation** (shipped): merges near-duplicate memories
+  within a key-prefix group, records provenance on the `dream_runs`
+  row. Sources are currently deleted (matches `compact.ts` semantics).
+- **Phase 2 recombine** (shipped): cross-cluster novel findings. Embeds
+  sampled representatives per group, ranks cross-group pairs by cosine,
+  and asks the LLM to propose non-obvious insights. Output lands as
+  `dream.proposal.*` tentative keys excluded from recall until ratified.
+  Bounded cost (see `phase2-recombine.ts` caps).
+- **Phase 3 sanitize** (shipped): near-dup collapse + self-supersede
+  guard before writes.
+- **Apply** (shipped): DAL mutations.
+- **TODO: `dream_meta` jsonb column** on `long_term_memories`. Once
+  added, `apply.ts` switches from delete to soft-supersede
+  (`status='superseded'`) so source rows survive for audit, and
+  `dream.proposal.*` rows carry `status='tentative'` inline rather than
+  relying on the key-prefix convention.
+- **TODO: ratification pass** that promotes ratified `tentative`
+  memories to `active` (currently they stay behind the proposal prefix
+  indefinitely).
 
 ## Relationship to `lib/memory/compact.ts`
 
