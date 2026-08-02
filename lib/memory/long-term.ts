@@ -2,6 +2,7 @@ import { embedMany } from 'ai';
 
 import { generateEmbedding, resolveEmbeddingModel } from '@/lib/ai';
 import {
+  type LongTermMemorySourceKind,
   createLongTermMemoryRow,
   deleteLongTermMemoryRow,
   getLongTermMemoryRow,
@@ -24,6 +25,7 @@ import type { LongTermMemoryIndexing } from '@/types/memory';
 import { deriveEdgesForMemory } from './edges';
 import { invalidateProfileCache } from './profile';
 import { invalidateRecallCache } from './recall';
+import { invalidateTriggerCache } from './triggers';
 
 const logger = createLogger('memory.long_term');
 
@@ -142,6 +144,8 @@ export async function createLongTermMemory(input: {
   importance?: number;
   userId?: string;
   key?: string;
+  sourceKind?: LongTermMemorySourceKind;
+  triggerPhrases?: string[];
   config?: AppConfig;
 }) {
   const memory = await createLongTermMemoryRow(input.content, {
@@ -149,6 +153,8 @@ export async function createLongTermMemory(input: {
     importance: input.importance,
     userId: input.userId,
     key: input.key,
+    sourceKind: input.sourceKind,
+    triggerPhrases: input.triggerPhrases,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
@@ -164,6 +170,7 @@ export async function createLongTermMemory(input: {
   // profile still cached (recall invalidation stays fire-and-forget since it
   // is re-issued after edge derivation anyway).
   invalidateRecallCache(input.userId);
+  invalidateTriggerCache(input.userId);
   await invalidateProfileCache(input.userId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
@@ -183,6 +190,8 @@ export async function upsertLongTermMemory(input: {
   memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
   importance?: number;
   projectId?: string | null;
+  sourceKind?: LongTermMemorySourceKind;
+  triggerPhrases?: string[];
   config?: AppConfig;
 }) {
   const { row: memory, created } = await upsertLongTermMemoryByKey({
@@ -192,6 +201,8 @@ export async function upsertLongTermMemory(input: {
     memoryType: input.memoryType,
     importance: input.importance,
     projectId: input.projectId,
+    sourceKind: input.sourceKind,
+    triggerPhrases: input.triggerPhrases,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
@@ -200,6 +211,7 @@ export async function upsertLongTermMemory(input: {
   });
 
   invalidateRecallCache(input.userId);
+  invalidateTriggerCache(input.userId);
   await invalidateProfileCache(input.userId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
@@ -226,6 +238,7 @@ export async function updateLongTermMemory(input: {
 
   const ownerId = memory.userId ?? undefined;
   invalidateRecallCache(ownerId);
+  invalidateTriggerCache(ownerId);
   await invalidateProfileCache(ownerId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
@@ -241,6 +254,7 @@ export async function deleteLongTermMemory(
   const result = await deleteLongTermMemoryRow(id, options);
   if (result) {
     invalidateRecallCache(options?.userId);
+    invalidateTriggerCache(options?.userId);
     await invalidateProfileCache(options?.userId);
   }
   return result;

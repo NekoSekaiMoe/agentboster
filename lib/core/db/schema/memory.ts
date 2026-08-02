@@ -157,6 +157,53 @@ export const longTermMemories = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    /**
+     * Provenance / trust classification (OpenClaw-style taint gate).
+     * Closed set, written by classification code — never parsed out of
+     * memory text. Drives structural rules elsewhere:
+     *  - `tool_observed` rows are excluded from the always-on developer
+     *    profile and wrapped as unverified context on recall injection.
+     *  - Dream usage-based importance boosts skip `tool_observed` rows.
+     * Legacy rows (pre-column) default to 'assistant_observed', the
+     * neutral mid-trust class that keeps historical behavior unchanged.
+     */
+    sourceKind: text('source_kind', {
+      enum: [
+        'user_asserted',
+        'assistant_observed',
+        'tool_observed',
+        'dream_consolidated',
+        'dream_recombined',
+      ],
+    })
+      .default('assistant_observed')
+      .notNull(),
+    /**
+     * Short trigger phrases describing WHEN this memory is relevant
+     * (OpenClaw `<!-- trigger: ... -->` annotations). Each inbound message
+     * runs a cheap lexical prefilter against these phrases; strong matches
+     * inject the memory without waiting for semantic recall. Written at
+     * extraction / write time by writers that already have an LLM in the
+     * loop. NULL = no trigger candidates (older rows stay neutral).
+     */
+    triggerPhrases: text('trigger_phrases').array(),
+    /**
+     * Usage-feedback signals (OpenClaw dreaming deep-ranking analogue:
+     * "memory graduates because it kept being useful"). Incremented by the
+     * recall path each time this row is surfaced into a prompt; consumed
+     * by Dream phase 1 to boost frequently-recalled facts and demote
+     * never-recalled stale ones.
+     */
+    recallCount: integer('recall_count').default(0).notNull(),
+    /**
+     * Capped list of `yyyymmdd:queryHash` buckets, one per distinct
+     * day+query context that surfaced this memory. Length approximates
+     * OpenClaw's "unique queries" ranking signal without storing raw
+     * query text. Capped (see MAX_RECALL_QUERY_HASHES in the DAL).
+     */
+    recallQueryHashes: jsonb('recall_query_hashes').$type<string[]>(),
+    /** Last time recall surfaced this memory into a prompt. */
+    lastRecalledAt: timestamp('last_recalled_at', { withTimezone: true }),
   },
   (table) => ({
     userUpdatedIdx: index('long_term_memories_user_updated_idx').on(

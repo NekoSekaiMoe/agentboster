@@ -42,6 +42,23 @@ import { sanitizeOperations } from './phase3-sanitize';
 
 const logger = createLogger('memory.dream.orchestrator');
 
+/**
+ * Fraction of the user's active memory store a single Dream run may
+ * retire (delete + supersede), OpenClaw maxPriorEntryLossFraction
+ * analogue. A consolidation bug or a bad model night can never wipe
+ * more than this share in one sweep.
+ */
+const MAX_RETIRED_FRACTION = 0.25;
+/** Floor so small stores can still consolidate a whole group per run. */
+const MIN_RETIRED_BUDGET = 5;
+
+function computeRetiredBudget(activeMemoryCount: number): number {
+  return Math.max(
+    MIN_RETIRED_BUDGET,
+    Math.floor(activeMemoryCount * MAX_RETIRED_FRACTION),
+  );
+}
+
 export interface DreamRunOutcome {
   runId: string;
   userId: string;
@@ -51,6 +68,7 @@ export interface DreamRunOutcome {
   kept: number;
   proposed: number;
   rejectedDuplicates: number;
+  rejectedBudget: number;
   applied: number;
   skipped: number;
   failed: number;
@@ -87,6 +105,7 @@ export async function runDreamForUser(input: {
     kept: 0,
     proposed: 0,
     rejectedDuplicates: 0,
+    rejectedBudget: 0,
     applied: 0,
     skipped: 0,
     failed: 0,
@@ -108,6 +127,12 @@ export async function runDreamForUser(input: {
     });
     return null;
   });
+
+  // Hoisted so the finally block can record delete pre-images even when
+  // the run crashed mid-apply (they are simply empty in that case).
+  let deletePreimages: Awaited<
+    ReturnType<typeof applyDreamOperations>
+  >['deletePreimages'] = [];
 
   try {
     // ─── Phase 1: consolidate ──────────────────────────────────────────
@@ -160,10 +185,17 @@ export async function runDreamForUser(input: {
     }
 
     // ─── Phase 3: sanitize (near-dup collapse, self-supersede guard) ──
+    // The mutation budget caps how many existing rows one run may retire
+    // (OpenClaw maxPriorEntryLossFraction analogue). Budget counts come
+    // from the same prefetched active set the phases consumed.
     phasesRun.push('phase3');
-    const phase3 = sanitizeOperations(operations);
+    const retiredBudget = computeRetiredBudget(sharedMemories?.length ?? 0);
+    const phase3 = sanitizeOperations(operations, {
+      maxRetiredRows: retiredBudget,
+    });
     operations = phase3.accepted;
     outcome.rejectedDuplicates += phase3.rejectedDuplicates;
+    outcome.rejectedBudget = phase3.rejectedBudget;
 
     // ─── Apply ─────────────────────────────────────────────────────────
     phasesRun.push('apply');
@@ -176,6 +208,7 @@ export async function runDreamForUser(input: {
     outcome.applied = applyResult.applied;
     outcome.skipped = applyResult.skipped;
     outcome.failed = applyResult.failed;
+    deletePreimages = applyResult.deletePreimages;
 
     outcome.phases = phasesRun.join('+');
 
@@ -185,8 +218,10 @@ export async function runDreamForUser(input: {
       phases: outcome.phases,
       consolidated: outcome.consolidated,
       rejectedDuplicates: outcome.rejectedDuplicates,
+      rejectedBudget: outcome.rejectedBudget,
       applied: outcome.applied,
       failed: outcome.failed,
+      deletePreimages: applyResult.deletePreimages.length,
     });
 
     return outcome;
@@ -219,9 +254,13 @@ export async function runDreamForUser(input: {
           kept: outcome.kept,
           proposed: outcome.proposed,
           rejectedDuplicates: outcome.rejectedDuplicates,
+          rejectedBudget: outcome.rejectedBudget,
           applied: outcome.applied,
           skipped: outcome.skipped,
           failed: outcome.failed,
+          // Pre-images of hard-deleted rows (OpenClaw rewrite-preimage
+          // discipline): what the run destroyed stays recoverable.
+          deletePreimages,
         },
       }).catch((error) => {
         logger.warn('orchestrator:audit_complete_failed', {

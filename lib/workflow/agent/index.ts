@@ -771,7 +771,11 @@ export async function chatWorkflow(
     // stashes the callback in a queue that the host drains when the
     // readable stream closes — same semantic, no next/server import.
     // Extraction is best-effort by design; failures are logged.
-    if ('userId' in source && source.userId) {
+    // Session-kind gating (OpenClaw hygiene rule): only interactive
+    // sessions (web / im / cli) produce durable memory. Scheduled/cron
+    // runs are excluded explicitly — they can write task artifacts, but
+    // nothing they emit is eligible for long-term extraction.
+    if (source.type !== 'scheduled' && 'userId' in source && source.userId) {
       afterResponse(async () => {
         try {
           await extractMemoriesFromSession({

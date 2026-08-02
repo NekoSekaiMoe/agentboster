@@ -149,6 +149,20 @@ export type DreamOperation =
       oldMemoryId: string;
       /** New memory that supersedes it (already written by CONSOLIDATE). */
       newMemoryId: string;
+    }
+  | {
+      type: 'ADJUST_IMPORTANCE';
+      /** Memory whose importance is being adjusted. */
+      memoryId: string;
+      /**
+       * New importance value. Emitted by the deterministic usage-signal
+       * pass (usage-signals.ts) — always a single ±1 step from the
+       * current value, so a nightly sweep walks importance gradually
+       * instead of jumping on one noisy burst of recalls.
+       */
+      importance: number;
+      /** Why the adjustment fired — recorded in dream_meta + run audit. */
+      reason: 'frequently_recalled' | 'never_recalled';
     };
 
 /**

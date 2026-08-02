@@ -6,7 +6,16 @@ import {
 } from '@/lib/auth/access';
 import { getSession } from '@/lib/core/db/chat';
 import { db, schema } from '@/lib/core/db';
+import {
+  bulkSetTentativeStatus,
+  getLongTermMemoryRow,
+  listAllLongTermMemoryRows,
+  listTentativeMemories,
+  ratifyLongTermMemory,
+  updateTentativeMemoryRow,
+} from '@/lib/core/db/memory/long-term';
 import { listUsers } from '@/lib/core/db/users';
+import { getConfig } from '@/lib/core/kv/config';
 import {
   createLongTermMemory,
   deleteLongTermMemory,
@@ -14,9 +23,16 @@ import {
   listBuiltinMemorySections,
   listLongTermMemories,
   listSessionSummaries,
+  reindexLongTermMemory,
   setBuiltinMemorySection,
+  upsertLongTermMemory,
 } from '@/lib/memory';
+import { consolidatePhase } from '@/lib/memory/dream/phase1-consolidate';
+import { sanitizeOperations } from '@/lib/memory/dream/phase3-sanitize';
 import { buildProjectMemoryAggregate } from '@/lib/memory/project-aggregate';
+import { invalidateProfileCache } from '@/lib/memory/profile';
+import { invalidateRecallCache } from '@/lib/memory/recall';
+import { invalidateTriggerCache } from '@/lib/memory/triggers';
 import {
   createLongTermMemorySchema,
   longTermMemoryListQuerySchema,
@@ -388,4 +404,343 @@ export async function listProjectScopesAction(input?: {
     label: g.label,
     isGlobal: g.isGlobal,
   }));
+}
+
+/* ─── Dream proposals (tentative memories) ─────────────────────── */
+
+export type DreamProposalRecord = {
+  id: string;
+  key: string | null;
+  content: string;
+  memoryType: string;
+  importance: number;
+  projectId: string;
+  sourceKind: string;
+  confidence: number | null;
+  rationale: string | null;
+  triggerPhrases: string[] | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type TentativeRow = Awaited<ReturnType<typeof listTentativeMemories>>[number];
+
+function mapProposalRow(row: TentativeRow): DreamProposalRecord {
+  const meta = (row.dreamMeta ?? {}) as {
+    confidence?: number;
+    rationale?: string;
+  };
+  return {
+    id: row.id,
+    key: row.key ?? null,
+    content: row.content,
+    memoryType: row.memoryType,
+    importance: row.importance,
+    projectId: row.projectId,
+    sourceKind: row.sourceKind,
+    confidence: typeof meta.confidence === 'number' ? meta.confidence : null,
+    rationale: typeof meta.rationale === 'string' ? meta.rationale : null,
+    triggerPhrases: Array.isArray(row.triggerPhrases)
+      ? row.triggerPhrases
+      : null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** Drop every memory-derived cache for a user after a dream write. */
+async function invalidateMemoryCaches(userId: string) {
+  invalidateRecallCache(userId);
+  invalidateTriggerCache(userId);
+  await invalidateProfileCache(userId);
+}
+
+/** Fire-and-forget reindex so a written/edited row becomes searchable. */
+async function scheduleReindex(memoryId: string) {
+  const config = await getConfig().catch(() => null);
+  reindexLongTermMemory({ memoryId, config: config ?? undefined }).catch(
+    () => {},
+  );
+}
+
+export async function listDreamProposalsAction(input?: { limit?: number }) {
+  const access = await requireAuth();
+  const limit = Math.min(Math.max(input?.limit ?? 100, 1), 200);
+
+  const rows = await listTentativeMemories({
+    userId: access.session.userId,
+    limit,
+  });
+
+  return { proposals: rows.map(mapProposalRow) };
+}
+
+/**
+ * Ratify (promote to active) or reject (demote to contradicted) a single
+ * proposal. Re-ratified rows are re-indexed so they become searchable
+ * immediately (dream writes go through the DAL and skip chunk indexing).
+ */
+export async function ratifyDreamProposalAction(input: {
+  id: string;
+  ratified: boolean;
+  note?: string;
+}) {
+  const access = await requireAuth();
+  const userId = access.session.userId;
+
+  const updated = await ratifyLongTermMemory({
+    id: input.id,
+    userId,
+    ratified: input.ratified,
+    note: typeof input.note === 'string' ? input.note.slice(0, 500) : undefined,
+  });
+  if (!updated) {
+    throw new Error('Proposal not found');
+  }
+
+  if (input.ratified) {
+    await scheduleReindex(updated.id);
+  }
+  await invalidateMemoryCaches(userId);
+
+  return { ok: true as const, dreamStatus: updated.dreamStatus };
+}
+
+/**
+ * Edit a pending proposal before ratifying it: content, importance, and
+ * trigger phrases are all adjustable. Restricted to tentative rows by
+ * the DAL — an active/superseded memory can never be mutated here.
+ */
+export async function updateDreamProposalAction(input: {
+  id: string;
+  content?: string;
+  importance?: number;
+  triggerPhrases?: string[];
+}) {
+  const access = await requireAuth();
+  const userId = access.session.userId;
+
+  const triggerPhrases = Array.isArray(input.triggerPhrases)
+    ? input.triggerPhrases
+        .map((phrase) => phrase.trim())
+        .filter((phrase) => phrase.length >= 2)
+        .slice(0, 5)
+    : undefined;
+
+  const updated = await updateTentativeMemoryRow({
+    id: input.id,
+    userId,
+    ...(typeof input.content === 'string' ? { content: input.content } : {}),
+    ...(typeof input.importance === 'number'
+      ? { importance: input.importance }
+      : {}),
+    ...(triggerPhrases !== undefined ? { triggerPhrases } : {}),
+  });
+  if (!updated) {
+    throw new Error('Proposal not found or nothing to update');
+  }
+
+  if (typeof input.content === 'string' && input.content.trim().length > 0) {
+    await scheduleReindex(updated.id);
+  }
+  await invalidateMemoryCaches(userId);
+
+  return { ok: true as const, proposal: mapProposalRow(updated) };
+}
+
+/**
+ * Hard-delete a proposal. Distinct from "reject": rejection marks the
+ * finding contradicted so Dream never re-proposes it; deletion removes
+ * the row entirely (it MAY be re-proposed by a future run).
+ */
+export async function deleteDreamProposalAction(id: string) {
+  const access = await requireAuth();
+  const userId = access.session.userId;
+
+  // Guard: only tentative rows may be deleted through this path — an
+  // active memory must go through deleteLongTermMemoryAction instead.
+  const row = await getLongTermMemoryRow(id, { userId });
+  if (row?.dreamStatus !== 'tentative') {
+    throw new Error('Proposal not found');
+  }
+
+  const deleted = await deleteLongTermMemory(id, { userId });
+  if (!deleted) {
+    throw new Error('Proposal not found');
+  }
+
+  await invalidateMemoryCaches(userId);
+  return { ok: true as const };
+}
+
+/**
+ * Manually create a memory from the Dream tab. Written directly as
+ * ACTIVE (a human review queue entry makes no sense for something the
+ * human just typed) and classified user_asserted — the highest trust
+ * class, since the user stated it themselves.
+ */
+export async function createDreamMemoryAction(input: {
+  content: string;
+  key?: string;
+  memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
+  importance?: number;
+  triggerPhrases?: string[];
+}) {
+  const access = await requireAuth();
+  const userId = access.session.userId;
+
+  const content = input.content?.trim();
+  if (!content) {
+    throw new Error('content is required');
+  }
+
+  const triggerPhrases = Array.isArray(input.triggerPhrases)
+    ? input.triggerPhrases
+        .map((phrase) => phrase.trim())
+        .filter((phrase) => phrase.length >= 2)
+        .slice(0, 5)
+    : undefined;
+
+  const key = input.key?.trim();
+  if (key) {
+    // Stable-key writes go through upsert so re-creating the same key
+    // updates instead of duplicating (same domain as the extractor).
+    const result = await upsertLongTermMemory({
+      userId,
+      key,
+      content,
+      memoryType: input.memoryType,
+      importance: input.importance,
+      sourceKind: 'user_asserted',
+      triggerPhrases,
+    });
+    await invalidateMemoryCaches(userId);
+    return { ok: true as const, id: result.memory.id, created: result.created };
+  }
+
+  const result = await createLongTermMemory({
+    content,
+    memoryType: input.memoryType,
+    importance: input.importance,
+    userId,
+    sourceKind: 'user_asserted',
+    triggerPhrases,
+  });
+  await invalidateMemoryCaches(userId);
+  return { ok: true as const, id: result.memory.id, created: true };
+}
+
+export async function batchDreamProposalsAction(input: {
+  action: 'ratify-all' | 'reject-all';
+}) {
+  const access = await requireAuth();
+  const userId = access.session.userId;
+
+  if (input.action !== 'ratify-all' && input.action !== 'reject-all') {
+    throw new Error('action must be "ratify-all" or "reject-all"');
+  }
+
+  // Capture ids before the bulk flip so ratified rows can be re-indexed
+  // (dream-written rows have no chunks until indexed).
+  const pending =
+    input.action === 'ratify-all'
+      ? await listTentativeMemories({ userId, limit: 200 })
+      : [];
+
+  const processed = await bulkSetTentativeStatus({
+    userId,
+    ratified: input.action === 'ratify-all',
+  });
+
+  if (input.action === 'ratify-all') {
+    for (const row of pending) {
+      await scheduleReindex(row.id);
+    }
+  }
+  await invalidateMemoryCaches(userId);
+
+  return { ok: true as const, processed };
+}
+
+/* ─── Dream run preview (dry-run, no writes) ───────────────────── */
+
+export type DreamPreviewOperation = {
+  type: 'CONSOLIDATE' | 'DELETE' | 'SUPERSEDE' | 'ADJUST_IMPORTANCE';
+  /** Human-readable one-line summary of what would happen. */
+  summary: string;
+  /** Existing row ids the op would touch. */
+  affectedIds: string[];
+};
+
+/**
+ * Dry-run the next Dream sweep for the current user: phase 1 (usage
+ * adjustments + LLM consolidation) followed by phase 3 (sanitize +
+ * mutation budget), WITHOUT applying anything. Phase 2 (recombine) is
+ * skipped — its proposals never mutate existing rows, and halving the
+ * LLM cost keeps the preview responsive.
+ *
+ * This is the "explain" surface (OpenClaw `memory promote` preview
+ * analogue): review exactly what tonight's run would merge, delete, and
+ * re-weight before trusting it.
+ */
+export async function previewDreamRunAction() {
+  const access = await requireAuth();
+  const userId = access.session.userId;
+  const config = await getConfig();
+
+  const memories = await listAllLongTermMemoryRows({ userId });
+
+  const phase1 = await consolidatePhase({ userId, config, memories });
+  const retiredBudget = Math.max(5, Math.floor(memories.length * 0.25));
+  const phase3 = sanitizeOperations(phase1.operations, {
+    maxRetiredRows: retiredBudget,
+  });
+
+  const operations: DreamPreviewOperation[] = [];
+  for (const op of phase3.accepted) {
+    switch (op.type) {
+      case 'CONSOLIDATE':
+        operations.push({
+          type: 'CONSOLIDATE',
+          summary: `合并 ${op.sourceMemoryIds.length} 条 → [${op.mergedKey}] ${op.mergedContent.slice(0, 120)}`,
+          affectedIds: op.sourceMemoryIds,
+        });
+        break;
+      case 'DELETE':
+        operations.push({
+          type: 'DELETE',
+          summary: `删除 ${op.memoryIds.length} 条记忆`,
+          affectedIds: op.memoryIds,
+        });
+        break;
+      case 'SUPERSEDE':
+        operations.push({
+          type: 'SUPERSEDE',
+          summary: '标记 1 条近重复记忆为 superseded',
+          affectedIds: [op.oldMemoryId],
+        });
+        break;
+      case 'ADJUST_IMPORTANCE':
+        operations.push({
+          type: 'ADJUST_IMPORTANCE',
+          summary: `重要性调整为 ${op.importance}（${op.reason === 'frequently_recalled' ? '高频召回' : '长期未召回'}）`,
+          affectedIds: [op.memoryId],
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
+  return {
+    memoryCount: memories.length,
+    retiredBudget,
+    operations,
+    stats: {
+      consolidated: phase1.stats.consolidated,
+      deleted: phase1.stats.deleted,
+      rejectedDuplicates: phase3.rejectedDuplicates,
+      rejectedBudget: phase3.rejectedBudget,
+    },
+  };
 }

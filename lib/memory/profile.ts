@@ -169,6 +169,12 @@ async function loadDeveloperProfileFromDb(
       // given the sentinel, but make the intent explicit in case the
       // sentinel constant ever changes value.
       if (!isGlobalProjectId(row.projectId)) return false;
+      // Taint gate: tool_observed memories came from tool/web output,
+      // not from the user. They must never enter the always-on profile
+      // — auto-injecting unverified external content into EVERY system
+      // prompt is exactly the memory-poisoning vector provenance
+      // classification exists to close (OpenClaw quarantine-by-tier).
+      if (row.sourceKind === 'tool_observed') return false;
       if (row.memoryType === 'preference') return true;
       if (
         row.memoryType === 'fact' &&

@@ -16,6 +16,7 @@ import {
   setSessionSoulAction,
   updateBuiltinMemorySectionAction,
 } from '@/app/(memory)/actions';
+import { DreamPanel } from '@/app/(memory)/memory/dream-panel';
 import { toast } from 'sonner';
 
 import {
@@ -40,7 +41,13 @@ import {
   SOUL_MEMORY_MAX_LENGTH,
 } from '@/types/memory/builtin';
 
-type Scope = 'builtin' | 'long_term' | 'session' | 'soul' | 'projects';
+type Scope =
+  | 'builtin'
+  | 'long_term'
+  | 'session'
+  | 'soul'
+  | 'projects'
+  | 'dream';
 
 const BUILTIN_KEYS = ['AGENTS', 'SOUL', 'IDENTITY', 'USER'] as const;
 
@@ -81,7 +88,14 @@ export default function MemoryPage() {
       <div className="flex-1 space-y-4 overflow-y-auto p-4">
         <div className="flex flex-wrap items-center gap-2">
           {(
-            ['builtin', 'soul', 'long_term', 'projects', 'session'] as Scope[]
+            [
+              'builtin',
+              'soul',
+              'long_term',
+              'projects',
+              'dream',
+              'session',
+            ] as Scope[]
           ).map((scope) => (
             <Button
               key={scope}
@@ -97,7 +111,9 @@ export default function MemoryPage() {
                     ? 'Long-term'
                     : scope === 'projects'
                       ? 'Projects'
-                      : 'Session'}
+                      : scope === 'dream'
+                        ? 'Dream'
+                        : 'Session'}
             </Button>
           ))}
         </div>
@@ -106,6 +122,7 @@ export default function MemoryPage() {
         {activeScope === 'soul' && <SoulPanel />}
         {activeScope === 'long_term' && <LongTermPanel />}
         {activeScope === 'projects' && <ProjectsPanel />}
+        {activeScope === 'dream' && <DreamPanel />}
         {activeScope === 'session' && <SessionPanel />}
       </div>
     </div>

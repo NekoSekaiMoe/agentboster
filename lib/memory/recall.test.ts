@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/core/db/memory/long-term', () => ({
   listLongTermMemoryRows: vi.fn(),
+  getMemoryMetaByIds: vi.fn().mockResolvedValue(new Map()),
+  recordRecallHits: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/security/l1-scorer', () => ({

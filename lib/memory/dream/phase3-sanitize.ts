@@ -41,20 +41,64 @@ function operationContent(op: DreamOperation): string | null {
 }
 
 /**
+ * Ids of existing rows an op would RETIRE (delete or supersede).
+ * Used by the mutation budget: CONSOLIDATE retires its sources,
+ * SUPERSEDE retires the old row, DELETE retires its targets.
+ * PROPOSE / ADJUST_IMPORTANCE retire nothing.
+ */
+function retiredIds(op: DreamOperation): string[] {
+  switch (op.type) {
+    case 'CONSOLIDATE':
+      return op.sourceMemoryIds;
+    case 'SUPERSEDE':
+      return [op.oldMemoryId];
+    case 'DELETE':
+      return op.memoryIds;
+    default:
+      return [];
+  }
+}
+
+/**
  * Sanitize a batch of operations. Returns the filtered list + stats.
  *
  * The order of the input is preserved — "first writer wins" so callers
  * should pass higher-confidence / earlier-phase operations first.
+ *
+ * Mutation budget (OpenClaw maxPriorEntryLossFraction analogue): when
+ * `options.maxRetiredRows` is set, destructive ops (DELETE / SUPERSEDE /
+ * CONSOLIDATE-source retirement) are accepted only while the cumulative
+ * count of DISTINCT rows they retire stays within the budget. Ops past
+ * the budget are dropped (counted as rejectedBudget) rather than
+ * applied — a runaway consolidation pass can never wipe more than its
+ * fraction of the memory store in one night.
  */
-export function sanitizeOperations(operations: DreamOperation[]): {
+export function sanitizeOperations(
+  operations: DreamOperation[],
+  options?: { maxRetiredRows?: number },
+): {
   accepted: DreamOperation[];
   rejectedDuplicates: number;
+  rejectedBudget: number;
 } {
   const accepted: DreamOperation[] = [];
   const supersededIds = new Set<string>();
+  const retiredSoFar = new Set<string>();
   let rejectedDuplicates = 0;
+  let rejectedBudget = 0;
+  const maxRetiredRows = options?.maxRetiredRows;
 
   for (const op of operations) {
+    // Budget gate first: applies to every destructive op type.
+    if (maxRetiredRows !== undefined) {
+      const retiring = retiredIds(op).filter((id) => !retiredSoFar.has(id));
+      if (retiring.length > 0 && retiredSoFar.size >= maxRetiredRows) {
+        rejectedBudget += 1;
+        logger.info('phase3:rejected_budget', { type: op.type });
+        continue;
+      }
+    }
+
     // SUPERSEDE guard: skip if the source was already superseded in this batch.
     if (op.type === 'SUPERSEDE') {
       if (supersededIds.has(op.oldMemoryId)) {
@@ -62,6 +106,7 @@ export function sanitizeOperations(operations: DreamOperation[]): {
         continue;
       }
       supersededIds.add(op.oldMemoryId);
+      retiredSoFar.add(op.oldMemoryId);
       accepted.push(op);
       continue;
     }
@@ -76,7 +121,10 @@ export function sanitizeOperations(operations: DreamOperation[]): {
       if (survivors.length < op.memoryIds.length) {
         rejectedDuplicates += op.memoryIds.length - survivors.length;
       }
-      for (const id of survivors) supersededIds.add(id);
+      for (const id of survivors) {
+        supersededIds.add(id);
+        retiredSoFar.add(id);
+      }
       accepted.push({ ...op, memoryIds: survivors });
       continue;
     }
@@ -101,7 +149,10 @@ export function sanitizeOperations(operations: DreamOperation[]): {
     }
 
     if (op.type === 'CONSOLIDATE') {
-      for (const id of op.sourceMemoryIds) supersededIds.add(id);
+      for (const id of op.sourceMemoryIds) {
+        supersededIds.add(id);
+        retiredSoFar.add(id);
+      }
     }
     accepted.push(op);
   }
@@ -110,7 +161,8 @@ export function sanitizeOperations(operations: DreamOperation[]): {
     input: operations.length,
     accepted: accepted.length,
     rejectedDuplicates,
+    rejectedBudget,
   });
 
-  return { accepted, rejectedDuplicates };
+  return { accepted, rejectedDuplicates, rejectedBudget };
 }

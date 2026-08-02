@@ -34,6 +34,7 @@ import type { AppConfig } from '@/types/config';
 
 import { dedupeNearDuplicateContents } from './bigram';
 import type { DreamOperation } from './types';
+import { computeUsageAdjustments } from './usage-signals';
 
 const logger = createLogger('memory.dream.phase1');
 
@@ -74,6 +75,11 @@ type MemoryRow = {
   content: string;
   memoryType: string;
   importance: number;
+  sourceKind?: string | null;
+  recallCount?: number | null;
+  recallQueryHashes?: string[] | null;
+  lastRecalledAt?: Date | string | null;
+  updatedAt?: Date | string | null;
 };
 
 function extractKeyPrefix(key: string): string {
@@ -203,6 +209,20 @@ export async function consolidatePhase(input: {
   let rejectedDuplicates = 0;
   let groupsProcessed = 0;
 
+  // Deterministic usage-feedback pass (OpenClaw deep-ranking analogue:
+  // memory graduates because it kept being useful). No LLM involved —
+  // recall frequency + query diversity move importance one step per run.
+  // Emitted BEFORE the LLM batches so phase3's mutation budget and the
+  // apply path treat them like any other operation.
+  for (const adjustment of computeUsageAdjustments(allMemories)) {
+    operations.push({
+      type: 'ADJUST_IMPORTANCE',
+      memoryId: adjustment.memoryId,
+      importance: adjustment.importance,
+      reason: adjustment.reason,
+    });
+  }
+
   for (const [, { prefix, members }] of groups) {
     if (members.length < MIN_GROUP_SIZE_FOR_CONSOLIDATE) {
       kept += members.length;
@@ -310,10 +330,19 @@ async function consolidateBatch(input: {
   const memberIds = new Set(input.members.map((m) => m.id));
 
   const memoriesBlock = input.members
-    .map(
-      (m, i) =>
-        `${i + 1}. [id=${m.id}] [key=${m.key ?? '(none)'}] [type=${m.memoryType}] [importance=${m.importance}]\n   ${m.content}`,
-    )
+    .map((m, i) => {
+      const recalls = m.recallCount ?? 0;
+      const contexts = Array.isArray(m.recallQueryHashes)
+        ? m.recallQueryHashes.length
+        : 0;
+      const usage =
+        recalls > 0
+          ? ` [recalled ${recalls}× across ${contexts} contexts]`
+          : ' [never recalled]';
+      const taint =
+        m.sourceKind === 'tool_observed' ? ' [source=tool/web]' : '';
+      return `${i + 1}. [id=${m.id}] [key=${m.key ?? '(none)'}] [type=${m.memoryType}] [importance=${m.importance}]${usage}${taint}\n   ${m.content}`;
+    })
     .join('\n');
 
   const prompt = `You are a memory consolidation engine for a developer-focused AI assistant. Given a group of related memories for one user, decide how to merge them into canonical facts.
@@ -333,6 +362,8 @@ Rules:
 - Every memory ID must appear in exactly one action.
 - Prefer MERGE over DELETE when each adds unique detail.
 - Preserve the highest importance from merged sources.
+- Usage signals matter: memories annotated "recalled N× across M contexts" have PROVEN utility — preserve them and never delete them for redundancy alone. Memories annotated "never recalled" are weaker merge/delete candidates.
+- Memories annotated [source=tool/web] came from external content, not the user: keep confidence at or below 0.6 when merging them and never raise their importance above 6.
 - Write merged content from the assistant's perspective about "the user" or "the project".
 - Keep merged content concise — no longer than the longest source.
 - Confidence reflects how clearly the sources support the merged claim (1.0 = directly stated, 0.5 = inferred).`;
