@@ -79,10 +79,18 @@ const OP_TYPE_BADGE: Record<DreamPreviewOperation['type'], string> = {
   ADJUST_IMPORTANCE: 'bg-blue-500/10 text-blue-600',
 };
 
+/** Parse the importance input, clamped to the 1–10 scale (default 5). */
+function clampImportanceInput(raw: string): number {
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return 5;
+  return Math.max(1, Math.min(10, parsed));
+}
+
 export function DreamPanel() {
   const [proposals, setProposals] = useState<DreamProposalRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [ratifyingId, setRatifyingId] = useState<string | null>(null);
   const [batchActing, setBatchActing] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [editing, setEditing] = useState<DreamProposalRecord | null>(null);
@@ -118,6 +126,7 @@ export function DreamPanel() {
 
   async function ratify(id: string, ratified: boolean) {
     setActingId(id);
+    setRatifyingId(id);
     try {
       await ratifyDreamProposalAction({ id, ratified });
       setProposals((prev) => prev.filter((p) => p.id !== id));
@@ -126,6 +135,7 @@ export function DreamPanel() {
       toast.error('操作失败');
     } finally {
       setActingId(null);
+      setRatifyingId(null);
     }
   }
 
@@ -171,7 +181,7 @@ export function DreamPanel() {
       await createDreamMemoryAction({
         content,
         ...(newKey.trim() ? { key: newKey.trim() } : {}),
-        importance: Number.parseInt(newImportance, 10) || 5,
+        importance: clampImportanceInput(newImportance),
         ...(triggerPhrases.length > 0 ? { triggerPhrases } : {}),
       });
       setNewContent('');
@@ -312,6 +322,8 @@ export function DreamPanel() {
             />
             <Input
               value={newImportance}
+              inputMode="numeric"
+              maxLength={2}
               onChange={(e) =>
                 setNewImportance(e.target.value.replace(/[^0-9]/g, ''))
               }
@@ -414,7 +426,11 @@ export function DreamPanel() {
                       disabled={actingId === proposal.id}
                       onClick={() => ratify(proposal.id, true)}
                     >
-                      <Check className="mr-1 size-4" />
+                      {ratifyingId === proposal.id ? (
+                        <Loader2 className="mr-1 size-4 animate-spin" />
+                      ) : (
+                        <Check className="mr-1 size-4" />
+                      )}
                       批准
                     </Button>
                     <Button
@@ -423,7 +439,11 @@ export function DreamPanel() {
                       disabled={actingId === proposal.id}
                       onClick={() => ratify(proposal.id, false)}
                     >
-                      <X className="mr-1 size-4" />
+                      {ratifyingId === proposal.id ? (
+                        <Loader2 className="mr-1 size-4 animate-spin" />
+                      ) : (
+                        <X className="mr-1 size-4" />
+                      )}
                       拒绝
                     </Button>
                     <Button

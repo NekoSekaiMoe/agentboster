@@ -772,9 +772,11 @@ export async function chatWorkflow(
     // readable stream closes — same semantic, no next/server import.
     // Extraction is best-effort by design; failures are logged.
     // Session-kind gating (OpenClaw hygiene rule): only interactive
-    // sessions (web / im / cli) produce durable memory. Scheduled/cron
-    // runs are excluded explicitly — they can write task artifacts, but
-    // nothing they emit is eligible for long-term extraction.
+    // sessions (web / im / cli) produce durable memory OR staged skills.
+    // Scheduled/cron runs are excluded explicitly from BOTH the memory
+    // extraction and the skill distillation below — they can write task
+    // artifacts, but nothing they emit is eligible for long-term memory
+    // or for review-queue skill drafts.
     if (source.type !== 'scheduled' && 'userId' in source && source.userId) {
       afterResponse(async () => {
         try {

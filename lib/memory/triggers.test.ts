@@ -59,6 +59,22 @@ describe('phraseCoverage', () => {
     expect(phraseCoverage('部署失败', message)).toBe(1);
   });
 
+  it('keeps only bigram coverage for multi-character CJK phrases', () => {
+    // "部署故" must NOT match via its single-character CJK unigrams —
+    // otherwise any message containing 部/署/故 would falsely trigger.
+    const withoutBigram = triggerNgrams('这个部 门的故事');
+    expect(phraseCoverage('部署故', withoutBigram)).toBe(0);
+    const withBigram = triggerNgrams('本次部署故障复盘');
+    expect(phraseCoverage('部署故', withBigram)).toBeGreaterThan(0);
+  });
+
+  it('retains the Latin unigram in mixed-language phrases', () => {
+    // "deploy 部署": the Latin word stays matchable by presence; the CJK
+    // portion is not treated as a single-character phrase.
+    const message = triggerNgrams('deploy failed again');
+    expect(phraseCoverage('deploy 部署', message)).toBeGreaterThan(0);
+  });
+
   it('does not match unrelated text', () => {
     const message = triggerNgrams('write a sorting function');
     expect(phraseCoverage('gateway setup', message)).toBe(0);

@@ -52,7 +52,11 @@ const MAX_RETIRED_FRACTION = 0.25;
 /** Floor so small stores can still consolidate a whole group per run. */
 const MIN_RETIRED_BUDGET = 5;
 
-function computeRetiredBudget(activeMemoryCount: number): number {
+/**
+ * Cap on rows a single Dream run may retire, shared by the nightly run
+ * and the preview action so both budget with the same formula.
+ */
+export function computeRetiredBudget(activeMemoryCount: number): number {
   return Math.max(
     MIN_RETIRED_BUDGET,
     Math.floor(activeMemoryCount * MAX_RETIRED_FRACTION),

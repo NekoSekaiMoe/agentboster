@@ -21,7 +21,7 @@ import {
   markLongTermMemorySuperseded,
   upsertLongTermMemoryByKey,
 } from '@/lib/core/db/memory/long-term';
-import { reindexLongTermMemory } from '@/lib/memory/long-term';
+import { scheduleReindex } from '@/lib/memory/cache-invalidation';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 
@@ -53,23 +53,6 @@ export interface ApplyResult {
 
 /** Cap on pre-images kept per run so the audit row stays bounded. */
 const MAX_DELETE_PREIMAGES = 50;
-
-/**
- * Re-index a Dream-written row so it is searchable (chunks + embeddings).
- *
- * Dream writes through the DAL directly (upsertLongTermMemoryByKey), which
- * historically left rows with NO chunks — invisible to hybrid search even
- * after ratification. Fire-and-forget: indexing failure degrades search
- * visibility for one row, it must not fail the run.
- */
-function scheduleReindex(memoryId: string, config?: AppConfig) {
-  reindexLongTermMemory({ memoryId, config }).catch((error) => {
-    logger.warn('apply:reindex_failed', {
-      memoryId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
-}
 
 /**
  * Apply a sanitized batch of Dream operations for one user.
@@ -193,7 +176,16 @@ export async function applyDreamOperations(input: {
             const preimages = await getLongTermMemoryPreimages(
               op.memoryIds,
               input.userId,
-            ).catch(() => []);
+            ).catch((error) => {
+              // Deletion must proceed even when the audit preimage cannot
+              // be captured — but the gap must be visible in the logs.
+              logger.warn('apply:preimage_failed', {
+                userId: input.userId,
+                memoryIds: op.memoryIds,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return [];
+            });
             for (const preimage of preimages) {
               if (deletePreimages.length >= MAX_DELETE_PREIMAGES) break;
               deletePreimages.push(preimage);

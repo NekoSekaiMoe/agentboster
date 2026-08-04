@@ -8,13 +8,14 @@ import { getSession } from '@/lib/core/db/chat';
 import { db, schema } from '@/lib/core/db';
 import {
   bulkSetTentativeStatus,
-  getLongTermMemoryRow,
+  deleteTentativeMemoryRow,
   listAllLongTermMemoryRows,
   listTentativeMemories,
   ratifyLongTermMemory,
   updateTentativeMemoryRow,
 } from '@/lib/core/db/memory/long-term';
 import { listUsers } from '@/lib/core/db/users';
+import { set as kvSet } from '@/lib/core/kv';
 import { getConfig } from '@/lib/core/kv/config';
 import {
   createLongTermMemory,
@@ -27,12 +28,14 @@ import {
   setBuiltinMemorySection,
   upsertLongTermMemory,
 } from '@/lib/memory';
+import {
+  invalidateMemoryCaches,
+  scheduleReindex,
+} from '@/lib/memory/cache-invalidation';
 import { consolidatePhase } from '@/lib/memory/dream/phase1-consolidate';
+import { computeRetiredBudget } from '@/lib/memory/dream/orchestrator';
 import { sanitizeOperations } from '@/lib/memory/dream/phase3-sanitize';
 import { buildProjectMemoryAggregate } from '@/lib/memory/project-aggregate';
-import { invalidateProfileCache } from '@/lib/memory/profile';
-import { invalidateRecallCache } from '@/lib/memory/recall';
-import { invalidateTriggerCache } from '@/lib/memory/triggers';
 import {
   createLongTermMemorySchema,
   longTermMemoryListQuerySchema,
@@ -448,21 +451,6 @@ function mapProposalRow(row: TentativeRow): DreamProposalRecord {
   };
 }
 
-/** Drop every memory-derived cache for a user after a dream write. */
-async function invalidateMemoryCaches(userId: string) {
-  invalidateRecallCache(userId);
-  invalidateTriggerCache(userId);
-  await invalidateProfileCache(userId);
-}
-
-/** Fire-and-forget reindex so a written/edited row becomes searchable. */
-async function scheduleReindex(memoryId: string) {
-  const config = await getConfig().catch(() => null);
-  reindexLongTermMemory({ memoryId, config: config ?? undefined }).catch(
-    () => {},
-  );
-}
-
 export async function listDreamProposalsAction(input?: { limit?: number }) {
   const access = await requireAuth();
   const limit = Math.min(Math.max(input?.limit ?? 100, 1), 200);
@@ -557,14 +545,7 @@ export async function deleteDreamProposalAction(id: string) {
   const access = await requireAuth();
   const userId = access.session.userId;
 
-  // Guard: only tentative rows may be deleted through this path — an
-  // active memory must go through deleteLongTermMemoryAction instead.
-  const row = await getLongTermMemoryRow(id, { userId });
-  if (row?.dreamStatus !== 'tentative') {
-    throw new Error('Proposal not found');
-  }
-
-  const deleted = await deleteLongTermMemory(id, { userId });
+  const deleted = await deleteTentativeMemoryRow(id, { userId });
   if (!deleted) {
     throw new Error('Proposal not found');
   }
@@ -653,8 +634,20 @@ export async function batchDreamProposalsAction(input: {
   });
 
   if (input.action === 'ratify-all') {
-    for (const row of pending) {
-      await scheduleReindex(row.id);
+    // Load the reindex config once, then submit all pending ids through a
+    // bounded-concurrency pool — awaiting each row serially stalls the
+    // action, while firing them all at once bursts indexing tasks.
+    const config = await getConfig().catch(() => null);
+    const REINDEX_CONCURRENCY = 5;
+    for (let i = 0; i < pending.length; i += REINDEX_CONCURRENCY) {
+      await Promise.all(
+        pending.slice(i, i + REINDEX_CONCURRENCY).map((row) =>
+          reindexLongTermMemory({
+            memoryId: row.id,
+            config: config ?? undefined,
+          }).catch(() => {}),
+        ),
+      );
     }
   }
   await invalidateMemoryCaches(userId);
@@ -663,6 +656,9 @@ export async function batchDreamProposalsAction(input: {
 }
 
 /* ─── Dream run preview (dry-run, no writes) ───────────────────── */
+
+/** Minimum gap between preview runs per user (LLM cost protection). */
+const PREVIEW_MIN_INTERVAL_MS = 60_000;
 
 export type DreamPreviewOperation = {
   type: 'CONSOLIDATE' | 'DELETE' | 'SUPERSEDE' | 'ADJUST_IMPORTANCE';
@@ -686,14 +682,25 @@ export type DreamPreviewOperation = {
 export async function previewDreamRunAction() {
   const access = await requireAuth();
   const userId = access.session.userId;
+
+  // Per-user throttle: a preview runs the full consolidation LLM flow, so
+  // repeated clicks must not be able to fan out generateObject calls.
+  // Best-effort via KV NX lock; if KV is down the preview still runs.
+  const lockAcquired = await kvSet(`dream:preview:lock:${userId}`, '1', {
+    nx: true,
+    px: PREVIEW_MIN_INTERVAL_MS,
+  }).catch(() => 'OK');
+  if (lockAcquired !== 'OK') {
+    throw new Error('预览请求过于频繁，请稍后再试');
+  }
+
   const config = await getConfig();
 
   const memories = await listAllLongTermMemoryRows({ userId });
 
   const phase1 = await consolidatePhase({ userId, config, memories });
-  const retiredBudget = Math.max(5, Math.floor(memories.length * 0.25));
   const phase3 = sanitizeOperations(phase1.operations, {
-    maxRetiredRows: retiredBudget,
+    maxRetiredRows: computeRetiredBudget(memories.length),
   });
 
   const operations: DreamPreviewOperation[] = [];
@@ -734,7 +741,7 @@ export async function previewDreamRunAction() {
 
   return {
     memoryCount: memories.length,
-    retiredBudget,
+    retiredBudget: computeRetiredBudget(memories.length),
     operations,
     stats: {
       consolidated: phase1.stats.consolidated,

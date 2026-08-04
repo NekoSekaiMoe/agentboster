@@ -3,12 +3,13 @@ import {
   reconstructUIMessageParts,
   toModelMessage,
 } from '@/lib/chat/message-utils';
-import { getSessionMessages } from '@/lib/core/db/chat';
+import { getSession, getSessionMessages } from '@/lib/core/db/chat';
 import { getConfig } from '@/lib/core/kv/config';
 import {
   formatRecalledMemoriesForContext,
   getCurrentSessionSummary,
   recallRelevantMemories,
+  recordUsageFeedback,
 } from '@/lib/memory';
 import {
   DEEP_RECALL_MIN_CONFIDENCE,
@@ -203,10 +204,9 @@ export async function buildInitialContextMessages(
   let recalledMemories: Awaited<ReturnType<typeof recallRelevantMemories>> = [];
   let triggeredContext: string | null = null;
   if (options?.recallUserId && options?.recallQuery) {
-    const enrichedQuery = buildEnrichedRecallQuery(
-      options.recallQuery,
-      modelMessages,
-    );
+    const recallUserId = options.recallUserId;
+    const recallQuery = options.recallQuery;
+    const enrichedQuery = buildEnrichedRecallQuery(recallQuery, modelMessages);
 
     // Lane 2 escalation (OpenClaw active-memory `escalate` analogue):
     // when the message asks about the past, bypass the lane-1 cache and
@@ -214,13 +214,24 @@ export async function buildInitialContextMessages(
     // are exactly where default flat retrieval is weakest. Detection is
     // deterministic (regex, zero model calls) so the lane choice itself
     // costs nothing.
-    const isRecallIntent = detectRecallIntent(options.recallQuery);
+    const isRecallIntent = detectRecallIntent(recallQuery);
+
+    // Resolve the session's project scope (when one is persisted on
+    // session metadata) so trigger candidates narrow to this project +
+    // global. Missing scope → undefined, which keeps the DAL's existing
+    // no-filter (all-scopes) behavior.
+    const sessionRow = await getSession(sessionId).catch(() => null);
+    const sessionProjectId = sessionRow?.metadata?.projectId;
+    const projectIdScope =
+      typeof sessionProjectId === 'string' && sessionProjectId.trim()
+        ? sessionProjectId
+        : undefined;
 
     // Trigger prefilter + semantic recall run in parallel; both are
     // best-effort and never reject.
     const [recalled, triggered] = await Promise.all([
       recallRelevantMemories({
-        userId: options.recallUserId,
+        userId: recallUserId,
         query: enrichedQuery,
         config: effectiveConfig ?? undefined,
         ...(isRecallIntent
@@ -235,11 +246,24 @@ export async function buildInitialContextMessages(
       // enriched multi-turn query — trigger phrases describe turn-level
       // intent, and older turns would only add noise.
       matchTriggeredMemories({
-        userId: options.recallUserId,
-        message: options.recallQuery,
+        userId: recallUserId,
+        message: recallQuery,
+        projectIdScope,
       }),
     ]);
     recalledMemories = recalled;
+
+    // Record usage for trigger-injected memories as well — but only the
+    // ones the semantic lane didn't already record, so each unique
+    // memory gets exactly one usage signal per turn.
+    const recalledIds = new Set(
+      recalled.map((m) => m.memoryId).filter((id): id is string => Boolean(id)),
+    );
+    const triggeredOnly = triggered.filter((m) => !recalledIds.has(m.memoryId));
+    if (triggeredOnly.length > 0) {
+      recordUsageFeedback(recallUserId, recallQuery, triggeredOnly);
+    }
+
     triggeredContext = formatTriggeredMemoriesForContext(triggered);
   }
 

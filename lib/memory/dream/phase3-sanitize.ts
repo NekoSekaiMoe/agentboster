@@ -89,10 +89,16 @@ export function sanitizeOperations(
   const maxRetiredRows = options?.maxRetiredRows;
 
   for (const op of operations) {
-    // Budget gate first: applies to every destructive op type.
+    // Budget gate first: applies to every destructive op type. Reject
+    // when the op's newly retired ids would PUSH the total past the
+    // budget — not only when the budget is already exhausted — so a
+    // multi-row DELETE/CONSOLIDATE can never overshoot the cap.
     if (maxRetiredRows !== undefined) {
       const retiring = retiredIds(op).filter((id) => !retiredSoFar.has(id));
-      if (retiring.length > 0 && retiredSoFar.size >= maxRetiredRows) {
+      if (
+        retiring.length > 0 &&
+        retiredSoFar.size + retiring.length > maxRetiredRows
+      ) {
         rejectedBudget += 1;
         logger.info('phase3:rejected_budget', { type: op.type });
         continue;

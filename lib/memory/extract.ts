@@ -79,6 +79,21 @@ const extractionResultSchema = z.object({
 });
 
 /**
+ * The extractor LLM cannot be trusted with provenance: a fact it read in
+ * tool output is one prompt-injection away from being labeled
+ * `user_asserted` (the highest trust class). Model classifications may
+ * only be DOWNGRADED, never upgraded — so anything the extractor claims
+ * the user asserted directly is stored as `assistant_observed`. Genuine
+ * user assertions enter via the manual create path
+ * (createDreamMemoryAction), which never passes through this resolver.
+ */
+function resolveExtractedSourceKind(
+  kind: 'user_asserted' | 'assistant_observed' | 'tool_observed',
+): 'assistant_observed' | 'tool_observed' {
+  return kind === 'user_asserted' ? 'assistant_observed' : kind;
+}
+
+/**
  * Build a compact text rendering of a conversation for the extractor LLM.
  *
  * - user messages → `user: ...`
@@ -286,8 +301,12 @@ Leave the array empty if nothing is worth changing.`;
   // fact"). Threshold 0.8 is stricter than Dream's 0.6 merge threshold:
   // we only want to catch restatements, not related-but-distinct facts.
   const existingContents = existing.map((m) => m.content);
-  const filteredItems = items.filter((item) => {
-    if (item.action !== 'ADD') return true;
+  const filteredItems: typeof items = [];
+  for (const item of items) {
+    if (item.action !== 'ADD') {
+      filteredItems.push(item);
+      continue;
+    }
     const isRestatement = existingContents.some((content) =>
       isNearDuplicate(item.content, content, 0.8),
     );
@@ -297,9 +316,10 @@ Leave the array empty if nothing is worth changing.`;
         sessionId: input.sessionId,
         key: item.key,
       });
+      continue;
     }
-    return !isRestatement;
-  });
+    filteredItems.push(item);
+  }
 
   for (const item of filteredItems) {
     try {
@@ -311,7 +331,7 @@ Leave the array empty if nothing is worth changing.`;
             content: item.content,
             memoryType: item.memoryType,
             importance: item.importance,
-            sourceKind: item.sourceKind,
+            sourceKind: resolveExtractedSourceKind(item.sourceKind),
             triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
             config: input.config,
@@ -326,7 +346,7 @@ Leave the array empty if nothing is worth changing.`;
             content: item.content,
             memoryType: item.memoryType,
             importance: item.importance,
-            sourceKind: item.sourceKind,
+            sourceKind: resolveExtractedSourceKind(item.sourceKind),
             triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
             config: input.config,

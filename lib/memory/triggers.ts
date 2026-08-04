@@ -178,7 +178,18 @@ function phraseSideNgrams(phrase: string): Set<string> {
   if (!normalized) return new Set();
 
   const words = normalized.split(' ');
-  const isSingleWord = words.length === 1;
+  // Latin unigrams: kept for single-word Latin phrases (presence match)
+  // AND for mixed-language phrases containing a Latin word ("deploy 部署"
+  // — words.length would wrongly disqualify those). Still dropped for
+  // multi-word Latin-only phrases ("gateway setup") so they match by
+  // bigram coverage alone.
+  const hasLatinWord = /[a-z0-9]/.test(normalized);
+  const hasCjk = containsCjk(normalized);
+  const keepLatinUnigram = hasLatinWord && (words.length === 1 || hasCjk);
+  // CJK unigrams are kept only when the phrase IS exactly one CJK
+  // character; multi-character CJK phrases ("部署故") must rely on
+  // bigram coverage or they over-match.
+  const isSingleCjkChar = normalized.length === 1 && hasCjk;
 
   const result = new Set<string>();
   for (const ngram of all) {
@@ -186,9 +197,12 @@ function phraseSideNgrams(phrase: string): Set<string> {
     // unigrams are exactly one char. Everything else is a bigram.
     const latinUnigram = !ngram.includes(' ') && !containsCjk(ngram);
     const cjkUnigram = containsCjk(ngram) && ngram.length === 1;
-    if (latinUnigram || cjkUnigram) {
-      // Keep unigrams only for single-word phrases.
-      if (isSingleWord) result.add(ngram);
+    if (latinUnigram) {
+      if (keepLatinUnigram) result.add(ngram);
+      continue;
+    }
+    if (cjkUnigram) {
+      if (isSingleCjkChar) result.add(ngram);
       continue;
     }
     result.add(ngram);
@@ -277,9 +291,10 @@ export async function matchTriggeredMemories(input: {
         userId: input.userId,
         candidateCount: candidates.length,
         matchCount: matches.length,
+        // Trigger phrases are user-authored memory content — log only
+        // non-sensitive diagnostics, never the matched phrase text.
         top: matches.slice(0, limit).map((m) => ({
           memoryId: m.memoryId,
-          phrase: m.matchedPhrase,
           score: Number(m.score.toFixed(2)),
         })),
       });

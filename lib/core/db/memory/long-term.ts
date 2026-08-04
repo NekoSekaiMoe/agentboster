@@ -45,6 +45,16 @@ export type LongTermMemorySourceKind =
  */
 export const MAX_RECALL_QUERY_HASHES = 64;
 
+/**
+ * Normalize an importance value to the 1–10 scale (default 5). Guards
+ * against NaN/Infinity so a malformed client payload can never store an
+ * out-of-range or non-finite importance.
+ */
+function clampImportance(value?: number | null): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 5;
+  return Math.max(1, Math.min(10, Math.round(value)));
+}
+
 function buildSearchTextPreview(value?: string) {
   const normalized = value?.trim().replace(/\s+/g, ' ') ?? '';
 
@@ -176,7 +186,7 @@ export async function createLongTermMemoryRows(
         // lib/memory/scope.ts for why NULL is forbidden.
         projectId: resolveProjectId(r.projectId),
         memoryType: r.memoryType ?? 'fact',
-        importance: r.importance ?? 5,
+        importance: clampImportance(r.importance),
         ...(r.key ? { key: r.key } : {}),
         dreamStatus: r.dreamStatus ?? 'active',
         ...(r.dreamMeta ? { dreamMeta: r.dreamMeta } : {}),
@@ -282,7 +292,7 @@ export async function upsertLongTermMemoryByKey(input: {
       .set({
         content: input.content,
         memoryType: input.memoryType ?? 'fact',
-        importance: input.importance ?? 5,
+        importance: clampImportance(input.importance),
         updatedAt: new Date(),
         // Conditionally include dream_status only when explicitly provided,
         // so an omitted field preserves the stored status. Spread `false`
@@ -477,6 +487,31 @@ export async function deleteLongTermMemoryRow(
   const [row] = await db
     .delete(schema.longTermMemories)
     .where(and(...conditions))
+    .returning();
+
+  return row ?? null;
+}
+
+/**
+ * Atomically delete a TENTATIVE Dream proposal owned by the user.
+ * Matching id + userId + dream_status in one DELETE closes the TOCTOU
+ * window of check-then-delete flows (a concurrent ratification between
+ * the check and the delete would otherwise remove an ACTIVE memory).
+ * Returns the deleted row, or null when no tentative row matched.
+ */
+export async function deleteTentativeMemoryRow(
+  id: string,
+  options: { userId: string },
+) {
+  const [row] = await db
+    .delete(schema.longTermMemories)
+    .where(
+      and(
+        eq(schema.longTermMemories.id, id),
+        eq(schema.longTermMemories.userId, options.userId),
+        eq(schema.longTermMemories.dreamStatus, 'tentative'),
+      ),
+    )
     .returning();
 
   return row ?? null;
@@ -1279,10 +1314,13 @@ export async function updateLastAccessedAt(chunkIds: string[]) {
  * (deduped, capped at MAX_RECALL_QUERY_HASHES) so Dream can measure
  * query diversity without storing raw query text.
  *
- * Read-then-write per row: hits per turn are few (≤ 2×topK) and this
- * runs fire-and-forget off the reply path, so the extra round trips are
- * acceptable and keep the append/cap logic in one place. Best-effort —
- * individual row failures are logged and skipped, never thrown.
+ * Atomic single-statement update per row: dedupe/append/truncate of the
+ * `dayBucket:queryHash` bucket happens inside one UPDATE JSONB
+ * expression, and ownership (userId) is enforced in the same statement's
+ * WHERE clause — no read-then-write race, no cross-user writes. Hits are
+ * deduplicated by memoryId first so one turn records at most one usage
+ * signal per memory. Best-effort — individual row failures are logged
+ * and skipped, never thrown.
  */
 export async function recordRecallHits(input: {
   userId: string;
@@ -1293,41 +1331,54 @@ export async function recordRecallHits(input: {
 
   const dayBucket = new Date().toISOString().slice(0, 10).replaceAll('-', '');
 
+  // One usage signal per unique memory per turn.
+  const uniqueHits = new Map<string, string>();
   for (const hit of hits) {
+    if (!uniqueHits.has(hit.memoryId)) {
+      uniqueHits.set(hit.memoryId, hit.queryHash);
+    }
+  }
+
+  for (const [memoryId, queryHash] of uniqueHits) {
+    const bucket = `${dayBucket}:${queryHash}`;
     try {
-      const [row] = await db
-        .select({
-          recallQueryHashes: schema.longTermMemories.recallQueryHashes,
-        })
-        .from(schema.longTermMemories)
-        .where(
-          and(
-            eq(schema.longTermMemories.id, hit.memoryId),
-            eq(schema.longTermMemories.userId, userId),
-          ),
-        )
-        .limit(1);
-      if (!row) continue;
-
-      const bucket = `${dayBucket}:${hit.queryHash}`;
-      const existing = Array.isArray(row.recallQueryHashes)
-        ? row.recallQueryHashes
-        : [];
-      const nextHashes = existing.includes(bucket)
-        ? existing
-        : [...existing, bucket].slice(-MAX_RECALL_QUERY_HASHES);
-
       await db
         .update(schema.longTermMemories)
         .set({
           recallCount: sql`${schema.longTermMemories.recallCount} + 1`,
           lastRecalledAt: new Date(),
-          recallQueryHashes: nextHashes,
+          // Dedupe (drop any existing copy of today's bucket), append it
+          // at the tail, then keep only the last MAX_RECALL_QUERY_HASHES
+          // entries — all inside Postgres, no preliminary SELECT.
+          recallQueryHashes: sql`(
+            SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+            FROM (
+              SELECT elem, ord
+              FROM (
+                SELECT elem, ord,
+                       ROW_NUMBER() OVER (ORDER BY ord) AS rn,
+                       COUNT(*) OVER () AS total
+                FROM (
+                  SELECT value AS elem, ord
+                  FROM jsonb_array_elements_text(${schema.longTermMemories.recallQueryHashes}) WITH ORDINALITY AS e(value, ord)
+                  WHERE value <> ${bucket}
+                  UNION ALL
+                  SELECT ${bucket} AS elem, ${Number.MAX_SAFE_INTEGER} AS ord
+                ) combined
+              ) numbered
+              WHERE rn > total - ${MAX_RECALL_QUERY_HASHES}
+            ) kept
+          )`,
         })
-        .where(eq(schema.longTermMemories.id, hit.memoryId));
+        .where(
+          and(
+            eq(schema.longTermMemories.id, memoryId),
+            eq(schema.longTermMemories.userId, userId),
+          ),
+        );
     } catch (error) {
       logger.warn('record_recall_hits:row_failed', {
-        memoryId: hit.memoryId,
+        memoryId,
         error: error instanceof Error ? error.message : String(error),
       });
     }

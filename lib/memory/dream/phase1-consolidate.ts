@@ -214,7 +214,9 @@ export async function consolidatePhase(input: {
   // recall frequency + query diversity move importance one step per run.
   // Emitted BEFORE the LLM batches so phase3's mutation budget and the
   // apply path treat them like any other operation.
+  let adjusted = 0;
   for (const adjustment of computeUsageAdjustments(allMemories)) {
+    adjusted += 1;
     operations.push({
       type: 'ADJUST_IMPORTANCE',
       memoryId: adjustment.memoryId,
@@ -294,6 +296,7 @@ export async function consolidatePhase(input: {
     userId: input.userId,
     total: allMemories.length,
     groupsProcessed,
+    adjusted,
     consolidated,
     deleted,
     kept,

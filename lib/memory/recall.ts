@@ -1,6 +1,7 @@
 import {
   getMemoryMetaByIds,
   listLongTermMemoryRows,
+  type LongTermMemorySourceKind,
   recordRecallHits,
 } from '@/lib/core/db/memory/long-term';
 import {
@@ -183,7 +184,7 @@ export interface RecalledMemory {
    * Provenance / trust class of the row, when known. `tool_observed`
    * entries are framed as unverified on injection (taint gate).
    */
-  sourceKind?: string;
+  sourceKind?: LongTermMemorySourceKind;
 }
 
 /**
@@ -269,6 +270,9 @@ export async function recallRelevantMemories(input: {
   const cached = input.bypassCache ? null : getCachedRecall(cacheParams);
   if (cached && !cached.stale) {
     logger.info('recall:cache_hit', { userId });
+    // Cached hits still count as usage (fire-and-forget) — otherwise
+    // frequently-reused memories would look neglected to Dream.
+    recordUsageFeedback(userId, query, cached.memories);
     return cached.memories;
   }
 
@@ -339,17 +343,20 @@ async function attachMemoryMeta(
 /**
  * Fire-and-forget usage recording. Query text is hashed (never stored)
  * into a day+query bucket so Dream can count distinct query contexts.
+ * Exported so the context builder can record trigger-injected memories
+ * with the same discipline (one signal per unique memory per turn).
  */
-function recordUsageFeedback(
+export function recordUsageFeedback(
   userId: string,
   query: string,
-  results: RecalledMemory[],
+  results: Array<{ memoryId?: string | null }>,
 ) {
+  const queryHash = hashString(query).toString(36);
   const hits = results
     .filter((m) => Boolean(m.memoryId))
     .map((m) => ({
       memoryId: m.memoryId as string,
-      queryHash: hashString(query).toString(36),
+      queryHash,
     }));
   if (hits.length === 0) return;
 

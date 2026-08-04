@@ -25,16 +25,14 @@ import { NextResponse } from 'next/server';
 
 import { AuthError, requireAuthAccess } from '@/lib/auth/access';
 import {
-  deleteLongTermMemoryRow,
-  getLongTermMemoryRow,
+  deleteTentativeMemoryRow,
   ratifyLongTermMemory,
   updateTentativeMemoryRow,
 } from '@/lib/core/db/memory/long-term';
-import { getConfig } from '@/lib/core/kv/config';
-import { reindexLongTermMemory } from '@/lib/memory/long-term';
-import { invalidateProfileCache } from '@/lib/memory/profile';
-import { invalidateRecallCache } from '@/lib/memory/recall';
-import { invalidateTriggerCache } from '@/lib/memory/triggers';
+import {
+  invalidateMemoryCaches,
+  scheduleReindex,
+} from '@/lib/memory/cache-invalidation';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.memory.dream.proposals.id');
@@ -54,30 +52,6 @@ function authErrorResponse(error: unknown) {
     );
   }
   throw error;
-}
-
-/** Drop every memory-derived cache for a user after a dream write. */
-async function invalidateMemoryCaches(userId: string) {
-  invalidateRecallCache(userId);
-  invalidateTriggerCache(userId);
-  await invalidateProfileCache(userId);
-}
-
-/**
- * Fire-and-forget reindex: dream-written rows go through the DAL and
- * skip chunk indexing, so a ratified/edited row must be (re)indexed to
- * become searchable.
- */
-async function scheduleReindex(memoryId: string) {
-  const config = await getConfig().catch(() => null);
-  reindexLongTermMemory({ memoryId, config: config ?? undefined }).catch(
-    (error) => {
-      logger.warn('proposal:reindex_failed', {
-        memoryId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    },
-  );
 }
 
 export async function PATCH(
@@ -113,6 +87,7 @@ export async function PATCH(
   // Edit-before-ratify: applied first so a combined { content, ratified:
   // true } call reviews the EDITED text. Restricted to tentative rows by
   // the DAL.
+  let editApplied = false;
   if (hasContent || hasImportance || hasTriggerPhrases) {
     const edited = await updateTentativeMemoryRow({
       id,
@@ -138,6 +113,7 @@ export async function PATCH(
     if (hasContent) {
       await scheduleReindex(id);
     }
+    editApplied = true;
   }
 
   let updated: Awaited<ReturnType<typeof ratifyLongTermMemory>> | null = null;
@@ -153,6 +129,18 @@ export async function PATCH(
     });
 
     if (!updated) {
+      // The edit already succeeded — a generic 404 would wrongly suggest
+      // nothing happened. Report the partial success explicitly.
+      if (editApplied) {
+        return NextResponse.json(
+          {
+            error:
+              'edit applied, but ratification failed: proposal is no longer tentative',
+            edited: true,
+          },
+          { status: 409 },
+        );
+      }
       // Either the id doesn't exist, isn't owned by this user, or isn't
       // currently tentative. Return 404 uniformly to avoid leaking existence.
       return NextResponse.json(
@@ -197,15 +185,10 @@ export async function DELETE(
 
   const { id } = await params;
 
-  // Guard: only tentative rows may be deleted through this path — an
-  // active memory must go through the main memory deletion flow, which
-  // has its own ownership checks.
-  const row = await getLongTermMemoryRow(id, { userId: access.user.id });
-  if (row?.dreamStatus !== 'tentative') {
-    return NextResponse.json({ error: 'proposal not found' }, { status: 404 });
-  }
-
-  const deleted = await deleteLongTermMemoryRow(id, {
+  // Atomic conditional delete: matches id + ownership + tentative status
+  // in one statement, so a concurrent ratification between a pre-check
+  // and the delete can never cause an active memory to be removed here.
+  const deleted = await deleteTentativeMemoryRow(id, {
     userId: access.user.id,
   });
   if (!deleted) {
