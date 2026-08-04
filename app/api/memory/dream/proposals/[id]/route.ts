@@ -1,10 +1,18 @@
 /**
- * Single-proposal ratification endpoint.
+ * Single-proposal review endpoint.
  *
- * PATCH /api/memory/dream/proposals/{id} with body
+ * PATCH /api/memory/dream/proposals/{id}
  *   { "ratified": true }  → promote to active (joins recall)
  *   { "ratified": false } → demote to contradicted (excluded + never re-proposed)
- * Optional: { "note": "reason" } recorded in dreamMeta.reviewNote for audit.
+ *   Optional: { "note": "reason" } recorded in dreamMeta.reviewNote for audit.
+ *
+ *   Edit-before-ratify fields (any combination, tentative rows only):
+ *   { "content": "...", "importance": 7, "triggerPhrases": ["..."] }
+ *
+ * DELETE /api/memory/dream/proposals/{id}
+ *   Hard-delete the proposal. Distinct from rejection: a rejected
+ *   proposal is marked contradicted so Dream never re-proposes it; a
+ *   deleted one is gone entirely (and MAY be re-proposed later).
  *
  * Returns 404 when the id isn't a tentative memory owned by the caller —
  * this prevents using this endpoint to probe for arbitrary memory ids
@@ -16,71 +24,183 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { AuthError, requireAuthAccess } from '@/lib/auth/access';
-import { ratifyLongTermMemory } from '@/lib/core/db/memory/long-term';
-import { invalidateProfileCache } from '@/lib/memory/profile';
-import { invalidateRecallCache } from '@/lib/memory/recall';
+import {
+  deleteTentativeMemoryRow,
+  ratifyLongTermMemory,
+  updateTentativeMemoryRow,
+} from '@/lib/core/db/memory/long-term';
+import {
+  invalidateMemoryCaches,
+  scheduleReindex,
+} from '@/lib/memory/cache-invalidation';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.memory.dream.proposals.id');
 
 export const dynamic = 'force-dynamic';
 
+async function requireAccess() {
+  const cookieStore = await cookies();
+  return requireAuthAccess(cookieStore);
+}
+
+function authErrorResponse(error: unknown) {
+  if (error instanceof AuthError) {
+    return NextResponse.json(
+      { error: error.message },
+      { status: error.status },
+    );
+  }
+  throw error;
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const cookieStore = await cookies();
   let access: Awaited<ReturnType<typeof requireAuthAccess>>;
   try {
-    access = await requireAuthAccess(cookieStore);
+    access = await requireAccess();
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: error.status },
-      );
-    }
-    throw error;
+    return authErrorResponse(error);
   }
 
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
-  if (typeof body?.ratified !== 'boolean') {
+
+  const hasRatified = typeof body?.ratified === 'boolean';
+  const hasContent =
+    typeof body?.content === 'string' && body.content.trim().length > 0;
+  const hasImportance = typeof body?.importance === 'number';
+  const hasTriggerPhrases = Array.isArray(body?.triggerPhrases);
+
+  if (!hasRatified && !hasContent && !hasImportance && !hasTriggerPhrases) {
     return NextResponse.json(
-      { error: 'body must include boolean "ratified"' },
+      {
+        error:
+          'body must include boolean "ratified" and/or editable fields (content, importance, triggerPhrases)',
+      },
       { status: 400 },
     );
   }
-  const note =
-    typeof body?.note === 'string' ? body.note.slice(0, 500) : undefined;
 
-  const updated = await ratifyLongTermMemory({
-    id,
-    userId: access.user.id,
-    ratified: body.ratified,
-    note,
-  });
+  // Edit-before-ratify: applied first so a combined { content, ratified:
+  // true } call reviews the EDITED text. Restricted to tentative rows by
+  // the DAL.
+  let editApplied = false;
+  if (hasContent || hasImportance || hasTriggerPhrases) {
+    const edited = await updateTentativeMemoryRow({
+      id,
+      userId: access.user.id,
+      ...(hasContent ? { content: body.content } : {}),
+      ...(hasImportance ? { importance: body.importance } : {}),
+      ...(hasTriggerPhrases
+        ? {
+            triggerPhrases: (body.triggerPhrases as unknown[])
+              .filter((phrase): phrase is string => typeof phrase === 'string')
+              .map((phrase) => phrase.trim())
+              .filter((phrase) => phrase.length >= 2)
+              .slice(0, 5),
+          }
+        : {}),
+    });
+    if (!edited) {
+      return NextResponse.json(
+        { error: 'proposal not found' },
+        { status: 404 },
+      );
+    }
+    if (hasContent) {
+      await scheduleReindex(id);
+    }
+    editApplied = true;
+  }
 
-  if (!updated) {
-    // Either the id doesn't exist, isn't owned by this user, or isn't
-    // currently tentative. Return 404 uniformly to avoid leaking existence.
-    return NextResponse.json({ error: 'proposal not found' }, { status: 404 });
+  let updated: Awaited<ReturnType<typeof ratifyLongTermMemory>> | null = null;
+  if (hasRatified) {
+    const note =
+      typeof body?.note === 'string' ? body.note.slice(0, 500) : undefined;
+
+    updated = await ratifyLongTermMemory({
+      id,
+      userId: access.user.id,
+      ratified: body.ratified,
+      note,
+    });
+
+    if (!updated) {
+      // The edit already succeeded — a generic 404 would wrongly suggest
+      // nothing happened. Report the partial success explicitly.
+      if (editApplied) {
+        return NextResponse.json(
+          {
+            error:
+              'edit applied, but ratification failed: proposal is no longer tentative',
+            edited: true,
+          },
+          { status: 409 },
+        );
+      }
+      // Either the id doesn't exist, isn't owned by this user, or isn't
+      // currently tentative. Return 404 uniformly to avoid leaking existence.
+      return NextResponse.json(
+        { error: 'proposal not found' },
+        { status: 404 },
+      );
+    }
+
+    if (body.ratified) {
+      await scheduleReindex(id);
+    }
+
+    logger.info('proposal:ratified', {
+      userId: access.user.id,
+      memoryId: id,
+      ratified: body.ratified,
+    });
   }
 
   // Caches that depend on the active set must be dropped so the next
-  // prompt build sees the ratification immediately.
-  invalidateRecallCache(access.user.id);
-  await invalidateProfileCache(access.user.id);
-
-  logger.info('proposal:ratified', {
-    userId: access.user.id,
-    memoryId: id,
-    ratified: body.ratified,
-  });
+  // prompt build sees the review immediately.
+  await invalidateMemoryCaches(access.user.id);
 
   return NextResponse.json({
-    id: updated.id,
-    dreamStatus: updated.dreamStatus,
-    dreamMeta: updated.dreamMeta,
+    id,
+    ...(updated
+      ? { dreamStatus: updated.dreamStatus, dreamMeta: updated.dreamMeta }
+      : { edited: true }),
   });
+}
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  let access: Awaited<ReturnType<typeof requireAuthAccess>>;
+  try {
+    access = await requireAccess();
+  } catch (error) {
+    return authErrorResponse(error);
+  }
+
+  const { id } = await params;
+
+  // Atomic conditional delete: matches id + ownership + tentative status
+  // in one statement, so a concurrent ratification between a pre-check
+  // and the delete can never cause an active memory to be removed here.
+  const deleted = await deleteTentativeMemoryRow(id, {
+    userId: access.user.id,
+  });
+  if (!deleted) {
+    return NextResponse.json({ error: 'proposal not found' }, { status: 404 });
+  }
+
+  await invalidateMemoryCaches(access.user.id);
+
+  logger.info('proposal:deleted', {
+    userId: access.user.id,
+    memoryId: id,
+  });
+
+  return NextResponse.json({ id, deleted: true });
 }

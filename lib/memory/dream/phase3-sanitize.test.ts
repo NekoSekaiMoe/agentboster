@@ -111,6 +111,7 @@ describe('sanitizeOperations', () => {
     expect(sanitizeOperations([])).toEqual({
       accepted: [],
       rejectedDuplicates: 0,
+      rejectedBudget: 0,
     });
   });
 
@@ -173,5 +174,81 @@ describe('sanitizeOperations', () => {
       memoryIds: ['src1', 'unrelated'],
     });
     expect(rejectedDuplicates).toBe(0);
+  });
+});
+
+describe('sanitizeOperations mutation budget', () => {
+  it('drops destructive ops once the retirement budget is exhausted', () => {
+    const ops: DreamOperation[] = [
+      { type: 'DELETE', memoryIds: ['a', 'b'] },
+      { type: 'SUPERSEDE', oldMemoryId: 'c', newMemoryId: 'n1' },
+      { type: 'DELETE', memoryIds: ['d', 'e'] },
+    ];
+    const { accepted, rejectedBudget } = sanitizeOperations(ops, {
+      maxRetiredRows: 3,
+    });
+    // First DELETE retires a,b (2). SUPERSEDE retires c (3 = budget).
+    // Second DELETE would retire d,e — dropped.
+    expect(accepted).toHaveLength(2);
+    expect(rejectedBudget).toBe(1);
+  });
+
+  it('counts CONSOLIDATE source retirement against the budget', () => {
+    const ops: DreamOperation[] = [
+      {
+        type: 'CONSOLIDATE',
+        sourceMemoryIds: ['a', 'b'],
+        mergedKey: 'user.lang',
+        mergedContent: 'the user writes TypeScript',
+        mergedType: 'fact',
+        mergedImportance: 7,
+        confidence: 0.9,
+      },
+      { type: 'DELETE', memoryIds: ['c'] },
+    ];
+    const { accepted, rejectedBudget } = sanitizeOperations(ops, {
+      maxRetiredRows: 2,
+    });
+    // CONSOLIDATE retires a,b (fills budget) → DELETE dropped.
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].type).toBe('CONSOLIDATE');
+    expect(rejectedBudget).toBe(1);
+  });
+
+  it('never counts PROPOSE or ADJUST_IMPORTANCE against the budget', () => {
+    const ops: DreamOperation[] = [
+      { type: 'DELETE', memoryIds: ['a'] },
+      {
+        type: 'PROPOSE',
+        content: 'a novel finding',
+        key: 'finding.one',
+        memoryType: 'fact',
+        importance: 5,
+        confidence: 0.8,
+        fromMemoryIds: ['x'],
+        rationale: 'test',
+      },
+      {
+        type: 'ADJUST_IMPORTANCE',
+        memoryId: 'y',
+        importance: 6,
+        reason: 'frequently_recalled',
+      },
+    ];
+    const { accepted, rejectedBudget } = sanitizeOperations(ops, {
+      maxRetiredRows: 1,
+    });
+    // Budget filled by the DELETE; non-destructive ops still pass.
+    expect(accepted).toHaveLength(3);
+    expect(rejectedBudget).toBe(0);
+  });
+
+  it('without a budget, behavior is unchanged (back-compat)', () => {
+    const ops: DreamOperation[] = [
+      { type: 'DELETE', memoryIds: ['a', 'b', 'c', 'd'] },
+    ];
+    const { accepted, rejectedBudget } = sanitizeOperations(ops);
+    expect(accepted).toHaveLength(1);
+    expect(rejectedBudget).toBe(0);
   });
 });

@@ -15,10 +15,13 @@
  */
 
 import {
+  adjustLongTermMemoryImportance,
   deleteLongTermMemoryRow,
+  getLongTermMemoryPreimages,
   markLongTermMemorySuperseded,
   upsertLongTermMemoryByKey,
 } from '@/lib/core/db/memory/long-term';
+import { scheduleReindex } from '@/lib/memory/cache-invalidation';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 
@@ -32,7 +35,24 @@ export interface ApplyResult {
   failed: number;
   /** IDs written by CONSOLIDATE/PROPOSE, used by SUPERSEDE resolution. */
   writtenMemoryIds: string[];
+  /**
+   * Pre-images of rows hard-deleted by DELETE ops (OpenClaw stores
+   * rewrite preimages before an accepted rewrite). Recorded in the
+   * dream_runs audit row so a destructive Dream pass stays reviewable
+   * and manually recoverable. Capped — see MAX_DELETE_PREIMAGES.
+   */
+  deletePreimages: Array<{
+    id: string;
+    key: string | null;
+    content: string;
+    memoryType: string;
+    importance: number;
+    projectId: string;
+  }>;
 }
+
+/** Cap on pre-images kept per run so the audit row stays bounded. */
+const MAX_DELETE_PREIMAGES = 50;
 
 /**
  * Apply a sanitized batch of Dream operations for one user.
@@ -60,6 +80,7 @@ export async function applyDreamOperations(input: {
   let skipped = 0;
   let failed = 0;
   const writtenMemoryIds: string[] = [];
+  const deletePreimages: ApplyResult['deletePreimages'] = [];
 
   for (const op of input.operations) {
     try {
@@ -88,6 +109,7 @@ export async function applyDreamOperations(input: {
             },
           });
           writtenMemoryIds.push(row.id);
+          scheduleReindex(row.id, input.config);
           // Soft-supersede the sources: flip dream_status to 'superseded'
           // rather than deleting, so the originals survive for audit /
           // provenance review. Recall excludes superseded rows via the
@@ -141,11 +163,34 @@ export async function applyDreamOperations(input: {
             },
           });
           writtenMemoryIds.push(row.id);
+          scheduleReindex(row.id, input.config);
           applied += 1;
           break;
         }
 
         case 'DELETE': {
+          // Capture pre-images BEFORE deleting so the run audit keeps a
+          // recoverable record of what was destroyed (OpenClaw preimage
+          // discipline). Bounded by MAX_DELETE_PREIMAGES.
+          if (deletePreimages.length < MAX_DELETE_PREIMAGES) {
+            const preimages = await getLongTermMemoryPreimages(
+              op.memoryIds,
+              input.userId,
+            ).catch((error) => {
+              // Deletion must proceed even when the audit preimage cannot
+              // be captured — but the gap must be visible in the logs.
+              logger.warn('apply:preimage_failed', {
+                userId: input.userId,
+                memoryIds: op.memoryIds,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return [];
+            });
+            for (const preimage of preimages) {
+              if (deletePreimages.length >= MAX_DELETE_PREIMAGES) break;
+              deletePreimages.push(preimage);
+            }
+          }
           let deletedHere = 0;
           for (const id of op.memoryIds) {
             const ok = await deleteLongTermMemoryRow(id, {
@@ -155,6 +200,24 @@ export async function applyDreamOperations(input: {
           }
           applied += deletedHere > 0 ? 1 : 0;
           skipped += op.memoryIds.length - deletedHere;
+          break;
+        }
+
+        case 'ADJUST_IMPORTANCE': {
+          // Deterministic usage-feedback adjustment: single ±1 step,
+          // reason + run id recorded in dream_meta for audit.
+          const ok = await adjustLongTermMemoryImportance({
+            id: op.memoryId,
+            userId: input.userId,
+            importance: op.importance,
+            reason: op.reason,
+            dreamRunId: input.runId,
+          }).catch(() => null);
+          if (ok) {
+            applied += 1;
+          } else {
+            skipped += 1;
+          }
           break;
         }
 
@@ -203,7 +266,9 @@ export async function applyDreamOperations(input: {
                 ? op.memoryIds
                 : op.type === 'SUPERSEDE'
                   ? [op.oldMemoryId, op.newMemoryId]
-                  : undefined,
+                  : op.type === 'ADJUST_IMPORTANCE'
+                    ? [op.memoryId]
+                    : undefined,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -217,5 +282,5 @@ export async function applyDreamOperations(input: {
     failed,
   });
 
-  return { applied, skipped, failed, writtenMemoryIds };
+  return { applied, skipped, failed, writtenMemoryIds, deletePreimages };
 }

@@ -28,6 +28,33 @@ type LongTermChunkInput = {
   embeddingDimensions?: number | null;
 };
 
+/** Provenance / trust classes a memory row can carry. */
+export type LongTermMemorySourceKind =
+  | 'user_asserted'
+  | 'assistant_observed'
+  | 'tool_observed'
+  | 'dream_consolidated'
+  | 'dream_recombined';
+
+/**
+ * Cap on the stored `recall_query_hashes` list. Each entry is a
+ * `yyyymmdd:hash` bucket; the LIST LENGTH is the query-diversity signal
+ * Dream consumes, so it only needs to be large enough to discriminate
+ * "recalled in many distinct contexts" from "recalled twice". 64 gives
+ * headroom far above the boost thresholds (see dream/usage-signals.ts).
+ */
+export const MAX_RECALL_QUERY_HASHES = 64;
+
+/**
+ * Normalize an importance value to the 1–10 scale (default 5). Guards
+ * against NaN/Infinity so a malformed client payload can never store an
+ * out-of-range or non-finite importance.
+ */
+function clampImportance(value?: number | null): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 5;
+  return Math.max(1, Math.min(10, Math.round(value)));
+}
+
 function buildSearchTextPreview(value?: string) {
   const normalized = value?.trim().replace(/\s+/g, ' ') ?? '';
 
@@ -103,6 +130,8 @@ export async function createLongTermMemoryRow(
     projectId?: string | null;
     dreamStatus?: 'active' | 'tentative' | 'superseded' | 'contradicted';
     dreamMeta?: Record<string, unknown>;
+    sourceKind?: LongTermMemorySourceKind;
+    triggerPhrases?: string[];
   },
 ) {
   // Delegate to the bulk path so both write routes share a single field
@@ -118,6 +147,8 @@ export async function createLongTermMemoryRow(
       projectId: options?.projectId,
       dreamStatus: options?.dreamStatus,
       dreamMeta: options?.dreamMeta,
+      sourceKind: options?.sourceKind,
+      triggerPhrases: options?.triggerPhrases,
     },
   ]);
   return row;
@@ -140,6 +171,8 @@ export async function createLongTermMemoryRows(
     projectId?: string | null;
     dreamStatus?: 'active' | 'tentative' | 'superseded' | 'contradicted';
     dreamMeta?: Record<string, unknown>;
+    sourceKind?: LongTermMemorySourceKind;
+    triggerPhrases?: string[];
   }>,
 ) {
   if (rows.length === 0) return [];
@@ -153,10 +186,14 @@ export async function createLongTermMemoryRows(
         // lib/memory/scope.ts for why NULL is forbidden.
         projectId: resolveProjectId(r.projectId),
         memoryType: r.memoryType ?? 'fact',
-        importance: r.importance ?? 5,
+        importance: clampImportance(r.importance),
         ...(r.key ? { key: r.key } : {}),
         dreamStatus: r.dreamStatus ?? 'active',
         ...(r.dreamMeta ? { dreamMeta: r.dreamMeta } : {}),
+        ...(r.sourceKind ? { sourceKind: r.sourceKind } : {}),
+        ...(r.triggerPhrases && r.triggerPhrases.length > 0
+          ? { triggerPhrases: r.triggerPhrases }
+          : {}),
       })),
     )
     .returning();
@@ -196,6 +233,17 @@ export async function upsertLongTermMemoryByKey(input: {
    * Replaces the row's dream_meta jsonb on update.
    */
   dreamMeta?: Record<string, unknown>;
+  /**
+   * Provenance / trust class. On update, only applied when explicitly
+   * provided — an omitted field preserves the stored class so unrelated
+   * content refreshes can't silently reclassify a row.
+   */
+  sourceKind?: LongTermMemorySourceKind;
+  /**
+   * Trigger phrases for the lexical prefilter. On update, replaced only
+   * when explicitly provided (same preserve-on-omit rule as sourceKind).
+   */
+  triggerPhrases?: string[];
 }): Promise<{
   row: Awaited<ReturnType<typeof createLongTermMemoryRow>>;
   created: boolean;
@@ -213,6 +261,8 @@ export async function upsertLongTermMemoryByKey(input: {
       projectId: input.projectId,
       dreamStatus: input.dreamStatus,
       dreamMeta: input.dreamMeta,
+      sourceKind: input.sourceKind,
+      triggerPhrases: input.triggerPhrases,
     });
     return { row, created: true };
   }
@@ -236,14 +286,19 @@ export async function upsertLongTermMemoryByKey(input: {
     // Defaulting to 'active' here would silently promote a tentative
     // (or re-activate a superseded) row just because an unrelated
     // content refresh omitted the field. Creation paths still default
-    // to 'active' via createLongTermMemoryRow.
+    // to 'active' via createLongTermMemoryRow. importance follows the
+    // same omission-preserves rule: an update that omits it keeps the
+    // stored value (Dream usage adjustments included) instead of
+    // resetting it to 5.
     const [row] = await db
       .update(schema.longTermMemories)
       .set({
         content: input.content,
         memoryType: input.memoryType ?? 'fact',
-        importance: input.importance ?? 5,
         updatedAt: new Date(),
+        ...(input.importance !== undefined
+          ? { importance: clampImportance(input.importance) }
+          : {}),
         // Conditionally include dream_status only when explicitly provided,
         // so an omitted field preserves the stored status. Spread `false`
         // for the unused branch so the object literal stays a plain object.
@@ -251,6 +306,12 @@ export async function upsertLongTermMemoryByKey(input: {
           ? { dreamStatus: input.dreamStatus }
           : {}),
         ...(input.dreamMeta ? { dreamMeta: input.dreamMeta } : {}),
+        ...(input.sourceKind !== undefined
+          ? { sourceKind: input.sourceKind }
+          : {}),
+        ...(input.triggerPhrases !== undefined
+          ? { triggerPhrases: input.triggerPhrases }
+          : {}),
       })
       .where(eq(schema.longTermMemories.id, existing.id))
       .returning();
@@ -265,6 +326,8 @@ export async function upsertLongTermMemoryByKey(input: {
     projectId: input.projectId,
     dreamStatus: input.dreamStatus,
     dreamMeta: input.dreamMeta,
+    sourceKind: input.sourceKind,
+    triggerPhrases: input.triggerPhrases,
   });
   return { row, created: true };
 }
@@ -435,6 +498,31 @@ export async function deleteLongTermMemoryRow(
 }
 
 /**
+ * Atomically delete a TENTATIVE Dream proposal owned by the user.
+ * Matching id + userId + dream_status in one DELETE closes the TOCTOU
+ * window of check-then-delete flows (a concurrent ratification between
+ * the check and the delete would otherwise remove an ACTIVE memory).
+ * Returns the deleted row, or null when no tentative row matched.
+ */
+export async function deleteTentativeMemoryRow(
+  id: string,
+  options: { userId: string },
+) {
+  const [row] = await db
+    .delete(schema.longTermMemories)
+    .where(
+      and(
+        eq(schema.longTermMemories.id, id),
+        eq(schema.longTermMemories.userId, options.userId),
+        eq(schema.longTermMemories.dreamStatus, 'tentative'),
+      ),
+    )
+    .returning();
+
+  return row ?? null;
+}
+
+/**
  * Delete a long-term memory row by (userId, key).
  *
  * Used by the memory extractor's DELETE action: when the LLM decides a
@@ -466,6 +554,95 @@ export async function deleteLongTermMemoryByKey(input: {
     .returning();
 
   return row ?? null;
+}
+
+/**
+ * Adjust a memory's importance in place (Dream usage-feedback op).
+ * Records the adjustment reason + run id in dream_meta so the audit
+ * trail shows WHY importance moved. Returns the updated row, or null
+ * when the id doesn't exist / belongs to another user.
+ */
+export async function adjustLongTermMemoryImportance(input: {
+  id: string;
+  userId?: string;
+  importance: number;
+  reason: 'frequently_recalled' | 'never_recalled';
+  dreamRunId?: string;
+}) {
+  const conditions = [eq(schema.longTermMemories.id, input.id)];
+  if (input.userId) {
+    conditions.push(eq(schema.longTermMemories.userId, input.userId));
+  }
+
+  const clamped = Math.max(1, Math.min(10, Math.round(input.importance)));
+
+  const [existing] = await db
+    .select({ dreamMeta: schema.longTermMemories.dreamMeta })
+    .from(schema.longTermMemories)
+    .where(and(...conditions))
+    .limit(1);
+  if (!existing) return null;
+  const prevMeta = (existing.dreamMeta as Record<string, unknown> | null) ?? {};
+
+  const [row] = await db
+    .update(schema.longTermMemories)
+    .set({
+      importance: clamped,
+      updatedAt: new Date(),
+      dreamMeta: {
+        ...prevMeta,
+        lastImportanceAdjustment: {
+          importance: clamped,
+          reason: input.reason,
+          ...(input.dreamRunId ? { dreamRunId: input.dreamRunId } : {}),
+          at: new Date().toISOString(),
+        },
+        lastDreamAt: new Date().toISOString(),
+      },
+    })
+    .where(and(...conditions))
+    .returning();
+
+  return row ?? null;
+}
+
+/**
+ * Read rows about to be hard-deleted so the Dream run audit keeps a
+ * pre-image (OpenClaw stores rewrite preimages before an accepted
+ * rewrite). Content is truncated to keep the dream_runs payload small.
+ */
+export async function getLongTermMemoryPreimages(
+  ids: string[],
+  userId: string,
+  options?: { maxContentChars?: number },
+) {
+  if (ids.length === 0) return [];
+  const maxContentChars = options?.maxContentChars ?? 500;
+
+  const rows = await db
+    .select({
+      id: schema.longTermMemories.id,
+      key: schema.longTermMemories.key,
+      content: schema.longTermMemories.content,
+      memoryType: schema.longTermMemories.memoryType,
+      importance: schema.longTermMemories.importance,
+      projectId: schema.longTermMemories.projectId,
+    })
+    .from(schema.longTermMemories)
+    .where(
+      and(
+        inArray(schema.longTermMemories.id, ids),
+        eq(schema.longTermMemories.userId, userId),
+      ),
+    );
+
+  return rows.map((row) => ({
+    ...row,
+    content:
+      row.content.length > maxContentChars
+        ? `${row.content.slice(0, maxContentChars)}…`
+        : row.content,
+  }));
 }
 
 /**
@@ -1080,6 +1257,48 @@ export async function hybridSearchLongTermMemoryChunks(options: {
   return mergedRows;
 }
 
+/**
+ * Fetch lightweight metadata (sourceKind / importance) for a set of
+ * memory ids in one query. Used by the recall path to attach taint
+ * framing + usage signals onto already-ranked results without
+ * re-running search.
+ */
+export async function getMemoryMetaByIds(
+  memoryIds: string[],
+  userId: string,
+): Promise<
+  Map<
+    string,
+    {
+      sourceKind: LongTermMemorySourceKind;
+      importance: number;
+    }
+  >
+> {
+  if (memoryIds.length === 0 || !userId) return new Map();
+
+  const rows = await db
+    .select({
+      id: schema.longTermMemories.id,
+      sourceKind: schema.longTermMemories.sourceKind,
+      importance: schema.longTermMemories.importance,
+    })
+    .from(schema.longTermMemories)
+    .where(
+      and(
+        inArray(schema.longTermMemories.id, memoryIds),
+        eq(schema.longTermMemories.userId, userId),
+      ),
+    );
+
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      { sourceKind: row.sourceKind, importance: row.importance },
+    ]),
+  );
+}
+
 export async function updateLastAccessedAt(chunkIds: string[]) {
   if (chunkIds.length === 0) {
     return;
@@ -1089,4 +1308,171 @@ export async function updateLastAccessedAt(chunkIds: string[]) {
     .update(schema.longTermMemoryChunks)
     .set({ lastAccessedAt: new Date() })
     .where(inArray(schema.longTermMemoryChunks.id, chunkIds));
+}
+
+/**
+ * Record recall usage for a batch of memories (OpenClaw-style usage
+ * feedback: "memory graduates because it kept being useful").
+ *
+ * For each hit: recall_count += 1, last_recalled_at = now, and the
+ * `yyyymmdd:queryHash` bucket is appended to recall_query_hashes
+ * (deduped, capped at MAX_RECALL_QUERY_HASHES) so Dream can measure
+ * query diversity without storing raw query text.
+ *
+ * Atomic single-statement update per row: dedupe/append/truncate of the
+ * `dayBucket:queryHash` bucket happens inside one UPDATE JSONB
+ * expression, and ownership (userId) is enforced in the same statement's
+ * WHERE clause — no read-then-write race, no cross-user writes. Hits are
+ * deduplicated by memoryId first so one turn records at most one usage
+ * signal per memory. Best-effort — individual row failures are logged
+ * and skipped, never thrown.
+ */
+export async function recordRecallHits(input: {
+  userId: string;
+  hits: Array<{ memoryId: string; queryHash: string }>;
+}) {
+  const { userId, hits } = input;
+  if (hits.length === 0) return;
+
+  const dayBucket = new Date().toISOString().slice(0, 10).replaceAll('-', '');
+
+  // One usage signal per unique memory per turn.
+  const uniqueHits = new Map<string, string>();
+  for (const hit of hits) {
+    if (!uniqueHits.has(hit.memoryId)) {
+      uniqueHits.set(hit.memoryId, hit.queryHash);
+    }
+  }
+
+  for (const [memoryId, queryHash] of uniqueHits) {
+    const bucket = `${dayBucket}:${queryHash}`;
+    try {
+      await db
+        .update(schema.longTermMemories)
+        .set({
+          recallCount: sql`${schema.longTermMemories.recallCount} + 1`,
+          lastRecalledAt: new Date(),
+          // Dedupe (drop any existing copy of today's bucket), append it
+          // at the tail, then keep only the last MAX_RECALL_QUERY_HASHES
+          // entries — all inside Postgres, no preliminary SELECT.
+          recallQueryHashes: sql`(
+            SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+            FROM (
+              SELECT elem, ord
+              FROM (
+                SELECT elem, ord,
+                       ROW_NUMBER() OVER (ORDER BY ord) AS rn,
+                       COUNT(*) OVER () AS total
+                FROM (
+                  SELECT value AS elem, ord
+                  FROM jsonb_array_elements_text(${schema.longTermMemories.recallQueryHashes}) WITH ORDINALITY AS e(value, ord)
+                  WHERE value <> ${bucket}
+                  UNION ALL
+                  SELECT ${bucket} AS elem, ${Number.MAX_SAFE_INTEGER} AS ord
+                ) combined
+              ) numbered
+              WHERE rn > total - ${MAX_RECALL_QUERY_HASHES}
+            ) kept
+          )`,
+        })
+        .where(
+          and(
+            eq(schema.longTermMemories.id, memoryId),
+            eq(schema.longTermMemories.userId, userId),
+          ),
+        );
+    } catch (error) {
+      logger.warn('record_recall_hits:row_failed', {
+        memoryId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
+/**
+ * List active memories that carry trigger phrases, for the per-turn
+ * lexical prefilter (lib/memory/triggers.ts). Returns only the columns
+ * the matcher needs so the per-turn payload stays small.
+ */
+export async function listTriggerPhraseRows(options: {
+  userId: string;
+  projectIdScope?: string | null;
+  limit?: number;
+}) {
+  const safeLimit = Math.max(1, Math.min(options.limit ?? 500, 1000));
+
+  const conditions = [
+    eq(schema.longTermMemories.userId, options.userId),
+    eq(schema.longTermMemories.dreamStatus, 'active'),
+    isNotNull(schema.longTermMemories.triggerPhrases),
+  ];
+  const scopeCondition = buildProjectScopeCondition(options.projectIdScope);
+  if (scopeCondition) {
+    conditions.push(scopeCondition);
+  }
+
+  const rows = await db
+    .select({
+      id: schema.longTermMemories.id,
+      content: schema.longTermMemories.content,
+      sourceKind: schema.longTermMemories.sourceKind,
+      importance: schema.longTermMemories.importance,
+      triggerPhrases: schema.longTermMemories.triggerPhrases,
+    })
+    .from(schema.longTermMemories)
+    .where(and(...conditions))
+    .orderBy(desc(schema.longTermMemories.importance))
+    .limit(safeLimit);
+
+  // Defense in depth: rows with an empty array stored (writers guard
+  // against this, but a manual UPDATE could still produce one) are
+  // useless to the matcher — filter them out here.
+  return rows.filter(
+    (row) => Array.isArray(row.triggerPhrases) && row.triggerPhrases.length > 0,
+  );
+}
+
+/**
+ * Update a TENTATIVE Dream proposal's editable fields (content /
+ * importance / trigger phrases). Restricted to dream_status='tentative'
+ * rows owned by the user so the review UI can never mutate an active,
+ * superseded, or contradicted memory through this path. Returns the
+ * updated row, or null when the id isn't a pending proposal.
+ */
+export async function updateTentativeMemoryRow(input: {
+  id: string;
+  userId: string;
+  content?: string;
+  importance?: number;
+  triggerPhrases?: string[];
+}) {
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (typeof input.content === 'string' && input.content.trim().length > 0) {
+    set.content = input.content.trim();
+  }
+  if (typeof input.importance === 'number') {
+    set.importance = Math.max(1, Math.min(10, Math.round(input.importance)));
+  }
+  if (input.triggerPhrases !== undefined) {
+    set.triggerPhrases = input.triggerPhrases;
+  }
+  if (Object.keys(set).length === 1) {
+    // Only updatedAt — nothing to change.
+    return null;
+  }
+
+  const [row] = await db
+    .update(schema.longTermMemories)
+    .set(set)
+    .where(
+      and(
+        eq(schema.longTermMemories.id, input.id),
+        eq(schema.longTermMemories.userId, input.userId),
+        eq(schema.longTermMemories.dreamStatus, 'tentative'),
+      ),
+    )
+    .returning();
+
+  return row ?? null;
 }

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/core/db/memory/long-term', () => ({
   listLongTermMemoryRows: vi.fn(),
+  getMemoryMetaByIds: vi.fn().mockResolvedValue(new Map()),
+  recordRecallHits: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/security/l1-scorer', () => ({
@@ -17,7 +19,10 @@ vi.mock('@/lib/utils/logger', () => ({
   }),
 }));
 
-import { listLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
+import {
+  getMemoryMetaByIds,
+  listLongTermMemoryRows,
+} from '@/lib/core/db/memory/long-term';
 import { scoreMemoryRelevance } from '@/lib/security/l1-scorer';
 import type { AppConfig } from '@/types/config';
 import {
@@ -212,6 +217,80 @@ describe('recallRelevantMemories', () => {
     });
     expect(result).toEqual([]);
   });
+
+  it('bypassCache: true skips both the cache read and the cache write', async () => {
+    vi.resetModules();
+    vi.doMock('@/lib/memory/long-term', () => ({
+      searchLongTermMemories: vi.fn().mockResolvedValue([
+        {
+          memoryId: 'm1',
+          content: 'user lives in Tokyo',
+          finalScore: 0.8,
+        },
+      ]),
+    }));
+    vi.mocked(listLongTermMemoryRows).mockResolvedValue([]);
+    vi.mocked(scoreMemoryRelevance).mockResolvedValue({
+      relevantIds: ['m1'],
+      reasons: {},
+    });
+
+    const { recallRelevantMemories: recalled } = await import('./recall');
+    const config = makeConfig({ memory_recall_strategy: 'scorer' });
+
+    // First call populates the cache; second call is served from it.
+    await recalled({ userId: USER_ID, query: 'weather', config });
+    await recalled({ userId: USER_ID, query: 'weather', config });
+    expect(scoreMemoryRelevance).toHaveBeenCalledTimes(1);
+
+    // bypassCache skips the cache READ → scorer runs again.
+    await recalled({
+      userId: USER_ID,
+      query: 'weather',
+      config,
+      bypassCache: true,
+    });
+    expect(scoreMemoryRelevance).toHaveBeenCalledTimes(2);
+
+    // …and skips the cache WRITE → a normal call still hits the first
+    // cached entry instead of running the scorer a third time.
+    await recalled({ userId: USER_ID, query: 'weather', config });
+    expect(scoreMemoryRelevance).toHaveBeenCalledTimes(2);
+    vi.doUnmock('@/lib/memory/long-term');
+  });
+
+  it('returns results unchanged when the meta lookup throws', async () => {
+    vi.resetModules();
+    vi.doMock('@/lib/memory/long-term', () => ({
+      searchLongTermMemories: vi.fn().mockResolvedValue([
+        {
+          memoryId: 'm1',
+          content: 'user lives in Tokyo',
+          finalScore: 0.8,
+        },
+      ]),
+    }));
+    vi.mocked(listLongTermMemoryRows).mockResolvedValue([]);
+    vi.mocked(scoreMemoryRelevance).mockResolvedValue({
+      relevantIds: ['m1'],
+      reasons: {},
+    });
+    vi.mocked(getMemoryMetaByIds).mockRejectedValueOnce(new Error('db down'));
+
+    const { recallRelevantMemories: recalled } = await import('./recall');
+
+    const result = await recalled({
+      userId: USER_ID,
+      query: 'weather',
+      config: makeConfig({ memory_recall_strategy: 'scorer' }),
+    });
+
+    // attachMemoryMeta failure must not lose the recall results.
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toBe('user lives in Tokyo');
+    expect(result[0].sourceKind).toBeUndefined();
+    vi.doUnmock('@/lib/memory/long-term');
+  });
 });
 
 describe('formatRecalledMemoriesForContext', () => {
@@ -228,5 +307,35 @@ describe('formatRecalledMemoriesForContext', () => {
     expect(text).toContain('1. user lives in Tokyo');
     expect(text).toContain('2. user prefers Japanese');
     expect(text).toContain('authoritative personal context');
+  });
+
+  it('segregates tool_observed entries under an unverified banner with continuous numbering', () => {
+    const text = formatRecalledMemoriesForContext([
+      { content: 'user lives in Tokyo', score: 1, sourceKind: 'user_asserted' },
+      {
+        content: 'a page claims the user is 30',
+        score: 0.9,
+        sourceKind: 'tool_observed',
+      },
+      {
+        content: 'user likes ramen',
+        score: 0.8,
+        sourceKind: 'assistant_observed',
+      },
+    ]);
+    expect(text).not.toBeNull();
+    expect(text).toContain('Unverified');
+    // Trusted entries render first, tool_observed after the banner, and
+    // numbering continues across the two sections.
+    expect(text).toContain('1. user lives in Tokyo');
+    expect(text).toContain('2. user likes ramen');
+    expect(text).toContain('3. a page claims the user is 30');
+    const unverifiedIndex = (text as string).indexOf('Unverified');
+    expect((text as string).indexOf('1. user lives in Tokyo')).toBeLessThan(
+      unverifiedIndex,
+    );
+    expect(
+      (text as string).indexOf('3. a page claims the user is 30'),
+    ).toBeGreaterThan(unverifiedIndex);
   });
 });

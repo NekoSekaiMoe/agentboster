@@ -24,6 +24,7 @@ import {
   type PersistedMessageRecord,
   type PersistedMessagePayload,
 } from '@/lib/chat/message-utils';
+import { isNearDuplicate } from '@/lib/memory/dream/bigram';
 import {
   deleteLongTermMemoryByKey,
   listLongTermMemories,
@@ -54,6 +55,18 @@ const extractionItemSchema = z.object({
     ),
   memoryType: z.enum(['fact', 'preference', 'decision', 'conversation']),
   importance: z.number().int().min(1).max(10),
+  sourceKind: z
+    .enum(['user_asserted', 'assistant_observed', 'tool_observed'])
+    .describe(
+      'Provenance of this fact. user_asserted = the user stated it directly in their own message. tool_observed = it came from tool output, file contents, web pages, or other external content shown in the transcript. assistant_observed = anything inferred by the assistant rather than explicitly stated.',
+    ),
+  triggerPhrases: z
+    .array(z.string().min(2).max(60))
+    .max(3)
+    .optional()
+    .describe(
+      '2-3 short phrases describing WHEN this fact becomes relevant again (e.g. "deploy failure", "code style question", "发布部署"). Used by a lexical prefilter to surface the memory on future turns. Omit for one-off task details.',
+    ),
   action: z
     .enum(['ADD', 'UPDATE', 'DELETE', 'NOOP'])
     .describe(
@@ -64,6 +77,21 @@ const extractionItemSchema = z.object({
 const extractionResultSchema = z.object({
   items: z.array(extractionItemSchema),
 });
+
+/**
+ * The extractor LLM cannot be trusted with provenance: a fact it read in
+ * tool output is one prompt-injection away from being labeled
+ * `user_asserted` (the highest trust class). Model classifications may
+ * only be DOWNGRADED, never upgraded — so anything the extractor claims
+ * the user asserted directly is stored as `assistant_observed`. Genuine
+ * user assertions enter via the manual create path
+ * (createDreamMemoryAction), which never passes through this resolver.
+ */
+function resolveExtractedSourceKind(
+  kind: 'user_asserted' | 'assistant_observed' | 'tool_observed',
+): 'assistant_observed' | 'tool_observed' {
+  return kind === 'user_asserted' ? 'assistant_observed' : kind;
+}
 
 /**
  * Build a compact text rendering of a conversation for the extractor LLM.
@@ -246,6 +274,9 @@ Emit an "items" array. For each item, choose one action:
 CRITICAL — deduplication across write paths:
 The existing memories list may contain rows whose [key] is \`null\` or a placeholder like \`__manual__\` — these were written by the user or by the in-conversation writeMemory tool without a stable key. Before emitting ADD, scan the content of ALL existing rows (including keyless ones) for semantic overlap with the fact you are about to add. If the same fact is already present under a keyless row, emit UPDATE with a fresh dotted key you invent for it (e.g. \`user.location\`) rather than ADD — this migrates the fact into the stable-key domain so future writes deduplicate cleanly. Reserve ADD strictly for facts that are not already captured in any form.
 
+CRITICAL — recall-loop prevention:
+The conversation may contain injected blocks titled "[Relevant Long-term Memories]", "[Triggered Memories]", or "[Conversation Summary]". These are ALREADY-STORED memories and summaries being re-shown to the assistant, not new information. Never extract them: do not ADD them as new facts, and do not UPDATE an existing memory merely because its own text reappeared in one of these blocks. Only facts the user or tools introduced in THIS conversation count.
+
 Leave the array empty if nothing is worth changing.`;
 
   const result = await generateObject({
@@ -261,7 +292,36 @@ Leave the array empty if nothing is worth changing.`;
   let deleted = 0;
   let noop = 0;
 
+  // Deterministic recall-loop / duplicate guard: an ADD whose content
+  // near-duplicates ANY existing active memory is folded to a skip, no
+  // matter what the model decided. This is the structural backstop for
+  // the prompt-level recall-loop rule above — injected memory text that
+  // the model mistakenly re-extracts can never re-enter the store as a
+  // new row (OpenClaw: "a fact recalled one hundred times stays one
+  // fact"). Threshold 0.8 is stricter than Dream's 0.6 merge threshold:
+  // we only want to catch restatements, not related-but-distinct facts.
+  const existingContents = existing.map((m) => m.content);
+  const filteredItems: typeof items = [];
   for (const item of items) {
+    if (item.action !== 'ADD') {
+      filteredItems.push(item);
+      continue;
+    }
+    const isRestatement = existingContents.some((content) =>
+      isNearDuplicate(item.content, content, 0.8),
+    );
+    if (isRestatement) {
+      noop += 1;
+      logger.info('extract:recall_loop_guard', {
+        sessionId: input.sessionId,
+        key: item.key,
+      });
+      continue;
+    }
+    filteredItems.push(item);
+  }
+
+  for (const item of filteredItems) {
     try {
       switch (item.action) {
         case 'ADD': {
@@ -271,6 +331,8 @@ Leave the array empty if nothing is worth changing.`;
             content: item.content,
             memoryType: item.memoryType,
             importance: item.importance,
+            sourceKind: resolveExtractedSourceKind(item.sourceKind),
+            triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
             config: input.config,
           });
@@ -284,6 +346,8 @@ Leave the array empty if nothing is worth changing.`;
             content: item.content,
             memoryType: item.memoryType,
             importance: item.importance,
+            sourceKind: resolveExtractedSourceKind(item.sourceKind),
+            triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
             config: input.config,
           });
