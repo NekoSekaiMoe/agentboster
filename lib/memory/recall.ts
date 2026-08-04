@@ -267,8 +267,11 @@ export async function recallRelevantMemories(input: {
     rerankSignature,
   };
 
-  const cached = input.bypassCache ? null : getCachedRecall(cacheParams);
-  if (cached && !cached.stale) {
+  // bypassCache skips only the fresh-cache EARLY RETURN — the cached
+  // entry is still read so the catch below can serve stale memories when
+  // a deep recall fails.
+  const cached = getCachedRecall(cacheParams);
+  if (!input.bypassCache && cached && !cached.stale) {
     logger.info('recall:cache_hit', { userId });
     // Cached hits still count as usage (fire-and-forget) — otherwise
     // frequently-reused memories would look neglected to Dream.

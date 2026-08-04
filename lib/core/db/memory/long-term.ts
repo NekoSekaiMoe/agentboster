@@ -286,14 +286,19 @@ export async function upsertLongTermMemoryByKey(input: {
     // Defaulting to 'active' here would silently promote a tentative
     // (or re-activate a superseded) row just because an unrelated
     // content refresh omitted the field. Creation paths still default
-    // to 'active' via createLongTermMemoryRow.
+    // to 'active' via createLongTermMemoryRow. importance follows the
+    // same omission-preserves rule: an update that omits it keeps the
+    // stored value (Dream usage adjustments included) instead of
+    // resetting it to 5.
     const [row] = await db
       .update(schema.longTermMemories)
       .set({
         content: input.content,
         memoryType: input.memoryType ?? 'fact',
-        importance: clampImportance(input.importance),
         updatedAt: new Date(),
+        ...(input.importance !== undefined
+          ? { importance: clampImportance(input.importance) }
+          : {}),
         // Conditionally include dream_status only when explicitly provided,
         // so an omitted field preserves the stored status. Spread `false`
         // for the unused branch so the object literal stays a plain object.
