@@ -8,7 +8,7 @@ upstream (Tauri + Lit variant). Adapted to:
 
 - spawn `agentboster-cli` instead of `pi`
 - read/write `~/.config/agentboster-cli/agent/` instead of `~/.pi/agent/`
-- add computer-use Rust crates in `src-tauri/src/computer_use.rs`
+- delegate native computer-use capabilities to the external `computer-use-mcp` (Go) server
 
 ## Position in the agentboster repo
 
@@ -30,21 +30,9 @@ tsgo + Biome like the rest of `cli/`).
 
 ## Why this stack
 
-Tauri 2 + Rust was chosen after evaluating Electron / Wails / Qt / Flutter /
-React Native for the computer-use requirement. Only the Rust ecosystem has
-mature, actively-maintained consumer-side libraries for all three:
+Tauri 2 + Rust was chosen for its lightweight footprint and security features. While computer-use capabilities were originally implemented natively in Rust (using crates like `xcap`, `accessibility`, `uiautomation`, etc.), these have since been extracted into an independent, pure-Go external MCP server (`subpackage/computer-use-mcp`) to eliminate CGo dependencies and simplify cross-compilation.
 
-| Capability | Crate |
-|---|---|
-| Screenshots | `xcap` |
-| macOS Accessibility | `accessibility` (+ `objc2`) |
-| Windows UIAutomation | `uiautomation` |
-| Linux AT-SPI2 | `atspi` |
-| Input injection | `enigo` |
-
-In every non-Rust stack evaluated, at least one of these had to be hand-written
-(LOC estimates ranged from 5k to 13k). See git history for the full evaluation.
-
+The desktop app now spawns and communicates with this Go MCP server for all screen capture, accessibility, and input injection tasks.
 ## Development without local Rust toolchain
 
 The Rust toolchain is **not required** on the developer's machine. Rust code is
@@ -63,11 +51,10 @@ For local development:
 ├── src/                  # Lit + Vite frontend (TypeScript)
 │   └── components/
 ├── src-tauri/
-│   ├── Cargo.toml        # Rust deps: tauri 2, xcap, enigo, accessibility...
+│   ├── Cargo.toml        # Rust deps: tauri 2
 │   ├── src/
 │   │   ├── lib.rs        # main library: RPC bridge, session mgmt, CLI spawn
-│   │   ├── main.rs       # binary entry, just calls lib's run()
-│   │   └── computer_use.rs  # native computer-use Tauri commands
+│   │   └── main.rs       # binary entry, just calls lib's run()
 │   ├── capabilities/     # Tauri 2 capability JSON (permissions)
 │   ├── tauri.conf.json   # app metadata, window config, bundle settings
 │   └── icons/

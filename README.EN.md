@@ -29,7 +29,7 @@ AgentBoster is a multi-surface AI platform made of **three independently deploya
 
 Three additional supporting subpackages:
 
-- **[computer-use-mcp](./subpackage/computer-use-mcp) (Rust)**: cross-platform MCP server providing screenshot capture, mouse/keyboard input and accessibility tree queries for the CLI desktop app
+- **[computer-use-mcp](./subpackage/computer-use-mcp) (Go)**: cross-platform MCP server providing screenshot capture, mouse/keyboard input and accessibility tree queries for the CLI desktop app
 - **[dbushelper](./subpackage/dbushelper) (Go)**: pure-Go AT-SPI2 accessibility D-Bus client, runs inside the agentd LXC sandbox and powers `desktop_inspect` / `desktop_a11y_click` / `desktop_a11y_type` tools
 - **[sdk](./subpackage/sdk) (TypeScript)**: cross-tier SDK (`@agentboster/sdk`) unifying the public types and contracts across the CLI / Web / Desktop tiers. CLI extensions (extension/skill/prompt/theme) are ready; Web HTTP API contracts, Workflow DevKit types, Desktop IPC/bridge types, and the Agentd tool protocol are on the roadmap. Ships as TypeScript source, compiled at load by JITI.
 
@@ -240,10 +240,10 @@ CLI usually needs no env vars; login writes `~/.agentboster/config.json`. Option
 
 | Scope | Commands |
 |-------|----------|
-| Web | `yarn dev`, `yarn build`, `yarn lint:check`, `yarn test`, `yarn db:push` |
+| Web | `yarn dev`, `yarn build`, `yarn check:lint`, `yarn test`, `yarn db:push` |
 | agentd | `go test ./...`, `go build -o agentd ./cmd/agentd/` (from `subpackage/agentd/`) |
 | CLI | `yarn build`, `yarn check:lint`, `yarn bundle`, `yarn package` (from `subpackage/cli/`) |
-| computer-use-mcp | `cargo build`, `cargo test` (from `subpackage/computer-use-mcp/`) |
+| computer-use-mcp | `go build ./...`, `go test ./...` (from `subpackage/computer-use-mcp/`) |
 | dbushelper | `go test ./...`, `go build ./...` (from `subpackage/dbushelper/`) |
 
 ---
