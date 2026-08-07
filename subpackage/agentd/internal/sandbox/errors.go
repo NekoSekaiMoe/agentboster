@@ -23,6 +23,7 @@ import (
 //   - timeout (context deadline)
 //   - exec binary missing (lxc-attach/docker CLI not on host)
 //   - command ran and exited non-zero (a normal business error)
+//
 // All four were indistinguishable, which broke self-healing logic that
 // needed to tell "container is gone, recreate it" from "my grep returned
 // 1 because no matches".

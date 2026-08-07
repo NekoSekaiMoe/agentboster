@@ -13,8 +13,8 @@
 package browser
 
 import (
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -40,7 +40,6 @@ func callExec(sbMgr *sandbox.Manager, sandboxID, cmd string, env map[string]stri
 	}
 	return sbMgr.Exec(sandboxID, cmd, env, timeout)
 }
-
 
 //go:embed node_install.sh
 var nodeInstallScript string
@@ -94,9 +93,9 @@ type bridgeState struct {
 var state = &bridgeState{ready: map[string]bool{}}
 
 // markReady / isReady / markNotReady are tiny helpers keyed by sandbox ID.
-func markReady(sandboxID string)        { state.ready[sandboxID] = true }
-func markNotReady(sandboxID string)     { state.ready[sandboxID] = false }
-func isReady(sandboxID string) bool     { return state.ready[sandboxID] }
+func markReady(sandboxID string)    { state.ready[sandboxID] = true }
+func markNotReady(sandboxID string) { state.ready[sandboxID] = false }
+func isReady(sandboxID string) bool { return state.ready[sandboxID] }
 
 // EnsureBridge brings up the in-sandbox helper if it isn't already healthy.
 // Idempotent: re-entrance on an already-ready bridge is a single /health probe.
@@ -320,8 +319,8 @@ func CloseBridge(sbMgr *sandbox.Manager, sandboxID string) {
 	if pid != "" {
 		if _, perr := strconv.ParseInt(pid, 10, 64); perr == nil {
 			// Only emit the kill when pid is purely numeric; otherwise skip
-		// (a malformed pid file indicates corruption/tampering — safer to
-		// leak a stale process than to feed untrusted text to the shell).
+			// (a malformed pid file indicates corruption/tampering — safer to
+			// leak a stale process than to feed untrusted text to the shell).
 			_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`kill '%s' 2>/dev/null || true`, pid), 3)
 		} else {
 			slog.Debug("browser CloseBridge: pid file contents not a valid integer, skipping kill",

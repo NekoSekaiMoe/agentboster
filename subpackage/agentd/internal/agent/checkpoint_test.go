@@ -357,13 +357,13 @@ func TestCreateCheckpoint_RejectsBadDescription(t *testing.T) {
 	sb := withSandboxRoot(t, "sb-12345678")
 	const goodSession = "abcdefgh-session"
 	for _, desc := range []string{
-		"",                          // empty
-		"has\nnewline",              // newline could split the commit msg
-		"has;semicolon",             // unexpected punctuation
-		`has"quote`,                 // quote
-		"-leading-dash",             // looks like a flag to some parsers
-		strings.Repeat("a", 81),     // too long
-		"bad\ttabs",                 // control char
+		"",                      // empty
+		"has\nnewline",          // newline could split the commit msg
+		"has;semicolon",         // unexpected punctuation
+		`has"quote`,             // quote
+		"-leading-dash",         // looks like a flag to some parsers
+		strings.Repeat("a", 81), // too long
+		"bad\ttabs",             // control char
 	} {
 		if _, err := CreateCheckpoint(hostRef(sb), nil, goodSession, desc); err == nil {
 			t.Errorf("expected rejection for description %q, got nil", desc)

@@ -246,7 +246,7 @@ func reapIdleStacks(sbMgr *sandbox.Manager) {
 		// -f: they have no pidfile in pidDir, they are a11y-only, and a
 		// lingering instance does not block a restart.
 		for _, name := range []string{"xvfb", "x11vnc", "websockify", "icewm"} {
-			_ = killByPidfile(sbMgr, id, name, 10)
+			_ = killByPidfileAndWait(sbMgr, id, name, 10, 3)
 		}
 		_, _ = runScriptRaw(sbMgr, id, fmt.Sprintf(`pkill -f "at-spi-bus-launcher" 2>/dev/null; pkill -f "dbus-launch" 2>/dev/null; rm -f /tmp/.X%d-lock /tmp/.X11-unix/X%d 2>/dev/null; rm -f %s/*.pid 2>/dev/null; true`, 99, 99, pidDir), 15)
 		markNotReady(id)
@@ -341,6 +341,51 @@ func killByPidfile(sbMgr *sandbox.Manager, sandboxID, name string, timeout int) 
 	return err
 }
 
+// killByPidfileAndWait is the wait-aware variant used by the cleanup
+// paths (startStack stale-proc clear + reapIdleStacks teardown). It
+// sends SIGTERM (via killByPidfile), then polls /proc/<pid> to confirm
+// the daemon actually exited before the caller deletes the pidfile /
+// X11 locks. If the process is still alive after `waitSecs`, it sends
+// SIGKILL (also with cmdline identity validation, to avoid killing a
+// recycled PID). This closes the race where a daemon takes a moment to
+// shut down and the immediate `rm -f *.pid` would leave killByPidfile
+// unable to escalate from TERM to KILL later.
+func killByPidfileAndWait(sbMgr *sandbox.Manager, sandboxID, name string, termTimeout, waitSecs int) error {
+	pidFile := fmt.Sprintf("%s/%s.pid", pidDir, name)
+	daemonMatch := pidfileDaemonMatch(name)
+	// 1) SIGTERM with identity check (reuse killByPidfileScript).
+	if err := killByPidfile(sbMgr, sandboxID, name, termTimeout); err != nil {
+		return err // exec failed; can't even read pidfile
+	}
+	// 2) Poll for exit. Each iteration re-checks that the PID's cmdline
+	//    still matches the daemon (so a recycled PID — pointing at an
+	//    unrelated process — is never SIGKILLed).
+	deadline := time.Now().Add(time.Duration(waitSecs) * time.Second)
+	for time.Now().Before(deadline) {
+		gone, _ := runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(
+			`pid=$(cat %s 2>/dev/null); [ -z "$pid" ] && { echo gone; exit 0; }; `+
+				`case "$pid" in ""|*[!0-9]*) echo gone;; (*) `+
+				`if [ ! -d /proc/"$pid" ]; then echo gone; `+
+				`elif ! grep -qi %s /proc/"$pid"/cmdline 2>/dev/null; then echo gone; `+
+				`fi;; esac; true`,
+			pidFile, singleQuote(daemonMatch)), 5)
+		if strings.TrimSpace(gone) == "gone" {
+			return nil // daemon exited (or pidfile stale/recycled) — done
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	// 3) Still alive after waitSecs — SIGKILL (same identity check).
+	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(
+		`pid=$(cat %s 2>/dev/null); `+
+			`case "$pid" in ""|*[!0-9]*) : ;; (*) `+
+			`if [ -r /proc/"$pid"/cmdline ] && grep -qi %s /proc/"$pid"/cmdline 2>/dev/null; then `+
+			`kill -KILL "$pid" 2>/dev/null; `+
+			`fi;; `+
+			`esac; true`,
+		pidFile, singleQuote(daemonMatch)), 5)
+	return nil
+}
+
 // killByPidfileScript builds the cleanup shell snippet for a pidfile.
 // Extracted so tests can assert its shape + syntax without a sandbox.
 //
@@ -356,8 +401,10 @@ func killByPidfile(sbMgr *sandbox.Manager, sandboxID, name string, timeout int) 
 //
 // $pid is also validated to be purely numeric before use, defending
 // against a tampered pidfile (defensive; pidfiles are daemon-written).
-// The case statement uses POSIX pattern syntax (no leading '(' which
-// dash/ash reject) — verified by TestKillByPidfileScript_PIDValidation.
+// The case statement uses POSIX pattern syntax with explicit leading
+// '(' before each branch group (e.g. `(...) ;; (*) ...`), which is
+// accepted by POSIX sh, dash, ash, AND bash — verified by
+// TestKillByPidfileScript_SyntaxAndGuards.
 func killByPidfileScript(pidFile, name string) string {
 	daemonMatch := pidfileDaemonMatch(name) // e.g. "Xvfb" for xvfb.pid
 	return fmt.Sprintf(
@@ -386,11 +433,15 @@ func pidfileDaemonMatch(name string) string {
 	case "icewm":
 		return "icewm"
 	default:
-		// Unknown daemon: return a pattern that matches anything so the
-	// caller's behavior degrades to the old unguarded kill rather than
-	// refusing to kill anything (which would leak daemons we DO want to
-	// reap). The known four above are the only pidfile writers today.
-		return "" // empty → the grep -qi pattern matches all lines
+		// Unknown daemon: return the name itself so the cmdline identity
+		// check still requires a match. An earlier draft returned "" here,
+		// which made `grep -qi ""` match EVERY cmdline â silently
+		// disabling the PID-recycle guard for any future daemon name.
+		// Returning `name` keeps the guard effective even for daemons we
+		// haven't explicitly mapped; if a daemon's binary doesn't contain
+		// its pidfile name as a substring, killByPidfile refuses to signal
+		// (safer than the empty-match bypass).
+		return name
 	}
 }
 
@@ -446,12 +497,13 @@ func RunScript(sbMgr *sandbox.Manager, sandboxID, script string, timeoutSec int)
 			stderr = fmt.Sprintf("exit code %d", res.ExitCode)
 		}
 		// P8: when the provider classified the failure (timeout / binary
-		// missing / etc.), prepend the categorized cause so callers
-		// (probeHealth, EnsureDesktop) can distinguish a genuinely down
-		// stack from a transient exec infra failure. Previously all four
-		// failure modes collapsed into an opaque message.
+		// missing / etc.), wrap it with %w so callers (probeHealth,
+		// EnsureDesktop) can use errors.Is/As on the categorized cause.
+		// An earlier draft did fmt.Sprintf("%v: %s", res.Err, stderr)
+		// which flattened the error into an opaque string, losing the
+		// sentinel (errors.Is(err, ErrCommandTimeout) would return false).
 		if res.Err != nil {
-			stderr = fmt.Sprintf("%v: %s", res.Err, stderr)
+			return stdout, fmt.Errorf("%w: %s", res.Err, stderr)
 		}
 		return stdout, fmt.Errorf("%s", stderr)
 	}
@@ -459,7 +511,7 @@ func RunScript(sbMgr *sandbox.Manager, sandboxID, script string, timeoutSec int)
 }
 
 // singleQuote wraps s in single quotes, escaping any embedded single
-// quotes via the standard '\'' idiom. Used to pass a multi-line script
+// quotes via the standard '\” idiom. Used to pass a multi-line script
 // to `sh -c` safely.
 func singleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
@@ -629,21 +681,36 @@ func xprobeSnippet(display string) string {
 
 // portListeningSnippet returns a shell snippet that succeeds (exit 0)
 // iff the given TCP port is in LISTEN state, as reported by the kernel
-// via /proc/net/tcp. This needs ZERO extra packages — no netcat, no
-// bash /dev/tcp — and is portable across alpine/debian/rhel/arch.
+// via /proc/net/tcp (+ /proc/net/tcp6 for IPv6). This needs ZERO extra
+// packages — no netcat, no bash /dev/tcp — and is portable across
+// alpine/debian/rhel/arch.
 //
-// /proc/net/tcp format (space-separated): the 2nd field is
-// "local_address" as HEX "IP:PORT" and the 4th field "st" is the state
-// (0A = TCP_LISTEN). We match the ":PORT" token followed by the LISTEN
-// state. The port is emitted as 4 uppercase hex digits; ":", hex digits,
-// and space are all regex-literal, so basic grep (incl. busybox) matches
-// them verbatim — no -E / character class needed.
+// /proc/net/tcp is whitespace-separated with a header row. The fields
+// (1-indexed after the leading `N:` slot number) are:
+//
+//	$1 = slot (e.g. "0:"), $2 = local_address (HEX "IP:PORT"),
+//	$3 = rem_address, $4 = st (state; 0A = TCP_LISTEN).
+//
+// An earlier draft tried `grep ':PORT 0A '`, which NEVER matched: the
+// bytes immediately after `:PORT` are the rem_address field, not the
+// state field. We must parse by field, not by adjacent substring.
+// awk is universally available (POSIX), so we use it: $2 ends with the
+// port hex and $4 == "0A".
 //
 // Example: port 5999 → :176F, port 6080 → :17C0.
+//
+// We check BOTH /proc/net/tcp (IPv4) and /proc/net/tcp6 (IPv6) — a
+// daemon bound to :: (IPv6 dual-stack) only appears in tcp6. The awk
+// runs against the concatenation; `||` short-circuits on the first hit.
 func portListeningSnippet(port int) string {
+	hexPort := fmt.Sprintf("%04X", port)
+	// awk pattern: field $2 (local_address) ends with ":PORT" AND field $4
+	// (st) is exactly "0A". Exit 0 iff a row matches. We OR the exit
+	// statuses of the tcp and tcp6 lookups so a listener on either passes.
 	return fmt.Sprintf(
-		"grep -q ':%s 0A ' /proc/net/tcp 2>/dev/null",
-		fmt.Sprintf("%04X", port),
+		`awk '$2 ~ /:%s$/ && $4 == "0A" {f=1; exit} END{exit !f}' /proc/net/tcp 2>/dev/null || `+
+			`awk '$2 ~ /:%s$/ && $4 == "0A" {f=1; exit} END{exit !f}' /proc/net/tcp6 2>/dev/null`,
+		hexPort, hexPort,
 	)
 }
 
@@ -680,9 +747,9 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	// into a different, auto-managed location); they are best-effort
 	// a11y-only and their lingering does not block a restart.
 	for _, name := range []string{"xvfb", "x11vnc", "websockify", "icewm"} {
-		_ = killByPidfile(sbMgr, sandboxID, name, 10)
+		_ = killByPidfileAndWait(sbMgr, sandboxID, name, 10, 3)
 	}
-	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`pkill -f "at-spi-bus-launcher" 2>/dev/null; pkill -f "dbus-launch" 2>/dev/null; true`), 15)
+	_, _ = runScriptRaw(sbMgr, sandboxID, `pkill -f "at-spi-bus-launcher" 2>/dev/null; pkill -f "dbus-launch" 2>/dev/null; true`, 15)
 
 	// Remove stale X11 lock files and sockets. Xvfb refuses to start on
 	// DISPLAY=:99 if /tmp/.X99-lock or /tmp/.X11-unix/X99 still exist
@@ -710,8 +777,8 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	// session so the SIGHUP from the dying `sh -c` parent cannot reach it
 	// (setsid comes from util-linux, universally available — no package).
 	xvfbCmd := fmt.Sprintf(
-		`setsid Xvfb %s -screen 0 %dx%dx%d >/dev/null 2>&1 & echo $! > %s/xvfb.pid`,
-		defaultDisplay, defaultWidth, defaultHeight, defaultDepth, pidDir,
+		`setsid sh -c %s >/dev/null 2>&1 &`,
+		singleQuote(fmt.Sprintf(`echo $$ > %s/xvfb.pid; exec Xvfb %s -screen 0 %dx%dx%d`, pidDir, defaultDisplay, defaultWidth, defaultHeight, defaultDepth)),
 	)
 	if err := runScript(sbMgr, sandboxID, xvfbCmd, 15); err != nil {
 		return fmt.Errorf("desktop: start Xvfb failed: %w", err)
@@ -771,8 +838,8 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	// prompt (the sandbox is already behind the daemon's auth boundary
 	// and the user reaches it via a per-session public_port mapping).
 	x11vncCmd := fmt.Sprintf(
-		`DISPLAY=%s setsid x11vnc -display %s -forever -nopw -shared -noxrecord -noxfixes -noxdamage -rfbport %d >/dev/null 2>&1 & echo $! > %s/x11vnc.pid`,
-		defaultDisplay, defaultDisplay, defaultRfbPort, pidDir,
+		`setsid sh -c %s >/dev/null 2>&1 &`,
+		singleQuote(fmt.Sprintf(`echo $$ > %s/x11vnc.pid; exec env DISPLAY=%s x11vnc -display %s -forever -nopw -shared -noxrecord -noxfixes -noxdamage -rfbport %d`, pidDir, defaultDisplay, defaultDisplay, defaultRfbPort)),
 	)
 	if err := runScript(sbMgr, sandboxID, x11vncCmd, 15); err != nil {
 		return fmt.Errorf("desktop: start x11vnc failed: %w", err)
@@ -783,8 +850,8 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	// the novnc package on both Alpine and Debian). User opens
 	// http://<sandbox>:<WEB_PORT>/vnc.html in a browser.
 	websockifyCmd := fmt.Sprintf(
-		`setsid websockify --web=/usr/share/novnc 0.0.0.0:%d localhost:%d >/dev/null 2>&1 & echo $! > %s/websockify.pid`,
-		defaultWebPort, defaultRfbPort, pidDir,
+		`setsid sh -c %s >/dev/null 2>&1 &`,
+		singleQuote(fmt.Sprintf(`echo $$ > %s/websockify.pid; exec websockify --web=/usr/share/novnc 0.0.0.0:%d localhost:%d`, pidDir, defaultWebPort, defaultRfbPort)),
 	)
 	if err := runScript(sbMgr, sandboxID, websockifyCmd, 15); err != nil {
 		return fmt.Errorf("desktop: start websockify failed: %w", err)
@@ -896,11 +963,16 @@ func EnvFile() string { return sandboxStateDir + "/desktop-env.sh" }
 //
 // We use xdotool rather than RFB injection because:
 // (a) xdotool speaks XTest — the canonical X11 test extension — which
-//     is more reliable than x11vnc's RFB-to-X11 bridge;
+//
+//	is more reliable than x11vnc's RFB-to-X11 bridge;
+//
 // (b) the agentd sandbox already installs xdotool as part of the
-//     desktop stack (no extra deps);
+//
+//	desktop stack (no extra deps);
+//
 // (c) it operates on the Xvfb display directly, independent of whether
-//     a VNC client (x11vnc, noVNC user) is connected.
+//
+//	a VNC client (x11vnc, noVNC user) is connected.
 func Click(sbMgr *sandbox.Manager, sandboxID string, x, y int, button, clickCount int) error {
 	if err := EnsureDesktop(sbMgr, sandboxID); err != nil {
 		return err
@@ -983,7 +1055,7 @@ func Key(sbMgr *sandbox.Manager, sandboxID, keysym string) error {
 
 // escapeForSingleQuote wraps s so it can appear inside a single-quoted
 // shell string. The only character that needs escaping in this context
-// is the single quote itself, escaped via the '\'' idiom (close quote,
+// is the single quote itself, escaped via the '\” idiom (close quote,
 // escaped literal quote, reopen quote).
 func escapeForSingleQuote(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)
@@ -1062,8 +1134,8 @@ func buildDbusStartScript(stateDir, envFile, display string) string {
 			`if command -v at-spi-bus-launcher >/dev/null 2>&1; then `+
 			`DISPLAY=%s DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" NO_AT_BRIDGE=0 setsid at-spi-bus-launcher >/dev/null 2>&1 & `+
 			`sleep 0.3; `+ // at-spi registry socket settle (dbus-launch's eval is synchronous so
-			                // the bus address is already set; this sleep is only for the
-			                // at-spi registry to bind its socket before clients connect)
+			// the bus address is already set; this sleep is only for the
+			// at-spi registry to bind its socket before clients connect)
 			`fi; `+
 			`printf 'export DISPLAY=%%s\nexport DBUS_SESSION_BUS_ADDRESS=%%s\nexport NO_AT_BRIDGE=0\n' %s "$DBUS_SESSION_BUS_ADDRESS" >%s; `+
 			`fi; `+
@@ -1079,9 +1151,15 @@ func buildDbusStartScript(stateDir, envFile, display string) string {
 // envFile source is conditional so a missing/empty envFile (dbus failed)
 // does NOT abort the script — icewm still starts without a session bus,
 // which is fine for the screenshot / xdotool-click paths.
+//
+// PID capture: we wrap in `setsid sh -c 'echo $$ > pidfile; exec icewm'`
+// so the pidfile records the daemon's own PID (sh's PID, reused by
+// icewm after exec). An earlier `... & echo $!` form captured setsid's
+// PID, which may NOT equal the daemon's PID if setsid forks.
 func buildIcemwStartScript(envFile, display, pids string) string {
+	inner := singleQuote(fmt.Sprintf(`echo $$ > %s/icewm.pid; exec icewm`, pids))
 	return fmt.Sprintf(
-		`[ -f %s ] && . %s; DISPLAY=%s setsid icewm >/dev/null 2>&1 & echo $! > %s/icewm.pid`,
-		envFile, envFile, display, pids,
+		`[ -f %s ] && . %s; DISPLAY=%s setsid sh -c %s >/dev/null 2>&1 &`,
+		envFile, envFile, display, inner,
 	)
 }

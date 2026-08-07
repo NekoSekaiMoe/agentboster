@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
@@ -260,8 +261,39 @@ type hostGitBackend struct {
 // which accounts for the lxc-attach/docker exec hop).
 const hostGitTimeoutSec = 30
 
-func (b *hostGitBackend) workspace() string { return filepath.Join(b.sandboxRoot, checkpointWorkspaceDir) }
-func (b *hostGitBackend) metaDir() string   { return filepath.Join(b.workspace(), checkpointMetaDir) }
+func (b *hostGitBackend) workspace() string {
+	return filepath.Join(b.sandboxRoot, checkpointWorkspaceDir)
+}
+func (b *hostGitBackend) metaDir() string { return filepath.Join(b.workspace(), checkpointMetaDir) }
+
+// runGitInPgroup runs `git` with args inside its own process group, so a
+// timeout-driven cancellation can terminate the ENTIRE group rather than
+// only the direct git child. Without this, a git child it spawned (ssh,
+// gpg, a hook) would survive the cancel, leak, and keep holding locks /
+// pipes — CombinedOutput would then hang on the inherited stdout/stderr
+// descriptors forever. WaitDeadline additionally forces Go to give up on
+// pipe reads if the group hasn't fully drained after the kill, so the
+// call always returns within a bounded window around hostGitTimeoutSec.
+func (b *hostGitBackend) runGitInPgroup(ctx context.Context, args []string, env []string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = b.workspace()
+	if env != nil {
+		cmd.Env = env
+	}
+	// Put git (and any helper it spawns) in a fresh process group. The
+	// negative PID in Cancel = "signal the whole group".
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		return errors.New("git timed out, signaling process group")
+	}
+	// Hard ceiling: if SIGTERM doesn't bring the group down within 5s,
+	// CombinedOutput returns anyway (WaitDelay forces it) rather than
+	// blocking on a stuck pipe.
+	cmd.WaitDelay = 5 * time.Second
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
 
 func (b *hostGitBackend) GitRun(args ...string) (string, error) {
 	safe, err := sanitizeGitValueArgs(args)
@@ -270,10 +302,7 @@ func (b *hostGitBackend) GitRun(args ...string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), hostGitTimeoutSec*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", safe...)
-	cmd.Dir = b.workspace()
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
+	return b.runGitInPgroup(ctx, safe, nil)
 }
 
 func (b *hostGitBackend) GitCommit(args ...string) (string, error) {
@@ -283,16 +312,13 @@ func (b *hostGitBackend) GitCommit(args ...string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), hostGitTimeoutSec*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", safe...)
-	cmd.Dir = b.workspace()
-	cmd.Env = append(os.Environ(),
+	env := append(os.Environ(),
 		"GIT_AUTHOR_NAME=agentd",
 		"GIT_AUTHOR_EMAIL=agentd@local",
 		"GIT_COMMITTER_NAME=agentd",
 		"GIT_COMMITTER_EMAIL=agentd@local",
 	)
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
+	return b.runGitInPgroup(ctx, safe, env)
 }
 
 func (b *hostGitBackend) WorkspaceExists() bool {

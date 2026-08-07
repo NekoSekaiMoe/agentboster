@@ -1,7 +1,10 @@
+//go:build linux
+
 package desktop
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,7 +194,7 @@ func TestBuildIcemwStartScript_ToleratesMissingEnvFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	script := buildIcemwStartScript(missingEnvFile, ":99", pidDir) + "; sleep 0.1"
+	script := buildIcemwStartScript(missingEnvFile, ":99", pidDir) + "\nsleep 0.1"
 	out, err := runSh(t, script, []string{
 		"PATH=" + fakeBinDir + ":/usr/bin:/bin",
 	})
@@ -224,22 +227,33 @@ func TestBuildIcemwStartScript_FailingIcewmDoesNotAbortScript(t *testing.T) {
 	fakeBinDir := t.TempDir()
 	pidDir := t.TempDir()
 
-	// Fake icewm that exits non-zero (simulates config/HOME write failure).
-	icewm := "#!/bin/sh\nexit 1\n"
+	// Marker the fake icewm writes BEFORE exiting non-zero, so we can
+	// prove the script actually invoked icewm (not just exited 0 because
+	// it skipped the launch line). A bare `exit 1` test would pass even
+	// if the script never reached icewm at all.
+	markerPath := filepath.Join(t.TempDir(), "icewm-invoked")
+	icewm := "#!/bin/sh\necho ran > " + markerPath + "\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(fakeBinDir, "icewm"), []byte(icewm), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// PATH must also resolve `setsid` (used by the new sh -c wrapper).
+	// Fall back to /usr/bin setsid from the host.
+	fakePath := fakeBinDir + ":/usr/bin:/bin"
 
 	// No envFile present (mirrors the missing-envFile tolerance test);
 	// the script must reach the icewm invocation regardless.
 	missingEnvFile := filepath.Join(t.TempDir(), "does-not-exist.sh")
-	script := buildIcemwStartScript(missingEnvFile, ":99", pidDir) + "; sleep 0.1"
+	script := buildIcemwStartScript(missingEnvFile, ":99", pidDir) + "\nsleep 0.1"
 	out, err := runSh(t, script, []string{
-		"PATH=" + fakeBinDir + ":/usr/bin:/bin",
+		"PATH=" + fakePath,
 	})
 	if err != nil {
 		t.Fatalf("script must exit 0 even when icewm fails (setsid ... & detaches); got %v\noutput:\n%s\nscript:\n%s",
 			err, out, script)
+	}
+	// icewm was actually invoked (marker exists), even though it failed.
+	if _, err := os.Stat(markerPath); err != nil {
+		t.Errorf("icewm was not invoked (marker %s absent); the script must reach the launch line. output:\n%s", markerPath, out)
 	}
 	// The pidfile is still written (echo $! runs before icewm exits),
 	// proving the script reached the launch line and did not abort early.
@@ -273,15 +287,20 @@ func TestPortListeningSnippet_Shape(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := portListeningSnippet(c.port)
-		// Must contain the 4-digit hex port and the LISTEN state marker.
-		if !strings.Contains(got, ":"+c.hex) {
-			t.Errorf("portListeningSnippet(%d) = %q, want it to reference :%s", c.port, got, c.hex)
+		// Must reference the 4-digit hex port and parse by awk field
+		// ($2 == local_address, $4 == st). An earlier draft used a flat
+		// grep `:PORT 0A ` which never matched the real /proc/net/tcp
+		// layout (the bytes after :PORT are rem_address, not st).
+		if !strings.Contains(got, ":"+c.hex+"$") {
+			t.Errorf("portListeningSnippet(%d) = %q, want awk pattern ending in :%s$", c.port, got, c.hex)
 		}
-		if !strings.Contains(got, "0A") {
-			t.Errorf("portListeningSnippet(%d) = %q, want it to reference LISTEN state 0A", c.port, got)
+		if !strings.Contains(got, "$4 == \"0A\"") {
+			t.Errorf("portListeningSnippet(%d) = %q, want awk $4 == 0A (LISTEN state field)", c.port, got)
 		}
-		if !strings.Contains(got, "/proc/net/tcp") {
-			t.Errorf("portListeningSnippet(%d) = %q, want it to probe /proc/net/tcp", c.port, got)
+		// Must check BOTH ipv4 and ipv6 tables — a :: dual-stack listener
+		// only appears in /proc/net/tcp6.
+		if !strings.Contains(got, "/proc/net/tcp ") || !strings.Contains(got, "/proc/net/tcp6") {
+			t.Errorf("portListeningSnippet(%d) = %q, want it to probe both /proc/net/tcp and /proc/net/tcp6", c.port, got)
 		}
 	}
 }
@@ -313,7 +332,7 @@ func TestBuildIcemwStartScript_SourcesEnvFileWhenPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	script := buildIcemwStartScript(envFile, ":99", pidDir) + "; sleep 0.1"
+	script := buildIcemwStartScript(envFile, ":99", pidDir) + "\nsleep 0.1"
 	out, err := runSh(t, script, []string{
 		"PATH=" + fakeBinDir + ":/usr/bin:/bin",
 	})
@@ -347,11 +366,11 @@ func TestPidfileDaemonMatch_CoversKnownDaemons(t *testing.T) {
 			t.Errorf("pidfileDaemonMatch(%q) = %q, want %q", name, got, want)
 		}
 	}
-	// Unknown daemon: empty match (grep matches all → degrades to old
-	// unguarded kill rather than refusing). This is a deliberate safety
-	// fallback for forward-compat with future daemon names.
-	if got := pidfileDaemonMatch("unknown-daemon"); got != "" {
-		t.Errorf("pidfileDaemonMatch(unknown) = %q, want empty (safe fallback)", got)
+	// Unknown daemon: return the name itself (NOT empty) so the cmdline
+	// identity check still has a pattern to match. An earlier draft
+	// returned "" which made grep match anything, bypassing the guard.
+	if got := pidfileDaemonMatch("unknown-daemon"); got != "unknown-daemon" {
+		t.Errorf("pidfileDaemonMatch(unknown) = %q, want %q (non-empty so the guard stays effective)", got, "unknown-daemon")
 	}
 }
 
@@ -419,7 +438,68 @@ func TestKillByPidfileScript_DoesNotKillUnmatchedProcess(t *testing.T) {
 
 	// The sacrificial process must STILL be alive — the script must have
 	// refused to kill it because its cmdline says "sleep", not "Xvfb".
+	// syscall.Kill(pid, 0) alone isn't strong enough: it succeeds even for
+	// a zombie (state Z) or a process that's about to exit. We additionally
+	// read /proc/<pid>/cmdline (must still contain "sleep") and check it
+	// isn't in state Z (would indicate the guard killed it and it's being
+	// reaped). The cmdline check is the real proof the guard held.
 	if err := syscall.Kill(fakePID, 0); err != nil {
 		t.Fatalf("PID-recycle guard FAILED: killByPidfile killed an unrelated process (cmdline=sleep, not Xvfb). This is the classic pidfile misfire the guard exists to prevent.")
+	}
+	// /proc/<pid>/cmdline must still identify the sleep process (not Xvfb).
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", fakePID))
+	if err != nil {
+		t.Fatalf("cannot read /proc/%d/cmdline to verify guard: %v", fakePID, err)
+	}
+	if !strings.Contains(string(cmdline), "sleep") {
+		t.Fatalf("sacrificial process cmdline changed unexpectedly: %q (expected sleep — the guard should NOT have signaled it)", string(cmdline))
+	}
+	// /proc/<pid>/stat state must not be Z (zombie) — a zombie here would
+	// mean the guard killed the process and it's awaiting reap.
+	statBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", fakePID))
+	if err == nil {
+		// stat's 3rd field (after pid and comm) is the state char.
+		stat := string(statBytes)
+		if rp := strings.LastIndexByte(stat, ')'); rp >= 0 && rp+1 < len(stat) {
+			state := stat[rp+1 : rp+3] // " S" / " Z" / etc (space + letter)
+			if strings.Contains(state, "Z") {
+				t.Fatalf("PID-recycle guard FAILED: sacrificial process is now a zombie (state Z) — killByPidfile killed it despite cmdline=sleep")
+			}
+		}
+	}
+}
+
+// TestPortListeningSnippet_RealProcNetTCPLive is the live regression test
+// for the portListeningSnippet format bug. An earlier draft used
+// `grep ':PORT 0A '` which NEVER matched the real /proc/net/tcp layout
+// (the field after :PORT is rem_address, not st) — but the static shape
+// test above didn't catch it because it only inspected the generated
+// string. This test opens a REAL TCP listener, runs the snippet against
+// the live /proc/net/tcp, and requires success; then closes it and
+// requires the snippet to fail. If this test had existed from the start
+// the bug would have been impossible to ship.
+func TestPortListeningSnippet_RealProcNetTCPLive(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc/net/tcp is Linux-only")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("cannot open ephemeral listener: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	snippet := portListeningSnippet(port)
+	// Listener is active → snippet must succeed (exit 0).
+	if out, err := runSh(t, snippet, nil); err != nil {
+		t.Fatalf("snippet must report LISTEN while listener is active; got err=%v\nsnippet:\n%s\nout:\n%s",
+			err, snippet, out)
+	}
+
+	// Close and re-check: port should no longer be in LISTEN.
+	ln.Close()
+	if out, err := runSh(t, snippet, nil); err == nil {
+		t.Fatalf("snippet must FAIL after listener closed; got success\nsnippet:\n%s\nout:\n%s",
+			snippet, out)
 	}
 }
