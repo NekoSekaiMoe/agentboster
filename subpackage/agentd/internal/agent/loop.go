@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
@@ -14,10 +15,22 @@ import (
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/usertype"
 )
 
-// Message represents a chat message.
+// Message represents a chat message in the agent loop's conversation
+// history. It mirrors clawless.Message's tool-calling fields so the
+// full OpenAI tool-calling protocol is preserved end-to-end:
+//
+//   - role="assistant" messages carry ToolCalls (model's request to
+//     invoke tools). Storing these (not just the text Content) is what
+//     lets the next callLLM present a coherent assistant→tool pairing
+//     to the model; dropping them used to orphan tool results.
+//   - role="tool" messages carry ToolCallID linking back to the
+//     originating ToolCall.ID. OpenAI/Anthropic/Gemini all require this.
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // role=assistant
+	ToolCallID string     `json:"tool_call_id,omitempty"` // role=tool
+	Name       string     `json:"name,omitempty"`         // optional tool name (role=tool)
 }
 
 // ToolCall represents a tool invocation request from the LLM.
@@ -48,8 +61,12 @@ type AgentLoop struct {
 	// checkpoint backend per sandbox type). Nil disables auto-checkpoint.
 	sbMgr *sandbox.Manager
 	// warnedGitMissing suppresses repeated warn logs when a sandbox image
-	// lacks git and auto-checkpoint therefore degrades to a no-op.
-	warnedGitMissing bool
+	// lacks git and auto-checkpoint therefore degrades to a no-op. Accessed
+	// from both the main loop and the auto-checkpoint goroutine, so it must
+	// be atomic — a plain bool here was a data race (two checkpoint
+	// goroutines from consecutive write/exec calls could read+write it
+	// concurrently, and `go test -race` would flag it).
+	warnedGitMissing atomic.Bool
 }
 
 // NewAgentLoop creates a new agent loop.
@@ -121,98 +138,180 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 			}
 		}
 
-		// Add assistant message
-		l.messages = append(l.messages, Message{Role: "assistant", Content: llmResp.Content})
+		// Add assistant message — preserving ALL tool_calls the model
+		// emitted, not just the executed one. Previously only Content was
+		// stored (P9: that orphaned the subsequent role=tool result). We
+		// now store the full ToolCalls slice so history faithfully records
+		// the model's intent — if it requested N parallel calls, the next
+		// turn sees all N even though the loop only executes the first.
+		// The role=tool result pairs up with the first ToolCall.ID; the
+		// model can observe the other N-1 went unanswered and retry them.
+		assistantMsg := Message{Role: "assistant", Content: llmResp.Content}
+		if len(llmResp.ToolCalls) > 0 {
+			assistantMsg.ToolCalls = llmResp.ToolCalls
+		} else if llmResp.ToolCall != nil {
+			// Defensive: callLLM should populate ToolCalls when ToolCall is
+			// set, but don't depend on it for protocol correctness.
+			assistantMsg.ToolCalls = []ToolCall{*llmResp.ToolCall}
+		}
+		l.messages = append(l.messages, assistantMsg)
 
-		// Check if LLM wants to call a tool
-		if llmResp.ToolCall == nil {
-			// No tool call — final answer
+		// Execute tool calls. The OpenAI tool-calling protocol requires that
+		// EVERY entry in assistant.tool_calls has a matching role=tool result
+		// before the next LLM turn — otherwise the provider 400s ("tool_call_ids
+		// did not have response messages"). The loop executes them SEQUENTIALLY
+		// (simpler than parallel; preserves ordering; each goes through the
+		// gatekeeper individually) and appends one tool message per call.
+		// With NO tool calls at all, this is the final-answer turn.
+		if len(llmResp.ToolCalls) == 0 && llmResp.ToolCall == nil {
 			slog.Info("Agent Loop: final answer", "step", l.stepCount)
 			return llmResp.Content, nil
 		}
 
-		// Execute tool
-		toolStartedAt := time.Now()
-		toolDef, _, ok := l.registry.Get(llmResp.ToolCall.Name)
-		if !ok {
-			toolResult := &ToolResult{Success: false, Error: fmt.Sprintf("unknown tool: %s", llmResp.ToolCall.Name)}
-			l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
-			continue
+		var calls []ToolCall
+		if len(llmResp.ToolCalls) > 0 {
+			calls = llmResp.ToolCalls
+		} else {
+			// Legacy single-call path (defensive; callLLM should populate
+			// ToolCalls when ToolCall is set, but don't depend on it).
+			calls = []ToolCall{*llmResp.ToolCall}
 		}
-		if !usertype.CanUse(l.agentCtx.Roles, toolDef.MinUserType) {
-			toolResult := &ToolResult{
-				Success: false,
-				Error:   fmt.Sprintf("permission denied: tool %s requires %s", llmResp.ToolCall.Name, toolDef.MinUserType),
-			}
-			l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
-			continue
+		for _, tc := range calls {
+			l.executeOneToolCall(ctx, &tc)
 		}
-
-		if l.gatekeeper != nil {
-			auditTaskID := l.agentCtx.TaskID
-			if auditTaskID == "" {
-				auditTaskID = "00000000-0000-0000-0000-000000000000"
-			}
-			auditTask := &clawless.Task{
-				ID:        auditTaskID,
-				AgentID:   l.agentCtx.AgentID,
-				SessionID: l.agentCtx.SessionID,
-				UserID:    l.agentCtx.UserID,
-				Roles:     l.agentCtx.Roles,
-				Source:    l.agentCtx.Source,
-				SandboxID: l.agentCtx.SandboxID,
-				Command:   fmt.Sprintf("tool=%s args=%s", llmResp.ToolCall.Name, string(llmResp.ToolCall.Arguments)),
-			}
-			auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)
-			if len(auditLogs) > 0 {
-				if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
-					slog.Warn("failed to write tool audit logs", "error", err)
-				}
-			}
-			if auditResult.Decision != security.DecisionAllowed {
-				toolResult := &ToolResult{
-					Success: false,
-					Error:   fmt.Sprintf("tool blocked by security review: %s", auditResult.Reason),
-				}
-				l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
-				continue
-			}
-		}
-
-		toolResult, err := l.registry.Execute(ctx, llmResp.ToolCall.Name, llmResp.ToolCall.Arguments)
-		if err != nil {
-			toolResult = &ToolResult{Success: false, Error: err.Error()}
-		}
-
-		l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
 	}
 
 	return "", fmt.Errorf("agent loop exceeded max steps (%d)", l.maxSteps)
 }
 
+// executeOneToolCall runs a single tool call end-to-end: registry
+// lookup, permission check, gatekeeper audit, execution, and appending
+// the role=tool result message. Extracted from Run so the loop can
+// process ALL of an assistant turn's tool_calls (OpenAI requires a
+// tool result for each tool_call.id; leaving any unanswered 400s the
+// next request). Errors at each stage produce a synthetic tool result
+// (so the pairing invariant holds) rather than aborting the turn.
+func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
+	toolStartedAt := time.Now()
+
+	toolDef, _, ok := l.registry.Get(call.Name)
+	if !ok {
+		l.completeToolCall(ctx, call, &ToolResult{Success: false, Error: fmt.Sprintf("unknown tool: %s", call.Name)}, toolStartedAt)
+		return
+	}
+	if !usertype.CanUse(l.agentCtx.Roles, toolDef.MinUserType) {
+		l.completeToolCall(ctx, call, &ToolResult{
+			Success: false,
+			Error:   fmt.Sprintf("permission denied: tool %s requires %s", call.Name, toolDef.MinUserType),
+		}, toolStartedAt)
+		return
+	}
+
+	if l.gatekeeper != nil {
+		auditTaskID := l.agentCtx.TaskID
+		if auditTaskID == "" {
+			auditTaskID = "00000000-0000-0000-0000-000000000000"
+		}
+		auditTask := &clawless.Task{
+			ID:        auditTaskID,
+			AgentID:   l.agentCtx.AgentID,
+			SessionID: l.agentCtx.SessionID,
+			UserID:    l.agentCtx.UserID,
+			Roles:     l.agentCtx.Roles,
+			Source:    l.agentCtx.Source,
+			SandboxID: l.agentCtx.SandboxID,
+			Command:   fmt.Sprintf("tool=%s args=%s", call.Name, string(call.Arguments)),
+		}
+		auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)
+		if len(auditLogs) > 0 {
+			if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
+				slog.Warn("failed to write tool audit logs", "error", err)
+			}
+		}
+		if auditResult.Decision != security.DecisionAllowed {
+			l.completeToolCall(ctx, call, &ToolResult{
+				Success: false,
+				Error:   fmt.Sprintf("tool blocked by security review: %s", auditResult.Reason),
+			}, toolStartedAt)
+			return
+		}
+	}
+
+	toolResult, err := l.registry.Execute(ctx, call.Name, call.Arguments)
+	if err != nil {
+		toolResult = &ToolResult{Success: false, Error: err.Error()}
+	}
+	l.completeToolCall(ctx, call, toolResult, toolStartedAt)
+}
+
 // LLMResponse represents the parsed LLM response.
+//
+// ToolCall holds the first tool call (the loop executes one tool per
+// turn). ToolCalls holds ALL tool calls the model emitted, preserved
+// verbatim into the assistant message so the conversation history
+// faithfully records the model's intent. Storing only the executed call
+// would silently rewrite history when the model requests parallel
+// calls — the next turn would show the model "asked for 1 tool" when
+// it actually asked for N, confusing it. ToolCalls may be longer than
+// the calls actually executed; the role=tool result pairs up with the
+// first entry only.
 type LLMResponse struct {
-	Content  string
-	ToolCall *ToolCall
+	Content   string
+	ToolCall  *ToolCall  // first call, for legacy single-tool execution
+	ToolCalls []ToolCall // all calls, for faithful history storage
 }
 
 // callLLM sends a request to the LLM via ClawLess proxy.
+//
+// It converts the loop's Message history to clawless.Message while
+// preserving tool_calls (role=assistant) and tool_call_id (role=tool),
+// and forwards the registry's tool definitions so the upstream provider
+// can perform native OpenAI-style tool calling rather than relying on
+// prompt-based translation. See P9 in the reliability audit.
 func (l *AgentLoop) callLLM(ctx context.Context, systemPrompt string, messages []Message) (*LLMResponse, error) {
+	return l.callLLMWithTools(ctx, systemPrompt, messages, true)
+}
+
+// callLLMWithTools is the parameterized core. withTools=false omits the
+// tools field from the upstream request — used by generateCompactionSummary,
+// which wants a plain text summary, NOT a tool call. Sending tools to a
+// summary request can make the model try to invoke a tool instead of
+// summarizing, breaking compaction.
+func (l *AgentLoop) callLLMWithTools(ctx context.Context, systemPrompt string, messages []Message, withTools bool) (*LLMResponse, error) {
 	// Build messages with system prompt
 	allMessages := make([]Message, 0, len(messages)+1)
 	allMessages = append(allMessages, Message{Role: "system", Content: systemPrompt})
 	allMessages = append(allMessages, messages...)
 
-	// Convert messages to clawless.Message
-	clawlessMsgs := make([]clawless.Message, len(allMessages))
-	for i, m := range allMessages {
-		clawlessMsgs[i] = clawless.Message{Role: m.Role, Content: m.Content}
-	}
+	// Convert messages to clawless.Message, preserving tool-calling fields.
+	clawlessMsgs := buildProxyMessages(allMessages)
 
 	req := clawless.LLMProxyRequest{
 		Model:    l.llmModel,
 		Messages: clawlessMsgs,
 		Stream:   false,
+	}
+
+	// Forward tool definitions for native tool calling — but ONLY when the
+	// caller wants them (the main loop does; the compaction summary does
+	// not). We normalize each tool's Parameters (any) to a JSON-Schema-ish
+	// map so providers that require a schema (OpenAI) accept the request.
+	if withTools {
+		if defs := l.registry.Definitions(); len(defs) > 0 {
+			tools := make([]clawless.ToolDef, 0, len(defs))
+			for _, def := range defs {
+				params := normalizeToolParams(def.Parameters)
+				tools = append(tools, clawless.ToolDef{
+					Type: "function",
+					Function: clawless.ToolDefFunction{
+						Name:        def.Name,
+						Description: def.Description,
+						Parameters:  params,
+					},
+				})
+			}
+			req.Tools = tools
+		}
 	}
 
 	// Call ClawLess LLM proxy
@@ -250,11 +349,26 @@ func (l *AgentLoop) callLLM(ctx context.Context, systemPrompt string, messages [
 	resp := &LLMResponse{Content: msg.Content}
 
 	if len(msg.ToolCalls) > 0 {
-		tc := msg.ToolCalls[0]
+		// Parse ALL tool calls the model emitted so the assistant message
+		// can faithfully record them (see LLMResponse docs). The loop
+		// still executes only the first per turn — ToolCall points at it
+		// for the single-tool execution path, ToolCalls carries the rest
+		// for history fidelity.
+		tcs := make([]ToolCall, len(msg.ToolCalls))
+		for i, tc := range msg.ToolCalls {
+			tcs[i] = ToolCall{
+				ID:        tc.ID,
+				Name:      tc.Function.Name,
+				Arguments: json.RawMessage(tc.Function.Arguments),
+			}
+		}
+		resp.ToolCalls = tcs
+		// Backward-compat: ToolCall is the first one (what the loop executes).
+		first := msg.ToolCalls[0]
 		resp.ToolCall = &ToolCall{
-			ID:        tc.ID,
-			Name:      tc.Function.Name,
-			Arguments: json.RawMessage(tc.Function.Arguments),
+			ID:        first.ID,
+			Name:      first.Function.Name,
+			Arguments: json.RawMessage(first.Function.Arguments),
 		}
 	}
 
@@ -269,7 +383,14 @@ func (l *AgentLoop) buildSystemPrompt() string {
 	sb.WriteString("\n\n")
 	sb.WriteString(l.agentCtx.BuildSystemPromptContext())
 
-	// Tool definitions
+	// Tool definitions as plain text in the system prompt. NOTE: since P9
+	// we ALSO forward the full JSON-Schema tools via LLMProxyRequest.Tools
+	// for native tool calling. The two paths are complementary, not
+	// redundant: the text list is a low-token overview the model can refer
+	// to regardless of whether the upstream provider injects the tool
+	// schemas into its own prompt (OpenAI does; some proxy shims don't).
+	// Keeping this list means tool calling still works even if a future
+	// provider config silently drops the Tools field.
 	sb.WriteString("\n## 可用工具\n")
 	for _, def := range l.registry.Definitions() {
 		sb.WriteString(fmt.Sprintf("- %s: %s\n", def.Name, def.Description))
@@ -336,6 +457,15 @@ func (l *AgentLoop) compactContext(ctx context.Context) error {
 			compacted = append(compacted, l.messages[i])
 		}
 	}
+
+	// P9: drop any leading role=tool messages in the kept tail that
+	// have no preceding assistant tool_call to pair with. Compaction's
+	// keep-N slice can split an assistant(tool_calls) → tool(tool_call_id)
+	// pair, leaving an orphan tool result; feeding that to the provider
+	// re-introduces the exact protocol violation P9 fixed (OpenAI 400s on
+	// missing tool_call_id pairing). Drop leading tool messages whose
+	// ToolCallID isn't referenced by any earlier kept assistant tool_call.
+	compacted = dropOrphanToolResults(compacted)
 
 	l.messages = compacted
 	l.agentCtx.TaskState.CompactionCount++
@@ -454,7 +584,11 @@ func (l *AgentLoop) generateCompactionSummary(ctx context.Context) (string, erro
 	summaryMessages = append(summaryMessages, summaryReq)
 
 	l.messages = summaryMessages
-	resp, err := l.callLLM(ctx, l.buildSystemPrompt(), l.messages)
+	// withTools=false: a compaction summary must NOT advertise tools —
+	// otherwise the model may emit a tool_call instead of summarizing,
+	// breaking the compaction (the result would be treated as a summary
+	// string and the loop would lose the actual tool-call attempt).
+	resp, err := l.callLLMWithTools(ctx, l.buildSystemPrompt(), l.messages, false)
 	l.messages = origMessages // restore
 
 	if err != nil {
@@ -462,4 +596,97 @@ func (l *AgentLoop) generateCompactionSummary(ctx context.Context) (string, erro
 	}
 
 	return resp.Content, nil
+}
+
+// normalizeToolParams converts a ToolDefinition.Parameters (typed as
+// `any` but expected to be a JSON-Schema object) into the
+// map[string]any shape clawless.ToolDefFunction requires. nil/non-map
+// values fall back to a permissive empty object schema so the upstream
+// provider still accepts the tool declaration.
+func normalizeToolParams(p any) map[string]any {
+	if p == nil {
+		return map[string]any{
+			"type":                 "object",
+			"properties":           map[string]any{},
+			"additionalProperties": true,
+		}
+	}
+	if m, ok := p.(map[string]any); ok {
+		return m
+	}
+	return map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{},
+		"additionalProperties": true,
+	}
+}
+
+// dropOrphanToolResults removes any role=tool messages whose
+// ToolCallID has no preceding assistant tool_call to pair with.
+// compactContext's keep-N slice can split an assistant(tool_calls) →
+// tool(tool_call_id) pair across the cut, leaving an orphan tool result
+// in the kept tail. Feeding that to the provider re-introduces the
+// exact protocol violation P9 fixed (OpenAI 400 "tool message without
+// prior tool_call").
+//
+// IMPORTANT: we FILTER (drop only the orphan tool rows) rather than
+// truncate the prefix. An earlier draft did msgs[firstKept:] which
+// silently discarded leading system messages and the compaction summary
+// — catastrophic because system messages carry the safety prompt and
+// tool list. We scan the whole list: any role=tool row whose ToolCallID
+// isn't backed by an assistant tool_call we've already seen (anywhere
+// earlier in the list) gets dropped; everything else (system, summary,
+// user, assistant, paired tool) stays in order.
+func dropOrphanToolResults(msgs []Message) []Message {
+	// First pass: collect every assistant tool_call ID present in the
+	// kept window. A tool result is orphan iff its caller was dropped.
+	seen := make(map[string]bool, len(msgs))
+	for _, m := range msgs {
+		if m.Role == "assistant" {
+			for _, tc := range m.ToolCalls {
+				seen[tc.ID] = true
+			}
+		}
+	}
+	out := make([]Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == "tool" && !seen[m.ToolCallID] {
+			continue // orphan: drop, keep everything else
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// buildProxyMessages converts the loop's internal Message history into
+// the clawless.Message wire shape, preserving the tool-calling fields
+// (role=assistant → tool_calls, role=tool → tool_call_id) required by
+// the OpenAI/Anthropic/Gemini tool-calling protocol. Extracted from
+// callLLM so the pairing invariants can be unit-tested without an LLM.
+func buildProxyMessages(msgs []Message) []clawless.Message {
+	out := make([]clawless.Message, len(msgs))
+	for i, m := range msgs {
+		cm := clawless.Message{
+			Role:       m.Role,
+			Content:    m.Content,
+			ToolCallID: m.ToolCallID,
+			Name:       m.Name,
+		}
+		if len(m.ToolCalls) > 0 {
+			tcs := make([]clawless.ToolCall, len(m.ToolCalls))
+			for j, tc := range m.ToolCalls {
+				tcs[j] = clawless.ToolCall{
+					ID:   tc.ID,
+					Type: "function",
+					Function: clawless.ToolCallFunction{
+						Name:      tc.Name,
+						Arguments: string(tc.Arguments),
+					},
+				}
+			}
+			cm.ToolCalls = tcs
+		}
+		out[i] = cm
+	}
+	return out
 }

@@ -55,15 +55,70 @@ export interface Task {
   updated_at: string;
 }
 
-// Source: subpackage/agentd/internal/clawless/types.go:52-56
+// Source: subpackage/agentd/internal/clawless/types.go:96-107
 /**
- * One chat message in a session transcript.
+ * One chat message in a session transcript. Carries the full OpenAI
+ * tool-calling protocol: assistant turns may include tool_calls (the
+ * model's request to invoke tools), and tool turns must reference the
+ * originating tool_call via tool_call_id. Without these fields the
+ * conversation history cannot pair a tool result with its call, which
+ * breaks multi-turn tool calling on any spec-compliant provider.
  */
 export interface Message {
   role: string;
   content: string;
+  /** Present on role="assistant" turns where the model requested tools. */
+  tool_calls?: ToolCall[];
+  /** Present on role="tool" turns; matches the assistant tool_call.id. */
+  tool_call_id?: string;
+  /** Optional tool name on role="tool" turns. */
+  name?: string;
   /** ISO8601 timestamp. */
   time: string;
+}
+
+// Source: subpackage/agentd/internal/clawless/types.go:56-61
+/**
+ * A single tool invocation request as emitted by the model on an
+ * assistant turn. Mirrors the OpenAI function/tool-calling shape.
+ */
+export interface ToolCall {
+  id: string;
+  /** "function" (the only type today). */
+  type?: string;
+  function: ToolCallFunction;
+}
+
+// Source: subpackage/agentd/internal/clawless/types.go:63-68
+/**
+ * The function part of a tool call.
+ */
+export interface ToolCallFunction {
+  name: string;
+  /** Raw JSON string of arguments per the OpenAI spec (NOT a parsed object). */
+  arguments: string;
+}
+
+// Source: subpackage/agentd/internal/clawless/types.go:71-75
+/**
+ * A tool definition advertised to the model for native tool calling.
+ * Mirrors the OpenAI tools field shape. Used in LLM proxy requests.
+ */
+export interface ToolDef {
+  /** "function". */
+  type: string;
+  function: ToolDefFunction;
+}
+
+// Source: subpackage/agentd/internal/clawless/types.go:77-81
+/**
+ * The function declaration of a tool.
+ */
+export interface ToolDefFunction {
+  name: string;
+  description: string;
+  /** JSON-Schema-ish parameter declaration. */
+  parameters: Record<string, unknown>;
 }
 
 // Source: subpackage/agentd/internal/clawless/types.go:59-62

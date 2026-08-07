@@ -91,11 +91,21 @@ type Sandbox struct {
 }
 
 // ExecResult is the result of a sandbox command execution.
+//
+// Err, when non-nil, carries a categorized error (see errors.go):
+// ErrSandboxNotFound / ErrCommandTimeout / ErrExecBinaryMissing /
+// ErrNonZeroExit. It lets callers that need to distinguish failure
+// modes branch on cause WITHOUT breaking the legacy (result, nil)
+// return contract that ~30 callers depend on. Providers populate both
+// ExitCode/Stdout/Stderr AND Err so callers can pick which to inspect.
 type ExecResult struct {
 	Stdout   string
 	Stderr   string
 	ExitCode int
 	Duration time.Duration
+	// Err is the categorized cause of failure, or nil on success. It is
+	// set only when the command did NOT succeed; on ExitCode==0 it is nil.
+	Err error
 }
 
 // Manager manages sandbox providers and lifecycle.

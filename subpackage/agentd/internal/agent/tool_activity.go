@@ -36,8 +36,10 @@ func (l *AgentLoop) completeToolCall(ctx context.Context, call *ToolCall, result
 	}
 
 	l.messages = append(l.messages, Message{
-		Role:    "tool",
-		Content: string(resultJSON),
+		Role:       "tool",
+		Content:    string(resultJSON),
+		ToolCallID: call.ID, // pair this result with the assistant's tool_call (P9)
+		Name:       call.Name,
 	})
 
 	// Auto-checkpoint after mutating tools.
@@ -58,10 +60,12 @@ func (l *AgentLoop) completeToolCall(ctx context.Context, call *ToolCall, result
 				case errors.Is(cpErr, ErrGitUnavailableInContainer):
 					// Common in minimal images (alpine/ubuntu base). Log once
 					// per loop at warn level so it's visible without spamming.
-					if !l.warnedGitMissing {
-						l.warnedGitMissing = true
-						slog.Warn("auto-checkpoint disabled: sandbox image has no git", "sandbox_type", ref.Type, "sandbox_id", ref.ID)
+					// CompareAndSwap makes the "log once" check atomic against
+					// concurrent checkpoint goroutines from other write/exec calls.
+					if !l.warnedGitMissing.CompareAndSwap(false, true) {
+						return
 					}
+					slog.Warn("auto-checkpoint disabled: sandbox image has no git", "sandbox_type", ref.Type, "sandbox_id", ref.ID)
 				default:
 					slog.Debug("auto-checkpoint failed", "error", cpErr)
 				}

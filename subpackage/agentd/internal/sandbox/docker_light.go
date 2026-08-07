@@ -4,7 +4,9 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
@@ -198,30 +200,50 @@ func (p *DockerLightProvider) Exec(sandboxID, cmd string, env map[string]string,
 	dockerArgs = append(dockerArgs, sb.Path, "sh", "-c", cmd)
 
 	var execCmd *exec.Cmd
+	ctx := context.Background()
 	if timeout > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 		defer cancel()
 		execCmd = dockerCommandContext(ctx, p.socket, dockerArgs...)
 	} else {
 		execCmd = dockerCommand(p.socket, dockerArgs...)
 	}
 
+	// P8: capture stdout/stderr separately (see LXCPersistentProvider.Exec
+	// for the full rationale).
+	var stdoutBuf, stderrBuf bytes.Buffer
+	execCmd.Stdout = &stdoutBuf
+	execCmd.Stderr = &stderrBuf
+
 	start := time.Now()
-	output, err := execCmd.CombinedOutput()
+	err := execCmd.Run()
 	duration := time.Since(start)
 
 	result := &ExecResult{
-		Stdout:   string(output),
+		Stdout:   stdoutBuf.String(),
+		Stderr:   stderrBuf.String(),
 		Duration: duration,
 	}
 
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		// P8: timeout check FIRST — see DockerProvider.Exec for rationale
+		// (SIGKILL-on-deadline surfaces as ExitError).
+		if ctx.Err() == context.DeadlineExceeded {
+			result.ExitCode = -1
+			result.Err = fmt.Errorf("%w: %v", ErrCommandTimeout, err)
+			return result, nil
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
+			result.Err = classifyNonZeroExit(result.Stderr, exitErr.ExitCode(), err)
 		} else {
 			result.ExitCode = -1
+			result.Err = classifyExecError(ctx, err)
+			if result.Err == nil {
+				result.Err = err
+			}
 		}
-		result.Stderr = string(output)
 	}
 
 	return result, nil

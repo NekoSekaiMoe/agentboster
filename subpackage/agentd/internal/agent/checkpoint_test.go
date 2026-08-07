@@ -345,3 +345,44 @@ func TestCheckpoint_RestoreRefusesOutsideRoot(t *testing.T) {
 		t.Fatalf("expected 'outside allowed roots' error, got %v", err)
 	}
 }
+
+// TestCreateCheckpoint_RejectsBadDescription closes the CodeQL "Command
+// built from user-controlled sources" finding on checkpoint.go:273.
+// `description` flows into a git commit -m argument; while exec.Command
+// forwards argv verbatim (no shell), we still validate it defensively
+// so a future caller passing less-trusted input cannot smuggle git/git
+// log metacharacters (newlines, quotes, leading --) into the commit
+// message. Each of these must be rejected.
+func TestCreateCheckpoint_RejectsBadDescription(t *testing.T) {
+	sb := withSandboxRoot(t, "sb-12345678")
+	const goodSession = "abcdefgh-session"
+	for _, desc := range []string{
+		"",                      // empty
+		"has\nnewline",          // newline could split the commit msg
+		"has;semicolon",         // unexpected punctuation
+		`has"quote`,             // quote
+		"-leading-dash",         // looks like a flag to some parsers
+		strings.Repeat("a", 81), // too long
+		"bad\ttabs",             // control char
+	} {
+		if _, err := CreateCheckpoint(hostRef(sb), nil, goodSession, desc); err == nil {
+			t.Errorf("expected rejection for description %q, got nil", desc)
+		}
+	}
+}
+
+// TestCreateCheckpoint_AcceptsValidDescription confirms the happy path
+// still works after the description validation was added — tool names
+// like "write"/"edit"/"exec"/"git_push" and short phrases must pass.
+func TestCreateCheckpoint_AcceptsValidDescription(t *testing.T) {
+	sb := withSandboxRoot(t, "sb-12345678")
+	const goodSession = "abcdefgh-session"
+	for _, desc := range []string{
+		"write", "edit", "patch", "exec", "exec_batch", "git_push",
+		"manual snapshot", "before refactor", "v1.2.3", "src/main.go edit",
+	} {
+		if _, err := CreateCheckpoint(hostRef(sb), nil, goodSession, desc); err != nil {
+			t.Errorf("expected acceptance of description %q, got error: %v", desc, err)
+		}
+	}
+}

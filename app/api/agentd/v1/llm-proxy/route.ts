@@ -7,7 +7,7 @@ const logger = createLogger('api.agentd.llm-proxy');
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { model, messages, stream } = body;
+    const { model, messages, tools, tool_choice, stream } = body;
 
     // Get AI provider config from app config
     const providerUrl =
@@ -22,19 +22,39 @@ export async function POST(request: Request) {
       );
     }
 
+    // Build the upstream request body. We forward `messages` verbatim
+    // (including tool_calls / tool_call_id on the messages, which agentd
+    // now produces for protocol-correct multi-turn tool calling) and
+    // forward `tools` when the daemon supplied native tool definitions.
+    // Previously this proxy dropped both fields, which silently broke
+    // multi-turn tool calling on any spec-compliant provider — the
+    // upstream API rejected the orphan tool_result (no matching
+    // assistant tool_call) with HTTP 400.
+    const upstreamBody: Record<string, unknown> = {
+      model: model ?? process.env.AI_MODEL ?? 'gpt-4o-mini',
+      messages,
+      stream: stream ?? false,
+      temperature: 0.1,
+      max_tokens: 4096,
+    };
+    if (Array.isArray(tools) && tools.length > 0) {
+      upstreamBody.tools = tools;
+    }
+    // Forward tool_choice when present so callers can constrain the
+    // model's tool-use behavior (e.g. disable parallel calls). Verbatim
+    // passthrough — the value is provider-specific ("auto"/"none"/
+    // "required"/{"type":"function",...}).
+    if (tool_choice !== undefined) {
+      upstreamBody.tool_choice = tool_choice;
+    }
+
     const response = await fetch(providerUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${providerKey}`,
       },
-      body: JSON.stringify({
-        model: model ?? process.env.AI_MODEL ?? 'gpt-4o-mini',
-        messages,
-        stream: stream ?? false,
-        temperature: 0.1,
-        max_tokens: 4096,
-      }),
+      body: JSON.stringify(upstreamBody),
     });
 
     if (!response.ok) {

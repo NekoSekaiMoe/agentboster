@@ -48,11 +48,58 @@ type Session struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ToolCall represents a tool invocation request from the LLM, in the
+// OpenAI function/tool-calling wire shape. An assistant message may
+// carry zero or more of these (parallel tool calls). The ID is what a
+// subsequent role="tool" message must reference via ToolCallID so the
+// provider can pair each tool result with its originating call.
+type ToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type,omitempty"`            // "function" (default)
+	Function ToolCallFunction `json:"function"`
+}
+
+// ToolCallFunction is the function part of a tool call.
+type ToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"` // raw JSON string per OpenAI spec
+}
+
+// ToolDef defines a tool the model may call, in OpenAI wire shape.
+// Used by LLMProxyRequest.Tools so the upstream provider can perform
+// native tool calling instead of relying on prompt-based translation.
+type ToolDef struct {
+	Type     string             `json:"type"` // "function"
+	Function ToolDefFunction    `json:"function"`
+}
+
+// ToolDefFunction is the function declaration of a tool.
+type ToolDefFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"` // JSON-Schema-ish
+}
+
 // Message represents a chat message.
+//
+// This mirrors the OpenAI chat-completions message shape so the agent
+// loop can carry a fully protocol-correct tool-calling conversation:
+//
+//   - role="assistant" messages may carry ToolCalls (the model's
+//     request to invoke one or more tools).
+//   - role="tool" messages must carry ToolCallID linking the result
+//     back to the assistant's ToolCall.ID.
+//
+// Without these fields the conversation history loses the tool-call
+// → tool-result pairing, which breaks multi-turn tool calling on any
+// provider that follows the OpenAI spec (OpenAI/Anthropic/Gemini).
 type Message struct {
-	Role    string    `json:"role"`
-	Content string    `json:"content"`
-	Time    time.Time `json:"time"`
+	Role       string      `json:"role"`
+	Content    string      `json:"content"`
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`  // role=assistant
+	ToolCallID string      `json:"tool_call_id,omitempty"` // role=tool
+	Name       string      `json:"name,omitempty"`         // optional tool name (role=tool)
+	Time       time.Time   `json:"time"`
 }
 
 // KeyFact represents a structured fact extracted from a session.
@@ -197,11 +244,29 @@ type L0Rule struct {
 }
 
 // LLMProxyRequest represents a request to the LLM proxy.
+//
+// Tools carries the OpenAI-style tool definitions so the upstream
+// provider can do native tool calling. The previous shape omitted it
+// entirely, which forced the system prompt to list tools as plain text
+// and required a custom backend to translate prompt-emitted calls back
+// into the tool_calls response field — a coupling that silently broke
+// multi-turn tool calling on any spec-compliant provider. A nil/empty
+// Tools slice preserves legacy prompt-based behavior.
+//
+// ToolChoice is the OpenAI tool_choice field, passed through verbatim
+// (interface{} so any provider-specific shape can be carried: "auto",
+// "none", "required", or {"type":"function","function":{"name":...}}).
+// agentd leaves it empty by default (→ provider default "auto"); callers
+// that cannot execute parallel tool_calls should constrain it to avoid
+// the protocol violation where an assistant tool_calls array has entries
+// with no matching tool results (OpenAI 400s in that case).
 type LLMProxyRequest struct {
-	Model    string         `json:"model"`
-	Messages []Message      `json:"messages"`
-	Stream   bool           `json:"stream"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Model      string         `json:"model"`
+	Messages   []Message      `json:"messages"`
+	Tools      []ToolDef      `json:"tools,omitempty"`
+	ToolChoice any            `json:"tool_choice,omitempty"`
+	Stream     bool           `json:"stream"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 // HealthResponse represents the health check response.

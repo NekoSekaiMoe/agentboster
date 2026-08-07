@@ -67,10 +67,12 @@ const (
 )
 
 // readySet tracks sandboxes whose desktop stack has been verified up
-// at least once in this daemon process. Cleared by markNotReady on
-// health-probe failure. Mirrors browser.readySet.
+// at least once in this daemon process. The value is a generation
+// counter (bumped on every markReady) so the watchdog can detect stale
+// probes (see generationFor / markNotReadyIfStale). Cleared by
+// markNotReady on health-probe failure. Mirrors browser.readySet.
 var (
-	readySet   = make(map[string]bool)
+	readySet   = make(map[string]int)
 	readySetMu sync.RWMutex
 
 	// lastActivity tracks the last time a desktop_* tool touched each
@@ -147,12 +149,78 @@ func idleReaperLoop(getManager func() *sandbox.Manager) {
 		case <-idleReaperStop:
 			return
 		case <-ticker.C:
-			reapIdleStacks(getManager())
+			sbMgr := getManager()
+			reapIdleStacks(sbMgr)
+			// Watchdog duty (P1): for each sandbox still WITHIN the idle
+			// threshold (i.e. an active desktop the user may be looking
+			// at), probe the stack and invalidate the ready cache on
+			// failure. We do NOT rebuild here — that would race with
+			// EnsureDesktop on the next desktop_* call. Marking not-ready
+			// is enough: the next call rebuilds cleanly, and until then
+			// we avoid the false-"ready" state that left users staring
+			// at a black screen after a silent crash.
+			probeActiveStacks(sbMgr)
 		}
 	}
 }
 
-// reapIdleStacks pkill's the desktop stack (Xvfb/x11vnc/websockify/
+// probeActiveStacks is the watchdog half of idleReaperLoop (P1). For
+// every sandbox with recent activity (i.e. within idleReaperThreshold —
+// the same set reapIdleStacks leaves alone), it runs probeHealth and,
+// on failure, marks the sandbox not-ready and warns. This catches
+// crashes (x11vnc/websockify/Xvfb dying while the agent runs non-
+// desktop tools) that the previous model could only notice on the next
+// desktop_* call — by which time the user has been looking at a dead
+// desktop for up to idleReaperInterval.
+func probeActiveStacks(sbMgr *sandbox.Manager) {
+	if sbMgr == nil {
+		return
+	}
+	now := time.Now()
+	threshold := idleReaperThreshold
+	lastActivityMu.Lock()
+	active := make([]string, 0)
+	for id, t := range lastActivity {
+		if now.Sub(t) < threshold {
+			active = append(active, id)
+		}
+	}
+	lastActivityMu.Unlock()
+
+	for _, id := range active {
+		// Only probe sandboxes we currently believe are ready — probing
+		// a not-ready sandbox would just repeat EnsureDesktop's work.
+		if !isReady(id) {
+			continue
+		}
+		// Capture the ready-generation BEFORE probing. EnsureDesktop's
+		// rebuild path calls markReady (which bumps the generation), so if
+		// gen moved by the time our probe finishes, the sandbox has already
+		// been refreshed and we must NOT clear it (that would undo a fresh
+		// rebuild based on stale data).
+		genAtProbeStart := generationFor(id)
+		healthy, err := probeHealth(sbMgr, id)
+		if err != nil {
+			// Probe exec itself failed (sandbox gone, exec error). Don't
+			// spam — debug level. Leave readySet as-is; EnsureDesktop will
+			// re-evaluate on next call.
+			slog.Debug("desktop watchdog: health probe errored",
+				"sandbox", id, "error", err)
+			continue
+		}
+		if !healthy {
+			if markNotReadyIfStale(id, genAtProbeStart) {
+				slog.Warn("desktop watchdog: stack unhealthy, marked for rebuild",
+					"sandbox", id)
+			} else {
+				slog.Debug("desktop watchdog: stale probe discarded (sandbox rebuilt during probe)",
+					"sandbox", id)
+			}
+		}
+	}
+}
+
+// reapIdleStacks tears down the desktop stack (Xvfb/x11vnc/websockify/
 // icewm/D-Bus) in any sandbox whose last desktop_* activity exceeds
 // idleReaperThreshold. The stack is restarted on demand by the next
 // EnsureDesktop call, so this is purely a memory-saving measure —
@@ -173,17 +241,14 @@ func reapIdleStacks(sbMgr *sandbox.Manager) {
 	lastActivityMu.Unlock()
 
 	for _, id := range idle {
-		// Same cleanup startStack does on launch: kill by name, then
-		// clear lock files so a later Xvfb start isn't blocked.
-		script := fmt.Sprintf(
-			`pkill -f "Xvfb %s" 2>/dev/null; pkill -f "x11vnc.*%s" 2>/dev/null; pkill -f "websockify.*%d" 2>/dev/null; pkill -f "icewm" 2>/dev/null; pkill -f "at-spi-bus-launcher" 2>/dev/null; pkill -f "dbus-launch" 2>/dev/null; rm -f /tmp/.X%d-lock /tmp/.X11-unix/X%d 2>/dev/null; rm -f %s/*.pid 2>/dev/null; true`,
-			defaultDisplay, defaultDisplay, defaultWebPort, 99, 99, pidDir,
-		)
-		if _, err := runScriptRaw(sbMgr, id, script, 15); err != nil {
-			slog.Debug("desktop idle reaper: cleanup failed (will retry next tick)",
-				"sandbox", id, "error", err)
-			continue
+		// Kill the tracked daemons by PID file (precise — P3) rather than
+		// pkill -f. Only at-spi-bus-launcher + dbus-launch still use pkill
+		// -f: they have no pidfile in pidDir, they are a11y-only, and a
+		// lingering instance does not block a restart.
+		for _, name := range []string{"xvfb", "x11vnc", "websockify", "icewm"} {
+			_ = killByPidfileAndWait(sbMgr, id, name, 10, 3)
 		}
+		_, _ = runScriptRaw(sbMgr, id, fmt.Sprintf(`pkill -f "at-spi-bus-launcher" 2>/dev/null; pkill -f "dbus-launch" 2>/dev/null; rm -f /tmp/.X%d-lock /tmp/.X11-unix/X%d 2>/dev/null; rm -f %s/*.pid 2>/dev/null; true`, 99, 99, pidDir), 15)
 		markNotReady(id)
 		clearActivity(id)
 		slog.Info("desktop idle reaper: tore down idle stack",
@@ -194,19 +259,47 @@ func reapIdleStacks(sbMgr *sandbox.Manager) {
 func isReady(sandboxID string) bool {
 	readySetMu.RLock()
 	defer readySetMu.RUnlock()
-	return readySet[sandboxID]
+	return readySet[sandboxID] > 0
 }
 
 func markReady(sandboxID string) {
 	readySetMu.Lock()
 	defer readySetMu.Unlock()
-	readySet[sandboxID] = true
+	// Generation bumps on every (re)mark so the watchdog can detect a
+	// stale probe: it captures gen before probing, and only applies the
+	// not-ready result if gen is unchanged (EnsureDesktop's rebuild would
+	// have bumped gen via markReady, invalidating the stale probe).
+	readySet[sandboxID]++
 }
 
 func markNotReady(sandboxID string) {
 	readySetMu.Lock()
 	defer readySetMu.Unlock()
 	delete(readySet, sandboxID)
+}
+
+// generationFor returns the current ready-generation for a sandbox
+// (0 when not ready). The watchdog uses it to implement compare-and-swap:
+// capture gen → probe → only markNotReady if gen hasn't moved. This
+// prevents a slow probe from clearing a ready entry that EnsureDesktop
+// has since refreshed via a full rebuild (markReady bumps gen).
+func generationFor(sandboxID string) int {
+	readySetMu.RLock()
+	defer readySetMu.RUnlock()
+	return readySet[sandboxID]
+}
+
+// markNotReadyIfStale clears the ready entry ONLY if the generation
+// still matches genAtProbeStart. Returns true if the clear happened.
+// Used by the watchdog to avoid clobbering a fresher ready entry.
+func markNotReadyIfStale(sandboxID string, genAtProbeStart int) bool {
+	readySetMu.Lock()
+	defer readySetMu.Unlock()
+	if readySet[sandboxID] != genAtProbeStart {
+		return false // gen moved — a rebuild already refreshed this entry
+	}
+	delete(readySet, sandboxID)
+	return true
 }
 
 // ExecFunc mirrors browser.ExecFunc: tests substitute a stub to avoid
@@ -226,6 +319,151 @@ func callExec(sbMgr *sandbox.Manager, sandboxID, cmd string, env map[string]stri
 func runScript(sbMgr *sandbox.Manager, sandboxID, script string, timeoutSec int) error {
 	_, err := runScriptRaw(sbMgr, sandboxID, script, timeoutSec)
 	return err
+}
+
+// killByPidfile reads the pidfile for `name` (under pidDir, e.g.
+// pidDir/xvfb.pid) and sends SIGTERM to the PID it contains. Returns
+// nil when the pidfile is missing or empty (nothing to kill). This is
+// the precise, race-free cleanup path that replaces the old `pkill -f`
+// fuzzy match (P3): pkill -f "x11vnc.*:99" could match ANY process whose
+// command line contains that substring, and was a no-op on Alpine where
+// pkill was never installed (P0). Killing by the recorded PID is always
+// safe: the PID was captured by this stack at start time and lives
+// under our state dir.
+//
+// All failures are best-effort and swallowed — a kill failure must not
+// abort startStack. The stale-pidfile-clear in startStack keeps the
+// PID file from drifting onto an unrelated process.
+func killByPidfile(sbMgr *sandbox.Manager, sandboxID, name string, timeout int) error {
+	pidFile := fmt.Sprintf("%s/%s.pid", pidDir, name)
+	script := killByPidfileScript(pidFile, name)
+	_, err := runScriptRaw(sbMgr, sandboxID, script, timeout)
+	return err
+}
+
+// killByPidfileAndWait is the wait-aware variant used by the cleanup
+// paths (startStack stale-proc clear + reapIdleStacks teardown). It
+// sends SIGTERM (via killByPidfile), then polls /proc/<pid> to confirm
+// the daemon actually exited before the caller deletes the pidfile /
+// X11 locks. If the process is still alive after `waitSecs`, it sends
+// SIGKILL (also with cmdline identity validation, to avoid killing a
+// recycled PID). This closes the race where a daemon takes a moment to
+// shut down and the immediate `rm -f *.pid` would leave killByPidfile
+// unable to escalate from TERM to KILL later.
+func killByPidfileAndWait(sbMgr *sandbox.Manager, sandboxID, name string, termTimeout, waitSecs int) error {
+	pidFile := fmt.Sprintf("%s/%s.pid", pidDir, name)
+	daemonMatch := pidfileDaemonMatch(name)
+	// 1) SIGTERM with identity check (reuse killByPidfileScript).
+	if err := killByPidfile(sbMgr, sandboxID, name, termTimeout); err != nil {
+		return err // exec failed; can't even read pidfile
+	}
+	// 2) Poll for exit. Each iteration re-checks that the PID's cmdline
+	//    still matches the daemon (so a recycled PID — pointing at an
+	//    unrelated process — is never SIGKILLed).
+	deadline := time.Now().Add(time.Duration(waitSecs) * time.Second)
+	for time.Now().Before(deadline) {
+		gone, _ := runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(
+			`pid=$(cat %s 2>/dev/null); [ -z "$pid" ] && { echo gone; exit 0; }; `+
+				`case "$pid" in ""|*[!0-9]*) echo gone;; (*) `+
+				`if [ ! -d /proc/"$pid" ]; then echo gone; `+
+				`elif ! grep -qi %s /proc/"$pid"/cmdline 2>/dev/null; then echo gone; `+
+				`fi;; esac; true`,
+			pidFile, singleQuote(daemonMatch)), 5)
+		if strings.TrimSpace(gone) == "gone" {
+			return nil // daemon exited (or pidfile stale/recycled) — done
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	// 3) Still alive after waitSecs — SIGKILL (same identity check).
+	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(
+		`pid=$(cat %s 2>/dev/null); `+
+			`case "$pid" in ""|*[!0-9]*) : ;; (*) `+
+			`if [ -r /proc/"$pid"/cmdline ] && grep -qi %s /proc/"$pid"/cmdline 2>/dev/null; then `+
+			`kill -KILL "$pid" 2>/dev/null; `+
+			`fi;; `+
+			`esac; true`,
+		pidFile, singleQuote(daemonMatch)), 5)
+	return nil
+}
+
+// killByPidfileScript builds the cleanup shell snippet for a pidfile.
+// Extracted so tests can assert its shape + syntax without a sandbox.
+//
+// P3 hardening (PID-recycle guard): before signaling, verify the PID
+// still names the expected daemon. A classic pidfile race is: daemon
+// crashes → its PID is recycled by the kernel onto an unrelated process
+// → `kill $(cat pidfile)` sends TERM to that unrelated process. We
+// guard by checking /proc/$pid/cmdline contains the daemon name (e.g.
+// "Xvfb" for xvfb.pid). /proc is universally available on Linux and
+// this check is best-effort — if /proc is unavailable or the cmdline
+// check fails, we DO NOT kill (safer to leak a stale daemon than to
+// kill the wrong process).
+//
+// $pid is also validated to be purely numeric before use, defending
+// against a tampered pidfile (defensive; pidfiles are daemon-written).
+// The case statement uses POSIX pattern syntax with explicit leading
+// '(' before each branch group (e.g. `(...) ;; (*) ...`), which is
+// accepted by POSIX sh, dash, ash, AND bash — verified by
+// TestKillByPidfileScript_SyntaxAndGuards.
+func killByPidfileScript(pidFile, name string) string {
+	daemonMatch := pidfileDaemonMatch(name) // e.g. "Xvfb" for xvfb.pid
+	return fmt.Sprintf(
+		`pid=$(cat %s 2>/dev/null); `+
+			`case "$pid" in ""|*[!0-9]*) : ;; (*) `+
+			`if [ -r /proc/"$pid"/cmdline ] && grep -qi %s /proc/"$pid"/cmdline 2>/dev/null; then `+
+			`kill -TERM "$pid" 2>/dev/null; `+
+			`fi;; `+
+			`esac; true`,
+		pidFile, singleQuote(daemonMatch),
+	)
+}
+
+// pidfileDaemonMatch returns the substring that must appear in
+// /proc/<pid>/cmdline for the PID to be considered the daemon named by
+// the pidfile. Without this check, killByPidfile could signal an
+// unrelated process that inherited a recycled PID.
+func pidfileDaemonMatch(name string) string {
+	switch name {
+	case "xvfb":
+		return "Xvfb"
+	case "x11vnc":
+		return "x11vnc"
+	case "websockify":
+		return "websockify"
+	case "icewm":
+		return "icewm"
+	default:
+		// Unknown daemon: return the name itself so the cmdline identity
+		// check still requires a match. An earlier draft returned "" here,
+		// which made `grep -qi ""` match EVERY cmdline â silently
+		// disabling the PID-recycle guard for any future daemon name.
+		// Returning `name` keeps the guard effective even for daemons we
+		// haven't explicitly mapped; if a daemon's binary doesn't contain
+		// its pidfile name as a substring, killByPidfile refuses to signal
+		// (safer than the empty-match bypass).
+		return name
+	}
+}
+
+// requireSetsid verifies that setsid (from util-linux) is on PATH inside
+// the sandbox. setsid is how startStack detaches the desktop daemons so
+// they survive the sbMgr.Exec call returning (P6). util-linux is
+// Priority:required on debian and part of the alpine base image, so this
+// almost always succeeds — but when a truly minimal image omits it, we
+// want a single, LLM-actionable error up front rather than five opaque
+// "setsid: not found" failures from each daemon launch.
+func requireSetsid(sbMgr *sandbox.Manager, sandboxID string) error {
+	out, err := runScriptRaw(sbMgr, sandboxID, `command -v setsid >/dev/null 2>&1 && echo ok || echo missing`, 10)
+	if err != nil {
+		// Don't hard-fail on a probe error — the probe uses the same
+		// sbMgr.Exec path the daemons do; if Exec itself is broken we'll
+		// surface that at the first real launch. Treat as "present".
+		return nil
+	}
+	if strings.TrimSpace(out) != "ok" {
+		return fmt.Errorf("desktop: setsid not found in sandbox — install util-linux (alpine: util-linux, debian: util-linux, rhel: util-linux) and retry; setsid is required to detach the desktop daemons")
+	}
+	return nil
 }
 
 // runScriptRaw runs a shell script in the sandbox and returns trimmed
@@ -258,13 +496,22 @@ func RunScript(sbMgr *sandbox.Manager, sandboxID, script string, timeoutSec int)
 		if stderr == "" {
 			stderr = fmt.Sprintf("exit code %d", res.ExitCode)
 		}
+		// P8: when the provider classified the failure (timeout / binary
+		// missing / etc.), wrap it with %w so callers (probeHealth,
+		// EnsureDesktop) can use errors.Is/As on the categorized cause.
+		// An earlier draft did fmt.Sprintf("%v: %s", res.Err, stderr)
+		// which flattened the error into an opaque string, losing the
+		// sentinel (errors.Is(err, ErrCommandTimeout) would return false).
+		if res.Err != nil {
+			return stdout, fmt.Errorf("%w: %s", res.Err, stderr)
+		}
 		return stdout, fmt.Errorf("%s", stderr)
 	}
 	return strings.TrimSpace(res.Stdout), nil
 }
 
 // singleQuote wraps s in single quotes, escaping any embedded single
-// quotes via the standard '\'' idiom. Used to pass a multi-line script
+// quotes via the standard '\” idiom. Used to pass a multi-line script
 // to `sh -c` safely.
 func singleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
@@ -371,33 +618,138 @@ func ensureInstalled(sbMgr *sandbox.Manager, sandboxID string) error {
 	return nil
 }
 
-// probeHealth returns true if Xvfb is reachable on DISPLAY=:99.
-// `xdpyinfo -display :99` is the canonical probe; it succeeds only when
-// the X server is up and speaking the X11 protocol. We accept any
-// non-zero exit as "not ready" (including xdpyinfo itself missing, which
-// means the install step didn't complete — caller will install+retry).
+// probeHealth returns true iff the desktop stack is genuinely serving
+// users. It probes THREE independent layers, each using only tools that
+// are already guaranteed present (Xvfb-builtin xset, and the kernel's
+// /proc/net/tcp) — no xdpyinfo, no nc, no bashisms. This eliminates the
+// previous hard dependency on xorg-xdpyinfo, which silently broke the
+// entire stack on Alpine (and was missing on debian/rhel too).
+//
+// The layers, all of which must pass:
+//
+//  1. X server layer: `xset -display :99 q` succeeds only when the X
+//     server is up and speaking the X11 protocol. xset ships WITH
+//     xorg-server-xvfb / xvfb, so it's present by construction.
+//  2. x11vnc RFB layer: port 5999 (defaultRfbPort) is in LISTEN state
+//     per /proc/net/tcp. This is the port the noVNC client ultimately
+//     connects through (via the websockify bridge).
+//  3. websockify WS layer: port 6080 (defaultWebPort) is in LISTEN state
+//     per /proc/net/tcp. This is the browser-facing port.
+//
+// icewm is intentionally NOT probed here. icewm failure is a Warn-degrade
+// (P5): full-screen apps still render and screenshots still work, so a
+// WM crash must NOT force a full stack rebuild via probeHealth. Probing
+// icewm would make the WM a single point of failure for the whole stack.
+//
+// The /proc/net/tcp probe reads the kernel's socket table — 100%
+// portable across alpine/debian/rhel/arch and needs ZERO extra packages
+// (no netcat-openbsd, no bash). Any container with /proc (every Linux
+// container, including LXC and docker) has it.
 func probeHealth(sbMgr *sandbox.Manager, sandboxID string) (bool, error) {
-	cmd := fmt.Sprintf("command -v xdpyinfo >/dev/null 2>&1 && xdpyinfo -display %s >/dev/null 2>&1", defaultDisplay)
+	cmd := fmt.Sprintf(
+		"%s && %s && %s",
+		xprobeSnippet(defaultDisplay),
+		portListeningSnippet(defaultRfbPort),
+		portListeningSnippet(defaultWebPort),
+	)
 	res, err := callExec(sbMgr, sandboxID, fmt.Sprintf("sh -c %s", singleQuote(cmd)), nil, 10)
 	if err != nil || res == nil {
 		return false, err
 	}
+	// P8: distinguish an exec-infrastructure failure (timeout, binary
+	// missing, dead container) from a genuine "stack not up" result.
+	// The former should surface to the caller (EnsureDesktop can then
+	// decide whether to retry vs rebuild vs give up); the latter is a
+	// normal poll miss — return (false, nil) so EnsureDesktop's poll loop
+	// keeps waiting for the daemons to bind. Without this split, a
+	// sandbox-gone condition looked identical to "Xvfb still starting".
+	if res.ExitCode != 0 && res.Err != nil {
+		return false, res.Err
+	}
 	return res.ExitCode == 0, nil
 }
 
-// startStack launches the four daemons in order. Each is started with
-// nohup + & (detached) so the sandbox.Exec call returns immediately;
-// pids are written to pidfiles under pidDir for future health/cleanup.
+// xprobeSnippet returns a shell snippet that succeeds (exit 0) iff the
+// X server on `display` is up and responding to the X11 protocol. Uses
+// `xset` (ships with the Xvfb package itself) rather than xdpyinfo (a
+// separate package that is missing on Alpine / not installed on
+// debian/rhel by default). Shared between probeHealth (P2) and the
+// Xvfb-bind poll in startStack (P4).
+func xprobeSnippet(display string) string {
+	return fmt.Sprintf("xset -display %s q >/dev/null 2>&1", display)
+}
+
+// portListeningSnippet returns a shell snippet that succeeds (exit 0)
+// iff the given TCP port is in LISTEN state, as reported by the kernel
+// via /proc/net/tcp (+ /proc/net/tcp6 for IPv6). This needs ZERO extra
+// packages — no netcat, no bash /dev/tcp — and is portable across
+// alpine/debian/rhel/arch.
 //
-// We use nohup rather than setsid/tmux/openrc because the daemons only
-// need to outlive this single sbMgr.Exec call, not survive sandbox
-// restart — Xvfb crashes are recovered by EnsureDesktop's poll loop on
-// the next desktop_* call.
+// /proc/net/tcp is whitespace-separated with a header row. The fields
+// (1-indexed after the leading `N:` slot number) are:
+//
+//	$1 = slot (e.g. "0:"), $2 = local_address (HEX "IP:PORT"),
+//	$3 = rem_address, $4 = st (state; 0A = TCP_LISTEN).
+//
+// An earlier draft tried `grep ':PORT 0A '`, which NEVER matched: the
+// bytes immediately after `:PORT` are the rem_address field, not the
+// state field. We must parse by field, not by adjacent substring.
+// awk is universally available (POSIX), so we use it: $2 ends with the
+// port hex and $4 == "0A".
+//
+// Example: port 5999 → :176F, port 6080 → :17C0.
+//
+// We check BOTH /proc/net/tcp (IPv4) and /proc/net/tcp6 (IPv6) — a
+// daemon bound to :: (IPv6 dual-stack) only appears in tcp6. The awk
+// runs against the concatenation; `||` short-circuits on the first hit.
+func portListeningSnippet(port int) string {
+	hexPort := fmt.Sprintf("%04X", port)
+	// awk pattern: field $2 (local_address) ends with ":PORT" AND field $4
+	// (st) is exactly "0A". Exit 0 iff a row matches. We OR the exit
+	// statuses of the tcp and tcp6 lookups so a listener on either passes.
+	return fmt.Sprintf(
+		`awk '$2 ~ /:%s$/ && $4 == "0A" {f=1; exit} END{exit !f}' /proc/net/tcp 2>/dev/null || `+
+			`awk '$2 ~ /:%s$/ && $4 == "0A" {f=1; exit} END{exit !f}' /proc/net/tcp6 2>/dev/null`,
+		hexPort, hexPort,
+	)
+}
+
+// startStack launches the four daemons in order. Each is started with
+// setsid + & (detached into its own session) so the sandbox.Exec call
+// returns immediately; pids are written to pidfiles under pidDir for
+// future health/cleanup.
+//
+// We use setsid rather than nohup: setsid puts the daemon into a brand
+// new session/process-group, so the SIGHUP that lxc-attach/docker-exec
+// delivers when its one-shot `sh -c` parent exits CANNOT reach the
+// daemon. nohup merely installs a SIGHUP *handler* (ignore) on the
+// child, which is a weaker guarantee and depends on the child not
+// resetting the disposition. setsid comes from util-linux, which is
+// Priority:required on debian and part of the alpine base — universally
+// available, no package needed.
 func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	slog.Info("desktop: starting stack", "sandbox", sandboxID, "display", defaultDisplay)
 
-	// Kill any stale daemons first (best-effort).
-	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`pkill -f "Xvfb %s" 2>/dev/null; pkill -f "x11vnc.*%s" 2>/dev/null; pkill -f "websockify.*%d" 2>/dev/null; pkill -f "icewm" 2>/dev/null; pkill -f "at-spi-bus-launcher" 2>/dev/null; pkill -f "dbus-launch" 2>/dev/null; true`, defaultDisplay, defaultDisplay, defaultWebPort), 15)
+	// setsid is required to detach each daemon into its own session so
+	// it survives the sbMgr.Exec call returning (P6). It comes from
+	// util-linux, which is Priority:required on debian and part of the
+	// alpine base — but a truly minimal image could omit it. Fail fast
+	// with a clear, LLM-actionable hint rather than letting all five
+	// daemon launches fail with opaque "setsid: not found" errors.
+	if err := requireSetsid(sbMgr, sandboxID); err != nil {
+		return err
+	}
+
+	// Kill any stale daemons first (best-effort). We kill by PID file
+	// (precise — see killByPidfile) for the four tracked daemons. Only
+	// at-spi-bus-launcher and dbus-launch still use pkill -f because
+	// they have no pidfile in our pidDir (dbus-launch writes its PID
+	// into a different, auto-managed location); they are best-effort
+	// a11y-only and their lingering does not block a restart.
+	for _, name := range []string{"xvfb", "x11vnc", "websockify", "icewm"} {
+		_ = killByPidfileAndWait(sbMgr, sandboxID, name, 10, 3)
+	}
+	_, _ = runScriptRaw(sbMgr, sandboxID, `pkill -f "at-spi-bus-launcher" 2>/dev/null; pkill -f "dbus-launch" 2>/dev/null; true`, 15)
 
 	// Remove stale X11 lock files and sockets. Xvfb refuses to start on
 	// DISPLAY=:99 if /tmp/.X99-lock or /tmp/.X11-unix/X99 still exist
@@ -408,9 +760,9 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f /tmp/.X%d-lock /tmp/.X11-unix/X%d 2>/dev/null; true`, 99, 99), 10)
 
 	// Clear stale pidfiles so the new daemons start from a known state.
-	// (No code reads these to kill — startStack uses pkill -f for that —
-	// but leaving stale PIDs around is misleading and a fresh start is
-	// cheap.)
+	// The pidfiles ARE read by killByPidfile (P3) for precise cleanup,
+	// so removing stale ones here prevents killByPidfile from sending
+	// TERM to a PID now owned by an unrelated process.
 	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f %s/*.pid 2>/dev/null; true`, pidDir), 10)
 
 	// Clear stale D-Bus session bus state. dbus-launch leaves a
@@ -421,19 +773,28 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f %s 2>/dev/null; rm -rf /tmp/dbus-* 2>/dev/null; true`, sandboxStateDir+"/desktop-env.sh"), 10)
 
 	// Xvfb — the headless X server. This is the foundation; everything
-	// else attaches to its DISPLAY.
+	// else attaches to its DISPLAY. setsid detaches it into its own
+	// session so the SIGHUP from the dying `sh -c` parent cannot reach it
+	// (setsid comes from util-linux, universally available — no package).
 	xvfbCmd := fmt.Sprintf(
-		`nohup Xvfb %s -screen 0 %dx%dx%d >/dev/null 2>&1 & echo $! > %s/xvfb.pid`,
-		defaultDisplay, defaultWidth, defaultHeight, defaultDepth, pidDir,
+		`setsid sh -c %s >/dev/null 2>&1 &`,
+		singleQuote(fmt.Sprintf(`echo $$ > %s/xvfb.pid; exec Xvfb %s -screen 0 %dx%dx%d`, pidDir, defaultDisplay, defaultWidth, defaultHeight, defaultDepth)),
 	)
 	if err := runScript(sbMgr, sandboxID, xvfbCmd, 15); err != nil {
 		return fmt.Errorf("desktop: start Xvfb failed: %w", err)
 	}
 
-	// Give Xvfb a moment to bind before clients connect.
-	if out, _ := runScriptRaw(sbMgr, sandboxID, "sleep 1", 5); false { // keep lint quiet
-		_ = out
-	}
+	// Poll until Xvfb binds the display before clients connect (P4).
+	// Replaces a hardcoded `sleep 1`: on a slow/loaded machine Xvfb can
+	// take longer than 1s to bind, and the old code's `if ...; false {…}`
+	// was a lint-suppression hack around an ignored return value. The
+	// poll reuses the same xprobeSnippet as probeHealth, up to ~20 tries
+	// at 0.3s (~6s max), breaking on success — usually returns in <0.5s.
+	xpoll := fmt.Sprintf(
+		`i=0; while [ $i -lt 20 ]; do %s && exit 0; i=$((i+1)); sleep 0.3; done; exit 1`,
+		xprobeSnippet(defaultDisplay),
+	)
+	_, _ = runScriptRaw(sbMgr, sandboxID, xpoll, 10)
 
 	// Session D-Bus + AT-SPI2 a11y bus. Required by the a11y helper
 	// (desktop_inspect/desktop_a11y_click). dbus-launch creates a
@@ -463,10 +824,13 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	// borders + a taskbar so the noVNC view is usable.
 	icewmCmd := buildIcemwStartScript(envFile, defaultDisplay, pidDir)
 	// Icewm may fail to start if it can't write its config dir under the
-	// sandbox user's HOME; treat failure as non-fatal (raw X without a
-	// WM is still usable for full-screen apps).
+	// sandbox user's HOME. Treat failure as non-fatal: full-screen apps
+	// still render, but multi-window apps overlap at (0,0) without focus
+	// management; desktop_inspect/a11y trees may be inaccurate. The
+	// `degraded` log field makes this state machine-detectable.
 	if err := runScript(sbMgr, sandboxID, icewmCmd, 15); err != nil {
-		slog.Warn("desktop: icewm start failed (continuing — apps still work without a WM)", "sandbox", sandboxID, "error", err)
+		slog.Warn("desktop: icewm start failed (continuing — full-screen apps still render, but multi-window apps overlap at (0,0) without focus management; desktop_inspect/a11y trees may be inaccurate)",
+			"sandbox", sandboxID, "error", err, "degraded", "wm-missing")
 	}
 
 	// x11vnc — VNC server attached to the Xvfb display. -forever keeps
@@ -474,8 +838,8 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	// prompt (the sandbox is already behind the daemon's auth boundary
 	// and the user reaches it via a per-session public_port mapping).
 	x11vncCmd := fmt.Sprintf(
-		`DISPLAY=%s nohup x11vnc -display %s -forever -nopw -shared -noxrecord -noxfixes -noxdamage -rfbport %d >/dev/null 2>&1 & echo $! > %s/x11vnc.pid`,
-		defaultDisplay, defaultDisplay, defaultRfbPort, pidDir,
+		`setsid sh -c %s >/dev/null 2>&1 &`,
+		singleQuote(fmt.Sprintf(`echo $$ > %s/x11vnc.pid; exec env DISPLAY=%s x11vnc -display %s -forever -nopw -shared -noxrecord -noxfixes -noxdamage -rfbport %d`, pidDir, defaultDisplay, defaultDisplay, defaultRfbPort)),
 	)
 	if err := runScript(sbMgr, sandboxID, x11vncCmd, 15); err != nil {
 		return fmt.Errorf("desktop: start x11vnc failed: %w", err)
@@ -486,8 +850,8 @@ func startStack(sbMgr *sandbox.Manager, sandboxID string) error {
 	// the novnc package on both Alpine and Debian). User opens
 	// http://<sandbox>:<WEB_PORT>/vnc.html in a browser.
 	websockifyCmd := fmt.Sprintf(
-		`nohup websockify --web=/usr/share/novnc 0.0.0.0:%d localhost:%d >/dev/null 2>&1 & echo $! > %s/websockify.pid`,
-		defaultWebPort, defaultRfbPort, pidDir,
+		`setsid sh -c %s >/dev/null 2>&1 &`,
+		singleQuote(fmt.Sprintf(`echo $$ > %s/websockify.pid; exec websockify --web=/usr/share/novnc 0.0.0.0:%d localhost:%d`, pidDir, defaultWebPort, defaultRfbPort)),
 	)
 	if err := runScript(sbMgr, sandboxID, websockifyCmd, 15); err != nil {
 		return fmt.Errorf("desktop: start websockify failed: %w", err)
@@ -599,11 +963,16 @@ func EnvFile() string { return sandboxStateDir + "/desktop-env.sh" }
 //
 // We use xdotool rather than RFB injection because:
 // (a) xdotool speaks XTest — the canonical X11 test extension — which
-//     is more reliable than x11vnc's RFB-to-X11 bridge;
+//
+//	is more reliable than x11vnc's RFB-to-X11 bridge;
+//
 // (b) the agentd sandbox already installs xdotool as part of the
-//     desktop stack (no extra deps);
+//
+//	desktop stack (no extra deps);
+//
 // (c) it operates on the Xvfb display directly, independent of whether
-//     a VNC client (x11vnc, noVNC user) is connected.
+//
+//	a VNC client (x11vnc, noVNC user) is connected.
 func Click(sbMgr *sandbox.Manager, sandboxID string, x, y int, button, clickCount int) error {
 	if err := EnsureDesktop(sbMgr, sandboxID); err != nil {
 		return err
@@ -686,7 +1055,7 @@ func Key(sbMgr *sandbox.Manager, sandboxID, keysym string) error {
 
 // escapeForSingleQuote wraps s so it can appear inside a single-quoted
 // shell string. The only character that needs escaping in this context
-// is the single quote itself, escaped via the '\'' idiom (close quote,
+// is the single quote itself, escaped via the '\” idiom (close quote,
 // escaped literal quote, reopen quote).
 func escapeForSingleQuote(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)
@@ -763,8 +1132,10 @@ func buildDbusStartScript(stateDir, envFile, display string) string {
 			`eval "$(DISPLAY=%s dbus-launch --sh-syntax)"; `+
 			`if [ -n "$DBUS_SESSION_BUS_ADDRESS" ]; then `+
 			`if command -v at-spi-bus-launcher >/dev/null 2>&1; then `+
-			`DISPLAY=%s DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" NO_AT_BRIDGE=0 nohup at-spi-bus-launcher >/dev/null 2>&1 & `+
-			`sleep 1; `+ // let the registry bind its socket before clients connect
+			`DISPLAY=%s DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" NO_AT_BRIDGE=0 setsid at-spi-bus-launcher >/dev/null 2>&1 & `+
+			`sleep 0.3; `+ // at-spi registry socket settle (dbus-launch's eval is synchronous so
+			// the bus address is already set; this sleep is only for the
+			// at-spi registry to bind its socket before clients connect)
 			`fi; `+
 			`printf 'export DISPLAY=%%s\nexport DBUS_SESSION_BUS_ADDRESS=%%s\nexport NO_AT_BRIDGE=0\n' %s "$DBUS_SESSION_BUS_ADDRESS" >%s; `+
 			`fi; `+
@@ -780,9 +1151,15 @@ func buildDbusStartScript(stateDir, envFile, display string) string {
 // envFile source is conditional so a missing/empty envFile (dbus failed)
 // does NOT abort the script — icewm still starts without a session bus,
 // which is fine for the screenshot / xdotool-click paths.
+//
+// PID capture: we wrap in `setsid sh -c 'echo $$ > pidfile; exec icewm'`
+// so the pidfile records the daemon's own PID (sh's PID, reused by
+// icewm after exec). An earlier `... & echo $!` form captured setsid's
+// PID, which may NOT equal the daemon's PID if setsid forks.
 func buildIcemwStartScript(envFile, display, pids string) string {
+	inner := singleQuote(fmt.Sprintf(`echo $$ > %s/icewm.pid; exec icewm`, pids))
 	return fmt.Sprintf(
-		`[ -f %s ] && . %s; DISPLAY=%s nohup icewm >/dev/null 2>&1 & echo $! > %s/icewm.pid`,
-		envFile, envFile, display, pids,
+		`[ -f %s ] && . %s; DISPLAY=%s setsid sh -c %s >/dev/null 2>&1 &`,
+		envFile, envFile, display, inner,
 	)
 }

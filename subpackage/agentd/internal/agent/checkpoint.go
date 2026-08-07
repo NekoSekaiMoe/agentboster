@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
@@ -50,6 +52,19 @@ var allowedSandboxRoots = []string{
 
 // sessionIDPattern constrains session ids used to derive checkpoint ids.
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,128}$`)
+
+// descriptionPattern constrains the human-readable description carried
+// into a checkpoint commit message. The value is daemon-controlled today
+// (a tool name like "write"/"edit"/"exec"), but it flows into git commit
+// args, so we validate it defensively to satisfy taint analysis
+// (CodeQL "Command built from user-controlled sources") and to harden
+// against future callers passing less-trusted input. Allow letters,
+// digits, underscore, dot, space, slash, and hyphen — but the FIRST
+// character must not be '-' (a leading dash risks being parsed as a
+// git/CLI flag by downstream consumers of the argv). Excludes shell/git
+// metacharacters (newline, quotes, ';', etc.) that could confuse a
+// downstream consumer of the commit message.
+var descriptionPattern = regexp.MustCompile(`^[A-Za-z0-9_./ ][A-Za-z0-9_./ -]{0,79}$`)
 
 // checkpointIDPattern matches the on-disk id format `cp-<prefix>-<ts>`.
 var checkpointIDPattern = regexp.MustCompile(`^cp-[A-Za-z0-9_-]{8,128}-[0-9]+$`)
@@ -238,18 +253,56 @@ type hostGitBackend struct {
 	sandboxRoot string
 }
 
-func (b *hostGitBackend) workspace() string { return filepath.Join(b.sandboxRoot, checkpointWorkspaceDir) }
-func (b *hostGitBackend) metaDir() string   { return filepath.Join(b.workspace(), checkpointMetaDir) }
+// hostGitTimeoutSec caps host-side git operations (CreateCheckpoint /
+// RestoreCheckpoint via the hostGitBackend). Without it, a stalled git
+// process (e.g. waiting on a missing global gitconfig lock, an NFS
+// hang, or under heavy CI load) blocks the agent loop indefinitely.
+// 30s is generous for host-local ops (vs containerGitTimeoutSec=60
+// which accounts for the lxc-attach/docker exec hop).
+const hostGitTimeoutSec = 30
+
+func (b *hostGitBackend) workspace() string {
+	return filepath.Join(b.sandboxRoot, checkpointWorkspaceDir)
+}
+func (b *hostGitBackend) metaDir() string { return filepath.Join(b.workspace(), checkpointMetaDir) }
+
+// runGitInPgroup runs `git` with args inside its own process group, so a
+// timeout-driven cancellation can terminate the ENTIRE group rather than
+// only the direct git child. Without this, a git child it spawned (ssh,
+// gpg, a hook) would survive the cancel, leak, and keep holding locks /
+// pipes — CombinedOutput would then hang on the inherited stdout/stderr
+// descriptors forever. WaitDeadline additionally forces Go to give up on
+// pipe reads if the group hasn't fully drained after the kill, so the
+// call always returns within a bounded window around hostGitTimeoutSec.
+func (b *hostGitBackend) runGitInPgroup(ctx context.Context, args []string, env []string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = b.workspace()
+	if env != nil {
+		cmd.Env = env
+	}
+	// Put git (and any helper it spawns) in a fresh process group. The
+	// negative PID in Cancel = "signal the whole group".
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+		return errors.New("git timed out, signaling process group")
+	}
+	// Hard ceiling: if SIGTERM doesn't bring the group down within 5s,
+	// CombinedOutput returns anyway (WaitDelay forces it) rather than
+	// blocking on a stuck pipe.
+	cmd.WaitDelay = 5 * time.Second
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
 
 func (b *hostGitBackend) GitRun(args ...string) (string, error) {
 	safe, err := sanitizeGitValueArgs(args)
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("git", safe...)
-	cmd.Dir = b.workspace()
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
+	ctx, cancel := context.WithTimeout(context.Background(), hostGitTimeoutSec*time.Second)
+	defer cancel()
+	return b.runGitInPgroup(ctx, safe, nil)
 }
 
 func (b *hostGitBackend) GitCommit(args ...string) (string, error) {
@@ -257,16 +310,15 @@ func (b *hostGitBackend) GitCommit(args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("git", safe...)
-	cmd.Dir = b.workspace()
-	cmd.Env = append(os.Environ(),
+	ctx, cancel := context.WithTimeout(context.Background(), hostGitTimeoutSec*time.Second)
+	defer cancel()
+	env := append(os.Environ(),
 		"GIT_AUTHOR_NAME=agentd",
 		"GIT_AUTHOR_EMAIL=agentd@local",
 		"GIT_COMMITTER_NAME=agentd",
 		"GIT_COMMITTER_EMAIL=agentd@local",
 	)
-	out, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(out)), err
+	return b.runGitInPgroup(ctx, safe, env)
 }
 
 func (b *hostGitBackend) WorkspaceExists() bool {
@@ -493,6 +545,10 @@ func CreateCheckpoint(ref SandboxRef, sbMgr *sandbox.Manager, sessionID, descrip
 	sessionID = strings.TrimSpace(sessionID)
 	if !sessionIDPattern.MatchString(sessionID) {
 		return nil, fmt.Errorf("invalid session id: must be 8-128 chars of [A-Za-z0-9_-]")
+	}
+	description = strings.TrimSpace(description)
+	if !descriptionPattern.MatchString(description) {
+		return nil, fmt.Errorf("invalid checkpoint description: must be 1-80 chars of [A-Za-z0-9_./ -] and must not begin with '-'")
 	}
 
 	if err := backend.EnsureWorkspace(); err != nil {

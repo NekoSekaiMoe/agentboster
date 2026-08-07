@@ -13,10 +13,11 @@
 package browser
 
 import (
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,7 +40,6 @@ func callExec(sbMgr *sandbox.Manager, sandboxID, cmd string, env map[string]stri
 	}
 	return sbMgr.Exec(sandboxID, cmd, env, timeout)
 }
-
 
 //go:embed node_install.sh
 var nodeInstallScript string
@@ -93,9 +93,9 @@ type bridgeState struct {
 var state = &bridgeState{ready: map[string]bool{}}
 
 // markReady / isReady / markNotReady are tiny helpers keyed by sandbox ID.
-func markReady(sandboxID string)        { state.ready[sandboxID] = true }
-func markNotReady(sandboxID string)     { state.ready[sandboxID] = false }
-func isReady(sandboxID string) bool     { return state.ready[sandboxID] }
+func markReady(sandboxID string)    { state.ready[sandboxID] = true }
+func markNotReady(sandboxID string) { state.ready[sandboxID] = false }
+func isReady(sandboxID string) bool { return state.ready[sandboxID] }
 
 // EnsureBridge brings up the in-sandbox helper if it isn't already healthy.
 // Idempotent: re-entrance on an already-ready bridge is a single /health probe.
@@ -307,13 +307,33 @@ func unwrapBridgeEnvelope(raw, method, urlPath string) (json.RawMessage, error) 
 // so the helper dies on its own. This is for explicit teardown.
 func CloseBridge(sbMgr *sandbox.Manager, sandboxID string) {
 	markNotReady(sandboxID)
-	// Read PID file, kill if present.
-	pidRead, _ := runScriptRaw(sbMgr, sandboxID, fmt.Sprintf("cat %s 2>/dev/null || true", bridgePIDPath), 3)
+	// Read PID file, kill if present. The pid file is best-effort state
+	// written by a prior helper process; treat its contents as untrusted.
+	// We validate it as a positive integer in Go (strconv.ParseInt) before
+	// interpolating into the kill command — defense in depth that also
+	// defends against the single-quote-injection vector (a pid string
+	// containing ' breaks out of shell single-quoting in `kill '$pid'`).
+	// Mirrors the desktop killByPidfile numeric-validation pattern.
+	pidRead, _ := runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`cat '%s' 2>/dev/null || true`, bridgePIDPath), 3)
 	pid := strings.TrimSpace(pidRead)
 	if pid != "" {
-		_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf("kill %s 2>/dev/null || true", pid), 3)
+		// Validate as a STRICTLY POSITIVE integer. strconv.ParseInt alone
+		// would accept 0 and negative values, and `kill '0'` sends the
+		// signal to the entire calling process group while `kill '-1'`
+		// hits every process the caller may signal — both catastrophic.
+		// pid files are daemon-written, but a corrupted/tampered file
+		// must not escalate to a group-wide or system-wide kill.
+		parsed, perr := strconv.ParseInt(pid, 10, 64)
+		if perr == nil && parsed > 0 {
+			// Format the kill with the parsed value (not the raw string) so
+			// we control exactly what reaches the shell.
+			_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`kill '%d' 2>/dev/null || true`, parsed), 3)
+		} else {
+			slog.Debug("browser CloseBridge: pid file contents not a positive integer, skipping kill",
+				"sandbox", sandboxID)
+		}
 	}
-	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf("rm -f %s %s 2>/dev/null || true", socketPath, bridgePIDPath), 3)
+	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f '%s' '%s' 2>/dev/null || true`, socketPath, bridgePIDPath), 3)
 }
 
 // probeHealth returns true if the helper socket exists and responds to /health.
