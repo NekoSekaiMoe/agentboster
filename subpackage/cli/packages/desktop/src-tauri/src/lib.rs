@@ -136,6 +136,54 @@ fn find_sidecar_in_dir(dir: &Path, expected_name: &str) -> Option<PathBuf> {
     None
 }
 
+/// The CLI ships as a node bundle (`agentboster-cli.cjs`) plus a thin
+/// launcher. On Unix the launcher is a `#!/bin/sh` wrapper bundled in
+/// the release tarball; on Windows there is no shebang, so the launcher
+/// is a `.cmd` shim we synthesize here next to the `.cjs`. Mirrors the
+/// installer's logic in `install_cli`.
+///
+/// Returns the launcher path on success. On Windows, if only the `.cjs`
+/// is present, writes a sibling `.cmd` and returns its path.
+fn ensure_cli_launcher(
+    dir: &Path,
+    triple: &str,
+) -> Option<PathBuf> {
+    let cjs = dir.join("agentboster-cli.cjs");
+    if !cjs.is_file() {
+        return None;
+    }
+
+    if cfg!(target_os = "windows") {
+        // discover_sidecar searches for `agentboster-cli-<triple>.cmd`.
+        // If prepare-resources.sh / the installer already wrote it, reuse;
+        // otherwise synthesize it from the `.cjs`. The shim uses `%~dp0`
+        // (the batch var for "this script's dir") so it resolves the `.cjs`
+        // next to itself regardless of the install path.
+        let launcher = dir.join(format!("agentboster-cli-{}.cmd", triple));
+        if launcher.is_file() {
+            return Some(launcher);
+        }
+        let body = "@echo off\r\nnode \"%~dp0agentboster-cli.cjs\" %*\r\n";
+        if fs::write(&launcher, body).is_ok() {
+            return Some(launcher);
+        }
+        return None;
+    }
+
+    // Unix: the sh wrapper is bundled in the tarball as
+    // `agentboster-cli-<triple>` (renamed from `agentboster-cli` by
+    // prepare-resources.sh). The wrapper execs `node …/agentboster-cli.cjs`;
+    // `build_command` prepends the wrapper's dir to PATH for both
+    // PathBinary and SidecarBinary so `node` is resolvable even under a
+    // GUI-launch PATH that lacks it.
+    let launcher = dir.join(format!("agentboster-cli-{}", triple));
+    if launcher.is_file() {
+        Some(launcher)
+    } else {
+        None
+    }
+}
+
 fn sidecar_candidate_dirs(app: &AppHandle) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
 
@@ -196,20 +244,19 @@ fn discover_sidecar(app: &AppHandle) -> Option<PathBuf> {
 
     let target = std::env::var("TARGET").unwrap_or(default_target);
 
-    let extension = if cfg!(target_os = "windows") {
-        ".exe"
-    } else {
-        ""
-    };
-    let expected_name = format!("agentboster-cli-{}{}", target, extension);
-
+    // The CLI is a node bundle, not a single native binary: it needs a
+    // launcher (sh wrapper on unix, .cmd shim on windows) AND the sibling
+    // agentboster-cli.cjs the launcher execs. `ensure_cli_launcher`
+    // validates the pair exists (and synthesizes the Windows .cmd when
+    // only the .cjs is staged). Returning a launcher whose .cjs is missing
+    // would spawn a process that immediately dies on the missing require.
     let candidate_dirs = sidecar_candidate_dirs(app);
 
     for dir in candidate_dirs {
         if !dir.exists() || !dir.is_dir() {
             continue;
         }
-        if let Some(found) = find_sidecar_in_dir(&dir, &expected_name) {
+        if let Some(found) = ensure_cli_launcher(&dir, &target) {
             return Some(found);
         }
     }
@@ -911,9 +958,15 @@ fn build_command(pi: &PiProcess, options: &RpcStartOptions) -> Command {
         }
     }
 
-    // If using a script-based pi binary (e.g. npm global install), ensure its bin dir
-    // is on PATH so shebangs like `#!/usr/bin/env node` can resolve node in GUI launches.
-    if let PiProcess::PathBinary { path } = pi
+    // The CLI launcher is a script (sh wrapper / .cmd), not a native
+    // binary: it execs `node …/agentboster-cli.cjs`, so `node` must be
+    // on PATH. GUI launches (macOS Finder, Windows Explorer, Linux
+    // .desktop) often don't inherit a shell PATH, so prepend the
+    // launcher's own dir for both PathBinary (npm global) and
+    // SidecarBinary (bundled resources/) — both are script launchers.
+    // The dir is harmless on PATH if it's already a bin dir, and
+    // essential when it's a bundled resources/ dir that isn't.
+    if let (PiProcess::PathBinary { path } | PiProcess::SidecarBinary { path }) = pi
         && let Some(parent) = path.parent()
     {
         prepend_bin_dir_to_path(&mut cmd, parent);
@@ -1517,7 +1570,7 @@ fn build_plain_command(pi: &PiProcess, options: &PiCliCommandOptions) -> Command
         }
     }
 
-    if let PiProcess::PathBinary { path } = pi
+    if let (PiProcess::PathBinary { path } | PiProcess::SidecarBinary { path }) = pi
         && let Some(parent) = path.parent()
     {
         prepend_bin_dir_to_path(&mut cmd, parent);

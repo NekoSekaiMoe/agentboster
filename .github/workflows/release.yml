@@ -415,21 +415,38 @@ jobs:
 
   desktop:
     name: desktop (${{ matrix.asset_target }})
+    needs: [cli, computer-use-mcp]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # asset_target  — release asset label + staged dir name
+          # mcp_artifact  — upload-artifact name from the computer-use-mcp job
+          #                 (uses GNU arch names: amd64/arm64)
+          # rust_target   — Rust triple prepare-resources.sh writes and
+          #                 discover_sidecar (lib.rs) searches for. Mapped
+          #                 here once so no string surgery at runtime.
           - runner: macos-26
             asset_target: macos-arm64
+            mcp_artifact: computer-use-mcp-darwin-arm64-${{ github.event.inputs.version || github.ref_name }}
+            rust_target: aarch64-apple-darwin
           - runner: windows-latest
             asset_target: windows-x64
+            mcp_artifact: computer-use-mcp-windows-amd64-${{ github.event.inputs.version || github.ref_name }}
+            rust_target: x86_64-pc-windows-msvc
           - runner: windows-11-arm
             asset_target: windows-arm64
+            mcp_artifact: computer-use-mcp-windows-arm64-${{ github.event.inputs.version || github.ref_name }}
+            rust_target: aarch64-pc-windows-msvc
           - runner: ubuntu-latest
             asset_target: linux-x64
+            mcp_artifact: computer-use-mcp-linux-amd64-${{ github.event.inputs.version || github.ref_name }}
+            rust_target: x86_64-unknown-linux-gnu
           - runner: ubuntu-24.04-arm
             asset_target: linux-arm64
+            mcp_artifact: computer-use-mcp-linux-arm64-${{ github.event.inputs.version || github.ref_name }}
+            rust_target: aarch64-unknown-linux-gnu
 
     defaults:
       run:
@@ -491,10 +508,68 @@ jobs:
         # honor the committed lockfile.
         run: yarn install --frozen-lockfile
 
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download MCP binary
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.mcp_artifact }}
+          path: sidecar-stage/mcp-in
+      - name: Download CLI tarball
+        uses: actions/download-artifact@v8
+        with:
+          name: agentboster-cli-${{ steps.ver.outputs.version }}.tar.gz
+          path: sidecar-stage/cli-in
+      - name: Normalize + extract sidecars
+        shell: bash
+        env:
+          MCP_BIN_NAME: ${{ startsWith(matrix.rust_target, 'windows') && 'computer-use-mcp.exe' || 'computer-use-mcp' }}
+        # cwd is .../packages/desktop (defaults.run.working-directory).
+        # download-artifact landed files under sidecar-stage/{mcp,cli}-in/
+        # relative to cwd, so we normalize in place there.
+        run: |
+          set -euo pipefail
+          mkdir -p sidecar-stage/mcp sidecar-stage/cli
+
+          # MCP: rename the version/arch-stamped binary to the bare name.
+          # download-artifact flattens into mcp-in/ with the original
+          # uploaded filename; there's exactly one file there.
+          mv sidecar-stage/mcp-in/* "sidecar-stage/mcp/$MCP_BIN_NAME"
+          test -f "sidecar-stage/mcp/$MCP_BIN_NAME"
+          echo "Staged MCP: $(ls -la sidecar-stage/mcp/)"
+
+          # CLI tarball is OS-agnostic (single agentboster-cli-<ver>.tar.gz).
+          # Layout is agentboster-cli-<ver>/{agentboster-cli, agentboster-cli.cjs}.
+          # --strip-components=1 flattens that top dir so the wrapper + .cjs
+          # land directly at the top of CLI_STAGED_DIR, which is what
+          # prepare-resources.sh scans.
+          TARBALL="$(ls sidecar-stage/cli-in/agentboster-cli-*.tar.gz | head -1)"
+          tar -xzf "$TARBALL" --strip-components=1 -C sidecar-stage/cli
+          test -f sidecar-stage/cli/agentboster-cli.cjs
+          echo "Staged CLI: $(ls -la sidecar-stage/cli/)"
+
       - name: Build Tauri app
-        # `tauri build` runs beforeBuildCommand (vite build) then compiles
-        # the Rust binary and runs platform bundlers. Output lands in
-        # src-tauri/target/release/bundle/.
+        # `tauri build` runs beforeBuildCommand (bash scripts/prepare-resources.sh
+        # && yarn build:frontend) which reads ARTIFACT_DIR + CLI_STAGED_DIR +
+        # TARGET to populate src-tauri/resources/ with the staged MCP + CLI
+        # sidecars, then compiles the Rust binary and runs platform bundlers.
+        # Output lands in src-tauri/target/release/bundle/.
+        env:
+          # Absolute paths so prepare-resources.sh's `cp` works regardless
+          # of the working directory tauri invokes beforeBuildCommand from.
+          # stage/ lives under packages/desktop/.
+          ARTIFACT_DIR: ${{ github.workspace }}/subpackage/cli/packages/desktop/sidecar-stage/mcp
+          CLI_STAGED_DIR: ${{ github.workspace }}/subpackage/cli/packages/desktop/sidecar-stage/cli
+          TARGET: ${{ matrix.rust_target }}
         run: npm run build
 
       - name: Stage bundle artifacts (Linux/macOS)
