@@ -98,7 +98,7 @@
   "scripts": {
     "build": "next build",
     "build:agentd": "cd agentd && go build -o agentd ./cmd/agentd/main.go",
-    "check:lint": "tsc --noEmit && biome check app components lib hooks middleware.ts next.config.ts drizzle.config.ts",
+    "check:lint": "tsc --noEmit && biome check app components lib hooks proxy.ts next.config.ts drizzle.config.ts",
     "check:sh": "shellcheck subpackage/agentd/internal/agent/browser/node_install.sh subpackage/agentd/internal/agent/desktop/desktop_install.sh",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -126,7 +126,7 @@ function hasValidAgentdApiKey(request: NextRequest): boolean {
   return provided ? constantTimeEqual(provided, expected) : false;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
   if (isLoginPath(pathname) || isAlwaysBypassPath(pathname)) {
