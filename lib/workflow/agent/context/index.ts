@@ -6,7 +6,6 @@ import {
 import { getSession, getSessionMessages } from '@/lib/core/db/chat';
 import { getConfig } from '@/lib/core/kv/config';
 import {
-  formatRecalledMemoriesForContext,
   getCurrentSessionSummary,
   recallRelevantMemories,
   recordUsageFeedback,
@@ -16,10 +15,11 @@ import {
   DEEP_RECALL_TOP_K,
   detectRecallIntent,
 } from '@/lib/memory/recall-intent';
+import { matchTriggeredMemories } from '@/lib/memory/triggers';
 import {
-  formatTriggeredMemoriesForContext,
-  matchTriggeredMemories,
-} from '@/lib/memory/triggers';
+  packForContextInjection,
+  type PackItem,
+} from '@/lib/memory/provider/context-packer';
 import type { AppConfig } from '@/types/config';
 import type { WorkflowUIMessage } from '@/types/workflow';
 import type { ModelMessage } from 'ai';
@@ -193,6 +193,13 @@ export async function buildInitialContextMessages(
     recallUserId?: string | null;
     recallQuery?: string | null;
     config?: AppConfig;
+    /**
+     * Phase 5:host 侧预取的远程 provider 记忆结果(已转 PackItem)。
+     * 这些进 recall block 的 Unverified 段(sourceKind=tool_observed),
+     * 参与 packer 预算丢弃。由 collectRemoteMemoryItems() 产出。
+     * 本参数不进 workflow bundle(调用方 host 预取后传入)。
+     */
+    extraRecallItems?: PackItem[];
   },
 ): Promise<ModelMessage[]> {
   const effectiveConfig =
@@ -202,7 +209,7 @@ export async function buildInitialContextMessages(
     await buildPostSummaryConversationMessages(sessionId, options);
 
   let recalledMemories: Awaited<ReturnType<typeof recallRelevantMemories>> = [];
-  let triggeredContext: string | null = null;
+  let triggeredItems: PackItem[] = [];
   if (options?.recallUserId && options?.recallQuery) {
     const recallUserId = options.recallUserId;
     const recallQuery = options.recallQuery;
@@ -264,10 +271,45 @@ export async function buildInitialContextMessages(
       recordUsageFeedback(recallUserId, recallQuery, triggeredOnly);
     }
 
-    triggeredContext = formatTriggeredMemoriesForContext(triggered);
+    triggeredItems = triggered.map((m) => ({
+      text: m.content,
+      score: m.score,
+      importance: m.importance,
+      sourceKind: m.sourceKind,
+      source: 'trigger' as const,
+      memoryId: m.memoryId,
+    }));
   }
 
-  const recalledContext = formatRecalledMemoriesForContext(recalledMemories);
+  // Phase 2:行为等价切换。packer 精确复刻原 formatTriggeredMemoriesForContext
+  // + formatRecalledMemoriesForContext 的组合(见 context-packer-injection.test.ts
+  // 的 oracle 等价测试)。输出两独立 block,与现有拼接顺序一致。
+  const recalledItems: PackItem[] = recalledMemories.map((m) => ({
+    text: m.content,
+    score: m.score,
+    sourceKind: m.sourceKind,
+    source: 'recall' as const,
+    memoryId: m.memoryId,
+  }));
+  // Phase 5:合并 host 侧预取的远程 provider 结果(已映射 sourceKind=tool_observed,
+  // 进 recall block 的 Unverified 段)。fail-open:undefined/空时不影响。
+  const allRecallItems = options?.extraRecallItems
+    ? [...recalledItems, ...options.extraRecallItems]
+    : recalledItems;
+  const packerOptimize =
+    effectiveConfig?.models?.memory_packer_optimize === true ||
+    process.env.MEMORY_PACKER_OPTIMIZE === '1';
+  const injection = packForContextInjection(triggeredItems, allRecallItems, {
+    optimize: packerOptimize,
+    ...(packerOptimize
+      ? {
+          budgetChars:
+            effectiveConfig?.models?.memory_packer_budget_chars ?? 1800,
+        }
+      : {}),
+  });
+  const triggeredContext = injection.triggerBlock;
+  const recalledContext = injection.recallBlock;
 
   const prefix: ModelMessage[] = [];
   if (triggeredContext) {

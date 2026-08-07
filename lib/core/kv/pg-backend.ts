@@ -28,6 +28,9 @@
 import { and, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/core/db';
 import { kvSets, kvStore } from '@/lib/core/db/schema/kv';
+import { createLogger } from '@/lib/utils/logger';
+
+const logger = createLogger('kv.pg_backend');
 
 type SetOptions = {
   nx?: boolean;
@@ -152,8 +155,7 @@ export async function pgDel(...keys: string[]): Promise<number> {
   return deleted.length;
 }
 
-/**
- * EXPIRE — set a TTL (seconds) on an existing key. Returns 1/0 like Redis.
+/** EXPIRE — set a TTL (seconds) on an existing key. Returns 1/0 like Redis.
  *
  * A key can live in EITHER table: a plain string sits in `kv_store`, while a
  * set (sadd/srem) lives across one-or-more rows in `kv_sets`. pair-code.ts
@@ -204,6 +206,48 @@ export async function pgEval(
     .where(and(eq(kvStore.key, key), eq(kvStore.value, token)))
     .returning({ key: kvStore.key });
   return deleted.length > 0 ? 1 : 0;
+}
+
+/**
+ * INCR — atomic integer increment. Returns the new value.
+ *
+ * ⚠️ 并非通用 Redis-compatible 原语,仅支持**无 TTL 的纯数字键**(如
+ * `memory_version:*` 命名空间)。与 pgGet/pgSet 共用 text 列,但本函数
+ * 假设目标键只存数字字符串——遇到已序列化的 JSON 值或带 TTL 的行时
+ * 行为未定义(`::bigint` 会拒绝非数字,RETURNING 解析见末尾 fail-soft)。
+ * 要把它升级成通用原语需先统一处理过期行与非数字值的语义(与
+ * pgGet/pgSet 对齐),此处不展开。
+ *
+ * reviewer A3:write-gate 的 memory version 需要跨实例一致的原子递增。
+ * 用 `INSERT ... ON CONFLICT DO UPDATE SET value = (value::bigint + 1)` 单语句
+ * 完成 read-modify-write(Postgres 保证语句级原子),并 RETURNING 新值。键不
+ * 存在时插入 '1'(首次)。value 列是 text;仅限本函数使用的键前缀
+ * (memory_version:*) 存数字字符串,不与 JSON 值冲突。
+ */
+export async function pgIncr(key: string): Promise<number> {
+  const now = new Date();
+  const rows = await db
+    .insert(kvStore)
+    .values({ key, value: '1', updatedAt: now })
+    .onConflictDoUpdate({
+      target: kvStore.key,
+      // value 当数字解析 +1(非数字会被 ::bigint 拒绝,但本键空间可控)
+      set: {
+        value: sql`(${kvStore.value}::bigint + 1)::text`,
+        updatedAt: now,
+      },
+    })
+    .returning({ value: kvStore.value });
+  const raw = rows[0]?.value;
+  const parsed = Number.parseInt(raw ?? '1', 10);
+  if (Number.isFinite(parsed)) return parsed;
+  // fail-soft:理论上不可达(本键空间只写数字字符串),但万一被脏值覆写
+  // 不让写路径炸;打 warn 带上下文以便发现。
+  logger.warn('pgIncr:unparseable_returning', {
+    key,
+    raw: raw?.slice(0, 64),
+  });
+  return 1;
 }
 
 /** SADD — add a member to a set. Returns count of newly-added members. */

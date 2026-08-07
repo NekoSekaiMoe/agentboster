@@ -9,6 +9,7 @@
  */
 
 import { getConfig } from '@/lib/core/kv/config';
+import { bumpMemoryVersion } from '@/lib/memory/provider/write-gate';
 import { reindexLongTermMemory } from '@/lib/memory/long-term';
 import { invalidateProfileCache } from '@/lib/memory/profile';
 import { invalidateRecallCache } from '@/lib/memory/recall';
@@ -23,6 +24,12 @@ export async function invalidateMemoryCaches(userId: string) {
   invalidateRecallCache(userId);
   invalidateTriggerCache(userId);
   await invalidateProfileCache(userId);
+  // Phase 3:bump memory version —— 任何写只要调了失效,version 自增,
+  // ContextPacker 的 cache key(含 memoryVersion)自动失效。
+  // 这是"单一失效入口"的核心:不管写路径经不经 provider,调失效就 bump。
+  // 解决 phase1-review #1 的 Dream/extract 绕过 write-gate 空洞。
+  // reviewer A3:bump 落共享 KV,跨实例原子递增。
+  await bumpMemoryVersion(userId);
 }
 
 /**

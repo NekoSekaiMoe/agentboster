@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic';
 
+import { invalidateMemoryCaches } from '@/lib/memory/cache-invalidation';
 import { searchLongTermMemories } from '@/lib/memory/long-term';
 import { createLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { createLogger } from '@/lib/utils/logger';
@@ -92,6 +93,9 @@ export async function POST(request: Request) {
 
     if (rows.length > 0) {
       await createLongTermMemoryRows(rows);
+      // Phase 3 失效链修复(reviewer phase3 B2):裸 DAL 不失效,显式调
+      // invalidateMemoryCaches 让 recall/trigger/profile cache + packer version 失效。
+      await invalidateMemoryCaches('agentd');
     }
 
     return Response.json({ success: true });

@@ -26,6 +26,7 @@ import { deriveEdgesForMemory } from './edges';
 import { invalidateProfileCache } from './profile';
 import { invalidateRecallCache } from './recall';
 import { invalidateTriggerCache } from './triggers';
+import { bumpMemoryVersion } from './provider/write-gate';
 
 const logger = createLogger('memory.long_term');
 
@@ -172,6 +173,9 @@ export async function createLongTermMemory(input: {
   invalidateRecallCache(input.userId);
   invalidateTriggerCache(input.userId);
   await invalidateProfileCache(input.userId);
+  // reviewer A1:写入成功后必须 bump version(不可被调用方绕过)。
+  // 把 bump 收进函数内部,调用方不必记得调失效层也能让 readMemoryVersion 前进。
+  if (input.userId) await bumpMemoryVersion(input.userId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
     .finally(() => invalidateRecallCache(input.userId));
@@ -192,6 +196,14 @@ export async function upsertLongTermMemory(input: {
   projectId?: string | null;
   sourceKind?: LongTermMemorySourceKind;
   triggerPhrases?: string[];
+  /**
+   * Dream 生命周期状态。默认 'active'。
+   * Dream 提案传 'tentative' 使 recall 在 ratify 前排除。
+   * (Phase 1 扩字段:之前 Dream 只能直调 upsertLongTermMemoryByKey。)
+   */
+  dreamStatus?: 'active' | 'tentative' | 'superseded' | 'contradicted';
+  /** Dream 元数据(confidence / provenance / lineage)。 */
+  dreamMeta?: Record<string, unknown>;
   config?: AppConfig;
 }) {
   const { row: memory, created } = await upsertLongTermMemoryByKey({
@@ -203,6 +215,8 @@ export async function upsertLongTermMemory(input: {
     projectId: input.projectId,
     sourceKind: input.sourceKind,
     triggerPhrases: input.triggerPhrases,
+    dreamStatus: input.dreamStatus,
+    dreamMeta: input.dreamMeta,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
@@ -213,6 +227,8 @@ export async function upsertLongTermMemory(input: {
   invalidateRecallCache(input.userId);
   invalidateTriggerCache(input.userId);
   await invalidateProfileCache(input.userId);
+  // reviewer A1:写入成功后必须 bump version(不可被调用方绕过)。
+  if (input.userId) await bumpMemoryVersion(input.userId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
     .finally(() => invalidateRecallCache(input.userId));
@@ -240,6 +256,8 @@ export async function updateLongTermMemory(input: {
   invalidateRecallCache(ownerId);
   invalidateTriggerCache(ownerId);
   await invalidateProfileCache(ownerId);
+  // reviewer A1:写入成功后必须 bump version(不可被调用方绕过)。
+  if (ownerId) await bumpMemoryVersion(ownerId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
     .finally(() => invalidateRecallCache(ownerId));
@@ -256,6 +274,8 @@ export async function deleteLongTermMemory(
     invalidateRecallCache(options?.userId);
     invalidateTriggerCache(options?.userId);
     await invalidateProfileCache(options?.userId);
+    // reviewer A1:写入成功后必须 bump version(不可被调用方绕过)。
+    if (options?.userId) await bumpMemoryVersion(options.userId);
   }
   return result;
 }

@@ -38,6 +38,26 @@ type Mem0MemoryEntry = {
   metadata?: Record<string, unknown>;
 };
 
+/**
+ * reviewer C3:对 metadata.trust 做白名单校验,拒绝任意字符串经类型断言逃逸为 sourceKind。
+ * 仅接受 KnowledgeProviderResult.sourceKind 允许的字面量。
+ */
+const TRUSTED_SOURCE_KINDS = new Set<string>([
+  'user_asserted',
+  'assistant_observed',
+  'tool_observed',
+  'dream_consolidated',
+  'dream_recombined',
+]);
+
+function parseTrustSourceKind(
+  value: unknown,
+): KnowledgeProviderResult['sourceKind'] | undefined {
+  return typeof value === 'string' && TRUSTED_SOURCE_KINDS.has(value)
+    ? (value as KnowledgeProviderResult['sourceKind'])
+    : undefined;
+}
+
 function mapMem0Results(entries: Mem0MemoryEntry[]): KnowledgeProviderResult[] {
   const results: KnowledgeProviderResult[] = [];
   for (const entry of entries) {
@@ -50,12 +70,19 @@ function mapMem0Results(entries: Mem0MemoryEntry[]): KnowledgeProviderResult[] {
       rawScore === null
         ? undefined
         : Math.max(0, Math.min(1, Number.isFinite(rawScore) ? rawScore : 0));
+    // phase5-review B3:透传信任来源。mem0 的 user_id 字段暗示用户断言,
+    // metadata.trust 显式标注则优先用之(白名单校验,reviewer C3)。
+    const explicitTrust = entry.metadata?.trust;
+    const sourceKind =
+      parseTrustSourceKind(explicitTrust) ??
+      (entry.user_id ? ('user_asserted' as const) : undefined);
     results.push({
       content,
       title: typeof entry.name === 'string' ? entry.name : undefined,
       remoteId: typeof entry.id === 'string' ? entry.id : undefined,
       score,
       sourceUri: undefined,
+      ...(sourceKind ? { sourceKind } : {}),
     });
   }
   return results;

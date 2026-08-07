@@ -21,7 +21,10 @@ import {
   markLongTermMemorySuperseded,
   upsertLongTermMemoryByKey,
 } from '@/lib/core/db/memory/long-term';
-import { scheduleReindex } from '@/lib/memory/cache-invalidation';
+import {
+  invalidateMemoryCaches,
+  scheduleReindex,
+} from '@/lib/memory/cache-invalidation';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 
@@ -281,6 +284,17 @@ export async function applyDreamOperations(input: {
     skipped,
     failed,
   });
+
+  // Phase 3:不管本次 apply 是否修改了记忆,统一失效缓存 + bump version。
+  // 修复一个历史隐患(dream 写后 recall/trigger/profile cache 不失效),同时
+  // 保证 ContextPacker cache(含 memoryVersion)在 dream 运行后失效。
+  // 见 phase1-review #1 + docs/memory-provider-unification-plan.md §1.5。
+  //
+  // reviewer phase3 S1:条件收窄为 applied>0。failed>0 表示 op 抛错没写成功,
+  // 不应 bump(写没成功却假装变了,与 write-gate 语义矛盾)。
+  if (applied > 0) {
+    await invalidateMemoryCaches(input.userId);
+  }
 
   return { applied, skipped, failed, writtenMemoryIds, deletePreimages };
 }
