@@ -29,6 +29,10 @@ Message           # PORTED → paths.ts
 SandboxMeta       # PORTED → sandbox.ts
 Session           # PORTED → paths.ts
 Task              # PORTED → paths.ts
+ToolCall          # PORTED → paths.ts (OpenAI tool-calling assistant turn)
+ToolCallFunction  # PORTED → paths.ts
+ToolDef           # PORTED → paths.ts (OpenAI tools-field definition)
+ToolDefFunction   # PORTED → paths.ts
 ToolDefinition    # PORTED → tools.ts (MinUserType field omitted, daemon-only)
 ToolExecRequest   # PORTED → tools.ts
 ToolExecResponse  # PORTED → tools.ts
@@ -43,7 +47,7 @@ ExecResult            # SKIP — sandbox-internal provider return type (not expo
 GitInfo               # SKIP — completion-notification-only struct, not part of the tool protocol surface
 KnowledgeSearchResult # SKIP — RAG result type; lives under lib/core/knowledge on TS side
 L1Client              # SKIP — Go HTTP client implementation, not wire
-LLMProxyRequest       # SKIP — proxy-internal, not part of tool protocol
+LLMProxyRequest       # SKIP — proxy-internal. Now carries a Tools field for native tool calling (P9), but still not part of the external tool protocol; the SDK surface is the Message/ToolCall/ToolDef shapes it transports, not the envelope.
 Manager               # SKIP — Go daemon singleton, not wire
 Mount                 # SKIP — SandboxSpec sub-field, daemon-internal config
 Notification          # SKIP — Web-tier Notification schema (lib/extra/agent) is authoritative
