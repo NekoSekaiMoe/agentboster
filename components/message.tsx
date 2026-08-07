@@ -694,6 +694,8 @@ const PurePreviewMessage = ({
   onSuggestedFollowUpSelect,
   setMessages,
   regenerate,
+  ttsEnabled = false,
+  autoPlay = false,
 }: {
   chatId: string;
   message: WorkflowUIMessage;
@@ -714,6 +716,8 @@ const PurePreviewMessage = ({
   regenerate: (
     options?: { messageId?: string } & ChatRequestOptions,
   ) => Promise<void>;
+  ttsEnabled?: boolean;
+  autoPlay?: boolean;
 }) => {
   const [mode, setMode] = useState<'view' | 'edit'>('view');
   const textContent = getTextFromParts(message);
@@ -1084,6 +1088,8 @@ const PurePreviewMessage = ({
               onEditVersionChange={handleEditVersionChange}
               onRegenerate={handleRegenerate}
               onGenerationVersionChange={handleGenerationVersionChange}
+              ttsEnabled={ttsEnabled}
+              autoPlay={autoPlay}
             />
           </div>
         </div>
@@ -1100,6 +1106,8 @@ export const PreviewMessage = memo(
     if (prevProps.showSuggestedFollowUps !== nextProps.showSuggestedFollowUps) {
       return false;
     }
+    if (prevProps.ttsEnabled !== nextProps.ttsEnabled) return false;
+    if (prevProps.autoPlay !== nextProps.autoPlay) return false;
     if (prevProps.message.id !== nextProps.message.id) return false;
     if (prevProps.message.role !== nextProps.message.role) return false;
     if (prevProps.onToolApproval !== nextProps.onToolApproval) return false;

@@ -103,6 +103,10 @@ interface MessagesProps {
   regenerate: (
     options?: { messageId?: string } & ChatRequestOptions,
   ) => Promise<void>;
+  /** Whether TTS playback buttons should appear under assistant messages. */
+  ttsEnabled?: boolean;
+  /** Message ID that should auto-play (typically the just-finished assistant reply). */
+  autoPlayMessageId?: string | null;
 }
 
 type InlineFollowUpSelection = {
@@ -160,6 +164,8 @@ function PureMessages({
   onSuggestedFollowUpSelect,
   setMessages,
   regenerate,
+  ttsEnabled = false,
+  autoPlayMessageId = null,
 }: MessagesProps) {
   const { t } = useI18n();
   const lastMessage = messages[messages.length - 1];
@@ -399,6 +405,8 @@ function PureMessages({
               onSuggestedFollowUpSelect={onSuggestedFollowUpSelect}
               setMessages={setMessages}
               regenerate={regenerate}
+              ttsEnabled={ttsEnabled}
+              autoPlay={autoPlayMessageId === message.id}
             />
           );
         })}

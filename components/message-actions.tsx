@@ -2,6 +2,7 @@ import { memo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useCopyToClipboard } from 'usehooks-ts';
 
+import { AudioPlayer } from '@/components/audio-player';
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -49,12 +50,17 @@ export function PureMessageActions({
   onEditVersionChange,
   onRegenerate,
   onGenerationVersionChange,
+  ttsEnabled = false,
+  autoPlay = false,
 }: {
   message: WorkflowUIMessage;
   isLoading: boolean;
   onEditVersionChange?: (messageId: string, newIndex: number) => void;
   onRegenerate?: (messageId: string) => void;
   onGenerationVersionChange?: (messageId: string, newIndex: number) => void;
+  /** Show the TTS playback button (only when the admin configured a speech model). */
+  ttsEnabled?: boolean;
+  autoPlay?: boolean;
 }) {
   const { t } = useI18n();
   const [_, copyToClipboard] = useCopyToClipboard();
@@ -234,6 +240,11 @@ export function PureMessageActions({
           </>
         )}
 
+        {/* Text-to-Speech playback — only for assistant messages when TTS is configured */}
+        {!isUser && ttsEnabled && textContent.trim() && (
+          <AudioPlayer text={textContent} autoPlay={autoPlay} />
+        )}
+
         {/* Copy — both user and assistant */}
         {textContent.trim() && (
           <Tooltip>
@@ -277,6 +288,8 @@ export const MessageActions = memo(
     if (prevProps.message.id !== nextProps.message.id) return false;
     if (prevProps.message.role !== nextProps.message.role) return false;
     if (prevProps.message.parts !== nextProps.message.parts) return false;
+    if (prevProps.ttsEnabled !== nextProps.ttsEnabled) return false;
+    if (prevProps.autoPlay !== nextProps.autoPlay) return false;
     // Metadata carries versions and currentVersionIndex. Without this check,
     // version-switching UI (1/N counter and arrow buttons) does not re-render
     // when only metadata changes — e.g. after handleRegenerate's setTimeout
