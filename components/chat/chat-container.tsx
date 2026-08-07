@@ -1079,7 +1079,7 @@ export function Chat({
       <ChatSidebar />
       <MobileDrawerBridge />
       <SidebarInset className="min-w-0 bg-background">
-        <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div className="relative flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background">
           <ChatHeader
             session={headerSession}
             chatId={id}
@@ -1157,8 +1157,8 @@ export function Chat({
               </div>
             </div>
           ) : (
-            <form className="relative z-20 shrink-0 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-6">
-              <div className="mx-auto flex w-full gap-2 md:max-w-4xl">
+            <form className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] md:pb-7">
+              <div className="pointer-events-auto mx-auto flex w-full gap-2 md:max-w-4xl">
                 <MultimodalInput
                   chatId={id}
                   focusTrigger={composerFocusKey}

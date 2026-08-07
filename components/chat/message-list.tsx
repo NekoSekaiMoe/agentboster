@@ -379,7 +379,7 @@ function PureMessages({
     <div className="relative min-h-0 min-w-0 flex-1">
       <div
         ref={messagesContainerRef}
-        className="flex h-full min-h-0 flex-col gap-8 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pt-5 pb-8 md:px-6 md:pt-8 md:pb-10"
+        className="flex h-full min-h-0 flex-col gap-8 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pt-5 pb-32 md:px-6 md:pt-8 md:pb-36"
       >
         {messages.length === 0 && <Overview onPromptSelect={onPromptSelect} />}
 
@@ -531,7 +531,7 @@ function PureMessages({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             transition={{ duration: 0.2 }}
-            className="absolute right-5 bottom-5 z-10 flex flex-col gap-2"
+            className="absolute right-5 bottom-28 z-10 flex flex-col gap-2"
           >
             <AnimatePresence initial={false}>
               {showScrollToTop ? (
