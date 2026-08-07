@@ -8,9 +8,9 @@
  * 命名空间化)。抽取出来让任何想把 knowledge 结果喂给 context packer 的
  * 模块复用同一函数,杜绝再次手搓漂移。
  *
- * 信任语义(taint gate):knowledge 命中统一按 `tool_observed` 处理 ——
- * 文档库内容未经用户逐条确认,进 recall block 的 Unverified 段。
- * 未来若要按 connector 类型推断(用户授权源 = user_asserted),改这里一处。
+ * 信任语义(taint gate):按 `documentSourceType` 推断 ——
+ * `url` → `tool_observed`(Unverified)；
+ * `file`/`text`/`import` → `user_asserted`(Trusted)。
  *
  * bundle 安全:只用 `import type`,不引入运行时依赖,knowledge 模块
  * 不会反向依赖 memory provider 的运行时实现。
