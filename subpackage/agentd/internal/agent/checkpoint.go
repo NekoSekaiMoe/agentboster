@@ -52,6 +52,19 @@ var allowedSandboxRoots = []string{
 // sessionIDPattern constrains session ids used to derive checkpoint ids.
 var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,128}$`)
 
+// descriptionPattern constrains the human-readable description carried
+// into a checkpoint commit message. The value is daemon-controlled today
+// (a tool name like "write"/"edit"/"exec"), but it flows into git commit
+// args, so we validate it defensively to satisfy taint analysis
+// (CodeQL "Command built from user-controlled sources") and to harden
+// against future callers passing less-trusted input. Allow letters,
+// digits, underscore, dot, space, slash, and hyphen — but the FIRST
+// character must not be '-' (a leading dash risks being parsed as a
+// git/CLI flag by downstream consumers of the argv). Excludes shell/git
+// metacharacters (newline, quotes, ';', etc.) that could confuse a
+// downstream consumer of the commit message.
+var descriptionPattern = regexp.MustCompile(`^[A-Za-z0-9_./ ][A-Za-z0-9_./ -]{0,79}$`)
+
 // checkpointIDPattern matches the on-disk id format `cp-<prefix>-<ts>`.
 var checkpointIDPattern = regexp.MustCompile(`^cp-[A-Za-z0-9_-]{8,128}-[0-9]+$`)
 
@@ -506,6 +519,10 @@ func CreateCheckpoint(ref SandboxRef, sbMgr *sandbox.Manager, sessionID, descrip
 	sessionID = strings.TrimSpace(sessionID)
 	if !sessionIDPattern.MatchString(sessionID) {
 		return nil, fmt.Errorf("invalid session id: must be 8-128 chars of [A-Za-z0-9_-]")
+	}
+	description = strings.TrimSpace(description)
+	if !descriptionPattern.MatchString(description) {
+		return nil, fmt.Errorf("invalid checkpoint description: must be 1-80 chars of [A-Za-z0-9_./ -]")
 	}
 
 	if err := backend.EnsureWorkspace(); err != nil {
