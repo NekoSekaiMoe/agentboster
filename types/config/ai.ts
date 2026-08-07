@@ -163,6 +163,34 @@ export const aiConfigSchema = z.object({
    */
   memory_recall_strategy: z.enum(['vector', 'scorer']).optional(),
   /**
+   * Phase 4 feature flag:启用 ContextPacker 优化模式(超预算丢丰 + 可观测 stats)。
+   *
+   * ⚠️ 全局 flag(final-review S3):非 per-user,多租户自托管下全实例生效。
+   * env 与 config 任一为真即开(`MEMORY_PACKER_OPTIMIZE=1` 覆盖)。
+   *
+   * 默认 false = 严格等价于原 formatRecalledMemoriesForContext +
+   * formatTriggeredMemoriesForContext 的拼接。设为 true 时,packer 在预算内丢丰
+   * (各 block 内部,不跨源排序),减少 prompt 长度 + 提升 anti-lost-in-middle 效果。
+   */
+  memory_packer_optimize: z.boolean().optional(),
+  /**
+   * Phase 4 预算字符上限(final-review S4:从 context/index.ts 硬编码挪到 config)。
+   * 默认 1800(中文 CJK 1 char=1 字,约 600-900 中文词)。
+   * 仅在 memory_packer_optimize=true 时生效。
+   */
+  memory_packer_budget_chars: z.number().int().positive().optional(),
+  /**
+   * Phase 5 feature flag:启用知识库(knowledge)结果自动注入到对话 context。
+   *
+   * ⚠️ 全局 flag(final-review S3):非 per-user。env 与 config 任一为真即开
+   * (`MEMORY_KNOWLEDGE_INJECT=1` 覆盖)。
+   *
+   * 默认 false = 知识库只能被 agent 显式调工具访问。
+   * 设为 true 时,host 侧预取 knowledge 库搜索结果(collectRemoteMemoryItems),
+   * 作为 Unverified 段进 recall block(不覆盖个人记忆)。
+   */
+  memory_knowledge_inject: z.boolean().optional(),
+  /**
    * Cross-encoder reranker configuration.
    *
    * When enabled, the 'vector' recall strategy inserts a dedicated

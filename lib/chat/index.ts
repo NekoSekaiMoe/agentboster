@@ -24,6 +24,7 @@ import { invalidateCurrentSessionSummary } from '@/lib/memory';
 import { generateUUID } from '@/lib/utils';
 import { createLogger } from '@/lib/utils/logger';
 import { buildInitialContextMessages } from '@/lib/workflow/agent/context';
+import { collectRemoteMemoryItems } from '@/lib/memory/remote-injection';
 import {
   canResumeRun,
   pauseWorkflow,
@@ -1879,11 +1880,24 @@ export async function chatMain(
             ? 'global'
             : 'none',
   });
+  // Phase 5:可选预取 knowledge 库结果(feature flag 控制,默认 off)
+  const knowledgeInject =
+    config?.models?.memory_knowledge_inject === true ||
+    process.env.MEMORY_KNOWLEDGE_INJECT === '1';
+  const extraRecallItems =
+    knowledgeInject && userId && request.input.text
+      ? await collectRemoteMemoryItems({
+          userId,
+          query: request.input.text,
+          config: config ?? undefined,
+        })
+      : [];
   const initialMessages = await buildInitialContextMessages(session.id, {
     modelId: effectiveModelId,
     recallUserId: userId,
     recallQuery: request.input.text ?? null,
     config,
+    ...(extraRecallItems.length > 0 ? { extraRecallItems } : {}),
   });
   chatMainLogger.info('chatMain:initial_messages_built', {
     messageCount: initialMessages.length,

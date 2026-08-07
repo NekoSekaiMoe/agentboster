@@ -50,12 +50,22 @@ function mapMem0Results(entries: Mem0MemoryEntry[]): KnowledgeProviderResult[] {
       rawScore === null
         ? undefined
         : Math.max(0, Math.min(1, Number.isFinite(rawScore) ? rawScore : 0));
+    // phase5-review B3:透传信任来源。mem0 的 user_id 字段暗示用户断言,
+    // metadata.trust 显式标注则优先用之。
+    const explicitTrust = entry.metadata?.trust;
+    const sourceKind: KnowledgeProviderResult['sourceKind'] | undefined =
+      typeof explicitTrust === 'string'
+        ? (explicitTrust as KnowledgeProviderResult['sourceKind'])
+        : entry.user_id
+          ? 'user_asserted'
+          : undefined;
     results.push({
       content,
       title: typeof entry.name === 'string' ? entry.name : undefined,
       remoteId: typeof entry.id === 'string' ? entry.id : undefined,
       score,
       sourceUri: undefined,
+      ...(sourceKind ? { sourceKind } : {}),
     });
   }
   return results;

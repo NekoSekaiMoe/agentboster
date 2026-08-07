@@ -24,6 +24,7 @@ import {
   type PersistedMessageRecord,
   type PersistedMessagePayload,
 } from '@/lib/chat/message-utils';
+import { invalidateMemoryCaches } from '@/lib/memory/cache-invalidation';
 import { isNearDuplicate } from '@/lib/memory/dream/bigram';
 import {
   deleteLongTermMemoryByKey,
@@ -397,6 +398,13 @@ Leave the array empty if nothing is worth changing.`;
     deleted,
     noop,
   });
+
+  // Phase 3 失效链修复(reviewer phase3 B1):ADD/UPDATE 走 upsertLongTermMemory
+  // 已 bump,但 DELETE 走 deleteLongTermMemoryByKey(裸 DAL)不 bump。统一在末尾
+  // 失效 + bump,覆盖 DELETE 路径,与 dream/apply 一致。
+  if (created + updated + deleted > 0) {
+    await invalidateMemoryCaches(input.userId);
+  }
 
   return { extracted: items.length, created, updated };
 }
