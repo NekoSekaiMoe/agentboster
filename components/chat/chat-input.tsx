@@ -514,13 +514,14 @@ function PureMultimodalInput({
         role="group"
         aria-label="Message composer"
         className={cn(
-          'relative flex flex-col gap-3 rounded-[28px] border border-border/60 bg-background/95 px-4 py-4',
-          'shadow-[0_10px_35px_-12px_rgba(0,0,0,0.28),0_2px_10px_-4px_rgba(0,0,0,0.16)] backdrop-blur-xl',
-          'transition-[border-color,background-color,box-shadow] duration-200',
-          'focus-within:border-border focus-within:bg-background focus-within:shadow-[0_14px_42px_-12px_rgba(0,0,0,0.32),0_3px_12px_-4px_rgba(0,0,0,0.18)]',
-          'dark:shadow-[0_12px_38px_-12px_rgba(0,0,0,0.65)] dark:focus-within:shadow-[0_16px_44px_-12px_rgba(0,0,0,0.72)]',
+          'relative flex flex-col gap-3 rounded-[32px] bg-background/95 px-4 py-4',
+          'shadow-[0_1px_2px_rgba(0,0,0,0.05),0_12px_32px_-12px_rgba(0,0,0,0.22),0_32px_64px_-24px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-xl',
+          'transition-[background-color,box-shadow,transform] duration-200',
+          'focus-within:-translate-y-0.5 focus-within:bg-background focus-within:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_20px_44px_-14px_rgba(0,0,0,0.28),0_40px_80px_-28px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.6)]',
+          'dark:bg-background/80 dark:shadow-[0_1px_2px_rgba(0,0,0,0.4),0_16px_40px_-12px_rgba(0,0,0,0.7),0_36px_72px_-24px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)]',
+          'dark:focus-within:shadow-[0_2px_6px_rgba(0,0,0,0.5),0_24px_52px_-14px_rgba(0,0,0,0.78),0_44px_88px_-28px_rgba(0,0,0,0.68),inset_0_1px_0_rgba(255,255,255,0.12)]',
           {
-            'border-primary/60 bg-primary/5': isDragActive,
+            'bg-primary/5 ring-2 ring-primary/50': isDragActive,
           },
           className,
         )}
