@@ -307,13 +307,17 @@ func unwrapBridgeEnvelope(raw, method, urlPath string) (json.RawMessage, error) 
 // so the helper dies on its own. This is for explicit teardown.
 func CloseBridge(sbMgr *sandbox.Manager, sandboxID string) {
 	markNotReady(sandboxID)
-	// Read PID file, kill if present.
-	pidRead, _ := runScriptRaw(sbMgr, sandboxID, fmt.Sprintf("cat %s 2>/dev/null || true", bridgePIDPath), 3)
+	// Read PID file, kill if present. P7 audit: shell-quote the values we
+	// interpolate into the cleanup scripts even though socketPath / pid are
+	// daemon-controlled today — defense in depth, and mirrors desktop's
+	// singleQuote pattern. A pid file is best-effort state written by a
+	// prior helper process; treat its contents as untrusted.
+	pidRead, _ := runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`cat '%s' 2>/dev/null || true`, bridgePIDPath), 3)
 	pid := strings.TrimSpace(pidRead)
 	if pid != "" {
-		_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf("kill %s 2>/dev/null || true", pid), 3)
+		_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`kill '%s' 2>/dev/null || true`, pid), 3)
 	}
-	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf("rm -f %s %s 2>/dev/null || true", socketPath, bridgePIDPath), 3)
+	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f '%s' '%s' 2>/dev/null || true`, socketPath, bridgePIDPath), 3)
 }
 
 // probeHealth returns true if the helper socket exists and responds to /health.

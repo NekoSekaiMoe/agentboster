@@ -34,6 +34,46 @@ type OSPolicy struct {
 	NetworkNone bool
 }
 
+// BaselineMaskedPaths returns the set of host-sensitive kernel/userspace
+// files that Docker/gVisor mask by default and that L0 path rules do NOT
+// enumerate (L0 rules focus on user-facing dangerous commands like
+// /etc/shadow; they do not cover kernel info-leak vectors like
+// /proc/sched_debug or /sys/firmware). These are masked regardless of
+// which L0 rules are loaded, so a daemon with an empty L0 rule set
+// still gets defense-in-depth against the most common container-escape
+// info-leak paths. Source: Docker default seccomp + masked-paths list,
+// pruned to paths that exist on a typical minimal container rootfs.
+func BaselineMaskedPaths() []string {
+	return []string{
+		// /proc kernel info-leak vectors (Docker masks these by default)
+		"/proc/kcore",        // physical memory image
+		"/proc/keys",         // kernel keyring
+		"/proc/latency_stats", // scheduler latency (info leak)
+		"/proc/timer_list",   // kernel timer internals
+		"/proc/timer_stats",  // timer statistics
+		"/proc/sched_debug",  // scheduler debug info
+		"/proc/scsi",         // SCSI host info
+		// /sys firmware / kernel internals
+		"/sys/firmware", // EFI/firmware tables (kernel exploit surface)
+		"/sys/devices/virtual/powercap", // powercap info (side-channel)
+		// Host secret files that should never be readable inside a sandbox
+		"/etc/ssh",
+		"/root/.ssh",
+	}
+}
+
+// BaselineReadonlyPaths returns paths that should be mounted read-only
+// regardless of L0 rules. /proc and /sys contain both info-leak vectors
+// (handled by masking specific files above) and legitimate read APIs
+// the sandbox may need (e.g. /proc/self), so the whole tree is RO rather
+// than masked. Mirrors Docker's readonlyPaths default.
+func BaselineReadonlyPaths() []string {
+	return []string{
+		"/proc",
+		"/sys",
+	}
+}
+
 // CategorizedRules groups L0 rules by their security sub-type for OS mapping.
 type CategorizedRules struct {
 	PrivEscalation []l0_rules.L0Rule // sudo, su
@@ -115,7 +155,12 @@ func FromL0Rules(rules []l0_rules.L0Rule) *OSPolicy {
 		NetworkNone: true, // default: isolate network
 	}
 
-	// Path rules → masked or readonly paths
+	// Path rules → masked or readonly paths. We merge L0-derived paths
+	// (user-configured dangerous paths) with BaselineMaskedPaths/
+	// BaselineReadonlyPaths (kernel info-leak vectors Docker masks by
+	// default). The baseline is applied even when L0 has no path rules,
+	// so an empty L0 config still gets defense-in-depth. uniqueStrings
+	// below dedups any overlap.
 	for _, rule := range cat.PathBlock {
 		path := extractPathFromPattern(rule.Pattern)
 		if path == "" {
@@ -128,6 +173,8 @@ func FromL0Rules(rules []l0_rules.L0Rule) *OSPolicy {
 			policy.MaskedPaths = append(policy.MaskedPaths, path)
 		}
 	}
+	policy.MaskedPaths = append(policy.MaskedPaths, BaselineMaskedPaths()...)
+	policy.ReadonlyPaths = append(policy.ReadonlyPaths, BaselineReadonlyPaths()...)
 
 	// If no net-scan rules exist, still keep network isolated as baseline
 	// (the user can override via config)

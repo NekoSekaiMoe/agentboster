@@ -5,7 +5,9 @@ package sandbox
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -171,30 +173,57 @@ func (p *LXCPersistentProvider) Exec(sandboxID, cmd string, env map[string]strin
 	lxcArgs = append(lxcArgs, "--", "sh", "-c", cmd)
 
 	var execCmd *exec.Cmd
+	ctx := context.Background()
+	var cancel context.CancelFunc
 	if timeout > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 		defer cancel()
-		execCmd = exec.CommandContext(ctx, "lxc-attach", lxcArgs...)
-	} else {
-		execCmd = exec.Command("lxc-attach", lxcArgs...)
 	}
+	execCmd = exec.CommandContext(ctx, "lxc-attach", lxcArgs...)
+
+	// P8: capture stdout and stderr SEPARATELY. Previously CombinedOutput
+	// merged them into one buffer that was then copied to BOTH Stdout and
+	// Stderr on failure, so callers (probeHealth, runScript) could not tell
+	// a real error message from normal program output. The separate pipes
+	// here also let result.Err be classified precisely.
+	var stdoutBuf, stderrBuf bytes.Buffer
+	execCmd.Stdout = &stdoutBuf
+	execCmd.Stderr = &stderrBuf
 
 	start := time.Now()
-	output, err := execCmd.CombinedOutput()
+	err := execCmd.Run()
 	duration := time.Since(start)
 
 	result := &ExecResult{
-		Stdout:   string(output),
+		Stdout:   stdoutBuf.String(),
+		Stderr:   stderrBuf.String(),
 		Duration: duration,
 	}
 
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			result.ExitCode = exitErr.ExitCode()
-		} else {
+		// P8: timeout check FIRST — see DockerProvider.Exec for rationale
+		// (SIGKILL-on-deadline surfaces as ExitError).
+		if ctx.Err() == context.DeadlineExceeded {
 			result.ExitCode = -1
+			result.Err = fmt.Errorf("%w: %v", ErrCommandTimeout, err)
+			return result, nil
 		}
-		result.Stderr = string(output)
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			result.ExitCode = exitErr.ExitCode()
+			result.Err = fmt.Errorf("%w (exit %d)", ErrNonZeroExit, exitErr.ExitCode())
+		} else {
+			// Host-side failure (binary missing, lxc-attach crash, ...).
+			result.ExitCode = -1
+			result.Err = classifyExecError(ctx, err)
+			if result.Err == nil {
+				result.Err = err // unknown exec error — surface verbatim
+			}
+		}
+		// Preserve historical behavior: keep Stdout as the program's actual
+		// stdout; Stderr already holds the real stderr. On timeout, lxc-attach
+		// may not have flushed partial output to the pipes, so the buffers
+		// may be empty — callers that need detail should inspect result.Err.
 	}
 
 	return result, nil

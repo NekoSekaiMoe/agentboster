@@ -1,11 +1,13 @@
 package desktop
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -207,6 +209,83 @@ func TestBuildIcemwStartScript_ToleratesMissingEnvFile(t *testing.T) {
 	}
 }
 
+// TestBuildIcemwStartScript_FailingIcewmDoesNotAbortScript verifies the
+// P5 degrade path: because icewm is launched via setsid ... &, the
+// script returns immediately and an icewm that exits non-zero does NOT
+// fail the surrounding startStack script. startStack treats icewm
+// failure as non-fatal (Warn + degrade), so the script must exit 0 even
+// when the launched icewm dies. This locks that contract with a fake
+// icewm that exits 1.
+func TestBuildIcemwStartScript_FailingIcewmDoesNotAbortScript(t *testing.T) {
+	canSh(t)
+	if runtime.GOOS != "linux" {
+		t.Skip("icewm script test only meaningful on Linux hosts")
+	}
+	fakeBinDir := t.TempDir()
+	pidDir := t.TempDir()
+
+	// Fake icewm that exits non-zero (simulates config/HOME write failure).
+	icewm := "#!/bin/sh\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(fakeBinDir, "icewm"), []byte(icewm), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// No envFile present (mirrors the missing-envFile tolerance test);
+	// the script must reach the icewm invocation regardless.
+	missingEnvFile := filepath.Join(t.TempDir(), "does-not-exist.sh")
+	script := buildIcemwStartScript(missingEnvFile, ":99", pidDir) + "; sleep 0.1"
+	out, err := runSh(t, script, []string{
+		"PATH=" + fakeBinDir + ":/usr/bin:/bin",
+	})
+	if err != nil {
+		t.Fatalf("script must exit 0 even when icewm fails (setsid ... & detaches); got %v\noutput:\n%s\nscript:\n%s",
+			err, out, script)
+	}
+	// The pidfile is still written (echo $! runs before icewm exits),
+	// proving the script reached the launch line and did not abort early.
+	pidFile := filepath.Join(pidDir, "icewm.pid")
+	if _, statErr := os.Stat(pidFile); statErr != nil {
+		t.Errorf("icewm.pid should be written even when icewm exits non-zero: %v", statErr)
+	}
+}
+
+// TestXprobeSnippet_Shape locks the X-layer probe shell snippet so a
+// refactor can't silently switch it off xset (which ships with Xvfb)
+// back onto xdpyinfo (a separate package missing on Alpine).
+func TestXprobeSnippet_Shape(t *testing.T) {
+	got := xprobeSnippet(":99")
+	want := "xset -display :99 q >/dev/null 2>&1"
+	if got != want {
+		t.Errorf("xprobeSnippet(:99) = %q, want %q", got, want)
+	}
+}
+
+// TestPortListeningSnippet_Shape locks the /proc/net/tcp port-listen
+// probe. It must reference the port in 4 uppercase hex digits and the
+// LISTEN state column (0A), with no nc/bash dependency.
+func TestPortListeningSnippet_Shape(t *testing.T) {
+	cases := []struct {
+		port int
+		hex  string
+	}{
+		{5999, "176F"}, // defaultRfbPort
+		{6080, "17C0"}, // defaultWebPort
+	}
+	for _, c := range cases {
+		got := portListeningSnippet(c.port)
+		// Must contain the 4-digit hex port and the LISTEN state marker.
+		if !strings.Contains(got, ":"+c.hex) {
+			t.Errorf("portListeningSnippet(%d) = %q, want it to reference :%s", c.port, got, c.hex)
+		}
+		if !strings.Contains(got, "0A") {
+			t.Errorf("portListeningSnippet(%d) = %q, want it to reference LISTEN state 0A", c.port, got)
+		}
+		if !strings.Contains(got, "/proc/net/tcp") {
+			t.Errorf("portListeningSnippet(%d) = %q, want it to probe /proc/net/tcp", c.port, got)
+		}
+	}
+}
+
 // TestBuildIcemwStartScript_SourcesEnvFileWhenPresent verifies that
 // when envFile DOES exist, the script sources it before exec'ing icewm.
 // We detect this by putting an `echo $SOURCED_VAR` into the envFile and
@@ -248,5 +327,99 @@ func TestBuildIcemwStartScript_SourcesEnvFileWhenPresent(t *testing.T) {
 	}
 	if !strings.Contains(string(envDump), "SOURCED_FROM_ENVFILE=1") {
 		t.Errorf("envFile was not sourced into icewm's environment\nenv dump:\n%s", envDump)
+	}
+}
+
+// TestPidfileDaemonMatch_CoversKnownDaemons verifies the PID-recycle
+// guard maps each known pidfile name to the right cmdline substring.
+// Without correct mapping, killByPidfile could either leak daemons
+// (empty match refuses to kill) or kill unrelated processes (wrong
+// match). The four desktop daemons are the only pidfile writers.
+func TestPidfileDaemonMatch_CoversKnownDaemons(t *testing.T) {
+	cases := map[string]string{
+		"xvfb":       "Xvfb",
+		"x11vnc":     "x11vnc",
+		"websockify": "websockify",
+		"icewm":      "icewm",
+	}
+	for name, want := range cases {
+		if got := pidfileDaemonMatch(name); got != want {
+			t.Errorf("pidfileDaemonMatch(%q) = %q, want %q", name, got, want)
+		}
+	}
+	// Unknown daemon: empty match (grep matches all → degrades to old
+	// unguarded kill rather than refusing). This is a deliberate safety
+	// fallback for forward-compat with future daemon names.
+	if got := pidfileDaemonMatch("unknown-daemon"); got != "" {
+		t.Errorf("pidfileDaemonMatch(unknown) = %q, want empty (safe fallback)", got)
+	}
+}
+
+// TestKillByPidfileScript_SyntaxAndGuards verifies the generated script
+// (a) parses cleanly under sh -n (catches the POSIX case-grammar bug an
+// earlier draft had — leading '(' before the pattern is rejected by
+// dash/ash), and (b) contains the PID-recycle guard tokens so a refactor
+// can't silently drop them.
+func TestKillByPidfileScript_SyntaxAndGuards(t *testing.T) {
+	canSh(t)
+	for _, name := range []string{"xvfb", "x11vnc", "websockify", "icewm"} {
+		script := killByPidfileScript("/tmp/test.pid", name)
+		// Syntax check under real sh.
+		cmd := exec.Command("sh", "-n", "-c", script)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("killByPidfile script for %q has syntax error: %v\nscript:\n%s\noutput:\n%s",
+				name, err, script, out)
+		}
+		daemon := pidfileDaemonMatch(name)
+		for _, want := range []string{
+			"*[!0-9]*",               // numeric validation
+			"/proc/\"$pid\"/cmdline", // PID recycle check
+			daemon,                   // daemon name match
+		} {
+			if !strings.Contains(script, want) {
+				t.Errorf("killByPidfile script for %q missing guard token %q\nscript:\n%s", name, want, script)
+			}
+		}
+	}
+}
+
+// TestKillByPidfileScript_DoesNotKillUnmatchedProcess is the live PID-
+// recycle regression test. It starts a real long-running process (sleep),
+// writes its PID into the pidfile AS IF it were xvfb, then runs the
+// killByPidfile script for "xvfb". The script must REFUSE to kill it
+// because /proc/<pid>/cmdline contains "sleep", not "Xvfb". This is the
+// concrete guard against the classic pidfile-recycle misfire.
+func TestKillByPidfileScript_DoesNotKillUnmatchedProcess(t *testing.T) {
+	canSh(t)
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc/<pid>/cmdline check is Linux-only")
+	}
+	// Start a sacrificial process whose PID we will pretend is xvfb.
+	sleep := exec.Command("sh", "-c", "sleep 30")
+	if err := sleep.Start(); err != nil {
+		t.Fatalf("start sacrificial process: %v", err)
+	}
+	defer func() {
+		_ = sleep.Process.Kill()
+		_, _ = sleep.Process.Wait()
+	}()
+	fakePID := sleep.Process.Pid
+
+	// Write the fake PID into a pidfile claiming to be xvfb.
+	pidFile := filepath.Join(t.TempDir(), "xvfb.pid")
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d\n", fakePID)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run the killByPidfile script for xvfb against this pidfile.
+	script := killByPidfileScript(pidFile, "xvfb")
+	if _, err := runSh(t, script, nil); err != nil {
+		t.Fatalf("script failed: %v\nscript:\n%s", err, script)
+	}
+
+	// The sacrificial process must STILL be alive — the script must have
+	// refused to kill it because its cmdline says "sleep", not "Xvfb".
+	if err := syscall.Kill(fakePID, 0); err != nil {
+		t.Fatalf("PID-recycle guard FAILED: killByPidfile killed an unrelated process (cmdline=sleep, not Xvfb). This is the classic pidfile misfire the guard exists to prevent.")
 	}
 }

@@ -24,12 +24,24 @@
 set -eu
 
 DISPLAY_NUM="${AGENTD_DESKTOP_DISPLAY:-:99}"
-# Strip leading ":" to compute the RFB port (5900+n).
+# Strip leading ":" to compute the RFB port (5900+n). DISPLAY_IDX is
+# consumed below in the already-installed echo line.
 DISPLAY_IDX="${DISPLAY_NUM#:}"
+# The following env overrides are documented for completeness but are
+# not consumed by this install script — the runtime values live in
+# desktop.go (defaultDisplay/defaultRfbPort/defaultWebPort/default*).
+# Kept here so `set -u` doesn't trip on a referenced-but-unset env in
+# future edits, and so operators grepping for the override names find
+# them. shellcheck SC2034 is therefore expected.
+# shellcheck disable=SC2034
 RFB_PORT="${AGENTD_DESKTOP_RFB_PORT:-$((5900 + DISPLAY_IDX))}"
+# shellcheck disable=SC2034
 WEB_PORT="${AGENTD_DESKTOP_WEB_PORT:-6080}"
+# shellcheck disable=SC2034
 WIDTH="${AGENTD_DESKTOP_WIDTH:-1280}"
+# shellcheck disable=SC2034
 HEIGHT="${AGENTD_DESKTOP_HEIGHT:-800}"
+# shellcheck disable=SC2034
 DEPTH="${AGENTD_DESKTOP_DEPTH:-24}"
 
 # ── Helpers and constants (must precede the idempotent check) ────────
@@ -70,6 +82,7 @@ install_novnc_from_release() {
   fi
 
   TMPDIR_NOVNC="$(mktemp -d /tmp/agentd-novnc-XXXXXX)"
+  # shellcheck disable=SC3047 # RETURN trap is bash/dash/ash-supported; best-effort cleanup
   trap 'rm -rf "$TMPDIR_NOVNC"' RETURN
 
   echo "AGENTD_DESKTOP_NOVNC_DOWNLOAD_STARTED version=${NOVNC_VERSION}"
@@ -138,6 +151,7 @@ install_a11y_helper_from_release() {
   echo "AGENTD_DESKTOP_A11Y_HELPER_DOWNLOAD_STARTED arch=${A11Y_ARCH} version=${A11Y_HELPER_VERSION}"
 
   TMPDIR_A11Y="$(mktemp -d /tmp/agentd-a11y-XXXXXX)"
+  # shellcheck disable=SC3047 # RETURN trap is bash/dash/ash-supported; best-effort cleanup
   trap 'rm -rf "$TMPDIR_A11Y"' RETURN
 
   if command -v curl >/dev/null 2>&1; then
@@ -223,7 +237,7 @@ if command -v apk >/dev/null 2>&1; then
   # GitHub instead.
   # at-spi2-core + dbus-x11 enable the AT-SPI2 a11y bus (consumed by
   # the a11y helper binary for desktop_inspect/desktop_a11y_click).
-  PKGS="xorg-server-xvfb icewm x11vnc websockify xdotool imagemagick at-spi2-core dbus-x11"
+  PKGS="xorg-server-xvfb xorg-xdpyinfo procps-ng icewm x11vnc websockify xdotool imagemagick at-spi2-core dbus-x11"
   echo "AGENTD_DESKTOP_MISSING_TOOLS=gui-stack"
   echo "AGENTD_DESKTOP_DISTRO=alpine"
   # Probe whether community repo is enabled; if not, emit a hint that
@@ -244,7 +258,7 @@ elif command -v apt-get >/dev/null 2>&1; then
   # through apt. Phase 2's install_novnc_from_release no-ops.
   # at-spi2-core + dbus-x11 enable the AT-SPI2 a11y bus (consumed by
   # the a11y helper binary for desktop_inspect/desktop_a11y_click).
-  PKGS="xvfb icewm x11vnc websockify novnc xdotool imagemagick fonts-noto-cjk at-spi2-core dbus-x11"
+  PKGS="xvfb x11-utils procps icewm x11vnc websockify novnc xdotool imagemagick fonts-noto-cjk at-spi2-core dbus-x11"
   echo "AGENTD_DESKTOP_MISSING_TOOLS=gui-stack"
   echo "AGENTD_DESKTOP_DISTRO=debian"
   emit_hint "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends" "$PKGS"
@@ -256,7 +270,7 @@ elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
   # xdotool is in EPEL on RHEL; the hint assumes EPEL is already enabled.
   # novnc on RHEL/Fedora is the full upstream release (same as debian).
   # at-spi2-core + dbus-x11 enable the AT-SPI2 a11y bus.
-  PKGS="xorg-x11-server-Xvfb icewm x11vnc websockify novnc xdotool ImageMagick at-spi2-core dbus-x11"
+  PKGS="xorg-x11-server-Xvfb xorg-x11-utils procps-ng icewm x11vnc websockify novnc xdotool ImageMagick at-spi2-core dbus-x11"
   echo "AGENTD_DESKTOP_MISSING_TOOLS=gui-stack"
   echo "AGENTD_DESKTOP_DISTRO=rhel"
   emit_hint "$PM" "$PKGS"
@@ -264,12 +278,12 @@ elif command -v pacman >/dev/null 2>&1; then
   # arch — AUR has novnc, but the binary repos don't. Phase 2 fetches
   # from GitHub instead.
   # at-spi2-core + dbus-x11 enable the AT-SPI2 a11y bus.
-  PKGS="xorg-server-xvfb icewm x11vnc websockify xdotool imagemagick at-spi2-core dbus-x11"
+  PKGS="xorg-server-xvfb xorg-xdpyinfo procps-ng icewm x11vnc websockify xdotool imagemagick at-spi2-core dbus-x11"
   echo "AGENTD_DESKTOP_MISSING_TOOLS=gui-stack"
   echo "AGENTD_DESKTOP_DISTRO=arch"
   emit_hint "pacman -Sy --noconfirm --needed" "$PKGS"
 else
   echo "AGENTD_DESKTOP_MISSING_TOOLS=unknown-package-manager"
-  echo "AGENTD_DESKTOP_INSTALL_HINT=(no apk/apt/dnf/yum/pacman detected; install xvfb icewm x11vnc websockify xdotool imagemagick at-spi2-core dbus-x11 manually)" >&2
+  echo "AGENTD_DESKTOP_INSTALL_HINT=(no apk/apt/dnf/yum/pacman detected; install xvfb x11-utils x11vnc websockify xdotool imagemagick at-spi2-core dbus-x11 manually)" >&2
   exit 1
 fi

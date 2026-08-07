@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -238,6 +239,14 @@ type hostGitBackend struct {
 	sandboxRoot string
 }
 
+// hostGitTimeoutSec caps host-side git operations (CreateCheckpoint /
+// RestoreCheckpoint via the hostGitBackend). Without it, a stalled git
+// process (e.g. waiting on a missing global gitconfig lock, an NFS
+// hang, or under heavy CI load) blocks the agent loop indefinitely.
+// 30s is generous for host-local ops (vs containerGitTimeoutSec=60
+// which accounts for the lxc-attach/docker exec hop).
+const hostGitTimeoutSec = 30
+
 func (b *hostGitBackend) workspace() string { return filepath.Join(b.sandboxRoot, checkpointWorkspaceDir) }
 func (b *hostGitBackend) metaDir() string   { return filepath.Join(b.workspace(), checkpointMetaDir) }
 
@@ -246,7 +255,9 @@ func (b *hostGitBackend) GitRun(args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("git", safe...)
+	ctx, cancel := context.WithTimeout(context.Background(), hostGitTimeoutSec*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", safe...)
 	cmd.Dir = b.workspace()
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
@@ -257,7 +268,9 @@ func (b *hostGitBackend) GitCommit(args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.Command("git", safe...)
+	ctx, cancel := context.WithTimeout(context.Background(), hostGitTimeoutSec*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", safe...)
 	cmd.Dir = b.workspace()
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=agentd",

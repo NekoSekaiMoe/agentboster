@@ -108,6 +108,14 @@ func registerExec(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 		output := result.Stdout
 		if result.ExitCode != 0 {
 			output = fmt.Sprintf("[exit code: %d]\n%s\n[stderr]\n%s", result.ExitCode, result.Stdout, result.Stderr)
+			// P8: surface the categorized cause (timeout / binary-missing /
+			// etc.) so the model can self-heal — e.g. retry with a longer
+			// timeout vs report a daemon misconfiguration vs accept a plain
+			// business error. Previously all four collapsed into an opaque
+			// ExitCode=-1 with stdout/stderr merged.
+			if result.Err != nil {
+				output = fmt.Sprintf("[%v]\n%s", result.Err, output)
+			}
 		}
 
 		slog.Info("exec", "command", params.Command, "exit_code", result.ExitCode, "duration", result.Duration)

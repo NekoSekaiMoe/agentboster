@@ -4,7 +4,9 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
@@ -206,22 +208,45 @@ func (p *DockerProvider) Exec(sandboxID, cmd string, env map[string]string, time
 		execCmd = dockerCommand(p.socket, dockerArgs...)
 	}
 
+	// P8: capture stdout/stderr separately (see LXCPersistentProvider.Exec
+	// for the full rationale). docker exec routes the container process's
+	// stderr through the local exec.Cmd stderr when the CLI isn't attached
+	// to a tty, so the split is reliable.
+	var stdoutBuf, stderrBuf bytes.Buffer
+	execCmd.Stdout = &stdoutBuf
+	execCmd.Stderr = &stderrBuf
+
 	start := time.Now()
-	output, err := execCmd.CombinedOutput()
+	err := execCmd.Run()
 	duration := time.Since(start)
 
 	result := &ExecResult{
-		Stdout:   string(output),
+		Stdout:   stdoutBuf.String(),
+		Stderr:   stderrBuf.String(),
 		Duration: duration,
 	}
 
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		// P8: timeout check FIRST. exec.CommandContext kills the process
+		// with SIGKILL on deadline, which surfaces as *exec.ExitError too
+		// (exit code -1 / signal: killed) — so the ExitError check below
+		// would otherwise mis-classify a timeout as a non-zero exit.
+		if ctx.Err() == context.DeadlineExceeded {
+			result.ExitCode = -1
+			result.Err = fmt.Errorf("%w: %v", ErrCommandTimeout, err)
+			return result, nil
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
+			result.Err = fmt.Errorf("%w (exit %d)", ErrNonZeroExit, exitErr.ExitCode())
 		} else {
 			result.ExitCode = -1
+			result.Err = classifyExecError(ctx, err)
+			if result.Err == nil {
+				result.Err = err
+			}
 		}
-		result.Stderr = string(output)
 	} else {
 		result.ExitCode = 0
 	}
