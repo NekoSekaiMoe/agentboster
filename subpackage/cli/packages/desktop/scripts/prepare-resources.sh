@@ -73,10 +73,13 @@ CLI_DIST="$REPO_ROOT/subpackage/cli/packages/coding-agent/dist"
 # in src-tauri/src/lib.rs):
 #   non-Windows: agentboster-cli-<triple>      (sh wrapper, executable)
 #                agentboster-cli.cjs           (node bundle, same dir)
-#   Windows:     agentboster-cli-<triple>.cmd  (synthesized by lib.rs at
-#                                              discover time from the .cjs)
+#   Windows:     agentboster-cli-<triple>.cmd  (build-time shim, copied
+#                                              here; lib.rs only writes
+#                                              one at runtime as a fallback)
 #                agentboster-cli.cjs           (node bundle, same dir)
 #   MCP:         computer-use-mcp[.exe]        (no triple)
+# Windows uses .cmd because .exe was an erroneous suffix that never
+# matched a real artifact (there is no native .exe launcher).
 CLI_BIN_NAME="agentboster-cli-${TARGET}${EXT}"
 MCP_BIN_NAME="computer-use-mcp${EXT}"
 
@@ -91,14 +94,19 @@ else
   echo "WARNING: computer-use-mcp binary not found; Desktop will lack computer-use tools." >&2
 fi
 
-# ── 2) agentboster-cli (wrapper + .cjs companion) ─────────────────
+# ── 2) agentboster-cli (launcher + .cjs companion) ────────────────
 #
-# The wrapper ships inside the release tarball as `agentboster-cli`
-# (#!/bin/sh ... exec node …/agentboster-cli.cjs). We copy BOTH the
-# wrapper (renamed to the triple form Rust's discover_sidecar looks for)
-# and the .cjs it execs. On Windows there is no sh wrapper in the
-# tarball — lib.rs synthesizes a .cmd at discover time — so we only
-# need the .cjs there; the wrapper copy is skipped.
+# The launcher ships next to `agentboster-cli.cjs`:
+#   - non-Windows: a POSIX `#!/bin/sh` wrapper named `agentboster-cli`
+#     (execs `node …/agentboster-cli.cjs`).
+#   - Windows: there is no sh wrapper in the tarball, so we synthesize
+#     `agentboster-cli-<triple>.cmd` HERE at build time and copy it in.
+#     lib.rs's `ensure_cli_launcher` reuses it if present and only falls
+#     back to runtime synthesis when missing — so the normal install
+#     path never writes into the (potentially read-only) resources dir.
+#
+# We copy the launcher (renamed to the triple form Rust's discover_sidecar
+# searches for) AND the .cjs it execs.
 staged_cli_wrapper=""
 staged_cli_cjs=""
 
@@ -119,11 +127,20 @@ fi
 
 if [[ -n "$staged_cli_cjs" ]]; then
   cp "$staged_cli_cjs" "$RESOURCES_DIR/agentboster-cli.cjs"
-  # Non-Windows: also stage the sh wrapper under the triple name
-  # discover_sidecar searches for. Windows has no sh wrapper in the
-  # tarball; lib.rs writes the .cmd shim itself at discover time.
-  if [[ "$TARGET" != *windows* ]] && [[ -n "$staged_cli_wrapper" ]]; then
-    cp "$staged_cli_wrapper" "$RESOURCES_DIR/$CLI_BIN_NAME"
+
+  if [[ "$TARGET" != *windows* ]]; then
+    # Non-Windows: also stage the sh wrapper under the triple name
+    # discover_sidecar searches for.
+    if [[ -n "$staged_cli_wrapper" ]]; then
+      cp "$staged_cli_wrapper" "$RESOURCES_DIR/$CLI_BIN_NAME"
+    fi
+  else
+    # Windows: synthesize the .cmd shim at build time so the normal path
+    # doesn't depend on lib.rs writing into resources/ at runtime. The
+    # shim uses `%~dp0` ("this script's dir") so it finds the sibling
+    # .cjs regardless of install path — same body lib.rs generates.
+    cmd_body=$'@echo off\r\nnode "%~dp0agentboster-cli.cjs" %*\r\n'
+    printf '%s' "$cmd_body" > "$RESOURCES_DIR/$CLI_BIN_NAME"
   fi
 else
   echo "WARNING: agentboster-cli.cjs not found; Desktop will fall back to PATH / auto-installer." >&2

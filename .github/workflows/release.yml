@@ -79,11 +79,17 @@ jobs:
 
       - name: Resolve version
         id: ver
+        # `github.event.inputs.version` is user-controlled (workflow_dispatch
+        # caller) — interpolate it via env to avoid shell injection from the
+        # `run:` body. `github.ref` is not user-controlled, so its expression
+        # is safe to inline.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
             VERSION="${GITHUB_REF_NAME}"
           else
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${INPUT_VERSION}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -146,11 +152,17 @@ jobs:
 
       - name: Resolve version
         id: ver
+        # `github.event.inputs.version` is user-controlled (workflow_dispatch
+        # caller) — interpolate it via env to avoid shell injection from the
+        # `run:` body. `github.ref` is not user-controlled, so its expression
+        # is safe to inline.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
             VERSION="${GITHUB_REF_NAME}"
           else
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${INPUT_VERSION}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -268,11 +280,17 @@ jobs:
 
       - name: Resolve version
         id: ver
+        # `github.event.inputs.version` is user-controlled (workflow_dispatch
+        # caller) — interpolate it via env to avoid shell injection from the
+        # `run:` body. `github.ref` is not user-controlled, so its expression
+        # is safe to inline.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
             VERSION="${GITHUB_REF_NAME}"
           else
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${INPUT_VERSION}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -338,11 +356,17 @@ jobs:
 
       - name: Resolve version
         id: ver
+        # `github.event.inputs.version` is user-controlled (workflow_dispatch
+        # caller) — interpolate it via env to avoid shell injection from the
+        # `run:` body. `github.ref` is not user-controlled, so its expression
+        # is safe to inline.
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
             VERSION="${GITHUB_REF_NAME}"
           else
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${INPUT_VERSION}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -511,11 +535,18 @@ jobs:
       - name: Resolve version
         id: ver
         shell: bash
+        # `github.event.inputs.version` is user-controlled (workflow_dispatch
+        # caller) — interpolate it via env to avoid shell injection from the
+        # `run:` body. `github.ref` is not user-controlled, so its expression
+        # is safe to inline. See security hardening guide:
+        # https://docs.github.com/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
             VERSION="${GITHUB_REF_NAME}"
           else
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="${INPUT_VERSION}"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
