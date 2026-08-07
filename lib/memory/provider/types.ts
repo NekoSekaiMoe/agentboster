@@ -76,8 +76,7 @@ export interface SearchRequest {
   enableRemote?: boolean;
   /**
    * 是否对结果走 cross-reranker 重排。默认 true。
-   * 仅控 rerank 行为;远程开关由 enableRemote 负责(语义拆分见
-   * remote-adapter.ts)。
+   * 仅控 rerank 行为;远程开关由 enableRemote 负责。
    */
   enableRerank?: boolean;
 }

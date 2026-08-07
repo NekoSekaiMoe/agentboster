@@ -7,14 +7,14 @@
  * 把 knowledge 库的远程 provider 搜索结果预取为 PackItem,通过 options.extraRecallItems
  * 传入。这样 fetch/vault/node:dns 等留在 host 侧,不进 workflow bundle。
  *
- * taint gate:所有 knowledge 结果固定 sourceKind=tool_observed(文档库未经 user 确认),
- * 进 recall block 的 Unverified 段。见 §1.2.1。
+ * taint gate:knowledge 结果的 sourceKind 按 documentSourceType 推断(见
+ * knowledgeHitToPackItem):用户上传/录入 = user_asserted(进 Trusted 段),
+ * connector 自动抓取的 url = tool_observed(进 Unverified 段)。
  */
 
 import { searchKnowledge } from '@/lib/knowledge';
+import { knowledgeHitToPackItem } from '@/lib/knowledge/utils';
 import type { KnowledgeAccessScope } from '@/lib/core/db/knowledge';
-import type { KnowledgeSearchRow } from '@/lib/core/db/knowledge';
-import type { LongTermMemorySourceKind } from '@/lib/core/db/memory/long-term';
 import type { PackItem } from '@/lib/memory/provider/context-packer';
 import type { AppConfig } from '@/types/config';
 import { createLogger } from '@/lib/utils/logger';
@@ -83,7 +83,7 @@ export async function collectRemoteMemoryItems(
       access: options.access ?? { userId: options.userId, isAdmin: false },
     });
     return rows
-      .map(knowledgeRowToPackItem)
+      .map(knowledgeHitToPackItem)
       .filter((item): item is PackItem => item.text.length > 0);
   } catch (error) {
     // reviewer B4:fail-open 仍返回空数组,但用 logger.warn 记录异常 + 上下文,
@@ -95,27 +95,4 @@ export async function collectRemoteMemoryItems(
     });
     return [];
   }
-}
-
-/**
- * 把 knowledge 行转 PackItem。
- *
- * reviewer B3:trim 后内容为空时返回空对象(text=''),由上层 caller 过滤掉,
- * 而非用 "[empty knowledge chunk]" 占位 —— 占位会污染预算且语义不真。
- */
-function knowledgeRowToPackItem(row: KnowledgeSearchRow): PackItem {
-  const sourceKind: LongTermMemorySourceKind = 'tool_observed';
-  // S3 防御:score clamp 到 [0,1],content trim 防空负贡献
-  const rawScore = Number.isFinite(row.finalScore)
-    ? Math.max(0, Math.min(1, row.finalScore))
-    : 0.5;
-  const content = (row.content ?? '').trim();
-  return {
-    text: content,
-    score: rawScore,
-    sourceKind,
-    source: 'knowledge',
-    // chunkId 作 memoryId;加 'kb:' 前缀命名空间化,避免跨 provider 碰撞(reviewer S1)
-    memoryId: `kb:${row.chunkId}`,
-  };
 }

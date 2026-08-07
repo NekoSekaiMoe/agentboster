@@ -22,4 +22,3 @@ export * from './write-gate';
 export * from './context-packer';
 export * from './builtin';
 export * from './builtin-factory';
-export * from './remote-adapter';
