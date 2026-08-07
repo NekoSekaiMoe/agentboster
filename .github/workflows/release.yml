@@ -11,6 +11,11 @@
 #   agentd-linux-amd64-<version>              (from subpackage/agentd, native)
 #   agentd-linux-arm64-<version>              (from subpackage/agentd, native)
 #   agentboster-cli-<version>.tar.gz          (from subpackage/cli, OS-agnostic)
+#   computer-use-mcp-darwin-arm64-<version>   (from subpackage/computer-use-mcp, native, zero CGo)
+#   computer-use-mcp-windows-amd64-<version>.exe (from subpackage/computer-use-mcp, native, zero CGo)
+#   computer-use-mcp-windows-arm64-<version>.exe (from subpackage/computer-use-mcp, native, zero CGo)
+#   computer-use-mcp-linux-amd64-<version>    (from subpackage/computer-use-mcp, native, zero CGo)
+#   computer-use-mcp-linux-arm64-<version>    (from subpackage/computer-use-mcp, native, zero CGo)
 #
 # All Go binaries are built on native runners (ubuntu-latest for amd64,
 # ubuntu-24.04-arm for arm64) rather than cross-compiled. The build
@@ -184,6 +189,131 @@ jobs:
         with:
           name: agentd-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}
           path: out/agentd-linux-${{ matrix.asset_arch }}-${{ steps.ver.outputs.version }}
+          retention-days: 14
+          if-no-files-found: error
+
+  # ── computer-use-mcp: native build on 5 targets (zero CGo) ───────
+  #
+  # Cross-platform MCP server (Linux/macOS/Windows) for computer use
+  # — screenshots, input simulation, a11y trees, clipboard, recording.
+  # Pure Go: no CGo anywhere (platform FFI via purego / x/sys; verified
+  # by `grep -r 'import "C"' subpackage/computer-use-mcp` returning
+  # nothing). So CGO_ENABLED=0 yields static binaries with no system
+  # libc coupling, exactly like a11y-helper.
+  #
+  # Targets mirror the desktop job's runner matrix (macos-26 arm64,
+  # windows-latest amd64, windows-11-arm arm64, ubuntu-latest amd64,
+  # ubuntu-24.04-arm arm64). Each builds natively — no cross-compile.
+  #
+  # The binary is a stdio MCP server with no --help / -version flag
+  # (main.go goes straight into server.ServeStdio), so unlike a11y-helper
+  # (`--help`) or agentd (`-gen-certs`) we can't run a quick subcommand
+  # smoke test. Instead the native `go vet` + `go build` IS the per-arch
+  # smoke test (success proves compile+link on this arch/OS), and
+  # `go version -m <binary>` asserts the artifact is a well-formed Go
+  # binary with build metadata. Go's own toolchain gate is the signal
+  # here; a botched cross-arch would fail at link time.
+
+  computer-use-mcp:
+    name: computer-use-mcp (${{ matrix.asset_target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            goos: darwin
+            goarch: arm64
+            asset_target: darwin-arm64
+            ext: ''
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            asset_target: windows-amd64
+            ext: '.exe'
+          - runner: windows-11-arm
+            goos: windows
+            goarch: arm64
+            asset_target: windows-arm64
+            ext: '.exe'
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            asset_target: linux-amd64
+            ext: ''
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            asset_target: linux-arm64
+            ext: ''
+    # run: blocks default to PowerShell on windows-* runners; force bash
+    # (Git Bash is preinstalled on GHA Windows images) so the build
+    # script is identical across all 5 targets.
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          # go.mod declares `go 1.25.5`; go-version-file picks the right
+          # toolchain without hardcoding (matches computer-use-mcp-go-ci.yml).
+          go-version-file: subpackage/computer-use-mcp/go.mod
+          cache-dependency-path: subpackage/computer-use-mcp/go.sum
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify native arch matches
+        env:
+          EXPECTED: ${{ matrix.goarch }}
+        run: |
+          ACTUAL="$(go env GOARCH)"
+          echo "go env GOARCH = $ACTUAL, expected $EXPECTED"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Runner GOARCH ($ACTUAL) does not match matrix ($EXPECTED)"
+            exit 1
+          fi
+
+      - name: Build
+        working-directory: subpackage/computer-use-mcp
+        env:
+          # Zero CGo by design (purego / x/sys); static binary, no libc
+          # coupling. Mirrors a11y-helper. If this ever fails the build,
+          # it means someone added `import "C"" — that's the real bug.
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p ../../out
+          # vet is a cheap per-arch signal that the platform-tagged
+          # files for this GOOS compile cleanly (unsafeptr handling in
+          # the syscall code is GOOS-specific).
+          go vet ./...
+          go build -trimpath -ldflags="-s -w" \
+            -o "../../out/computer-use-mcp-${{ matrix.asset_target }}-${{ steps.ver.outputs.version }}${{ matrix.ext }}" \
+            ./cmd/server
+          cd ../../out
+          # Assert the artifact is a well-formed Go binary with build
+          # metadata. `go version -m` parses the buildinfo embedded by
+          # the linker and works cross-OS (parses a darwin Mach-O /
+          # windows PE from any host). A botched link would fail here.
+          go version -m "computer-use-mcp-${{ matrix.asset_target }}-${{ steps.ver.outputs.version }}${{ matrix.ext }}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: computer-use-mcp-${{ matrix.asset_target }}-${{ steps.ver.outputs.version }}
+          path: out/computer-use-mcp-${{ matrix.asset_target }}-${{ steps.ver.outputs.version }}${{ matrix.ext }}
           retention-days: 14
           if-no-files-found: error
 
@@ -414,7 +544,7 @@ jobs:
 
   release:
     name: attach to release
-    needs: [a11y-helper, agentd, cli, desktop]
+    needs: [a11y-helper, agentd, cli, computer-use-mcp, desktop]
     runs-on: ubuntu-latest
     # Only attach when triggered by a real tag push. workflow_dispatch
     # runs verify the pipeline but must not pollute any release with
@@ -458,6 +588,11 @@ jobs:
             "agentd-linux-amd64-${{ steps.ver.outputs.version }}"
             "agentd-linux-arm64-${{ steps.ver.outputs.version }}"
             "agentboster-cli-${{ steps.ver.outputs.version }}.tar.gz"
+            "computer-use-mcp-darwin-arm64-${{ steps.ver.outputs.version }}"
+            "computer-use-mcp-windows-amd64-${{ steps.ver.outputs.version }}.exe"
+            "computer-use-mcp-windows-arm64-${{ steps.ver.outputs.version }}.exe"
+            "computer-use-mcp-linux-amd64-${{ steps.ver.outputs.version }}"
+            "computer-use-mcp-linux-arm64-${{ steps.ver.outputs.version }}"
           )
           MISSING=0
           for ASSET in "${EXPECTED[@]}"; do
