@@ -90,7 +90,6 @@
     "tailwindcss": "^3.4.19",
     "tsx": "^4.22.3",
     "typescript": "^6.0.2",
-    "vercel": "latest",
     "vitest": "^3.0.0"
   },
   "license": "MIT",
@@ -108,7 +107,7 @@
     "db:migrate": "tsx scripts/self-host-migrate.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "deploy": "vercel --prod",
+    "deploy": "npx vercel@latest --prod",
     "dev": "next dev",
     "format": "biome format . --write",
     "lint:fix": "biome lint . --write --unsafe",
