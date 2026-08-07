@@ -1,3 +1,5 @@
+//go:build linux
+
 package sandbox
 
 import (
@@ -5,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // Sentinel errors for categorized sandbox Exec failures. Callers that
@@ -75,4 +78,28 @@ func classifyExecError(ctx context.Context, err error) error {
 		return fmt.Errorf("%w: %v", ErrExecBinaryMissing, err)
 	}
 	return err
+}
+
+// classifyNonZeroExit further refines a non-zero-exit result by inspecting
+// the captured stderr. The docker / lxc-attach CLIs surface a gone
+// container as exit code 1 with a distinctive stderr ("No such container",
+// "is not running", "not found") — without this refinement every dead-
+// container Exec would be miscategorized as ErrNonZeroExit, hiding the real
+// cause from callers that want to recreate the sandbox. Returns either
+// ErrSandboxNotFound (wrapped, when the container is gone) or
+// ErrNonZeroExit (wrapped, for ordinary business failures).
+func classifyNonZeroExit(stderr string, exitCode int, err error) error {
+	lower := strings.ToLower(stderr)
+	// docker: "No such container: <id>" / "container ... not found"
+	// lxc-attach: "... is not running" / "lxc-attach: ...: not found"
+	// Generic fallbacks for shimmed CLI wrappers.
+	if strings.Contains(lower, "no such container") ||
+		strings.Contains(lower, "container not found") ||
+		strings.Contains(lower, "no such sandbox") ||
+		strings.Contains(lower, "sandbox not found") ||
+		strings.Contains(lower, "is not running") ||
+		strings.Contains(lower, "not found") {
+		return fmt.Errorf("%w: %v", ErrSandboxNotFound, err)
+	}
+	return fmt.Errorf("%w (exit %d)", ErrNonZeroExit, exitCode)
 }

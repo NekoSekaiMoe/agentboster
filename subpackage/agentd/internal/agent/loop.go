@@ -156,70 +156,92 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 		}
 		l.messages = append(l.messages, assistantMsg)
 
-		// Check if LLM wants to call a tool
-		if llmResp.ToolCall == nil {
-			// No tool call — final answer
+		// Execute tool calls. The OpenAI tool-calling protocol requires that
+		// EVERY entry in assistant.tool_calls has a matching role=tool result
+		// before the next LLM turn — otherwise the provider 400s ("tool_call_ids
+		// did not have response messages"). The loop executes them SEQUENTIALLY
+		// (simpler than parallel; preserves ordering; each goes through the
+		// gatekeeper individually) and appends one tool message per call.
+		// With NO tool calls at all, this is the final-answer turn.
+		if len(llmResp.ToolCalls) == 0 && llmResp.ToolCall == nil {
 			slog.Info("Agent Loop: final answer", "step", l.stepCount)
 			return llmResp.Content, nil
 		}
 
-		// Execute tool
-		toolStartedAt := time.Now()
-		toolDef, _, ok := l.registry.Get(llmResp.ToolCall.Name)
-		if !ok {
-			toolResult := &ToolResult{Success: false, Error: fmt.Sprintf("unknown tool: %s", llmResp.ToolCall.Name)}
-			l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
-			continue
+		var calls []ToolCall
+		if len(llmResp.ToolCalls) > 0 {
+			calls = llmResp.ToolCalls
+		} else {
+			// Legacy single-call path (defensive; callLLM should populate
+			// ToolCalls when ToolCall is set, but don't depend on it).
+			calls = []ToolCall{*llmResp.ToolCall}
 		}
-		if !usertype.CanUse(l.agentCtx.Roles, toolDef.MinUserType) {
-			toolResult := &ToolResult{
-				Success: false,
-				Error:   fmt.Sprintf("permission denied: tool %s requires %s", llmResp.ToolCall.Name, toolDef.MinUserType),
-			}
-			l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
-			continue
+		for _, tc := range calls {
+			l.executeOneToolCall(ctx, &tc)
 		}
-
-		if l.gatekeeper != nil {
-			auditTaskID := l.agentCtx.TaskID
-			if auditTaskID == "" {
-				auditTaskID = "00000000-0000-0000-0000-000000000000"
-			}
-			auditTask := &clawless.Task{
-				ID:        auditTaskID,
-				AgentID:   l.agentCtx.AgentID,
-				SessionID: l.agentCtx.SessionID,
-				UserID:    l.agentCtx.UserID,
-				Roles:     l.agentCtx.Roles,
-				Source:    l.agentCtx.Source,
-				SandboxID: l.agentCtx.SandboxID,
-				Command:   fmt.Sprintf("tool=%s args=%s", llmResp.ToolCall.Name, string(llmResp.ToolCall.Arguments)),
-			}
-			auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)
-			if len(auditLogs) > 0 {
-				if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
-					slog.Warn("failed to write tool audit logs", "error", err)
-				}
-			}
-			if auditResult.Decision != security.DecisionAllowed {
-				toolResult := &ToolResult{
-					Success: false,
-					Error:   fmt.Sprintf("tool blocked by security review: %s", auditResult.Reason),
-				}
-				l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
-				continue
-			}
-		}
-
-		toolResult, err := l.registry.Execute(ctx, llmResp.ToolCall.Name, llmResp.ToolCall.Arguments)
-		if err != nil {
-			toolResult = &ToolResult{Success: false, Error: err.Error()}
-		}
-
-		l.completeToolCall(ctx, llmResp.ToolCall, toolResult, toolStartedAt)
 	}
 
 	return "", fmt.Errorf("agent loop exceeded max steps (%d)", l.maxSteps)
+}
+
+// executeOneToolCall runs a single tool call end-to-end: registry
+// lookup, permission check, gatekeeper audit, execution, and appending
+// the role=tool result message. Extracted from Run so the loop can
+// process ALL of an assistant turn's tool_calls (OpenAI requires a
+// tool result for each tool_call.id; leaving any unanswered 400s the
+// next request). Errors at each stage produce a synthetic tool result
+// (so the pairing invariant holds) rather than aborting the turn.
+func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
+	toolStartedAt := time.Now()
+
+	toolDef, _, ok := l.registry.Get(call.Name)
+	if !ok {
+		l.completeToolCall(ctx, call, &ToolResult{Success: false, Error: fmt.Sprintf("unknown tool: %s", call.Name)}, toolStartedAt)
+		return
+	}
+	if !usertype.CanUse(l.agentCtx.Roles, toolDef.MinUserType) {
+		l.completeToolCall(ctx, call, &ToolResult{
+			Success: false,
+			Error:   fmt.Sprintf("permission denied: tool %s requires %s", call.Name, toolDef.MinUserType),
+		}, toolStartedAt)
+		return
+	}
+
+	if l.gatekeeper != nil {
+		auditTaskID := l.agentCtx.TaskID
+		if auditTaskID == "" {
+			auditTaskID = "00000000-0000-0000-0000-000000000000"
+		}
+		auditTask := &clawless.Task{
+			ID:        auditTaskID,
+			AgentID:   l.agentCtx.AgentID,
+			SessionID: l.agentCtx.SessionID,
+			UserID:    l.agentCtx.UserID,
+			Roles:     l.agentCtx.Roles,
+			Source:    l.agentCtx.Source,
+			SandboxID: l.agentCtx.SandboxID,
+			Command:   fmt.Sprintf("tool=%s args=%s", call.Name, string(call.Arguments)),
+		}
+		auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)
+		if len(auditLogs) > 0 {
+			if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
+				slog.Warn("failed to write tool audit logs", "error", err)
+			}
+		}
+		if auditResult.Decision != security.DecisionAllowed {
+			l.completeToolCall(ctx, call, &ToolResult{
+				Success: false,
+				Error:   fmt.Sprintf("tool blocked by security review: %s", auditResult.Reason),
+			}, toolStartedAt)
+			return
+		}
+	}
+
+	toolResult, err := l.registry.Execute(ctx, call.Name, call.Arguments)
+	if err != nil {
+		toolResult = &ToolResult{Success: false, Error: err.Error()}
+	}
+	l.completeToolCall(ctx, call, toolResult, toolStartedAt)
 }
 
 // LLMResponse represents the parsed LLM response.
@@ -599,42 +621,41 @@ func normalizeToolParams(p any) map[string]any {
 	}
 }
 
-// dropOrphanToolResults removes any role=tool messages at the START of
-// the kept message list whose ToolCallID has no preceding assistant
-// tool_call to pair with. compactContext's keep-N slice can split an
-// assistant(tool_calls) -> tool(tool_call_id) pair across the cut,
-// leaving an orphan tool result at the head of the kept tail. Feeding
-// that to the provider re-introduces the exact protocol violation P9
-// fixed (OpenAI 400 "tool message without prior tool_call"). We only
-// trim leading orphans because the loop's append order guarantees any
-// mid-list tool message has its assistant caller earlier in the list.
+// dropOrphanToolResults removes any role=tool messages whose
+// ToolCallID has no preceding assistant tool_call to pair with.
+// compactContext's keep-N slice can split an assistant(tool_calls) →
+// tool(tool_call_id) pair across the cut, leaving an orphan tool result
+// in the kept tail. Feeding that to the provider re-introduces the
+// exact protocol violation P9 fixed (OpenAI 400 "tool message without
+// prior tool_call").
+//
+// IMPORTANT: we FILTER (drop only the orphan tool rows) rather than
+// truncate the prefix. An earlier draft did msgs[firstKept:] which
+// silently discarded leading system messages and the compaction summary
+// — catastrophic because system messages carry the safety prompt and
+// tool list. We scan the whole list: any role=tool row whose ToolCallID
+// isn't backed by an assistant tool_call we've already seen (anywhere
+// earlier in the list) gets dropped; everything else (system, summary,
+// user, assistant, paired tool) stays in order.
 func dropOrphanToolResults(msgs []Message) []Message {
-	// Track every assistant tool_call ID seen so far.
+	// First pass: collect every assistant tool_call ID present in the
+	// kept window. A tool result is orphan iff its caller was dropped.
 	seen := make(map[string]bool, len(msgs))
-	firstKept := 0
-	for i, m := range msgs {
+	for _, m := range msgs {
 		if m.Role == "assistant" {
 			for _, tc := range m.ToolCalls {
 				seen[tc.ID] = true
 			}
 		}
-		if m.Role == "tool" {
-			// Is this tool result paired with an assistant tool_call we've
-			// already kept? If yes, we can stop trimming — this and everything
-			// after is internally consistent.
-			if seen[m.ToolCallID] {
-				break
-			}
-			// Orphan: skip it. Continue scanning in case the next message
-			// is also a stray tool result.
-			firstKept = i + 1
-			continue
+	}
+	out := make([]Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == "tool" && !seen[m.ToolCallID] {
+			continue // orphan: drop, keep everything else
 		}
+		out = append(out, m)
 	}
-	if firstKept > 0 {
-		msgs = append(msgs[:0:0], msgs[firstKept:]...)
-	}
-	return msgs
+	return out
 }
 
 // buildProxyMessages converts the loop's internal Message history into

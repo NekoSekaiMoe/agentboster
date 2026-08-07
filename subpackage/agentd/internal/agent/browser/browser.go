@@ -17,6 +17,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -307,15 +308,25 @@ func unwrapBridgeEnvelope(raw, method, urlPath string) (json.RawMessage, error) 
 // so the helper dies on its own. This is for explicit teardown.
 func CloseBridge(sbMgr *sandbox.Manager, sandboxID string) {
 	markNotReady(sandboxID)
-	// Read PID file, kill if present. P7 audit: shell-quote the values we
-	// interpolate into the cleanup scripts even though socketPath / pid are
-	// daemon-controlled today — defense in depth, and mirrors desktop's
-	// singleQuote pattern. A pid file is best-effort state written by a
-	// prior helper process; treat its contents as untrusted.
+	// Read PID file, kill if present. The pid file is best-effort state
+	// written by a prior helper process; treat its contents as untrusted.
+	// We validate it as a positive integer in Go (strconv.ParseInt) before
+	// interpolating into the kill command — defense in depth that also
+	// defends against the single-quote-injection vector (a pid string
+	// containing ' breaks out of shell single-quoting in `kill '$pid'`).
+	// Mirrors the desktop killByPidfile numeric-validation pattern.
 	pidRead, _ := runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`cat '%s' 2>/dev/null || true`, bridgePIDPath), 3)
 	pid := strings.TrimSpace(pidRead)
 	if pid != "" {
-		_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`kill '%s' 2>/dev/null || true`, pid), 3)
+		if _, perr := strconv.ParseInt(pid, 10, 64); perr == nil {
+			// Only emit the kill when pid is purely numeric; otherwise skip
+		// (a malformed pid file indicates corruption/tampering — safer to
+		// leak a stale process than to feed untrusted text to the shell).
+			_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`kill '%s' 2>/dev/null || true`, pid), 3)
+		} else {
+			slog.Debug("browser CloseBridge: pid file contents not a valid integer, skipping kill",
+				"sandbox", sandboxID)
+		}
 	}
 	_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`rm -f '%s' '%s' 2>/dev/null || true`, socketPath, bridgePIDPath), 3)
 }

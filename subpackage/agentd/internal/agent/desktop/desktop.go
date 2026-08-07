@@ -67,10 +67,12 @@ const (
 )
 
 // readySet tracks sandboxes whose desktop stack has been verified up
-// at least once in this daemon process. Cleared by markNotReady on
-// health-probe failure. Mirrors browser.readySet.
+// at least once in this daemon process. The value is a generation
+// counter (bumped on every markReady) so the watchdog can detect stale
+// probes (see generationFor / markNotReadyIfStale). Cleared by
+// markNotReady on health-probe failure. Mirrors browser.readySet.
 var (
-	readySet   = make(map[string]bool)
+	readySet   = make(map[string]int)
 	readySetMu sync.RWMutex
 
 	// lastActivity tracks the last time a desktop_* tool touched each
@@ -191,6 +193,12 @@ func probeActiveStacks(sbMgr *sandbox.Manager) {
 		if !isReady(id) {
 			continue
 		}
+		// Capture the ready-generation BEFORE probing. EnsureDesktop's
+		// rebuild path calls markReady (which bumps the generation), so if
+		// gen moved by the time our probe finishes, the sandbox has already
+		// been refreshed and we must NOT clear it (that would undo a fresh
+		// rebuild based on stale data).
+		genAtProbeStart := generationFor(id)
 		healthy, err := probeHealth(sbMgr, id)
 		if err != nil {
 			// Probe exec itself failed (sandbox gone, exec error). Don't
@@ -201,9 +209,13 @@ func probeActiveStacks(sbMgr *sandbox.Manager) {
 			continue
 		}
 		if !healthy {
-			markNotReady(id)
-			slog.Warn("desktop watchdog: stack unhealthy, marked for rebuild",
-				"sandbox", id)
+			if markNotReadyIfStale(id, genAtProbeStart) {
+				slog.Warn("desktop watchdog: stack unhealthy, marked for rebuild",
+					"sandbox", id)
+			} else {
+				slog.Debug("desktop watchdog: stale probe discarded (sandbox rebuilt during probe)",
+					"sandbox", id)
+			}
 		}
 	}
 }
@@ -247,19 +259,47 @@ func reapIdleStacks(sbMgr *sandbox.Manager) {
 func isReady(sandboxID string) bool {
 	readySetMu.RLock()
 	defer readySetMu.RUnlock()
-	return readySet[sandboxID]
+	return readySet[sandboxID] > 0
 }
 
 func markReady(sandboxID string) {
 	readySetMu.Lock()
 	defer readySetMu.Unlock()
-	readySet[sandboxID] = true
+	// Generation bumps on every (re)mark so the watchdog can detect a
+	// stale probe: it captures gen before probing, and only applies the
+	// not-ready result if gen is unchanged (EnsureDesktop's rebuild would
+	// have bumped gen via markReady, invalidating the stale probe).
+	readySet[sandboxID]++
 }
 
 func markNotReady(sandboxID string) {
 	readySetMu.Lock()
 	defer readySetMu.Unlock()
 	delete(readySet, sandboxID)
+}
+
+// generationFor returns the current ready-generation for a sandbox
+// (0 when not ready). The watchdog uses it to implement compare-and-swap:
+// capture gen → probe → only markNotReady if gen hasn't moved. This
+// prevents a slow probe from clearing a ready entry that EnsureDesktop
+// has since refreshed via a full rebuild (markReady bumps gen).
+func generationFor(sandboxID string) int {
+	readySetMu.RLock()
+	defer readySetMu.RUnlock()
+	return readySet[sandboxID]
+}
+
+// markNotReadyIfStale clears the ready entry ONLY if the generation
+// still matches genAtProbeStart. Returns true if the clear happened.
+// Used by the watchdog to avoid clobbering a fresher ready entry.
+func markNotReadyIfStale(sandboxID string, genAtProbeStart int) bool {
+	readySetMu.Lock()
+	defer readySetMu.Unlock()
+	if readySet[sandboxID] != genAtProbeStart {
+		return false // gen moved — a rebuild already refreshed this entry
+	}
+	delete(readySet, sandboxID)
+	return true
 }
 
 // ExecFunc mirrors browser.ExecFunc: tests substitute a stub to avoid
@@ -563,6 +603,16 @@ func probeHealth(sbMgr *sandbox.Manager, sandboxID string) (bool, error) {
 	res, err := callExec(sbMgr, sandboxID, fmt.Sprintf("sh -c %s", singleQuote(cmd)), nil, 10)
 	if err != nil || res == nil {
 		return false, err
+	}
+	// P8: distinguish an exec-infrastructure failure (timeout, binary
+	// missing, dead container) from a genuine "stack not up" result.
+	// The former should surface to the caller (EnsureDesktop can then
+	// decide whether to retry vs rebuild vs give up); the latter is a
+	// normal poll miss — return (false, nil) so EnsureDesktop's poll loop
+	// keeps waiting for the daemons to bind. Without this split, a
+	// sandbox-gone condition looked identical to "Xvfb still starting".
+	if res.ExitCode != 0 && res.Err != nil {
+		return false, res.Err
 	}
 	return res.ExitCode == 0, nil
 }

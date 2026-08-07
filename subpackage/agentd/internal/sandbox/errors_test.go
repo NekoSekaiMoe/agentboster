@@ -1,3 +1,5 @@
+//go:build linux
+
 package sandbox
 
 import (
@@ -85,5 +87,45 @@ func TestExecResultErrSentinels(t *testing.T) {
 				t.Fatalf("%s does not satisfy errors.Is with itself", tc.name)
 			}
 		})
+	}
+}
+
+// TestClassifyNonZeroExit_DeadContainer is the P8 refinement regression
+// test. docker exec / lxc-attach surface a gone container as exit code 1
+// with a distinctive stderr; without classifyNonZeroExit that case was
+// miscategorized as ErrNonZeroExit, hiding the real cause from callers
+// that want to recreate the sandbox. Verify each known stderr pattern
+// resolves to ErrSandboxNotFound.
+func TestClassifyNonZeroExit_DeadContainer(t *testing.T) {
+	err := errors.New("underlying exec error")
+	for _, tc := range []struct {
+		name   string
+		stderr string
+	}{
+		{"docker no such container", "Error: No such container: abc123"},
+		{"docker container not found", "Error response from daemon: container abc not found"},
+		{"lxc not running", "lxc-attach: abc: is not running"},
+		{"generic sandbox not found", "sandbox not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyNonZeroExit(tc.stderr, 1, err)
+			if !errors.Is(got, ErrSandboxNotFound) {
+				t.Errorf("stderr %q should classify as ErrSandboxNotFound; got %v", tc.stderr, got)
+			}
+		})
+	}
+}
+
+// TestClassifyNonZeroExit_OrdinaryFailure confirms a plain non-zero exit
+// with no dead-container marker stays ErrNonZeroExit (the common case —
+// e.g. grep returning 1 because no matches).
+func TestClassifyNonZeroExit_OrdinaryFailure(t *testing.T) {
+	err := errors.New("exit status 1")
+	got := classifyNonZeroExit("no matches found", 1, err)
+	if !errors.Is(got, ErrNonZeroExit) {
+		t.Errorf("ordinary non-zero exit should stay ErrNonZeroExit; got %v", got)
+	}
+	if errors.Is(got, ErrSandboxNotFound) {
+		t.Errorf("ordinary failure must NOT be misclassified as ErrSandboxNotFound")
 	}
 }

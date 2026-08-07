@@ -252,12 +252,21 @@ type L0Rule struct {
 // into the tool_calls response field — a coupling that silently broke
 // multi-turn tool calling on any spec-compliant provider. A nil/empty
 // Tools slice preserves legacy prompt-based behavior.
+//
+// ToolChoice is the OpenAI tool_choice field, passed through verbatim
+// (interface{} so any provider-specific shape can be carried: "auto",
+// "none", "required", or {"type":"function","function":{"name":...}}).
+// agentd leaves it empty by default (→ provider default "auto"); callers
+// that cannot execute parallel tool_calls should constrain it to avoid
+// the protocol violation where an assistant tool_calls array has entries
+// with no matching tool results (OpenAI 400s in that case).
 type LLMProxyRequest struct {
-	Model    string         `json:"model"`
-	Messages []Message      `json:"messages"`
-	Tools    []ToolDef      `json:"tools,omitempty"`
-	Stream   bool           `json:"stream"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Model      string         `json:"model"`
+	Messages   []Message      `json:"messages"`
+	Tools      []ToolDef      `json:"tools,omitempty"`
+	ToolChoice any            `json:"tool_choice,omitempty"`
+	Stream     bool           `json:"stream"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 // HealthResponse represents the health check response.

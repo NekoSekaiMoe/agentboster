@@ -1,7 +1,10 @@
+//go:build linux
+
 package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
@@ -170,7 +173,8 @@ func indexOf(s, sub string) int {
 // assistant tool_call and its tool result, the kept tail starts with an
 // orphan role=tool message that has no preceding assistant tool_call.
 // Feeding that to the provider triggers the exact 400 P9 fixed, so
-// dropOrphanToolResults must trim it.
+// dropOrphanToolResults must trim it — while PRESERVING other leading
+// messages (system, summary).
 func TestDropOrphanToolResults_TrimLeadingOrphan(t *testing.T) {
 	// Simulate the kept tail after a compaction cut: the assistant that
 	// emitted call_42 was in the discarded head; only its tool result
@@ -264,5 +268,40 @@ func TestBuildProxyMessages_PreservesAllToolCalls(t *testing.T) {
 	// The tool result pairs with the executed call only.
 	if out[2].ToolCallID != "call_1" {
 		t.Errorf("tool result must pair with executed call_1; got %s", out[2].ToolCallID)
+	}
+}
+
+// TestDropOrphanToolResults_PreservesSystemAndSummary is the regression
+// test for the compactContext prefix-truncation bug. An earlier version
+// of dropOrphanToolResults did msgs[firstKept:] once it found an orphan,
+// which discarded EVERY leading message — including the system prompt
+// (safety instructions + tool list) and the compaction summary. That
+// broke the agent's safety boundary AND lost the conversation recap.
+// The filter-based implementation must drop ONLY the orphan tool row
+// and keep system + summary intact.
+func TestDropOrphanToolResults_PreservesSystemAndSummary(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "## safety prompt + tool list"},
+		{Role: "system", Content: "## compaction summary: prior context"},
+		{Role: "tool", Content: "orphan result", ToolCallID: "call_gone", Name: "read"},
+		{Role: "user", Content: "next request"},
+		{Role: "assistant", Content: "reply"},
+	}
+	out := dropOrphanToolResults(msgs)
+	if len(out) != 4 {
+		t.Fatalf("must drop only the orphan (5→4); got %d: %+v", len(out), out)
+	}
+	// System messages must survive in order.
+	if out[0].Role != "system" || !strings.Contains(out[0].Content, "safety") {
+		t.Errorf("first system message (safety prompt) lost: %+v", out[0])
+	}
+	if out[1].Role != "system" || !strings.Contains(out[1].Content, "summary") {
+		t.Errorf("compaction summary lost: %+v", out[1])
+	}
+	// The orphan tool row must be gone; no role=tool should remain.
+	for i, m := range out {
+		if m.Role == "tool" {
+			t.Errorf("orphan tool row survived at index %d: %+v", i, m)
+		}
 	}
 }

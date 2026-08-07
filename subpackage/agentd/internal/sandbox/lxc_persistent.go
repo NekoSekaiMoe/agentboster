@@ -211,7 +211,7 @@ func (p *LXCPersistentProvider) Exec(sandboxID, cmd string, env map[string]strin
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
-			result.Err = fmt.Errorf("%w (exit %d)", ErrNonZeroExit, exitErr.ExitCode())
+			result.Err = classifyNonZeroExit(result.Stderr, exitErr.ExitCode(), err)
 		} else {
 			// Host-side failure (binary missing, lxc-attach crash, ...).
 			result.ExitCode = -1

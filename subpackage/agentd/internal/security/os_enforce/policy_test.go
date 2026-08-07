@@ -59,16 +59,20 @@ func TestFromL0Rules_AppliesBaselineEvenWithNoPathRules(t *testing.T) {
 	if !found {
 		t.Errorf("baseline /proc/kcore must be masked even with no L0 path rules; got masked=%v", policy.MaskedPaths)
 	}
-	// /proc must be readonly (baseline).
-	procRO := false
-	for _, r := range policy.ReadonlyPaths {
-		if r == "/proc" {
-			procRO = true
-			break
+	// BOTH /proc and /sys must be readonly (baseline). An earlier test only
+	// asserted /proc; if someone deleted /sys from BaselineReadonlyPaths
+	// the test still passed. Lock both paths.
+	for _, want := range []string{"/proc", "/sys"} {
+		got := false
+		for _, r := range policy.ReadonlyPaths {
+			if r == want {
+				got = true
+				break
+			}
 		}
-	}
-	if !procRO {
-		t.Errorf("baseline /proc must be readonly even with no L0 path rules; got readonly=%v", policy.ReadonlyPaths)
+		if !got {
+			t.Errorf("baseline %s must be readonly even with no L0 path rules; got readonly=%v", want, policy.ReadonlyPaths)
+		}
 	}
 }
 

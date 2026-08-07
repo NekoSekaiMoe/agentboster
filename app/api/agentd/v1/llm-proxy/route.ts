@@ -7,7 +7,7 @@ const logger = createLogger('api.agentd.llm-proxy');
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { model, messages, tools, stream } = body;
+    const { model, messages, tools, tool_choice, stream } = body;
 
     // Get AI provider config from app config
     const providerUrl =
@@ -39,6 +39,13 @@ export async function POST(request: Request) {
     };
     if (Array.isArray(tools) && tools.length > 0) {
       upstreamBody.tools = tools;
+    }
+    // Forward tool_choice when present so callers can constrain the
+    // model's tool-use behavior (e.g. disable parallel calls). Verbatim
+    // passthrough — the value is provider-specific ("auto"/"none"/
+    // "required"/{"type":"function",...}).
+    if (tool_choice !== undefined) {
+      upstreamBody.tool_choice = tool_choice;
     }
 
     const response = await fetch(providerUrl, {

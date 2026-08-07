@@ -239,7 +239,7 @@ func (p *DockerProvider) Exec(sandboxID, cmd string, env map[string]string, time
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
-			result.Err = fmt.Errorf("%w (exit %d)", ErrNonZeroExit, exitErr.ExitCode())
+			result.Err = classifyNonZeroExit(result.Stderr, exitErr.ExitCode(), err)
 		} else {
 			result.ExitCode = -1
 			result.Err = classifyExecError(ctx, err)

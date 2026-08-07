@@ -53,6 +53,9 @@ func BaselineMaskedPaths() []string {
 		"/proc/timer_stats",  // timer statistics
 		"/proc/sched_debug",  // scheduler debug info
 		"/proc/scsi",         // SCSI host info
+		// /proc hardware info (Docker masks these by default)
+		"/proc/acpi",  // ACPI tables (hardware fingerprint / side-channel)
+		"/proc/asound", // ALSA sound config (info leak, rarely needed in sandbox)
 		// /sys firmware / kernel internals
 		"/sys/firmware", // EFI/firmware tables (kernel exploit surface)
 		"/sys/devices/virtual/powercap", // powercap info (side-channel)
