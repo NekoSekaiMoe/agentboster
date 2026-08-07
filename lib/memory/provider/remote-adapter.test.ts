@@ -131,7 +131,7 @@ describe('RemoteMemoryProvider adapter', () => {
       );
     });
 
-    it('reviewer phase5 S4:enableRerank=false 时跳过远程(C2:不发起任何请求)', async () => {
+    it('reviewer phase5 S4:enableRemote=false 时跳过远程(C2:不发起任何请求)', async () => {
       const searchSpy = vi.fn(async (_input: unknown) => [
         { content: 'x', score: 0.9 },
       ]);
@@ -148,7 +148,7 @@ describe('RemoteMemoryProvider adapter', () => {
       });
       const r = await provider.search(readCtx, {
         query: 'q',
-        enableRerank: false,
+        enableRemote: false,
       });
       // reviewer C2:guard 在 inner.search() 之前,禁远程时不应发起请求
       expect(searchSpy).not.toHaveBeenCalled();

@@ -100,5 +100,18 @@ describe('Phase 1 债务守卫:memory 写 DAL 的 legacy 直调点', () => {
           `若确需新增 legacy 直调,请显式加入本测试 ALLOWLIST 并说明理由。`,
       );
     }
+
+    // 反向校验防腐化:ALLOWLIST 每项必须仍被 countLegacyDirectDALWrites() 返回
+    // (即该文件确实含 DAL 直调)。某文件改走 provider 后若忘从 ALLOWLIST 删除,
+    // 扫描器不再返回它 → 这里报错提示清理,避免 allowlist 静默腐化。
+    const returned = new Set(files);
+    const stale = [...ALLOWLIST].filter((f) => !returned.has(f));
+    if (stale.length > 0) {
+      expect.fail(
+        `ALLOWLIST 中存在已不再直调 DAL 的文件(应删除):\n${stale.join('\n')}\n` +
+          `这些文件已不在 countLegacyDirectDALWrites() 返回列表中,` +
+          `说明它们已改走 MemoryProvider 或被删除。请从 ALLOWLIST 移除以保持同步。`,
+      );
+    }
   });
 });

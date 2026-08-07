@@ -75,9 +75,10 @@ class RemoteMemoryProvider implements MemoryProvider {
     _ctx: ProviderReadContext,
     req: SearchRequest,
   ): Promise<SearchResult[]> {
-    // reviewer phase5 S4:尊重 enableRerank=false(意为"禁远程")。
-    // C2:guard 移到 inner.search() 之前 —— 禁用远程时不应发起任何请求。
-    if (req.enableRerank === false) return [];
+    // 只看 enableRemote(语义拆分后):明确禁用远程时不发起任何请求。
+    // enableRerank 只管 rerank,不影响是否调远程。
+    // reviewer phase5 S4/C2 原意是“禁远程不发包”,语义归一到 enableRemote。
+    if (req.enableRemote === false) return [];
 
     // reviewer phase5 B2:fail-open(与 searchWithProvider/collectRemoteMemoryItems 对齐)。
     // 远程 provider 挂了不应让整盘 context 构建失败。

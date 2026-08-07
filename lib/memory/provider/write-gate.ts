@@ -17,6 +17,7 @@
  */
 
 import { incr, get as kvGet } from '@/lib/core/kv';
+import { createLogger } from '@/lib/utils/logger';
 import type {
   MemoryPatch,
   MemoryProvider,
@@ -24,6 +25,8 @@ import type {
   NewMemoryInput,
   ProviderWriteContext,
 } from './types';
+
+const logger = createLogger('memory.write_gate');
 
 // ─── 共享版本计数器(KV 层原子递增)──────────────────────────
 
@@ -39,13 +42,26 @@ const listeners = new Set<VersionListener>();
 /**
  * 读当前版本号(从共享 KV)。ContextPacker 的 cache key 含此值 —— 任何写入使其失效。
  *
- * 返回 0 当键不存在(新用户/从未写入)。KV 存数字字符串,这里 parseInt。
+ * fail-soft:键不存在(新用户/从未写入)返回 0;若键存在但解析成非有限整数
+ * (脏值/意外覆写),仍返回 0 但打 structured warn 带 key + raw 值。
+ *
+ * 为什么不 throw:版本号唯一用途是 cache key(见 context-packer.ts),
+ * fail-soft 的最坏后果是该用户 cache 多重建一次;throw 会让**读路径(recall)
+ * 因版本计数器脏值而整体失败**,把缓存优化机制变成读路径硬依赖,影响面更大。
+ * warn 保证脏值不静默吞掉(可观测),又不破读路径。
  */
 export async function readMemoryVersion(userId: string): Promise<number> {
-  const raw = await kvGet(versionKey(userId));
+  const key = versionKey(userId);
+  const raw = await kvGet(key);
   if (raw === null || raw === undefined) return 0;
   const parsed = Number.parseInt(String(raw), 10);
-  return Number.isFinite(parsed) ? parsed : 0;
+  if (Number.isFinite(parsed)) return parsed;
+  logger.warn('version:unparseable', {
+    userId,
+    key,
+    raw: String(raw).slice(0, 64),
+  });
+  return 0;
 }
 
 /**

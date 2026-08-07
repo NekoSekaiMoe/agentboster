@@ -69,7 +69,16 @@ export interface SearchRequest {
   query: string;
   topK?: number;
   minConfidence?: number;
-  /** 是否允许走 cross-reranker / 远程 provider。默认 true。 */
+  /**
+   * 是否调用远程 provider(mem0/http)。默认 true。
+   * 只控“要不要发起远程请求”,不影响本地 rerank。
+   */
+  enableRemote?: boolean;
+  /**
+   * 是否对结果走 cross-reranker 重排。默认 true。
+   * 仅控 rerank 行为;远程开关由 enableRemote 负责(语义拆分见
+   * remote-adapter.ts)。
+   */
   enableRerank?: boolean;
 }
 

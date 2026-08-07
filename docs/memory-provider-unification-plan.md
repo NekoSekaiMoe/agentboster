@@ -259,7 +259,7 @@ async function commitMemoryWrite(
 **防漏靠结构,不靠纪律**:
 1. **provider 接口不暴露裸 `add/update/delete`**:写入方法只在内部接口(`MemoryProviderInternal`)上,外部调用方拿到的是 `CommittedMemoryProvider`,它的写方法自动包 `commitMemoryWrite`。调用方**无法**绕过。
 2. **Bumppoint 单一**:整个 codebase 只有 `commitMemoryWrite` 一处调用 `bumpMemoryVersion`,lint 规则 / 代码 review 拒绝新增第二个调用点。
-3. **落库副本 + 心跳校验**:version 不光在内存,还写 `memory_version_log`(单调递增)。进程启动时读最大值;跨进程靠 Postgres `NOTIFY`/Upstash pub-sub 同步。即使某个副本错过广播,下次校验也会发现版本滞后并刷新。
+3. **落库副本 + 心跳校验(未来可选增强)**:当前跨副本一致性已由共享 KV 的原子 INCR 保证(见 reviewer A3 修复段),不依赖本项。`memory_version_log` 表 + Postgres `NOTIFY`/Upstash pub-sub 属于未来可选增强(审计/心跳),非 Phase 3 必需;若日后落地,进程启动时读 `max(id)`,跨进程靠广播同步,错过广播时下次校验刷新。
 4. **可观测黄金信号**:context packer 缓存命中时记录 `version` 和 `ageMs`;若 ageMs > 阈值但未刷新,告警"可能 stale"。
 
 **回退保险(Phase 3 双轨过渡期的价值)**:过渡期保留 `cache-invalidation.ts` 作为双保险,version 漏增时手动失效仍能兑底。观察期(建议 2 周)确认无 stale 报告后,才删手动代码。这是为什么选"方案 2 双轨过渡期"而非激进删除。
@@ -318,9 +318,7 @@ async function commitMemoryWrite(
 **决策:采用双轨过渡期(方案 2),不激进删除手动失效代码。**
 
 **产出**:
-- 新增 `lib/memory/provider/write-gate.ts` —— 集中写入闸口(见 §1.5)
-- BuiltinProvider 的写方法改为只暴露 `CommittedMemoryProvider`(自动包 write gate),裸写接口下沉为 internal
-- 新增 `memory_version_log` 表(单调递增)+ 进程级 version 缓存 + 跨进程 Postgres `NOTIFY`
+- 新增 `lib/memory/provider/write-gate.ts` —— 集中写入闸口(见 §1.5);版本号落共享 KV(Upstash INCR / pg 原子 upsert),**不新增 memory_version_log 表**(该表为未来可选增强,见 §1.5 第 3 点) + 进程级 version 缓存(本地 listeners,非版本号唯一来源)
 - ContextPacker 的 cache key 加 `memoryVersion`
 - **保留** `cache-invalidation.ts` 的 recallCache/triggerCache 手动失效,作为双保险
 - 加可观测:packer cache 命中时记录 `{ version, ageMs, source: 'version'|'manual'|'fallback' }`
@@ -335,7 +333,7 @@ async function commitMemoryWrite(
 
 **风险点**:
 - write gate 必须是写路径的唯一入口,否则旁路写不会自增 version。Phase 3 的 grep 检查 + code review 针对
-- 跨进程 `NOTIFY` 在 Neon serverless driver 上不可用(neon-http 无持久连接)—— Vercel 部署改用 Upstash pub-sub 或轮询 `memory_version_log.max(id)`(TTL 窗口内)
+- 跨进程版本同步(若未来启用 memory_version_log):Neon serverless driver 不支持 `NOTIFY`(neon-http 无持久连接)—— Vercel 部署改用 Upstash pub-sub 或轮询 `memory_version_log.max(id)`(TTL 窗口内)。当前实现无需此机制(共享 KV 原子 INCR 已足够)
 - Dream apply 是批量写,write gate 要支持事务性 multi-op(一次 op 内多个变更共享一个 version bump,避免拍雪崩)
 
 ---
@@ -374,7 +372,7 @@ async function commitMemoryWrite(
 | Dream 变异预算被新 compact 接口绕过 | `CompactCapability` 的实现必须复用 `phase3-sanitize.ts` 的 maxRetiredFraction,不另写压缩逻辑 |
 | 多写路径漏自增 version → 缓存 stale | **结构性防护(非纪律)**:Write Gate 是唯一写入闸口(§1.5),裸写接口不暴露;grep 断言 `bumpMemoryVersion` 只在 write-gate.ts;双轨过渡期手动失效兼底;故障注入测试验证兼底。**Phase 1 现状(2026-08-07)**:债务守卫 `legacy-write-debt.test.ts` 钉住基线 4 个 legacy 直调文件(extract.ts / dream/apply.ts / long-term.ts 内部 / cache-invalidation.ts),这些路径暂不经 provider,**Phase 3 必须先迁移它们再删 cache-invalidation.ts**。 |
 | 重排破坏时序语义(用户觉得"记忆乱序了") | Phase 4 有 feature flag;先在 dev 环境跑一周观察 packerStats 再全量 |
-| Neon serverless 无 `NOTIFY` → 跨副本 version 不同步 | Vercel 部署用 Upstash pub-sub 或 TTL 内轮询 `memory_version_log.max(id)`;自托管用 pg `NOTIFY` |
+| Neon serverless 无 `NOTIFY` → 跨副本 version 不同步 | 当前实现不依赖 NOTIFY:共享 KV 的原子 INCR(Upstash/pg upsert)本身跨副本一致。仅在未来启用 `memory_version_log` 审计/心跳时才需处理:Vercel 用 Upstash pub-sub 或 TTL 内轮询 `max(id)`;自托管用 pg `NOTIFY` |
 
 **整体回滚**:每个 Phase 独立 commit,任意一步出问题 `git revert` 该 commit 即可。
 
@@ -399,7 +397,7 @@ async function commitMemoryWrite(
 | 0 脚手架 | 新增 3 文件 | 低 | 独立 PR |
 | 1 BuiltinProvider | 新增 1 + 不动旧 | 中 | 独立 PR |
 | 2 Context 切 packer(等价) | 改 1(context/index.ts) | 中 | 独立 PR |
-| 3 MemoryVersion + Write Gate(双轨) | 新增 write-gate.ts + memory_version_log 表 + packer cache key | 高 | 独立 PR,需仔细;双轨期零删除 |
+| 3 MemoryVersion + Write Gate(双轨) | 新增 write-gate.ts + packer cache key(版本号落共享 KV,无需新表) | 高 | 独立 PR,需仔细;双轨期零删除 |
 | 3.5 删手动失效代码 | 删 cache-invalidation.ts 串联 | 低 | 观察期后才做 |
 | 4 Packer 优化模式 | 改 packer | 中 | 独立 PR + feature flag |
 | 5 外部 provider CRUD(可选) | 改 2 + 迁移 | 中 | 可延后 |
