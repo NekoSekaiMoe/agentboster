@@ -93,13 +93,21 @@ func classifyNonZeroExit(stderr string, exitCode int, err error) error {
 	lower := strings.ToLower(stderr)
 	// docker: "No such container: <id>" / "container ... not found"
 	// lxc-attach: "... is not running" / "lxc-attach: ...: not found"
-	// Generic fallbacks for shimmed CLI wrappers.
+	//
+	// IMPORTANT: do NOT match bare "not found" — that collides with the
+	// shell's "command not found" message (emitted when e.g. xdpyinfo is
+	// not installed), which is an ordinary non-zero exit, NOT a gone
+	// sandbox. Misclassifying it as ErrSandboxNotFound would make the
+	// caller believe the container is dead and recreate it, when really
+	// a package just needs installing. Only treat "not found" as a
+	// sandbox-gone signal when qualified by a container/lxc context.
 	if strings.Contains(lower, "no such container") ||
 		strings.Contains(lower, "container not found") ||
+		strings.Contains(lower, "container") && strings.Contains(lower, "not found") ||
 		strings.Contains(lower, "no such sandbox") ||
 		strings.Contains(lower, "sandbox not found") ||
-		strings.Contains(lower, "is not running") ||
-		strings.Contains(lower, "not found") {
+		strings.Contains(lower, "lxc-attach") && strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "is not running") {
 		return fmt.Errorf("%w: %v", ErrSandboxNotFound, err)
 	}
 	return fmt.Errorf("%w (exit %d)", ErrNonZeroExit, exitCode)

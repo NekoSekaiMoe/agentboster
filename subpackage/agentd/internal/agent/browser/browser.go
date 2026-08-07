@@ -317,13 +317,19 @@ func CloseBridge(sbMgr *sandbox.Manager, sandboxID string) {
 	pidRead, _ := runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`cat '%s' 2>/dev/null || true`, bridgePIDPath), 3)
 	pid := strings.TrimSpace(pidRead)
 	if pid != "" {
-		if _, perr := strconv.ParseInt(pid, 10, 64); perr == nil {
-			// Only emit the kill when pid is purely numeric; otherwise skip
-			// (a malformed pid file indicates corruption/tampering — safer to
-			// leak a stale process than to feed untrusted text to the shell).
-			_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`kill '%s' 2>/dev/null || true`, pid), 3)
+		// Validate as a STRICTLY POSITIVE integer. strconv.ParseInt alone
+		// would accept 0 and negative values, and `kill '0'` sends the
+		// signal to the entire calling process group while `kill '-1'`
+		// hits every process the caller may signal — both catastrophic.
+		// pid files are daemon-written, but a corrupted/tampered file
+		// must not escalate to a group-wide or system-wide kill.
+		parsed, perr := strconv.ParseInt(pid, 10, 64)
+		if perr == nil && parsed > 0 {
+			// Format the kill with the parsed value (not the raw string) so
+			// we control exactly what reaches the shell.
+			_, _ = runScriptRaw(sbMgr, sandboxID, fmt.Sprintf(`kill '%d' 2>/dev/null || true`, parsed), 3)
 		} else {
-			slog.Debug("browser CloseBridge: pid file contents not a valid integer, skipping kill",
+			slog.Debug("browser CloseBridge: pid file contents not a positive integer, skipping kill",
 				"sandbox", sandboxID)
 		}
 	}

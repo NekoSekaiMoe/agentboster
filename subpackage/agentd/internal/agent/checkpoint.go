@@ -548,7 +548,7 @@ func CreateCheckpoint(ref SandboxRef, sbMgr *sandbox.Manager, sessionID, descrip
 	}
 	description = strings.TrimSpace(description)
 	if !descriptionPattern.MatchString(description) {
-		return nil, fmt.Errorf("invalid checkpoint description: must be 1-80 chars of [A-Za-z0-9_./ -]")
+		return nil, fmt.Errorf("invalid checkpoint description: must be 1-80 chars of [A-Za-z0-9_./ -] and must not begin with '-'")
 	}
 
 	if err := backend.EnsureWorkspace(); err != nil {

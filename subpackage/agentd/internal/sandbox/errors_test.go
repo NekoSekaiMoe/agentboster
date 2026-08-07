@@ -118,14 +118,31 @@ func TestClassifyNonZeroExit_DeadContainer(t *testing.T) {
 
 // TestClassifyNonZeroExit_OrdinaryFailure confirms a plain non-zero exit
 // with no dead-container marker stays ErrNonZeroExit (the common case —
-// e.g. grep returning 1 because no matches).
+// e.g. grep returning 1 because no matches). This is also the regression
+// test for the over-broad "not found" match: the shell emits "command
+// not found" when a binary isn't installed (e.g. xdpyinfo missing), and
+// classifying that as ErrSandboxNotFound would make callers wrongly
+// recreate the sandbox instead of installing the package.
 func TestClassifyNonZeroExit_OrdinaryFailure(t *testing.T) {
 	err := errors.New("exit status 1")
-	got := classifyNonZeroExit("no matches found", 1, err)
-	if !errors.Is(got, ErrNonZeroExit) {
-		t.Errorf("ordinary non-zero exit should stay ErrNonZeroExit; got %v", got)
-	}
-	if errors.Is(got, ErrSandboxNotFound) {
-		t.Errorf("ordinary failure must NOT be misclassified as ErrSandboxNotFound")
+	for _, tc := range []struct {
+		name   string
+		stderr string
+	}{
+		{"grep no matches", "no matches found"},
+		{"shell command not found", "sh: xdpyinfo: command not found"},
+		{"shell command not found variant", "bash: foo: command not found"},
+		{"generic not found without container context", "the thing was not found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyNonZeroExit(tc.stderr, 127, err)
+			if !errors.Is(got, ErrNonZeroExit) {
+				t.Errorf("stderr %q should classify as ErrNonZeroExit; got %v", tc.stderr, got)
+			}
+			if errors.Is(got, ErrSandboxNotFound) {
+				t.Errorf("stderr %q must NOT be misclassified as ErrSandboxNotFound "+
+					"(that would make callers recreate a perfectly alive sandbox)", tc.stderr)
+			}
+		})
 	}
 }

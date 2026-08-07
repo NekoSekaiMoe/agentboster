@@ -55,8 +55,7 @@ export interface Task {
   updated_at: string;
 }
 
-// Source: subpackage/agentd/internal/clawless/types.go:39-45, 75-103
-//   (Message + the ToolCall/ToolDef family it references)
+// Source: subpackage/agentd/internal/clawless/types.go:96-107
 /**
  * One chat message in a session transcript. Carries the full OpenAI
  * tool-calling protocol: assistant turns may include tool_calls (the
@@ -78,6 +77,7 @@ export interface Message {
   time: string;
 }
 
+// Source: subpackage/agentd/internal/clawless/types.go:56-61
 /**
  * A single tool invocation request as emitted by the model on an
  * assistant turn. Mirrors the OpenAI function/tool-calling shape.
@@ -89,6 +89,7 @@ export interface ToolCall {
   function: ToolCallFunction;
 }
 
+// Source: subpackage/agentd/internal/clawless/types.go:63-68
 /**
  * The function part of a tool call.
  */
@@ -98,6 +99,7 @@ export interface ToolCallFunction {
   arguments: string;
 }
 
+// Source: subpackage/agentd/internal/clawless/types.go:71-75
 /**
  * A tool definition advertised to the model for native tool calling.
  * Mirrors the OpenAI tools field shape. Used in LLM proxy requests.
@@ -108,6 +110,7 @@ export interface ToolDef {
   function: ToolDefFunction;
 }
 
+// Source: subpackage/agentd/internal/clawless/types.go:77-81
 /**
  * The function declaration of a tool.
  */

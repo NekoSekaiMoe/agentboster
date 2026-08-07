@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // canSh returns true if /bin/sh is available for the shell-syntax +
@@ -33,6 +34,23 @@ func runSh(t *testing.T, script string, env []string) (string, error) {
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// waitForFile polls for path to exist until a ~2s budget is exhausted,
+// returning nil when it appears. Replaces fixed `sleep 0.1` waits: on a
+// slow/loaded CI host the backgrounded icewm can take longer than 100ms
+// to exec and write its marker/pidfile, and a fixed sleep flakes. ~2s
+// is plenty for exec+write while still failing fast on a real miss.
+func waitForFile(t *testing.T, path, script string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for %s after running script:\n%s", path, script)
 }
 
 func TestBuildDbusStartScript_ShellSyntax(t *testing.T) {
@@ -194,7 +212,7 @@ func TestBuildIcemwStartScript_ToleratesMissingEnvFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	script := buildIcemwStartScript(missingEnvFile, ":99", pidDir) + "\nsleep 0.1"
+	script := buildIcemwStartScript(missingEnvFile, ":99", pidDir)
 	out, err := runSh(t, script, []string{
 		"PATH=" + fakeBinDir + ":/usr/bin:/bin",
 	})
@@ -202,14 +220,10 @@ func TestBuildIcemwStartScript_ToleratesMissingEnvFile(t *testing.T) {
 		t.Fatalf("icewm script must succeed even with missing envFile; got %v\noutput:\n%s\nscript:\n%s",
 			err, out, script)
 	}
-	if _, statErr := os.Stat(markerPath); statErr != nil {
-		t.Errorf("icewm was not invoked (marker %s absent): %v\noutput:\n%s",
-			markerPath, statErr, out)
-	}
-	pidFile := filepath.Join(pidDir, "icewm.pid")
-	if _, statErr := os.Stat(pidFile); statErr != nil {
-		t.Errorf("icewm.pid not written: %v", statErr)
-	}
+	// Poll for the marker (backgrounded icewm may take >100ms to exec on
+	// a loaded host; a fixed sleep flakes). ~2s budget.
+	waitForFile(t, markerPath, script)
+	waitForFile(t, filepath.Join(pidDir, "icewm.pid"), script)
 }
 
 // TestBuildIcemwStartScript_FailingIcewmDoesNotAbortScript verifies the
@@ -243,7 +257,7 @@ func TestBuildIcemwStartScript_FailingIcewmDoesNotAbortScript(t *testing.T) {
 	// No envFile present (mirrors the missing-envFile tolerance test);
 	// the script must reach the icewm invocation regardless.
 	missingEnvFile := filepath.Join(t.TempDir(), "does-not-exist.sh")
-	script := buildIcemwStartScript(missingEnvFile, ":99", pidDir) + "\nsleep 0.1"
+	script := buildIcemwStartScript(missingEnvFile, ":99", pidDir)
 	out, err := runSh(t, script, []string{
 		"PATH=" + fakePath,
 	})
@@ -251,16 +265,9 @@ func TestBuildIcemwStartScript_FailingIcewmDoesNotAbortScript(t *testing.T) {
 		t.Fatalf("script must exit 0 even when icewm fails (setsid ... & detaches); got %v\noutput:\n%s\nscript:\n%s",
 			err, out, script)
 	}
-	// icewm was actually invoked (marker exists), even though it failed.
-	if _, err := os.Stat(markerPath); err != nil {
-		t.Errorf("icewm was not invoked (marker %s absent); the script must reach the launch line. output:\n%s", markerPath, out)
-	}
-	// The pidfile is still written (echo $! runs before icewm exits),
-	// proving the script reached the launch line and did not abort early.
-	pidFile := filepath.Join(pidDir, "icewm.pid")
-	if _, statErr := os.Stat(pidFile); statErr != nil {
-		t.Errorf("icewm.pid should be written even when icewm exits non-zero: %v", statErr)
-	}
+	// Poll for marker + pidfile instead of a fixed sleep (CI flake guard).
+	waitForFile(t, markerPath, script)
+	waitForFile(t, filepath.Join(pidDir, "icewm.pid"), script)
 }
 
 // TestXprobeSnippet_Shape locks the X-layer probe shell snippet so a
@@ -332,14 +339,15 @@ func TestBuildIcemwStartScript_SourcesEnvFileWhenPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	script := buildIcemwStartScript(envFile, ":99", pidDir) + "\nsleep 0.1"
+	script := buildIcemwStartScript(envFile, ":99", pidDir)
 	out, err := runSh(t, script, []string{
 		"PATH=" + fakeBinDir + ":/usr/bin:/bin",
 	})
 	if err != nil {
 		t.Fatalf("icewm script failed: %v\noutput:\n%s", err, out)
 	}
-
+	// Poll for the env-dump marker instead of a fixed sleep.
+	waitForFile(t, markerPath, script)
 	envDump, readErr := os.ReadFile(markerPath)
 	if readErr != nil {
 		t.Fatalf("could not read icewm env dump: %v", readErr)
