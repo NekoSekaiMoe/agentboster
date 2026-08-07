@@ -28,7 +28,6 @@ import {
 } from './attachments';
 import { parseSuggestedFollowUps } from '@/lib/chat/suggested-follow-up';
 import { PencilEditIcon } from './icons';
-import { Logo } from './logo';
 import { Markdown } from './markdown';
 import { MessageActions } from './message-actions';
 import { MessageEditor } from './message-editor';
@@ -126,14 +125,6 @@ function getFileAttachment(
     url: part.url,
     size: 0,
   };
-}
-
-function AssistantGlyph() {
-  return (
-    <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-background ring-1 ring-border/70">
-      <Logo width={22} height={22} />
-    </div>
-  );
 }
 
 function WorkflowSummaryButton({
@@ -698,20 +689,15 @@ const PurePreviewMessage = ({
   chatId,
   message,
   isLoading,
-  showAssistantGlyph,
   showSuggestedFollowUps,
   onToolApproval,
   onSuggestedFollowUpSelect,
-  onRevert,
   setMessages,
   regenerate,
-  ttsEnabled = false,
-  autoPlay = false,
 }: {
   chatId: string;
   message: WorkflowUIMessage;
   isLoading: boolean;
-  showAssistantGlyph: boolean;
   showSuggestedFollowUps: boolean;
   onToolApproval?: (input: {
     toolCallId: string;
@@ -720,7 +706,6 @@ const PurePreviewMessage = ({
     comment?: string;
   }) => Promise<void>;
   onSuggestedFollowUpSelect?: (question: string) => void;
-  onRevert?: (messageId: string) => void;
   setMessages: (
     messages:
       | WorkflowUIMessage[]
@@ -729,8 +714,6 @@ const PurePreviewMessage = ({
   regenerate: (
     options?: { messageId?: string } & ChatRequestOptions,
   ) => Promise<void>;
-  ttsEnabled?: boolean;
-  autoPlay?: boolean;
 }) => {
   const [mode, setMode] = useState<'view' | 'edit'>('view');
   const textContent = getTextFromParts(message);
@@ -1036,13 +1019,6 @@ const PurePreviewMessage = ({
             },
           )}
         >
-          {message.role === 'assistant' &&
-            (showAssistantGlyph ? (
-              <AssistantGlyph />
-            ) : (
-              <div className="size-7 shrink-0" aria-hidden="true" />
-            ))}
-
           <div className="flex w-full min-w-0 flex-col gap-2 group-data-[role=assistant]/message:items-start group-data-[role=user]/message:items-end">
             {message.role === 'user' &&
               hasRenderableContent &&
@@ -1103,15 +1079,11 @@ const PurePreviewMessage = ({
 
             <MessageActions
               key={`action-${message.id}`}
-              chatId={chatId}
               message={message}
               isLoading={isLoading}
-              onRevert={onRevert}
               onEditVersionChange={handleEditVersionChange}
               onRegenerate={handleRegenerate}
               onGenerationVersionChange={handleGenerationVersionChange}
-              ttsEnabled={ttsEnabled}
-              autoPlay={autoPlay}
             />
           </div>
         </div>
@@ -1125,14 +1097,9 @@ export const PreviewMessage = memo(
   (prevProps, nextProps) => {
     if (prevProps.chatId !== nextProps.chatId) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
-    if (prevProps.showAssistantGlyph !== nextProps.showAssistantGlyph) {
-      return false;
-    }
     if (prevProps.showSuggestedFollowUps !== nextProps.showSuggestedFollowUps) {
       return false;
     }
-    if (prevProps.ttsEnabled !== nextProps.ttsEnabled) return false;
-    if (prevProps.autoPlay !== nextProps.autoPlay) return false;
     if (prevProps.message.id !== nextProps.message.id) return false;
     if (prevProps.message.role !== nextProps.message.role) return false;
     if (prevProps.onToolApproval !== nextProps.onToolApproval) return false;
@@ -1169,8 +1136,6 @@ export const ThinkingMessage = () => {
           },
         )}
       >
-        <AssistantGlyph />
-
         <div className="flex w-full min-w-0 flex-col gap-2">
           <div className="flex flex-col gap-4 text-muted-foreground">
             Thinking...

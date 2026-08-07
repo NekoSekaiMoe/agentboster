@@ -41,8 +41,6 @@ import { deriveSessionTitle } from '@/lib/chat/session-title';
 import { buildInlineFollowUpText } from '@/lib/chat/follow-up';
 import { usePendingDecisions } from '@/lib/chat/use-pending-decisions';
 import { useStreamRecovery } from '@/lib/chat/use-stream-recovery';
-import { useAppConfig } from '@/hooks/use-app-config';
-import { readTtsAutoplay, useTtsAutoplay } from '@/hooks/use-tts-autoplay';
 import { generateUUID } from '@/lib/utils';
 import {
   type WorkflowStatusData,
@@ -191,11 +189,6 @@ export function Chat({
   const [sessionState, setSessionState] = useState<ChatSession>(
     session ?? null,
   );
-  const [tokenUsage, setTokenUsage] = useState<{
-    input: number;
-    output: number;
-    total: number;
-  } | null>(null);
   const [latestRuntimeEvent, setLatestRuntimeEvent] =
     useState<WorkflowStatusData | null>(null);
   const [bootstrapStatusRunId, setBootstrapStatusRunId] = useState<
@@ -507,31 +500,6 @@ export function Chat({
         return;
       }
 
-      // Extract token usage from token-usage and step-finish events
-      if (
-        dataPart.data.type === 'token-usage' ||
-        dataPart.data.type === 'step-finish'
-      ) {
-        const d = dataPart.data;
-        const usage = d.type === 'token-usage' ? d.usage : d;
-        const extractNum = (v: unknown): number => {
-          if (typeof v === 'number' && Number.isFinite(v)) return v;
-          if (
-            v &&
-            typeof v === 'object' &&
-            'total' in v &&
-            typeof (v as { total: unknown }).total === 'number'
-          )
-            return (v as { total: number }).total;
-          return 0;
-        };
-        setTokenUsage({
-          input: extractNum(usage.inputTokens),
-          output: extractNum(usage.outputTokens),
-          total: extractNum(usage.totalTokens),
-        });
-      }
-
       const eventKey = JSON.stringify(dataPart.data);
       if (lastWorkflowEventKeyRef.current === eventKey) {
         return;
@@ -579,34 +547,6 @@ export function Chat({
       setActiveRunId(null);
     }
   }, [status]);
-
-  // === TTS auto-play ===
-  // Whether TTS can be used at all on the Web is gated by the admin
-  // having configured a speech model. The actual decision to auto-play
-  // is the user's (per-user localStorage toggle).
-  const { config: appConfig } = useAppConfig();
-  const ttsAvailable = Boolean(appConfig?.tts?.model);
-  const [ttsAutoplay, setTtsAutoplay] = useState(false);
-
-  useEffect(() => {
-    setTtsAutoplay(readTtsAutoplay(Boolean(appConfig?.chat?.tts_autoplay)));
-  }, [appConfig?.chat?.tts_autoplay]);
-
-  const [autoPlayMessageId, setAutoPlayMessageId] = useState<string | null>(
-    null,
-  );
-
-  useTtsAutoplay({
-    messages,
-    status,
-    enabled: ttsAvailable && ttsAutoplay,
-    onPlay: (_text, messageId) => {
-      // Telling the AudioPlayer for THIS message to auto-play. Any
-      // previous autoPlayMessageId is replaced, so concurrent assistant
-      // messages never play over each other.
-      setAutoPlayMessageId(messageId);
-    },
-  });
 
   const requestResumeStream = useCallback(async () => {
     if (!activeRunIdRef.current) {
@@ -1017,39 +957,6 @@ export function Chat({
     }
   }, [id, router, t]);
 
-  const handleRevert = useCallback(
-    async (messageId: string) => {
-      if (!id) return;
-      try {
-        await ofetch(`/api/sessions/${id}/revert`, {
-          method: 'POST',
-          body: { message_id: messageId },
-        });
-        setMessages((current) => {
-          const targetIndex = current.findIndex(
-            (message) => message.id === messageId,
-          );
-
-          if (targetIndex === -1) {
-            return current;
-          }
-
-          // Include the target message itself (targetIndex + 1)
-          return current.slice(0, targetIndex + 1);
-        });
-        activeRunIdRef.current = null;
-        setActiveRunId(null);
-        setShouldResumeStream(false);
-        invalidateSessionList();
-        router.refresh();
-        toast.success('Reverted to this message');
-      } catch {
-        toast.error('Failed to revert');
-      }
-    },
-    [id, router, setMessages],
-  );
-
   const isAccessDeniedSession = sessionState?.accessDenied === true;
   const isReadOnlyChannelSession = Boolean(sessionState?.readOnlyChannel);
   const isRuntimePanelEnabled =
@@ -1069,11 +976,6 @@ export function Chat({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Build session state with token usage for header
-  const headerSession = sessionState
-    ? { ...sessionState, tokenUsage: tokenUsage ?? undefined }
-    : null;
-
   return (
     <SidebarProvider>
       <ChatSidebar />
@@ -1081,9 +983,14 @@ export function Chat({
       <SidebarInset className="min-w-0 bg-background">
         <div className="relative flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background">
           <ChatHeader
-            session={headerSession}
+            isRunning={isLoading}
             chatId={id}
             onAbort={handleAbort}
+            allowedModels={allowedModels}
+            onSelectModel={setSelectedModel}
+            selectedModel={selectedModel}
+            onSelectAgent={setSelectedAgent}
+            selectedAgent={sessionAgent}
           />
 
           <Messages
@@ -1094,7 +1001,6 @@ export function Chat({
             pendingDecisions={pendingDecisions}
             onPromptSelect={handlePromptSelect}
             onToolApproval={submitToolApproval}
-            onRevert={handleRevert}
             onDecisionResolved={handleDecisionResolved}
             onFollowUpSubmit={
               isAccessDeniedSession || isReadOnlyChannelSession
@@ -1108,8 +1014,6 @@ export function Chat({
             }
             setMessages={setMessages}
             regenerate={regenerateWithSelectedModel}
-            ttsEnabled={ttsAvailable}
-            autoPlayMessageId={autoPlayMessageId}
           />
 
           {isAccessDeniedSession ? (
@@ -1170,10 +1074,7 @@ export function Chat({
                     void cancelWorkflow();
                   }}
                   sendMessage={submitChatMessage}
-                  allowedModels={allowedModels}
-                  onSelectModel={setSelectedModel}
                   selectedModel={selectedModel}
-                  onSelectAgent={setSelectedAgent}
                   selectedAgent={sessionAgent}
                 />
               </div>

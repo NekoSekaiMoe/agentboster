@@ -88,7 +88,6 @@ interface MessagesProps {
     action: 'approve' | 'reject';
     comment?: string;
   }) => Promise<void>;
-  onRevert?: (messageId: string) => void;
   onDecisionResolved?: (decisionId: string, action: string) => void;
   onFollowUpSubmit?: (input: {
     messageId: string;
@@ -104,10 +103,6 @@ interface MessagesProps {
   regenerate: (
     options?: { messageId?: string } & ChatRequestOptions,
   ) => Promise<void>;
-  /** Whether TTS playback buttons should appear under assistant messages. */
-  ttsEnabled?: boolean;
-  /** Message ID that should auto-play (typically the just-finished assistant reply). */
-  autoPlayMessageId?: string | null;
 }
 
 type InlineFollowUpSelection = {
@@ -160,14 +155,11 @@ function PureMessages({
   pendingDecisions,
   onPromptSelect,
   onToolApproval,
-  onRevert,
   onDecisionResolved,
   onFollowUpSubmit,
   onSuggestedFollowUpSelect,
   setMessages,
   regenerate,
-  ttsEnabled = false,
-  autoPlayMessageId = null,
 }: MessagesProps) {
   const { t } = useI18n();
   const lastMessage = messages[messages.length - 1];
@@ -391,10 +383,6 @@ function PureMessages({
             return null;
           }
 
-          const showAssistantGlyph =
-            message.role !== 'assistant' ||
-            index === 0 ||
-            messages[index - 1]?.role !== 'assistant';
           const showSuggestedFollowUps =
             message.role === 'assistant' &&
             index === messages.length - 1 &&
@@ -406,15 +394,11 @@ function PureMessages({
               chatId={chatId}
               message={message}
               isLoading={isLoading && messages.length - 1 === index}
-              showAssistantGlyph={showAssistantGlyph}
               showSuggestedFollowUps={showSuggestedFollowUps}
               onToolApproval={onToolApproval}
               onSuggestedFollowUpSelect={onSuggestedFollowUpSelect}
-              onRevert={onRevert}
               setMessages={setMessages}
               regenerate={regenerate}
-              ttsEnabled={ttsEnabled}
-              autoPlay={autoPlayMessageId === message.id}
             />
           );
         })}
