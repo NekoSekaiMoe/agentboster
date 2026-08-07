@@ -75,6 +75,10 @@ class RemoteMemoryProvider implements MemoryProvider {
     _ctx: ProviderReadContext,
     req: SearchRequest,
   ): Promise<SearchResult[]> {
+    // reviewer phase5 S4:尊重 enableRerank=false(意为"禁远程")。
+    // C2:guard 移到 inner.search() 之前 —— 禁用远程时不应发起任何请求。
+    if (req.enableRerank === false) return [];
+
     // reviewer phase5 B2:fail-open(与 searchWithProvider/collectRemoteMemoryItems 对齐)。
     // 远程 provider 挂了不应让整盘 context 构建失败。
     try {
@@ -83,9 +87,9 @@ class RemoteMemoryProvider implements MemoryProvider {
         limit: req.topK ?? REMOTE_DEFAULT_TOP_K,
         config: this.config,
       });
-      // reviewer phase5 S4:尊重 enableRerank=false(意为"禁远程")
-      if (req.enableRerank === false) return [];
-      const mapped = results.map(remoteToSearchResult);
+      const mapped = results.map((r) =>
+        remoteToSearchResultInner(r, this.type, this.id),
+      );
       // reviewer phase5 S4:尊重 minConfidence
       const minConf = req.minConfidence ?? 0;
       return mapped.filter((r) => r.score >= minConf);
@@ -156,7 +160,7 @@ function remoteToSearchResultInner(
     content,
     score: rawScore,
     sourceKind,
-    // S1 命名空间化 memoryId,避跨 provider 碰撞
+    // S1 命名空间化 memoryId,避免跨 provider 碰撞
     ...(r.remoteId
       ? { memoryId: `${providerType}:${providerId}:${r.remoteId}` }
       : {}),
@@ -164,8 +168,5 @@ function remoteToSearchResultInner(
   };
 }
 
-// 包装以保持原签名(类方法里调)
-function remoteToSearchResult(r: KnowledgeProviderResult): SearchResult {
-  // 默认命名空间(向后兼容);类内部调时传具体 type/id 更好,但保持简单
-  return remoteToSearchResultInner(r, 'remote', 'default');
-}
+// reviewer C1:删除硬编码 'remote'/'default' 的旧包装函数。
+// 类方法调直接传实例的真实 type/id,避免跨 provider 的 memoryId 碰撞。

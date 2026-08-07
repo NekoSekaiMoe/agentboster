@@ -63,6 +63,7 @@ async function getPgKv() {
     srem: b.pgSrem,
     smembers: b.pgSmembers,
     ttl: b.pgTtl,
+    incr: b.pgIncr,
   };
 }
 
@@ -80,6 +81,8 @@ type KvBackend = {
   srem: (key: string, ...members: string[]) => Promise<number>;
   smembers: (key: string) => Promise<string[]>;
   ttl: (key: string) => Promise<number>;
+  /** Atomic integer increment (Redis INCR). reviewer A3:用于跨实例 memory version。 */
+  incr: (key: string) => Promise<number>;
 };
 
 let _backendPromise: Promise<KvBackend> | null = null;
@@ -158,4 +161,6 @@ export const del = async (...keys: string[]) =>
   (await getBackend()).del(...keys);
 export const expire = async (key: string, seconds: number) =>
   (await getBackend()).expire(key, seconds);
+/** Atomic integer increment (Redis INCR); see pg-backend pgIncr / Upstash incr. */
+export const incr = async (key: string) => (await getBackend()).incr(key);
 export const getKV = (): Redis => redis;

@@ -163,13 +163,13 @@ export const aiConfigSchema = z.object({
    */
   memory_recall_strategy: z.enum(['vector', 'scorer']).optional(),
   /**
-   * Phase 4 feature flag:启用 ContextPacker 优化模式(超预算丢丰 + 可观测 stats)。
+   * Phase 4 feature flag:启用 ContextPacker 优化模式(超预算丢弃 + 可观测 stats)。
    *
    * ⚠️ 全局 flag(final-review S3):非 per-user,多租户自托管下全实例生效。
    * env 与 config 任一为真即开(`MEMORY_PACKER_OPTIMIZE=1` 覆盖)。
    *
    * 默认 false = 严格等价于原 formatRecalledMemoriesForContext +
-   * formatTriggeredMemoriesForContext 的拼接。设为 true 时,packer 在预算内丢丰
+   * formatTriggeredMemoriesForContext 的拼接。设为 true 时,packer 在预算内丢弃
    * (各 block 内部,不跨源排序),减少 prompt 长度 + 提升 anti-lost-in-middle 效果。
    */
   memory_packer_optimize: z.boolean().optional(),
@@ -177,8 +177,15 @@ export const aiConfigSchema = z.object({
    * Phase 4 预算字符上限(final-review S4:从 context/index.ts 硬编码挪到 config)。
    * 默认 1800(中文 CJK 1 char=1 字,约 600-900 中文词)。
    * 仅在 memory_packer_optimize=true 时生效。
+   *
+   * reviewer D2:用 .min() 设一个能容纳 packWithBudget 固定头部开销(RECALL_HEADER ≈363 字符)
+   * 的最小值,取代裸 positive() —— 预算过小会导致 recall 整块被丢光,配置无意义。
    */
-  memory_packer_budget_chars: z.number().int().positive().optional(),
+  memory_packer_budget_chars: z
+    .number()
+    .int()
+    .min(400, 'memory_packer_budget_chars 必须不小于 400(容纳 RECALL_HEADER 开销)')
+    .optional(),
   /**
    * Phase 5 feature flag:启用知识库(knowledge)结果自动注入到对话 context。
    *

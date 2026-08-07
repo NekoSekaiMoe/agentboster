@@ -24,6 +24,7 @@ import {
   updateLongTermMemory,
   type RecalledMemory,
 } from '@/lib/memory';
+import { getConfig } from '@/lib/core/kv/config';
 import type { AppConfig } from '@/types/config';
 
 import type {
@@ -48,16 +49,25 @@ export interface BuiltinProviderDeps {
 }
 
 /**
- * 创建 BuiltinProvider 实例。
+ * 创建 BuiltinProvider 实例(模块内部使用)。
  *
- * 注意:本函数返回的 provider 是**裸**的(未包 write gate)。
- * registry 注册时应包 `wrapWithWriteGate()` —— 见 builtin-factory.ts。
+ * reviewer A6:本函数不导出,调用方拿不到裸实例,无法绕过 write gate。
+ * 公开访问统一经 `createCommittedBuiltinProvider()`(builtin-factory.ts),
+ * 后者总是包 `wrapWithWriteGate()` 并返回 `CommittedMemoryProvider`。
  */
-export function createBuiltinProvider(
+function createBuiltinProvider(
   id: string,
   deps: BuiltinProviderDeps = {},
 ): BuiltinProvider {
   return new BuiltinProviderImpl(id, deps);
+}
+
+/** 模块内部导出(仅 builtin-factory.ts 使用)。 */
+export function _createBuiltinProviderInternal(
+  id: string,
+  deps: BuiltinProviderDeps = {},
+): BuiltinProvider {
+  return createBuiltinProvider(id, deps);
 }
 
 /** BuiltinProvider 的静态类型:主接口 + 已实现的能力接口。 */
@@ -120,9 +130,9 @@ class BuiltinProviderImpl implements MemoryProvider, MemoryVersionCapability {
     id: string,
     patch: MemoryPatch,
   ): Promise<void> {
-    // 现有 updateLongTermMemory 只支持 content 重写。patch 里的
-    // importance/sourceKind/memoryType/triggerPhrases/dreamStatus 在 Phase 1
-    // 尚未桥接(现有函数签名限制),Phase 后续扩展时补。
+    // reviewer A2:MemoryPatch 主契约仅含 content(当前唯一被持久化的字段)。
+    // 其它字段(importance/sourceKind/memoryType/triggerPhrases/dreamStatus)
+    // 在 updateLongTermMemory 真正支持前不再出现在契约中,避免静默吞掉。
     if (patch.content === undefined) {
       // 没有内容要更新,无操作(不报错,保持幂等)
       return;
@@ -156,12 +166,14 @@ class BuiltinProviderImpl implements MemoryProvider, MemoryVersionCapability {
   // onBeforeChat / onAfterChat 由上层 context builder 直接调 recall + extract,
   // Phase 1 不把它们搬进 provider(避免改变现有调用链)。
 
-  // ─── 健康(phase1-review #9:检测 embedding_model 缺失)────────
+  // ─── 健康(reviewer A5:检测 embedding_model 缺失)────────
 
   async status(_ctx: ProviderReadContext) {
-    // embedding_model 缺失时 recall 退化为 keyword_only,报 degraded
-    // (与 recall.ts resolveRecallStrategy 的降级语义一致)
-    const hasEmbedding = Boolean(this.deps.config?.models?.embedding_model);
+    // reviewer A5:必须与 recall 策略解析使用同一运行时配置源。
+    // 注入 config 优先(测试可控),否则运行时 getConfig() 兜底 ——
+    // 与 recallRelevantMemories 内部的 getEffectiveConfig 一致。
+    const cfg = this.deps.config ?? (await getConfig().catch(() => null));
+    const hasEmbedding = Boolean(cfg?.models?.embedding_model);
     return {
       mode: hasEmbedding ? ('active' as const) : ('degraded' as const),
       detail: hasEmbedding
@@ -173,7 +185,7 @@ class BuiltinProviderImpl implements MemoryProvider, MemoryVersionCapability {
   // ─── MemoryVersionCapability ─────────────────────────────────────
 
   async memoryVersion(ctx: ProviderReadContext): Promise<number> {
-    return readMemoryVersion(ctx.userId);
+    return await readMemoryVersion(ctx.userId);
   }
 }
 

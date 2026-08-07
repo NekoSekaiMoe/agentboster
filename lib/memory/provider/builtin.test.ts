@@ -17,18 +17,26 @@ vi.mock('@/lib/memory', () => ({
   getLongTermMemory: (...args: unknown[]) => getMemoryMock(...args),
 }));
 
+// reviewer A5:status 现在走运行时 getConfig() 兑底;mock 成 null 使
+// 「无注入 config」路径的测试确定性(避免依赖测试环境的 KV 状态)。
+const getConfigMock = vi.fn();
+vi.mock('@/lib/core/kv/config', () => ({
+  getConfig: (...args: unknown[]) => getConfigMock(...args),
+}));
+
 // ─── 在 import BuiltinProvider 之前,mock write-gate 的 readMemoryVersion ──
-// 这样测试不依赖 write-gate 的真实进程状态
+// 这桂测试不依赖 write-gate 的真实进程状态(readMemoryVersion 被 mock)
 vi.mock('./write-gate', async () => {
   const actual =
     await vi.importActual<typeof import('./write-gate')>('./write-gate');
   return {
     ...actual,
-    readMemoryVersion: vi.fn(() => 42),
+    // reviewer A3:readMemoryVersion 现是 async(KV 读);mock 成同步返 42 仍兼容 await。
+    readMemoryVersion: vi.fn(async () => 42),
   };
 });
 
-import { createBuiltinProvider } from './builtin';
+import { _createBuiltinProviderInternal as createBuiltinProvider } from './builtin';
 
 describe('BuiltinProvider', () => {
   beforeEach(() => {
@@ -37,6 +45,8 @@ describe('BuiltinProvider', () => {
     updateMock.mockReset();
     deleteMock.mockReset();
     getMemoryMock.mockReset();
+    getConfigMock.mockReset();
+    getConfigMock.mockResolvedValue(null);
   });
 
   describe('search(读路径,用 ReadContext)', () => {
@@ -253,7 +263,7 @@ describe('BuiltinProvider', () => {
       await provider.update(
         { userId: 'u', projectId: null, sourceKind: 'user_asserted' },
         'id-1',
-        { importance: 5 }, // 现有函数不支持,Phase 1 忽略
+        {}, // reviewer A2:无 content 时幂等 no-op(其余字段已从 MemoryPatch 主契约移出)
       );
       expect(updateMock).not.toHaveBeenCalled();
     });

@@ -33,6 +33,18 @@ const instanceCache = new Map<string, MemoryProvider>();
 const inflight = new Map<string, Promise<MemoryProvider>>();
 
 /**
+ * 每个 key 的构造代际(reviewer A7)。
+ *
+ * 问题:evictProvider 只删 instanceCache 时,一个已 inflight 的 factory
+ * promise 仍会在 resolve 后把旧配置实例写回 cache,且并发 getProvider 会
+ * 复用这条旧 inflight —— 驱逐彻底失效。
+ *
+ * 解法:evict 时递增该 key 的 generation;getProvider 的 factory 回调在
+ * 写 cache / 清 inflight 前校验自己仍属于当前 generation,否则丢弃。
+ */
+const generationByKey = new Map<string, number>();
+
+/**
  * 注册工厂。启动时为每个 provider type 调一次。
  * 借鉴 memoh `RegisterFactory`。
  */
@@ -62,6 +74,10 @@ export async function getProvider(
   const pending = inflight.get(key);
   if (pending) return pending;
 
+  // 捕获当前 generation;factory 完成后校验仍属于同一 generation,
+  // 否则说明中途被 evictProvider 驱逐过,丢弃旧实例(reviewer A7)。
+  const generation = generationByKey.get(key) ?? 0;
+
   const constructing = (async () => {
     const { type, config } = await resolveProviderSpec(providerId);
     const factory = factories.get(type);
@@ -71,7 +87,10 @@ export async function getProvider(
       );
     }
     const instance = await factory(providerId, config);
-    instanceCache.set(key, instance);
+    // 仅当当前 generation 未变(期间未被 evict)才落 cache。
+    if ((generationByKey.get(key) ?? 0) === generation) {
+      instanceCache.set(key, instance);
+    }
     return instance;
   })();
 
@@ -79,23 +98,37 @@ export async function getProvider(
   try {
     return await constructing;
   } finally {
-    inflight.delete(key);
+    // 同样校验 generation:若中途被驱逐,清掉这条 inflight;
+    // 若仍属于当前 generation,正常清理(后续请求会重新构造)。
+    if ((generationByKey.get(key) ?? 0) === generation) {
+      inflight.delete(key);
+    }
   }
 }
 
 /**
  * 驱逐缓存实例。配置更新后调用(借鉴 memoh `tryEvictAndReinstantiate`)。
  * Phase 1 的 Service 层会在 provider 行 update 后调它。
+ *
+ * reviewer A7:同时失效进行中的 inflight 构造 —— 递增对应 key 的
+ * generation,使旧 inflight 在 resolve 时不再回填 cache 或被后续请求复用。
  */
 export function evictProvider(userId: string, providerId?: string): void {
   if (providerId) {
-    instanceCache.delete(registryKey(userId, providerId));
+    const key = registryKey(userId, providerId);
+    instanceCache.delete(key);
+    inflight.delete(key);
+    generationByKey.set(key, (generationByKey.get(key) ?? 0) + 1);
     return;
   }
-  // 驱逐该 userId 下全部实例
+  // 驱逐该 userId 下全部实例:批量删 cache + inflight,并递增每个 key 的 generation
   const prefix = `${userId}:`;
-  for (const key of instanceCache.keys()) {
-    if (key.startsWith(prefix)) instanceCache.delete(key);
+  for (const key of [...instanceCache.keys(), ...inflight.keys()]) {
+    if (key.startsWith(prefix)) {
+      instanceCache.delete(key);
+      inflight.delete(key);
+      generationByKey.set(key, (generationByKey.get(key) ?? 0) + 1);
+    }
   }
 }
 
@@ -103,6 +136,7 @@ export function evictProvider(userId: string, providerId?: string): void {
 export function clearRegistryForTests(): void {
   instanceCache.clear();
   inflight.clear();
+  generationByKey.clear();
 }
 
 /** 当前已缓存的实例数(仅测试/可观测用)。 */

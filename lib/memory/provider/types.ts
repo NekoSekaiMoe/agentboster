@@ -115,16 +115,15 @@ export interface NewMemoryInput {
 }
 
 /**
- * 更新补丁。Phase 1 只桥接 content(受现有 updateLongTermMemory 签名限制);
- * 其余字段在这里声明,Phase 后续扩 updateLongTermMemory 时才真正生效。
+ * 更新补丁。
+ *
+ * reviewer A2:仅保留 Phase 1 真正持久化的字段(content)。此前声明的
+ * importance/sourceKind/memoryType/triggerPhrases/dreamStatus 被旧实现
+ * 静默吞掉(返回 resolve 但不落库),调用方误以为更新成功 —— 等价于
+ * “伪装成功”。这些字段在 updateLongTermMemory 真正支持之前从主契约移出。
  */
 export interface MemoryPatch {
   content?: string;
-  importance?: number;
-  sourceKind?: LongTermMemorySourceKind;
-  memoryType?: MemoryType;
-  triggerPhrases?: string[];
-  dreamStatus?: DreamStatus;
 }
 
 /** 写入返回的引用。 */

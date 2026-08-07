@@ -24,7 +24,10 @@ import { invalidateCurrentSessionSummary } from '@/lib/memory';
 import { generateUUID } from '@/lib/utils';
 import { createLogger } from '@/lib/utils/logger';
 import { buildInitialContextMessages } from '@/lib/workflow/agent/context';
-import { collectRemoteMemoryItems } from '@/lib/memory/remote-injection';
+import {
+  collectRemoteMemoryItems,
+  withTimeout,
+} from '@/lib/memory/remote-injection';
 import {
   canResumeRun,
   pauseWorkflow,
@@ -1881,16 +1884,23 @@ export async function chatMain(
             : 'none',
   });
   // Phase 5:可选预取 knowledge 库结果(feature flag 控制,默认 off)
+  // reviewer D1:加整体超时,超时或异常按 fail-open 返回空数组,不阻塞主对话关键路径。
+  // (并行化需要 buildInitialContextMessages 接受 extraRecallItems 的 Promise,Phase 后续重构。)
   const knowledgeInject =
     config?.models?.memory_knowledge_inject === true ||
     process.env.MEMORY_KNOWLEDGE_INJECT === '1';
+  const REMOTE_PREFETCH_TIMEOUT_MS = 5_000;
   const extraRecallItems =
     knowledgeInject && userId && request.input.text
-      ? await collectRemoteMemoryItems({
-          userId,
-          query: request.input.text,
-          config: config ?? undefined,
-        })
+      ? await withTimeout(
+          collectRemoteMemoryItems({
+            userId,
+            query: request.input.text,
+            config: config ?? undefined,
+          }),
+          REMOTE_PREFETCH_TIMEOUT_MS,
+          [],
+        )
       : [];
   const initialMessages = await buildInitialContextMessages(session.id, {
     modelId: effectiveModelId,

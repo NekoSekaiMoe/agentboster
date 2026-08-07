@@ -7,6 +7,19 @@ vi.mock('@/lib/memory', () => ({
   upsertLongTermMemory: (...args: unknown[]) => upsertMock(...args),
   updateLongTermMemory: vi.fn(async () => ({ memory: {}, indexing: {} })),
   deleteLongTermMemory: vi.fn(async () => true),
+  // reviewer D6:builtin.ts 静态 import getLongTermMemory 并在 update 里调,缺导出会 undefined 调用报错。
+  getLongTermMemory: vi.fn(async () => null),
+}));
+
+// reviewer A3:mock KV —— version 号现落共享存储,测试不连真 KV。
+const kvState = new Map<string, string>();
+vi.mock('@/lib/core/kv', () => ({
+  incr: vi.fn(async (key: string) => {
+    const next = (Number.parseInt(kvState.get(key) ?? '0', 10) || 0) + 1;
+    kvState.set(key, String(next));
+    return next;
+  }),
+  get: vi.fn(async (key: string) => kvState.get(key) ?? null),
 }));
 
 import {
@@ -21,6 +34,7 @@ describe('builtin-factory + registry 集成', () => {
     _resetBuiltinFactoryRegistrationForTests();
     clearRegistryForTests();
     clearWriteGateForTests();
+    kvState.clear();
     upsertMock.mockReset();
     upsertMock.mockResolvedValue({
       memory: { id: 'row-1' },
@@ -42,12 +56,12 @@ describe('builtin-factory + registry 集成', () => {
     expect(provider.type).toBe('builtin');
 
     // 读不 bump
-    expect(readMemoryVersion('user-a')).toBe(0);
+    expect(await readMemoryVersion('user-a')).toBe(0);
     await provider.search(
       { userId: 'user-a', projectId: null },
       { query: 'q' },
     );
-    expect(readMemoryVersion('user-a')).toBe(0);
+    expect(await readMemoryVersion('user-a')).toBe(0);
 
     // 写:final-review B2 后,封箱的 commitMemoryWrite 会 bump(provider 路径)
     await provider.add(
@@ -55,7 +69,7 @@ describe('builtin-factory + registry 集成', () => {
       { key: 'k', content: 'c' },
     );
     expect(upsertMock).toHaveBeenCalledTimes(1); // 证明转发到底层
-    expect(readMemoryVersion('user-a')).toBe(1); // commitMemoryWrite bump
+    expect(await readMemoryVersion('user-a')).toBe(1); // commitMemoryWrite bump
   });
 
   it('registerBuiltinFactory 幂等(重复注册不覆盖)', () => {

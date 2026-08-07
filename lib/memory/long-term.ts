@@ -26,6 +26,7 @@ import { deriveEdgesForMemory } from './edges';
 import { invalidateProfileCache } from './profile';
 import { invalidateRecallCache } from './recall';
 import { invalidateTriggerCache } from './triggers';
+import { bumpMemoryVersion } from './provider/write-gate';
 
 const logger = createLogger('memory.long_term');
 
@@ -172,7 +173,9 @@ export async function createLongTermMemory(input: {
   invalidateRecallCache(input.userId);
   invalidateTriggerCache(input.userId);
   await invalidateProfileCache(input.userId);
-  // final-review B2:bump 责任移交调用方的 invalidateMemoryCaches / provider 的 commitMemoryWrite
+  // reviewer A1:写入成功后必须 bump version(不可被调用方绕过)。
+  // 把 bump 收进函数内部,调用方不必记得调失效层也能让 readMemoryVersion 前进。
+  if (input.userId) await bumpMemoryVersion(input.userId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
     .finally(() => invalidateRecallCache(input.userId));
@@ -224,6 +227,8 @@ export async function upsertLongTermMemory(input: {
   invalidateRecallCache(input.userId);
   invalidateTriggerCache(input.userId);
   await invalidateProfileCache(input.userId);
+  // reviewer A1:写入成功后必须 bump version(不可被调用方绕过)。
+  if (input.userId) await bumpMemoryVersion(input.userId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
     .finally(() => invalidateRecallCache(input.userId));
@@ -251,6 +256,8 @@ export async function updateLongTermMemory(input: {
   invalidateRecallCache(ownerId);
   invalidateTriggerCache(ownerId);
   await invalidateProfileCache(ownerId);
+  // reviewer A1:写入成功后必须 bump version(不可被调用方绕过)。
+  if (ownerId) await bumpMemoryVersion(ownerId);
   deriveEdgesForMemory(memory.id, input.config)
     .catch(() => {})
     .finally(() => invalidateRecallCache(ownerId));
@@ -267,6 +274,8 @@ export async function deleteLongTermMemory(
     invalidateRecallCache(options?.userId);
     invalidateTriggerCache(options?.userId);
     await invalidateProfileCache(options?.userId);
+    // reviewer A1:写入成功后必须 bump version(不可被调用方绕过)。
+    if (options?.userId) await bumpMemoryVersion(options.userId);
   }
   return result;
 }

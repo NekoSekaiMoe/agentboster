@@ -3,22 +3,20 @@
  *
  * 设计来源:docs/memory-provider-unification-plan.md §1.5。
  *
- * 解决的核心问题:"删除手动缓存失效、改用 MemoryVersion" 会引入
- * "某个写路径忘记自增 → 静默 stale" 的风险。靠"测试覆盖所有写入口"是
- * 赌运气;真正的解法是把自增点收缩成唯一的、不可绕过的结构层入口。
- *
  * 工作方式:
  *  1. provider 的裸写方法(add/update/delete)不对外暴露
  *  2. 调用方拿到的是 `CommittedMemoryProvider`,它的写方法自动包 commitMemoryWrite
- *  3. commitMemoryWrite 执行 op → bumpMemoryVersion(唯一调用点)→ 跨进程通知
- *  4. 全 codebase 只有本文件一个 bumpMemoryVersion 调用点(lint 守护)
+ *  3. commitMemoryWrite 执行 op → bumpMemoryVersion → 本地 listener 通知
  *
- * Phase 0 状态:只骨架。
- *  - 版本计数器是进程内内存变量(Phase 3 会加 memory_version_log 表落库)
- *  - 跨进程通知 Phase 3 接(Vercel 用 Upstash pub-sub,自托管用 pg NOTIFY)
- *  - 本文件遵守 workflow bundle 规则:无顶层 node:* import
+ * reviewer A3(已修复):版本号存于共享 KV 层(Upstash INCR / pg 原子 upsert),
+ * 跨实例原子递增、读取一致。不再依赖进程内 Map 作为版本号唯一来源;本地 listeners
+ * 仅作通知/缓存优化用途。解决多副本(serverless / 多实例)计数器不一致问题。
+ *
+ * 仓库约束:本文件经 provider/index.ts ← workflow context 静态可达 workflow bundle,
+ * 故无顶层 node:* import;KV 层(@/lib/core/kv)同样 bundle-safe。
  */
 
+import { incr, get as kvGet } from '@/lib/core/kv';
 import type {
   MemoryPatch,
   MemoryProvider,
@@ -27,82 +25,80 @@ import type {
   ProviderWriteContext,
 } from './types';
 
-// ─── 进程内版本计数器(Phase 3 会镜像到 DB)──────────────────────
+// ─── 共享版本计数器(KV 层原子递增)──────────────────────────
 
-/** key: userId,value: 当前版本号(单调递增)。 */
-const versionByUser = new Map<string, number>();
+/** 版本号在 KV 中的键空间。仅 incr 写入数字字符串,不与 JSON 值冲突。 */
+function versionKey(userId: string): string {
+  return `memory_version:${userId}`;
+}
 
-/** 订阅者(跨进程通知 Phase 3 接,这里留 hook)。 */
+/** 订阅者(本地通知/缓存优化,不作版本号来源 —— 版本号唯一来源是 KV)。 */
 type VersionListener = (userId: string, newVersion: number) => void;
 const listeners = new Set<VersionListener>();
 
 /**
- * 读当前版本号。
- * ContextPacker 的 cache key 含此值 —— 任何写入使其失效。
+ * 读当前版本号(从共享 KV)。ContextPacker 的 cache key 含此值 —— 任何写入使其失效。
+ *
+ * 返回 0 当键不存在(新用户/从未写入)。KV 存数字字符串,这里 parseInt。
  */
-export function readMemoryVersion(userId: string): number {
-  return versionByUser.get(userId) ?? 0;
+export async function readMemoryVersion(userId: string): Promise<number> {
+  const raw = await kvGet(versionKey(userId));
+  if (raw === null || raw === undefined) return 0;
+  const parsed = Number.parseInt(String(raw), 10);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /**
- * 自增版本号。
+ * 原子自增版本号(共享 KV),返回新值。
  *
- * **调用约定**:Phase 3 起,唯一合法调用方是 `invalidateMemoryCaches()`
- * (lib/memory/cache-invalidation.ts)。这样不管写路径经不经 provider
- * (extract / dream / agent-tool / provider.add),只要调了失效就 bump,
- * 解决 phase1-review #1 的"Dream/extract 绕过 write-gate"空洞。
+ * **调用约定**:在以下三处调用,覆盖所有写路径:
+ *  1. `commitMemoryWrite`(provider 路径,本文件)
+ *  2. `invalidateMemoryCaches`(Dream / 裸 DAL 路径,cache-invalidation.ts)
+ *  3. long-term.ts 的 4 个写函数内部(reviewer A1:保证任何直调该函数的调用方都 bump)
  *
- * `commitMemoryWrite` 不再直接调它 —— op 内部的失效会调。如果 op 完全
- * 不失效(纯 DAL 直写),那也不该 bump(没失效 = 没变)。
- *
- * legacy-write-debt.test.ts 钉住了 legacy 直调点清单;新代码请走
- * MemoryProvider,并在写后调 invalidateMemoryCaches。
+ * 多处 bump 是有意的冗余 —— version 单调递增,多 bump 只会多失效一次缓存,
+ * 不会错。漏 bump 才是错误(缓存 stale)。
  */
-export function bumpMemoryVersion(userId: string): number {
-  const next = (versionByUser.get(userId) ?? 0) + 1;
-  versionByUser.set(userId, next);
+export async function bumpMemoryVersion(userId: string): Promise<number> {
+  const next = await incr(versionKey(userId));
   for (const listener of listeners) {
     try {
       listener(userId, next);
     } catch {
-      // listener 故障不影响主写(借鉴现有 cache 失效 fire-and-forget 模式)
+      // listener 故障不影响主写(fire-and-forget)
     }
   }
   return next;
 }
 
 /**
- * 写入闸口:保证 op 执行 + 失效触发。
+ * 写入闸口:保证 op 执行 + 版本 bump。
  *
- * Phase 3 语义变更:bump 不在这里做,而是由 op 内部触发的
- * `invalidateMemoryCaches()` 负责。理由:很多写路径(extract / dream)
- * 直调 upsertLongTermMemory 而不经 provider,但它们都会触发失效。
- * 把 bump 挂在失效层比挂在 write-gate 覆盖面更广。
- * 见 phase1-review #1 + docs/memory-provider-unification-plan.md §1.5。
- *
- * 本函数仍保留作为 provider 写方法的包装层(未来可加事务/重试/观测),
- * 但不再保证"调它必 bump"。
+ * provider 路径在这里 bump。非 provider 路径(extract/dream/裸 DAL)由
+ * long-term.ts 内部 bump + invalidateMemoryCaches 兜底。多处 bump 单调递增、
+ * 安全冗余。见 docs/memory-provider-unification-plan.md §1.5 + reviewer A1。
  */
 export async function commitMemoryWrite(
   ctx: ProviderWriteContext,
   op: () => Promise<void>,
 ): Promise<void> {
   await op();
-  // final-review B2:bump 责任层统一。
-  // provider 路径(经 write-gate)在这里 bump;非 provider 路径(extract/dream/agentd)
-  // 在其末尾的 invalidateMemoryCaches 里 bump。两条路径互斥,不重复 bump。
-  bumpMemoryVersion(ctx.userId);
+  // provider 路径统一 bump(op 内部的 upsertLongTermMemory 也会 bump,
+  // 此处再多一次是安全冗余 —— 保持 provider-neutral,不依赖 inner 实现 bump)。
+  await bumpMemoryVersion(ctx.userId);
 }
 
-/** 订阅版本变化(测试 / Phase 3 跨进程通知用)。 */
+/** 订阅版本变化(测试 / 本地缓存优化用)。 */
 export function onMemoryVersionChange(listener: VersionListener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
-/** 清空全部版本状态(仅测试用)。 */
+/**
+ * 清空本地 listener(仅测试用)。共享 KV 中的版本号由测试自行 mock/重置
+ * (生产中从不重置 —— 版本号单调递增跨进程共享)。
+ */
 export function clearWriteGateForTests(): void {
-  versionByUser.clear();
   listeners.clear();
 }
 
@@ -151,12 +147,17 @@ export function wrapWithWriteGate(
   };
 
   // 代理其余方法(检索 + 可选钩子直传)
+  // reviewer A4:函数属性必须先 bind 到 target,否则通过解构调用
+  // (`const { search } = provider; search(...)`)或经由 Proxy 调用时
+  // `this` 不再指向原始实例,导致 `this.deps` 等私有字段读成 undefined。
+  // 非函数属性按原 Reflect.get 行为返回。
   return new Proxy(inner, {
-    get(target, prop, receiver) {
+    get(target, prop, _receiver) {
       if (prop === 'add') return committedAdd;
       if (prop === 'update') return committedUpdate;
       if (prop === 'delete') return committedDelete;
-      return Reflect.get(target, prop, receiver);
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
     },
   }) as CommittedMemoryProvider;
 }

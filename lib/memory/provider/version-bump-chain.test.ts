@@ -24,13 +24,13 @@ describe('Phase 3 失效链:bumpMemoryVersion 调用点', () => {
     expect(text).toContain("from '@/lib/memory/provider/write-gate'");
   });
 
-  it('long-term.ts 的 4 个写函数不再直接 bump(final-review B2:bump 责任移交)', () => {
+  it('long-term.ts 的 4 个写函数内部 bump(reviewer A1:不可被调用方绕过)', () => {
     const text = readFile('lib/memory/long-term.ts');
-    // B2 修复后:long-term.ts 不应再直接调 bumpMemoryVersion。
-    // bump 责任统一到 invalidateMemoryCaches(非 provider 路径)+
-    // commitMemoryWrite(provider 路径)。
-    expect(text).not.toContain('bumpMemoryVersion');
-    expect(text).not.toContain("from './provider/write-gate'");
+    // reviewer A1:写入成功后必须 bump version(不可被调用方绕过)。
+    // 检测真正的函数调用 bumpMemoryVersion(...),忽略注释/文本中的同名 token。
+    const calls = Array.from(text.matchAll(/bumpMemoryVersion\(/g));
+    expect(calls.length).toBeGreaterThanOrEqual(4);
+    expect(text).toContain("from './provider/write-gate'");
   });
 
   it('dream/apply.ts 在 apply 完成后调 invalidateMemoryCaches(修复历史隐患)', () => {
@@ -42,7 +42,8 @@ describe('Phase 3 失效链:bumpMemoryVersion 调用点', () => {
 
   it('write-gate.ts 导出 bumpMemoryVersion 且 commitMemoryWrite 内部调它', () => {
     const text = readFile('lib/memory/provider/write-gate.ts');
-    expect(text).toContain('export function bumpMemoryVersion');
+    // reviewer A3:bumpMemoryVersion 现为 async(落共享 KV);仍由 commitMemoryWrite 调用。
+    expect(text).toContain('export async function bumpMemoryVersion');
     // final-review B2:provider 路径的 bump 在 commitMemoryWrite 里
     expect(text).toMatch(/commitMemoryWrite[\s\S]*bumpMemoryVersion/);
   });
@@ -78,13 +79,18 @@ describe('Phase 3 失效链:version 进 cache key', () => {
 describe('Phase 5 workflow bundle 守卫:remote-adapter 只能 import type(reviewer B1)', () => {
   it('remote-adapter.ts 对 @/lib/knowledge 顶层只用 import type(防 fetch+crypto 进 bundle)', () => {
     const text = readFile('lib/memory/provider/remote-adapter.ts');
-    // 查找所有顶层 import from @/lib/knowledge
-    const lines = text.split('\n');
-    for (const line of lines) {
-      if (/^import\s.*from\s+['"]@\/lib\/knowledge/.test(line)) {
-        // 必须是 import type(不是 runtime import)
-        expect(line).toMatch(/^import\s+type\s/);
-      }
+    // reviewer D9:用声明感知的匹配替代逐行正则,检测多行 import。
+    // 思路:找到每个 `from '@/lib/knowledge'` 出现位置,反向查找它所属的 import 声明起始,
+    // 再判断该声明是否以 `import type` 开头(允许多行/带括号的 named import)。
+    const fromPattern = /from\s+['"]@\/lib\/knowledge/g;
+    let match: RegExpExecArray | null = fromPattern.exec(text);
+    while (match !== null) {
+      // 从 from 位置反向找最近的行首 `import`( 同一 import 声明的开头)
+      const upto = text.slice(0, match.index);
+      const lastImport = upto.lastIndexOf('import');
+      const declStart = text.slice(lastImport);
+      expect(declStart).toMatch(/^import\s+type\b/);
+      match = fromPattern.exec(text);
     }
   });
 });

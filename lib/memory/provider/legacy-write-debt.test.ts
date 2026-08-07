@@ -78,24 +78,27 @@ function countLegacyDirectDALWrites(): { files: string[]; count: number } {
 }
 
 describe('Phase 1 债务守卫:memory 写 DAL 的 legacy 直调点', () => {
-  it('legacy 直调文件数不超过基线(防止新增直调)', () => {
-    const { files, count } = countLegacyDirectDALWrites();
-    // 基线值:Phase 1 结束时已知 legacy 直调文件清单。
-    // 新增直调 → 计数上升 → 测试失败 → 提示走 provider。
-    // 减少(Phase 3 把 extract/dream 改走 provider) → 更新基线下调。
-    // final-review S1:基线含所有 legacy 直调点(扫描 lib/ + app/)
-    // dream/apply, extract, long-term(内部), workflow/tools/local,
-    // (memory)/actions, agentd/memories, api/import
-    const BASELINE = 7;
-    if (count > BASELINE) {
+  it('legacy 直调文件不超出 allowlist(reviewer D7:显式清单替代数字基线)', () => {
+    const { files } = countLegacyDirectDALWrites();
+    // reviewer D7:用显式 allowlist 替代数字 BASELINE ——
+    // 新增直调点必须显式入册,否则测试失败提示走 provider。
+    // Phase 3 把 extract/dream 改走 provider 后可从 allowlist 删除对应条目。
+    const ALLOWLIST = new Set([
+      'lib/memory/dream/apply.ts',
+      'lib/memory/extract.ts',
+      'lib/memory/long-term.ts', // 内部包装层,直调 DAL 是设计
+      'lib/workflow/agent/tools/memories/local.ts',
+      'app/(memory)/actions.ts',
+      'app/api/agentd/v1/memories/route.ts',
+      'app/api/import/route.ts',
+    ]);
+    const unexpected = files.filter((f) => !ALLOWLIST.has(f));
+    if (unexpected.length > 0) {
       expect.fail(
-        `memory 写 DAL 直调文件数 ${count} 超过基线 ${BASELINE}。\n` +
-          `新增直调点:\n${files.join('\n')}\n` +
+        `检测到未入册的 memory 写 DAL 直调文件:\n${unexpected.join('\n')}\n` +
           `新代码请走 MemoryProvider(write-gate.ts),不要直调 upsertLongTermMemory 等。\n` +
-          `(Phase 3 会把 legacy 的 extract/dream 改走 provider。)`,
+          `若确需新增 legacy 直调,请显式加入本测试 ALLOWLIST 并说明理由。`,
       );
     }
-    // 反向:基线下调时也要更新本测试,提醒评审
-    expect(count).toBeLessThanOrEqual(BASELINE);
   });
 });

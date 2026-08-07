@@ -11,7 +11,7 @@
  * write gate(见 write-gate.ts)。
  */
 
-import { createBuiltinProvider } from './builtin';
+import { _createBuiltinProviderInternal } from './builtin';
 import { registerFactory } from './registry';
 import { wrapWithWriteGate } from './write-gate';
 import type { MemoryProvider, MemoryProviderFactory } from './types';
@@ -19,10 +19,12 @@ import type { MemoryProvider, MemoryProviderFactory } from './types';
 /**
  * builtin 工厂:从 config 构造封箱后的 BuiltinProvider。
  *
- * Phase 1:config 尚未承载有意义字段(embedding_model_id 等Phase 后续接入)。
+ * reviewer A6:工厂是拿裸 BuiltinProvider 的唯一公开入口,内部强制
+ * `wrapWithWriteGate()` 封箱,只返回 `CommittedMemoryProvider`。
+ * Phase 1:config 尚未承载有意义字段(embedding_model_id 等 Phase 后续接入)。
  */
 const builtinFactory: MemoryProviderFactory = (id, _config) => {
-  const raw = createBuiltinProvider(id);
+  const raw = _createBuiltinProviderInternal(id);
   return wrapWithWriteGate(raw);
 };
 

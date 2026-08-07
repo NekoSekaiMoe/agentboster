@@ -94,20 +94,23 @@ export interface PackerCacheKey {
 }
 
 /**
- * 构造 cache key。memoryVersion 来自 write-gate,任何写入使其失效。
+ * 构造 cache key。memoryVersion 来自 write-gate(共享 KV,reviewer A3),
+ * 任何写入使其失效。
  *
  * 这取代了现有 recall.ts / triggers.ts 各自的进程内 Map + 手动串联失效
  * (cache-invalidation.ts)。见 §1.5 与 Phase 3。
+ *
+ * reviewer A3:readMemoryVersion 现异步从 KV 读,故本函数为 async。
  */
-export function buildCacheKey(
+export async function buildCacheKey(
   userId: string,
   query: string,
   options: PackOptions,
-): PackerCacheKey {
+): Promise<PackerCacheKey> {
   return {
     userId,
     queryHash: hashString(query),
-    memoryVersion: readMemoryVersion(userId),
+    memoryVersion: await readMemoryVersion(userId),
     budgetChars: options.budgetChars ?? DEFAULT_BUDGET_CHARS,
     targetCount: options.targetCount ?? DEFAULT_TARGET_COUNT,
   };
@@ -220,7 +223,7 @@ export function searchResultToPackItem(
 export interface InjectionOptions {
   /**
    * 总字符预算(两 block 拼接后)。省略 = 无预算 = 严格等价(Phase 2 行为)。
-   * 设了之后,超预算时各 block 内部丢丰(不跨源排序,见 reviewer phase2 #2)。
+   * 设了之后,超预算时各 block 内部丢弃(不跨源排序,见 reviewer phase2 #2)。
    */
   budgetChars?: number;
   /**
@@ -303,7 +306,7 @@ export function packForContextInjection(
 }
 
 /**
- * Phase 4 预算打包:超预算时各 block 内部丢丰。
+ * Phase 4 预算打包:超预算时各 block 内部丢弃。
  *
  * 丢弃优先级:先丢 recall 中段(低分集中区),再丢 trigger 末尾。
  * 不跨源排序(reviewer phase2 #2)。
@@ -391,6 +394,10 @@ function packWithBudget(
   if (recallText) blocks.push(recallText);
   const text = blocks.join('\n\n');
 
+  // reviewer B2:stats 必须与实际输出一致 —— recall block 被整块跳过时,
+  // recallKept 报 0,recallDropped 包含全部被省略的 recallRanked 条目。
+  const effectiveRecallKept = recallHasTrusted ? recallRanked.length : 0;
+
   return {
     text,
     triggerBlock: triggerText,
@@ -401,9 +408,9 @@ function packWithBudget(
       triggerInputCount: triggerItems.length,
       recallInputCount: recallItems.length,
       triggerKept: triggerRanked.length,
-      recallKept: recallRanked.length,
+      recallKept: effectiveRecallKept,
       triggerDropped: triggerItems.length - triggerRanked.length,
-      recallDropped: recallItems.length - recallRanked.length,
+      recallDropped: recallItems.length - effectiveRecallKept,
       textLength: text.length,
       ...(budget !== Number.POSITIVE_INFINITY ? { budgetChars: budget } : {}),
     },

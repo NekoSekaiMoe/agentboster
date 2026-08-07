@@ -51,7 +51,8 @@ describe('RemoteMemoryProvider adapter', () => {
         content: 'remote fact',
         score: 0.8,
         sourceKind: 'tool_observed',
-        memoryId: 'remote:default:r-1',
+        // reviewer C1:memoryId 命名空间化用实例的真实 type/id(mem0:mem0-1:r-1)
+        memoryId: 'mem0:mem0-1:r-1',
         retrievalMode: 'remote',
       });
     });
@@ -130,10 +131,16 @@ describe('RemoteMemoryProvider adapter', () => {
       );
     });
 
-    it('reviewer phase5 S4:enableRerank=false 时跳过远程(尊重禁远程)', async () => {
-      const mock = makeMockKnowledgeProvider(async () => [
+    it('reviewer phase5 S4:enableRerank=false 时跳过远程(C2:不发起任何请求)', async () => {
+      const searchSpy = vi.fn(async (_input: unknown) => [
         { content: 'x', score: 0.9 },
       ]);
+      const mock: KnowledgeProvider = {
+        name: 'mem0',
+        async search(input) {
+          return searchSpy(input);
+        },
+      };
       const provider = adaptKnowledgeProvider('m', {
         type: 'mem0',
         inner: mock,
@@ -143,6 +150,8 @@ describe('RemoteMemoryProvider adapter', () => {
         query: 'q',
         enableRerank: false,
       });
+      // reviewer C2:guard 在 inner.search() 之前,禁远程时不应发起请求
+      expect(searchSpy).not.toHaveBeenCalled();
       expect(r).toEqual([]);
     });
 

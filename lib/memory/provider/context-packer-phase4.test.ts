@@ -53,7 +53,9 @@ describe('packForContextInjection · Phase 4 预算优化模式', () => {
       expect(stats.recallKept).toBe(10);
     });
 
-    it('optimize=true 小 budget → recall 中段被丢', () => {
+    it('optimize=true 极小 budget → recall 整块被丢(header 就超预算)', () => {
+      // reviewer B6:RECALL_HEADER 本身 ≈363 字符 >> 80,recallRanked 会被逐条
+      // pop 直到空,随后 recallHasTrusted=false → recall block 被跳过。
       const recalls = Array.from({ length: 6 }, (_, i) =>
         mkItem(`memory-item-${i}`, { source: 'recall' }),
       );
@@ -62,8 +64,9 @@ describe('packForContextInjection · Phase 4 预算优化模式', () => {
         budgetChars: 80,
       });
       const stats = statsOf(result);
-      expect(stats.recallKept).toBeLessThan(6);
-      expect(stats.recallDropped).toBeGreaterThan(0);
+      expect(stats.recallKept).toBe(0);
+      expect(stats.recallDropped).toBe(6);
+      expect(result.hasRecallBlock).toBe(false);
       expect(result.text.length).toBeLessThanOrEqual(80);
     });
 
@@ -84,7 +87,7 @@ describe('packForContextInjection · Phase 4 预算优化模式', () => {
       const recalls = Array.from({ length: 8 }, (_, i) =>
         mkItem(`recall-item-${i}`, { source: 'recall' }),
       );
-      // 给足预算让 trigger 必留(估算公式有冱差,给宽裕点)
+      // 给足预算让 trigger 必留(估算公式有误差,给宽裕点)
       const triggerOnlyLen = packForContextInjection(triggers, [], {
         optimize: true,
       }).text.length;
@@ -98,8 +101,8 @@ describe('packForContextInjection · Phase 4 预算优化模式', () => {
       expect(stats.recallDropped).toBeGreaterThan(0);
     });
 
-    it('reviewer phase4 B1:丢丰按 score 排序丢末尾(不丢中段)', () => {
-      // 6 条降序 recall,score 1.0→Ø.5。丢几条后必颍是低分先丢
+    it('reviewer phase4 B1:丢弃按 score 排序丢末尾(不丢中段)', () => {
+      // 6 条降序 recall,score 1.0→Ø.5。丢几条后必须是低分先丢
       const recalls = Array.from({ length: 6 }, (_, i) =>
         mkItem(`item-${i}`, {
           source: 'recall',
@@ -107,13 +110,13 @@ describe('packForContextInjection · Phase 4 预算优化模式', () => {
           sourceKind: 'user_asserted',
         }),
       );
-      // budget 设为 header + 2 条 → 只能留 2 条,必颍是高分前缀
+      // budget 设为 header + 2 条 → 只能留 2 条,必须是高分前缀
       const result = packForContextInjection([], recalls, {
         optimize: true,
         budgetChars: 450, // header(~340) + 2条(~20)
       });
       const stats = statsOf(result);
-      // 丢颍是末尾(低分项):保留集必颍是前缀(高分项)
+      // 丢颍是末尾(低分项):保留集必须是前缀(高分项)
       expect(result.text).toContain('item-0'); // score 1.0 必留
       expect(result.text).toContain('item-1'); // score 0.9 必留
       // 丢的必是末尾(item-4/5)
@@ -145,7 +148,7 @@ describe('packForContextInjection · Phase 4 预算优化模式', () => {
       expect(result.text).toContain('trusted-fact');
     });
 
-    it('reviewer phase4 B2:recall 全 unverified 时跳过 recall block', () => {
+    it('reviewer phase4 B2:recall 全 unverified 时跳过 recall block + stats 一致', () => {
       // trusted 被丢光,只剩 tool_observed → 不应产生矛盾的 recall block
       const recalls = [
         mkItem('trusted-1', {
@@ -164,9 +167,14 @@ describe('packForContextInjection · Phase 4 预算优化模式', () => {
         optimize: true,
         budgetChars: 50,
       });
+      const stats = statsOf(result);
       // recall block 应被跳过(避免 header 说 authoritative 却只有 tool)
       expect(result.hasRecallBlock).toBe(false);
       expect(result.text).not.toContain('authoritative');
+      // reviewer B2:stats 必须与实际输出一致 —— block 跳过时 recallKept=0,
+      // recallDropped 含全部输入(recallRanked 在小 budget 下可能也被丢到空)
+      expect(stats.recallKept).toBe(0);
+      expect(stats.recallDropped).toBe(2);
     });
 
     it('stats 含完整字段(可观测)', () => {

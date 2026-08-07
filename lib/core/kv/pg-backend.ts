@@ -152,8 +152,7 @@ export async function pgDel(...keys: string[]): Promise<number> {
   return deleted.length;
 }
 
-/**
- * EXPIRE — set a TTL (seconds) on an existing key. Returns 1/0 like Redis.
+/** EXPIRE — set a TTL (seconds) on an existing key. Returns 1/0 like Redis.
  *
  * A key can live in EITHER table: a plain string sits in `kv_store`, while a
  * set (sadd/srem) lives across one-or-more rows in `kv_sets`. pair-code.ts
@@ -204,6 +203,34 @@ export async function pgEval(
     .where(and(eq(kvStore.key, key), eq(kvStore.value, token)))
     .returning({ key: kvStore.key });
   return deleted.length > 0 ? 1 : 0;
+}
+
+/**
+ * INCR — atomic integer increment, Redis-compatible. Returns the new value.
+ *
+ * reviewer A3:write-gate 的 memory version 需要跨实例一致的原子递增。
+ * 用 `INSERT ... ON CONFLICT DO UPDATE SET value = (value::bigint + 1)` 单语句
+ * 完成 read-modify-write(Postgres 保证语句级原子),并 RETURNING 新值。键不
+ * 存在时插入 '1'(首次)。value 列是 text;仅限本函数使用的键前缀
+ * (memory_version:*) 存数字字符串,不与 JSON 值冲突。
+ */
+export async function pgIncr(key: string): Promise<number> {
+  const now = new Date();
+  const rows = await db
+    .insert(kvStore)
+    .values({ key, value: '1', updatedAt: now })
+    .onConflictDoUpdate({
+      target: kvStore.key,
+      // value 当数字解析 +1(非数字会被 ::bigint 拒绝,但本键空间可控)
+      set: {
+        value: sql`(${kvStore.value}::bigint + 1)::text`,
+        updatedAt: now,
+      },
+    })
+    .returning({ value: kvStore.value });
+  const raw = rows[0]?.value;
+  const parsed = Number.parseInt(raw ?? '1', 10);
+  return Number.isFinite(parsed) ? parsed : 1;
 }
 
 /** SADD — add a member to a set. Returns count of newly-added members. */

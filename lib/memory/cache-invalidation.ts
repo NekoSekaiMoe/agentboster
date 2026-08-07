@@ -28,7 +28,8 @@ export async function invalidateMemoryCaches(userId: string) {
   // ContextPacker 的 cache key(含 memoryVersion)自动失效。
   // 这是"单一失效入口"的核心:不管写路径经不经 provider,调失效就 bump。
   // 解决 phase1-review #1 的 Dream/extract 绕过 write-gate 空洞。
-  bumpMemoryVersion(userId);
+  // reviewer A3:bump 落共享 KV,跨实例原子递增。
+  await bumpMemoryVersion(userId);
 }
 
 /**

@@ -18,7 +18,7 @@
 
 ### 分裂的两条线
 
-```
+```text
 lib/memory/   ← 内建记忆(long_term_memories + chunks + edges + dream)
                 完全不实现任何 provider 接口
                 被 context/index.ts 直接 import 调用
@@ -48,7 +48,7 @@ lib/knowledge/ ← 独立 RAG 文档库(knowledge_bases/documents/chunks/connect
 
 ### 1.1 分层(借鉴 memoh 的三层分工)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  Context Builder (lib/workflow/agent/context/)          │
 │  只认 MemoryProvider + ContextPacker,不直接 import 任何 │
@@ -88,19 +88,19 @@ export interface MemoryProvider {
   readonly type: MemoryProviderType;  // 'builtin' | 'mem0' | 'http'
   readonly id: string;                 // provider 实例 id
 
-  // —— 检索 ——
-  search(ctx: ProviderCallContext, req: SearchRequest): Promise<SearchResult[]>;
-  // —— 写入 ——
-  add(ctx: ProviderCallContext, mem: NewMemoryInput): Promise<MemoryRef>;
-  update(ctx: ProviderCallContext, id: string, patch: MemoryPatch): Promise<void>;
-  delete(ctx: ProviderCallContext, ids: string[]): Promise<void>;
+  // —— 检索(读路径,用 ReadContext)——
+  search(ctx: ProviderReadContext, req: SearchRequest): Promise<SearchResult[]>;
+  // —— 写入(裸;实际通过 CommittedMemoryProvider 包封)——
+  add(ctx: ProviderWriteContext, mem: NewMemoryInput): Promise<MemoryRef>;
+  update(ctx: ProviderWriteContext, id: string, patch: MemoryPatch): Promise<void>;
+  delete(ctx: ProviderWriteContext, ids: string[]): Promise<void>;
   // —— 对话钩子(memoh 风格,可选实现,默认 no-op)——
-  onBeforeChat?(ctx: ProviderCallContext, req: BeforeChatRequest): Promise<BeforeChatResult>;
-  onAfterChat?(ctx: ProviderCallContext, req: AfterChatRequest): Promise<void>;
-  // —— 用量 ——
-  usage?(ctx: ProviderCallContext): Promise<UsageResponse>;
-  // —— 健康 ——
-  status?(ctx: ProviderCallContext): Promise<ProviderStatus>;
+  onBeforeChat?(ctx: ProviderReadContext, req: BeforeChatRequest): Promise<BeforeChatResult>;
+  onAfterChat?(ctx: ProviderWriteContext, req: AfterChatRequest): Promise<void>;
+  // —— 用量(读路径)——
+  usage?(ctx: ProviderReadContext): Promise<UsageResponse>;
+  // —— 健康(读路径)——
+  status?(ctx: ProviderReadContext): Promise<ProviderStatus>;
 }
 
 /**
@@ -109,13 +109,13 @@ export interface MemoryProvider {
  * 借鉴 memoh 的 SourceSyncProvider / MarkdownIngestProvider / SemanticCompactProvider。
  */
 export interface CompactCapability {
-  compact(ctx: ProviderCallContext, opts: CompactOptions): Promise<CompactResult>;
+  compact(ctx: ProviderWriteContext, opts: CompactOptions): Promise<CompactResult>;
 }
 export interface IngestCapability {
-  ingest(ctx: ProviderCallContext, source: IngestSource): Promise<IngestResult>;
+  ingest(ctx: ProviderWriteContext, source: IngestSource): Promise<IngestResult>;
 }
 export interface SourceSyncCapability {
-  rebuild(ctx: ProviderCallContext): Promise<RebuildResult>;
+  rebuild(ctx: ProviderWriteContext): Promise<RebuildResult>;
 }
 
 // 类型守卫(替代 Go 的 type assertion):
@@ -127,15 +127,19 @@ export const hasSourceSync = (p: MemoryProvider): p is MemoryProvider & SourceSy
   'rebuild' in p;
 ```
 
-**关键约束 —— `ProviderCallContext` 必须承载 taint gate 所需信息**:
+**关键约束 —— `ProviderReadContext` / `ProviderWriteContext` 拆分(reviewer D4)**:
 
 ```ts
-export interface ProviderCallContext {
+// 读路径上下文:不带 sourceKind(读已存行,其 sourceKind 来自 DB)
+export interface ProviderReadContext {
   userId: string;
   projectId: string | null;
-  // 信任来源:决定写入时记什么 sourceKind。
-  // 这个字段是 agentboster 独有,memoh 没有 —— 是保留 taint gate 的关键。
-  // 决策:所有 provider 强制遵守(详见 §1.2.1)。
+}
+
+// 写路径上下文:sourceKind 仅在写入时由调用方携带(taint gate 载体)
+export interface ProviderWriteContext extends ProviderReadContext {
+  // 信任来源:决定写入时记什么 sourceKind。这个字段是 agentboster 独有,
+  // memoh 没有 —— 是保留 taint gate 的关键。决策:所有 provider 强制遵守(详见 §1.2.1)。
   sourceKind: SourceKind;  // 'user_asserted' | 'assistant_observed' | 'tool_observed' | ...
   // 调用方标识,用于审计 Dream 变更
   initiatedBy?: 'extract' | 'dream' | 'agent-tool' | 'recall-feedback';
@@ -188,7 +192,7 @@ export class MemoryProviderRegistry {
 
 ### 1.4 Context Packer(独立横切层,统一五源打包)
 
-```
+```text
 现状(context/index.ts 230-282 手动拼):
   recall results  ─┐
   trigger results ├─→ formatXxxForContext() → 拼成 message blocks
@@ -235,15 +239,21 @@ export interface MemoryVersionCapability {
 ```ts
 // lib/memory/provider/write-gate.ts
 async function commitMemoryWrite(
-  ctx: ProviderCallContext,
-  provider: MemoryProvider,
+  ctx: ProviderWriteContext,
   op: () => Promise<void>,
 ): Promise<void> {
-  await op();                         // 1. 执行实际写
-  bumpMemoryVersion(ctx.userId);      // 2. 同进程版本自增(内存变量)
-  await persistVersionBump(ctx);      // 3. 落库(DB 的 memory_version_log 表)
-  notifyPeerProcesses(ctx.userId);    // 4. 跨进程广播(多副本部署)
+  await op();                              // 1. 执行实际写
+  await bumpMemoryVersion(ctx.userId);     // 2. 共享 KV 原子递增(见下)
+  // listeners(本地缓存优化,不作版本号来源)
 }
+```
+
+**reviewer A3 修复(已落地,不用等 memory_version_log 表)**:版本号存于现有共享 KV 层
+而非进程内 Map —— Vercel 用 Upstash `INCR`、自托管用 Postgres
+`INSERT ... ON CONFLICT DO UPDATE SET value = (value::bigint + 1) RETURNING`
+(单语句原子)。`bumpMemoryVersion` / `readMemoryVersion` 均为 async 从 KV 读写,跨实例
+一致。原计划的 `memory_version_log` 表 + Postgres `NOTIFY` 仍是未来可选增强(审计/
+心跳),但不再是跨副本一致性的前提。
 ```
 
 **防漏靠结构,不靠纪律**:

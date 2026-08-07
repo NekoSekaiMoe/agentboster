@@ -17,6 +17,34 @@ import type { KnowledgeSearchRow } from '@/lib/core/db/knowledge';
 import type { LongTermMemorySourceKind } from '@/lib/core/db/memory/long-term';
 import type { PackItem } from '@/lib/memory/provider/context-packer';
 import type { AppConfig } from '@/types/config';
+import { createLogger } from '@/lib/utils/logger';
+
+const logger = createLogger('memory.remote-injection');
+
+/**
+ * 带整体超时的 promise 包装。超时或 reject 时返回 fallback(fail-open)。
+ *
+ * reviewer D1:远程预取不能无限期阻塞主对话关键路径。
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } catch {
+    return fallback;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export interface RemoteInjectionOptions {
   userId: string;
@@ -28,7 +56,7 @@ export interface RemoteInjectionOptions {
   minConfidence?: number;
   config?: AppConfig;
   /**
-   * 访问作用域(final-review B1):必颍传,控制知识库可见性。
+   * 访问作用域(final-review B1):必须传,控制知识库可见性。
    * 不传会被 searchKnowledge 默认成 'team' 全量(无 user 过滤),
    * 多租户场景会跨用户泄露记忆。
    */
@@ -50,17 +78,31 @@ export async function collectRemoteMemoryItems(
       limit: options.limit ?? 3,
       minConfidence: options.minConfidence ?? 0.2,
       config: options.config,
-      // final-review B1:必颍透传 access,默认以当前 userId 消者身份访问。
+      // final-review B1:必须透传 access,默认以当前 userId 消费者身份访问。
       // 不传会被 searchKnowledge 默认成 'team' 全量 → 多租户跨用户泄露。
       access: options.access ?? { userId: options.userId, isAdmin: false },
     });
-    return rows.map(knowledgeRowToPackItem);
-  } catch {
-    // fail-open:远程挂了不应阻塞主对话
+    return rows
+      .map(knowledgeRowToPackItem)
+      .filter((item): item is PackItem => item.text.length > 0);
+  } catch (error) {
+    // reviewer B4:fail-open 仍返回空数组,但用 logger.warn 记录异常 + 上下文,
+    // 区分"无命中"与"检索/配置异常",避免静默吞错。
+    logger.warn('collect:remote_search_failed', {
+      userId: options.userId,
+      query: options.query.slice(0, 80),
+      error: error instanceof Error ? error.message : String(error),
+    });
     return [];
   }
 }
 
+/**
+ * 把 knowledge 行转 PackItem。
+ *
+ * reviewer B3:trim 后内容为空时返回空对象(text=''),由上层 caller 过滤掉,
+ * 而非用 "[empty knowledge chunk]" 占位 —— 占位会污染预算且语义不真。
+ */
 function knowledgeRowToPackItem(row: KnowledgeSearchRow): PackItem {
   const sourceKind: LongTermMemorySourceKind = 'tool_observed';
   // S3 防御:score clamp 到 [0,1],content trim 防空负贡献
@@ -69,12 +111,11 @@ function knowledgeRowToPackItem(row: KnowledgeSearchRow): PackItem {
     : 0.5;
   const content = (row.content ?? '').trim();
   return {
-    // trim 后若为空,填占位避免 packer 丢空条目进预算
-    text: content || '[empty knowledge chunk]',
+    text: content,
     score: rawScore,
     sourceKind,
     source: 'knowledge',
-    // chunkId 作 memoryId;加 'kb:' 前缀命名空间化,避跨 provider 碰撞(reviewer S1)
+    // chunkId 作 memoryId;加 'kb:' 前缀命名空间化,避免跨 provider 碰撞(reviewer S1)
     memoryId: `kb:${row.chunkId}`,
   };
 }
