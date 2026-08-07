@@ -184,7 +184,10 @@ export const aiConfigSchema = z.object({
   memory_packer_budget_chars: z
     .number()
     .int()
-    .min(400, 'memory_packer_budget_chars 必须不小于 400(容纳 RECALL_HEADER 开销)')
+    .min(
+      400,
+      'memory_packer_budget_chars 必须不小于 400(容纳 RECALL_HEADER 开销)',
+    )
     .optional(),
   /**
    * Phase 5 feature flag:启用知识库(knowledge)结果自动注入到对话 context。

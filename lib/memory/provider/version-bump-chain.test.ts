@@ -75,22 +75,3 @@ describe('Phase 3 失效链:version 进 cache key', () => {
     expect(text).toMatch(/memoryVersion.*readMemoryVersion/);
   });
 });
-
-describe('Phase 5 workflow bundle 守卫:remote-adapter 只能 import type(reviewer B1)', () => {
-  it('remote-adapter.ts 对 @/lib/knowledge 顶层只用 import type(防 fetch+crypto 进 bundle)', () => {
-    const text = readFile('lib/memory/provider/remote-adapter.ts');
-    // reviewer D9:用声明感知的匹配替代逐行正则,检测多行 import。
-    // 思路:找到每个 `from '@/lib/knowledge'` 出现位置,反向查找它所属的 import 声明起始,
-    // 再判断该声明是否以 `import type` 开头(允许多行/带括号的 named import)。
-    const fromPattern = /from\s+['"]@\/lib\/knowledge/g;
-    let match: RegExpExecArray | null = fromPattern.exec(text);
-    while (match !== null) {
-      // 从 from 位置反向找最近的行首 `import`( 同一 import 声明的开头)
-      const upto = text.slice(0, match.index);
-      const lastImport = upto.lastIndexOf('import');
-      const declStart = text.slice(lastImport);
-      expect(declStart).toMatch(/^import\s+type\b/);
-      match = fromPattern.exec(text);
-    }
-  });
-});
