@@ -122,6 +122,11 @@
     "gcp-metadata": "8.1.2",
     "@swc/helpers": "0.5.17",
     "@codemirror/view": "6.41.0",
-    "js-yaml": "4.3.0"
+    "js-yaml": "4.3.1",
+    "axios": "1.18.0",
+    "tar": "7.5.21",
+    "postcss": "8.5.18",
+    "brace-expansion": "5.0.9",
+    "minimatch": "10.2.3"
   }
 }
