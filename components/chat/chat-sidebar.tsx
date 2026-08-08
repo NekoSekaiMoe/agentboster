@@ -1,7 +1,6 @@
 'use client';
 import {
   deleteSessionAction,
-  listRecentSessionsAction,
   searchSessionsAction,
   toggleSessionPinAction,
 } from '@/app/(chat)/actions';
@@ -27,10 +26,12 @@ import {
 } from '@/components/ui/sidebar';
 import { generateUUID } from '@/lib/utils';
 import {
-  SESSION_LIST_INVALIDATED_EVENT,
-  SESSION_LIST_UPSERTED_EVENT,
-  type SessionListItemEventDetail,
-} from '@/lib/chat/session-events';
+  SESSION_LIST_KEY,
+  invalidateSessionListQuery,
+  useSessionList,
+  type SessionListItem,
+} from '@/hooks/use-session-list';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Calendar,
   ChevronLeft,
@@ -55,24 +56,10 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useTheme } from 'next-themes';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-type SessionStatus =
-  | 'idle'
-  | 'running'
-  | 'waiting_user'
-  | 'completed'
-  | 'aborted';
-
-interface SessionItem {
-  id: string;
-  title: string | null;
-  channel: string;
-  createdAt: string;
-  status?: SessionStatus;
-  pinned?: boolean;
-}
+interface SessionItem extends SessionListItem {}
 
 function getChannelIcon(channel: string) {
   if (channel === 'web') return Globe;
@@ -101,8 +88,6 @@ export function ChatSidebar() {
   const { theme = 'system', setTheme } = useTheme();
   const { t } = useI18n();
 
-  const [sessions, setSessions] = useState<SessionItem[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null,
   );
@@ -116,59 +101,22 @@ export function ChatSidebar() {
   const currentSessionId = pathname.split('/').pop();
   const isCollapsed = !open && !isMobile;
 
-  // 加载会话列表
-  const loadSessions = useCallback(async () => {
-    setLoadingSessions(true);
-    try {
-      const data = await listRecentSessionsAction(30);
-      setSessions(data);
-    } catch (error) {
-      console.error('Failed to load sessions:', error);
-    } finally {
-      setLoadingSessions(false);
-    }
+  // Session list comes from the shared React Query cache (useSessionList).
+  // Dispatchers elsewhere (chat-transport, session-bootstrap) invalidate
+  // via invalidateSessionListQuery(); pin/delete optimistic updates go
+  // through the same cache via useQueryClient.setQueryData.
+  const qc = useQueryClient();
+  const { data: sessions = [], isLoading: loadingSessions } =
+    useSessionList(30);
+
+  // 加载会话列表不在需要——useSessionList 从 React Query 缓存读。这里仅留空占位以保留最小 diff。
+  // (块留在原位避免重排后续代码。)
+  useEffect(() => {
+    // no-op: list now driven by useSessionList(). Kept as an empty effect
+    // so the JSX referencing loadingSessions/sessions doesn't need to move.
   }, []);
 
-  useEffect(() => {
-    loadSessions();
-  }, [loadSessions]);
-
-  // Keep the sidebar in sync with session mutations dispatched from the chat
-  // container (new conversation created lazily on first message, title
-  // updated, session deleted elsewhere, etc.). Without this the sidebar only
-  // refreshes on mount, so a freshly-created conversation wouldn't appear
-  // until the user navigated or reloaded.
-  useEffect(() => {
-    const handleInvalidated = () => {
-      void loadSessions();
-    };
-    const handleUpserted = (event: Event) => {
-      const detail = (event as CustomEvent<SessionListItemEventDetail>).detail;
-      if (!detail) return;
-      setSessions((current) => {
-        const next = [
-          {
-            id: detail.id,
-            title: detail.title,
-            channel: detail.channel,
-            createdAt: detail.createdAt,
-          } satisfies SessionItem,
-          ...current.filter((s) => s.id !== detail.id),
-        ];
-        return next.slice(0, 30);
-      });
-    };
-
-    window.addEventListener(SESSION_LIST_INVALIDATED_EVENT, handleInvalidated);
-    window.addEventListener(SESSION_LIST_UPSERTED_EVENT, handleUpserted);
-    return () => {
-      window.removeEventListener(
-        SESSION_LIST_INVALIDATED_EVENT,
-        handleInvalidated,
-      );
-      window.removeEventListener(SESSION_LIST_UPSERTED_EVENT, handleUpserted);
-    };
-  }, [loadSessions]);
+  // (bus 监听已拆除——invalidation 由 invalidateSessionListQuery 直接走 React Query 缓存。)
 
   // Debounced server-side search across session titles + message content
   // (including branched versions). Falls back to client-side title/id
@@ -215,7 +163,7 @@ export function ChatSidebar() {
     setDeletingSessionId(pendingDeleteSession.id);
     try {
       await deleteSessionAction(pendingDeleteSession.id);
-      await loadSessions();
+      invalidateSessionListQuery();
 
       if (currentSessionId === pendingDeleteSession.id) {
         router.push('/');
@@ -233,19 +181,21 @@ export function ChatSidebar() {
 
   async function handleTogglePin(session: SessionItem) {
     const prevPinned = session.pinned;
-    setSessions((prev) =>
-      prev.map((s) =>
+    qc.setQueryData<SessionItem[]>(SESSION_LIST_KEY, (current) => {
+      const list = current ?? [];
+      return list.map((s) =>
         s.id === session.id ? { ...s, pinned: !prevPinned } : s,
-      ),
-    );
+      );
+    });
     try {
       await toggleSessionPinAction({ id: session.id });
     } catch {
-      setSessions((prev) =>
-        prev.map((s) =>
+      qc.setQueryData<SessionItem[]>(SESSION_LIST_KEY, (current) => {
+        const list = current ?? [];
+        return list.map((s) =>
           s.id === session.id ? { ...s, pinned: prevPinned } : s,
-        ),
-      );
+        );
+      });
       toast.error('Failed to pin session');
     }
   }

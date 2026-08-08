@@ -1,13 +1,27 @@
 'use client';
 
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { ModelPersonaPicker } from '@/components/chat/model-persona-picker';
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, Square } from 'lucide-react';
+import { parseWithFallback } from '@/lib/core/api/schema';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { z } from 'zod';
+
+/**
+ * Lenient schema for GET /api/agentd/v1/available. The server returns
+ * `{ success, data: { available: boolean } }`; we keep `available` as
+ * optional so an unknown/ drifted field shape still parses to `false`
+ * rather than white-screening the header.
+ */
+const agentdAvailableSchema = z.object({
+  success: z.boolean().optional(),
+  data: z.object({ available: z.boolean().optional() }).optional(),
+});
 
 /**
  * Gemini-style chat header: the combined model/persona selector is the
@@ -39,33 +53,40 @@ function PureChatHeader({
   const { t } = useI18n();
   const [aborting, setAborting] = useState(false);
 
-  const [agentdStatus, setAgentdStatus] = useState<
-    'online' | 'offline' | 'checking'
-  >('checking');
+  // agentd availability poll. Replaces a hand-rolled useEffect + fetch +
+  // setInterval + cancelled-flag with useQuery's refetchInterval. The
+  // query is non-blocking for the header: while loading, the status dot
+  // shows the muted 'checking' color; once settled it flips to online/
+  // offline. parseWithFallback guards against a drifted response shape
+  // (installed desktop clients hitting a newer backend) so the header
+  // never white-screens.
+  const { data: agentdAvailable, isPending } = useQuery({
+    queryKey: ['agentd', 'available'],
+    queryFn: async () => {
+      const response = await fetch('/api/agentd/v1/available', {
+        cache: 'no-store',
+      });
+      if (!response.ok) return false;
+      const payload = parseWithFallback(
+        await response.json(),
+        agentdAvailableSchema,
+        { success: false, data: { available: false } },
+        { endpoint: 'GET /api/agentd/v1/available' },
+      );
+      return payload.data?.available === true;
+    },
+    refetchInterval: 30_000,
+    // Treat fetch errors as 'offline' rather than retrying indefinitely —
+    // a dead daemon shouldn't hammer the endpoint.
+    retry: 1,
+    placeholderData: false,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const response = await fetch('/api/agentd/v1/available', {
-          cache: 'no-store',
-        });
-        const payload = (await response.json()) as {
-          data?: { available?: boolean };
-        };
-        const healthy = response.ok && payload.data?.available === true;
-        if (!cancelled) setAgentdStatus(healthy ? 'online' : 'offline');
-      } catch {
-        if (!cancelled) setAgentdStatus('offline');
-      }
-    };
-    check();
-    const interval = setInterval(check, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+  const agentdStatus: 'online' | 'offline' | 'checking' = isPending
+    ? 'checking'
+    : agentdAvailable
+      ? 'online'
+      : 'offline';
 
   const handleAbort = useCallback(async () => {
     if (!chatId) return;

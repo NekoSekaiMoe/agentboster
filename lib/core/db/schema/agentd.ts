@@ -10,37 +10,76 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sessions } from './chat';
 
-export const agentTasks = pgTable('agent_tasks', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  agentId: text('agent_id').notNull(),
-  sessionId: uuid('session_id'),
-  userId: text('user_id'),
-  command: text('command').notNull(),
-  sandboxType: text('sandbox_type').default('auto').notNull(),
-  sandboxId: text('sandbox_id'),
-  source: jsonb('source').$type<Record<string, unknown>>(),
-  env: jsonb('env').$type<Record<string, string>>(),
-  timeout: integer('timeout').default(300),
-  status: text('status', {
-    enum: [
-      'pending',
-      'reviewing',
-      'running',
-      'completed',
-      'failed',
-      'cancelled',
-    ],
-  })
-    .default('pending')
-    .notNull(),
-  result: text('result'),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const agentTasks = pgTable(
+  'agent_tasks',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    agentId: text('agent_id').notNull(),
+    sessionId: uuid('session_id'),
+    userId: text('user_id'),
+    command: text('command').notNull(),
+    sandboxType: text('sandbox_type').default('auto').notNull(),
+    sandboxId: text('sandbox_id'),
+    source: jsonb('source').$type<Record<string, unknown>>(),
+    env: jsonb('env').$type<Record<string, string>>(),
+    timeout: integer('timeout').default(300),
+    status: text('status', {
+      enum: [
+        'pending',
+        'reviewing',
+        'running',
+        'completed',
+        'failed',
+        'cancelled',
+      ],
+    })
+      .default('pending')
+      .notNull(),
+    result: text('result'),
+    /**
+     * Canonical failure reason from the {@link FAILURE_REASON} taxonomy
+     * (`lib/core/task/failure-reason.ts`). Replaces the historical pattern
+     * of putting free-text into `result`. Persisted as plain text (not a
+     * CHECK enum) so the taxonomy can grow without a migration per value;
+     * callers validate via `ALL_FAILURE_REASONS.includes(value)` if needed.
+     */
+    failureReason: text('failure_reason'),
+    /**
+     * 1-based attempt number. The original attempt is 1; each auto-retry
+     * spawns a child task whose attempt = parent.attempt + 1. See
+     * `retry_of_task_id` for the lineage pointer.
+     */
+    attempt: integer('attempt').default(1).notNull(),
+    /** Max attempts before the task gives up. Default 2 (one auto-retry). */
+    maxAttempts: integer('max_attempts').default(2).notNull(),
+    /** Parent task of this retry chain (NULL on the original attempt). */
+    retryOfTaskId: uuid('retry_of_task_id'),
+    /**
+     * Distinct from `retry_of_task_id`: a manual "rerun" (regenerate)
+     * lineage pointer. `retry_of_task_id` is system-driven retry against
+     * transient failures; `rerun_of_task_id` is user-driven rerun, which
+     * always starts a fresh session for rollback safety.
+     */
+    rerunOfTaskId: uuid('rerun_of_task_id'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    failureReasonIdx: index('agent_tasks_failure_reason_idx').on(
+      table.failureReason,
+    ),
+    retryOfTaskIdIdx: index('agent_tasks_retry_of_task_id_idx').on(
+      table.retryOfTaskId,
+    ),
+    rerunOfTaskIdIdx: index('agent_tasks_rerun_of_task_id_idx').on(
+      table.rerunOfTaskId,
+    ),
+  }),
+);
 
 export const agentReviewLogs = pgTable('agent_review_logs', {
   id: uuid('id').defaultRandom().primaryKey(),

@@ -1,5 +1,8 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
-import { requireAdminAccess } from '@/lib/auth/access';
+import {
+  requireAuthAccess,
+  requireAdminAccess,
+  AuthError,
+} from '@/lib/auth/access';
 import { listBuiltinMemoryRows } from '@/lib/core/db/memory/builtin';
 import { listAllLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { listL0Rules } from '@/lib/core/db/agentd';
@@ -73,9 +76,13 @@ function redactSecrets(
  */
 export async function GET(request: Request) {
   const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-  if (!authSession) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  let authSession: { userId: string };
+  try {
+    const access = await requireAuthAccess(cookieStore);
+    authSession = { userId: access.session.userId };
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 401;
+    return Response.json({ error: 'Unauthorized' }, { status });
   }
 
   const url = new URL(request.url);

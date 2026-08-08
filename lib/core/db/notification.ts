@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
+import { defaultSeverityForType } from '@/lib/core/notification/groups';
 import { db } from './index';
 import {
   channelHealth,
@@ -8,24 +9,42 @@ import {
 
 // ─── Notifications ──────────────────────────────────────────────────
 
+/**
+ * Canonical creator for the notifications table. All writes to this table
+ * MUST go through here (the previous duplicate in agentd.ts was removed in
+ * the D1 consolidation pass).
+ *
+ * `status` defaults to 'pending'. The agentd notifications/route.ts POST
+ * handler legitimately needs to create rows already in 'sent' state (it
+ * records a notification that has been synchronously delivered to the IM
+ * channel by the daemon before this call), so the field is overridable.
+ * Every other caller leaves it at the 'pending' default.
+ */
 export async function createNotification(data: {
   taskId: string;
-  decisionId?: string;
+  decisionId?: string | null;
   notificationType: 'decision' | 'completion' | 'tidy_report';
   payload: Record<string, unknown>;
   channel: string;
   targetChatId: string;
-  targetUserId?: string;
-  expiresAt?: Date;
+  targetUserId?: string | null;
+  userId?: string | null;
+  severity?: 'action_required' | 'attention' | 'info' | null;
+  expiresAt?: Date | null;
+  status?: (typeof notifications.status.enumValues)[number];
 }) {
+  const severity =
+    data.severity ?? defaultSeverityForType(data.notificationType);
   const [n] = await db
     .insert(notifications)
     .values({
+      userId: data.userId ?? null,
       taskId: data.taskId,
       decisionId: data.decisionId ?? null,
       notificationType: data.notificationType,
+      severity,
       payload: data.payload,
-      status: 'pending',
+      status: data.status ?? 'pending',
       channel: data.channel,
       targetChatId: data.targetChatId,
       targetUserId: data.targetUserId ?? null,
@@ -123,6 +142,7 @@ export async function upsertNotificationPreferences(data: {
   userId: string;
   preferredChannel: string;
   fallbackChannels: string[];
+  mutedGroups?: string[];
   enabled?: boolean;
 }) {
   const [prefs] = await db
@@ -131,6 +151,7 @@ export async function upsertNotificationPreferences(data: {
       userId: data.userId,
       preferredChannel: data.preferredChannel,
       fallbackChannels: data.fallbackChannels,
+      mutedGroups: data.mutedGroups ?? [],
       enabled: data.enabled ?? true,
     })
     .onConflictDoUpdate({
@@ -139,6 +160,10 @@ export async function upsertNotificationPreferences(data: {
         preferredChannel: data.preferredChannel,
         fallbackChannels: data.fallbackChannels,
         enabled: data.enabled ?? true,
+        // Only rewrite mutedGroups when the caller provides it; otherwise
+        // preserve the existing per-user mute list instead of clobbering it
+        // back to the [] default on unrelated preference updates.
+        ...(data.mutedGroups ? { mutedGroups: data.mutedGroups } : {}),
       },
     })
     .returning();

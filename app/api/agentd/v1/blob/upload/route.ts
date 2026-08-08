@@ -4,7 +4,7 @@ import { put } from '@/lib/core/blob';
 import {
   getResourceErrorMessage,
   getResourceErrorStatus,
-  requireTaskAccess,
+  resolveAgentdResourceAccess,
 } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await requireTaskAccess({ taskId: task_id });
+    await resolveAgentdResourceAccess({ taskId: task_id });
 
     const fileBuffer = Buffer.from(content, 'base64');
     if (fileBuffer.length > MAX_FILE_SIZE) {

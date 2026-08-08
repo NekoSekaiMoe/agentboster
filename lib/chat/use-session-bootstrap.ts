@@ -3,7 +3,7 @@
 import { ofetch } from 'ofetch';
 import { useEffect, useState } from 'react';
 
-import { invalidateSessionList } from '@/lib/chat/session-events';
+import { invalidateSessionListQuery } from '@/hooks/use-session-list';
 
 type SessionState = {
   title: string | null;
@@ -60,7 +60,7 @@ export function useSessionBootstrap(options: BootstrapOptions) {
                 externalThreadId: initialSession?.externalThreadId ?? null,
               },
         );
-        invalidateSessionList();
+        invalidateSessionListQuery();
       } catch (error) {
         console.warn('[chat] bootstrap status failed:', error);
       }

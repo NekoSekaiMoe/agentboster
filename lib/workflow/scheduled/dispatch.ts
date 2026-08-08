@@ -1,6 +1,15 @@
 import { chatMain } from '@/lib/chat/index';
 import { getSession } from '@/lib/core/db/chat';
 import { getScheduledTask, updateScheduledTask } from '@/lib/core/db/scheduled';
+import {
+  claimScheduledRunSlot,
+  markRunCompleted,
+  markRunFailed,
+  markRunHeartbeat,
+  markRunSkipped,
+  markRunStarted,
+} from '@/lib/core/db/scheduled-task-runs';
+import { classifyFailure } from '@/lib/core/task/failure-reason';
 import { createLogger } from '@/lib/utils/logger';
 import { sameInstant } from './utils';
 import {
@@ -296,6 +305,38 @@ export async function deliverScheduledTask(input: {
     };
   }
 
+  // Claim a run-slot row for this (task, plannedAt) pair. The DB partial
+  // unique index (scheduled_task_runs_task_planned_uniq) makes this the
+  // authoritative idempotency primitive — two concurrent ticks for the
+  // same slot cannot both proceed. `created=false` means the slot is
+  // NOT ours, either because:
+  //   - another caller owns a live (pending/running) row, OR
+  //   - a prior run already reached a terminal state for this plannedAt
+  //     (completed/failed/skipped) and is kept as immutable history.
+  // Either way bail as a duplicate — we never dispatch unless this
+  // caller won the slot. (Explicit retry of a terminal slot requires
+  // `force: true` on claimScheduledRunSlot, which this path does not
+  // set; a future manual-retry surface would.)
+  let runSlotId: string | null = null;
+  if (scheduledFor) {
+    const slot = await claimScheduledRunSlot({
+      taskId: task.id,
+      plannedAt: scheduledFor,
+    });
+    if (!slot.created) {
+      // The slot is owned by a live run or already has terminal history —
+      // not ours to dispatch. Return the prior runId so the caller can
+      // surface "already ran as <runId>".
+      return {
+        taskId: task.id,
+        status: 'duplicate' as const,
+        sessionId: task.sessionId,
+        runId: slot.run.runId ?? task.lastChatRunId ?? null,
+      };
+    }
+    runSlotId = slot.run.id;
+  }
+
   let userId: string | null;
   try {
     userId = await resolveScheduledTaskUserId(task.sessionId);
@@ -333,7 +374,21 @@ export async function deliverScheduledTask(input: {
       autoFallbackNode: task.autoFallbackNode ?? false,
     });
     if ('failed' in resolution && resolution.failed) {
-      await handleDispatchFailure(task, userId, resolution.reason);
+      // Admission gate failure (target node offline): record as SKIPPED,
+      // NOT as a dispatch failure. The task itself isn't broken — the
+      // runtime is. Burning the failure counter here would auto-disable
+      // perfectly good tasks just because a daemon rebooted. Mirrors
+      // Multica's shouldSkipDispatch admission gate (autopilot.go:1186).
+      if (runSlotId) {
+        await markRunSkipped(runSlotId, resolution.reason);
+      }
+      await sendScheduledTaskCompletion({
+        task,
+        runId: null,
+        userId,
+        status: 'failed',
+        errorMessage: resolution.reason,
+      });
       throw new Error(resolution.reason);
     }
     if ('node' in resolution && resolution.node) {
@@ -352,6 +407,12 @@ export async function deliverScheduledTask(input: {
       });
       if (!applied) {
         const reason = `Failed to apply node constraint to session ${task.sessionId} for task ${task.id}.`;
+        if (runSlotId) {
+          await markRunFailed(runSlotId, {
+            failureReason: classifyFailure(reason),
+            errorMessage: reason,
+          });
+        }
         await handleDispatchFailure(task, userId, reason);
         throw new Error(reason);
       }
@@ -364,6 +425,52 @@ export async function deliverScheduledTask(input: {
     runId: string;
     status: 'dispatched';
   } | null = null;
+  if (runSlotId) {
+    // markRunStarted is the final CAS that confirms THIS caller still
+    // owns the slot. If it returns false, a concurrent caller or the
+    // reaper already moved the row out of 'pending' — we must NOT
+    // dispatch, otherwise two callers drive the same slot (the race
+    // this gate exists to prevent). Treat it as a recovered-abort and
+    // mark the run failed so the slot can be reclaimed.
+    const started = await markRunStarted(runSlotId).catch((err) => {
+      logger.warn('deliver:mark_started_failed', {
+        runSlotId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    });
+    if (!started) {
+      logger.warn('deliver:slot_lost_before_dispatch', { runSlotId });
+      await markRunFailed(runSlotId, {
+        failureReason: 'slot_lost',
+        errorMessage:
+          'run slot was no longer pending at dispatch time (reaped or claimed by another caller)',
+      }).catch(() => {});
+      return {
+        taskId: task.id,
+        status: 'duplicate' as const,
+        sessionId: task.sessionId,
+        runId: task.lastChatRunId ?? null,
+      };
+    }
+  }
+  // Refresh the heartbeat lease while the workflow runs so the reaper
+  // can distinguish this live dispatch from a truly stuck one. Best-effort:
+  // a transient DB blip on a tick must not fail the run. The interval is
+  // declared before the `try` and cleared in the existing `finally`
+  // below, so every exit path (success, chatMain throw, the catch) stops
+  // the timer. Started AFTER markRunStarted so the lease clock is already
+  // stamped (closing the window to the first tick).
+  const heartbeat = setInterval(() => {
+    if (runSlotId) {
+      void markRunHeartbeat(runSlotId).catch((err) => {
+        logger.warn('deliver:heartbeat_failed', {
+          runSlotId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+  }, 30_000);
   try {
     const source = (await buildScheduledSource(task.sessionId)) ?? {
       type: 'scheduled' as const,
@@ -410,11 +517,32 @@ export async function deliverScheduledTask(input: {
       runId: routed.result.runId,
       type: task.type,
     });
+    if (runSlotId) {
+      await markRunCompleted(runSlotId, routed.result.runId).catch((err) => {
+        logger.warn('deliver:mark_completed_failed', {
+          runSlotId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     await handleDispatchFailure(task, userId, errorMessage);
+    if (runSlotId) {
+      const failureReason = classifyFailure(errorMessage);
+      await markRunFailed(runSlotId, {
+        failureReason,
+        errorMessage,
+      }).catch((err) => {
+        logger.warn('deliver:mark_failed_failed', {
+          runSlotId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     throw error;
   } finally {
+    clearInterval(heartbeat);
     // Restore session.metadata so the node constraint only applies to
     // this dispatch run. Without this, every subsequent non-scheduled
     // chat on the same session would route to the same daemon.

@@ -1,5 +1,8 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
-import { requireAdminAccess } from '@/lib/auth/access';
+import {
+  requireAdminAccess,
+  requireAuthAccess,
+  AuthError,
+} from '@/lib/auth/access';
 import { upsertBuiltinMemoryRow } from '@/lib/core/db/memory/builtin';
 import { createL0Rule, listL0Rules } from '@/lib/core/db/agentd';
 import { patchConfig } from '@/lib/core/kv/config';
@@ -50,9 +53,13 @@ const BUILTIN_KEYS = ['AGENTS', 'SOUL', 'IDENTITY', 'USER'] as const;
  */
 export async function POST(request: Request) {
   const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-  if (!authSession) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  let authSession: { userId: string };
+  try {
+    const access = await requireAuthAccess(cookieStore);
+    authSession = { userId: access.session.userId };
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 401;
+    return Response.json({ error: 'Unauthorized' }, { status });
   }
 
   let body: ImportPayload;

@@ -1,6 +1,7 @@
 import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
 import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
 import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
+import { hasAdminRole } from '@/lib/core/db/users';
 import { db } from './index';
 import {
   agentdNodes,
@@ -11,8 +12,6 @@ import {
   agentTaskOutputs,
   agentTasks,
   agentToolActivityLogs,
-  archivedTaskSummaries,
-  notifications,
   sessions,
   taskSummaries,
   users,
@@ -216,6 +215,64 @@ export function getResourceErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Internal server error';
 }
 
+/**
+ * Resolve the user identity that owns an agentd-scope resource.
+ *
+ * This is the single entry point every `/api/agentd/v1/*` route SHOULD use
+ * to turn a request into a `{ userId, isAdmin }` access scope. It NEVER
+ * trusts a client-supplied `user_id` field — identity is always derived
+ * server-side from the task or session row the caller is operating on.
+ *
+ * Resolution order:
+ *   1. If `taskId` is present, the task is loaded (and optionally checked
+ *      against `sessionId` via {@link requireTaskAccess}); its owner
+ *      becomes the resolved user. A task without an owner is a 403.
+ *   2. Otherwise `sessionId` is required; the session row is loaded via
+ *      {@link deriveSessionIdentity}; its owner becomes the resolved user.
+ *      A session without an owner is a 404.
+ *
+ * Rationale: agentd routes are gated only by the shared `AGENTD_API_KEY`
+ * (see `proxy.ts`). Without per-user identity at the boundary, any key
+ * holder could impersonate any user by sending an arbitrary `user_id` in
+ * the request body. Routing identity through the owned task/session row
+ * closes that gap — the caller can only act within a scope the server
+ * already attached to a specific user.
+ */
+export async function resolveAgentdResourceAccess(input: {
+  taskId?: string | null;
+  sessionId?: string | null;
+}): Promise<{ userId: string; isAdmin: boolean }> {
+  if (input.taskId) {
+    const task = await requireTaskAccess({
+      taskId: input.taskId,
+      sessionId: input.sessionId,
+    });
+    if (!task.userId) {
+      throw Object.assign(new Error('Task owner is unknown'), { status: 403 });
+    }
+    return {
+      userId: task.userId,
+      isAdmin: hasAdminRole(task.roles),
+    };
+  }
+
+  if (!input.sessionId) {
+    throw Object.assign(new Error('task_id or session_id is required'), {
+      status: 400,
+    });
+  }
+
+  const identity = await deriveSessionIdentity(input.sessionId);
+  if (!identity.userId) {
+    throw Object.assign(new Error('Session not found'), { status: 404 });
+  }
+
+  return {
+    userId: identity.userId,
+    isAdmin: hasAdminRole(identity.roles),
+  };
+}
+
 function normalizeDecision(value: string): ReviewDecision {
   const allowed = new Set<string>(agentReviewLogs.decision.enumValues);
   return (allowed.has(value) ? value : 'allowed') as ReviewDecision;
@@ -356,11 +413,23 @@ export async function updateTaskStatus(
   };
 }
 
-export async function listTasks(agentId: string, limit = 50) {
+export async function listTasks(
+  agentId: string,
+  limit = 50,
+  options?: { sessionId?: string; userId?: string },
+) {
+  const conditions = [eq(agentTasks.agentId, agentId)];
+  if (options?.sessionId) {
+    conditions.push(eq(agentTasks.sessionId, options.sessionId));
+  }
+  if (options?.userId) {
+    conditions.push(eq(agentTasks.userId, options.userId));
+  }
+
   const tasks = await db
     .select()
     .from(agentTasks)
-    .where(eq(agentTasks.agentId, agentId))
+    .where(and(...conditions))
     .orderBy(desc(agentTasks.createdAt))
     .limit(limit);
 
@@ -425,14 +494,6 @@ export async function writeReviewLogs(
   );
 
   return db.insert(agentReviewLogs).values(values).returning();
-}
-
-export async function getReviewLogs(taskId: string) {
-  return db
-    .select()
-    .from(agentReviewLogs)
-    .where(eq(agentReviewLogs.taskId, taskId))
-    .orderBy(desc(agentReviewLogs.createdAt));
 }
 
 // === Tool Activity Logs ===
@@ -640,14 +701,6 @@ export async function updateSandboxStatus(id: string, status: string) {
   return sb;
 }
 
-export async function getSandbox(id: string) {
-  const [sb] = await db
-    .select()
-    .from(agentSandboxes)
-    .where(eq(agentSandboxes.id, id));
-  return sb ?? null;
-}
-
 // === Memories ===
 
 async function resolveResourceScope(scope?: AgentdResourceScope): Promise<{
@@ -769,22 +822,6 @@ export async function upsertAgentTaskOutput(data: {
   return record;
 }
 
-// === Agent Config ===
-
-export async function getAgentConfig(agentId: string) {
-  const rules = await getL0Rules(agentId);
-  return {
-    agentId,
-    l0Rules: rules.map((r) => ({
-      id: r.id,
-      pattern: r.pattern,
-      type: r.type,
-      action: r.action,
-      scope: r.scope,
-    })),
-  };
-}
-
 // === Task Summaries ===
 
 export interface TaskSummaryRecord {
@@ -878,46 +915,6 @@ export async function upsertTaskSummary(data: {
     })
     .returning();
   return record;
-}
-
-export async function getTaskSummaryHistory(
-  taskId: string,
-): Promise<TaskSummaryRecord[]> {
-  return db
-    .select()
-    .from(taskSummaries)
-    .where(eq(taskSummaries.taskId, taskId))
-    .orderBy(desc(taskSummaries.version));
-}
-
-export async function archiveTaskSummary(taskId: string): Promise<boolean> {
-  const history = await getTaskSummaryHistory(taskId);
-  if (history.length === 0) {
-    return false;
-  }
-
-  // Move all versions to archive
-  await db.insert(archivedTaskSummaries).values(
-    history.map((row) => ({
-      id: row.id,
-      taskId: row.taskId,
-      agentId: row.agentId,
-      sessionId: row.sessionId,
-      status: row.status,
-      progress: row.progress,
-      decisions: row.decisions,
-      pending: row.pending,
-      knownIssues: row.knownIssues,
-      version: row.version,
-      lastUpdated: row.lastUpdated,
-      createdAt: row.createdAt,
-    })),
-  );
-
-  // Delete from active table
-  await db.delete(taskSummaries).where(eq(taskSummaries.taskId, taskId));
-
-  return true;
 }
 
 export async function listActiveTaskSummaries(
@@ -1100,38 +1097,4 @@ export async function reclaimNodeAddress(input: {
     .set({ nodeID: input.newNodeID })
     .where(eq(agentdNodes.nodeID, byAddress.nodeID));
   return byAddress.nodeID;
-}
-
-// === Notifications (Repository migration) ================================
-
-/**
- * Insert a notification row. Called by POST /api/agentd/v1/notifications/send.
- * Pulled out of the route so the notifications table has a DAL owner
- * (Repository pattern, AionCore §2). Field shape mirrors the schema in
- * lib/core/db/schema/notification.ts.
- */
-export async function createNotification(input: {
-  taskId: string;
-  decisionId?: string | null;
-  notificationType: 'decision' | 'completion' | 'tidy_report';
-  payload: Record<string, unknown>;
-  channel: string;
-  targetChatId: string;
-  targetUserId?: string | null;
-  expiresAt?: Date | null;
-}) {
-  const [row] = await db
-    .insert(notifications)
-    .values({
-      taskId: input.taskId,
-      decisionId: input.decisionId ?? null,
-      notificationType: input.notificationType,
-      payload: input.payload,
-      channel: input.channel,
-      targetChatId: input.targetChatId,
-      targetUserId: input.targetUserId ?? null,
-      expiresAt: input.expiresAt ?? null,
-    })
-    .returning();
-  return row;
 }

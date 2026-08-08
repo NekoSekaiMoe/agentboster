@@ -5,7 +5,7 @@ import {
   getResourceErrorMessage,
   getResourceErrorStatus,
   getTaskSummary,
-  requireTaskAccess,
+  resolveAgentdResourceAccess,
   upsertTaskSummary,
 } from '@/lib/core/db/agentd';
 import type { Decision } from '@/lib/core/db/schema';
@@ -80,7 +80,7 @@ export async function PUT(
 ) {
   try {
     const { id } = await params;
-    await requireTaskAccess({ taskId: id });
+    await resolveAgentdResourceAccess({ taskId: id });
     const summary = await getTaskSummary(id);
 
     if (!summary) {

@@ -1,4 +1,4 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess, AuthError } from '@/lib/auth/access';
 import { getConfig } from '@/lib/core/kv/config';
 import { cookies } from 'next/headers';
 
@@ -11,9 +11,11 @@ import { cookies } from 'next/headers';
  */
 export async function GET() {
   const cookieStore = await cookies();
-  const authSession = await readAuthSessionFromCookies(cookieStore);
-  if (!authSession) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  try {
+    await requireAuthAccess(cookieStore);
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 401;
+    return Response.json({ error: 'Unauthorized' }, { status });
   }
 
   const config = await getConfig();

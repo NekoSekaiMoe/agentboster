@@ -23,7 +23,8 @@ import {
   type Decision,
 } from '@/lib/security/l2-decision-queue';
 import { getDecisionQueue } from '@/lib/security/l2-index';
-import { createNotification } from '@/lib/core/db/agentd';
+import { resolveAgentdResourceAccess } from '@/lib/core/db/agentd';
+import { createNotification } from '@/lib/core/db/notification';
 import { chatSourceSchema } from '@/types/workflow';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
@@ -122,10 +123,32 @@ export async function POST(request: Request) {
   }
 
   // 2. Persist to notifications table (via DAL — Repository pattern).
+  // The owner is derived from the task/session scope — never from the
+  // body's `source.userId`, which is the IM delivery target and can be
+  // spoofed by any AGENTD_API_KEY holder.
   try {
+    let ownerUserId: string | null = null;
+    try {
+      ownerUserId = (
+        await resolveAgentdResourceAccess({
+          taskId,
+          sessionId: sessionId !== taskId ? sessionId : undefined,
+        })
+      ).userId;
+    } catch (err) {
+      // Task/session may be gone; owner stays null and the row is still
+      // deliverable via the IM source — just not attributable for later
+      // per-user filtering.
+      logger.warn('owner resolution failed; notification stays deliverable via IM source', {
+        decisionId,
+        taskId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     await createNotification({
       taskId,
       decisionId,
+      userId: ownerUserId,
       notificationType: 'decision',
       payload: {
         type: data.type,

@@ -1,8 +1,11 @@
 'use client';
 
 import { ChevronRight, Loader2 } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { parseWithFallback } from '@/lib/core/api/schema';
 import { cn } from '@/lib/utils';
+import { z } from 'zod';
 
 interface SubagentJob {
   subagent_id: string;
@@ -23,6 +26,39 @@ interface SubagentBatchData {
   cancelled: number;
   jobs: SubagentJob[];
 }
+
+/**
+ * Lenient schema for GET /api/cli/subagent-batch/:id. Statuses are kept
+ * as z.string() so an unknown server value still parses; the return
+ * type is anchored to the fallback SubagentBatchData | null, not
+ * z.infer. Guards against a drifted response (installed CLI/Desktop
+ * talking to a newer backend) white-screening the card.
+ */
+const subagentBatchSchema = z.object({
+  ok: z.boolean().optional(),
+  data: z
+    .object({
+      batch_id: z.string(),
+      status: z.string(),
+      concurrency_limit: z.number(),
+      succeeded: z.number(),
+      failed: z.number(),
+      cancelled: z.number(),
+      jobs: z.array(
+        z.object({
+          subagent_id: z.string(),
+          agent_name: z.string(),
+          task: z.string(),
+          status: z.string(),
+          summary: z.string().optional(),
+          error: z.string().optional(),
+          steps: z.number().optional(),
+        }),
+      ),
+    })
+    .nullable()
+    .optional(),
+});
 
 interface SubagentBatchCardProps {
   batchId: string;
@@ -87,33 +123,46 @@ export const SubagentBatchCard = memo(function SubagentBatchCard({
   sessionId,
   initialData,
 }: SubagentBatchCardProps) {
-  const [data, setData] = useState<SubagentBatchData | null>(
-    initialData ?? null,
-  );
-  const [expanded, setExpanded] = useState(true);
-
-  useEffect(() => {
-    if (initialData) return;
-
-    let cancelled = false;
-    async function fetchBatch() {
-      try {
-        const resp = await fetch(`/api/cli/subagent-batch/${batchId}`);
-        const json = await resp.json();
-        if (!cancelled && json.ok) {
-          setData(json.data);
-        }
-      } catch {
-        // silent
+  // Poll the batch status. Replaces a hand-rolled useEffect + fetch +
+  // setInterval + cancelled-flag with useQuery's refetchInterval. The
+  // initialData (hydrated from the server component) seeds the cache so
+  // the card renders immediately on mount, then refetches every 5s to
+  // track job progress until the batch terminates.
+  const { data } = useQuery<SubagentBatchData | null>({
+    queryKey: ['subagent-batch', batchId],
+    queryFn: async () => {
+      const resp = await fetch(`/api/cli/subagent-batch/${batchId}`);
+      if (!resp.ok) return null;
+      const json = await resp.json().catch(() => null);
+      const parsed = parseWithFallback(
+        json,
+        subagentBatchSchema,
+        { ok: false, data: null },
+        { endpoint: `GET /api/cli/subagent-batch/${batchId}` },
+      );
+      if (!parsed.ok || !parsed.data) return null;
+      // Cast through unknown: the schema is lenient (status as string),
+      // but the component expects the narrower union. The data came from
+      // our own server so the cast is safe at runtime.
+      return parsed.data as unknown as SubagentBatchData;
+    },
+    refetchInterval: (query) => {
+      // Stop polling once the batch is terminal — no point hammering the
+      // endpoint after all jobs are done.
+      const d = query.state.data as SubagentBatchData | null | undefined;
+      if (
+        d &&
+        (d.status === 'completed' ||
+          d.status === 'failed' ||
+          d.status === 'cancelled')
+      ) {
+        return false;
       }
-    }
-    fetchBatch();
-    const interval = setInterval(fetchBatch, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [batchId, initialData]);
+      return 5000;
+    },
+    initialData: initialData ?? undefined,
+  });
+  const [expanded, setExpanded] = useState(true);
 
   if (!data) {
     return (

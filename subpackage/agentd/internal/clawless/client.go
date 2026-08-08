@@ -281,8 +281,20 @@ func (c *Client) ListMemories(ctx context.Context, agentID string, scope ...Memo
 	return c.GetMemories(ctx, agentID, nil, 1000, scope...)
 }
 
-func (c *Client) UpdateMemory(ctx context.Context, memoryID, newValue string) error {
-	return doVoid(c, ctx, http.MethodPut, fmt.Sprintf("/api/agentd/v1/memories/%s", memoryID), map[string]string{"value": newValue})
+func (c *Client) UpdateMemory(ctx context.Context, memoryID, newValue string, scope ...MemoryScope) error {
+	values := url.Values{}
+	s := resourceScope(scope)
+	if s.TaskID != "" {
+		values.Set("task_id", s.TaskID)
+	}
+	if s.SessionID != "" {
+		values.Set("session_id", s.SessionID)
+	}
+	path := "/api/agentd/v1/memories/" + memoryID
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	return doVoid(c, ctx, http.MethodPut, path, map[string]string{"value": newValue})
 }
 
 func (c *Client) GetMemories(ctx context.Context, agentID string, keywords []string, limit int, scope ...MemoryScope) ([]Memory, error) {

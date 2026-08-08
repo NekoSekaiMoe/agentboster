@@ -1,4 +1,8 @@
 import { getNotificationPreferences } from '@/lib/core/db/notification';
+import {
+  isNotificationMuted,
+  notifTypeToGroup,
+} from '@/lib/core/notification/groups';
 import { resolveUserLocale } from '@/lib/chat/user-locale';
 import { getConfig } from '@/lib/core/kv/config';
 import {
@@ -112,6 +116,28 @@ export async function sendNotification(params: {
   const fallbackChannels = prefs?.fallbackChannels?.length
     ? prefs.fallbackChannels
     : [source.adapter];
+
+  // Event-group mute: skip delivery entirely when the user has muted the
+  // group this notification's type maps to. `decision` (L2 authorization)
+  // is EXEMPT — it maps to the `action_required` group but a pending human
+  // verdict must never be silenced, so we short-circuit mute for that type
+  // regardless of prefs. Mirrors Multica's isNotifMuted + the security
+  // invariant that authorization prompts always reach the user.
+  if (
+    payload.type !== 'decision' &&
+    prefs?.mutedGroups &&
+    isNotificationMuted({
+      notificationType: payload.type,
+      mutedGroups: prefs.mutedGroups,
+    })
+  ) {
+    logger.info('notification muted by group preference', {
+      userId,
+      type: payload.type,
+      group: notifTypeToGroup(payload.type),
+    });
+    return { success: true, channel: 'muted' };
+  }
 
   // Resolve and stamp the rendering locale onto the payload before
   // dispatching. Channel renderers (Phase 2) read this instead of the

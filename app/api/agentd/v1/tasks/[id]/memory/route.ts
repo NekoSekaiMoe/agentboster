@@ -1,9 +1,13 @@
 export const dynamic = 'force-dynamic';
 
-import { extractMemoriesFromSession } from '@/lib/memory/extract';
-import { getSession } from '@/lib/core/db/chat';
-import { getUserById } from '@/lib/core/db/users';
+import {
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+  resolveAgentdResourceAccess,
+} from '@/lib/core/db/agentd';
 import { getConfig } from '@/lib/core/kv/config';
+import { getUserById } from '@/lib/core/db/users';
+import { extractMemoriesFromSession } from '@/lib/memory/extract';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
 
@@ -15,7 +19,6 @@ const requestSchema = z.object({
   session_id: z.string().optional(),
   agent_id: z.string().optional(),
   command: z.string().optional(),
-  user_id: z.string().optional(),
 });
 
 export async function POST(
@@ -31,20 +34,18 @@ export async function POST(
       return Response.json({ error: 'Invalid request' }, { status: 400 });
     }
 
-    const { session_id: sessionId, user_id: requestUserId } = parsed.data;
+    // Identity is derived from the task/session scope, never from a body
+    // field. The previous implementation trusted `body.user_id` first
+    // ("Prefer the explicit field the daemon sends"), which let any
+    // AGENTD_API_KEY holder pollute another user's memory bucket by
+    // sending an arbitrary user_id. resolveAgentdResourceAccess reads the
+    // owning user from the task row itself; the body is ignored.
+    const access = await resolveAgentdResourceAccess({
+      taskId,
+      sessionId: parsed.data.session_id,
+    });
 
-    // Resolve the user this task belongs to. Prefer the explicit field the
-    // daemon sends; fall back to the session owner; finally 'agentd' so
-    // extraction still has somewhere to write if neither is available.
-    let userId = requestUserId?.trim() || '';
-    if (!userId && sessionId) {
-      const session = await getSession(sessionId);
-      userId = session?.userId ?? '';
-    }
-    if (!userId) {
-      userId = 'agentd';
-    }
-
+    const sessionId = parsed.data.session_id;
     if (!sessionId) {
       // Nothing to extract from — daemon would normally always send one,
       // but degrade gracefully.
@@ -52,10 +53,10 @@ export async function POST(
     }
 
     const config = await getConfig();
-    const user = userId && userId !== 'agentd' ? await getUserById(userId) : null;
+    const user = await getUserById(access.userId);
     const result = await extractMemoriesFromSession({
       sessionId,
-      userId,
+      userId: access.userId,
       config,
       user,
     });
@@ -63,7 +64,7 @@ export async function POST(
     logger.info('memory extracted', {
       taskId,
       sessionId,
-      userId,
+      userId: access.userId,
       ...result,
     });
 
@@ -75,6 +76,12 @@ export async function POST(
       total: result.extracted,
     });
   } catch (error) {
+    if (getResourceErrorStatus(error) !== 500) {
+      return Response.json(
+        { error: getResourceErrorMessage(error) },
+        { status: getResourceErrorStatus(error) },
+      );
+    }
     logger.error('memory extraction failed', {
       error: error instanceof Error ? error.message : String(error),
     });

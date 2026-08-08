@@ -1,4 +1,4 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess, AuthError } from '@/lib/auth/access';
 import {
   createL0Rule,
   deleteL0Rule,
@@ -36,9 +36,15 @@ const deleteL0RuleSchema = z.object({
   id: z.string().uuid(),
 });
 
-async function requireAuth() {
+async function requireAuthOrResponse(): Promise<NextResponse | null> {
   const cookieStore = await cookies();
-  return readAuthSessionFromCookies(cookieStore);
+  try {
+    await requireAuthAccess(cookieStore);
+    return null;
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 401;
+    return NextResponse.json({ error: 'Unauthorized' }, { status });
+  }
 }
 
 function validationError(error: z.ZodError) {
@@ -50,10 +56,8 @@ function validationError(error: z.ZodError) {
 
 export async function GET() {
   try {
-    const session = await requireAuth();
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuthOrResponse();
+    if (auth) return auth;
 
     const rules = await listL0Rules();
     return NextResponse.json({ rules });
@@ -68,10 +72,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const session = await requireAuth();
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuthOrResponse();
+    if (auth) return auth;
 
     const parsed = createL0RuleSchema.safeParse(await request.json());
     if (!parsed.success) {
@@ -91,10 +93,8 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const session = await requireAuth();
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuthOrResponse();
+    if (auth) return auth;
 
     const parsed = updateL0RuleSchema.safeParse(await request.json());
     if (!parsed.success) {
@@ -119,10 +119,8 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const session = await requireAuth();
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuthOrResponse();
+    if (auth) return auth;
 
     const parsed = deleteL0RuleSchema.safeParse(await request.json());
     if (!parsed.success) {

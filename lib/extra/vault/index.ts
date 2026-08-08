@@ -1,7 +1,12 @@
 import * as crypto from 'node:crypto';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
+import { atomicWriteMode } from '@/lib/core/db/atomic';
 import { db } from '@/lib/core/db';
-import { vaultAuditLogs, vaultEntries } from '@/lib/core/db/schema';
+import {
+  userVaultEntries,
+  vaultAuditLogs,
+  vaultEntries,
+} from '@/lib/core/db/schema';
 
 const NONCE_BYTES = 12;
 const MASTER_KEY_ENV = 'VAULT_MASTER_KEY';
@@ -114,20 +119,6 @@ async function auditVault(
   });
 }
 
-export async function listVaultEntries(userId?: string | null) {
-  const entries = await db
-    .select({
-      key: vaultEntries.key,
-      createdAt: vaultEntries.createdAt,
-      updatedAt: vaultEntries.updatedAt,
-    })
-    .from(vaultEntries)
-    .orderBy(desc(vaultEntries.updatedAt));
-
-  await auditVault('list', '*', userId);
-  return entries;
-}
-
 export async function listVaultKeyNames() {
   const entries = await db
     .select({ key: vaultEntries.key })
@@ -137,6 +128,11 @@ export async function listVaultKeyNames() {
   return entries.map((entry) => entry.key);
 }
 
+/**
+ * Write a SYSTEM-level vault entry (MCP OAuth bundle, knowledge-provider
+ * API key). The `userId` argument is audit-only — system entries are not
+ * owned by any user.
+ */
 export async function upsertVaultEntry(input: {
   key: string;
   value: string;
@@ -172,6 +168,10 @@ export async function upsertVaultEntry(input: {
   return entry;
 }
 
+/**
+ * Read a SYSTEM-level vault entry by key. For user-private entries, use
+ * {@link readUserVaultValue}.
+ */
 export async function readVaultValue(input: {
   key: string;
   userId?: string | null;
@@ -197,6 +197,109 @@ export async function readVaultValue(input: {
   return { key: entry.key, value, updatedAt: entry.updatedAt };
 }
 
+// ---------------------------------------------------------------------------
+// User-private vault entries (per-user isolation).
+//
+// Every function here takes a non-null `userId` and filters `WHERE user_id
+// = ?` on both read and write paths. The `(userId, key)` unique index lets
+// the same key name exist independently per user.
+// ---------------------------------------------------------------------------
+
+function requireUserId(userId: string | null | undefined): string {
+  if (!userId) {
+    throw new Error(
+      'User-scoped vault access requires an authenticated userId.',
+    );
+  }
+  return userId;
+}
+
+// The DAL functions type `dbInstance` as `typeof db` (the neon-http Proxy
+// type). PGlite's drizzle instance is structurally compatible on the query
+// builders but not assignable to the concrete neon type, so narrow via a
+// Pick that exposes only the surface the vault DAL uses.
+type VaultDb = Pick<typeof db, 'select' | 'insert' | 'update' | 'delete'>;
+
+export async function listUserVaultEntries(
+  userId: string,
+  dbInstance: VaultDb = db,
+) {
+  const owner = requireUserId(userId);
+  const entries = await dbInstance
+    .select({
+      key: userVaultEntries.key,
+      createdAt: userVaultEntries.createdAt,
+      updatedAt: userVaultEntries.updatedAt,
+    })
+    .from(userVaultEntries)
+    .where(eq(userVaultEntries.userId, owner))
+    .orderBy(desc(userVaultEntries.updatedAt));
+
+  await auditVault('user_list', '*', owner, dbInstance);
+  return entries;
+}
+
+export async function upsertUserVaultEntry(
+  input: { userId: string; key: string; value: string },
+  dbInstance: VaultDb = db,
+) {
+  const owner = requireUserId(input.userId);
+  const key = validateVaultKey(input.key);
+  const encrypted = encryptValue(input.value);
+  const [entry] = await dbInstance
+    .insert(userVaultEntries)
+    .values({
+      userId: owner,
+      key,
+      encryptedValue: encrypted.encryptedValue,
+      nonce: encrypted.nonce,
+    })
+    .onConflictDoUpdate({
+      target: [userVaultEntries.userId, userVaultEntries.key],
+      set: {
+        encryptedValue: encrypted.encryptedValue,
+        nonce: encrypted.nonce,
+        updatedAt: new Date(),
+      },
+    })
+    .returning({
+      key: userVaultEntries.key,
+      createdAt: userVaultEntries.createdAt,
+      updatedAt: userVaultEntries.updatedAt,
+    });
+
+  await auditVault('user_upsert', key, owner, dbInstance);
+  return entry;
+}
+
+export async function readUserVaultValue(
+  input: { userId: string; key: string },
+  dbInstance: VaultDb = db,
+) {
+  const owner = requireUserId(input.userId);
+  const key = validateVaultKey(input.key);
+  const [entry] = await dbInstance
+    .select({
+      key: userVaultEntries.key,
+      encryptedValue: userVaultEntries.encryptedValue,
+      nonce: userVaultEntries.nonce,
+      updatedAt: userVaultEntries.updatedAt,
+    })
+    .from(userVaultEntries)
+    .where(
+      and(eq(userVaultEntries.userId, owner), eq(userVaultEntries.key, key)),
+    )
+    .limit(1);
+
+  if (!entry) {
+    return null;
+  }
+
+  const value = decryptValue(entry);
+  await auditVault('user_read', key, owner, dbInstance);
+  return { key: entry.key, value, updatedAt: entry.updatedAt };
+}
+
 /**
  * Delete a vault entry by key. Returns true if a row was deleted, false
  * if the key didn't exist. Used by credential-revocation flows (e.g.
@@ -204,15 +307,34 @@ export async function readVaultValue(input: {
  * so that the key doesn't show up in listVaultKeyNames() anymore, and
  * the audit log is the only record of the prior credential.
  *
- * The delete and its audit record run inside a single transaction so an
- * audit failure rolls back the deletion — callers never end up with the
- * credential gone but no audit trail.
+ * The delete and its audit record run atomically. The two drivers behind
+ * the `db` singleton have non-overlapping atomic primitives — neon-http
+ * exposes `db.batch([...])`, node-postgres exposes `db.transaction(...)`
+ * — so we branch on `atomicWriteMode()`.
  */
 export async function deleteVaultEntry(input: {
   key: string;
   userId?: string | null;
 }): Promise<boolean> {
   const key = validateVaultKey(input.key);
+  if (atomicWriteMode() === 'neon') {
+    // neon-http: db.batch is the atomic primitive (single HTTP transaction).
+    // The audit insert is pre-built and independent of the delete's result,
+    // so the batch is self-contained (non-interactive).
+    const [deleted] = await db.batch([
+      db
+        .delete(vaultEntries)
+        .where(eq(vaultEntries.key, key))
+        .returning({ key: vaultEntries.key }),
+      db.insert(vaultAuditLogs).values({
+        action: 'delete',
+        key,
+        userId: input.userId ?? null,
+      }),
+    ]);
+    return deleted.length > 0;
+  }
+  // node-postgres: db.transaction is the atomic primitive.
   const deletedKeys = await db.transaction(async (tx) => {
     const result = await tx
       .delete(vaultEntries)

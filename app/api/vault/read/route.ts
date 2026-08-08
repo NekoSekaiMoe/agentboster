@@ -1,22 +1,22 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
-import { readVaultValue } from '@/lib/extra/vault';
+import { requireAuthAccess, AuthError } from '@/lib/auth/access';
+import { readUserVaultValue } from '@/lib/extra/vault';
 import { cookies } from 'next/headers';
 
 export async function POST(request: Request) {
   const cookieStore = await cookies();
-  const session = await readAuthSessionFromCookies(cookieStore);
-  if (!session) {
-    return Response.json(
-      { success: false, error: 'Unauthorized' },
-      { status: 401 },
-    );
+  let access: Awaited<ReturnType<typeof requireAuthAccess>>;
+  try {
+    access = await requireAuthAccess(cookieStore);
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 401;
+    return Response.json({ success: false, error: 'Unauthorized' }, { status });
   }
 
   try {
     const body = await request.json();
-    const entry = await readVaultValue({
+    const entry = await readUserVaultValue({
+      userId: access.session.userId,
       key: String(body.key ?? ''),
-      userId: session.userId,
     });
     if (!entry) {
       return Response.json(

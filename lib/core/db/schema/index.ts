@@ -21,6 +21,7 @@ export {
   knowledgeDocuments,
 } from './knowledge';
 export { scheduledTasks } from './scheduled';
+export { scheduledTaskRuns } from './scheduled-task-runs';
 export { dreamRuns } from './dream';
 export type { DreamRun } from './dream';
 export {
@@ -42,7 +43,8 @@ export {
   notificationPreferences,
   channelHealth,
 } from './notification';
-export { vaultAuditLogs, vaultEntries } from './vault';
+export { userVaultEntries, vaultAuditLogs, vaultEntries } from './vault';
+export { taskUsage, nodeUsageDaily } from './usage';
 export { l2Decisions } from './l2-decisions';
 export type { L2Decision, NewL2Decision } from './l2-decisions';
 export { agentBarriers, agentBarrierReleases } from './agent-barriers';

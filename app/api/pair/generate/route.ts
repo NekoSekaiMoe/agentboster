@@ -1,22 +1,20 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess, AuthError } from '@/lib/auth/access';
 import { generatePairCode } from '@/lib/chat/commands/pair';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
+  const cookieStore = await cookies();
+  let userId: string;
   try {
-    const cookieStore = await cookies();
-    const session = await readAuthSessionFromCookies(cookieStore);
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    if (!session.userId) {
-      return NextResponse.json(
-        { error: 'Authenticated user has no userId.' },
-        { status: 400 },
-      );
-    }
+    const access = await requireAuthAccess(cookieStore);
+    userId = access.session.userId;
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 401;
+    return NextResponse.json({ error: 'Unauthorized' }, { status });
+  }
 
+  try {
     const body = await request.json();
     const { adapter } = body;
 
@@ -29,7 +27,7 @@ export async function POST(request: Request) {
 
     const result = await generatePairCode(
       adapter as Parameters<typeof generatePairCode>[0],
-      session.userId,
+      userId,
     );
     return NextResponse.json(result);
   } catch (error) {

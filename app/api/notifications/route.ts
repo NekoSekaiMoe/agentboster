@@ -1,4 +1,4 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { AuthAccess, requireAuthAccess, AuthError } from '@/lib/auth/access';
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
 import { and, desc, eq } from 'drizzle-orm';
@@ -8,15 +8,31 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
-    const session = await readAuthSessionFromCookies(cookieStore);
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    let access: AuthAccess;
+    try {
+      access = await requireAuthAccess(cookieStore);
+    } catch (error) {
+      // Only AuthError carries an HTTP status (401/403). Any other throw
+      // (a DB failure inside getUserById, a missing AUTH_SECRET) is a 5xx
+      // and must NOT be mislabeled as 401 here — rethrow so the outer
+      // catch returns a 500.
+      if (error instanceof AuthError) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: error.status },
+        );
+      }
+      throw error;
     }
     const { searchParams } = new URL(request.url);
     const channel = searchParams.get('channel');
     const read = searchParams.get('read');
 
     const conditions = [];
+    // Scope to the caller's own notifications (admins see all).
+    if (!access.isAdmin) {
+      conditions.push(eq(notifications.userId, access.session.userId));
+    }
     if (channel) {
       conditions.push(eq(notifications.channel, channel));
     }
