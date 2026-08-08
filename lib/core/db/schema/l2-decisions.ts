@@ -27,6 +27,13 @@ export const l2Decisions = pgTable(
     decisionId: text('decision_id').notNull().unique(),
     taskId: text('task_id').notNull(),
     sessionId: text('session_id').notNull(),
+    /**
+     * Owning user. Backfilled from the session on enqueue so that the
+     * queue's promotion/isolation logic (canPromote) can group by user
+     * across all of a user's sessions, and so UI routes can scope by
+     * user without a join.
+     */
+    userId: text('user_id'),
     agentId: text('agent_id').notNull(),
     /** 'l2_auth' | 'question' | 'conflict' | 'branch' */
     type: text('type').notNull(),
@@ -58,6 +65,7 @@ export const l2Decisions = pgTable(
     index('l2_decisions_status_created_idx').on(table.status, table.createdAt),
     index('l2_decisions_session_idx').on(table.sessionId),
     index('l2_decisions_task_idx').on(table.taskId),
+    index('l2_decisions_user_idx').on(table.userId),
   ],
 );
 

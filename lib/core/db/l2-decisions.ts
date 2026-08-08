@@ -9,7 +9,7 @@
 
 import { and, desc, eq, gt, inArray, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/core/db';
-import { l2Decisions, type L2Decision } from '@/lib/core/db/schema';
+import { l2Decisions, sessions, type L2Decision } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('db.l2-decisions');
@@ -30,6 +30,7 @@ export interface UpsertDecisionInput {
   payload: Record<string, unknown>;
   status?: string;
   nodeId?: string;
+  userId?: string | null;
   expiresAt: Date;
 }
 
@@ -48,6 +49,7 @@ export async function createDecision(
       status: input.status ?? 'pending',
       payload: input.payload,
       nodeId: input.nodeId,
+      userId: input.userId ?? null,
       expiresAt: input.expiresAt,
     })
     .returning();
@@ -139,6 +141,51 @@ export async function markExpired(
       updatedAt: new Date(),
     })
     .where(eq(l2Decisions.decisionId, decisionId))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Look up the owning userId for a sessionId. Used at enqueue time to
+ * populate l2_decisions.user_id so the queue can group decisions by
+ * user across all of that user's sessions (the isolation key for
+ * canPromote). Returns null for unknown sessions or sessions without
+ * an owner.
+ */
+export async function getUserIdBySession(
+  sessionId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ userId: sessions.userId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+  return row?.userId ?? null;
+}
+
+/**
+ * Promote a decision from 'pending' to 'sent' (visible to the UI).
+ * Used by the in-memory queue so the DB mirrors the cache when a
+ * decision is promoted — otherwise a different serverless instance
+ * rehydrating from DB would never see the 'sent' status and the UI
+ * would never render the prompt (the "ghost decision" bug).
+ *
+ * Only transitions 'pending' → 'sent'; rows already in a terminal or
+ * 'sent' state are left untouched (returns null).
+ */
+export async function markSent(decisionId: string): Promise<L2Decision | null> {
+  const [row] = await db
+    .update(l2Decisions)
+    .set({
+      status: 'sent',
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(l2Decisions.decisionId, decisionId),
+        eq(l2Decisions.status, 'pending'),
+      ),
+    )
     .returning();
   return row ?? null;
 }

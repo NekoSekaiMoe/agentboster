@@ -1,6 +1,6 @@
 {
-  "id": "6a1b2c3d-0000-4000-8000-003400000034",
-  "prevId": "d701654c-faed-4458-a76f-c8c3044e6849",
+  "id": "df0420ca-df73-4723-8c03-6be2503c60bb",
+  "prevId": "101a1346-ec37-4a9d-85b0-aadc509fea8e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3512,6 +3512,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "agent_id": {
           "name": "agent_id",
           "type": "text",
@@ -3624,6 +3630,21 @@
           "columns": [
             {
               "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "l2_decisions_user_idx": {
+          "name": "l2_decisions_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -4304,7 +4325,8 @@
           "name": "provider",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "''"
         },
         "model": {
           "name": "model",
@@ -5413,7 +5435,8 @@
           "name": "model",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "''"
         },
         "input_tokens": {
           "name": "input_tokens",
