@@ -38,6 +38,13 @@ const logger = createLogger('api.im_stream');
  * stream, Vercel flushes the empty body, and the function exits cleanly.
  */
 
+// IM workflows can run for minutes (long agentd tool calls). Raise the
+// function maxDuration to match the web chat / webhook routes — the
+// streaming-body trick above keeps the connection alive *between*
+// chunks but does NOT override Vercel's hard maxDuration wall; without
+// this, long IM runs still get killed at the default 10s/60s ceiling.
+export const maxDuration = 300;
+
 const TYPING_REFRESH_MS = 4500;
 const EDIT_MIN_DELTA_CHARS = 20;
 const EDIT_MAX_INTERVAL_MS = 500;

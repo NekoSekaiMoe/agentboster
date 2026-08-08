@@ -17,6 +17,12 @@ import { z } from 'zod';
 
 const logger = createLogger('api.cli.chat');
 
+// CLI chat SSE response stays open for the entire agent run, mirroring
+// app/(chat)/api/ai/route.ts. Raise the function maxDuration so long
+// agentd tool calls (npm install, browser automation) don't get
+// truncated by the default 10s/60s ceiling.
+export const maxDuration = 300;
+
 /**
  * CLI chat entry. Mirrors /api/ai but declares source.type === 'cli'
  * with the caller's clientId + label, so the workflow registers local_*

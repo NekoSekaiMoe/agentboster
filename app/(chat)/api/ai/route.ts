@@ -19,6 +19,17 @@ import { z } from 'zod';
 
 console.log('[api/ai] Module loaded successfully');
 
+// The main web chat SSE response stays open for the entire agent run
+// (thinking + tool execution, including long agentd tools like
+// npm install). The default function maxDuration (10s Hobby / 60s Pro)
+// would truncate the stream mid-run. Raise the ceiling to match the IM
+// webhook route (app/api/bot/.../callback/route.ts). On Hobby this
+// clamps to 10s, Pro to 60s (or 300s with Fluid compute), Enterprise
+// to 900s. The workflow itself is durable and survives an HTTP
+// disconnect, but a truncated stream still breaks the live UX until
+// the client reconnects to /api/ai/[runId]/stream.
+export const maxDuration = 300;
+
 const logger = createLogger('api.ai');
 
 export async function GET() {

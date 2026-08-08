@@ -7,6 +7,13 @@ import {
 } from '@/lib/workflow/agent/dispatch';
 import { createUIMessageStreamResponse } from 'ai';
 
+// Reconnect endpoint: the client re-subscribes to a workflow run's
+// readable stream after the original POST /api/ai connection was
+// dropped (e.g. maxDuration truncation, network blip). The run may
+// still be long-lived, so this route needs the same elevated ceiling
+// as the originating route.
+export const maxDuration = 300;
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ runId: string }> },
