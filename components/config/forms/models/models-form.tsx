@@ -233,12 +233,15 @@ export function ModelsForm() {
     ? { duration: 0 }
     : { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
 
-  // Every live model id, scoped with its provider key, deduplicated.
+  // Every live chat-model id, scoped with its provider key, deduplicated.
+  // Embedding-only ids are deliberately excluded from chat model candidates
+  // (and the model_catalog suggestions below) — they surface exclusively
+  // through embeddingModelPredictions.
   const liveScopedModelIds = useMemo(() => {
     const seen = new Set<string>();
     const result: string[] = [];
     for (const [providerKey, lists] of Object.entries(liveModelsByProvider)) {
-      for (const id of [...lists.models, ...lists.embeddingModels]) {
+      for (const id of lists.models) {
         const scoped = `${providerKey}/${id}`;
         if (!seen.has(normalizeLower(scoped))) {
           seen.add(normalizeLower(scoped));
