@@ -34,6 +34,31 @@ export const agentTasks = pgTable('agent_tasks', {
     .default('pending')
     .notNull(),
   result: text('result'),
+  /**
+   * Canonical failure reason from the {@link FAILURE_REASON} taxonomy
+   * (`lib/core/task/failure-reason.ts`). Replaces the historical pattern
+   * of putting free-text into `result`. Persisted as plain text (not a
+   * CHECK enum) so the taxonomy can grow without a migration per value;
+   * callers validate via `ALL_FAILURE_REASONS.includes(value)` if needed.
+   */
+  failureReason: text('failure_reason'),
+  /**
+   * 1-based attempt number. The original attempt is 1; each auto-retry
+   * spawns a child task whose attempt = parent.attempt + 1. See
+   * `retry_of_task_id` for the lineage pointer.
+   */
+  attempt: integer('attempt').default(1).notNull(),
+  /** Max attempts before the task gives up. Default 2 (one auto-retry). */
+  maxAttempts: integer('max_attempts').default(2).notNull(),
+  /** Parent task of this retry chain (NULL on the original attempt). */
+  retryOfTaskId: uuid('retry_of_task_id'),
+  /**
+   * Distinct from `retry_of_task_id`: a manual "rerun" (regenerate)
+   * lineage pointer. `retry_of_task_id` is system-driven retry against
+   * transient failures; `rerun_of_task_id` is user-driven rerun, which
+   * always starts a fresh session for rollback safety.
+   */
+  rerunOfTaskId: uuid('rerun_of_task_id'),
   createdAt: timestamp('created_at', { withTimezone: true })
     .defaultNow()
     .notNull(),
