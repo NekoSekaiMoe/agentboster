@@ -381,6 +381,13 @@ export const zhTW = {
     '設定 Claw 的預設模型及參數。你也可以在 Agents 部分為不同用途指定不同模型。',
   'config.forms.models.defaultSettingsTitle': '預設模型設定',
   'config.forms.models.embeddingModel': 'Embedding 模型',
+  'config.forms.models.embeddingBaseUrl': 'Embedding Base URL',
+  'config.forms.models.embeddingBaseUrlPlaceholder': '預設同上方 Base URL',
+  'config.forms.models.embeddingBaseUrlHelp':
+    '可選。向量請求的專用端點（例如在另一連接埠僅暴露 /v1/embeddings 的服務）。',
+  'config.forms.models.fetchModels': '拉取模型列表',
+  'config.forms.models.fetchModelsSuccess': '已從供應商拉取 {count} 個模型',
+  'config.forms.models.fetchModelsError': '從供應商拉取模型失敗',
   'config.forms.models.embeddingWarning':
     '修改 embedding 模型會改變向量維度，只有新建或重新索引的記憶會參與向量檢索。舊記憶在重新索引前仍會回退到全文搜尋。',
   'config.forms.models.format': '格式',

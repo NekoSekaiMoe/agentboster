@@ -410,6 +410,16 @@ export const ja = {
     'Claw の既定モデルとパラメーターを設定します。用途ごとのモデルは Agents セクションでも指定できます。',
   'config.forms.models.defaultSettingsTitle': '既定モデル設定',
   'config.forms.models.embeddingModel': 'Embedding モデル',
+  'config.forms.models.embeddingBaseUrl': 'Embedding ベース URL',
+  'config.forms.models.embeddingBaseUrlPlaceholder':
+    '未設定時は上のベース URL を使用',
+  'config.forms.models.embeddingBaseUrlHelp':
+    '任意。埋め込みリクエスト専用のエンドポイント（例: 別ポートで /v1/embeddings のみを公開するサーバー）。',
+  'config.forms.models.fetchModels': 'モデル一覧を取得',
+  'config.forms.models.fetchModelsSuccess':
+    'プロバイダーから {count} 件のモデルを取得しました',
+  'config.forms.models.fetchModelsError':
+    'プロバイダーからのモデル取得に失敗しました',
   'config.forms.models.embeddingWarning':
     'embedding モデルを変更するとベクトル次元が変わります。新規または再インデックス済みメモリのみがベクトル検索に参加し、古いメモリは再インデックスまで全文検索にフォールバックします。',
   'config.forms.models.format': '形式',

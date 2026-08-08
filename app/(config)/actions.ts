@@ -19,6 +19,7 @@ import {
 } from '@/lib/utils/runtime-health';
 import { getBuildInToolCatalog } from '@/lib/workflow/agent/tools';
 import { type AppConfig, appConfigSchema } from '@/types/config';
+import { ofetch } from 'ofetch';
 import { ADAPTER_NAMES, type AdapterName } from '@/types/config/channels';
 import {
   type ToolCatalogResponse,
@@ -113,6 +114,66 @@ export async function loadToolCatalogAction(): Promise<ToolCatalogResponse> {
 
   const config = await getConfig();
   return toolCatalogResponseSchema.parse(getBuildInToolCatalog(config));
+}
+
+export type ProviderModelListResponse = {
+  /** Model ids from `GET {base_url}/models`. */
+  models: string[];
+  /** Model ids from `GET {embedding_base_url}/models` (empty when unset). */
+  embeddingModels: string[];
+};
+
+async function fetchOpenAICompatibleModelIds(input: {
+  baseUrl: string;
+  apiKey?: string;
+  headers?: Record<string, string>;
+}): Promise<string[]> {
+  const url = `${input.baseUrl.replace(/\/+$/, '')}/models`;
+  const response = await ofetch<{ data?: Array<{ id?: unknown }> }>(url, {
+    headers: {
+      ...(input.apiKey ? { authorization: `Bearer ${input.apiKey}` } : {}),
+      ...input.headers,
+    },
+    timeout: 10_000,
+  });
+
+  return (response.data ?? [])
+    .map((entry) => entry.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
+/**
+ * Fetch the live model list from an OpenAI-compatible provider's
+ * `GET /models` endpoint. Used by the admin models form to surface models
+ * that the static models.dev catalog doesn't know about (custom/self-hosted
+ * endpoints, embedding-only servers, ...). Admin-only because it makes the
+ * server issue an authenticated request to an admin-supplied URL.
+ */
+export async function listProviderModelsAction(input: {
+  base_url: string;
+  api_key?: string;
+  headers?: Record<string, string>;
+  embedding_base_url?: string;
+}): Promise<ProviderModelListResponse> {
+  const cookieStore = await cookies();
+  await requireAdminAccess(cookieStore);
+
+  const [models, embeddingModels] = await Promise.all([
+    fetchOpenAICompatibleModelIds({
+      baseUrl: input.base_url,
+      apiKey: input.api_key,
+      headers: input.headers,
+    }),
+    input.embedding_base_url
+      ? fetchOpenAICompatibleModelIds({
+          baseUrl: input.embedding_base_url,
+          apiKey: input.api_key,
+          headers: input.headers,
+        })
+      : Promise.resolve([]),
+  ]);
+
+  return { models, embeddingModels };
 }
 
 export async function getImPairStatusAction(adapter: AdapterName): Promise<{

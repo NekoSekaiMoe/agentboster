@@ -172,6 +172,22 @@ export function buildModelPredictions(
     .slice(0, MAX_MODEL_SUGGESTIONS);
 }
 
+/**
+ * Heuristic for embedding-model ids. models.dev does NOT flag embedding
+ * models (e.g. text-embedding-3-small claims `modalities.output: ['text']`),
+ * so we match well-known id patterns instead. Rerankers are excluded —
+ * they are not embedding endpoints.
+ */
+const EMBEDDING_MODEL_ID_PATTERN = /embed|bge-|gte-|e5-|voyage/i;
+const RERANKER_MODEL_ID_PATTERN = /rerank/i;
+
+export function isLikelyEmbeddingModelId(modelId: string) {
+  return (
+    EMBEDDING_MODEL_ID_PATTERN.test(modelId) &&
+    !RERANKER_MODEL_ID_PATTERN.test(modelId)
+  );
+}
+
 export async function loadModelsDevCatalog() {
   if (modelsDevCatalogCache) {
     return modelsDevCatalogCache;
@@ -211,6 +227,23 @@ export async function loadModelsDevCatalog() {
  * Returns an empty array when the catalog is missing or none of the
  * configured providers appear in it.
  */
+/**
+ * Embedding-model suggestions for the admin embedding field: every model
+ * the configured providers expose via models.dev, filtered down to likely
+ * embedding ids. The list is intentionally NOT pre-filtered by the current
+ * input — SuggestionInput narrows it as the admin types. The input stays
+ * free-form, so custom/self-hosted embedding endpoints still work.
+ */
+export function buildEmbeddingModelPredictions(
+  configuredProviderNames: string[],
+  modelsCatalog: ModelsDevCatalog | null,
+): string[] {
+  return buildConfiguredProviderModelSuggestions(
+    configuredProviderNames,
+    modelsCatalog,
+  ).filter(isLikelyEmbeddingModelId);
+}
+
 export function buildConfiguredProviderModelSuggestions(
   configuredProviderNames: string[],
   modelsCatalog: ModelsDevCatalog | null,

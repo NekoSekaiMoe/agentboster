@@ -62,6 +62,12 @@ export const aiProviderConfigSchema = z.object({
   format: aiProviderEnum,
   api_key: z.string().optional().describe('API key can be configured via env.'),
   base_url: z.url().optional(),
+  embedding_base_url: z
+    .url()
+    .optional()
+    .describe(
+      'Optional dedicated base URL for embedding calls (e.g. an embedding-only server exposing /v1/embeddings on another port). Defaults to base_url.',
+    ),
   headers: z.record(z.string(), z.string()).optional(),
   preset: z
     .string()

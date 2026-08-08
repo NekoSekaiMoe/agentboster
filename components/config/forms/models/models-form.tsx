@@ -1,8 +1,18 @@
 'use client';
 
-import { AlertTriangle, ChevronDown, Plus, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  LoaderCircle,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+
+import { listProviderModelsAction } from '@/app/(config)/actions';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -66,11 +76,14 @@ import {
   type ModelsDevCatalog,
   autoFillModelLimits,
   buildConfiguredProviderModelSuggestions,
+  buildEmbeddingModelPredictions,
   buildModelPredictions,
   createStableId,
   findModelLimit,
+  isLikelyEmbeddingModelId,
   listProviderNames,
   loadModelsDevCatalog,
+  normalizeLower,
   resolveCatalogProviderName,
 } from './models-dev';
 import { DeferredProviderIdInput } from './provider-id-input';
@@ -119,6 +132,15 @@ export function ModelsForm() {
   const [catalogDraft, setCatalogDraft] = useState<CatalogDraftEntry[]>([]);
   const catalogDraftRef = useRef<CatalogDraftEntry[]>([]);
   const [expandedCatalogRowIds, setExpandedCatalogRowIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  // Live model lists fetched from each provider's `GET /models` endpoint,
+  // keyed by provider key. These surface models the static models.dev
+  // catalog doesn't know about (self-hosted / embedding-only endpoints).
+  const [liveModelsByProvider, setLiveModelsByProvider] = useState<
+    Record<string, { models: string[]; embeddingModels: string[] }>
+  >({});
+  const [fetchingProviderKeys, setFetchingProviderKeys] = useState<
     ReadonlySet<string>
   >(() => new Set());
 
@@ -211,37 +233,89 @@ export function ModelsForm() {
     ? { duration: 0 }
     : { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
 
-  const modelPredictions = useMemo(
-    () =>
-      buildModelPredictions(
-        models.model ?? '',
-        configuredProviderNames,
-        modelsCatalog,
-      ),
-    [configuredProviderNames, models.model, modelsCatalog],
-  );
+  // Every live model id, scoped with its provider key, deduplicated.
+  const liveScopedModelIds = useMemo(() => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const [providerKey, lists] of Object.entries(liveModelsByProvider)) {
+      for (const id of [...lists.models, ...lists.embeddingModels]) {
+        const scoped = `${providerKey}/${id}`;
+        if (!seen.has(normalizeLower(scoped))) {
+          seen.add(normalizeLower(scoped));
+          result.push(scoped);
+        }
+      }
+    }
+    return result.sort((left, right) => left.localeCompare(right));
+  }, [liveModelsByProvider]);
 
-  const embeddingModelPredictions = useMemo(
-    () =>
-      buildModelPredictions(
-        models.embedding_model ?? '',
-        configuredProviderNames,
-        modelsCatalog,
-      ),
-    [configuredProviderNames, models.embedding_model, modelsCatalog],
-  );
+  const modelPredictions = useMemo(() => {
+    const base = buildModelPredictions(
+      models.model ?? '',
+      configuredProviderNames,
+      modelsCatalog,
+    );
+    const seen = new Set(base.map(normalizeLower));
+    return [
+      ...base,
+      ...liveScopedModelIds.filter((id) => !seen.has(normalizeLower(id))),
+    ];
+  }, [
+    configuredProviderNames,
+    models.model,
+    modelsCatalog,
+    liveScopedModelIds,
+  ]);
+
+  const embeddingModelPredictions = useMemo(() => {
+    const base = buildEmbeddingModelPredictions(
+      configuredProviderNames,
+      modelsCatalog,
+    );
+    const seen = new Set(base.map(normalizeLower));
+    const live: string[] = [];
+    for (const [providerKey, lists] of Object.entries(liveModelsByProvider)) {
+      // A dedicated embedding endpoint only serves embedding models — accept
+      // everything it lists; otherwise keep the id-pattern heuristic.
+      const dedicated = Boolean(
+        models.providers?.[providerKey]?.embedding_base_url,
+      );
+      const accepted = new Set(lists.embeddingModels);
+      for (const id of lists.models) {
+        if (dedicated || isLikelyEmbeddingModelId(id)) {
+          accepted.add(id);
+        }
+      }
+      for (const id of accepted) {
+        const scoped = `${providerKey}/${id}`;
+        if (!seen.has(normalizeLower(scoped))) {
+          seen.add(normalizeLower(scoped));
+          live.push(scoped);
+        }
+      }
+    }
+    return [...base, ...live].sort((left, right) => left.localeCompare(right));
+  }, [
+    configuredProviderNames,
+    models.providers,
+    modelsCatalog,
+    liveModelsByProvider,
+  ]);
 
   // Suggestion source for the model_catalog editor. Returns every model
   // the configured providers expose via models.dev — the admin picks a
   // subset from this list to expose to end users in the chat-box picker.
-  const catalogPredictions = useMemo(
-    () =>
-      buildConfiguredProviderModelSuggestions(
-        configuredProviderNames,
-        modelsCatalog,
-      ),
-    [configuredProviderNames, modelsCatalog],
-  );
+  const catalogPredictions = useMemo(() => {
+    const base = buildConfiguredProviderModelSuggestions(
+      configuredProviderNames,
+      modelsCatalog,
+    );
+    const seen = new Set(base.map(normalizeLower));
+    return [
+      ...base,
+      ...liveScopedModelIds.filter((id) => !seen.has(normalizeLower(id))),
+    ].sort((left, right) => left.localeCompare(right));
+  }, [configuredProviderNames, modelsCatalog, liveScopedModelIds]);
 
   const predictedModelLimit = useMemo(() => {
     if (!modelsCatalog || !models.model) {
@@ -506,20 +580,22 @@ export function ModelsForm() {
                 key={entry.rowId}
                 className="overflow-hidden rounded-2xl border"
               >
-                <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
-                  <SuggestionInput
-                    placeholder={t(
-                      'config.forms.models.catalogModelPlaceholder',
-                    )}
-                    showChevron={false}
-                    suggestions={catalogPredictions}
-                    value={entry.id}
-                    onChange={updateEntryId}
-                  />
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <SuggestionInput
+                      placeholder={t(
+                        'config.forms.models.catalogModelPlaceholder',
+                      )}
+                      showChevron={false}
+                      suggestions={catalogPredictions}
+                      value={entry.id}
+                      onChange={updateEntryId}
+                    />
+                  </div>
                   <Button
                     aria-expanded={isExpanded}
                     aria-label={t('config.forms.models.catalogToggleParams')}
-                    className="md:self-start"
+                    className="shrink-0"
                     onClick={() => toggleCatalogRowExpanded(entry.rowId)}
                     size="icon"
                     type="button"
@@ -532,7 +608,7 @@ export function ModelsForm() {
                     />
                   </Button>
                   <Button
-                    className="md:self-start"
+                    className="shrink-0"
                     onClick={removeEntry}
                     size="icon"
                     type="button"
@@ -830,6 +906,33 @@ export function ModelsForm() {
                               }
                             />
                           </Field>
+                          <Field
+                            label={t('config.forms.models.embeddingBaseUrl')}
+                          >
+                            <Input
+                              placeholder={t(
+                                'config.forms.models.embeddingBaseUrlPlaceholder',
+                              )}
+                              value={providerValue.embedding_base_url ?? ''}
+                              onChange={(event) =>
+                                updateModels((current) => ({
+                                  ...current,
+                                  providers: {
+                                    ...(current.providers ?? {}),
+                                    [providerKey]: {
+                                      ...(current.providers?.[providerKey] ??
+                                        providerValue),
+                                      embedding_base_url:
+                                        event.target.value || undefined,
+                                    },
+                                  },
+                                }))
+                              }
+                            />
+                            <p className="text-muted-foreground text-xs">
+                              {t('config.forms.models.embeddingBaseUrlHelp')}
+                            </p>
+                          </Field>
                         </div>
                         <label
                           htmlFor={`${providerKey}-client-spoof`}
@@ -897,7 +1000,57 @@ export function ModelsForm() {
                           </Field>
                         </div>
 
-                        <div className="flex justify-end">
+                        <div className="flex items-center justify-between gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            disabled={
+                              !providerValue.base_url ||
+                              fetchingProviderKeys.has(providerKey)
+                            }
+                            onClick={async () => {
+                              setFetchingProviderKeys((current) =>
+                                new Set(current).add(providerKey),
+                              );
+                              try {
+                                const result = await listProviderModelsAction({
+                                  base_url: providerValue.base_url ?? '',
+                                  api_key: providerValue.api_key,
+                                  headers: providerValue.headers,
+                                  embedding_base_url:
+                                    providerValue.embedding_base_url,
+                                });
+                                setLiveModelsByProvider((current) => ({
+                                  ...current,
+                                  [providerKey]: result,
+                                }));
+                                toast.success(
+                                  t('config.forms.models.fetchModelsSuccess', {
+                                    count:
+                                      result.models.length +
+                                      result.embeddingModels.length,
+                                  }),
+                                );
+                              } catch {
+                                toast.error(
+                                  t('config.forms.models.fetchModelsError'),
+                                );
+                              } finally {
+                                setFetchingProviderKeys((current) => {
+                                  const next = new Set(current);
+                                  next.delete(providerKey);
+                                  return next;
+                                });
+                              }
+                            }}
+                          >
+                            {fetchingProviderKeys.has(providerKey) ? (
+                              <LoaderCircle className="size-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="size-4" />
+                            )}
+                            {t('config.forms.models.fetchModels')}
+                          </Button>
                           <Button
                             type="button"
                             variant="outline"

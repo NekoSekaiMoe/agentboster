@@ -405,6 +405,16 @@ export const enUS = {
     'Configure the default model and its parameters for your Claw. You can also specify different models for different use cases in the Agents section.',
   'config.forms.models.defaultSettingsTitle': 'Default model settings',
   'config.forms.models.embeddingModel': 'Embedding model',
+  'config.forms.models.embeddingBaseUrl': 'Embedding base URL',
+  'config.forms.models.embeddingBaseUrlPlaceholder':
+    'Defaults to the base URL above',
+  'config.forms.models.embeddingBaseUrlHelp':
+    'Optional. Dedicated endpoint for embedding calls (e.g. an embedding-only server exposing /v1/embeddings on another port).',
+  'config.forms.models.fetchModels': 'Fetch model list',
+  'config.forms.models.fetchModelsSuccess':
+    'Fetched {count} models from the provider',
+  'config.forms.models.fetchModelsError':
+    'Failed to fetch models from the provider',
   'config.forms.models.embeddingWarning':
     'Changing the embedding model changes vector dimensions and only new or re-indexed memories will participate in vector retrieval. Older memories still fall back to full-text search until they are re-indexed.',
   'config.forms.models.format': 'Format',
