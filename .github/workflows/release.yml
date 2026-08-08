@@ -563,7 +563,7 @@ jobs:
       - name: Normalize + extract sidecars
         shell: bash
         env:
-          MCP_BIN_NAME: ${{ startsWith(matrix.rust_target, 'windows') && 'computer-use-mcp.exe' || 'computer-use-mcp' }}
+          MCP_BIN_NAME: ${{ contains(matrix.rust_target, 'windows') && 'computer-use-mcp.exe' || 'computer-use-mcp' }}
         # cwd is .../packages/desktop (defaults.run.working-directory).
         # download-artifact landed files under sidecar-stage/{mcp,cli}-in/
         # relative to cwd, so we normalize in place there.

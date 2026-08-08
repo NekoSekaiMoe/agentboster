@@ -78,9 +78,17 @@ CLI_DIST="$REPO_ROOT/subpackage/cli/packages/coding-agent/dist"
 #                                              one at runtime as a fallback)
 #                agentboster-cli.cjs           (node bundle, same dir)
 #   MCP:         computer-use-mcp[.exe]        (no triple)
-# Windows uses .cmd because .exe was an erroneous suffix that never
-# matched a real artifact (there is no native .exe launcher).
-CLI_BIN_NAME="agentboster-cli-${TARGET}${EXT}"
+# The CLI launcher and the MCP binary use DIFFERENT suffixes on Windows:
+# MCP is a native binary (.exe), the CLI launcher is a batch shim (.cmd).
+# The CLI .cmd is synthesized HERE at build time and copied in; lib.rs's
+# `ensure_cli_launcher` searches for exactly `agentboster-cli-<triple>.cmd`.
+# (Using a shared EXT for both previously produced an .exe-named .cmd file
+# that never matched discover_sidecar's search — see Windows fallback path.)
+if [[ "$TARGET" == *windows* ]]; then
+  CLI_BIN_NAME="agentboster-cli-${TARGET}.cmd"
+else
+  CLI_BIN_NAME="agentboster-cli-${TARGET}"
+fi
 MCP_BIN_NAME="computer-use-mcp${EXT}"
 
 # ── 1) computer-use-mcp ───────────────────────────────────────────
