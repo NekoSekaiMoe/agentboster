@@ -1,6 +1,14 @@
 import { chatMain } from '@/lib/chat/index';
 import { getSession } from '@/lib/core/db/chat';
 import { getScheduledTask, updateScheduledTask } from '@/lib/core/db/scheduled';
+import {
+  claimScheduledRunSlot,
+  markRunCompleted,
+  markRunFailed,
+  markRunSkipped,
+  markRunStarted,
+} from '@/lib/core/db/scheduled-task-runs';
+import { classifyFailure } from '@/lib/core/task/failure-reason';
 import { createLogger } from '@/lib/utils/logger';
 import { sameInstant } from './utils';
 import {
@@ -296,6 +304,29 @@ export async function deliverScheduledTask(input: {
     };
   }
 
+  // Claim a run-slot row for this (task, plannedAt) pair. The DB partial
+  // unique index (scheduled_task_runs_task_planned_uniq) makes this the
+  // authoritative idempotency primitive — two concurrent ticks for the
+  // same slot cannot both proceed. `created=false` means another caller
+  // already owns this slot; treat as duplicate (crash-recovery re-tick).
+  let runSlotId: string | null = null;
+  if (scheduledFor) {
+    const slot = await claimScheduledRunSlot({
+      taskId: task.id,
+      plannedAt: scheduledFor,
+    });
+    if (!slot.created && slot.run.status !== 'pending') {
+      // Non-terminal run already holds this slot — let it continue.
+      return {
+        taskId: task.id,
+        status: 'duplicate' as const,
+        sessionId: task.sessionId,
+        runId: slot.run.runId ?? task.lastChatRunId ?? null,
+      };
+    }
+    runSlotId = slot.run.id;
+  }
+
   let userId: string | null;
   try {
     userId = await resolveScheduledTaskUserId(task.sessionId);
@@ -333,7 +364,21 @@ export async function deliverScheduledTask(input: {
       autoFallbackNode: task.autoFallbackNode ?? false,
     });
     if ('failed' in resolution && resolution.failed) {
-      await handleDispatchFailure(task, userId, resolution.reason);
+      // Admission gate failure (target node offline): record as SKIPPED,
+      // NOT as a dispatch failure. The task itself isn't broken — the
+      // runtime is. Burning the failure counter here would auto-disable
+      // perfectly good tasks just because a daemon rebooted. Mirrors
+      // Multica's shouldSkipDispatch admission gate (autopilot.go:1186).
+      if (runSlotId) {
+        await markRunSkipped(runSlotId, resolution.reason);
+      }
+      await sendScheduledTaskCompletion({
+        task,
+        runId: null,
+        userId,
+        status: 'failed',
+        errorMessage: resolution.reason,
+      });
       throw new Error(resolution.reason);
     }
     if ('node' in resolution && resolution.node) {
@@ -364,6 +409,14 @@ export async function deliverScheduledTask(input: {
     runId: string;
     status: 'dispatched';
   } | null = null;
+  if (runSlotId) {
+    await markRunStarted(runSlotId).catch((err) => {
+      logger.warn('deliver:mark_started_failed', {
+        runSlotId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
   try {
     const source = (await buildScheduledSource(task.sessionId)) ?? {
       type: 'scheduled' as const,
@@ -410,9 +463,29 @@ export async function deliverScheduledTask(input: {
       runId: routed.result.runId,
       type: task.type,
     });
+    if (runSlotId) {
+      await markRunCompleted(runSlotId, routed.result.runId).catch((err) => {
+        logger.warn('deliver:mark_completed_failed', {
+          runSlotId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     await handleDispatchFailure(task, userId, errorMessage);
+    if (runSlotId) {
+      const failureReason = classifyFailure(errorMessage);
+      await markRunFailed(runSlotId, {
+        failureReason,
+        errorMessage,
+      }).catch((err) => {
+        logger.warn('deliver:mark_failed_failed', {
+          runSlotId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     throw error;
   } finally {
     // Restore session.metadata so the node constraint only applies to

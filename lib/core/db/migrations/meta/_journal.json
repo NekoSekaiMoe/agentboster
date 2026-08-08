@@ -218,6 +218,13 @@
       "when": 1786173395561,
       "tag": "0030_multi_user_isolation_and_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1786173763450,
+      "tag": "0031_scheduled_task_runs",
+      "breakpoints": true
     }
   ]
 }
