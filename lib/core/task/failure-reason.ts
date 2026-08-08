@@ -167,6 +167,15 @@ export function classifyFailure(
       'maximum context',
       'prompt is too long',
       'context size has been exceeded',
+      // Claude Code 2.1.x response-side overflow (stop_reason
+      // model_context_window_exceeded). These carry neither 'token' nor
+      // 'limit', so without them the failure falls through to unknown —
+      // and the over-full session stays pinned as the resume pointer,
+      // replaying the overflow forever. Ported from Multica classify.go
+      // contextWindowExceededWitnesses.
+      'context window limit',
+      'model_context_window_exceeded',
+      'prompt_too_long',
     ) ||
     containsAll(lower, 'token', 'limit')
   ) {

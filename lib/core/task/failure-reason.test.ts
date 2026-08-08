@@ -79,6 +79,16 @@ describe('classifyFailure', () => {
       'Hit the token limit for this conversation',
       FAILURE_REASON.AGENT_CONTEXT_OVERFLOW,
     ],
+    // Claude Code 2.1.x response-side overflow witnesses (GH #6360/#6402).
+    // These carry neither 'token' nor 'limit'; without the witness list
+    // they would fall through to AGENT_UNKNOWN and the over-full session
+    // would stay pinned as the resume pointer, replaying the overflow.
+    ['context window limit reached', FAILURE_REASON.AGENT_CONTEXT_OVERFLOW],
+    [
+      '{"stop_reason":"model_context_window_exceeded"}',
+      FAILURE_REASON.AGENT_CONTEXT_OVERFLOW,
+    ],
+    ['error: prompt_too_long', FAILURE_REASON.AGENT_CONTEXT_OVERFLOW],
 
     // 2. Missing config.
     [

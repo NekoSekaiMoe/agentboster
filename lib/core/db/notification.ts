@@ -130,6 +130,7 @@ export async function upsertNotificationPreferences(data: {
   userId: string;
   preferredChannel: string;
   fallbackChannels: string[];
+  mutedGroups?: string[];
   enabled?: boolean;
 }) {
   const [prefs] = await db
@@ -138,6 +139,7 @@ export async function upsertNotificationPreferences(data: {
       userId: data.userId,
       preferredChannel: data.preferredChannel,
       fallbackChannels: data.fallbackChannels,
+      mutedGroups: data.mutedGroups ?? [],
       enabled: data.enabled ?? true,
     })
     .onConflictDoUpdate({
@@ -145,6 +147,7 @@ export async function upsertNotificationPreferences(data: {
       set: {
         preferredChannel: data.preferredChannel,
         fallbackChannels: data.fallbackChannels,
+        mutedGroups: data.mutedGroups ?? [],
         enabled: data.enabled ?? true,
       },
     })

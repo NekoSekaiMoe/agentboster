@@ -25,25 +25,33 @@ export async function GET(request: Request) {
   try {
     await awaitRehydrated();
     const queue = getDecisionQueue();
-    let pending = queue.listPending();
-    let sent = queue.getSent();
 
+    // UI-facing route: MUST scope to one user. proxy.ts injects
+    // `x-user-id` on session-authenticated requests; requests admitted
+    // via AGENTD_API_KEY carry no user identity and must NOT enumerate
+    // every user's pending decisions. The prior optional-header
+    // behavior leaked all users' data to any AGENTD_API_KEY holder.
     const userId = request.headers.get('x-user-id');
-    if (userId) {
-      const userSessions = await db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(inArray(sessions.userId, [userId]));
-      const sessionIds = new Set(userSessions.map((s) => s.id));
-      pending = pending.filter((d) => sessionIds.has(d.sessionId));
-      sent = sent.filter((d) => sessionIds.has(d.sessionId));
+    if (!userId) {
+      return Response.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 },
+      );
     }
+
+    const userSessions = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(inArray(sessions.userId, [userId]));
+    const sessionIds = new Set(userSessions.map((s) => s.id));
+    const pending = queue.listPending().filter((d) => sessionIds.has(d.sessionId));
+    const sent = queue.getSent().filter((d) => sessionIds.has(d.sessionId));
 
     // Combine and convert to the snake_case shape the UI expects.
     const all = [...pending, ...sent];
     const data = all.map(decisionToSnake);
 
-    logger.info('decisions listed', { count: data.length });
+    logger.info('decisions listed', { userId, count: data.length });
 
     return Response.json({ success: true, data });
   } catch (error) {
