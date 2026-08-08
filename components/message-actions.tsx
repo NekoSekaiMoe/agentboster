@@ -137,6 +137,7 @@ export function PureMessageActions({
   if (!textContent.trim() && message.role === 'assistant') return null;
 
   const isUser = message.role === 'user';
+  const isAssistant = message.role === 'assistant';
   const timestamp = formatMessageTime(message.metadata?.createdAt);
   const versions = message.metadata?.versions || [];
   const currentVersionIndex = message.metadata?.currentVersionIndex ?? 0;
@@ -155,13 +156,14 @@ export function PureMessageActions({
         {timestamp ? <span className="leading-7">{timestamp}</span> : null}
 
         {/* Generation version navigation — only for assistant messages with multiple versions */}
-        {!isUser && hasMultipleVersions && (
+        {isAssistant && hasMultipleVersions && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   className={cn(ACTION_BUTTON_CLASS, 'disabled:opacity-30')}
                   variant="ghost"
+                  aria-label="Previous generation"
                   onClick={handlePreviousGeneration}
                   disabled={!canGoPrevious}
                 >
@@ -178,6 +180,7 @@ export function PureMessageActions({
                 <Button
                   className={cn(ACTION_BUTTON_CLASS, 'disabled:opacity-30')}
                   variant="ghost"
+                  aria-label="Next generation"
                   onClick={handleNextGeneration}
                   disabled={!canGoNext}
                 >
@@ -190,12 +193,13 @@ export function PureMessageActions({
         )}
 
         {/* Regenerate — only for assistant messages */}
-        {!isUser && onRegenerate && (
+        {isAssistant && onRegenerate && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 className={ACTION_BUTTON_CLASS}
                 variant="ghost"
+                aria-label="Regenerate"
                 onClick={handleRegenerate}
               >
                 <RefreshCwIcon />
@@ -213,6 +217,7 @@ export function PureMessageActions({
                 <Button
                   className={cn(ACTION_BUTTON_CLASS, 'disabled:opacity-30')}
                   variant="ghost"
+                  aria-label="Previous version"
                   onClick={handlePreviousVersion}
                   disabled={!canGoPrevious}
                 >
@@ -229,6 +234,7 @@ export function PureMessageActions({
                 <Button
                   className={cn(ACTION_BUTTON_CLASS, 'disabled:opacity-30')}
                   variant="ghost"
+                  aria-label="Next version"
                   onClick={handleNextVersion}
                   disabled={!canGoNext}
                 >
@@ -241,7 +247,7 @@ export function PureMessageActions({
         )}
 
         {/* Text-to-Speech playback — only for assistant messages when TTS is configured */}
-        {!isUser && ttsEnabled && textContent.trim() && (
+        {isAssistant && ttsEnabled && textContent.trim() && (
           <AudioPlayer text={textContent} autoPlay={autoPlay} />
         )}
 
@@ -252,6 +258,7 @@ export function PureMessageActions({
               <Button
                 className={ACTION_BUTTON_CLASS}
                 variant="ghost"
+                aria-label="Copy"
                 onClick={handleCopy}
               >
                 <CopyIcon />
@@ -262,12 +269,13 @@ export function PureMessageActions({
         )}
 
         {/* Export as Markdown download — only for assistant messages */}
-        {!isUser && textContent.trim() && (
+        {isAssistant && textContent.trim() && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 className={ACTION_BUTTON_CLASS}
                 variant="ghost"
+                aria-label="Export as Markdown"
                 onClick={handleExportMarkdown}
               >
                 <Download className="size-4" />

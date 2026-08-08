@@ -481,7 +481,29 @@ function PureMultimodalInput({
   }, [shouldSubmit, submitForm]);
 
   return (
-    <div className="relative flex w-full flex-col gap-2">
+    <div
+      role="group"
+      aria-label="Message composer and attachments"
+      className="relative flex w-full flex-col gap-2"
+      onDragOver={(event) => {
+        event.preventDefault();
+        setIsDragActive(true);
+      }}
+      onDragLeave={(event) => {
+        if (
+          event.relatedTarget instanceof Node &&
+          event.currentTarget.contains(event.relatedTarget)
+        ) {
+          return;
+        }
+        setIsDragActive(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setIsDragActive(false);
+        void addFiles(event.dataTransfer.files);
+      }}
+    >
       <input
         type="file"
         ref={fileInputRef}
@@ -518,24 +540,6 @@ function PureMultimodalInput({
           },
           className,
         )}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setIsDragActive(true);
-        }}
-        onDragLeave={(event) => {
-          if (
-            event.relatedTarget instanceof Node &&
-            event.currentTarget.contains(event.relatedTarget)
-          ) {
-            return;
-          }
-          setIsDragActive(false);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          setIsDragActive(false);
-          void addFiles(event.dataTransfer.files);
-        }}
       >
         <SlashCommandMenu
           value={input}

@@ -7,7 +7,7 @@ import { ModelPicker } from '@/components/chat/model-picker';
 import { PersonaPicker } from '@/components/chat/persona-picker';
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
-import { Loader2, SquareIcon } from './icons';
+import { LoaderCircle, Square } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 /**
@@ -149,9 +149,9 @@ function PureChatHeader({
                 disabled={aborting}
               >
                 {aborting ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <LoaderCircle className="size-4 animate-spin" />
                 ) : (
-                  <SquareIcon />
+                  <Square className="size-4" fill="currentColor" />
                 )}
                 <span className="hidden md:inline">
                   {t('chatHeader.abort')}

@@ -1006,12 +1006,45 @@ export function Chat({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Keep the message list's bottom clearance in sync with the absolutely
+  // positioned composer: the composer (multiline input up to max-h-[50dvh]
+  // plus attachments) overlays the scroll area, so the list's padding and
+  // auto-scroll offset must track its real height instead of a fixed value.
+  // The height is published as the --composer-h CSS variable on the layout
+  // root (read by message-list.tsx), avoiding any React re-render on resize.
+  const layoutRef = useRef<HTMLDivElement | null>(null);
+  const composerObserverRef = useRef<ResizeObserver | null>(null);
+  const setComposerRef = useCallback((node: HTMLFormElement | null) => {
+    composerObserverRef.current?.disconnect();
+    composerObserverRef.current = null;
+    if (!node) {
+      layoutRef.current?.style.removeProperty('--composer-h');
+      return;
+    }
+    const update = () => {
+      // Extra 16px gap so the last message never sits flush against the
+      // composer.
+      layoutRef.current?.style.setProperty(
+        '--composer-h',
+        `${node.offsetHeight + 16}px`,
+      );
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    composerObserverRef.current = observer;
+  }, []);
+  useEffect(() => () => composerObserverRef.current?.disconnect(), []);
+
   return (
     <SidebarProvider>
       <ChatSidebar />
       <MobileDrawerBridge />
       <SidebarInset className="min-w-0 bg-background">
-        <div className="relative flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div
+          ref={layoutRef}
+          className="relative flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background"
+        >
           <ChatHeader
             isRunning={isLoading}
             chatId={id}
@@ -1093,7 +1126,10 @@ export function Chat({
               </div>
             </div>
           ) : (
-            <form className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] md:pb-7">
+            <form
+              ref={setComposerRef}
+              className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] md:pb-7"
+            >
               <div className="pointer-events-auto mx-auto flex w-full gap-2 md:max-w-4xl">
                 <MultimodalInput
                   chatId={id}

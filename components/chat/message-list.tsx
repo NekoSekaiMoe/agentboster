@@ -377,7 +377,7 @@ function PureMessages({
     <div className="relative min-h-0 min-w-0 flex-1">
       <div
         ref={messagesContainerRef}
-        className="flex h-full min-h-0 flex-col gap-8 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pt-5 pb-32 md:px-6 md:pt-8 md:pb-36"
+        className="flex h-full min-h-0 scroll-pb-[var(--composer-h,8rem)] flex-col gap-8 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pt-5 pb-[var(--composer-h,8rem)] md:scroll-pb-[var(--composer-h,9rem)] md:px-6 md:pt-8 md:pb-[var(--composer-h,9rem)]"
       >
         {messages.length === 0 && <Overview onPromptSelect={onPromptSelect} />}
 
