@@ -43,6 +43,7 @@ export {
   channelHealth,
 } from './notification';
 export { userVaultEntries, vaultAuditLogs, vaultEntries } from './vault';
+export { taskUsage, nodeUsageDaily } from './usage';
 export { l2Decisions } from './l2-decisions';
 export type { L2Decision, NewL2Decision } from './l2-decisions';
 export { agentBarriers, agentBarrierReleases } from './agent-barriers';
