@@ -150,6 +150,23 @@ export async function POST(request: Request) {
   const data = parsed.data;
   const metadata = (data.metadata ?? {}) as Record<string, unknown>;
 
+  // Normalize task / session identifiers across snake_case and camelCase
+  // spellings, whether they arrive at the top level (data.task_id) or in
+  // metadata. The daemon's callers are inconsistent: some send
+  // metadata.taskId / metadata.sessionId, others metadata.task_id /
+  // metadata.session_id. Resolving once and reusing the same values for
+  // owner resolution AND the decision-queue mirror below keeps ownership
+  // from silently dropping to null when only a camelCase field is set.
+  const taskId =
+    (typeof data.task_id === 'string' && data.task_id) ||
+    (typeof metadata.task_id === 'string' && metadata.task_id) ||
+    (typeof metadata.taskId === 'string' && metadata.taskId) ||
+    '';
+  const sessionId =
+    (typeof metadata.session_id === 'string' && metadata.session_id) ||
+    (typeof metadata.sessionId === 'string' && metadata.sessionId) ||
+    '';
+
   // Derive the owning user from the task/session scope so the row is
   // attributable for per-user filtering. Body/metadata userId is the IM
   // delivery target, not the tenancy boundary.
@@ -157,16 +174,14 @@ export async function POST(request: Request) {
   try {
     ownerUserId = (
       await resolveAgentdResourceAccess({
-        taskId: typeof data.task_id === 'string' ? data.task_id : null,
-        sessionId:
-          (typeof metadata.session_id === 'string' && metadata.session_id) ||
-          null,
+        taskId: taskId || null,
+        sessionId: sessionId || null,
       })
     ).userId;
   } catch (err) {
     // Scope unavailable — leave null; row stays deliverable via metadata.
     logger.warn('scope unavailable; notification stays deliverable via metadata', {
-      task_id: data.task_id,
+      task_id: taskId,
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -182,7 +197,7 @@ export async function POST(request: Request) {
     // a different value past the DAL boundary.
     const row = await createNotification({
       userId: ownerUserId,
-      taskId: data.task_id || 'unknown',
+      taskId: taskId || 'unknown',
       decisionId:
         typeof metadata.decisionId === 'string'
           ? (metadata.decisionId as string)
@@ -211,16 +226,12 @@ export async function POST(request: Request) {
 
     // For question-type notifications, mirror into the L2 decision
     // queue so the chat UI can render a DecisionCard and capture the
-    // user's answer.
+    // user's answer. Reuses the normalized taskId/sessionId from above
+    // so a caller that only sent metadata.taskId / metadata.sessionId
+    // still produces a queue entry.
     if (data.type === 'question') {
       try {
         const queue = getDecisionQueue();
-        const sessionId =
-          (metadata.session_id as string | undefined) ??
-          (metadata.sessionId as string | undefined) ??
-          '';
-        const taskId =
-          (metadata.task_id as string | undefined) ?? data.task_id ?? '';
         const prompts = metadata.prompts ?? undefined;
 
         if (sessionId && taskId) {
@@ -247,7 +258,7 @@ export async function POST(request: Request) {
     logger.info('notification created', {
       id: row?.id,
       type: data.type,
-      taskId: data.task_id,
+      taskId,
     });
 
     return Response.json({

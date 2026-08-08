@@ -18,6 +18,17 @@ import { nodeUsageDaily, taskUsage } from './schema';
  * ticks; NULL means "no authoritative figure, estimate from rate table".
  */
 
+/**
+ * Sentinel user_id for usage rows that have no attributable owner (a
+ * shared/anonymous node, a pre-multi-user row). We must NOT store NULL
+ * here: `nodeUsageDaily`'s unique index includes `user_id`, and Postgres
+ * treats NULL as distinct (NULL != NULL), so a NULL would bypass the
+ * conflict target and let identical (node,date,provider,model) rows
+ * multiply. The sentinel keeps shared usage in its own bucket that is
+ * still conflict-safe AND excluded from per-user spend queries.
+ */
+export const SHARED_USER_SENTINEL = '__shared__';
+
 export interface UsageRecordInput {
   taskId: string;
   userId?: string | null;
@@ -57,6 +68,13 @@ export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
   const cacheReadTokens = input.cacheReadTokens ?? 0;
   const cacheWriteTokens = input.cacheWriteTokens ?? 0;
 
+  // The per-node rollup (nodeUsageDaily) coerces NULL userId to the
+  // SHARED_USER_SENTINEL — see its schema comment for why a NULL would
+  // bypass the unique index. taskUsage is additive on
+  // (taskId, provider, model) and is read via getTaskUsageSum (not keyed
+  // on userId), so it tolerates a NULL userId without a conflict hazard.
+  const effectiveUserId = input.userId ?? SHARED_USER_SENTINEL;
+
   // Build the per-task upsert once. The values/set clauses are identical
   // regardless of which client executes them; the difference is whether
   // they run inside a transaction (pg) or a batch (neon).
@@ -65,7 +83,7 @@ export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
       .insert(taskUsage)
       .values({
         taskId: input.taskId,
-        userId: input.userId ?? null,
+        userId: effectiveUserId,
         provider: input.provider,
         model: input.model,
         inputTokens,
@@ -100,7 +118,7 @@ export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
       .insert(nodeUsageDaily)
       .values({
         nodeId,
-        userId: input.userId ?? null,
+        userId: effectiveUserId,
         date,
         provider: input.provider,
         model: input.model,
@@ -113,6 +131,7 @@ export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
       .onConflictDoUpdate({
         target: [
           nodeUsageDaily.nodeId,
+          nodeUsageDaily.userId,
           nodeUsageDaily.date,
           nodeUsageDaily.provider,
           nodeUsageDaily.model,

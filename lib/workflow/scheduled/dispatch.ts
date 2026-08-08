@@ -309,15 +309,21 @@ export async function deliverScheduledTask(input: {
   // unique index (scheduled_task_runs_task_planned_uniq) makes this the
   // authoritative idempotency primitive — two concurrent ticks for the
   // same slot cannot both proceed. `created=false` means another caller
-  // already owns this slot; treat as duplicate (crash-recovery re-tick).
+  // already owns this slot (the row is non-terminal: pending/running);
+  // treat it as a duplicate. Do NOT special-case `status === 'pending'`
+  // to let this caller continue: caller A may still be between
+  // `claimScheduledRunSlot` and `markRunStarted`, so two callers would
+  // both dispatch the chat workflow for the same slot.
   let runSlotId: string | null = null;
   if (scheduledFor) {
     const slot = await claimScheduledRunSlot({
       taskId: task.id,
       plannedAt: scheduledFor,
     });
-    if (!slot.created && slot.run.status !== 'pending') {
-      // Non-terminal run already holds this slot — let it continue.
+    if (!slot.created) {
+      // Another caller owns this slot — bail as duplicate regardless of
+      // whether the slot row is currently pending or running. The owner
+      // will drive it to a terminal state.
       return {
         taskId: task.id,
         status: 'duplicate' as const,
@@ -417,12 +423,33 @@ export async function deliverScheduledTask(input: {
     status: 'dispatched';
   } | null = null;
   if (runSlotId) {
-    await markRunStarted(runSlotId).catch((err) => {
+    // markRunStarted is the final CAS that confirms THIS caller still
+    // owns the slot. If it returns false, a concurrent caller or the
+    // reaper already moved the row out of 'pending' — we must NOT
+    // dispatch, otherwise two callers drive the same slot (the race
+    // this gate exists to prevent). Treat it as a recovered-abort and
+    // mark the run failed so the slot can be reclaimed.
+    const started = await markRunStarted(runSlotId).catch((err) => {
       logger.warn('deliver:mark_started_failed', {
         runSlotId,
         error: err instanceof Error ? err.message : String(err),
       });
+      return false;
     });
+    if (!started) {
+      logger.warn('deliver:slot_lost_before_dispatch', { runSlotId });
+      await markRunFailed(runSlotId, {
+        failureReason: 'slot_lost',
+        errorMessage:
+          'run slot was no longer pending at dispatch time (reaped or claimed by another caller)',
+      }).catch(() => {});
+      return {
+        taskId: task.id,
+        status: 'duplicate' as const,
+        sessionId: task.sessionId,
+        runId: task.lastChatRunId ?? null,
+      };
+    }
   }
   // Refresh the heartbeat lease while the workflow runs so the reaper
   // can distinguish this live dispatch from a truly stuck one. Best-effort:

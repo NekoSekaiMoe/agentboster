@@ -239,6 +239,13 @@
       "when": 1786197600000,
       "tag": "0033_scheduled_task_runs_heartbeat",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786284000000,
+      "tag": "0034_node_usage_daily_user_isolation",
+      "breakpoints": true
     }
   ]
 }

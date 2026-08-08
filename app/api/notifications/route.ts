@@ -12,8 +12,17 @@ export async function GET(request: Request) {
     try {
       access = await requireAuthAccess(cookieStore);
     } catch (error) {
-      const status = error instanceof AuthError ? error.status : 401;
-      return NextResponse.json({ error: 'Unauthorized' }, { status });
+      // Only AuthError carries an HTTP status (401/403). Any other throw
+      // (a DB failure inside getUserById, a missing AUTH_SECRET) is a 5xx
+      // and must NOT be mislabeled as 401 here — rethrow so the outer
+      // catch returns a 500.
+      if (error instanceof AuthError) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: error.status },
+        );
+      }
+      throw error;
     }
     const { searchParams } = new URL(request.url);
     const channel = searchParams.get('channel');

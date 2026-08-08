@@ -12,8 +12,16 @@ export async function POST(request: Request) {
     try {
       access = await requireAuthAccess(cookieStore);
     } catch (error) {
-      const status = error instanceof AuthError ? error.status : 401;
-      return NextResponse.json({ error: 'Unauthorized' }, { status });
+      // Only AuthError carries an HTTP status (401/403). Any other throw
+      // is a 5xx — rethrow so the outer catch returns 500 instead of
+      // masking a DB/auth-config failure as 'Unauthorized'.
+      if (error instanceof AuthError) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: error.status },
+        );
+      }
+      throw error;
     }
     const body = await request.json();
     const { ids } = body;

@@ -120,9 +120,15 @@ export const nodeUsageDaily = pgTable(
       .notNull(),
   },
   (table) => ({
+    // NOTE: userId is part of the conflict key. Postgres treats NULL as
+    // distinct (NULL != NULL), so a NULL userId would bypass the unique
+    // constraint entirely and let same-key rows multiply instead of
+    // upserting. The DAL coerces a missing userId to the sentinel
+    // `'__shared__'` so anonymous/shared usage lands in its own bucket
+    // and still hits this conflict target.
     nodeDateProviderModelIdx: uniqueIndex(
       'node_usage_daily_node_date_provider_model_idx',
-    ).on(table.nodeId, table.date, table.provider, table.model),
+    ).on(table.nodeId, table.userId, table.date, table.provider, table.model),
     nodeDateIdx: index('node_usage_daily_node_date_idx').on(
       table.nodeId,
       table.date,

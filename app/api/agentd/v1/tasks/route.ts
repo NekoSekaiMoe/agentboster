@@ -42,13 +42,40 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const agentId = searchParams.get('agent_id') ?? 'default';
-    const limit = Number(searchParams.get('limit') ?? 50);
     const sessionId = searchParams.get('session_id') ?? undefined;
     if (!sessionId) {
       return Response.json(
         { success: false, error: 'session_id is required' },
         { status: 400 },
       );
+    }
+    // Validate `limit` before it reaches listTasks: reject NaN, Infinity,
+    // non-integers, and non-positive values; cap at MAX_PAGE_SIZE so a
+    // hostile/misconfigured caller can't request unbounded scans. Absent
+    // → default of 50.
+    const MAX_PAGE_SIZE = 200;
+    const DEFAULT_LIMIT = 50;
+    const limitParam = searchParams.get('limit');
+    let limit: number;
+    if (limitParam === null) {
+      limit = DEFAULT_LIMIT;
+    } else {
+      const parsed = Number(limitParam);
+      if (
+        !Number.isFinite(parsed) ||
+        !Number.isInteger(parsed) ||
+        parsed <= 0
+      ) {
+        return Response.json(
+          {
+            success: false,
+            error:
+              'limit must be a positive integer (1-200), or omitted for the default of 50',
+          },
+          { status: 400 },
+        );
+      }
+      limit = Math.min(parsed, MAX_PAGE_SIZE);
     }
     const access = await resolveAgentdResourceAccess({ sessionId });
     const tasks = await listTasks(agentId, limit, {

@@ -142,9 +142,18 @@ export async function claimScheduledRunSlot(input: {
   return { created: false, run: existing as ScheduledTaskRunRecord };
 }
 
-/** Mark a run as started (dispatch in progress). */
-export async function markRunStarted(runId: string): Promise<void> {
-  await db
+/**
+ * Mark a run as started (dispatch in progress).
+ *
+ * Returns `true` only when THIS caller successfully transitioned a
+ * pending row to running. The `WHERE status = 'pending'` CAS means a
+ * concurrent caller — or the reaper (`reapStuckRuns`) — that already
+ * moved the row out of `pending` causes this to return `false` with no
+ * row updated. Dispatch callers MUST stop dispatching when this returns
+ * false, so a reaped/claimed-elsewhere run is not resurrected.
+ */
+export async function markRunStarted(runId: string): Promise<boolean> {
+  const updated = await db
     .update(scheduledTaskRuns)
     .set({
       status: 'running',
@@ -156,7 +165,14 @@ export async function markRunStarted(runId: string): Promise<void> {
       heartbeatAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(scheduledTaskRuns.id, runId));
+    .where(
+      and(
+        eq(scheduledTaskRuns.id, runId),
+        eq(scheduledTaskRuns.status, 'pending'),
+      ),
+    )
+    .returning({ id: scheduledTaskRuns.id });
+  return updated.length > 0;
 }
 
 /**
