@@ -5,6 +5,7 @@ import { Toaster } from 'sonner';
 
 import { I18nProvider } from '@/components/i18n-provider';
 import { MobileNavWrapper } from '@/components/mobile-nav-wrapper';
+import { ReactQueryProvider } from '@/components/react-query-provider';
 import { ThemeProvider } from '@/components/theme-provider';
 import { getAppBaseUrl } from '@/lib/bot/webhook';
 
@@ -139,9 +140,11 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <I18nProvider>
-            <Toaster position="top-center" />
-            {children}
-            <MobileNavWrapper />
+            <ReactQueryProvider>
+              <Toaster position="top-center" />
+              {children}
+              <MobileNavWrapper />
+            </ReactQueryProvider>
           </I18nProvider>
         </ThemeProvider>
 
