@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
+import { defaultSeverityForType } from '@/lib/core/notification/groups';
 import { db } from './index';
 import {
   channelHealth,
@@ -17,8 +18,11 @@ export async function createNotification(data: {
   targetChatId: string;
   targetUserId?: string | null;
   userId?: string | null;
+  severity?: 'action_required' | 'attention' | 'info' | null;
   expiresAt?: Date;
 }) {
+  const severity =
+    data.severity ?? defaultSeverityForType(data.notificationType);
   const [n] = await db
     .insert(notifications)
     .values({
@@ -26,6 +30,7 @@ export async function createNotification(data: {
       taskId: data.taskId,
       decisionId: data.decisionId ?? null,
       notificationType: data.notificationType,
+      severity,
       payload: data.payload,
       status: 'pending',
       channel: data.channel,

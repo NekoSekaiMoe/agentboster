@@ -2,6 +2,7 @@ import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
 import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
 import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
 import { hasAdminRole } from '@/lib/core/db/users';
+import { defaultSeverityForType } from '@/lib/core/notification/groups';
 import { db } from './index';
 import {
   agentdNodes,
@@ -1187,8 +1188,11 @@ export async function createNotification(input: {
   targetChatId: string;
   targetUserId?: string | null;
   userId?: string | null;
+  severity?: 'action_required' | 'attention' | 'info' | null;
   expiresAt?: Date | null;
 }) {
+  const severity =
+    input.severity ?? defaultSeverityForType(input.notificationType);
   const [row] = await db
     .insert(notifications)
     .values({
@@ -1196,6 +1200,7 @@ export async function createNotification(input: {
       taskId: input.taskId,
       decisionId: input.decisionId ?? null,
       notificationType: input.notificationType,
+      severity,
       payload: input.payload,
       channel: input.channel,
       targetChatId: input.targetChatId,
