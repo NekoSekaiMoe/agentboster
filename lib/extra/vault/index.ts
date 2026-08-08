@@ -118,26 +118,6 @@ async function auditVault(
   });
 }
 
-/**
- * List SYSTEM-level vault entries (MCP OAuth bundles, knowledge-provider
- * keys). NOT user-private data. Kept for callers that historically read
- * the shared vault; `/api/vault/*` web routes must use {@link
- * listUserVaultEntries} instead.
- */
-export async function listVaultEntries(userId?: string | null) {
-  const entries = await db
-    .select({
-      key: vaultEntries.key,
-      createdAt: vaultEntries.createdAt,
-      updatedAt: vaultEntries.updatedAt,
-    })
-    .from(vaultEntries)
-    .orderBy(desc(vaultEntries.updatedAt));
-
-  await auditVault('list', '*', userId);
-  return entries;
-}
-
 export async function listVaultKeyNames() {
   const entries = await db
     .select({ key: vaultEntries.key })
@@ -309,25 +289,6 @@ export async function readUserVaultValue(input: {
   const value = decryptValue(entry);
   await auditVault('user_read', key, owner);
   return { key: entry.key, value, updatedAt: entry.updatedAt };
-}
-
-export async function deleteUserVaultEntry(input: {
-  userId: string;
-  key: string;
-}): Promise<boolean> {
-  const owner = requireUserId(input.userId);
-  const key = validateVaultKey(input.key);
-  const deletedKeys = await db.transaction(async (tx) => {
-    const result = await tx
-      .delete(userVaultEntries)
-      .where(
-        and(eq(userVaultEntries.userId, owner), eq(userVaultEntries.key, key)),
-      )
-      .returning({ key: userVaultEntries.key });
-    await auditVault('user_delete', key, owner, tx);
-    return result;
-  });
-  return deletedKeys.length > 0;
 }
 
 /**

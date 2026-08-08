@@ -3,7 +3,8 @@ export const dynamic = 'force-dynamic';
 import {
   getResourceErrorMessage,
   getResourceErrorStatus,
-  requireTaskAccess,
+  getTask,
+  resolveAgentdResourceAccess,
 } from '@/lib/core/db/agentd';
 import { extractTaskMemory } from '@/lib/extra/task-memory';
 import { createLogger } from '@/lib/utils/logger';
@@ -23,15 +24,22 @@ export async function POST(
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   try {
-    const task = await requireTaskAccess({
+    await resolveAgentdResourceAccess({
       taskId: id,
       sessionId:
         typeof body.session_id === 'string' ? body.session_id : undefined,
     });
+    const task = await getTask(id);
+    if (!task) {
+      return Response.json(
+        { success: false, error: 'Task not found' },
+        { status: 404 },
+      );
+    }
     const result = await extractTaskMemory({
       taskId: id,
       agentId: task.agentId,
-      sessionId: task.sessionId,
+      sessionId: task.sessionId ?? undefined,
       command: task.command,
       result: typeof body.result === 'string' ? body.result : '',
       status: taskStatus(body.status),

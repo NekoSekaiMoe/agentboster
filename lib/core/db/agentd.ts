@@ -2,7 +2,6 @@ import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
 import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
 import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
 import { hasAdminRole } from '@/lib/core/db/users';
-import { defaultSeverityForType } from '@/lib/core/notification/groups';
 import { db } from './index';
 import {
   agentdNodes,
@@ -13,8 +12,6 @@ import {
   agentTaskOutputs,
   agentTasks,
   agentToolActivityLogs,
-  archivedTaskSummaries,
-  notifications,
   sessions,
   taskSummaries,
   users,
@@ -496,14 +493,6 @@ export async function writeReviewLogs(
   return db.insert(agentReviewLogs).values(values).returning();
 }
 
-export async function getReviewLogs(taskId: string) {
-  return db
-    .select()
-    .from(agentReviewLogs)
-    .where(eq(agentReviewLogs.taskId, taskId))
-    .orderBy(desc(agentReviewLogs.createdAt));
-}
-
 // === Tool Activity Logs ===
 
 /**
@@ -709,14 +698,6 @@ export async function updateSandboxStatus(id: string, status: string) {
   return sb;
 }
 
-export async function getSandbox(id: string) {
-  const [sb] = await db
-    .select()
-    .from(agentSandboxes)
-    .where(eq(agentSandboxes.id, id));
-  return sb ?? null;
-}
-
 // === Memories ===
 
 async function resolveResourceScope(scope?: AgentdResourceScope): Promise<{
@@ -838,22 +819,6 @@ export async function upsertAgentTaskOutput(data: {
   return record;
 }
 
-// === Agent Config ===
-
-export async function getAgentConfig(agentId: string) {
-  const rules = await getL0Rules(agentId);
-  return {
-    agentId,
-    l0Rules: rules.map((r) => ({
-      id: r.id,
-      pattern: r.pattern,
-      type: r.type,
-      action: r.action,
-      scope: r.scope,
-    })),
-  };
-}
-
 // === Task Summaries ===
 
 export interface TaskSummaryRecord {
@@ -947,46 +912,6 @@ export async function upsertTaskSummary(data: {
     })
     .returning();
   return record;
-}
-
-export async function getTaskSummaryHistory(
-  taskId: string,
-): Promise<TaskSummaryRecord[]> {
-  return db
-    .select()
-    .from(taskSummaries)
-    .where(eq(taskSummaries.taskId, taskId))
-    .orderBy(desc(taskSummaries.version));
-}
-
-export async function archiveTaskSummary(taskId: string): Promise<boolean> {
-  const history = await getTaskSummaryHistory(taskId);
-  if (history.length === 0) {
-    return false;
-  }
-
-  // Move all versions to archive
-  await db.insert(archivedTaskSummaries).values(
-    history.map((row) => ({
-      id: row.id,
-      taskId: row.taskId,
-      agentId: row.agentId,
-      sessionId: row.sessionId,
-      status: row.status,
-      progress: row.progress,
-      decisions: row.decisions,
-      pending: row.pending,
-      knownIssues: row.knownIssues,
-      version: row.version,
-      lastUpdated: row.lastUpdated,
-      createdAt: row.createdAt,
-    })),
-  );
-
-  // Delete from active table
-  await db.delete(taskSummaries).where(eq(taskSummaries.taskId, taskId));
-
-  return true;
 }
 
 export async function listActiveTaskSummaries(
@@ -1169,44 +1094,4 @@ export async function reclaimNodeAddress(input: {
     .set({ nodeID: input.newNodeID })
     .where(eq(agentdNodes.nodeID, byAddress.nodeID));
   return byAddress.nodeID;
-}
-
-// === Notifications (Repository migration) ================================
-
-/**
- * Insert a notification row. Called by POST /api/agentd/v1/notifications/send.
- * Pulled out of the route so the notifications table has a DAL owner
- * (Repository pattern, AionCore §2). Field shape mirrors the schema in
- * lib/core/db/schema/notification.ts.
- */
-export async function createNotification(input: {
-  taskId: string;
-  decisionId?: string | null;
-  notificationType: 'decision' | 'completion' | 'tidy_report';
-  payload: Record<string, unknown>;
-  channel: string;
-  targetChatId: string;
-  targetUserId?: string | null;
-  userId?: string | null;
-  severity?: 'action_required' | 'attention' | 'info' | null;
-  expiresAt?: Date | null;
-}) {
-  const severity =
-    input.severity ?? defaultSeverityForType(input.notificationType);
-  const [row] = await db
-    .insert(notifications)
-    .values({
-      userId: input.userId ?? null,
-      taskId: input.taskId,
-      decisionId: input.decisionId ?? null,
-      notificationType: input.notificationType,
-      severity,
-      payload: input.payload,
-      channel: input.channel,
-      targetChatId: input.targetChatId,
-      targetUserId: input.targetUserId ?? null,
-      expiresAt: input.expiresAt ?? null,
-    })
-    .returning();
-  return row;
 }

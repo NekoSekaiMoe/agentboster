@@ -1,4 +1,4 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess, AuthError } from '@/lib/auth/access';
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
 import { inArray } from 'drizzle-orm';
@@ -8,9 +8,11 @@ import { NextResponse } from 'next/server';
 export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
-    const session = await readAuthSessionFromCookies(cookieStore);
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    try {
+      await requireAuthAccess(cookieStore);
+    } catch (error) {
+      const status = error instanceof AuthError ? error.status : 401;
+      return NextResponse.json({ error: 'Unauthorized' }, { status });
     }
     const body = await request.json();
     const { ids } = body;

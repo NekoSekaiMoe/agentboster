@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import {
   getResourceErrorMessage,
   getResourceErrorStatus,
-  requireTaskAccess,
+  resolveAgentdResourceAccess,
 } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 import { NextRequest, NextResponse } from 'next/server';
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await requireTaskAccess({ taskId: task_id, sessionId: session_id });
+    await resolveAgentdResourceAccess({ taskId: task_id, sessionId: session_id });
 
     logger.info('pending L2 state reported', {
       task_id,

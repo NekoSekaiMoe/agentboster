@@ -4,8 +4,9 @@ import { randomUUID } from 'node:crypto';
 import {
   getResourceErrorMessage,
   getResourceErrorStatus,
+  getTask,
   getTaskSummary,
-  requireTaskAccess,
+  resolveAgentdResourceAccess,
   upsertTaskSummary,
 } from '@/lib/core/db/agentd';
 import type { Decision } from '@/lib/core/db/schema';
@@ -68,17 +69,24 @@ export async function PUT(
   const decision = normalizeDecision(body.decision);
 
   try {
-    const task = await requireTaskAccess({
+    await resolveAgentdResourceAccess({
       taskId: id,
       sessionId:
         typeof body.session_id === 'string' ? body.session_id : undefined,
     });
+    const task = await getTask(id);
+    if (!task) {
+      return Response.json(
+        { success: false, error: 'Task not found' },
+        { status: 404 },
+      );
+    }
     const existing = await getTaskSummary(id);
 
     const summary = await upsertTaskSummary({
       taskId: id,
       agentId: task.agentId,
-      sessionId: task.sessionId,
+      sessionId: task.sessionId ?? undefined,
       status: statusValue(body.status) ?? existing?.status ?? 'active',
       progress:
         typeof body.progress === 'string'

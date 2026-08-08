@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import {
   getResourceErrorMessage,
   getResourceErrorStatus,
-  requireTaskAccess,
+  resolveAgentdResourceAccess,
   upsertAgentTaskOutput,
 } from '@/lib/core/db/agentd';
 import { getSession, updateSession } from '@/lib/core/db/chat';
@@ -45,7 +45,7 @@ export async function POST(
   }
 
   try {
-    await requireTaskAccess({ taskId: taskID, sessionId: session_id });
+    await resolveAgentdResourceAccess({ taskId: taskID, sessionId: session_id });
 
     // Persist output to database (append-only)
     await upsertAgentTaskOutput({

@@ -51,9 +51,30 @@ let isAdmin = true;
 const requireAdminAccessMock = vi.fn<any>(async () => {
   if (!isAdmin) throw new Error('Forbidden');
 });
+// requireAuthAccess returns an access object carrying the test user.
+// AuthError is constructed with a status; we mirror the real shape.
+// biome-ignore lint/suspicious/noExplicitAny: test mock mirrors vi.fn<any> pattern used throughout this file
+const requireAuthAccessMock = vi.fn<any>(async () => {
+  if (!authSession) {
+    throw new (class extends Error {
+      status = 401;
+    })('Unauthorized');
+  }
+  return { session: authSession, user: { ...authSession }, isAdmin };
+});
+class AuthError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'AuthError';
+    this.status = status;
+  }
+}
 
 vi.mock('@/lib/auth/access', () => ({
   requireAdminAccess: (cookies: unknown) => requireAdminAccessMock(cookies),
+  requireAuthAccess: () => requireAuthAccessMock(),
+  AuthError,
 }));
 
 let authSession: { userId: string; role: string } | null = {

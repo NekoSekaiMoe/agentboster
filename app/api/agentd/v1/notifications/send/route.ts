@@ -23,10 +23,8 @@ import {
   type Decision,
 } from '@/lib/security/l2-decision-queue';
 import { getDecisionQueue } from '@/lib/security/l2-index';
-import {
-  createNotification,
-  resolveAgentdResourceAccess,
-} from '@/lib/core/db/agentd';
+import { resolveAgentdResourceAccess } from '@/lib/core/db/agentd';
+import { createNotification } from '@/lib/core/db/notification';
 import { chatSourceSchema } from '@/types/workflow';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';

@@ -9,9 +9,20 @@ import {
 
 // ─── Notifications ──────────────────────────────────────────────────
 
+/**
+ * Canonical creator for the notifications table. All writes to this table
+ * MUST go through here (the previous duplicate in agentd.ts was removed in
+ * the D1 consolidation pass).
+ *
+ * `status` defaults to 'pending'. The agentd notifications/route.ts POST
+ * handler legitimately needs to create rows already in 'sent' state (it
+ * records a notification that has been synchronously delivered to the IM
+ * channel by the daemon before this call), so the field is overridable.
+ * Every other caller leaves it at the 'pending' default.
+ */
 export async function createNotification(data: {
   taskId: string;
-  decisionId?: string;
+  decisionId?: string | null;
   notificationType: 'decision' | 'completion' | 'tidy_report';
   payload: Record<string, unknown>;
   channel: string;
@@ -19,7 +30,8 @@ export async function createNotification(data: {
   targetUserId?: string | null;
   userId?: string | null;
   severity?: 'action_required' | 'attention' | 'info' | null;
-  expiresAt?: Date;
+  expiresAt?: Date | null;
+  status?: (typeof notifications.status.enumValues)[number];
 }) {
   const severity =
     data.severity ?? defaultSeverityForType(data.notificationType);
@@ -32,7 +44,7 @@ export async function createNotification(data: {
       notificationType: data.notificationType,
       severity,
       payload: data.payload,
-      status: 'pending',
+      status: data.status ?? 'pending',
       channel: data.channel,
       targetChatId: data.targetChatId,
       targetUserId: data.targetUserId ?? null,

@@ -13,10 +13,9 @@
 
 export const dynamic = 'force-dynamic';
 
-import { db } from '@/lib/core/db';
-import { notifications } from '@/lib/core/db/schema';
 import { resolveAgentdResourceAccess } from '@/lib/core/db/agentd';
 import {
+  createNotification,
   getNotificationPreferences,
   upsertNotificationPreferences,
 } from '@/lib/core/db/notification';
@@ -136,38 +135,42 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Persist to notifications table.
-    const [row] = await db
-      .insert(notifications)
-      .values({
-        userId: ownerUserId,
-        taskId: data.task_id || 'unknown',
-        decisionId:
-          typeof metadata.decisionId === 'string'
-            ? (metadata.decisionId as string)
-            : null,
-        notificationType: 'decision',
-        payload: {
-          type: data.type,
-          title: data.title,
-          message: data.message,
-          ...metadata,
-        },
-        status: 'sent',
-        channel:
-          typeof metadata.channel === 'string'
-            ? (metadata.channel as string)
-            : 'in-app',
-        targetChatId:
-          (metadata.chatId as string | undefined) ??
-          (metadata.session_id as string | undefined) ??
-          'unknown',
-        targetUserId:
-          (metadata.userId as string | undefined) ??
-          (metadata.user_id as string | undefined) ??
-          null,
-      })
-      .returning();
+    // Persist to notifications table via the canonical DAL. This route
+    // creates rows already in 'sent' state because the daemon has
+    // synchronously delivered the notification to the IM channel before
+    // this call (QuestionService.Ask / dispatcher security alerts) — the
+    // row is an audit record of a delivery that already happened, not a
+    // pending delivery to attempt. The DAL defaults to 'pending'; the
+    // explicit status override keeps the prior behavior without smuggling
+    // a different value past the DAL boundary.
+    const row = await createNotification({
+      userId: ownerUserId,
+      taskId: data.task_id || 'unknown',
+      decisionId:
+        typeof metadata.decisionId === 'string'
+          ? (metadata.decisionId as string)
+          : null,
+      notificationType: 'decision',
+      payload: {
+        type: data.type,
+        title: data.title,
+        message: data.message,
+        ...metadata,
+      },
+      status: 'sent',
+      channel:
+        typeof metadata.channel === 'string'
+          ? (metadata.channel as string)
+          : 'in-app',
+      targetChatId:
+        (metadata.chatId as string | undefined) ??
+        (metadata.session_id as string | undefined) ??
+        'unknown',
+      targetUserId:
+        (metadata.userId as string | undefined) ??
+        (metadata.user_id as string | undefined) ??
+        null,
+    });
 
     // For question-type notifications, mirror into the L2 decision
     // queue so the chat UI can render a DecisionCard and capture the

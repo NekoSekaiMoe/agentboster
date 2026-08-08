@@ -3,8 +3,9 @@ export const dynamic = 'force-dynamic';
 import {
   getResourceErrorMessage,
   getResourceErrorStatus,
+  getTask,
   getTaskSummary,
-  requireTaskAccess,
+  resolveAgentdResourceAccess,
   upsertTaskSummary,
 } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
@@ -17,7 +18,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    await requireTaskAccess({ taskId: id });
+    await resolveAgentdResourceAccess({ taskId: id });
     const summary = await getTaskSummary(id);
     if (!summary) {
       return Response.json(
@@ -41,17 +42,24 @@ export async function PUT(
   const { id } = await params;
   const body = await request.json();
   try {
-    const task = await requireTaskAccess({
+    await resolveAgentdResourceAccess({
       taskId: id,
       sessionId:
         typeof body.session_id === 'string' ? body.session_id : undefined,
     });
+    const task = await getTask(id);
+    if (!task) {
+      return Response.json(
+        { success: false, error: 'Task not found' },
+        { status: 404 },
+      );
+    }
     const existing = await getTaskSummary(id);
 
     const summary = await upsertTaskSummary({
       taskId: id,
       agentId: task.agentId,
-      sessionId: task.sessionId,
+      sessionId: task.sessionId ?? undefined,
       status: body.status ?? existing?.status,
       progress: body.progress ?? existing?.progress,
       decisions: body.decisions ?? existing?.decisions,

@@ -1,47 +1,57 @@
-import { readAuthSessionFromCookies } from '@/lib/auth';
+import { requireAuthAccess, AuthError } from '@/lib/auth/access';
 import { listUserVaultEntries, upsertUserVaultEntry } from '@/lib/extra/vault';
 import { cookies } from 'next/headers';
 
-async function requireUser() {
-  const cookieStore = await cookies();
-  const session = await readAuthSessionFromCookies(cookieStore);
-  if (!session) {
-    throw new Error('Unauthorized');
-  }
-  return session;
-}
-
 export async function GET() {
+  const cookieStore = await cookies();
+  let access: Awaited<ReturnType<typeof requireAuthAccess>>;
   try {
-    const session = await requireUser();
-    const entries = await listUserVaultEntries(session.userId);
+    access = await requireAuthAccess(cookieStore);
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 401;
+    return Response.json({ success: false, error: 'Unauthorized' }, { status });
+  }
+  try {
+    const entries = await listUserVaultEntries(access.session.userId);
     return Response.json({ success: true, data: entries });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Failed to list vault';
     return Response.json(
-      { success: false, error: message },
-      { status: message === 'Unauthorized' ? 401 : 500 },
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list vault',
+      },
+      { status: 500 },
     );
   }
 }
 
 export async function POST(request: Request) {
+  const cookieStore = await cookies();
+  let access: Awaited<ReturnType<typeof requireAuthAccess>>;
   try {
-    const session = await requireUser();
+    access = await requireAuthAccess(cookieStore);
+  } catch (error) {
+    const status = error instanceof AuthError ? error.status : 401;
+    return Response.json({ success: false, error: 'Unauthorized' }, { status });
+  }
+  try {
     const body = await request.json();
     const entry = await upsertUserVaultEntry({
-      userId: session.userId,
+      userId: access.session.userId,
       key: String(body.key ?? ''),
       value: String(body.value ?? ''),
     });
     return Response.json({ success: true, data: entry });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Failed to write vault entry';
     return Response.json(
-      { success: false, error: message },
-      { status: message === 'Unauthorized' ? 401 : 400 },
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Failed to write vault entry',
+      },
+      { status: 400 },
     );
   }
 }
