@@ -17,6 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
 import { parseModelDisplay } from '@/lib/utils/model-display';
 
 const MAX_VISIBLE_MODELS = 40;
@@ -73,20 +74,49 @@ export function ModelPersonaPicker({
       })
       .catch((error) => {
         console.warn('[persona] load failed:', error);
-        toast.error('Failed to load personas.');
+        toast.error(t('chat.personaPicker.loadFailed'));
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
-  const visibleModels = useMemo(
-    () =>
-      [...allowedModels]
-        .sort((a, b) => a.localeCompare(b))
-        .slice(0, MAX_VISIBLE_MODELS),
+  const [search, setSearch] = useState('');
+
+  const sortedModels = useMemo(
+    () => [...allowedModels].sort((a, b) => a.localeCompare(b)),
     [allowedModels],
   );
+
+  const hasOverflow = sortedModels.length > MAX_VISIBLE_MODELS;
+
+  // When the catalog overflows the visible window, a search box filters the
+  // full list so every allowed model stays selectable. The current
+  // selection is always pinned into the visible page even when it sorts
+  // past the cutoff.
+  const { visibleModels, hiddenCount } = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (query) {
+      const matches = sortedModels.filter((id) =>
+        id.toLowerCase().includes(query),
+      );
+      return {
+        visibleModels: matches.slice(0, MAX_VISIBLE_MODELS),
+        hiddenCount: Math.max(0, matches.length - MAX_VISIBLE_MODELS),
+      };
+    }
+    const page = sortedModels.slice(0, MAX_VISIBLE_MODELS);
+    const items =
+      selectedModel &&
+      allowedModels.includes(selectedModel) &&
+      !page.includes(selectedModel)
+        ? [selectedModel, ...page.slice(0, MAX_VISIBLE_MODELS - 1)]
+        : page;
+    return {
+      visibleModels: items,
+      hiddenCount: sortedModels.length - items.length,
+    };
+  }, [sortedModels, search, selectedModel, allowedModels]);
 
   const display = selectedModel ? parseModelDisplay(selectedModel) : null;
 
@@ -104,8 +134,11 @@ export function ModelPersonaPicker({
   return (
     <DropdownMenu
       onOpenChange={(open) => {
-        // Always reopen on the model list.
-        if (open) setView('models');
+        // Always reopen on the model list, with any search cleared.
+        if (open) {
+          setView('models');
+          setSearch('');
+        }
       }}
     >
       <DropdownMenuTrigger asChild>
@@ -139,6 +172,21 @@ export function ModelPersonaPicker({
       >
         {view === 'models' ? (
           <>
+            {hasOverflow ? (
+              <div className="px-1 pb-1">
+                <Input
+                  className="h-8 text-sm"
+                  onChange={(event) => setSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    // Keep menu typeahead/roving focus from stealing input,
+                    // but let Escape bubble so it still closes the menu.
+                    if (event.key !== 'Escape') event.stopPropagation();
+                  }}
+                  placeholder={t('chat.modelPicker.search')}
+                  value={search}
+                />
+              </div>
+            ) : null}
             {/* Scrollable list: ~4 two-line items visible on mobile, nearly
                 the whole catalog on desktop. Footers stay pinned outside. */}
             <div className="max-h-[260px] overflow-y-auto overscroll-contain md:max-h-[70vh]">
@@ -182,14 +230,19 @@ export function ModelPersonaPicker({
                   </DropdownMenuItem>
                 );
               })}
+              {visibleModels.length === 0 ? (
+                <DropdownMenuLabel className="text-muted-foreground text-xs">
+                  {t('chat.modelPicker.noResults')}
+                </DropdownMenuLabel>
+              ) : null}
             </div>
 
-            {allowedModels.length > MAX_VISIBLE_MODELS ? (
+            {hiddenCount > 0 ? (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel className="text-muted-foreground text-xs">
                   {t('chat.modelPicker.moreAvailable', {
-                    count: allowedModels.length - MAX_VISIBLE_MODELS,
+                    count: hiddenCount,
                   })}
                 </DropdownMenuLabel>
               </>
@@ -270,7 +323,7 @@ export function ModelPersonaPicker({
                       </span>
                       {persona.hasModelOverride ? (
                         <span className="rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
-                          model
+                          {t('chat.personaPicker.modelBadge')}
                         </span>
                       ) : null}
                     </span>

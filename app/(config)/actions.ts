@@ -17,6 +17,7 @@ import {
   type RuntimeHealthSnapshot,
   getRuntimeHealthSnapshot,
 } from '@/lib/utils/runtime-health';
+import { createLogger } from '@/lib/utils/logger';
 import { getBuildInToolCatalog } from '@/lib/workflow/agent/tools';
 import { type AppConfig, appConfigSchema } from '@/types/config';
 import { ofetch } from 'ofetch';
@@ -26,6 +27,8 @@ import {
   toolCatalogResponseSchema,
 } from '@/types/config/tools';
 import { cookies } from 'next/headers';
+
+const logger = createLogger('config/actions');
 
 export type ConfigLoadResponse = {
   config: AppConfig;
@@ -158,7 +161,11 @@ export async function listProviderModelsAction(input: {
   const cookieStore = await cookies();
   await requireAdminAccess(cookieStore);
 
-  const [models, embeddingModels] = await Promise.all([
+  // The primary base_url query is authoritative: its failure rejects the
+  // action. The optional embedding_base_url query degrades to an empty list
+  // so a dead embedding endpoint can't hide the successfully fetched
+  // primary models.
+  const [modelsResult, embeddingResult] = await Promise.allSettled([
     fetchOpenAICompatibleModelIds({
       baseUrl: input.base_url,
       apiKey: input.api_key,
@@ -173,7 +180,27 @@ export async function listProviderModelsAction(input: {
       : Promise.resolve([]),
   ]);
 
-  return { models, embeddingModels };
+  if (modelsResult.status === 'rejected') {
+    throw modelsResult.reason;
+  }
+  if (embeddingResult.status === 'rejected') {
+    logger.warn(
+      'embedding_base_url model fetch failed; continuing without it',
+      {
+        embeddingBaseUrl: input.embedding_base_url,
+        error:
+          embeddingResult.reason instanceof Error
+            ? embeddingResult.reason.message
+            : String(embeddingResult.reason),
+      },
+    );
+  }
+
+  return {
+    models: modelsResult.value,
+    embeddingModels:
+      embeddingResult.status === 'fulfilled' ? embeddingResult.value : [],
+  };
 }
 
 export async function getImPairStatusAction(adapter: AdapterName): Promise<{
