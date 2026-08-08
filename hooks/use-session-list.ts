@@ -1,13 +1,8 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
 import { listRecentSessionsAction } from '@/app/(chat)/actions';
-import {
-  SESSION_LIST_INVALIDATED_EVENT,
-  SESSION_LIST_UPSERTED_EVENT,
-  type SessionListItemEventDetail,
-} from '@/lib/chat/session-events';
+import { getQueryClient } from '@/components/react-query-provider';
 
 /**
  * Query key for the user's recent chat sessions.
@@ -20,63 +15,86 @@ import {
 export const SESSION_LIST_KEY = ['sessions'] as const;
 
 /**
+ * Session list item shape as returned by listRecentSessionsAction and
+ * consumed by both sidebar implementations. Kept here so dispatchers
+ * (upsert helpers) and consumers share one definition.
+ */
+export interface SessionListItem {
+  id: string;
+  title: string | null;
+  channel: string;
+  createdAt: string;
+  status?: string;
+  pinned?: boolean;
+}
+
+/**
+ * Invalidate the session list query from ANY context (component,
+ * server-action callback, SSE event handler, chat transport).
+ *
+ * This replaces the prior `invalidateSessionList()` window-CustomEvent
+ * bus helper. Non-component callers reach the cache via the module
+ * singleton ({@link getQueryClient}); component callers can also use
+ * `useQueryClient().invalidateQueries(...)` directly.
+ */
+export function invalidateSessionListQuery(): void {
+  void getQueryClient().invalidateQueries({ queryKey: SESSION_LIST_KEY });
+}
+
+/**
+ * Optimistically insert-or-update a session row in the cache. Used when
+ * a new conversation is created lazily on first message — prepending
+ * it to the sidebar without a full refetch. Replaces the prior
+ * `upsertSessionListItem()` window-CustomEvent bus helper.
+ */
+export function upsertSessionListItemInCache(
+  item: Pick<SessionListItem, 'id' | 'title' | 'channel' | 'createdAt'> & {
+    status?: string;
+    pinned?: boolean;
+  },
+): void {
+  const qc = getQueryClient();
+  qc.setQueryData<SessionListItem[]>(SESSION_LIST_KEY, (current) => {
+    const list = current ?? [];
+    const next: SessionListItem[] = [
+      {
+        id: item.id,
+        title: item.title,
+        channel: item.channel,
+        createdAt: item.createdAt,
+        status: item.status,
+        pinned: item.pinned ?? false,
+      },
+      ...list.filter((s) => s.id !== item.id),
+    ];
+    return next.slice(0, 30);
+  });
+}
+
+/**
  * Shared session-list query used by both sidebar implementations.
  *
  * Replaces the per-component `useEffect + listRecentSessionsAction +
- * useState` + `window.addEventListener(SESSION_LIST_*)` pattern with a
- * single useQuery. The CustomEvent bus (`lib/chat/session-events.ts`)
- * is still the invalidation signal — dispatchers call
- * `invalidateSessionList()` / `upsertSessionListItem()` as before, and
- * this hook translates those events into Query cache invalidations /
- * optimistic patches. This is an adapter bridge: the bus carries no
- * data the Query cache doesn't already own, so a future refactor can
- * retire the bus entirely by having dispatchers call
- * `qc.invalidateQueries(SESSION_LIST_KEY)` directly.
+ * useState` pattern with a single useQuery. Invalidation and optimistic
+ * upsert happen through {@link invalidateSessionListQuery} and
+ * {@link upsertSessionListItemInCache} — no window event bus.
  */
 export function useSessionList(limit = 30) {
   const qc = useQueryClient();
-
-  const query = useQuery({
+  void qc; // (kept for symmetry with the module-level helpers; this hook does
+  // not invalidate directly — dispatchers use invalidateSessionListQuery.)
+  return useQuery<SessionListItem[]>({
     queryKey: SESSION_LIST_KEY,
-    queryFn: () => listRecentSessionsAction(limit),
+    queryFn: async () => {
+      const rows = await listRecentSessionsAction(limit);
+      // listRecentSessionsAction returns {id,title,channel,createdAt,
+      // pinned}; status is absent (it's patched in from the separate
+      // /api/agentd/v1/sessions/status poll in sidebar-core). Cast to
+      // SessionListItem[] so consumers reading session.status type-check;
+      // the field stays undefined until something upserts it.
+      return rows as SessionListItem[];
+    },
     staleTime: 30_000,
+    refetchOnMount: true,
   });
-
-  // Bridge: translate the legacy CustomEvent bus into Query cache ops.
-  // INVALIDATED → refetch; UPSERTED → optimistic patch (prepend + dedupe).
-  useEffect(() => {
-    const handleInvalidated = () => {
-      void qc.invalidateQueries({ queryKey: SESSION_LIST_KEY });
-    };
-    const handleUpserted = (event: Event) => {
-      const detail = (event as CustomEvent<SessionListItemEventDetail>).detail;
-      if (!detail) return;
-      qc.setQueryData<typeof query.data>(SESSION_LIST_KEY, (current) => {
-        const list = current ?? [];
-        const next = [
-          {
-            id: detail.id,
-            title: detail.title,
-            channel: detail.channel,
-            createdAt: detail.createdAt,
-            pinned: false,
-          },
-          ...list.filter((s) => s.id !== detail.id),
-        ];
-        return next.slice(0, limit) as typeof query.data;
-      });
-    };
-
-    window.addEventListener(SESSION_LIST_INVALIDATED_EVENT, handleInvalidated);
-    window.addEventListener(SESSION_LIST_UPSERTED_EVENT, handleUpserted);
-    return () => {
-      window.removeEventListener(
-        SESSION_LIST_INVALIDATED_EVENT,
-        handleInvalidated,
-      );
-      window.removeEventListener(SESSION_LIST_UPSERTED_EVENT, handleUpserted);
-    };
-  }, [qc, limit]);
-
-  return query;
 }

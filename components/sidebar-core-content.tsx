@@ -31,7 +31,6 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 import {
   deleteSessionAction,
   isAgentdEnabled,
-  listRecentSessionsAction,
   toggleSessionPinAction,
 } from '@/app/(chat)/actions';
 import {
@@ -57,11 +56,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
-  invalidateSessionList,
-  SESSION_LIST_INVALIDATED_EVENT,
-  SESSION_LIST_UPSERTED_EVENT,
-  type SessionListItemEventDetail,
-} from '@/lib/chat/session-events';
+  SESSION_LIST_KEY,
+  invalidateSessionListQuery,
+  useSessionList,
+  type SessionListItem,
+} from '@/hooks/use-session-list';
+import { useQueryClient } from '@tanstack/react-query';
 import packageJson from '@/package.json';
 import { Logo } from './logo';
 
@@ -86,14 +86,7 @@ type SessionStatus =
   | 'completed'
   | 'aborted';
 
-interface SessionItem {
-  id: string;
-  title: string | null;
-  channel: string;
-  createdAt: string;
-  status?: SessionStatus;
-  pinned?: boolean;
-}
+interface SessionItem extends SessionListItem {}
 
 interface SidebarCoreContentProps {
   onClose: () => void;
@@ -106,8 +99,6 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
   const { theme = 'system', setTheme } = useTheme();
   const isChatPage = pathname === '/' || pathname.startsWith('/chat');
 
-  const [sessions, setSessions] = useState<SessionItem[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState(false);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null,
   );
@@ -118,21 +109,23 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [agentdEnabled, setAgentdEnabled] = useState(false);
 
+  const qc = useQueryClient();
+  const { data: sessions = [], isLoading: loadingSessions } =
+    useSessionList(30);
+
   useEffect(() => {
     isAgentdEnabled().then(setAgentdEnabled);
   }, []);
 
-  const loadSessions = useCallback(async () => {
-    setLoadingSessions(true);
-    try {
-      const data = await listRecentSessionsAction(30);
-      setSessions(data);
-    } catch {
-      // silent fail for sidebar
-    } finally {
-      setLoadingSessions(false);
+  // isChatPage-gated mount effect: when navigating off chat, clear the
+  // cache for this key so a return re-fetches cleanly. (Replaces the
+  // old setSessions([])+setLoadingSessions(false) branch; loadSessions
+  // callback removed — useSessionList drives fetches now.)
+  useEffect(() => {
+    if (!isChatPage) {
+      qc.setQueryData(SESSION_LIST_KEY, []);
     }
-  }, []);
+  }, [isChatPage, qc]);
 
   const pollStatuses = useCallback(async () => {
     if (!isChatPage || !agentdEnabled) return;
@@ -143,25 +136,17 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
         data: Array<{ session_id: string; status: SessionStatus }>;
       };
       const statusMap = new Map(data.data.map((s) => [s.session_id, s.status]));
-      setSessions((prev) =>
-        prev.map((s) => ({
+      qc.setQueryData<SessionItem[]>(SESSION_LIST_KEY, (current) => {
+        const list = current ?? [];
+        return list.map((s) => ({
           ...s,
           status: statusMap.get(s.id) ?? s.status,
-        })),
-      );
+        }));
+      });
     } catch {
       // silent fail
     }
-  }, [isChatPage, agentdEnabled]);
-
-  useEffect(() => {
-    if (!isChatPage) {
-      setSessions([]);
-      setLoadingSessions(false);
-      return;
-    }
-    void loadSessions();
-  }, [isChatPage, loadSessions]);
+  }, [isChatPage, agentdEnabled, qc]);
 
   useEffect(() => {
     if (!isChatPage || !agentdEnabled) return;
@@ -199,37 +184,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     };
   }, [isChatPage, agentdEnabled, pollStatuses]);
 
-  useEffect(() => {
-    if (!isChatPage) return;
-
-    const handleSessionsInvalidated = () => {
-      void loadSessions();
-    };
-    const handleSessionUpserted = (event: Event) => {
-      const detail = (event as CustomEvent<SessionListItemEventDetail>).detail;
-      if (!detail) return;
-      setSessions((current) => {
-        const next = [detail, ...current.filter((s) => s.id !== detail.id)];
-        return next.slice(0, 30);
-      });
-    };
-
-    window.addEventListener(
-      SESSION_LIST_INVALIDATED_EVENT,
-      handleSessionsInvalidated,
-    );
-    window.addEventListener(SESSION_LIST_UPSERTED_EVENT, handleSessionUpserted);
-    return () => {
-      window.removeEventListener(
-        SESSION_LIST_INVALIDATED_EVENT,
-        handleSessionsInvalidated,
-      );
-      window.removeEventListener(
-        SESSION_LIST_UPSERTED_EVENT,
-        handleSessionUpserted,
-      );
-    };
-  }, [isChatPage, loadSessions]);
+  // (bus 监听已拆除——invalidation 走 invalidateSessionListQuery;upsert 走 upsertSessionListItemInCache。)
 
   const filteredSessions = useMemo(() => {
     const query = searchQuery.toLowerCase().trim();
@@ -256,10 +211,11 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
       setDeletingSessionId(sessionItem.id);
       try {
         await deleteSessionAction(sessionItem.id);
-        setSessions((current) =>
-          current.filter((item) => item.id !== sessionItem.id),
-        );
-        invalidateSessionList();
+        qc.setQueryData<SessionItem[]>(SESSION_LIST_KEY, (current) => {
+          const list = current ?? [];
+          return list.filter((item) => item.id !== sessionItem.id);
+        });
+        invalidateSessionListQuery();
         if (pathname === `/chat/${sessionItem.id}`) {
           onClose();
           router.push('/');
@@ -275,29 +231,31 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
         );
       }
     },
-    [pathname, router, onClose],
+    [pathname, router, onClose, qc],
   );
 
   const handleTogglePin = useCallback(
     async (sessionItem: SessionItem) => {
       const newPinned = !sessionItem.pinned;
-      setSessions((prev) =>
-        prev.map((s) =>
+      qc.setQueryData<SessionItem[]>(SESSION_LIST_KEY, (current) => {
+        const list = current ?? [];
+        return list.map((s) =>
           s.id === sessionItem.id ? { ...s, pinned: newPinned } : s,
-        ),
-      );
+        );
+      });
       try {
         await toggleSessionPinAction({ id: sessionItem.id });
       } catch {
-        setSessions((prev) =>
-          prev.map((s) =>
+        qc.setQueryData<SessionItem[]>(SESSION_LIST_KEY, (current) => {
+          const list = current ?? [];
+          return list.map((s) =>
             s.id === sessionItem.id ? { ...s, pinned: sessionItem.pinned } : s,
-          ),
-        );
+          );
+        });
         toast.error(t('toast.session.pinFailed'));
       }
     },
-    [t],
+    [t, qc],
   );
 
   const handleAbortSession = useCallback(
@@ -312,17 +270,18 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
         if (!response.ok) {
           throw new Error('Abort request failed');
         }
-        setSessions((prev) =>
-          prev.map((s) =>
+        qc.setQueryData<SessionItem[]>(SESSION_LIST_KEY, (current) => {
+          const list = current ?? [];
+          return list.map((s) =>
             s.id === sessionItem.id ? { ...s, status: 'aborted' as const } : s,
-          ),
-        );
+          );
+        });
         toast.success(t('toast.session.aborted'));
       } catch {
         toast.error(t('toast.session.abortFailed'));
       }
     },
-    [t],
+    [qc],
   );
 
   const handleLogout = useCallback(async () => {
@@ -339,7 +298,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     }
   }, [router, onClose, t]);
 
-  const StatusDot = ({ status }: { status?: SessionStatus }) => {
+  const StatusDot = ({ status }: { status?: string }) => {
     if (!status || status === 'idle') return null;
     if (status === 'running')
       return (

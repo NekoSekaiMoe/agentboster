@@ -29,9 +29,9 @@ import { Button } from '@/components/ui/button';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { getUserModelPreferencesAction } from '@/app/(config)/actions';
 import {
-  invalidateSessionList,
-  upsertSessionListItem,
-} from '@/lib/chat/session-events';
+  invalidateSessionListQuery,
+  upsertSessionListItemInCache,
+} from '@/hooks/use-session-list';
 import {
   buildChatSendRequestBody,
   cloneUIParts,
@@ -374,7 +374,7 @@ export function Chat({
                 readOnlyChannel: session?.readOnlyChannel ?? null,
               },
         );
-        invalidateSessionList();
+        invalidateSessionListQuery();
         setBootstrapStatusRunId(null);
       } catch (error) {
         console.warn('[chat] bootstrap status failed:', error);
@@ -461,7 +461,7 @@ export function Chat({
             }
           }
 
-          invalidateSessionList();
+          invalidateSessionListQuery();
           return response;
         },
         prepareSendMessagesRequest: buildChatSendRequestBody,
@@ -690,7 +690,7 @@ export function Chat({
           },
         });
 
-        invalidateSessionList();
+        invalidateSessionListQuery();
         await requestResumeStream();
       } catch (error) {
         setMessages(previousMessages);
@@ -740,7 +740,7 @@ export function Chat({
               readOnlyChannel: null,
             },
       );
-      upsertSessionListItem({
+      upsertSessionListItemInCache({
         id,
         title,
         channel: session?.channel ?? 'web',
@@ -749,7 +749,7 @@ export function Chat({
 
       try {
         await updateSessionTitleAction({ id, title });
-        invalidateSessionList();
+        invalidateSessionListQuery();
       } catch (error) {
         console.warn('[chat] update session title failed:', error);
       }
@@ -787,7 +787,7 @@ export function Chat({
           accessDenied: false,
           readOnlyChannel: null,
         });
-        upsertSessionListItem({
+        upsertSessionListItemInCache({
           id,
           title: optimisticTitle,
           channel: session?.channel ?? 'web',
@@ -808,7 +808,7 @@ export function Chat({
           shouldBootstrapSessionStatusRef.current = false;
           setBootstrapStatusRunId(null);
           setSessionState(session ?? null);
-          invalidateSessionList();
+          invalidateSessionListQuery();
         }
 
         throw error;
@@ -993,7 +993,7 @@ export function Chat({
 
     try {
       await deleteSessionAction(id);
-      invalidateSessionList();
+      invalidateSessionListQuery();
       toast.success(t('chat.deleteSuccess'));
       router.push('/');
       router.refresh();

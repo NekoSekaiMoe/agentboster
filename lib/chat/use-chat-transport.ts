@@ -4,7 +4,7 @@ import { DefaultChatTransport } from 'ai';
 import { ofetch } from 'ofetch';
 import { useMemo, useRef, useState } from 'react';
 
-import { invalidateSessionList } from '@/lib/chat/session-events';
+import { invalidateSessionListQuery } from '@/hooks/use-session-list';
 import { buildChatSendRequestBody } from '@/lib/chat/transport-request';
 import type { WorkflowUIMessage } from '@/types/workflow';
 
@@ -42,7 +42,7 @@ export function useChatTransport(options: TransportOptions = {}) {
             onRunIdChange?.(null);
           }
 
-          invalidateSessionList();
+          invalidateSessionListQuery();
           return response;
         },
         prepareSendMessagesRequest: buildChatSendRequestBody,
