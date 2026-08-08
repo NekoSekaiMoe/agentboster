@@ -1,3 +1,4 @@
+import { atomicWriteMode } from '@/lib/core/db/atomic';
 import { db, schema } from '@/lib/core/db';
 import {
   type HybridSearchRow,
@@ -901,23 +902,46 @@ export async function replaceLongTermMemoryChunks(
     ],
   });
 
-  await db.batch([
-    db
-      .delete(schema.longTermMemoryChunks)
-      .where(eq(schema.longTermMemoryChunks.memoryId, memoryId)),
-    db.insert(schema.longTermMemoryChunks).values(
-      chunks.map((chunk) => ({
-        memoryId,
-        chunkIndex: chunk.chunkIndex,
-        content: chunk.content,
-        embedding: chunk.embedding ?? null,
-        embeddingModel: chunk.embeddingModel ?? null,
-        embeddingDimensions:
-          chunk.embeddingDimensions ?? chunk.embedding?.length ?? null,
-        tsv: sql`to_tsvector('simple', ${chunk.content})`,
-      })),
-    ),
-  ]);
+  // Delete-then-reinsert atomically. The two drivers behind the `db`
+  // singleton have non-overlapping atomic primitives — neon-http exposes
+  // db.batch, node-postgres exposes db.transaction — so branch on
+  // atomicWriteMode(). The delete + insert have no inter-query dependency.
+  const deleteChunks = db
+    .delete(schema.longTermMemoryChunks)
+    .where(eq(schema.longTermMemoryChunks.memoryId, memoryId));
+  const insertChunks = db.insert(schema.longTermMemoryChunks).values(
+    chunks.map((chunk) => ({
+      memoryId,
+      chunkIndex: chunk.chunkIndex,
+      content: chunk.content,
+      embedding: chunk.embedding ?? null,
+      embeddingModel: chunk.embeddingModel ?? null,
+      embeddingDimensions:
+        chunk.embeddingDimensions ?? chunk.embedding?.length ?? null,
+      tsv: sql`to_tsvector('simple', ${chunk.content})`,
+    })),
+  );
+  if (atomicWriteMode() === 'neon') {
+    await db.batch([deleteChunks, insertChunks]);
+  } else {
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(schema.longTermMemoryChunks)
+        .where(eq(schema.longTermMemoryChunks.memoryId, memoryId));
+      await tx.insert(schema.longTermMemoryChunks).values(
+        chunks.map((chunk) => ({
+          memoryId,
+          chunkIndex: chunk.chunkIndex,
+          content: chunk.content,
+          embedding: chunk.embedding ?? null,
+          embeddingModel: chunk.embeddingModel ?? null,
+          embeddingDimensions:
+            chunk.embeddingDimensions ?? chunk.embedding?.length ?? null,
+          tsv: sql`to_tsvector('simple', ${chunk.content})`,
+        })),
+      );
+    });
+  }
 
   logger.info('replace_chunks:success', {
     memoryId,

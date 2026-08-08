@@ -31,6 +31,7 @@ export interface ScheduledTaskRunRecord {
   plannedAt: Date | null;
   startedAt: Date | null;
   completedAt: Date | null;
+  heartbeatAt: Date | null;
   runId: string | null;
   failureReason: string | null;
   errorMessage: string | null;
@@ -104,6 +105,7 @@ export async function claimScheduledRunSlot(input: {
       source,
       startedAt: null,
       completedAt: null,
+      heartbeatAt: null,
       runId: null,
       failureReason: null,
       errorMessage: null,
@@ -144,8 +146,35 @@ export async function claimScheduledRunSlot(input: {
 export async function markRunStarted(runId: string): Promise<void> {
   await db
     .update(scheduledTaskRuns)
-    .set({ status: 'running', startedAt: new Date(), updatedAt: new Date() })
+    .set({
+      status: 'running',
+      startedAt: new Date(),
+      // Start the heartbeat lease clock at dispatch-begin so the reaper
+      // has a fresh timestamp before the first interval tick fires
+      // (closes the window between markRunStarted and the first
+      // setInterval fire in the dispatch loop).
+      heartbeatAt: new Date(),
+      updatedAt: new Date(),
+    })
     .where(eq(scheduledTaskRuns.id, runId));
+}
+
+/**
+ * Refresh the heartbeat lease on a run. Called periodically by the
+ * dispatch while a long-running workflow is in flight so the reaper
+ * can distinguish a live long run from a truly stuck one. Best-effort:
+ * a transient DB blip on a heartbeat tick should not fail the dispatch.
+ */
+export async function markRunHeartbeat(runId: string): Promise<void> {
+  await db
+    .update(scheduledTaskRuns)
+    .set({ heartbeatAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(scheduledTaskRuns.id, runId),
+        sql`${scheduledTaskRuns.status} IN ('pending', 'running')`,
+      ),
+    );
 }
 
 /**
@@ -291,26 +320,30 @@ export async function listRecentRunsWherePlannedAtNotNull(
  *
  * Piggyback this on any periodic beat (cron tick, heartbeat). The
  * returned count lets callers log/metric reaped-stuck-runs without
- * surfacing the rows themselves. Default stale threshold is 1 hour
- * (tasks that haven't progressed past `pending`/`running` in an hour
- * are presumed dead).
+ * surfacing the rows themselves. Default stale threshold is 15 minutes.
  */
 export async function reapStuckRuns(
-  // 1 hour. Long agent dispatches (multi-step LLM + tool loops) routinely
-  // exceed 15 minutes; without a heartbeat column we cannot distinguish
-  // a legitimately-long live run from a truly stuck one, so we use a
-  // conservative threshold to avoid reaping live dispatches out from
-  // under them. A proper fix needs a heartbeat column that the dispatch
-  // refreshes mid-flight, with the reaper keying off that instead of
-  // startedAt — tracked as a follow-up.
-  staleMs = 60 * 60 * 1000,
+  // 15 minutes. The dispatch refreshes heartbeatAt every ~30s while a
+  // workflow is in flight (see deliverScheduledTask in dispatch.ts), so
+  // 15min is well above the heartbeat interval and gives ample buffer
+  // for transient DB blips, GC pauses, and clock skew. A live
+  // long-running dispatch heartbeats far more frequently than this; a
+  // run that hasn't heartbeat-ed in 15min is truly stuck (process died
+  // between markRunStarted and the terminal markRun* call — OOM, lambda
+  // timeout, deploy mid-flight). COALESCE falls back to startedAt /
+  // plannedAt / createdAt so rows written before heartbeatAt existed
+  // (or that crashed before markRunStarted stamped the first heartbeat)
+  // still reaped correctly.
+  staleMs = 15 * 60 * 1000,
   now: Date = new Date(),
 ): Promise<number> {
   const cutoff = new Date(now.getTime() - staleMs);
-  // A row is stuck when it's non-terminal AND its startedAt (or, for
-  // never-started rows, plannedAt) is older than the cutoff. The
-  // coalesce falls back to plannedAt → createdAt so a row that crashed
-  // before markRunStarted still gets reaped.
+  // A row is stuck when it's non-terminal AND its heartbeatAt (or, for
+  // rows without a heartbeat, startedAt / plannedAt) is older than the
+  // cutoff. The coalesce falls back heartbeatAt → startedAt →
+  // plannedAt → createdAt so a row that crashed before markRunStarted
+  // still gets reaped, and legacy rows written before the heartbeat
+  // column existed keep reaping under the old startedAt-based rule.
   const reaped = await db
     .update(scheduledTaskRuns)
     .set({
@@ -323,7 +356,7 @@ export async function reapStuckRuns(
     .where(
       and(
         sql`${scheduledTaskRuns.status} IN ('pending', 'running')`,
-        sql`COALESCE(${scheduledTaskRuns.startedAt}, ${scheduledTaskRuns.plannedAt}, ${scheduledTaskRuns.createdAt}) < ${cutoff}`,
+        sql`COALESCE(${scheduledTaskRuns.heartbeatAt}, ${scheduledTaskRuns.startedAt}, ${scheduledTaskRuns.plannedAt}, ${scheduledTaskRuns.createdAt}) < ${cutoff}`,
       ),
     )
     .returning({ id: scheduledTaskRuns.id });

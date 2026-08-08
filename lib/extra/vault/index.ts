@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
+import { atomicWriteMode } from '@/lib/core/db/atomic';
 import { db } from '@/lib/core/db';
 import {
   userVaultEntries,
@@ -213,9 +214,18 @@ function requireUserId(userId: string | null | undefined): string {
   return userId;
 }
 
-export async function listUserVaultEntries(userId: string) {
+// The DAL functions type `dbInstance` as `typeof db` (the neon-http Proxy
+// type). PGlite's drizzle instance is structurally compatible on the query
+// builders but not assignable to the concrete neon type, so narrow via a
+// Pick that exposes only the surface the vault DAL uses.
+type VaultDb = Pick<typeof db, 'select' | 'insert' | 'update' | 'delete'>;
+
+export async function listUserVaultEntries(
+  userId: string,
+  dbInstance: VaultDb = db,
+) {
   const owner = requireUserId(userId);
-  const entries = await db
+  const entries = await dbInstance
     .select({
       key: userVaultEntries.key,
       createdAt: userVaultEntries.createdAt,
@@ -225,19 +235,18 @@ export async function listUserVaultEntries(userId: string) {
     .where(eq(userVaultEntries.userId, owner))
     .orderBy(desc(userVaultEntries.updatedAt));
 
-  await auditVault('user_list', '*', owner);
+  await auditVault('user_list', '*', owner, dbInstance);
   return entries;
 }
 
-export async function upsertUserVaultEntry(input: {
-  userId: string;
-  key: string;
-  value: string;
-}) {
+export async function upsertUserVaultEntry(
+  input: { userId: string; key: string; value: string },
+  dbInstance: VaultDb = db,
+) {
   const owner = requireUserId(input.userId);
   const key = validateVaultKey(input.key);
   const encrypted = encryptValue(input.value);
-  const [entry] = await db
+  const [entry] = await dbInstance
     .insert(userVaultEntries)
     .values({
       userId: owner,
@@ -259,17 +268,17 @@ export async function upsertUserVaultEntry(input: {
       updatedAt: userVaultEntries.updatedAt,
     });
 
-  await auditVault('user_upsert', key, owner);
+  await auditVault('user_upsert', key, owner, dbInstance);
   return entry;
 }
 
-export async function readUserVaultValue(input: {
-  userId: string;
-  key: string;
-}) {
+export async function readUserVaultValue(
+  input: { userId: string; key: string },
+  dbInstance: VaultDb = db,
+) {
   const owner = requireUserId(input.userId);
   const key = validateVaultKey(input.key);
-  const [entry] = await db
+  const [entry] = await dbInstance
     .select({
       key: userVaultEntries.key,
       encryptedValue: userVaultEntries.encryptedValue,
@@ -287,7 +296,7 @@ export async function readUserVaultValue(input: {
   }
 
   const value = decryptValue(entry);
-  await auditVault('user_read', key, owner);
+  await auditVault('user_read', key, owner, dbInstance);
   return { key: entry.key, value, updatedAt: entry.updatedAt };
 }
 
@@ -298,15 +307,34 @@ export async function readUserVaultValue(input: {
  * so that the key doesn't show up in listVaultKeyNames() anymore, and
  * the audit log is the only record of the prior credential.
  *
- * The delete and its audit record run inside a single transaction so an
- * audit failure rolls back the deletion — callers never end up with the
- * credential gone but no audit trail.
+ * The delete and its audit record run atomically. The two drivers behind
+ * the `db` singleton have non-overlapping atomic primitives — neon-http
+ * exposes `db.batch([...])`, node-postgres exposes `db.transaction(...)`
+ * — so we branch on `atomicWriteMode()`.
  */
 export async function deleteVaultEntry(input: {
   key: string;
   userId?: string | null;
 }): Promise<boolean> {
   const key = validateVaultKey(input.key);
+  if (atomicWriteMode() === 'neon') {
+    // neon-http: db.batch is the atomic primitive (single HTTP transaction).
+    // The audit insert is pre-built and independent of the delete's result,
+    // so the batch is self-contained (non-interactive).
+    const [deleted] = await db.batch([
+      db
+        .delete(vaultEntries)
+        .where(eq(vaultEntries.key, key))
+        .returning({ key: vaultEntries.key }),
+      db.insert(vaultAuditLogs).values({
+        action: 'delete',
+        key,
+        userId: input.userId ?? null,
+      }),
+    ]);
+    return deleted.length > 0;
+  }
+  // node-postgres: db.transaction is the atomic primitive.
   const deletedKeys = await db.transaction(async (tx) => {
     const result = await tx
       .delete(vaultEntries)

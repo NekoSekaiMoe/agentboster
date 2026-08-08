@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { db, resolveDriver } from './index';
+import { atomicWriteMode } from './atomic';
+import { db } from './index';
 import { nodeUsageDaily, taskUsage } from './schema';
 
 /**
@@ -43,12 +44,12 @@ function todayDateString(now: Date = new Date()): string {
  * overwriting — callers that want overwrite semantics must read-then-
  * diff before calling.
  *
- * Atomicity caveat: the neon-http driver (Vercel) does NOT support
- * `db.transaction()` — it throws at runtime. On that driver we fall back
- * to two sequential writes (per-task then per-node-per-day), accepting
- * a small desync window if the second write fails. On node-postgres
- * (self-hosted) both writes run in a real transaction. The COALESCE
- * null-propagation guard applies in both paths.
+ * The matching per-node-per-day rollup is written atomically with the
+ * per-task row so daily dashboards stay in sync even if one write fails.
+ * The two drivers behind the `db` singleton have NON-overlapping atomic
+ * primitives — neon-http exposes `db.batch([...])`, node-postgres exposes
+ * `db.transaction(callback)` — so we branch on `atomicWriteMode()`.
+ * The COALESCE null-propagation guard applies in both paths.
  */
 export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
   const inputTokens = input.inputTokens ?? 0;
@@ -56,20 +57,11 @@ export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
   const cacheReadTokens = input.cacheReadTokens ?? 0;
   const cacheWriteTokens = input.cacheWriteTokens ?? 0;
 
-  // Per-task additive upsert, then the per-node-per-day rollup. Wrap in
-  // a transaction when the driver supports it (node-postgres / self-hosted).
-  // neon-http (Vercel) has no transaction support — there we run the two
-  // writes sequentially and accept the small desync window.
-  const runInTransaction =
-    resolveDriver(process.env.DATABASE_URL ?? '') !== 'neon';
-  // Both NeonHttpDatabase and pg's PgTransaction expose `.insert(...)` with
-  // the same shape for our purposes, but their concrete TS types are not
-  // mutually assignable. Narrow to the minimal surface we use so a single
-  // helper body type-checks against both drivers.
-  type Inserter = Pick<typeof db, 'insert'>;
-  const asInserter = (client: unknown): Inserter => client as Inserter;
-  const writeBoth = async (tx: Inserter) => {
-    await tx
+  // Build the per-task upsert once. The values/set clauses are identical
+  // regardless of which client executes them; the difference is whether
+  // they run inside a transaction (pg) or a batch (neon).
+  const buildTaskUpsert = (client: Inserter) =>
+    client
       .insert(taskUsage)
       .values({
         taskId: input.taskId,
@@ -85,65 +77,102 @@ export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
       })
       .onConflictDoUpdate({
         target: [taskUsage.taskId, taskUsage.provider, taskUsage.model],
-        set: {
-          inputTokens: sql`coalesce(${taskUsage.inputTokens}, 0) + ${inputTokens}`,
-          outputTokens: sql`coalesce(${taskUsage.outputTokens}, 0) + ${outputTokens}`,
-          cacheReadTokens: sql`coalesce(${taskUsage.cacheReadTokens}, 0) + ${cacheReadTokens}`,
-          cacheWriteTokens: sql`coalesce(${taskUsage.cacheWriteTokens}, 0) + ${cacheWriteTokens}`,
-          ...(input.costUsdTicks != null
-            ? {
-                costUsdTicks: sql`coalesce(${taskUsage.costUsdTicks}, 0) + ${input.costUsdTicks}`,
-              }
-            : {}),
-          updatedAt: new Date(),
-        },
-      });
-
-    // Per-node-per-day rollup (if a node is named).
-    if (input.nodeId) {
-      const date = todayDateString();
-      await tx
-        .insert(nodeUsageDaily)
-        .values({
-          nodeId: input.nodeId,
-          userId: input.userId ?? null,
-          date,
-          provider: input.provider,
-          model: input.model,
+        set: taskConflictSet(taskUsage, input, {
           inputTokens,
           outputTokens,
           cacheReadTokens,
           cacheWriteTokens,
-          costUsdTicks: input.costUsdTicks ?? null,
-        })
-        .onConflictDoUpdate({
-          target: [
-            nodeUsageDaily.nodeId,
-            nodeUsageDaily.date,
-            nodeUsageDaily.provider,
-            nodeUsageDaily.model,
-          ],
-          set: {
-            inputTokens: sql`coalesce(${nodeUsageDaily.inputTokens}, 0) + ${inputTokens}`,
-            outputTokens: sql`coalesce(${nodeUsageDaily.outputTokens}, 0) + ${outputTokens}`,
-            cacheReadTokens: sql`coalesce(${nodeUsageDaily.cacheReadTokens}, 0) + ${cacheReadTokens}`,
-            cacheWriteTokens: sql`coalesce(${nodeUsageDaily.cacheWriteTokens}, 0) + ${cacheWriteTokens}`,
-            ...(input.costUsdTicks != null
-              ? {
-                  costUsdTicks: sql`coalesce(${nodeUsageDaily.costUsdTicks}, 0) + ${input.costUsdTicks}`,
-                }
-              : {}),
-            updatedAt: new Date(),
-          },
-        });
-    }
-  };
+        }),
+      });
 
-  if (runInTransaction) {
-    await db.transaction(writeBoth as Parameters<typeof db.transaction>[0]);
-  } else {
-    await writeBoth(asInserter(db));
+  // No node rollup — just the per-task write. No atomicity needed.
+  const nodeId = input.nodeId;
+  if (!nodeId) {
+    await buildTaskUpsert(db);
+    return;
   }
+
+  // Per-task + per-node-per-day rollup, run atomically. The two drivers
+  // require different shapes — see the atomicWriteMode helper.
+  const date = todayDateString();
+  const buildNodeRollup = (client: Inserter) =>
+    client
+      .insert(nodeUsageDaily)
+      .values({
+        nodeId,
+        userId: input.userId ?? null,
+        date,
+        provider: input.provider,
+        model: input.model,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
+        costUsdTicks: input.costUsdTicks ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [
+          nodeUsageDaily.nodeId,
+          nodeUsageDaily.date,
+          nodeUsageDaily.provider,
+          nodeUsageDaily.model,
+        ],
+        set: taskConflictSet(nodeUsageDaily, input, {
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheWriteTokens,
+        }),
+      });
+
+  if (atomicWriteMode() === 'neon') {
+    // neon-http: db.batch is the atomic primitive (single HTTP transaction).
+    // db.transaction would throw 'No transactions support in neon-http driver'.
+    await db.batch([buildTaskUpsert(db), buildNodeRollup(db)]);
+  } else {
+    // node-postgres: db.transaction is the atomic primitive.
+    // db.batch is undefined on NodePgDatabase.
+    await db.transaction(async (tx) => {
+      await buildTaskUpsert(tx as Inserter as typeof db);
+      await buildNodeRollup(tx as Inserter as typeof db);
+    });
+  }
+}
+
+/**
+ * Minimal client surface the recordTaskUsage builders use. Both the
+ * module-level `db` singleton and a `db.transaction`'s `tx` satisfy this —
+ * narrowing avoids the cross-driver type incompatibility between the
+ * concrete NeonHttpDatabase and PgTransaction.
+ */
+type Inserter = Pick<typeof db, 'insert'>;
+
+/**
+ * Build the additive-increment `onConflictDoUpdate` set for a usage row.
+ * Shared between taskUsage and nodeUsageDaily so both paths stay in sync.
+ */
+function taskConflictSet(
+  table: typeof taskUsage | typeof nodeUsageDaily,
+  input: UsageRecordInput,
+  tokens: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+  },
+) {
+  return {
+    inputTokens: sql`coalesce(${table.inputTokens}, 0) + ${tokens.inputTokens}`,
+    outputTokens: sql`coalesce(${table.outputTokens}, 0) + ${tokens.outputTokens}`,
+    cacheReadTokens: sql`coalesce(${table.cacheReadTokens}, 0) + ${tokens.cacheReadTokens}`,
+    cacheWriteTokens: sql`coalesce(${table.cacheWriteTokens}, 0) + ${tokens.cacheWriteTokens}`,
+    ...(input.costUsdTicks != null
+      ? {
+          costUsdTicks: sql`coalesce(${table.costUsdTicks}, 0) + ${input.costUsdTicks}`,
+        }
+      : {}),
+    updatedAt: new Date(),
+  };
 }
 
 export interface UsageSum {

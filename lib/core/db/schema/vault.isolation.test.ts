@@ -15,9 +15,29 @@
  * user B's row. This is the minimum viable guard for the 8762ba3 fix.
  */
 import { and, eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
+import {
+  listUserVaultEntries,
+  readUserVaultValue,
+  upsertUserVaultEntry,
+} from '@/lib/extra/vault';
 import { resetDb, setupPgLiteTestDb } from '@/lib/extra/test/pglite-harness';
 import { userVaultEntries } from './vault';
+
+// The vault DAL accepts `dbInstance: Pick<typeof db, 'select'|'insert'|...>`.
+// PGlite's drizzle instance is structurally compatible but not assignable to
+// the concrete neon-http type the singleton is typed as — narrow it.
+type VaultDb = Parameters<typeof upsertUserVaultEntry>[1];
+const vaultDb = (db: ReturnType<typeof setupPgLiteTestDb>['db']): VaultDb =>
+  db as unknown as VaultDb;
 
 const DDL = [
   `CREATE TABLE "user_vault_entries" (
@@ -31,16 +51,25 @@ const DDL = [
   )`,
   `CREATE UNIQUE INDEX "user_vault_entries_user_id_key_idx"
      ON "user_vault_entries" USING btree ("user_id","key")`,
+  // Every user-private DAL function writes an audit row via auditVault();
+  // the table must exist for the DAL round-trip tests below.
+  `CREATE TABLE "vault_audit_logs" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    "key" text NOT NULL,
+    "action" text NOT NULL,
+    "user_id" text,
+    "created_at" timestamp with time zone DEFAULT now() NOT NULL
+  )`,
 ];
 
 const { db } = setupPgLiteTestDb(DDL);
 
 beforeEach(async () => {
-  await resetDb(db, ['user_vault_entries']);
+  await resetDb(db, ['user_vault_entries', 'vault_audit_logs']);
 });
 
 afterEach(async () => {
-  await resetDb(db, ['user_vault_entries']);
+  await resetDb(db, ['user_vault_entries', 'vault_audit_logs']);
 });
 
 describe('user_vault_entries cross-user isolation', () => {
@@ -136,5 +165,75 @@ describe('user_vault_entries cross-user isolation', () => {
     const remaining = await db.select().from(userVaultEntries);
     expect(remaining).toHaveLength(1);
     expect(remaining[0].userId).toBe('userB');
+  });
+});
+
+describe('vault DAL user isolation (through the actual DAL)', () => {
+  // The schema-enforcement tests above prove the unique index and NOT NULL
+  // guard isolation at the DB layer. These tests exercise the DAL itself:
+  // if a future refactor drops the WHERE userId = ? from listUserVaultEntries /
+  // readUserVaultValue / upsertUserVaultEntry, these fail. The DAL imports the
+  // production db singleton, so we route it to PGlite via the optional
+  // dbInstance param added for this purpose.
+
+  beforeAll(() => {
+    // upsertUserVaultEntry uses node:crypto via requireMasterKey which
+    // throws if VAULT_MASTER_KEY is unset. AES-256-GCM needs a 32-byte key.
+    vi.stubEnv(
+      'VAULT_MASTER_KEY',
+      'test-master-key-with-at-least-32-bytes-long-aaaa',
+    );
+  });
+
+  it('upsertUserVaultEntry only writes for the named user', async () => {
+    await upsertUserVaultEntry(
+      { userId: 'userA', key: 'k', value: 'v1' },
+      vaultDb(db),
+    );
+    // userB lists their entries and must see nothing of user A's write.
+    const bRows = await listUserVaultEntries('userB', vaultDb(db));
+    expect(bRows).toEqual([]);
+  });
+
+  it('readUserVaultValue returns null for other users', async () => {
+    await upsertUserVaultEntry(
+      { userId: 'userA', key: 'secret', value: 'classified' },
+      vaultDb(db),
+    );
+    const leaked = await readUserVaultValue(
+      { userId: 'userB', key: 'secret' },
+      vaultDb(db),
+    );
+    expect(leaked).toBeNull();
+  });
+
+  it('DAL round-trip: same user can read what they wrote', async () => {
+    await upsertUserVaultEntry(
+      { userId: 'userA', key: 'rt', value: 'roundtrip' },
+      vaultDb(db),
+    );
+    const own = await readUserVaultValue(
+      { userId: 'userA', key: 'rt' },
+      vaultDb(db),
+    );
+    expect(own?.value).toBe('roundtrip');
+  });
+
+  it('upsert overwrites the same (user, key) without leaking', async () => {
+    await upsertUserVaultEntry(
+      { userId: 'userA', key: 'k', value: 'old' },
+      vaultDb(db),
+    );
+    await upsertUserVaultEntry(
+      { userId: 'userA', key: 'k', value: 'new' },
+      vaultDb(db),
+    );
+    const own = await readUserVaultValue(
+      { userId: 'userA', key: 'k' },
+      vaultDb(db),
+    );
+    expect(own?.value).toBe('new');
+    // Still isolated — user B sees nothing.
+    expect(await listUserVaultEntries('userB', vaultDb(db))).toEqual([]);
   });
 });

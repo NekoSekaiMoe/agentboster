@@ -5,6 +5,7 @@ import {
   claimScheduledRunSlot,
   markRunCompleted,
   markRunFailed,
+  markRunHeartbeat,
   markRunSkipped,
   markRunStarted,
 } from '@/lib/core/db/scheduled-task-runs';
@@ -423,6 +424,23 @@ export async function deliverScheduledTask(input: {
       });
     });
   }
+  // Refresh the heartbeat lease while the workflow runs so the reaper
+  // can distinguish this live dispatch from a truly stuck one. Best-effort:
+  // a transient DB blip on a tick must not fail the run. The interval is
+  // declared before the `try` and cleared in the existing `finally`
+  // below, so every exit path (success, chatMain throw, the catch) stops
+  // the timer. Started AFTER markRunStarted so the lease clock is already
+  // stamped (closing the window to the first tick).
+  const heartbeat = setInterval(() => {
+    if (runSlotId) {
+      void markRunHeartbeat(runSlotId).catch((err) => {
+        logger.warn('deliver:heartbeat_failed', {
+          runSlotId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+  }, 30_000);
   try {
     const source = (await buildScheduledSource(task.sessionId)) ?? {
       type: 'scheduled' as const,
@@ -494,6 +512,7 @@ export async function deliverScheduledTask(input: {
     }
     throw error;
   } finally {
+    clearInterval(heartbeat);
     // Restore session.metadata so the node constraint only applies to
     // this dispatch run. Without this, every subsequent non-scheduled
     // chat on the same session would route to the same daemon.

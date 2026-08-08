@@ -232,6 +232,13 @@
       "when": 1786174144596,
       "tag": "0032_inbox_severity_prefs",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786197600000,
+      "tag": "0033_scheduled_task_runs_heartbeat",
+      "breakpoints": true
     }
   ]
 }

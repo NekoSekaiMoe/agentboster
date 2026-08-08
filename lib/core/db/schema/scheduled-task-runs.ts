@@ -52,6 +52,15 @@ export const scheduledTaskRuns = pgTable(
     plannedAt: timestamp('planned_at', { withTimezone: true }),
     startedAt: timestamp('started_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    /**
+     * Heartbeat lease timestamp refreshed periodically by the dispatch
+     * while a long-running workflow is in flight. The reaper keys off
+     * COALESCE(heartbeatAt, startedAt, plannedAt, createdAt) so a run
+     * that stops heartbeating past the stale threshold is flipped to
+     * `failed`+`runtime_recovery`. Null for rows written before this
+     * column existed (legacy fallback to startedAt).
+     */
+    heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
     /** The chat workflow runId produced by this fire (on success). */
     runId: text('run_id'),
     /** Canonical FailureReason when status='failed'; null otherwise. */
