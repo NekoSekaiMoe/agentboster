@@ -224,7 +224,9 @@ export function resolveEmbeddingModel(modelId: string, config: AppConfig) {
     provider: providerName,
     format: providerConfig.format,
     api_key: providerConfig.api_key,
-    base_url: providerConfig.base_url,
+    // Embedding calls may target a dedicated endpoint (e.g. an
+    // embedding-only server on another port); fall back to base_url.
+    base_url: providerConfig.embedding_base_url ?? providerConfig.base_url,
     headers: providerConfig.headers,
     client_spoof: providerConfig.client_spoof,
   });

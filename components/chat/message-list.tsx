@@ -88,7 +88,6 @@ interface MessagesProps {
     action: 'approve' | 'reject';
     comment?: string;
   }) => Promise<void>;
-  onRevert?: (messageId: string) => void;
   onDecisionResolved?: (decisionId: string, action: string) => void;
   onFollowUpSubmit?: (input: {
     messageId: string;
@@ -160,7 +159,6 @@ function PureMessages({
   pendingDecisions,
   onPromptSelect,
   onToolApproval,
-  onRevert,
   onDecisionResolved,
   onFollowUpSubmit,
   onSuggestedFollowUpSelect,
@@ -379,7 +377,7 @@ function PureMessages({
     <div className="relative min-h-0 min-w-0 flex-1">
       <div
         ref={messagesContainerRef}
-        className="flex h-full min-h-0 flex-col gap-8 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pt-5 pb-8 md:px-6 md:pt-8 md:pb-10"
+        className="flex h-full min-h-0 scroll-pb-[var(--composer-h,8rem)] flex-col gap-8 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pt-5 pb-[var(--composer-h,8rem)] md:scroll-pb-[var(--composer-h,9rem)] md:px-6 md:pt-8 md:pb-[var(--composer-h,9rem)]"
       >
         {messages.length === 0 && <Overview onPromptSelect={onPromptSelect} />}
 
@@ -391,10 +389,6 @@ function PureMessages({
             return null;
           }
 
-          const showAssistantGlyph =
-            message.role !== 'assistant' ||
-            index === 0 ||
-            messages[index - 1]?.role !== 'assistant';
           const showSuggestedFollowUps =
             message.role === 'assistant' &&
             index === messages.length - 1 &&
@@ -406,11 +400,9 @@ function PureMessages({
               chatId={chatId}
               message={message}
               isLoading={isLoading && messages.length - 1 === index}
-              showAssistantGlyph={showAssistantGlyph}
               showSuggestedFollowUps={showSuggestedFollowUps}
               onToolApproval={onToolApproval}
               onSuggestedFollowUpSelect={onSuggestedFollowUpSelect}
-              onRevert={onRevert}
               setMessages={setMessages}
               regenerate={regenerate}
               ttsEnabled={ttsEnabled}
@@ -531,7 +523,7 @@ function PureMessages({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             transition={{ duration: 0.2 }}
-            className="absolute right-5 bottom-5 z-10 flex flex-col gap-2"
+            className="absolute right-5 bottom-28 z-10 flex flex-col gap-2"
           >
             <AnimatePresence initial={false}>
               {showScrollToTop ? (

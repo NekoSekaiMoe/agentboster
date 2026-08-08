@@ -28,7 +28,15 @@ export const ko = {
   'chat.followUp.title': '후속 질문',
   'chat.modelPicker.title': '모델',
   'chat.modelPicker.useDefault': '기본',
+  'chat.modelPicker.provider': '제공자: {provider}',
+  'chat.personaPicker.title': '페르소나',
+  'chat.personaPicker.default': '기본 페르소나',
+  'chat.personaPicker.back': '뒤로',
+  'chat.personaPicker.loadFailed': '페르소나를 불러오지 못했습니다.',
+  'chat.personaPicker.modelBadge': '모델',
   'chat.modelPicker.moreAvailable': '추가 {count}개 사용 가능',
+  'chat.modelPicker.search': '모델 검색…',
+  'chat.modelPicker.noResults': '일치하는 모델이 없습니다',
   'chat.newChat': '새 채팅',
   'chat.newConversation': '새 대화',
   'chat.noConversations': '아직 대화가 없습니다',
@@ -403,6 +411,15 @@ export const ko = {
     'Claw의 기본 모델과 매개변수를 설정합니다. 에이전트 섹션에서 사용 사례별로 다른 모델을 지정할 수도 있습니다.',
   'config.forms.models.defaultSettingsTitle': '기본 모델 설정',
   'config.forms.models.embeddingModel': '임베딩 모델',
+  'config.forms.models.embeddingBaseUrl': 'Embedding 베이스 URL',
+  'config.forms.models.embeddingBaseUrlPlaceholder': '기본값은 위의 베이스 URL',
+  'config.forms.models.embeddingBaseUrlHelp':
+    '선택 사항. 임베딩 호출 전용 엔드포인트(예: 다른 포트에서 /v1/embeddings만 노출하는 서버).',
+  'config.forms.models.fetchModels': '모델 목록 가져오기',
+  'config.forms.models.fetchModelsSuccess':
+    '제공자에서 모델 {count}개를 가져왔습니다',
+  'config.forms.models.fetchModelsError':
+    '제공자에서 모델을 가져오지 못했습니다',
   'config.forms.models.embeddingWarning':
     '임베딩 모델을 변경하면 벡터 차원이 변경되며, 새로 인덱싱되거나 재인덱싱된 메모리만 벡터 검색에 참여합니다. 이전 메모리는 재인덱싱될 때까지 전체 텍스트 검색으로 대체됩니다.',
   'config.forms.models.format': '형식',

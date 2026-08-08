@@ -191,11 +191,6 @@ export function Chat({
   const [sessionState, setSessionState] = useState<ChatSession>(
     session ?? null,
   );
-  const [tokenUsage, setTokenUsage] = useState<{
-    input: number;
-    output: number;
-    total: number;
-  } | null>(null);
   const [latestRuntimeEvent, setLatestRuntimeEvent] =
     useState<WorkflowStatusData | null>(null);
   const [bootstrapStatusRunId, setBootstrapStatusRunId] = useState<
@@ -505,31 +500,6 @@ export function Chat({
 
       if (dataPart.data.type === 'user-message') {
         return;
-      }
-
-      // Extract token usage from token-usage and step-finish events
-      if (
-        dataPart.data.type === 'token-usage' ||
-        dataPart.data.type === 'step-finish'
-      ) {
-        const d = dataPart.data;
-        const usage = d.type === 'token-usage' ? d.usage : d;
-        const extractNum = (v: unknown): number => {
-          if (typeof v === 'number' && Number.isFinite(v)) return v;
-          if (
-            v &&
-            typeof v === 'object' &&
-            'total' in v &&
-            typeof (v as { total: unknown }).total === 'number'
-          )
-            return (v as { total: number }).total;
-          return 0;
-        };
-        setTokenUsage({
-          input: extractNum(usage.inputTokens),
-          output: extractNum(usage.outputTokens),
-          total: extractNum(usage.totalTokens),
-        });
       }
 
       const eventKey = JSON.stringify(dataPart.data);
@@ -932,6 +902,24 @@ export function Chat({
     statusRef.current = 'ready';
   }, [id, stop]);
 
+  // Stable identities for the memoized composer: submitChatMessage closes
+  // over `messages`, so its identity changes on every streamed token, and
+  // the stop prop would otherwise be a fresh inline closure each render.
+  // Forward through a ref so MultimodalInput's memo comparison stays
+  // effective while always invoking the latest logic.
+  const submitChatMessageRef = useRef(submitChatMessage);
+  useEffect(() => {
+    submitChatMessageRef.current = submitChatMessage;
+  });
+  const submitChatMessageStable = useCallback(
+    (message?: ComposerMessage, options?: ChatRequestOptions) =>
+      submitChatMessageRef.current(message, options),
+    [],
+  );
+  const handleStop = useCallback(() => {
+    void cancelWorkflow();
+  }, [cancelWorkflow]);
+
   const submitToolApproval = useCallback(
     async (input: ToolApprovalInput) => {
       await controlSessionRuntimeAction({
@@ -1017,39 +1005,6 @@ export function Chat({
     }
   }, [id, router, t]);
 
-  const handleRevert = useCallback(
-    async (messageId: string) => {
-      if (!id) return;
-      try {
-        await ofetch(`/api/sessions/${id}/revert`, {
-          method: 'POST',
-          body: { message_id: messageId },
-        });
-        setMessages((current) => {
-          const targetIndex = current.findIndex(
-            (message) => message.id === messageId,
-          );
-
-          if (targetIndex === -1) {
-            return current;
-          }
-
-          // Include the target message itself (targetIndex + 1)
-          return current.slice(0, targetIndex + 1);
-        });
-        activeRunIdRef.current = null;
-        setActiveRunId(null);
-        setShouldResumeStream(false);
-        invalidateSessionList();
-        router.refresh();
-        toast.success('Reverted to this message');
-      } catch {
-        toast.error('Failed to revert');
-      }
-    },
-    [id, router, setMessages],
-  );
-
   const isAccessDeniedSession = sessionState?.accessDenied === true;
   const isReadOnlyChannelSession = Boolean(sessionState?.readOnlyChannel);
   const isRuntimePanelEnabled =
@@ -1069,21 +1024,54 @@ export function Chat({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Build session state with token usage for header
-  const headerSession = sessionState
-    ? { ...sessionState, tokenUsage: tokenUsage ?? undefined }
-    : null;
+  // Keep the message list's bottom clearance in sync with the absolutely
+  // positioned composer: the composer (multiline input up to max-h-[50dvh]
+  // plus attachments) overlays the scroll area, so the list's padding and
+  // auto-scroll offset must track its real height instead of a fixed value.
+  // The height is published as the --composer-h CSS variable on the layout
+  // root (read by message-list.tsx), avoiding any React re-render on resize.
+  const layoutRef = useRef<HTMLDivElement | null>(null);
+  const composerObserverRef = useRef<ResizeObserver | null>(null);
+  const setComposerRef = useCallback((node: HTMLFormElement | null) => {
+    composerObserverRef.current?.disconnect();
+    composerObserverRef.current = null;
+    if (!node) {
+      layoutRef.current?.style.removeProperty('--composer-h');
+      return;
+    }
+    const update = () => {
+      // Extra 16px gap so the last message never sits flush against the
+      // composer.
+      layoutRef.current?.style.setProperty(
+        '--composer-h',
+        `${node.offsetHeight + 16}px`,
+      );
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    composerObserverRef.current = observer;
+  }, []);
+  useEffect(() => () => composerObserverRef.current?.disconnect(), []);
 
   return (
     <SidebarProvider>
       <ChatSidebar />
       <MobileDrawerBridge />
       <SidebarInset className="min-w-0 bg-background">
-        <div className="flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div
+          ref={layoutRef}
+          className="relative flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-background"
+        >
           <ChatHeader
-            session={headerSession}
+            isRunning={isLoading}
             chatId={id}
             onAbort={handleAbort}
+            allowedModels={allowedModels}
+            onSelectModel={setSelectedModel}
+            selectedModel={selectedModel}
+            onSelectAgent={setSelectedAgent}
+            selectedAgent={sessionAgent}
           />
 
           <Messages
@@ -1094,7 +1082,6 @@ export function Chat({
             pendingDecisions={pendingDecisions}
             onPromptSelect={handlePromptSelect}
             onToolApproval={submitToolApproval}
-            onRevert={handleRevert}
             onDecisionResolved={handleDecisionResolved}
             onFollowUpSubmit={
               isAccessDeniedSession || isReadOnlyChannelSession
@@ -1157,8 +1144,11 @@ export function Chat({
               </div>
             </div>
           ) : (
-            <form className="relative z-20 shrink-0 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pb-6">
-              <div className="mx-auto flex w-full gap-2 md:max-w-4xl">
+            <form
+              ref={setComposerRef}
+              className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] md:pb-7"
+            >
+              <div className="pointer-events-auto mx-auto flex w-full gap-2 md:max-w-4xl">
                 <MultimodalInput
                   chatId={id}
                   focusTrigger={composerFocusKey}
@@ -1166,14 +1156,9 @@ export function Chat({
                   setInput={setInput}
                   isLoading={isComposerBusy}
                   enterToSend={enterToSend}
-                  stop={() => {
-                    void cancelWorkflow();
-                  }}
-                  sendMessage={submitChatMessage}
-                  allowedModels={allowedModels}
-                  onSelectModel={setSelectedModel}
+                  stop={handleStop}
+                  sendMessage={submitChatMessageStable}
                   selectedModel={selectedModel}
-                  onSelectAgent={setSelectedAgent}
                   selectedAgent={sessionAgent}
                 />
               </div>

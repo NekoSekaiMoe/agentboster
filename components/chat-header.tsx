@@ -1,48 +1,44 @@
 'use client';
 
 import { memo, useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { toast } from 'sonner';
-import { Network } from 'lucide-react';
 
+import { ModelPersonaPicker } from '@/components/chat/model-persona-picker';
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
-import { Loader2, SquareIcon } from './icons';
+import { LoaderCircle, Square } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
-type SessionStatus =
-  | 'idle'
-  | 'running'
-  | 'waiting_user'
-  | 'completed'
-  | 'aborted';
-
-type ChatHeaderSession = {
-  title: string | null;
-  channel: string;
-  externalThreadId: string | null;
-  status?: SessionStatus;
-  tokenUsage?: {
-    input: number;
-    output: number;
-    total: number;
-  };
-};
-
+/**
+ * Gemini-style chat header: the combined model/persona selector is the
+ * title. Everything else from the old header (title, badges, token usage,
+ * orchestration link) is gone; the only remaining affordances are a
+ * single status dot (agentd availability / running state) and the abort
+ * button while a session runs.
+ */
 function PureChatHeader({
-  session,
+  isRunning,
   chatId,
   onAbort,
+  selectedModel,
+  allowedModels,
+  onSelectModel,
+  selectedAgent,
+  onSelectAgent,
 }: {
-  session?: ChatHeaderSession | null;
+  /** True while the assistant is streaming/submitting (drives the status dot + abort button). */
+  isRunning: boolean;
   chatId?: string;
   onAbort?: () => void;
+  selectedModel: string | null;
+  allowedModels: string[];
+  onSelectModel: (model: string | null) => void;
+  selectedAgent: string | null;
+  onSelectAgent: (agent: string | null) => void;
 }) {
   const { t } = useI18n();
   const [aborting, setAborting] = useState(false);
 
-  const status = session?.status ?? 'idle';
-  const isRunning = status === 'running' || status === 'waiting_user';
   const [agentdStatus, setAgentdStatus] = useState<
     'online' | 'offline' | 'checking'
   >('checking');
@@ -90,157 +86,79 @@ function PureChatHeader({
     }
   }, [chatId, onAbort, t]);
 
-  const sessionDetails = session
-    ? [
-        {
-          label: t('chatHeader.channel'),
-          value: session.channel,
-          valueClassName: 'text-foreground',
-        },
-        ...(session.externalThreadId
-          ? [
-              {
-                label: t('chatHeader.externalThread'),
-                value: session.externalThreadId,
-                valueClassName: 'font-mono text-foreground',
-              },
-            ]
-          : []),
-      ]
-    : [];
-
-  const tokenUsage = session?.tokenUsage;
-  const tokenDisplay = tokenUsage
-    ? `${(tokenUsage.total / 1000).toFixed(1)}k tokens`
-    : null;
-
   return (
-    <header className="sticky top-0 z-20 border-b bg-background/95 py-3 pr-4 pl-14 backdrop-blur md:px-4">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex min-w-0 items-baseline gap-2">
-              <span className="font-semibold text-lg tracking-tight">
-                AgentBoster
-              </span>
-              <span className="text-lg text-muted-foreground">ChatUI</span>
-            </div>
-          </div>
+    <header className="sticky top-0 z-20 flex items-center gap-1 border-b bg-background/95 py-2 pr-4 pl-14 backdrop-blur md:px-4">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        <ModelPersonaPicker
+          allowedModels={allowedModels}
+          onSelectModel={onSelectModel}
+          selectedModel={selectedModel}
+          onSelectAgent={onSelectAgent}
+          selectedAgent={selectedAgent}
+        />
+      </div>
 
-          <div className="mt-2 flex min-h-8 min-w-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain pb-1 text-muted-foreground text-xs [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {session ? (
-              <>
-                <span className="h-7 max-w-[11rem] shrink-0 truncate rounded-md bg-muted/70 px-2 font-medium text-foreground leading-7 sm:max-w-[280px]">
-                  {session.title ?? t('chatHeader.untitledSession')}
+      <div className="flex shrink-0 items-center gap-2">
+        {/* Single status dot: agentd availability / running indicator */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="flex size-5 items-center justify-center"
+              role="img"
+              aria-label={
+                isRunning
+                  ? t('chatHeader.running')
+                  : agentdStatus === 'online'
+                    ? t('chatHeader.agentdOnlineTitle')
+                    : t('chatHeader.agentdOfflineTitle')
+              }
+            >
+              <span
+                className={`size-2 rounded-full ${
+                  isRunning
+                    ? 'animate-pulse bg-amber-500'
+                    : agentdStatus === 'online'
+                      ? 'bg-green-500'
+                      : agentdStatus === 'offline'
+                        ? 'bg-amber-500'
+                        : 'bg-muted-foreground/40'
+                }`}
+              />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {isRunning
+              ? t('chatHeader.running')
+              : agentdStatus === 'online'
+                ? t('chatHeader.agentdOnlineTitle')
+                : t('chatHeader.agentdOfflineTitle')}
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Abort button — only when running */}
+        {isRunning && chatId && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                className="shrink-0 px-2 text-red-600 hover:bg-red-50 hover:text-red-700 md:h-fit"
+                aria-label={t('chatHeader.abortSession')}
+                onClick={handleAbort}
+                disabled={aborting}
+              >
+                {aborting ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <Square className="size-4" fill="currentColor" />
+                )}
+                <span className="hidden md:inline">
+                  {t('chatHeader.abort')}
                 </span>
-                {isRunning && (
-                  <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-amber-500/10 px-2 text-amber-700 dark:text-amber-300">
-                    <Loader2 className="size-3 animate-spin" />
-                    {status === 'waiting_user'
-                      ? t('chatHeader.waiting')
-                      : t('chatHeader.running')}
-                  </span>
-                )}
-                {status === 'completed' && (
-                  <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-green-500/10 px-2 text-green-700 dark:text-green-300">
-                    {t('chatHeader.done')}
-                  </span>
-                )}
-                {status === 'aborted' && (
-                  <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-muted px-2 text-muted-foreground">
-                    {t('chatHeader.aborted')}
-                  </span>
-                )}
-                {agentdStatus === 'online' && (
-                  <span
-                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-green-500/10 px-2 text-green-700 dark:text-green-300"
-                    title={t('chatHeader.agentdOnlineTitle')}
-                  >
-                    <span className="size-1.5 rounded-full bg-green-500" />
-                    AgentD
-                  </span>
-                )}
-                {agentdStatus === 'offline' && (
-                  <span
-                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-amber-500/10 px-2 text-amber-700 dark:text-amber-300"
-                    title={t('chatHeader.agentdOfflineTitle')}
-                  >
-                    <span className="size-1.5 rounded-full bg-amber-500" />
-                    Sandbox
-                  </span>
-                )}
-                {sessionDetails.map(({ label, value, valueClassName }) => (
-                  <span
-                    key={label}
-                    className="inline-flex h-7 max-w-none shrink-0 items-center gap-1 rounded-md bg-muted px-2 leading-7"
-                  >
-                    <span className="shrink-0 whitespace-nowrap text-muted-foreground/80">
-                      {label}
-                    </span>
-                    <span className={`whitespace-nowrap ${valueClassName}`}>
-                      {value}
-                    </span>
-                  </span>
-                ))}
-                {tokenDisplay && (
-                  <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-muted px-2">
-                    {t('chatHeader.tokens', { value: tokenDisplay })}
-                  </span>
-                )}
-              </>
-            ) : (
-              <span className="inline-flex h-7 shrink-0 items-center rounded-md bg-muted/70 px-2">
-                {t('chatHeader.startNew')}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1">
-          {/* Orchestration graph link (Team Mode I read-only view) */}
-          {session && chatId && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  asChild
-                  className="shrink-0"
-                >
-                  <Link href={`/chat/${chatId}/orchestration`}>
-                    <Network className="size-4" />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>编排图</TooltipContent>
-            </Tooltip>
-          )}
-
-          {/* Abort button — only when running */}
-          {isRunning && chatId && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="shrink-0 px-2 text-red-600 hover:bg-red-50 hover:text-red-700 md:h-fit"
-                  aria-label={t('chatHeader.abortSession')}
-                  onClick={handleAbort}
-                  disabled={aborting}
-                >
-                  {aborting ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <SquareIcon />
-                  )}
-                  <span className="hidden md:inline">
-                    {t('chatHeader.abort')}
-                  </span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('chatHeader.abortSession')}</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('chatHeader.abortSession')}</TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </header>
   );

@@ -7,7 +7,7 @@ import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { WorkflowUIMessage } from '@/types/workflow';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { CopyIcon, RefreshCwIcon } from './icons';
 import {
   Tooltip,
@@ -41,11 +41,12 @@ function formatMessageTime(value: string | undefined): string {
   return `${month}-${day} ${hours}:${minutes}`;
 }
 
+const ACTION_BUTTON_CLASS =
+  'size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground';
+
 export function PureMessageActions({
   message,
   isLoading,
-  chatId,
-  onRevert,
   onEditVersionChange,
   onRegenerate,
   onGenerationVersionChange,
@@ -54,11 +55,10 @@ export function PureMessageActions({
 }: {
   message: WorkflowUIMessage;
   isLoading: boolean;
-  chatId?: string;
-  onRevert?: (messageId: string) => void;
   onEditVersionChange?: (messageId: string, newIndex: number) => void;
   onRegenerate?: (messageId: string) => void;
   onGenerationVersionChange?: (messageId: string, newIndex: number) => void;
+  /** Show the TTS playback button (only when the admin configured a speech model). */
   ttsEnabled?: boolean;
   autoPlay?: boolean;
 }) {
@@ -71,10 +71,19 @@ export function PureMessageActions({
     toast.success(t('toast.clipboard.copied'));
   }, [copyToClipboard, textContent, t]);
 
-  const handleRevert = useCallback(() => {
-    if (!chatId) return;
-    onRevert?.(message.id);
-  }, [chatId, message.id, onRevert]);
+  const handleExportMarkdown = useCallback(() => {
+    const blob = new Blob([textContent], {
+      type: 'text/markdown;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `agentboster-response-${message.id}.md`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, [textContent, message.id]);
 
   const handlePreviousVersion = useCallback(() => {
     const currentIndex = message.metadata?.currentVersionIndex ?? 0;
@@ -128,6 +137,7 @@ export function PureMessageActions({
   if (!textContent.trim() && message.role === 'assistant') return null;
 
   const isUser = message.role === 'user';
+  const isAssistant = message.role === 'assistant';
   const timestamp = formatMessageTime(message.metadata?.createdAt);
   const versions = message.metadata?.versions || [];
   const currentVersionIndex = message.metadata?.currentVersionIndex ?? 0;
@@ -146,13 +156,14 @@ export function PureMessageActions({
         {timestamp ? <span className="leading-7">{timestamp}</span> : null}
 
         {/* Generation version navigation — only for assistant messages with multiple versions */}
-        {!isUser && hasMultipleVersions && (
+        {isAssistant && hasMultipleVersions && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground disabled:opacity-30"
+                  className={cn(ACTION_BUTTON_CLASS, 'disabled:opacity-30')}
                   variant="ghost"
+                  aria-label="Previous generation"
                   onClick={handlePreviousGeneration}
                   disabled={!canGoPrevious}
                 >
@@ -167,8 +178,9 @@ export function PureMessageActions({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground disabled:opacity-30"
+                  className={cn(ACTION_BUTTON_CLASS, 'disabled:opacity-30')}
                   variant="ghost"
+                  aria-label="Next generation"
                   onClick={handleNextGeneration}
                   disabled={!canGoNext}
                 >
@@ -180,13 +192,14 @@ export function PureMessageActions({
           </>
         )}
 
-        {/* Regenerate button — only for assistant messages */}
-        {!isUser && onRegenerate && (
+        {/* Regenerate — only for assistant messages */}
+        {isAssistant && onRegenerate && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                className={ACTION_BUTTON_CLASS}
                 variant="ghost"
+                aria-label="Regenerate"
                 onClick={handleRegenerate}
               >
                 <RefreshCwIcon />
@@ -196,19 +209,15 @@ export function PureMessageActions({
           </Tooltip>
         )}
 
-        {/* Text-to-Speech playback — only for assistant messages when TTS is configured */}
-        {!isUser && ttsEnabled && textContent.trim() && (
-          <AudioPlayer text={textContent} autoPlay={autoPlay} />
-        )}
-
         {/* Edit version navigation — only for user messages with multiple versions */}
         {isUser && hasMultipleVersions && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground disabled:opacity-30"
+                  className={cn(ACTION_BUTTON_CLASS, 'disabled:opacity-30')}
                   variant="ghost"
+                  aria-label="Previous version"
                   onClick={handlePreviousVersion}
                   disabled={!canGoPrevious}
                 >
@@ -223,8 +232,9 @@ export function PureMessageActions({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground disabled:opacity-30"
+                  className={cn(ACTION_BUTTON_CLASS, 'disabled:opacity-30')}
                   variant="ghost"
+                  aria-label="Next version"
                   onClick={handleNextVersion}
                   disabled={!canGoNext}
                 >
@@ -236,13 +246,19 @@ export function PureMessageActions({
           </>
         )}
 
+        {/* Text-to-Speech playback — only for assistant messages when TTS is configured */}
+        {isAssistant && ttsEnabled && textContent.trim() && (
+          <AudioPlayer text={textContent} autoPlay={autoPlay} />
+        )}
+
         {/* Copy — both user and assistant */}
         {textContent.trim() && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                className={ACTION_BUTTON_CLASS}
                 variant="ghost"
+                aria-label="Copy"
                 onClick={handleCopy}
               >
                 <CopyIcon />
@@ -251,19 +267,21 @@ export function PureMessageActions({
             <TooltipContent>Copy</TooltipContent>
           </Tooltip>
         )}
-        {/* Revert — only user messages */}
-        {isUser && chatId && (
+
+        {/* Export as Markdown download — only for assistant messages */}
+        {isAssistant && textContent.trim() && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                className="size-7 rounded-md border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                className={ACTION_BUTTON_CLASS}
                 variant="ghost"
-                onClick={handleRevert}
+                aria-label="Export as Markdown"
+                onClick={handleExportMarkdown}
               >
-                <RefreshCwIcon />
+                <Download className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Revert to here</TooltipContent>
+            <TooltipContent>Export as Markdown</TooltipContent>
           </Tooltip>
         )}
       </div>

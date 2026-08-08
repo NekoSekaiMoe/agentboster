@@ -28,7 +28,6 @@ import {
 } from './attachments';
 import { parseSuggestedFollowUps } from '@/lib/chat/suggested-follow-up';
 import { PencilEditIcon } from './icons';
-import { Logo } from './logo';
 import { Markdown } from './markdown';
 import { MessageActions } from './message-actions';
 import { MessageEditor } from './message-editor';
@@ -126,14 +125,6 @@ function getFileAttachment(
     url: part.url,
     size: 0,
   };
-}
-
-function AssistantGlyph() {
-  return (
-    <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-background ring-1 ring-border/70">
-      <Logo width={22} height={22} />
-    </div>
-  );
 }
 
 function WorkflowSummaryButton({
@@ -698,11 +689,9 @@ const PurePreviewMessage = ({
   chatId,
   message,
   isLoading,
-  showAssistantGlyph,
   showSuggestedFollowUps,
   onToolApproval,
   onSuggestedFollowUpSelect,
-  onRevert,
   setMessages,
   regenerate,
   ttsEnabled = false,
@@ -711,7 +700,6 @@ const PurePreviewMessage = ({
   chatId: string;
   message: WorkflowUIMessage;
   isLoading: boolean;
-  showAssistantGlyph: boolean;
   showSuggestedFollowUps: boolean;
   onToolApproval?: (input: {
     toolCallId: string;
@@ -720,7 +708,6 @@ const PurePreviewMessage = ({
     comment?: string;
   }) => Promise<void>;
   onSuggestedFollowUpSelect?: (question: string) => void;
-  onRevert?: (messageId: string) => void;
   setMessages: (
     messages:
       | WorkflowUIMessage[]
@@ -1036,13 +1023,6 @@ const PurePreviewMessage = ({
             },
           )}
         >
-          {message.role === 'assistant' &&
-            (showAssistantGlyph ? (
-              <AssistantGlyph />
-            ) : (
-              <div className="size-7 shrink-0" aria-hidden="true" />
-            ))}
-
           <div className="flex w-full min-w-0 flex-col gap-2 group-data-[role=assistant]/message:items-start group-data-[role=user]/message:items-end">
             {message.role === 'user' &&
               hasRenderableContent &&
@@ -1103,10 +1083,8 @@ const PurePreviewMessage = ({
 
             <MessageActions
               key={`action-${message.id}`}
-              chatId={chatId}
               message={message}
               isLoading={isLoading}
-              onRevert={onRevert}
               onEditVersionChange={handleEditVersionChange}
               onRegenerate={handleRegenerate}
               onGenerationVersionChange={handleGenerationVersionChange}
@@ -1125,9 +1103,6 @@ export const PreviewMessage = memo(
   (prevProps, nextProps) => {
     if (prevProps.chatId !== nextProps.chatId) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
-    if (prevProps.showAssistantGlyph !== nextProps.showAssistantGlyph) {
-      return false;
-    }
     if (prevProps.showSuggestedFollowUps !== nextProps.showSuggestedFollowUps) {
       return false;
     }
@@ -1169,8 +1144,6 @@ export const ThinkingMessage = () => {
           },
         )}
       >
-        <AssistantGlyph />
-
         <div className="flex w-full min-w-0 flex-col gap-2">
           <div className="flex flex-col gap-4 text-muted-foreground">
             Thinking...

@@ -7,17 +7,13 @@ import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 
 import {
-  AttachmentButton,
   AttachmentList,
   type AttachmentUploadProgress,
   type ComposerAttachment,
   buildAttachmentId,
   fileToComposerAttachment,
 } from '@/components/attachments';
-import { ArrowUpIcon, StopIcon } from '@/components/icons';
-import { ModelPicker } from '@/components/chat/model-picker';
-import { PersonaPicker } from '@/components/chat/persona-picker';
-import { Mic } from 'lucide-react';
+import { ArrowUp, Mic, Plus, Square } from 'lucide-react';
 import {
   MentionMenu,
   applyMention,
@@ -47,7 +43,7 @@ const adjustHeight = (ref: React.RefObject<HTMLTextAreaElement | null>) => {
 const resetHeight = (ref: React.RefObject<HTMLTextAreaElement | null>) => {
   if (ref.current) {
     ref.current.style.height = 'auto';
-    ref.current.style.height = '56px';
+    ref.current.style.height = '44px';
   }
 };
 
@@ -62,10 +58,7 @@ function PureMultimodalInput({
   sendMessage,
   className,
   selectedModel,
-  allowedModels,
-  onSelectModel,
   selectedAgent,
-  onSelectAgent,
 }: {
   chatId: string;
   focusTrigger?: number;
@@ -79,16 +72,10 @@ function PureMultimodalInput({
     options?: ChatRequestOptions,
   ) => Promise<void>;
   className?: string;
-  /** Currently selected model id from the chat-box picker, or null for global default. */
+  /** Currently selected model id, sent in the request body (null = global default). Selection UI lives in the chat header. */
   selectedModel: string | null;
-  /** Models the user is allowed to pick (admin catalog or fallback). Empty list disables the picker. */
-  allowedModels: string[];
-  /** Called when the user picks a model (or null for "Use global default"). */
-  onSelectModel: (model: string | null) => void;
-  /** Currently selected persona (agentName) for the picker. null = 'main'. */
+  /** Currently selected persona (agentName), sent in the request body (null = 'main'). Selection UI lives in the chat header. */
   selectedAgent: string | null;
-  /** Called when the user picks a persona (null for the Default persona). */
-  onSelectAgent: (agent: string | null) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -494,7 +481,37 @@ function PureMultimodalInput({
   }, [shouldSubmit, submitForm]);
 
   return (
-    <div className="relative flex w-full flex-col gap-4">
+    <div
+      role="group"
+      aria-label="Message composer and attachments"
+      className="relative flex w-full flex-col gap-2"
+      onDragOver={(event) => {
+        // Only intercept file drags; leave text/html etc. untouched so the
+        // textarea keeps its native drop-to-insert behavior.
+        if (!event.dataTransfer.types.includes('Files')) {
+          return;
+        }
+        event.preventDefault();
+        setIsDragActive(true);
+      }}
+      onDragLeave={(event) => {
+        if (
+          event.relatedTarget instanceof Node &&
+          event.currentTarget.contains(event.relatedTarget)
+        ) {
+          return;
+        }
+        setIsDragActive(false);
+      }}
+      onDrop={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) {
+          return;
+        }
+        event.preventDefault();
+        setIsDragActive(false);
+        void addFiles(event.dataTransfer.files);
+      }}
+    >
       <input
         type="file"
         ref={fileInputRef}
@@ -510,46 +527,28 @@ function PureMultimodalInput({
         }}
       />
 
+      <AttachmentList
+        attachments={attachments}
+        uploadProgress={uploadProgress}
+        onRemove={removeAttachment}
+      />
+
       <div
         role="group"
         aria-label="Message composer"
         className={cn(
-          'relative flex flex-col gap-3 rounded-[32px] bg-background/95 px-4 py-4',
-          'shadow-[0_1px_2px_rgba(0,0,0,0.05),0_12px_32px_-12px_rgba(0,0,0,0.22),0_32px_64px_-24px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.5)] backdrop-blur-xl',
+          'relative flex flex-row items-end gap-1 rounded-full bg-card p-2 ring-1 ring-black/[0.06]',
+          'shadow-[0_1px_3px_rgba(15,23,42,0.08),0_10px_28px_-8px_rgba(15,23,42,0.18),0_28px_64px_-20px_rgba(15,23,42,0.16),inset_0_1px_0_rgba(255,255,255,0.7)]',
           'transition-[background-color,box-shadow,transform] duration-200',
-          'focus-within:-translate-y-0.5 focus-within:bg-background focus-within:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_20px_44px_-14px_rgba(0,0,0,0.28),0_40px_80px_-28px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.6)]',
-          'dark:bg-background/80 dark:shadow-[0_1px_2px_rgba(0,0,0,0.4),0_16px_40px_-12px_rgba(0,0,0,0.7),0_36px_72px_-24px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)]',
-          'dark:focus-within:shadow-[0_2px_6px_rgba(0,0,0,0.5),0_24px_52px_-14px_rgba(0,0,0,0.78),0_44px_88px_-28px_rgba(0,0,0,0.68),inset_0_1px_0_rgba(255,255,255,0.12)]',
+          'focus-within:-translate-y-0.5 focus-within:shadow-[0_2px_5px_rgba(15,23,42,0.1),0_16px_36px_-10px_rgba(15,23,42,0.24),0_36px_80px_-24px_rgba(15,23,42,0.2),inset_0_1px_0_rgba(255,255,255,0.8)]',
+          'dark:shadow-[0_1px_3px_rgba(0,0,0,0.5),0_12px_32px_-8px_rgba(0,0,0,0.7),0_32px_72px_-20px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] dark:ring-white/[0.08]',
+          'dark:focus-within:shadow-[0_2px_6px_rgba(0,0,0,0.55),0_18px_40px_-10px_rgba(0,0,0,0.78),0_40px_88px_-24px_rgba(0,0,0,0.68),inset_0_1px_0_rgba(255,255,255,0.12)]',
           {
             'bg-primary/5 ring-2 ring-primary/50': isDragActive,
           },
           className,
         )}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setIsDragActive(true);
-        }}
-        onDragLeave={(event) => {
-          if (
-            event.relatedTarget instanceof Node &&
-            event.currentTarget.contains(event.relatedTarget)
-          ) {
-            return;
-          }
-          setIsDragActive(false);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          setIsDragActive(false);
-          void addFiles(event.dataTransfer.files);
-        }}
       >
-        <AttachmentList
-          attachments={attachments}
-          uploadProgress={uploadProgress}
-          onRemove={removeAttachment}
-        />
-
         <SlashCommandMenu
           value={input}
           cursor={cursor}
@@ -566,9 +565,21 @@ function PureMultimodalInput({
           onSelect={insertMention}
         />
 
+        <button
+          aria-label="Add attachments"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          onClick={(event) => {
+            event.preventDefault();
+            fileInputRef.current?.click();
+          }}
+          type="button"
+        >
+          <Plus className="size-5" />
+        </button>
+
         <Textarea
           ref={textareaRef}
-          placeholder="Ask AgentBoster..."
+          placeholder="Ask anything"
           value={input}
           onChange={handleInput}
           style={{
@@ -579,7 +590,7 @@ function PureMultimodalInput({
             WebkitAppearance: 'none',
             appearance: 'none',
           }}
-          className="!text-base !border-none !bg-transparent !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none max-h-[calc(75dvh)] min-h-11 resize-none overflow-hidden px-0 pt-0 pb-12"
+          className="!text-base !border-none !bg-transparent !shadow-none !outline-none focus:!outline-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!outline-none max-h-[50dvh] min-h-11 min-w-0 flex-1 resize-none overflow-hidden px-2 py-2.5"
           rows={1}
           autoFocus={false}
           onClick={(event) => {
@@ -610,20 +621,7 @@ function PureMultimodalInput({
           }}
         />
 
-        <div className="absolute bottom-0 left-0 flex w-fit flex-row items-center gap-2 p-3">
-          <PersonaPicker
-            onSelectAgent={onSelectAgent}
-            selectedAgent={selectedAgent}
-          />
-          <ModelPicker
-            allowedModels={allowedModels}
-            onSelectModel={onSelectModel}
-            selectedModel={selectedModel}
-          />
-        </div>
-
-        <div className="absolute right-0 bottom-0 flex w-fit flex-row justify-end gap-2 p-3">
-          <AttachmentButton onClick={() => fileInputRef.current?.click()} />
+        <div className="flex shrink-0 flex-row items-center justify-end gap-2">
           {isLoading ? (
             <StopButton stop={stop} />
           ) : input.trim().length === 0 && attachments.length === 0 ? (
@@ -652,13 +650,14 @@ export const MultimodalInput = memo(
     if (prevProps.chatId !== nextProps.chatId) return false;
     if (prevProps.focusTrigger !== nextProps.focusTrigger) return false;
     if (prevProps.input !== nextProps.input) return false;
+    if (prevProps.setInput !== nextProps.setInput) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
     if (prevProps.enterToSend !== nextProps.enterToSend) return false;
+    if (prevProps.stop !== nextProps.stop) return false;
+    if (prevProps.sendMessage !== nextProps.sendMessage) return false;
+    if (prevProps.className !== nextProps.className) return false;
     if (prevProps.selectedModel !== nextProps.selectedModel) return false;
-    if (prevProps.allowedModels !== nextProps.allowedModels) return false;
-    if (prevProps.onSelectModel !== nextProps.onSelectModel) return false;
     if (prevProps.selectedAgent !== nextProps.selectedAgent) return false;
-    if (prevProps.onSelectAgent !== nextProps.onSelectAgent) return false;
 
     return true;
   },
@@ -667,13 +666,15 @@ export const MultimodalInput = memo(
 function PureStopButton({ stop }: { stop: () => void }) {
   return (
     <Button
-      className="size-11 rounded-full border p-0 dark:border-zinc-600"
+      aria-label="Stop generating"
+      className="size-11 rounded-full bg-transparent p-0 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground"
       onClick={(event) => {
         event.preventDefault();
         stop();
       }}
+      variant="ghost"
     >
-      <StopIcon size={14} />
+      <Square className="size-5 fill-current" />
     </Button>
   );
 }
@@ -693,14 +694,17 @@ function PureSendButton({
 }) {
   return (
     <Button
-      className="size-11 rounded-full border p-0 dark:border-zinc-600"
+      aria-label="Send message"
+      className="size-11 rounded-full bg-transparent p-0 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground disabled:opacity-40"
+      data-testid="send-button"
       onClick={(event) => {
         event.preventDefault();
         void submitForm();
       }}
       disabled={isUploading || (input.trim().length === 0 && !hasAttachments)}
+      variant="ghost"
     >
-      <ArrowUpIcon size={14} />
+      <ArrowUp className="size-5" />
     </Button>
   );
 }
@@ -723,10 +727,11 @@ function PureRecordButton({
 }) {
   return (
     <Button
+      aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
       className={cn(
-        'size-11 rounded-full border p-0 transition-colors dark:border-zinc-600',
+        'size-11 rounded-full bg-transparent p-0 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground disabled:opacity-40',
         isRecording
-          ? 'border-red-500 bg-red-500 text-white hover:bg-red-600'
+          ? 'text-red-500 hover:bg-red-500/10 hover:text-red-500'
           : '',
       )}
       onClick={(event) => {
@@ -735,8 +740,13 @@ function PureRecordButton({
       }}
       disabled={isUploading}
       title={isRecording ? 'Stop recording' : 'Start voice input'}
+      variant="ghost"
     >
-      {isRecording ? <StopIcon size={14} /> : <Mic size={14} />}
+      {isRecording ? (
+        <Square className="size-5 fill-current" />
+      ) : (
+        <Mic className="size-5" />
+      )}
     </Button>
   );
 }
