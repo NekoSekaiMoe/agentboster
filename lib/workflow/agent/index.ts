@@ -15,7 +15,6 @@ import type { ClientSpoof } from '@/types/config/ai';
 import type { ChatSource, UserMessagePart } from '@/types/workflow';
 import { DurableAgent } from '@workflow/ai/agent';
 import type { ModelMessage, StepResult, ToolSet } from 'ai';
-import { afterResponse } from './after-response';
 import { getWorkflowMetadata } from 'workflow';
 import { DEFAULT_MAIN_MAX_STEPS, DEFAULT_THRESHOLD_TO_SUMMARY } from './config';
 import { instructionHookBuilder } from './hooks';
@@ -762,59 +761,74 @@ export async function chatWorkflow(
       status: 'completed',
     });
 
-    // Schedule post-conversation memory extraction to run after this
-    // workflow response fully closes. P3 follow-up: we previously used
-    // next/server's after() here, but importing next/server into the
-    // workflow bundle fails because the Workflow DevKit sandbox
-    // doesn't define __dirname (required by ncc-compiled ua-parser-js
-    // in next/server's user-agent spec extension). afterResponse()
-    // stashes the callback in a queue that the host drains when the
-    // readable stream closes — same semantic, no next/server import.
-    // Extraction is best-effort by design; failures are logged.
+    // Post-run finalization (memory extraction + skill distillation +
+    // resource cleanup).
+    //
+    // This used to be deferred to afterResponse() — a queue drained by
+    // the host when the workflow's readable stream closed. That worked
+    // when POST /api/ai kept the SSE connection open for the whole run
+    // (drain ran in that long-lived function). With fire-and-forget,
+    // /api/ai returns immediately and no host process reliably drains
+    // the queue, so we run the finalization inline as workflow steps
+    // instead. These are host functions awaited inside the workflow
+    // body, which the runtime treats as step boundaries (same pattern
+    // as finalizeRunStep above). All three are best-effort: each is
+    // wrapped so a failure cannot fail the already-completed run.
+    //
     // Session-kind gating (OpenClaw hygiene rule): only interactive
-    // sessions (web / im / cli) produce durable memory OR staged skills.
-    // Scheduled/cron runs are excluded explicitly from BOTH the memory
-    // extraction and the skill distillation below — they can write task
-    // artifacts, but nothing they emit is eligible for long-term memory
-    // or for review-queue skill drafts.
+    // sessions (web / im / cli) produce durable memory OR staged
+    // skills. Scheduled/cron runs are excluded explicitly from BOTH
+    // the memory extraction and the skill distillation below — they
+    // can write task artifacts, but nothing they emit is eligible for
+    // long-term memory or for review-queue skill drafts.
     if (source.type !== 'scheduled' && 'userId' in source && source.userId) {
-      afterResponse(async () => {
-        try {
-          await extractMemoriesFromSession({
-            sessionId,
-            userId: source.userId as string,
-            config: effectiveConfig,
-            user,
-          });
-        } catch (err) {
-          logger.warn('memory:extract_failed', {
-            sessionId,
-            runId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+      try {
+        await extractMemoriesFromSession({
+          sessionId,
+          userId: source.userId as string,
+          config: effectiveConfig,
+          user,
+        });
+      } catch (err) {
+        logger.warn('memory:extract_failed', {
+          sessionId,
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
 
-        // Experimental skill distillation: if the conversation had enough
-        // tool-call density, run a background reviewer that may stage a
-        // draft skill (self-authored or a ClawHub install suggestion).
-        // Best-effort, off by default (gated by
-        // config.experiments.skillDistillation.enabled). Same discipline as
-        // memory extraction: runs AFTER the response closes on a separate
-        // LLM call, never touches the main conversation's prompt cache.
-        try {
-          await maybeDistillSkillFromSession({
-            sessionId,
-            userId: source.userId as string,
-            config: effectiveConfig,
-            user,
-          });
-        } catch (err) {
-          logger.warn('skills:distill_failed', {
-            sessionId,
-            runId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+      // Experimental skill distillation: if the conversation had enough
+      // tool-call density, run a background reviewer that may stage a
+      // draft skill (self-authored or a ClawHub install suggestion).
+      // Best-effort, off by default (gated by
+      // config.experiments.skillDistillation.enabled).
+      try {
+        await maybeDistillSkillFromSession({
+          sessionId,
+          userId: source.userId as string,
+          config: effectiveConfig,
+          user,
+        });
+      } catch (err) {
+        logger.warn('skills:distill_failed', {
+          sessionId,
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Resource cleanup. stopSandbox:false keeps the sandbox warm for the
+    // next message in this session (faster startup); it only logs and
+    // touches metadata. Safe to run on every run completion.
+    try {
+      const { cleanupWorkflowResources } = await import('./cleanup');
+      await cleanupWorkflowResources({ sessionId, stopSandbox: false });
+    } catch (err) {
+      logger.warn('cleanup:failed', {
+        sessionId,
+        runId,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
 

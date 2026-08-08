@@ -239,22 +239,25 @@ export async function POST(request: Request) {
     );
   }
 
-  if (result.kind === 'message') {
-    return createUIMessageStreamResponse({
-      stream: guardWorkflowChunks(result.result.readable),
-      headers: {
-        'x-session-id': result.result.sessionId,
-        'x-workflow-run-id': result.result.runId,
-      },
-    });
-  }
-
-  if (result.kind === 'resume-run-message') {
-    logger.info('post:resume_existing_run', {
-      sessionId: result.result.sessionId,
-      runId: result.result.runId,
-    });
-
+  if (result.kind === 'message' || result.kind === 'resume-run-message') {
+    // Return an SSE stream, but read it from storage via
+    // getWorkflowRun(runId).readable rather than from a stream object
+    // held in the dispatch process. This decouples the HTTP response
+    // from the startWorkflow() call: the workflow's step execution is
+    // driven by the Vercel Queue Service, and the readable returned by
+    // startWorkflow was the only thing tying this response to the
+    // originating process's lifetime. Reading from storage means any
+    // instance can serve the stream (the reconnect endpoint uses the
+    // same call), and post-run finalization no longer depends on this
+    // HTTP function staying alive (it runs as workflow steps now).
+    // The stream's default startIndex replays every chunk written so
+    // far, so nothing is lost between run start and this read.
+    if (result.kind === 'resume-run-message') {
+      logger.info('post:resume_existing_run', {
+        sessionId: result.result.sessionId,
+        runId: result.result.runId,
+      });
+    }
     return createUIMessageStreamResponse({
       stream: guardWorkflowChunks(getWorkflowRun(result.result.runId).readable),
       headers: {

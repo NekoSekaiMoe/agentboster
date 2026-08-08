@@ -93,7 +93,6 @@ export type DispatchChatInputResult =
       result: {
         sessionId: string;
         runId: string;
-        readable: ReadableStream<WorkflowUIMessageChunk>;
       };
     }
   | {
@@ -1915,7 +1914,7 @@ export async function chatMain(
 
   chatMainLogger.info('chatMain:starting_workflow');
   const agentsMd = readSessionAgentsMd(session.metadata);
-  const { runId, readable } = await startWorkflow({
+  const { runId } = await startWorkflow({
     sessionId: session.id,
     initialMessages,
     config,
@@ -1954,7 +1953,6 @@ export async function chatMain(
     result: {
       sessionId: session.id,
       runId,
-      readable,
     },
   };
 }
@@ -1995,7 +1993,7 @@ async function runInitAgentsMdWorkflow(input: {
     config,
   });
 
-  const { runId, readable } = await startWorkflow({
+  const { runId } = await startWorkflow({
     sessionId: session.id,
     initialMessages,
     config,
@@ -2008,7 +2006,6 @@ async function runInitAgentsMdWorkflow(input: {
     result: {
       sessionId: session.id,
       runId,
-      readable,
     },
   };
 }

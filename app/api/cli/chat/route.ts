@@ -240,17 +240,11 @@ export async function POST(request: Request) {
     );
   }
 
-  if (result.kind === 'message') {
-    return createUIMessageStreamResponse({
-      stream: guardWorkflowChunks(result.result.readable),
-      headers: {
-        'x-session-id': result.result.sessionId,
-        'x-workflow-run-id': result.result.runId,
-      },
-    });
-  }
-
-  if (result.kind === 'resume-run-message') {
+  if (result.kind === 'message' || result.kind === 'resume-run-message') {
+    // Read the workflow stream from storage via getWorkflowRun rather
+    // than from the stream object returned by startWorkflow. This
+    // decouples the HTTP response from the dispatch process — see the
+    // matching comment in app/(chat)/api/ai/route.ts.
     return createUIMessageStreamResponse({
       stream: guardWorkflowChunks(getWorkflowRun(result.result.runId).readable),
       headers: {
