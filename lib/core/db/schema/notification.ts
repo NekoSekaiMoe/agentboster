@@ -10,6 +10,15 @@ import {
 
 export const notifications = pgTable('notifications', {
   id: uuid('id').defaultRandom().primaryKey(),
+  /**
+   * The agentboster user who OWNS this notification (the subject of the
+   * event, derived server-side from the task/session owner). This is the
+   * column every list/mutation query MUST filter on for per-user
+   * isolation. Distinct from `targetUserId` below, which is the IM
+   * delivery target (an external platform id) and is NOT a tenancy
+   * boundary.
+   */
+  userId: text('user_id'),
   taskId: text('task_id').notNull(),
   decisionId: text('decision_id'),
   notificationType: text('notification_type', {
@@ -23,6 +32,13 @@ export const notifications = pgTable('notifications', {
     .notNull(),
   channel: text('channel').notNull(),
   targetChatId: text('target_chat_id').notNull(),
+  /**
+   * IM-platform user id the notification is delivered to (e.g. Telegram
+   * `from.id`). Advisory; NOT a tenancy boundary — use `userId` for
+   * per-user filtering. Kept because the IM adapter needs the platform
+   * id to address the message, and it may differ from the owner (e.g.
+   * an admin acting on behalf of a user).
+   */
   targetUserId: text('target_user_id'),
   errorMessage: text('error_message'),
   sentAt: timestamp('sent_at', { withTimezone: true }),

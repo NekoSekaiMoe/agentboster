@@ -41,7 +41,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const agentId = searchParams.get('agent_id') ?? 'default';
   const limit = Number(searchParams.get('limit') ?? 50);
-  const tasks = await listTasks(agentId, limit);
+  const sessionId = searchParams.get('session_id') ?? undefined;
+  const tasks = await listTasks(agentId, limit, sessionId ? { sessionId } : undefined);
   return Response.json({
     success: true,
     data: tasks.map((task) => formatTaskForAgentd(task)),

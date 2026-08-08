@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
 
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
+import { resolveAgentdResourceAccess } from '@/lib/core/db/agentd';
 import {
   getNotificationPreferences,
   upsertNotificationPreferences,
@@ -117,11 +118,29 @@ export async function POST(request: Request) {
   const data = parsed.data;
   const metadata = (data.metadata ?? {}) as Record<string, unknown>;
 
+  // Derive the owning user from the task/session scope so the row is
+  // attributable for per-user filtering. Body/metadata userId is the IM
+  // delivery target, not the tenancy boundary.
+  let ownerUserId: string | null = null;
+  try {
+    ownerUserId = (
+      await resolveAgentdResourceAccess({
+        taskId: typeof data.task_id === 'string' ? data.task_id : null,
+        sessionId:
+          (typeof metadata.session_id === 'string' && metadata.session_id) ||
+          null,
+      })
+    ).userId;
+  } catch {
+    // Scope unavailable — leave null; row stays deliverable via metadata.
+  }
+
   try {
     // Persist to notifications table.
     const [row] = await db
       .insert(notifications)
       .values({
+        userId: ownerUserId,
         taskId: data.task_id || 'unknown',
         decisionId:
           typeof metadata.decisionId === 'string'

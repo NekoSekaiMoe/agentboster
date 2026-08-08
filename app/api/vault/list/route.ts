@@ -1,5 +1,5 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
-import { listVaultEntries, upsertVaultEntry } from '@/lib/extra/vault';
+import { listUserVaultEntries, upsertUserVaultEntry } from '@/lib/extra/vault';
 import { cookies } from 'next/headers';
 
 async function requireUser() {
@@ -14,7 +14,7 @@ async function requireUser() {
 export async function GET() {
   try {
     const session = await requireUser();
-    const entries = await listVaultEntries(session.userId);
+    const entries = await listUserVaultEntries(session.userId);
     return Response.json({ success: true, data: entries });
   } catch (error) {
     const message =
@@ -30,10 +30,10 @@ export async function POST(request: Request) {
   try {
     const session = await requireUser();
     const body = await request.json();
-    const entry = await upsertVaultEntry({
+    const entry = await upsertUserVaultEntry({
+      userId: session.userId,
       key: String(body.key ?? ''),
       value: String(body.value ?? ''),
-      userId: session.userId,
     });
     return Response.json({ success: true, data: entry });
   } catch (error) {

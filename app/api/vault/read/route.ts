@@ -1,5 +1,5 @@
 import { readAuthSessionFromCookies } from '@/lib/auth';
-import { readVaultValue } from '@/lib/extra/vault';
+import { readUserVaultValue } from '@/lib/extra/vault';
 import { cookies } from 'next/headers';
 
 export async function POST(request: Request) {
@@ -14,9 +14,9 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const entry = await readVaultValue({
-      key: String(body.key ?? ''),
+    const entry = await readUserVaultValue({
       userId: session.userId,
+      key: String(body.key ?? ''),
     });
     if (!entry) {
       return Response.json(

@@ -15,12 +15,14 @@ export async function createNotification(data: {
   payload: Record<string, unknown>;
   channel: string;
   targetChatId: string;
-  targetUserId?: string;
+  targetUserId?: string | null;
+  userId?: string | null;
   expiresAt?: Date;
 }) {
   const [n] = await db
     .insert(notifications)
     .values({
+      userId: data.userId ?? null,
       taskId: data.taskId,
       decisionId: data.decisionId ?? null,
       notificationType: data.notificationType,

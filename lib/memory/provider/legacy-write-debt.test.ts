@@ -90,6 +90,7 @@ describe('Phase 1 债务守卫:memory 写 DAL 的 legacy 直调点', () => {
       'lib/workflow/agent/tools/memories/local.ts',
       'app/(memory)/actions.ts',
       'app/api/agentd/v1/memories/route.ts',
+      'app/api/agentd/v1/memories/[id]/route.ts', // agentd PUT/DELETE 路由, ownership 推导后直调 update/deleteLongTermMemoryRow
       'app/api/import/route.ts',
     ]);
     const unexpected = files.filter((f) => !ALLOWLIST.has(f));

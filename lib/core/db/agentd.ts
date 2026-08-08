@@ -1,6 +1,7 @@
 import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
 import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
 import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
+import { hasAdminRole } from '@/lib/core/db/users';
 import { db } from './index';
 import {
   agentdNodes,
@@ -216,6 +217,64 @@ export function getResourceErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Internal server error';
 }
 
+/**
+ * Resolve the user identity that owns an agentd-scope resource.
+ *
+ * This is the single entry point every `/api/agentd/v1/*` route SHOULD use
+ * to turn a request into a `{ userId, isAdmin }` access scope. It NEVER
+ * trusts a client-supplied `user_id` field — identity is always derived
+ * server-side from the task or session row the caller is operating on.
+ *
+ * Resolution order:
+ *   1. If `taskId` is present, the task is loaded (and optionally checked
+ *      against `sessionId` via {@link requireTaskAccess}); its owner
+ *      becomes the resolved user. A task without an owner is a 403.
+ *   2. Otherwise `sessionId` is required; the session row is loaded via
+ *      {@link deriveSessionIdentity}; its owner becomes the resolved user.
+ *      A session without an owner is a 404.
+ *
+ * Rationale: agentd routes are gated only by the shared `AGENTD_API_KEY`
+ * (see `proxy.ts`). Without per-user identity at the boundary, any key
+ * holder could impersonate any user by sending an arbitrary `user_id` in
+ * the request body. Routing identity through the owned task/session row
+ * closes that gap — the caller can only act within a scope the server
+ * already attached to a specific user.
+ */
+export async function resolveAgentdResourceAccess(input: {
+  taskId?: string | null;
+  sessionId?: string | null;
+}): Promise<{ userId: string; isAdmin: boolean }> {
+  if (input.taskId) {
+    const task = await requireTaskAccess({
+      taskId: input.taskId,
+      sessionId: input.sessionId,
+    });
+    if (!task.userId) {
+      throw Object.assign(new Error('Task owner is unknown'), { status: 403 });
+    }
+    return {
+      userId: task.userId,
+      isAdmin: hasAdminRole(task.roles),
+    };
+  }
+
+  if (!input.sessionId) {
+    throw Object.assign(new Error('task_id or session_id is required'), {
+      status: 400,
+    });
+  }
+
+  const identity = await deriveSessionIdentity(input.sessionId);
+  if (!identity.userId) {
+    throw Object.assign(new Error('Session not found'), { status: 404 });
+  }
+
+  return {
+    userId: identity.userId,
+    isAdmin: hasAdminRole(identity.roles),
+  };
+}
+
 function normalizeDecision(value: string): ReviewDecision {
   const allowed = new Set<string>(agentReviewLogs.decision.enumValues);
   return (allowed.has(value) ? value : 'allowed') as ReviewDecision;
@@ -356,11 +415,20 @@ export async function updateTaskStatus(
   };
 }
 
-export async function listTasks(agentId: string, limit = 50) {
+export async function listTasks(
+  agentId: string,
+  limit = 50,
+  options?: { sessionId?: string },
+) {
+  const conditions = [eq(agentTasks.agentId, agentId)];
+  if (options?.sessionId) {
+    conditions.push(eq(agentTasks.sessionId, options.sessionId));
+  }
+
   const tasks = await db
     .select()
     .from(agentTasks)
-    .where(eq(agentTasks.agentId, agentId))
+    .where(and(...conditions))
     .orderBy(desc(agentTasks.createdAt))
     .limit(limit);
 
@@ -1118,11 +1186,13 @@ export async function createNotification(input: {
   channel: string;
   targetChatId: string;
   targetUserId?: string | null;
+  userId?: string | null;
   expiresAt?: Date | null;
 }) {
   const [row] = await db
     .insert(notifications)
     .values({
+      userId: input.userId ?? null,
       taskId: input.taskId,
       decisionId: input.decisionId ?? null,
       notificationType: input.notificationType,

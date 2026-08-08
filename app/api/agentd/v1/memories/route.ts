@@ -1,8 +1,13 @@
 export const dynamic = 'force-dynamic';
 
+import {
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+  resolveAgentdResourceAccess,
+} from '@/lib/core/db/agentd';
+import { createLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { invalidateMemoryCaches } from '@/lib/memory/cache-invalidation';
 import { searchLongTermMemories } from '@/lib/memory/long-term';
-import { createLongTermMemoryRows } from '@/lib/core/db/memory/long-term';
 import { createLogger } from '@/lib/utils/logger';
 import { z } from 'zod';
 
@@ -40,7 +45,7 @@ export async function GET(request: Request) {
       return Response.json({ error: 'Invalid request' }, { status: 400 });
     }
 
-    const { keywords, limit } = parsed.data;
+    const { keywords, limit, task_id: taskId, session_id: sessionId } = parsed.data;
     const keywordList = keywords
       ?.split(',')
       .map((k) => k.trim())
@@ -50,10 +55,16 @@ export async function GET(request: Request) {
       return Response.json([]);
     }
 
+    // Derive the owning user from the task/session — NEVER trust a body
+    // field. Without this, anyone holding AGENTD_API_KEY could dump every
+    // user's long-term memories in one query.
+    const access = await resolveAgentdResourceAccess({ taskId, sessionId });
+
     const results = await searchLongTermMemories({
       query: keywordList.join(' '),
       minConfidence: 0.05,
       pageSize: limit,
+      userId: access.userId,
     });
 
     const memories = results.map((r, i) => ({
@@ -68,6 +79,12 @@ export async function GET(request: Request) {
 
     return Response.json(memories);
   } catch (error) {
+    if (getResourceErrorStatus(error) !== 500) {
+      return Response.json(
+        { error: getResourceErrorMessage(error) },
+        { status: getResourceErrorStatus(error) },
+      );
+    }
     logger.error('get memories failed', { error });
     return Response.json({ error: 'Internal error' }, { status: 500 });
   }
@@ -82,10 +99,19 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Invalid request' }, { status: 400 });
     }
 
-    const { memories } = parsed.data;
+    const {
+      memories,
+      task_id: taskId,
+      session_id: sessionId,
+    } = parsed.data;
+
+    // Derive the owning user from the task/session so extracted memories
+    // land in the correct user's bucket — not a shared 'agentd' bucket
+    // that other agentd callers could read via the GET route.
+    const access = await resolveAgentdResourceAccess({ taskId, sessionId });
 
     const rows = memories.map((m) => ({
-      userId: 'agentd',
+      userId: access.userId,
       content: `[${m.Key}] ${m.Value}`,
       memoryType: 'fact' as const,
       importance: 5,
@@ -95,11 +121,17 @@ export async function POST(request: Request) {
       await createLongTermMemoryRows(rows);
       // Phase 3 失效链修复(reviewer phase3 B2):裸 DAL 不失效,显式调
       // invalidateMemoryCaches 让 recall/trigger/profile cache + packer version 失效。
-      await invalidateMemoryCaches('agentd');
+      await invalidateMemoryCaches(access.userId);
     }
 
     return Response.json({ success: true });
   } catch (error) {
+    if (getResourceErrorStatus(error) !== 500) {
+      return Response.json(
+        { error: getResourceErrorMessage(error) },
+        { status: getResourceErrorStatus(error) },
+      );
+    }
     logger.error('write memories failed', { error });
     return Response.json({ error: 'Internal error' }, { status: 500 });
   }

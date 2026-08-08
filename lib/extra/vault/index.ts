@@ -1,7 +1,11 @@
 import * as crypto from 'node:crypto';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/lib/core/db';
-import { vaultAuditLogs, vaultEntries } from '@/lib/core/db/schema';
+import {
+  userVaultEntries,
+  vaultAuditLogs,
+  vaultEntries,
+} from '@/lib/core/db/schema';
 
 const NONCE_BYTES = 12;
 const MASTER_KEY_ENV = 'VAULT_MASTER_KEY';
@@ -114,6 +118,12 @@ async function auditVault(
   });
 }
 
+/**
+ * List SYSTEM-level vault entries (MCP OAuth bundles, knowledge-provider
+ * keys). NOT user-private data. Kept for callers that historically read
+ * the shared vault; `/api/vault/*` web routes must use {@link
+ * listUserVaultEntries} instead.
+ */
 export async function listVaultEntries(userId?: string | null) {
   const entries = await db
     .select({
@@ -137,6 +147,11 @@ export async function listVaultKeyNames() {
   return entries.map((entry) => entry.key);
 }
 
+/**
+ * Write a SYSTEM-level vault entry (MCP OAuth bundle, knowledge-provider
+ * API key). The `userId` argument is audit-only — system entries are not
+ * owned by any user.
+ */
 export async function upsertVaultEntry(input: {
   key: string;
   value: string;
@@ -172,6 +187,10 @@ export async function upsertVaultEntry(input: {
   return entry;
 }
 
+/**
+ * Read a SYSTEM-level vault entry by key. For user-private entries, use
+ * {@link readUserVaultValue}.
+ */
 export async function readVaultValue(input: {
   key: string;
   userId?: string | null;
@@ -195,6 +214,120 @@ export async function readVaultValue(input: {
   const value = decryptValue(entry);
   await auditVault('read', key, input.userId);
   return { key: entry.key, value, updatedAt: entry.updatedAt };
+}
+
+// ---------------------------------------------------------------------------
+// User-private vault entries (per-user isolation).
+//
+// Every function here takes a non-null `userId` and filters `WHERE user_id
+// = ?` on both read and write paths. The `(userId, key)` unique index lets
+// the same key name exist independently per user.
+// ---------------------------------------------------------------------------
+
+function requireUserId(userId: string | null | undefined): string {
+  if (!userId) {
+    throw new Error(
+      'User-scoped vault access requires an authenticated userId.',
+    );
+  }
+  return userId;
+}
+
+export async function listUserVaultEntries(userId: string) {
+  const owner = requireUserId(userId);
+  const entries = await db
+    .select({
+      key: userVaultEntries.key,
+      createdAt: userVaultEntries.createdAt,
+      updatedAt: userVaultEntries.updatedAt,
+    })
+    .from(userVaultEntries)
+    .where(eq(userVaultEntries.userId, owner))
+    .orderBy(desc(userVaultEntries.updatedAt));
+
+  await auditVault('user_list', '*', owner);
+  return entries;
+}
+
+export async function upsertUserVaultEntry(input: {
+  userId: string;
+  key: string;
+  value: string;
+}) {
+  const owner = requireUserId(input.userId);
+  const key = validateVaultKey(input.key);
+  const encrypted = encryptValue(input.value);
+  const [entry] = await db
+    .insert(userVaultEntries)
+    .values({
+      userId: owner,
+      key,
+      encryptedValue: encrypted.encryptedValue,
+      nonce: encrypted.nonce,
+    })
+    .onConflictDoUpdate({
+      target: [userVaultEntries.userId, userVaultEntries.key],
+      set: {
+        encryptedValue: encrypted.encryptedValue,
+        nonce: encrypted.nonce,
+        updatedAt: new Date(),
+      },
+    })
+    .returning({
+      key: userVaultEntries.key,
+      createdAt: userVaultEntries.createdAt,
+      updatedAt: userVaultEntries.updatedAt,
+    });
+
+  await auditVault('user_upsert', key, owner);
+  return entry;
+}
+
+export async function readUserVaultValue(input: {
+  userId: string;
+  key: string;
+}) {
+  const owner = requireUserId(input.userId);
+  const key = validateVaultKey(input.key);
+  const [entry] = await db
+    .select({
+      key: userVaultEntries.key,
+      encryptedValue: userVaultEntries.encryptedValue,
+      nonce: userVaultEntries.nonce,
+      updatedAt: userVaultEntries.updatedAt,
+    })
+    .from(userVaultEntries)
+    .where(
+      and(eq(userVaultEntries.userId, owner), eq(userVaultEntries.key, key)),
+    )
+    .limit(1);
+
+  if (!entry) {
+    return null;
+  }
+
+  const value = decryptValue(entry);
+  await auditVault('user_read', key, owner);
+  return { key: entry.key, value, updatedAt: entry.updatedAt };
+}
+
+export async function deleteUserVaultEntry(input: {
+  userId: string;
+  key: string;
+}): Promise<boolean> {
+  const owner = requireUserId(input.userId);
+  const key = validateVaultKey(input.key);
+  const deletedKeys = await db.transaction(async (tx) => {
+    const result = await tx
+      .delete(userVaultEntries)
+      .where(
+        and(eq(userVaultEntries.userId, owner), eq(userVaultEntries.key, key)),
+      )
+      .returning({ key: userVaultEntries.key });
+    await auditVault('user_delete', key, owner, tx);
+    return result;
+  });
+  return deletedKeys.length > 0;
 }
 
 /**

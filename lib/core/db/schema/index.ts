@@ -42,7 +42,7 @@ export {
   notificationPreferences,
   channelHealth,
 } from './notification';
-export { vaultAuditLogs, vaultEntries } from './vault';
+export { userVaultEntries, vaultAuditLogs, vaultEntries } from './vault';
 export { l2Decisions } from './l2-decisions';
 export type { L2Decision, NewL2Decision } from './l2-decisions';
 export { agentBarriers, agentBarrierReleases } from './agent-barriers';

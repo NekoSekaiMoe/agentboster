@@ -1,16 +1,46 @@
 export const dynamic = 'force-dynamic';
 
-import { db } from '@/lib/core/db';
-import * as schema from '@/lib/core/db/schema';
+import {
+  deleteLongTermMemoryRow,
+  getLongTermMemoryRow,
+  updateLongTermMemoryRow,
+} from '@/lib/core/db/memory/long-term';
+import {
+  getResourceErrorMessage,
+  getResourceErrorStatus,
+  resolveAgentdResourceAccess,
+} from '@/lib/core/db/agentd';
+import { invalidateMemoryCaches } from '@/lib/memory/cache-invalidation';
 import { createLogger } from '@/lib/utils/logger';
-import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 const logger = createLogger('api.agentd.memories.id');
 
+const scopeSchema = z.object({
+  task_id: z.string().optional(),
+  session_id: z.string().optional(),
+});
+
 const updateMemorySchema = z.object({
   value: z.string(),
 });
+
+async function resolveMemoryOwner(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const parsed = scopeSchema.safeParse(
+    Object.fromEntries(searchParams),
+  );
+  if (!parsed.success) {
+    throw Object.assign(new Error('Invalid request'), { status: 400 });
+  }
+  // Identity is derived from the task/session scope, never trusted from
+  // the body. A bare memory id is NOT enough — without a scope, any key
+  // holder could rewrite or delete any other user's memory row.
+  return resolveAgentdResourceAccess({
+    taskId: parsed.data.task_id,
+    sessionId: parsed.data.session_id,
+  });
+}
 
 export async function PUT(
   request: Request,
@@ -25,31 +55,61 @@ export async function PUT(
       return Response.json({ error: 'Invalid request' }, { status: 400 });
     }
 
-    await db
-      .update(schema.longTermMemories)
-      .set({ content: parsed.data.value, updatedAt: new Date() })
-      .where(eq(schema.longTermMemories.id, id));
+    const access = await resolveMemoryOwner(request);
 
-    return Response.json({ success: true });
+    // Verify ownership before updating. getLongTermMemoryRow with userId
+    // filters WHERE id = ? AND userId = ?, so a row belonging to another
+    // user reads as "not found" — no cross-user write.
+    const existing = await getLongTermMemoryRow(id, { userId: access.userId });
+    if (!existing) {
+      return Response.json({ error: 'Memory not found' }, { status: 404 });
+    }
+
+    const updated = await updateLongTermMemoryRow(
+      id,
+      parsed.data.value,
+      { userId: access.userId },
+    );
+
+    await invalidateMemoryCaches(access.userId);
+    return Response.json({ success: true, data: { id: updated.id } });
   } catch (error) {
+    if (getResourceErrorStatus(error) !== 500) {
+      return Response.json(
+        { error: getResourceErrorMessage(error) },
+        { status: getResourceErrorStatus(error) },
+      );
+    }
     logger.error('update memory failed', { error });
     return Response.json({ error: 'Internal error' }, { status: 500 });
   }
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
+    const access = await resolveMemoryOwner(request);
 
-    await db
-      .delete(schema.longTermMemories)
-      .where(eq(schema.longTermMemories.id, id));
+    // deleteLongTermMemoryRow with userId filters WHERE id = ? AND userId = ?.
+    const deleted = await deleteLongTermMemoryRow(id, {
+      userId: access.userId,
+    });
+    if (!deleted) {
+      return Response.json({ error: 'Memory not found' }, { status: 404 });
+    }
 
+    await invalidateMemoryCaches(access.userId);
     return Response.json({ success: true });
   } catch (error) {
+    if (getResourceErrorStatus(error) !== 500) {
+      return Response.json(
+        { error: getResourceErrorMessage(error) },
+        { status: getResourceErrorStatus(error) },
+      );
+    }
     logger.error('delete memory failed', { error });
     return Response.json({ error: 'Internal error' }, { status: 500 });
   }
