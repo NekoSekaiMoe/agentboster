@@ -78,7 +78,7 @@ describe('truncateMiddleText', () => {
     const out = truncateMiddleText(text, 200);
     const match = out.match(/omitted (\d+) chars/);
     expect(match).not.toBeNull();
-    const omitted = Number(match![1]);
+    const omitted = match ? Number(match[1]) : -1;
     expect(omitted).toBeGreaterThan(0);
     const markerIdx = out.indexOf('...[');
     const tailMarkerClose = out.lastIndexOf(']...') + 4;
