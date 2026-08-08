@@ -5,6 +5,7 @@ import { ofetch } from 'ofetch';
 import { useMemo, useRef, useState } from 'react';
 
 import { invalidateSessionListQuery } from '@/hooks/use-session-list';
+import { switchFireForgetPostToStream } from '@/lib/chat/fire-forget';
 import { buildChatSendRequestBody } from '@/lib/chat/transport-request';
 import type { WorkflowUIMessage } from '@/types/workflow';
 
@@ -24,8 +25,14 @@ export function useChatTransport(options: TransportOptions = {}) {
       new DefaultChatTransport<WorkflowUIMessage>({
         api: '/api/ai',
         fetch: async (request, init) => {
-          const response = await ofetch.native(request, init);
-          const runId = response.headers.get('x-workflow-run-id');
+          const upstream = await ofetch.native(request, init);
+          // Fire-and-forget: if POST returned 202 { runId }, switch to
+          // GET /api/ai/[runId]/stream (the SSE source). Returns the SSE
+          // response and the runId; transparent to the rest of this wrapper.
+          const { response, runId: ffRunId } =
+            await switchFireForgetPostToStream(upstream, init);
+
+          const runId = ffRunId ?? response.headers.get('x-workflow-run-id');
 
           if (runId) {
             activeRunIdRef.current = runId;

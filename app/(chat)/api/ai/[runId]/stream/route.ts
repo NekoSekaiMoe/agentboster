@@ -33,8 +33,19 @@ export async function GET(
     return new Response(null, { status: 204 });
   }
 
+  // Explicit startIndex: 0 — replay EVERY chunk from the beginning of
+  // the run, not just new ones. This is the default behavior of
+  // getReadable() (verified against @workflow/world-local's streamer:
+  // getStreamChunks uses startIndex=0 when no cursor is provided), but
+  // we set it explicitly so the fire-and-forget contract is self-
+  // documenting: POST /api/ai returns 202 immediately, and this GET
+  // must hand the client the full chunk history (including anything
+  // produced between the 202 and this reconnect). Without this, a
+  // server-side default change could silently break the UX.
   return createUIMessageStreamResponse({
-    stream: guardWorkflowChunks(getWorkflowRun(runId).readable),
+    stream: guardWorkflowChunks(
+      getWorkflowRun(runId).getReadable({ startIndex: 0 }),
+    ),
     headers: {
       'x-session-id': session.id,
       'x-workflow-run-id': runId,

@@ -4,9 +4,7 @@ import { readAuthSessionFromCookies } from '@/lib/auth';
 import { chatMain } from '@/lib/chat';
 import { CrossChannelReadonlyError } from '@/lib/chat/access';
 import { createStaticAssistantStream } from '@/lib/chat/stream';
-import { guardWorkflowChunks } from '@/lib/chat/stream-guard';
 import { createLogger } from '@/lib/utils/logger';
-import { getWorkflowRun } from '@/lib/workflow/agent/dispatch';
 import {
   type UserMessagePart,
   type WorkflowUIMessage,
@@ -19,16 +17,14 @@ import { z } from 'zod';
 
 console.log('[api/ai] Module loaded successfully');
 
-// The main web chat SSE response stays open for the entire agent run
-// (thinking + tool execution, including long agentd tools like
-// npm install). The default function maxDuration (10s Hobby / 60s Pro)
-// would truncate the stream mid-run. Raise the ceiling to match the IM
-// webhook route (app/api/bot/.../callback/route.ts). On Hobby this
-// clamps to 10s, Pro to 60s (or 300s with Fluid compute), Enterprise
-// to 900s. The workflow itself is durable and survives an HTTP
-// disconnect, but a truncated stream still breaks the live UX until
-// the client reconnects to /api/ai/[runId]/stream.
-export const maxDuration = 300;
+// The web chat entry. POST is fire-and-forget: it enqueues the workflow
+// and returns 202 { runId, sessionId } immediately — the client then
+// subscribes to GET /api/ai/[runId]/stream for the actual SSE stream.
+// This frees the POST function slot within ~milliseconds (just long
+// enough for startWorkflow to register the run with the Vercel Queue)
+// instead of holding it for the entire agent run. startWorkflow has its
+// own 30s startup timeout, so 60s is a safe ceiling with margin.
+export const maxDuration = 60;
 
 const logger = createLogger('api.ai');
 
@@ -240,31 +236,36 @@ export async function POST(request: Request) {
   }
 
   if (result.kind === 'message' || result.kind === 'resume-run-message') {
-    // Return an SSE stream, but read it from storage via
-    // getWorkflowRun(runId).readable rather than from a stream object
-    // held in the dispatch process. This decouples the HTTP response
-    // from the startWorkflow() call: the workflow's step execution is
-    // driven by the Vercel Queue Service, and the readable returned by
-    // startWorkflow was the only thing tying this response to the
-    // originating process's lifetime. Reading from storage means any
-    // instance can serve the stream (the reconnect endpoint uses the
-    // same call), and post-run finalization no longer depends on this
-    // HTTP function staying alive (it runs as workflow steps now).
-    // The stream's default startIndex replays every chunk written so
-    // far, so nothing is lost between run start and this read.
+    // Fire-and-forget: the workflow has been enqueued (startWorkflow
+    // handed it off to the Vercel Queue Service). Return immediately
+    // with the runId; the client subscribes to the run's SSE stream
+    // via GET /api/ai/[runId]/stream (handled by the reconnect
+    // endpoint, which reads getWorkflowRun(runId).readable from
+    // storage — default startIndex replays every chunk written so far,
+    // so nothing produced between this 202 and the client's GET is
+    // lost). This drops the POST function slot within milliseconds
+    // instead of holding it for the whole agent run.
     if (result.kind === 'resume-run-message') {
       logger.info('post:resume_existing_run', {
         sessionId: result.result.sessionId,
         runId: result.result.runId,
       });
     }
-    return createUIMessageStreamResponse({
-      stream: guardWorkflowChunks(getWorkflowRun(result.result.runId).readable),
-      headers: {
-        'x-session-id': result.result.sessionId,
-        'x-workflow-run-id': result.result.runId,
+    return Response.json(
+      {
+        success: true,
+        kind: result.kind,
+        sessionId: result.result.sessionId,
+        runId: result.result.runId,
       },
-    });
+      {
+        status: 202,
+        headers: {
+          'x-session-id': result.result.sessionId,
+          'x-workflow-run-id': result.result.runId,
+        },
+      },
+    );
   }
 
   return createUIMessageStreamResponse({
