@@ -36,6 +36,7 @@ import type { ComponentType } from 'react';
 import { toast } from 'sonner';
 
 import { logoutAction } from '@/app/(auth)/actions';
+import { clearSessionListCache } from '@/hooks/use-session-list';
 import { useI18n } from '@/components/i18n-provider';
 import { useConfigContext } from '@/components/config/config-provider';
 import { Logo } from '@/components/logo';
@@ -263,6 +264,7 @@ export function AppSidebar() {
     setLoggingOut(true);
     try {
       await logoutAction();
+      clearSessionListCache();
       setOpenMobile(false);
       router.push('/login');
       router.refresh();

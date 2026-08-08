@@ -34,29 +34,35 @@ const logger = createLogger('react-query');
  */
 let clientSingleton: QueryClient | null = null;
 
-export function getQueryClient(): QueryClient {
-  if (!clientSingleton) {
-    clientSingleton = new QueryClient({
-      defaultOptions: {
-        queries: {
-          staleTime: 30_000,
-          refetchOnWindowFocus: false,
-          retry: 2,
-        },
-        mutations: {
-          retry: 0,
-        },
+function createQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 30_000,
+        refetchOnWindowFocus: false,
+        retry: 2,
       },
-      queryCache: new QueryCache({
-        onError: (error, query) => {
-          logger.warn('query:error', {
-            queryKey: query.queryKey,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        },
-      }),
-    });
-  }
+      mutations: {
+        retry: 0,
+      },
+    },
+    queryCache: new QueryCache({
+      onError: (error, query) => {
+        logger.warn('query:error', {
+          queryKey: query.queryKey,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      },
+    }),
+  });
+}
+
+export function getQueryClient(): QueryClient {
+  // On the server, always return a fresh instance so each SSR request
+  // gets an isolated cache (a module singleton would leak data across
+  // concurrent SSR requests in a long-lived Node process).
+  if (typeof window === 'undefined') return createQueryClient();
+  if (!clientSingleton) clientSingleton = createQueryClient();
   return clientSingleton;
 }
 
@@ -75,10 +81,9 @@ export function ReactQueryProvider({
 }: {
   children: React.ReactNode;
 }) {
-  // Reuse the module singleton on the client; create a fresh instance
-  // per SSR render (useState initializer is component-instance-scoped,
-  // but the module singleton is only set once per process so SSR gets a
-  // private client and the browser rehydrates with the singleton).
+  // useState initializer calls getQueryClient(), which returns a fresh
+  // client per SSR render (no cross-request leak) and the persistent
+  // module singleton in the browser.
   const [client] = useState(() => getQueryClient());
 
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;

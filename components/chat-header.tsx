@@ -60,14 +60,14 @@ function PureChatHeader({
   // offline. parseWithFallback guards against a drifted response shape
   // (installed desktop clients hitting a newer backend) so the header
   // never white-screens.
-  const { data: agentdAvailable } = useQuery({
+  const { data: agentdAvailable, isPending } = useQuery({
     queryKey: ['agentd', 'available'],
     queryFn: async () => {
       const response = await fetch('/api/agentd/v1/available', {
         cache: 'no-store',
       });
       if (!response.ok) return false;
-      const payload = await parseWithFallback(
+      const payload = parseWithFallback(
         await response.json(),
         agentdAvailableSchema,
         { success: false, data: { available: false } },
@@ -79,12 +79,14 @@ function PureChatHeader({
     // Treat fetch errors as 'offline' rather than retrying indefinitely —
     // a dead daemon shouldn't hammer the endpoint.
     retry: 1,
-    initialData: false,
+    placeholderData: false,
   });
 
-  const agentdStatus: 'online' | 'offline' | 'checking' = agentdAvailable
-    ? 'online'
-    : 'offline';
+  const agentdStatus: 'online' | 'offline' | 'checking' = isPending
+    ? 'checking'
+    : agentdAvailable
+      ? 'online'
+      : 'offline';
 
   const handleAbort = useCallback(async () => {
     if (!chatId) return;

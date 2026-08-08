@@ -13,6 +13,16 @@ import { scheduledTaskRuns } from './schema';
  * cannot both succeed — the partial unique index rejects the second.
  */
 
+/**
+ * Postgres throws SQLSTATE 23505 for unique-index violations. Both the
+ * node-postgres and neon-http drivers surface it as `error.code`.
+ */
+function isPgUniqueViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' && code === '23505';
+}
+
 export interface ScheduledTaskRunRecord {
   id: string;
   taskId: string;
@@ -76,9 +86,13 @@ export async function claimScheduledRunSlot(input: {
       })
       .returning();
     return { created: true, run: row as ScheduledTaskRunRecord };
-  } catch {
-    // Unique violation: a row for this (taskId, plannedAt) already exists.
-    // Fall through to the reuse/non-terminal logic below.
+  } catch (error) {
+    // Only treat Postgres unique-violation (SQLSTATE 23505) as the
+    // "slot already exists, fall through to reuse/non-terminal logic"
+    // signal. Every other error (connection drop, serialization failure,
+    // permission, etc.) must propagate so it is not silently masked as
+    // { created: true }.
+    if (!isPgUniqueViolation(error)) throw error;
   }
 
   // Try to atomically reset a TERMINAL row to pending (case 2). The CAS
@@ -134,12 +148,17 @@ export async function markRunStarted(runId: string): Promise<void> {
     .where(eq(scheduledTaskRuns.id, runId));
 }
 
-/** Mark a run as completed with the chat workflow runId. */
+/**
+ * Mark a run as completed with the chat workflow runId. Returns false
+ * (no row updated) if the run is no longer in a non-terminal state —
+ * e.g. the reaper already flipped it to `failed`+`runtime_recovery`,
+ * in which case we must NOT clobber that with `completed`.
+ */
 export async function markRunCompleted(
   runId: string,
   chatRunId: string,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const updated = await db
     .update(scheduledTaskRuns)
     .set({
       status: 'completed',
@@ -147,15 +166,26 @@ export async function markRunCompleted(
       completedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(scheduledTaskRuns.id, runId));
+    .where(
+      and(
+        eq(scheduledTaskRuns.id, runId),
+        sql`${scheduledTaskRuns.status} IN ('pending', 'running')`,
+      ),
+    )
+    .returning({ id: scheduledTaskRuns.id });
+  return updated.length > 0;
 }
 
-/** Mark a run as skipped (admission gate failed, e.g. target node offline). */
+/**
+ * Mark a run as skipped (admission gate failed, e.g. target node
+ * offline). Status CAS prevents a late skip from overwriting a run
+ * the reaper (or another caller) already moved to a terminal state.
+ */
 export async function markRunSkipped(
   runId: string,
   reason: string,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const updated = await db
     .update(scheduledTaskRuns)
     .set({
       status: 'skipped',
@@ -163,15 +193,27 @@ export async function markRunSkipped(
       completedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(scheduledTaskRuns.id, runId));
+    .where(
+      and(
+        eq(scheduledTaskRuns.id, runId),
+        sql`${scheduledTaskRuns.status} IN ('pending', 'running')`,
+      ),
+    )
+    .returning({ id: scheduledTaskRuns.id });
+  return updated.length > 0;
 }
 
-/** Mark a run as failed with the canonical FailureReason + message. */
+/**
+ * Mark a run as failed with the canonical FailureReason + message.
+ * Status CAS prevents a late failure mark from overwriting a run
+ * that was already moved to a terminal state by the reaper or a
+ * concurrent caller.
+ */
 export async function markRunFailed(
   runId: string,
   input: { failureReason?: string | null; errorMessage?: string | null },
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const updated = await db
     .update(scheduledTaskRuns)
     .set({
       status: 'failed',
@@ -180,7 +222,14 @@ export async function markRunFailed(
       completedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(scheduledTaskRuns.id, runId));
+    .where(
+      and(
+        eq(scheduledTaskRuns.id, runId),
+        sql`${scheduledTaskRuns.status} IN ('pending', 'running')`,
+      ),
+    )
+    .returning({ id: scheduledTaskRuns.id });
+  return updated.length > 0;
 }
 
 /**
@@ -242,11 +291,19 @@ export async function listRecentRunsWherePlannedAtNotNull(
  *
  * Piggyback this on any periodic beat (cron tick, heartbeat). The
  * returned count lets callers log/metric reaped-stuck-runs without
- * surfacing the rows themselves. Default stale threshold is 15 minutes
- * (tasks that haven't progressed past `pending` in 15m are dead).
+ * surfacing the rows themselves. Default stale threshold is 1 hour
+ * (tasks that haven't progressed past `pending`/`running` in an hour
+ * are presumed dead).
  */
 export async function reapStuckRuns(
-  staleMs = 15 * 60 * 1000,
+  // 1 hour. Long agent dispatches (multi-step LLM + tool loops) routinely
+  // exceed 15 minutes; without a heartbeat column we cannot distinguish
+  // a legitimately-long live run from a truly stuck one, so we use a
+  // conservative threshold to avoid reaping live dispatches out from
+  // under them. A proper fix needs a heartbeat column that the dispatch
+  // refreshes mid-flight, with the reaper keying off that instead of
+  // startedAt — tracked as a follow-up.
+  staleMs = 60 * 60 * 1000,
   now: Date = new Date(),
 ): Promise<number> {
   const cutoff = new Date(now.getTime() - staleMs);

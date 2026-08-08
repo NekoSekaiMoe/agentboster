@@ -159,8 +159,11 @@ export async function upsertNotificationPreferences(data: {
       set: {
         preferredChannel: data.preferredChannel,
         fallbackChannels: data.fallbackChannels,
-        mutedGroups: data.mutedGroups ?? [],
         enabled: data.enabled ?? true,
+        // Only rewrite mutedGroups when the caller provides it; otherwise
+        // preserve the existing per-user mute list instead of clobbering it
+        // back to the [] default on unrelated preference updates.
+        ...(data.mutedGroups ? { mutedGroups: data.mutedGroups } : {}),
       },
     })
     .returning();

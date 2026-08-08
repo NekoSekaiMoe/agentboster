@@ -135,10 +135,15 @@ export async function POST(request: Request) {
           sessionId: sessionId !== taskId ? sessionId : undefined,
         })
       ).userId;
-    } catch {
+    } catch (err) {
       // Task/session may be gone; owner stays null and the row is still
       // deliverable via the IM source — just not attributable for later
       // per-user filtering.
+      logger.warn('owner resolution failed; notification stays deliverable via IM source', {
+        decisionId,
+        taskId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
     await createNotification({
       taskId,

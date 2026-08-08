@@ -1,5 +1,5 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { db } from './index';
+import { db, resolveDriver } from './index';
 import { nodeUsageDaily, taskUsage } from './schema';
 
 /**
@@ -41,8 +41,14 @@ function todayDateString(now: Date = new Date()): string {
  * Record per-task usage with an additive upsert. Re-reporting the same
  * (taskId, provider, model) adds to the existing row rather than
  * overwriting — callers that want overwrite semantics must read-then-
- * diff before calling. The matching per-node-per-day rollup is updated
- * in the same call so daily dashboards stay in sync.
+ * diff before calling.
+ *
+ * Atomicity caveat: the neon-http driver (Vercel) does NOT support
+ * `db.transaction()` — it throws at runtime. On that driver we fall back
+ * to two sequential writes (per-task then per-node-per-day), accepting
+ * a small desync window if the second write fails. On node-postgres
+ * (self-hosted) both writes run in a real transaction. The COALESCE
+ * null-propagation guard applies in both paths.
  */
 export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
   const inputTokens = input.inputTokens ?? 0;
@@ -50,46 +56,24 @@ export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
   const cacheReadTokens = input.cacheReadTokens ?? 0;
   const cacheWriteTokens = input.cacheWriteTokens ?? 0;
 
-  // Per-task additive upsert.
-  await db
-    .insert(taskUsage)
-    .values({
-      taskId: input.taskId,
-      userId: input.userId ?? null,
-      provider: input.provider,
-      model: input.model,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheWriteTokens,
-      costUsdTicks: input.costUsdTicks ?? null,
-      meta: input.meta ?? null,
-    })
-    .onConflictDoUpdate({
-      target: [taskUsage.taskId, taskUsage.provider, taskUsage.model],
-      set: {
-        inputTokens: sql`${taskUsage.inputTokens} + ${inputTokens}`,
-        outputTokens: sql`${taskUsage.outputTokens} + ${outputTokens}`,
-        cacheReadTokens: sql`${taskUsage.cacheReadTokens} + ${cacheReadTokens}`,
-        cacheWriteTokens: sql`${taskUsage.cacheWriteTokens} + ${cacheWriteTokens}`,
-        ...(input.costUsdTicks != null
-          ? {
-              costUsdTicks: sql`${taskUsage.costUsdTicks} + ${input.costUsdTicks}`,
-            }
-          : {}),
-        updatedAt: new Date(),
-      },
-    });
-
-  // Per-node-per-day rollup (if a node is named).
-  if (input.nodeId) {
-    const date = todayDateString();
-    await db
-      .insert(nodeUsageDaily)
+  // Per-task additive upsert, then the per-node-per-day rollup. Wrap in
+  // a transaction when the driver supports it (node-postgres / self-hosted).
+  // neon-http (Vercel) has no transaction support — there we run the two
+  // writes sequentially and accept the small desync window.
+  const runInTransaction =
+    resolveDriver(process.env.DATABASE_URL ?? '') !== 'neon';
+  // Both NeonHttpDatabase and pg's PgTransaction expose `.insert(...)` with
+  // the same shape for our purposes, but their concrete TS types are not
+  // mutually assignable. Narrow to the minimal surface we use so a single
+  // helper body type-checks against both drivers.
+  type Inserter = Pick<typeof db, 'insert'>;
+  const asInserter = (client: unknown): Inserter => client as Inserter;
+  const writeBoth = async (tx: Inserter) => {
+    await tx
+      .insert(taskUsage)
       .values({
-        nodeId: input.nodeId,
+        taskId: input.taskId,
         userId: input.userId ?? null,
-        date,
         provider: input.provider,
         model: input.model,
         inputTokens,
@@ -97,27 +81,68 @@ export async function recordTaskUsage(input: UsageRecordInput): Promise<void> {
         cacheReadTokens,
         cacheWriteTokens,
         costUsdTicks: input.costUsdTicks ?? null,
+        meta: input.meta ?? null,
       })
       .onConflictDoUpdate({
-        target: [
-          nodeUsageDaily.nodeId,
-          nodeUsageDaily.date,
-          nodeUsageDaily.provider,
-          nodeUsageDaily.model,
-        ],
+        target: [taskUsage.taskId, taskUsage.provider, taskUsage.model],
         set: {
-          inputTokens: sql`${nodeUsageDaily.inputTokens} + ${inputTokens}`,
-          outputTokens: sql`${nodeUsageDaily.outputTokens} + ${outputTokens}`,
-          cacheReadTokens: sql`${nodeUsageDaily.cacheReadTokens} + ${cacheReadTokens}`,
-          cacheWriteTokens: sql`${nodeUsageDaily.cacheWriteTokens} + ${cacheWriteTokens}`,
+          inputTokens: sql`coalesce(${taskUsage.inputTokens}, 0) + ${inputTokens}`,
+          outputTokens: sql`coalesce(${taskUsage.outputTokens}, 0) + ${outputTokens}`,
+          cacheReadTokens: sql`coalesce(${taskUsage.cacheReadTokens}, 0) + ${cacheReadTokens}`,
+          cacheWriteTokens: sql`coalesce(${taskUsage.cacheWriteTokens}, 0) + ${cacheWriteTokens}`,
           ...(input.costUsdTicks != null
             ? {
-                costUsdTicks: sql`${nodeUsageDaily.costUsdTicks} + ${input.costUsdTicks}`,
+                costUsdTicks: sql`coalesce(${taskUsage.costUsdTicks}, 0) + ${input.costUsdTicks}`,
               }
             : {}),
           updatedAt: new Date(),
         },
       });
+
+    // Per-node-per-day rollup (if a node is named).
+    if (input.nodeId) {
+      const date = todayDateString();
+      await tx
+        .insert(nodeUsageDaily)
+        .values({
+          nodeId: input.nodeId,
+          userId: input.userId ?? null,
+          date,
+          provider: input.provider,
+          model: input.model,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheWriteTokens,
+          costUsdTicks: input.costUsdTicks ?? null,
+        })
+        .onConflictDoUpdate({
+          target: [
+            nodeUsageDaily.nodeId,
+            nodeUsageDaily.date,
+            nodeUsageDaily.provider,
+            nodeUsageDaily.model,
+          ],
+          set: {
+            inputTokens: sql`coalesce(${nodeUsageDaily.inputTokens}, 0) + ${inputTokens}`,
+            outputTokens: sql`coalesce(${nodeUsageDaily.outputTokens}, 0) + ${outputTokens}`,
+            cacheReadTokens: sql`coalesce(${nodeUsageDaily.cacheReadTokens}, 0) + ${cacheReadTokens}`,
+            cacheWriteTokens: sql`coalesce(${nodeUsageDaily.cacheWriteTokens}, 0) + ${cacheWriteTokens}`,
+            ...(input.costUsdTicks != null
+              ? {
+                  costUsdTicks: sql`coalesce(${nodeUsageDaily.costUsdTicks}, 0) + ${input.costUsdTicks}`,
+                }
+              : {}),
+            updatedAt: new Date(),
+          },
+        });
+    }
+  };
+
+  if (runInTransaction) {
+    await db.transaction(writeBoth as Parameters<typeof db.transaction>[0]);
+  } else {
+    await writeBoth(asInserter(db));
   }
 }
 

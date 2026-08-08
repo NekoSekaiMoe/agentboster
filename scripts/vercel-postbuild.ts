@@ -48,6 +48,14 @@ async function main() {
   console.log('[postbuild] migrating message versions to unified model');
   await runCommand('npx', ['tsx', 'scripts/migrate-message-versions.ts']);
 
+  console.log(
+    '[postbuild] backfilling user_vault_entries from legacy vault_entries',
+  );
+  await runCommand('npx', [
+    'tsx',
+    'scripts/migrate-vault-entries-to-user-scoped.ts',
+  ]);
+
   console.log('[postbuild] database schema is up to date');
 }
 

@@ -59,6 +59,14 @@ async function main() {
   );
   await runCommand('npx', ['tsx', 'scripts/migrate-message-versions.ts']);
 
+  console.log(
+    '[self-host-migrate] backfilling user_vault_entries from legacy vault_entries',
+  );
+  await runCommand('npx', [
+    'tsx',
+    'scripts/migrate-vault-entries-to-user-scoped.ts',
+  ]);
+
   console.log('[self-host-migrate] database schema is up to date');
 }
 

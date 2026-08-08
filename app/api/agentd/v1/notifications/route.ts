@@ -13,7 +13,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { resolveAgentdResourceAccess } from '@/lib/core/db/agentd';
+import { resolveAgentdResourceAccess, getResourceErrorMessage, getResourceErrorStatus } from '@/lib/core/db/agentd';
 import {
   createNotification,
   getNotificationPreferences,
@@ -72,31 +72,64 @@ export async function GET(request: Request) {
 }
 
 // PUT updates a user's notification preferences (preferred channel +
-// fallback list + enabled flag).
+// fallback list + enabled flag). Identity is derived from the
+// task/session scope, NEVER trusted from the body — mirroring the
+// same-file POST handler and the memories routes.
 export async function PUT(request: Request) {
-  const body = await request.json().catch(() => ({}));
-  const { userId, preferredChannel, fallbackChannels, enabled } = body as {
-    userId?: string;
-    preferredChannel?: string;
-    fallbackChannels?: string[];
-    enabled?: boolean;
-  };
+  try {
+    const body = await request.json().catch(() => ({}));
+    const {
+      preferredChannel,
+      fallbackChannels,
+      enabled,
+      task_id: taskId,
+      session_id: sessionId,
+    } = body as {
+      preferredChannel?: string;
+      fallbackChannels?: string[];
+      enabled?: boolean;
+      task_id?: string;
+      session_id?: string;
+    };
 
-  if (!userId || !preferredChannel) {
+    if (!preferredChannel) {
+      return Response.json(
+        { success: false, error: 'Missing preferredChannel' },
+        { status: 400 },
+      );
+    }
+
+    // Derive the owning user from the task/session scope. A bare
+    // user_id field in the body is ignored — it is not a sufficient
+    // identity proof for an agentd-key-authenticated route.
+    const access = await resolveAgentdResourceAccess({
+      taskId: taskId ?? null,
+      sessionId: sessionId ?? null,
+    });
+
+    const prefs = await upsertNotificationPreferences({
+      userId: access.userId,
+      preferredChannel,
+      fallbackChannels: fallbackChannels ?? [],
+      enabled: enabled ?? true,
+    });
+
+    return Response.json({ success: true, data: prefs });
+  } catch (error) {
+    if (getResourceErrorStatus(error) !== 500) {
+      return Response.json(
+        { success: false, error: getResourceErrorMessage(error) },
+        { status: getResourceErrorStatus(error) },
+      );
+    }
+    logger.error('notification preferences update failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return Response.json(
-      { success: false, error: 'Missing userId or preferredChannel' },
-      { status: 400 },
+      { success: false, error: 'Internal error' },
+      { status: 500 },
     );
   }
-
-  const prefs = await upsertNotificationPreferences({
-    userId,
-    preferredChannel,
-    fallbackChannels: fallbackChannels ?? [],
-    enabled: enabled ?? true,
-  });
-
-  return Response.json({ success: true, data: prefs });
 }
 
 export async function POST(request: Request) {
@@ -130,8 +163,12 @@ export async function POST(request: Request) {
           null,
       })
     ).userId;
-  } catch {
+  } catch (err) {
     // Scope unavailable — leave null; row stays deliverable via metadata.
+    logger.warn('scope unavailable; notification stays deliverable via metadata', {
+      task_id: data.task_id,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   try {

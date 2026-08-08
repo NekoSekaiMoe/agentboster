@@ -42,6 +42,16 @@ export function invalidateSessionListQuery(): void {
 }
 
 /**
+ * Wipe the entire React Query cache (all queries, not just the session
+ * list). Intended for logout / user-switch flows so stale session,
+ * agentd-availability, and subagent-batch data does not survive the
+ * auth change until a hard reload.
+ */
+export function clearSessionListCache(): void {
+  getQueryClient().clear();
+}
+
+/**
  * Optimistically insert-or-update a session row in the cache. Used when
  * a new conversation is created lazily on first message — prepending
  * it to the sidebar without a full refetch. Replaces the prior

@@ -416,11 +416,14 @@ export async function updateTaskStatus(
 export async function listTasks(
   agentId: string,
   limit = 50,
-  options?: { sessionId?: string },
+  options?: { sessionId?: string; userId?: string },
 ) {
   const conditions = [eq(agentTasks.agentId, agentId)];
   if (options?.sessionId) {
     conditions.push(eq(agentTasks.sessionId, options.sessionId));
+  }
+  if (options?.userId) {
+    conditions.push(eq(agentTasks.userId, options.userId));
   }
 
   const tasks = await db

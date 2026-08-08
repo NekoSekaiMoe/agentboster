@@ -57,6 +57,7 @@ import {
 import { Input } from '@/components/ui/input';
 import {
   SESSION_LIST_KEY,
+  clearSessionListCache,
   invalidateSessionListQuery,
   useSessionList,
   type SessionListItem,
@@ -288,6 +289,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     setLoggingOut(true);
     try {
       await logoutAction();
+      clearSessionListCache();
       onClose();
       router.push('/login');
       router.refresh();

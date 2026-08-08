@@ -1,4 +1,4 @@
-import { requireAuthAccess, AuthError } from '@/lib/auth/access';
+import { AuthAccess, requireAuthAccess, AuthError } from '@/lib/auth/access';
 import { db } from '@/lib/core/db';
 import { notifications } from '@/lib/core/db/schema';
 import { and, desc, eq } from 'drizzle-orm';
@@ -8,8 +8,9 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
+    let access: AuthAccess;
     try {
-      await requireAuthAccess(cookieStore);
+      access = await requireAuthAccess(cookieStore);
     } catch (error) {
       const status = error instanceof AuthError ? error.status : 401;
       return NextResponse.json({ error: 'Unauthorized' }, { status });
@@ -19,6 +20,10 @@ export async function GET(request: Request) {
     const read = searchParams.get('read');
 
     const conditions = [];
+    // Scope to the caller's own notifications (admins see all).
+    if (!access.isAdmin) {
+      conditions.push(eq(notifications.userId, access.session.userId));
+    }
     if (channel) {
       conditions.push(eq(notifications.channel, channel));
     }

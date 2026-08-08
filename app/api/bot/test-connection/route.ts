@@ -15,8 +15,16 @@ export async function POST(request: NextRequest) {
   try {
     await requireAuthAccess(cookieStore);
   } catch (error) {
-    const status = error instanceof AuthError ? error.status : 401;
-    return NextResponse.json({ error: 'Unauthorized' }, { status });
+    if (error instanceof AuthError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
+    }
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 },
+    );
   }
 
   const body = await request.json().catch(() => ({}));

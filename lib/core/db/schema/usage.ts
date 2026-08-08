@@ -2,7 +2,6 @@ import {
   bigint,
   date,
   index,
-  integer,
   jsonb,
   pgTable,
   text,
@@ -35,7 +34,7 @@ export const taskUsage = pgTable(
     taskId: uuid('task_id').notNull(),
     userId: text('user_id'),
     provider: text('provider').notNull().default(''),
-    model: text('model').notNull(),
+    model: text('model').notNull().default(''),
     inputTokens: bigint('input_tokens', { mode: 'number' })
       .notNull()
       .default(0),
@@ -54,7 +53,10 @@ export const taskUsage = pgTable(
      * xAI/Grok threshold-prices requests (2x past 200K prompt tokens) and
      * returns the authoritative figure as integer ticks — storing it keeps
      * sub-cent turn costs exact end-to-end instead of drifting through
-     * float64. BIGINT holds ~9.2e8 USD per row, which is unreachable.
+     * float64. The column is read with `mode: 'number'`, so it surfaces as
+     * a JS number; its safe ceiling is ~9.0e5 USD per row
+     * (Number.MAX_SAFE_INTEGER ticks at 1e-10 USD/tick), which is
+     * effectively unreachable for any single task.
      */
     costUsdTicks: bigint('cost_usd_ticks', { mode: 'number' }),
     /** Arbitrary provider-specific metadata (e.g. tier, rate-table version). */
@@ -95,7 +97,7 @@ export const nodeUsageDaily = pgTable(
     nodeId: text('node_id').notNull(),
     userId: text('user_id'),
     date: date('date').notNull(),
-    provider: text('provider').notNull(),
+    provider: text('provider').notNull().default(''),
     model: text('model').notNull().default(''),
     inputTokens: bigint('input_tokens', { mode: 'number' })
       .notNull()

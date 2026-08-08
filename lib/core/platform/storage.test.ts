@@ -1,12 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createMemoryStorage, defaultStorage } from './storage';
 
 describe('defaultStorage', () => {
-  it('returns null for getItem when window is undefined (SSR)', () => {
-    // In the vitest jsdom env window IS defined; this test just documents
-    // that the adapter does not throw on either branch.
+  it('returns null for a missing key and does not throw', () => {
     const value = defaultStorage.getItem('__test_key_that_does_not_exist__');
     expect(value).toBeNull();
+  });
+
+  it('returns null when window is undefined (SSR)', () => {
+    vi.stubGlobal('window', undefined);
+    try {
+      expect(defaultStorage.getItem('any')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

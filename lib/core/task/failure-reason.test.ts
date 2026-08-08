@@ -148,6 +148,17 @@ describe('classifyFailure', () => {
       'rate limit exceeded for tier 3',
       FAILURE_REASON.AGENT_PROVIDER_CAPACITY_OR_RATE_LIMIT,
     ],
+    [
+      'rate limit of 40000 input tokens per minute exceeded',
+      FAILURE_REASON.AGENT_PROVIDER_CAPACITY_OR_RATE_LIMIT,
+    ],
+    // 'quota' appears in the string, so rule 4 (quota) claims this before
+    // rule 5 (capacity) despite the rate_limit/per-minute phrasing. Asserts
+    // the actual precedence; the primary rate-limit guard is the case above.
+    [
+      'rate_limit: per minute quota exceeded for tokens',
+      FAILURE_REASON.AGENT_PROVIDER_QUOTA_LIMIT,
+    ],
 
     // 6. Provider 5xx / server error.
     [
@@ -216,16 +227,35 @@ describe('classifyFailure', () => {
 
   it('does not misclassify embedded numbers as status codes (digit-boundary guard)', () => {
     // "402913 tokens" must NOT match the 402 (quota) regex.
-    expect(classifyFailure('input: 402913 tokens used')).not.toBe(
-      FAILURE_REASON.AGENT_PROVIDER_QUOTA_LIMIT,
+    expect(classifyFailure('input: 402913 tokens used')).toBe(
+      FAILURE_REASON.AGENT_UNKNOWN,
     );
     // "exit status 4030" must NOT match the 401/403 (auth) regex.
-    expect(classifyFailure('exit status 4030')).not.toBe(
-      FAILURE_REASON.AGENT_PROVIDER_AUTH_OR_ACCESS,
+    expect(classifyFailure('exit status 4030')).toBe(
+      FAILURE_REASON.AGENT_PROCESS_FAILURE,
     );
     // "1500ms" must NOT match the 5xx regex.
-    expect(classifyFailure('request took 1500ms')).not.toBe(
-      FAILURE_REASON.AGENT_PROVIDER_SERVER_ERROR,
+    expect(classifyFailure('request took 1500ms')).toBe(
+      FAILURE_REASON.AGENT_UNKNOWN,
+    );
+  });
+
+  it('resists word-boundary false positives for oom/safety', () => {
+    // 'room' must not trigger the 'oom' needle (word-boundary guard).
+    expect(classifyFailure('no room left on device')).toBe(
+      FAILURE_REASON.AGENT_UNKNOWN,
+    );
+    // Standalone 'oom' (and 'out of memory') still classify as process failure.
+    expect(classifyFailure('oom conditions reported by kernel')).toBe(
+      FAILURE_REASON.AGENT_PROCESS_FAILURE,
+    );
+    // Standalone 'safety' still classifies as refusal — the word-boundary
+    // guard only stops substring matches like 'safetyNet', not real words.
+    expect(classifyFailure('safety checks disabled')).toBe(
+      FAILURE_REASON.AGENT_REFUSAL,
+    );
+    expect(classifyFailure('this message violates our safety policy')).toBe(
+      FAILURE_REASON.AGENT_REFUSAL,
     );
   });
 });

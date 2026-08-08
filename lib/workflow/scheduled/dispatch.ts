@@ -397,6 +397,12 @@ export async function deliverScheduledTask(input: {
       });
       if (!applied) {
         const reason = `Failed to apply node constraint to session ${task.sessionId} for task ${task.id}.`;
+        if (runSlotId) {
+          await markRunFailed(runSlotId, {
+            failureReason: classifyFailure(reason),
+            errorMessage: reason,
+          });
+        }
         await handleDispatchFailure(task, userId, reason);
         throw new Error(reason);
       }

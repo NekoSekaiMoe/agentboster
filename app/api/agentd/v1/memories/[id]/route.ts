@@ -2,7 +2,6 @@ export const dynamic = 'force-dynamic';
 
 import {
   deleteLongTermMemoryRow,
-  getLongTermMemoryRow,
   updateLongTermMemoryRow,
 } from '@/lib/core/db/memory/long-term';
 import {
@@ -57,19 +56,18 @@ export async function PUT(
 
     const access = await resolveMemoryOwner(request);
 
-    // Verify ownership before updating. getLongTermMemoryRow with userId
-    // filters WHERE id = ? AND userId = ?, so a row belonging to another
-    // user reads as "not found" — no cross-user write.
-    const existing = await getLongTermMemoryRow(id, { userId: access.userId });
-    if (!existing) {
-      return Response.json({ error: 'Memory not found' }, { status: 404 });
-    }
-
+    // updateLongTermMemoryRow with userId filters WHERE id = ? AND
+    // userId = ?, so a row belonging to another user (or one that
+    // vanished between requests) updates zero rows and returns null —
+    // surface that as a clean 404 instead of crashing on `updated.id`.
     const updated = await updateLongTermMemoryRow(
       id,
       parsed.data.value,
       { userId: access.userId },
     );
+    if (!updated) {
+      return Response.json({ error: 'Memory not found' }, { status: 404 });
+    }
 
     await invalidateMemoryCaches(access.userId);
     return Response.json({ success: true, data: { id: updated.id } });

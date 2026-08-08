@@ -130,6 +130,11 @@ const HTTP_AUTH_RE = /(^|[^0-9])(401|403)([^0-9]|$)/;
 const HTTP_QUOTA_RE = /(^|[^0-9])402([^0-9]|$)/;
 const HTTP_CAPACITY_RE = /(^|[^0-9])(429|529)([^0-9]|$)/;
 
+/** Word-boundary 'oom' so it doesn't fire on substrings (e.g. 'room', 'bloom'). */
+const OOM_RE = /(?:^|[^a-z])oom(?:[^a-z]|$)|out of memory/;
+/** Word-boundary 'safety' so it doesn't fire on substrings (e.g. 'safetyNet'). */
+const SAFETY_RE = /(?:^|[^a-z])safety(?:[^a-z]|$)/;
+
 function containsAny(haystack: string, ...needles: string[]): boolean {
   return needles.some((n) => haystack.includes(n));
 }
@@ -159,6 +164,9 @@ export function classifyFailure(
   const lower = trimmed.toLowerCase();
 
   // 1. Context / token window overflow (early so "token limit" isn't swallowed by quota).
+  // The `token`+`limit` fallback is gated against capacity/rate-limit
+  // semantics so a phrase like "rate limit of N tokens per minute" is
+  // not misrouted here — it must reach rule 5 (capacity).
   if (
     containsAny(
       lower,
@@ -177,7 +185,17 @@ export function classifyFailure(
       'model_context_window_exceeded',
       'prompt_too_long',
     ) ||
-    containsAll(lower, 'token', 'limit')
+    (containsAll(lower, 'token', 'limit') &&
+      !containsAny(
+        lower,
+        'rate limit',
+        'rate_limit',
+        'per minute',
+        'perminute',
+        'overloaded',
+        'capacity',
+      ) &&
+      !HTTP_CAPACITY_RE.test(lower))
   ) {
     return FAILURE_REASON.AGENT_CONTEXT_OVERFLOW;
   }
@@ -277,14 +295,8 @@ export function classifyFailure(
 
   // 8. Process failure (non-zero exit / OOM / killed).
   if (
-    containsAny(
-      lower,
-      'exit status',
-      'process killed',
-      'out of memory',
-      'signal: killed',
-      'oom',
-    )
+    containsAny(lower, 'exit status', 'process killed', 'signal: killed') ||
+    OOM_RE.test(lower)
   ) {
     return FAILURE_REASON.AGENT_PROCESS_FAILURE;
   }
@@ -297,8 +309,8 @@ export function classifyFailure(
       'i cannot help',
       'policy violation',
       'content policy',
-      'safety',
-    )
+    ) ||
+    SAFETY_RE.test(lower)
   ) {
     return FAILURE_REASON.AGENT_REFUSAL;
   }

@@ -132,8 +132,10 @@ export const SubagentBatchCard = memo(function SubagentBatchCard({
     queryKey: ['subagent-batch', batchId],
     queryFn: async () => {
       const resp = await fetch(`/api/cli/subagent-batch/${batchId}`);
-      const parsed = await parseWithFallback(
-        await resp.json(),
+      if (!resp.ok) return null;
+      const json = await resp.json().catch(() => null);
+      const parsed = parseWithFallback(
+        json,
         subagentBatchSchema,
         { ok: false, data: null },
         { endpoint: `GET /api/cli/subagent-batch/${batchId}` },
