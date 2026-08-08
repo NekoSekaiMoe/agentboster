@@ -3,18 +3,18 @@
 import { memo, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import { ModelPicker } from '@/components/chat/model-picker';
-import { PersonaPicker } from '@/components/chat/persona-picker';
+import { ModelPersonaPicker } from '@/components/chat/model-persona-picker';
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, Square } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 /**
- * Gemini-style chat header: the model selector is the title. Everything
- * else from the old header (title, badges, token usage, orchestration link)
- * is gone; the only remaining affordances are a single status dot (agentd
- * availability / running state) and the abort button while a session runs.
+ * Gemini-style chat header: the combined model/persona selector is the
+ * title. Everything else from the old header (title, badges, token usage,
+ * orchestration link) is gone; the only remaining affordances are a
+ * single status dot (agentd availability / running state) and the abort
+ * button while a session runs.
  */
 function PureChatHeader({
   isRunning,
@@ -89,12 +89,10 @@ function PureChatHeader({
   return (
     <header className="sticky top-0 z-20 flex items-center gap-1 border-b bg-background/95 py-2 pr-4 pl-14 backdrop-blur md:px-4">
       <div className="flex min-w-0 flex-1 items-center gap-1">
-        <ModelPicker
+        <ModelPersonaPicker
           allowedModels={allowedModels}
           onSelectModel={onSelectModel}
           selectedModel={selectedModel}
-        />
-        <PersonaPicker
           onSelectAgent={onSelectAgent}
           selectedAgent={selectedAgent}
         />

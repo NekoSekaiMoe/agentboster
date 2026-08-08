@@ -1,9 +1,9 @@
 /**
  * Human-friendly display names for raw model ids.
  *
- * The chat header shows the current model as two spans —
- * `[provider][model]` — where provider is emphasized (foreground) and the
- * model name is muted. Raw ids arrive in shapes like:
+ * The chat header shows the formatted model name only (no provider
+ * prefix — the brand is already part of the model name). Raw ids arrive
+ * in shapes like:
  *
  *   deepseek-v4-flash        -> { provider: 'DeepSeek',  model: 'DeepSeek V4 Flash' }
  *   claude-sonnet-4-5        -> { provider: 'Anthropic', model: 'Claude Sonnet 4.5' }

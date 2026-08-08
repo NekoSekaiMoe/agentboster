@@ -486,6 +486,11 @@ function PureMultimodalInput({
       aria-label="Message composer and attachments"
       className="relative flex w-full flex-col gap-2"
       onDragOver={(event) => {
+        // Only intercept file drags; leave text/html etc. untouched so the
+        // textarea keeps its native drop-to-insert behavior.
+        if (!event.dataTransfer.types.includes('Files')) {
+          return;
+        }
         event.preventDefault();
         setIsDragActive(true);
       }}
@@ -499,6 +504,9 @@ function PureMultimodalInput({
         setIsDragActive(false);
       }}
       onDrop={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) {
+          return;
+        }
         event.preventDefault();
         setIsDragActive(false);
         void addFiles(event.dataTransfer.files);
@@ -642,8 +650,12 @@ export const MultimodalInput = memo(
     if (prevProps.chatId !== nextProps.chatId) return false;
     if (prevProps.focusTrigger !== nextProps.focusTrigger) return false;
     if (prevProps.input !== nextProps.input) return false;
+    if (prevProps.setInput !== nextProps.setInput) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
     if (prevProps.enterToSend !== nextProps.enterToSend) return false;
+    if (prevProps.stop !== nextProps.stop) return false;
+    if (prevProps.sendMessage !== nextProps.sendMessage) return false;
+    if (prevProps.className !== nextProps.className) return false;
     if (prevProps.selectedModel !== nextProps.selectedModel) return false;
     if (prevProps.selectedAgent !== nextProps.selectedAgent) return false;
 

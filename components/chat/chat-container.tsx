@@ -902,6 +902,24 @@ export function Chat({
     statusRef.current = 'ready';
   }, [id, stop]);
 
+  // Stable identities for the memoized composer: submitChatMessage closes
+  // over `messages`, so its identity changes on every streamed token, and
+  // the stop prop would otherwise be a fresh inline closure each render.
+  // Forward through a ref so MultimodalInput's memo comparison stays
+  // effective while always invoking the latest logic.
+  const submitChatMessageRef = useRef(submitChatMessage);
+  useEffect(() => {
+    submitChatMessageRef.current = submitChatMessage;
+  });
+  const submitChatMessageStable = useCallback(
+    (message?: ComposerMessage, options?: ChatRequestOptions) =>
+      submitChatMessageRef.current(message, options),
+    [],
+  );
+  const handleStop = useCallback(() => {
+    void cancelWorkflow();
+  }, [cancelWorkflow]);
+
   const submitToolApproval = useCallback(
     async (input: ToolApprovalInput) => {
       await controlSessionRuntimeAction({
@@ -1138,10 +1156,8 @@ export function Chat({
                   setInput={setInput}
                   isLoading={isComposerBusy}
                   enterToSend={enterToSend}
-                  stop={() => {
-                    void cancelWorkflow();
-                  }}
-                  sendMessage={submitChatMessage}
+                  stop={handleStop}
+                  sendMessage={submitChatMessageStable}
                   selectedModel={selectedModel}
                   selectedAgent={sessionAgent}
                 />
