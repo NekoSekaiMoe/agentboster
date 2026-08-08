@@ -211,6 +211,13 @@
       "when": 1785690809609,
       "tag": "0029_memory_evolution_signals",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1786173395561,
+      "tag": "0030_multi_user_isolation_and_usage",
+      "breakpoints": true
     }
   ]
 }
