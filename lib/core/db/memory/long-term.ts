@@ -332,6 +332,36 @@ export async function upsertLongTermMemoryByKey(input: {
   return { row, created: true };
 }
 
+// TODO(tech-debt): isolation test gap.
+//
+// These three helpers take `options.userId?` OPTIONAL and only add the
+// `WHERE userId = ?` predicate when it's passed. That's by design for the
+// builtin/system memory paths (which read cross-user) but means a future
+// caller in the agentd plane that forgets the option silently degrades to
+// global scope — reintroducing the cross-user leak commit 8762ba3 closed.
+//
+// Why this isn't covered by a regression test like
+// vault.isolation.test.ts: the functions import the production db
+// singleton, which can't be swapped to PGlite without either dependency
+// injection (Repository refactor) or vi.mock — and the schema constraint
+// on long_term_memories.user_id has a `default 'system'` (so 'system'
+// is a valid non-null value) which means a pure schema-level isolation
+// test wouldn't meaningfully exercise the DAL's WHERE-clause scoping. The
+// pglite-harness.ts docstring calls this out as needing the Repository
+// refactor before these DAL functions become integration-testable.
+//
+// Mitigation today: every agentd route that reaches these functions goes
+// through resolveAgentdResourceAccess() (lib/core/db/agentd.ts) which
+// derives the owner server-side; a caller that forgets to thread the
+// resolved userId here would still have had to derive it correctly
+// upstream. The risk is a future refactor that adds a new call site
+// bypassing the helper — code review is the current guard, not CI.
+//
+// When the Repository refactor lands, harden: (1) make userId REQUIRED on
+// these three functions (split the builtin/system path into a separate
+// `_withoutUserScope` variant); (2) add a PGlite isolation test like
+// vault.isolation.test.ts proving user A's rows aren't reachable from
+// user B's get/update/delete.
 export async function getLongTermMemoryRow(
   id: string,
   options?: { userId?: string },

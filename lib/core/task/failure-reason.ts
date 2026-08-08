@@ -321,5 +321,19 @@ export function classifyFailure(
     return FAILURE_REASON.AGENT_INVALID_RESPONSE;
   }
 
+  // TODO(tech-debt): Multica classify.go carries 5 more rules between
+  // network(7) and process_failure(13) that this port omits — see
+  // ref/server/pkg/taskfailure/classify.go rules 8-12:
+  //   - model_not_found / model_not_available
+  //   - empty_output (agent produced no text)
+  //   - timeout-as-text ("timed out after N") — distinct from
+  //     network(7)'s "deadline exceeded" Go-context witness
+  //   - missing_executable (agent CLI binary not on PATH)
+  //   - version_unsupported (CLI version rejected by server)
+  // These were deliberately not ported (verify-dupes.md / verify-commits.md
+  // cross-check judged them optional for agentboster — the strings are
+  // CLI-backend-specific and may never surface here). If misclassifications
+  // to AGENT_UNKNOWN start clustering on the failure dashboards, port the
+  // relevant witnesses + add fixtures mirroring classify_test.go.
   return FAILURE_REASON.AGENT_UNKNOWN;
 }
