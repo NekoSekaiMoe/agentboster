@@ -1,6 +1,6 @@
 {
-  "id": "f38186dc-429c-423a-8df4-23150b9acb9b",
-  "prevId": "4947ca40-a989-4170-937c-9c2b0493b964",
+  "id": "101a1346-ec37-4a9d-85b0-aadc509fea8e",
+  "prevId": "6a1b2c3d-0000-4000-8000-003400000034",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4304,7 +4304,8 @@
           "name": "provider",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "''"
         },
         "model": {
           "name": "model",
@@ -4368,6 +4369,12 @@
           "columns": [
             {
               "expression": "node_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -4737,6 +4744,12 @@
         },
         "completed_at": {
           "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "heartbeat_at": {
+          "name": "heartbeat_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -5401,7 +5414,8 @@
           "name": "model",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "''"
         },
         "input_tokens": {
           "name": "input_tokens",

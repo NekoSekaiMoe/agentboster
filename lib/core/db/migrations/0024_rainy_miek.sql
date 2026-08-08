@@ -11,9 +11,9 @@
 -- in 0025_validate_orchestration_plans_fk.sql. This is the standard Postgres
 -- pattern for adding a FK to a table that may already have rows.
 --
--- The corresponding snapshot (meta/0024_snapshot.json) still records the FK
--- with its final (valid) shape so that subsequent `drizzle-kit generate` runs
--- see the schema as already reflected and do not re-emit this constraint.
+-- (Historical note: the original meta/0024_snapshot.json has since been
+-- pruned along with all pre-0034 snapshots; this migration's effect is already
+-- reflected in the live schema and the surviving 0034_snapshot.json.)
 ALTER TABLE "agent_orchestration_plans"
   ADD CONSTRAINT "agent_orchestration_plans_session_id_sessions_id_fk"
   FOREIGN KEY ("session_id") REFERENCES "public"."sessions"("id")

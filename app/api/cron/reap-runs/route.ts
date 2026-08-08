@@ -4,15 +4,22 @@
  * Invoked by an external scheduler (Vercel Cron, systemd timer) carrying
  * `CRON_SECRET`. Flips `pending`/`running` scheduled_task_runs rows that
  * have been stuck longer than the stale threshold to `failed` with
- * `runtime_recovery`, unblocking their (taskId, plannedAt) slots for
- * future re-dispatch.
+ * `runtime_recovery`.
+ *
+ * Terminal rows are immutable history: `claimScheduledRunSlot` does NOT
+ * reuse a failed/completed/skipped slot by default (it returns
+ * `created:false` and the caller bails as a duplicate). So the reaper's
+ * job is to convert stuck non-terminal rows into terminal ones so the
+ * audit trail reflects reality — NOT to "unblock" slots for re-dispatch.
+ * Re-dispatching a terminal slot requires an explicit `force:true` retry,
+ * which no automated path issues today. Without this reaper, a run that
+ * crashed between `claimScheduledRunSlot` and the terminal `markRun*`
+ * would stay `pending`/`running` indefinitely and hold the slot.
  *
  * Why this is a cron route and not inline in dispatch.ts: agentboster is
  * serverless — no long-lived process to sweep. A stuck run (crash between
  * claimScheduledRunSlot and the terminal markRun*) would hold its slot
- * forever without a periodic reaper. claimScheduledRunSlot reuses only
- * terminal rows, so the reaper is the only path that converts stuck
- * non-terminal rows into reclaimable terminal ones.
+ * forever without a periodic reaper.
  *
  * Suggested schedule (add to vercel.json cron):
  *   { "path": "/api/cron/reap-runs", "schedule": "0,10,20,30,40,50 * * * *" }

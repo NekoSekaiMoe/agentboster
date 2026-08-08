@@ -308,12 +308,15 @@ export async function deliverScheduledTask(input: {
   // Claim a run-slot row for this (task, plannedAt) pair. The DB partial
   // unique index (scheduled_task_runs_task_planned_uniq) makes this the
   // authoritative idempotency primitive — two concurrent ticks for the
-  // same slot cannot both proceed. `created=false` means another caller
-  // already owns this slot (the row is non-terminal: pending/running);
-  // treat it as a duplicate. Do NOT special-case `status === 'pending'`
-  // to let this caller continue: caller A may still be between
-  // `claimScheduledRunSlot` and `markRunStarted`, so two callers would
-  // both dispatch the chat workflow for the same slot.
+  // same slot cannot both proceed. `created=false` means the slot is
+  // NOT ours, either because:
+  //   - another caller owns a live (pending/running) row, OR
+  //   - a prior run already reached a terminal state for this plannedAt
+  //     (completed/failed/skipped) and is kept as immutable history.
+  // Either way bail as a duplicate — we never dispatch unless this
+  // caller won the slot. (Explicit retry of a terminal slot requires
+  // `force: true` on claimScheduledRunSlot, which this path does not
+  // set; a future manual-retry surface would.)
   let runSlotId: string | null = null;
   if (scheduledFor) {
     const slot = await claimScheduledRunSlot({
@@ -321,9 +324,9 @@ export async function deliverScheduledTask(input: {
       plannedAt: scheduledFor,
     });
     if (!slot.created) {
-      // Another caller owns this slot — bail as duplicate regardless of
-      // whether the slot row is currently pending or running. The owner
-      // will drive it to a terminal state.
+      // The slot is owned by a live run or already has terminal history —
+      // not ours to dispatch. Return the prior runId so the caller can
+      // surface "already ran as <runId>".
       return {
         taskId: task.id,
         status: 'duplicate' as const,

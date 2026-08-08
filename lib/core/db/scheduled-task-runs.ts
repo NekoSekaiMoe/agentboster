@@ -42,38 +42,48 @@ export interface ScheduledTaskRunRecord {
 /**
  * Atomically claim a run slot for (taskId, plannedAt).
  *
- * Returns `{ created: true, run }` when this caller won the slot — either
- * no prior row existed, OR a prior row existed but was TERMINAL
- * (completed/failed/skipped) and this call atomically reset it to
- * `pending` for re-dispatch. Returns `{ created: false, run }` when a
- * non-terminal run (pending/running) already holds the slot — the
- * caller should treat this as a duplicate/no-op.
+ * Idempotency primitive: two concurrent ticks for the same slot cannot
+ * both win. Behavior by what already holds the (taskId, plannedAt)
+ * slot:
  *
- * This is the idempotency primitive: two concurrent ticks for the same
- * slot cannot both win. The implementation handles the three cases:
+ *   - No row exists                  → INSERT → { created: true }.
+ *   - Non-terminal (pending/running) → { created: false } — another
+ *                                      caller owns it; treat as duplicate.
+ *   - Terminal (completed/failed/skipped):
+ *       · default (force=false) → { created: false } — terminal rows
+ *         are immutable history. The slot is NOT reused.
+ *       · force=true            → atomic CAS reset to pending →
+ *         { created: true } (explicit retry; clears the prior run's
+ *         result fields).
  *
- *   1. No row exists            → INSERT succeeds → created=true.
- *   2. Terminal row exists      → atomic UPDATE resets it to pending →
- *                                 created=true (the prior run is archived).
- *   3. Non-terminal row exists  → SELECT returns it → created=false.
+ * Why terminal rows are not reused by default: every production caller
+ * (`scheduledTaskWorkflow` → `/api/bot/.../schedule` →
+ * `deliverScheduledTask`) advances `scheduledFor` monotonically and is
+ * already guarded by the `sameInstant(lastFiredFor)` fast-path, so a
+ * terminal row at the same plannedAt is never legitimately re-entered
+ * on the happy path. Reusing it implicitly was a foot-gun: it silently
+ * overwrote audit history (runId / failureReason / errorMessage /
+ * startedAt) and, combined with the reaper, could oscillate
+ * (reap → failed → next tick resets → re-runs → fails again) with no
+ * backoff. Explicit `force` makes retry an intentional, audited act.
  *
- * The partial unique index `scheduled_task_runs_task_planned_uniq` keeps
- * case 1 race-safe (one INSERT wins, the other unique-violates and
- * falls through to 2 or 3). The CAS in case 2 (`WHERE status IN
- * (terminal states)`) prevents a non-terminal row from being reset by
- * a concurrent reaper-like caller.
- *
- * Case 2 is the recovery path for crashed dispatches: a prior run that
- * crashed mid-flight stays `pending`/`running` (reaped separately by
- * {@link reapStuckRuns}); a prior run that completed/failed/skipped can
- * be legitimately re-dispatched when the schedule rolls around again
- * next day with the same plannedAt (should not happen under the
- * `sameInstant` fast-path, but the DB-level guard is authoritative).
+ * The partial unique index `scheduled_task_runs_task_planned_uniq`
+ * keeps the INSERT race-safe: exactly one INSERT wins, the other
+ * unique-violates (SQLSTATE 23505) and falls through to the
+ * existing-row path below.
  */
 export async function claimScheduledRunSlot(input: {
   taskId: string;
   plannedAt: Date;
   source?: 'schedule' | 'manual';
+  /**
+   * When true, allow reclaiming a TERMINAL (completed/failed/skipped)
+   * row by atomically resetting it to pending. Required to re-dispatch
+   * a slot whose prior run already reached a terminal state. Default
+   * false — terminal rows are immutable history unless a caller
+   * explicitly asks to retry.
+   */
+  force?: boolean;
 }): Promise<{ created: boolean; run: ScheduledTaskRunRecord }> {
   const source = input.source ?? 'schedule';
   try {
@@ -89,15 +99,45 @@ export async function claimScheduledRunSlot(input: {
     return { created: true, run: row as ScheduledTaskRunRecord };
   } catch (error) {
     // Only treat Postgres unique-violation (SQLSTATE 23505) as the
-    // "slot already exists, fall through to reuse/non-terminal logic"
-    // signal. Every other error (connection drop, serialization failure,
+    // "slot already exists, fall through to existing-row logic" signal.
+    // Every other error (connection drop, serialization failure,
     // permission, etc.) must propagate so it is not silently masked as
     // { created: true }.
     if (!isPgUniqueViolation(error)) throw error;
   }
 
-  // Try to atomically reset a TERMINAL row to pending (case 2). The CAS
-  // WHERE clause prevents resetting a live pending/running row.
+  // A row already holds this slot. Load it to decide based on its state.
+  const [existing] = await db
+    .select()
+    .from(scheduledTaskRuns)
+    .where(
+      and(
+        eq(scheduledTaskRuns.taskId, input.taskId),
+        eq(scheduledTaskRuns.plannedAt, input.plannedAt),
+      ),
+    )
+    .limit(1);
+  if (!existing) {
+    // Row vanished between the INSERT violation and this SELECT — retry.
+    return claimScheduledRunSlot(input);
+  }
+
+  const existingRecord = existing as ScheduledTaskRunRecord;
+  const isTerminal =
+    existingRecord.status === 'completed' ||
+    existingRecord.status === 'failed' ||
+    existingRecord.status === 'skipped';
+
+  // Non-terminal row: another caller owns the slot. Return as taken.
+  // (Also covers terminal rows when the caller did not opt into force —
+  // they stay as immutable history and the slot is reported taken.)
+  if (!isTerminal || !input.force) {
+    return { created: false, run: existingRecord };
+  }
+
+  // Explicit retry: atomically reset THIS terminal row to pending. The
+  // CAS on (id, status IN terminal) prevents clobbering a row that a
+  // concurrent caller already moved back to pending/running.
   const [reused] = await db
     .update(scheduledTaskRuns)
     .set({
@@ -113,8 +153,7 @@ export async function claimScheduledRunSlot(input: {
     })
     .where(
       and(
-        eq(scheduledTaskRuns.taskId, input.taskId),
-        eq(scheduledTaskRuns.plannedAt, input.plannedAt),
+        eq(scheduledTaskRuns.id, existingRecord.id),
         sql`${scheduledTaskRuns.status} IN ('completed', 'failed', 'skipped')`,
       ),
     )
@@ -123,23 +162,9 @@ export async function claimScheduledRunSlot(input: {
     return { created: true, run: reused as ScheduledTaskRunRecord };
   }
 
-  // Case 3: a non-terminal row holds the slot. Return it so the caller
-  // treats the slot as taken (idempotent re-tick / duplicate).
-  const [existing] = await db
-    .select()
-    .from(scheduledTaskRuns)
-    .where(
-      and(
-        eq(scheduledTaskRuns.taskId, input.taskId),
-        eq(scheduledTaskRuns.plannedAt, input.plannedAt),
-      ),
-    )
-    .limit(1);
-  if (!existing) {
-    // Row vanished between the INSERT violation and this SELECT — retry.
-    return claimScheduledRunSlot(input);
-  }
-  return { created: false, run: existing as ScheduledTaskRunRecord };
+  // CAS lost: a concurrent caller already moved the row out of the
+  // terminal state between our SELECT and UPDATE. Re-evaluate.
+  return claimScheduledRunSlot(input);
 }
 
 /**
@@ -330,9 +355,14 @@ export async function listRecentRunsWherePlannedAtNotNull(
  *
  * A run gets stuck when the dispatch process dies between
  * `claimScheduledRunSlot` and the terminal `markRun*` call (OOM, lambda
- * timeout, deploy mid-flight). Without a reaper the row stays
- * non-terminal forever and — because `claimScheduledRunSlot` only
- * reuses terminal rows — that `plannedAt` slot can never re-run.
+ * timeout, deploy mid-flight). Without a reaper the row would stay
+ * non-terminal forever and — because `claimScheduledRunSlot` returns
+ * `created:false` for any existing row, terminal OR not — that
+ * `(taskId, plannedAt)` slot would also refuse any future claim, so a
+ * stuck run effectively pins its slot. Flipping it to `failed` records
+ * the true outcome in the audit trail; it does NOT auto-unblock the
+ * slot for re-dispatch (a terminal row stays immutable history unless
+ * an explicit `force:true` retry reclaims it).
  *
  * Piggyback this on any periodic beat (cron tick, heartbeat). The
  * returned count lets callers log/metric reaped-stuck-runs without
