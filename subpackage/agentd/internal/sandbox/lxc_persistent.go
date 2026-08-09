@@ -19,6 +19,7 @@ import (
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/os_enforce"
 	"github.com/google/uuid"
+	"golang.org/x/sync/semaphore"
 )
 
 // LXCPersistentProvider implements SandboxProvider using LXC containers.
@@ -30,6 +31,13 @@ type LXCPersistentProvider struct {
 	defaultRelease string
 	sandboxes      map[string]*Sandbox
 	initialized    map[string]bool
+
+	// M3.3: createSem serializes lxc-create / lxc-start. lxc-create -t
+	// download races on the image template cache when invoked concurrently,
+	// and the hardcoded 2s sleep in Create compounds under fan-out. A
+	// per-provider semaphore keeps the LXC cold-start path stable under
+	// bursty workspace creation. nil = unlimited (legacy).
+	createSem *semaphore.Weighted
 }
 
 // NewLXCPersistentProvider creates a new LXC persistent sandbox provider.
@@ -49,6 +57,7 @@ func NewLXCPersistentProvider(rootfsBase, defaultDistro, defaultRelease string) 
 		defaultRelease: defaultRelease,
 		sandboxes:      make(map[string]*Sandbox),
 		initialized:    make(map[string]bool),
+		createSem:      semaphore.NewWeighted(2), // M3.3: cap concurrent lxc-create/start
 	}
 }
 
@@ -69,6 +78,15 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		// reaper / health-checker identify workspace containers by name.
 		containerName = fmt.Sprintf("agentd-lxc-ws-%s", spec.WorkspaceID)
 		id = spec.WorkspaceID
+	}
+
+	// M3.3: serialize the cold-start path (lxc-create + lxc-start + the 2s
+	// boot sleep) so bursty workspace creation doesn't race on the image
+	// template cache or stack up sleeps. Resume (existing rootfs) also flows
+	// through here for simplicity; the semaphore is released on return.
+	if p.createSem != nil {
+		p.createSem.Acquire(context.Background(), 1)
+		defer p.createSem.Release(1)
 	}
 
 	distro := spec.Distro

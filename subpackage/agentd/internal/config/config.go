@@ -56,6 +56,13 @@ type ServerConfig struct {
 	WebUIUsername  string `mapstructure:"webui_username"`
 	WebUIPassword  string `mapstructure:"webui_password"`
 	ClawLessAPIKey string `mapstructure:"clawless_api_key"`
+
+	// M3.2: bounded concurrency + per-request timeout.
+	// MaxConcurrentRequests caps in-flight /api/v1 requests (503 on overflow);
+	// 0 disables the semaphore. RequestTimeout caps each request's ctx
+	// (stream endpoints override per-route); 0 disables.
+	MaxConcurrentRequests int           `mapstructure:"max_concurrent_requests" default:"64"`
+	RequestTimeout        time.Duration `mapstructure:"request_timeout" default:"10m"`
 }
 
 type ClawLessConfig struct {
@@ -104,6 +111,15 @@ type SandboxConfig struct {
 	OSEnforce          bool     `mapstructure:"os_enforce" default:"true"`
 	SeccompPath        string   `mapstructure:"seccomp_profile_path"`
 	NetworkIsolate     bool     `mapstructure:"network_isolate" default:"true"`
+
+	// M3.1: admission control. MaxPersistentSandboxes caps how many
+	// long-lived LXC containers may coexist on this node (workspaces);
+	// MaxEphemeralSandboxes caps concurrently-live short-lived docker
+	// sandboxes. 0 = unlimited (legacy behavior). MemReserveMB rejects new
+	// persistent creates when the host has less than this much free memory.
+	MaxPersistentSandboxes int   `mapstructure:"max_persistent_sandboxes" default:"20"`
+	MaxEphemeralSandboxes  int   `mapstructure:"max_ephemeral_sandboxes" default:"50"`
+	MemReserveMB           int64 `mapstructure:"mem_reserve_mb" default:"512"`
 }
 
 type CacheConfig struct {

@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -337,6 +339,15 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 		return nil, err
 	}
 
+	// M3.1: admission control. Count live sandboxes of the same persistence
+	// class and reject when over cap, or when host free memory is below the
+	// reserve. Persistent (LXC workspace) and ephemeral (docker task) are
+	// capped independently. A rejection returns a typed error so the caller
+	// (Web layer) can fall back to a different node / short-lived container.
+	if err := m.checkAdmission(spec); err != nil {
+		return nil, err
+	}
+
 	sb, err := provider.Create(spec)
 	if err != nil {
 		return nil, fmt.Errorf("create sandbox: %w", err)
@@ -364,6 +375,58 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 
 	slog.Info("sandbox created", "id", sb.ID, "type", sb.Type, "permission_profile", spec.PermissionProfile)
 	return sb, nil
+}
+
+// checkAdmission enforces the per-type sandbox count caps and the memory
+// reserve. Returns nil when the sandbox may be created, or a typed error
+// (ErrTooManySandboxes / ErrInsufficientMemory) the caller can branch on.
+// Skipped entirely when both caps are 0 (legacy unlimited mode).
+func (m *Manager) checkAdmission(spec SandboxSpec) error {
+	cfg := m.config
+	if cfg == nil {
+		return nil
+	}
+	persistentCap := cfg.Sandbox.MaxPersistentSandboxes
+	ephemeralCap := cfg.Sandbox.MaxEphemeralSandboxes
+	if persistentCap == 0 && ephemeralCap == 0 {
+		return nil
+	}
+	m.mu.RLock()
+	persistent, ephemeral := 0, 0
+	for _, sb := range m.sandboxes {
+		if sb.Persistent {
+			persistent++
+		} else {
+			ephemeral++
+		}
+	}
+	m.mu.RUnlock()
+
+	// Reusing an existing workspace sandbox doesn't consume a new slot, so
+	// skip the cap check when CreateSandbox already resolved an existing one.
+	// (The reuse short-circuit happens before checkAdmission is called, so
+	// reaching here means we're about to create something new.)
+	if spec.WorkspaceID != "" {
+		if persistentCap > 0 && persistent >= persistentCap {
+			return fmt.Errorf("%w: %d/%d persistent sandboxes", ErrTooManySandboxes, persistent, persistentCap)
+		}
+	} else {
+		if ephemeralCap > 0 && ephemeral >= ephemeralCap {
+			return fmt.Errorf("%w: %d/%d ephemeral sandboxes", ErrTooManySandboxes, ephemeral, ephemeralCap)
+		}
+	}
+
+	// Memory reserve check for persistent containers (each LXC rootfs +
+	// runtime easily consumes hundreds of MB). Ephemeral containers are
+	// bounded by docker cgroup limits already; only gate the long-lived ones.
+	reserveMB := cfg.Sandbox.MemReserveMB
+	if spec.WorkspaceID != "" && reserveMB > 0 {
+		availMB, err := availableMemoryMB()
+		if err == nil && availMB < uint64(reserveMB) {
+			return fmt.Errorf("%w: %dMB free < %dMB reserve", ErrInsufficientMemory, availMB, reserveMB)
+		}
+	}
+	return nil
 }
 
 func (m *Manager) prepareSpec(spec SandboxSpec) SandboxSpec {
@@ -811,4 +874,30 @@ func (m *Manager) HostWorkspacePath(sandboxID string) string {
 		return ""
 	}
 	return rr.RootfsPath(sandboxID)
+}
+
+// availableMemoryMB returns the host's available memory in MB by parsing
+// /proc/meminfo (Linux). Returns an error on non-Linux or parse failure;
+// callers treat the error as "skip the memory gate" (fail-open) rather than
+// rejecting the create.
+func availableMemoryMB() (uint64, error) {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "MemAvailable:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0, fmt.Errorf("parse MemAvailable: %q", line)
+		}
+		kb, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		return kb / 1024, nil
+	}
+	return 0, fmt.Errorf("MemAvailable not found in /proc/meminfo")
 }

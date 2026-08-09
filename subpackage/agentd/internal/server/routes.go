@@ -16,6 +16,7 @@ import (
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/l2_auth"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/worker"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/semaphore"
 )
 
 // Server holds all dependencies for HTTP handlers.
@@ -29,6 +30,9 @@ type Server struct {
 	l2Mgr      *l2_auth.L2AuthManager
 	startTime  time.Time
 	version    string
+
+	// requestSem bounds concurrent in-flight /api/v1 requests. nil = disabled.
+	requestSem *semaphore.Weighted
 }
 
 // NewServer creates a new HTTP server with all dependencies.
@@ -42,6 +46,13 @@ func NewServer(
 	l2Mgr *l2_auth.L2AuthManager,
 	version string,
 ) *Server {
+	// M3.2: build the request concurrency semaphore from config. nil when
+	// the cap is 0 (legacy unlimited mode).
+	var requestSem *semaphore.Weighted
+	if cfg.Server.MaxConcurrentRequests > 0 {
+		requestSem = semaphore.NewWeighted(int64(cfg.Server.MaxConcurrentRequests))
+	}
+
 	return &Server{
 		cfg:        cfg,
 		bus:        bus,
@@ -52,6 +63,7 @@ func NewServer(
 		l2Mgr:      l2Mgr,
 		startTime:  time.Now(),
 		version:    version,
+		requestSem: requestSem,
 	}
 }
 
@@ -78,6 +90,14 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 	v1 := r.Group("/api/v1")
 	v1.Use(MTLSMiddleware())
 	v1.Use(APIKeyMiddleware(s.cfg.Server.ClawLessAPIKey))
+	// M3.2: bound concurrency + per-request timeout. The cap is sized off the
+	// sandbox admission limits — each in-flight /tools/exec owns a goroutine +
+	// a child docker/lxc exec process for the duration of the command, so an
+	// unbounded flood would exhaust goroutines/fds long before the sandbox
+	// caps engage. The timeout caps long-running stragglers (default 10m;
+	// stream endpoints override per-route).
+	v1.Use(SemaphoreMiddleware(s.requestSem))
+	v1.Use(TimeoutMiddleware(s.cfg.Server.RequestTimeout))
 	{
 		// Tasks
 		v1.POST("/tasks", s.handleCreateTask)

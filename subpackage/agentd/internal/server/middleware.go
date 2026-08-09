@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/semaphore"
 )
 
 // MTLSMiddleware verifies that HTTPS requests have a valid mTLS client
@@ -128,6 +130,43 @@ func RequestLogger() gin.HandlerFunc {
 			"path", c.Request.URL.Path,
 			"remote", c.RemoteIP(),
 		)
+		c.Next()
+	}
+}
+
+// TimeoutMiddleware cancels the request context after the given duration so a
+// stuck handler can't hold a goroutine forever. SSE/streaming endpoints opt
+// out by registering a longer timeout via the context they pass downstream.
+// 0 = disabled (legacy behavior).
+func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
+	if timeout <= 0 {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+		defer cancel()
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
+}
+
+// SemaphoreMiddleware caps the number of concurrent in-flight requests the
+// server processes. Excess requests get 503 immediately (no queueing) so a
+// flood can't exhaust goroutines / file descriptors. nil semaphore = disabled.
+func SemaphoreMiddleware(sem *semaphore.Weighted) gin.HandlerFunc {
+	if sem == nil {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return func(c *gin.Context) {
+		if !sem.TryAcquire(1) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"success": false,
+				"error":   "server busy (concurrency limit)",
+			})
+			c.Abort()
+			return
+		}
+		defer sem.Release(1)
 		c.Next()
 	}
 }
