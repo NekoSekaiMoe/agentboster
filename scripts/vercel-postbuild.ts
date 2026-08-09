@@ -56,6 +56,11 @@ async function main() {
     'scripts/migrate-vault-entries-to-user-scoped.ts',
   ]);
 
+  console.log(
+    '[postbuild] introducing user workspaces + backfilling workspace_id',
+  );
+  await runCommand('npx', ['tsx', 'scripts/migrate-workspaces.ts']);
+
   console.log('[postbuild] database schema is up to date');
 }
 

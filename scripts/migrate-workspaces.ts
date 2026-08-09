@@ -1,0 +1,154 @@
+/**
+ * One-shot data migration: introduce user-facing workspaces and backfill
+ * `workspace_id` across sessions / agent_tasks / long_term_memories.
+ *
+ * Context: the new `workspaces` table (user-facing workspace owning a
+ * long-lived LXC container + memories) was added alongside renaming the
+ * legacy `workspaces` table to `project_sandboxes`. Existing rows in
+ * `sessions`, `agent_tasks`, and `long_term_memories` have NULL
+ * `workspace_id`; this script gives each user a default workspace and
+ * backfills the foreign-key column so the app can treat workspace_id as
+ * non-null for user-scoped queries.
+ *
+ * Mapping rules:
+ *   - One default workspace per user (name "默认工作区"; i18n is a UI
+ *     concern, the DB stores a stable default).
+ *   - sessions.workspace_id ← the session owner's default workspace.
+ *   - agent_tasks.workspace_id ← the task owner's default workspace
+ *     (falls back to the session owner if `agent_tasks.user_id` is NULL).
+ *   - long_term_memories.workspace_id stays NULL for both `__global__`
+ *     and `proj-xxx` rows. `__global__` is the intended "global layer"
+ *     (visible to all workspaces via the additive `OR workspace_id IS
+ *     NULL` arm of recall); `proj-xxx` rows are path-B artifacts that no
+ *     user workspace owns, so NULL keeps them globally visible without
+ *     inventing a fake owner.
+ *   - builtin_memories: global template rows (workspace_id IS NULL) are
+ *     left in place. New workspaces clone them at creation time in the
+ *     app layer (M2.4); this migration does NOT clone for the default
+ *     workspaces because the global rows already serve every workspace
+ *     that has no workspace-specific override.
+ *
+ * Idempotent: uses `WHERE workspace_id IS NULL` guards, so re-running on
+ * every boot is a cheap no-op once all rows are backfilled. Safe to run
+ * on every boot.
+ *
+ * Run by `self-host-migrate.ts` / `vercel-postbuild.ts` after
+ * `drizzle-kit push` (the tables and columns must exist first).
+ */
+import { closeRawSql, getRawQuery } from './db-raw-sql';
+
+type BackfillCount = {
+  users: number;
+  workspaces_created: number;
+  sessions_backfilled: number;
+  tasks_backfilled: number;
+};
+
+async function backfillWorkspaces(): Promise<BackfillCount> {
+  const query = getRawQuery();
+
+  // 1. Create a default workspace for every user that doesn't have one yet.
+  //    Uses a CTE + LEFT JOIN so each user gets exactly one row even if this
+  //    runs concurrently (the `WHERE w.id IS NULL` guard makes it idempotent).
+  const created = await query<{ id: string; owner_id: string }>(`
+    WITH candidates AS (
+      SELECT u.id AS user_id
+      FROM users u
+      LEFT JOIN workspaces w ON w.owner_id = u.id
+      WHERE w.id IS NULL
+    )
+    INSERT INTO workspaces (owner_id, name, status)
+    SELECT user_id, '默认工作区', 'active' FROM candidates
+    ON CONFLICT DO NOTHING
+    RETURNING id, owner_id
+  `);
+
+  // 2. Backfill sessions.workspace_id from the session owner's default
+  //    workspace. Sessions with no owner (NULL user_id) stay NULL — they
+  //    predate per-user isolation and have no natural workspace.
+  const sessionsResult = await query<{ count: number }>(`
+    WITH owner_ws AS (
+      SELECT DISTINCT ON (owner_id) id AS workspace_id, owner_id
+      FROM workspaces
+      ORDER BY owner_id, created_at ASC
+    )
+    UPDATE sessions s
+    SET workspace_id = ow.workspace_id
+    FROM owner_ws ow
+    WHERE s.user_id = ow.owner_id
+      AND s.workspace_id IS NULL
+      AND s.user_id IS NOT NULL
+    RETURNING 1
+  `);
+  const sessionsBackfilled = sessionsResult.length;
+
+  // 3. Backfill agent_tasks.workspace_id. Prefer the task's own user_id;
+  //    fall back to the session owner when the task row has no user_id
+  //    (path-B tasks historically leave it NULL). Tasks with neither stay NULL.
+  const tasksResult = await query<{ count: number }>(`
+    WITH owner_ws AS (
+      SELECT DISTINCT ON (owner_id) id AS workspace_id, owner_id
+      FROM workspaces
+      ORDER BY owner_id, created_at ASC
+    )
+    UPDATE agent_tasks t
+    SET workspace_id = COALESCE(
+      (SELECT workspace_id FROM owner_ws ow WHERE ow.owner_id = t.user_id),
+      (SELECT workspace_id FROM owner_ws ow
+         JOIN sessions s ON s.id = t.session_id
+         WHERE ow.owner_id = s.user_id)
+    )
+    WHERE t.workspace_id IS NULL
+      AND (
+        t.user_id IS NOT NULL
+        OR (t.session_id IS NOT NULL
+            AND EXISTS (SELECT 1 FROM sessions s WHERE s.id = t.session_id AND s.user_id IS NOT NULL))
+      )
+    RETURNING 1
+  `);
+  const tasksBackfilled = tasksResult.length;
+
+  // 4. Total users that now have at least one workspace (for logging).
+  const usersResult = await query<{ count: number }>(`
+    SELECT COUNT(DISTINCT owner_id)::int AS count FROM workspaces
+  `);
+
+  return {
+    users: usersResult[0]?.count ?? 0,
+    workspaces_created: created.length,
+    sessions_backfilled: sessionsBackfilled,
+    tasks_backfilled: tasksBackfilled,
+  };
+}
+
+async function main() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('[migrate-workspaces] DATABASE_URL is required');
+  }
+
+  const result = await backfillWorkspaces();
+
+  // Only log when something actually happened — keeps boot output quiet on
+  // steady-state restarts (matches the vault/message-versions style).
+  if (
+    result.workspaces_created > 0 ||
+    result.sessions_backfilled > 0 ||
+    result.tasks_backfilled > 0
+  ) {
+    console.log(
+      `[migrate-workspaces] created ${result.workspaces_created} default workspace(s) for ${result.users} user(s); ` +
+        `backfilled ${result.sessions_backfilled} session(s) and ${result.tasks_backfilled} task(s)`,
+    );
+  } else {
+    console.log('[migrate-workspaces] no backfill needed');
+  }
+}
+
+main()
+  .catch((error) => {
+    console.error('[migrate-workspaces] failed:', error);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await closeRawSql();
+  });

@@ -1,5 +1,6 @@
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -9,36 +10,44 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-export const sessions = pgTable('sessions', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  title: text('title'),
-  channel: text('channel').default('web').notNull(),
-  channelOrigin: text('channel_origin'),
-  externalThreadId: text('external_thread_id'),
-  userId: text('user_id'),
-  model: text('model'),
-  systemPrompt: text('system_prompt'),
-  soulContent: text('soul_content'),
-  status: text('status', {
-    enum: ['active', 'completed', 'stopped', 'error'],
-  })
-    .default('active')
-    .notNull(),
-  workflowRunId: text('workflow_run_id'),
-  sandboxId: text('sandbox_id'),
-  remoteControlNodeId: text('remote_control_node_id'),
-  totalTokens: integer('total_tokens').default(0).notNull(),
-  latestTokenUsage:
-    jsonb('latest_token_usage').$type<Record<string, unknown>>(),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
-  archived: boolean('archived').default(false).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    title: text('title'),
+    channel: text('channel').default('web').notNull(),
+    channelOrigin: text('channel_origin'),
+    externalThreadId: text('external_thread_id'),
+    userId: text('user_id'),
+    /** Workspace this session belongs to. Backfilled for legacy rows. */
+    workspaceId: uuid('workspace_id'),
+    model: text('model'),
+    systemPrompt: text('system_prompt'),
+    soulContent: text('soul_content'),
+    status: text('status', {
+      enum: ['active', 'completed', 'stopped', 'error'],
+    })
+      .default('active')
+      .notNull(),
+    workflowRunId: text('workflow_run_id'),
+    sandboxId: text('sandbox_id'),
+    remoteControlNodeId: text('remote_control_node_id'),
+    totalTokens: integer('total_tokens').default(0).notNull(),
+    latestTokenUsage:
+      jsonb('latest_token_usage').$type<Record<string, unknown>>(),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    archived: boolean('archived').default(false).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    workspaceIdx: index('sessions_workspace_idx').on(table.workspaceId),
+  }),
+);
 
 export const messages = pgTable(
   'messages',

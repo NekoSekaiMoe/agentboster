@@ -902,4 +902,11 @@ export const enUS = {
   'form.placeholder.whatSkillDoes': 'What this skill does',
   'form.placeholder.leaveEmptyGlobalVoice':
     'Leave empty to use the global voice',
+  'workspace.label': 'Workspace',
+  'workspace.switch': 'Switch workspace',
+  'workspace.createNew': 'New workspace',
+  'workspace.defaultName': 'New workspace',
+  'workspace.createSuccess': 'Workspace created',
+  'workspace.createError': 'Failed to create workspace',
+  'workspace.defaultWorkspaceName': 'Default workspace',
 } as const;

@@ -26,6 +26,9 @@ type ConfigDraft = Partial<AppConfig> & Record<string, unknown>;
 interface ConfigContextValue {
   draft: ConfigDraft;
   isAdmin: boolean;
+  /** Current user id (server-derived). Available client-side so workspace-
+   *  scoped queries can key off it. Null only during the initial load. */
+  userId: string | null;
   isDirty: boolean;
   isLoading: boolean;
   isSaving: boolean;
@@ -68,6 +71,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
 
   const validation = useConfigValidation(draft, 250);
@@ -97,6 +101,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
         setJsonSyntaxError(null);
         setIsDirty(false);
         setIsAdmin(meta?.isAdmin ?? false);
+        setUserId(meta?.userId ?? null);
         setRevision(0);
       });
     } catch (error) {
@@ -220,6 +225,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     () => ({
       draft,
       isAdmin,
+      userId,
       isDirty,
       isLoading,
       isSaving,
@@ -237,6 +243,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     [
       draft,
       isAdmin,
+      userId,
       isDirty,
       isLoading,
       isSaving,

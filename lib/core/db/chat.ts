@@ -123,11 +123,15 @@ export async function listSessions(options?: {
   archived?: boolean;
   limit?: number;
   userId?: string;
+  workspaceId?: string;
 }) {
   const safeLimit = Math.max(1, Math.min(options?.limit ?? 50, 200));
   const conditions: ReturnType<typeof eq>[] = [];
   if (options?.userId) {
     conditions.push(eq(schema.sessions.userId, options.userId));
+  }
+  if (options?.workspaceId) {
+    conditions.push(eq(schema.sessions.workspaceId, options.workspaceId));
   }
   if (options?.channel) {
     conditions.push(eq(schema.sessions.channel, options.channel));

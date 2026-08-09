@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -42,15 +43,25 @@ const tsvector = customType<{ data: string; driverParam: string }>({
 
 // ─── Builtin Memories ───────────────────────────────────────────────
 
-export const builtinMemories = pgTable('builtin_memories', {
-  key: text('key', {
-    enum: ['AGENTS', 'SOUL', 'IDENTITY', 'USER'],
-  }).primaryKey(),
-  content: text('content').notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const builtinMemories = pgTable(
+  'builtin_memories',
+  {
+    key: text('key', {
+      enum: ['AGENTS', 'SOUL', 'IDENTITY', 'USER'],
+    }).notNull(),
+    /** Workspace scope. NULL = global template row cloned into new
+     *  workspaces on creation. PK is (workspace_id, key) so each
+     *  workspace can evolve its own SOUL/IDENTITY/etc. independently. */
+    workspaceId: uuid('workspace_id'),
+    content: text('content').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.workspaceId, table.key] }),
+  }),
+);
 
 // ─── Session Memories ───────────────────────────────────────────────
 
@@ -61,6 +72,10 @@ export const sessionMemories = pgTable(
     sessionId: uuid('session_id')
       .references(() => sessions.id, { onDelete: 'cascade' })
       .notNull(),
+    /** Redundant workspace scope for efficient per-workspace aggregation.
+     *  Stays per-session (one summary per session); not shared across
+     *  sessions like long_term_memories. */
+    workspaceId: uuid('workspace_id'),
     content: text('content').notNull(),
     summaryVersion: integer('summary_version').notNull(),
     isCurrent: boolean('is_current').default(true).notNull(),
@@ -90,6 +105,14 @@ export const longTermMemories = pgTable(
     // a free-text identifier (workspaces.project_id) rather than an FK so
     // memories survive workspace archival without cascading deletes.
     projectId: text('project_id').default('__global__').notNull(),
+    /** Workspace scope (new). Nullable = global/cross-workspace (the
+     *  historical default). M2 backfill maps legacy `__global__` and
+     *  `proj-xxx` rows to NULL here. Recall filters on (workspace_id=? OR
+     *  workspace_id IS NULL) so global memories stay visible everywhere. */
+    workspaceId: uuid('workspace_id'),
+    /** Owner (creator) of this memory. Kept even for shared memories so
+     *  the workspace can render provenance; recall visibility is governed
+     *  by `shared` below. */
     // Optional stable key for dedup during memory extraction. When set,
     // (userId, projectId, key) is unique so the extractor can upsert by
     // key within a scope. Manual memory writes (UI, writeMemory tool)
@@ -103,6 +126,14 @@ export const longTermMemories = pgTable(
       .default('fact')
       .notNull(),
     importance: integer('importance').default(5).notNull(),
+    /**
+     * Whether this memory is shared across all members of the workspace.
+     * When true (default), recall sees it regardless of `userId`. When
+     * false, only the creator (`userId`) sees it. Single-user MVP: always
+     * true in practice; the flag exists so future multi-member
+     * workspaces get per-memory privacy without a schema change.
+     */
+    shared: boolean('shared').default(true).notNull(),
     /**
      * Dream lifecycle state. `active` is the default for back-compat
      * (legacy rows + normal extractor writes are always active and
@@ -240,6 +271,13 @@ export const longTermMemories = pgTable(
     dreamStatusActiveIdx: index('long_term_memories_dream_status_active_idx')
       .on(table.userId, table.dreamStatus)
       .where(sql`dream_status = 'active'`),
+    // Workspace-scoped recall: `WHERE workspace_id = ?` (the common
+    // M2 path). Nullable column, so global rows (NULL) won't live in this
+    // index — they're fetched via the additive `OR workspace_id IS NULL`
+    // arm of the recall filter.
+    workspaceIdx: index('long_term_memories_workspace_idx').on(
+      table.workspaceId,
+    ),
   }),
 );
 

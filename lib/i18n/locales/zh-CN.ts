@@ -844,4 +844,11 @@ export const zhCN = {
   'form.placeholder.filterBySessionId': '按会话 ID 筛选',
   'form.placeholder.whatSkillDoes': '这个技能做什么',
   'form.placeholder.leaveEmptyGlobalVoice': '留空则使用全局语音',
+  'workspace.label': '工作区',
+  'workspace.switch': '切换工作区',
+  'workspace.createNew': '新建工作区',
+  'workspace.defaultName': '新工作区',
+  'workspace.createSuccess': '工作区已创建',
+  'workspace.createError': '创建工作区失败',
+  'workspace.defaultWorkspaceName': '默认工作区',
 } satisfies Record<keyof typeof enUS, string>;

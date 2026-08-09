@@ -16,6 +16,7 @@ import {
   taskSummaries,
   users,
   workspaces,
+  projectSandboxes,
 } from './schema';
 import type { Decision } from './schema';
 
@@ -959,9 +960,12 @@ export async function listActiveTaskSummaries(
     .orderBy(desc(taskSummaries.lastUpdated));
 }
 
-// === Workspaces ===
+// === Project Sandboxes (legacy workspaces table, renamed) ============
+// These are the path-B (async agentTask) "projectId ↔ sandbox" binding
+// records. Renamed from `workspaces` to avoid collision with the new
+// user-facing workspaces table. Semantics unchanged.
 
-export interface WorkspaceRecord {
+export interface ProjectSandboxRecord {
   id: string;
   projectId: string;
   agentId: string;
@@ -973,21 +977,90 @@ export interface WorkspaceRecord {
   updatedAt: Date;
 }
 
-export async function createWorkspace(data: {
+export async function createProjectSandbox(data: {
   projectId: string;
   agentId: string;
   name?: string;
   sandboxId: string;
   sandboxType: string;
-}): Promise<WorkspaceRecord> {
+}): Promise<ProjectSandboxRecord> {
   const [row] = await db
-    .insert(workspaces)
+    .insert(projectSandboxes)
     .values({
       projectId: data.projectId,
       agentId: data.agentId,
       name: data.name ?? null,
       sandboxId: data.sandboxId,
       sandboxType: data.sandboxType,
+      status: 'active',
+    })
+    .returning();
+  return row;
+}
+
+export async function getProjectSandbox(
+  id: string,
+): Promise<ProjectSandboxRecord | null> {
+  const [row] = await db
+    .select()
+    .from(projectSandboxes)
+    .where(eq(projectSandboxes.id, id));
+  return row ?? null;
+}
+
+export async function getProjectSandboxByProjectId(
+  projectId: string,
+): Promise<ProjectSandboxRecord | null> {
+  const [row] = await db
+    .select()
+    .from(projectSandboxes)
+    .where(eq(projectSandboxes.projectId, projectId));
+  return row ?? null;
+}
+
+export async function listProjectSandboxes(
+  agentId: string,
+): Promise<ProjectSandboxRecord[]> {
+  return db
+    .select()
+    .from(projectSandboxes)
+    .where(eq(projectSandboxes.agentId, agentId))
+    .orderBy(desc(projectSandboxes.updatedAt));
+}
+
+export async function archiveProjectSandbox(
+  id: string,
+): Promise<ProjectSandboxRecord | null> {
+  const [row] = await db
+    .update(projectSandboxes)
+    .set({ status: 'archived', updatedAt: new Date() })
+    .where(eq(projectSandboxes.id, id))
+    .returning();
+  return row ?? null;
+}
+
+// === Workspaces (user-facing) ========================================
+
+export interface WorkspaceRecord {
+  id: string;
+  ownerId: string;
+  name: string;
+  preferredNodeId: string | null;
+  nodeGeneration: number;
+  status: 'active' | 'archived';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export async function createWorkspace(data: {
+  ownerId: string;
+  name: string;
+}): Promise<WorkspaceRecord> {
+  const [row] = await db
+    .insert(workspaces)
+    .values({
+      ownerId: data.ownerId,
+      name: data.name,
       status: 'active',
     })
     .returning();
@@ -1001,24 +1074,28 @@ export async function getWorkspace(
   return row ?? null;
 }
 
-export async function getWorkspaceByProjectId(
-  projectId: string,
-): Promise<WorkspaceRecord | null> {
-  const [row] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.projectId, projectId));
-  return row ?? null;
-}
-
-export async function listWorkspaces(
-  agentId: string,
+export async function listWorkspacesByOwner(
+  ownerId: string,
 ): Promise<WorkspaceRecord[]> {
   return db
     .select()
     .from(workspaces)
-    .where(eq(workspaces.agentId, agentId))
+    .where(eq(workspaces.ownerId, ownerId))
     .orderBy(desc(workspaces.updatedAt));
+}
+
+export async function getOrCreateDefaultWorkspace(
+  ownerId: string,
+): Promise<WorkspaceRecord> {
+  const existing = await db
+    .select()
+    .from(workspaces)
+    .where(eq(workspaces.ownerId, ownerId))
+    .limit(1);
+  if (existing.length > 0 && existing[0]) {
+    return existing[0];
+  }
+  return createWorkspace({ ownerId, name: '默认工作区' });
 }
 
 export async function archiveWorkspace(

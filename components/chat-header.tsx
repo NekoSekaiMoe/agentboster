@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { ModelPersonaPicker } from '@/components/chat/model-persona-picker';
+import { WorkspaceSwitcher } from '@/components/chat/workspace-switcher';
 import { useI18n } from '@/components/i18n-provider';
 import { Button } from '@/components/ui/button';
 import { LoaderCircle, Square } from 'lucide-react';
@@ -120,6 +121,8 @@ function PureChatHeader({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        {/* Workspace switcher — scope the session list + long-lived container. */}
+        <WorkspaceSwitcher />
         {/* Single status dot: agentd availability / running indicator */}
         <Tooltip>
           <TooltipTrigger asChild>

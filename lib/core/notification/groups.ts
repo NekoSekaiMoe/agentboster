@@ -11,10 +11,11 @@ import { notificationPreferences } from '@/lib/core/db/schema';
  * map are always delivered (not configurable) — mirrors Multica.
  *
  * agentboster's notification_type enum is {decision, completion,
- * tidy_report}. They map as:
- *   - decision    → action_required  (a human verdict is pending)
- *   - completion  → agent_activity   (the agent finished something)
- *   - tidy_report → updates          (background bookkeeping result)
+ * tidy_report, workspace_failover}. They map as:
+ *   - decision           → action_required  (a human verdict is pending)
+ *   - completion         → agent_activity   (the agent finished something)
+ *   - tidy_report        → updates          (background bookkeeping result)
+ *   - workspace_failover → updates          (workspace migrated after node loss)
  *
  * Adding a new notification_type means deciding its group here. The
  * canonical group set is the union of values in this map.
@@ -23,6 +24,7 @@ const NOTIF_TYPE_TO_GROUP: Readonly<Record<string, string>> = {
   decision: 'action_required',
   completion: 'agent_activity',
   tidy_report: 'updates',
+  workspace_failover: 'updates',
   // Future types — keep aligned with the notification_type enum:
   //   assigned     → 'assignments'
   //   mentioned    → 'mentions'
@@ -72,6 +74,7 @@ export function defaultSeverityForType(
 ): 'action_required' | 'attention' | 'info' {
   if (notificationType === 'decision') return 'action_required';
   if (notificationType === 'completion') return 'attention';
+  if (notificationType === 'workspace_failover') return 'attention';
   return 'info';
 }
 

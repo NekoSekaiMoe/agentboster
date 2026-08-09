@@ -847,4 +847,11 @@ export const zhTW = {
   'form.placeholder.filterBySessionId': '按工作階段 ID 篩選',
   'form.placeholder.whatSkillDoes': '這個技能做什麼',
   'form.placeholder.leaveEmptyGlobalVoice': '留空則使用全域語音',
+  'workspace.label': '工作區',
+  'workspace.switch': '切換工作區',
+  'workspace.createNew': '新建工作區',
+  'workspace.defaultName': '新工作區',
+  'workspace.createSuccess': '工作區已建立',
+  'workspace.createError': '建立工作區失敗',
+  'workspace.defaultWorkspaceName': '預設工作區',
 } satisfies Record<keyof typeof enUS, string>;

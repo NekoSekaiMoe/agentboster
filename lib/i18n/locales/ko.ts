@@ -892,4 +892,11 @@ export const ko = {
   'form.placeholder.filterBySessionId': '세션 ID로 필터',
   'form.placeholder.whatSkillDoes': '이 스킬의 기능',
   'form.placeholder.leaveEmptyGlobalVoice': '비워두면 전역 음성 사용',
+  'workspace.label': '워크스페이스',
+  'workspace.switch': '워크스페이스 전환',
+  'workspace.createNew': '새 워크스페이스',
+  'workspace.defaultName': '새 워크스페이스',
+  'workspace.createSuccess': '워크스페이스가 생성되었습니다',
+  'workspace.createError': '워크스페이스 생성에 실패했습니다',
+  'workspace.defaultWorkspaceName': '기본 워크스페이스',
 } satisfies Record<keyof typeof enUS, string>;

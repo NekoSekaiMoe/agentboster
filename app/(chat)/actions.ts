@@ -100,13 +100,17 @@ export async function saveSessionModelAction(input: {
   return { ok: true };
 }
 
-export async function listRecentSessionsAction(limit = 30) {
+export async function listRecentSessionsAction(
+  options: { limit?: number; workspaceId?: string } = {},
+) {
   const access = await requireAuth();
+  const { limit = 30, workspaceId } = options;
 
   const sessions = await listSessions({
     archived: false,
     limit,
     ...(access.isAdmin ? {} : { userId: access.session.userId }),
+    ...(workspaceId ? { workspaceId } : {}),
   });
 
   return sessions.map((session) => ({
@@ -117,6 +121,7 @@ export async function listRecentSessionsAction(limit = 30) {
     pinned: Boolean(
       (session.metadata as Record<string, unknown> | null)?.pinned,
     ),
+    workspaceId: session.workspaceId ? String(session.workspaceId) : null,
   }));
 }
 

@@ -7,7 +7,8 @@ export type NotificationType =
   | 'decision'
   | 'completion'
   | 'tidy_report'
-  | 'l2_time_input';
+  | 'l2_time_input'
+  | 'workspace_failover';
 
 export type NotificationStatus =
   | 'pending'

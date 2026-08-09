@@ -182,18 +182,21 @@ func (c *Client) UploadFile(ctx context.Context, taskID, fileName string, conten
 	})
 }
 
-// ── Workspaces ───────────────────────────────────────────────────────
+// ── Workspaces (legacy project↔sandbox binding; renamed endpoint) ───
+// The Web table was renamed from `workspaces` to `project_sandboxes` to
+// free the name for the new user-facing workspace concept. The Go wire
+// type stays `Workspace` for now (SDK drift); only the HTTP path moves.
 
 func (c *Client) CreateWorkspace(ctx context.Context, ws *Workspace) error {
-	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/workspaces", ws)
+	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/project-sandboxes", ws)
 }
 
 func (c *Client) GetWorkspaceByProjectID(ctx context.Context, projectID string) (*Workspace, error) {
-	return requestJSONPtr[Workspace](c, ctx, http.MethodGet, "/api/agentd/v1/workspaces?project_id="+projectID, nil)
+	return requestJSONPtr[Workspace](c, ctx, http.MethodGet, "/api/agentd/v1/project-sandboxes?project_id="+projectID, nil)
 }
 
 func (c *Client) ListWorkspaces(ctx context.Context, agentID string) ([]Workspace, error) {
-	return requestJSON[[]Workspace](c, ctx, http.MethodGet, "/api/agentd/v1/workspaces?agent_id="+agentID, nil)
+	return requestJSON[[]Workspace](c, ctx, http.MethodGet, "/api/agentd/v1/project-sandboxes?agent_id="+agentID, nil)
 }
 
 // ── Tasks ────────────────────────────────────────────────────────────

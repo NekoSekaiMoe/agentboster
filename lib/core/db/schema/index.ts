@@ -35,6 +35,7 @@ export {
   agentdNodes,
   archivedTaskSummaries,
   taskSummaries,
+  projectSandboxes,
   workspaces,
 } from './agentd';
 export type { Decision } from './agentd';

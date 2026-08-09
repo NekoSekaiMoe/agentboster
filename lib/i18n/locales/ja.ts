@@ -915,4 +915,11 @@ export const ja = {
   'form.placeholder.filterBySessionId': 'セッション ID で絞り込み',
   'form.placeholder.whatSkillDoes': 'このスキルの機能',
   'form.placeholder.leaveEmptyGlobalVoice': '空欄ならグローバル音声を使用',
+  'workspace.label': 'ワークスペース',
+  'workspace.switch': 'ワークスペースを切り替え',
+  'workspace.createNew': '新しいワークスペース',
+  'workspace.defaultName': '新しいワークスペース',
+  'workspace.createSuccess': 'ワークスペースを作成しました',
+  'workspace.createError': 'ワークスペースの作成に失敗しました',
+  'workspace.defaultWorkspaceName': 'デフォルトワークスペース',
 } satisfies Record<keyof typeof enUS, string>;
