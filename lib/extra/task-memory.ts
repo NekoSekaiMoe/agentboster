@@ -8,6 +8,11 @@ import {
 import { getConfig } from '@/lib/core/kv/config';
 import { generateText } from 'ai';
 
+// NOTE(M2.5): this module writes to the legacy `agent_memories` table (KV
+// pairs keyed by agentId/sessionId). It is the ONLY remaining writer; the
+// modern long_term_memories system has replaced it for chat/extract paths.
+// Do NOT add new callers. TODO: migrate to long_term_memories.workspace_id.
+
 type ExtractedFact = {
   key: string;
   value: string;

@@ -101,11 +101,28 @@ async function extractMemoriesStep(input: {
   'use step';
 
   try {
+    // Read workspace_id off the session so extracted memories land in the
+    // right scope. Best-effort: a missing/NULL workspace stays global.
+    let workspaceId: string | null = null;
+    try {
+      const { db } = await import('@/lib/core/db');
+      const { sessions } = await import('@/lib/core/db/schema');
+      const { eq } = await import('drizzle-orm');
+      const [row] = await db
+        .select({ workspaceId: sessions.workspaceId })
+        .from(sessions)
+        .where(eq(sessions.id, input.sessionId))
+        .limit(1);
+      workspaceId = row?.workspaceId ? String(row.workspaceId) : null;
+    } catch {
+      // Best-effort; fall through with workspaceId=null (global).
+    }
     await extractMemoriesFromSession({
       sessionId: input.sessionId,
       userId: input.userId,
       config: input.config,
       user: input.user,
+      workspaceId,
     });
   } catch (err) {
     // Best-effort: log and swallow. A failure here must not fail the

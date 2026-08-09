@@ -204,6 +204,12 @@ export async function extractMemoriesFromSession(input: {
    * but the storage scope is fixed per extraction pass.
    */
   projectId?: string | null;
+  /**
+   * Workspace scope (M2). When set, extracted memories are written with
+   * this workspace_id so workspace-scoped recall finds them. Null/undefined
+   * = global layer. Pass-through to createLongTermMemory / upsertLongTermMemory.
+   */
+  workspaceId?: string | null;
 }): Promise<{ extracted: number; created: number; updated: number }> {
   const rows = await getVisibleSessionMessages(input.sessionId);
   if (rows.length === 0) {
@@ -335,6 +341,7 @@ Leave the array empty if nothing is worth changing.`;
             sourceKind: resolveExtractedSourceKind(item.sourceKind),
             triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
+            workspaceId: input.workspaceId,
             config: input.config,
           });
           created += 1;
@@ -350,6 +357,7 @@ Leave the array empty if nothing is worth changing.`;
             sourceKind: resolveExtractedSourceKind(item.sourceKind),
             triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
+            workspaceId: input.workspaceId,
             config: input.config,
           });
           if (result.created) {
@@ -365,6 +373,7 @@ Leave the array empty if nothing is worth changing.`;
             userId: input.userId,
             key: item.key,
             projectId: input.projectId,
+            workspaceId: input.workspaceId,
           });
           if (removed) {
             deleted += 1;

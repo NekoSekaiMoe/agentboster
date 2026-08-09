@@ -380,6 +380,21 @@ async function ensureMessageSession(input: {
 }) {
   const externalThreadId = buildExternalThreadId(input.source);
 
+  /** Resolve the user's default workspace so new sessions are scoped. IM
+   *  sources without a userId fall back to no workspace (legacy global). */
+  const resolveDefaultWorkspace = async (): Promise<string | null> => {
+    const userId = sourceUserId(input.source);
+    if (!userId) return null;
+    try {
+      const { getOrCreateDefaultWorkspace } = await import(
+        '@/lib/core/db/agentd'
+      );
+      return (await getOrCreateDefaultWorkspace(userId)).id;
+    } catch {
+      return null;
+    }
+  };
+
   if (input.sessionId) {
     const existing = await getSession(input.sessionId);
     if (existing) {
@@ -412,6 +427,7 @@ async function ensureMessageSession(input: {
       channel: currentChannelName(input.source),
       externalThreadId,
       userId: sourceUserId(input.source),
+      workspaceId: await resolveDefaultWorkspace(),
       metadata: {
         source: input.source,
       },
@@ -429,6 +445,7 @@ async function ensureMessageSession(input: {
     channel: currentChannelName(input.source),
     externalThreadId,
     userId: sourceUserId(input.source),
+    workspaceId: await resolveDefaultWorkspace(),
     metadata: {
       source: input.source,
     },
@@ -1291,6 +1308,9 @@ async function executeCommand(input: {
         const next = await createSession({
           channel: input.source.adapter,
           userId: input.source.userId ?? null,
+          workspaceId: session?.workspaceId
+            ? String(session.workspaceId)
+            : null,
           metadata: {
             source: input.source,
           },
@@ -1308,6 +1328,7 @@ async function executeCommand(input: {
         channel: session?.channel ?? 'web',
         userId:
           input.source.type === 'web' ? (input.source.userId ?? null) : null,
+        workspaceId: session?.workspaceId ? String(session.workspaceId) : null,
       });
 
       return {

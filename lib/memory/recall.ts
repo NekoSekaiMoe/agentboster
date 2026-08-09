@@ -49,6 +49,7 @@ interface CacheKeyParams {
   minConfidence: number;
   strategy: string;
   rerankSignature: string;
+  workspaceId: string | null;
 }
 
 function hashString(value: string): number {
@@ -68,6 +69,7 @@ function buildCacheKey(params: CacheKeyParams): string {
     params.minConfidence,
     params.strategy,
     params.rerankSignature,
+    params.workspaceId ?? '',
   ].join(':');
 }
 
@@ -244,9 +246,11 @@ export async function recallRelevantMemories(input: {
    * lane-1 result computed with smaller parameters.
    */
   bypassCache?: boolean;
+  workspaceId?: string | null;
 }): Promise<RecalledMemory[]> {
   const userId = input.userId ?? null;
   const query = input.query?.trim();
+  const workspaceId = input.workspaceId ?? null;
   const topK = Math.max(1, input.topK ?? DEFAULT_RECALL_TOP_K);
   const minConfidence = input.minConfidence ?? DEFAULT_RECALL_MIN_CONFIDENCE;
 
@@ -265,6 +269,7 @@ export async function recallRelevantMemories(input: {
     minConfidence,
     strategy,
     rerankSignature,
+    workspaceId,
   };
 
   // bypassCache skips only the fresh-cache EARLY RETURN — the cached
@@ -282,7 +287,13 @@ export async function recallRelevantMemories(input: {
   try {
     let results: RecalledMemory[];
     if (strategy === 'scorer' && config) {
-      results = await recallViaScorer({ userId, query, topK, config });
+      results = await recallViaScorer({
+        userId,
+        query,
+        topK,
+        config,
+        workspaceId,
+      });
     } else {
       results = await recallViaVector({
         userId,
@@ -290,6 +301,7 @@ export async function recallRelevantMemories(input: {
         topK,
         minConfidence,
         config,
+        workspaceId,
       });
     }
     // Attach provenance metadata (sourceKind) in one batch query so the
@@ -399,6 +411,7 @@ async function recallViaVector(input: {
   topK: number;
   minConfidence: number;
   config?: AppConfig;
+  workspaceId?: string | null;
 }): Promise<RecalledMemory[]> {
   const rerankConfig = resolveCrossRerankConfig(input.config);
   const rerankPoolSize = rerankConfig?.enabled
@@ -411,6 +424,7 @@ async function recallViaVector(input: {
     minConfidence: input.minConfidence,
     pageSize: poolSize,
     userId: input.userId,
+    workspaceId: input.workspaceId,
   });
 
   const merged = await expandWithBfs(results, input.topK, input.userId);
@@ -588,6 +602,7 @@ async function recallViaScorer(input: {
   query: string;
   topK: number;
   config: AppConfig;
+  workspaceId?: string | null;
 }): Promise<RecalledMemory[]> {
   const modelId = resolveScorerModelId(input.config);
   if (!modelId) {
@@ -601,6 +616,7 @@ async function recallViaScorer(input: {
     minConfidence: DEFAULT_RECALL_MIN_CONFIDENCE,
     pageSize: SCORER_KEYWORD_CANDIDATE_LIMIT,
     userId: input.userId,
+    workspaceId: input.workspaceId,
   });
 
   // Step 2: top up with recency candidates when keyword underfilled.
