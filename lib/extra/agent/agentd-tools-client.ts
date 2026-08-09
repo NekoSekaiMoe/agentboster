@@ -14,6 +14,9 @@ interface AgentdToolExecRequest {
   session_id: string;
   tool_name: string;
   tool_input: Record<string, unknown>;
+  /** Workspace id scoping the long-lived container + exec lock. Read from
+   *  the session row so the workflow body doesn't need to pass it through. */
+  workspace_id?: string;
 }
 
 interface AgentdToolExecResponse {
@@ -167,14 +170,19 @@ export async function execToolOnAgentd(
   // unconstrained auto-pick.
   let effectiveNodeId = nodeId;
   let affinityNodeId: string | undefined;
+  let workspaceId: string | undefined;
   if (!effectiveNodeId && sessionId) {
     try {
       const { sessions } = await import('@/lib/core/db/schema');
       const [row] = await db
-        .select({ metadata: sessions.metadata })
+        .select({
+          metadata: sessions.metadata,
+          workspaceId: sessions.workspaceId,
+        })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .limit(1);
+      workspaceId = row?.workspaceId ? String(row.workspaceId) : undefined;
       const meta = (row?.metadata ?? {}) as Record<string, unknown>;
       const constraint = meta.scheduleNodeConstraints as
         | { preferredNodeId?: string }
@@ -347,6 +355,7 @@ export async function execToolOnAgentd(
     session_id: sessionId,
     tool_name: toolName,
     tool_input: toolInput,
+    ...(workspaceId ? { workspace_id: workspaceId } : {}),
   };
 
   logger.info('Executing tool on Agent Daemon', {

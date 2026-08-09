@@ -53,9 +53,23 @@ func NewLXCPersistentProvider(rootfsBase, defaultDistro, defaultRelease string) 
 }
 
 // Create creates or resumes an LXC persistent container.
+//
+// When spec.WorkspaceID is set, the container is named `agentd-lxc-ws-<wsID>`
+// and creation becomes idempotent: if the rootfs already exists on disk, we
+// skip lxc-create and just lxc-start the existing container (resume). This
+// is the workspace long-lived container path — repeated Create calls for the
+// same workspace reattach to the same rootfs instead of making a new one.
+// When WorkspaceID is empty, falls back to the legacy random 8-hex id.
 func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	id := uuid.New().String()[:8]
 	containerName := fmt.Sprintf("agentd-lxc-%s", id)
+	if spec.WorkspaceID != "" {
+		// Derive a stable container name from the workspace id. Workspace ids
+		// are uuid strings (hex, already lowercase-safe); the prefix lets the
+		// reaper / health-checker identify workspace containers by name.
+		containerName = fmt.Sprintf("agentd-lxc-ws-%s", spec.WorkspaceID)
+		id = spec.WorkspaceID
+	}
 
 	distro := spec.Distro
 	if distro == "" {

@@ -71,6 +71,13 @@ type SandboxSpec struct {
 	// sandbox network is on. Applied by the provider after sandbox creation
 	// via iptables in the sandbox's network namespace.
 	EgressAllowlist []string
+
+	// WorkspaceID scopes a long-lived LXC container to a workspace. When
+	// set, the LXC provider names the container `agentd-lxc-ws-<wsID>` and
+	// makes Create idempotent (resume if the container already exists on
+	// disk). Empty = legacy behavior (random 8-hex id), used by short-lived
+	// docker sandboxes and any path that doesn't carry a workspace context.
+	WorkspaceID string
 }
 
 // Mount defines a bind mount.
@@ -116,14 +123,29 @@ type Manager struct {
 	config    *config.Config
 	policy    *os_enforce.OSPolicy
 	store     *SandboxStore
+
+	// workspaceContainers indexes workspace_id → sandbox_id for long-lived
+	// LXC containers, so CreateSandbox(spec{WorkspaceID: w}) can reattach to
+	// an existing container instead of creating a duplicate. Guarded by mu.
+	workspaceContainers map[string]string
+
+	// execLocks serializes tool execution per workspace (M0b: simple mutex;
+	// M1 upgrades to a WorkspaceLock with holder/ttl/generation). The lock
+	// prevents two concurrent runs from interleaving commands in the same
+	// long-lived container. Guarded by execLocksMu; the per-workspace mutex
+	// itself is held by whoever is currently executing a run.
+	execLocksMu sync.Mutex
+	execLocks   map[string]*sync.Mutex
 }
 
 // NewManager creates a new sandbox manager with all built-in providers.
 func NewManager(cfg *config.Config, l0Engine *l0_rules.Engine) *Manager {
 	m := &Manager{
-		providers: make(map[string]SandboxProvider),
-		sandboxes: make(map[string]*Sandbox),
-		config:    cfg,
+		providers:           make(map[string]SandboxProvider),
+		sandboxes:           make(map[string]*Sandbox),
+		workspaceContainers: make(map[string]string),
+		execLocks:           make(map[string]*sync.Mutex),
+		config:              cfg,
 	}
 
 	// Sandbox store for crash-recovery (persists sandbox IDs to disk so
@@ -217,9 +239,60 @@ func (m *Manager) Get(sandboxID string) (*Sandbox, bool) {
 	return sb, ok
 }
 
-// CreateSandbox creates a sandbox with the given spec.
+// GetByWorkspace returns the long-lived sandbox bound to a workspace, if any.
+// Returns (nil, false) when the workspace has no container yet (caller should
+// CreateSandbox with WorkspaceID set to lazily create one).
+func (m *Manager) GetByWorkspace(workspaceID string) (*Sandbox, bool) {
+	if workspaceID == "" {
+		return nil, false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	sandboxID, ok := m.workspaceContainers[workspaceID]
+	if !ok {
+		return nil, false
+	}
+	sb, ok := m.sandboxes[sandboxID]
+	return sb, ok
+}
+
+// ExecLockFor returns (and lazily creates) the per-workspace execution mutex.
+// Hold it for the duration of a run to serialize tool calls within one
+// workspace's long-lived container. Empty workspaceID returns a no-op locker
+// (a fresh mutex that nobody else can address) so legacy callers without a
+// workspace context don't accidentally serialize against each other.
+func (m *Manager) ExecLockFor(workspaceID string) sync.Locker {
+	if workspaceID == "" {
+		// Return a throwaway mutex — caller Lock/Unlock is a no-op isolation-wise.
+		return &sync.Mutex{}
+	}
+	m.execLocksMu.Lock()
+	defer m.execLocksMu.Unlock()
+	lock, ok := m.execLocks[workspaceID]
+	if !ok {
+		lock = &sync.Mutex{}
+		m.execLocks[workspaceID] = lock
+	}
+	return lock
+}
+
+// CreateSandbox creates a sandbox with the given spec. When spec.WorkspaceID
+// is set and a sandbox for that workspace already exists, returns the existing
+// sandbox (idempotent reattach) without calling the provider's Create.
 func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 	spec = m.prepareSpec(spec)
+
+	// Workspace-scoped long-lived containers are singletons: if one already
+	// exists for this workspace, reuse it. The provider's Create is itself
+	// idempotent on the disk level (LXC resumes an existing rootfs), but
+	// short-circuiting here keeps the in-memory map and the workspace index
+	// consistent across concurrent callers.
+	if spec.WorkspaceID != "" {
+		if existing, ok := m.GetByWorkspace(spec.WorkspaceID); ok {
+			slog.Info("workspace sandbox reused", "workspace_id", spec.WorkspaceID, "sandbox_id", existing.ID)
+			return existing, nil
+		}
+	}
 
 	provider, err := m.GetProvider(spec.Type)
 	if err != nil {
@@ -233,6 +306,9 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 
 	m.mu.Lock()
 	m.sandboxes[sb.ID] = sb
+	if spec.WorkspaceID != "" {
+		m.workspaceContainers[spec.WorkspaceID] = sb.ID
+	}
 	m.mu.Unlock()
 
 	// Persist sandbox ID so a daemon crash can be reconciled on restart.

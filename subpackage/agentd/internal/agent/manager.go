@@ -406,12 +406,13 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 
 // ToolExecRequest is a synchronous tool execution request from the web app.
 type ToolExecRequest struct {
-	SessionID string         `json:"session_id"`
-	TaskID    string         `json:"task_id,omitempty"`
-	ToolName  string         `json:"tool_name"`
-	ToolInput map[string]any `json:"tool_input"`
-	UserID    string         `json:"user_id,omitempty"`
-	Roles     []string       `json:"roles,omitempty"`
+	SessionID   string         `json:"session_id"`
+	TaskID      string         `json:"task_id,omitempty"`
+	ToolName    string         `json:"tool_name"`
+	ToolInput   map[string]any `json:"tool_input"`
+	UserID      string         `json:"user_id,omitempty"`
+	Roles       []string       `json:"roles,omitempty"`
+	WorkspaceID string         `json:"workspace_id,omitempty"` // M0b: scope long-lived container + exec lock
 }
 
 // ToolExecResponse is the result of a synchronous tool execution.
@@ -443,6 +444,23 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	}
 	m.wireSessionRuntime(agentCtx)
 	agentCtx.TaskID = req.TaskID
+	// M0b: lazily bind a long-lived LXC container for the workspace. When
+	// the request carries a WorkspaceID and the session doesn't already
+	// have a sandbox, create (or reuse) the workspace-scoped persistent
+	// container. Short-lived docker containers are created by the worker
+	// path, not here — this is the chat-run path only.
+	if req.WorkspaceID != "" && agentCtx.SandboxID == "" {
+		ws, err := m.sbManager.CreateSandbox(sandbox.SandboxSpec{
+			Type:        "lxc",
+			Persistent:  true,
+			WorkspaceID: req.WorkspaceID,
+		})
+		if err != nil {
+			slog.Warn("workspace sandbox lazy-create failed; falling back to ephemeral", "workspace_id", req.WorkspaceID, "error", err)
+		} else {
+			agentCtx.SandboxID = ws.ID
+		}
+	}
 	if len(toolInput) == 0 {
 		toolInput = map[string]any{}
 	}
@@ -474,7 +492,17 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	m.injectToolLayerDeps(agentCtx)
 	RegisterAllTools(registry, m.sbManager, m.lspManager, m.clawless, agentCtx)
 
-	// Execute the tool directly
+	// Execute the tool directly.
+	//
+	// M0b: serialize tool execution per workspace so two concurrent runs in
+	// the same long-lived container don't interleave commands. The lock is
+	// a no-op when WorkspaceID is empty (legacy / short-lived docker path).
+	// M1 will upgrade this to a holder-aware WorkspaceLock with TTL + busy
+	// rejection; for now it's a blocking mutex that simply serializes.
+	workspaceLock := m.sbManager.ExecLockFor(req.WorkspaceID)
+	workspaceLock.Lock()
+	defer workspaceLock.Unlock()
+
 	startedAt := time.Now()
 	argsJSON := mustMarshalJSON(toolInput)
 	toolCall := &ToolCall{
