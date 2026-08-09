@@ -119,6 +119,21 @@ export class TelegramNotificationChannel implements NotificationChannel {
       return payload.promptMessage;
     }
 
+    if (payload.type === 'workspace_failover') {
+      const lines = [
+        `⚠️ *${this.escape(payload.title)}*`,
+        ``,
+        this.escape(payload.summary),
+      ];
+      if (payload.details?.migratedAt) {
+        lines.push(
+          '',
+          `_Migrated at: ${this.escape(payload.details.migratedAt)}_`,
+        );
+      }
+      return lines.join('\n');
+    }
+
     const statusEmoji =
       payload.status === 'completed'
         ? '✅'

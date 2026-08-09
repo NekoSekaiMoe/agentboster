@@ -145,6 +145,15 @@ export async function failoverOfflineWorkspaces(): Promise<number> {
             workspace_name: ws.name,
             stale_node_id: ws.preferredNodeId,
             reason: 'node_offline',
+            // Fields for the fallback renderer (per-adapter renderers that
+            // don't special-case workspace_failover still print a card via
+            // the generic summary/details path).
+            title: `Workspace “${ws.name}” migrated`,
+            summary:
+              'The node hosting this workspace went offline. A fresh long-lived container will be created on the next task; the previous container state has been reset.',
+            details: {
+              migratedAt: new Date().toISOString(),
+            },
           },
           channel: target.channel,
           targetChatId: target.targetChatId,

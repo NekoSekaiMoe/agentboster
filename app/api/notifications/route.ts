@@ -69,7 +69,9 @@ export async function GET(request: Request) {
             ? 'warning'
             : n.type === 'completion'
               ? 'success'
-              : 'info',
+              : n.type === 'workspace_failover'
+                ? 'warning'
+                : 'info',
         title,
         message,
         channel: n.channel,

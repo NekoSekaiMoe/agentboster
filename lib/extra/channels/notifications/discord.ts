@@ -116,6 +116,27 @@ export class DiscordNotificationChannel implements NotificationChannel {
       };
     }
 
+    if (payload.type === 'workspace_failover') {
+      const fields: Array<{ name: string; value: string; inline?: boolean }> =
+        [];
+      if (payload.details?.migratedAt)
+        fields.push({
+          name: 'Migrated at',
+          value: payload.details.migratedAt,
+        });
+      return {
+        embeds: [
+          {
+            title: `⚠️ ${payload.title}`,
+            description: payload.summary,
+            color: 0xffa500,
+            fields: fields.length > 0 ? fields : undefined,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      };
+    }
+
     const color =
       payload.status === 'completed'
         ? 0x00ff00

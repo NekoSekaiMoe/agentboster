@@ -209,6 +209,13 @@ export class GChatNotificationChannel implements NotificationChannel {
       return payload.promptMessage;
     }
 
+    if (payload.type === 'workspace_failover') {
+      const migratedAt = payload.details?.migratedAt
+        ? `\n\n_Migrated at: ${payload.details.migratedAt}_`
+        : '';
+      return `⚠️ *${payload.title}*\n\n${payload.summary}${migratedAt}`;
+    }
+
     const emoji =
       payload.status === 'completed'
         ? '✅'

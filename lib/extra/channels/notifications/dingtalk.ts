@@ -9,6 +9,7 @@ import type {
   L2TimeInputNotification,
   NotificationPayload,
   NotificationSendResult,
+  WorkspaceFailoverNotification,
 } from '../notification-types';
 
 const logger = createLogger('notification.dingtalk');
@@ -186,10 +187,19 @@ export class DingtalkNotificationChannel implements NotificationChannel {
   }
 
   private renderText(
-    payload: CompletionNotification | L2TimeInputNotification,
+    payload:
+      | CompletionNotification
+      | L2TimeInputNotification
+      | WorkspaceFailoverNotification,
   ): string {
     if (payload.type === 'l2_time_input') {
       return payload.promptMessage;
+    }
+    if (payload.type === 'workspace_failover') {
+      const migratedAt = payload.details?.migratedAt
+        ? `\n\n_Migrated at: ${payload.details.migratedAt}_`
+        : '';
+      return `⚠️ **${payload.title}**\n\n${payload.summary}${migratedAt}`;
     }
 
     const emoji =

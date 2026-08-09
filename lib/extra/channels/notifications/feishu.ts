@@ -235,6 +235,32 @@ export class FeishuNotificationChannel implements NotificationChannel {
       };
     }
 
+    if (payload.type === 'workspace_failover') {
+      const elements: Array<Record<string, unknown>> = [
+        {
+          tag: 'div',
+          text: { tag: 'lark_md', content: payload.summary },
+        },
+      ];
+      if (payload.details?.migratedAt) {
+        elements.push({ tag: 'hr' });
+        elements.push({
+          tag: 'div',
+          text: {
+            tag: 'lark_md',
+            content: `**Migrated at:** ${payload.details.migratedAt}`,
+          },
+        });
+      }
+      return {
+        header: {
+          title: { tag: 'plain_text', content: `⚠️ ${payload.title}` },
+          template: 'orange',
+        },
+        elements,
+      };
+    }
+
     const color =
       payload.status === 'completed'
         ? 'green'

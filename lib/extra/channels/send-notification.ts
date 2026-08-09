@@ -191,7 +191,10 @@ export async function sendNotification(params: {
   }
 
   const result = await mgr.send({
-    taskId: payload.taskId,
+    taskId:
+      payload.type === 'workspace_failover'
+        ? payload.workspaceId
+        : payload.taskId,
     notificationType: payload.type,
     payload,
     preferredChannel,
@@ -201,7 +204,10 @@ export async function sendNotification(params: {
   });
 
   logger.info('notification sent', {
-    taskId: payload.taskId,
+    taskId:
+      payload.type === 'workspace_failover'
+        ? payload.workspaceId
+        : payload.taskId,
     type: payload.type,
     channel: result.channel,
     success: result.success,
