@@ -359,8 +359,9 @@ export async function startWorkflow(input: {
   // stream's consumer — see node_modules/@workflow/core/dist/runtime.js
   // workflowEntrypoint), so leaving the stream unread does not stall
   // the run. Post-run finalization (memory extraction, skill
-  // distillation, resource cleanup) runs as the workflow's last steps
-  // inside lib/workflow/agent/index.ts, so it no longer depends on a
+  // distillation, resource cleanup) runs in a SEPARATE workflow run
+  // (postRunCleanupWorkflow) spawned fire-and-forget from chatWorkflow
+  // after it closes its UI stream, so it no longer depends on a
   // long-lived HTTP function draining the stream either.
   return {
     runId: run.runId,

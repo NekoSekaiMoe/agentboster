@@ -2,7 +2,8 @@
  * Automatic cleanup of sandbox resources when workflow completes.
  * Prevents resource leaks and reduces costs.
  *
- * Called by dispatch.ts after the workflow stream closes.
+ * Called by the post-run-cleanup workflow (lib/workflow/agent/post-run-cleanup.ts)
+ * which is spawned fire-and-forget after chatWorkflow closes its UI stream.
  */
 
 import { createLogger } from '@/lib/utils/logger';
@@ -22,7 +23,8 @@ export interface CleanupOptions {
 
 /**
  * Cleanup resources after workflow completion.
- * Called automatically by dispatch.ts when the workflow stream closes.
+ * Called by a step in the post-run-cleanup workflow, which is spawned
+ * fire-and-forget after chatWorkflow closes its UI stream.
  */
 export async function cleanupWorkflowResources(
   options: CleanupOptions,
