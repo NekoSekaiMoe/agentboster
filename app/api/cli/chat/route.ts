@@ -17,6 +17,12 @@ import { z } from 'zod';
 
 const logger = createLogger('api.cli.chat');
 
+// CLI chat SSE response stays open for the entire agent run, mirroring
+// app/(chat)/api/ai/route.ts. Raise the function maxDuration so long
+// agentd tool calls (npm install, browser automation) don't get
+// truncated by the default 10s/60s ceiling.
+export const maxDuration = 300;
+
 /**
  * CLI chat entry. Mirrors /api/ai but declares source.type === 'cli'
  * with the caller's clientId + label, so the workflow registers local_*
@@ -234,17 +240,11 @@ export async function POST(request: Request) {
     );
   }
 
-  if (result.kind === 'message') {
-    return createUIMessageStreamResponse({
-      stream: guardWorkflowChunks(result.result.readable),
-      headers: {
-        'x-session-id': result.result.sessionId,
-        'x-workflow-run-id': result.result.runId,
-      },
-    });
-  }
-
-  if (result.kind === 'resume-run-message') {
+  if (result.kind === 'message' || result.kind === 'resume-run-message') {
+    // Read the workflow stream from storage via getWorkflowRun rather
+    // than from the stream object returned by startWorkflow. This
+    // decouples the HTTP response from the dispatch process — see the
+    // matching comment in app/(chat)/api/ai/route.ts.
     return createUIMessageStreamResponse({
       stream: guardWorkflowChunks(getWorkflowRun(result.result.runId).readable),
       headers: {

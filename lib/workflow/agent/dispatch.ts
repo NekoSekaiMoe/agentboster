@@ -14,7 +14,6 @@ import type {
   ChatHookPayload,
   ChatSource,
   ToolApprovalPayload,
-  WorkflowUIMessageChunk,
 } from '@/types/workflow';
 import type { ModelMessage } from 'ai';
 import { and, eq, gte } from 'drizzle-orm';
@@ -289,7 +288,6 @@ export async function startWorkflow(input: {
   requestAgent?: string | null;
 }): Promise<{
   runId: string;
-  readable: ReadableStream<WorkflowUIMessageChunk>;
 }> {
   const logger = createLogger('workflow.dispatch');
   logger.info('startWorkflow:start', { sessionId: input.sessionId });
@@ -352,51 +350,21 @@ export async function startWorkflow(input: {
   });
   logger.info('startWorkflow:runtime_patched');
 
-  // P3 follow-up: drain afterResponse() callbacks when the workflow's
-  // readable stream closes. This replaces next/server's after(), which
-  // can't be imported into the workflow bundle (vm.Script sandbox
-  // doesn't define __dirname — see lib/workflow/agent/after-response.ts).
-  // The original stream is tee'd so we don't consume it: the caller
-  // still gets to read branch [0] (returned below), and our branch [1]
-  // is used only to detect close.
-  const [primaryStream, drainStream] = run.readable.tee();
-  // Fire-and-forget: when our branch closes, run the queued callbacks.
-  // Errors are caught inside drainPendingAfterCallbacks.
-  void (async () => {
-    try {
-      const reader = drainStream.getReader();
-      // Read until the stream closes (done becomes true). We discard
-      // the chunks — they're already going to the real consumer via
-      // primaryStream returned below.
-      for (;;) {
-        const { done } = await reader.read();
-        if (done) break;
-      }
-    } catch {
-      // Stream errored — still try to drain so callbacks aren't lost.
-    }
-    try {
-      const { drainPendingAfterCallbacks } = await import('./after-response');
-      await drainPendingAfterCallbacks();
-    } catch {
-      // Don't let drain failures escape into an unhandled promise.
-    }
-    // Cleanup resources after workflow completes.
-    // Sandbox is kept running (allows reuse in subsequent messages).
-    try {
-      const { cleanupWorkflowResources } = await import('./cleanup');
-      await cleanupWorkflowResources({
-        sessionId: input.sessionId,
-        stopSandbox: false,
-      });
-    } catch {
-      // Don't let cleanup failures escape into an unhandled promise.
-    }
-  })();
-
+  // Fire-and-forget: POST /api/ai returns immediately with just the
+  // runId; the client subscribes to the run's stream via the separate
+  // GET /api/ai/[runId]/stream endpoint (which calls getWorkflowRun).
+  //
+  // We deliberately do NOT read run.readable here. The workflow SDK's
+  // step execution is driven by the Vercel Queue Service (not by this
+  // stream's consumer — see node_modules/@workflow/core/dist/runtime.js
+  // workflowEntrypoint), so leaving the stream unread does not stall
+  // the run. Post-run finalization (memory extraction, skill
+  // distillation, resource cleanup) runs in a SEPARATE workflow run
+  // (postRunCleanupWorkflow) spawned fire-and-forget from chatWorkflow
+  // after it closes its UI stream, so it no longer depends on a
+  // long-lived HTTP function draining the stream either.
   return {
     runId: run.runId,
-    readable: primaryStream,
   };
 }
 

@@ -11,9 +11,9 @@
       "**/*.ts",
       "**/*.js",
       "**/*.py",
-      "!**/node_modules/**",
-      "!**/dist/**",
-      "!vendor/**",
+      "!**/node_modules",
+      "!**/dist",
+      "!vendor",
       "!src/cli/index.ts"
     ]
   },

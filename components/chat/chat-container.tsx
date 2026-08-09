@@ -37,6 +37,7 @@ import {
   cloneUIParts,
   extractTextFromParts,
 } from '@/lib/chat/transport-request';
+import { switchFireForgetPostToStream } from '@/lib/chat/fire-forget';
 import { deriveSessionTitle } from '@/lib/chat/session-title';
 import { buildInlineFollowUpText } from '@/lib/chat/follow-up';
 import { usePendingDecisions } from '@/lib/chat/use-pending-decisions';
@@ -406,8 +407,12 @@ export function Chat({
       new DefaultChatTransport<WorkflowUIMessage>({
         api: '/api/ai',
         fetch: async (request, init) => {
-          const response = await ofetch.native(request, init);
-          const runId = response.headers.get('x-workflow-run-id');
+          const upstream = await ofetch.native(request, init);
+          // Fire-and-forget: if POST returned 202 { runId }, switch to
+          // GET /api/ai/[runId]/stream (the SSE source).
+          const { response, runId: ffRunId } =
+            await switchFireForgetPostToStream(upstream, init);
+          const runId = ffRunId ?? response.headers.get('x-workflow-run-id');
           if (runId) {
             activeRunIdRef.current = runId;
             setActiveRunId(runId);

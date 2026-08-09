@@ -7,18 +7,17 @@ import {
 } from '@/lib/chat/message-utils';
 import { parseProviderScopedModelId } from '@/lib/ai';
 import { applyClientSpoofOverride } from '@/lib/ai/client-spoof';
-import { extractMemoriesFromSession } from '@/lib/memory/extract';
-import { maybeDistillSkillFromSession } from '@/lib/skills/distill';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 import type { ClientSpoof } from '@/types/config/ai';
 import type { ChatSource, UserMessagePart } from '@/types/workflow';
 import { DurableAgent } from '@workflow/ai/agent';
 import type { ModelMessage, StepResult, ToolSet } from 'ai';
-import { afterResponse } from './after-response';
 import { getWorkflowMetadata } from 'workflow';
+import { start } from 'workflow/api';
 import { DEFAULT_MAIN_MAX_STEPS, DEFAULT_THRESHOLD_TO_SUMMARY } from './config';
 import { instructionHookBuilder } from './hooks';
+import { postRunCleanupWorkflow } from './post-run-cleanup';
 import {
   createWritable,
   writeMessageMetadata,
@@ -762,62 +761,11 @@ export async function chatWorkflow(
       status: 'completed',
     });
 
-    // Schedule post-conversation memory extraction to run after this
-    // workflow response fully closes. P3 follow-up: we previously used
-    // next/server's after() here, but importing next/server into the
-    // workflow bundle fails because the Workflow DevKit sandbox
-    // doesn't define __dirname (required by ncc-compiled ua-parser-js
-    // in next/server's user-agent spec extension). afterResponse()
-    // stashes the callback in a queue that the host drains when the
-    // readable stream closes — same semantic, no next/server import.
-    // Extraction is best-effort by design; failures are logged.
-    // Session-kind gating (OpenClaw hygiene rule): only interactive
-    // sessions (web / im / cli) produce durable memory OR staged skills.
-    // Scheduled/cron runs are excluded explicitly from BOTH the memory
-    // extraction and the skill distillation below — they can write task
-    // artifacts, but nothing they emit is eligible for long-term memory
-    // or for review-queue skill drafts.
-    if (source.type !== 'scheduled' && 'userId' in source && source.userId) {
-      afterResponse(async () => {
-        try {
-          await extractMemoriesFromSession({
-            sessionId,
-            userId: source.userId as string,
-            config: effectiveConfig,
-            user,
-          });
-        } catch (err) {
-          logger.warn('memory:extract_failed', {
-            sessionId,
-            runId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
-        // Experimental skill distillation: if the conversation had enough
-        // tool-call density, run a background reviewer that may stage a
-        // draft skill (self-authored or a ClawHub install suggestion).
-        // Best-effort, off by default (gated by
-        // config.experiments.skillDistillation.enabled). Same discipline as
-        // memory extraction: runs AFTER the response closes on a separate
-        // LLM call, never touches the main conversation's prompt cache.
-        try {
-          await maybeDistillSkillFromSession({
-            sessionId,
-            userId: source.userId as string,
-            config: effectiveConfig,
-            user,
-          });
-        } catch (err) {
-          logger.warn('skills:distill_failed', {
-            sessionId,
-            runId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      });
-    }
-
+    // Close the UI stream immediately. The client receives `finish` as
+    // soon as the run is marked completed — semantically the right
+    // moment, since everything below produces no stream output. See the
+    // note under the cleanup spawn for why this was previously blocked
+    // on cleanup completing.
     try {
       await writeStreamClose();
     } catch (closeError) {
@@ -826,6 +774,76 @@ export async function chatWorkflow(
         runId,
         error:
           closeError instanceof Error ? closeError.message : String(closeError),
+      });
+    }
+
+    // Post-run finalization (memory extraction + skill distillation +
+    // resource cleanup) runs in an INDEPENDENT workflow run, spawned
+    // fire-and-forget. The client has already received `finish` above.
+    //
+    // History: this used to be deferred to afterResponse() — a queue
+    // drained by the host when the workflow's readable stream closed.
+    // That worked when POST /api/ai kept the SSE connection open for
+    // the whole run. With fire-and-forget, /api/ai returns immediately
+    // and no host process reliably drains that queue, so afterResponse()
+    // was removed and cleanup was moved INLINE as awaited workflow
+    // steps. The inline-await form was correct for durability but
+    // reintroduced client-visible latency: extractMemoriesFromSession
+    // and maybeDistillSkillFromSession issue LLM calls that can take
+    // seconds-to-minutes, and the client blocked on `finish` until
+    // they completed (despite producing no stream output).
+    //
+    // The fix: spawn a separate workflow run (postRunCleanupWorkflow)
+    // and do NOT await it beyond runId resolution. The Queue Service
+    // schedules the cleanup independently; chatWorkflow returns as
+    // soon as the spawn call resolves with a runId. This restores the
+    // original "never blocks the reply" semantics of afterResponse(),
+    // just on a durable carrier. Nesting pattern mirrors
+    // `scheduledTaskWorkflow`, which is similarly `start()`-ed from
+    // inside another workflow (see
+    // lib/workflow/agent/tools/tasks/schedule.ts).
+    //
+    // The `start()` call itself returns once the run is created (runId
+    // assigned); subsequent step execution is driven by the Queue
+    // Service, not by the caller awaiting its completion.
+    //
+    // Best-effort: even if the spawn fails, the chat run is already
+    // completed and the client has already seen `finish`, so we only
+    // log. The cleanup workflow internally wraps each step so a
+    // failure in one cannot fail the run.
+    //
+    // userId is forwarded only for interactive sessions — scheduled
+    // sessions still spawn the workflow (for resource cleanup) but
+    // postRunCleanupWorkflow skips memory + skills when userId is
+    // absent OR sourceType === 'scheduled'. Resource cleanup always
+    // runs regardless, so we must not short-circuit the spawn here
+    // based on userId — that would skip cleanupResourcesStep too.
+    // '?? undefined' normalizes the string | null union on
+    // ChatSource.userId to the optional string the workflow expects.
+    const interactiveUserId =
+      source.type !== 'scheduled' && 'userId' in source
+        ? (source.userId ?? undefined)
+        : undefined;
+    try {
+      await start(postRunCleanupWorkflow, [
+        {
+          sessionId,
+          userId: interactiveUserId,
+          config: effectiveConfig,
+          user,
+          sourceType: source.type,
+        },
+      ]);
+      logger.info('post-run-cleanup:spawned', {
+        sessionId,
+        runId,
+        scheduled: source.type === 'scheduled',
+      });
+    } catch (err) {
+      logger.warn('post-run-cleanup:spawn_failed', {
+        sessionId,
+        runId,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
 

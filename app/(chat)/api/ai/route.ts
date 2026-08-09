@@ -4,9 +4,7 @@ import { readAuthSessionFromCookies } from '@/lib/auth';
 import { chatMain } from '@/lib/chat';
 import { CrossChannelReadonlyError } from '@/lib/chat/access';
 import { createStaticAssistantStream } from '@/lib/chat/stream';
-import { guardWorkflowChunks } from '@/lib/chat/stream-guard';
 import { createLogger } from '@/lib/utils/logger';
-import { getWorkflowRun } from '@/lib/workflow/agent/dispatch';
 import {
   type UserMessagePart,
   type WorkflowUIMessage,
@@ -18,6 +16,15 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 console.log('[api/ai] Module loaded successfully');
+
+// The web chat entry. POST is fire-and-forget: it enqueues the workflow
+// and returns 202 { runId, sessionId } immediately — the client then
+// subscribes to GET /api/ai/[runId]/stream for the actual SSE stream.
+// This frees the POST function slot within ~milliseconds (just long
+// enough for startWorkflow to register the run with the Vercel Queue)
+// instead of holding it for the entire agent run. startWorkflow has its
+// own 30s startup timeout, so 60s is a safe ceiling with margin.
+export const maxDuration = 60;
 
 const logger = createLogger('api.ai');
 
@@ -228,29 +235,37 @@ export async function POST(request: Request) {
     );
   }
 
-  if (result.kind === 'message') {
-    return createUIMessageStreamResponse({
-      stream: guardWorkflowChunks(result.result.readable),
-      headers: {
-        'x-session-id': result.result.sessionId,
-        'x-workflow-run-id': result.result.runId,
+  if (result.kind === 'message' || result.kind === 'resume-run-message') {
+    // Fire-and-forget: the workflow has been enqueued (startWorkflow
+    // handed it off to the Vercel Queue Service). Return immediately
+    // with the runId; the client subscribes to the run's SSE stream
+    // via GET /api/ai/[runId]/stream (handled by the reconnect
+    // endpoint, which reads getWorkflowRun(runId).readable from
+    // storage — default startIndex replays every chunk written so far,
+    // so nothing produced between this 202 and the client's GET is
+    // lost). This drops the POST function slot within milliseconds
+    // instead of holding it for the whole agent run.
+    if (result.kind === 'resume-run-message') {
+      logger.info('post:resume_existing_run', {
+        sessionId: result.result.sessionId,
+        runId: result.result.runId,
+      });
+    }
+    return Response.json(
+      {
+        success: true,
+        kind: result.kind,
+        sessionId: result.result.sessionId,
+        runId: result.result.runId,
       },
-    });
-  }
-
-  if (result.kind === 'resume-run-message') {
-    logger.info('post:resume_existing_run', {
-      sessionId: result.result.sessionId,
-      runId: result.result.runId,
-    });
-
-    return createUIMessageStreamResponse({
-      stream: guardWorkflowChunks(getWorkflowRun(result.result.runId).readable),
-      headers: {
-        'x-session-id': result.result.sessionId,
-        'x-workflow-run-id': result.result.runId,
+      {
+        status: 202,
+        headers: {
+          'x-session-id': result.result.sessionId,
+          'x-workflow-run-id': result.result.runId,
+        },
       },
-    });
+    );
   }
 
   return createUIMessageStreamResponse({

@@ -84,6 +84,7 @@
     "@types/pg": "8.11.10",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@vitest/coverage-v8": "^3.0.0",
     "drizzle-kit": "^0.31.10",
     "postcss": "^8.5.26",
     "shadcn": "^4.2.0",

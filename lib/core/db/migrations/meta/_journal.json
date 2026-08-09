@@ -3,17 +3,17 @@
   "dialect": "postgresql",
   "entries": [
     {
-      "idx": 34,
-      "version": "7",
-      "when": 1786284000000,
-      "tag": "0034_node_usage_daily_user_isolation",
-      "breakpoints": true
-    },
-    {
       "idx": 35,
       "version": "7",
       "when": 1786201717150,
       "tag": "0035_solid_midnight",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786206349500,
+      "tag": "0036_smooth_jasper_sitwell",
       "breakpoints": true
     }
   ]

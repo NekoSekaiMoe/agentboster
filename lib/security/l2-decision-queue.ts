@@ -22,8 +22,10 @@ import { z } from 'zod';
 import {
   countByStatus,
   createDecision,
+  getUserIdBySession,
   type L2Decision,
   markExpired,
+  markSent,
   resolveDecision as dbResolve,
 } from '@/lib/core/db/l2-decisions';
 import { createLogger } from '@/lib/utils/logger';
@@ -56,6 +58,10 @@ export const DecisionSchema = z.object({
   type: z.nativeEnum(DecisionType),
   taskId: z.string(),
   sessionId: z.string(),
+  /** Owning user; populated at enqueue from the session. Drives the
+   *  queue's per-user isolation in canPromote. May be absent for
+   *  legacy/test decisions that pre-date the field. */
+  userId: z.string().optional(),
   agentId: z.string().optional(),
   command: z.string().optional(),
   score: z.number().optional(),
@@ -164,6 +170,22 @@ export class DecisionQueue {
   async enqueue(decision: Decision): Promise<boolean> {
     this.initDecision(decision);
 
+    // Backfill the owning userId from the session if the caller didn't
+    // supply one. canPromote groups by (userId, sessionId), so a missing
+    // userId would degenerate the isolation to sessionId-only.
+    if (!decision.userId && decision.sessionId) {
+      try {
+        decision.userId =
+          (await getUserIdBySession(decision.sessionId)) ?? undefined;
+      } catch (err) {
+        logger.warn('userId lookup failed; isolating by sessionId only', {
+          decisionId: decision.decisionId,
+          sessionId: decision.sessionId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     // Persist first; if the DB write fails, we still record in-memory
     // so the current request can proceed, but the decision will not
     // survive a redeploy.
@@ -172,6 +194,7 @@ export class DecisionQueue {
         decisionId: decision.decisionId,
         taskId: decision.taskId,
         sessionId: decision.sessionId,
+        userId: decision.userId,
         agentId: decision.agentId ?? '',
         type: decision.type,
         payload: decisionToPayload(decision),
@@ -189,8 +212,8 @@ export class DecisionQueue {
     this.decisions.set(decision.decisionId, { ...decision });
     this.pendingOrder.push(decision.decisionId);
 
-    if (this.canPromote(decision.taskId)) {
-      this.promote(decision.decisionId);
+    if (this.canPromote(decision)) {
+      await this.promote(decision.decisionId);
       return true;
     }
     return false;
@@ -246,7 +269,7 @@ export class DecisionQueue {
       this.resolvers.delete(decisionId);
     }
 
-    this.advanceQueue();
+    await this.advanceQueue();
     return updated ? rowToDecision(updated) : (decision ?? null);
   }
 
@@ -289,7 +312,7 @@ export class DecisionQueue {
       this.resolvers.delete(decisionId);
     }
 
-    this.advanceQueue();
+    await this.advanceQueue();
     return updated ? rowToDecision(updated) : (decision ?? null);
   }
 
@@ -349,7 +372,7 @@ export class DecisionQueue {
       decision.action = 'timeout';
     }
 
-    this.advanceQueue();
+    await this.advanceQueue();
     return updated ? rowToDecision(updated) : (decision ?? null);
   }
 
@@ -424,47 +447,94 @@ export class DecisionQueue {
     }
   }
 
-  private canPromote(taskId: string): boolean {
-    let sentCount = 0;
-    let taskSentCount = 0;
+  /**
+   * Decide whether a pending decision for `taskId` may be promoted to
+   * 'sent' (shown to the user).
+   *
+   * Isolation model (multi-tenant safe):
+   *   - Decisions are grouped by (userId, sessionId).
+   *   - Within one (userId, sessionId) bucket, at most one task may have
+   *     'sent' decisions at a time — *but* a single task may itself hold
+   *     up to MAX_CONCURRENT_PER_TASK concurrent 'sent' slots (so a task
+   *     asking multiple questions at once isn't self-deadlocked).
+   *   - Different (userId, sessionId) buckets never block each other.
+   *
+   * This replaces the prior global lock, which iterated every decision
+   * in the queue and blocked as long as ANY other task was 'sent',
+   * turning the whole instance into a single-user-at-a-time system.
+   */
+  private canPromote(decision: Decision): boolean {
+    const { taskId, userId, sessionId } = decision;
 
-    for (const decision of this.decisions.values()) {
-      if (decision.status !== DecisionStatus.SENT) continue;
-      sentCount++;
-      if (decision.taskId === taskId) taskSentCount++;
+    let taskSentCount = 0;
+    let sameScopeOtherTaskSent = false;
+
+    for (const other of this.decisions.values()) {
+      if (other.status !== DecisionStatus.SENT) continue;
+      if (other.taskId === taskId) {
+        taskSentCount++;
+        continue;
+      }
+      // Different task: only counts toward blocking if it shares the
+      // same (userId, sessionId) scope. Cross-user / cross-session
+      // 'sent' decisions must NOT block this one.
+      //
+      // When userId is unknown (legacy rows / unbackfilled sessions),
+      // fall back to session-only matching so concurrent tasks in the
+      // same session still serialize.
+      const sameUser =
+        userId === undefined || other.userId === undefined
+          ? true
+          : other.userId === userId;
+      const sameSession = other.sessionId === sessionId;
+      if (sameUser && sameSession) {
+        sameScopeOtherTaskSent = true;
+      }
     }
 
-    if (sentCount === 0) return true;
+    // Same task already has room under the per-task cap.
     if (taskSentCount > 0 && taskSentCount < MAX_CONCURRENT_PER_TASK) {
       return true;
     }
-    if (taskSentCount === 0) {
-      for (const decision of this.decisions.values()) {
-        if (
-          decision.status === DecisionStatus.SENT &&
-          decision.taskId !== taskId
-        ) {
-          return false;
-        }
-      }
-      return true;
+    // No room under the per-task cap → must wait.
+    if (taskSentCount >= MAX_CONCURRENT_PER_TASK) {
+      return false;
     }
-    return false;
+    // taskSentCount === 0: allowed unless another task in the SAME
+    // (userId, sessionId) scope is currently 'sent' (per-scope serialization).
+    return !sameScopeOtherTaskSent;
   }
 
-  private promote(decisionId: string) {
+  /**
+   * Promote a pending decision to 'sent'. Mirrors the transition into
+   * the DB so that other serverless instances rehydrating from the DB
+   * see the 'sent' status — otherwise the UI polling on a different
+   * instance would never observe the prompt (the "ghost decision" bug).
+   *
+   * The in-memory cache is updated synchronously; the DB write is
+   * best-effort and failures are logged but do not revert the in-memory
+   * state (the owning instance still serves its own UI reads correctly).
+   */
+  private async promote(decisionId: string): Promise<void> {
     const decision = this.decisions.get(decisionId);
-    if (decision) {
-      decision.status = DecisionStatus.SENT;
+    if (!decision) return;
+    decision.status = DecisionStatus.SENT;
+    try {
+      await markSent(decisionId);
+    } catch (err) {
+      logger.error('db markSent failed; in-memory only', {
+        decisionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
-  private advanceQueue() {
+  private async advanceQueue(): Promise<void> {
     for (const id of this.pendingOrder) {
       const decision = this.decisions.get(id);
       if (!decision || decision.status !== DecisionStatus.PENDING) continue;
-      if (this.canPromote(decision.taskId)) {
-        this.promote(id);
+      if (this.canPromote(decision)) {
+        await this.promote(id);
       }
     }
   }
@@ -506,6 +576,7 @@ function rowToDecision(row: L2Decision): Decision {
         : DecisionType.L2_AUTH,
     taskId: row.taskId,
     sessionId: row.sessionId,
+    userId: row.userId ?? undefined,
     agentId: row.agentId || undefined,
     nodeId: row.nodeId || undefined,
     status: row.status as DecisionStatus,
