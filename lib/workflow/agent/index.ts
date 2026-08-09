@@ -812,27 +812,18 @@ export async function chatWorkflow(
     // log. The cleanup workflow internally wraps each step so a
     // failure in one cannot fail the run.
     //
-    // userId is forwarded only for interactive sessions. Scheduled
-    // sessions never produce memory/skill work, and interactive sessions
-    // without a resolved userId (e.g. unpaired IM) don't either. Since
-    // cleanupResourcesStep runs with stopSandbox:false (log-only — it
-    // keeps the sandbox warm for the next message in this session and
-    // touches no resources), spawning a whole workflow run for a session
-    // with no memory/skill work would only emit those logs — not worth a
-    // Queue Service round-trip. So we skip the spawn entirely unless
-    // there's memory/skill work to do.
+    // userId is forwarded only for interactive sessions — scheduled
+    // sessions still spawn the workflow (for resource cleanup) but
+    // postRunCleanupWorkflow skips memory + skills when userId is
+    // absent OR sourceType === 'scheduled'. Resource cleanup always
+    // runs regardless, so we must not short-circuit the spawn here
+    // based on userId — that would skip cleanupResourcesStep too.
+    // '?? undefined' normalizes the string | null union on
+    // ChatSource.userId to the optional string the workflow expects.
     const interactiveUserId =
       source.type !== 'scheduled' && 'userId' in source
         ? (source.userId ?? undefined)
         : undefined;
-    if (!interactiveUserId) {
-      logger.info('post-run-cleanup:skipped', {
-        sessionId,
-        runId,
-        reason: source.type === 'scheduled' ? 'scheduled' : 'no_user',
-      });
-      return result.messages;
-    }
     try {
       await start(postRunCleanupWorkflow, [
         {

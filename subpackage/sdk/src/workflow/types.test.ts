@@ -9,10 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  aggregateTokenUsage,
-  getTokenUsageTotal,
-} from './types';
+import { aggregateTokenUsage, getTokenUsageTotal } from './types';
 
 describe('getTokenUsageTotal', () => {
   it('returns a finite number directly', () => {
@@ -48,9 +45,9 @@ describe('getTokenUsageTotal', () => {
     // The bucket shape has more fields, but getTokenUsageTotal only
     // considers .total. Pin this so a future "sum of parts" refactor
     // does not silently change the contract.
-    expect(
-      getTokenUsageTotal({ noCache: 50, cacheRead: 50, total: 80 }),
-    ).toBe(80);
+    expect(getTokenUsageTotal({ noCache: 50, cacheRead: 50, total: 80 })).toBe(
+      80,
+    );
   });
 });
 
