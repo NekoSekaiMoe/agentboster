@@ -422,6 +422,28 @@ type ToolExecResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// AcquireWorkspaceLock forwards to the sandbox manager's workspace lock
+// registry. Exposed so the HTTP layer (which holds *agent.Manager) can
+// serve the /workspaces/:id/lock endpoints without a separate sandbox
+// manager dependency.
+func (m *Manager) AcquireWorkspaceLock(
+	workspaceID, holderType, execSessionID, ownerTaskID string,
+	ttl time.Duration,
+	nodeGeneration uint64,
+) (*sandbox.WorkspaceLockState, bool) {
+	return m.sbManager.AcquireWorkspaceLock(workspaceID, holderType, execSessionID, ownerTaskID, ttl, nodeGeneration)
+}
+
+// ReleaseWorkspaceLock forwards to the sandbox manager.
+func (m *Manager) ReleaseWorkspaceLock(workspaceID, execSessionID string) bool {
+	return m.sbManager.ReleaseWorkspaceLock(workspaceID, execSessionID)
+}
+
+// SnapshotWorkspaceLock forwards to the sandbox manager.
+func (m *Manager) SnapshotWorkspaceLock(workspaceID string) *sandbox.WorkspaceLockState {
+	return m.sbManager.SnapshotWorkspaceLock(workspaceID)
+}
+
 // ExecuteTool executes a single tool synchronously in the agent's sandbox.
 // This is the primary execution path when Agent Daemon is online.
 func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolExecResponse, error) {

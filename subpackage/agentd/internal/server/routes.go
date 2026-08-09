@@ -151,6 +151,12 @@ func (s *Server) RegisterRoutes(r *gin.Engine) {
 		v1.POST("/tools/exec", s.handleToolExec)
 		// P2.1: Streaming exec output via SSE for long-running commands.
 		v1.POST("/tools/exec/stream", s.handleExecStream)
+
+		// M1: workspace lock endpoints. Acquire (try-lock) before a run uses
+		// the long-lived container; release when the run ends. 409 busy when
+		// another run holds the lock.
+		v1.POST("/workspaces/:id/lock/acquire", s.handleWorkspaceLockAcquire)
+		v1.POST("/workspaces/:id/lock/release", s.handleWorkspaceLockRelease)
 		v1.POST("/tools/read", s.handleToolRead)
 		v1.POST("/tools/write", s.handleToolWrite)
 		v1.POST("/tools/edit", s.handleToolEdit)
@@ -382,6 +388,83 @@ func (s *Server) handleToolExec(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+// handleWorkspaceLockAcquire attempts a workspace run lock.
+//
+// Body: { exec_session_id, holder_type, owner_task_id?, ttl_seconds, node_generation }
+// 200 { success:true, data: <state> } — lock acquired
+// 409 { success:false, error:"busy", holder: <state> } — held by another run
+// 400 on missing/invalid fields.
+//
+// The lock lives in agentd memory; Web workspaces.node_generation is the
+// fencing token. A stale node (post-failover) that receives an acquire
+// with a higher generation than the one it stamped on the lock will see
+// the lock as already-released via TTL expiry / the gen check in ExecuteTool
+// (M1.3 hooks that up).
+func (s *Server) handleWorkspaceLockAcquire(c *gin.Context) {
+	workspaceID := c.Param("id")
+	if workspaceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing workspace id"})
+		return
+	}
+	var body struct {
+		ExecSessionID  string `json:"exec_session_id"`
+		HolderType     string `json:"holder_type"`
+		OwnerTaskID    string `json:"owner_task_id,omitempty"`
+		TTLSeconds     int    `json:"ttl_seconds"`
+		NodeGeneration uint64 `json:"node_generation"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	if body.ExecSessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "exec_session_id is required"})
+		return
+	}
+	if body.HolderType == "" {
+		body.HolderType = "chat_run"
+	}
+	ttl := time.Duration(body.TTLSeconds) * time.Second
+	if ttl <= 0 {
+		// Default 30min matches a workflow run ctx cap; caller may override.
+		ttl = 30 * time.Minute
+	}
+	state, ok := s.agentMgr.AcquireWorkspaceLock(
+		workspaceID, body.HolderType, body.ExecSessionID, body.OwnerTaskID, ttl, body.NodeGeneration,
+	)
+	if !ok {
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"error":    "busy",
+			"holder":  state,
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": state})
+}
+
+// handleWorkspaceLockRelease frees a workspace run lock. Body:
+//   { exec_session_id }
+// Returns 200 { success:true, released: bool }. A mismatched exec_session_id
+// releases nothing (released:false) so one run can't drop another's lock —
+// the caller treats released:false as best-effort non-fatal.
+func (s *Server) handleWorkspaceLockRelease(c *gin.Context) {
+	workspaceID := c.Param("id")
+	if workspaceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "missing workspace id"})
+		return
+	}
+	var body struct {
+		ExecSessionID string `json:"exec_session_id"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	released := s.agentMgr.ReleaseWorkspaceLock(workspaceID, body.ExecSessionID)
+	c.JSON(http.StatusOK, gin.H{"success": true, "released": released})
 }
 
 func (s *Server) handleToolRead(c *gin.Context)           { s.handleToolExec(c) }

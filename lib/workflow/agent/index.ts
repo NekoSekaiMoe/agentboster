@@ -18,6 +18,7 @@ import { start } from 'workflow/api';
 import { DEFAULT_MAIN_MAX_STEPS, DEFAULT_THRESHOLD_TO_SUMMARY } from './config';
 import { instructionHookBuilder } from './hooks';
 import { postRunCleanupWorkflow } from './post-run-cleanup';
+import { acquireRunLockStep, releaseRunLockStep } from './workspace-lock';
 import {
   createWritable,
   writeMessageMetadata,
@@ -258,6 +259,23 @@ export async function chatWorkflow(
 
   const effectiveConfig = applyClientSpoofOverride(config, clientSpoof);
   const { workflowRunId: runId } = getWorkflowMetadata();
+
+  // M1: acquire the per-workspace run lock so concurrent runs in the same
+  // long-lived container serialize. Best-effort — a missed acquire (no
+  // workspace, no preferred node, unreachable agentd) silently degrades to
+  // the legacy ephemeral-container path. We DO NOT block waiting: busy →
+  // fall back to short-lived containers for this turn.
+  const workspaceLockHandle = await acquireRunLockStep(sessionId, runId);
+  // Release no matter how the run ends. The try/catch below has two exits
+  // (success return + error rethrow); we wrap both.
+  const releaseRunLock = () =>
+    releaseRunLockStep(workspaceLockHandle).catch((err) =>
+      logger.warn('workspace lock release failed', {
+        sessionId,
+        runId,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
   // Resolve the persona for this run. Only honor requestAgent when it
   // names a real entry in config.agents — otherwise fall back to main.
   // This is the single place main chat's agentName becomes variable;
@@ -847,8 +865,10 @@ export async function chatWorkflow(
       });
     }
 
+    await releaseRunLock();
     return result.messages;
   } catch (error) {
+    await releaseRunLock();
     await finalizeRunStep({
       sessionId,
       runId,

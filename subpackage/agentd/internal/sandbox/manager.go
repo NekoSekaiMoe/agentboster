@@ -136,6 +136,13 @@ type Manager struct {
 	// itself is held by whoever is currently executing a run.
 	execLocksMu sync.Mutex
 	execLocks   map[string]*sync.Mutex
+
+	// wsLockRegistry is the M1 holder-aware upgrade: per-workspace lock
+	// with holder/ttl/generation metadata, exposed via the HTTP
+	// /workspaces/:id/lock endpoints. ExecLockFor (above) stays as the
+	// in-process serializer for ExecuteTool; wsLockRegistry is the
+	// cross-run contract.
+	wsLocks *WorkspaceLockRegistry
 }
 
 // NewManager creates a new sandbox manager with all built-in providers.
@@ -145,6 +152,7 @@ func NewManager(cfg *config.Config, l0Engine *l0_rules.Engine) *Manager {
 		sandboxes:           make(map[string]*Sandbox),
 		workspaceContainers: make(map[string]string),
 		execLocks:           make(map[string]*sync.Mutex),
+		wsLocks:             NewWorkspaceLockRegistry(),
 		config:              cfg,
 	}
 
@@ -274,6 +282,36 @@ func (m *Manager) ExecLockFor(workspaceID string) sync.Locker {
 		m.execLocks[workspaceID] = lock
 	}
 	return lock
+}
+
+// AcquireWorkspaceLock tries to take the per-workspace run lock. Returns
+// (state, true) on success; (current, false) when held by another run.
+// The caller (HTTP handler) translates !ok into a 409 busy.
+func (m *Manager) AcquireWorkspaceLock(
+	workspaceID, holderType, execSessionID, ownerTaskID string,
+	ttl time.Duration,
+	nodeGeneration uint64,
+) (*WorkspaceLockState, bool) {
+	lock := m.wsLocks.Get(workspaceID)
+	if lock == nil {
+		return nil, false
+	}
+	state, ok, _ := lock.TryAcquire(holderType, execSessionID, ownerTaskID, ttl, nodeGeneration, time.Now())
+	return state, ok
+}
+
+// ReleaseWorkspaceLock frees the lock iff execSessionID matches the holder.
+func (m *Manager) ReleaseWorkspaceLock(workspaceID, execSessionID string) bool {
+	lock := m.wsLocks.Get(workspaceID)
+	if lock == nil {
+		return false
+	}
+	return lock.Release(execSessionID)
+}
+
+// SnapshotWorkspaceLock returns the current holder, or nil when free.
+func (m *Manager) SnapshotWorkspaceLock(workspaceID string) *WorkspaceLockState {
+	return m.wsLocks.Snapshot(workspaceID)
 }
 
 // CreateSandbox creates a sandbox with the given spec. When spec.WorkspaceID
