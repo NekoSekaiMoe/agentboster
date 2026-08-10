@@ -333,8 +333,12 @@ func TestBuildIcemwStartScript_SourcesEnvFileWhenPresent(t *testing.T) {
 	}
 
 	// Fake icewm: print the marker var to a file so we can assert it.
+	// Write to a temp file + rename so the content appears atomically —
+	// `env > marker` truncates/creates the file BEFORE env runs, and the
+	// waitForFile poll below can stat the empty file mid-write, reading
+	// back an empty dump (observed flake: ~2/100 on a loaded CI host).
 	markerPath := filepath.Join(t.TempDir(), "icewm-env")
-	icewm := "#!/bin/sh\nenv > " + markerPath + "\n"
+	icewm := "#!/bin/sh\nenv > " + markerPath + ".tmp\nmv " + markerPath + ".tmp " + markerPath + "\n"
 	if err := os.WriteFile(filepath.Join(fakeBinDir, "icewm"), []byte(icewm), 0o755); err != nil {
 		t.Fatal(err)
 	}
