@@ -251,17 +251,25 @@ func (r *WorkspaceLockRegistry) DeleteIfReleased(workspaceID string) bool {
 }
 
 // CleanupReleased sweeps the registry and deletes every entry whose lock
-// is currently free (state == nil) — released locks and lazily-Get-created
-// entries that were never acquired. Returns the number of entries removed.
-// Active (held) locks are preserved. See DeleteIfReleased for the
+// is free (state == nil) OR whose state is non-nil but EXPIRED, using the
+// same expiry semantics as TryAcquire: ExpiresAt is only stamped when a
+// ttl was set at acquire time, so a non-zero ExpiresAt in the past means
+// the lock leaked (run crashed without Release) and is stealable. Locks
+// with a zero ExpiresAt (acquired with ttl<=0) never expire, mirroring
+// TryAcquire's ttl>0 gate. `now` is injected for testability (pass
+// time.Now() in production).
+//
+// Returns the number of entries removed (released + expired). Active,
+// unexpired locks are preserved. See DeleteIfReleased for the
 // check-and-delete atomicity contract.
-func (r *WorkspaceLockRegistry) CleanupReleased() int {
+func (r *WorkspaceLockRegistry) CleanupReleased(now time.Time) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	removed := 0
 	for workspaceID, lock := range r.locks {
 		lock.mu.Lock()
-		free := lock.state == nil
+		free := lock.state == nil ||
+			(!lock.state.ExpiresAt.IsZero() && now.After(lock.state.ExpiresAt))
 		lock.mu.Unlock()
 		if free {
 			delete(r.locks, workspaceID)

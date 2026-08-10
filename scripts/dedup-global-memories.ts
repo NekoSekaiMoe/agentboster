@@ -10,13 +10,42 @@
  * migration file 0038 — which `push` never runs — so the cleanup must happen
  * BEFORE the push step, here.
  *
- * Semantics are identical to lib/core/db/migrations/0038_global_key_partial_uniq.sql:
- * keep the most recently updated row per (user_id, project_id, memory_key)
- * group among global (workspace_id IS NULL) rows; plain `=` comparisons
- * match the index's NULL semantics.
+ * Retention semantics are identical to
+ * lib/core/db/migrations/0038_global_key_partial_uniq.sql: keep the most
+ * recently updated row per (user_id, project_id, memory_key) group among
+ * global (workspace_id IS NULL) rows, tie-broken by highest id; plain `=`
+ * comparisons match the index's NULL semantics (NULL memory_key rows stay
+ * distinct and are never deduped).
+ *
+ * CASCADE SAFETY: long_term_memory_chunks.memory_id and both
+ * memory_edges endpoint columns reference long_term_memories.id with
+ * ON DELETE CASCADE (lib/core/db/schema/memory.ts), so a bare DELETE of a
+ * duplicate would silently destroy its vector chunks and every graph edge
+ * touching it — including edges OTHER memories point at it with. Instead,
+ * before deleting a doomed row we re-point its dependents to the retained
+ * row, all in ONE atomic statement (data-modifying CTE):
+ *   - chunks: re-pointed wholesale (no unique constraint on
+ *     (memory_id, chunk_index) — the schema only has a non-unique index).
+ *   - edges: re-pointed per endpoint. Re-pointing can collide with
+ *     memory_edges_unique_idx (src_memory_id, dst_memory_id, relation) —
+ *     e.g. doomed→X duplicates retained→X — so per (new src, new dst,
+ *     relation) we keep ONE survivor (preferring an edge that already has
+ *     its final endpoints, then lowest edge id) and DELETE the colliding
+ *     rest. Edges that would collapse into self-loops (e.g. an edge
+ *     between two rows of the same duplicate group) are deleted too.
+ *     Deleting a duplicate edge loses at most redundant graph weight; the
+ *     surviving equivalent edge preserves connectivity.
+ *
+ * Why a single statement instead of BEGIN/COMMIT: db-raw-sql.ts exposes no
+ * transaction helper, and the neon HTTP driver cannot span BEGIN..COMMIT
+ * across separate .query() calls (each is a stateless request). One
+ * data-modifying-CTE statement is an implicit transaction on both drivers
+ * — strictly stronger atomicity than a multi-call transaction.
  *
  * Idempotent and guarded: no-ops when the table or the workspace_id column
- * does not exist yet (fresh installs run this before the first push).
+ * does not exist yet (fresh installs run this before the first push), and
+ * falls back to the plain 0038-style DELETE when the chunks/edges tables
+ * are absent (schemas older than migration 0010/0018).
  *
  * Also imported by migrate-workspaces.ts, which re-runs the same dedup
  * before its backfill for defense in depth. The auto-run main() at the
@@ -30,17 +59,25 @@ import { closeRawSql, getRawQuery } from './db-raw-sql';
 /**
  * Delete duplicate global (workspace_id IS NULL) long_term_memories rows,
  * keeping the most recently updated row per (user_id, project_id,
- * memory_key) group. Returns the number of rows deleted.
+ * memory_key) group, re-pointing dependent chunks/edges to the retained
+ * row first so the ON DELETE CASCADE cannot silently destroy them.
+ * Returns the number of memory rows deleted.
  */
 export async function dedupGlobalLongTermMemories(): Promise<number> {
   const query = getRawQuery();
 
   // Guard: fresh installs run this BEFORE `drizzle-kit push` creates the
   // table — nothing to dedup yet.
-  const table = await query<{ reg: string | null }>(`
-    SELECT to_regclass('public.long_term_memories')::text AS reg
+  const tables = await query<{
+    ltm: string | null;
+    chunks: string | null;
+    edges: string | null;
+  }>(`
+    SELECT to_regclass('public.long_term_memories')::text AS ltm,
+           to_regclass('public.long_term_memory_chunks')::text AS chunks,
+           to_regclass('public.memory_edges')::text AS edges
   `);
-  if (!table[0]?.reg) {
+  if (!tables[0]?.ltm) {
     return 0;
   }
 
@@ -56,18 +93,119 @@ export async function dedupGlobalLongTermMemories(): Promise<number> {
     return 0;
   }
 
-  // Same DELETE ... USING semantics as migration 0038.
+  // Guard: schemas predating migrations 0010/0018 have no dependent
+  // tables to re-point — fall back to the plain 0038-style DELETE.
+  if (!tables[0].chunks || !tables[0].edges) {
+    const deleted = await query<{ id: string }>(`
+      DELETE FROM "long_term_memories" a
+      USING "long_term_memories" b
+      WHERE a."workspace_id" IS NULL
+        AND b."workspace_id" IS NULL
+        AND a."user_id" = b."user_id"
+        AND a."project_id" = b."project_id"
+        AND a."memory_key" = b."memory_key"
+        AND (a."updated_at" < b."updated_at"
+             OR (a."updated_at" = b."updated_at" AND a."id" < b."id"))
+      RETURNING a."id" AS id
+    `);
+    return deleted.length;
+  }
+
+  // Cascade-safe dedup as ONE atomic statement. Stages:
+  //   ranked   — window-rank global rows within each (user, project, key)
+  //              group; NULL component values are excluded to match the
+  //              original `=` semantics (NULLs never duplicated).
+  //   remap    — every row in a duplicate group → the retained row id.
+  //   doomed   — the non-retained rows to delete.
+  //   remapped — every memory_edges row as it would look after re-pointing
+  //              doomed endpoints to the retained memory.
+  //   survivors — one winner per (new src, new dst, relation) so the
+  //              memory_edges_unique_idx cannot be violated; self-loops
+  //              introduced by the re-point never survive.
+  // Then: re-point chunks, re-point surviving touched edges, delete
+  // colliding/self-loop touched edges, delete the doomed memories. All
+  // data-modifying CTEs share one snapshot; the ON DELETE CASCADE that
+  // fires with `deleted` finds no remaining dependents.
   const deleted = await query<{ id: string }>(`
-    DELETE FROM "long_term_memories" a
-    USING "long_term_memories" b
-    WHERE a."workspace_id" IS NULL
-      AND b."workspace_id" IS NULL
-      AND a."user_id" = b."user_id"
-      AND a."project_id" = b."project_id"
-      AND a."memory_key" = b."memory_key"
-      AND (a."updated_at" < b."updated_at"
-           OR (a."updated_at" = b."updated_at" AND a."id" < b."id"))
-    RETURNING a."id" AS id
+    WITH ranked AS (
+      SELECT id,
+             COUNT(*) OVER (
+               PARTITION BY user_id, project_id, memory_key
+             ) AS group_size,
+             FIRST_VALUE(id) OVER (
+               PARTITION BY user_id, project_id, memory_key
+               ORDER BY updated_at DESC, id DESC
+             ) AS retained_id
+      FROM long_term_memories
+      WHERE workspace_id IS NULL
+        AND user_id IS NOT NULL
+        AND project_id IS NOT NULL
+        AND memory_key IS NOT NULL
+    ),
+    remap AS (
+      SELECT id, retained_id
+      FROM ranked
+      WHERE group_size > 1
+    ),
+    doomed AS (
+      SELECT id AS doomed_id, retained_id
+      FROM remap
+      WHERE id <> retained_id
+    ),
+    remapped AS (
+      SELECT e.id,
+             COALESCE(ms.retained_id, e.src_memory_id) AS new_src,
+             COALESCE(md.retained_id, e.dst_memory_id) AS new_dst,
+             e.relation,
+             (ds.doomed_id IS NOT NULL OR dd.doomed_id IS NOT NULL) AS touched
+      FROM memory_edges e
+      LEFT JOIN remap ms ON ms.id = e.src_memory_id
+      LEFT JOIN remap md ON md.id = e.dst_memory_id
+      LEFT JOIN doomed ds ON ds.doomed_id = e.src_memory_id
+      LEFT JOIN doomed dd ON dd.doomed_id = e.dst_memory_id
+    ),
+    survivors AS (
+      SELECT id
+      FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY new_src, new_dst, relation
+                 ORDER BY touched, id
+               ) AS edge_rn
+        FROM remapped
+        WHERE new_src <> new_dst
+      ) s
+      WHERE edge_rn = 1
+    ),
+    repoint_chunks AS (
+      UPDATE long_term_memory_chunks c
+      SET memory_id = d.retained_id
+      FROM doomed d
+      WHERE c.memory_id = d.doomed_id
+    ),
+    repoint_edges AS (
+      UPDATE memory_edges e
+      SET src_memory_id = r.new_src,
+          dst_memory_id = r.new_dst
+      FROM remapped r
+      WHERE e.id = r.id
+        AND r.touched
+        AND r.id IN (SELECT id FROM survivors)
+    ),
+    drop_edges AS (
+      DELETE FROM memory_edges e
+      USING remapped r
+      WHERE e.id = r.id
+        AND r.touched
+        AND r.id NOT IN (SELECT id FROM survivors)
+    ),
+    deleted AS (
+      DELETE FROM long_term_memories m
+      USING doomed d
+      WHERE m.id = d.doomed_id
+      RETURNING m.id AS id
+    )
+    SELECT id FROM deleted
   `);
   return deleted.length;
 }
@@ -100,12 +238,21 @@ async function main() {
 }
 
 if (isInvokedDirectly()) {
-  main()
-    .catch((error) => {
+  // Structured so closeRawSql() ALWAYS completes before the process exits:
+  // the previous form (process.exit(1) inside .catch) killed the process
+  // before the .finally could release the pg pool.
+  void (async () => {
+    let failed = false;
+    try {
+      await main();
+    } catch (error) {
       console.error('[dedup-global-memories] failed:', error);
-      process.exit(1);
-    })
-    .finally(async () => {
+      failed = true;
+    } finally {
       await closeRawSql();
-    });
+    }
+    if (failed) {
+      process.exitCode = 1;
+    }
+  })();
 }

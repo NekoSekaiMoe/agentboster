@@ -138,9 +138,15 @@ export function WorkspaceSwitcher() {
         { endpoint: 'POST /api/workspaces' },
       );
       await qc.invalidateQueries({ queryKey: ['workspaces'] });
-      if (payload.data) {
-        await handleSelect(payload.data.id);
+      // An OK response without `data` (e.g. a {success:false} envelope or a
+      // malformed body) means the workspace was NOT created — surface the
+      // error and never show the success toast for a creation that failed.
+      if (!payload.data) {
+        toast.error(t('workspace.createError'));
+        return;
       }
+      await handleSelect(payload.data.id);
+      // Success toast only after the created workspace has been selected.
       toast.success(t('workspace.createSuccess'));
     } catch {
       toast.error(t('workspace.createError'));

@@ -280,6 +280,11 @@ export async function acquireRunLockStep(
     resolvedWorkspaceId: null,
   };
   if (!sessionId || !runId) return empty;
+  // Hoisted so the catch path can still report the session's workspace when
+  // the failure happened AFTER resolution (e.g. a transport error from
+  // acquireWorkspaceLock). Null here means "never resolved" — only then may
+  // the returned handle carry resolvedWorkspaceId: null.
+  let wsId: string | null = null;
   try {
     const { db } = await import('@/lib/core/db');
     const { sessions, workspaces } = await import('@/lib/core/db/schema');
@@ -291,9 +296,7 @@ export async function acquireRunLockStep(
       .from(sessions)
       .where(eq(sessions.id, sessionId))
       .limit(1);
-    const wsId = sessionRow?.workspaceId
-      ? String(sessionRow.workspaceId)
-      : null;
+    wsId = sessionRow?.workspaceId ? String(sessionRow.workspaceId) : null;
     if (!wsId) return empty;
     // From here on the session's workspace IS resolved — carry it on every
     // returned handle (even the not-acquired ones) via resolvedWorkspaceId.
@@ -339,7 +342,7 @@ export async function acquireRunLockStep(
       runId,
       error: error instanceof Error ? error.message : String(error),
     });
-    return empty;
+    return { ...empty, resolvedWorkspaceId: wsId };
   }
 }
 

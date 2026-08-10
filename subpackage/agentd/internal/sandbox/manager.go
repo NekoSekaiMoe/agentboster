@@ -490,7 +490,10 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 // create has either failed or been registered in m.sandboxes (see
 // CreateSandbox). On failure it returns a typed error
 // (ErrTooManySandboxes / ErrInsufficientMemory) the caller can branch on,
-// and no reservation is held.
+// and no reservation is held. The release func is NON-NIL in both
+// outcomes (a noop on failure, matching the cfg == nil path) so callers
+// can defer it unconditionally without a nil check — the (release, err)
+// contract is uniform.
 //
 // Zero caps mean unlimited COUNT — but the MemReserveMB memory gate still
 // runs for persistent creates even when both caps are 0.
@@ -542,12 +545,12 @@ func (m *Manager) checkAdmission(spec SandboxSpec) (func(), error) {
 	if spec.Persistent {
 		if persistentCap > 0 && persistent >= persistentCap {
 			m.admissionMu.Unlock()
-			return nil, fmt.Errorf("%w: %d/%d persistent sandboxes", ErrTooManySandboxes, persistent, persistentCap)
+			return noop, fmt.Errorf("%w: %d/%d persistent sandboxes", ErrTooManySandboxes, persistent, persistentCap)
 		}
 	} else {
 		if ephemeralCap > 0 && ephemeral >= ephemeralCap {
 			m.admissionMu.Unlock()
-			return nil, fmt.Errorf("%w: %d/%d ephemeral sandboxes", ErrTooManySandboxes, ephemeral, ephemeralCap)
+			return noop, fmt.Errorf("%w: %d/%d ephemeral sandboxes", ErrTooManySandboxes, ephemeral, ephemeralCap)
 		}
 	}
 
@@ -561,7 +564,7 @@ func (m *Manager) checkAdmission(spec SandboxSpec) (func(), error) {
 		availMB, err := availableMemoryMB()
 		if err == nil && availMB < uint64(reserveMB) {
 			m.admissionMu.Unlock()
-			return nil, fmt.Errorf("%w: %dMB free < %dMB reserve", ErrInsufficientMemory, availMB, reserveMB)
+			return noop, fmt.Errorf("%w: %dMB free < %dMB reserve", ErrInsufficientMemory, availMB, reserveMB)
 		}
 	}
 

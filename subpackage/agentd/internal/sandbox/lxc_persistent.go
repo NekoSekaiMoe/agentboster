@@ -49,6 +49,13 @@ const defaultCreateConcurrency = 2
 // caps the WAIT for a slot, not the lxc-create/start itself.
 const createAcquireTimeout = 2 * time.Minute
 
+// lxcCmdTimeout bounds the lxc-create/lxc-start/lxc-attach commands
+// themselves when the spec carries no caller context (spec.Ctx == nil),
+// mirroring the createAcquireTimeout fallback discipline so an abandoned
+// caller can't leave an lxc command running forever. lxc-create -t
+// download fetches an image over the network, hence the generous cap.
+const lxcCmdTimeout = 10 * time.Minute
+
 // NewLXCPersistentProvider creates a new LXC persistent sandbox provider.
 // createConcurrency caps concurrent lxc-create/lxc-start cold starts;
 // <=0 falls back to defaultCreateConcurrency.
@@ -128,6 +135,19 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		release = p.defaultRelease
 	}
 
+	// Command context for the lxc-create/start/attach invocations below:
+	// the caller's context (spec.Ctx, populated from the ExecuteTool
+	// request context) so a cancelled request kills the in-flight lxc
+	// command promptly, or a bounded-timeout background context when the
+	// spec carries none (same fallback discipline as the createSem
+	// Acquire above).
+	cmdCtx := spec.Ctx
+	if cmdCtx == nil {
+		var cancel context.CancelFunc
+		cmdCtx, cancel = context.WithTimeout(context.Background(), lxcCmdTimeout)
+		defer cancel()
+	}
+
 	containerPath := filepath.Join(p.rootfsBase, containerName)
 	rootfsPath := p.findRootfs(containerPath)
 
@@ -148,7 +168,7 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 			return nil, fmt.Errorf("create lxc base dir: %w", err)
 		}
 
-		createCmd := exec.Command("lxc-create",
+		createCmd := exec.CommandContext(cmdCtx, "lxc-create",
 			"-t", "download",
 			"-n", containerName,
 			"-P", p.rootfsBase,
@@ -156,6 +176,14 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		)
 		output, err := createCmd.CombinedOutput()
 		if err != nil {
+			// Clean up the partially created container/rootfs (lxc-create
+			// may have written the container dir + config before failing
+			// or being cancelled) so a later Create's findRootfs can't
+			// treat the leftover as a resumable container.
+			p.cleanupPartialContainer(containerName, containerPath)
+			if cmdCtx.Err() != nil {
+				return nil, fmt.Errorf("lxc-create interrupted: %w", cmdCtx.Err())
+			}
 			return nil, fmt.Errorf("lxc-create failed: %w (output: %s)", err, string(output))
 		}
 
@@ -176,16 +204,27 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		}
 	}
 
-	startCmd := exec.Command("lxc-start", "-n", containerName, "-P", p.rootfsBase, "-d")
+	startCmd := exec.CommandContext(cmdCtx, "lxc-start", "-n", containerName, "-P", p.rootfsBase, "-d")
 	if output, err := startCmd.CombinedOutput(); err != nil {
+		if cmdCtx.Err() != nil {
+			return nil, fmt.Errorf("lxc-start interrupted: %w", cmdCtx.Err())
+		}
 		return nil, fmt.Errorf("lxc-start failed: %w (output: %s)", err, string(output))
 	}
 
-	time.Sleep(2 * time.Second)
+	// Wait for the container to come up, but return promptly on
+	// cancellation instead of sleeping the full 2s.
+	bootTimer := time.NewTimer(2 * time.Second)
+	select {
+	case <-bootTimer.C:
+	case <-cmdCtx.Done():
+		bootTimer.Stop()
+		return nil, fmt.Errorf("lxc-start boot wait cancelled: %w", cmdCtx.Err())
+	}
 
 	if len(spec.InitCommands) > 0 {
 		for _, initCmd := range spec.InitCommands {
-			cmd := exec.Command("lxc-attach", "-n", containerName, "-P", p.rootfsBase, "--", "sh", "-c", initCmd)
+			cmd := exec.CommandContext(cmdCtx, "lxc-attach", "-n", containerName, "-P", p.rootfsBase, "--", "sh", "-c", initCmd)
 			if output, err := cmd.CombinedOutput(); err != nil {
 				slog.Warn("lxc init command failed", "cmd", initCmd, "error", err, "output", string(output))
 			}
@@ -217,6 +256,22 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	}
 
 	return sb, nil
+}
+
+// cleanupPartialContainer removes a partially created container after a
+// failed or cancelled lxc-create so a later Create's findRootfs can't
+// treat the leftover rootfs as resumable. Best-effort: failures are
+// logged, not returned.
+func (p *LXCPersistentProvider) cleanupPartialContainer(containerName, containerPath string) {
+	destroyCmd := exec.Command("lxc-destroy", "-n", containerName, "-P", p.rootfsBase, "-f")
+	if output, err := destroyCmd.CombinedOutput(); err != nil {
+		slog.Warn("lxc-destroy of partial container failed",
+			"container", containerName, "error", err, "output", string(output))
+	}
+	if err := os.RemoveAll(containerPath); err != nil {
+		slog.Warn("failed to remove partial container path",
+			"path", containerPath, "error", err)
+	}
 }
 
 // Exec runs a command inside the LXC container.

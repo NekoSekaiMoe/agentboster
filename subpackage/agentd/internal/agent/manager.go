@@ -40,6 +40,15 @@ type Manager struct {
 	gatekeeper    *security.Gatekeeper
 	execCollector *workers.BatchCollector
 	disabledTools []string
+
+	// persistLocks serializes sessionStore.Put persistence writes per
+	// session so two concurrent ExecuteTool calls for the same session
+	// can't interleave their persistence updates. Guarded by
+	// persistLocksMu; mirrors the createLocks/execLocks map discipline
+	// in the sandbox manager. Entries are deleted on session close/
+	// destroy.
+	persistLocksMu sync.Mutex
+	persistLocks   map[string]*sync.Mutex
 }
 
 // NewManager creates a new agent manager.
@@ -75,6 +84,7 @@ func NewManager(
 		llmAPIKey:     cfg.Security.L1APIKey,
 		sessionStore:  store,
 		disabledTools: cfg.Tools.Disabled,
+		persistLocks:  make(map[string]*sync.Mutex),
 	}
 	return m
 }
@@ -148,6 +158,28 @@ func (m *Manager) GetBGTaskStore() *persistence.BackgroundTaskStore {
 // sbManager.Exec directly without threading it through every handler.
 func (m *Manager) GetSandboxManager() *sandbox.Manager {
 	return m.sbManager
+}
+
+// persistLockFor returns (lazily creating) the per-session mutex that
+// serializes sessionStore.Put calls for a session.
+func (m *Manager) persistLockFor(sessionID string) *sync.Mutex {
+	m.persistLocksMu.Lock()
+	defer m.persistLocksMu.Unlock()
+	lock, ok := m.persistLocks[sessionID]
+	if !ok {
+		lock = &sync.Mutex{}
+		m.persistLocks[sessionID] = lock
+	}
+	return lock
+}
+
+// deletePersistLock drops the per-session persist lock entry. Called
+// from CloseSession/DestroySession (which already hold m.mu) so the map
+// doesn't grow with dead sessions.
+func (m *Manager) deletePersistLock(sessionID string) {
+	m.persistLocksMu.Lock()
+	defer m.persistLocksMu.Unlock()
+	delete(m.persistLocks, sessionID)
 }
 
 func (m *Manager) wireSessionRuntime(ctx *AgentContext) {
@@ -339,6 +371,7 @@ func (m *Manager) CloseSession(sessionID string) error {
 	}
 
 	delete(m.sessions, sessionID)
+	m.deletePersistLock(sessionID)
 
 	if m.bus != nil {
 		m.bus.Publish(eventbus.EventSessionClosed, map[string]any{
@@ -486,6 +519,23 @@ func acquireWorkspaceLockOrCancel(ctx context.Context, lock sync.Locker) (acquir
 	}
 }
 
+// buildWorkspaceSandboxSpec builds the SandboxSpec for the M0b lazy
+// workspace create in ExecuteTool. Type/Persistent/WorkspaceID/Ctx are
+// fixed for the workspace path; per-agent resource overrides (P1.1:
+// CPU/mem/pids/disk/blkio) and the P2.2 egress allowlist come from the
+// execution-local AgentConfig via sandbox.ApplyAgentConfigToSpec — the
+// same helper the worker dispatcher uses for task sandboxes.
+func buildWorkspaceSandboxSpec(workspaceID string, ctx context.Context, cfg *clawless.AgentConfig) sandbox.SandboxSpec {
+	spec := sandbox.SandboxSpec{
+		Type:        "lxc",
+		Persistent:  true,
+		WorkspaceID: workspaceID,
+		Ctx:         ctx,
+	}
+	sandbox.ApplyAgentConfigToSpec(&spec, cfg)
+	return spec
+}
+
 // ExecuteTool executes a single tool synchronously in the agent's sandbox.
 // This is the primary execution path when Agent Daemon is online.
 func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolExecResponse, error) {
@@ -507,29 +557,50 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 		}
 	}
 	m.wireSessionRuntime(agentCtx)
-	agentCtx.TaskID = req.TaskID
+
+	// Execution-local context: a shallow copy of the shared session
+	// context, made IMMEDIATELY after reading the session from m.sessions.
+	// Everything request-scoped below — TaskID, the request identity
+	// (UserID/Roles/Source), LastAccessTime, SOUL content, per-agent
+	// config, the workspace sandbox binding, AGENTS.md/system-prompt
+	// derivation, and tool registration — mutates ONLY this copy, so two
+	// concurrent ExecuteTool calls for the same session never race on the
+	// shared agentCtx struct in m.sessions. The shared struct is never
+	// written after this point; sessionStore persistence, execCtx, and
+	// tool registration all use the copy.
+	execCtx := *agentCtx
+	execCtx.TaskID = req.TaskID
 	if len(toolInput) == 0 {
 		toolInput = map[string]any{}
 	}
 	if session, err := m.clawless.GetSession(ctx, sessionID); err == nil {
-		agentCtx.UserID = session.UserID
-		agentCtx.Roles = session.Roles
-		agentCtx.Source = session.Source
+		execCtx.UserID = session.UserID
+		execCtx.Roles = session.Roles
+		execCtx.Source = session.Source
 	} else {
-		agentCtx.UserID = ""
-		agentCtx.Roles = nil
-		agentCtx.Source = clawless.BotSource{}
+		execCtx.UserID = ""
+		execCtx.Roles = nil
+		execCtx.Source = clawless.BotSource{}
 	}
-	agentCtx.LastAccessTime = time.Now()
-	if err := m.sessionStore.Put(sessionID, agentContextToData(agentCtx)); err != nil {
+	execCtx.LastAccessTime = time.Now()
+
+	// Persist the refreshed identity/access time from the copy. The
+	// per-session persist lock serializes concurrent ExecuteTool calls so
+	// two racing requests can't interleave sessionStore.Put for the same
+	// session (the Put is a read-modify-write of the persisted state).
+	persistLock := m.persistLockFor(sessionID)
+	persistLock.Lock()
+	if err := m.sessionStore.Put(sessionID, agentContextToData(&execCtx)); err != nil {
 		slog.Warn("failed to persist session identity", "session_id", sessionID, "error", err)
 	}
+	persistLock.Unlock()
 
-	// Fetch SOUL and per-agent config. These are workspace-independent, so
-	// they stay on the shared session context ahead of the lock.
-	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
+	// Fetch SOUL and per-agent config into the copy. These are
+	// workspace-independent, so they are fetched ahead of the workspace
+	// lock.
+	execCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
 	// P1.1/P1.2: fetch per-agent config (sandbox defaults, MCP enablement).
-	agentCtx.AgentConfig = m.fetchAgentConfig(ctx, agentCtx.AgentID)
+	execCtx.AgentConfig = m.fetchAgentConfig(ctx, execCtx.AgentID)
 
 	// Execute the tool directly.
 	//
@@ -556,14 +627,6 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	}
 	defer workspaceLock.Unlock()
 
-	// Execution-local context: a shallow copy of the shared session
-	// context. Everything execution-scoped below — the workspace sandbox
-	// binding, AGENTS.md/system-prompt derivation, and tool registration —
-	// mutates ONLY this copy, so two concurrent ExecuteTool calls for the
-	// same session never race on the shared agentCtx struct in m.sessions.
-	// RegisterAllTools and tool execution all use execCtx.
-	execCtx := *agentCtx
-
 	// M0b: lazily bind a long-lived LXC container for the workspace. When
 	// the request carries a WorkspaceID, prefer the workspace-scoped
 	// persistent container over the ephemeral docker sandbox that
@@ -572,14 +635,11 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	// every workspace request is cheap and correct. The binding lands on
 	// the execution-local copy (see above), never on the shared session
 	// struct. spec.Ctx carries the request context so the LXC create
-	// semaphore wait is cancellable.
+	// semaphore wait is cancellable. Per-agent resource limits (P1.1) and
+	// the egress allowlist (P2.2) are populated from the execution-local
+	// AgentConfig by buildWorkspaceSandboxSpec.
 	if req.WorkspaceID != "" {
-		ws, err := m.sbManager.CreateSandbox(sandbox.SandboxSpec{
-			Type:        "lxc",
-			Persistent:  true,
-			WorkspaceID: req.WorkspaceID,
-			Ctx:         ctx,
-		})
+		ws, err := m.sbManager.CreateSandbox(buildWorkspaceSandboxSpec(req.WorkspaceID, ctx, execCtx.AgentConfig))
 		if err != nil {
 			slog.Warn("workspace sandbox lazy-create failed; falling back to ephemeral", "workspace_id", req.WorkspaceID, "error", err)
 		} else {
@@ -810,6 +870,7 @@ func (m *Manager) DestroySession(sessionID string) error {
 	}
 
 	delete(m.sessions, sessionID)
+	m.deletePersistLock(sessionID)
 
 	// Delete from disk
 	if err := m.sessionStore.Delete(sessionID); err != nil {

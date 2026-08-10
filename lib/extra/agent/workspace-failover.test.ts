@@ -1,3 +1,5 @@
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -58,6 +60,37 @@ const mockUpdate = vi.fn();
 const mockCreateNotification = vi.fn();
 const mockResolveTarget = vi.fn();
 
+/**
+ * Every drizzle condition passed to the update chain's `.where()`, in
+ * call order. The behavioral tests below evaluate the predicate against
+ * simulated state; the drift-guard tests at the bottom compile these
+ * captured conditions through drizzle's PgDialect and assert on the
+ * generated SQL/params (same pattern as lib/core/db/memory/long-term.test.ts).
+ */
+const capturedWhereConditions: unknown[] = [];
+
+/**
+ * Chainable mock for db.update(workspaces).set(...).where(cond).returning().
+ * Records the drizzle condition handed to `.where()` so tests can inspect
+ * the ACTUAL predicate the production code built (instead of trusting the
+ * TS re-implementation in conditionalUpdate below), then evaluates the
+ * conditional-UPDATE semantics against shared state.
+ */
+function mockUpdateChain(scannedNodeId: string | null = STALE_NODE_ID) {
+  mockUpdate.mockReturnValue({
+    set: vi.fn().mockReturnValue({
+      where: vi.fn().mockImplementation((condition: unknown) => {
+        capturedWhereConditions.push(condition);
+        return {
+          returning: vi
+            .fn()
+            .mockImplementation(() => conditionalUpdate(scannedNodeId)),
+        };
+      }),
+    }),
+  });
+}
+
 /** Mirrors the stale-select predicate in failoverOfflineWorkspaces. */
 function selectStaleRows() {
   const ws = state.workspace;
@@ -116,10 +149,20 @@ vi.mock('@/lib/extra/agent/workspace-delivery', () => ({
   resolveWorkspaceDeliveryTarget: mockResolveTarget,
 }));
 
-const { failoverOfflineWorkspaces } = await import('./workspace-failover');
+const { FAILOVER_GRACE_MS, failoverOfflineWorkspaces } = await import(
+  './workspace-failover'
+);
+
+const dialect = new PgDialect();
+
+/** Compile a captured drizzle condition to SQL text + bound params. */
+function compileWhere(condition: unknown) {
+  return dialect.sqlToQuery(condition as SQL);
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
+  capturedWhereConditions.length = 0;
   state = freshState();
   mockCreateNotification.mockResolvedValue({});
   mockResolveTarget.mockResolvedValue({
@@ -138,15 +181,7 @@ describe('failoverOfflineWorkspaces', () => {
         }),
       }),
     });
-    mockUpdate.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi
-            .fn()
-            .mockImplementation(() => conditionalUpdate(STALE_NODE_ID)),
-        }),
-      }),
-    });
+    mockUpdateChain();
 
     const migrated = await failoverOfflineWorkspaces();
 
@@ -198,15 +233,7 @@ describe('failoverOfflineWorkspaces', () => {
         }),
       }),
     });
-    mockUpdate.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi
-            .fn()
-            .mockImplementation(() => conditionalUpdate(STALE_NODE_ID)),
-        }),
-      }),
-    });
+    mockUpdateChain();
 
     const migratedA = await failoverOfflineWorkspaces();
     const migratedB = await failoverOfflineWorkspaces();
@@ -236,15 +263,7 @@ describe('failoverOfflineWorkspaces', () => {
         }),
       }),
     });
-    mockUpdate.mockReturnValue({
-      set: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          returning: vi
-            .fn()
-            .mockImplementation(() => conditionalUpdate(STALE_NODE_ID)),
-        }),
-      }),
-    });
+    mockUpdateChain();
 
     const migrated = await failoverOfflineWorkspaces();
 
@@ -253,5 +272,90 @@ describe('failoverOfflineWorkspaces', () => {
     expect(state.workspace.nodeGeneration).toBe(1);
     expect(state.workspace.preferredNodeId).toBe(STALE_NODE_ID);
     expect(mockCreateNotification).not.toHaveBeenCalled();
+  });
+});
+
+describe('conditional UPDATE predicate (drift guard)', () => {
+  // The behavioral tests above trust conditionalUpdate()'s TS re-implementation
+  // of the WHERE predicate. These tests instead inspect the ACTUAL drizzle
+  // condition the production code passed to `.where()` — compiled through
+  // PgDialect — so dropping a condition from workspace-failover.ts turns a
+  // test red instead of silently staying green.
+  it('WHERE rechecks workspace id, active status, original preferred node, and node expiration', async () => {
+    mockSelect.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        leftJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockImplementation(() => selectStaleRows()),
+        }),
+      }),
+    });
+    mockUpdateChain();
+
+    await failoverOfflineWorkspaces();
+
+    expect(capturedWhereConditions).toHaveLength(1);
+    const where = compileWhere(capturedWhereConditions[0]);
+
+    // Workspace identity + active-status recheck.
+    expect(where.sql).toContain('"id"');
+    expect(where.sql).toContain('"status"');
+    expect(where.params).toContain(WORKSPACE_ID);
+    expect(where.params).toContain('active');
+
+    // Original preferred_node_id (the scanned value, not just IS NOT NULL).
+    expect(where.sql).toContain('"preferred_node_id"');
+    expect(where.params).toContain(STALE_NODE_ID);
+
+    // Node-expiration predicate: NOT EXISTS (missing node row) OR EXISTS
+    // (heartbeat older than the grace cutoff), joining agentd_nodes on
+    // node_id against the workspace's preferred_node_id.
+    expect(where.sql).toContain('NOT EXISTS');
+    expect(where.sql).toContain('EXISTS');
+    expect(where.sql).toContain('agentd_nodes');
+    expect(where.sql).toContain('node_id');
+    expect(where.sql).toContain('last_heartbeat');
+
+    // The staleness cutoff is a bound param ~FAILOVER_GRACE_MS in the past.
+    const cutoff = where.params.find((p): p is Date => p instanceof Date);
+    expect(cutoff).toBeInstanceOf(Date);
+    if (cutoff) {
+      const ageMs = Date.now() - cutoff.getTime();
+      expect(ageMs).toBeGreaterThanOrEqual(FAILOVER_GRACE_MS);
+      expect(ageMs).toBeLessThan(FAILOVER_GRACE_MS + 60_000);
+    }
+  });
+
+  it('every racing scanner issues the full predicate, not a weakened one', async () => {
+    const staleSnapshot = [
+      {
+        id: WORKSPACE_ID,
+        ownerId: OWNER_ID,
+        name: 'Default',
+        preferredNodeId: STALE_NODE_ID,
+      },
+    ];
+    mockSelect.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        leftJoin: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue(staleSnapshot),
+        }),
+      }),
+    });
+    mockUpdateChain();
+
+    await failoverOfflineWorkspaces();
+    await failoverOfflineWorkspaces();
+
+    // Both scanners must build the identical full predicate.
+    expect(capturedWhereConditions).toHaveLength(2);
+    for (const condition of capturedWhereConditions) {
+      const where = compileWhere(condition);
+      expect(where.sql).toContain('"status"');
+      expect(where.sql).toContain('"preferred_node_id"');
+      expect(where.sql).toContain('last_heartbeat');
+      expect(where.params).toContain(WORKSPACE_ID);
+      expect(where.params).toContain('active');
+      expect(where.params).toContain(STALE_NODE_ID);
+    }
   });
 });

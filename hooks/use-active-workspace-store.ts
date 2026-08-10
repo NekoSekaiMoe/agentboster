@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type { StateStorage } from 'zustand/middleware';
 import { defaultStorage } from '@/lib/core/platform/storage';
+import type { StorageAdapter } from '@/lib/core/platform/storage';
 
 /**
  * localStorage key for the persisted active-workspace blob. Kept identical
@@ -31,35 +32,89 @@ interface ActiveWorkspaceState {
 }
 
 /**
- * StateStorage wrapper around the project StorageAdapter with one-time
- * migration of the pre-zustand format: the key used to hold a bare
- * workspace-id string (plus a `.__user` sibling recording the owner).
- * A bare id is not valid JSON, so on parse failure we convert it into the
- * persist blob shape and drop the sibling key.
+ * zustand v5 persist blob conventions: createJSONStorage stringifies
+ * `{ state, version }`; on read, persist calls the StateStorage getItem,
+ * JSON-parses the result, and only treats it as a persisted snapshot when
+ * `.state` is present (`version` is consulted for migrate only when it is
+ * a number). Anything else must not be handed back unchanged — a JSON
+ * `null`, primitive, or malformed object would be surfaced to zustand as
+ * if it were a valid snapshot.
  */
-const legacyAwareStorage: StateStorage = {
-  getItem: (name) => {
-    const raw = defaultStorage.getItem(name);
-    if (raw === null) return null;
-    try {
-      JSON.parse(raw);
-      return raw;
-    } catch {
-      const legacyUser = defaultStorage.getItem(`${name}.__user`);
-      defaultStorage.removeItem(`${name}.__user`);
-      return JSON.stringify({
-        state: { workspaceId: raw, userId: legacyUser },
-        version: 0,
-      });
-    }
-  },
-  setItem: (name, value) => {
-    defaultStorage.setItem(name, value);
-  },
-  removeItem: (name) => {
-    defaultStorage.removeItem(name);
-  },
-};
+function isPersistBlob(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const blob = value as { state?: unknown; version?: unknown };
+  if (typeof blob.state !== 'object' || blob.state === null) return false;
+  // version is optional; when present it must be a number (zustand's
+  // migrate hook only runs on numeric versions).
+  return blob.version === undefined || typeof blob.version === 'number';
+}
+
+/**
+ * Migrate a pre-zustand record into the persist blob shape: the key used
+ * to hold a bare workspace-id string, with a `.__user` sibling recording
+ * the owner. Consumes (removes) the sibling key.
+ */
+function migrateLegacy(
+  adapter: StorageAdapter,
+  name: string,
+  workspaceId: string,
+): string {
+  const legacyUser = adapter.getItem(`${name}.__user`);
+  adapter.removeItem(`${name}.__user`);
+  return JSON.stringify({
+    state: { workspaceId, userId: legacyUser },
+    version: 0,
+  });
+}
+
+/**
+ * StateStorage factory wrapping a project StorageAdapter with one-time
+ * migration of the pre-zustand format (see {@link migrateLegacy}).
+ *
+ * Read semantics:
+ *  - missing key            → null (no state)
+ *  - valid persist blob     → returned unchanged
+ *  - bare legacy id         → parse failure: migrate in place (raw string)
+ *  - JSON string primitive  → still a meaningful legacy id: migrate
+ *  - JSON null / non-string primitive / malformed object → NOT a usable
+ *    workspace id: drop the key (and stale sibling) and return null.
+ */
+export function createLegacyAwareStorage(
+  adapter: StorageAdapter,
+): StateStorage {
+  return {
+    getItem: (name) => {
+      const raw = adapter.getItem(name);
+      if (raw === null) return null;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        // Bare legacy id (not valid JSON) — the classic pre-zustand shape.
+        return migrateLegacy(adapter, name, raw);
+      }
+      if (isPersistBlob(parsed)) return raw;
+      // Parsed successfully but not a persist blob. A JSON string can
+      // still be a meaningful legacy workspace id; null / numbers /
+      // booleans / malformed objects cannot.
+      if (typeof parsed === 'string' && parsed.length > 0) {
+        return migrateLegacy(adapter, name, parsed);
+      }
+      adapter.removeItem(name);
+      adapter.removeItem(`${name}.__user`);
+      return null;
+    },
+    setItem: (name, value) => {
+      adapter.setItem(name, value);
+    },
+    removeItem: (name) => {
+      adapter.removeItem(name);
+    },
+  };
+}
+
+const legacyAwareStorage: StateStorage =
+  createLegacyAwareStorage(defaultStorage);
 
 /**
  * Shared active-workspace store. Single source of truth for "which

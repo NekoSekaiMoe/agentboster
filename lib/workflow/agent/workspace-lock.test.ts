@@ -35,6 +35,10 @@ const dbRows = {
     preferredNodeId: string | null;
     nodeGeneration: number | null;
   }>,
+  /** Test-only: make the sessions select reject (pre-resolution failure). */
+  throwOnSessions: false,
+  /** Test-only: make the workspaces select reject (post-resolution failure). */
+  throwOnWorkspaces: false,
 };
 
 vi.mock('@/lib/core/db/schema', () => ({
@@ -47,10 +51,17 @@ vi.mock('@/lib/core/db', () => ({
     select: () => ({
       from: (table: { __table: string }) => ({
         where: () => ({
-          limit: async () =>
-            table.__table === 'sessions'
+          limit: async () => {
+            if (table.__table === 'sessions' && dbRows.throwOnSessions) {
+              throw new Error('sessions db down');
+            }
+            if (table.__table === 'workspaces' && dbRows.throwOnWorkspaces) {
+              throw new Error('workspaces db down');
+            }
+            return table.__table === 'sessions'
               ? dbRows.sessionRows
-              : dbRows.workspaceRows,
+              : dbRows.workspaceRows;
+          },
         }),
       }),
     }),
@@ -135,6 +146,8 @@ function acquiredBody(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   seedDb({});
+  dbRows.throwOnSessions = false;
+  dbRows.throwOnWorkspaces = false;
   getConfigMock.mockResolvedValue({
     baseUrl: 'http://agentd.test',
     apiKey: 'k',
@@ -236,6 +249,30 @@ describe('acquireRunLockStep resolvedWorkspaceId (FIX 1)', () => {
     expect(handle.execSessionId).toBe('run-1');
     expect(handle.nodeGeneration).toBe(42);
     expect(handle.resolvedWorkspaceId).toBe('ws-1');
+  });
+
+  it('keeps resolvedWorkspaceId when the error occurs AFTER workspace resolution', async () => {
+    // Simulate a failure past the point where the session's workspace id
+    // has been resolved (here: the workspaces-table select rejects). The
+    // catch path must still carry resolvedWorkspaceId so post-run cleanup
+    // does not fall back to the global memory layer — but all lock fields
+    // stay null (no lock was acquired).
+    dbRows.throwOnWorkspaces = true;
+    const handle = await acquireRunLockStep('sess-1', 'run-1');
+    expect(handle.resolvedWorkspaceId).toBe('ws-1');
+    expect(handle.nodeId).toBeNull();
+    expect(handle.workspaceId).toBeNull();
+    expect(handle.execSessionId).toBeNull();
+    expect(handle.nodeGeneration).toBeNull();
+  });
+
+  it('returns a fully empty handle when the error occurs BEFORE workspace resolution', async () => {
+    dbRows.throwOnSessions = true;
+    const handle = await acquireRunLockStep('sess-1', 'run-1');
+    expect(handle.resolvedWorkspaceId).toBeNull();
+    expect(handle.workspaceId).toBeNull();
+    expect(handle.nodeId).toBeNull();
+    expect(handle.nodeGeneration).toBeNull();
   });
 });
 
