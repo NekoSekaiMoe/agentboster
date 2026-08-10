@@ -46,6 +46,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  archiveWorkspaceRequest,
+  patchWorkspace,
+  readItemError,
+} from '@/lib/core/api/workspaces';
 import { parseWithFallback } from '@/lib/core/api/schema';
 
 /**
@@ -61,7 +66,7 @@ import { parseWithFallback } from '@/lib/core/api/schema';
 /** Lenient wire shape — mirrors components/chat/workspace-switcher.tsx. */
 const workspaceSchema = z.object({
   id: z.string(),
-  ownerId: z.string(),
+  ownerId: z.string().optional(),
   name: z.string(),
   preferredNodeId: z.string().nullable().optional(),
   nodeGeneration: z.number().optional(),
@@ -80,12 +85,6 @@ const workspaceSchema = z.object({
 const listResponseSchema = z.object({
   success: z.boolean().optional(),
   data: z.array(workspaceSchema).optional(),
-});
-
-const itemResponseSchema = z.object({
-  success: z.boolean().optional(),
-  data: workspaceSchema.nullable().optional(),
-  error: z.string().optional(),
 });
 
 export type WorkspaceListItem = z.infer<typeof workspaceSchema>;
@@ -110,33 +109,6 @@ async function fetchWorkspaces(): Promise<WorkspaceListItem[]> {
   return payload.data ?? [];
 }
 
-async function readItemError(res: Response, fallback: string): Promise<Error> {
-  const payload = parseWithFallback(
-    await res.json().catch(() => ({})),
-    itemResponseSchema,
-    { success: false, data: null } as z.infer<typeof itemResponseSchema>,
-    { endpoint: 'workspaces mutation (error path)' },
-  );
-  return new Error(payload.error ?? fallback);
-}
-
-export async function patchWorkspace(
-  id: string,
-  body:
-    | { action: 'rename'; name: string }
-    | { action: 'set_default' }
-    | { action: 'migrate_node'; newNodeId?: string }
-    | { action: 'set_visibility'; visibility: 'private' | 'public' }
-    | { action: 'set_shared_memory'; enabled: boolean },
-): Promise<void> {
-  const res = await fetch(`/api/workspaces/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw await readItemError(res, 'Failed to update workspace');
-}
-
 async function createWorkspace(name: string): Promise<void> {
   const res = await fetch('/api/workspaces', {
     method: 'POST',
@@ -144,22 +116,6 @@ async function createWorkspace(name: string): Promise<void> {
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw await readItemError(res, 'Failed to create workspace');
-}
-
-export async function archiveWorkspaceRequest(id: string): Promise<void> {
-  const res = await fetch(`/api/workspaces/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  });
-  if (!res.ok) throw await readItemError(res, 'Failed to archive workspace');
-}
-
-/** Hard delete: removes the workspace + all sessions/messages/memories. */
-export async function hardDeleteWorkspaceRequest(id: string): Promise<void> {
-  const res = await fetch(
-    `/api/workspaces/${encodeURIComponent(id)}?hard=true`,
-    { method: 'DELETE' },
-  );
-  if (!res.ok) throw await readItemError(res, 'Failed to delete workspace');
 }
 
 export function WorkspacesSection() {
@@ -280,7 +236,7 @@ export function WorkspacesSection() {
                 w.containerStatus === 'unreachable'
                   ? t('workspace.node.offline')
                   : w.containerStatus === 'unknown'
-                    ? t('workspace.node.online')
+                    ? t('workspace.container.unknown')
                     : t('workspace.container.notCreated')
               }
             />

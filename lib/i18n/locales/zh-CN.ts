@@ -36,6 +36,8 @@ export const zhCN = {
   'chat.modelPicker.noResults': '没有符合的模型',
   'chat.newChat': '新建对话',
   'chat.newConversation': '新对话',
+  'chat.session.manageOnlyHint':
+    '其他成员创建的私密会话——您可以在此处管理它，但无法打开对话内容。',
   'chat.noConversations': '暂无对话',
   'chat.searchSessions': '搜索会话…',
   'chat.noSearchResults': '没有匹配的会话',
@@ -86,6 +88,9 @@ export const zhCN = {
   'workspace.detail.sessionMakePrivate': '设为私有（仅创建者可见）',
   'workspace.detail.sessionVisibilitySuccess': '会话可见性已更新',
   'workspace.detail.sessionVisibilityError': '会话可见性更新失败',
+  'workspace.detail.sessionErrorForbidden': '您没有权限修改此会话',
+  'workspace.detail.sessionErrorNotFound': '会话不存在',
+  'workspace.detail.sessionErrorInvalidInput': '请求无效',
   'workspace.detail.sessionRenameTitle': '重命名会话',
   'workspace.detail.sessionRenamePlaceholder': '会话标题',
   'workspace.detail.sessionRenameSuccess': '会话已重命名',

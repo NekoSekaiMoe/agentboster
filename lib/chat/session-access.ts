@@ -28,6 +28,9 @@
 
 import { AuthError, type AuthAccess } from '@/lib/auth/access';
 import { resolveWorkspaceAccess } from '@/lib/core/db/agentd';
+import { createLogger } from '@/lib/utils/logger';
+
+const logger = createLogger('chat.session-access');
 
 /** Minimal shape both ChatSession (DAL) and SessionRecord (chat) satisfy. */
 export interface SessionAccessTarget {
@@ -80,7 +83,13 @@ export async function resolveSessionGrant(
       if (wsAccess.canManage) return 'manage';
       return access.isAdmin ? 'manage' : null;
     } catch {
-      // Fail closed on any resolution error.
+      // Fail closed on any resolution error — but leave a trace so a
+      // misbehaving workspace lookup is debuggable. Identifiers only:
+      // session/workspace ids, never user ids or content.
+      logger.warn('Session grant resolution failed; denying access', {
+        sessionId: session.id,
+        workspaceId: session.workspaceId,
+      });
       return null;
     }
   }

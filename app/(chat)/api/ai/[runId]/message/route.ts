@@ -1,4 +1,5 @@
 import { requireAuthAccess } from '@/lib/auth/access';
+import { authErrorResponse } from '@/app/(chat)/api/ai/auth-error';
 import { assertCanReadSession } from '@/lib/chat/session-access';
 import { assertSessionWritable } from '@/lib/chat/access';
 import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
@@ -30,7 +31,13 @@ export async function POST(
       { status: 404 },
     );
   }
-  await assertCanReadSession(access, session);
+  try {
+    await assertCanReadSession(access, session);
+  } catch (error) {
+    const response = authErrorResponse(error, { includeOk: true });
+    if (response) return response;
+    throw error;
+  }
 
   try {
     assertSessionWritable(

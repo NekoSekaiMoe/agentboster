@@ -37,10 +37,12 @@ export default async function OrchestrationPage({
   }
   const grant = await resolveSessionGrant(access, session);
   if (!grant || !sessionGrantCanRead(grant)) notFound();
-  // The Team Mode hub stays owner/member-facing: plain admins get bounced
-  // back to the chat view (existing behavior), while workspace members of
-  // a shared session get in alongside the owner. Manage-only grants were
-  // already rejected above (they may not read session content).
+  // The Team Mode hub stays owner/member-facing: actors without read
+  // authorization — including admins / workspace managers whose grant is
+  // manage-only on another user's private session — receive a 404 via
+  // notFound() above (they may curate metadata but never read session
+  // content). Workspace members of a shared session get in alongside the
+  // owner.
 
   const [plans, config] = await Promise.all([
     listPlansBySession(sessionId),

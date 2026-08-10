@@ -31,11 +31,7 @@ export function ConfigShell({
   const sectionMeta = getConfigSectionMeta(section);
   // CRUD-driven sections manage their own persistence — no config draft,
   // no floating save button.
-  const showSaveButton =
-    isAdmin &&
-    section !== 'users' &&
-    section !== 'knowledge' &&
-    section !== 'workspaces';
+  const showSaveButton = isAdmin && !sectionMeta.selfPersisted;
   const runtimeIssues =
     runtimeHealth?.checks.filter((check) => check.status !== 'ready') ?? [];
 

@@ -15,12 +15,12 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
+import { WorkspaceSessionsTable } from '@/components/config/sections/workspace-sessions-table';
 import {
   archiveWorkspaceRequest,
   hardDeleteWorkspaceRequest,
   patchWorkspace,
-} from '@/components/config/sections/workspaces-section';
-import { WorkspaceSessionsTable } from '@/components/config/sections/workspace-sessions-table';
+} from '@/lib/core/api/workspaces';
 import { useI18n } from '@/components/i18n-provider';
 import {
   AlertDialog,
@@ -61,7 +61,7 @@ const detailResponseSchema = z.object({
   data: z
     .object({
       id: z.string(),
-      ownerId: z.string(),
+      ownerId: z.string().optional(),
       name: z.string(),
       preferredNodeId: z.string().nullable().optional(),
       nodeGeneration: z.number().optional(),

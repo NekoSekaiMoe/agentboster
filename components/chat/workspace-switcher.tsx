@@ -31,7 +31,7 @@ import { SESSION_LIST_KEY, useActiveWorkspace } from '@/hooks/use-session-list';
  */
 const workspaceSchema = z.object({
   id: z.string(),
-  ownerId: z.string(),
+  ownerId: z.string().optional(),
   name: z.string(),
   preferredNodeId: z.string().nullable().optional(),
   nodeGeneration: z.number().optional(),
@@ -80,6 +80,8 @@ function WorkspaceStatusDot({
   return (
     <span
       className={`mr-2 inline-block size-2 shrink-0 rounded-full ${colorClass}`}
+      role="img"
+      aria-label={label}
       title={label}
     />
   );

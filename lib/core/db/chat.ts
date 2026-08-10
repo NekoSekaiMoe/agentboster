@@ -142,10 +142,12 @@ export async function listSessions(options?: {
   channel?: string;
   archived?: boolean;
   limit?: number;
+  offset?: number;
   userId?: string;
   workspaceId?: string;
 }) {
   const safeLimit = Math.max(1, Math.min(options?.limit ?? 50, 200));
+  const safeOffset = Math.max(0, options?.offset ?? 0);
   const conditions: ReturnType<typeof eq>[] = [];
   if (options?.userId) {
     conditions.push(eq(schema.sessions.userId, options.userId));
@@ -165,7 +167,8 @@ export async function listSessions(options?: {
     .from(schema.sessions)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.sessions.updatedAt))
-    .limit(safeLimit);
+    .limit(safeLimit)
+    .offset(safeOffset);
 }
 
 /**
@@ -190,6 +193,9 @@ export async function listVisibleSessions(options: {
   channel?: string;
   archived?: boolean;
   limit?: number;
+  /** Restrict the listing to a single workspace (applied in SQL, before
+   *  ORDER BY/LIMIT, so workspace-scoped callers get a full page). */
+  workspaceId?: string;
 }) {
   const safeLimit = Math.max(1, Math.min(options.limit ?? 50, 200));
   const accessible = options.accessiblePublicWorkspaceIds;
@@ -224,6 +230,11 @@ export async function listVisibleSessions(options: {
   }
   if (options.archived !== undefined) {
     conditions.push(sql`${schema.sessions.archived} = ${options.archived}`);
+  }
+  if (options.workspaceId) {
+    conditions.push(
+      sql`${schema.sessions.workspaceId} = ${options.workspaceId}::uuid`,
+    );
   }
 
   const rows = await db

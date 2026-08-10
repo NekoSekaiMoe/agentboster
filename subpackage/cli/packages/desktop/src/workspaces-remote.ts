@@ -78,6 +78,21 @@ function extractErrorMessage(body: unknown, fallback: string): string {
   return asNonEmptyString(record.error) ?? fallback;
 }
 
+const REMOTE_FETCH_TIMEOUT_MS = 12_000;
+
+/**
+ * Shared fetch wrapper: every remote-workspace request gets a bounded
+ * timeout so a hung connection cannot wedge the caller's await forever.
+ * AbortSignal.timeout rejects with a TimeoutError (a DOMException), which
+ * callers treat like any other network failure.
+ */
+function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  return fetch(url, {
+    ...init,
+    signal: AbortSignal.timeout(REMOTE_FETCH_TIMEOUT_MS),
+  });
+}
+
 /**
  * Read the response body once and enforce the `{ success, data, error }`
  * envelope. Returns the raw body for further field extraction.
@@ -124,9 +139,12 @@ function normalizeRemoteWorkspace(value: unknown): RemoteWorkspace | null {
 export async function fetchRemoteWorkspaces(
   auth: AgentbosterDesktopAuth,
 ): Promise<RemoteWorkspace[]> {
-  const response = await fetch(`${workspaceApiRoot(auth)}/api/workspaces`, {
-    headers: workspaceAuthHeaders(auth),
-  });
+  const response = await fetchWithTimeout(
+    `${workspaceApiRoot(auth)}/api/workspaces`,
+    {
+      headers: workspaceAuthHeaders(auth),
+    },
+  );
   const body = await readEnvelope(response, 'load workspaces');
   const record = asRecord(body);
   const items = Array.isArray(record.data)
@@ -143,11 +161,14 @@ export async function createRemoteWorkspace(
   auth: AgentbosterDesktopAuth,
   name: string,
 ): Promise<RemoteWorkspace | null> {
-  const response = await fetch(`${workspaceApiRoot(auth)}/api/workspaces`, {
-    method: 'POST',
-    headers: workspaceAuthHeaders(auth, true),
-    body: JSON.stringify({ name }),
-  });
+  const response = await fetchWithTimeout(
+    `${workspaceApiRoot(auth)}/api/workspaces`,
+    {
+      method: 'POST',
+      headers: workspaceAuthHeaders(auth, true),
+      body: JSON.stringify({ name }),
+    },
+  );
   const body = await readEnvelope(response, 'create workspace');
   return normalizeRemoteWorkspace(asRecord(body).data);
 }
@@ -157,7 +178,7 @@ export async function patchRemoteWorkspace(
   workspaceId: string,
   action: RemoteWorkspacePatchAction,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${workspaceApiRoot(auth)}/api/workspaces/${encodeURIComponent(workspaceId)}`,
     {
       method: 'PATCH',
@@ -172,7 +193,7 @@ export async function archiveRemoteWorkspace(
   auth: AgentbosterDesktopAuth,
   workspaceId: string,
 ): Promise<void> {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${workspaceApiRoot(auth)}/api/workspaces/${encodeURIComponent(workspaceId)}`,
     {
       method: 'DELETE',

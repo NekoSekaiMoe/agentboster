@@ -30,6 +30,9 @@ export const configSections = [
     key: 'knowledge',
     descriptionKey: 'config.sections.knowledge.description',
     titleKey: 'config.sections.knowledge.title',
+    // CRUD-driven sections manage their own persistence — no config draft,
+    // no floating save button.
+    selfPersisted: true,
   },
   {
     key: 'channels',
@@ -70,6 +73,7 @@ export const configSections = [
     key: 'workspaces',
     descriptionKey: 'config.sections.workspaces.description',
     titleKey: 'config.sections.workspaces.title',
+    selfPersisted: true,
   },
   {
     key: 'experiments',
@@ -85,6 +89,7 @@ export const configSections = [
     key: 'users',
     descriptionKey: 'config.sections.users.description',
     titleKey: 'config.sections.users.title',
+    selfPersisted: true,
   },
   {
     key: 'audit-logs',
@@ -100,6 +105,7 @@ export const configSections = [
   descriptionKey: TranslationKey;
   key: string;
   titleKey: TranslationKey;
+  selfPersisted?: boolean;
 }>;
 
 export type ConfigSectionKey = (typeof configSections)[number]['key'];
@@ -110,7 +116,21 @@ export function isConfigSectionKey(value: string): value is ConfigSectionKey {
   return configSections.some((section) => section.key === value);
 }
 
-export function getConfigSectionMeta(sectionKey: ConfigSectionKey) {
+export interface ConfigSectionMeta {
+  descriptionKey: TranslationKey;
+  key: ConfigSectionKey;
+  titleKey: TranslationKey;
+  /**
+   * True for CRUD-driven sections that persist their own edits (users,
+   * knowledge, workspaces) — the config draft / floating save button is
+   * hidden for these.
+   */
+  selfPersisted: boolean;
+}
+
+export function getConfigSectionMeta(
+  sectionKey: ConfigSectionKey,
+): ConfigSectionMeta {
   const matchedSection = configSections.find(
     (section) => section.key === sectionKey,
   );
@@ -119,5 +139,11 @@ export function getConfigSectionMeta(sectionKey: ConfigSectionKey) {
     throw new Error(`Unknown config section: ${sectionKey}`);
   }
 
-  return matchedSection;
+  return {
+    descriptionKey: matchedSection.descriptionKey,
+    key: matchedSection.key,
+    titleKey: matchedSection.titleKey,
+    selfPersisted:
+      'selfPersisted' in matchedSection ? matchedSection.selfPersisted : false,
+  };
 }

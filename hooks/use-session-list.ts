@@ -32,7 +32,7 @@ export interface SessionListItem {
   pinned?: boolean;
   workspaceId?: string | null;
   /** Session visibility inside a public workspace ('private'|'shared'). */
-  visibility?: string;
+  visibility?: 'private' | 'shared';
   /** True when the actor may manage (rename/delete) but NOT read the
    *  conversation — other members' private sessions in a workspace the
    *  actor manages. The UI renders a lock instead of a chat link. */
@@ -80,12 +80,16 @@ export function upsertSessionListItemInCache(
     status?: string;
     pinned?: boolean;
     workspaceId?: string | null;
+    visibility?: 'private' | 'shared';
+    manageOnly?: boolean;
+    isOwn?: boolean;
   },
   userId?: string | null,
 ): void {
   const qc = getQueryClient();
   const writeRow = (list: SessionListItem[] | undefined) => {
     const current = list ?? [];
+    const existing = current.find((s) => s.id === item.id);
     const next: SessionListItem[] = [
       {
         id: item.id,
@@ -94,7 +98,13 @@ export function upsertSessionListItemInCache(
         createdAt: item.createdAt,
         status: item.status,
         pinned: item.pinned ?? false,
-        workspaceId: item.workspaceId,
+        workspaceId: item.workspaceId ?? existing?.workspaceId,
+        // Rebuilding the row must not strip access annotations the list
+        // query already computed — fall back to the existing row's values
+        // when the incoming upsert doesn't carry them.
+        visibility: item.visibility ?? existing?.visibility,
+        manageOnly: item.manageOnly ?? existing?.manageOnly,
+        isOwn: item.isOwn ?? existing?.isOwn,
       },
       ...current.filter((s) => s.id !== item.id),
     ];

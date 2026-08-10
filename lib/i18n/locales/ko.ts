@@ -39,6 +39,8 @@ export const ko = {
   'chat.modelPicker.noResults': '일치하는 모델이 없습니다',
   'chat.newChat': '새 채팅',
   'chat.newConversation': '새 대화',
+  'chat.session.manageOnlyHint':
+    '다른 멤버가 만든 비공개 세션입니다. 여기에서 관리할 수 있지만 대화는 열 수 없습니다.',
   'chat.noConversations': '아직 대화가 없습니다',
   'chat.searchSessions': '세션 검색…',
   'chat.noSearchResults': '일치하는 세션이 없습니다',
@@ -96,6 +98,9 @@ export const ko = {
     '세션 공개 설정이 업데이트되었습니다',
   'workspace.detail.sessionVisibilityError':
     '세션 공개 설정 업데이트에 실패했습니다',
+  'workspace.detail.sessionErrorForbidden': '이 세션을 변경할 권한이 없습니다',
+  'workspace.detail.sessionErrorNotFound': '세션을 찾을 수 없습니다',
+  'workspace.detail.sessionErrorInvalidInput': '요청이 올바르지 않습니다',
   'workspace.detail.sessionRenameTitle': '세션 이름 변경',
   'workspace.detail.sessionRenamePlaceholder': '세션 제목',
   'workspace.detail.sessionRenameSuccess': '세션 이름이 변경되었습니다',

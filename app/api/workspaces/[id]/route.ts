@@ -162,22 +162,26 @@ export async function GET(
     // Recent failovers for this workspace (newest first). The payload's
     // workspace_id links the notification back; userId is the tenancy
     // filter (never trust payload alone for isolation).
-    const recentFailovers = await db
-      .select({
-        id: notifications.id,
-        createdAt: notifications.createdAt,
-        payload: notifications.payload,
-      })
-      .from(notifications)
-      .where(
-        and(
-          eq(notifications.userId, ws.ownerId),
-          eq(notifications.notificationType, 'workspace_failover'),
-          sql`${notifications.payload}->>'workspace_id' = ${ws.id}`,
-        ),
-      )
-      .orderBy(desc(notifications.createdAt))
-      .limit(5);
+    const recentFailovers = gated.access.canManage
+      ? await db
+          .select({
+            id: notifications.id,
+            createdAt: notifications.createdAt,
+            payload: notifications.payload,
+          })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.userId, ws.ownerId),
+              eq(notifications.notificationType, 'workspace_failover'),
+              sql`${notifications.payload}->>'workspace_id' = ${ws.id}`,
+            ),
+          )
+          .orderBy(desc(notifications.createdAt))
+          .limit(5)
+      : // Read-only callers (public-workspace members) get an empty list —
+        // failover history is owner/admin operational detail.
+        [];
 
     return Response.json({
       success: true,
@@ -332,9 +336,14 @@ export async function PATCH(
                 eq(sessions.visibility, 'shared'),
               ),
             );
-          if (updated.sharedMemoryEnabled) {
-            await setWorkspaceSharedMemory(id, false);
-          }
+        }
+        // Reflect the persisted shared-memory toggle in the response: the
+        // initial `updated` row predates the forced toggle-off and would
+        // otherwise report a stale sharedMemoryEnabled:true.
+        let result = updated;
+        if (next === 'private' && updated.sharedMemoryEnabled) {
+          const toggled = await setWorkspaceSharedMemory(id, false);
+          if (toggled) result = toggled;
         }
         logger.info('workspace visibility changed', {
           workspaceId: id,
@@ -342,7 +351,7 @@ export async function PATCH(
           visibility: next,
           sharedMemoriesDeleted,
         });
-        return Response.json({ success: true, data: updated });
+        return Response.json({ success: true, data: result });
       }
       case 'set_shared_memory': {
         // The pool only exists inside PUBLIC workspaces — enabling it on
@@ -379,6 +388,16 @@ export async function PATCH(
           sharedMemoriesDeleted,
         });
         return Response.json({ success: true, data: updated });
+      }
+      default: {
+        // Unreachable today (the discriminatedUnion rejects unknown
+        // actions), but guards against future schema/switch drift — a new
+        // action added to the schema without a matching case would
+        // otherwise fall out of the switch and return undefined.
+        return Response.json(
+          { success: false, error: 'Invalid action' },
+          { status: 400 },
+        );
       }
     }
   } catch (error) {
@@ -420,20 +439,30 @@ export async function DELETE(
     const hard = new URL(request.url).searchParams.get('hard') === 'true';
     if (hard) {
       // HARD DELETE: remove everything the workspace owns. Order matters:
-      //  1. snapshot sessions for a best-effort runtime cleanup;
+      //  1. best-effort runtime cleanup for EVERY session — page through
+      //     the full list (listSessions caps limit at 200, so a single
+      //     call would silently skip sessions past the first page and
+      //     delete them without cleanup);
       //  2. drop long-term + builtin memories (soft-FK'd, no cascade);
       //  3. delete sessions (messages/session_memories cascade via FK);
       //  4. delete the workspace row itself.
-      const workspaceSessions = await listSessions({
-        workspaceId: id,
-        limit: 500,
-      });
-      const cleanupResults = await Promise.allSettled(
-        workspaceSessions.map((session) => cleanupChatSession(session)),
-      );
-      const cleanupsFailed = cleanupResults.filter(
-        (result) => result.status === 'rejected',
-      ).length;
+      const pageSize = 200;
+      let cleanupsFailed = 0;
+      for (let offset = 0; ; offset += pageSize) {
+        const page = await listSessions({
+          workspaceId: id,
+          limit: pageSize,
+          offset,
+        });
+        if (page.length === 0) break;
+        const cleanupResults = await Promise.allSettled(
+          page.map((session) => cleanupChatSession(session)),
+        );
+        cleanupsFailed += cleanupResults.filter(
+          (result) => result.status === 'rejected',
+        ).length;
+        if (page.length < pageSize) break;
+      }
       const memoriesDeleted = await deleteLongTermMemoriesByWorkspaceId(id);
       const builtinDeleted = await deleteBuiltinMemoriesByWorkspaceId(id);
       const sessionIds = await deleteSessionsByWorkspaceId(id);

@@ -51,6 +51,10 @@ export async function GET() {
       : null;
     return {
       ...ws,
+      // Don't leak another user's id with their public workspace —
+      // undefined keys are dropped from the JSON response; ownerName
+      // remains for UI labeling.
+      ownerId: ws.ownerId === ownerId ? ws.ownerId : undefined,
       nodeStatus,
       containerStatus: deriveContainerStatus(ws.preferredNodeId, nodeStatus),
     };

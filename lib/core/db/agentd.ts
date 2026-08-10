@@ -1105,6 +1105,15 @@ export interface VisibleWorkspaceRecord extends WorkspaceRecord {
  * ones stay manageable from settings) plus other users' public ACTIVE
  * workspaces, labelled with the owner's username.
  */
+/**
+ * Upper bound on OTHER users' public workspaces surfaced by
+ * listVisibleWorkspaces. The caller's own rows stay unbounded (their count
+ * is naturally limited by per-user creation); the shared surface is not —
+ * without a bound a pathological number of public workspaces would be
+ * fetched, joined and shipped to every user's switcher on every call.
+ */
+const SHARED_VISIBLE_WORKSPACES_LIMIT = 100;
+
 export async function listVisibleWorkspaces(
   userId: string,
 ): Promise<VisibleWorkspaceRecord[]> {
@@ -1112,9 +1121,12 @@ export async function listVisibleWorkspaces(
   const sharedRows = await db
     .select({ ws: workspaces, ownerName: users.username })
     .from(workspaces)
-    // owner_id is free-text while users.id is uuid — the cast keeps the
-    // column-to-column join legal (a bare text = uuid comparison errors).
-    .innerJoin(users, eq(workspaces.ownerId, sql`${users.id}::text`))
+    // owner_id is free-text while users.id is uuid. Cast the WORKSPACES
+    // side (not users.id::text): the query drives from workspaces (filtered
+    // by visibility/status), and casting users.id would defeat the users
+    // PK index on the per-row owner lookup — casting owner_id keeps that
+    // lookup index-friendly.
+    .innerJoin(users, eq(users.id, sql`${workspaces.ownerId}::uuid`))
     .where(
       and(
         ne(workspaces.ownerId, userId),
@@ -1122,7 +1134,8 @@ export async function listVisibleWorkspaces(
         eq(workspaces.status, 'active'),
       ),
     )
-    .orderBy(desc(workspaces.updatedAt));
+    .orderBy(desc(workspaces.updatedAt))
+    .limit(SHARED_VISIBLE_WORKSPACES_LIMIT);
   return [
     ...own,
     ...sharedRows.map((row) => ({ ...row.ws, ownerName: row.ownerName })),
@@ -1309,12 +1322,23 @@ export async function renameWorkspace(
 
 /** True when a Postgres unique-constraint violation names the per-owner
  *  default-workspace index. pg exposes `.code = '23505'`; neon-http wraps
- *  the server message, so match on the index name too. */
+ *  the server message, so match on the index name too. drizzle-orm
+ *  additionally wraps driver errors in a DrizzleQueryError ("Failed query:
+ *  ...") whose own code/message hide the PG error — walk the `.cause`
+ *  chain so the wrapped violation is still recognised. */
 function isDefaultUniqueViolation(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const code = (error as { code?: unknown }).code;
-  const message = error instanceof Error ? error.message : String(error);
-  return code === '23505' || message.includes('workspaces_owner_default_uniq');
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth++) {
+    if (typeof current !== 'object') return false;
+    const code = (current as { code?: unknown }).code;
+    const message =
+      current instanceof Error ? current.message : String(current);
+    if (code === '23505' || message.includes('workspaces_owner_default_uniq')) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 /**
@@ -1346,6 +1370,14 @@ export async function setDefaultWorkspace(
   }
   if (target.isDefault) return target;
 
+  // Snapshot the owner's current default BEFORE the clear-then-set pair.
+  // If the SET (second UPDATE) fails with a NON-unique error, the CLEAR
+  // has already committed — without this snapshot the owner would be left
+  // with NO default at all, so the catch branch below best-effort restores
+  // this row before rethrowing.
+  const previousDefault =
+    (await listWorkspacesByOwner(ownerId)).find((ws) => ws.isDefault) ?? null;
+
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       await db
@@ -1361,7 +1393,32 @@ export async function setDefaultWorkspace(
         .returning();
       return row ?? null;
     } catch (error) {
-      if (attempt === 1 || !isDefaultUniqueViolation(error)) throw error;
+      if (isDefaultUniqueViolation(error)) {
+        // Concurrent getOrCreateDefaultWorkspace won the race — retry the
+        // pair once (see the doc comment above); a second conflict
+        // propagates unchanged.
+        if (attempt === 1) throw error;
+        continue;
+      }
+      // Non-unique failure: the CLEAR may already have committed. Restore
+      // the snapshot default (best-effort — never mask the original error),
+      // then rethrow the ORIGINAL error.
+      if (previousDefault) {
+        try {
+          await db
+            .update(workspaces)
+            .set({ isDefault: true, updatedAt: new Date() })
+            .where(
+              and(
+                eq(workspaces.id, previousDefault.id),
+                eq(workspaces.ownerId, ownerId),
+              ),
+            );
+        } catch {
+          // Best-effort rollback — swallow so the original error wins.
+        }
+      }
+      throw error;
     }
   }
   return null;

@@ -376,7 +376,11 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
           title={sessionItem.title ?? 'Untitled'}
           className="flex items-center gap-2 rounded-md px-3 py-2 text-muted-foreground"
         >
-          <Lock className="size-4 shrink-0" />
+          <Lock
+            className="size-4 shrink-0"
+            role="img"
+            aria-label={t('chat.session.manageOnlyHint')}
+          />
           <span className="flex-1 truncate">
             {sessionItem.title ?? 'Untitled'}
           </span>

@@ -37,6 +37,8 @@ export const enUS = {
   'chat.modelPicker.noResults': 'No matching models',
   'chat.newChat': 'New Chat',
   'chat.newConversation': 'New conversation',
+  'chat.session.manageOnlyHint':
+    'Private session created by another member — you can manage it here, but cannot open the conversation.',
   'chat.noConversations': 'No conversations yet',
   'chat.searchSessions': 'Search sessions…',
   'chat.noSearchResults': 'No matching sessions',
@@ -91,6 +93,10 @@ export const enUS = {
   'workspace.detail.sessionVisibilitySuccess': 'Session visibility updated',
   'workspace.detail.sessionVisibilityError':
     'Failed to update session visibility',
+  'workspace.detail.sessionErrorForbidden':
+    'You do not have permission to change this session',
+  'workspace.detail.sessionErrorNotFound': 'Session not found',
+  'workspace.detail.sessionErrorInvalidInput': 'The request was invalid',
   'workspace.detail.sessionRenameTitle': 'Rename session',
   'workspace.detail.sessionRenamePlaceholder': 'Session title',
   'workspace.detail.sessionRenameSuccess': 'Session renamed',

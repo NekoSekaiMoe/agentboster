@@ -556,6 +556,7 @@ export class Sidebar {
       color: workspace.color ?? null,
       pinned: Boolean(workspace.pinned),
       closable: Boolean(workspace.closable),
+      isDefault: Boolean(workspace.isDefault),
     }));
     const nextActive =
       activeWorkspaceId &&
@@ -574,7 +575,8 @@ export class Sidebar {
           (current.emoji ?? null) === (workspace.emoji ?? null) &&
           (current.color ?? null) === (workspace.color ?? null) &&
           Boolean(current.pinned) === Boolean(workspace.pinned) &&
-          Boolean(current.closable) === Boolean(workspace.closable)
+          Boolean(current.closable) === Boolean(workspace.closable) &&
+          Boolean(current.isDefault) === Boolean(workspace.isDefault)
         );
       });
 
@@ -809,7 +811,7 @@ export class Sidebar {
     const menuWidth = 170;
     const menuHeight =
       target.kind === 'workspace'
-        ? 92
+        ? 100
         : target.kind === 'session'
           ? 194
           : target.isDirectory

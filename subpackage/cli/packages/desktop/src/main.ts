@@ -3001,7 +3001,13 @@ function mergeRemoteWorkspaces(remoteList: RemoteWorkspace[]): void {
     const workspace = workspaces[index];
     if (!previousRemoteIds.has(workspace.id)) continue;
     if (nextRemoteIds.has(workspace.id)) continue;
-    if (workspace.id === activeWorkspaceId) continue;
+    if (workspace.id === activeWorkspaceId) {
+      // Refusing to remove the active workspace must not strip its
+      // remote-backed status — keep its id in the persisted set so a later
+      // refresh can still match and clean it up once it is deactivated.
+      nextRemoteIds.add(workspace.id);
+      continue;
+    }
     removeRuntimesForWorkspace(workspace.id);
     workspaces.splice(index, 1);
     changed = true;
@@ -3028,23 +3034,49 @@ function mergeRemoteWorkspaces(remoteList: RemoteWorkspace[]): void {
   }
 }
 
-async function refreshRemoteWorkspaces(): Promise<void> {
-  const auth = await readAgentbosterDesktopAuth().catch(() => null);
-  if (!auth) return; // local-only mode: keep the cached list
-  let remoteList: RemoteWorkspace[];
-  try {
-    remoteList = await fetchRemoteWorkspaces(auth);
-  } catch (err) {
-    recordDebugTrace(
-      `workspaces-remote:fetch-failed ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return; // offline: fall back to the cached local list
+// Bumped before every remote mutation so a refresh requested after the
+// change never shares an in-flight fetch that started before it.
+let remoteWorkspacesVersion = 0;
+let refreshRemoteWorkspacesInFlight: {
+  version: number;
+  promise: Promise<void>;
+} | null = null;
+
+function refreshRemoteWorkspaces(): Promise<void> {
+  if (
+    refreshRemoteWorkspacesInFlight &&
+    refreshRemoteWorkspacesInFlight.version === remoteWorkspacesVersion
+  ) {
+    return refreshRemoteWorkspacesInFlight.promise;
   }
-  recordDebugTrace(`workspaces-remote:fetched count=${remoteList.length}`);
-  mergeRemoteWorkspaces(remoteList);
+  const tracked = {
+    version: remoteWorkspacesVersion,
+    promise: (async (): Promise<void> => {
+      const auth = await getWorkspaceAuthOrNull();
+      if (!auth) return; // local-only mode: keep the cached list
+      let remoteList: RemoteWorkspace[];
+      try {
+        remoteList = await fetchRemoteWorkspaces(auth);
+      } catch (err) {
+        recordDebugTrace(
+          `workspaces-remote:fetch-failed ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return; // offline: fall back to the cached local list
+      }
+      recordDebugTrace(`workspaces-remote:fetched count=${remoteList.length}`);
+      mergeRemoteWorkspaces(remoteList);
+    })(),
+  };
+  tracked.promise = tracked.promise.finally(() => {
+    if (refreshRemoteWorkspacesInFlight === tracked) {
+      refreshRemoteWorkspacesInFlight = null;
+    }
+  });
+  refreshRemoteWorkspacesInFlight = tracked;
+  return tracked.promise;
 }
 
-function getWorkspaceAuthOrNotify(): ReturnType<
+function getWorkspaceAuthOrNull(): ReturnType<
   typeof readAgentbosterDesktopAuth
 > {
   return readAgentbosterDesktopAuth().catch(() => null);
@@ -3961,9 +3993,10 @@ async function handleWorkspaceCreate(draft?: {
   // adopts the server-assigned id before activation, so sessionRuntimeKey /
   // tab state never needs remapping. Offline we keep the local id and the
   // workspace syncs on the next successful refresh.
-  const auth = await getWorkspaceAuthOrNotify();
+  const auth = await getWorkspaceAuthOrNull();
   if (auth) {
     try {
+      remoteWorkspacesVersion += 1;
       const remote = await createRemoteWorkspace(auth, workspace.title);
       if (remote) {
         workspace.id = remote.id;
@@ -4005,9 +4038,10 @@ async function syncRemoteWorkspaceRename(
   title: string,
 ): Promise<void> {
   if (!loadRemoteWorkspaceIds().has(workspaceId)) return;
-  const auth = await getWorkspaceAuthOrNotify();
+  const auth = await getWorkspaceAuthOrNull();
   if (!auth) return;
   try {
+    remoteWorkspacesVersion += 1;
     await patchRemoteWorkspace(auth, workspaceId, {
       action: 'rename',
       name: title,
@@ -4023,10 +4057,15 @@ async function syncRemoteWorkspaceRename(
 }
 
 async function closeWorkspaceWithRemote(workspaceId: string): Promise<void> {
+  // Mirror closeWorkspace()'s guard BEFORE touching the remote: the local
+  // close is refused when this is the last remaining workspace, so the
+  // remote must stay untouched in that case too.
+  if (workspaces.length <= 1) return;
   if (loadRemoteWorkspaceIds().has(workspaceId)) {
-    const auth = await getWorkspaceAuthOrNotify();
+    const auth = await getWorkspaceAuthOrNull();
     if (auth) {
       try {
+        remoteWorkspacesVersion += 1;
         await archiveRemoteWorkspace(auth, workspaceId);
         const ids = loadRemoteWorkspaceIds();
         ids.delete(workspaceId);
@@ -4060,7 +4099,7 @@ async function setDefaultRemoteWorkspace(workspaceId: string): Promise<void> {
     );
     return;
   }
-  const auth = await getWorkspaceAuthOrNotify();
+  const auth = await getWorkspaceAuthOrNull();
   if (!auth) {
     chatView?.notify(
       'Not logged in. Run agentboster-cli login first.',
@@ -4069,6 +4108,7 @@ async function setDefaultRemoteWorkspace(workspaceId: string): Promise<void> {
     return;
   }
   try {
+    remoteWorkspacesVersion += 1;
     await patchRemoteWorkspace(auth, workspaceId, { action: 'set_default' });
     remoteDefaultWorkspaceId = workspaceId;
     persistRemoteDefaultWorkspaceId();
@@ -4078,8 +4118,10 @@ async function setDefaultRemoteWorkspace(workspaceId: string): Promise<void> {
       `workspaces-remote:set-default-failed ${err instanceof Error ? err.message : String(err)}`,
     );
     chatView?.notify('Failed to set the default workspace', 'error');
+    // Resync from the backend only on failure; the success path already
+    // applied the optimistic update above.
+    await refreshRemoteWorkspaces();
   }
-  await refreshRemoteWorkspaces();
 }
 
 function closeWorkspace(workspaceId: string): void {

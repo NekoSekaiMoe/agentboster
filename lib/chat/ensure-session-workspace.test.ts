@@ -152,6 +152,7 @@ function workspaceRecord(overrides: Record<string, unknown> = {}) {
     nodeGeneration: 0,
     isDefault: false,
     visibility: 'private',
+    sharedMemoryEnabled: false,
     status: 'active',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -159,7 +160,8 @@ function workspaceRecord(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Access-granted result (owner or public member). */
+/** Access-granted result for an actor with full control of the workspace
+ *  (its owner, or an admin permitted to manage it): canAccess + canManage. */
 function accessGranted(ws: ReturnType<typeof workspaceRecord>) {
   return { ws, canAccess: true, canManage: true };
 }

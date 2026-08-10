@@ -54,12 +54,57 @@ import {
  * sessions annotated manageOnly (curate-only: rename/delete, never open).
  * Visibility toggling is creator-only (isOwn) by product decision.
  */
+
+type SessionMutationErrorCode =
+  | 'invalid_input'
+  | 'forbidden'
+  | 'not_found'
+  | 'unknown';
+
+/**
+ * Carries the structured error code returned by setSessionVisibilityAction
+ * / deleteSessionAction through the react-query error channel so onError
+ * can map it to a localized message (raw Error.message is redacted by
+ * Next.js in production and must never be shown).
+ */
+class SessionMutationError extends Error {
+  readonly code: SessionMutationErrorCode;
+
+  constructor(code: SessionMutationErrorCode) {
+    super(code);
+    this.name = 'SessionMutationError';
+    this.code = code;
+  }
+}
+
 export function WorkspaceSessionsTable({
   workspaceId,
 }: {
   workspaceId: string;
 }) {
   const { t } = useI18n();
+
+  /**
+   * Map a SessionMutationResult error code to a localized toast message.
+   * Server actions return codes instead of throwing so we never surface
+   * raw error.message (Next.js redacts it in production anyway).
+   */
+  const sessionErrorMessage = (
+    code: 'invalid_input' | 'forbidden' | 'not_found' | 'unknown',
+    fallback: string,
+  ): string => {
+    switch (code) {
+      case 'forbidden':
+        return t('workspace.detail.sessionErrorForbidden');
+      case 'not_found':
+        return t('workspace.detail.sessionErrorNotFound');
+      case 'invalid_input':
+        return t('workspace.detail.sessionErrorInvalidInput');
+      default:
+        return fallback;
+    }
+  };
+
   const qc = useQueryClient();
   const [renameTarget, setRenameTarget] = useState<SessionListItem | null>(
     null,
@@ -85,22 +130,28 @@ export function WorkspaceSessionsTable({
   };
 
   const visibilityMutation = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       id,
       visibility,
     }: {
       id: string;
       visibility: 'private' | 'shared';
-    }) => setSessionVisibilityAction({ id, visibility }),
+    }) => {
+      const result = await setSessionVisibilityAction({ id, visibility });
+      if (!result.success) {
+        throw new SessionMutationError(result.error);
+      }
+    },
     onSuccess: async () => {
       await invalidate();
       toast.success(t('workspace.detail.sessionVisibilitySuccess'));
     },
     onError: (error) => {
       toast.error(
-        error instanceof Error && error.message
-          ? error.message
-          : t('workspace.detail.sessionVisibilityError'),
+        sessionErrorMessage(
+          error instanceof SessionMutationError ? error.code : 'unknown',
+          t('workspace.detail.sessionVisibilityError'),
+        ),
       );
     },
   });
@@ -119,7 +170,12 @@ export function WorkspaceSessionsTable({
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => deleteSessionAction(id),
+    mutationFn: async (id: string) => {
+      const result = await deleteSessionAction(id);
+      if (!result.success) {
+        throw new SessionMutationError(result.error);
+      }
+    },
     onSuccess: async () => {
       await invalidate();
       setDeleteTarget(null);
@@ -128,9 +184,10 @@ export function WorkspaceSessionsTable({
     onError: (error) => {
       setDeleteTarget(null);
       toast.error(
-        error instanceof Error && error.message
-          ? error.message
-          : t('workspace.detail.sessionDeleteError'),
+        sessionErrorMessage(
+          error instanceof SessionMutationError ? error.code : 'unknown',
+          t('workspace.detail.sessionDeleteError'),
+        ),
       );
     },
   });
@@ -305,7 +362,8 @@ export function WorkspaceSessionsTable({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t('workspace.detail.sessionDeleteConfirmDescription', {
-                title: deleteTarget?.title ?? '',
+                title:
+                  deleteTarget?.title ?? t('workspace.detail.sessionUntitled'),
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -18,6 +18,7 @@ vi.mock('@/lib/core/db/agentd', () => ({
 
 import type { AuthAccess } from '@/lib/auth/access';
 import {
+  assertCanManageSharedSession,
   assertCanReadSession,
   resolveSessionGrant,
   sessionGrantCanRead,
@@ -101,6 +102,44 @@ describe('resolveSessionGrant', () => {
     const target = session({ workspaceId: 'w1', visibility: 'private' });
     expect(await resolveSessionGrant(MEMBER, target)).toBe('manage');
     await expect(assertCanReadSession(MEMBER, target)).rejects.toMatchObject({
+      name: 'AuthError',
+      status: 403,
+    });
+  });
+
+  it('assertCanManageSharedSession succeeds for a manage grant', async () => {
+    mocks.resolveWorkspaceAccess.mockResolvedValue({
+      ws: { id: 'w1' },
+      canAccess: true,
+      canManage: true,
+    });
+    const target = session({ workspaceId: 'w1', visibility: 'private' });
+    await expect(assertCanManageSharedSession(MEMBER, target)).resolves.toBe(
+      'manage',
+    );
+  });
+
+  it('global admin on another user’s SHARED session with an unresolvable workspace → manage, never read', async () => {
+    const target = session({
+      userId: 'u1',
+      workspaceId: 'w1',
+      visibility: 'shared',
+    });
+
+    // Workspace row missing entirely.
+    mocks.resolveWorkspaceAccess.mockResolvedValue(null);
+    expect(await resolveSessionGrant(ADMIN, target)).toBe('manage');
+
+    // Workspace resolves but the admin has no access to it.
+    mocks.resolveWorkspaceAccess.mockResolvedValue({
+      ws: { id: 'w1' },
+      canAccess: false,
+      canManage: false,
+    });
+    expect(await resolveSessionGrant(ADMIN, target)).toBe('manage');
+
+    // manage is metadata-only: content read stays rejected.
+    await expect(assertCanReadSession(ADMIN, target)).rejects.toMatchObject({
       name: 'AuthError',
       status: 403,
     });

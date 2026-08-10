@@ -37,6 +37,8 @@ export const zhTW = {
   'chat.modelPicker.noResults': '沒有符合的模型',
   'chat.newChat': '新增對話',
   'chat.newConversation': '新對話',
+  'chat.session.manageOnlyHint':
+    '其他成員建立的私密會話——您可以在此處管理它，但無法開啟對話內容。',
   'chat.noConversations': '尚無對話',
   'chat.searchSessions': '搜尋會話…',
   'chat.noSearchResults': '沒有符合的會話',
@@ -87,6 +89,9 @@ export const zhTW = {
   'workspace.detail.sessionMakePrivate': '設為私有（僅建立者可見）',
   'workspace.detail.sessionVisibilitySuccess': '會話可見性已更新',
   'workspace.detail.sessionVisibilityError': '會話可見性更新失敗',
+  'workspace.detail.sessionErrorForbidden': '您沒有權限修改此會話',
+  'workspace.detail.sessionErrorNotFound': '會話不存在',
+  'workspace.detail.sessionErrorInvalidInput': '請求無效',
   'workspace.detail.sessionRenameTitle': '重新命名會話',
   'workspace.detail.sessionRenamePlaceholder': '會話標題',
   'workspace.detail.sessionRenameSuccess': '會話已重新命名',
@@ -99,7 +104,7 @@ export const zhTW = {
   'workspace.detail.sessionDeleteError': '會話刪除失敗',
   'workspace.detail.hardDeleteTitle': '永久刪除工作區',
   'workspace.detail.hardDeleteDescription':
-    '刪除工作區及其包含的所有會話、訊息和記憶。此操作無法撤銷。',
+    '刪除工作區及其包含的所有會話、訊息和記憶。此操作無法復原。',
   'workspace.detail.hardDeleteButton': '永久刪除',
   'workspace.detail.hardDeleteConfirmTitle': '永久刪除此工作區？',
   'workspace.detail.hardDeleteConfirmDescription':
@@ -926,7 +931,7 @@ export const zhTW = {
   'workspace.container.notCreated': '未建立',
   'workspace.container.unreachable': '節點離線',
   'workspace.container.unknown': '未知',
-  'workspace.node.online': '在線',
+  'workspace.node.online': '線上',
   'workspace.node.offline': '離線',
   'workspace.detail.title': '工作區詳情',
   'workspace.detail.back': '返回工作區列表',
@@ -959,7 +964,7 @@ export const zhTW = {
   'workspace.setPrivate': '設為私有',
   'workspace.publicConfirmTitle': '公開此工作區？',
   'workspace.publicConfirmDescription':
-    '所有用戶都可以進入「{name}」，在其共享容器中運行任務，並管理其中的會話與訊息。',
+    '所有使用者都可以進入「{name}」，在其共享容器中運行任務，並管理其中的會話與訊息。',
   'workspace.visibilitySuccess': '工作區可見性已更新',
   'workspace.visibilityError': '更新工作區可見性失敗',
   'workspace.detail.visibility': '可見性',

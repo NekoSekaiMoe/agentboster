@@ -100,6 +100,22 @@ const U2 = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const BOSS = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const MEMBER = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 
+/** Concatenate every message + PG `.code` along an error's `.cause` chain.
+ *  drizzle-orm wraps driver errors in DrizzleQueryError, so PG details
+ *  (23505, constraint names, RAISE messages) sit one or more levels down. */
+function errorChainText(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 10 && current; depth++) {
+    if (typeof current !== 'object') break;
+    const code = (current as { code?: unknown }).code;
+    parts.push(current instanceof Error ? current.message : String(current));
+    if (typeof code === 'string') parts.push(code);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return parts.join('\n');
+}
+
 describe('workspace DAL (PGlite)', () => {
   beforeEach(async () => {
     await resetDb(harness.db, ['workspaces', 'users']);
@@ -159,6 +175,121 @@ describe('workspace DAL (PGlite)', () => {
       expect(again?.isDefault).toBe(true);
       const rows = await listWorkspacesByOwner('u1');
       expect(rows.filter((r) => r.isDefault)).toHaveLength(1);
+    });
+
+    it('the partial unique index rejects a second live default (23505)', async () => {
+      await getOrCreateDefaultWorkspace('u1');
+      const error = await harness.db
+        .execute(
+          sql`INSERT INTO "workspaces" ("owner_id", "name", "is_default") VALUES ('u1', 'dup', true)`,
+        )
+        .then(
+          () => null,
+          (e: unknown) => e,
+        );
+      expect(error).toBeTruthy();
+      // drizzle wraps driver errors in DrizzleQueryError — the PG code and
+      // constraint name live on the cause chain.
+      const text = errorChainText(error);
+      expect(text).toContain('23505');
+      expect(text).toContain('workspaces_owner_default_uniq');
+    });
+
+    it('retries the pair when a concurrent default appears mid-flight', async () => {
+      await getOrCreateDefaultWorkspace('u1');
+      const second = await createWorkspace({ ownerId: 'u1', name: 'second' });
+
+      // One-shot AFTER UPDATE trigger: right after setDefaultWorkspace's
+      // CLEAR commits, insert a "concurrent" default — exactly what a racing
+      // getOrCreateDefaultWorkspace would do — so the SET trips the partial
+      // unique index. The sequence makes the insert fire exactly once
+      // (sequences are non-transactional, so the retry's own UPDATEs don't
+      // re-arm it).
+      await harness.client.exec(`
+        CREATE SEQUENCE concurrent_default_seq;
+        CREATE OR REPLACE FUNCTION insert_concurrent_default_once()
+          RETURNS trigger AS $fn$
+        BEGIN
+          IF nextval('concurrent_default_seq') = 1 THEN
+            INSERT INTO "workspaces" ("owner_id", "name", "is_default")
+              VALUES ('u1', 'concurrent', true);
+          END IF;
+          RETURN NULL;
+        END;
+        $fn$ LANGUAGE plpgsql;
+        CREATE TRIGGER concurrent_default_trg AFTER UPDATE ON "workspaces"
+          FOR EACH STATEMENT EXECUTE FUNCTION insert_concurrent_default_once();
+      `);
+      try {
+        const updated = await setDefaultWorkspace('u1', second.id);
+        expect(updated?.id).toBe(second.id);
+        expect(updated?.isDefault).toBe(true);
+
+        const rows = await listWorkspacesByOwner('u1');
+        const defaults = rows.filter((r) => r.isDefault);
+        // The retry cleared the interloper — only the target stays default.
+        expect(defaults.map((r) => r.id)).toEqual([second.id]);
+        const concurrent = rows.find((r) => r.name === 'concurrent');
+        expect(concurrent?.isDefault).toBe(false);
+      } finally {
+        await harness.client.exec(`
+          DROP TRIGGER IF EXISTS concurrent_default_trg ON "workspaces";
+          DROP FUNCTION IF EXISTS insert_concurrent_default_once();
+          DROP SEQUENCE IF EXISTS concurrent_default_seq;
+        `);
+      }
+    });
+
+    it('restores the previous default when the SET fails with a non-unique error', async () => {
+      const first = await getOrCreateDefaultWorkspace('u1');
+      const second = await createWorkspace({ ownerId: 'u1', name: 'second' });
+
+      // BEFORE UPDATE trigger limited to rows being SET to is_default=true
+      // (the CLEAR sets is_default=false, so WHEN skips it): the first such
+      // statement — setDefaultWorkspace's SET — raises a NON-unique error.
+      // The sequence (non-transactional) disarms the trigger so the
+      // best-effort RESTORE update (also is_default=true) is allowed through.
+      await harness.client.exec(`
+        CREATE SEQUENCE fail_set_default_seq;
+        CREATE OR REPLACE FUNCTION fail_set_default_once()
+          RETURNS trigger AS $fn$
+        BEGIN
+          IF nextval('fail_set_default_seq') = 1 THEN
+            RAISE EXCEPTION 'simulated non-unique failure on set-default'
+              USING ERRCODE = 'XX000';
+          END IF;
+          RETURN NEW;
+        END;
+        $fn$ LANGUAGE plpgsql;
+        CREATE TRIGGER fail_set_default_trg BEFORE UPDATE ON "workspaces"
+          FOR EACH ROW WHEN (NEW.is_default = true)
+          EXECUTE FUNCTION fail_set_default_once();
+      `);
+      try {
+        const error = await setDefaultWorkspace('u1', second.id).then(
+          () => null,
+          (e: unknown) => e,
+        );
+        expect(error).toBeTruthy();
+        // The ORIGINAL (non-unique) error propagated — drizzle wraps it, so
+        // match anywhere on the cause chain.
+        expect(errorChainText(error)).toContain('simulated non-unique failure');
+
+        // The original error propagated, but the owner was NOT left
+        // default-less: the previous default was restored.
+        expect((await getWorkspace(first.id))?.isDefault).toBe(true);
+        expect((await getWorkspace(second.id))?.isDefault).toBe(false);
+        const defaults = (await listWorkspacesByOwner('u1')).filter(
+          (r) => r.isDefault,
+        );
+        expect(defaults.map((r) => r.id)).toEqual([first.id]);
+      } finally {
+        await harness.client.exec(`
+          DROP TRIGGER IF EXISTS fail_set_default_trg ON "workspaces";
+          DROP FUNCTION IF EXISTS fail_set_default_once();
+          DROP SEQUENCE IF EXISTS fail_set_default_seq;
+        `);
+      }
     });
   });
 

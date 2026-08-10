@@ -39,6 +39,8 @@ export const ja = {
   'chat.modelPicker.noResults': '一致するモデルがありません',
   'chat.newChat': '新規チャット',
   'chat.newConversation': '新しい会話',
+  'chat.session.manageOnlyHint':
+    '他のメンバーが作成したプライベートセッションです。ここで管理できますが、会話は開けません。',
   'chat.noConversations': '会話はまだありません',
   'chat.searchSessions': 'セッションを検索…',
   'chat.noSearchResults': '一致するセッションがありません',
@@ -94,6 +96,10 @@ export const ja = {
     'セッションの公開設定を更新しました',
   'workspace.detail.sessionVisibilityError':
     'セッションの公開設定の更新に失敗しました',
+  'workspace.detail.sessionErrorForbidden':
+    'このセッションを変更する権限がありません',
+  'workspace.detail.sessionErrorNotFound': 'セッションが見つかりません',
+  'workspace.detail.sessionErrorInvalidInput': 'リクエストが無効です',
   'workspace.detail.sessionRenameTitle': 'セッション名を変更',
   'workspace.detail.sessionRenamePlaceholder': 'セッションタイトル',
   'workspace.detail.sessionRenameSuccess': 'セッション名を変更しました',

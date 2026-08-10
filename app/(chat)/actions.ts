@@ -1,7 +1,11 @@
 'use server';
 
-import { requireAuthAccess } from '@/lib/auth/access';
-import { assertCanManageSharedSession } from '@/lib/chat/session-access';
+import { AuthError, requireAuthAccess } from '@/lib/auth/access';
+import {
+  assertCanManageSharedSession,
+  resolveSessionGrant,
+  type SessionGrant,
+} from '@/lib/chat/session-access';
 import {
   createSession,
   getSession,
@@ -129,21 +133,43 @@ export async function listRecentSessionsAction(
         wsAccess?.canAccess && !wsAccess.canManage ? [workspaceId] : [],
       archived: false,
       limit,
+      // Filter in SQL (before ORDER BY/LIMIT) so a workspace-scoped page
+      // is full — post-filtering after LIMIT would return short pages.
+      workspaceId,
     });
-    // listVisibleSessions keeps the actor's own rows anywhere; when a
-    // workspace filter is requested, drop rows from other scopes.
-    rows = rows.filter(
-      (row) => row.workspaceId && String(row.workspaceId) === workspaceId,
-    );
   } else if (access.isAdmin) {
     // Admins curate everything: full list, private content still locked.
     const all = await listSessions({ archived: false, limit });
-    rows = all.map((row) => ({
-      ...row,
-      manageOnly:
-        row.userId !== userId &&
-        !(row.visibility === 'shared' && row.workspaceId !== null),
-    }));
+    // Reuse resolveSessionGrant so manageOnly matches the chat /
+    // orchestration read gates exactly: only a 'manage' grant (not a
+    // readable one) renders as a lock — a shared session in a workspace
+    // the admin cannot access stays locked instead of clickable.
+    // resolveSessionGrant hits the DB per workspace, so memoize per
+    // (workspaceId, visibility): a non-owner row's grant depends only on
+    // those two plus the actor. Cache the PROMISE (not the resolved
+    // value) so concurrent rows share a single in-flight resolution.
+    const grantCache = new Map<string, Promise<SessionGrant | null>>();
+    rows = await Promise.all(
+      all.map(async (row) => {
+        let grant: SessionGrant | null;
+        if (row.userId === userId) {
+          grant = 'owner';
+        } else {
+          const cacheKey = `${row.workspaceId ?? ''}:${row.visibility ?? 'private'}`;
+          let pending = grantCache.get(cacheKey);
+          if (!pending) {
+            pending = resolveSessionGrant(access, row);
+            grantCache.set(cacheKey, pending);
+          }
+          grant = await pending;
+        }
+        return {
+          ...row,
+          // Fail closed: an unresolvable grant renders as locked.
+          manageOnly: grant === null || grant === 'manage',
+        };
+      }),
+    );
   } else {
     const { listVisibleWorkspaces } = await import('@/lib/core/db/agentd');
     const visible = await listVisibleWorkspaces(userId);
@@ -252,6 +278,21 @@ export async function toggleSessionPinAction(input: { id: string }) {
 }
 
 /**
+ * Result contract for session mutations consumed by the workspace
+ * sessions table (components/config/sections/workspace-sessions-table.tsx).
+ * Expected failures are RETURNED, not thrown, so the client can map the
+ * error code to a localized toast without parsing exception messages.
+ */
+type SessionMutationResult =
+  | { success: true }
+  | {
+      success: false;
+      error: 'invalid_input' | 'forbidden' | 'not_found' | 'unknown';
+    };
+
+const sessionVisibilitySchema = z.enum(['private', 'shared']);
+
+/**
  * Toggle a session's visibility inside its PUBLIC workspace ('private' =
  * creator-only, 'shared' = every workspace member can read/manage).
  * Visibility is the CREATOR's choice — only grant==='owner' may change it;
@@ -261,28 +302,45 @@ export async function toggleSessionPinAction(input: { id: string }) {
 export async function setSessionVisibilityAction(input: {
   id: string;
   visibility: 'private' | 'shared';
-}) {
+}): Promise<SessionMutationResult> {
   const access = await requireAuth();
+
+  // Runtime validation: server-action payloads are not type-checked, so
+  // the declared 'private' | 'shared' type is only a compile-time hint.
+  const parsedVisibility = sessionVisibilitySchema.safeParse(input.visibility);
+  if (!parsedVisibility.success) {
+    return { success: false, error: 'invalid_input' };
+  }
+  const visibility = parsedVisibility.data;
 
   const id = input.id.trim();
   if (!id) {
-    throw new Error('Missing session id');
+    return { success: false, error: 'invalid_input' };
   }
 
   const existing = await getSession(id);
   if (!existing) {
-    throw new Error('Session not found');
-  }
-  const grant = await assertCanManageSharedSession(access, existing);
-  if (grant !== 'owner') {
-    throw new Error('Only the session creator can change session visibility');
+    return { success: false, error: 'not_found' };
   }
 
-  if (input.visibility === 'shared') {
+  let grant: SessionGrant;
+  try {
+    grant = await assertCanManageSharedSession(access, existing);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'forbidden' };
+    }
+    throw error;
+  }
+  if (grant !== 'owner') {
+    return { success: false, error: 'forbidden' };
+  }
+
+  if (visibility === 'shared') {
     // Sharing only makes sense inside a PUBLIC workspace — refuse to
     // silently no-op elsewhere.
     if (!existing.workspaceId) {
-      throw new Error('Session is not inside a shared workspace');
+      return { success: false, error: 'invalid_input' };
     }
     const { resolveWorkspaceAccess } = await import('@/lib/core/db/agentd');
     const wsAccess = await resolveWorkspaceAccess(existing.workspaceId, {
@@ -290,14 +348,12 @@ export async function setSessionVisibilityAction(input: {
       roles: access.user.roles,
     });
     if (wsAccess?.ws.visibility !== 'public') {
-      throw new Error('Session is not inside a public workspace');
+      return { success: false, error: 'invalid_input' };
     }
   }
 
-  await updateSessionForUser(id, access.session.userId, {
-    visibility: input.visibility,
-  });
-  return { ok: true as const, visibility: input.visibility };
+  await updateSessionForUser(id, access.session.userId, { visibility });
+  return { success: true };
 }
 
 export async function updateSessionTitleAction(input: {
@@ -336,31 +392,48 @@ export async function updateSessionTitleAction(input: {
   };
 }
 
-export async function deleteSessionAction(sessionId: string) {
+export async function deleteSessionAction(
+  sessionId: string,
+): Promise<SessionMutationResult> {
   const access = await requireAuth();
 
   const id = sessionId.trim();
   if (!id) {
-    throw new Error('Missing session id');
+    return { success: false, error: 'invalid_input' };
   }
 
   const session = await getSession(id);
   if (!session) {
-    throw new Error('Session not found.');
-  }
-  const grant = await assertCanManageSharedSession(access, session);
-
-  const cleanup = await cleanupChatSession(session, {
-    userId: grant === 'owner' ? access.session.userId : undefined,
-  });
-
-  if (!cleanup.deleted) {
-    throw new Error('Session not found.');
+    return { success: false, error: 'not_found' };
   }
 
-  return {
-    ok: true as const,
-  };
+  let grant: SessionGrant;
+  try {
+    grant = await assertCanManageSharedSession(access, session);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return { success: false, error: 'forbidden' };
+    }
+    throw error;
+  }
+
+  try {
+    const cleanup = await cleanupChatSession(session, {
+      userId: grant === 'owner' ? access.session.userId : undefined,
+    });
+
+    if (!cleanup.deleted) {
+      return { success: false, error: 'not_found' };
+    }
+  } catch (error) {
+    logger.error('session:delete-failed', {
+      sessionId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { success: false, error: 'unknown' };
+  }
+
+  return { success: true };
 }
 
 export async function getSessionRuntimeAction(

@@ -423,16 +423,14 @@ async function ensureMessageSession(input: {
     const userId = sourceUserId(input.source);
     if (!userId) return null;
 
-    const { getOrCreateDefaultWorkspace } = await import(
-      '@/lib/core/db/agentd'
-    );
+    const { getOrCreateDefaultWorkspace, resolveWorkspaceAccess } =
+      await import('@/lib/core/db/agentd');
 
     const requestedId = input.workspaceId?.trim();
     if (requestedId) {
       // Public workspaces: any member (not just the owner) may scope new
       // sessions here. resolveWorkspaceAccess encodes owner / public /
       // admin-of-non-protected-owner.
-      const { resolveWorkspaceAccess } = await import('@/lib/core/db/agentd');
       const { getUserById } = await import('@/lib/core/db/users');
       const actor = await getUserById(userId);
       const wsAccess = await resolveWorkspaceAccess(requestedId, {
@@ -642,7 +640,10 @@ async function canAccessSessionWorkspace(
       userId,
       roles: actor?.roles ?? [],
     });
-    return wsAccess?.canAccess ?? false;
+    // Archived workspaces stay out of the shared surface: resolveWorkspace-
+    // Access computes canAccess from ownership/visibility only, so an active-
+    // status gate is required here in addition to membership.
+    return Boolean(wsAccess?.canAccess && wsAccess.ws.status === 'active');
   } catch {
     // Fail closed: a lookup error must never widen access.
     return false;

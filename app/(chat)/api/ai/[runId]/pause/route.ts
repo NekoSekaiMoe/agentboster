@@ -1,4 +1,5 @@
 import { requireAuthAccess } from '@/lib/auth/access';
+import { authErrorResponse } from '@/app/(chat)/api/ai/auth-error';
 import { assertCanManageSharedSession } from '@/lib/chat/session-access';
 import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
 import { createLogger } from '@/lib/utils/logger';
@@ -25,7 +26,13 @@ export async function POST(
   if (!session) {
     return Response.json({ error: 'Run not found.' }, { status: 404 });
   }
-  await assertCanManageSharedSession(access, session);
+  try {
+    await assertCanManageSharedSession(access, session);
+  } catch (error) {
+    const response = authErrorResponse(error, { includeOk: false });
+    if (response) return response;
+    throw error;
+  }
 
   await pauseWorkflow(runId);
   logger.info('pause:success', {

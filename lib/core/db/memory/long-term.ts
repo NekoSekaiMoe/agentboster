@@ -6,6 +6,7 @@ import {
   mergeHybridSearchCandidates,
 } from '@/lib/memory/search';
 import { resolveProjectId } from '@/lib/memory/scope';
+import { bumpSharedMemoryVersion } from '@/lib/memory/shared-version';
 import { createLogger } from '@/lib/utils/logger';
 import {
   and,
@@ -149,6 +150,37 @@ function buildWorkspaceVisibilityCondition(
   return and(scopeMatch, visibilityMatch);
 }
 
+/**
+ * Bump the per-workspace shared-memory version for every mutated row that
+ * belongs to a shared pool (shared=true AND workspace-scoped). Workspace
+ * readers fold this version into their recall cache key
+ * (lib/memory/recall.ts), so a bump makes every member's cached shared
+ * memories stale IMMEDIATELY — closing the hole where only the writer's
+ * per-user caches were invalidated and other workspace members served the
+ * old shared rows until TTL.
+ *
+ * Centralized here (DAL) rather than at call sites so every write path
+ * benefits — including routes that hit the DAL directly (workspace
+ * hard-delete, agentd bulk ingest). Best-effort per bumpSharedMemoryVersion;
+ * never throws into the write path.
+ */
+async function bumpSharedVersionsForRows(
+  rows: ReadonlyArray<{
+    shared: boolean | null;
+    workspaceId: string | null;
+  } | null>,
+) {
+  const workspaceIds = new Set<string>();
+  for (const row of rows) {
+    if (row?.shared && row.workspaceId) {
+      workspaceIds.add(row.workspaceId);
+    }
+  }
+  for (const workspaceId of workspaceIds) {
+    await bumpSharedMemoryVersion(workspaceId);
+  }
+}
+
 export async function createLongTermMemoryRow(
   content: string,
   options?: {
@@ -244,6 +276,9 @@ export async function createLongTermMemoryRows(
       })),
     )
     .returning();
+  // Shared-pool inserts move the workspace version so other members'
+  // workspace-scoped recall caches pick the new rows up immediately.
+  await bumpSharedVersionsForRows(inserted);
   return inserted;
 }
 
@@ -384,6 +419,9 @@ export async function upsertLongTermMemoryByKey(input: {
       })
       .where(eq(schema.longTermMemories.id, existing.id))
       .returning();
+    // The UPDATE path never flips `shared`, but it can rewrite the content
+    // of an already-shared row — other members must see the refresh.
+    await bumpSharedVersionsForRows([row ?? null]);
     return { row, created: false };
   }
 
@@ -612,6 +650,7 @@ export async function updateLongTermMemoryRow(
     .where(and(...conditions))
     .returning();
 
+  await bumpSharedVersionsForRows([row ?? null]);
   return row ?? null;
 }
 
@@ -629,6 +668,7 @@ export async function deleteLongTermMemoryRow(
     .where(and(...conditions))
     .returning();
 
+  await bumpSharedVersionsForRows([row ?? null]);
   return row ?? null;
 }
 
@@ -680,6 +720,13 @@ export async function deleteLongTermMemoriesByWorkspaceId(
       ),
     )
     .returning({ id: schema.longTermMemories.id });
+  // Both modes remove shared-pool rows (sharedOnly by definition; hard
+  // delete removes everything in the workspace). Bump unconditionally —
+  // the deleted set isn't re-queried for shared flags, and a spurious
+  // bump only costs one cache rebuild per reader.
+  if (rows.length > 0) {
+    await bumpSharedMemoryVersion(workspaceId);
+  }
   return rows.length;
 }
 
@@ -726,6 +773,7 @@ export async function deleteLongTermMemoryByKey(input: {
     )
     .returning();
 
+  await bumpSharedVersionsForRows([row ?? null]);
   return row ?? null;
 }
 
@@ -882,6 +930,9 @@ export async function markLongTermMemorySuperseded(input: {
     .where(and(...conditions))
     .returning();
 
+  // Superseding hides the row from recall; if it was shared, other
+  // workspace members must stop seeing it immediately.
+  await bumpSharedVersionsForRows([row ?? null]);
   return row ?? null;
 }
 
@@ -942,6 +993,9 @@ export async function ratifyLongTermMemory(input: {
     .where(and(...conditions))
     .returning();
 
+  // Ratification flips recall visibility (tentative → active); a shared
+  // proposal becoming active must surface for every workspace member.
+  await bumpSharedVersionsForRows([row ?? null]);
   return row ?? null;
 }
 

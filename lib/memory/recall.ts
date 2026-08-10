@@ -18,6 +18,7 @@ import {
 } from './cross-reranker';
 import { searchLongTermMemories } from './long-term';
 import type { HybridSearchRow } from './search';
+import { readSharedMemoryVersion } from './shared-version';
 
 const logger = createLogger('memory.recall');
 
@@ -50,6 +51,17 @@ interface CacheKeyParams {
   strategy: string;
   rerankSignature: string;
   workspaceId: string | null;
+  /**
+   * Shared-pool version of the workspace (lib/memory/shared-version.ts),
+   * read just before the cache lookup. Workspace-scoped recall matches
+   * rows via `shared=true OR user_id=?`, so a shared row written by
+   * ANOTHER member changes this reader's result without touching this
+   * reader's per-user invalidation. Folding the workspace version into
+   * the key makes such writes invalidate every member's cached recall
+   * immediately instead of after TTL. Null for workspace-less (personal/
+   * global) recall — that path's key format and behavior are unchanged.
+   */
+  workspaceVersion: number | null;
 }
 
 function hashString(value: string): number {
@@ -62,7 +74,7 @@ function hashString(value: string): number {
 
 function buildCacheKey(params: CacheKeyParams): string {
   const queryHash = hashString(params.query);
-  return [
+  const base = [
     params.userId,
     queryHash,
     params.topK,
@@ -71,6 +83,11 @@ function buildCacheKey(params: CacheKeyParams): string {
     params.rerankSignature,
     params.workspaceId ?? '',
   ].join(':');
+  // Version segment only for workspace-scoped recalls; superseded entries
+  // (older version) become unreachable and age out via the LRU cap.
+  return params.workspaceVersion === null
+    ? base
+    : `${base}:wv${params.workspaceVersion}`;
 }
 
 function getCachedRecall(
@@ -262,6 +279,14 @@ export async function recallRelevantMemories(input: {
   const strategy = config ? resolveRecallStrategy(config) : 'vector';
   const rerankSignature = buildRerankSignature(config);
 
+  // Read the workspace's shared-memory version BEFORE the cache lookup so
+  // a concurrent/shared write by another member is reflected in the key.
+  // Fail-soft (0 on KV error) → key mismatch → fresh DB read, the safe
+  // direction. Skipped entirely for personal/global recall.
+  const workspaceVersion = workspaceId
+    ? await readSharedMemoryVersion(workspaceId)
+    : null;
+
   const cacheParams: CacheKeyParams = {
     userId,
     query,
@@ -270,6 +295,7 @@ export async function recallRelevantMemories(input: {
     strategy,
     rerankSignature,
     workspaceId,
+    workspaceVersion,
   };
 
   // bypassCache skips only the fresh-cache EARLY RETURN — the cached
