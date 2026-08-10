@@ -75,6 +75,7 @@
  */
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isVercel } from '../lib/extra/deploy';
 import { closeRawSql, getRawQuery } from './db-raw-sql';
 import type { RawQuery } from './db-raw-sql';
 
@@ -100,7 +101,9 @@ function resolveRawDriver(): 'neon' | 'postgres' {
   } catch {
     // Unparseable URL — fall through to the deployment-mode default.
   }
-  return process.env.VERCEL ? 'neon' : 'postgres';
+  // Deployment-mode default goes through the deploy hub (AGENTS.md:
+  // never inline process.env.VERCEL checks).
+  return isVercel ? 'neon' : 'postgres';
 }
 
 /**
@@ -126,6 +129,127 @@ async function applyDedupTimeouts(query: RawQuery): Promise<void> {
       '[dedup-global-memories] note: neon HTTP driver is stateless — the SET statement_timeout/lock_timeout above does NOT persist across queries; enforce timeouts server-side (role/database settings) if needed',
     );
   }
+}
+
+/**
+ * Build the per-user cascade-safe dedup statement. One atomic
+ * data-modifying CTE per batch (user), composed from stages so a
+ * PARTIAL schema (exactly one dependent table present) can omit the
+ * missing table's stages while still preserving the existing table's
+ * references — never falling back to a plain cascade DELETE.
+ *
+ * Stage semantics (see also the caller's comments):
+ *   ranked/remap/doomed — window-rank the batch user's global rows per
+ *     (user, project, key) group; retained = max(updated_at), tie-break
+ *     max(id). NULL component values excluded (`=` semantics).
+ *   remapped/survivors  — [withEdges] every edge after re-pointing
+ *     doomed endpoints; one winner per (new src, dst, relation) so
+ *     memory_edges_unique_idx cannot be violated; re-point self-loops
+ *     never survive. Must scan the FULL edges table so an untouched
+ *     edge with final endpoints wins its partition.
+ *   repoint_chunks      — [withChunks] chunks follow the retained row.
+ *   repoint_edges/drop_edges — [withEdges] apply survivor re-points,
+ *     delete colliding/self-loop touched edges.
+ *   deleted             — delete doomed memories; by now no dependent
+ *     rows remain for the ON DELETE CASCADE to destroy.
+ */
+function buildCascadeBatchSql(opts: {
+  withChunks: boolean;
+  withEdges: boolean;
+}): string {
+  const head = `
+    WITH ranked AS (
+      SELECT id,
+             COUNT(*) OVER (
+               PARTITION BY user_id, project_id, memory_key
+             ) AS group_size,
+             FIRST_VALUE(id) OVER (
+               PARTITION BY user_id, project_id, memory_key
+               ORDER BY updated_at DESC, id DESC
+             ) AS retained_id
+      FROM long_term_memories
+      WHERE workspace_id IS NULL
+        AND user_id IS NOT NULL
+        AND project_id IS NOT NULL
+        AND memory_key IS NOT NULL
+        AND user_id = $1
+    ),
+    remap AS (
+      SELECT id, retained_id
+      FROM ranked
+      WHERE group_size > 1
+    ),
+    doomed AS (
+      SELECT id AS doomed_id, retained_id
+      FROM remap
+      WHERE id <> retained_id
+    )`;
+  const edgesRemap = `,
+    remapped AS (
+      SELECT e.id,
+             COALESCE(ms.retained_id, e.src_memory_id) AS new_src,
+             COALESCE(md.retained_id, e.dst_memory_id) AS new_dst,
+             e.relation,
+             (ds.doomed_id IS NOT NULL OR dd.doomed_id IS NOT NULL) AS touched
+      FROM memory_edges e
+      LEFT JOIN remap ms ON ms.id = e.src_memory_id
+      LEFT JOIN remap md ON md.id = e.dst_memory_id
+      LEFT JOIN doomed ds ON ds.doomed_id = e.src_memory_id
+      LEFT JOIN doomed dd ON dd.doomed_id = e.dst_memory_id
+    ),
+    survivors AS (
+      SELECT id
+      FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY new_src, new_dst, relation
+                 ORDER BY touched, id
+               ) AS edge_rn
+        FROM remapped
+        WHERE new_src <> new_dst
+      ) s
+      WHERE edge_rn = 1
+    )`;
+  const chunks = `,
+    repoint_chunks AS (
+      UPDATE long_term_memory_chunks c
+      SET memory_id = d.retained_id
+      FROM doomed d
+      WHERE c.memory_id = d.doomed_id
+    )`;
+  const edgesMutate = `,
+    repoint_edges AS (
+      UPDATE memory_edges e
+      SET src_memory_id = r.new_src,
+          dst_memory_id = r.new_dst
+      FROM remapped r
+      WHERE e.id = r.id
+        AND r.touched
+        AND r.id IN (SELECT id FROM survivors)
+    ),
+    drop_edges AS (
+      DELETE FROM memory_edges e
+      USING remapped r
+      WHERE e.id = r.id
+        AND r.touched
+        AND r.id NOT IN (SELECT id FROM survivors)
+    )`;
+  const tail = `,
+    deleted AS (
+      DELETE FROM long_term_memories m
+      USING doomed d
+      WHERE m.id = d.doomed_id
+      RETURNING m.id AS id
+    )
+    SELECT id FROM deleted`;
+
+  return (
+    head +
+    (opts.withEdges ? edgesRemap : '') +
+    (opts.withChunks ? chunks : '') +
+    (opts.withEdges ? edgesMutate : '') +
+    tail
+  );
 }
 
 /**
@@ -169,9 +293,14 @@ export async function dedupGlobalLongTermMemories(): Promise<number> {
   // the file-header LIMITATION note for the neon HTTP driver).
   await applyDedupTimeouts(query);
 
-  // Guard: schemas predating migrations 0010/0018 have no dependent
-  // tables to re-point — fall back to the plain 0038-style DELETE.
-  if (!tables[0].chunks || !tables[0].edges) {
+  // Guard: only when BOTH dependent tables are absent (schema predates
+  // migrations 0010 AND 0018) is the plain 0038-style DELETE safe —
+  // there are no references to preserve. A PARTIAL schema (exactly one
+  // dependent table present) must NOT take this path: the plain DELETE
+  // would ON DELETE CASCADE away the existing table's references.
+  // Partial schemas use the cascade-safe pipeline below with the missing
+  // table's stages omitted.
+  if (!tables[0].chunks && !tables[0].edges) {
     // Log the doomed-row count first so operators can reconcile it with
     // the deleted count (same ranking semantics as the DELETE below).
     const doomed = await query<{ count: number }>(`
@@ -276,93 +405,22 @@ export async function dedupGlobalLongTermMemories(): Promise<number> {
     `[dedup-global-memories] ${totalDoomed} doomed duplicate global row(s) across ${batches.length} user(s); deleting in per-user batches`,
   );
 
+  const withChunks = tables[0].chunks !== null;
+  const withEdges = tables[0].edges !== null;
+  if (!withChunks || !withEdges) {
+    // Partial schema: exactly one dependent table exists. Preserve ITS
+    // references (the other table's stages are omitted from the batch
+    // SQL) instead of cascading them away with a plain DELETE.
+    const missing = withChunks ? 'memory_edges' : 'long_term_memory_chunks';
+    console.warn(
+      `[dedup-global-memories] partial schema: ${missing} is missing; preserving references in the existing dependent table(s) only — complete the pending migration for full cascade-safe dedup`,
+    );
+  }
+  const batchSql = buildCascadeBatchSql({ withChunks, withEdges });
+
   let totalDeleted = 0;
   for (const batch of batches) {
-    const deleted = await query<{ id: string }>(
-      `
-    WITH ranked AS (
-      SELECT id,
-             COUNT(*) OVER (
-               PARTITION BY user_id, project_id, memory_key
-             ) AS group_size,
-             FIRST_VALUE(id) OVER (
-               PARTITION BY user_id, project_id, memory_key
-               ORDER BY updated_at DESC, id DESC
-             ) AS retained_id
-      FROM long_term_memories
-      WHERE workspace_id IS NULL
-        AND user_id IS NOT NULL
-        AND project_id IS NOT NULL
-        AND memory_key IS NOT NULL
-        AND user_id = $1
-    ),
-    remap AS (
-      SELECT id, retained_id
-      FROM ranked
-      WHERE group_size > 1
-    ),
-    doomed AS (
-      SELECT id AS doomed_id, retained_id
-      FROM remap
-      WHERE id <> retained_id
-    ),
-    remapped AS (
-      SELECT e.id,
-             COALESCE(ms.retained_id, e.src_memory_id) AS new_src,
-             COALESCE(md.retained_id, e.dst_memory_id) AS new_dst,
-             e.relation,
-             (ds.doomed_id IS NOT NULL OR dd.doomed_id IS NOT NULL) AS touched
-      FROM memory_edges e
-      LEFT JOIN remap ms ON ms.id = e.src_memory_id
-      LEFT JOIN remap md ON md.id = e.dst_memory_id
-      LEFT JOIN doomed ds ON ds.doomed_id = e.src_memory_id
-      LEFT JOIN doomed dd ON dd.doomed_id = e.dst_memory_id
-    ),
-    survivors AS (
-      SELECT id
-      FROM (
-        SELECT id,
-               ROW_NUMBER() OVER (
-                 PARTITION BY new_src, new_dst, relation
-                 ORDER BY touched, id
-               ) AS edge_rn
-        FROM remapped
-        WHERE new_src <> new_dst
-      ) s
-      WHERE edge_rn = 1
-    ),
-    repoint_chunks AS (
-      UPDATE long_term_memory_chunks c
-      SET memory_id = d.retained_id
-      FROM doomed d
-      WHERE c.memory_id = d.doomed_id
-    ),
-    repoint_edges AS (
-      UPDATE memory_edges e
-      SET src_memory_id = r.new_src,
-          dst_memory_id = r.new_dst
-      FROM remapped r
-      WHERE e.id = r.id
-        AND r.touched
-        AND r.id IN (SELECT id FROM survivors)
-    ),
-    drop_edges AS (
-      DELETE FROM memory_edges e
-      USING remapped r
-      WHERE e.id = r.id
-        AND r.touched
-        AND r.id NOT IN (SELECT id FROM survivors)
-    ),
-    deleted AS (
-      DELETE FROM long_term_memories m
-      USING doomed d
-      WHERE m.id = d.doomed_id
-      RETURNING m.id AS id
-    )
-    SELECT id FROM deleted
-  `,
-      [batch.user_id],
-    );
+    const deleted = await query<{ id: string }>(batchSql, [batch.user_id]);
     totalDeleted += deleted.length;
   }
 

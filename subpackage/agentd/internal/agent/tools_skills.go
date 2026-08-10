@@ -59,7 +59,12 @@ Actions: list, install, deps, info`,
 			params.Manager = "npm"
 		}
 
-		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SnapshotSandboxID())
+		// Snapshot the sandbox ONCE per operation: the path derivation
+		// below and every sbMgr.Exec in the switch must target the same
+		// sandbox, or a concurrent sandbox_destroy swapping ctx.SandboxID
+		// between reads would split the operation across two containers.
+		sandboxID := ctx.SnapshotSandboxID()
+		sbPath, err := getSandboxWorkspace(sbMgr, sandboxID)
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
@@ -105,7 +110,7 @@ Actions: list, install, deps, info`,
 				default:
 					return &ToolResult{Success: false, Error: fmt.Sprintf("unsupported manager: %s", params.Manager)}, nil
 				}
-				result, execErr := sbMgr.Exec(ctx.SnapshotSandboxID(), cmd, nil, 120)
+				result, execErr := sbMgr.Exec(sandboxID, cmd, nil, 120)
 				if execErr != nil {
 					return &ToolResult{Success: false, Error: fmt.Sprintf("install error: %v", execErr)}, nil
 				}
@@ -122,7 +127,7 @@ Actions: list, install, deps, info`,
 			if err != nil {
 				return &ToolResult{Success: false, Error: err.Error()}, nil
 			}
-			result, execErr := sbMgr.Exec(ctx.SnapshotSandboxID(), cmd, nil, 120)
+			result, execErr := sbMgr.Exec(sandboxID, cmd, nil, 120)
 			if execErr != nil {
 				return &ToolResult{Success: false, Error: fmt.Sprintf("deps install error: %v", execErr)}, nil
 			}
