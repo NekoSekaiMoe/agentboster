@@ -147,6 +147,8 @@ export async function createLongTermMemory(input: {
   key?: string;
   sourceKind?: LongTermMemorySourceKind;
   triggerPhrases?: string[];
+  /** Workspace scope (M2). Null/undefined = global layer. */
+  workspaceId?: string | null;
   config?: AppConfig;
 }) {
   const memory = await createLongTermMemoryRow(input.content, {
@@ -156,6 +158,7 @@ export async function createLongTermMemory(input: {
     key: input.key,
     sourceKind: input.sourceKind,
     triggerPhrases: input.triggerPhrases,
+    workspaceId: input.workspaceId,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
@@ -194,6 +197,10 @@ export async function upsertLongTermMemory(input: {
   memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
   importance?: number;
   projectId?: string | null;
+  /** Workspace scope (M2). Null/undefined = global layer. Takes precedence
+   *  over projectId for backward-compat writes; both are stamped so legacy
+   *  project-scoped recall and new workspace-scoped recall agree. */
+  workspaceId?: string | null;
   sourceKind?: LongTermMemorySourceKind;
   triggerPhrases?: string[];
   /**
@@ -213,6 +220,7 @@ export async function upsertLongTermMemory(input: {
     memoryType: input.memoryType,
     importance: input.importance,
     projectId: input.projectId,
+    workspaceId: input.workspaceId,
     sourceKind: input.sourceKind,
     triggerPhrases: input.triggerPhrases,
     dreamStatus: input.dreamStatus,
@@ -304,6 +312,11 @@ export async function listLongTermMemories(input?: {
    * with `projectIdScope`.
    */
   projectIdScope?: string | null;
+  /** Workspace scope filter (M2): undefined/null = no workspace filter,
+   *  a real id = that workspace plus the global layer. Forwarded to
+   *  listLongTermMemoryRows so extraction candidates stay scoped and the
+   *  LLM cannot see another workspace's private memories. */
+  workspaceId?: string | null;
 }) {
   const page = Math.max(1, input?.page ?? 1);
   const pageSize = Math.max(1, Math.min(input?.pageSize ?? 50, 100));
@@ -340,6 +353,7 @@ export async function listLongTermMemories(input?: {
     offset: (page - 1) * pageSize,
     userId: input?.userId,
     projectIdScope: input?.projectIdScope,
+    workspaceId: input?.workspaceId,
   });
 }
 
@@ -385,6 +399,9 @@ export async function searchLongTermMemories(input: {
   page?: number;
   pageSize?: number;
   userId?: string;
+  /** Workspace scope (M2). When set, recall is filtered to the workspace
+   *  + global layer, with per-row shared/owner visibility. */
+  workspaceId?: string | null;
   config?: AppConfig;
 }): Promise<HybridSearchRow[]> {
   const config = await getEffectiveConfig(input.config);
@@ -413,6 +430,7 @@ export async function searchLongTermMemories(input: {
       limit,
       offset,
       userId: input.userId,
+      workspaceId: input.workspaceId,
     });
     if (results.length > 0) {
       await updateLastAccessedAt(results.map((r) => r.chunkId));
@@ -440,6 +458,7 @@ export async function searchLongTermMemories(input: {
       queryEmbeddingModel: queryEmbedding.embeddingModel,
       queryEmbeddingDimensions: queryEmbedding.embeddingDimensions,
       userId: input.userId,
+      workspaceId: input.workspaceId,
     });
 
     // Update lastAccessedAt for matched chunks (top-K results only)

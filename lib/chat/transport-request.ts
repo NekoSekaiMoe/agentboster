@@ -1,3 +1,4 @@
+import { useActiveWorkspaceStore } from '@/hooks/use-active-workspace-store';
 import type { WorkflowUIMessage } from '@/types/workflow';
 
 export type ChatSendTrigger =
@@ -52,6 +53,19 @@ function getRequestAgent(body: Record<string, unknown>): string | undefined {
     : undefined;
 }
 
+/**
+ * Active workspace from the shared client store, read at request-build
+ * time (getState, not a hook subscription) so every send reflects the
+ * workspace the user is looking at right now. The server validates
+ * ownership + active status before scoping a NEW session to it
+ * (SessionWorkspaceError → 4xx); existing sessions keep their own
+ * recorded workspace regardless. Undefined when nothing is selected yet
+ * — the server then falls back to the user's default workspace.
+ */
+function getRequestWorkspaceId(): string | undefined {
+  return useActiveWorkspaceStore.getState().workspaceId ?? undefined;
+}
+
 export function buildChatSendRequestBody({
   id: chatId,
   messages,
@@ -86,6 +100,7 @@ export function buildChatSendRequestBody({
       messageId,
       model: getRequestModel(bodyRecord),
       agent: getRequestAgent(bodyRecord),
+      workspaceId: getRequestWorkspaceId(),
       input: {
         parts: targetParts,
         text: extractTextFromParts(targetParts),

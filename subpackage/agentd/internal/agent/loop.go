@@ -212,6 +212,10 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 		if auditTaskID == "" {
 			auditTaskID = "00000000-0000-0000-0000-000000000000"
 		}
+		// Snapshot SandboxID under the per-session state lock (nil-safe
+		// no-op for detached sub-agent loops): sandbox_destroy clears it
+		// concurrently with tool dispatch.
+		auditSandboxID := l.agentCtx.SnapshotSandboxID()
 		auditTask := &clawless.Task{
 			ID:        auditTaskID,
 			AgentID:   l.agentCtx.AgentID,
@@ -219,7 +223,7 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 			UserID:    l.agentCtx.UserID,
 			Roles:     l.agentCtx.Roles,
 			Source:    l.agentCtx.Source,
-			SandboxID: l.agentCtx.SandboxID,
+			SandboxID: auditSandboxID,
 			Command:   fmt.Sprintf("tool=%s args=%s", call.Name, string(call.Arguments)),
 		}
 		auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)
@@ -468,11 +472,18 @@ func (l *AgentLoop) compactContext(ctx context.Context) error {
 	compacted = dropOrphanToolResults(compacted)
 
 	l.messages = compacted
-	l.agentCtx.TaskState.CompactionCount++
-	l.agentCtx.TaskState.CompactedAt = time.Now().UTC().Format(time.RFC3339)
+	// Loop-progress state is OBSERVABLE: session-status readers
+	// (GetSessionStatus/GetAllSessionStatuses) report CompactionCount
+	// live and session serialization snapshots SessionSummary. Commit
+	// under the per-session state lock (nil/no-op for sub-agent loops,
+	// whose contexts are single-goroutine-owned).
+	l.agentCtx.WithStateLock(func() {
+		l.agentCtx.TaskState.CompactionCount++
+		l.agentCtx.TaskState.CompactedAt = time.Now().UTC().Format(time.RFC3339)
 
-	// Persist compaction summary to session store
-	l.agentCtx.SessionSummary = summary
+		// Persist compaction summary to session store
+		l.agentCtx.SessionSummary = summary
+	})
 
 	slog.Info("compaction complete", "before", len(l.messages)+keepCount+1, "after", len(l.messages))
 	return nil
@@ -481,7 +492,17 @@ func (l *AgentLoop) compactContext(ctx context.Context) error {
 // saveTaskState captures current execution state before compaction.
 // Enhanced to identify key decision points: requirement changes, retry-after-failure,
 // and technical approach selections — not just recent tool results.
+//
+// The whole body runs under the per-session state lock: it reads
+// RecentToolCalls (appended by completeToolCall under the same lock)
+// and writes TaskState fields observed by status readers. The lock is
+// nil (no-op) for sub-agent loops.
 func (l *AgentLoop) saveTaskState() {
+	l.agentCtx.WithStateLock(func() { l.saveTaskStateLocked() })
+}
+
+// saveTaskStateLocked is saveTaskState's body; caller holds the state lock.
+func (l *AgentLoop) saveTaskStateLocked() {
 	l.agentCtx.TaskState.SandboxType = l.agentCtx.SandboxType
 	l.agentCtx.TaskState.SandboxID = l.agentCtx.SandboxID
 

@@ -108,7 +108,7 @@ The session runs up to max_turns iterations. Each turn:
 			model = ctx.Model
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available for codeact"}, nil
 		}

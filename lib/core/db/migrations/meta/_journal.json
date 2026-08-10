@@ -3,6 +3,251 @@
   "dialect": "postgresql",
   "entries": [
     {
+      "idx": 0,
+      "version": "7",
+      "when": 1786201682150,
+      "tag": "0000_sad_legion",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786201683150,
+      "tag": "0001_lucky_betty_brant",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786201684150,
+      "tag": "0002_eminent_richard_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786201685150,
+      "tag": "0003_add_tidy_report_notification_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786201686150,
+      "tag": "0004_agentd_identity_and_vault",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786201687150,
+      "tag": "0005_agent_tool_activity_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786201688150,
+      "tag": "0006_agent_memories_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786201689150,
+      "tag": "0007_knowledge_visibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786201690150,
+      "tag": "0008_knowledge_connectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786201691150,
+      "tag": "0009_knowledge_priority",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786201692150,
+      "tag": "0010_thin_joystick",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786201693150,
+      "tag": "0011_remote_knowledge_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786201694150,
+      "tag": "0012_im_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786201695150,
+      "tag": "0013_user_model_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786201696150,
+      "tag": "0014_sandbox_cgroup_aggregates",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786201697150,
+      "tag": "0015_cli_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786201698150,
+      "tag": "0016_agent_l0_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786201699150,
+      "tag": "0017_curved_meggan",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786201700150,
+      "tag": "0018_memory_edges",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786201701150,
+      "tag": "0019_melted_secret_warriors",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786201702150,
+      "tag": "0020_salty_hedge_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786201703150,
+      "tag": "0021_striped_doctor_spectrum",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786201704150,
+      "tag": "0022_hesitant_rocket_raccoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786201705150,
+      "tag": "0023_tidy_morph",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786201706150,
+      "tag": "0024_rainy_miek",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786201707150,
+      "tag": "0025_validate_orchestration_plans_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786201708150,
+      "tag": "0026_dapper_sandman",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1786201709150,
+      "tag": "0027_backfill_long_term_memory_project_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1786201710150,
+      "tag": "0028_careless_arclight",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1786201711150,
+      "tag": "0029_memory_evolution_signals",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1786201712150,
+      "tag": "0030_multi_user_isolation_and_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1786201713150,
+      "tag": "0031_scheduled_task_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786201714150,
+      "tag": "0032_inbox_severity_prefs",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786201715150,
+      "tag": "0033_scheduled_task_runs_heartbeat",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786201716150,
+      "tag": "0034_node_usage_daily_user_isolation",
+      "breakpoints": true
+    },
+    {
       "idx": 35,
       "version": "7",
       "when": 1786201717150,
@@ -14,6 +259,27 @@
       "version": "7",
       "when": 1786206349500,
       "tag": "0036_smooth_jasper_sitwell",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786332000000,
+      "tag": "0037_workspace_memory_boundary",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786337705848,
+      "tag": "0038_global_key_partial_uniq",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786352415789,
+      "tag": "0039_m0a_workspace_split_replay",
       "breakpoints": true
     }
   ]

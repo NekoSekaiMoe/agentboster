@@ -124,9 +124,18 @@ func (m *Manager) LaunchSubagent(parent *AgentContext, req SubagentRequest) stri
 	// parent TaskState by the tool handler).
 	statePath := ""
 	if req.ParentSandbox != "" {
+		// Snapshot the parent's sandbox identity under the per-session
+		// state lock: `parent` may be the SHARED session context (agent
+		// loop path) and sandbox_destroy clears these fields
+		// concurrently.
+		var parentSandboxID, parentSandboxType string
+		parent.WithStateLock(func() {
+			parentSandboxID = parent.SandboxID
+			parentSandboxType = parent.SandboxType
+		})
 		statePath = saveSubagentState(
 			req.ParentSandbox, req.ID, req.Task, req.Context,
-			parent.SessionID, parent.SandboxID, parent.SandboxType,
+			parent.SessionID, parentSandboxID, parentSandboxType,
 		)
 	}
 

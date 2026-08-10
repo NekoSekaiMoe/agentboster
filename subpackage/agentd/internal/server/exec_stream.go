@@ -103,9 +103,15 @@ func (s *Server) handleExecStream(c *gin.Context) {
 			return
 		}
 
-		// Try to find the session's sandbox.
+		// Try to find the session's sandbox. Snapshot under the
+		// per-session state lock: the sandbox_destroy tool clears
+		// SandboxID concurrently.
 		agentCtx, ok := s.agentMgr.GetSession(req.SessionID)
-		if !ok || agentCtx.SandboxID == "" {
+		sandboxID := ""
+		if ok {
+			agentCtx.WithStateLock(func() { sandboxID = agentCtx.SandboxID })
+		}
+		if !ok || sandboxID == "" {
 			writeSSEError(c, "no active sandbox for session")
 			return
 		}
@@ -119,7 +125,7 @@ func (s *Server) handleExecStream(c *gin.Context) {
 		var bgStore *persistence.BackgroundTaskStore = s.agentMgr.GetBGTaskStore()
 		if bgStore == nil {
 			// Fallback: run synchronously, emit one big chunk.
-			result, err := sbManager.Exec(agentCtx.SandboxID, command, nil, timeoutSec)
+			result, err := sbManager.Exec(sandboxID, command, nil, timeoutSec)
 			if err != nil {
 				writeSSEError(c, fmt.Sprintf("exec failed: %v", err))
 				return
@@ -137,7 +143,7 @@ func (s *Server) handleExecStream(c *gin.Context) {
 		bgTask := &persistence.BackgroundTask{
 			ID:        fmt.Sprintf("stream-%d", time.Now().UnixNano()),
 			Command:   command,
-			SandboxID: agentCtx.SandboxID,
+			SandboxID: sandboxID,
 			StartedAt: time.Now(),
 			Status:    "running",
 		}
@@ -150,7 +156,7 @@ func (s *Server) handleExecStream(c *gin.Context) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			result, err := sbManager.Exec(agentCtx.SandboxID, command, nil, timeoutSec)
+			result, err := sbManager.Exec(sandboxID, command, nil, timeoutSec)
 			if err != nil {
 				bgTask.Status = "failed"
 				bgTask.LastOutput = err.Error()

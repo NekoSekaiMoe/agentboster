@@ -34,7 +34,7 @@ func registerRead(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			return toolErr, nil
 		}
 
-		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
+		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SnapshotSandboxID())
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
@@ -91,7 +91,7 @@ func registerWrite(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCon
 			return toolErr, nil
 		}
 
-		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
+		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SnapshotSandboxID())
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
@@ -135,7 +135,7 @@ func registerEdit(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			return toolErr, nil
 		}
 
-		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
+		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SnapshotSandboxID())
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
@@ -181,7 +181,7 @@ func registerLs(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentContex
 			return toolErr, nil
 		}
 
-		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
+		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SnapshotSandboxID())
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
@@ -229,7 +229,7 @@ func registerGrep(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			return toolErr, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
@@ -265,7 +265,7 @@ func registerGlob(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			return toolErr, nil
 		}
 
-		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
+		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SnapshotSandboxID())
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
@@ -311,7 +311,7 @@ func registerPatch(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCon
 			return toolErr, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}

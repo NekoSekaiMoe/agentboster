@@ -19,6 +19,7 @@ import (
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/os_enforce"
 	"github.com/google/uuid"
+	"golang.org/x/sync/semaphore"
 )
 
 // LXCPersistentProvider implements SandboxProvider using LXC containers.
@@ -30,10 +31,35 @@ type LXCPersistentProvider struct {
 	defaultRelease string
 	sandboxes      map[string]*Sandbox
 	initialized    map[string]bool
+
+	// M3.3: createSem serializes lxc-create / lxc-start. lxc-create -t
+	// download races on the image template cache when invoked concurrently,
+	// and the hardcoded 2s sleep in Create compounds under fan-out. A
+	// per-provider semaphore keeps the LXC cold-start path stable under
+	// bursty workspace creation. nil = unlimited (legacy).
+	createSem *semaphore.Weighted
 }
 
+// defaultCreateConcurrency is the fallback capacity for createSem when
+// the configured value is <= 0.
+const defaultCreateConcurrency = 2
+
+// createAcquireTimeout bounds how long Create waits for a create semaphore
+// slot when the spec carries no caller context (spec.Ctx == nil). It only
+// caps the WAIT for a slot, not the lxc-create/start itself.
+const createAcquireTimeout = 2 * time.Minute
+
+// lxcCmdTimeout bounds the lxc-create/lxc-start/lxc-attach commands
+// themselves when the spec carries no caller context (spec.Ctx == nil),
+// mirroring the createAcquireTimeout fallback discipline so an abandoned
+// caller can't leave an lxc command running forever. lxc-create -t
+// download fetches an image over the network, hence the generous cap.
+const lxcCmdTimeout = 10 * time.Minute
+
 // NewLXCPersistentProvider creates a new LXC persistent sandbox provider.
-func NewLXCPersistentProvider(rootfsBase, defaultDistro, defaultRelease string) *LXCPersistentProvider {
+// createConcurrency caps concurrent lxc-create/lxc-start cold starts;
+// <=0 falls back to defaultCreateConcurrency.
+func NewLXCPersistentProvider(rootfsBase, defaultDistro, defaultRelease string, createConcurrency int) *LXCPersistentProvider {
 	if rootfsBase == "" {
 		rootfsBase = "/var/lib/agentd/lxc"
 	}
@@ -43,19 +69,71 @@ func NewLXCPersistentProvider(rootfsBase, defaultDistro, defaultRelease string) 
 	if defaultRelease == "" {
 		defaultRelease = "3.21"
 	}
+	if createConcurrency <= 0 {
+		createConcurrency = defaultCreateConcurrency
+	}
 	return &LXCPersistentProvider{
 		rootfsBase:     rootfsBase,
 		defaultDistro:  defaultDistro,
 		defaultRelease: defaultRelease,
 		sandboxes:      make(map[string]*Sandbox),
 		initialized:    make(map[string]bool),
+		createSem:      semaphore.NewWeighted(int64(createConcurrency)), // M3.3: cap concurrent lxc-create/start
 	}
 }
 
 // Create creates or resumes an LXC persistent container.
+//
+// When spec.WorkspaceID is set, the container is named `agentd-lxc-ws-<wsID>`
+// and creation becomes idempotent: if the rootfs already exists on disk, we
+// skip lxc-create and just lxc-start the existing container (resume). This
+// is the workspace long-lived container path — repeated Create calls for the
+// same workspace reattach to the same rootfs instead of making a new one.
+// When WorkspaceID is empty, falls back to the legacy random 8-hex id.
 func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	id := uuid.New().String()[:8]
 	containerName := fmt.Sprintf("agentd-lxc-%s", id)
+	if spec.WorkspaceID != "" {
+		// Derive a stable container name from the workspace id. The id
+		// originates from the HTTP request body (workspace_id) and flows
+		// into containerPath — including cleanupPartialContainer's
+		// os.RemoveAll — so it MUST be validated before any path
+		// construction: strictly parsed as a UUID and normalized to the
+		// canonical lowercase form (hex + hyphens only, no path
+		// separators or traversal segments). The prefix lets the reaper
+		// / health-checker identify workspace containers by name.
+		workspaceID, err := normalizeWorkspaceID(spec.WorkspaceID)
+		if err != nil {
+			return nil, err
+		}
+		containerName = fmt.Sprintf("agentd-lxc-ws-%s", workspaceID)
+		id = workspaceID
+	}
+
+	// M3.3: serialize the cold-start path (lxc-create + lxc-start + the 2s
+	// boot sleep) so bursty workspace creation doesn't race on the image
+	// template cache or stack up sleeps. Resume (existing rootfs) also flows
+	// through here for simplicity; the semaphore is released on return.
+	//
+	// The Acquire observes the caller's context (spec.Ctx, populated from
+	// the ExecuteTool request context) so a cancelled request stops waiting
+	// for a slot instead of piling up. When the spec carries no context we
+	// fall back to a bounded-timeout background context so the wait can't
+	// block forever. Handle the error anyway: if Acquire fails we must NOT
+	// proceed (and must NOT call the deferred Release, which would
+	// underflow the semaphore and block subsequent Create calls forever).
+	if p.createSem != nil {
+		acquireCtx := spec.Ctx
+		if acquireCtx == nil {
+			var cancel context.CancelFunc
+			acquireCtx, cancel = context.WithTimeout(context.Background(), createAcquireTimeout)
+			defer cancel()
+		}
+		if err := p.createSem.Acquire(acquireCtx, 1); err != nil {
+			return nil, fmt.Errorf("acquire lxc create slot: %w", err)
+		}
+		defer p.createSem.Release(1)
+	}
 
 	distro := spec.Distro
 	if distro == "" {
@@ -64,6 +142,19 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	release := spec.Release
 	if release == "" {
 		release = p.defaultRelease
+	}
+
+	// Command context for the lxc-create/start/attach invocations below:
+	// the caller's context (spec.Ctx, populated from the ExecuteTool
+	// request context) so a cancelled request kills the in-flight lxc
+	// command promptly, or a bounded-timeout background context when the
+	// spec carries none (same fallback discipline as the createSem
+	// Acquire above).
+	cmdCtx := spec.Ctx
+	if cmdCtx == nil {
+		var cancel context.CancelFunc
+		cmdCtx, cancel = context.WithTimeout(context.Background(), lxcCmdTimeout)
+		defer cancel()
 	}
 
 	containerPath := filepath.Join(p.rootfsBase, containerName)
@@ -86,7 +177,7 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 			return nil, fmt.Errorf("create lxc base dir: %w", err)
 		}
 
-		createCmd := exec.Command("lxc-create",
+		createCmd := exec.CommandContext(cmdCtx, "lxc-create",
 			"-t", "download",
 			"-n", containerName,
 			"-P", p.rootfsBase,
@@ -94,6 +185,14 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		)
 		output, err := createCmd.CombinedOutput()
 		if err != nil {
+			// Clean up the partially created container/rootfs (lxc-create
+			// may have written the container dir + config before failing
+			// or being cancelled) so a later Create's findRootfs can't
+			// treat the leftover as a resumable container.
+			p.cleanupPartialContainer(containerName, containerPath)
+			if cmdCtx.Err() != nil {
+				return nil, fmt.Errorf("lxc-create interrupted: %w", cmdCtx.Err())
+			}
 			return nil, fmt.Errorf("lxc-create failed: %w (output: %s)", err, string(output))
 		}
 
@@ -114,16 +213,27 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 		}
 	}
 
-	startCmd := exec.Command("lxc-start", "-n", containerName, "-P", p.rootfsBase, "-d")
+	startCmd := exec.CommandContext(cmdCtx, "lxc-start", "-n", containerName, "-P", p.rootfsBase, "-d")
 	if output, err := startCmd.CombinedOutput(); err != nil {
+		if cmdCtx.Err() != nil {
+			return nil, fmt.Errorf("lxc-start interrupted: %w", cmdCtx.Err())
+		}
 		return nil, fmt.Errorf("lxc-start failed: %w (output: %s)", err, string(output))
 	}
 
-	time.Sleep(2 * time.Second)
+	// Wait for the container to come up, but return promptly on
+	// cancellation instead of sleeping the full 2s.
+	bootTimer := time.NewTimer(2 * time.Second)
+	select {
+	case <-bootTimer.C:
+	case <-cmdCtx.Done():
+		bootTimer.Stop()
+		return nil, fmt.Errorf("lxc-start boot wait cancelled: %w", cmdCtx.Err())
+	}
 
 	if len(spec.InitCommands) > 0 {
 		for _, initCmd := range spec.InitCommands {
-			cmd := exec.Command("lxc-attach", "-n", containerName, "-P", p.rootfsBase, "--", "sh", "-c", initCmd)
+			cmd := exec.CommandContext(cmdCtx, "lxc-attach", "-n", containerName, "-P", p.rootfsBase, "--", "sh", "-c", initCmd)
 			if output, err := cmd.CombinedOutput(); err != nil {
 				slog.Warn("lxc init command failed", "cmd", initCmd, "error", err, "output", string(output))
 			}
@@ -155,6 +265,37 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	}
 
 	return sb, nil
+}
+
+// normalizeWorkspaceID validates a caller-supplied workspace id and
+// returns its canonical lowercase UUID form. The id reaches
+// filepath.Join(p.rootfsBase, ...) and os.RemoveAll in Create, so the
+// result must be a single safe path component: uuid.Parse rejects
+// anything containing path separators/traversal, and String()
+// normalizes non-canonical-but-parseable forms (uppercase, braces,
+// hyphenless) to lowercase canonical.
+func normalizeWorkspaceID(raw string) (string, error) {
+	wsID, err := uuid.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid workspace id: %w", err)
+	}
+	return strings.ToLower(wsID.String()), nil
+}
+
+// cleanupPartialContainer removes a partially created container after a
+// failed or cancelled lxc-create so a later Create's findRootfs can't
+// treat the leftover rootfs as resumable. Best-effort: failures are
+// logged, not returned.
+func (p *LXCPersistentProvider) cleanupPartialContainer(containerName, containerPath string) {
+	destroyCmd := exec.Command("lxc-destroy", "-n", containerName, "-P", p.rootfsBase, "-f")
+	if output, err := destroyCmd.CombinedOutput(); err != nil {
+		slog.Warn("lxc-destroy of partial container failed",
+			"container", containerName, "error", err, "output", string(output))
+	}
+	if err := os.RemoveAll(containerPath); err != nil {
+		slog.Warn("failed to remove partial container path",
+			"path", containerPath, "error", err)
+	}
 }
 
 // Exec runs a command inside the LXC container.

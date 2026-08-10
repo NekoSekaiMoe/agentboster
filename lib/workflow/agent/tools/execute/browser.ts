@@ -83,6 +83,14 @@ async function dispatchBrowserTool(input: {
   toolName: string;
   toolInput: Record<string, unknown>;
   nodeId?: string;
+  /** Per-agent allowed_nodes allowlist (P3.1). Forwarded to
+   *  execToolOnAgentd so a model-supplied nodeId cannot route outside
+   *  the agent's authorized node set. Undefined = no restriction. */
+  allowedNodes?: readonly string[];
+  /** Whether the per-workspace run lock was acquired this run. When false,
+   *  suppress workspace_id so agentd uses a short-lived ephemeral container
+   *  instead of binding the long-lived workspace container. */
+  workspaceLockAcquired: boolean;
 }): Promise<{
   content: Array<
     | { type: 'text'; text: string }
@@ -112,6 +120,8 @@ async function dispatchBrowserTool(input: {
     input.toolName,
     input.toolInput,
     input.nodeId,
+    input.allowedNodes,
+    input.workspaceLockAcquired,
   );
 
   if (!result?.success) {
@@ -162,16 +172,32 @@ export default defineBuildInTool({
   description: `Playwright-backed browser automation (navigate / click / type / screenshot / evaluate / select_option / hover / upload / multi-tab) running on an agentd node's persistent LXC sandbox. Profiles persist across sessions. Use these when the task needs real browser interaction (login flows, JS-rendered pages, file uploads, multi-tab workflows). Requires at least one online agentd node; not available in the serverless-only Web UI path.`,
   requiredConfig: [],
   optionalConfig: [],
-  factory: async (_config, { sessionId, source }) => {
+  factory: async (_config, ctx) => {
     // Gate: browser_* always run on agentd. Web-UI sessions have no
     // daemon peer and would only ever hit the "no online node" error
     // path — exclude them so the catalog stays honest. CLI / IM /
     // scheduled sessions all dispatch through agentd normally.
-    if (source?.type === 'web') {
+    if (ctx.source?.type === 'web') {
       return null;
     }
 
-    const ctx = { sessionId };
+    const { sessionId, workspaceLockAcquired } = ctx;
+
+    // P3.1: surface the current agent's allowed_nodes (if any) so the
+    // dispatcher can pass it down to execToolOnAgentd. Without this, a
+    // model-supplied nodeId could route to any registered daemon node
+    // and bypass per-agent node authorization. Mirrors the skills tool
+    // factory (lib/workflow/agent/tools/skills/local.ts).
+    const allowedNodes =
+      ctx?.appConfig && ctx.agentName
+        ? (ctx.appConfig.agents?.[ctx.agentName]?.allowed_nodes ?? undefined)
+        : undefined;
+
+    const ctxShared = {
+      sessionId,
+      workspaceLockAcquired,
+      allowedNodes,
+    };
 
     return {
       browser_navigate: tool({
@@ -196,7 +222,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_navigate',
             toolInput: input,
             nodeId: input.nodeId,
@@ -217,7 +243,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_inspect',
             toolInput: input,
             nodeId: input.nodeId,
@@ -281,7 +307,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_click',
             toolInput: input,
             nodeId: input.nodeId,
@@ -322,7 +348,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_type',
             toolInput: input,
             nodeId: input.nodeId,
@@ -342,7 +368,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_get_text',
             toolInput: input,
             nodeId: input.nodeId,
@@ -362,7 +388,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_get_html',
             toolInput: input,
             nodeId: input.nodeId,
@@ -401,7 +427,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_screenshot',
             // Default to JPEG q80 to cut screenshot cost ~5-10x vs PNG.
             // The agentd bridge already accepts these fields; we just
@@ -434,7 +460,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_evaluate',
             toolInput: input,
             nodeId: input.nodeId,
@@ -451,7 +477,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_save_state',
             toolInput: input,
             nodeId: input.nodeId,
@@ -472,7 +498,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_load_state',
             toolInput: input,
             nodeId: input.nodeId,
@@ -488,7 +514,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_list_profiles',
             toolInput: input,
             nodeId: input.nodeId,
@@ -505,7 +531,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_close',
             toolInput: input,
             nodeId: input.nodeId,
@@ -540,7 +566,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_select_option',
             toolInput: input,
             nodeId: input.nodeId,
@@ -569,7 +595,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_hover',
             toolInput: input,
             nodeId: input.nodeId,
@@ -620,7 +646,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_upload',
             toolInput: input,
             nodeId: input.nodeId,
@@ -643,7 +669,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_tab_new',
             toolInput: input,
             nodeId: input.nodeId,
@@ -666,7 +692,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_tab_switch',
             toolInput: input,
             nodeId: input.nodeId,
@@ -687,7 +713,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_tab_close',
             toolInput: input,
             nodeId: input.nodeId,
@@ -704,7 +730,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchBrowserTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'browser_tab_list',
             toolInput: input,
             nodeId: input.nodeId,

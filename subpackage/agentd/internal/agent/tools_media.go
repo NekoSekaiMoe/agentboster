@@ -53,7 +53,7 @@ Note: To save a new media file, write it directly to /workspace/downloads/{categ
 			params.RetentionDays = 3
 		}
 
-		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
+		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SnapshotSandboxID())
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}

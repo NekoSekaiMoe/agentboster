@@ -143,6 +143,29 @@ export class SlackNotificationChannel implements NotificationChannel {
       };
     }
 
+    if (payload.type === 'workspace_failover') {
+      const fields: Array<Record<string, unknown>> = [];
+      if (payload.details?.migratedAt)
+        fields.push({
+          type: 'mrkdwn',
+          text: `*${t(locale, 'notify.workspaceFailover.migratedAt')}:* ${payload.details.migratedAt}`,
+        });
+      return {
+        text: `⚠️ ${payload.title}: ${payload.summary}`,
+        blocks: [
+          {
+            type: 'header',
+            text: { type: 'plain_text', text: `⚠️ ${payload.title}` },
+          },
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: payload.summary },
+          },
+          ...(fields.length > 0 ? [{ type: 'section', fields }] : []),
+        ],
+      };
+    }
+
     const emoji = this.statusEmoji(payload.status);
     const fields: Array<Record<string, unknown>> = [];
 

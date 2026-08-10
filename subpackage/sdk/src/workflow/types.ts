@@ -89,6 +89,10 @@ export function aggregateTokenUsage(
       outputTokens?: unknown;
       totalTokens?: number;
     };
+    // StepResult carries many more fields (toolCalls, text, reasoning,
+    // warnings, ...). Allow them so the SDK signature is lenient about
+    // extra props and matches real step records.
+    [key: string]: unknown;
   }>,
 ): TokenUsage {
   let inputTokens = 0;

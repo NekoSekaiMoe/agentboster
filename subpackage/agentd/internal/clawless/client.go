@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -103,6 +104,24 @@ func NewClientFromConfig(clawLessURL, apiKey, clientCertPath, clientKeyPath, caP
 	return NewClient(clawLessURL, apiKey, tlsCfg), nil
 }
 
+// apiStatusError carries the HTTP status of a failed API call so callers
+// can branch on specific statuses (e.g. 404 fallback for mixed-version
+// deployments) instead of parsing message strings.
+type apiStatusError struct {
+	Status int
+	Body   string
+}
+
+func (e *apiStatusError) Error() string {
+	return fmt.Sprintf("API error %d: %s", e.Status, e.Body)
+}
+
+// isNotFound reports whether err is an API 404 response.
+func isNotFound(err error) bool {
+	var se *apiStatusError
+	return errors.As(err, &se) && se.Status == http.StatusNotFound
+}
+
 // doRequest is the low-level HTTP helper. All API methods go through here.
 func (c *Client) doRequest(ctx context.Context, method, path string, body any) ([]byte, error) {
 	var bodyReader io.Reader
@@ -136,7 +155,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(data))
+		return nil, &apiStatusError{Status: resp.StatusCode, Body: string(data)}
 	}
 
 	return data, nil
@@ -182,18 +201,70 @@ func (c *Client) UploadFile(ctx context.Context, taskID, fileName string, conten
 	})
 }
 
-// ── Workspaces ───────────────────────────────────────────────────────
+// ── Project Sandboxes (project↔sandbox binding) ──────────────────────
+// The Web table was renamed from `workspaces` to `project_sandboxes` to
+// free the name for the new user-facing workspace concept. The primary
+// API below uses ProjectSandbox naming and hits /project-sandboxes, with
+// a graceful 404 fallback to the legacy /workspaces endpoint so
+// mixed-version deployments (new CLI/daemon vs old Web) keep working
+// during the transition.
 
+const (
+	projectSandboxesPath = "/api/agentd/v1/project-sandboxes"
+	legacyWorkspacesPath = "/api/agentd/v1/workspaces"
+)
+
+// doWithLegacyFallback runs fn against primaryPath; on a 404 (old Web
+// server that predates the rename) it retries against legacyPath.
+func doWithLegacyFallback[T any](primaryPath, legacyPath string, fn func(path string) (T, error)) (T, error) {
+	v, err := fn(primaryPath)
+	if err != nil && isNotFound(err) {
+		return fn(legacyPath)
+	}
+	return v, err
+}
+
+// CreateProjectSandbox creates a project↔sandbox binding on the Web tier.
+func (c *Client) CreateProjectSandbox(ctx context.Context, ps *ProjectSandbox) error {
+	_, err := doWithLegacyFallback(projectSandboxesPath, legacyWorkspacesPath, func(path string) (struct{}, error) {
+		return struct{}{}, doVoid(c, ctx, http.MethodPost, path, ps)
+	})
+	return err
+}
+
+// GetProjectSandboxByProjectID returns the binding for a project, if any.
+func (c *Client) GetProjectSandboxByProjectID(ctx context.Context, projectID string) (*ProjectSandbox, error) {
+	return doWithLegacyFallback(projectSandboxesPath, legacyWorkspacesPath, func(path string) (*ProjectSandbox, error) {
+		return requestJSONPtr[ProjectSandbox](c, ctx, http.MethodGet, path+"?project_id="+projectID, nil)
+	})
+}
+
+// ListProjectSandboxes lists the bindings owned by an agent.
+func (c *Client) ListProjectSandboxes(ctx context.Context, agentID string) ([]ProjectSandbox, error) {
+	return doWithLegacyFallback(projectSandboxesPath, legacyWorkspacesPath, func(path string) ([]ProjectSandbox, error) {
+		return requestJSON[[]ProjectSandbox](c, ctx, http.MethodGet, path+"?agent_id="+agentID, nil)
+	})
+}
+
+// CreateWorkspace creates a project↔sandbox binding.
+//
+// Deprecated: use CreateProjectSandbox.
 func (c *Client) CreateWorkspace(ctx context.Context, ws *Workspace) error {
-	return doVoid(c, ctx, http.MethodPost, "/api/agentd/v1/workspaces", ws)
+	return c.CreateProjectSandbox(ctx, ws)
 }
 
+// GetWorkspaceByProjectID returns the binding for a project, if any.
+//
+// Deprecated: use GetProjectSandboxByProjectID.
 func (c *Client) GetWorkspaceByProjectID(ctx context.Context, projectID string) (*Workspace, error) {
-	return requestJSONPtr[Workspace](c, ctx, http.MethodGet, "/api/agentd/v1/workspaces?project_id="+projectID, nil)
+	return c.GetProjectSandboxByProjectID(ctx, projectID)
 }
 
+// ListWorkspaces lists the bindings owned by an agent.
+//
+// Deprecated: use ListProjectSandboxes.
 func (c *Client) ListWorkspaces(ctx context.Context, agentID string) ([]Workspace, error) {
-	return requestJSON[[]Workspace](c, ctx, http.MethodGet, "/api/agentd/v1/workspaces?agent_id="+agentID, nil)
+	return c.ListProjectSandboxes(ctx, agentID)
 }
 
 // ── Tasks ────────────────────────────────────────────────────────────

@@ -23,10 +23,12 @@ export const notifications = pgTable(
      * boundary.
      */
     userId: text('user_id'),
-    taskId: text('task_id').notNull(),
+    /** Owning task when the notification is task-scoped. Nullable for
+     *  workspace/system-level events (e.g. `workspace_failover`). */
+    taskId: text('task_id'),
     decisionId: text('decision_id'),
     notificationType: text('notification_type', {
-      enum: ['decision', 'completion', 'tidy_report'],
+      enum: ['decision', 'completion', 'tidy_report', 'workspace_failover'],
     }).notNull(),
     /**
      * Triage severity. `action_required` surfaces in the inbox's

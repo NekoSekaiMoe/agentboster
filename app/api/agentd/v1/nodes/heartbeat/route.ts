@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { reapStaleNodes } from '@/lib/extra/agent/node-liveness';
+import { maybeFailoverWorkspaces } from '@/lib/extra/agent/workspace-failover';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
 import { maybeSweepExpiredKv } from '@/lib/core/kv/sweep-tick';
@@ -149,6 +150,26 @@ export async function POST(req: NextRequest) {
       logger.warn('KV sweep failed (non-fatal)', {
         error:
           sweepError instanceof Error ? sweepError.message : String(sweepError),
+      });
+    }
+
+    // Piggyback workspace failover detection on the same beat. Throttled +
+    // self-hosted-gated inside the helper. Bumps node_generation + clears
+    // preferred_node_id for workspaces whose preferred node has been offline
+    // past the grace window, and queues a workspace_failover notification.
+    try {
+      const failedOver = await maybeFailoverWorkspaces();
+      if (failedOver > 0) {
+        logger.info('workspaces failed over (offline node)', {
+          count: failedOver,
+        });
+      }
+    } catch (failoverError) {
+      logger.warn('workspace failover sweep failed (non-fatal)', {
+        error:
+          failoverError instanceof Error
+            ? failoverError.message
+            : String(failoverError),
       });
     }
 

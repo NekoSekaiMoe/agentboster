@@ -31,6 +31,9 @@ export async function createSession(input: {
   channel?: string;
   externalThreadId?: string | null;
   userId?: string | null;
+  /** Workspace scope. When omitted, the caller resolves the user's default
+   *  workspace elsewhere; this only persists what was already decided. */
+  workspaceId?: string | null;
   model?: string | null;
   systemPrompt?: string | null;
   workflowRunId?: string | null;
@@ -45,11 +48,24 @@ export async function createSession(input: {
       channel: input.channel ?? 'web',
       externalThreadId: input.externalThreadId ?? null,
       userId: input.userId ?? null,
+      workspaceId: input.workspaceId ?? null,
       model: input.model ?? null,
       systemPrompt: input.systemPrompt ?? null,
       workflowRunId: input.workflowRunId ?? null,
       totalTokens: input.totalTokens ?? 0,
-      metadata: input.metadata ?? null,
+      // Stamp projectId into metadata so the legacy recall path (which reads
+      // session.metadata.projectId) stays aligned with the new workspace_id
+      // column. The two are the same value; projectId is the historical name.
+      // Only overwrite when workspaceId was explicitly provided (including
+      // explicit null to clear it). When workspaceId is omitted entirely,
+      // preserve whatever projectId the caller put in metadata.
+      metadata:
+        input.workspaceId !== undefined
+          ? ({
+              ...(input.metadata ?? {}),
+              projectId: input.workspaceId,
+            } as SessionMetadata)
+          : (input.metadata ?? null),
     })
     .returning();
 
@@ -123,11 +139,15 @@ export async function listSessions(options?: {
   archived?: boolean;
   limit?: number;
   userId?: string;
+  workspaceId?: string;
 }) {
   const safeLimit = Math.max(1, Math.min(options?.limit ?? 50, 200));
   const conditions: ReturnType<typeof eq>[] = [];
   if (options?.userId) {
     conditions.push(eq(schema.sessions.userId, options.userId));
+  }
+  if (options?.workspaceId) {
+    conditions.push(eq(schema.sessions.workspaceId, options.workspaceId));
   }
   if (options?.channel) {
     conditions.push(eq(schema.sessions.channel, options.channel));

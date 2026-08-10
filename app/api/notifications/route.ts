@@ -60,7 +60,14 @@ export async function GET(request: Request) {
     const transformed = notifs.map((n) => {
       const payload = n.payload || {};
       const title = (payload.title as string) || n.type;
-      const message = (payload.message as string) || n.errorMessage || '';
+      // Fall back to payload.summary so workspace_failover notifications
+      // (which write `summary`, not `message`) display a non-empty body in
+      // the Web inbox.
+      const message =
+        (payload.message as string) ||
+        (payload.summary as string) ||
+        n.errorMessage ||
+        '';
 
       return {
         id: n.id,
@@ -69,7 +76,9 @@ export async function GET(request: Request) {
             ? 'warning'
             : n.type === 'completion'
               ? 'success'
-              : 'info',
+              : n.type === 'workspace_failover'
+                ? 'warning'
+                : 'info',
         title,
         message,
         channel: n.channel,

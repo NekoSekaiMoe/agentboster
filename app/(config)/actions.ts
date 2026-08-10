@@ -33,7 +33,7 @@ const logger = createLogger('config/actions');
 export type ConfigLoadResponse = {
   config: AppConfig;
   runtimeHealth: RuntimeHealthSnapshot | null;
-  meta: { isAdmin: boolean };
+  meta: { isAdmin: boolean; userId: string };
 };
 
 export type WebhookConfigResponse = {
@@ -53,7 +53,7 @@ export async function loadConfigAction(): Promise<ConfigLoadResponse> {
   return {
     config: await getConfig(),
     runtimeHealth: getRuntimeHealthSnapshot(),
-    meta: { isAdmin: access.isAdmin },
+    meta: { isAdmin: access.isAdmin, userId: access.session.userId },
   };
 }
 

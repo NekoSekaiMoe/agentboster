@@ -1,16 +1,20 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { listRecentSessionsAction } from '@/app/(chat)/actions';
 import { getQueryClient } from '@/components/react-query-provider';
+import { useConfigContext } from '@/components/config/config-provider';
+import { useActiveWorkspaceStore } from '@/hooks/use-active-workspace-store';
+import { useEffect } from 'react';
 
 /**
- * Query key for the user's recent chat sessions.
+ * Query key prefix for the user's recent chat sessions.
  *
- * Workspace-scoped data includes the scope id in the key per AGENTS.md;
- * agentboster is single-user so there's no workspace dimension yet, but
- * the array form keeps the door open. Invalidation callers use
- * `qc.invalidateQueries({ queryKey: SESSION_LIST_KEY })` (prefix match).
+ * Workspace- and user-scoped: the full key is
+ * `['sessions', userId, workspaceId]`. Callers that want to invalidate
+ * every list pass the bare prefix `['sessions']` (TanStack prefix match).
+ * Active-workspace tracking lives in {@link useActiveWorkspace} below;
+ * this module owns only the query key.
  */
 export const SESSION_LIST_KEY = ['sessions'] as const;
 
@@ -26,16 +30,14 @@ export interface SessionListItem {
   createdAt: string;
   status?: string;
   pinned?: boolean;
+  workspaceId?: string | null;
 }
 
 /**
  * Invalidate the session list query from ANY context (component,
- * server-action callback, SSE event handler, chat transport).
- *
- * This replaces the prior `invalidateSessionList()` window-CustomEvent
- * bus helper. Non-component callers reach the cache via the module
- * singleton ({@link getQueryClient}); component callers can also use
- * `useQueryClient().invalidateQueries(...)` directly.
+ * server-action callback, SSE event handler, chat transport). Invalidates
+ * every workspace's list (prefix match) so a session move/create touches
+ * all views.
  */
 export function invalidateSessionListQuery(): void {
   void getQueryClient().invalidateQueries({ queryKey: SESSION_LIST_KEY });
@@ -52,20 +54,30 @@ export function clearSessionListCache(): void {
 }
 
 /**
- * Optimistically insert-or-update a session row in the cache. Used when
- * a new conversation is created lazily on first message — prepending
- * it to the sidebar without a full refetch. Replaces the prior
- * `upsertSessionListItem()` window-CustomEvent bus helper.
+ * Optimistically insert-or-update a session row in the cache.
+ *
+ * When the item's workspace is known, write ONLY to that workspace's list
+ * (the precise key `['sessions', userId, workspaceId]`, identical to the
+ * key used by {@link useSessionList}) so the row does not leak into every
+ * other workspace's cached list. When the workspace is unknown,
+ * invalidate the prefix so the affected lists reload from the server rather
+ * than stamping the same row into every group.
+ *
+ * `userId` is normally read from the active-workspace store (kept current
+ * by {@link useActiveWorkspace}); callers that already hold the id may
+ * pass it explicitly.
  */
 export function upsertSessionListItemInCache(
   item: Pick<SessionListItem, 'id' | 'title' | 'channel' | 'createdAt'> & {
     status?: string;
     pinned?: boolean;
+    workspaceId?: string | null;
   },
+  userId?: string | null,
 ): void {
   const qc = getQueryClient();
-  qc.setQueryData<SessionListItem[]>(SESSION_LIST_KEY, (current) => {
-    const list = current ?? [];
+  const writeRow = (list: SessionListItem[] | undefined) => {
+    const current = list ?? [];
     const next: SessionListItem[] = [
       {
         id: item.id,
@@ -74,37 +86,93 @@ export function upsertSessionListItemInCache(
         createdAt: item.createdAt,
         status: item.status,
         pinned: item.pinned ?? false,
+        workspaceId: item.workspaceId,
       },
-      ...list.filter((s) => s.id !== item.id),
+      ...current.filter((s) => s.id !== item.id),
     ];
     return next.slice(0, 30);
-  });
+  };
+
+  // Known workspace → write only to its user-scoped key (identical shape
+  // to useSessionList's queryKey). The userId falls back to the shared
+  // store so callers without the id in scope still hit the right key.
+  if (item.workspaceId) {
+    const effectiveUserId =
+      userId !== undefined ? userId : useActiveWorkspaceStore.getState().userId;
+    qc.setQueryData<SessionListItem[]>(
+      ['sessions', effectiveUserId, item.workspaceId],
+      writeRow,
+    );
+    return;
+  }
+  // Unknown workspace → don't guess; let the server re-prime every list.
+  void qc.invalidateQueries({ queryKey: SESSION_LIST_KEY });
 }
 
 /**
  * Shared session-list query used by both sidebar implementations.
  *
- * Replaces the per-component `useEffect + listRecentSessionsAction +
- * useState` pattern with a single useQuery. Invalidation and optimistic
- * upsert happen through {@link invalidateSessionListQuery} and
- * {@link upsertSessionListItemInCache} — no window event bus.
+ * Workspace-scoped via {@link useActiveWorkspace} and user-scoped via the
+ * config context, so the cache is per user+workspace. When either scope
+ * changes, the key changes and TanStack refetches the new scope.
+ *
+ * Disabled until BOTH a workspace and a user id are known: the underlying
+ * `listSessions` only adds a `workspace_id` filter when given a value, so
+ * an undefined workspace would return the user's sessions across ALL
+ * workspaces mixed together, and a null user id would cache the result
+ * under the wrong scope. We wait for both instead.
  */
 export function useSessionList(limit = 30) {
-  const qc = useQueryClient();
-  void qc; // (kept for symmetry with the module-level helpers; this hook does
-  // not invalidate directly — dispatchers use invalidateSessionListQuery.)
+  const { workspaceId } = useActiveWorkspace();
+  const config = useConfigContext();
+  const userId = config?.userId ?? null;
   return useQuery<SessionListItem[]>({
-    queryKey: SESSION_LIST_KEY,
+    queryKey: ['sessions', userId, workspaceId ?? null],
+    enabled: !!workspaceId && !!userId,
     queryFn: async () => {
-      const rows = await listRecentSessionsAction(limit);
-      // listRecentSessionsAction returns {id,title,channel,createdAt,
-      // pinned}; status is absent (it's patched in from the separate
-      // /api/agentd/v1/sessions/status poll in sidebar-core). Cast to
-      // SessionListItem[] so consumers reading session.status type-check;
-      // the field stays undefined until something upserts it.
+      const rows = await listRecentSessionsAction({
+        limit,
+        workspaceId: workspaceId ?? undefined,
+      });
       return rows as SessionListItem[];
     },
     staleTime: 30_000,
     refetchOnMount: true,
   });
+}
+
+// ─── Active workspace (client view state) ────────────────────────────
+
+/**
+ * Client-side "which workspace is the user currently looking at?" state.
+ *
+ * Backed by the shared persisted Zustand store in
+ * `@/hooks/use-active-workspace-store`, so EVERY consumer observes the
+ * same workspaceId immediately after any `setWorkspaceId` call — no
+ * per-component `useState` copies that only resync via navigation
+ * remounts. Persisted (SSR-safe via the project StorageAdapter) so a
+ * reload keeps the user in the same workspace, and cleared when the
+ * authenticated user changes (handled inside the store's `setUserId`).
+ * This is pure client view state — the server is always the source of
+ * truth for which workspace a session/memory actually belongs to.
+ */
+export function useActiveWorkspace(): {
+  workspaceId: string | null;
+  setWorkspaceId: (id: string | null) => void;
+} {
+  const config = useConfigContext();
+  const userId = config?.userId ?? null;
+  const workspaceId = useActiveWorkspaceStore((s) => s.workspaceId);
+  const setWorkspaceId = useActiveWorkspaceStore((s) => s.setWorkspaceId);
+  const setUserId = useActiveWorkspaceStore((s) => s.setUserId);
+
+  // Record the authenticated user in the store. On a user CHANGE (login /
+  // user-switch) the store clears the stored workspace in the same update,
+  // so a previous user's workspace id can never leak into the new
+  // session's queries.
+  useEffect(() => {
+    setUserId(userId);
+  }, [userId, setUserId]);
+
+  return { workspaceId, setWorkspaceId };
 }

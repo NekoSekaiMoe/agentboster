@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
@@ -84,6 +85,67 @@ type AgentContext struct {
 	// Gatekeeper.AuditOutput path is independent and always runs.
 	// Nil = no tool-layer L0 auditing (e.g. in tests).
 	L0Engine *l0_rules.Engine
+
+	// stateLock is the per-session state lock, owned by the Manager's
+	// sessionLocks registry (see manager.go). It serializes every write
+	// to the mutable fields above (SoulContent/AgentConfig/SystemPrompt/
+	// AgentsMd/SessionSummary/RecentToolCalls/TaskState/LastAccessTime/
+	// Delivery*/GitInfo/Sandbox* post-creation) against concurrent
+	// readers (status endpoints, session serialization, HTTP handlers
+	// reading SandboxID) and against ExecuteTool's shallow copy.
+	//
+	// It is a POINTER to an external mutex — deliberately NOT an embedded
+	// sync.Mutex — so ExecuteTool's `execCtx := *agentCtx` shallow copy
+	// stays `go vet` copylocks-clean while still sharing the same
+	// underlying lock as the shared session struct.
+	//
+	// Nil for detached contexts (sub-agent contexts, store-loaded
+	// snapshots, test fixtures): those are single-goroutine-owned, so
+	// WithStateLock degrades to a no-op. Always access via WithStateLock;
+	// never dereference directly.
+	stateLock *sync.Mutex
+}
+
+// WithStateLock runs fn under the per-session state lock (nil-safe:
+// detached contexts run fn directly). Writers of shared mutable
+// AgentContext fields and readers racing those writers must use this.
+//
+// Lock ordering (acyclic): Manager.mu → Manager.sessionLocksMu →
+// AgentContext.stateLock. Never acquire Manager.mu (or any Manager
+// lock) from inside fn.
+//
+// NON-REENTRANT: the underlying sync.Mutex is not reentrant, so
+// calling WithStateLock again from inside fn — including indirectly,
+// e.g. via a shallow-copied context that shares the same stateLock
+// pointer (ExecuteTool's execCtx copy), or via a helper that itself
+// takes the lock — will self-deadlock. Never nest WithStateLock calls;
+// if a second critical section is needed, run it AFTER the first one
+// returns.
+func (c *AgentContext) WithStateLock(fn func()) {
+	if c.stateLock == nil {
+		fn()
+		return
+	}
+	c.stateLock.Lock()
+	defer c.stateLock.Unlock()
+	fn()
+}
+
+// SnapshotSandboxID returns ctx.SandboxID read under the per-session
+// state lock (nil-safe: detached contexts read directly). Tool handlers
+// and manager/server paths that hold a potentially SHARED session
+// context must use this instead of reading ctx.SandboxID directly —
+// tools_sandbox_destroy clears the field under the same lock, so an
+// unlocked read races with it. The execution-local copy inside
+// ExecuteTool's own body (below the shallow copy) may still read the
+// field directly, since only that goroutine mutates the copy.
+//
+// Do NOT call this from inside a WithStateLock fn — the lock is
+// non-reentrant (see WithStateLock).
+func (c *AgentContext) SnapshotSandboxID() string {
+	var id string
+	c.WithStateLock(func() { id = c.SandboxID })
+	return id
 }
 
 // TaskState holds execution state that survives context compaction.

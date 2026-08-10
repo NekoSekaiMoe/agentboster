@@ -24,16 +24,21 @@ func (l *AgentLoop) completeToolCall(ctx context.Context, call *ToolCall, result
 	completedAt := time.Now()
 	l.writeToolActivityLog(ctx, call, result, string(resultJSON), startedAt, completedAt)
 
-	l.agentCtx.RecentToolCalls = append(l.agentCtx.RecentToolCalls, ToolCallRecord{
-		Tool:    call.Name,
-		Args:    string(call.Arguments),
-		Result:  result.Data,
-		Success: result.Success,
-		Time:    completedAt,
+	// RecentToolCalls is shared session state (read by session
+	// serialization and BuildSystemPromptContext consumers); append/trim
+	// under the per-session state lock. Nil/no-op for sub-agent loops.
+	l.agentCtx.WithStateLock(func() {
+		l.agentCtx.RecentToolCalls = append(l.agentCtx.RecentToolCalls, ToolCallRecord{
+			Tool:    call.Name,
+			Args:    string(call.Arguments),
+			Result:  result.Data,
+			Success: result.Success,
+			Time:    completedAt,
+		})
+		if len(l.agentCtx.RecentToolCalls) > 5 {
+			l.agentCtx.RecentToolCalls = l.agentCtx.RecentToolCalls[len(l.agentCtx.RecentToolCalls)-5:]
+		}
 	})
-	if len(l.agentCtx.RecentToolCalls) > 5 {
-		l.agentCtx.RecentToolCalls = l.agentCtx.RecentToolCalls[len(l.agentCtx.RecentToolCalls)-5:]
-	}
 
 	l.messages = append(l.messages, Message{
 		Role:       "tool",
@@ -47,11 +52,17 @@ func (l *AgentLoop) completeToolCall(ctx context.Context, call *ToolCall, result
 		switch call.Name {
 		case "write", "edit", "patch", "exec", "exec_batch", "git_push":
 			desc := call.Name
-			ref := SandboxRef{
-				Type:    l.agentCtx.SandboxType,
-				ID:      l.agentCtx.SandboxID,
-				HostPath: l.agentCtx.SandboxPath,
-			}
+			// Snapshot the sandbox identity under the per-session state
+			// lock (nil-safe no-op for detached sub-agent loops):
+			// sandbox_destroy clears these fields concurrently.
+			var ref SandboxRef
+			l.agentCtx.WithStateLock(func() {
+				ref = SandboxRef{
+					Type:     l.agentCtx.SandboxType,
+					ID:       l.agentCtx.SandboxID,
+					HostPath: l.agentCtx.SandboxPath,
+				}
+			})
 			go func() {
 				_, cpErr := CreateCheckpoint(ref, l.sbMgr, l.agentCtx.SessionID, desc)
 				switch {
@@ -105,6 +116,10 @@ func writeToolActivityLog(
 	}
 
 	action, target, arguments := classifyToolActivity(call.Name, call.Arguments)
+	// Snapshot SandboxID under the per-session state lock (nil-safe for
+	// detached contexts and for ExecuteTool's execCtx copy, which shares
+	// the same lock pointer): sandbox_destroy clears it concurrently.
+	sandboxID := agentCtx.SnapshotSandboxID()
 	log := clawless.ToolActivityLog{
 		TaskID:      agentCtx.TaskID,
 		SessionID:   agentCtx.SessionID,
@@ -112,7 +127,7 @@ func writeToolActivityLog(
 		UserID:      agentCtx.UserID,
 		Roles:       agentCtx.Roles,
 		Source:      agentCtx.Source,
-		SandboxID:   agentCtx.SandboxID,
+		SandboxID:   sandboxID,
 		Model:       model,
 		Step:        step,
 		ToolCallID:  call.ID,

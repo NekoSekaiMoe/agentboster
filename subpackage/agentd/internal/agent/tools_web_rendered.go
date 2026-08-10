@@ -177,7 +177,8 @@ func registerWebSearchRendered(registry *ToolRegistry, sbMgr *sandbox.Manager, c
 }
 
 func renderURLInSandbox(sbMgr *sandbox.Manager, ctx *AgentContext, targetURL string, timeout int) (string, string, *ToolResult) {
-	if ctx.SandboxID == "" {
+	sandboxID := ctx.SnapshotSandboxID()
+	if sandboxID == "" {
 		return "", "", &ToolResult{Success: false, Error: "no sandbox available"}
 	}
 
@@ -296,7 +297,7 @@ if ! "$browser" \
   exit 70
 fi`
 
-	result, err := sbMgr.Exec(ctx.SandboxID, command, map[string]string{"TARGET_URL": targetURL}, timeout)
+	result, err := sbMgr.Exec(sandboxID, command, map[string]string{"TARGET_URL": targetURL}, timeout)
 	if err != nil {
 		return "", "", &ToolResult{Success: false, Error: fmt.Sprintf("render exec error: %v", err)}
 	}

@@ -1,7 +1,7 @@
 console.log('[api/ai] Module loading...');
 
 import { readAuthSessionFromCookies } from '@/lib/auth';
-import { chatMain } from '@/lib/chat';
+import { chatMain, SessionWorkspaceError } from '@/lib/chat';
 import { CrossChannelReadonlyError } from '@/lib/chat/access';
 import { createStaticAssistantStream } from '@/lib/chat/stream';
 import { createLogger } from '@/lib/utils/logger';
@@ -46,6 +46,11 @@ const requestSchema = z.object({
   // Validated against config.agents keys in chatWorkflow — unknown names
   // fall back to main rather than throwing, so stale UI state is safe.
   agent: z.string().optional(),
+  // Active workspace from the web workspace switcher. Optional; when
+  // absent the server scopes new sessions to the user's default
+  // workspace. Ownership + active status are validated server-side in
+  // chatMain before a new session is created (SessionWorkspaceError).
+  workspaceId: z.string().optional(),
   input: z
     .object({
       text: z.string().optional(),
@@ -191,6 +196,7 @@ export async function POST(request: Request) {
         uiMessageId: body.messageId,
         requestModel: body.model,
         requestAgent: body.agent,
+        workspaceId: body.workspaceId,
         input,
         messages,
       },
@@ -218,6 +224,16 @@ export async function POST(request: Request) {
           currentChannel: error.currentChannel,
         },
         { status: 403 },
+      );
+    }
+    if (error instanceof SessionWorkspaceError) {
+      logger.info('post:workspace_rejected', {
+        sessionId: body.id,
+        code: error.code,
+      });
+      return Response.json(
+        { success: false, error: error.message, code: error.code },
+        { status: error.code === 'not_found' ? 404 : 409 },
       );
     }
     logger.error('post:chat_main_failed', {

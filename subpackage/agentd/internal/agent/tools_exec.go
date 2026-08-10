@@ -95,7 +95,7 @@ func registerExec(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentCont
 			params.Timeout = 60
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
@@ -143,7 +143,7 @@ func registerExecBackground(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 			return toolErr, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
@@ -247,7 +247,8 @@ func registerExecBatch(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agen
 		if len(params.Commands) > maxExecBatchCommands {
 			return &ToolResult{Success: false, Error: fmt.Sprintf("commands exceeds max batch size %d", maxExecBatchCommands)}, nil
 		}
-		if ctx.SandboxID == "" {
+		batchSandboxID := ctx.SnapshotSandboxID()
+		if batchSandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
 		if ctx.ExecBus == nil || ctx.ExecCollector == nil {
@@ -289,7 +290,7 @@ func registerExecBatch(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agen
 				cmd.SandboxHint == "inherit"
 			sandboxID := ""
 			if reuseCurrentSandbox {
-				sandboxID = ctx.SandboxID
+				sandboxID = batchSandboxID
 			}
 
 			ctx.ExecBus.Publish(eventbus.EventExecRequested, map[string]any{

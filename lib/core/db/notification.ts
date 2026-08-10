@@ -21,9 +21,13 @@ import {
  * Every other caller leaves it at the 'pending' default.
  */
 export async function createNotification(data: {
-  taskId: string;
+  taskId?: string | null;
   decisionId?: string | null;
-  notificationType: 'decision' | 'completion' | 'tidy_report';
+  notificationType:
+    | 'decision'
+    | 'completion'
+    | 'tidy_report'
+    | 'workspace_failover';
   payload: Record<string, unknown>;
   channel: string;
   targetChatId: string;
@@ -89,7 +93,11 @@ export async function findPendingNotifications(taskId: string, type: string) {
         eq(notifications.taskId, taskId),
         eq(
           notifications.notificationType,
-          type as 'decision' | 'completion' | 'tidy_report',
+          type as
+            | 'decision'
+            | 'completion'
+            | 'tidy_report'
+            | 'workspace_failover',
         ),
         eq(notifications.status, 'pending'),
       ),
@@ -109,7 +117,11 @@ export async function findNotificationByDedupKey(
         eq(notifications.taskId, taskId),
         eq(
           notifications.notificationType,
-          type as 'decision' | 'completion' | 'tidy_report',
+          type as
+            | 'decision'
+            | 'completion'
+            | 'tidy_report'
+            | 'workspace_failover',
         ),
         eq(notifications.channel, channel),
       ),

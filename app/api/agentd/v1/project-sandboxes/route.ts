@@ -1,15 +1,15 @@
 export const dynamic = 'force-dynamic';
 
 import {
-  archiveWorkspace,
-  createWorkspace,
-  getWorkspace,
-  getWorkspaceByProjectId,
-  listWorkspaces,
+  archiveProjectSandbox,
+  createProjectSandbox,
+  getProjectSandbox,
+  getProjectSandboxByProjectId,
+  listProjectSandboxes,
 } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 
-const logger = createLogger('api.agentd.workspaces');
+const logger = createLogger('api.agentd.project-sandboxes');
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -18,10 +18,10 @@ export async function GET(request: Request) {
   const id = searchParams.get('id');
 
   if (id) {
-    const ws = await getWorkspace(id);
+    const ws = await getProjectSandbox(id);
     if (!ws) {
       return Response.json(
-        { success: false, error: 'Workspace not found' },
+        { success: false, error: 'Project sandbox not found' },
         { status: 404 },
       );
     }
@@ -29,10 +29,10 @@ export async function GET(request: Request) {
   }
 
   if (projectId) {
-    const ws = await getWorkspaceByProjectId(projectId);
+    const ws = await getProjectSandboxByProjectId(projectId);
     if (!ws) {
       return Response.json(
-        { success: false, error: 'Workspace not found' },
+        { success: false, error: 'Project sandbox not found' },
         { status: 404 },
       );
     }
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   }
 
   if (agentId) {
-    const wsList = await listWorkspaces(agentId);
+    const wsList = await listProjectSandboxes(agentId);
     return Response.json({ success: true, data: wsList });
   }
 
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const ws = await createWorkspace({
+    const ws = await createProjectSandbox({
       projectId: project_id,
       agentId: agent_id,
       name,
@@ -73,17 +73,17 @@ export async function POST(request: Request) {
       sandboxType: sandbox_type ?? 'docker',
     });
 
-    logger.info('workspace created', {
-      workspaceId: ws.id,
+    logger.info('project sandbox created', {
+      projectSandboxId: ws.id,
       projectId: ws.projectId,
     });
     return Response.json({ success: true, data: ws }, { status: 201 });
   } catch (error) {
-    logger.error('workspace creation failed', {
+    logger.error('project sandbox creation failed', {
       error: error instanceof Error ? error.message : String(error),
     });
     return Response.json(
-      { success: false, error: 'Failed to create workspace' },
+      { success: false, error: 'Failed to create project sandbox' },
       { status: 500 },
     );
   }
@@ -94,17 +94,17 @@ export async function PUT(request: Request) {
   const id = searchParams.get('id');
   if (!id) {
     return Response.json(
-      { success: false, error: 'Missing workspace id' },
+      { success: false, error: 'Missing project sandbox id' },
       { status: 400 },
     );
   }
 
   const body = await request.json();
   if (body.action === 'archive') {
-    const ws = await archiveWorkspace(id);
+    const ws = await archiveProjectSandbox(id);
     if (!ws) {
       return Response.json(
-        { success: false, error: 'Workspace not found' },
+        { success: false, error: 'Project sandbox not found' },
         { status: 404 },
       );
     }

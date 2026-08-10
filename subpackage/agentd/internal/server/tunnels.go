@@ -296,9 +296,13 @@ func (s *Server) handleCreateTunnel(c *gin.Context) {
 		return
 	}
 	sandboxID := req.SandboxID
+	// Snapshot the session's sandbox under the per-session state lock:
+	// sandbox_destroy clears SandboxID concurrently.
+	var sessionSandboxID string
+	agentCtx.WithStateLock(func() { sessionSandboxID = agentCtx.SandboxID })
 	if sandboxID == "" {
-		sandboxID = agentCtx.SandboxID
-	} else if sandboxID != agentCtx.SandboxID {
+		sandboxID = sessionSandboxID
+	} else if sandboxID != sessionSandboxID {
 		// Authorization: an explicit sandbox_id must match the session's
 		// own sandbox. Without this check any caller with a valid session
 		// could open a tunnel against another session's sandbox and mint a

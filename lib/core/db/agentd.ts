@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, like, or, sql, type SQL } from 'drizzle-orm';
 import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
 import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
 import { hasAdminRole } from '@/lib/core/db/users';
@@ -16,6 +16,7 @@ import {
   taskSummaries,
   users,
   workspaces,
+  projectSandboxes,
 } from './schema';
 import type { Decision } from './schema';
 
@@ -959,9 +960,12 @@ export async function listActiveTaskSummaries(
     .orderBy(desc(taskSummaries.lastUpdated));
 }
 
-// === Workspaces ===
+// === Project Sandboxes (legacy workspaces table, renamed) ============
+// These are the path-B (async agentTask) "projectId ↔ sandbox" binding
+// records. Renamed from `workspaces` to avoid collision with the new
+// user-facing workspaces table. Semantics unchanged.
 
-export interface WorkspaceRecord {
+export interface ProjectSandboxRecord {
   id: string;
   projectId: string;
   agentId: string;
@@ -973,21 +977,94 @@ export interface WorkspaceRecord {
   updatedAt: Date;
 }
 
-export async function createWorkspace(data: {
+export async function createProjectSandbox(data: {
   projectId: string;
   agentId: string;
   name?: string;
   sandboxId: string;
   sandboxType: string;
-}): Promise<WorkspaceRecord> {
+}): Promise<ProjectSandboxRecord> {
   const [row] = await db
-    .insert(workspaces)
+    .insert(projectSandboxes)
     .values({
       projectId: data.projectId,
       agentId: data.agentId,
       name: data.name ?? null,
       sandboxId: data.sandboxId,
       sandboxType: data.sandboxType,
+      status: 'active',
+    })
+    .returning();
+  return row;
+}
+
+export async function getProjectSandbox(
+  id: string,
+): Promise<ProjectSandboxRecord | null> {
+  const [row] = await db
+    .select()
+    .from(projectSandboxes)
+    .where(eq(projectSandboxes.id, id));
+  return row ?? null;
+}
+
+export async function getProjectSandboxByProjectId(
+  projectId: string,
+): Promise<ProjectSandboxRecord | null> {
+  const [row] = await db
+    .select()
+    .from(projectSandboxes)
+    .where(eq(projectSandboxes.projectId, projectId));
+  return row ?? null;
+}
+
+export async function listProjectSandboxes(
+  agentId: string,
+): Promise<ProjectSandboxRecord[]> {
+  return db
+    .select()
+    .from(projectSandboxes)
+    .where(eq(projectSandboxes.agentId, agentId))
+    .orderBy(desc(projectSandboxes.updatedAt));
+}
+
+export async function archiveProjectSandbox(
+  id: string,
+): Promise<ProjectSandboxRecord | null> {
+  const [row] = await db
+    .update(projectSandboxes)
+    .set({ status: 'archived', updatedAt: new Date() })
+    .where(eq(projectSandboxes.id, id))
+    .returning();
+  return row ?? null;
+}
+
+// === Workspaces (user-facing) ========================================
+
+export interface WorkspaceRecord {
+  id: string;
+  ownerId: string;
+  name: string;
+  preferredNodeId: string | null;
+  nodeGeneration: number;
+  /** True for the owner's designated default workspace (created lazily by
+   *  getOrCreateDefaultWorkspace). At most one per owner — enforced by the
+   *  workspaces_owner_default_uniq partial unique index. */
+  isDefault: boolean;
+  status: 'active' | 'archived';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export async function createWorkspace(data: {
+  ownerId: string;
+  name: string;
+}): Promise<WorkspaceRecord> {
+  const [row] = await db
+    .insert(workspaces)
+    .values({
+      ownerId: data.ownerId,
+      name: data.name,
       status: 'active',
     })
     .returning();
@@ -1001,32 +1078,53 @@ export async function getWorkspace(
   return row ?? null;
 }
 
-export async function getWorkspaceByProjectId(
-  projectId: string,
-): Promise<WorkspaceRecord | null> {
-  const [row] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.projectId, projectId));
-  return row ?? null;
-}
-
-export async function listWorkspaces(
-  agentId: string,
+export async function listWorkspacesByOwner(
+  ownerId: string,
 ): Promise<WorkspaceRecord[]> {
   return db
     .select()
     .from(workspaces)
-    .where(eq(workspaces.agentId, agentId))
+    .where(eq(workspaces.ownerId, ownerId))
     .orderBy(desc(workspaces.updatedAt));
+}
+
+export async function getOrCreateDefaultWorkspace(
+  ownerId: string,
+): Promise<WorkspaceRecord> {
+  // Atomic per-owner default-workspace upsert. The partial unique index
+  // workspaces_owner_default_uniq (owner_id WHERE is_default) is the
+  // conflict target: two concurrent first-requests can no longer each
+  // insert a default — the second hits the constraint and the DO UPDATE
+  // arm returns the existing row. Works across both the neon-http and
+  // node-postgres drivers (no advisory-lock / same-connection assumption).
+  const [row] = await db
+    .insert(workspaces)
+    .values({
+      ownerId,
+      name: '默认工作区',
+      isDefault: true,
+    })
+    .onConflictDoUpdate({
+      target: [workspaces.ownerId],
+      targetWhere: sql`is_default = true`,
+      set: { updatedAt: new Date() },
+    })
+    .returning();
+  return row;
 }
 
 export async function archiveWorkspace(
   id: string,
 ): Promise<WorkspaceRecord | null> {
+  // Archiving must also drop the default flag: is_default is gated by the
+  // partial unique index workspaces_owner_default_uniq (owner_id WHERE
+  // is_default), and getOrCreateDefaultWorkspace's upsert returns the
+  // existing default row WITHOUT filtering on status. If the flag survived
+  // archival, the next getOrCreateDefaultWorkspace call would keep
+  // returning this archived row instead of creating a fresh active default.
   const [row] = await db
     .update(workspaces)
-    .set({ status: 'archived', updatedAt: new Date() })
+    .set({ status: 'archived', isDefault: false, updatedAt: new Date() })
     .where(eq(workspaces.id, id))
     .returning();
   return row ?? null;

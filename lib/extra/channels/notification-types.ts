@@ -7,7 +7,8 @@ export type NotificationType =
   | 'decision'
   | 'completion'
   | 'tidy_report'
-  | 'l2_time_input';
+  | 'l2_time_input'
+  | 'workspace_failover';
 
 export type NotificationStatus =
   | 'pending'
@@ -128,10 +129,35 @@ export interface TidyReportNotification {
   resolvedIssues?: string[];
 }
 
+// ─── Workspace Failover ──────────────────────────────────────────────
+// M3.5: fired when a workspace's preferred node goes offline past the
+// grace window and the workspace is migrated to a fresh node. The payload
+// mirrors the shape adapters already fall back to (summary + details) so
+// unknown-type renderers print a reasonable card without per-adapter code.
+
+export interface WorkspaceFailoverNotification {
+  type: 'workspace_failover';
+  workspaceId: string;
+  workspaceName: string;
+  /** Node id that went offline (the one the long-lived container used to
+   *  live on). Null when the node row was deleted entirely. */
+  staleNodeId: string | null;
+  reason: 'node_offline' | (string & {});
+  title: string;
+  summary: string;
+  details?: {
+    migratedAt: string;
+    /** Bumped fencing generation; useful for diagnostics. */
+    nodeGeneration?: number;
+  };
+  locale?: NotificationLocale;
+}
+
 export type NotificationPayload =
   | DecisionNotification
   | CompletionNotification
-  | L2TimeInputNotification;
+  | L2TimeInputNotification
+  | WorkspaceFailoverNotification;
 
 export type StoredNotificationPayload =
   | NotificationPayload

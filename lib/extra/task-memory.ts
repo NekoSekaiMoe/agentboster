@@ -6,7 +6,43 @@ import {
   writeMemories,
 } from '@/lib/core/db/agentd';
 import { getConfig } from '@/lib/core/kv/config';
+import { createLogger } from '@/lib/utils/logger';
 import { generateText } from 'ai';
+
+const logger = createLogger('task-memory');
+
+// NOTE(M2.5): this module writes to the legacy `agent_memories` table (KV
+// pairs keyed by agentId/sessionId). It is the ONLY remaining writer; the
+// modern long_term_memories system has replaced it for chat/extract paths.
+// Do NOT add new callers.
+//
+// TODO(tech-debt, separate epic): migrate to long_term_memories.workspace_id.
+//   The current getMemories/writeMemories calls key only on (agentId,
+//   taskId, sessionId) with NO workspace boundary, so the same agent reused
+//   across two workspaces can read/overwrite each other's task memory. The
+//   caller has task.workspaceId available (via getTask) but the legacy table
+//   has no workspace_id column.
+//
+//   Until that migration lands, workspace-scoped tasks are REFUSED at the
+//   extractTaskMemory boundary (see the workspaceId guard below) instead of
+//   performing unscoped reads/writes. Non-workspace tasks keep the legacy
+//   behavior.
+//
+//   This is a non-trivial migration. The agent_memories table was also
+//   written by the agentd daemon via the /api/agentd/v1/memories webhook,
+//   but that route now writes long_term_memories directly (see
+//   app/api/agentd/v1/memories/route.ts), so this module is the only
+//   remaining legacy writer. Full migration requires, in lockstep:
+//     1. add workspace_id to agent_memories (schema) + data backfill
+//     2. extend AgentdResourceScope + resolveResourceScope with workspaceId
+//     3. thread task.workspaceId through extractTaskMemory → getMemories/
+//        writeMemories
+//     4. extend the daemon-side ToolExecRequest contract so the daemon
+//        sends workspace_id on memory writes
+//     5. update the SDK (subpackage/sdk regen)
+//   The long_term_memories keyed upsert/delete paths (used by chat
+//   extraction) DO honor workspaceId correctly after the
+//   workspace-boundary fix.
 
 type ExtractedFact = {
   key: string;
@@ -113,6 +149,11 @@ export async function extractTaskMemory(input: {
   taskId: string;
   agentId: string;
   sessionId?: string;
+  /** Workspace the task belongs to (agent_tasks.workspace_id). When set,
+   *  the legacy agent_memories path below is REFUSED — it keys only on
+   *  (agentId, taskId, sessionId) and would leak/overwrite memory across
+   *  workspaces sharing one agent. See the TODO at the top of this file. */
+  workspaceId?: string | null;
   command: string;
   result: string;
   status: string;
@@ -134,6 +175,23 @@ export async function extractTaskMemory(input: {
     return {
       mode: 'task_summary' as const,
       summary: updated,
+      facts: [],
+      memories: [],
+    };
+  }
+
+  if (input.workspaceId) {
+    // Workspace-scoped task: the legacy agent_memories KV path has no
+    // workspace boundary, so extracting here would read/overwrite another
+    // workspace's task memory for the same agent. Refuse the path (the
+    // task_summary branch above is keyed by taskId and stays safe).
+    logger.info('extract:workspace_scope_skipped', {
+      taskId: input.taskId,
+      agentId: input.agentId,
+      workspaceId: input.workspaceId,
+    });
+    return {
+      mode: 'workspace_scope_skipped' as const,
       facts: [],
       memories: [],
     };

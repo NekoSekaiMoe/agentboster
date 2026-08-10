@@ -24,4 +24,11 @@ export const zhHK = {
   'nav.auditLogs': '審計記錄',
   'nav.operations': '運維',
   'theme.system': '跟隨系統',
+  'workspace.label': '工作區',
+  'workspace.switch': '切換工作區',
+  'workspace.createNew': '新建工作區',
+  'workspace.defaultName': '新工作區',
+  'workspace.createSuccess': '工作區已建立',
+  'workspace.createError': '建立工作區失敗',
+  'workspace.defaultWorkspaceName': '預設工作區',
 } satisfies Record<keyof typeof enUS, string>;

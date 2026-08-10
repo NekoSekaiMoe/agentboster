@@ -18,6 +18,8 @@
 import { neon } from '@neondatabase/serverless';
 import { Pool } from 'pg';
 
+import { isVercel } from '../lib/extra/deploy';
+
 type RawSql = (
   strings: TemplateStringsArray,
   ...values: unknown[]
@@ -47,7 +49,9 @@ function resolveDriver(databaseUrl: string): 'neon' | 'postgres' {
   } catch {
     // Unparseable URL — fall through to the deployment-mode default below.
   }
-  return process.env.VERCEL ? 'neon' : 'postgres';
+  // Deployment-mode default goes through the deploy hub (AGENTS.md:
+  // never inline process.env.VERCEL checks).
+  return isVercel ? 'neon' : 'postgres';
 }
 
 function requireDatabaseUrl(): string {

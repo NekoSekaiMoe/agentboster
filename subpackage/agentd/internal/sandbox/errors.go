@@ -46,6 +46,12 @@ var (
 	// ErrNonZeroExit indicates the command ran and exited with a non-zero
 	// status. This is a normal business error; ExitCode holds the value.
 	ErrNonZeroExit = errors.New("command exited non-zero")
+
+	// M3.1 admission-control errors. Returned by Manager.checkAdmission so
+	// the caller (Web layer) can branch on cause: too-many → pick another
+	// node or fall back to ephemeral; insufficient-memory → pick another node.
+	ErrTooManySandboxes    = errors.New("too many sandboxes")
+	ErrInsufficientMemory = errors.New("insufficient memory")
 )
 
 // classifyExecError inspects the error returned by exec.Cmd.Run/Output

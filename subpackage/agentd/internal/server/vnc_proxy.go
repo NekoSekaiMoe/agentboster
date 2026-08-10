@@ -35,7 +35,11 @@ func (s *Server) handleVNCProxy(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "session not found"})
 		return
 	}
-	if agentCtx.SandboxID == "" {
+	// Snapshot the sandbox ID under the per-session state lock:
+	// sandbox_destroy clears it concurrently.
+	var sandboxID string
+	agentCtx.WithStateLock(func() { sandboxID = agentCtx.SandboxID })
+	if sandboxID == "" {
 		c.JSON(http.StatusConflict, gin.H{"success": false, "error": "session has no sandbox"})
 		return
 	}
@@ -45,7 +49,7 @@ func (s *Server) handleVNCProxy(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": "sandbox manager unavailable"})
 		return
 	}
-	if err := desktop.EnsureDesktop(sbMgr, agentCtx.SandboxID); err != nil {
+	if err := desktop.EnsureDesktop(sbMgr, sandboxID); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"success": false,
 			"error":   fmt.Sprintf("desktop stack unavailable: %v", err),
@@ -53,7 +57,7 @@ func (s *Server) handleVNCProxy(c *gin.Context) {
 		return
 	}
 
-	containerIP, err := sbMgr.ContainerIP(agentCtx.SandboxID)
+	containerIP, err := sbMgr.ContainerIP(sandboxID)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": fmt.Sprintf("cannot resolve container IP: %v", err)})
 		return
@@ -98,7 +102,7 @@ func (s *Server) handleVNCProxy(c *gin.Context) {
 
 	slog.Info("vnc_proxy: tunnel established",
 		"session_id", sessionID,
-		"sandbox_id", agentCtx.SandboxID,
+		"sandbox_id", sandboxID,
 		"backend", backend,
 	)
 

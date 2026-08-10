@@ -118,9 +118,22 @@ func (h *HealthChecker) tick() {
 	h.consecutiveChecks++
 	h.mu.Unlock()
 
+	// M3.4: probe concurrently so a 50+ sandbox fleet doesn't seq-scan each
+	// tick (each probeOne forks an `lxc-info` / `docker inspect` subprocess).
+	// Bound the fan-out to keep subprocess/fd pressure predictable.
+	const probeConcurrency = 4
+	sem := make(chan struct{}, probeConcurrency)
+	var wg sync.WaitGroup
 	for _, id := range ids {
-		h.probeOne(id)
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(sandboxID string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			h.probeOne(sandboxID)
+		}(id)
 	}
+	wg.Wait()
 }
 
 func (h *HealthChecker) probeOne(sandboxID string) {

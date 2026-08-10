@@ -15,7 +15,9 @@ import {
   eq,
   inArray,
   isNotNull,
+  isNull,
   ne,
+  or,
   sql,
 } from 'drizzle-orm';
 
@@ -121,6 +123,32 @@ function escapeLikePattern(value: string) {
     .replaceAll('_', '\\_');
 }
 
+/**
+ * Build the workspace visibility filter for memory recall: a row is visible
+ * when (a) it belongs to the workspace OR is global (workspace_id IS NULL),
+ * AND (b) it's shared OR owned by the requesting user.
+ *
+ * `workspaceId=undefined` (not passed) means "do not filter by workspace" —
+ * legacy/global recall. `workspaceId=null` is treated the same (no filter),
+ * so callers passing a DB row that happens to be null don't accidentally
+ * narrow recall to the global-only layer.
+ */
+function buildWorkspaceVisibilityCondition(
+  workspaceId: string | null | undefined,
+  userId?: string,
+) {
+  if (!workspaceId) return undefined;
+  const scopeMatch = or(
+    eq(schema.longTermMemories.workspaceId, workspaceId),
+    isNull(schema.longTermMemories.workspaceId),
+  );
+  const visibilityMatch = or(
+    eq(schema.longTermMemories.shared, true),
+    userId ? eq(schema.longTermMemories.userId, userId) : sql`false`,
+  );
+  return and(scopeMatch, visibilityMatch);
+}
+
 export async function createLongTermMemoryRow(
   content: string,
   options?: {
@@ -129,6 +157,8 @@ export async function createLongTermMemoryRow(
     userId?: string;
     key?: string;
     projectId?: string | null;
+    /** Workspace scope (M2). Null/undefined = global layer. */
+    workspaceId?: string | null;
     dreamStatus?: 'active' | 'tentative' | 'superseded' | 'contradicted';
     dreamMeta?: Record<string, unknown>;
     sourceKind?: LongTermMemorySourceKind;
@@ -146,6 +176,7 @@ export async function createLongTermMemoryRow(
       userId: options?.userId,
       key: options?.key,
       projectId: options?.projectId,
+      workspaceId: options?.workspaceId,
       dreamStatus: options?.dreamStatus,
       dreamMeta: options?.dreamMeta,
       sourceKind: options?.sourceKind,
@@ -170,6 +201,8 @@ export async function createLongTermMemoryRows(
     userId?: string;
     key?: string;
     projectId?: string | null;
+    /** Workspace scope (M2). */
+    workspaceId?: string | null;
     dreamStatus?: 'active' | 'tentative' | 'superseded' | 'contradicted';
     dreamMeta?: Record<string, unknown>;
     sourceKind?: LongTermMemorySourceKind;
@@ -186,6 +219,8 @@ export async function createLongTermMemoryRows(
         // Always store the resolved sentinel for global memories — see
         // lib/memory/scope.ts for why NULL is forbidden.
         projectId: resolveProjectId(r.projectId),
+        // workspace_id is nullable; NULL = global layer (no workspace scope).
+        ...(r.workspaceId ? { workspaceId: r.workspaceId } : {}),
         memoryType: r.memoryType ?? 'fact',
         importance: clampImportance(r.importance),
         ...(r.key ? { key: r.key } : {}),
@@ -223,6 +258,8 @@ export async function upsertLongTermMemoryByKey(input: {
   memoryType?: 'fact' | 'preference' | 'decision' | 'conversation';
   importance?: number;
   projectId?: string | null;
+  /** Workspace scope (M2). Null/undefined = global layer. */
+  workspaceId?: string | null;
   /**
    * Dream lifecycle state for the written row. Default 'active'.
    * Pass 'tentative' for Phase 2 proposals so recall excludes them
@@ -260,6 +297,7 @@ export async function upsertLongTermMemoryByKey(input: {
       memoryType: input.memoryType,
       importance: input.importance,
       projectId: input.projectId,
+      workspaceId: input.workspaceId,
       dreamStatus: input.dreamStatus,
       dreamMeta: input.dreamMeta,
       sourceKind: input.sourceKind,
@@ -278,6 +316,17 @@ export async function upsertLongTermMemoryByKey(input: {
         eq(schema.longTermMemories.userId, input.userId),
         eq(schema.longTermMemories.projectId, resolvedProjectId),
         eq(schema.longTermMemories.key, trimmedKey),
+        // Scope keyed upserts by workspace_id so the same logical key
+        // (e.g. "tech_stack") cannot be overwritten across workspaces.
+        // input.workspaceId is `string | null | undefined`: when a value
+        // is provided (incl. explicit null = global layer) we pin to it;
+        // when omitted entirely we match any row under the same
+        // (userId, projectId, key) to preserve legacy unscoped behavior.
+        input.workspaceId !== undefined
+          ? input.workspaceId === null
+            ? isNull(schema.longTermMemories.workspaceId)
+            : eq(schema.longTermMemories.workspaceId, input.workspaceId)
+          : undefined,
       ),
     )
     .limit(1);
@@ -325,6 +374,7 @@ export async function upsertLongTermMemoryByKey(input: {
     importance: input.importance,
     key: trimmedKey,
     projectId: input.projectId,
+    workspaceId: input.workspaceId,
     dreamStatus: input.dreamStatus,
     dreamMeta: input.dreamMeta,
     sourceKind: input.sourceKind,
@@ -386,6 +436,11 @@ export async function listLongTermMemoryRows(options?: {
   offset?: number;
   userId?: string;
   projectIdScope?: string | null;
+  /** Workspace scope (M2). When set (incl. null = global-only), filter
+   *  rows to that workspace plus the global layer
+   *  (workspace_id IS NULL) so global memories stay visible. Undefined
+   *  (not passed) = no workspace filter (legacy/global recall). */
+  workspaceId?: string | null;
   /**
    * When true, include tentative/superseded/contradicted rows. Default
    * false so recall + UI only see active memories. Dream is the main
@@ -397,12 +452,41 @@ export async function listLongTermMemoryRows(options?: {
   const safeOffset = Math.max(0, options?.offset ?? 0);
 
   const conditions: ReturnType<typeof eq>[] = [];
-  if (options?.userId) {
+  const hasWorkspaceScope =
+    options?.workspaceId !== undefined && options?.workspaceId !== null;
+  if (options?.userId && !hasWorkspaceScope) {
+    // Standalone owner filter — only when no workspace scope is in play.
+    // With a workspace scope, ownership is encoded inside
+    // buildWorkspaceVisibilityCondition's shared-or-owner rule below, and
+    // a bare user_id filter would wrongly hide rows other users SHARED
+    // into this workspace (parity with recall's keyword/vector paths).
     conditions.push(eq(schema.longTermMemories.userId, options.userId));
   }
   const scopeCondition = buildProjectScopeCondition(options?.projectIdScope);
   if (scopeCondition) {
     conditions.push(scopeCondition);
+  }
+  if (options?.workspaceId !== undefined) {
+    if (options.workspaceId === null) {
+      // Explicit null means "global layer only" (unlike recall, where a
+      // null workspace id falls back to no workspace filter).
+      conditions.push(
+        isNull(schema.longTermMemories.workspaceId) as unknown as ReturnType<
+          typeof eq
+        >,
+      );
+    } else {
+      // Same visibility semantics as recall's keyword and vector paths:
+      // (workspace rows OR global layer) AND (shared OR owned by the
+      // requesting user), via the shared helper.
+      const visibility = buildWorkspaceVisibilityCondition(
+        options.workspaceId,
+        options.userId,
+      );
+      if (visibility) {
+        conditions.push(visibility as unknown as ReturnType<typeof eq>);
+      }
+    }
   }
   if (!options?.includeInactive) {
     conditions.push(eq(schema.longTermMemories.dreamStatus, 'active'));
@@ -564,6 +648,11 @@ export async function deleteLongTermMemoryByKey(input: {
   userId: string;
   key: string;
   projectId?: string | null;
+  /** Workspace scope. When provided (incl. explicit null = global
+   *  layer), the delete is pinned to that workspace so a key created in
+   *  workspace A cannot be deleted from workspace B. When omitted
+   *  entirely, the legacy unscoped behavior is preserved. */
+  workspaceId?: string | null;
 }) {
   const trimmedKey = input.key.trim();
   if (!trimmedKey) {
@@ -580,6 +669,13 @@ export async function deleteLongTermMemoryByKey(input: {
           resolveProjectId(input.projectId),
         ),
         eq(schema.longTermMemories.key, trimmedKey),
+        // Same workspace-scoping rule as upsertLongTermMemoryByKey — see
+        // that function for the null/undefined distinction rationale.
+        input.workspaceId !== undefined
+          ? input.workspaceId === null
+            ? isNull(schema.longTermMemories.workspaceId)
+            : eq(schema.longTermMemories.workspaceId, input.workspaceId)
+          : undefined,
       ),
     )
     .returning();
@@ -962,16 +1058,28 @@ async function listKeywordCandidateRows(options: {
   candidateLimit: number;
   userId?: string;
   projectIdScope?: string | null;
+  workspaceId?: string | null;
 }) {
   const normalizedSearchText = options.searchText.trim();
   const likePattern = `%${escapeLikePattern(normalizedSearchText)}%`;
   const useSubstringFallback = containsCjk(normalizedSearchText);
   const { userId } = options;
 
-  const userIdCondition = userId
-    ? eq(schema.longTermMemories.userId, userId)
-    : undefined;
+  // When workspace visibility is in play (buildWorkspaceVisibilityCondition
+  // returns a non-undefined predicate), that predicate ALREADY encodes the
+  // owner/shared rule: `(shared=true OR userId=?)`. Adding a standalone
+  // `eq(userId, userId)` on top would narrow to owner-only rows and silently
+  // hide other users' shared memories. Only apply the bare owner filter when
+  // there is no workspace visibility condition (legacy/global recall).
+  const visibilityCondition = buildWorkspaceVisibilityCondition(
+    options.workspaceId,
+    userId,
+  );
   const scopeCondition = buildProjectScopeCondition(options.projectIdScope);
+  const userIdCondition =
+    userId && !visibilityCondition
+      ? eq(schema.longTermMemories.userId, userId)
+      : undefined;
   // Recall excludes non-active Dream rows (tentative proposals +
   // superseded sources + contradicted). Because recall is always
   // per-user, needsJoin is always true in practice — but we defensively
@@ -989,7 +1097,8 @@ async function listKeywordCandidateRows(options: {
   const needsJoin =
     Boolean(userId) ||
     Boolean(scopeCondition) ||
-    Boolean(activeStatusCondition);
+    Boolean(activeStatusCondition) ||
+    Boolean(visibilityCondition);
 
   const baseSelect = {
     chunkId: schema.longTermMemoryChunks.id,
@@ -1021,6 +1130,7 @@ async function listKeywordCandidateRows(options: {
           userIdCondition,
           scopeCondition,
           activeStatusCondition,
+          visibilityCondition,
         ),
       )
       .orderBy(
@@ -1040,6 +1150,7 @@ async function listKeywordCandidateRows(options: {
         userIdCondition,
         scopeCondition,
         activeStatusCondition,
+        visibilityCondition,
       ),
     )
     .orderBy(sql`${keywordScoreExpr} DESC`)
@@ -1056,6 +1167,7 @@ async function listKeywordCandidateRows(options: {
         userIdCondition,
         scopeCondition,
         activeStatusCondition,
+        visibilityCondition,
       ),
     )
     .orderBy(
@@ -1075,6 +1187,10 @@ export async function hybridSearchLongTermMemoryChunks(options: {
   offset: number;
   userId?: string;
   projectIdScope?: string | null;
+  /** Workspace scope. When set, recall is filtered to (workspace_id=? OR
+   *  workspace_id IS NULL) AND (shared=true OR user_id=?). Null/undefined =
+   *  legacy global recall (no workspace filter). */
+  workspaceId?: string | null;
 }): Promise<HybridSearchRow[]> {
   const {
     queryEmbedding,
@@ -1086,6 +1202,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
     offset,
     userId,
     projectIdScope,
+    workspaceId,
   } = options;
 
   const hasEmbedding = queryEmbedding && queryEmbedding.length > 0;
@@ -1122,6 +1239,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
       candidateLimit,
       userId,
       projectIdScope,
+      workspaceId,
     });
     const mergedRows = mergeHybridSearchCandidates({
       vectorRows: [],
@@ -1150,6 +1268,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
       candidateLimit,
       userId,
       projectIdScope,
+      workspaceId,
     });
     const mergedRows = mergeHybridSearchCandidates({
       vectorRows: [],
@@ -1189,6 +1308,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
       candidateLimit,
       userId,
       projectIdScope,
+      workspaceId,
     });
     const mergedRows = mergeHybridSearchCandidates({
       vectorRows: [],
@@ -1235,8 +1355,21 @@ export async function hybridSearchLongTermMemoryChunks(options: {
           schema.longTermMemoryChunks.embeddingDimensions,
           activeVectorDimensions,
         ),
-        userId ? eq(schema.longTermMemories.userId, userId) : undefined,
+        // Same owner/shared rule as keyword search: buildWorkspaceVisibilityCondition
+        // already encodes `(shared=true OR userId=?)`, so only apply the bare
+        // owner filter when there is no workspace visibility predicate (legacy
+        // global recall), otherwise other users' shared memories would be hidden.
+        (() => {
+          const visibility = buildWorkspaceVisibilityCondition(
+            workspaceId,
+            userId,
+          );
+          return userId && !visibility
+            ? eq(schema.longTermMemories.userId, userId)
+            : undefined;
+        })(),
         buildProjectScopeCondition(projectIdScope),
+        buildWorkspaceVisibilityCondition(workspaceId, userId),
         eq(schema.longTermMemories.dreamStatus, 'active'),
       ),
     )
@@ -1277,6 +1410,7 @@ export async function hybridSearchLongTermMemoryChunks(options: {
     candidateLimit,
     userId,
     projectIdScope,
+    workspaceId,
   });
 
   logger.info('hybrid_search:keyword_candidates', {

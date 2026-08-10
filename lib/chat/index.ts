@@ -164,6 +164,14 @@ type LegacyChatMainRequest = {
    * it overrides stored provider `client_spoof` values for this workflow run.
    */
   clientSpoof?: ClientSpoof;
+  /**
+   * Active workspace selected in the web workspace switcher. Validated
+   * server-side (ownership + active status) in ensureMessageSession before
+   * a NEW session is scoped to it; an invalid or inaccessible value aborts
+   * session creation rather than silently falling back to the default or
+   * legacy global scope.
+   */
+  workspaceId?: string;
 };
 
 type ChatMainOptions = {
@@ -374,11 +382,78 @@ function readSessionAgent(
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * Thrown when a new session cannot be scoped to a usable workspace —
+ * the explicitly requested one is missing/foreign-owned or not active,
+ * or the user's default workspace is unavailable. The web route maps
+ * this to a 4xx response instead of a generic 500 so the client can
+ * surface an actionable error (e.g. re-pick a workspace).
+ */
+export class SessionWorkspaceError extends Error {
+  readonly code: 'not_found' | 'not_active';
+
+  constructor(code: 'not_found' | 'not_active', message: string) {
+    super(message);
+    this.name = 'SessionWorkspaceError';
+    this.code = code;
+  }
+}
+
 async function ensureMessageSession(input: {
   sessionId?: string;
   source: ChatSource;
+  /**
+   * Active workspace requested by the caller (e.g. the web workspace
+   * switcher). Validated server-side for ownership + active status before
+   * a new session is scoped to it.
+   */
+  workspaceId?: string | null;
 }) {
   const externalThreadId = buildExternalThreadId(input.source);
+
+  /** Resolve the workspace new sessions are scoped to. An authenticated
+   *  user ALWAYS gets a concrete workspace: the explicitly requested one
+   *  (validated for ownership + active status) or their default workspace.
+   *  Any lookup / validation failure THROWS — session creation must not
+   *  silently fall back to the legacy global (NULL) scope for an
+   *  authenticated user, or memories/tasks would leak across workspaces.
+   *  Anonymous sources (IM without a resolved userId) keep the legacy
+   *  no-workspace behavior. */
+  const resolveSessionWorkspace = async (): Promise<string | null> => {
+    const userId = sourceUserId(input.source);
+    if (!userId) return null;
+
+    const { getOrCreateDefaultWorkspace, getWorkspace } = await import(
+      '@/lib/core/db/agentd'
+    );
+
+    const requestedId = input.workspaceId?.trim();
+    if (requestedId) {
+      const requested = await getWorkspace(requestedId);
+      if (!requested || requested.ownerId !== userId) {
+        throw new SessionWorkspaceError(
+          'not_found',
+          'Requested workspace not found',
+        );
+      }
+      if (requested.status !== 'active') {
+        throw new SessionWorkspaceError(
+          'not_active',
+          'Requested workspace is not active',
+        );
+      }
+      return requested.id;
+    }
+
+    const fallback = await getOrCreateDefaultWorkspace(userId);
+    if (fallback.status !== 'active') {
+      throw new SessionWorkspaceError(
+        'not_active',
+        'Default workspace is not active',
+      );
+    }
+    return fallback.id;
+  };
 
   if (input.sessionId) {
     const existing = await getSession(input.sessionId);
@@ -412,6 +487,7 @@ async function ensureMessageSession(input: {
       channel: currentChannelName(input.source),
       externalThreadId,
       userId: sourceUserId(input.source),
+      workspaceId: await resolveSessionWorkspace(),
       metadata: {
         source: input.source,
       },
@@ -429,6 +505,7 @@ async function ensureMessageSession(input: {
     channel: currentChannelName(input.source),
     externalThreadId,
     userId: sourceUserId(input.source),
+    workspaceId: await resolveSessionWorkspace(),
     metadata: {
       source: input.source,
     },
@@ -1291,6 +1368,9 @@ async function executeCommand(input: {
         const next = await createSession({
           channel: input.source.adapter,
           userId: input.source.userId ?? null,
+          workspaceId: session?.workspaceId
+            ? String(session.workspaceId)
+            : null,
           metadata: {
             source: input.source,
           },
@@ -1308,6 +1388,7 @@ async function executeCommand(input: {
         channel: session?.channel ?? 'web',
         userId:
           input.source.type === 'web' ? (input.source.userId ?? null) : null,
+        workspaceId: session?.workspaceId ? String(session.workspaceId) : null,
       });
 
       return {
@@ -1622,6 +1703,7 @@ export async function chatMain(
         sessionId: command.sessionId ?? 'none',
         source: envelope.source,
         currentSession,
+        workspaceId: request.workspaceId,
       });
     }
 
@@ -1682,6 +1764,7 @@ export async function chatMain(
   const session = await ensureMessageSession({
     sessionId: envelope.sessionId,
     source: envelope.source,
+    workspaceId: request.workspaceId,
   });
   chatMainLogger.info('chatMain:session_ready', { sessionId: session.id });
 
@@ -1961,10 +2044,12 @@ async function runInitAgentsMdWorkflow(input: {
   sessionId: string;
   source: ChatSource;
   currentSession: SessionRecord;
+  workspaceId?: string | null;
 }): Promise<DispatchChatInputResult> {
   const session = await ensureMessageSession({
     sessionId: input.currentSession?.id ?? input.sessionId,
     source: input.source,
+    workspaceId: input.workspaceId,
   });
 
   const initUiMessageId = generateUUID();

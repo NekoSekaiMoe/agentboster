@@ -61,4 +61,4 @@ TaskSummary           # SKIP — Web-tier long-running task state, mirrored from
 ToolActivityLog       # SKIP — persisted audit row, not part of the tool protocol surface
 ToolRegistry          # SKIP — Go daemon registry implementation, not wire
 UploadResult          # SKIP — Web-tier blob-upload response, lives under lib/core/blob on TS side
-Workspace             # SKIP — Web-tier organization-unit row, not part of the tool protocol
+ProjectSandbox        # SKIP — Web-tier organization-unit row, not part of the tool protocol (renamed from Workspace; Go keeps a deprecated Workspace alias)

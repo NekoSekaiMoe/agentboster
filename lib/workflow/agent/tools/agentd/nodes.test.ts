@@ -120,6 +120,7 @@ describe('agentd-nodes tool — factory gating', () => {
       appConfig: { agentd: { enabled: false } } as unknown as AppConfig,
       agentName: 'main',
       allowDelegation: false,
+      workspaceLockAcquired: false,
       buildNestedTools: async () => ({}),
     });
 
@@ -135,6 +136,7 @@ describe('agentd-nodes tool — factory gating', () => {
       appConfig: makeAppConfig(),
       agentName: 'main',
       allowDelegation: false,
+      workspaceLockAcquired: false,
       buildNestedTools: async () => ({}),
     });
 
@@ -153,6 +155,7 @@ describe('agentd-nodes tool — factory gating', () => {
       appConfig: makeAppConfig(),
       agentName: 'main',
       allowDelegation: false,
+      workspaceLockAcquired: false,
       buildNestedTools: async () => ({}),
     });
 
@@ -173,6 +176,7 @@ describe('agentd-nodes tool — factory gating', () => {
       appConfig: makeAppConfig(),
       agentName: 'main',
       allowDelegation: false,
+      workspaceLockAcquired: false,
       buildNestedTools: async () => ({}),
     });
 
@@ -193,6 +197,7 @@ describe('agentd-nodes tool — listNodes execute', () => {
       appConfig: makeAppConfig(),
       agentName: 'main',
       allowDelegation: false,
+      workspaceLockAcquired: false,
       buildNestedTools: async () => ({}),
     });
 
@@ -239,6 +244,7 @@ describe('agentd-nodes tool — listNodes execute', () => {
       appConfig: makeAppConfig(),
       agentName: 'main',
       allowDelegation: false,
+      workspaceLockAcquired: false,
       buildNestedTools: async () => ({}),
     });
 
@@ -280,6 +286,7 @@ describe('agentd-nodes tool — listNodes execute', () => {
       appConfig: makeAppConfig(),
       agentName: 'main',
       allowDelegation: false,
+      workspaceLockAcquired: false,
       buildNestedTools: async () => ({}),
     });
 

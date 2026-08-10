@@ -150,10 +150,12 @@ func registerSubagent(registry *ToolRegistry, client *clawless.Client, ctx *Agen
 		if ctx.SandboxPath != "" {
 			statePath = filepath.Join(ctx.SandboxPath, "workspace", "sessions", fmt.Sprintf("subagent_%s.json", subID))
 		}
-		if ctx.TaskState.SubAgentStates == nil {
-			ctx.TaskState.SubAgentStates = make(map[string]string)
-		}
-		ctx.TaskState.SubAgentStates[subID] = statePath
+		ctx.WithStateLock(func() {
+			if ctx.TaskState.SubAgentStates == nil {
+				ctx.TaskState.SubAgentStates = make(map[string]string)
+			}
+			ctx.TaskState.SubAgentStates[subID] = statePath
+		})
 
 		boundaryInfo := "none"
 		if len(params.FileBoundaries) > 0 {
@@ -222,12 +224,14 @@ func registerSubagentResult(registry *ToolRegistry, client *clawless.Client, ctx
 			}
 
 			// Store summary in TaskState for context persistence
-			ctx.TaskState.SubAgentSummaries = append(ctx.TaskState.SubAgentSummaries, SubAgentSummary{
-				ID:        params.SubagentID,
-				Task:      task.Command,
-				Summary:   output,
-				Success:   true,
-				CreatedAt: time.Now().UTC().Format(time.RFC3339),
+			ctx.WithStateLock(func() {
+				ctx.TaskState.SubAgentSummaries = append(ctx.TaskState.SubAgentSummaries, SubAgentSummary{
+					ID:        params.SubagentID,
+					Task:      task.Command,
+					Summary:   output,
+					Success:   true,
+					CreatedAt: time.Now().UTC().Format(time.RFC3339),
+				})
 			})
 
 			// Update state file to completed

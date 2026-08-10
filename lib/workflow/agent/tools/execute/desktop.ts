@@ -55,6 +55,13 @@ async function dispatchDesktopTool(input: {
   toolName: string;
   toolInput: Record<string, unknown>;
   nodeId?: string;
+  /** Per-agent allowed_nodes allowlist (P3.1). Forwarded to
+   *  execToolOnAgentd so a model-supplied nodeId cannot route outside
+   *  the agent's authorized node set. Undefined = no restriction. */
+  allowedNodes?: readonly string[];
+  /** Whether the per-workspace run lock was acquired this run. When false,
+   *  suppress workspace_id so agentd uses a short-lived ephemeral container. */
+  workspaceLockAcquired: boolean;
 }): Promise<{
   content: Array<
     | { type: 'text'; text: string }
@@ -84,6 +91,8 @@ async function dispatchDesktopTool(input: {
     input.toolName,
     input.toolInput,
     input.nodeId,
+    input.allowedNodes,
+    input.workspaceLockAcquired,
   );
 
   if (!result?.success) {
@@ -161,13 +170,27 @@ export default defineBuildInTool({
   description: `X11 desktop in the agentd LXC sandbox for debugging GUI applications (Electron / Tauri / Qt / GTK). The desktop_screenshot tool auto-provisions Xvfb + icewm + x11vnc + noVNC on first call (~30s cold start, cached afterwards) and captures a lossless PNG of the X11 framebuffer for vision-capable models. The user can view the live desktop in their browser by exposing the noVNC port via sandbox.public_port. Useful for: GUI test automation, debugging layout issues in desktop apps, taking visual verification screenshots.`,
   requiredConfig: [],
   optionalConfig: [],
-  factory: async (_config, { sessionId, source }) => {
+  factory: async (_config, ctx) => {
     // Same gate as browser tools: Web-UI sessions have no agentd peer.
-    if (source?.type === 'web') {
+    if (ctx.source?.type === 'web') {
       return null;
     }
 
-    const ctx = { sessionId };
+    const { sessionId, workspaceLockAcquired } = ctx;
+
+    // P3.1: surface the current agent's allowed_nodes (if any) so the
+    // dispatcher can pass it down to execToolOnAgentd — same rationale
+    // as the browser dispatcher (see ./browser.ts).
+    const allowedNodes =
+      ctx?.appConfig && ctx.agentName
+        ? (ctx.appConfig.agents?.[ctx.agentName]?.allowed_nodes ?? undefined)
+        : undefined;
+
+    const ctxShared = {
+      sessionId,
+      workspaceLockAcquired,
+      allowedNodes,
+    };
 
     return {
       desktop_screenshot: tool({
@@ -192,7 +215,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchDesktopTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'desktop_screenshot',
             // Default to JPEG q80 to cut screenshot cost ~5-10x vs PNG.
             // The agentd desktop_screenshot tool already accepts these
@@ -237,7 +260,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchDesktopTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'desktop_click',
             toolInput: {
               x: input.x,
@@ -273,7 +296,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchDesktopTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'desktop_type',
             toolInput: {
               text: input.text,
@@ -296,7 +319,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchDesktopTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'desktop_key',
             toolInput: {
               keysym: input.keysym,
@@ -328,7 +351,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchDesktopTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'desktop_inspect',
             toolInput: {
               limit: input.limit,
@@ -356,7 +379,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchDesktopTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'desktop_a11y_click',
             toolInput: {
               ref: input.ref,
@@ -388,7 +411,7 @@ export default defineBuildInTool({
         }),
         execute: (input) =>
           dispatchDesktopTool({
-            ...ctx,
+            ...ctxShared,
             toolName: 'desktop_a11y_type',
             toolInput: {
               ref: input.ref,

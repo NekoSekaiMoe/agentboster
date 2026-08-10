@@ -57,16 +57,22 @@ func registerSandboxDestroy(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 			}, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		// Snapshot the sandbox identity under the per-session state lock:
+		// this very tool clears these fields below, and HTTP handlers
+		// (exec_stream/tunnels/vnc/processes/checkpoint) read them
+		// concurrently.
+		var sandboxID, sbType, sbPath string
+		ctx.WithStateLock(func() {
+			sandboxID = ctx.SandboxID
+			sbType = ctx.SandboxType
+			sbPath = ctx.SandboxPath
+		})
 		if sandboxID == "" {
 			return &ToolResult{
 				Success: false,
 				Error:   "no active sandbox for this session",
 			}, nil
 		}
-
-		sbType := ctx.SandboxType
-		sbPath := ctx.SandboxPath
 
 		if err := sbMgr.DestroySandboxForce(sandboxID); err != nil {
 			slog.Warn("sandbox_destroy tool: destroy failed",
@@ -79,10 +85,14 @@ func registerSandboxDestroy(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 
 		// Clear the context so subsequent tool calls fail fast and the
 		// next session creates a fresh sandbox instead of reusing the
-		// dead ID.
-		ctx.SandboxID = ""
-		ctx.SandboxPath = ""
-		ctx.SandboxState = SandboxInfo{}
+		// dead ID. Guarded by the per-session state lock: HTTP handlers
+		// (exec_stream/tunnels/vnc/processes/checkpoint) read SandboxID
+		// concurrently.
+		ctx.WithStateLock(func() {
+			ctx.SandboxID = ""
+			ctx.SandboxPath = ""
+			ctx.SandboxState = SandboxInfo{}
+		})
 
 		slog.Info("sandbox_destroy tool: destroyed",
 			"session_id", ctx.SessionID,

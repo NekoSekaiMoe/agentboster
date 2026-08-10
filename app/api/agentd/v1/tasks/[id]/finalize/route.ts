@@ -40,6 +40,7 @@ export async function POST(
       taskId: id,
       agentId: task.agentId,
       sessionId: task.sessionId ?? undefined,
+      workspaceId: task.workspaceId ?? undefined,
       command: task.command,
       result: typeof body.result === 'string' ? body.result : '',
       status: taskStatus(body.status),

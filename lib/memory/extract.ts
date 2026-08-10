@@ -68,6 +68,12 @@ const extractionItemSchema = z.object({
     .describe(
       '2-3 short phrases describing WHEN this fact becomes relevant again (e.g. "deploy failure", "code style question", "发布部署"). Used by a lexical prefilter to surface the memory on future turns. Omit for one-off task details.',
     ),
+  scope: z
+    .enum(['global', 'workspace'])
+    .optional()
+    .describe(
+      'For UPDATE/DELETE only: which layer the referenced existing record lives in. Set to "global" when the target entry in the existing-memories list is annotated (global); omit (or use "workspace") for workspace entries. Ignored for ADD/NOOP.',
+    ),
   action: z
     .enum(['ADD', 'UPDATE', 'DELETE', 'NOOP'])
     .describe(
@@ -204,6 +210,12 @@ export async function extractMemoriesFromSession(input: {
    * but the storage scope is fixed per extraction pass.
    */
   projectId?: string | null;
+  /**
+   * Workspace scope (M2). When set, extracted memories are written with
+   * this workspace_id so workspace-scoped recall finds them. Null/undefined
+   * = global layer. Pass-through to createLongTermMemory / upsertLongTermMemory.
+   */
+  workspaceId?: string | null;
 }): Promise<{ extracted: number; created: number; updated: number }> {
   const rows = await getVisibleSessionMessages(input.sessionId);
   if (rows.length === 0) {
@@ -222,24 +234,41 @@ export async function extractMemoriesFromSession(input: {
     return { extracted: 0, created: 0, updated: 0 };
   }
 
-  // Scope the existing-memory list to the SAME project scope the writes
-  // below target (current project + global, via buildProjectScopeCondition).
-  // Previously this fetched ALL of the user's memories across every project,
-  // so the LLM would see foreign [key]s and emit UPDATE/DELETE that the
-  // scoped write helpers silently no-op'd — leaving stale rows behind and
-  // creating duplicate facts in the current scope.
+  // Scope the existing-memory list to the SAME project + workspace scope the
+  // writes below target (current project + global, via
+  // buildProjectScopeCondition; current workspace + global, via the
+  // workspaceId filter). Previously this fetched ALL of the user's memories
+  // across every project AND every workspace, so the LLM would see foreign
+  // [key]s and emit UPDATE/DELETE that the scoped write helpers silently
+  // no-op'd — leaving stale rows behind and creating duplicate facts in the
+  // current scope.
   const existing = await listLongTermMemories({
     page: 1,
     pageSize: 100,
     userId: input.userId,
     projectIdScope: input.projectId,
+    workspaceId: input.workspaceId,
   });
+  // Record each existing key's scope(s) so UPDATE/DELETE ops land in the
+  // layer the record actually lives in. The write helpers below pin to
+  // input.workspaceId, which would silently no-op (DELETE) or create a
+  // workspace duplicate (UPDATE) when the referenced record is global.
+  const scopeOf = (m: (typeof existing)[number]): 'global' | 'workspace' =>
+    'workspaceId' in m && m.workspaceId ? 'workspace' : 'global';
+  const existingKeyScopes = new Map<string, Set<'global' | 'workspace'>>();
+  for (const m of existing) {
+    const key = 'key' in m && typeof m.key === 'string' ? m.key : '';
+    if (!key) continue;
+    const scopes = existingKeyScopes.get(key) ?? new Set();
+    scopes.add(scopeOf(m));
+    existingKeyScopes.set(key, scopes);
+  }
   const existingBlock =
     existing.length > 0
       ? existing
           .map((m, i) => {
             const key = 'key' in m && typeof m.key === 'string' ? m.key : '';
-            return `${i + 1}. ${key ? `[${key}] ` : ''}${m.content}`;
+            return `${i + 1}. ${key ? `[${key}] ` : ''}(${scopeOf(m)}) ${m.content}`;
           })
           .join('\n')
       : '(no existing memories)';
@@ -262,15 +291,15 @@ Not worth persisting:
 Conversation:
 ${conversationText}
 
-Existing memories for this user (use the bracketed [key] to reference them):
+Existing memories for this user (use the bracketed [key] to reference them; each entry is annotated with its layer — (global) = user-level global layer shared across workspaces, (workspace) = current workspace only):
 ${existingBlock}
 
 Emit an "items" array. For each item, choose one action:
 
 - ADD: a brand-new durable fact. Invent a new dotted key that does not appear above. Put the fact in "content".
-- UPDATE: a fact that refines, extends, or corrects an existing one. REUSE the existing memory's key. Put the merged/corrected content in "content".
-- DELETE: an existing memory that is now wrong, outdated, or contradicted by the conversation. Reference its existing key. The "content" field may be empty or a short reason for deletion.
-- NOOP: the conversation mentions a fact already captured accurately. Reference the existing key to skip it. The "content" field may be empty.
+- UPDATE: a fact that refines, extends, or corrects an existing one. REUSE the existing memory's key. Put the merged/corrected content in "content". If the target entry is annotated (global), set the item's "scope" field to "global" so the write updates the global record instead of creating a workspace copy.
+- DELETE: an existing memory that is now wrong, outdated, or contradicted by the conversation. Reference its existing key. Always put a short, non-empty reason for the deletion in "content" (the field is required). If the target entry is annotated (global), set "scope" to "global".
+- NOOP: the conversation mentions a fact already captured accurately. Reference the existing key to skip it. Restate the existing fact in "content" (the field is required and must be non-empty).
 
 CRITICAL — deduplication across write paths:
 The existing memories list may contain rows whose [key] is \`null\` or a placeholder like \`__manual__\` — these were written by the user or by the in-conversation writeMemory tool without a stable key. Before emitting ADD, scan the content of ALL existing rows (including keyless ones) for semantic overlap with the fact you are about to add. If the same fact is already present under a keyless row, emit UPDATE with a fresh dotted key you invent for it (e.g. \`user.location\`) rather than ADD — this migrates the fact into the stable-key domain so future writes deduplicate cleanly. Reserve ADD strictly for facts that are not already captured in any form.
@@ -322,6 +351,26 @@ Leave the array empty if nothing is worth changing.`;
     filteredItems.push(item);
   }
 
+  // Resolve which layer an UPDATE/DELETE applies to. Prefer the LLM's
+  // explicit scope hint; otherwise fall back to the recorded scopes for
+  // the referenced key — a key that only exists in the global layer is
+  // retargeted automatically (scope hint omitted by the model), so the
+  // write can't silently no-op or duplicate into the current workspace.
+  const resolveItemWorkspaceId = (item: {
+    key: string;
+    scope?: 'global' | 'workspace';
+  }): string | null | undefined => {
+    if (item.scope === 'global') return null;
+    if (item.scope === 'workspace') return input.workspaceId;
+    if (input.workspaceId) {
+      const scopes = existingKeyScopes.get(item.key);
+      if (scopes && !scopes.has('workspace') && scopes.has('global')) {
+        return null;
+      }
+    }
+    return input.workspaceId;
+  };
+
   for (const item of filteredItems) {
     try {
       switch (item.action) {
@@ -335,6 +384,7 @@ Leave the array empty if nothing is worth changing.`;
             sourceKind: resolveExtractedSourceKind(item.sourceKind),
             triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
+            workspaceId: input.workspaceId,
             config: input.config,
           });
           created += 1;
@@ -350,6 +400,7 @@ Leave the array empty if nothing is worth changing.`;
             sourceKind: resolveExtractedSourceKind(item.sourceKind),
             triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
+            workspaceId: resolveItemWorkspaceId(item),
             config: input.config,
           });
           if (result.created) {
@@ -365,6 +416,7 @@ Leave the array empty if nothing is worth changing.`;
             userId: input.userId,
             key: item.key,
             projectId: input.projectId,
+            workspaceId: resolveItemWorkspaceId(item),
           });
           if (removed) {
             deleted += 1;

@@ -14,6 +14,9 @@ interface AgentdToolExecRequest {
   session_id: string;
   tool_name: string;
   tool_input: Record<string, unknown>;
+  /** Workspace id scoping the long-lived container + exec lock. Read from
+   *  the session row so the workflow body doesn't need to pass it through. */
+  workspace_id?: string;
 }
 
 interface AgentdToolExecResponse {
@@ -139,8 +142,18 @@ export async function execToolOnAgentd(
   sessionId: string,
   toolName: string,
   toolInput: Record<string, unknown>,
-  nodeId?: string,
-  allowedNodes?: readonly string[],
+  nodeId: string | undefined,
+  allowedNodes: readonly string[] | undefined,
+  /** When false, the per-workspace run lock was NOT acquired for this run
+   *  (busy / unavailable / global session), so suppress `workspace_id` in
+   *  the request body. This honors the product contract "busy → fall back
+   *  to ephemeral": agentd then uses a short-lived container instead of
+   *  binding the long-lived workspace container and serializing on its
+   *  ExecLockFor. Required (no default) so every caller must make an
+   *  explicit lock-state decision — a silent `true` default previously
+   *  let un-plumbed callers (e.g. skill sync) bind the workspace
+   *  container even on the busy-fallback path. */
+  workspaceLockAcquired: boolean,
 ): Promise<{
   success: boolean;
   data?: string;
@@ -167,28 +180,51 @@ export async function execToolOnAgentd(
   // unconstrained auto-pick.
   let effectiveNodeId = nodeId;
   let affinityNodeId: string | undefined;
-  if (!effectiveNodeId && sessionId) {
+  let workspaceId: string | undefined;
+  // Track lookup health separately from a legitimately global session
+  // (workspace_id IS NULL): a query error / missing row must not be
+  // silently downgraded into an unbound dispatch when the caller holds
+  // the per-workspace run lock (enforced below).
+  let workspaceLookupFailed = false;
+  if (sessionId) {
+    // Always resolve sessions.workspaceId when a sessionId is available,
+    // regardless of effectiveNodeId — an explicitly pinned node must not
+    // skip workspace resolution.
     try {
       const { sessions } = await import('@/lib/core/db/schema');
       const [row] = await db
-        .select({ metadata: sessions.metadata })
+        .select({
+          metadata: sessions.metadata,
+          workspaceId: sessions.workspaceId,
+        })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .limit(1);
-      const meta = (row?.metadata ?? {}) as Record<string, unknown>;
-      const constraint = meta.scheduleNodeConstraints as
-        | { preferredNodeId?: string }
-        | undefined;
-      if (constraint?.preferredNodeId) {
-        effectiveNodeId = constraint.preferredNodeId;
+      if (!row) {
+        workspaceLookupFailed = true;
       } else {
-        const lastId = meta.lastAgentdNodeId as string | undefined;
-        if (lastId && typeof lastId === 'string' && lastId.length > 0) {
-          affinityNodeId = lastId;
+        workspaceId = row.workspaceId ? String(row.workspaceId) : undefined;
+      }
+      // Node constraint / affinity hints only apply when the caller didn't
+      // pin a node explicitly — an explicit nodeId always wins.
+      if (!effectiveNodeId) {
+        const meta = (row?.metadata ?? {}) as Record<string, unknown>;
+        const constraint = meta.scheduleNodeConstraints as
+          | { preferredNodeId?: string }
+          | undefined;
+        if (constraint?.preferredNodeId) {
+          effectiveNodeId = constraint.preferredNodeId;
+        } else {
+          const lastId = meta.lastAgentdNodeId as string | undefined;
+          if (lastId && typeof lastId === 'string' && lastId.length > 0) {
+            affinityNodeId = lastId;
+          }
         }
       }
     } catch {
-      // Best-effort: fall through to auto-pick on any error.
+      // Session read failed: node selection degrades to auto-pick, but the
+      // workspaceLockAcquired path below refuses the unbound dispatch.
+      workspaceLookupFailed = true;
     }
   }
 
@@ -343,10 +379,32 @@ export async function execToolOnAgentd(
   const nodeUrl = nodeUrlResolution.url;
 
   const config = await buildAgentdHttpConfig(nodeUrl);
+  // workspaceLockAcquired means the caller holds the per-workspace run
+  // lock and expects a bound execution on that workspace's long-lived
+  // container. Sending the request WITHOUT workspace_id in that state
+  // would silently downgrade to an unbound/ephemeral execution, so fail
+  // instead and let the caller retry (a lookup error / missing row is
+  // transient; a genuinely global session never acquires the lock in the
+  // first place — workspaceLockAcquired requires a non-null workspace
+  // upstream).
+  if (workspaceLockAcquired && sessionId && !workspaceId) {
+    throw new Error(
+      `agentd dispatch: workspace lock held but workspaceId could not be resolved for session ${sessionId}${workspaceLookupFailed ? ' (session lookup failed)' : ''}; refusing unbound execution`,
+    );
+  }
   const req: AgentdToolExecRequest = {
     session_id: sessionId,
     tool_name: toolName,
     tool_input: toolInput,
+    // Only bind the long-lived workspace container when this run actually
+    // holds the per-workspace lock. When workspaceLockAcquired is false the
+    // lock was busy/unavailable, so suppress workspace_id and let agentd
+    // spin up a short-lived ephemeral container instead of serializing on
+    // the workspace's ExecLockFor (the documented "busy → ephemeral"
+    // fallback).
+    ...(workspaceId && workspaceLockAcquired
+      ? { workspace_id: workspaceId }
+      : {}),
   };
 
   logger.info('Executing tool on Agent Daemon', {

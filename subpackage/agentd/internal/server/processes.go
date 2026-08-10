@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/agent"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/persistence"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 	"github.com/gin-gonic/gin"
 )
@@ -74,14 +75,18 @@ func (s *Server) handleStartProcess(c *gin.Context) {
 
 	sandboxID := req.SandboxID
 	if sandboxID == "" {
-		sandboxID = agentCtx.SandboxID
+		// Snapshot under the per-session state lock: sandbox_destroy
+		// clears SandboxID concurrently.
+		agentCtx.WithStateLock(func() { sandboxID = agentCtx.SandboxID })
 	}
 	if sandboxID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "no sandbox for session; start a sandbox first"})
 		return
 	}
 
-	result, err := agent.SpawnBackground(sbMgr, agentCtx.BGTaskStore, req.SessionID, sandboxID, req.Command)
+	var bgStore *persistence.BackgroundTaskStore
+	agentCtx.WithStateLock(func() { bgStore = agentCtx.BGTaskStore })
+	result, err := agent.SpawnBackground(sbMgr, bgStore, req.SessionID, sandboxID, req.Command)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return

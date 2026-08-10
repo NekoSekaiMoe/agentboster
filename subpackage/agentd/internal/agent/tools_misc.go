@@ -29,7 +29,7 @@ func registerSandboxInstall(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 			return toolErr, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}

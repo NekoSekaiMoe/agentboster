@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -42,15 +43,44 @@ const tsvector = customType<{ data: string; driverParam: string }>({
 
 // ─── Builtin Memories ───────────────────────────────────────────────
 
-export const builtinMemories = pgTable('builtin_memories', {
-  key: text('key', {
-    enum: ['AGENTS', 'SOUL', 'IDENTITY', 'USER'],
-  }).primaryKey(),
-  content: text('content').notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const builtinMemories = pgTable(
+  'builtin_memories',
+  {
+    key: text('key', {
+      enum: ['AGENTS', 'SOUL', 'IDENTITY', 'USER'],
+    }).notNull(),
+    /** Workspace scope. NULL = global template row cloned into new
+     *  workspaces on creation. Each workspace can evolve its own
+     *  SOUL/IDENTITY/etc. independently.
+     *
+     *  NOTE: do NOT put the nullable `workspaceId` in a composite PRIMARY
+     *  KEY — PostgreSQL forces all PK columns NOT NULL, which would make
+     *  the global template row (workspace_id IS NULL) impossible to
+     *  persist. Instead a synthetic PK + two unique constraints encode
+     *  the intended semantics: global rows are unique per key, and
+     *  workspace-scoped rows are unique per (workspace_id, key).
+     *  `NULLS NOT DISTINCT` lets the partial global uniqueness treat
+     *  NULL workspace_id deterministically so two global rows with the
+     *  same key cannot coexist. */
+    id: uuid('id').defaultRandom().primaryKey(),
+    workspaceId: uuid('workspace_id'),
+    content: text('content').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    // Global templates: exactly one row per key when workspace_id IS NULL.
+    globalKeyUnique: uniqueIndex('builtin_memories_global_key_idx')
+      .on(table.key)
+      .where(sql`workspace_id IS NULL`),
+    // Workspace-scoped: one row per (workspace_id, key).
+    workspaceKeyUnique: uniqueIndex('builtin_memories_workspace_key_idx').on(
+      table.workspaceId,
+      table.key,
+    ),
+  }),
+);
 
 // ─── Session Memories ───────────────────────────────────────────────
 
@@ -61,6 +91,10 @@ export const sessionMemories = pgTable(
     sessionId: uuid('session_id')
       .references(() => sessions.id, { onDelete: 'cascade' })
       .notNull(),
+    /** Redundant workspace scope for efficient per-workspace aggregation.
+     *  Stays per-session (one summary per session); not shared across
+     *  sessions like long_term_memories. */
+    workspaceId: uuid('workspace_id'),
     content: text('content').notNull(),
     summaryVersion: integer('summary_version').notNull(),
     isCurrent: boolean('is_current').default(true).notNull(),
@@ -90,6 +124,14 @@ export const longTermMemories = pgTable(
     // a free-text identifier (workspaces.project_id) rather than an FK so
     // memories survive workspace archival without cascading deletes.
     projectId: text('project_id').default('__global__').notNull(),
+    /** Workspace scope (new). Nullable = global/cross-workspace (the
+     *  historical default). M2 backfill maps legacy `__global__` and
+     *  `proj-xxx` rows to NULL here. Recall filters on (workspace_id=? OR
+     *  workspace_id IS NULL) so global memories stay visible everywhere. */
+    workspaceId: uuid('workspace_id'),
+    /** Owner (creator) of this memory. Kept even for shared memories so
+     *  the workspace can render provenance; recall visibility is governed
+     *  by `shared` below. */
     // Optional stable key for dedup during memory extraction. When set,
     // (userId, projectId, key) is unique so the extractor can upsert by
     // key within a scope. Manual memory writes (UI, writeMemory tool)
@@ -103,6 +145,14 @@ export const longTermMemories = pgTable(
       .default('fact')
       .notNull(),
     importance: integer('importance').default(5).notNull(),
+    /**
+     * Whether this memory is shared across all members of the workspace.
+     * When true (default), recall sees it regardless of `userId`. When
+     * false, only the creator (`userId`) sees it. Single-user MVP: always
+     * true in practice; the flag exists so future multi-member
+     * workspaces get per-memory privacy without a schema change.
+     */
+    shared: boolean('shared').default(true).notNull(),
     /**
      * Dream lifecycle state. `active` is the default for back-compat
      * (legacy rows + normal extractor writes are always active and
@@ -213,16 +263,25 @@ export const longTermMemories = pgTable(
     memoryTypeIdx: index('long_term_memories_memory_type_idx').on(
       table.memoryType,
     ),
-    // The historical unique index was (userId, key). Adding projectId to
-    // the uniqueness set lets the same logical key (e.g. "tech_stack")
-    // exist once per project without colliding, while global memories
-    // (projectId IS NULL) still dedupe per user. Null projectId still
-    // participates in uniqueness (NULL != NULL in SQL would break this,
-    // so callers MUST always pass projectId consistently for keyed writes
-    // — either a real id or the GLOBAL_PROJECT_ID sentinel).
-    userProjectKeyIdx: uniqueIndex(
-      'long_term_memories_user_project_key_idx',
-    ).on(table.userId, table.projectId, table.key),
+    // The historical unique index was (userId, key). Uniqueness is now
+    // enforced by TWO partial unique indexes so NULL workspace_id stays
+    // deterministic without NULLS NOT DISTINCT on the whole composite
+    // (which would also collapse rows whose memory key is NULL — keyed
+    // writes rely on NULL keys staying distinct):
+    //  - global rows (workspace_id IS NULL): unique on
+    //    (userId, projectId, key) — two global rows with the same
+    //    (user, project, key) cannot coexist.
+    //  - workspace rows (workspace_id IS NOT NULL): unique on
+    //    (userId, projectId, key, workspaceId) so the same logical key
+    //    (e.g. "tech_stack") can exist once per (project, workspace) pair.
+    userProjectKeyGlobalIdx: uniqueIndex(
+      'long_term_memories_user_project_key_global_uniq',
+    )
+      .on(table.userId, table.projectId, table.key)
+      .where(sql`workspace_id IS NULL`),
+    userProjectKeyIdx: uniqueIndex('long_term_memories_user_project_key_idx')
+      .on(table.userId, table.projectId, table.key, table.workspaceId)
+      .where(sql`workspace_id IS NOT NULL`),
     // Replace the old (userId, key) index with a non-unique covering index
     // so project-scoped recall queries (`WHERE userId=? AND projectId=?`)
     // stay fast without being constrained by the uniqueness rule above.
@@ -240,6 +299,13 @@ export const longTermMemories = pgTable(
     dreamStatusActiveIdx: index('long_term_memories_dream_status_active_idx')
       .on(table.userId, table.dreamStatus)
       .where(sql`dream_status = 'active'`),
+    // Workspace-scoped recall: `WHERE workspace_id = ?` (the common
+    // M2 path). Nullable column, so global rows (NULL) won't live in this
+    // index — they're fetched via the additive `OR workspace_id IS NULL`
+    // arm of the recall filter.
+    workspaceIdx: index('long_term_memories_workspace_idx').on(
+      table.workspaceId,
+    ),
   }),
 );
 

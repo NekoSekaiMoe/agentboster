@@ -138,61 +138,6 @@ func (d *Dispatcher) getAgentConfig(ctx context.Context, agentID string) *clawle
 	return cfg
 }
 
-// applyAgentCfgToSpec populates the resource knobs on a SandboxSpec
-// from a (possibly nil) AgentConfig. Nil cfg → no-op (provider defaults).
-func applyAgentCfgToSpec(spec *sandbox.SandboxSpec, cfg *clawless.AgentConfig) {
-	if cfg == nil {
-		return
-	}
-	if cfg.SandboxCPU != nil {
-		spec.CPULimit = *cfg.SandboxCPU
-	}
-	if cfg.SandboxMem != "" {
-		// Parse "256m"/"1g" into bytes; ignore on parse error.
-		if bytes, ok := parseMemSpec(cfg.SandboxMem); ok {
-			spec.MemoryLimit = bytes
-		}
-	}
-	if cfg.SandboxPids != nil {
-		spec.PidsLimit = *cfg.SandboxPids
-	}
-	if cfg.SandboxDisk != "" {
-		spec.DiskLimit = cfg.SandboxDisk
-	}
-	if cfg.SandboxBlkioWeight != nil {
-		spec.BlkioWeight = *cfg.SandboxBlkioWeight
-	}
-	if len(cfg.EgressAllowlist) > 0 {
-		spec.EgressAllowlist = append(spec.EgressAllowlist, cfg.EgressAllowlist...)
-	}
-}
-
-// parseMemSpec parses memory strings like "256m", "1g", "1024" into bytes.
-func parseMemSpec(s string) (int64, bool) {
-	if s == "" {
-		return 0, false
-	}
-	last := s[len(s)-1]
-	mult := int64(1)
-	num := s
-	switch last {
-	case 'g', 'G':
-		mult = 1024 * 1024 * 1024
-		num = s[:len(s)-1]
-	case 'm', 'M':
-		mult = 1024 * 1024
-		num = s[:len(s)-1]
-	case 'k', 'K':
-		mult = 1024
-		num = s[:len(s)-1]
-	}
-	var n int64
-	if _, err := fmt.Sscanf(num, "%d", &n); err != nil {
-		return 0, false
-	}
-	return n * mult, true
-}
-
 func workerPoolFromExecPool(cfg config.ExecPoolConfig) config.WorkerPoolConfig {
 	return config.WorkerPoolConfig{
 		MinWorkers:    cfg.MinWorkers,
@@ -370,7 +315,7 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 			Type:    sbType,
 			AgentID: task.AgentID,
 		}
-		applyAgentCfgToSpec(&sbSpec, agentCfg)
+		sandbox.ApplyAgentConfigToSpec(&sbSpec, agentCfg)
 		sb, err := d.sbManager.CreateSandbox(sbSpec)
 		if err != nil {
 			slog.Error("sandbox creation failed", "task_id", task.ID, "error", err)
@@ -417,20 +362,20 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 }
 
 // createWorkspace creates a workspace for the task via ClawLess API.
-func (d *Dispatcher) createWorkspace(ctx context.Context, task *clawless.Task, sandboxID string) (*clawless.Workspace, error) {
+func (d *Dispatcher) createWorkspace(ctx context.Context, task *clawless.Task, sandboxID string) (*clawless.ProjectSandbox, error) {
 	projectID := generateProjectID()
 	// P1.1: pass agent config so workspace sandbox type matches the
 	// agent's actual selection (was previously a fresh nil-cfg pick).
 	agentCfg := d.getAgentConfig(ctx, task.AgentID)
 	sbType := sandbox.SelectSandbox(task, agentCfg)
-	ws := &clawless.Workspace{
+	ws := &clawless.ProjectSandbox{
 		ProjectID:   projectID,
 		AgentID:     task.AgentID,
 		SandboxID:   sandboxID,
 		SandboxType: sbType,
 		Status:      "active",
 	}
-	if err := d.clawless.CreateWorkspace(ctx, ws); err != nil {
+	if err := d.clawless.CreateProjectSandbox(ctx, ws); err != nil {
 		return nil, err
 	}
 	return ws, nil

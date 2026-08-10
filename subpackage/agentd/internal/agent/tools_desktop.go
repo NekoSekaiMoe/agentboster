@@ -47,7 +47,7 @@ func registerDesktopScreenshot(registry *ToolRegistry, sbMgr *sandbox.Manager, c
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
 		// Resolve the current sandbox id from the agent context.
 		// Mirrors how browser tools pick up their sandbox target.
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "desktop_screenshot requires an active sandbox (none in agent context)"}, nil
 		}
@@ -109,7 +109,7 @@ func registerDesktopClick(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *A
 			"required": []string{"x", "y"},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "desktop_click requires an active sandbox"}, nil
 		}
@@ -147,7 +147,7 @@ func registerDesktopType(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Ag
 			"required": []string{"text"},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "desktop_type requires an active sandbox"}, nil
 		}
@@ -184,7 +184,7 @@ func registerDesktopKey(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Age
 			"required": []string{"keysym"},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "desktop_key requires an active sandbox"}, nil
 		}
