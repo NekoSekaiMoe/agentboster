@@ -3,34 +3,6 @@
   "dialect": "postgresql",
   "entries": [
     {
-      "idx": 35,
-      "version": "7",
-      "when": 1786201717150,
-      "tag": "0035_solid_midnight",
-      "breakpoints": true
-    },
-    {
-      "idx": 36,
-      "version": "7",
-      "when": 1786206349500,
-      "tag": "0036_smooth_jasper_sitwell",
-      "breakpoints": true
-    },
-    {
-      "idx": 37,
-      "version": "7",
-      "when": 1786332000000,
-      "tag": "0037_workspace_memory_boundary",
-      "breakpoints": true
-    },
-    {
-      "idx": 38,
-      "version": "7",
-      "when": 1786337705848,
-      "tag": "0038_global_key_partial_uniq",
-      "breakpoints": true
-    },
-    {
       "idx": 39,
       "version": "7",
       "when": 1786352415789,
