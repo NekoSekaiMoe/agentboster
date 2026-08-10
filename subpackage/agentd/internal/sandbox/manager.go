@@ -291,13 +291,22 @@ func (m *Manager) createLockFor(workspaceID string) *sync.Mutex {
 	return lock
 }
 
-// cleanupWorkspaceEntriesLocked drops the per-workspace index + lock
-// entries for the workspace that owned sandboxID. MUST be called with
+// cleanupWorkspaceEntriesLocked drops the per-workspace index entry and
+// exec lock for the workspace that owned sandboxID. MUST be called with
 // m.mu held. Best-effort: if no workspace owned the sandbox (ephemeral
-// docker), this is a no-op. The exec/create locks are deleted under their
-// own mutexes — safe because Destroy is the sole reaper for a workspace
-// container, so no other goroutine can be mid-acquire for the same
-// workspace once its sandbox is gone.
+// docker), this is a no-op. The exec lock is deleted under its own mutex —
+// safe because Destroy is the sole reaper for a workspace container, so no
+// other goroutine can be mid-acquire for the same workspace once its
+// sandbox is gone.
+//
+// createLocks entries are deliberately NOT deleted: createLockFor must
+// always hand back the SAME mutex for a workspace. A CreateSandbox can be
+// mid-flight inside provider.Create (holding the create lock, not m.mu)
+// while DestroySandbox cleans up the previous sandbox for the same
+// workspace (archival / node failover). If the createLocks entry were
+// dropped here, a concurrent create would mint a fresh mutex and two
+// creates (or a create racing the destroy) could interleave. Leaking one
+// pointer per destroyed workspace is the acceptable trade-off.
 //
 // Note on the execLocks race: a goroutine COULD be blocked inside
 // ExecLockFor(workspaceID).Lock() at the instant we delete the entry. That
@@ -312,9 +321,6 @@ func (m *Manager) cleanupWorkspaceEntriesLocked(sandboxID string) {
 			m.execLocksMu.Lock()
 			delete(m.execLocks, workspaceID)
 			m.execLocksMu.Unlock()
-			m.createLocksMu.Lock()
-			delete(m.createLocks, workspaceID)
-			m.createLocksMu.Unlock()
 			return
 		}
 	}
@@ -341,19 +347,20 @@ func (m *Manager) ExecLockFor(workspaceID string) sync.Locker {
 }
 
 // AcquireWorkspaceLock tries to take the per-workspace run lock. Returns
-// (state, true) on success; (current, false) when held by another run.
-// The caller (HTTP handler) translates !ok into a 409 busy.
+// (state, true, nil) on success; (current, false, nil) when held by
+// another run; (nil, false, err) on a validation error (e.g. empty
+// execSessionID). The caller (HTTP handler) translates !ok into a 409
+// busy and a non-nil err into a 400-level response.
 func (m *Manager) AcquireWorkspaceLock(
 	workspaceID, holderType, execSessionID, ownerTaskID string,
 	ttl time.Duration,
 	nodeGeneration uint64,
-) (*WorkspaceLockState, bool) {
+) (*WorkspaceLockState, bool, error) {
 	lock := m.wsLocks.Get(workspaceID)
 	if lock == nil {
-		return nil, false
+		return nil, false, nil
 	}
-	state, ok, _ := lock.TryAcquire(workspaceID, holderType, execSessionID, ownerTaskID, ttl, nodeGeneration, time.Now())
-	return state, ok
+	return lock.TryAcquire(workspaceID, holderType, execSessionID, ownerTaskID, ttl, nodeGeneration, time.Now())
 }
 
 // ReleaseWorkspaceLock frees the lock iff execSessionID matches the holder.

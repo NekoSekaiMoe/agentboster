@@ -263,16 +263,25 @@ export const longTermMemories = pgTable(
     memoryTypeIdx: index('long_term_memories_memory_type_idx').on(
       table.memoryType,
     ),
-    // The historical unique index was (userId, key). It now spans
-    // (userId, projectId, key, workspace_id) so the same logical key
-    // (e.g. "tech_stack") can exist once per (project, workspace) pair
-    // without colliding, while global memories (workspace_id IS NULL)
-    // still dedupe per (user, project). `NULLS NOT DISTINCT` makes NULL
-    // workspace_id deterministic in uniqueness so two global rows with
-    // the same (userId, projectId, key) cannot coexist.
-    userProjectKeyIdx: uniqueIndex(
-      'long_term_memories_user_project_key_idx',
-    ).on(table.userId, table.projectId, table.key, table.workspaceId),
+    // The historical unique index was (userId, key). Uniqueness is now
+    // enforced by TWO partial unique indexes so NULL workspace_id stays
+    // deterministic without NULLS NOT DISTINCT on the whole composite
+    // (which would also collapse rows whose memory key is NULL — keyed
+    // writes rely on NULL keys staying distinct):
+    //  - global rows (workspace_id IS NULL): unique on
+    //    (userId, projectId, key) — two global rows with the same
+    //    (user, project, key) cannot coexist.
+    //  - workspace rows (workspace_id IS NOT NULL): unique on
+    //    (userId, projectId, key, workspaceId) so the same logical key
+    //    (e.g. "tech_stack") can exist once per (project, workspace) pair.
+    userProjectKeyGlobalIdx: uniqueIndex(
+      'long_term_memories_user_project_key_global_uniq',
+    )
+      .on(table.userId, table.projectId, table.key)
+      .where(sql`workspace_id IS NULL`),
+    userProjectKeyIdx: uniqueIndex('long_term_memories_user_project_key_idx')
+      .on(table.userId, table.projectId, table.key, table.workspaceId)
+      .where(sql`workspace_id IS NOT NULL`),
     // Replace the old (userId, key) index with a non-unique covering index
     // so project-scoped recall queries (`WHERE userId=? AND projectId=?`)
     // stay fast without being constrained by the uniqueness rule above.

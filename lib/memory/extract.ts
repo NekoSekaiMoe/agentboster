@@ -68,6 +68,12 @@ const extractionItemSchema = z.object({
     .describe(
       '2-3 short phrases describing WHEN this fact becomes relevant again (e.g. "deploy failure", "code style question", "发布部署"). Used by a lexical prefilter to surface the memory on future turns. Omit for one-off task details.',
     ),
+  scope: z
+    .enum(['global', 'workspace'])
+    .optional()
+    .describe(
+      'For UPDATE/DELETE only: which layer the referenced existing record lives in. Set to "global" when the target entry in the existing-memories list is annotated (global); omit (or use "workspace") for workspace entries. Ignored for ADD/NOOP.',
+    ),
   action: z
     .enum(['ADD', 'UPDATE', 'DELETE', 'NOOP'])
     .describe(
@@ -243,12 +249,26 @@ export async function extractMemoriesFromSession(input: {
     projectIdScope: input.projectId,
     workspaceId: input.workspaceId,
   });
+  // Record each existing key's scope(s) so UPDATE/DELETE ops land in the
+  // layer the record actually lives in. The write helpers below pin to
+  // input.workspaceId, which would silently no-op (DELETE) or create a
+  // workspace duplicate (UPDATE) when the referenced record is global.
+  const scopeOf = (m: (typeof existing)[number]): 'global' | 'workspace' =>
+    'workspaceId' in m && m.workspaceId ? 'workspace' : 'global';
+  const existingKeyScopes = new Map<string, Set<'global' | 'workspace'>>();
+  for (const m of existing) {
+    const key = 'key' in m && typeof m.key === 'string' ? m.key : '';
+    if (!key) continue;
+    const scopes = existingKeyScopes.get(key) ?? new Set();
+    scopes.add(scopeOf(m));
+    existingKeyScopes.set(key, scopes);
+  }
   const existingBlock =
     existing.length > 0
       ? existing
           .map((m, i) => {
             const key = 'key' in m && typeof m.key === 'string' ? m.key : '';
-            return `${i + 1}. ${key ? `[${key}] ` : ''}${m.content}`;
+            return `${i + 1}. ${key ? `[${key}] ` : ''}(${scopeOf(m)}) ${m.content}`;
           })
           .join('\n')
       : '(no existing memories)';
@@ -271,14 +291,14 @@ Not worth persisting:
 Conversation:
 ${conversationText}
 
-Existing memories for this user (use the bracketed [key] to reference them):
+Existing memories for this user (use the bracketed [key] to reference them; each entry is annotated with its layer — (global) = user-level global layer shared across workspaces, (workspace) = current workspace only):
 ${existingBlock}
 
 Emit an "items" array. For each item, choose one action:
 
 - ADD: a brand-new durable fact. Invent a new dotted key that does not appear above. Put the fact in "content".
-- UPDATE: a fact that refines, extends, or corrects an existing one. REUSE the existing memory's key. Put the merged/corrected content in "content".
-- DELETE: an existing memory that is now wrong, outdated, or contradicted by the conversation. Reference its existing key. The "content" field may be empty or a short reason for deletion.
+- UPDATE: a fact that refines, extends, or corrects an existing one. REUSE the existing memory's key. Put the merged/corrected content in "content". If the target entry is annotated (global), set the item's "scope" field to "global" so the write updates the global record instead of creating a workspace copy.
+- DELETE: an existing memory that is now wrong, outdated, or contradicted by the conversation. Reference its existing key. The "content" field may be empty or a short reason for deletion. If the target entry is annotated (global), set "scope" to "global".
 - NOOP: the conversation mentions a fact already captured accurately. Reference the existing key to skip it. The "content" field may be empty.
 
 CRITICAL — deduplication across write paths:
@@ -331,6 +351,26 @@ Leave the array empty if nothing is worth changing.`;
     filteredItems.push(item);
   }
 
+  // Resolve which layer an UPDATE/DELETE applies to. Prefer the LLM's
+  // explicit scope hint; otherwise fall back to the recorded scopes for
+  // the referenced key — a key that only exists in the global layer is
+  // retargeted automatically (scope hint omitted by the model), so the
+  // write can't silently no-op or duplicate into the current workspace.
+  const resolveItemWorkspaceId = (item: {
+    key: string;
+    scope?: 'global' | 'workspace';
+  }): string | null | undefined => {
+    if (item.scope === 'global') return null;
+    if (item.scope === 'workspace') return input.workspaceId;
+    if (input.workspaceId) {
+      const scopes = existingKeyScopes.get(item.key);
+      if (scopes && !scopes.has('workspace') && scopes.has('global')) {
+        return null;
+      }
+    }
+    return input.workspaceId;
+  };
+
   for (const item of filteredItems) {
     try {
       switch (item.action) {
@@ -360,7 +400,7 @@ Leave the array empty if nothing is worth changing.`;
             sourceKind: resolveExtractedSourceKind(item.sourceKind),
             triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
-            workspaceId: input.workspaceId,
+            workspaceId: resolveItemWorkspaceId(item),
             config: input.config,
           });
           if (result.created) {
@@ -376,7 +416,7 @@ Leave the array empty if nothing is worth changing.`;
             userId: input.userId,
             key: item.key,
             projectId: input.projectId,
-            workspaceId: input.workspaceId,
+            workspaceId: resolveItemWorkspaceId(item),
           });
           if (removed) {
             deleted += 1;

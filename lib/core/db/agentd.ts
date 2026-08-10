@@ -1116,9 +1116,15 @@ export async function getOrCreateDefaultWorkspace(
 export async function archiveWorkspace(
   id: string,
 ): Promise<WorkspaceRecord | null> {
+  // Archiving must also drop the default flag: is_default is gated by the
+  // partial unique index workspaces_owner_default_uniq (owner_id WHERE
+  // is_default), and getOrCreateDefaultWorkspace's upsert returns the
+  // existing default row WITHOUT filtering on status. If the flag survived
+  // archival, the next getOrCreateDefaultWorkspace call would keep
+  // returning this archived row instead of creating a fresh active default.
   const [row] = await db
     .update(workspaces)
-    .set({ status: 'archived', updatedAt: new Date() })
+    .set({ status: 'archived', isDefault: false, updatedAt: new Date() })
     .where(eq(workspaces.id, id))
     .returning();
   return row ?? null;

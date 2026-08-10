@@ -1,8 +1,8 @@
 # Agentboster vs Memoh：架构对照白皮书
 
-> 本文基于对两个仓库实际源码的逐行核实撰写，所有结论可在引用的源码文件中复核。Agentboster 侧引用 `/home/user/agentboster`（本仓库），Memoh 侧引用工作区内的 `memoh/` 参考项目。本文不包含代码片段，仅以文字描述结构、归属、数据流与设计取舍。
+> 本文基于对两个仓库实际源码的逐行核实撰写，所有结论可在引用的源码文件中复核。Agentboster 侧引用本仓库根目录（下文以 `<repo>/` 表示仓库根相对路径）；Memoh 侧引用工作区内的 `memoh/` 参考项目。本文不包含代码片段，仅以文字描述结构、归属、数据流与设计取舍。
 >
-> 核实基准：Agentboster 当前 working tree；Memoh 为 `memoh/` 子目录快照。代码持续演进，引用的行号与文件结构会随 commit 变化；若引用失效，按模块名/函数名/表名搜索即可重新定位。
+> 核实基准：Agentboster 为 commit `cb19c8e`（chore(db): drop stale 0036 snapshot）对应的 working tree；Memoh 为 `memoh/` 子目录快照——该快照不带 VCS 元数据（非 git 检出），无法记录对应 commit/tag，且在本文撰写后已从工作区移除，引用其内容时以本文描述为准。代码持续演进，引用的行号与文件结构会随 commit 变化；若引用失效，按模块名/函数名/表名搜索即可重新定位。
 >
 > 本文不是竞品分析。Memoh 是工作区内的参考项目（`tsconfig.json` 将其 exclude），不是 Agentboster 要对线的竞品。本文目的是通过对照，把 Agentboster 自身架构选择的第一性原理讲清楚。
 

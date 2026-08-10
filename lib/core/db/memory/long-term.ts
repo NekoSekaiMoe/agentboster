@@ -452,7 +452,14 @@ export async function listLongTermMemoryRows(options?: {
   const safeOffset = Math.max(0, options?.offset ?? 0);
 
   const conditions: ReturnType<typeof eq>[] = [];
-  if (options?.userId) {
+  const hasWorkspaceScope =
+    options?.workspaceId !== undefined && options?.workspaceId !== null;
+  if (options?.userId && !hasWorkspaceScope) {
+    // Standalone owner filter — only when no workspace scope is in play.
+    // With a workspace scope, ownership is encoded inside
+    // buildWorkspaceVisibilityCondition's shared-or-owner rule below, and
+    // a bare user_id filter would wrongly hide rows other users SHARED
+    // into this workspace (parity with recall's keyword/vector paths).
     conditions.push(eq(schema.longTermMemories.userId, options.userId));
   }
   const scopeCondition = buildProjectScopeCondition(options?.projectIdScope);
@@ -460,20 +467,26 @@ export async function listLongTermMemoryRows(options?: {
     conditions.push(scopeCondition);
   }
   if (options?.workspaceId !== undefined) {
-    // Same additive (workspace OR global) semantics as recall: a workspace
-    // sees its own rows plus the global template layer. A null workspaceId
-    // means "global only" (just IS NULL); a real id means "that workspace
-    // plus global".
-    const wsMatch =
-      options.workspaceId === null
-        ? isNull(schema.longTermMemories.workspaceId)
-        : eq(schema.longTermMemories.workspaceId, options.workspaceId);
-    conditions.push(
-      or(
-        wsMatch,
-        isNull(schema.longTermMemories.workspaceId),
-      ) as unknown as ReturnType<typeof eq>,
-    );
+    if (options.workspaceId === null) {
+      // Explicit null means "global layer only" (unlike recall, where a
+      // null workspace id falls back to no workspace filter).
+      conditions.push(
+        isNull(schema.longTermMemories.workspaceId) as unknown as ReturnType<
+          typeof eq
+        >,
+      );
+    } else {
+      // Same visibility semantics as recall's keyword and vector paths:
+      // (workspace rows OR global layer) AND (shared OR owned by the
+      // requesting user), via the shared helper.
+      const visibility = buildWorkspaceVisibilityCondition(
+        options.workspaceId,
+        options.userId,
+      );
+      if (visibility) {
+        conditions.push(visibility as unknown as ReturnType<typeof eq>);
+      }
+    }
   }
   if (!options?.includeInactive) {
     conditions.push(eq(schema.longTermMemories.dreamStatus, 'active'));

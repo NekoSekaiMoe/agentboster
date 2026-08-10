@@ -451,9 +451,15 @@ func (s *Server) handleWorkspaceLockAcquire(c *gin.Context) {
 		// Default 30min matches a workflow run ctx cap; caller may override.
 		ttl = 30 * time.Minute
 	}
-	state, ok := s.agentMgr.AcquireWorkspaceLock(
+	state, ok, err := s.agentMgr.AcquireWorkspaceLock(
 		workspaceID, body.HolderType, body.ExecSessionID, body.OwnerTaskID, ttl, body.NodeGeneration,
 	)
+	if err != nil {
+		// Validation error from TryAcquire (e.g. empty exec_session_id) —
+		// a 400-level client error, NOT lock contention.
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
 	if !ok {
 		c.JSON(http.StatusConflict, gin.H{
 			"success": false,

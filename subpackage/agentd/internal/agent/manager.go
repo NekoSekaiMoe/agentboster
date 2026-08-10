@@ -430,7 +430,7 @@ func (m *Manager) AcquireWorkspaceLock(
 	workspaceID, holderType, execSessionID, ownerTaskID string,
 	ttl time.Duration,
 	nodeGeneration uint64,
-) (*sandbox.WorkspaceLockState, bool) {
+) (*sandbox.WorkspaceLockState, bool, error) {
 	return m.sbManager.AcquireWorkspaceLock(workspaceID, holderType, execSessionID, ownerTaskID, ttl, nodeGeneration)
 }
 

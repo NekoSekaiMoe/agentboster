@@ -179,7 +179,15 @@ export async function execToolOnAgentd(
   let effectiveNodeId = nodeId;
   let affinityNodeId: string | undefined;
   let workspaceId: string | undefined;
-  if (!effectiveNodeId && sessionId) {
+  // Track lookup health separately from a legitimately global session
+  // (workspace_id IS NULL): a query error / missing row must not be
+  // silently downgraded into an unbound dispatch when the caller holds
+  // the per-workspace run lock (enforced below).
+  let workspaceLookupFailed = false;
+  if (sessionId) {
+    // Always resolve sessions.workspaceId when a sessionId is available,
+    // regardless of effectiveNodeId — an explicitly pinned node must not
+    // skip workspace resolution.
     try {
       const { sessions } = await import('@/lib/core/db/schema');
       const [row] = await db
@@ -190,21 +198,31 @@ export async function execToolOnAgentd(
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .limit(1);
-      workspaceId = row?.workspaceId ? String(row.workspaceId) : undefined;
-      const meta = (row?.metadata ?? {}) as Record<string, unknown>;
-      const constraint = meta.scheduleNodeConstraints as
-        | { preferredNodeId?: string }
-        | undefined;
-      if (constraint?.preferredNodeId) {
-        effectiveNodeId = constraint.preferredNodeId;
+      if (!row) {
+        workspaceLookupFailed = true;
       } else {
-        const lastId = meta.lastAgentdNodeId as string | undefined;
-        if (lastId && typeof lastId === 'string' && lastId.length > 0) {
-          affinityNodeId = lastId;
+        workspaceId = row.workspaceId ? String(row.workspaceId) : undefined;
+      }
+      // Node constraint / affinity hints only apply when the caller didn't
+      // pin a node explicitly — an explicit nodeId always wins.
+      if (!effectiveNodeId) {
+        const meta = (row?.metadata ?? {}) as Record<string, unknown>;
+        const constraint = meta.scheduleNodeConstraints as
+          | { preferredNodeId?: string }
+          | undefined;
+        if (constraint?.preferredNodeId) {
+          effectiveNodeId = constraint.preferredNodeId;
+        } else {
+          const lastId = meta.lastAgentdNodeId as string | undefined;
+          if (lastId && typeof lastId === 'string' && lastId.length > 0) {
+            affinityNodeId = lastId;
+          }
         }
       }
     } catch {
-      // Best-effort: fall through to auto-pick on any error.
+      // Session read failed: node selection degrades to auto-pick, but the
+      // workspaceLockAcquired path below refuses the unbound dispatch.
+      workspaceLookupFailed = true;
     }
   }
 
@@ -359,6 +377,19 @@ export async function execToolOnAgentd(
   const nodeUrl = nodeUrlResolution.url;
 
   const config = await buildAgentdHttpConfig(nodeUrl);
+  // workspaceLockAcquired means the caller holds the per-workspace run
+  // lock and expects a bound execution on that workspace's long-lived
+  // container. Sending the request WITHOUT workspace_id in that state
+  // would silently downgrade to an unbound/ephemeral execution, so fail
+  // instead and let the caller retry (a lookup error / missing row is
+  // transient; a genuinely global session never acquires the lock in the
+  // first place — workspaceLockAcquired requires a non-null workspace
+  // upstream).
+  if (workspaceLockAcquired && sessionId && !workspaceId) {
+    throw new Error(
+      `agentd dispatch: workspace lock held but workspaceId could not be resolved for session ${sessionId}${workspaceLookupFailed ? ' (session lookup failed)' : ''}; refusing unbound execution`,
+    );
+  }
   const req: AgentdToolExecRequest = {
     session_id: sessionId,
     tool_name: toolName,
