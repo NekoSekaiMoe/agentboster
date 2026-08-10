@@ -36,35 +36,50 @@ export function sharedMemoryVersionKey(workspaceId: string): string {
 }
 
 /**
+ * Outcome of reading the workspace's shared-memory version.
+ *
+ * `{ ok: false }` means the KV read FAILED (or the stored value was
+ * unparseable) — deliberately distinct from a legitimate
+ * `{ ok: true, version: 0 }` (no shared write has bumped the counter yet).
+ * The distinction matters: recall entries cached under version 0 exist in
+ * practice, so collapsing a read failure into `0` would make the recall
+ * cache key match those entries during a KV outage and serve stale shared
+ * memories — the unsafe direction. Callers must skip the workspace cache
+ * entirely (no read, no write) on `ok: false` while still running the DB
+ * recall.
+ */
+export type SharedMemoryVersionRead =
+  | { ok: true; version: number }
+  | { ok: false };
+
+/**
  * Read the current shared-memory version for a workspace.
  *
- * Fail-soft to 0, mirroring readMemoryVersion's rationale: the version's
- * only use is cache-key validation, so the worst case of a missing/dirty
- * value is a cache-key mismatch → a fresh DB read (the SAFE direction).
- * Throwing here would make the recall read path hard-depend on the KV
- * counter, so errors are logged and swallowed instead.
+ * Never throws: the recall read path must not hard-depend on the KV
+ * counter. Errors are logged and reported as `{ ok: false }` so the caller
+ * can bypass the workspace cache instead of risking a stale hit.
  */
 export async function readSharedMemoryVersion(
   workspaceId: string,
-): Promise<number> {
+): Promise<SharedMemoryVersionRead> {
   const key = sharedMemoryVersionKey(workspaceId);
   try {
     const raw = await kvGet(key);
-    if (raw === null || raw === undefined) return 0;
+    if (raw === null || raw === undefined) return { ok: true, version: 0 };
     const parsed = Number.parseInt(String(raw), 10);
-    if (Number.isFinite(parsed)) return parsed;
+    if (Number.isFinite(parsed)) return { ok: true, version: parsed };
     logger.warn('version:unparseable', {
       workspaceId,
       key,
       raw: String(raw).slice(0, 64),
     });
-    return 0;
+    return { ok: false };
   } catch (error) {
     logger.warn('version:read_failed', {
       workspaceId,
       error: error instanceof Error ? error.message : String(error),
     });
-    return 0;
+    return { ok: false };
   }
 }
 

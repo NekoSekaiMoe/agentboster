@@ -117,16 +117,26 @@ describe('shared-memory version counter', () => {
   });
 
   it('starts at 0 and increments atomically in KV', async () => {
-    expect(await readSharedMemoryVersion(WORKSPACE)).toBe(0);
+    expect(await readSharedMemoryVersion(WORKSPACE)).toEqual({
+      ok: true,
+      version: 0,
+    });
     expect(await bumpSharedMemoryVersion(WORKSPACE)).toBe(1);
     expect(await bumpSharedMemoryVersion(WORKSPACE)).toBe(2);
-    expect(await readSharedMemoryVersion(WORKSPACE)).toBe(2);
+    expect(await readSharedMemoryVersion(WORKSPACE)).toEqual({
+      ok: true,
+      version: 2,
+    });
     expect(kvIncrSpy).toHaveBeenCalledWith(sharedMemoryVersionKey(WORKSPACE));
   });
 
-  it('fails soft to 0 when the KV read throws (safe direction: cache miss)', async () => {
+  it('reports a distinguishable failure when the KV read throws', async () => {
+    // Must NOT collapse to version 0: wv0 cache entries exist in practice,
+    // and matching them during a KV outage would serve stale shared data.
     kvGetSpy.mockRejectedValueOnce(new Error('kv down'));
-    await expect(readSharedMemoryVersion(WORKSPACE)).resolves.toBe(0);
+    await expect(readSharedMemoryVersion(WORKSPACE)).resolves.toEqual({
+      ok: false,
+    });
   });
 
   it('fails soft to 0 when the KV bump throws (write must not fail)', async () => {
@@ -271,6 +281,48 @@ describe('recallRelevantMemories — cross-user shared invalidation', () => {
       config,
     });
     expect(searchLongTermMemories).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed version read never serves a stale wv0 cache entry (cache skipped, DB recall still runs)', async () => {
+    const config = makeConfig();
+
+    // 1. Cache a workspace-scoped recall while the version is legitimately
+    //    0 (no shared write has bumped the counter yet) → a wv0 entry.
+    vi.mocked(searchLongTermMemories).mockResolvedValue([
+      searchRow('m-b-personal', 'B personal fact'),
+    ]);
+    await recallRelevantMemories({
+      userId: USER_B,
+      query: 'project setup',
+      workspaceId: WORKSPACE,
+      config,
+    });
+    expect(searchLongTermMemories).toHaveBeenCalledTimes(1);
+
+    // 2. User A writes a shared memory → the workspace version bumps to 1.
+    vi.mocked(searchLongTermMemories).mockResolvedValue([
+      searchRow('m-b-personal', 'B personal fact'),
+      searchRow('m-a-shared', 'A shared fact'),
+    ]);
+    await bumpSharedMemoryVersion(WORKSPACE);
+
+    // 3. The KV version read now fails. Before the fix the failure
+    //    collapsed to version 0, the key matched the stale wv0 entry from
+    //    step 1, and A's shared fact was invisible until the TTL expired.
+    //    The recall must skip the cache and run a fresh DB query instead.
+    kvGetSpy.mockRejectedValueOnce(new Error('kv down'));
+    const result = await recallRelevantMemories({
+      userId: USER_B,
+      query: 'project setup',
+      workspaceId: WORKSPACE,
+      config,
+    });
+
+    expect(searchLongTermMemories).toHaveBeenCalledTimes(2);
+    expect(result.map((m) => m.content)).toEqual([
+      'B personal fact',
+      'A shared fact',
+    ]);
   });
 
   it('still serves fresh data when the KV version read fails (fail-soft → cache miss)', async () => {

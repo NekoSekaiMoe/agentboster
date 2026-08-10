@@ -448,20 +448,33 @@ export async function DELETE(
       //  4. delete the workspace row itself.
       const pageSize = 200;
       let cleanupsFailed = 0;
-      for (let offset = 0; ; offset += pageSize) {
+      // cleanupChatSession DELETES each session row, so paginating with an
+      // advancing offset would skip every session past the first page
+      // (deletions shift later rows down). Always read offset 0 and let
+      // the deletions drain the list. Sessions whose cleanup failed keep
+      // their row, so track processed ids and stop when a page yields
+      // nothing new — otherwise persistent failures would spin forever.
+      const processedSessionIds = new Set<string>();
+      for (;;) {
         const page = await listSessions({
           workspaceId: id,
           limit: pageSize,
-          offset,
+          offset: 0,
         });
         if (page.length === 0) break;
+        const fresh = page.filter(
+          (session) => !processedSessionIds.has(session.id),
+        );
+        if (fresh.length === 0) break;
+        for (const session of fresh) {
+          processedSessionIds.add(session.id);
+        }
         const cleanupResults = await Promise.allSettled(
-          page.map((session) => cleanupChatSession(session)),
+          fresh.map((session) => cleanupChatSession(session)),
         );
         cleanupsFailed += cleanupResults.filter(
           (result) => result.status === 'rejected',
         ).length;
-        if (page.length < pageSize) break;
       }
       const memoriesDeleted = await deleteLongTermMemoriesByWorkspaceId(id);
       const builtinDeleted = await deleteBuiltinMemoriesByWorkspaceId(id);

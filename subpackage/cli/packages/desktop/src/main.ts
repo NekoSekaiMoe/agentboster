@@ -154,6 +154,8 @@ const WORKSPACES_ACTIVE_STORAGE_KEY = 'pi-desktop.workspaces.active.v1';
 const REMOTE_WORKSPACE_IDS_STORAGE_KEY = 'pi-desktop.workspaces.remote-ids.v1';
 const REMOTE_DEFAULT_WORKSPACE_STORAGE_KEY =
   'pi-desktop.workspaces.remote-default.v1';
+const REMOTE_WORKSPACE_PENDING_OPS_STORAGE_KEY =
+  'pi-desktop.workspaces.remote-pending-ops.v1';
 const LEGACY_PROJECTS_STORAGE_KEY = 'pi-desktop.projects.v1';
 const WORKSPACE_DEFAULT_ID = 'workspace_default';
 const WORKSPACE_PROJECTS_KEY_PREFIX = 'pi-desktop.workspace-projects.v1';
@@ -2946,6 +2948,127 @@ function persistRemoteWorkspaceIds(ids: Set<string>): void {
   }
 }
 
+// --- Pending remote mutations ----------------------------------------------
+//
+// Mutations attempted while logged out or against an unreachable backend
+// are queued here and retried by flushPendingRemoteWorkspaceOps() at the
+// top of the next refresh — i.e. after authentication or connectivity
+// returns. Entries are cleared only on a definitive server answer
+// (success, or a rejection that will never succeed on retry), never on a
+// network failure.
+
+type PendingRemoteWorkspaceOp =
+  | { kind: 'create'; localId: string }
+  | { kind: 'archive'; workspaceId: string };
+
+function loadPendingRemoteWorkspaceOps(): PendingRemoteWorkspaceOp[] {
+  try {
+    const raw = localStorage.getItem(REMOTE_WORKSPACE_PENDING_OPS_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    const ops: PendingRemoteWorkspaceOp[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') continue;
+      const record = entry as Record<string, unknown>;
+      if (
+        record.kind === 'create' &&
+        typeof record.localId === 'string' &&
+        record.localId.trim().length > 0
+      ) {
+        ops.push({ kind: 'create', localId: record.localId });
+      } else if (
+        record.kind === 'archive' &&
+        typeof record.workspaceId === 'string' &&
+        record.workspaceId.trim().length > 0
+      ) {
+        ops.push({ kind: 'archive', workspaceId: record.workspaceId });
+      }
+    }
+    return ops;
+  } catch {
+    return [];
+  }
+}
+
+function persistPendingRemoteWorkspaceOps(
+  ops: PendingRemoteWorkspaceOp[],
+): void {
+  try {
+    if (ops.length === 0) {
+      localStorage.removeItem(REMOTE_WORKSPACE_PENDING_OPS_STORAGE_KEY);
+    } else {
+      localStorage.setItem(
+        REMOTE_WORKSPACE_PENDING_OPS_STORAGE_KEY,
+        JSON.stringify(ops),
+      );
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function recordPendingRemoteWorkspaceOp(op: PendingRemoteWorkspaceOp): void {
+  const ops = loadPendingRemoteWorkspaceOps();
+  const duplicate = ops.some((existing) =>
+    existing.kind === 'create' && op.kind === 'create'
+      ? existing.localId === op.localId
+      : existing.kind === 'archive' && op.kind === 'archive'
+        ? existing.workspaceId === op.workspaceId
+        : false,
+  );
+  if (duplicate) return;
+  ops.push(op);
+  persistPendingRemoteWorkspaceOps(ops);
+}
+
+/** Ids whose remote archive is queued but not yet confirmed. */
+function pendingArchivedWorkspaceIds(): Set<string> {
+  return new Set(
+    loadPendingRemoteWorkspaceOps()
+      .filter((op) => op.kind === 'archive')
+      .map((op) => op.workspaceId),
+  );
+}
+
+/**
+ * Re-key a workspace and every piece of runtime state derived from its id
+ * (runtime map keys, per-run flags, the active pointers) from a locally
+ * minted id to the server-assigned one. The create flow normally adopts
+ * the server id BEFORE activation precisely so this never has to run; the
+ * pending-create retry path has no such luxury.
+ */
+function remapWorkspaceId(localId: string, remoteId: string): void {
+  const workspace = workspaces.find((entry) => entry.id === localId);
+  if (!workspace) return;
+  workspace.id = remoteId;
+  if (activeWorkspaceId === localId) {
+    activeWorkspaceId = remoteId;
+  }
+  for (const key of listRuntimeKeysForWorkspace(localId)) {
+    const runtime = sessionRuntimes.get(key);
+    if (!runtime) continue;
+    sessionRuntimes.delete(key);
+    const tabId = key.slice(localId.length + 2);
+    const nextKey = sessionRuntimeKey(remoteId, tabId);
+    runtime.key = nextKey;
+    runtime.workspaceId = remoteId;
+    sessionRuntimes.set(nextKey, runtime);
+    const hadError = runtimeRunHadError.get(key);
+    if (hadError !== undefined) {
+      runtimeRunHadError.set(nextKey, hadError);
+      runtimeRunHadError.delete(key);
+    }
+    const notifyObserved = runtimeRunNotifyObserved.get(key);
+    if (notifyObserved !== undefined) {
+      runtimeRunNotifyObserved.set(nextKey, notifyObserved);
+      runtimeRunNotifyObserved.delete(key);
+    }
+    if (activeSessionRuntimeKey === key) {
+      activeSessionRuntimeKey = nextKey;
+    }
+  }
+}
+
 function loadRemoteDefaultWorkspaceId(): string | null {
   try {
     const raw = localStorage.getItem(REMOTE_DEFAULT_WORKSPACE_STORAGE_KEY);
@@ -2971,7 +3094,12 @@ function persistRemoteDefaultWorkspaceId(): void {
 }
 
 function mergeRemoteWorkspaces(remoteList: RemoteWorkspace[]): void {
-  const active = remoteList.filter((entry) => entry.status !== 'archived');
+  // Workspaces whose remote archive is still queued (offline close) must
+  // not be re-added until the archive actually succeeds.
+  const pendingArchiveIds = pendingArchivedWorkspaceIds();
+  const active = remoteList.filter(
+    (entry) => entry.status !== 'archived' && !pendingArchiveIds.has(entry.id),
+  );
   const previousRemoteIds = loadRemoteWorkspaceIds();
   const nextRemoteIds = new Set(active.map((entry) => entry.id));
   let changed = false;
@@ -3042,6 +3170,115 @@ let refreshRemoteWorkspacesInFlight: {
   promise: Promise<void>;
 } | null = null;
 
+let pendingRemoteOpsFlushInFlight = false;
+
+/**
+ * Retry queued remote mutations in FIFO order. Called at the top of every
+ * refresh (auth already resolved), i.e. after login or once connectivity
+ * is back. A network failure keeps the op queued and stops the pass (the
+ * remaining ops would fail the same way); a definitive server answer —
+ * success, 404 for archive (already gone server-side), or any other
+ * RemoteWorkspaceRequestError (e.g. 409 on the default workspace) —
+ * clears the op.
+ */
+async function flushPendingRemoteWorkspaceOps(
+  auth: NonNullable<Awaited<ReturnType<typeof getWorkspaceAuthOrNull>>>,
+): Promise<void> {
+  if (pendingRemoteOpsFlushInFlight) return;
+  const ops = loadPendingRemoteWorkspaceOps();
+  if (ops.length === 0) return;
+  pendingRemoteOpsFlushInFlight = true;
+  const remaining: PendingRemoteWorkspaceOp[] = [];
+  try {
+    let stop = false;
+    for (const op of ops) {
+      if (stop) {
+        remaining.push(op);
+        continue;
+      }
+      if (op.kind === 'create') {
+        const workspace = workspaces.find((entry) => entry.id === op.localId);
+        if (!workspace) {
+          // Closed locally before the retry — creating it remotely now
+          // would resurrect it on the next merge. Drop the op.
+          continue;
+        }
+        try {
+          remoteWorkspacesVersion += 1;
+          const remote = await createRemoteWorkspace(auth, workspace.title);
+          if (!remote) {
+            remaining.push(op);
+            stop = true;
+            continue;
+          }
+          remapWorkspaceId(op.localId, remote.id);
+          if (remote.name) {
+            workspace.title = remote.name;
+          }
+          const ids = loadRemoteWorkspaceIds();
+          ids.add(remote.id);
+          persistRemoteWorkspaceIds(ids);
+          persistWorkspaces();
+          syncWorkspaceTabsBar();
+          recordDebugTrace(
+            `workspaces-remote:pending-create-applied id=${remote.id}`,
+          );
+        } catch (err) {
+          if (err instanceof RemoteWorkspaceRequestError) {
+            // A definitive rejection would fail identically on retry —
+            // drop the op; the workspace stays local-only.
+            recordDebugTrace(
+              `workspaces-remote:pending-create-rejected ${err.message}`,
+            );
+            continue;
+          }
+          recordDebugTrace(
+            `workspaces-remote:pending-create-unreachable ${err instanceof Error ? err.message : String(err)}`,
+          );
+          remaining.push(op);
+          stop = true;
+        }
+        continue;
+      }
+      try {
+        remoteWorkspacesVersion += 1;
+        await archiveRemoteWorkspace(auth, op.workspaceId);
+        const ids = loadRemoteWorkspaceIds();
+        ids.delete(op.workspaceId);
+        persistRemoteWorkspaceIds(ids);
+        recordDebugTrace(
+          `workspaces-remote:pending-archive-applied id=${op.workspaceId}`,
+        );
+      } catch (err) {
+        if (err instanceof RemoteWorkspaceRequestError) {
+          if (err.status === 404) {
+            // Already archived/deleted server-side (e.g. from another
+            // client) — treat as success.
+            const ids = loadRemoteWorkspaceIds();
+            ids.delete(op.workspaceId);
+            persistRemoteWorkspaceIds(ids);
+          } else {
+            // e.g. 409 (default workspace): retrying would never succeed.
+            // Drop the op; the workspace reappears on the next merge.
+            recordDebugTrace(
+              `workspaces-remote:pending-archive-rejected status=${err.status}`,
+            );
+          }
+          continue;
+        }
+        recordDebugTrace(
+          `workspaces-remote:pending-archive-unreachable ${err instanceof Error ? err.message : String(err)}`,
+        );
+        remaining.push(op);
+        stop = true;
+      }
+    }
+  } finally {
+    persistPendingRemoteWorkspaceOps(remaining);
+    pendingRemoteOpsFlushInFlight = false;
+  }
+}
+
 function refreshRemoteWorkspaces(): Promise<void> {
   if (
     refreshRemoteWorkspacesInFlight &&
@@ -3054,6 +3291,13 @@ function refreshRemoteWorkspaces(): Promise<void> {
     promise: (async (): Promise<void> => {
       const auth = await getWorkspaceAuthOrNull();
       if (!auth) return; // local-only mode: keep the cached list
+      // Flush queued mutations first so the fetch below observes their
+      // effects (and a locally archived workspace isn't resurrected).
+      await flushPendingRemoteWorkspaceOps(auth);
+      // Capture AFTER the flush: the flush itself bumps the version per
+      // applied op, and only mutations landing after this point should
+      // discard the fetch below.
+      const fetchVersion = remoteWorkspacesVersion;
       let remoteList: RemoteWorkspace[];
       try {
         remoteList = await fetchRemoteWorkspaces(auth);
@@ -3062,6 +3306,13 @@ function refreshRemoteWorkspaces(): Promise<void> {
           `workspaces-remote:fetch-failed ${err instanceof Error ? err.message : String(err)}`,
         );
         return; // offline: fall back to the cached local list
+      }
+      if (fetchVersion !== remoteWorkspacesVersion) {
+        // A mutation landed while the fetch was in flight, so the result
+        // is stale — merging it could re-add a just-archived workspace or
+        // revert a rename. Discard; the mutation's own resync refetches.
+        recordDebugTrace('workspaces-remote:stale-fetch-discarded');
+        return;
       }
       recordDebugTrace(`workspaces-remote:fetched count=${remoteList.length}`);
       mergeRemoteWorkspaces(remoteList);
@@ -3991,9 +4242,11 @@ async function handleWorkspaceCreate(draft?: {
 
   // Best-effort remote create: when the backend is reachable the workspace
   // adopts the server-assigned id before activation, so sessionRuntimeKey /
-  // tab state never needs remapping. Offline we keep the local id and the
-  // workspace syncs on the next successful refresh.
+  // tab state never needs remapping. Offline (or on failure) the create is
+  // queued as a pending op and retried at the top of the next refresh —
+  // there is no other path that pushes local workspaces to the server.
   const auth = await getWorkspaceAuthOrNull();
+  let createdRemotely = false;
   if (auth) {
     try {
       remoteWorkspacesVersion += 1;
@@ -4007,6 +4260,7 @@ async function handleWorkspaceCreate(draft?: {
         const ids = loadRemoteWorkspaceIds();
         ids.add(remote.id);
         persistRemoteWorkspaceIds(ids);
+        createdRemotely = true;
         recordDebugTrace(`workspaces-remote:created id=${remote.id}`);
       }
     } catch (err) {
@@ -4014,6 +4268,9 @@ async function handleWorkspaceCreate(draft?: {
         `workspaces-remote:create-failed ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+  if (!createdRemotely) {
+    recordPendingRemoteWorkspaceOp({ kind: 'create', localId: workspace.id });
   }
 
   workspaces.push(workspace);
@@ -4038,10 +4295,14 @@ async function syncRemoteWorkspaceRename(
   title: string,
 ): Promise<void> {
   if (!loadRemoteWorkspaceIds().has(workspaceId)) return;
+  // The caller has ALREADY applied the local rename, so the bump must
+  // happen before the first await: any refresh whose fetch started before
+  // the mutation then fails its post-fetch version check and is discarded
+  // instead of reverting the title.
+  remoteWorkspacesVersion += 1;
   const auth = await getWorkspaceAuthOrNull();
   if (!auth) return;
   try {
-    remoteWorkspacesVersion += 1;
     await patchRemoteWorkspace(auth, workspaceId, {
       action: 'rename',
       name: title,
@@ -4063,6 +4324,7 @@ async function closeWorkspaceWithRemote(workspaceId: string): Promise<void> {
   if (workspaces.length <= 1) return;
   if (loadRemoteWorkspaceIds().has(workspaceId)) {
     const auth = await getWorkspaceAuthOrNull();
+    let archivedRemotely = false;
     if (auth) {
       try {
         remoteWorkspacesVersion += 1;
@@ -4070,6 +4332,7 @@ async function closeWorkspaceWithRemote(workspaceId: string): Promise<void> {
         const ids = loadRemoteWorkspaceIds();
         ids.delete(workspaceId);
         persistRemoteWorkspaceIds(ids);
+        archivedRemotely = true;
       } catch (err) {
         if (err instanceof RemoteWorkspaceRequestError) {
           chatView?.notify(
@@ -4081,11 +4344,17 @@ async function closeWorkspaceWithRemote(workspaceId: string): Promise<void> {
           return;
         }
         // Network failure: fall through to the local close so offline use
-        // keeps working. The workspace may reappear on the next refresh.
+        // keeps working, and queue the archive so the next successful
+        // refresh retries it (merge skips re-adding it until then).
         recordDebugTrace(
           `workspaces-remote:archive-unreachable ${err instanceof Error ? err.message : String(err)}`,
         );
       }
+    }
+    if (!archivedRemotely) {
+      // Logged out or unreachable: without a queued retry the workspace
+      // would reappear on the next refresh.
+      recordPendingRemoteWorkspaceOp({ kind: 'archive', workspaceId });
     }
   }
   closeWorkspace(workspaceId);

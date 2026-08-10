@@ -281,11 +281,22 @@ export async function recallRelevantMemories(input: {
 
   // Read the workspace's shared-memory version BEFORE the cache lookup so
   // a concurrent/shared write by another member is reflected in the key.
-  // Fail-soft (0 on KV error) → key mismatch → fresh DB read, the safe
-  // direction. Skipped entirely for personal/global recall.
-  const workspaceVersion = workspaceId
-    ? await readSharedMemoryVersion(workspaceId)
-    : null;
+  // A FAILED read must NOT be folded into the key as 0: entries cached
+  // under a legitimate version 0 exist in practice, and matching them
+  // during a KV outage would serve stale shared memories — the unsafe
+  // direction. On failure the workspace cache is skipped entirely (no
+  // read, no write) but the DB recall still runs. The version is skipped
+  // entirely for personal/global recall.
+  let workspaceVersion: number | null = null;
+  let workspaceCacheUsable = true;
+  if (workspaceId) {
+    const versionRead = await readSharedMemoryVersion(workspaceId);
+    if (versionRead.ok) {
+      workspaceVersion = versionRead.version;
+    } else {
+      workspaceCacheUsable = false;
+    }
+  }
 
   const cacheParams: CacheKeyParams = {
     userId,
@@ -300,8 +311,9 @@ export async function recallRelevantMemories(input: {
 
   // bypassCache skips only the fresh-cache EARLY RETURN — the cached
   // entry is still read so the catch below can serve stale memories when
-  // a deep recall fails.
-  const cached = getCachedRecall(cacheParams);
+  // a deep recall fails. workspaceCacheUsable is false when the version
+  // read failed: no cache read (a wv0 entry could be stale) and no write.
+  const cached = workspaceCacheUsable ? getCachedRecall(cacheParams) : null;
   if (!input.bypassCache && cached && !cached.stale) {
     logger.info('recall:cache_hit', { userId });
     // Cached hits still count as usage (fire-and-forget) — otherwise
@@ -333,7 +345,7 @@ export async function recallRelevantMemories(input: {
     // Attach provenance metadata (sourceKind) in one batch query so the
     // injection formatter can frame tool_observed entries as unverified.
     results = await attachMemoryMeta(results, userId);
-    if (!input.bypassCache) {
+    if (!input.bypassCache && workspaceCacheUsable) {
       setCachedRecall(cacheParams, results);
     }
     // Usage feedback (OpenClaw deep-ranking signals): record which rows
