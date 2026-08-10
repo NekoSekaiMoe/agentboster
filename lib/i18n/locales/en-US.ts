@@ -715,6 +715,7 @@ export const enUS = {
   'notify.field.commits': 'Commits',
   'notify.field.viewLogs': 'View logs',
   'notify.field.error': 'Error',
+  'notify.workspaceFailover.migratedAt': 'Migrated at',
   'notify.field.downloadFiles': 'Download files',
   'notify.field.pending': 'Pending todos',
   'notify.field.knownIssues': 'Known issues',

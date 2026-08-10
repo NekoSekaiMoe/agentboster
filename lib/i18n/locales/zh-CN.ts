@@ -662,6 +662,7 @@ export const zhCN = {
   'notify.field.commits': '提交数',
   'notify.field.viewLogs': '查看日志',
   'notify.field.error': '错误',
+  'notify.workspaceFailover.migratedAt': '迁移时间',
   'notify.field.downloadFiles': '下载文件',
   'notify.field.pending': '待办事项',
   'notify.field.knownIssues': '已知问题',

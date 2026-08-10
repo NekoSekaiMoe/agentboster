@@ -727,6 +727,7 @@ export const ja = {
   'notify.field.commits': 'コミット数',
   'notify.field.viewLogs': 'ログを表示',
   'notify.field.error': 'エラー',
+  'notify.workspaceFailover.migratedAt': '移行日時',
   'notify.field.downloadFiles': 'ファイルをダウンロード',
   'notify.field.pending': '未完了のタスク',
   'notify.field.knownIssues': '既知の問題',

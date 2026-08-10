@@ -117,11 +117,12 @@ export class DiscordNotificationChannel implements NotificationChannel {
     }
 
     if (payload.type === 'workspace_failover') {
+      const locale: Locale = payload.locale ?? defaultLocale;
       const fields: Array<{ name: string; value: string; inline?: boolean }> =
         [];
       if (payload.details?.migratedAt)
         fields.push({
-          name: 'Migrated at',
+          name: t(locale, 'notify.workspaceFailover.migratedAt'),
           value: payload.details.migratedAt,
         });
       return {

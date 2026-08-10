@@ -665,6 +665,7 @@ export const zhTW = {
   'notify.field.commits': '提交數',
   'notify.field.viewLogs': '檢視日誌',
   'notify.field.error': '錯誤',
+  'notify.workspaceFailover.migratedAt': '遷移時間',
   'notify.field.downloadFiles': '下載檔案',
   'notify.field.pending': '待辦事項',
   'notify.field.knownIssues': '已知問題',

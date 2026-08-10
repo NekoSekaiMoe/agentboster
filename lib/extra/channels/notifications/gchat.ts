@@ -210,8 +210,9 @@ export class GChatNotificationChannel implements NotificationChannel {
     }
 
     if (payload.type === 'workspace_failover') {
+      const locale: Locale = payload.locale ?? defaultLocale;
       const migratedAt = payload.details?.migratedAt
-        ? `\n\n_Migrated at: ${payload.details.migratedAt}_`
+        ? `\n\n_${t(locale, 'notify.workspaceFailover.migratedAt')}: ${payload.details.migratedAt}_`
         : '';
       return `⚠️ *${payload.title}*\n\n${payload.summary}${migratedAt}`;
     }

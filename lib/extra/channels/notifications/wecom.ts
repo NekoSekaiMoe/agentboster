@@ -163,8 +163,9 @@ export class WecomNotificationChannel implements NotificationChannel {
       return payload.promptMessage;
     }
     if (payload.type === 'workspace_failover') {
+      const locale: Locale = payload.locale ?? defaultLocale;
       const migratedAt = payload.details?.migratedAt
-        ? `\n\nMigrated at: ${payload.details.migratedAt}`
+        ? `\n\n${t(locale, 'notify.workspaceFailover.migratedAt')}: ${payload.details.migratedAt}`
         : '';
       return `⚠️ 【${payload.title}】\n\n${payload.summary}${migratedAt}`;
     }

@@ -15,6 +15,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useI18n } from '@/components/i18n-provider';
+import { useConfigContext } from '@/components/config/config-provider';
 import { parseWithFallback } from '@/lib/core/api/schema';
 import { z } from 'zod';
 import { ChevronsUpDown, Plus, Layers } from 'lucide-react';
@@ -58,9 +59,16 @@ export function WorkspaceSwitcher() {
   const router = useRouter();
   const qc = useQueryClient();
   const { workspaceId, setWorkspaceId } = useActiveWorkspace();
+  // Include the current user in the query key so a user switch (login /
+  // account change) does NOT reuse the previous user's cached workspace
+  // list. The server route scopes by cookie-auth identity, so stale data
+  // here would show another user's workspaces until staleTime (60s) expires.
+  const configContext = useConfigContext();
+  const currentUserId = configContext?.userId ?? null;
 
   const { data: workspaces = [], isLoading } = useQuery<WorkspaceListItem[]>({
-    queryKey: ['workspaces'],
+    queryKey: ['workspaces', currentUserId],
+    enabled: !!currentUserId,
     queryFn: async () => {
       const res = await fetch('/api/workspaces', { cache: 'no-store' });
       if (!res.ok) return [];

@@ -706,6 +706,7 @@ export const ko = {
   'notify.field.commits': '커밋 수',
   'notify.field.viewLogs': '로그 보기',
   'notify.field.error': '오류',
+  'notify.workspaceFailover.migratedAt': '마이그레이션 시각',
   'notify.field.downloadFiles': '파일 다운로드',
   'notify.field.pending': '남은 할 일',
   'notify.field.knownIssues': '알려진 문제',

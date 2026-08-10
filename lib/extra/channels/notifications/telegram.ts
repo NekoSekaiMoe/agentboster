@@ -120,6 +120,7 @@ export class TelegramNotificationChannel implements NotificationChannel {
     }
 
     if (payload.type === 'workspace_failover') {
+      const locale: Locale = payload.locale ?? defaultLocale;
       const lines = [
         `⚠️ *${this.escape(payload.title)}*`,
         ``,
@@ -128,7 +129,7 @@ export class TelegramNotificationChannel implements NotificationChannel {
       if (payload.details?.migratedAt) {
         lines.push(
           '',
-          `_Migrated at: ${this.escape(payload.details.migratedAt)}_`,
+          `_${t(locale, 'notify.workspaceFailover.migratedAt')}: ${this.escape(payload.details.migratedAt)}_`,
         );
       }
       return lines.join('\n');

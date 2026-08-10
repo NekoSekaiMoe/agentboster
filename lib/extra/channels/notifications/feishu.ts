@@ -236,6 +236,7 @@ export class FeishuNotificationChannel implements NotificationChannel {
     }
 
     if (payload.type === 'workspace_failover') {
+      const locale: Locale = payload.locale ?? defaultLocale;
       const elements: Array<Record<string, unknown>> = [
         {
           tag: 'div',
@@ -248,7 +249,7 @@ export class FeishuNotificationChannel implements NotificationChannel {
           tag: 'div',
           text: {
             tag: 'lark_md',
-            content: `**Migrated at:** ${payload.details.migratedAt}`,
+            content: `**${t(locale, 'notify.workspaceFailover.migratedAt')}:** ${payload.details.migratedAt}`,
           },
         });
       }

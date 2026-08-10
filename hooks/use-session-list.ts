@@ -53,9 +53,13 @@ export function clearSessionListCache(): void {
 }
 
 /**
- * Optimistically insert-or-update a session row in the cache. Writes to
- * every cached workspace list (prefix iterate) since a freshly created
- * session may belong to any workspace.
+ * Optimistically insert-or-update a session row in the cache.
+ *
+ * When the item's workspace is known, write ONLY to that workspace's list
+ * (the precise key `['sessions', workspaceId]`) so the row does not leak
+ * into every other workspace's cached list. When the workspace is unknown,
+ * invalidate the prefix so the affected lists reload from the server rather
+ * than stamping the same row into every group.
  */
 export function upsertSessionListItemInCache(
   item: Pick<SessionListItem, 'id' | 'title' | 'channel' | 'createdAt'> & {
@@ -65,25 +69,33 @@ export function upsertSessionListItemInCache(
   },
 ): void {
   const qc = getQueryClient();
-  qc.setQueriesData<SessionListItem[]>(
-    { queryKey: SESSION_LIST_KEY },
-    (current) => {
-      const list = current ?? [];
-      const next: SessionListItem[] = [
-        {
-          id: item.id,
-          title: item.title,
-          channel: item.channel,
-          createdAt: item.createdAt,
-          status: item.status,
-          pinned: item.pinned ?? false,
-          workspaceId: item.workspaceId,
-        },
-        ...list.filter((s) => s.id !== item.id),
-      ];
-      return next.slice(0, 30);
-    },
-  );
+  const writeRow = (list: SessionListItem[] | undefined) => {
+    const current = list ?? [];
+    const next: SessionListItem[] = [
+      {
+        id: item.id,
+        title: item.title,
+        channel: item.channel,
+        createdAt: item.createdAt,
+        status: item.status,
+        pinned: item.pinned ?? false,
+        workspaceId: item.workspaceId,
+      },
+      ...current.filter((s) => s.id !== item.id),
+    ];
+    return next.slice(0, 30);
+  };
+
+  // Known workspace → write only to its scoped key.
+  if (item.workspaceId) {
+    qc.setQueryData<SessionListItem[]>(
+      ['sessions', item.workspaceId],
+      writeRow,
+    );
+    return;
+  }
+  // Unknown workspace → don't guess; let the server re-prime every list.
+  void qc.invalidateQueries({ queryKey: SESSION_LIST_KEY });
 }
 
 /**
@@ -91,11 +103,17 @@ export function upsertSessionListItemInCache(
  *
  * Workspace-scoped via {@link useActiveWorkspace}. When the user switches
  * workspace, the key changes and TanStack refetches the new scope.
+ *
+ * Disabled while no workspace is selected (`workspaceId === null`): the
+ * underlying `listSessions` only adds a `workspace_id` filter when given a
+ * value, so an undefined workspace would return the user's sessions across
+ * ALL workspaces mixed together. We wait for a concrete workspace instead.
  */
 export function useSessionList(limit = 30) {
   const { workspaceId } = useActiveWorkspace();
   return useQuery<SessionListItem[]>({
     queryKey: ['sessions', workspaceId ?? null],
+    enabled: !!workspaceId,
     queryFn: async () => {
       const rows = await listRecentSessionsAction({
         limit,
@@ -120,6 +138,20 @@ const ACTIVE_WORKSPACE_STORAGE_KEY = 'agentboster.activeWorkspaceId';
  * authenticated user changes (userId guard). This is pure client view
  * state — the server is always the source of truth for which workspace a
  * session/memory actually belongs to.
+ *
+ * NOTE(tech-debt, follow-up): this currently uses local `useState`, so each
+ * component calling `useActiveWorkspace()` gets its OWN instance. The
+ * WorkspaceSwitcher and the session-list sidebar work today only because
+ * the switcher's `handleSelect` navigates (`router.push`) and the sidebar
+ * re-mounts, re-reading the persisted value from localStorage. If the
+ * sidebar ever moves into a persistent layout (so it does NOT re-mount on
+ * navigation) or multiple consumers coexist without a navigation, the two
+ * instances would desync. The robust fix is a root-level shared store
+ * (Zustand per AGENTS.md is the intended home, but it is not yet a
+ * dependency — adding it is its own change) exposing one workspaceId across
+ * all consumers, persisted via the same StorageAdapter. Tracked as a
+ * follow-up; until then the localStorage + remount bridge keeps things
+ * consistent in practice.
  */
 export function useActiveWorkspace(): {
   workspaceId: string | null;

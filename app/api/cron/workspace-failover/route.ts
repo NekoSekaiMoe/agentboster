@@ -62,3 +62,11 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 }
+
+// Vercel Cron issues GET requests (not POST). Reuse the POST handler so the
+// documented cron config in the header comment actually works — without
+// this, Vercel Cron receives a 405 and the failover sweep never runs.
+// POST is kept for systemd timer callers that POST explicitly.
+export async function GET(request: Request): Promise<Response> {
+  return POST(request);
+}
