@@ -6,8 +6,9 @@
  * or an IM message thread the way L2 decisions are, so we synthesize a
  * target from the user's paired IM accounts: prefer the user's configured
  * preferredChannel, else the first paired adapter. When the user has no IM
- * account paired at all, return null — the caller writes the row with a
- * `web` channel + placeholder chatId so the Web inbox still receives it.
+ * account paired at all, fall back to a `web` channel + placeholder chatId
+ * target so the Web inbox still receives the row — this function ALWAYS
+ * returns a delivery target and never returns null.
  *
  * Best-effort by design: workspace failover must never be blocked by an
  * undeliverable notification target.
@@ -24,7 +25,7 @@ export interface WorkspaceDeliveryTarget {
 
 export async function resolveWorkspaceDeliveryTarget(
   userId: string,
-): Promise<WorkspaceDeliveryTarget | null> {
+): Promise<WorkspaceDeliveryTarget> {
   const accounts = await listImAccountsForUser(userId);
   if (accounts.length === 0) {
     // No IM paired → Web inbox only. The Web inbox reads by userId, so the

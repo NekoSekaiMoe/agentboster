@@ -80,6 +80,12 @@ type SandboxSpec struct {
 	// disk). Empty = legacy behavior (random 8-hex id), used by short-lived
 	// docker sandboxes and any path that doesn't carry a workspace context.
 	WorkspaceID string
+
+	// Ctx is the caller's context (e.g. the ExecuteTool request context).
+	// Providers use it for cancellable waits (the LXC create semaphore);
+	// nil falls back to a bounded-timeout background context so an
+	// abandoned caller can't wait on the semaphore forever.
+	Ctx context.Context
 }
 
 // Mount defines a bind mount.
@@ -152,6 +158,15 @@ type Manager struct {
 	// provider.Create (TOCTOU). Mirrors the execLocksMu/execLocks pattern.
 	createLocksMu sync.Mutex
 	createLocks   map[string]*sync.Mutex
+
+	// admissionMu guards the pending-create reservation counters below.
+	// Admission counts live sandboxes (m.sandboxes) plus in-flight creates
+	// (pendingPersistent/pendingEphemeral) so concurrent creates cannot
+	// both pass the cap check before either registers — the check-then-
+	// create window that previously let caps be exceeded.
+	admissionMu       sync.Mutex
+	pendingPersistent int
+	pendingEphemeral  int
 }
 
 // NewManager creates a new sandbox manager with all built-in providers.
@@ -218,6 +233,7 @@ func NewManager(cfg *config.Config, l0Engine *l0_rules.Engine) *Manager {
 		cfg.Sandbox.LXCRootfsBase,
 		cfg.Sandbox.LXCDistro,
 		cfg.Sandbox.LXCRelease,
+		cfg.Sandbox.MaxConcurrentCreates,
 	)
 	m.providers["lxc"] = lxc
 	registerGlobal("lxc", lxc)
@@ -321,6 +337,11 @@ func (m *Manager) cleanupWorkspaceEntriesLocked(sandboxID string) {
 			m.execLocksMu.Lock()
 			delete(m.execLocks, workspaceID)
 			m.execLocksMu.Unlock()
+			// Drop the M1 workspace-lock registry entry too, but only when
+			// the lock is currently free — a held lock must survive until
+			// its holder releases (or its TTL expires) so Snapshot keeps
+			// reporting the holder.
+			m.wsLocks.DeleteIfReleased(workspaceID)
 			return
 		}
 	}
@@ -363,13 +384,20 @@ func (m *Manager) AcquireWorkspaceLock(
 	return lock.TryAcquire(workspaceID, holderType, execSessionID, ownerTaskID, ttl, nodeGeneration, time.Now())
 }
 
-// ReleaseWorkspaceLock frees the lock iff execSessionID matches the holder.
-func (m *Manager) ReleaseWorkspaceLock(workspaceID, execSessionID string) bool {
-	lock := m.wsLocks.Get(workspaceID)
+// ReleaseWorkspaceLock frees the lock iff execSessionID matches the
+// holder. When nodeGeneration is non-nil it must also match the
+// generation recorded at acquire time; a mismatch is a fencing violation
+// and returns ErrStaleGeneration (released=false, lock stays held). A nil
+// nodeGeneration preserves legacy behavior (session match only).
+//
+// Uses lookup (not Get) so releasing an unknown workspace doesn't mint a
+// registry entry that would then need sweeping.
+func (m *Manager) ReleaseWorkspaceLock(workspaceID, execSessionID string, nodeGeneration *uint64) (bool, error) {
+	lock := m.wsLocks.lookup(workspaceID)
 	if lock == nil {
-		return false
+		return false, nil
 	}
-	return lock.Release(execSessionID)
+	return lock.ReleaseWithGeneration(execSessionID, nodeGeneration)
 }
 
 // SnapshotWorkspaceLock returns the current holder, or nil when free.
@@ -414,9 +442,18 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 	// reserve. Persistent (LXC workspace) and ephemeral (docker task) are
 	// capped independently. A rejection returns a typed error so the caller
 	// (Web layer) can fall back to a different node / short-lived container.
-	if err := m.checkAdmission(spec); err != nil {
+	releaseReservation, err := m.checkAdmission(spec)
+	if err != nil {
 		return nil, err
 	}
+	// The reservation covers the window between the cap check and the
+	// sandbox's registration in m.sandboxes below: while it is held the
+	// pending counters stand in for the not-yet-registered sandbox, so a
+	// concurrent admission sees it. It is released on create failure or
+	// after registration completes (deferred runs at return, after the
+	// m.sandboxes write), so the sandbox is never double-counted nor
+	// invisible to admission.
+	defer releaseReservation()
 
 	sb, err := provider.Create(spec)
 	if err != nil {
@@ -448,19 +485,33 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 }
 
 // checkAdmission enforces the per-type sandbox count caps and the memory
-// reserve. Returns nil when the sandbox may be created, or a typed error
-// (ErrTooManySandboxes / ErrInsufficientMemory) the caller can branch on.
-// Skipped entirely when both caps are 0 (legacy unlimited mode).
-func (m *Manager) checkAdmission(spec SandboxSpec) error {
+// reserve. On success it returns a release func that drops the
+// pending-create reservation it took; the caller MUST invoke it after the
+// create has either failed or been registered in m.sandboxes (see
+// CreateSandbox). On failure it returns a typed error
+// (ErrTooManySandboxes / ErrInsufficientMemory) the caller can branch on,
+// and no reservation is held.
+//
+// Zero caps mean unlimited COUNT — but the MemReserveMB memory gate still
+// runs for persistent creates even when both caps are 0.
+//
+// Reservations close the check-then-create race: previously the count was
+// read before provider.Create and registration happened after, so N
+// concurrent creates could all observe count < cap and all proceed. Now
+// each admission atomically (under admissionMu) adds its class's pending
+// counter after the checks pass, and counts pending in the totals, so
+// concurrent admissions serialize against each other.
+func (m *Manager) checkAdmission(spec SandboxSpec) (func(), error) {
+	noop := func() {}
 	cfg := m.config
 	if cfg == nil {
-		return nil
+		return noop, nil
 	}
 	persistentCap := cfg.Sandbox.MaxPersistentSandboxes
 	ephemeralCap := cfg.Sandbox.MaxEphemeralSandboxes
-	if persistentCap == 0 && ephemeralCap == 0 {
-		return nil
-	}
+
+	m.admissionMu.Lock()
+
 	m.mu.RLock()
 	persistent, ephemeral := 0, 0
 	for _, sb := range m.sandboxes {
@@ -471,6 +522,12 @@ func (m *Manager) checkAdmission(spec SandboxSpec) error {
 		}
 	}
 	m.mu.RUnlock()
+
+	// Include in-flight creates in the totals so concurrent admissions
+	// account for sandboxes that passed admission but aren't registered
+	// yet.
+	persistent += m.pendingPersistent
+	ephemeral += m.pendingEphemeral
 
 	// Reusing an existing workspace sandbox doesn't consume a new slot, so
 	// skip the cap check when CreateSandbox already resolved an existing one.
@@ -484,26 +541,51 @@ func (m *Manager) checkAdmission(spec SandboxSpec) error {
 	// no workspace under the ephemeral cap, letting both caps be exceeded.
 	if spec.Persistent {
 		if persistentCap > 0 && persistent >= persistentCap {
-			return fmt.Errorf("%w: %d/%d persistent sandboxes", ErrTooManySandboxes, persistent, persistentCap)
+			m.admissionMu.Unlock()
+			return nil, fmt.Errorf("%w: %d/%d persistent sandboxes", ErrTooManySandboxes, persistent, persistentCap)
 		}
 	} else {
 		if ephemeralCap > 0 && ephemeral >= ephemeralCap {
-			return fmt.Errorf("%w: %d/%d ephemeral sandboxes", ErrTooManySandboxes, ephemeral, ephemeralCap)
+			m.admissionMu.Unlock()
+			return nil, fmt.Errorf("%w: %d/%d ephemeral sandboxes", ErrTooManySandboxes, ephemeral, ephemeralCap)
 		}
 	}
 
 	// Memory reserve check for persistent containers (each LXC rootfs +
 	// runtime easily consumes hundreds of MB). Ephemeral containers are
 	// bounded by docker cgroup limits already; only gate the long-lived ones.
-	// Same Persistent/WorkspaceID rationale as the cap gate above.
+	// Runs regardless of the count caps (zero cap = unlimited count, NOT
+	// unlimited memory).
 	reserveMB := cfg.Sandbox.MemReserveMB
 	if spec.Persistent && reserveMB > 0 {
 		availMB, err := availableMemoryMB()
 		if err == nil && availMB < uint64(reserveMB) {
-			return fmt.Errorf("%w: %dMB free < %dMB reserve", ErrInsufficientMemory, availMB, reserveMB)
+			m.admissionMu.Unlock()
+			return nil, fmt.Errorf("%w: %dMB free < %dMB reserve", ErrInsufficientMemory, availMB, reserveMB)
 		}
 	}
-	return nil
+
+	// All checks passed — reserve the slot. The reservation is released by
+	// the returned func, exactly once.
+	if spec.Persistent {
+		m.pendingPersistent++
+	} else {
+		m.pendingEphemeral++
+	}
+	m.admissionMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.admissionMu.Lock()
+			if spec.Persistent {
+				m.pendingPersistent--
+			} else {
+				m.pendingEphemeral--
+			}
+			m.admissionMu.Unlock()
+		})
+	}, nil
 }
 
 func (m *Manager) prepareSpec(spec SandboxSpec) SandboxSpec {

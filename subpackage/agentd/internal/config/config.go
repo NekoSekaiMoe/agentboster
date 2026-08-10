@@ -117,9 +117,13 @@ type SandboxConfig struct {
 	// MaxEphemeralSandboxes caps concurrently-live short-lived docker
 	// sandboxes. 0 = unlimited (legacy behavior). MemReserveMB rejects new
 	// persistent creates when the host has less than this much free memory.
+	// MaxConcurrentCreates caps how many LXC cold-starts (lxc-create +
+	// lxc-start) may run concurrently — the image template cache races
+	// under fan-out. <=0 falls back to the provider default (2).
 	MaxPersistentSandboxes int   `mapstructure:"max_persistent_sandboxes" default:"20"`
 	MaxEphemeralSandboxes  int   `mapstructure:"max_ephemeral_sandboxes" default:"50"`
 	MemReserveMB           int64 `mapstructure:"mem_reserve_mb" default:"512"`
+	MaxConcurrentCreates   int   `mapstructure:"max_concurrent_creates" default:"2"`
 }
 
 type CacheConfig struct {

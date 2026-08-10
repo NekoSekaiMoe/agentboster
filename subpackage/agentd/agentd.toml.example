@@ -67,6 +67,9 @@ default = "docker"
 max_persistent_sandboxes = 20
 max_ephemeral_sandboxes = 50
 mem_reserve_mb = 512
+# max_concurrent_creates caps concurrent LXC cold-starts (lxc-create +
+# lxc-start); the image template cache races under fan-out. <=0 = default (2).
+max_concurrent_creates = 2
 # Prefer rootless Docker and use the matching [security].run_as_user.
 docker_socket = "unix:///run/user/1001/docker.sock"
 # Rootful Docker's /var/run/docker.sock is root-equivalent. To use it anyway,

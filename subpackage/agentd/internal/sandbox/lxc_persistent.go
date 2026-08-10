@@ -40,8 +40,19 @@ type LXCPersistentProvider struct {
 	createSem *semaphore.Weighted
 }
 
+// defaultCreateConcurrency is the fallback capacity for createSem when
+// the configured value is <= 0.
+const defaultCreateConcurrency = 2
+
+// createAcquireTimeout bounds how long Create waits for a create semaphore
+// slot when the spec carries no caller context (spec.Ctx == nil). It only
+// caps the WAIT for a slot, not the lxc-create/start itself.
+const createAcquireTimeout = 2 * time.Minute
+
 // NewLXCPersistentProvider creates a new LXC persistent sandbox provider.
-func NewLXCPersistentProvider(rootfsBase, defaultDistro, defaultRelease string) *LXCPersistentProvider {
+// createConcurrency caps concurrent lxc-create/lxc-start cold starts;
+// <=0 falls back to defaultCreateConcurrency.
+func NewLXCPersistentProvider(rootfsBase, defaultDistro, defaultRelease string, createConcurrency int) *LXCPersistentProvider {
 	if rootfsBase == "" {
 		rootfsBase = "/var/lib/agentd/lxc"
 	}
@@ -51,13 +62,16 @@ func NewLXCPersistentProvider(rootfsBase, defaultDistro, defaultRelease string) 
 	if defaultRelease == "" {
 		defaultRelease = "3.21"
 	}
+	if createConcurrency <= 0 {
+		createConcurrency = defaultCreateConcurrency
+	}
 	return &LXCPersistentProvider{
 		rootfsBase:     rootfsBase,
 		defaultDistro:  defaultDistro,
 		defaultRelease: defaultRelease,
 		sandboxes:      make(map[string]*Sandbox),
 		initialized:    make(map[string]bool),
-		createSem:      semaphore.NewWeighted(2), // M3.3: cap concurrent lxc-create/start
+		createSem:      semaphore.NewWeighted(int64(createConcurrency)), // M3.3: cap concurrent lxc-create/start
 	}
 }
 
@@ -85,12 +99,21 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	// template cache or stack up sleeps. Resume (existing rootfs) also flows
 	// through here for simplicity; the semaphore is released on return.
 	//
-	// SandboxSpec carries no ctx today, so we Acquire against
-	// context.Background(). Handle the error anyway: if Acquire fails we
-	// must NOT proceed (and must NOT call the deferred Release, which would
+	// The Acquire observes the caller's context (spec.Ctx, populated from
+	// the ExecuteTool request context) so a cancelled request stops waiting
+	// for a slot instead of piling up. When the spec carries no context we
+	// fall back to a bounded-timeout background context so the wait can't
+	// block forever. Handle the error anyway: if Acquire fails we must NOT
+	// proceed (and must NOT call the deferred Release, which would
 	// underflow the semaphore and block subsequent Create calls forever).
 	if p.createSem != nil {
-		if err := p.createSem.Acquire(context.Background(), 1); err != nil {
+		acquireCtx := spec.Ctx
+		if acquireCtx == nil {
+			var cancel context.CancelFunc
+			acquireCtx, cancel = context.WithTimeout(context.Background(), createAcquireTimeout)
+			defer cancel()
+		}
+		if err := p.createSem.Acquire(acquireCtx, 1); err != nil {
 			return nil, fmt.Errorf("acquire lxc create slot: %w", err)
 		}
 		defer p.createSem.Release(1)

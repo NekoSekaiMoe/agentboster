@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -127,16 +128,36 @@ func (l *WorkspaceLock) TryAcquire(
 // one run can't accidentally release another's lock. Returns true when the
 // lock was actually released.
 func (l *WorkspaceLock) Release(execSessionID string) bool {
+	released, _ := l.ReleaseWithGeneration(execSessionID, nil)
+	return released
+}
+
+// ErrStaleGeneration is returned by ReleaseWithGeneration when the
+// caller-supplied node_generation does not match the generation recorded
+// at acquire time — a fencing violation (a stale holder trying to release
+// a lock that was re-acquired under a newer generation after failover).
+var ErrStaleGeneration = errors.New("stale node_generation")
+
+// ReleaseWithGeneration is Release with optional generation fencing.
+// When nodeGeneration is nil the behavior is identical to Release
+// (legacy callers). When non-nil, the release is rejected with
+// ErrStaleGeneration (released=false, lock stays held) unless it matches
+// the NodeGeneration stamped at TryAcquire time.
+func (l *WorkspaceLock) ReleaseWithGeneration(execSessionID string, nodeGeneration *uint64) (bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.state == nil {
-		return false
+		return false, nil
 	}
 	if l.state.ExecSessionID != execSessionID {
-		return false
+		return false, nil
+	}
+	if nodeGeneration != nil && *nodeGeneration != l.state.NodeGeneration {
+		return false, fmt.Errorf("%w: lock acquired at generation %d, release sent %d",
+			ErrStaleGeneration, l.state.NodeGeneration, *nodeGeneration)
 	}
 	l.state = nil
-	return true
+	return true, nil
 }
 
 // State returns a snapshot of the current holder, or nil when unlocked.
@@ -200,4 +221,52 @@ func (r *WorkspaceLockRegistry) Snapshot(workspaceID string) *WorkspaceLockState
 		return nil
 	}
 	return lock.State()
+}
+
+// DeleteIfReleased removes the registry entry for workspaceID when its
+// lock is currently free (state == nil). Returns true when an entry was
+// deleted. Active locks are preserved.
+//
+// The check-and-delete is atomic with respect to TryAcquire on the same
+// lock instance (both take l.mu). A TryAcquire that already captured the
+// *WorkspaceLock pointer before the deletion may still acquire the old
+// instance afterwards — the same accepted trade-off documented on
+// Manager.cleanupWorkspaceEntriesLocked for execLocks: the acquirer gets
+// a working lock whose holder state is simply no longer reachable via the
+// registry, rather than corrupted state.
+func (r *WorkspaceLockRegistry) DeleteIfReleased(workspaceID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	lock, ok := r.locks[workspaceID]
+	if !ok {
+		return false
+	}
+	lock.mu.Lock()
+	defer lock.mu.Unlock()
+	if lock.state != nil {
+		return false
+	}
+	delete(r.locks, workspaceID)
+	return true
+}
+
+// CleanupReleased sweeps the registry and deletes every entry whose lock
+// is currently free (state == nil) — released locks and lazily-Get-created
+// entries that were never acquired. Returns the number of entries removed.
+// Active (held) locks are preserved. See DeleteIfReleased for the
+// check-and-delete atomicity contract.
+func (r *WorkspaceLockRegistry) CleanupReleased() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	removed := 0
+	for workspaceID, lock := range r.locks {
+		lock.mu.Lock()
+		free := lock.state == nil
+		lock.mu.Unlock()
+		if free {
+			delete(r.locks, workspaceID)
+			removed++
+		}
+	}
+	return removed
 }

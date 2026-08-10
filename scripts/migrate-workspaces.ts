@@ -35,6 +35,7 @@
  * Run by `self-host-migrate.ts` / `vercel-postbuild.ts` after
  * `drizzle-kit push` (the tables and columns must exist first).
  */
+import { dedupGlobalLongTermMemories } from './dedup-global-memories';
 import { closeRawSql, getRawQuery } from './db-raw-sql';
 
 type BackfillCount = {
@@ -130,6 +131,18 @@ async function backfillWorkspaces(): Promise<BackfillCount> {
 async function main() {
   if (!process.env.DATABASE_URL) {
     throw new Error('[migrate-workspaces] DATABASE_URL is required');
+  }
+
+  // Defense in depth: the pre-push dedup in vercel-postbuild.ts /
+  // self-host-migrate.ts runs first, but this script can also be run
+  // standalone — clean duplicate global rows before backfilling so a
+  // later partial-unique-index creation cannot fail on legacy dupes.
+  // No-ops when the table/column doesn't exist or no dupes remain.
+  const duplicatesRemoved = await dedupGlobalLongTermMemories();
+  if (duplicatesRemoved > 0) {
+    console.log(
+      `[migrate-workspaces] removed ${duplicatesRemoved} duplicate global long_term_memories row(s) before backfill`,
+    );
   }
 
   const result = await backfillWorkspaces();

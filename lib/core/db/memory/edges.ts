@@ -1,7 +1,7 @@
 import { db, schema } from '@/lib/core/db';
 import type { MemoryEdgeRelation } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 const _logger = createLogger('db.memory.edges');
 
@@ -77,10 +77,19 @@ export async function deleteDerivedEdgesForMemory(memoryId: string) {
  * long_term_memories for src and dst), so no cross-tenant memory can ever
  * be reached through the graph — even if a stray edge linking two users'
  * memories somehow exists.
+ *
+ * Workspace isolation: when `workspaceId` is supplied, both endpoints must
+ * ALSO be visible from that workspace — i.e. the row belongs to the
+ * workspace OR is global (workspace_id IS NULL) — mirroring the seed
+ * query's scope filter (buildWorkspaceVisibilityCondition in
+ * lib/core/db/memory/long-term.ts). Without this, BFS neighbors could
+ * leak another workspace's private memories. Omitting `workspaceId`
+ * (undefined/null) preserves the legacy no-workspace-filter behavior.
  */
 export async function getConnectedMemoryIds(
   seedMemoryIds: string[],
   userId: string,
+  workspaceId?: string | null,
 ): Promise<
   { memoryId: string; relation: string; weight: number; seedId: string }[]
 > {
@@ -88,6 +97,12 @@ export async function getConnectedMemoryIds(
 
   const srcMem = schema.longTermMemories;
   const dstMem = schema.longTermMemories;
+
+  // Workspace scope fragment appended to each ownership EXISTS: the row
+  // is in the current workspace OR global. Empty when unscoped.
+  const scopeSql = workspaceId
+    ? sql`AND (m.workspace_id = ${workspaceId} OR m.workspace_id IS NULL)`
+    : sql``;
 
   // Join both endpoints to long_term_memories and require both to belong
   // to `userId`. We alias via two separate subqueries to keep it simple:
@@ -109,9 +124,10 @@ export async function getConnectedMemoryIds(
           inArray(schema.memoryEdges.srcMemoryId, seedMemoryIds),
           inArray(schema.memoryEdges.dstMemoryId, seedMemoryIds),
         ),
-        // Both endpoints must belong to userId.
-        sql`EXISTS (SELECT 1 FROM ${srcMem} m WHERE m.id = ${schema.memoryEdges.srcMemoryId} AND m.user_id = ${userId})`,
-        sql`EXISTS (SELECT 1 FROM ${dstMem} m WHERE m.id = ${schema.memoryEdges.dstMemoryId} AND m.user_id = ${userId})`,
+        // Both endpoints must belong to userId, and (when scoped) be
+        // visible from the current workspace.
+        sql`EXISTS (SELECT 1 FROM ${srcMem} m WHERE m.id = ${schema.memoryEdges.srcMemoryId} AND m.user_id = ${userId} ${scopeSql})`,
+        sql`EXISTS (SELECT 1 FROM ${dstMem} m WHERE m.id = ${schema.memoryEdges.dstMemoryId} AND m.user_id = ${userId} ${scopeSql})`,
       ),
     );
 
@@ -151,11 +167,14 @@ export async function getConnectedMemoryIds(
 /**
  * Fetch content for a list of memory IDs (for BFS expansion results).
  * Scoped to `userId` so callers can never surface another tenant's
- * content even if an ID leaked into the id list.
+ * content even if an ID leaked into the id list. When `workspaceId` is
+ * supplied, rows must additionally be in that workspace OR global
+ * (workspace_id IS NULL) — the same scope semantics as the seed query.
  */
 export async function getMemoryContentByIds(
   memoryIds: string[],
   userId: string,
+  workspaceId?: string | null,
 ): Promise<Map<string, string>> {
   if (memoryIds.length === 0 || !userId) return new Map();
 
@@ -169,6 +188,12 @@ export async function getMemoryContentByIds(
       and(
         inArray(schema.longTermMemories.id, memoryIds),
         eq(schema.longTermMemories.userId, userId),
+        workspaceId
+          ? or(
+              eq(schema.longTermMemories.workspaceId, workspaceId),
+              isNull(schema.longTermMemories.workspaceId),
+            )
+          : undefined,
       ),
     );
 

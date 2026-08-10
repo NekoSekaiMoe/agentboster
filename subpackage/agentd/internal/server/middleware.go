@@ -158,10 +158,14 @@ func streamingPath(path string) bool {
 	return false
 }
 
-// TimeoutMiddleware cancels the request context after the given duration so a
-// stuck handler can't hold a goroutine forever. Streaming endpoints (SSE,
-// WebSocket, tunnels) are exempted — they manage their own lifecycle and
-// would be killed mid-stream by the timeout. 0 = disabled (legacy behavior).
+// TimeoutMiddleware cancels the request context after the given duration.
+// Note this ONLY cancels the context: the handler's goroutine keeps running
+// until it returns, so handlers must observe ctx.Done() (directly or via
+// context-aware callees) to actually stop work — a stuck handler that
+// ignores its context will still hold its goroutine. Streaming endpoints
+// (SSE, WebSocket, tunnels) are exempted — they manage their own lifecycle
+// and would be killed mid-stream by the timeout. 0 = disabled (legacy
+// behavior).
 func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	if timeout <= 0 {
 		return func(c *gin.Context) { c.Next() }

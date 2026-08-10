@@ -427,7 +427,12 @@ async function recallViaVector(input: {
     workspaceId: input.workspaceId,
   });
 
-  const merged = await expandWithBfs(results, input.topK, input.userId);
+  const merged = await expandWithBfs(
+    results,
+    input.topK,
+    input.userId,
+    input.workspaceId,
+  );
 
   if (!rerankConfig?.enabled || merged.length <= input.topK) {
     return merged.slice(0, input.topK);
@@ -484,12 +489,16 @@ const RELATION_SCORE_MULTIPLIER: Record<string, number> = {
  * dropped so they are never injected as authoritative context.
  *
  * All DB reads are scoped to `userId` so the graph can never surface another
- * tenant's memory.
+ * tenant's memory. When `workspaceId` is supplied, neighbor queries are
+ * additionally restricted to rows in that workspace OR global
+ * (workspace_id IS NULL) — the same scope semantics as the seed query — so
+ * BFS neighbors cannot leak another workspace's private memories.
  */
 async function expandWithBfs(
   seeds: HybridSearchRow[],
   topK: number,
   userId: string,
+  workspaceId?: string | null,
 ): Promise<RecalledMemory[]> {
   if (seeds.length === 0) return [];
 
@@ -509,7 +518,7 @@ async function expandWithBfs(
     seedId: string;
   }[] = [];
   try {
-    connected = await getConnectedMemoryIds(seedMemoryIds, userId);
+    connected = await getConnectedMemoryIds(seedMemoryIds, userId, workspaceId);
   } catch {
     logger.info('bfs:edge_query_skipped');
   }
@@ -535,7 +544,7 @@ async function expandWithBfs(
 
   let contentMap: Map<string, string>;
   try {
-    contentMap = await getMemoryContentByIds(newMemoryIds, userId);
+    contentMap = await getMemoryContentByIds(newMemoryIds, userId, workspaceId);
   } catch {
     return merged;
   }

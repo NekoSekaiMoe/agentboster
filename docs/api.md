@@ -397,6 +397,9 @@ Get or list project sandboxes by id/project_id/agent_id. Auth: agentd-key.
 ### POST /api/agentd/v1/project-sandboxes
 Create a new project sandbox. Auth: agentd-key.
 
+### PUT /api/agentd/v1/project-sandboxes
+Update a project sandbox by `?id=`. Body `{ action: 'archive' }` archives the sandbox; returns the updated record in the standard `{ success, data, error }` envelope (404 when the id is unknown, 400 for a missing id or unknown action). Auth: agentd-key.
+
 ---
 
 ## Bot

@@ -10468,6 +10468,11 @@ zustand@^4.4.0:
   dependencies:
     use-sync-external-store "^1.2.2"
 
+zustand@^5.0.14:
+  version "5.0.14"
+  resolved "https://registry.npmmirror.com/zustand/-/zustand-5.0.14.tgz#18216c24fcb980cf36898f9c57520e67b1f77855"
+  integrity sha512-/8tAspM5LMPr28b3fwLYrtdj77ECpfZviaP75CMTnwO8ISyaE4GDIG/9rDDYq/cH9D2Xw2A2RXglLInmVBQB/g==
+
 zwitch@^2.0.0:
   version "2.0.4"
   resolved "https://registry.npmmirror.com/zwitch/-/zwitch-2.0.4.tgz#c827d4b0acb76fc3e685a4c6ec2902d51070e9d7"

@@ -20,8 +20,10 @@
  *  - Time throttle: at most one sweep per FAILOVER_MIN_INTERVAL_MS per process.
  *  - In-flight guard: a concurrent heartbeat doesn't fan out a second sweep.
  * Like maybeSweepExpiredKv, this is best-effort — a few redundant sweeps across
- * instances are harmless because bumpGeneration + clearPreferredNode is
- * idempotent for a workspace that has already failed over.
+ * instances are harmless because the generation bump + preferred-node clear is
+ * a single atomic conditional UPDATE: concurrent scanners racing the same
+ * workspace see only one matching row (the loser updates zero rows), so
+ * node_generation increments exactly once per failover.
  *
  * IMPORTANT: this module is imported from the heartbeat route and the cron
  * route (both Node runtime, never the workflow bundle), so it may use dynamic
@@ -85,7 +87,7 @@ export async function maybeFailoverWorkspaces(
 export async function failoverOfflineWorkspaces(): Promise<number> {
   const { db } = await import('@/lib/core/db');
   const { workspaces, agentdNodes } = await import('@/lib/core/db/schema');
-  const { and, eq, isNotNull, lt, isNull, sql } = await import('drizzle-orm');
+  const { and, eq, isNotNull, sql } = await import('drizzle-orm');
 
   const cutoff = new Date(Date.now() - FAILOVER_GRACE_MS);
 
@@ -113,59 +115,100 @@ export async function failoverOfflineWorkspaces(): Promise<number> {
 
   if (stale.length === 0) return 0;
 
+  let migrated = 0;
+
   for (const ws of stale) {
-    // Bump generation + clear preferred_node_id in one shot. The bumped
-    // generation is what lets a stale agentd self-destruct its old container.
-    await db
+    // The stale-select already filters isNotNull(preferredNodeId); this
+    // guard narrows the type for the conditional UPDATE below (and is
+    // defense-in-depth should the select predicate ever change).
+    if (!ws.preferredNodeId) continue;
+
+    // Bump generation + clear preferred_node_id in one ATOMIC conditional
+    // update. The WHERE clause rechecks everything the stale-select
+    // filtered on (status, the original preferred_node_id, and the
+    // node-expiration predicate) so two concurrent scanners racing the
+    // same workspace can't both fail it over: the loser's UPDATE matches
+    // zero rows (the winner already cleared preferred_node_id) and
+    // returns an empty RETURNING set. node_generation therefore
+    // increments exactly once per failover — critical, since it's the
+    // fencing token a stale agentd compares against.
+    const updated = await db
       .update(workspaces)
       .set({
         preferredNodeId: null,
         nodeGeneration: sql`${workspaces.nodeGeneration} + 1`,
         updatedAt: new Date(),
       })
-      .where(eq(workspaces.id, ws.id));
+      .where(
+        and(
+          eq(workspaces.id, ws.id),
+          eq(workspaces.status, 'active'),
+          eq(workspaces.preferredNodeId, ws.preferredNodeId),
+          // Mirror the staleness predicate from the select above: the
+          // node row is still missing OR its heartbeat is still past the
+          // grace cutoff. If the node came back online (fresh heartbeat)
+          // between our select and this update, the failover is aborted.
+          sql`(
+            NOT EXISTS (
+              SELECT 1 FROM ${agentdNodes} n
+              WHERE n.node_id = ${workspaces.preferredNodeId}
+            )
+            OR EXISTS (
+              SELECT 1 FROM ${agentdNodes} n
+              WHERE n.node_id = ${workspaces.preferredNodeId}
+                AND n.last_heartbeat < ${cutoff}
+            )
+          )`,
+        ),
+      )
+      .returning({ id: workspaces.id });
+
+    // No row returned ⇒ another scanner won the race (or the workspace /
+    // node state changed under us). Skip the notification — the RETURNING
+    // result is the SOLE condition for notifying.
+    if (updated.length === 0) continue;
+    migrated += 1;
 
     // Best-effort notification — never let a notification failure roll back
-    // the failover. The owner may have no IM channel configured, in which
-    // case createNotification still inserts a row for the Web inbox.
+    // the failover. resolveWorkspaceDeliveryTarget always returns a target
+    // (Web-inbox fallback when the owner has no IM channel paired), so
+    // createNotification always inserts a row for at least the Web inbox.
     try {
       const { createNotification } = await import('@/lib/core/db/notification');
       const { resolveWorkspaceDeliveryTarget } = await import(
         '@/lib/extra/agent/workspace-delivery'
       );
       const target = await resolveWorkspaceDeliveryTarget(ws.ownerId);
-      if (target) {
-        await createNotification({
-          userId: ws.ownerId,
-          taskId: null,
-          notificationType: 'workspace_failover',
-          payload: {
-            type: 'workspace_failover',
-            workspace_id: ws.id,
-            workspace_name: ws.name,
-            stale_node_id: ws.preferredNodeId,
-            reason: 'node_offline',
-            // Fields for the fallback renderer (per-adapter renderers that
-            // don't special-case workspace_failover still print a card via
-            // the generic summary/details path).
-            title: `Workspace “${ws.name}” migrated`,
-            summary:
-              'The node hosting this workspace went offline. A fresh long-lived container will be created on the next task; the previous container state has been reset.',
-            details: {
-              migratedAt: new Date().toISOString(),
-            },
+      await createNotification({
+        userId: ws.ownerId,
+        taskId: null,
+        notificationType: 'workspace_failover',
+        payload: {
+          type: 'workspace_failover',
+          workspace_id: ws.id,
+          workspace_name: ws.name,
+          stale_node_id: ws.preferredNodeId,
+          reason: 'node_offline',
+          // Fields for the fallback renderer (per-adapter renderers that
+          // don't special-case workspace_failover still print a card via
+          // the generic summary/details path).
+          title: `Workspace “${ws.name}” migrated`,
+          summary:
+            'The node hosting this workspace went offline. A fresh long-lived container will be created on the next task; the previous container state has been reset.',
+          details: {
+            migratedAt: new Date().toISOString(),
           },
-          channel: target.channel,
-          targetChatId: target.targetChatId,
-          targetUserId: target.targetUserId,
-          severity: 'attention',
-        });
-      }
+        },
+        channel: target.channel,
+        targetChatId: target.targetChatId,
+        targetUserId: target.targetUserId,
+        severity: 'attention',
+      });
     } catch (notifyError) {
       // Logged via the route's logger context if available; swallow here.
       void notifyError;
     }
   }
 
-  return stale.length;
+  return migrated;
 }

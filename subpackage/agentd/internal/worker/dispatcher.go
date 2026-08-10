@@ -417,20 +417,20 @@ func (d *Dispatcher) handleTaskApproved(e eventbus.Event) {
 }
 
 // createWorkspace creates a workspace for the task via ClawLess API.
-func (d *Dispatcher) createWorkspace(ctx context.Context, task *clawless.Task, sandboxID string) (*clawless.Workspace, error) {
+func (d *Dispatcher) createWorkspace(ctx context.Context, task *clawless.Task, sandboxID string) (*clawless.ProjectSandbox, error) {
 	projectID := generateProjectID()
 	// P1.1: pass agent config so workspace sandbox type matches the
 	// agent's actual selection (was previously a fresh nil-cfg pick).
 	agentCfg := d.getAgentConfig(ctx, task.AgentID)
 	sbType := sandbox.SelectSandbox(task, agentCfg)
-	ws := &clawless.Workspace{
+	ws := &clawless.ProjectSandbox{
 		ProjectID:   projectID,
 		AgentID:     task.AgentID,
 		SandboxID:   sandboxID,
 		SandboxType: sbType,
 		Status:      "active",
 	}
-	if err := d.clawless.CreateWorkspace(ctx, ws); err != nil {
+	if err := d.clawless.CreateProjectSandbox(ctx, ws); err != nil {
 		return nil, err
 	}
 	return ws, nil

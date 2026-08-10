@@ -51,6 +51,16 @@ async function main() {
   console.log('[self-host-migrate] ensuring pgvector extension');
   await runCommand('npx', ['tsx', 'scripts/ensure-vector-extension.ts']);
 
+  // MUST run before `drizzle-kit push --force`: push creates the partial
+  // unique index long_term_memories_user_project_key_global_uniq directly
+  // against existing data, which fails on duplicate global rows. The dedup
+  // DELETE in migration 0038 is never executed by push, so clean up first.
+  // No-ops when the table/column doesn't exist yet (fresh installs).
+  console.log(
+    '[self-host-migrate] deduplicating global long_term_memories rows',
+  );
+  await runCommand('npx', ['tsx', 'scripts/dedup-global-memories.ts']);
+
   console.log('[self-host-migrate] pushing Drizzle schema');
   await runCommand('npx', ['drizzle-kit', 'push', '--force']);
 

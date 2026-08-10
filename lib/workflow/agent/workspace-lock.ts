@@ -55,11 +55,17 @@ const acquireStateSchema = z
   .object({
     data: z
       .object({
-        workspace_id: z.string().optional(),
+        // workspace_id + node_generation are REQUIRED: they are the core
+        // lock-handle / fencing fields. A 200 response whose payload lacks
+        // them fails safeParse → parseWithFallback returns the undefined
+        // fallback → treated as NOT acquired (never acquired:true with a
+        // half-populated state). The rest stay optional to mirror
+        // AcquireResult.state's optional properties.
+        workspace_id: z.string(),
         holder_type: z.string().optional(),
         exec_session_id: z.string().optional(),
         owner_task_id: z.string().optional(),
-        node_generation: z.number().optional(),
+        node_generation: z.number(),
         acquired_at: z.string().optional(),
         expires_at: z.string().optional(),
       })
@@ -191,8 +197,13 @@ export async function releaseWorkspaceLock(input: {
   nodeId: string;
   workspaceId: string;
   execSessionId: string;
+  /** Fencing token captured at acquire time. Sent so agentd can reject a
+   *  stale release (container rebuilt / generation bumped between acquire
+   *  and release). Omitted entirely when the acquire path had no
+   *  generation — never send undefined/null. */
+  nodeGeneration?: number | null;
 }): Promise<void> {
-  const { nodeId, workspaceId, execSessionId } = input;
+  const { nodeId, workspaceId, execSessionId, nodeGeneration } = input;
   if (!workspaceId || !execSessionId) return;
   try {
     const { getAgentdClientConfigByNodeId } = await import(
@@ -201,11 +212,16 @@ export async function releaseWorkspaceLock(input: {
     const { requestAgentd } = await import('@/lib/extra/agent/agentd-http');
     const config = await getAgentdClientConfigByNodeId(nodeId);
     if (!config) return;
+    const body: Record<string, unknown> = { exec_session_id: execSessionId };
+    // Only include the fencing token when the acquire path produced one
+    // (lock not acquired ⇒ no generation ⇒ omit the field, don't send
+    // undefined/null).
+    if (nodeGeneration != null) body.node_generation = nodeGeneration;
     await requestAgentd(
       config,
       'POST',
       `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/lock/release`,
-      { exec_session_id: execSessionId },
+      body,
       10_000,
     );
   } catch (error) {
@@ -229,6 +245,18 @@ export interface RunLockHandle {
   nodeId: string | null;
   workspaceId: string | null;
   execSessionId: string | null;
+  /** Fencing token captured at acquire time (from the acquire response,
+   *  falling back to the workspace row). Null when no lock was acquired.
+   *  Forwarded on release so agentd can reject stale-generation releases. */
+  nodeGeneration: number | null;
+  /** The session's workspace ID as resolved from the session row at acquire
+   *  time — populated even when the lock itself was NOT acquired (busy, no
+   *  preferred node, transport error). Consumers that need the workspace
+   *  scope regardless of lock state (e.g. post-run memory extraction) must
+   *  read THIS field, not workspaceId, so they never fall back to the
+   *  global layer for a workspace-scoped session. Null only when the
+   *  session genuinely has no workspace. */
+  resolvedWorkspaceId: string | null;
 }
 
 /**
@@ -248,6 +276,8 @@ export async function acquireRunLockStep(
     nodeId: null,
     workspaceId: null,
     execSessionId: null,
+    nodeGeneration: null,
+    resolvedWorkspaceId: null,
   };
   if (!sessionId || !runId) return empty;
   try {
@@ -265,6 +295,9 @@ export async function acquireRunLockStep(
       ? String(sessionRow.workspaceId)
       : null;
     if (!wsId) return empty;
+    // From here on the session's workspace IS resolved — carry it on every
+    // returned handle (even the not-acquired ones) via resolvedWorkspaceId.
+    const notAcquired: RunLockHandle = { ...empty, resolvedWorkspaceId: wsId };
     const [wsRow] = await db
       .select({
         preferredNodeId: workspaces.preferredNodeId,
@@ -274,7 +307,7 @@ export async function acquireRunLockStep(
       .where(eq(workspaces.id, wsId))
       .limit(1);
     const nodeId = wsRow?.preferredNodeId ?? null;
-    if (!nodeId) return empty;
+    if (!nodeId) return notAcquired;
     const result = await acquireWorkspaceLock({
       nodeId,
       workspaceId: wsId,
@@ -287,9 +320,19 @@ export async function acquireRunLockStep(
         runId,
         workspaceId: wsId,
       });
-      return empty;
+      return notAcquired;
     }
-    return { nodeId, workspaceId: wsId, execSessionId: runId };
+    return {
+      nodeId,
+      workspaceId: wsId,
+      execSessionId: runId,
+      // Fencing token: prefer the daemon-echoed generation from the acquire
+      // response (the value the lock was actually taken under), fall back to
+      // the workspace row value we sent.
+      nodeGeneration:
+        result.state?.node_generation ?? wsRow?.nodeGeneration ?? null,
+      resolvedWorkspaceId: wsId,
+    };
   } catch (error) {
     logger.warn('acquireRunLockStep failed (non-fatal)', {
       sessionId,
@@ -309,5 +352,6 @@ export async function releaseRunLockStep(handle: RunLockHandle): Promise<void> {
     nodeId: handle.nodeId,
     workspaceId: handle.workspaceId,
     execSessionId: handle.execSessionId,
+    nodeGeneration: handle.nodeGeneration,
   });
 }

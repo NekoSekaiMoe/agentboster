@@ -349,8 +349,11 @@ type TaskMemoryRequest struct {
 	UserID    string `json:"user_id,omitempty"`
 }
 
-// Workspace represents a project-level organization unit.
-type Workspace struct {
+// ProjectSandbox represents a project-level organization unit (the
+// project↔sandbox binding). Renamed from `Workspace` to match the Web
+// tier's `project_sandboxes` table, freeing the "workspace" name for the
+// new user-facing workspace concept.
+type ProjectSandbox struct {
 	ID          string    `json:"id"`
 	ProjectID   string    `json:"project_id"`
 	AgentID     string    `json:"agent_id"`
@@ -361,6 +364,11 @@ type Workspace struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
+
+// Workspace is the legacy name for ProjectSandbox.
+//
+// Deprecated: use ProjectSandbox.
+type Workspace = ProjectSandbox
 
 // UploadResult is the response from a file upload.
 type UploadResult struct {

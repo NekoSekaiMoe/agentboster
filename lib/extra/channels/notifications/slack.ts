@@ -148,7 +148,7 @@ export class SlackNotificationChannel implements NotificationChannel {
       if (payload.details?.migratedAt)
         fields.push({
           type: 'mrkdwn',
-          text: `*Migrated at:* ${payload.details.migratedAt}`,
+          text: `*${t(locale, 'notify.workspaceFailover.migratedAt')}:* ${payload.details.migratedAt}`,
         });
       return {
         text: `⚠️ ${payload.title}: ${payload.summary}`,

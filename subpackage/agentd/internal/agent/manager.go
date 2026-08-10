@@ -434,9 +434,13 @@ func (m *Manager) AcquireWorkspaceLock(
 	return m.sbManager.AcquireWorkspaceLock(workspaceID, holderType, execSessionID, ownerTaskID, ttl, nodeGeneration)
 }
 
-// ReleaseWorkspaceLock forwards to the sandbox manager.
-func (m *Manager) ReleaseWorkspaceLock(workspaceID, execSessionID string) bool {
-	return m.sbManager.ReleaseWorkspaceLock(workspaceID, execSessionID)
+// ReleaseWorkspaceLock forwards to the sandbox manager. nodeGeneration is
+// the optional fencing token: when non-nil it must match the generation
+// recorded at acquire time, otherwise the release is rejected with
+// sandbox.ErrStaleGeneration (released=false). Nil preserves legacy
+// behavior (exec-session match only).
+func (m *Manager) ReleaseWorkspaceLock(workspaceID, execSessionID string, nodeGeneration *uint64) (bool, error) {
+	return m.sbManager.ReleaseWorkspaceLock(workspaceID, execSessionID, nodeGeneration)
 }
 
 // SnapshotWorkspaceLock forwards to the sandbox manager.
@@ -445,20 +449,23 @@ func (m *Manager) SnapshotWorkspaceLock(workspaceID string) *sandbox.WorkspaceLo
 }
 
 // acquireWorkspaceLockOrCancel races a blocking sync.Mutex.Lock() against
-// ctx cancellation. It returns (true, release) when the lock was acquired
-// (the caller MUST defer both cancel() and lock.Unlock()), or
-// (false, release) if ctx was cancelled first.
+// ctx cancellation. It returns (true, release) when the lock was acquired,
+// or (false, release) if ctx was cancelled first.
 //
-// The release func is always non-nil and safe to defer: when the lock was
-// acquired it's a no-op (the caller owns the Unlock); when ctx won the race,
-// release drains the still-pending goroutine and releases the lock the
-// moment it finally acquires, so the goroutine never leaks holding the lock.
+// The release func is always non-nil and safe to defer, but it does NOT
+// block, drain, or unlock anything — it is a no-op in both branches:
+//   - acquired branch: the CALLER owns the lock and MUST call
+//     lock.Unlock() itself (typically deferred right after this returns).
+//   - cancel branch: an internal goroutine (`go func() { <-lockAcquired;
+//     lock.Unlock() }()`) completes the unlock on the caller's behalf once
+//     the still-pending Lock() finally acquires, so that goroutine never
+//     leaks holding the lock.
 //
 // NOTE: there is an inherent race — ctx can fire in the window AFTER the
 // goroutine acquires the lock but BEFORE we observe it. In that case the
-// caller treats it as cancelled and the release func performs the Unlock,
-// which is correct (we briefly held the lock and freed it). This is the
-// standard Go "lock with context" idiom for plain sync.Mutex.
+// caller treats it as cancelled and the internal goroutine performs the
+// Unlock, which is correct (we briefly held the lock and freed it). This
+// is the standard Go "lock with context" idiom for plain sync.Mutex.
 func acquireWorkspaceLockOrCancel(ctx context.Context, lock sync.Locker) (acquired bool, release func()) {
 	lockAcquired := make(chan struct{})
 	go func() {
@@ -501,33 +508,6 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	}
 	m.wireSessionRuntime(agentCtx)
 	agentCtx.TaskID = req.TaskID
-	// M0b: lazily bind a long-lived LXC container for the workspace. When
-	// the request carries a WorkspaceID, prefer the workspace-scoped
-	// persistent container over the ephemeral docker sandbox that
-	// CreateSession always provisions. CreateSandbox is idempotent on the
-	// same WorkspaceID (returns the existing container), so re-binding on
-	// every workspace request is cheap and correct.
-	//
-	// The previous `agentCtx.SandboxID == ""` guard was effectively dead:
-	// CreateSession always assigns a docker sandbox, and loaded sessions
-	// carry their persisted SandboxID too — so the workspace container was
-	// never actually bound here, leaving WorkspaceID to influence only the
-	// ExecLock serialization. This now binds (or re-binds) the persistent
-	// container whenever a workspace is requested.
-	if req.WorkspaceID != "" {
-		ws, err := m.sbManager.CreateSandbox(sandbox.SandboxSpec{
-			Type:        "lxc",
-			Persistent:  true,
-			WorkspaceID: req.WorkspaceID,
-		})
-		if err != nil {
-			slog.Warn("workspace sandbox lazy-create failed; falling back to ephemeral", "workspace_id", req.WorkspaceID, "error", err)
-		} else {
-			agentCtx.SandboxID = ws.ID
-			agentCtx.SandboxType = ws.Type
-			agentCtx.SandboxPath = ws.Path
-		}
-	}
 	if len(toolInput) == 0 {
 		toolInput = map[string]any{}
 	}
@@ -545,25 +525,20 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 		slog.Warn("failed to persist session identity", "session_id", sessionID, "error", err)
 	}
 
-	// Fetch SOUL and build system prompt
+	// Fetch SOUL and per-agent config. These are workspace-independent, so
+	// they stay on the shared session context ahead of the lock.
 	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
 	// P1.1/P1.2: fetch per-agent config (sandbox defaults, MCP enablement).
 	agentCtx.AgentConfig = m.fetchAgentConfig(ctx, agentCtx.AgentID)
-	customPrompt := ""
-	if agentCtx.AgentConfig != nil {
-		customPrompt = agentCtx.AgentConfig.SystemPrompt
-	}
-	agentsMd := m.loadAgentsMdForCtx(agentCtx)
-	agentCtx.SystemPrompt = buildDefaultSystemPrompt(agentCtx.SoulContent, customPrompt, agentsMd)
-	registry := NewToolRegistry(m.disabledTools)
-	m.injectToolLayerDeps(agentCtx)
-	RegisterAllTools(registry, m.sbManager, m.lspManager, m.clawless, agentCtx)
 
 	// Execute the tool directly.
 	//
 	// M0b: serialize tool execution per workspace so two concurrent runs in
 	// the same long-lived container don't interleave commands. The lock is
 	// a no-op when WorkspaceID is empty (legacy / short-lived docker path).
+	// The lock is acquired BEFORE the workspace sandbox is bound and before
+	// tools are registered, so concurrent ExecuteTool calls never race on
+	// execution-scoped state.
 	//
 	// Context-aware acquire: the underlying ExecLockFor returns a plain
 	// sync.Mutex whose Lock() never consults the request context. A request
@@ -581,6 +556,52 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	}
 	defer workspaceLock.Unlock()
 
+	// Execution-local context: a shallow copy of the shared session
+	// context. Everything execution-scoped below — the workspace sandbox
+	// binding, AGENTS.md/system-prompt derivation, and tool registration —
+	// mutates ONLY this copy, so two concurrent ExecuteTool calls for the
+	// same session never race on the shared agentCtx struct in m.sessions.
+	// RegisterAllTools and tool execution all use execCtx.
+	execCtx := *agentCtx
+
+	// M0b: lazily bind a long-lived LXC container for the workspace. When
+	// the request carries a WorkspaceID, prefer the workspace-scoped
+	// persistent container over the ephemeral docker sandbox that
+	// CreateSession always provisions. CreateSandbox is idempotent on the
+	// same WorkspaceID (returns the existing container), so re-binding on
+	// every workspace request is cheap and correct. The binding lands on
+	// the execution-local copy (see above), never on the shared session
+	// struct. spec.Ctx carries the request context so the LXC create
+	// semaphore wait is cancellable.
+	if req.WorkspaceID != "" {
+		ws, err := m.sbManager.CreateSandbox(sandbox.SandboxSpec{
+			Type:        "lxc",
+			Persistent:  true,
+			WorkspaceID: req.WorkspaceID,
+			Ctx:         ctx,
+		})
+		if err != nil {
+			slog.Warn("workspace sandbox lazy-create failed; falling back to ephemeral", "workspace_id", req.WorkspaceID, "error", err)
+		} else {
+			execCtx.SandboxID = ws.ID
+			execCtx.SandboxType = ws.Type
+			execCtx.SandboxPath = ws.Path
+		}
+	}
+
+	// Build the system prompt against the execution-local context so
+	// loadAgentsMdForCtx sees the workspace container path just bound
+	// above (same effective path the pre-refactor code used).
+	customPrompt := ""
+	if execCtx.AgentConfig != nil {
+		customPrompt = execCtx.AgentConfig.SystemPrompt
+	}
+	agentsMd := m.loadAgentsMdForCtx(&execCtx)
+	execCtx.SystemPrompt = buildDefaultSystemPrompt(execCtx.SoulContent, customPrompt, agentsMd)
+	registry := NewToolRegistry(m.disabledTools)
+	m.injectToolLayerDeps(&execCtx)
+	RegisterAllTools(registry, m.sbManager, m.lspManager, m.clawless, &execCtx)
+
 	startedAt := time.Now()
 	argsJSON := mustMarshalJSON(toolInput)
 	toolCall := &ToolCall{
@@ -595,7 +616,7 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 		if err != nil {
 			resultJSON = []byte(`{"success":false,"error":"marshal tool result failed"}`)
 		}
-		writeToolActivityLog(ctx, m.clawless, agentCtx, m.llmModel, 0, toolCall, result, string(resultJSON), startedAt, time.Now())
+		writeToolActivityLog(ctx, m.clawless, &execCtx, m.llmModel, 0, toolCall, result, string(resultJSON), startedAt, time.Now())
 	}
 
 	def, _, ok := registry.Get(toolName)
@@ -604,7 +625,7 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 		recordResult(toolResult)
 		return &ToolExecResponse{Success: false, Error: toolResult.Error}, nil
 	}
-	if !usertype.CanUse(agentCtx.Roles, def.MinUserType) {
+	if !usertype.CanUse(execCtx.Roles, def.MinUserType) {
 		toolResult := &ToolResult{
 			Success: false,
 			Error:   fmt.Sprintf("permission denied: tool %s requires %s", toolName, def.MinUserType),

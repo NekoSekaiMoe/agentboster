@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import { useActiveWorkspaceStore } from '@/hooks/use-active-workspace-store';
 import type { WorkflowUIMessage } from '@/types/workflow';
 import { buildChatSendRequestBody } from './transport-request';
 
@@ -59,5 +60,35 @@ describe('buildChatSendRequestBody', () => {
     expect(result.body.model).toBe('free-chat/gemini-3.1-pro');
     expect(result.body.input.parts).toEqual(editedParts);
     expect(result.body.input.text).toBe('edited prompt');
+  });
+
+  describe('workspaceId forwarding', () => {
+    afterEach(() => {
+      useActiveWorkspaceStore.getState().setWorkspaceId(null);
+    });
+
+    it('forwards the active workspace from the shared store', () => {
+      useActiveWorkspaceStore.getState().setWorkspaceId('ws-active');
+
+      const result = buildChatSendRequestBody({
+        id: 'chat-1',
+        trigger: 'submit-message',
+        messages: [userMessage('user-1', [{ type: 'text', text: 'hi' }])],
+      });
+
+      expect(result.body.workspaceId).toBe('ws-active');
+    });
+
+    it('omits workspaceId when no workspace is selected (default path)', () => {
+      useActiveWorkspaceStore.getState().setWorkspaceId(null);
+
+      const result = buildChatSendRequestBody({
+        id: 'chat-1',
+        trigger: 'submit-message',
+        messages: [userMessage('user-1', [{ type: 'text', text: 'hi' }])],
+      });
+
+      expect(result.body.workspaceId).toBeUndefined();
+    });
   });
 });

@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/config"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/eventbus"
+	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/sandbox"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/security/l2_auth"
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/worker"
 	"github.com/gin-gonic/gin"
@@ -472,11 +474,17 @@ func (s *Server) handleWorkspaceLockAcquire(c *gin.Context) {
 }
 
 // handleWorkspaceLockRelease frees a workspace run lock. Body:
-//   { exec_session_id }
+//   { exec_session_id, node_generation? }
 // Returns 200 { success:true, data: { released: bool } }. A mismatched
 // exec_session_id releases nothing (data.released:false) so one run can't
 // drop another's lock — the caller treats released:false as best-effort
 // non-fatal.
+//
+// node_generation is optional fencing: when present it must match the
+// generation recorded at acquire time. A mismatch means a stale holder is
+// trying to release a lock that was re-acquired under a newer generation
+// (post-failover), and is rejected with 409 { success:false } — the lock
+// stays held. When absent, legacy behavior (session match only) applies.
 func (s *Server) handleWorkspaceLockRelease(c *gin.Context) {
 	workspaceID := c.Param("id")
 	if workspaceID == "" {
@@ -484,13 +492,26 @@ func (s *Server) handleWorkspaceLockRelease(c *gin.Context) {
 		return
 	}
 	var body struct {
-		ExecSessionID string `json:"exec_session_id"`
+		ExecSessionID  string  `json:"exec_session_id"`
+		NodeGeneration *uint64 `json:"node_generation,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	released := s.agentMgr.ReleaseWorkspaceLock(workspaceID, body.ExecSessionID)
+	released, err := s.agentMgr.ReleaseWorkspaceLock(workspaceID, body.ExecSessionID, body.NodeGeneration)
+	if err != nil {
+		if errors.Is(err, sandbox.ErrStaleGeneration) {
+			c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   err.Error(),
+				"data":    gin.H{"released": false},
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"released": released}})
 }
 

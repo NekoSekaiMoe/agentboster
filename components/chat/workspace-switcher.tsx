@@ -20,6 +20,7 @@ import { parseWithFallback } from '@/lib/core/api/schema';
 import { z } from 'zod';
 import { ChevronsUpDown, Plus, Layers } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { SESSION_LIST_KEY, useActiveWorkspace } from '@/hooks/use-session-list';
@@ -87,6 +88,24 @@ export function WorkspaceSwitcher() {
   // first one (deterministic fallback so the UI never shows "no workspace").
   const active: WorkspaceListItem | undefined =
     workspaces.find((w) => w.id === workspaceId) ?? workspaces[0];
+
+  // Persist the resolved fallback. When the stored workspaceId is missing
+  // (fresh login / cleared storage) or no longer exists in the loaded list
+  // (deleted workspace, user switch), the store still holds the stale id
+  // and the session list would query a scope the header is not showing.
+  // Writing the resolved id through the shared store keeps header, sidebar,
+  // and session list in agreement. Guards: never write during loading
+  // (workspaces not yet known) and never write when the stored id already
+  // matches (no render loop — after the write the effect re-runs and
+  // no-ops). Effects never run during SSR, so this is server-safe.
+  useEffect(() => {
+    if (isLoading || workspaces.length === 0) return;
+    const resolved =
+      workspaces.find((w) => w.id === workspaceId) ?? workspaces[0];
+    if (resolved.id !== workspaceId) {
+      setWorkspaceId(resolved.id);
+    }
+  }, [isLoading, workspaces, workspaceId, setWorkspaceId]);
 
   async function handleSelect(id: string) {
     if (id === active?.id) return;

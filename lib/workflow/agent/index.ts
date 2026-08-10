@@ -867,8 +867,11 @@ export async function chatWorkflow(
             sourceType: source.type,
             // Resolve workspaceId at this host boundary (from the run lock
             // handle, which read it off the session row at acquire time) so
-            // the post-run extractMemories step doesn't touch the DB.
-            workspaceId: workspaceLockHandle.workspaceId,
+            // the post-run extractMemories step doesn't touch the DB. Use
+            // resolvedWorkspaceId — populated even when the lock itself
+            // wasn't acquired — so memory extraction for a workspace-scoped
+            // session never falls back to the global layer.
+            workspaceId: workspaceLockHandle.resolvedWorkspaceId,
           },
         ]);
         logger.info('post-run-cleanup:spawned', {

@@ -43,10 +43,32 @@ export async function POST(request: Request) {
     const access = await requireAuthAccess(cookieStore);
     const ownerId = access.session.userId;
 
-    const body = (await request.json().catch(() => ({}))) as {
-      name?: string;
-    };
-    const name = body.name?.trim() || '未命名工作区';
+    // Runtime validation (no type assertions): the body must be valid
+    // JSON, and `name` — when present — must be a string. Anything else
+    // is a client error, not a reason to silently fall back to defaults.
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json(
+        { success: false, error: 'Invalid JSON body' },
+        { status: 400 },
+      );
+    }
+
+    const nameField =
+      body !== null && typeof body === 'object' && 'name' in body
+        ? (body as { name: unknown }).name
+        : undefined;
+    if (nameField !== undefined && typeof nameField !== 'string') {
+      return Response.json(
+        { success: false, error: 'Workspace name must be a string' },
+        { status: 400 },
+      );
+    }
+
+    const trimmedName = typeof nameField === 'string' ? nameField.trim() : '';
+    const name = trimmedName || '未命名工作区';
 
     const ws = await createWorkspace({ ownerId, name });
     // Clone builtin templates so the new workspace has its own SOUL /
