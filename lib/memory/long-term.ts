@@ -312,6 +312,11 @@ export async function listLongTermMemories(input?: {
    * with `projectIdScope`.
    */
   projectIdScope?: string | null;
+  /** Workspace scope filter (M2): undefined/null = no workspace filter,
+   *  a real id = that workspace plus the global layer. Forwarded to
+   *  listLongTermMemoryRows so extraction candidates stay scoped and the
+   *  LLM cannot see another workspace's private memories. */
+  workspaceId?: string | null;
 }) {
   const page = Math.max(1, input?.page ?? 1);
   const pageSize = Math.max(1, Math.min(input?.pageSize ?? 50, 100));
@@ -348,6 +353,7 @@ export async function listLongTermMemories(input?: {
     offset: (page - 1) * pageSize,
     userId: input?.userId,
     projectIdScope: input?.projectIdScope,
+    workspaceId: input?.workspaceId,
   });
 }
 

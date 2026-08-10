@@ -48,18 +48,24 @@ async function backfillWorkspaces(): Promise<BackfillCount> {
   const query = getRawQuery();
 
   // 1. Create a default workspace for every user that doesn't have one yet.
-  //    Uses a CTE + LEFT JOIN so each user gets exactly one row even if this
-  //    runs concurrently (the `WHERE w.id IS NULL` guard makes it idempotent).
+  //    Atomic per-owner default: the partial unique index
+  //    workspaces_owner_default_uniq (owner_id WHERE is_default) is the
+  //    conflict target, so concurrent runs (or a race with
+  //    getOrCreateDefaultWorkspace) can no longer each insert a default —
+  //    the second hits the constraint and does nothing. CTE candidate
+  //    selection filters to users with no default row at all.
   const created = await query<{ id: string; owner_id: string }>(`
     WITH candidates AS (
       SELECT u.id AS user_id
       FROM users u
-      LEFT JOIN workspaces w ON w.owner_id = u.id
-      WHERE w.id IS NULL
+      WHERE NOT EXISTS (
+        SELECT 1 FROM workspaces w
+        WHERE w.owner_id = u.id AND w.is_default = true
+      )
     )
-    INSERT INTO workspaces (owner_id, name, status)
-    SELECT user_id, '默认工作区', 'active' FROM candidates
-    ON CONFLICT DO NOTHING
+    INSERT INTO workspaces (owner_id, name, status, is_default)
+    SELECT user_id, '默认工作区', 'active', true FROM candidates
+    ON CONFLICT (owner_id) WHERE is_default = true DO NOTHING
     RETURNING id, owner_id
   `);
 
@@ -70,7 +76,7 @@ async function backfillWorkspaces(): Promise<BackfillCount> {
     WITH owner_ws AS (
       SELECT DISTINCT ON (owner_id) id AS workspace_id, owner_id
       FROM workspaces
-      ORDER BY owner_id, created_at ASC
+      ORDER BY owner_id, is_default DESC, created_at ASC
     )
     UPDATE sessions s
     SET workspace_id = ow.workspace_id
@@ -89,7 +95,7 @@ async function backfillWorkspaces(): Promise<BackfillCount> {
     WITH owner_ws AS (
       SELECT DISTINCT ON (owner_id) id AS workspace_id, owner_id
       FROM workspaces
-      ORDER BY owner_id, created_at ASC
+      ORDER BY owner_id, is_default DESC, created_at ASC
     )
     UPDATE agent_tasks t
     SET workspace_id = COALESCE(

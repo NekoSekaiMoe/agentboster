@@ -15,6 +15,13 @@
       "when": 1786206349500,
       "tag": "0036_smooth_jasper_sitwell",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786332000000,
+      "tag": "0037_workspace_memory_boundary",
+      "breakpoints": true
     }
   ]
 }

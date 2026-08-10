@@ -56,8 +56,11 @@ export async function createSession(input: {
       // Stamp projectId into metadata so the legacy recall path (which reads
       // session.metadata.projectId) stays aligned with the new workspace_id
       // column. The two are the same value; projectId is the historical name.
+      // Only overwrite when workspaceId was explicitly provided (including
+      // explicit null to clear it). When workspaceId is omitted entirely,
+      // preserve whatever projectId the caller put in metadata.
       metadata:
-        (input.metadata ?? input.workspaceId)
+        input.workspaceId !== undefined
           ? ({
               ...(input.metadata ?? {}),
               projectId: input.workspaceId,

@@ -6,8 +6,10 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { sessions } from './chat';
 
 export const agentTasks = pgTable(
@@ -283,6 +285,12 @@ export const workspaces = pgTable(
     /** Monotonic fencing token (M1). Bumped on failover so a stale node
      *  can detect it no longer owns the container and self-destruct. */
     nodeGeneration: integer('node_generation').default(1).notNull(),
+    /** Designates the owner's single "default" workspace — the one
+     *  getOrCreateDefaultWorkspace returns and migrate-workspaces.ts
+     *  backfills for every user. The partial unique index below enforces
+     *  at most ONE default per owner, closing the TOCTOU race where two
+     *  concurrent first-requests could each create a default. */
+    isDefault: boolean('is_default').default(false).notNull(),
     status: text('status', {
       enum: ['active', 'archived'],
     })
@@ -297,6 +305,11 @@ export const workspaces = pgTable(
   },
   (table) => ({
     ownerIdx: index('workspaces_owner_idx').on(table.ownerId),
+    // At most one default workspace per owner. Partial unique index so
+    // non-default rows (the vast majority) are unconstrained.
+    ownerDefaultUnique: uniqueIndex('workspaces_owner_default_uniq')
+      .on(table.ownerId)
+      .where(sql`is_default = true`),
   }),
 );
 

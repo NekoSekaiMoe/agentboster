@@ -50,8 +50,19 @@ export const builtinMemories = pgTable(
       enum: ['AGENTS', 'SOUL', 'IDENTITY', 'USER'],
     }).notNull(),
     /** Workspace scope. NULL = global template row cloned into new
-     *  workspaces on creation. PK is (workspace_id, key) so each
-     *  workspace can evolve its own SOUL/IDENTITY/etc. independently. */
+     *  workspaces on creation. Each workspace can evolve its own
+     *  SOUL/IDENTITY/etc. independently.
+     *
+     *  NOTE: do NOT put the nullable `workspaceId` in a composite PRIMARY
+     *  KEY — PostgreSQL forces all PK columns NOT NULL, which would make
+     *  the global template row (workspace_id IS NULL) impossible to
+     *  persist. Instead a synthetic PK + two unique constraints encode
+     *  the intended semantics: global rows are unique per key, and
+     *  workspace-scoped rows are unique per (workspace_id, key).
+     *  `NULLS NOT DISTINCT` lets the partial global uniqueness treat
+     *  NULL workspace_id deterministically so two global rows with the
+     *  same key cannot coexist. */
+    id: uuid('id').defaultRandom().primaryKey(),
     workspaceId: uuid('workspace_id'),
     content: text('content').notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
@@ -59,7 +70,15 @@ export const builtinMemories = pgTable(
       .notNull(),
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.workspaceId, table.key] }),
+    // Global templates: exactly one row per key when workspace_id IS NULL.
+    globalKeyUnique: uniqueIndex('builtin_memories_global_key_idx')
+      .on(table.key)
+      .where(sql`workspace_id IS NULL`),
+    // Workspace-scoped: one row per (workspace_id, key).
+    workspaceKeyUnique: uniqueIndex('builtin_memories_workspace_key_idx').on(
+      table.workspaceId,
+      table.key,
+    ),
   }),
 );
 
@@ -244,16 +263,16 @@ export const longTermMemories = pgTable(
     memoryTypeIdx: index('long_term_memories_memory_type_idx').on(
       table.memoryType,
     ),
-    // The historical unique index was (userId, key). Adding projectId to
-    // the uniqueness set lets the same logical key (e.g. "tech_stack")
-    // exist once per project without colliding, while global memories
-    // (projectId IS NULL) still dedupe per user. Null projectId still
-    // participates in uniqueness (NULL != NULL in SQL would break this,
-    // so callers MUST always pass projectId consistently for keyed writes
-    // — either a real id or the GLOBAL_PROJECT_ID sentinel).
+    // The historical unique index was (userId, key). It now spans
+    // (userId, projectId, key, workspace_id) so the same logical key
+    // (e.g. "tech_stack") can exist once per (project, workspace) pair
+    // without colliding, while global memories (workspace_id IS NULL)
+    // still dedupe per (user, project). `NULLS NOT DISTINCT` makes NULL
+    // workspace_id deterministic in uniqueness so two global rows with
+    // the same (userId, projectId, key) cannot coexist.
     userProjectKeyIdx: uniqueIndex(
       'long_term_memories_user_project_key_idx',
-    ).on(table.userId, table.projectId, table.key),
+    ).on(table.userId, table.projectId, table.key, table.workspaceId),
     // Replace the old (userId, key) index with a non-unique covering index
     // so project-scoped recall queries (`WHERE userId=? AND projectId=?`)
     // stay fast without being constrained by the uniqueness rule above.

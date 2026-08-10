@@ -228,17 +228,20 @@ export async function extractMemoriesFromSession(input: {
     return { extracted: 0, created: 0, updated: 0 };
   }
 
-  // Scope the existing-memory list to the SAME project scope the writes
-  // below target (current project + global, via buildProjectScopeCondition).
-  // Previously this fetched ALL of the user's memories across every project,
-  // so the LLM would see foreign [key]s and emit UPDATE/DELETE that the
-  // scoped write helpers silently no-op'd — leaving stale rows behind and
-  // creating duplicate facts in the current scope.
+  // Scope the existing-memory list to the SAME project + workspace scope the
+  // writes below target (current project + global, via
+  // buildProjectScopeCondition; current workspace + global, via the
+  // workspaceId filter). Previously this fetched ALL of the user's memories
+  // across every project AND every workspace, so the LLM would see foreign
+  // [key]s and emit UPDATE/DELETE that the scoped write helpers silently
+  // no-op'd — leaving stale rows behind and creating duplicate facts in the
+  // current scope.
   const existing = await listLongTermMemories({
     page: 1,
     pageSize: 100,
     userId: input.userId,
     projectIdScope: input.projectId,
+    workspaceId: input.workspaceId,
   });
   const existingBlock =
     existing.length > 0

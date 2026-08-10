@@ -631,6 +631,10 @@ async function recallViaScorer(input: {
     const recencyRows = await listLongTermMemoryRows({
       userId: input.userId,
       limit: SCORER_RECENCY_CANDIDATE_LIMIT,
+      // Scope the recency top-up to the same workspace as the keyword arm
+      // (workspace + global layer) so the scorer cannot surface another
+      // workspace's private memories as filler candidates.
+      workspaceId: input.workspaceId,
     });
     for (const row of recencyRows) {
       if (seenIds.has(row.id)) continue;

@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, like, or, sql, type SQL } from 'drizzle-orm';
 import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
 import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
 import { hasAdminRole } from '@/lib/core/db/users';
@@ -1047,6 +1047,10 @@ export interface WorkspaceRecord {
   name: string;
   preferredNodeId: string | null;
   nodeGeneration: number;
+  /** True for the owner's designated default workspace (created lazily by
+   *  getOrCreateDefaultWorkspace). At most one per owner — enforced by the
+   *  workspaces_owner_default_uniq partial unique index. */
+  isDefault: boolean;
   status: 'active' | 'archived';
   createdAt: Date;
   updatedAt: Date;
@@ -1087,15 +1091,26 @@ export async function listWorkspacesByOwner(
 export async function getOrCreateDefaultWorkspace(
   ownerId: string,
 ): Promise<WorkspaceRecord> {
-  const existing = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.ownerId, ownerId))
-    .limit(1);
-  if (existing.length > 0 && existing[0]) {
-    return existing[0];
-  }
-  return createWorkspace({ ownerId, name: '默认工作区' });
+  // Atomic per-owner default-workspace upsert. The partial unique index
+  // workspaces_owner_default_uniq (owner_id WHERE is_default) is the
+  // conflict target: two concurrent first-requests can no longer each
+  // insert a default — the second hits the constraint and the DO UPDATE
+  // arm returns the existing row. Works across both the neon-http and
+  // node-postgres drivers (no advisory-lock / same-connection assumption).
+  const [row] = await db
+    .insert(workspaces)
+    .values({
+      ownerId,
+      name: '默认工作区',
+      isDefault: true,
+    })
+    .onConflictDoUpdate({
+      target: [workspaces.ownerId],
+      targetWhere: sql`is_default = true`,
+      set: { updatedAt: new Date() },
+    })
+    .returning();
+  return row;
 }
 
 export async function archiveWorkspace(

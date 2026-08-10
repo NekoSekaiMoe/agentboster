@@ -1,6 +1,6 @@
 import { db, schema } from '@/lib/core/db';
 import type { BuiltinMemoryKey } from '@/types/memory';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
 /**
  * Builtin memories (SOUL / IDENTITY / AGENTS / USER prompts) are scoped
@@ -65,6 +65,14 @@ export async function listBuiltinMemoryRows() {
 /**
  * Upsert a builtin memory row for a specific workspace (or the global
  * template when workspaceId is null/undefined).
+ *
+ * The schema has TWO unique constraints (see schema/memory.ts):
+ *   - builtin_memories_global_key_idx  (partial, key) WHERE workspace_id IS NULL
+ *   - builtin_memories_workspace_key_idx  (workspace_id, key)
+ * ON CONFLICT must target the one that actually matches the row we're
+ * inserting, so we branch on whether this is a global or workspace-scoped
+ * write. (A single composite target can't cover both because the partial
+ * global index has a WHERE clause.)
  */
 export async function upsertBuiltinMemoryRow(
   key: BuiltinMemoryKey,
@@ -72,6 +80,24 @@ export async function upsertBuiltinMemoryRow(
   workspaceId?: string | null,
 ) {
   const targetWorkspaceId = workspaceId ?? null;
+  const set = { content, updatedAt: new Date() };
+
+  if (targetWorkspaceId === null) {
+    // Global template — conflict target is the partial unique index on (key)
+    // restricted to workspace_id IS NULL.
+    const [row] = await db
+      .insert(schema.builtinMemories)
+      .values({ key, content, workspaceId: null, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [schema.builtinMemories.key],
+        targetWhere: sql`workspace_id IS NULL`,
+        set,
+      })
+      .returning();
+    return row;
+  }
+
+  // Workspace-scoped — conflict target is (workspace_id, key).
   const [row] = await db
     .insert(schema.builtinMemories)
     .values({
@@ -82,10 +108,9 @@ export async function upsertBuiltinMemoryRow(
     })
     .onConflictDoUpdate({
       target: [schema.builtinMemories.workspaceId, schema.builtinMemories.key],
-      set: { content, updatedAt: new Date() },
+      set,
     })
     .returning();
-
   return row;
 }
 
