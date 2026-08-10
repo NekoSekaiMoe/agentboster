@@ -98,7 +98,7 @@ func registerDesktopInspect(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 			},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "desktop_inspect requires an active sandbox"}, nil
 		}
@@ -166,7 +166,7 @@ func registerDesktopA11yClick(registry *ToolRegistry, sbMgr *sandbox.Manager, ct
 			"required": []string{"ref"},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "desktop_a11y_click requires an active sandbox"}, nil
 		}
@@ -244,7 +244,7 @@ func registerDesktopA11yType(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx
 			"required": []string{"ref", "text"},
 		},
 	}, func(toolCtx context.Context, args json.RawMessage) (*ToolResult, error) {
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "desktop_a11y_type requires an active sandbox"}, nil
 		}

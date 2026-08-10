@@ -1,3 +1,6 @@
+//go:build linux
+// +build linux
+
 package sandbox
 
 import (
@@ -15,18 +18,32 @@ func TestParseMemSpec(t *testing.T) {
 		want   int64
 		wantOk bool
 	}{
-		{"", 0, false},
+		// Valid: k/m/g suffixes (both cases), no suffix, whitespace.
 		{"256m", 256 * 1024 * 1024, true},
 		{"1g", 1024 * 1024 * 1024, true},
 		{"512M", 512 * 1024 * 1024, true},
+		{"512K", 512 * 1024, true},
 		{"2G", 2 * 1024 * 1024 * 1024, true},
 		{"1024", 1024, true},
 		{"100k", 100 * 1024, true},
+		{" 256m ", 256 * 1024 * 1024, true},
+		{"  1g", 1024 * 1024 * 1024, true},
+		// Invalid: empty, negatives, zero, decimals, trailing junk,
+		// non-numeric, int64 parse overflow, n*mult overflow.
+		{"", 0, false},
+		{"   ", 0, false},
+		{"-5g", 0, false},
+		{"0", 0, false},
+		{"0g", 0, false},
+		{"1.5g", 0, false},
+		{"12.5m", 0, false},
+		{"256mb", 0, false},
 		{"abc", 0, false},
-		// fmt.Sscanf %d is greedy: parses "12" from "12.5m", so the
-		// caller sees mem=12m (12 * 1024 * 1024). Documenting actual
-		// behaviour here.
-		{"12.5m", 12 * 1024 * 1024, true},
+		{"g", 0, false},
+		// ParseInt overflow: value > math.MaxInt64.
+		{"9999999999999999999g", 0, false},
+		// Multiplication overflow: 9e9 GiB > math.MaxInt64 bytes.
+		{"9000000000g", 0, false},
 	}
 	for _, tc := range tests {
 		got, ok := ParseMemSpec(tc.in)

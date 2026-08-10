@@ -113,6 +113,14 @@ type AgentContext struct {
 // Lock ordering (acyclic): Manager.mu → Manager.sessionLocksMu →
 // AgentContext.stateLock. Never acquire Manager.mu (or any Manager
 // lock) from inside fn.
+//
+// NON-REENTRANT: the underlying sync.Mutex is not reentrant, so
+// calling WithStateLock again from inside fn — including indirectly,
+// e.g. via a shallow-copied context that shares the same stateLock
+// pointer (ExecuteTool's execCtx copy), or via a helper that itself
+// takes the lock — will self-deadlock. Never nest WithStateLock calls;
+// if a second critical section is needed, run it AFTER the first one
+// returns.
 func (c *AgentContext) WithStateLock(fn func()) {
 	if c.stateLock == nil {
 		fn()
@@ -121,6 +129,23 @@ func (c *AgentContext) WithStateLock(fn func()) {
 	c.stateLock.Lock()
 	defer c.stateLock.Unlock()
 	fn()
+}
+
+// SnapshotSandboxID returns ctx.SandboxID read under the per-session
+// state lock (nil-safe: detached contexts read directly). Tool handlers
+// and manager/server paths that hold a potentially SHARED session
+// context must use this instead of reading ctx.SandboxID directly —
+// tools_sandbox_destroy clears the field under the same lock, so an
+// unlocked read races with it. The execution-local copy inside
+// ExecuteTool's own body (below the shallow copy) may still read the
+// field directly, since only that goroutine mutates the copy.
+//
+// Do NOT call this from inside a WithStateLock fn — the lock is
+// non-reentrant (see WithStateLock).
+func (c *AgentContext) SnapshotSandboxID() string {
+	var id string
+	c.WithStateLock(func() { id = c.SandboxID })
+	return id
 }
 
 // TaskState holds execution state that survives context compaction.

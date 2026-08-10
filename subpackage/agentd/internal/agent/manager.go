@@ -407,17 +407,21 @@ func (m *Manager) CloseSession(sessionID string) error {
 		}
 	})
 
+	// Snapshot SandboxID under the per-session state lock (order m.mu
+	// held → stateLock): sandbox_destroy clears it concurrently.
+	sandboxID := ctx.SnapshotSandboxID()
+
 	// Destroy sandbox (force-destroy: LXC rootfs is torn down too,
 	// not just stopped, because the session is going away permanently).
-	if ctx.SandboxID != "" {
+	if sandboxID != "" {
 		// Stop all LSP servers for this sandbox
 		if m.lspManager != nil {
-			m.lspManager.StopAll(ctx.SandboxID)
+			m.lspManager.StopAll(sandboxID)
 		}
 
-		if err := m.sbManager.DestroySandboxForce(ctx.SandboxID); err != nil {
+		if err := m.sbManager.DestroySandboxForce(sandboxID); err != nil {
 			slog.Warn("failed to destroy sandbox on session close",
-				"session_id", sessionID, "sandbox_id", ctx.SandboxID, "error", err)
+				"session_id", sessionID, "sandbox_id", sandboxID, "error", err)
 		}
 	}
 
@@ -632,11 +636,11 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	// execution-local shallow copy. Holding the lock across both means
 	// the copy can never observe a half-wired or half-committed struct
 	// (RunAgent commits its pre-loop config under the same lock).
-	stateLock := m.sessionLockFor(sessionID)
-	stateLock.Lock()
-	m.wireSessionRuntime(agentCtx)
-	execCtx := *agentCtx
-	stateLock.Unlock()
+	var execCtx AgentContext
+	agentCtx.WithStateLock(func() {
+		m.wireSessionRuntime(agentCtx)
+		execCtx = *agentCtx
+	})
 
 	// Everything request-scoped below — TaskID, the request identity
 	// (UserID/Roles/Source), LastAccessTime, SOUL content, per-agent
@@ -669,11 +673,16 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	// critical section only touches the private execCtx copy plus the
 	// store, and RunAgent's loop mutations are brief, so contention is
 	// minimal.
-	stateLock.Lock()
-	if err := m.sessionStore.Put(sessionID, agentContextToData(&execCtx)); err != nil {
-		slog.Warn("failed to persist session identity", "session_id", sessionID, "error", err)
-	}
-	stateLock.Unlock()
+	// NOTE: this is a SEPARATE acquisition of the same non-reentrant
+	// per-session mutex — it must NOT be nested inside the WithStateLock
+	// call above (that would self-deadlock). Running it after the first
+	// critical section returned keeps the Put serialized with the
+	// copy/update while staying deadlock-free.
+	agentCtx.WithStateLock(func() {
+		if err := m.sessionStore.Put(sessionID, agentContextToData(&execCtx)); err != nil {
+			slog.Warn("failed to persist session identity", "session_id", sessionID, "error", err)
+		}
+	})
 
 	// Fetch SOUL and per-agent config into the copy. These are
 	// workspace-independent, so they are fetched ahead of the workspace
@@ -913,13 +922,18 @@ func (m *Manager) GetAgentStats() []AgentStat {
 	defer m.mu.RUnlock()
 	result := make([]AgentStat, 0, len(m.sessions))
 	for _, ctx := range m.sessions {
-		if ctx.SandboxID == "" {
-			continue
-		}
-		result = append(result, AgentStat{
-			AgentID:     ctx.AgentID,
-			SandboxID:   ctx.SandboxID,
-			SandboxType: ctx.SandboxType,
+		// Per-session state lock per entry (order m.mu → stateLock; one
+		// session lock at a time, never nested): sandbox_destroy clears
+		// SandboxID concurrently with this read.
+		ctx.WithStateLock(func() {
+			if ctx.SandboxID == "" {
+				return
+			}
+			result = append(result, AgentStat{
+				AgentID:     ctx.AgentID,
+				SandboxID:   ctx.SandboxID,
+				SandboxType: ctx.SandboxType,
+			})
 		})
 	}
 	return result
@@ -954,9 +968,12 @@ func (m *Manager) DestroySession(sessionID string) error {
 		return m.sessionStore.Delete(sessionID)
 	}
 
-	if agentCtx.SandboxID != "" {
-		if err := m.sbManager.DestroySandboxForce(agentCtx.SandboxID); err != nil {
-			slog.Warn("failed to destroy sandbox", "session_id", sessionID, "sandbox_id", agentCtx.SandboxID, "error", err)
+	// Snapshot SandboxID under the per-session state lock (order m.mu
+	// held → stateLock): sandbox_destroy clears it concurrently.
+	sandboxID := agentCtx.SnapshotSandboxID()
+	if sandboxID != "" {
+		if err := m.sbManager.DestroySandboxForce(sandboxID); err != nil {
+			slog.Warn("failed to destroy sandbox", "session_id", sessionID, "sandbox_id", sandboxID, "error", err)
 		}
 	}
 

@@ -56,7 +56,7 @@ func registerDeliverFiles(registry *ToolRegistry, sbMgr *sandbox.Manager, client
 			params.Format = "auto"
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}

@@ -67,6 +67,33 @@ describe('createLegacyAwareStorage.getItem', () => {
     expect(adapter.getItem(USER_KEY)).toBeNull();
   });
 
+  it('writes the migrated blob back to the primary key', () => {
+    const { adapter, storage } = setup();
+    adapter.setItem(KEY, 'ws-legacy-42');
+    adapter.setItem(USER_KEY, 'u-legacy');
+    const result = storage.getItem(KEY);
+    // The primary key now holds the persist blob, so a repeat load takes
+    // the valid-blob path instead of re-migrating.
+    expect(adapter.getItem(KEY)).toBe(result);
+    expect(JSON.parse(adapter.getItem(KEY) as string)).toEqual({
+      state: { workspaceId: 'ws-legacy-42', userId: 'u-legacy' },
+      version: 0,
+    });
+  });
+
+  it('keeps the migrated userId on a second load before any zustand persist', () => {
+    const { adapter, storage } = setup();
+    adapter.setItem(KEY, 'ws-legacy-42');
+    adapter.setItem(USER_KEY, 'u-legacy');
+    const first = JSON.parse(storage.getItem(KEY) as string);
+    expect(first.state.userId).toBe('u-legacy');
+    // Second load: the __user sibling is already consumed. If the blob
+    // were not written back, this would re-migrate with userId null.
+    const second = JSON.parse(storage.getItem(KEY) as string);
+    expect(second).toEqual(first);
+    expect(second.state.userId).toBe('u-legacy');
+  });
+
   it('migrates a bare legacy id without a __user sibling (userId null)', () => {
     const { adapter, storage } = setup();
     adapter.setItem(KEY, 'ws-legacy-42');
@@ -77,7 +104,7 @@ describe('createLegacyAwareStorage.getItem', () => {
     });
   });
 
-  it('migrates a JSON string primitive as a meaningful legacy id', () => {
+  it('migrates a JSON string primitive as a meaningful legacy id and writes the blob back', () => {
     const { adapter, storage } = setup();
     adapter.setItem(KEY, JSON.stringify('ws-quoted'));
     adapter.setItem(USER_KEY, 'u-legacy');
@@ -87,6 +114,7 @@ describe('createLegacyAwareStorage.getItem', () => {
       version: 0,
     });
     expect(adapter.getItem(USER_KEY)).toBeNull();
+    expect(adapter.getItem(KEY)).toBe(result);
   });
 
   it('drops the key and returns null for JSON null', () => {
@@ -120,6 +148,8 @@ describe('createLegacyAwareStorage.getItem', () => {
     ['array', '[1,2,3]'],
     ['state not an object', '{"state":"ws-1","version":0}'],
     ['null state', '{"state":null,"version":0}'],
+    ['array state', '{"state":[],"version":0}'],
+    ['array state with entries', '{"state":["ws-1"],"version":0}'],
     ['non-numeric version', '{"state":{"workspaceId":"ws-1"},"version":"0"}'],
   ])(
     'drops the key and returns null for a malformed blob: %s',

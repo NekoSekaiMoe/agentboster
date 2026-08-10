@@ -40,7 +40,28 @@
  * transaction helper, and the neon HTTP driver cannot span BEGIN..COMMIT
  * across separate .query() calls (each is a stateless request). One
  * data-modifying-CTE statement is an implicit transaction on both drivers
- * — strictly stronger atomicity than a multi-call transaction.
+ * — strictly stronger atomicity than a multi-call transaction. The same
+ * constraint applies per BATCH: the dedup is batched by user_id (see
+ * below), and each batch is one atomic data-modifying-CTE statement.
+ *
+ * OPERATIONAL HARDENING (large tables):
+ *  - Doomed-row count is logged BEFORE any DELETE so operators can
+ *    reconcile it with the deleted count afterwards.
+ *  - Batching by user_id: each batch runs the FULL pipeline (edges
+ *    re-point, chunks re-point, duplicate memory delete) for ONE user's
+ *    duplicate groups only, shrinking per-statement lock scope. The
+ *    statement text is identical to the former global version except the
+ *    ranked CTE filters `user_id = $1`; semantics (including the
+ *    full-table edge-survivor computation) are unchanged because the
+ *    remap/doomed joins already scope every mutation to the batch's
+ *    doomed rows.
+ *  - statement_timeout / lock_timeout are applied as a BEST-EFFORT SET.
+ *    LIMITATION: on the neon HTTP driver (Vercel / *.neon.tech) each
+ *    .query() is a stateless request, so per-session SET does NOT persist
+ *    to the dedup statements — enforce server-side timeouts via role /
+ *    database settings there. On the pg (TCP) driver the SET is effective
+ *    in practice because this script issues its queries strictly
+ *    sequentially, so the pool creates and reuses a single client.
  *
  * Idempotent and guarded: no-ops when the table or the workspace_id column
  * does not exist yet (fresh installs run this before the first push), and
@@ -55,6 +76,57 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closeRawSql, getRawQuery } from './db-raw-sql';
+import type { RawQuery } from './db-raw-sql';
+
+/** Per-statement timeout for the dedup batches (large tables). */
+const DEDUP_STATEMENT_TIMEOUT_MS = 5 * 60_000;
+/** Fail fast instead of queueing behind a long lock wait. */
+const DEDUP_LOCK_TIMEOUT_MS = 30_000;
+
+/**
+ * Mirror of the (unexported) driver selection in db-raw-sql.ts — needed
+ * here only to document/log whether the best-effort SET below can stick.
+ */
+function resolveRawDriver(): 'neon' | 'postgres' {
+  const override = process.env.DB_DRIVER?.trim().toLowerCase();
+  if (override === 'neon' || override === 'postgres') {
+    return override;
+  }
+  try {
+    const { hostname } = new URL(process.env.DATABASE_URL ?? '');
+    if (hostname.endsWith('.neon.tech') || hostname === 'db.neon.tech') {
+      return 'neon';
+    }
+  } catch {
+    // Unparseable URL — fall through to the deployment-mode default.
+  }
+  return process.env.VERCEL ? 'neon' : 'postgres';
+}
+
+/**
+ * Best-effort statement/lock timeouts for the dedup work. On the pg driver
+ * this script's strictly sequential queries reuse a single pool client, so
+ * the SET applies to everything that follows. On the neon HTTP driver the
+ * SET is confined to its own stateless request and does NOT persist — see
+ * the file-header LIMITATION note. Never fails the dedup.
+ */
+async function applyDedupTimeouts(query: RawQuery): Promise<void> {
+  try {
+    await query(`SET statement_timeout = ${DEDUP_STATEMENT_TIMEOUT_MS}`);
+    await query(`SET lock_timeout = ${DEDUP_LOCK_TIMEOUT_MS}`);
+  } catch (error) {
+    console.warn(
+      '[dedup-global-memories] could not apply statement/lock timeouts (continuing without them):',
+      error,
+    );
+    return;
+  }
+  if (resolveRawDriver() === 'neon') {
+    console.warn(
+      '[dedup-global-memories] note: neon HTTP driver is stateless — the SET statement_timeout/lock_timeout above does NOT persist across queries; enforce timeouts server-side (role/database settings) if needed',
+    );
+  }
+}
 
 /**
  * Delete duplicate global (workspace_id IS NULL) long_term_memories rows,
@@ -93,9 +165,35 @@ export async function dedupGlobalLongTermMemories(): Promise<number> {
     return 0;
   }
 
+  // Best-effort statement/lock timeouts for the dedup work below (see
+  // the file-header LIMITATION note for the neon HTTP driver).
+  await applyDedupTimeouts(query);
+
   // Guard: schemas predating migrations 0010/0018 have no dependent
   // tables to re-point — fall back to the plain 0038-style DELETE.
   if (!tables[0].chunks || !tables[0].edges) {
+    // Log the doomed-row count first so operators can reconcile it with
+    // the deleted count (same ranking semantics as the DELETE below).
+    const doomed = await query<{ count: number }>(`
+      SELECT COUNT(*)::int AS count
+      FROM "long_term_memories" a
+      WHERE a."workspace_id" IS NULL
+        AND EXISTS (
+          SELECT 1 FROM "long_term_memories" b
+          WHERE b."workspace_id" IS NULL
+            AND a."user_id" = b."user_id"
+            AND a."project_id" = b."project_id"
+            AND a."memory_key" = b."memory_key"
+            AND (a."updated_at" < b."updated_at"
+                 OR (a."updated_at" = b."updated_at" AND a."id" < b."id"))
+        )
+    `);
+    const expected = doomed[0]?.count ?? 0;
+    if (expected > 0) {
+      console.log(
+        `[dedup-global-memories] legacy path: ${expected} doomed duplicate global row(s) to delete`,
+      );
+    }
     const deleted = await query<{ id: string }>(`
       DELETE FROM "long_term_memories" a
       USING "long_term_memories" b
@@ -108,25 +206,80 @@ export async function dedupGlobalLongTermMemories(): Promise<number> {
              OR (a."updated_at" = b."updated_at" AND a."id" < b."id"))
       RETURNING a."id" AS id
     `);
+    if (deleted.length !== expected) {
+      console.warn(
+        `[dedup-global-memories] legacy path: deleted ${deleted.length} row(s) but ${expected} were counted doomed (concurrent writes?)`,
+      );
+    }
     return deleted.length;
   }
 
-  // Cascade-safe dedup as ONE atomic statement. Stages:
-  //   ranked   — window-rank global rows within each (user, project, key)
-  //              group; NULL component values are excluded to match the
-  //              original `=` semantics (NULLs never duplicated).
+  // Cascade-safe dedup, BATCHED BY user_id, each batch ONE atomic
+  // statement. Stages (per batch):
+  //   ranked   — window-rank the batch user's global rows within each
+  //              (user, project, key) group; NULL component values are
+  //              excluded to match the original `=` semantics (NULLs never
+  //              duplicated).
   //   remap    — every row in a duplicate group → the retained row id.
   //   doomed   — the non-retained rows to delete.
   //   remapped — every memory_edges row as it would look after re-pointing
   //              doomed endpoints to the retained memory.
   //   survivors — one winner per (new src, new dst, relation) so the
   //              memory_edges_unique_idx cannot be violated; self-loops
-  //              introduced by the re-point never survive.
+  //              introduced by the re-point never survive. This CTE must
+  //              scan the FULL edges table (not just this batch's touched
+  //              edges): an untouched edge that already has its final
+  //              endpoints must win the (new src, new dst, relation)
+  //              partition over a re-pointed duplicate, otherwise the
+  //              re-pointed edge would survive and violate the unique
+  //              index.
   // Then: re-point chunks, re-point surviving touched edges, delete
   // colliding/self-loop touched edges, delete the doomed memories. All
   // data-modifying CTEs share one snapshot; the ON DELETE CASCADE that
   // fires with `deleted` finds no remaining dependents.
-  const deleted = await query<{ id: string }>(`
+  //
+  // The remap/doomed joins already scope every mutation to the batch
+  // user's doomed rows, so batching by user_id changes ONLY the lock
+  // scope per statement, not the outcome.
+
+  // First: enumerate the users that have doomed rows, with the per-user
+  // doomed count. Logged BEFORE any DELETE so operators can reconcile
+  // with the deleted count afterwards.
+  const batches = await query<{ user_id: string; doomed: number }>(`
+    SELECT user_id, COUNT(*)::int AS doomed
+    FROM (
+      SELECT id,
+             user_id,
+             COUNT(*) OVER (
+               PARTITION BY user_id, project_id, memory_key
+             ) AS group_size,
+             FIRST_VALUE(id) OVER (
+               PARTITION BY user_id, project_id, memory_key
+               ORDER BY updated_at DESC, id DESC
+             ) AS retained_id
+      FROM long_term_memories
+      WHERE workspace_id IS NULL
+        AND user_id IS NOT NULL
+        AND project_id IS NOT NULL
+        AND memory_key IS NOT NULL
+    ) r
+    WHERE group_size > 1
+      AND id <> retained_id
+    GROUP BY user_id
+    ORDER BY user_id
+  `);
+  const totalDoomed = batches.reduce((sum, b) => sum + b.doomed, 0);
+  if (totalDoomed === 0) {
+    return 0;
+  }
+  console.log(
+    `[dedup-global-memories] ${totalDoomed} doomed duplicate global row(s) across ${batches.length} user(s); deleting in per-user batches`,
+  );
+
+  let totalDeleted = 0;
+  for (const batch of batches) {
+    const deleted = await query<{ id: string }>(
+      `
     WITH ranked AS (
       SELECT id,
              COUNT(*) OVER (
@@ -141,6 +294,7 @@ export async function dedupGlobalLongTermMemories(): Promise<number> {
         AND user_id IS NOT NULL
         AND project_id IS NOT NULL
         AND memory_key IS NOT NULL
+        AND user_id = $1
     ),
     remap AS (
       SELECT id, retained_id
@@ -206,8 +360,18 @@ export async function dedupGlobalLongTermMemories(): Promise<number> {
       RETURNING m.id AS id
     )
     SELECT id FROM deleted
-  `);
-  return deleted.length;
+  `,
+      [batch.user_id],
+    );
+    totalDeleted += deleted.length;
+  }
+
+  if (totalDeleted !== totalDoomed) {
+    console.warn(
+      `[dedup-global-memories] deleted ${totalDeleted} row(s) but ${totalDoomed} were counted doomed (concurrent writes?)`,
+    );
+  }
+  return totalDeleted;
 }
 
 function isInvokedDirectly(): boolean {

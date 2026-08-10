@@ -47,7 +47,7 @@ Supports: Rust, Go, C/C++, Python, TypeScript/JavaScript.`,
 			return toolErr, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
@@ -151,7 +151,7 @@ Automatically detects project type and installs the language server if needed.`,
 			return toolErr, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
@@ -248,7 +248,7 @@ Automatically detects project type and installs the language server if needed.`,
 			includeDecl = *params.IncludeDeclaration
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
@@ -325,7 +325,7 @@ Automatically detects project type and installs the language server if needed.`,
 			return toolErr, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}

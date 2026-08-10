@@ -108,7 +108,7 @@ func bridgeCallToToolResult(
 		}
 		raw = buf
 	}
-	data, err := browser.CallBridge(sbMgr, ctx.SandboxID, method, path, raw, timeoutSec)
+	data, err := browser.CallBridge(sbMgr, ctx.SnapshotSandboxID(), method, path, raw, timeoutSec)
 	if err != nil {
 		return &ToolResult{Success: false, Error: err.Error()}, nil
 	}
@@ -174,7 +174,7 @@ func registerBrowserNavigate(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx
 		if err := validateHTTPURL(params.URL); err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
-		if ctx.SandboxID == "" {
+		if ctx.SnapshotSandboxID() == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available; browser_* tools require an LXC sandbox (route via sandbox_hint=lxc, permission_profile=browser)"}, nil
 		}
 
@@ -551,7 +551,7 @@ func registerBrowserEvaluate(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx
 			"timeout_ms": params.TimeoutMs,
 			"profile":    resolveProfile(params.Profile, ctx.AgentID),
 		})
-		result, err := browser.CallBridge(sbMgr, ctx.SandboxID, "POST", "/evaluate", body, clampTimeoutSec(params.TimeoutMs/1000))
+		result, err := browser.CallBridge(sbMgr, ctx.SnapshotSandboxID(), "POST", "/evaluate", body, clampTimeoutSec(params.TimeoutMs/1000))
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}

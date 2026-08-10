@@ -42,8 +42,12 @@ interface ActiveWorkspaceState {
  */
 function isPersistBlob(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
+  if (Array.isArray(value)) return false;
   const blob = value as { state?: unknown; version?: unknown };
   if (typeof blob.state !== 'object' || blob.state === null) return false;
+  // Arrays are objects (`typeof [] === 'object'`) but are never a valid
+  // persisted state — `{state: [], version: 0}` must not pass.
+  if (Array.isArray(blob.state)) return false;
   // version is optional; when present it must be a number (zustand's
   // migrate hook only runs on numeric versions).
   return blob.version === undefined || typeof blob.version === 'number';
@@ -52,7 +56,9 @@ function isPersistBlob(value: unknown): boolean {
 /**
  * Migrate a pre-zustand record into the persist blob shape: the key used
  * to hold a bare workspace-id string, with a `.__user` sibling recording
- * the owner. Consumes (removes) the sibling key.
+ * the owner. Consumes (removes) the sibling key and writes the migrated
+ * blob back to the primary key so repeat loads hit the valid-blob path
+ * with the migrated userId intact.
  */
 function migrateLegacy(
   adapter: StorageAdapter,
@@ -61,10 +67,16 @@ function migrateLegacy(
 ): string {
   const legacyUser = adapter.getItem(`${name}.__user`);
   adapter.removeItem(`${name}.__user`);
-  return JSON.stringify({
+  const blob = JSON.stringify({
     state: { workspaceId, userId: legacyUser },
     version: 0,
   });
+  // Write the migrated blob back to the primary key BEFORE returning it.
+  // Without this, a second load that happens before any zustand set()
+  // persists would re-enter migration with the `__user` sibling already
+  // consumed and silently lose the userId.
+  adapter.setItem(name, blob);
+  return blob;
 }
 
 /**

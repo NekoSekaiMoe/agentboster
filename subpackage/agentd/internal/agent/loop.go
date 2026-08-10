@@ -212,6 +212,10 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 		if auditTaskID == "" {
 			auditTaskID = "00000000-0000-0000-0000-000000000000"
 		}
+		// Snapshot SandboxID under the per-session state lock (nil-safe
+		// no-op for detached sub-agent loops): sandbox_destroy clears it
+		// concurrently with tool dispatch.
+		auditSandboxID := l.agentCtx.SnapshotSandboxID()
 		auditTask := &clawless.Task{
 			ID:        auditTaskID,
 			AgentID:   l.agentCtx.AgentID,
@@ -219,7 +223,7 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 			UserID:    l.agentCtx.UserID,
 			Roles:     l.agentCtx.Roles,
 			Source:    l.agentCtx.Source,
-			SandboxID: l.agentCtx.SandboxID,
+			SandboxID: auditSandboxID,
 			Command:   fmt.Sprintf("tool=%s args=%s", call.Name, string(call.Arguments)),
 		}
 		auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)

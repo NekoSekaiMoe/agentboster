@@ -42,7 +42,7 @@ func registerGitClone(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agent
 			return &ToolResult{Success: false, Error: "invalid characters in git URL"}, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
@@ -90,7 +90,7 @@ func registerGitDiff(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *AgentC
 			return &ToolResult{Success: false, Error: "invalid characters in path"}, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
@@ -127,7 +127,7 @@ func registerGitStatus(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx *Agen
 			return &ToolResult{Success: false, Error: "invalid characters in path"}, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}
@@ -208,7 +208,7 @@ func registerGitPush(registry *ToolRegistry, sbMgr *sandbox.Manager, client *cla
 			return &ToolResult{Success: false, Error: "invalid characters in branch name"}, nil
 		}
 
-		sandboxID := ctx.SandboxID
+		sandboxID := ctx.SnapshotSandboxID()
 		if sandboxID == "" {
 			return &ToolResult{Success: false, Error: "no sandbox available"}, nil
 		}

@@ -94,11 +94,20 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	id := uuid.New().String()[:8]
 	containerName := fmt.Sprintf("agentd-lxc-%s", id)
 	if spec.WorkspaceID != "" {
-		// Derive a stable container name from the workspace id. Workspace ids
-		// are uuid strings (hex, already lowercase-safe); the prefix lets the
-		// reaper / health-checker identify workspace containers by name.
-		containerName = fmt.Sprintf("agentd-lxc-ws-%s", spec.WorkspaceID)
-		id = spec.WorkspaceID
+		// Derive a stable container name from the workspace id. The id
+		// originates from the HTTP request body (workspace_id) and flows
+		// into containerPath — including cleanupPartialContainer's
+		// os.RemoveAll — so it MUST be validated before any path
+		// construction: strictly parsed as a UUID and normalized to the
+		// canonical lowercase form (hex + hyphens only, no path
+		// separators or traversal segments). The prefix lets the reaper
+		// / health-checker identify workspace containers by name.
+		workspaceID, err := normalizeWorkspaceID(spec.WorkspaceID)
+		if err != nil {
+			return nil, err
+		}
+		containerName = fmt.Sprintf("agentd-lxc-ws-%s", workspaceID)
+		id = workspaceID
 	}
 
 	// M3.3: serialize the cold-start path (lxc-create + lxc-start + the 2s
@@ -256,6 +265,21 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	}
 
 	return sb, nil
+}
+
+// normalizeWorkspaceID validates a caller-supplied workspace id and
+// returns its canonical lowercase UUID form. The id reaches
+// filepath.Join(p.rootfsBase, ...) and os.RemoveAll in Create, so the
+// result must be a single safe path component: uuid.Parse rejects
+// anything containing path separators/traversal, and String()
+// normalizes non-canonical-but-parseable forms (uppercase, braces,
+// hyphenless) to lowercase canonical.
+func normalizeWorkspaceID(raw string) (string, error) {
+	wsID, err := uuid.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid workspace id: %w", err)
+	}
+	return strings.ToLower(wsID.String()), nil
 }
 
 // cleanupPartialContainer removes a partially created container after a

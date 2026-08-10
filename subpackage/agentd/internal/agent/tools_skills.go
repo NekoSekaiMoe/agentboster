@@ -59,7 +59,7 @@ Actions: list, install, deps, info`,
 			params.Manager = "npm"
 		}
 
-		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SandboxID)
+		sbPath, err := getSandboxWorkspace(sbMgr, ctx.SnapshotSandboxID())
 		if err != nil {
 			return &ToolResult{Success: false, Error: err.Error()}, nil
 		}
@@ -105,7 +105,7 @@ Actions: list, install, deps, info`,
 				default:
 					return &ToolResult{Success: false, Error: fmt.Sprintf("unsupported manager: %s", params.Manager)}, nil
 				}
-				result, execErr := sbMgr.Exec(ctx.SandboxID, cmd, nil, 120)
+				result, execErr := sbMgr.Exec(ctx.SnapshotSandboxID(), cmd, nil, 120)
 				if execErr != nil {
 					return &ToolResult{Success: false, Error: fmt.Sprintf("install error: %v", execErr)}, nil
 				}
@@ -122,7 +122,7 @@ Actions: list, install, deps, info`,
 			if err != nil {
 				return &ToolResult{Success: false, Error: err.Error()}, nil
 			}
-			result, execErr := sbMgr.Exec(ctx.SandboxID, cmd, nil, 120)
+			result, execErr := sbMgr.Exec(ctx.SnapshotSandboxID(), cmd, nil, 120)
 			if execErr != nil {
 				return &ToolResult{Success: false, Error: fmt.Sprintf("deps install error: %v", execErr)}, nil
 			}

@@ -1,7 +1,9 @@
 package sandbox
 
 import (
-	"fmt"
+	"math"
+	"strconv"
+	"strings"
 
 	"github.com/NekoSekaiMoe/agentboster/subpackage/agentd/internal/clawless"
 )
@@ -44,14 +46,19 @@ func ApplyAgentConfigToSpec(spec *SandboxSpec, cfg *clawless.AgentConfig) {
 }
 
 // ParseMemSpec parses memory strings like "256m", "1g", "1024" into bytes.
+// Suffixes: k/K = KiB, m/M = MiB, g/G = GiB, none = bytes. The ENTIRE
+// numeric portion must be a base-10 integer — fmt.Sscanf's partial-parse
+// %d used to accept "256mb" (256 bytes), "1.5g" (1 GiB), and "-5g"
+// (negative bytes), and never checked n*mult overflow; all of those are
+// now rejected. Returns (0, false) for any invalid input.
 func ParseMemSpec(s string) (int64, bool) {
+	s = strings.TrimSpace(s)
 	if s == "" {
 		return 0, false
 	}
-	last := s[len(s)-1]
 	mult := int64(1)
 	num := s
-	switch last {
+	switch s[len(s)-1] {
 	case 'g', 'G':
 		mult = 1024 * 1024 * 1024
 		num = s[:len(s)-1]
@@ -62,8 +69,16 @@ func ParseMemSpec(s string) (int64, bool) {
 		mult = 1024
 		num = s[:len(s)-1]
 	}
-	var n int64
-	if _, err := fmt.Sscanf(num, "%d", &n); err != nil {
+	// ParseInt validates the whole string: rejects empty ("g"), decimals
+	// ("1.5"), trailing junk ("256b" after suffix strip), and non-digits.
+	n, err := strconv.ParseInt(num, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	if n <= 0 {
+		return 0, false
+	}
+	if n > math.MaxInt64/mult {
 		return 0, false
 	}
 	return n * mult, true

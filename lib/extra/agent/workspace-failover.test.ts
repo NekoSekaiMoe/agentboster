@@ -309,8 +309,13 @@ describe('conditional UPDATE predicate (drift guard)', () => {
     // Node-expiration predicate: NOT EXISTS (missing node row) OR EXISTS
     // (heartbeat older than the grace cutoff), joining agentd_nodes on
     // node_id against the workspace's preferred_node_id.
+    // 'NOT EXISTS' CONTAINS the substring 'EXISTS', so a bare
+    // toContain('EXISTS') cannot detect a dropped OR-branch — assert each
+    // branch independently.
     expect(where.sql).toContain('NOT EXISTS');
-    expect(where.sql).toContain('EXISTS');
+    expect(where.sql).toMatch(/OR\s+EXISTS/i);
+    // Exactly two EXISTS subqueries: one NOT EXISTS + one OR EXISTS.
+    expect(where.sql.match(/\bEXISTS\b/g)).toHaveLength(2);
     expect(where.sql).toContain('agentd_nodes');
     expect(where.sql).toContain('node_id');
     expect(where.sql).toContain('last_heartbeat');
