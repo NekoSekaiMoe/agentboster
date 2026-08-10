@@ -49,6 +49,12 @@ func NewWorkspaceLock() *WorkspaceLock {
 // different exec session, returns the current holder state with ok=false
 // and a nil error — the caller translates that into an HTTP 409 busy.
 //
+// workspaceID is injected by the registry on acquire and stamped into the
+// state so the returned snapshot carries the workspace even on a FIRST
+// acquire (previously the struct literal read l.state.WorkspaceID while
+// l.state was still nil, dereferencing a nil pointer and panicking on the
+// very first acquire of a freshly-created or TTL-reaped lock).
+//
 // Re-entrant acquire by the SAME exec session is a no-op success (returns
 // the existing state); this covers a run that calls acquire twice
 // defensively without deadlocking itself.
@@ -60,8 +66,12 @@ func NewWorkspaceLock() *WorkspaceLock {
 // nodeGeneration is the Web-side fencing token at acquire time. It's
 // stamped into the state so a later request carrying a higher generation
 // (post-failover) can recognize this lock as stale.
+//
+// The returned *WorkspaceLockState is a COPY of the internal state, so
+// callers cannot observe concurrent mutation (matches State()'s defensive
+// copy; previously this method returned the live internal pointer).
 func (l *WorkspaceLock) TryAcquire(
-	holderType, execSessionID string,
+	workspaceID, holderType, execSessionID string,
 	ownerTaskID string,
 	ttl time.Duration,
 	nodeGeneration uint64,
@@ -80,8 +90,10 @@ func (l *WorkspaceLock) TryAcquire(
 		}
 	}
 	if l.state != nil && l.state.ExecSessionID != execSessionID {
-		// Held by someone else.
-		return l.state, false, nil
+		// Held by someone else — return a COPY so the caller can't observe
+		// later mutation of l.state.
+		s := *l.state
+		return &s, false, nil
 	}
 
 	// Either free or re-entrant by the same exec session.
@@ -89,8 +101,15 @@ func (l *WorkspaceLock) TryAcquire(
 	if ttl > 0 {
 		expiresAt = now.Add(ttl)
 	}
+	// Preserve a prior workspace id across re-entrant acquire; fall back to
+	// the injected workspaceID on a fresh acquire (was previously read from
+	// a nil l.state, causing a panic).
+	wsID := workspaceID
+	if l.state != nil && l.state.WorkspaceID != "" {
+		wsID = l.state.WorkspaceID
+	}
 	l.state = &WorkspaceLockState{
-		WorkspaceID:    l.state.WorkspaceID, // preserved across re-entrant
+		WorkspaceID:    wsID,
 		HolderType:     holderType,
 		ExecSessionID:  execSessionID,
 		OwnerTaskID:    ownerTaskID,
@@ -98,10 +117,9 @@ func (l *WorkspaceLock) TryAcquire(
 		AcquiredAt:     now,
 		ExpiresAt:      expiresAt,
 	}
-	if l.state.WorkspaceID == "" {
-		// First acquire has no workspace id stamped yet — caller fills via state.
-	}
-	return l.state, true, nil
+	// Return a COPY, not the internal pointer.
+	s := *l.state
+	return &s, true, nil
 }
 
 // Release frees the lock, but only if the caller's execSessionID matches
@@ -161,10 +179,23 @@ func (r *WorkspaceLockRegistry) Get(workspaceID string) *WorkspaceLock {
 	return lock
 }
 
+// lookup returns the existing lock WITHOUT creating one. Used by read-only
+// paths (Snapshot) so probing an unknown workspace doesn't pollute the
+// registry with empty entries that are never deleted.
+func (r *WorkspaceLockRegistry) lookup(workspaceID string) *WorkspaceLock {
+	if workspaceID == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.locks[workspaceID]
+}
+
 // Snapshot returns the current holder state for a workspace (nil if free
-// or unknown). Used by the HTTP release/inspect endpoints.
+// or unknown). Used by the HTTP release/inspect endpoints. Does NOT create
+// a registry entry for unknown workspaces.
 func (r *WorkspaceLockRegistry) Snapshot(workspaceID string) *WorkspaceLockState {
-	lock := r.Get(workspaceID)
+	lock := r.lookup(workspaceID)
 	if lock == nil {
 		return nil
 	}

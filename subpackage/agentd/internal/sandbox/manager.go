@@ -145,6 +145,13 @@ type Manager struct {
 	// in-process serializer for ExecuteTool; wsLockRegistry is the
 	// cross-run contract.
 	wsLocks *WorkspaceLockRegistry
+
+	// createLocks serializes sandbox CREATION per workspace so two
+	// concurrent CreateSandbox calls for the same WorkspaceID cannot both
+	// pass the GetByWorkspace existence check and both invoke
+	// provider.Create (TOCTOU). Mirrors the execLocksMu/execLocks pattern.
+	createLocksMu sync.Mutex
+	createLocks   map[string]*sync.Mutex
 }
 
 // NewManager creates a new sandbox manager with all built-in providers.
@@ -154,6 +161,7 @@ func NewManager(cfg *config.Config, l0Engine *l0_rules.Engine) *Manager {
 		sandboxes:           make(map[string]*Sandbox),
 		workspaceContainers: make(map[string]string),
 		execLocks:           make(map[string]*sync.Mutex),
+		createLocks:         make(map[string]*sync.Mutex),
 		wsLocks:             NewWorkspaceLockRegistry(),
 		config:              cfg,
 	}
@@ -266,6 +274,52 @@ func (m *Manager) GetByWorkspace(workspaceID string) (*Sandbox, bool) {
 	return sb, ok
 }
 
+// createLockFor returns (and lazily creates) the per-workspace creation
+// mutex. Mirrors ExecLockFor's pattern. Empty workspaceID returns nil (no
+// serialization needed — non-workspace sandboxes are ephemeral and unique).
+func (m *Manager) createLockFor(workspaceID string) *sync.Mutex {
+	if workspaceID == "" {
+		return nil
+	}
+	m.createLocksMu.Lock()
+	defer m.createLocksMu.Unlock()
+	lock, ok := m.createLocks[workspaceID]
+	if !ok {
+		lock = &sync.Mutex{}
+		m.createLocks[workspaceID] = lock
+	}
+	return lock
+}
+
+// cleanupWorkspaceEntriesLocked drops the per-workspace index + lock
+// entries for the workspace that owned sandboxID. MUST be called with
+// m.mu held. Best-effort: if no workspace owned the sandbox (ephemeral
+// docker), this is a no-op. The exec/create locks are deleted under their
+// own mutexes — safe because Destroy is the sole reaper for a workspace
+// container, so no other goroutine can be mid-acquire for the same
+// workspace once its sandbox is gone.
+//
+// Note on the execLocks race: a goroutine COULD be blocked inside
+// ExecLockFor(workspaceID).Lock() at the instant we delete the entry. That
+// goroutine already captured the *sync.Mutex pointer before we deleted the
+// map entry, so its Lock/Unlock still target the right mutex; we only leak
+// the map entry (one pointer) rather than corrupting state. Acceptable for
+// a destroy-path that runs rarely (workspace archival / node failover).
+func (m *Manager) cleanupWorkspaceEntriesLocked(sandboxID string) {
+	for workspaceID, sid := range m.workspaceContainers {
+		if sid == sandboxID {
+			delete(m.workspaceContainers, workspaceID)
+			m.execLocksMu.Lock()
+			delete(m.execLocks, workspaceID)
+			m.execLocksMu.Unlock()
+			m.createLocksMu.Lock()
+			delete(m.createLocks, workspaceID)
+			m.createLocksMu.Unlock()
+			return
+		}
+	}
+}
+
 // ExecLockFor returns (and lazily creates) the per-workspace execution mutex.
 // Hold it for the duration of a run to serialize tool calls within one
 // workspace's long-lived container. Empty workspaceID returns a no-op locker
@@ -298,7 +352,7 @@ func (m *Manager) AcquireWorkspaceLock(
 	if lock == nil {
 		return nil, false
 	}
-	state, ok, _ := lock.TryAcquire(holderType, execSessionID, ownerTaskID, ttl, nodeGeneration, time.Now())
+	state, ok, _ := lock.TryAcquire(workspaceID, holderType, execSessionID, ownerTaskID, ttl, nodeGeneration, time.Now())
 	return state, ok
 }
 
@@ -327,7 +381,16 @@ func (m *Manager) CreateSandbox(spec SandboxSpec) (*Sandbox, error) {
 	// idempotent on the disk level (LXC resumes an existing rootfs), but
 	// short-circuiting here keeps the in-memory map and the workspace index
 	// consistent across concurrent callers.
+	//
+	// Serialize the check-then-create by WorkspaceID so two concurrent
+	// CreateSandbox calls for the same workspace cannot both pass the
+	// existence check and both invoke provider.Create (TOCTOU). Different
+	// workspaces still create in parallel.
 	if spec.WorkspaceID != "" {
+		if createLock := m.createLockFor(spec.WorkspaceID); createLock != nil {
+			createLock.Lock()
+			defer createLock.Unlock()
+		}
 		if existing, ok := m.GetByWorkspace(spec.WorkspaceID); ok {
 			slog.Info("workspace sandbox reused", "workspace_id", spec.WorkspaceID, "sandbox_id", existing.ID)
 			return existing, nil
@@ -406,7 +469,13 @@ func (m *Manager) checkAdmission(spec SandboxSpec) error {
 	// skip the cap check when CreateSandbox already resolved an existing one.
 	// (The reuse short-circuit happens before checkAdmission is called, so
 	// reaching here means we're about to create something new.)
-	if spec.WorkspaceID != "" {
+	//
+	// Classify by spec.Persistent (NOT spec.WorkspaceID): prepareSpec sets
+	// Persistent=true for package-install/browser/persistent profiles even
+	// when WorkspaceID is empty, and counting above also uses sb.Persistent.
+	// Gating on WorkspaceID would admit a persistent-profile sandbox with
+	// no workspace under the ephemeral cap, letting both caps be exceeded.
+	if spec.Persistent {
 		if persistentCap > 0 && persistent >= persistentCap {
 			return fmt.Errorf("%w: %d/%d persistent sandboxes", ErrTooManySandboxes, persistent, persistentCap)
 		}
@@ -419,8 +488,9 @@ func (m *Manager) checkAdmission(spec SandboxSpec) error {
 	// Memory reserve check for persistent containers (each LXC rootfs +
 	// runtime easily consumes hundreds of MB). Ephemeral containers are
 	// bounded by docker cgroup limits already; only gate the long-lived ones.
+	// Same Persistent/WorkspaceID rationale as the cap gate above.
 	reserveMB := cfg.Sandbox.MemReserveMB
-	if spec.WorkspaceID != "" && reserveMB > 0 {
+	if spec.Persistent && reserveMB > 0 {
 		availMB, err := availableMemoryMB()
 		if err == nil && availMB < uint64(reserveMB) {
 			return fmt.Errorf("%w: %dMB free < %dMB reserve", ErrInsufficientMemory, availMB, reserveMB)
@@ -564,6 +634,7 @@ func (m *Manager) DestroySandbox(sandboxID string) error {
 
 	m.mu.Lock()
 	delete(m.sandboxes, sandboxID)
+	m.cleanupWorkspaceEntriesLocked(sandboxID)
 	m.mu.Unlock()
 
 	if m.store != nil {
@@ -643,6 +714,7 @@ func (m *Manager) DestroySandboxForce(sandboxID string) error {
 
 	m.mu.Lock()
 	delete(m.sandboxes, sandboxID)
+	m.cleanupWorkspaceEntriesLocked(sandboxID)
 	m.mu.Unlock()
 
 	if m.store != nil {

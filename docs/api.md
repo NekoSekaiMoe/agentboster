@@ -391,11 +391,11 @@ Batch-write tool activity log entries. Auth: agentd-key.
 ### POST /api/agentd/v1/llm-proxy
 Proxy LLM completion requests to the configured AI provider. Auth: agentd-key.
 
-### GET /api/agentd/v1/workspaces
-Get or list workspaces by id/project_id/agent_id. Auth: agentd-key.
+### GET /api/agentd/v1/project-sandboxes
+Get or list project sandboxes by id/project_id/agent_id. Auth: agentd-key.
 
-### POST /api/agentd/v1/workspaces
-Create a new workspace. Auth: agentd-key.
+### POST /api/agentd/v1/project-sandboxes
+Create a new project sandbox. Auth: agentd-key.
 
 ---
 

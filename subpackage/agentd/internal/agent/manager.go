@@ -444,6 +444,41 @@ func (m *Manager) SnapshotWorkspaceLock(workspaceID string) *sandbox.WorkspaceLo
 	return m.sbManager.SnapshotWorkspaceLock(workspaceID)
 }
 
+// acquireWorkspaceLockOrCancel races a blocking sync.Mutex.Lock() against
+// ctx cancellation. It returns (true, release) when the lock was acquired
+// (the caller MUST defer both cancel() and lock.Unlock()), or
+// (false, release) if ctx was cancelled first.
+//
+// The release func is always non-nil and safe to defer: when the lock was
+// acquired it's a no-op (the caller owns the Unlock); when ctx won the race,
+// release drains the still-pending goroutine and releases the lock the
+// moment it finally acquires, so the goroutine never leaks holding the lock.
+//
+// NOTE: there is an inherent race — ctx can fire in the window AFTER the
+// goroutine acquires the lock but BEFORE we observe it. In that case the
+// caller treats it as cancelled and the release func performs the Unlock,
+// which is correct (we briefly held the lock and freed it). This is the
+// standard Go "lock with context" idiom for plain sync.Mutex.
+func acquireWorkspaceLockOrCancel(ctx context.Context, lock sync.Locker) (acquired bool, release func()) {
+	lockAcquired := make(chan struct{})
+	go func() {
+		lock.Lock()
+		close(lockAcquired)
+	}()
+	select {
+	case <-lockAcquired:
+		return true, func() {} // caller owns the Unlock
+	case <-ctx.Done():
+		// ctx beat us. Wait for the goroutine to finish (it still holds the
+		// lock once it acquires it) and Unlock on its behalf so it can't leak.
+		go func() {
+			<-lockAcquired
+			lock.Unlock()
+		}()
+		return false, func() {}
+	}
+}
+
 // ExecuteTool executes a single tool synchronously in the agent's sandbox.
 // This is the primary execution path when Agent Daemon is online.
 func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolExecResponse, error) {
@@ -467,11 +502,19 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	m.wireSessionRuntime(agentCtx)
 	agentCtx.TaskID = req.TaskID
 	// M0b: lazily bind a long-lived LXC container for the workspace. When
-	// the request carries a WorkspaceID and the session doesn't already
-	// have a sandbox, create (or reuse) the workspace-scoped persistent
-	// container. Short-lived docker containers are created by the worker
-	// path, not here — this is the chat-run path only.
-	if req.WorkspaceID != "" && agentCtx.SandboxID == "" {
+	// the request carries a WorkspaceID, prefer the workspace-scoped
+	// persistent container over the ephemeral docker sandbox that
+	// CreateSession always provisions. CreateSandbox is idempotent on the
+	// same WorkspaceID (returns the existing container), so re-binding on
+	// every workspace request is cheap and correct.
+	//
+	// The previous `agentCtx.SandboxID == ""` guard was effectively dead:
+	// CreateSession always assigns a docker sandbox, and loaded sessions
+	// carry their persisted SandboxID too — so the workspace container was
+	// never actually bound here, leaving WorkspaceID to influence only the
+	// ExecLock serialization. This now binds (or re-binds) the persistent
+	// container whenever a workspace is requested.
+	if req.WorkspaceID != "" {
 		ws, err := m.sbManager.CreateSandbox(sandbox.SandboxSpec{
 			Type:        "lxc",
 			Persistent:  true,
@@ -481,6 +524,8 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 			slog.Warn("workspace sandbox lazy-create failed; falling back to ephemeral", "workspace_id", req.WorkspaceID, "error", err)
 		} else {
 			agentCtx.SandboxID = ws.ID
+			agentCtx.SandboxType = ws.Type
+			agentCtx.SandboxPath = ws.Path
 		}
 	}
 	if len(toolInput) == 0 {
@@ -519,10 +564,21 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	// M0b: serialize tool execution per workspace so two concurrent runs in
 	// the same long-lived container don't interleave commands. The lock is
 	// a no-op when WorkspaceID is empty (legacy / short-lived docker path).
-	// M1 will upgrade this to a holder-aware WorkspaceLock with TTL + busy
-	// rejection; for now it's a blocking mutex that simply serializes.
+	//
+	// Context-aware acquire: the underlying ExecLockFor returns a plain
+	// sync.Mutex whose Lock() never consults the request context. A request
+	// blocked here would ignore ctx cancellation and keep occupying a
+	// semaphore slot until the holder releases, piling up requests toward
+	// 503 under the TimeoutMiddleware. We instead race the Lock against
+	// ctx.Done() and return a clear cancellation error if ctx beats us, so
+	// the goroutine exits promptly. On success the deferred Unlock still
+	// runs.
 	workspaceLock := m.sbManager.ExecLockFor(req.WorkspaceID)
-	workspaceLock.Lock()
+	acquired, cancel := acquireWorkspaceLockOrCancel(ctx, workspaceLock)
+	defer cancel()
+	if !acquired {
+		return nil, fmt.Errorf("workspace %s: execution cancelled while waiting for lock: %w", req.WorkspaceID, ctx.Err())
+	}
 	defer workspaceLock.Unlock()
 
 	startedAt := time.Now()

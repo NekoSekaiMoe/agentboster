@@ -457,8 +457,8 @@ func (s *Server) handleWorkspaceLockAcquire(c *gin.Context) {
 	if !ok {
 		c.JSON(http.StatusConflict, gin.H{
 			"success": false,
-			"error":    "busy",
-			"holder":  state,
+			"error":   "busy",
+			"data":    gin.H{"holder": state},
 		})
 		return
 	}
@@ -467,9 +467,10 @@ func (s *Server) handleWorkspaceLockAcquire(c *gin.Context) {
 
 // handleWorkspaceLockRelease frees a workspace run lock. Body:
 //   { exec_session_id }
-// Returns 200 { success:true, released: bool }. A mismatched exec_session_id
-// releases nothing (released:false) so one run can't drop another's lock —
-// the caller treats released:false as best-effort non-fatal.
+// Returns 200 { success:true, data: { released: bool } }. A mismatched
+// exec_session_id releases nothing (data.released:false) so one run can't
+// drop another's lock — the caller treats released:false as best-effort
+// non-fatal.
 func (s *Server) handleWorkspaceLockRelease(c *gin.Context) {
 	workspaceID := c.Param("id")
 	if workspaceID == "" {
@@ -484,7 +485,7 @@ func (s *Server) handleWorkspaceLockRelease(c *gin.Context) {
 		return
 	}
 	released := s.agentMgr.ReleaseWorkspaceLock(workspaceID, body.ExecSessionID)
-	c.JSON(http.StatusOK, gin.H{"success": true, "released": released})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"released": released}})
 }
 
 func (s *Server) handleToolRead(c *gin.Context)           { s.handleToolExec(c) }

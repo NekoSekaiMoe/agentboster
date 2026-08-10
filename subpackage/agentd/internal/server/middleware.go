@@ -134,15 +134,45 @@ func RequestLogger() gin.HandlerFunc {
 	}
 }
 
+// streamingPath reports whether the request targets a long-lived /
+// streaming endpoint (WebSocket, SSE, tunnel relay) that must NOT be
+// subject to the normal request timeout or the global concurrency
+// semaphore. Streaming handlers manage their own lifecycle and can
+// legitimately outlive a per-request timeout; counting them against the
+// semaphore would also exhaust the budget on a few long connections and
+// 503 short API calls.
+//
+// Matches: /desktop/vnc (WS), /processes/:id/stream (SSE),
+// /tools/exec/stream (SSE), /t/:slug/*path (tunnel relay).
+func streamingPath(path string) bool {
+	switch {
+	case path == "/api/v1/desktop/vnc":
+		return true
+	case strings.HasPrefix(path, "/api/v1/processes/") && strings.HasSuffix(path, "/stream"):
+		return true
+	case path == "/api/v1/tools/exec/stream":
+		return true
+	case strings.HasPrefix(path, "/api/v1/t/"):
+		return true
+	}
+	return false
+}
+
 // TimeoutMiddleware cancels the request context after the given duration so a
-// stuck handler can't hold a goroutine forever. SSE/streaming endpoints opt
-// out by registering a longer timeout via the context they pass downstream.
-// 0 = disabled (legacy behavior).
+// stuck handler can't hold a goroutine forever. Streaming endpoints (SSE,
+// WebSocket, tunnels) are exempted — they manage their own lifecycle and
+// would be killed mid-stream by the timeout. 0 = disabled (legacy behavior).
 func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 	if timeout <= 0 {
 		return func(c *gin.Context) { c.Next() }
 	}
 	return func(c *gin.Context) {
+		if streamingPath(c.Request.URL.Path) {
+			// Streaming handlers own their lifecycle; let them derive a
+			// longer-lived context (e.g. tied to the WS/SSE connection).
+			c.Next()
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
 		c.Request = c.Request.WithContext(ctx)
@@ -152,12 +182,19 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 
 // SemaphoreMiddleware caps the number of concurrent in-flight requests the
 // server processes. Excess requests get 503 immediately (no queueing) so a
-// flood can't exhaust goroutines / file descriptors. nil semaphore = disabled.
+// flood can't exhaust goroutines / file descriptors. Streaming endpoints are
+// exempted (see streamingPath). nil semaphore = disabled.
 func SemaphoreMiddleware(sem *semaphore.Weighted) gin.HandlerFunc {
 	if sem == nil {
 		return func(c *gin.Context) { c.Next() }
 	}
 	return func(c *gin.Context) {
+		if streamingPath(c.Request.URL.Path) {
+			// Long-lived streams get their own budget; don't let a few SSE/WS
+			// connections starve short API requests.
+			c.Next()
+			return
+		}
 		if !sem.TryAcquire(1) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
 				"success": false,

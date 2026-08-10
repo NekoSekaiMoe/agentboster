@@ -20,6 +20,11 @@ tls_key_path = "./certs/server-key.pem"
 ca_path = "./certs/ca-cert.pem"
 # API key for ClawLess → Daemon callbacks
 clawless_api_key = "sk-clawless-xxx"
+# Concurrency + timeout for /api/v1 requests (non-streaming).
+# max_concurrent_requests caps in-flight requests (503 on overflow); 0 = unlimited.
+# request_timeout caps each request's context (streaming endpoints are exempt).
+max_concurrent_requests = 64
+request_timeout = "10m"
 
 [clawless]
 base_url = "http://localhost:3000"
@@ -54,6 +59,14 @@ high = 0.9
 [sandbox]
 # Default sandbox type: "docker" (light), "docker-strict", or "lxc" (persistent)
 default = "docker"
+# Admission control (M3.1). 0 = unlimited (legacy behavior).
+# max_persistent_sandboxes caps how many long-lived LXC workspace containers
+# can coexist; max_ephemeral_sandboxes caps concurrently-live short-lived
+# docker sandboxes. mem_reserve_mb rejects new persistent containers when
+# host free memory drops below this reserve.
+max_persistent_sandboxes = 20
+max_ephemeral_sandboxes = 50
+mem_reserve_mb = 512
 # Prefer rootless Docker and use the matching [security].run_as_user.
 docker_socket = "unix:///run/user/1001/docker.sock"
 # Rootful Docker's /var/run/docker.sock is root-equivalent. To use it anyway,

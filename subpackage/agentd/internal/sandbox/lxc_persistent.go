@@ -84,8 +84,15 @@ func (p *LXCPersistentProvider) Create(spec SandboxSpec) (*Sandbox, error) {
 	// boot sleep) so bursty workspace creation doesn't race on the image
 	// template cache or stack up sleeps. Resume (existing rootfs) also flows
 	// through here for simplicity; the semaphore is released on return.
+	//
+	// SandboxSpec carries no ctx today, so we Acquire against
+	// context.Background(). Handle the error anyway: if Acquire fails we
+	// must NOT proceed (and must NOT call the deferred Release, which would
+	// underflow the semaphore and block subsequent Create calls forever).
 	if p.createSem != nil {
-		p.createSem.Acquire(context.Background(), 1)
+		if err := p.createSem.Acquire(context.Background(), 1); err != nil {
+			return nil, fmt.Errorf("acquire lxc create slot: %w", err)
+		}
 		defer p.createSem.Release(1)
 	}
 
