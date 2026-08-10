@@ -75,7 +75,10 @@ export async function buildAgentTools(
   const writable = options.writable;
   const userId = options.userId;
   const source = options.source;
-  const workspaceLockAcquired = options.workspaceLockAcquired;
+  // Fail-closed: when the caller doesn't plumb lock state we must NOT
+  // claim the workspace lock is held — omitting workspace_id (ephemeral
+  // container) is the safe default.
+  const workspaceLockAcquired = options.workspaceLockAcquired ?? false;
   const buildNestedTools = (nestedOptions: BuildAgentToolsOptions = {}) =>
     buildAgentTools(config, sessionId, {
       runId,

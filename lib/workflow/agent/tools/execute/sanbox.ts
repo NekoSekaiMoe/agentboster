@@ -140,8 +140,8 @@ async function execOnAgentd(
   sessionId: string,
   toolName: string,
   toolInput: Record<string, unknown>,
-  nodeId?: string,
-  workspaceLockAcquired?: boolean,
+  nodeId: string | undefined,
+  workspaceLockAcquired: boolean,
 ): Promise<{
   success: boolean;
   data?: string;

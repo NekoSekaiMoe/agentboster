@@ -111,6 +111,10 @@ async function materializeAndRunOnAgentd(input: {
   sessionId: string;
   nodeId?: string;
   allowedNodes?: readonly string[];
+  /** Lock state for this run; forwarded verbatim to execToolOnAgentd so
+   *  the busy-fallback path suppresses workspace_id (ephemeral
+   *  container) instead of silently binding the workspace container. */
+  workspaceLockAcquired: boolean;
   skillName: string;
   entrypoint: string;
   runtime: 'python' | 'bash';
@@ -167,6 +171,7 @@ async function materializeAndRunOnAgentd(input: {
       },
       pinnedNodeId,
       input.allowedNodes,
+      input.workspaceLockAcquired,
     );
   } catch (err) {
     syncErrors.push({
@@ -189,6 +194,7 @@ async function materializeAndRunOnAgentd(input: {
         },
         pinnedNodeId,
         input.allowedNodes,
+        input.workspaceLockAcquired,
       );
       if (!writeResult.success) {
         syncErrors.push({
@@ -218,6 +224,7 @@ async function materializeAndRunOnAgentd(input: {
       },
       pinnedNodeId,
       input.allowedNodes,
+      input.workspaceLockAcquired,
     );
     return { syncErrors, execResult, execError: null };
   } catch (err) {
@@ -419,6 +426,10 @@ export default defineBuildInTool({
       ctx?.appConfig && ctx.agentName
         ? (ctx.appConfig.agents?.[ctx.agentName]?.allowed_nodes ?? undefined)
         : undefined;
+    // Fail-closed when the context doesn't carry lock state: false
+    // suppresses workspace_id (ephemeral container) rather than
+    // silently binding the long-lived workspace container.
+    const workspaceLockAcquired = ctx?.workspaceLockAcquired ?? false;
     return {
       listSkills: tool({
         title: 'List Skills',
@@ -777,6 +788,7 @@ export default defineBuildInTool({
               sessionId,
               nodeId,
               allowedNodes,
+              workspaceLockAcquired,
               skillName: name,
               entrypoint,
               runtime,

@@ -86,7 +86,7 @@ async function dispatchBrowserTool(input: {
   /** Whether the per-workspace run lock was acquired this run. When false,
    *  suppress workspace_id so agentd uses a short-lived ephemeral container
    *  instead of binding the long-lived workspace container. */
-  workspaceLockAcquired?: boolean;
+  workspaceLockAcquired: boolean;
 }): Promise<{
   content: Array<
     | { type: 'text'; text: string }

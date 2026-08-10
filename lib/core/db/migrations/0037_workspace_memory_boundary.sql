@@ -46,6 +46,10 @@
 -- deployment grows long_term_memories enough for this to matter, run the
 -- CONCURRENTLY equivalents manually in a maintenance window instead of
 -- replaying this file.
+-- (The DROP-before-CREATE order for long_term_memories_user_project_key_idx
+-- is also forced by name reuse: the replacement index keeps the same name,
+-- so a create-first swap would need a temporary name plus RENAME — pointless
+-- on tables this small.)
 
 -- workspace_id columns first: on a replay-only DB these don't exist yet and
 -- every statement below that references them would fail.

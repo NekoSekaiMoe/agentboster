@@ -23,11 +23,14 @@
 /**
  * Synchronous tool execution request, sent to `/api/v1/tools/:name`.
  *
- * The Web client (`lib/extra/agent/agentd-tools-client.ts`) currently
- * sends only `session_id` / `tool_name` / `tool_input`; the daemon
+ * The Web client (`lib/extra/agent/agentd-tools-client.ts`) sends
+ * `session_id` / `tool_name` / `tool_input`, plus `workspace_id` when
+ * the per-workspace run lock is held; the daemon
  * also accepts `task_id` / `user_id` / `roles` so it can authorize
- * and audit without a separate lookup. All optional fields are
- * omitted by the Web client today.
+ * and audit without a separate lookup, and `workspace_id` to scope
+ * the long-lived container + exec lock (M0b; the Web client sends it
+ * whenever the per-workspace run lock is held). Other optional fields
+ * are omitted by the Web client today.
  */
 export interface ToolExecRequest {
   session_id: string;
@@ -36,6 +39,7 @@ export interface ToolExecRequest {
   tool_input: Record<string, unknown>;
   user_id?: string;
   roles?: string[];
+  workspace_id?: string;
 }
 
 // Source: subpackage/agentd/internal/agent/manager.go:417-422
