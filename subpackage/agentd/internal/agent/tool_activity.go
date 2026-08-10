@@ -24,16 +24,21 @@ func (l *AgentLoop) completeToolCall(ctx context.Context, call *ToolCall, result
 	completedAt := time.Now()
 	l.writeToolActivityLog(ctx, call, result, string(resultJSON), startedAt, completedAt)
 
-	l.agentCtx.RecentToolCalls = append(l.agentCtx.RecentToolCalls, ToolCallRecord{
-		Tool:    call.Name,
-		Args:    string(call.Arguments),
-		Result:  result.Data,
-		Success: result.Success,
-		Time:    completedAt,
+	// RecentToolCalls is shared session state (read by session
+	// serialization and BuildSystemPromptContext consumers); append/trim
+	// under the per-session state lock. Nil/no-op for sub-agent loops.
+	l.agentCtx.WithStateLock(func() {
+		l.agentCtx.RecentToolCalls = append(l.agentCtx.RecentToolCalls, ToolCallRecord{
+			Tool:    call.Name,
+			Args:    string(call.Arguments),
+			Result:  result.Data,
+			Success: result.Success,
+			Time:    completedAt,
+		})
+		if len(l.agentCtx.RecentToolCalls) > 5 {
+			l.agentCtx.RecentToolCalls = l.agentCtx.RecentToolCalls[len(l.agentCtx.RecentToolCalls)-5:]
+		}
 	})
-	if len(l.agentCtx.RecentToolCalls) > 5 {
-		l.agentCtx.RecentToolCalls = l.agentCtx.RecentToolCalls[len(l.agentCtx.RecentToolCalls)-5:]
-	}
 
 	l.messages = append(l.messages, Message{
 		Role:       "tool",

@@ -79,10 +79,14 @@ func registerSandboxDestroy(registry *ToolRegistry, sbMgr *sandbox.Manager, ctx 
 
 		// Clear the context so subsequent tool calls fail fast and the
 		// next session creates a fresh sandbox instead of reusing the
-		// dead ID.
-		ctx.SandboxID = ""
-		ctx.SandboxPath = ""
-		ctx.SandboxState = SandboxInfo{}
+		// dead ID. Guarded by the per-session state lock: HTTP handlers
+		// (exec_stream/tunnels/vnc/processes/checkpoint) read SandboxID
+		// concurrently.
+		ctx.WithStateLock(func() {
+			ctx.SandboxID = ""
+			ctx.SandboxPath = ""
+			ctx.SandboxState = SandboxInfo{}
+		})
 
 		slog.Info("sandbox_destroy tool: destroyed",
 			"session_id", ctx.SessionID,

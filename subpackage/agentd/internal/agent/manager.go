@@ -41,14 +41,31 @@ type Manager struct {
 	execCollector *workers.BatchCollector
 	disabledTools []string
 
-	// persistLocks serializes sessionStore.Put persistence writes per
-	// session so two concurrent ExecuteTool calls for the same session
-	// can't interleave their persistence updates. Guarded by
-	// persistLocksMu; mirrors the createLocks/execLocks map discipline
-	// in the sandbox manager. Entries are deleted on session close/
-	// destroy.
-	persistLocksMu sync.Mutex
-	persistLocks   map[string]*sync.Mutex
+	// sessionLocks is the per-session state lock registry. Each entry
+	// serializes (a) sessionStore.Put persistence writes and (b) all
+	// mutations of the shared *AgentContext in m.sessions (loop-progress
+	// state, pre-loop config/prompt commits, wireSessionRuntime pointer
+	// wiring) against concurrent readers (status endpoints, serialization
+	// paths, HTTP handlers) and against ExecuteTool's shallow copy. It
+	// grew out of the persist-only lock added in 62445c0; the two roles
+	// share one lock because they protect the same struct and contention
+	// is low (brief critical sections, I/O kept outside).
+	//
+	// The lock pointer is also stashed on AgentContext.stateLock so the
+	// agent loop, tools, and server handlers can guard access without
+	// threading the Manager through every call site.
+	//
+	// Guarded by sessionLocksMu; mirrors the createLocks/execLocks map
+	// discipline in the sandbox manager. Entries are deleted on session
+	// close/destroy (holders that already fetched the pointer keep a
+	// valid lock; a re-created session with the same ID gets a fresh
+	// struct AND a fresh lock, so no aliasing).
+	//
+	// LOCK ORDERING (acyclic, never invert):
+	//	m.mu → m.sessionLocksMu → sessionLocks[sessionID] (== ctx.stateLock)
+	// Code holding a session lock MUST NOT acquire m.mu or sessionLocksMu.
+	sessionLocksMu sync.Mutex
+	sessionLocks   map[string]*sync.Mutex
 }
 
 // NewManager creates a new agent manager.
@@ -84,7 +101,7 @@ func NewManager(
 		llmAPIKey:     cfg.Security.L1APIKey,
 		sessionStore:  store,
 		disabledTools: cfg.Tools.Disabled,
-		persistLocks:  make(map[string]*sync.Mutex),
+		sessionLocks:  make(map[string]*sync.Mutex),
 	}
 	return m
 }
@@ -93,10 +110,16 @@ func NewManager(
 func (m *Manager) QuestionService(sessionID string) *QuestionService {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if ctx, ok := m.sessions[sessionID]; ok {
-		return ctx.QuestionService
+	ctx, ok := m.sessions[sessionID]
+	if !ok {
+		return nil
 	}
-	return nil
+	// Guarded by the session state lock: wireSessionRuntime may be
+	// re-wiring the pointer concurrently (RunAgent/ExecuteTool hold the
+	// session lock, not m.mu, when they wire).
+	var svc *QuestionService
+	ctx.WithStateLock(func() { svc = ctx.QuestionService })
+	return svc
 }
 
 // SetBus sets the event bus.
@@ -116,7 +139,10 @@ func (m *Manager) SetExecCollector(collector *workers.BatchCollector) {
 	defer m.mu.Unlock()
 	m.execCollector = collector
 	for _, ctx := range m.sessions {
-		m.wireSessionRuntime(ctx)
+		// m.mu is held; wireSessionRuntime additionally takes the
+		// per-session state lock (order m.mu → stateLock) so ExecuteTool's
+		// shallow copy / RunAgent's commit can't observe a half-wired set.
+		ctx.WithStateLock(func() { m.wireSessionRuntime(ctx) })
 	}
 }
 
@@ -160,27 +186,38 @@ func (m *Manager) GetSandboxManager() *sandbox.Manager {
 	return m.sbManager
 }
 
-// persistLockFor returns (lazily creating) the per-session mutex that
-// serializes sessionStore.Put calls for a session.
-func (m *Manager) persistLockFor(sessionID string) *sync.Mutex {
-	m.persistLocksMu.Lock()
-	defer m.persistLocksMu.Unlock()
-	lock, ok := m.persistLocks[sessionID]
+// sessionLockFor returns (lazily creating) the per-session state lock
+// that serializes sessionStore.Put calls AND shared-AgentContext state
+// access for a session. See the sessionLocks field doc for the locking
+// discipline and ordering.
+func (m *Manager) sessionLockFor(sessionID string) *sync.Mutex {
+	m.sessionLocksMu.Lock()
+	defer m.sessionLocksMu.Unlock()
+	lock, ok := m.sessionLocks[sessionID]
 	if !ok {
 		lock = &sync.Mutex{}
-		m.persistLocks[sessionID] = lock
+		m.sessionLocks[sessionID] = lock
 	}
 	return lock
 }
 
-// deletePersistLock drops the per-session persist lock entry. Called
+// deleteSessionLock drops the per-session state lock entry. Called
 // from CloseSession/DestroySession (which already hold m.mu) so the map
 // doesn't grow with dead sessions.
-func (m *Manager) deletePersistLock(sessionID string) {
-	m.persistLocksMu.Lock()
-	defer m.persistLocksMu.Unlock()
-	delete(m.persistLocks, sessionID)
+func (m *Manager) deleteSessionLock(sessionID string) {
+	m.sessionLocksMu.Lock()
+	defer m.sessionLocksMu.Unlock()
+	delete(m.sessionLocks, sessionID)
 }
+
+// wireSessionRuntime wires manager-level pointers (question service,
+// background-task store, exec bus/collector) onto a session context.
+//
+// CONCURRENCY: callers must hold EITHER m.mu (session creation/load
+// paths, SetExecCollector) OR the session's state lock (RunAgent,
+// ExecuteTool) — never call it bare. The writes are idempotent pointer
+// assignments, but unsynchronized they race with ExecuteTool's
+// whole-struct shallow copy and with QuestionService()/tool readers.
 
 func (m *Manager) wireSessionRuntime(ctx *AgentContext) {
 	if ctx.QuestionService == nil {
@@ -232,6 +269,10 @@ func (m *Manager) CreateSession(sessionID, agentID string) (*AgentContext, error
 		ExecBus:         m.bus,
 		ExecCollector:   m.execCollector,
 	}
+	// Attach the per-session state lock BEFORE publishing the session.
+	// Order m.mu (held) → sessionLocksMu is respected; the lock is not
+	// acquired here, only created.
+	ctx.stateLock = m.sessionLockFor(sessionID)
 
 	m.sessions[sessionID] = ctx
 
@@ -259,17 +300,23 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Save current session context to store
+	// Save current session context to store. The state lock serializes
+	// the LastAccessTime write + serialization against a concurrently
+	// running agent loop (which mutates SessionSummary/RecentToolCalls
+	// under the same lock). Order m.mu (held) → stateLock is respected.
 	if currentCtx, ok := m.sessions[currentSessionID]; ok {
-		currentCtx.LastAccessTime = time.Now()
-		if err := m.sessionStore.Put(currentSessionID, agentContextToData(currentCtx)); err != nil {
-			slog.Warn("failed to save session on switch", "session_id", currentSessionID, "error", err)
-		}
+		currentCtx.WithStateLock(func() {
+			currentCtx.LastAccessTime = time.Now()
+			if err := m.sessionStore.Put(currentSessionID, agentContextToData(currentCtx)); err != nil {
+				slog.Warn("failed to save session on switch", "session_id", currentSessionID, "error", err)
+			}
+		})
 	}
 
 	// Try to load new session from store
 	if data, err := m.sessionStore.Load(newSessionID); err == nil {
 		ctx := dataToAgentContext(data)
+		ctx.stateLock = m.sessionLockFor(newSessionID)
 		m.sessions[newSessionID] = ctx
 
 		if m.bus != nil {
@@ -313,6 +360,7 @@ func (m *Manager) SwitchSession(currentSessionID, newSessionID, agentID string) 
 		ExecBus:         m.bus,
 		ExecCollector:   m.execCollector,
 	}
+	ctx.stateLock = m.sessionLockFor(newSessionID)
 
 	m.sessions[newSessionID] = ctx
 
@@ -349,12 +397,15 @@ func (m *Manager) CloseSession(sessionID string) error {
 		return nil
 	}
 
-	ctx.LastAccessTime = time.Now()
-
-	// Save to store
-	if err := m.sessionStore.Put(sessionID, agentContextToData(ctx)); err != nil {
-		slog.Warn("failed to save session on close", "session_id", sessionID, "error", err)
-	}
+	// Serialize the LastAccessTime write + serialization against the
+	// agent loop (order m.mu held → stateLock).
+	ctx.WithStateLock(func() {
+		ctx.LastAccessTime = time.Now()
+		// Save to store
+		if err := m.sessionStore.Put(sessionID, agentContextToData(ctx)); err != nil {
+			slog.Warn("failed to save session on close", "session_id", sessionID, "error", err)
+		}
+	})
 
 	// Destroy sandbox (force-destroy: LXC rootfs is torn down too,
 	// not just stopped, because the session is going away permanently).
@@ -371,7 +422,7 @@ func (m *Manager) CloseSession(sessionID string) error {
 	}
 
 	delete(m.sessions, sessionID)
-	m.deletePersistLock(sessionID)
+	m.deleteSessionLock(sessionID)
 
 	if m.bus != nil {
 		m.bus.Publish(eventbus.EventSessionClosed, map[string]any{
@@ -397,26 +448,44 @@ func (m *Manager) RunAgent(ctx context.Context, sessionID, userMessage string) (
 	if !ok {
 		return "", fmt.Errorf("session %s not found", sessionID)
 	}
-	m.wireSessionRuntime(agentCtx)
 
-	// Fetch SOUL content for this session
-	agentCtx.SoulContent = m.fetchSoulContent(ctx, sessionID)
-
+	// Pre-loop derivation happens in LOCALS, without holding the session
+	// state lock: fetchSoulContent/fetchAgentConfig do network I/O (5s
+	// timeout) and loadAgentsMdForPath scans the filesystem, none of
+	// which should block status readers. They only read fields that are
+	// immutable after session creation (AgentID, SandboxPath, ProjectID),
+	// so the unlocked reads are safe.
+	soulContent := m.fetchSoulContent(ctx, sessionID)
 	// P1.1/P1.2: fetch per-agent config so per-agent sandbox defaults,
 	// MCP enablement, and resource knobs are honored.
-	agentCtx.AgentConfig = m.fetchAgentConfig(ctx, agentCtx.AgentID)
-
-	// Build system prompt with project context and SOUL
+	agentCfg := m.fetchAgentConfig(ctx, agentCtx.AgentID)
 	customPrompt := ""
-	if agentCtx.AgentConfig != nil {
-		customPrompt = agentCtx.AgentConfig.SystemPrompt
+	if agentCfg != nil {
+		customPrompt = agentCfg.SystemPrompt
 	}
-	agentsMd := m.loadAgentsMdForCtx(agentCtx)
-	agentCtx.SystemPrompt = buildSystemPrompt(agentCtx.ProjectID, "", agentCtx.SoulContent, customPrompt, agentsMd)
+	agentsMd, agentsMdWarning := m.loadAgentsMdForPath(agentCtx.SandboxPath, sessionID)
+	systemPrompt := buildSystemPrompt(agentCtx.ProjectID, "", soulContent, customPrompt, agentsMd)
+
+	// Commit the derived config/prompt state onto the shared session
+	// struct under the per-session state lock, together with the
+	// runtime-pointer wiring. This is the ONLY place RunAgent mutates
+	// the shared struct before the loop; the loop's own progress
+	// mutations (SessionSummary/RecentToolCalls/TaskState) take the same
+	// lock per mutation via AgentContext.WithStateLock, so status
+	// readers and ExecuteTool's shallow copy always observe a consistent
+	// struct.
+	agentCtx.WithStateLock(func() {
+		m.wireSessionRuntime(agentCtx)
+		agentCtx.SoulContent = soulContent
+		agentCtx.AgentConfig = agentCfg
+		agentCtx.AgentsMd = agentsMd
+		agentCtx.AgentsMdWarning = agentsMdWarning
+		agentCtx.SystemPrompt = systemPrompt
+		m.injectToolLayerDeps(agentCtx)
+	})
 
 	// Create tool registry with all MVP tools
 	registry := NewToolRegistry(m.disabledTools)
-	m.injectToolLayerDeps(agentCtx)
 	RegisterAllTools(registry, m.sbManager, m.lspManager, m.clawless, agentCtx)
 
 	// Create agent loop
@@ -556,10 +625,19 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 			return nil, fmt.Errorf("create session for tool exec: %w", err)
 		}
 	}
-	m.wireSessionRuntime(agentCtx)
 
-	// Execution-local context: a shallow copy of the shared session
-	// context, made IMMEDIATELY after reading the session from m.sessions.
+	// Under the per-session state lock: (re)wire the manager-level
+	// runtime pointers (idempotent; covers sessions created before
+	// SetBus/SetBGTaskStore/SetExecCollector ran), then take the
+	// execution-local shallow copy. Holding the lock across both means
+	// the copy can never observe a half-wired or half-committed struct
+	// (RunAgent commits its pre-loop config under the same lock).
+	stateLock := m.sessionLockFor(sessionID)
+	stateLock.Lock()
+	m.wireSessionRuntime(agentCtx)
+	execCtx := *agentCtx
+	stateLock.Unlock()
+
 	// Everything request-scoped below — TaskID, the request identity
 	// (UserID/Roles/Source), LastAccessTime, SOUL content, per-agent
 	// config, the workspace sandbox binding, AGENTS.md/system-prompt
@@ -568,7 +646,6 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	// shared agentCtx struct in m.sessions. The shared struct is never
 	// written after this point; sessionStore persistence, execCtx, and
 	// tool registration all use the copy.
-	execCtx := *agentCtx
 	execCtx.TaskID = req.TaskID
 	if len(toolInput) == 0 {
 		toolInput = map[string]any{}
@@ -585,15 +662,18 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	execCtx.LastAccessTime = time.Now()
 
 	// Persist the refreshed identity/access time from the copy. The
-	// per-session persist lock serializes concurrent ExecuteTool calls so
+	// per-session state lock serializes concurrent ExecuteTool calls so
 	// two racing requests can't interleave sessionStore.Put for the same
 	// session (the Put is a read-modify-write of the persisted state).
-	persistLock := m.persistLockFor(sessionID)
-	persistLock.Lock()
+	// This is the same lock that guards shared-struct mutations; the
+	// critical section only touches the private execCtx copy plus the
+	// store, and RunAgent's loop mutations are brief, so contention is
+	// minimal.
+	stateLock.Lock()
 	if err := m.sessionStore.Put(sessionID, agentContextToData(&execCtx)); err != nil {
 		slog.Warn("failed to persist session identity", "session_id", sessionID, "error", err)
 	}
-	persistLock.Unlock()
+	stateLock.Unlock()
 
 	// Fetch SOUL and per-agent config into the copy. These are
 	// workspace-independent, so they are fetched ahead of the workspace
@@ -774,20 +854,27 @@ func (m *Manager) GetSessionStatus(sessionID string) (map[string]any, bool) {
 	defer m.mu.RUnlock()
 	ctx, ok := m.sessions[sessionID]
 	if !ok {
-		// Try loading from store
+		// Try loading from store. The loaded context is a fresh,
+		// single-goroutine-owned struct (never published to m.sessions),
+		// so no state lock is needed below.
 		if data, err := m.sessionStore.Load(sessionID); err == nil {
 			ctx = dataToAgentContext(data)
 		} else {
 			return nil, false
 		}
 	}
-	return map[string]any{
-		"session_id":       ctx.SessionID,
-		"sandbox_id":       ctx.SandboxID,
-		"sandbox_type":     ctx.SandboxType,
-		"sandbox_path":     ctx.SandboxPath,
-		"compaction_count": ctx.TaskState.CompactionCount,
-	}, true
+	// For shared (in-memory) sessions, snapshot under the per-session
+	// state lock: the agent loop bumps TaskState.CompactionCount during
+	// compaction and RunAgent commits sandbox/config state concurrently.
+	status := map[string]any{}
+	ctx.WithStateLock(func() {
+		status["session_id"] = ctx.SessionID
+		status["sandbox_id"] = ctx.SandboxID
+		status["sandbox_type"] = ctx.SandboxType
+		status["sandbox_path"] = ctx.SandboxPath
+		status["compaction_count"] = ctx.TaskState.CompactionCount
+	})
+	return status, true
 }
 
 // GetAllSessionStatuses returns all active session statuses.
@@ -796,11 +883,15 @@ func (m *Manager) GetAllSessionStatuses() []map[string]any {
 	defer m.mu.RUnlock()
 	result := make([]map[string]any, 0, len(m.sessions))
 	for id, ctx := range m.sessions {
-		result = append(result, map[string]any{
-			"session_id":       id,
-			"sandbox_id":       ctx.SandboxID,
-			"sandbox_type":     ctx.SandboxType,
-			"compaction_count": ctx.TaskState.CompactionCount,
+		// Per-session state lock per entry (order m.mu → stateLock; one
+		// session lock at a time, never nested).
+		ctx.WithStateLock(func() {
+			result = append(result, map[string]any{
+				"session_id":       id,
+				"sandbox_id":       ctx.SandboxID,
+				"sandbox_type":     ctx.SandboxType,
+				"compaction_count": ctx.TaskState.CompactionCount,
+			})
 		})
 	}
 	return result
@@ -870,7 +961,7 @@ func (m *Manager) DestroySession(sessionID string) error {
 	}
 
 	delete(m.sessions, sessionID)
-	m.deletePersistLock(sessionID)
+	m.deleteSessionLock(sessionID)
 
 	// Delete from disk
 	if err := m.sessionStore.Delete(sessionID); err != nil {
@@ -1022,25 +1113,38 @@ func (m *Manager) fetchAgentConfig(ctx context.Context, agentID string) *clawles
 //
 // The warning (if any) is stashed on the context so callers can surface it as
 // a session warning later; it does not block prompt construction.
+//
+// CONCURRENCY: this writes agentCtx.AgentsMd/AgentsMdWarning. Callers must
+// either pass a single-goroutine-owned context (ExecuteTool's execCtx copy)
+// or hold the session state lock. RunAgent uses loadAgentsMdForPath instead
+// and commits the result under the lock.
 func (m *Manager) loadAgentsMdForCtx(agentCtx *AgentContext) string {
 	if agentCtx == nil {
 		return ""
 	}
-	if strings.TrimSpace(agentCtx.SandboxPath) == "" {
-		agentCtx.AgentsMd = ""
-		agentCtx.AgentsMdWarning = ""
-		return ""
+	content, warning := m.loadAgentsMdForPath(agentCtx.SandboxPath, agentCtx.SessionID)
+	agentCtx.AgentsMd = content
+	agentCtx.AgentsMdWarning = warning
+	return content
+}
+
+// loadAgentsMdForPath is the pure (no AgentContext mutation) core of
+// loadAgentsMdForCtx: it scans for and merges AGENTS.md content around
+// sandboxPath and returns (content, warning). Safe to call without any
+// lock — it only touches the filesystem — so RunAgent can derive the
+// prompt inputs in locals before committing them under the state lock.
+func (m *Manager) loadAgentsMdForPath(sandboxPath, sessionID string) (content, warning string) {
+	if strings.TrimSpace(sandboxPath) == "" {
+		return "", ""
 	}
 	brandHome := agentBosterBrandHome()
 	realHome, _ := os.UserHomeDir()
-	result := LoadAgentsMd(agentCtx.SandboxPath, brandHome, realHome)
-	agentCtx.AgentsMd = result.Content
-	agentCtx.AgentsMdWarning = result.Warning
+	result := LoadAgentsMd(sandboxPath, brandHome, realHome)
 	if result.Warning != "" {
 		slog.Warn("AGENTS.md exceeds recommended size",
-			"session_id", agentCtx.SessionID, "message", result.Warning)
+			"session_id", sessionID, "message", result.Warning)
 	}
-	return result.Content
+	return result.Content, result.Warning
 }
 
 // buildSystemPrompt generates the agent system prompt with optional project context, SOUL,

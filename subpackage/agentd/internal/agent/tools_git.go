@@ -301,9 +301,11 @@ func registerGitPush(registry *ToolRegistry, sbMgr *sandbox.Manager, client *cla
 			return &ToolResult{Success: false, Error: pushResult.Stderr, Data: pushResult.Stdout}, nil
 		}
 
-		// Collect git info for completion notification
+		// Collect git info for completion notification. Guarded by the
+		// per-session state lock (read concurrently by the dispatcher's
+		// sendCompletionNotification via GetSession).
 		gitInfo := collectGitInfo(toolCtx, sbMgr, sandboxID, params.Path, commitMsg)
-		ctx.GitInfo = gitInfo
+		ctx.WithStateLock(func() { ctx.GitInfo = gitInfo })
 
 		resultData := map[string]any{
 			"push_output": pushResult.Stdout,

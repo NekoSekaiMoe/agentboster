@@ -127,13 +127,18 @@ func (s *Server) resolveCheckpointSandbox(sessionID string) (agent.SandboxRef, e
 	if !ok {
 		return agent.SandboxRef{}, errSessionNotFound
 	}
-	ref := agent.SandboxRef{
-		Type: agentCtx.SandboxType,
-		ID:   agentCtx.SandboxID,
-	}
+	// Snapshot under the per-session state lock: sandbox_destroy clears
+	// these fields concurrently with checkpoint resolution.
+	var ref agent.SandboxRef
+	agentCtx.WithStateLock(func() {
+		ref = agent.SandboxRef{
+			Type: agentCtx.SandboxType,
+			ID:   agentCtx.SandboxID,
+		}
+	})
 	// For host-FS sandboxes, ask the manager for the resolved host root path.
-	if agentCtx.SandboxID != "" && s.agentMgr.GetSandboxManager() != nil {
-		if hp := s.agentMgr.GetSandboxManager().HostWorkspacePath(agentCtx.SandboxID); hp != "" {
+	if ref.ID != "" && s.agentMgr.GetSandboxManager() != nil {
+		if hp := s.agentMgr.GetSandboxManager().HostWorkspacePath(ref.ID); hp != "" {
 			ref.HostPath = hp
 		}
 	}

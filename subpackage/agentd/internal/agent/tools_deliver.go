@@ -118,10 +118,14 @@ func registerDeliverFiles(registry *ToolRegistry, sbMgr *sandbox.Manager, client
 			return &ToolResult{Success: false, Error: fmt.Sprintf("upload: %v", err)}, nil
 		}
 
-		// Store delivery info in AgentContext for the completion notification
-		ctx.DeliveryURL = uploadResult.URL
-		ctx.DeliveryFiles = []string{fileName}
-		ctx.DeliverySize = uploadResult.Size
+		// Store delivery info in AgentContext for the completion notification.
+		// Guarded by the per-session state lock: the dispatcher's
+		// sendCompletionNotification reads these fields via GetSession.
+		ctx.WithStateLock(func() {
+			ctx.DeliveryURL = uploadResult.URL
+			ctx.DeliveryFiles = []string{fileName}
+			ctx.DeliverySize = uploadResult.Size
+		})
 
 		slog.Info("deliver_files: success",
 			"file", fileName,
