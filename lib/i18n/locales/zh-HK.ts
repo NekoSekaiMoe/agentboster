@@ -12,6 +12,7 @@ export const zhHK = {
   'chat.noSearchResults': '沒有符合的會話',
   'chatHeader.agentdOnlineTitle': 'Agent Daemon 在線 - 已啟用完整安全審查',
   'common.openNavigation': '開啟導覽選單',
+  'common.cancel': '取消',
   'config.runtime.description':
     '在缺少的環境變數完成設定前，部分伺服器功能會以降級狀態執行。',
   'config.sections.auditLogs.description': '查看安全審計記錄並匯出資料。',
@@ -31,4 +32,11 @@ export const zhHK = {
   'workspace.createSuccess': '工作區已建立',
   'workspace.createError': '建立工作區失敗',
   'workspace.defaultWorkspaceName': '預設工作區',
+  'workspace.manage': '管理工作區',
+  'workspace.archiveConfirmDescription':
+    '「{name}」將被封存。其對話與記憶會保留，但不再接受新任務。此操作不可還原。',
+  'workspace.detail.basicInfo': '基本資料',
+  'workspace.detail.statusActive': '使用中',
+  'workspace.detail.failoverHistory': '故障轉移紀錄',
+  'workspace.detail.noFailovers': '暫無故障轉移紀錄',
 } satisfies Record<keyof typeof enUS, string>;

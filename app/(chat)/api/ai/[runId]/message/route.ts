@@ -1,7 +1,5 @@
-import {
-  assertCanAccessOwnedResource,
-  requireAuthAccess,
-} from '@/lib/auth/access';
+import { requireAuthAccess } from '@/lib/auth/access';
+import { assertCanReadSession } from '@/lib/chat/session-access';
 import { assertSessionWritable } from '@/lib/chat/access';
 import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
 import { createLogger } from '@/lib/utils/logger';
@@ -32,7 +30,7 @@ export async function POST(
       { status: 404 },
     );
   }
-  assertCanAccessOwnedResource(access, session.userId);
+  await assertCanReadSession(access, session);
 
   try {
     assertSessionWritable(

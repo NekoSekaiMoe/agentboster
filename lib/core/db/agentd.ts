@@ -1,7 +1,7 @@
-import { and, desc, eq, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, like, ne, or, sql, type SQL } from 'drizzle-orm';
 import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
 import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
-import { hasAdminRole } from '@/lib/core/db/users';
+import { getUserById, hasAdminRole, hasOwnerRole } from '@/lib/core/db/users';
 import { db } from './index';
 import {
   agentdNodes,
@@ -1051,6 +1051,12 @@ export interface WorkspaceRecord {
    *  getOrCreateDefaultWorkspace). At most one per owner — enforced by the
    *  workspaces_owner_default_uniq partial unique index. */
   isDefault: boolean;
+  /** 'private': owner (+ admins per role hierarchy) only. 'public': every
+   *  user may enter — run tasks, manage sessions and their messages. */
+  visibility: 'private' | 'public';
+  /** PUBLIC workspaces only: extracted memories go into a shared pool
+   *  visible to every member. Toggling off / going private deletes it. */
+  sharedMemoryEnabled: boolean;
   status: 'active' | 'archived';
   createdAt: Date;
   updatedAt: Date;
@@ -1086,6 +1092,156 @@ export async function listWorkspacesByOwner(
     .from(workspaces)
     .where(eq(workspaces.ownerId, ownerId))
     .orderBy(desc(workspaces.updatedAt));
+}
+
+export interface VisibleWorkspaceRecord extends WorkspaceRecord {
+  /** Owner's username, populated only for OTHER users' public workspaces
+   *  (so the switcher can label shared entries). Undefined for own rows. */
+  ownerName?: string;
+}
+
+/**
+ * Every workspace the user may ENTER: their own (any status — archived
+ * ones stay manageable from settings) plus other users' public ACTIVE
+ * workspaces, labelled with the owner's username.
+ */
+export async function listVisibleWorkspaces(
+  userId: string,
+): Promise<VisibleWorkspaceRecord[]> {
+  const own = await listWorkspacesByOwner(userId);
+  const sharedRows = await db
+    .select({ ws: workspaces, ownerName: users.username })
+    .from(workspaces)
+    // owner_id is free-text while users.id is uuid — the cast keeps the
+    // column-to-column join legal (a bare text = uuid comparison errors).
+    .innerJoin(users, eq(workspaces.ownerId, sql`${users.id}::text`))
+    .where(
+      and(
+        ne(workspaces.ownerId, userId),
+        eq(workspaces.visibility, 'public'),
+        eq(workspaces.status, 'active'),
+      ),
+    )
+    .orderBy(desc(workspaces.updatedAt));
+  return [
+    ...own,
+    ...sharedRows.map((row) => ({ ...row.ws, ownerName: row.ownerName })),
+  ];
+}
+
+/**
+ * Manage rule (rename / set-default / migrate / set-visibility / archive):
+ * the workspace owner always can; an admin-role actor can manage ordinary
+ * users' workspaces but NEVER an owner/root's (mirrors the
+ * PROTECTED_ROLE_SET hierarchy in canGrantRoles). Everyone else: no.
+ *
+ * Pure function — the caller supplies both role sets (it already has the
+ * actor's from the session; the workspace owner's come from one users-row
+ * lookup, see resolveWorkspaceAccess).
+ */
+export function canManageWorkspace(
+  ws: Pick<WorkspaceRecord, 'ownerId'>,
+  actor: { userId: string; roles: readonly string[] },
+  workspaceOwnerRoles: readonly string[],
+): boolean {
+  if (actor.userId === ws.ownerId) return true;
+  if (!hasAdminRole(actor.roles)) return false;
+  return !hasOwnerRole(workspaceOwnerRoles);
+}
+
+/**
+ * Access rule (enter the workspace, view its detail, run tasks, manage its
+ * sessions and their messages): any manager, or anyone when the workspace
+ * is public.
+ */
+export function canAccessWorkspace(
+  ws: Pick<WorkspaceRecord, 'ownerId' | 'visibility'>,
+  actor: { userId: string; roles: readonly string[] },
+  workspaceOwnerRoles: readonly string[],
+): boolean {
+  if (ws.visibility === 'public') return true;
+  return canManageWorkspace(ws, actor, workspaceOwnerRoles);
+}
+
+export interface WorkspaceAccess {
+  ws: WorkspaceRecord;
+  canAccess: boolean;
+  canManage: boolean;
+}
+
+/**
+ * Load a workspace and compute the actor's access level in two queries
+ * (workspace row + owner's roles). Returns null when the workspace doesn't
+ * exist — callers map that to 404 before access checks (403).
+ */
+export async function resolveWorkspaceAccess(
+  id: string,
+  actor: { userId: string; roles: readonly string[] },
+): Promise<WorkspaceAccess | null> {
+  const ws = await getWorkspace(id);
+  if (!ws) return null;
+  const owner = await getUserById(ws.ownerId);
+  const workspaceOwnerRoles = owner?.roles ?? [];
+  return {
+    ws,
+    canAccess: canAccessWorkspace(ws, actor, workspaceOwnerRoles),
+    canManage: canManageWorkspace(ws, actor, workspaceOwnerRoles),
+  };
+}
+
+/**
+ * Toggle a workspace's public/private visibility. Manage-gated at the API
+ * layer. Returns null when the workspace doesn't exist or is archived
+ * (archived workspaces stay out of the shared surface).
+ */
+export async function setWorkspaceVisibility(
+  id: string,
+  visibility: 'private' | 'public',
+): Promise<WorkspaceRecord | null> {
+  const [row] = await db
+    .update(workspaces)
+    .set({ visibility, updatedAt: new Date() })
+    .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Toggle the shared-memory pool of a workspace. Meaningful only for PUBLIC
+ * workspaces (the route enforces that); refuses archived rows. When the
+ * toggle goes off the caller must also drop the shared pool
+ * (deleteLongTermMemoriesByWorkspaceId with sharedOnly) — kept as separate
+ * calls because that orchestration lives in the route layer.
+ */
+export async function setWorkspaceSharedMemory(
+  id: string,
+  enabled: boolean,
+): Promise<WorkspaceRecord | null> {
+  const [row] = await db
+    .update(workspaces)
+    .set({ sharedMemoryEnabled: enabled, updatedAt: new Date() })
+    .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Delete the workspace ROW itself. The caller (route layer) must first
+ * clean up dependents — sessions (which cascade messages/session_memories),
+ * long-term memories, builtin-memory overrides — because workspace_id
+ * columns are deliberately soft-FK'd (rows must survive archival, so no
+ * ON DELETE CASCADE exists). Removing the row also frees the per-owner
+ * default slot; the next session lazily re-creates a default via
+ * getOrCreateDefaultWorkspace.
+ */
+export async function deleteWorkspaceRow(
+  id: string,
+): Promise<WorkspaceRecord | null> {
+  const [row] = await db
+    .delete(workspaces)
+    .where(eq(workspaces.id, id))
+    .returning();
+  return row ?? null;
 }
 
 export async function getOrCreateDefaultWorkspace(
@@ -1126,6 +1282,115 @@ export async function archiveWorkspace(
     .update(workspaces)
     .set({ status: 'archived', isDefault: false, updatedAt: new Date() })
     .where(eq(workspaces.id, id))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Rename a workspace. Returns null when the workspace doesn't exist.
+ * Throws on an empty (post-trim) name — callers must not silently fall
+ * back to the old name.
+ */
+export async function renameWorkspace(
+  id: string,
+  name: string,
+): Promise<WorkspaceRecord | null> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error('Workspace name must not be empty');
+  }
+  const [row] = await db
+    .update(workspaces)
+    .set({ name: trimmed, updatedAt: new Date() })
+    .where(eq(workspaces.id, id))
+    .returning();
+  return row ?? null;
+}
+
+/** True when a Postgres unique-constraint violation names the per-owner
+ *  default-workspace index. pg exposes `.code = '23505'`; neon-http wraps
+ *  the server message, so match on the index name too. */
+function isDefaultUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: unknown }).code;
+  const message = error instanceof Error ? error.message : String(error);
+  return code === '23505' || message.includes('workspaces_owner_default_uniq');
+}
+
+/**
+ * Designate `id` as the owner's single default workspace. Returns the
+ * updated row, or null when the target doesn't exist, belongs to another
+ * owner, or is archived.
+ *
+ * Implementation note — why NOT db.transaction(): the Vercel driver is
+ * drizzle-orm/neon-http, whose session throws "No transactions support in
+ * neon-http driver", and node-postgres (self-hosted) has no db.batch().
+ * The portable atomic-enough shape is a clear-then-set PAIR, ordered so the
+ * partial unique index workspaces_owner_default_uniq never sees two live
+ * defaults: clearing first can only ever produce a transient ZERO-default
+ * state, never a double-default one.
+ *
+ * The residual race: between the two statements a concurrent
+ * getOrCreateDefaultWorkspace for the same owner observes "no default" and
+ * inserts a fresh one; the second UPDATE then trips the unique index. We
+ * retry the pair once (the freshly inserted default gets cleared and the
+ * intended row wins); a second conflict propagates to the caller.
+ */
+export async function setDefaultWorkspace(
+  ownerId: string,
+  id: string,
+): Promise<WorkspaceRecord | null> {
+  const target = await getWorkspace(id);
+  if (!target || target.ownerId !== ownerId || target.status !== 'active') {
+    return null;
+  }
+  if (target.isDefault) return target;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await db
+        .update(workspaces)
+        .set({ isDefault: false, updatedAt: new Date() })
+        .where(
+          and(eq(workspaces.ownerId, ownerId), eq(workspaces.isDefault, true)),
+        );
+      const [row] = await db
+        .update(workspaces)
+        .set({ isDefault: true, updatedAt: new Date() })
+        .where(and(eq(workspaces.id, id), eq(workspaces.ownerId, ownerId)))
+        .returning();
+      return row ?? null;
+    } catch (error) {
+      if (attempt === 1 || !isDefaultUniqueViolation(error)) throw error;
+    }
+  }
+  return null;
+}
+
+/**
+ * Move a workspace's long-lived container binding to a different agentd
+ * node (manual failover). Always bumps node_generation: the generation is
+ * the fencing token a stale agentd compares against on its next lock
+ * acquire, so ANY migration — including clearing the binding — must
+ * invalidate the old container or two nodes could both believe they hold
+ * it (split-brain). Pass no newNodeId to unbind; the next task then lazily
+ * re-creates the container on a healthy node (same end state as the
+ * automatic failover path in lib/extra/agent/workspace-failover.ts).
+ *
+ * Returns null when the workspace doesn't exist or is archived.
+ */
+export async function migrateWorkspaceNode(
+  id: string,
+  newNodeId?: string | null,
+): Promise<WorkspaceRecord | null> {
+  const [row] = await db
+    .update(workspaces)
+    .set({
+      preferredNodeId: newNodeId ?? null,
+      nodeGeneration: sql`${workspaces.nodeGeneration} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')))
     .returning();
   return row ?? null;
 }

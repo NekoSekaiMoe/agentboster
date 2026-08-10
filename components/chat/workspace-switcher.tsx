@@ -18,7 +18,7 @@ import { useI18n } from '@/components/i18n-provider';
 import { useConfigContext } from '@/components/config/config-provider';
 import { parseWithFallback } from '@/lib/core/api/schema';
 import { z } from 'zod';
-import { ChevronsUpDown, Plus, Layers } from 'lucide-react';
+import { ChevronsUpDown, Plus, Layers, Settings2, Globe } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -36,6 +36,12 @@ const workspaceSchema = z.object({
   preferredNodeId: z.string().nullable().optional(),
   nodeGeneration: z.number().optional(),
   status: z.string().optional(),
+  /** Enriched by GET /api/workspaces (batched node-status join). */
+  nodeStatus: z.string().nullable().optional(),
+  containerStatus: z.string().optional(),
+  visibility: z.string().optional(),
+  /** Present only for OTHER users' public workspaces (shared entries). */
+  ownerName: z.string().optional(),
 });
 
 const workspacesResponseSchema = z.object({
@@ -44,6 +50,40 @@ const workspacesResponseSchema = z.object({
 });
 
 type WorkspaceListItem = z.infer<typeof workspaceSchema>;
+
+/**
+ * Status dot for a workspace list entry. Semantics (derived server-side —
+ * agentd has no container-status endpoint, so 'unknown' means "bound to an
+ * online node"):
+ *   green  — bound to an online node (container presumed available)
+ *   red    — bound node offline / unreachable (incl. post-failover until
+ *            the next task rebinds)
+ *   gray   — unbound: no container yet (lazy-created on the first task)
+ */
+function WorkspaceStatusDot({
+  containerStatus,
+  nodeStatus,
+}: {
+  containerStatus?: string;
+  nodeStatus?: string | null;
+}) {
+  const { t } = useI18n();
+  const { colorClass, label } =
+    containerStatus === 'unreachable'
+      ? { colorClass: 'bg-red-500', label: t('workspace.node.offline') }
+      : containerStatus === 'unknown' && nodeStatus === 'online'
+        ? { colorClass: 'bg-green-500', label: t('workspace.node.online') }
+        : {
+            colorClass: 'bg-muted-foreground/40',
+            label: t('workspace.container.notCreated'),
+          };
+  return (
+    <span
+      className={`mr-2 inline-block size-2 shrink-0 rounded-full ${colorClass}`}
+      title={label}
+    />
+  );
+}
 
 /**
  * Workspace switcher for the chat header. Sits in the right-side gap-2
@@ -194,7 +234,21 @@ export function WorkspaceSwitcher() {
               w.id === active.id ? 'bg-accent text-accent-foreground' : ''
             }
           >
+            <WorkspaceStatusDot
+              containerStatus={w.containerStatus}
+              nodeStatus={w.nodeStatus}
+            />
             <span className="flex-1 truncate">{w.name}</span>
+            {w.ownerName ? (
+              <span
+                className="text-muted-foreground text-xs"
+                title={t('workspace.sharedBy', { name: w.ownerName })}
+              >
+                {w.ownerName}
+              </span>
+            ) : w.visibility === 'public' ? (
+              <Globe className="size-3 text-muted-foreground" aria-hidden />
+            ) : null}
             {w.id === active.id && (
               <span className="text-xs opacity-60">✓</span>
             )}
@@ -204,6 +258,10 @@ export function WorkspaceSwitcher() {
         <DropdownMenuItem onClick={handleCreate}>
           <Plus className="mr-2 size-3.5" />
           {t('workspace.createNew')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push('/config/workspaces')}>
+          <Settings2 className="mr-2 size-3.5" />
+          {t('workspace.manage')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

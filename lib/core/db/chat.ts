@@ -34,6 +34,9 @@ export async function createSession(input: {
   /** Workspace scope. When omitted, the caller resolves the user's default
    *  workspace elsewhere; this only persists what was already decided. */
   workspaceId?: string | null;
+  /** Session visibility inside a PUBLIC workspace (see schema comment).
+   *  Defaults to 'private' server-side. */
+  visibility?: 'private' | 'shared';
   model?: string | null;
   systemPrompt?: string | null;
   workflowRunId?: string | null;
@@ -49,6 +52,7 @@ export async function createSession(input: {
       externalThreadId: input.externalThreadId ?? null,
       userId: input.userId ?? null,
       workspaceId: input.workspaceId ?? null,
+      ...(input.visibility ? { visibility: input.visibility } : {}),
       model: input.model ?? null,
       systemPrompt: input.systemPrompt ?? null,
       workflowRunId: input.workflowRunId ?? null,
@@ -162,6 +166,100 @@ export async function listSessions(options?: {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.sessions.updatedAt))
     .limit(safeLimit);
+}
+
+/**
+ * Access-aware session listing for the web UI. A row is visible when ANY
+ * of these holds:
+ *   - the actor owns it (`s.user_id = userId`);
+ *   - it lives in a workspace the actor can MANAGE (owner/admin — they see
+ *     members' private sessions in lists for management, but still cannot
+ *     read message content; the read gate enforces that);
+ *   - it lives in a PUBLIC workspace the actor can access AND the session
+ *     is `visibility = 'shared'`.
+ * The caller computes the two id sets via `listVisibleWorkspaces` /
+ * `resolveWorkspaceAccess`. Rows the actor cannot READ are annotated
+ * `manageOnly: true` so the UI renders a lock instead of a link.
+ */
+export async function listVisibleSessions(options: {
+  userId: string;
+  /** Workspaces the actor can manage (own + admin-manageable). */
+  manageableWorkspaceIds: string[];
+  /** PUBLIC workspaces the actor can access but not manage. */
+  accessiblePublicWorkspaceIds: string[];
+  channel?: string;
+  archived?: boolean;
+  limit?: number;
+}) {
+  const safeLimit = Math.max(1, Math.min(options.limit ?? 50, 200));
+  const accessible = options.accessiblePublicWorkspaceIds;
+  const manageable = options.manageableWorkspaceIds;
+
+  const visibilityClause = sql`(
+    ${schema.sessions.userId} = ${options.userId}
+    ${
+      manageable.length > 0
+        ? sql`OR ${schema.sessions.workspaceId} IN (${sql.join(
+            manageable.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})`
+        : sql``
+    }
+    ${
+      accessible.length > 0
+        ? sql`OR (
+            ${schema.sessions.workspaceId} IN (${sql.join(
+              accessible.map((id) => sql`${id}::uuid`),
+              sql`, `,
+            )})
+            AND ${schema.sessions.visibility} = 'shared'
+          )`
+        : sql``
+    }
+  )`;
+
+  const conditions = [visibilityClause];
+  if (options.channel) {
+    conditions.push(sql`${schema.sessions.channel} = ${options.channel}`);
+  }
+  if (options.archived !== undefined) {
+    conditions.push(sql`${schema.sessions.archived} = ${options.archived}`);
+  }
+
+  const rows = await db
+    .select()
+    .from(schema.sessions)
+    .where(and(...conditions))
+    .orderBy(desc(schema.sessions.updatedAt))
+    .limit(safeLimit);
+
+  const manageableSet = new Set(manageable);
+  return rows.map((row) => ({
+    ...row,
+    /** True when the actor may manage (rename/delete) but NOT read the
+     *  message content: other members' private sessions inside a
+     *  manageable workspace. */
+    manageOnly:
+      row.userId !== options.userId &&
+      row.visibility !== 'shared' &&
+      row.workspaceId !== null &&
+      manageableSet.has(row.workspaceId),
+  }));
+}
+
+/**
+ * Hard-delete every session in a workspace (messages, session_memories and
+ * other session-scoped rows cascade). Returns the deleted session ids so
+ * the caller can best-effort stop runtimes / clean remote state.
+ */
+export async function deleteSessionsByWorkspaceId(
+  workspaceId: string,
+): Promise<string[]> {
+  const rows = await db
+    .delete(schema.sessions)
+    .where(eq(schema.sessions.workspaceId, workspaceId))
+    .returning({ id: schema.sessions.id });
+  return rows.map((row) => row.id);
 }
 
 export async function updateSession(

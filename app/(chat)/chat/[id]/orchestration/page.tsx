@@ -1,6 +1,10 @@
 import { OrchestrationGraph } from '@/components/orchestration/orchestration-graph';
 import { PlanEditor } from '@/components/orchestration/plan-editor';
-import { canAccessOwnedResource, requireAuthAccess } from '@/lib/auth/access';
+import { requireAuthAccess } from '@/lib/auth/access';
+import {
+  resolveSessionGrant,
+  sessionGrantCanRead,
+} from '@/lib/chat/session-access';
 import { getSession } from '@/lib/core/db/chat';
 import { listPlansBySession } from '@/lib/core/db/agent-orchestration-plans';
 import { getConfig } from '@/lib/core/kv/config';
@@ -31,10 +35,12 @@ export default async function OrchestrationPage({
   if (!session) {
     redirect(`/chat/${sessionId}`);
   }
-  if (!canAccessOwnedResource(access, session.userId)) notFound();
-  if (access.session.userId !== session.userId) {
-    redirect(`/chat/${sessionId}`);
-  }
+  const grant = await resolveSessionGrant(access, session);
+  if (!grant || !sessionGrantCanRead(grant)) notFound();
+  // The Team Mode hub stays owner/member-facing: plain admins get bounced
+  // back to the chat view (existing behavior), while workspace members of
+  // a shared session get in alongside the owner. Manage-only grants were
+  // already rejected above (they may not read session content).
 
   const [plans, config] = await Promise.all([
     listPlansBySession(sessionId),

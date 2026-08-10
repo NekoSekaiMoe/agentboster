@@ -163,6 +163,13 @@ export async function createLongTermMemoryRow(
     dreamMeta?: Record<string, unknown>;
     sourceKind?: LongTermMemorySourceKind;
     triggerPhrases?: string[];
+    /**
+     * Shared-pool membership (multi-member workspaces). Insert-only:
+     * omitted = schema default (false = personal). Recall visibility is
+     * `(shared OR user_id = requester)` — see
+     * buildWorkspaceVisibilityCondition.
+     */
+    shared?: boolean;
   },
 ) {
   // Delegate to the bulk path so both write routes share a single field
@@ -181,6 +188,7 @@ export async function createLongTermMemoryRow(
       dreamMeta: options?.dreamMeta,
       sourceKind: options?.sourceKind,
       triggerPhrases: options?.triggerPhrases,
+      shared: options?.shared,
     },
   ]);
   return row;
@@ -207,6 +215,8 @@ export async function createLongTermMemoryRows(
     dreamMeta?: Record<string, unknown>;
     sourceKind?: LongTermMemorySourceKind;
     triggerPhrases?: string[];
+    /** Shared-pool membership (see createLongTermMemoryRow). */
+    shared?: boolean;
   }>,
 ) {
   if (rows.length === 0) return [];
@@ -223,6 +233,7 @@ export async function createLongTermMemoryRows(
         ...(r.workspaceId ? { workspaceId: r.workspaceId } : {}),
         memoryType: r.memoryType ?? 'fact',
         importance: clampImportance(r.importance),
+        ...(r.shared !== undefined ? { shared: r.shared } : {}),
         ...(r.key ? { key: r.key } : {}),
         dreamStatus: r.dreamStatus ?? 'active',
         ...(r.dreamMeta ? { dreamMeta: r.dreamMeta } : {}),
@@ -282,6 +293,13 @@ export async function upsertLongTermMemoryByKey(input: {
    * when explicitly provided (same preserve-on-omit rule as sourceKind).
    */
   triggerPhrases?: string[];
+  /**
+   * Shared-pool membership. INSERT-only by design: pool membership is
+   * decided when the row is created (toggling the pool off deletes the
+   * shared rows), so an upsert UPDATE never flips a personal row into
+   * the shared pool just because the extractor refreshed its content.
+   */
+  shared?: boolean;
 }): Promise<{
   row: Awaited<ReturnType<typeof createLongTermMemoryRow>>;
   created: boolean;
@@ -302,6 +320,7 @@ export async function upsertLongTermMemoryByKey(input: {
       dreamMeta: input.dreamMeta,
       sourceKind: input.sourceKind,
       triggerPhrases: input.triggerPhrases,
+      shared: input.shared,
     });
     return { row, created: true };
   }
@@ -379,6 +398,7 @@ export async function upsertLongTermMemoryByKey(input: {
     dreamMeta: input.dreamMeta,
     sourceKind: input.sourceKind,
     triggerPhrases: input.triggerPhrases,
+    shared: input.shared,
   });
   return { row, created: true };
 }
@@ -635,6 +655,32 @@ export async function deleteTentativeMemoryRow(
     .returning();
 
   return row ?? null;
+}
+
+/**
+ * Delete long-term memories by workspace scope. Two modes:
+ *  - `sharedOnly: true`  → drops just the SHARED POOL (shared=true rows).
+ *    Used when a public workspace disables its shared-memory option or is
+ *    converted back to private (personal rows survive).
+ *  - default (all rows)  → used by workspace HARD DELETE.
+ * Chunks/edges cascade via FK. Returns the number of deleted rows.
+ */
+export async function deleteLongTermMemoriesByWorkspaceId(
+  workspaceId: string,
+  options?: { sharedOnly?: boolean },
+): Promise<number> {
+  const rows = await db
+    .delete(schema.longTermMemories)
+    .where(
+      and(
+        eq(schema.longTermMemories.workspaceId, workspaceId),
+        options?.sharedOnly
+          ? eq(schema.longTermMemories.shared, true)
+          : undefined,
+      ),
+    )
+    .returning({ id: schema.longTermMemories.id });
+  return rows.length;
 }
 
 /**

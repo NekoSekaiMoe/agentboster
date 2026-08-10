@@ -1,7 +1,5 @@
-import {
-  assertCanAccessOwnedResource,
-  requireAuthAccess,
-} from '@/lib/auth/access';
+import { requireAuthAccess } from '@/lib/auth/access';
+import { assertCanReadSession } from '@/lib/chat/session-access';
 import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
 import { createLogger } from '@/lib/utils/logger';
 import { resumeLocalToolResult } from '@/lib/workflow/agent/dispatch';
@@ -25,7 +23,8 @@ const requestSchema = z.object({
  *
  * Security model mirrors the approval resume endpoint:
  *   - Caller must be authenticated (cookie or Bearer).
- *   - Caller's userId must own the session (assertCanAccessOwnedResource).
+ *   - Caller's userId must own the session OR share its workspace
+ *     (assertCanManageSharedSession).
  *   - The toolCallId is an LLM-generated ULID — unguessable by third
  *     parties — and is the hook resume token. Only the workflow that
  *     emitted it and the CLI that received the request chunk know it.
@@ -55,7 +54,7 @@ export async function POST(
       { status: 404 },
     );
   }
-  assertCanAccessOwnedResource(access, session.userId);
+  await assertCanReadSession(access, session);
 
   let body: z.infer<typeof requestSchema>;
   try {

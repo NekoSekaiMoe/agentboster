@@ -21,6 +21,15 @@ export const sessions = pgTable(
     userId: text('user_id'),
     /** Workspace this session belongs to. Backfilled for legacy rows. */
     workspaceId: uuid('workspace_id'),
+    /**
+     * Only meaningful inside a PUBLIC workspace: 'private' (default) is
+     * visible to the creator only (workspace owner/admin may manage —
+     * rename/delete — but not read content); 'shared' is visible and
+     * manageable by every workspace member.
+     */
+    visibility: text('visibility', { enum: ['private', 'shared'] })
+      .default('private')
+      .notNull(),
     model: text('model'),
     systemPrompt: text('system_prompt'),
     soulContent: text('soul_content'),

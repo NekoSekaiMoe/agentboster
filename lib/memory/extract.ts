@@ -31,6 +31,7 @@ import {
   listLongTermMemories,
   upsertLongTermMemory,
 } from '@/lib/memory/long-term';
+import { getWorkspace } from '@/lib/core/db/agentd';
 import { createLogger } from '@/lib/utils/logger';
 import type { AppConfig } from '@/types/config';
 
@@ -222,6 +223,19 @@ export async function extractMemoriesFromSession(input: {
     return { extracted: 0, created: 0, updated: 0 };
   }
 
+  // Shared-memory pool: when the session's workspace is a PUBLIC workspace
+  // with the shared-memory option enabled, workspace-scoped writes land in
+  // the shared pool (visible to every member); otherwise they stay
+  // personal (shared=false). Global-layer writes are never pool writes.
+  const sharedPool = input.workspaceId
+    ? await getWorkspace(input.workspaceId)
+        .then(
+          (ws) =>
+            ws?.visibility === 'public' && ws.sharedMemoryEnabled === true,
+        )
+        .catch(() => false)
+    : false;
+
   const conversationText = buildConversationContext(rows);
   if (!conversationText.trim()) {
     return { extracted: 0, created: 0, updated: 0 };
@@ -385,12 +399,16 @@ Leave the array empty if nothing is worth changing.`;
             triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
             workspaceId: input.workspaceId,
+            // ADD always pins input.workspaceId, so sharedPool (which
+            // requires a workspace) is safe to pass straight through.
+            shared: sharedPool,
             config: input.config,
           });
           created += 1;
           break;
         }
         case 'UPDATE': {
+          const targetWorkspaceId = resolveItemWorkspaceId(item);
           const result = await upsertLongTermMemory({
             userId: input.userId,
             key: item.key,
@@ -400,7 +418,12 @@ Leave the array empty if nothing is worth changing.`;
             sourceKind: resolveExtractedSourceKind(item.sourceKind),
             triggerPhrases: item.triggerPhrases,
             projectId: input.projectId,
-            workspaceId: resolveItemWorkspaceId(item),
+            workspaceId: targetWorkspaceId,
+            // Only workspace-scoped writes can join the pool — a global-
+            // layer row must never become visible to every workspace.
+            // NOTE: `shared` is insert-only inside the upsert, so
+            // re-extracting an existing personal row keeps it personal.
+            shared: typeof targetWorkspaceId === 'string' ? sharedPool : false,
             config: input.config,
           });
           if (result.created) {

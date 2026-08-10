@@ -19,6 +19,7 @@ import { ToolsForm } from './forms/tools-form';
 import { TtsForm } from './forms/tts-form';
 import { KnowledgeManagement } from './knowledge-management';
 import { UsersManagement } from './users-management';
+import { WorkspacesSection } from './sections/workspaces-section';
 
 // Lazy load RawJsonEditor (CodeMirror ~80KB) - only loaded when user clicks "Raw JSON" tab
 const RawJsonEditor = dynamic(
@@ -58,6 +59,8 @@ export function ConfigSectionForm({ section }: { section: ConfigSectionKey }) {
       return <McpForm />;
     case 'agentd':
       return <AgentDConfigPage />;
+    case 'workspaces':
+      return <WorkspacesSection />;
     case 'experiments':
       return <ExperimentsForm />;
     case 'monitoring':

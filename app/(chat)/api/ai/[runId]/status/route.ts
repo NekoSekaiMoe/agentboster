@@ -1,7 +1,5 @@
-import {
-  assertCanAccessOwnedResource,
-  requireAuthAccess,
-} from '@/lib/auth/access';
+import { requireAuthAccess } from '@/lib/auth/access';
+import { assertCanReadSession } from '@/lib/chat/session-access';
 import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
 import { getSessionRuntimeMetadata } from '@/lib/core/sandbox/runtime';
 import { createLogger } from '@/lib/utils/logger';
@@ -28,7 +26,7 @@ export async function GET(
   if (!session) {
     return Response.json({ error: 'Run not found.' }, { status: 404 });
   }
-  assertCanAccessOwnedResource(access, session.userId);
+  await assertCanReadSession(access, session);
 
   const status = await getWorkflowStatus(runId);
   const metadata = getSessionRuntimeMetadata(session.metadata ?? null);

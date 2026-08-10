@@ -3,10 +3,14 @@ export const dynamic = 'force-dynamic';
 import {
   createWorkspace,
   getOrCreateDefaultWorkspace,
-  listWorkspacesByOwner,
+  listVisibleWorkspaces,
 } from '@/lib/core/db/agentd';
 import { requireAuthAccess } from '@/lib/auth/access';
 import { cloneBuiltinTemplates } from '@/lib/core/db/memory/builtin';
+import {
+  deriveContainerStatus,
+  getWorkspaceNodeStatuses,
+} from '@/lib/extra/agent/workspace-status';
 import { createLogger } from '@/lib/utils/logger';
 import { cookies } from 'next/headers';
 
@@ -17,9 +21,13 @@ const logger = createLogger('api.workspaces');
  * /api/agentd/v1/project-sandboxes, which is the legacy path-B
  * "projectId ↔ sandbox" binding table).
  *
- * GET    — list the current user's workspaces (auto-creating a default
- *          workspace if the user has none yet, so the UI never renders an
- *          empty switcher).
+ * GET    — list the workspaces the current user may ENTER: their own
+ *          (auto-creating a default workspace if they have none yet, so
+ *          the UI never renders an empty switcher) plus other users'
+ *          public active workspaces (labelled with ownerName). Each item
+ *          is enriched with the bound node's effective status (ONE
+ *          batched query, no N+1) and a derived container status for the
+ *          switcher's status dot.
  * POST   — create a new workspace (clones builtin templates so SOUL /
  *          IDENTITY / AGENTS / USER start from the global defaults).
  */
@@ -33,8 +41,21 @@ export async function GET() {
   // edge case where the migration hasn't run yet.
   await getOrCreateDefaultWorkspace(ownerId);
 
-  const list = await listWorkspacesByOwner(ownerId);
-  return Response.json({ success: true, data: list });
+  const list = await listVisibleWorkspaces(ownerId);
+  const nodeStatuses = await getWorkspaceNodeStatuses(
+    list.map((ws) => ws.preferredNodeId).filter((id): id is string => !!id),
+  );
+  const data = list.map((ws) => {
+    const nodeStatus = ws.preferredNodeId
+      ? (nodeStatuses.get(ws.preferredNodeId) ?? 'offline')
+      : null;
+    return {
+      ...ws,
+      nodeStatus,
+      containerStatus: deriveContainerStatus(ws.preferredNodeId, nodeStatus),
+    };
+  });
+  return Response.json({ success: true, data });
 }
 
 export async function POST(request: Request) {

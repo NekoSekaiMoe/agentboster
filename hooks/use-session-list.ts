@@ -31,6 +31,14 @@ export interface SessionListItem {
   status?: string;
   pinned?: boolean;
   workspaceId?: string | null;
+  /** Session visibility inside a public workspace ('private'|'shared'). */
+  visibility?: string;
+  /** True when the actor may manage (rename/delete) but NOT read the
+   *  conversation — other members' private sessions in a workspace the
+   *  actor manages. The UI renders a lock instead of a chat link. */
+  manageOnly?: boolean;
+  /** True when the session was created by the current user. */
+  isOwn?: boolean;
 }
 
 /**

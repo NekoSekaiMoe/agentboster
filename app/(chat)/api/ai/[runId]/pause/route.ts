@@ -1,7 +1,5 @@
-import {
-  assertCanAccessOwnedResource,
-  requireAuthAccess,
-} from '@/lib/auth/access';
+import { requireAuthAccess } from '@/lib/auth/access';
+import { assertCanManageSharedSession } from '@/lib/chat/session-access';
 import { getSessionByWorkflowRunId } from '@/lib/core/db/chat';
 import { createLogger } from '@/lib/utils/logger';
 import { pauseWorkflow } from '@/lib/workflow/agent/dispatch';
@@ -27,7 +25,7 @@ export async function POST(
   if (!session) {
     return Response.json({ error: 'Run not found.' }, { status: 404 });
   }
-  assertCanAccessOwnedResource(access, session.userId);
+  await assertCanManageSharedSession(access, session);
 
   await pauseWorkflow(runId);
   logger.info('pause:success', {

@@ -1,13 +1,12 @@
 'use server';
 
-import {
-  assertCanAccessOwnedResource,
-  requireAuthAccess,
-} from '@/lib/auth/access';
+import { requireAuthAccess } from '@/lib/auth/access';
+import { assertCanManageSharedSession } from '@/lib/chat/session-access';
 import {
   createSession,
   getSession,
   listSessions,
+  listVisibleSessions,
   updateSession,
   updateSessionForUser,
   updateSessionMetadataKey,
@@ -87,14 +86,14 @@ export async function saveSessionModelAction(input: {
     throw new Error('Session not found');
   }
 
-  assertCanAccessOwnedResource(access, existing.userId);
+  const grant = await assertCanManageSharedSession(access, existing);
 
-  if (access.isAdmin) {
-    await updateSession(sessionId, { model: input.model });
-  } else {
+  if (grant === 'owner') {
     await updateSessionForUser(sessionId, access.session.userId, {
       model: input.model,
     });
+  } else {
+    await updateSession(sessionId, { model: input.model });
   }
 
   return { ok: true };
@@ -105,15 +104,63 @@ export async function listRecentSessionsAction(
 ) {
   const access = await requireAuth();
   const { limit = 30, workspaceId } = options;
+  const userId = access.session.userId;
 
-  const sessions = await listSessions({
-    archived: false,
-    limit,
-    ...(access.isAdmin ? {} : { userId: access.session.userId }),
-    ...(workspaceId ? { workspaceId } : {}),
-  });
+  // Visibility model (public/private sessions in shared workspaces):
+  //   - the actor always sees their OWN sessions;
+  //   - sessions in workspaces the actor can MANAGE are all listed
+  //     (manage-only rows are annotated so the UI shows a lock instead
+  //     of a chat link — content stays creator-only);
+  //   - sessions with visibility='shared' in PUBLIC workspaces the actor
+  //     can access are listed and readable.
+  let rows: Awaited<ReturnType<typeof listVisibleSessions>>;
+  if (workspaceId) {
+    const { resolveWorkspaceAccess } = await import('@/lib/core/db/agentd');
+    const wsAccess = access.isAdmin
+      ? { canAccess: true, canManage: true }
+      : await resolveWorkspaceAccess(workspaceId, {
+          userId,
+          roles: access.user.roles,
+        });
+    rows = await listVisibleSessions({
+      userId,
+      manageableWorkspaceIds: wsAccess?.canManage ? [workspaceId] : [],
+      accessiblePublicWorkspaceIds:
+        wsAccess?.canAccess && !wsAccess.canManage ? [workspaceId] : [],
+      archived: false,
+      limit,
+    });
+    // listVisibleSessions keeps the actor's own rows anywhere; when a
+    // workspace filter is requested, drop rows from other scopes.
+    rows = rows.filter(
+      (row) => row.workspaceId && String(row.workspaceId) === workspaceId,
+    );
+  } else if (access.isAdmin) {
+    // Admins curate everything: full list, private content still locked.
+    const all = await listSessions({ archived: false, limit });
+    rows = all.map((row) => ({
+      ...row,
+      manageOnly:
+        row.userId !== userId &&
+        !(row.visibility === 'shared' && row.workspaceId !== null),
+    }));
+  } else {
+    const { listVisibleWorkspaces } = await import('@/lib/core/db/agentd');
+    const visible = await listVisibleWorkspaces(userId);
+    rows = await listVisibleSessions({
+      userId,
+      manageableWorkspaceIds: visible
+        .filter((w) => w.ownerId === userId)
+        .map((w) => w.id),
+      accessiblePublicWorkspaceIds: visible
+        .filter((w) => w.ownerId !== userId)
+        .map((w) => w.id),
+      archived: false,
+      limit,
+    });
+  }
 
-  return sessions.map((session) => ({
+  return rows.map((session) => ({
     id: session.id,
     title: session.title,
     channel: session.channel,
@@ -122,6 +169,9 @@ export async function listRecentSessionsAction(
       (session.metadata as Record<string, unknown> | null)?.pinned,
     ),
     workspaceId: session.workspaceId ? String(session.workspaceId) : null,
+    visibility: session.visibility ?? 'private',
+    manageOnly: session.manageOnly ?? false,
+    isOwn: session.userId === userId,
   }));
 }
 
@@ -142,14 +192,25 @@ export async function searchSessionsAction(query: string): Promise<string[]> {
   const escaped = q.replace(/[%_\\]/g, (m) => `\\${m}`);
   const pattern = `%${escaped}%`;
   const userId = access.session.userId;
-  const userFilter = access.isAdmin ? sql`` : sql`AND s.user_id = ${userId}`;
+  // Search matches message CONTENT, so it must stay within the readable
+  // set: the actor's own sessions plus SHARED sessions in active public
+  // workspaces. Manage-only rows (members' private sessions, admin
+  // curation) are deliberately excluded — a payload match would leak
+  // private content. Applies to admins too (private content is
+  // creator-only for everyone).
+  const accessFilter = sql`AND (
+        s.user_id = ${userId}
+        OR (s.visibility = 'shared' AND s.workspace_id IN (
+          SELECT id FROM workspaces WHERE visibility = 'public' AND status = 'active'
+        ))
+      )`;
 
   const rows = await db.execute<{ id: string }>(sql`
     SELECT DISTINCT s.id
     FROM sessions s
     LEFT JOIN messages m ON m.session_id = s.id
     WHERE s.archived = false
-      ${userFilter}
+      ${accessFilter}
       AND (
         s.title ILIKE ${pattern} ESCAPE '\\'
         OR m.payload::text ILIKE ${pattern} ESCAPE '\\'
@@ -173,22 +234,70 @@ export async function toggleSessionPinAction(input: { id: string }) {
   if (!existing) {
     throw new Error('Session not found');
   }
-  assertCanAccessOwnedResource(access, existing.userId);
-
   const currentPinned = Boolean(
     (existing.metadata as Record<string, unknown> | null)?.pinned,
   );
   const nextMetadata = { ...(existing.metadata ?? {}), pinned: !currentPinned };
+  const grant = await assertCanManageSharedSession(access, existing);
 
-  if (access.isAdmin) {
-    await updateSession(id, { metadata: nextMetadata });
-  } else {
+  if (grant === 'owner') {
     await updateSessionForUser(id, access.session.userId, {
       metadata: nextMetadata,
     });
+  } else {
+    await updateSession(id, { metadata: nextMetadata });
   }
 
   return { ok: true as const, pinned: !currentPinned };
+}
+
+/**
+ * Toggle a session's visibility inside its PUBLIC workspace ('private' =
+ * creator-only, 'shared' = every workspace member can read/manage).
+ * Visibility is the CREATOR's choice — only grant==='owner' may change it;
+ * workspace managers curate private sessions (rename/delete) but must not
+ * flip them shared, which would expose content the member chose to hide.
+ */
+export async function setSessionVisibilityAction(input: {
+  id: string;
+  visibility: 'private' | 'shared';
+}) {
+  const access = await requireAuth();
+
+  const id = input.id.trim();
+  if (!id) {
+    throw new Error('Missing session id');
+  }
+
+  const existing = await getSession(id);
+  if (!existing) {
+    throw new Error('Session not found');
+  }
+  const grant = await assertCanManageSharedSession(access, existing);
+  if (grant !== 'owner') {
+    throw new Error('Only the session creator can change session visibility');
+  }
+
+  if (input.visibility === 'shared') {
+    // Sharing only makes sense inside a PUBLIC workspace — refuse to
+    // silently no-op elsewhere.
+    if (!existing.workspaceId) {
+      throw new Error('Session is not inside a shared workspace');
+    }
+    const { resolveWorkspaceAccess } = await import('@/lib/core/db/agentd');
+    const wsAccess = await resolveWorkspaceAccess(existing.workspaceId, {
+      userId: access.session.userId,
+      roles: access.user.roles,
+    });
+    if (wsAccess?.ws.visibility !== 'public') {
+      throw new Error('Session is not inside a public workspace');
+    }
+  }
+
+  await updateSessionForUser(id, access.session.userId, {
+    visibility: input.visibility,
+  });
+  return { ok: true as const, visibility: input.visibility };
 }
 
 export async function updateSessionTitleAction(input: {
@@ -212,13 +321,13 @@ export async function updateSessionTitleAction(input: {
       userId: access.session.userId,
     });
   } else {
-    assertCanAccessOwnedResource(access, existing.userId);
-    if (access.isAdmin) {
-      await updateSession(id, { title: nextTitle });
-    } else {
+    const grant = await assertCanManageSharedSession(access, existing);
+    if (grant === 'owner') {
       await updateSessionForUser(id, access.session.userId, {
         title: nextTitle,
       });
+    } else {
+      await updateSession(id, { title: nextTitle });
     }
   }
 
@@ -239,10 +348,10 @@ export async function deleteSessionAction(sessionId: string) {
   if (!session) {
     throw new Error('Session not found.');
   }
-  assertCanAccessOwnedResource(access, session.userId);
+  const grant = await assertCanManageSharedSession(access, session);
 
   const cleanup = await cleanupChatSession(session, {
-    userId: access.isAdmin ? undefined : access.session.userId,
+    userId: grant === 'owner' ? access.session.userId : undefined,
   });
 
   if (!cleanup.deleted) {
@@ -268,7 +377,7 @@ export async function getSessionRuntimeAction(
   if (!session) {
     return null;
   }
-  assertCanAccessOwnedResource(access, session.userId);
+  await assertCanManageSharedSession(access, session);
 
   return getSessionRuntime(id);
 }
@@ -291,7 +400,7 @@ export async function controlSessionRuntimeAction(input: {
   if (!session) {
     throw new Error('Session not found.');
   }
-  assertCanAccessOwnedResource(access, session.userId);
+  await assertCanManageSharedSession(access, session);
 
   const parsedInput = runtimeControlSchema.safeParse({
     target: input.target,
@@ -536,7 +645,7 @@ export async function saveSessionPersonaAction(input: {
   if (!existing) {
     throw new Error('Session not found');
   }
-  assertCanAccessOwnedResource(access, existing.userId);
+  const grant = await assertCanManageSharedSession(access, existing);
 
   const agent = input.agent?.trim() || null;
 
@@ -547,7 +656,7 @@ export async function saveSessionPersonaAction(input: {
   // silently clobber one of those writes (TOCTOU).
   const updated = await updateSessionMetadataKey(
     sessionId,
-    access.isAdmin ? null : access.session.userId,
+    grant === 'owner' ? access.session.userId : null,
     'agent',
     agent,
   );

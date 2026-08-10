@@ -291,6 +291,24 @@ export const workspaces = pgTable(
      *  at most ONE default per owner, closing the TOCTOU race where two
      *  concurrent first-requests could each create a default. */
     isDefault: boolean('is_default').default(false).notNull(),
+    /** 'private': only the owner (and admins per the role hierarchy) can
+     *  see/use it. 'public': every user can enter it — run tasks, manage
+     *  its sessions and their messages. The execution environment (LXC
+     *  container, memory scope) is shared by everyone who enters. */
+    visibility: text('visibility', {
+      enum: ['private', 'public'],
+    })
+      .default('private')
+      .notNull(),
+    /**
+     * PUBLIC workspaces only: when true, memories extracted in this
+     * workspace go into a shared pool visible to every member (personal
+     * per-user memories are untouched). Turning this off — or converting
+     * the workspace back to private — deletes the shared pool.
+     */
+    sharedMemoryEnabled: boolean('shared_memory_enabled')
+      .default(false)
+      .notNull(),
     status: text('status', {
       enum: ['active', 'archived'],
     })

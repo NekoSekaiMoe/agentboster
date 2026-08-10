@@ -149,6 +149,9 @@ export async function createLongTermMemory(input: {
   triggerPhrases?: string[];
   /** Workspace scope (M2). Null/undefined = global layer. */
   workspaceId?: string | null;
+  /** Shared-pool membership (multi-member public workspaces). Insert-only;
+   *  default false = personal. */
+  shared?: boolean;
   config?: AppConfig;
 }) {
   const memory = await createLongTermMemoryRow(input.content, {
@@ -159,6 +162,7 @@ export async function createLongTermMemory(input: {
     sourceKind: input.sourceKind,
     triggerPhrases: input.triggerPhrases,
     workspaceId: input.workspaceId,
+    shared: input.shared,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,
@@ -211,6 +215,9 @@ export async function upsertLongTermMemory(input: {
   dreamStatus?: 'active' | 'tentative' | 'superseded' | 'contradicted';
   /** Dream 元数据(confidence / provenance / lineage)。 */
   dreamMeta?: Record<string, unknown>;
+  /** Shared-pool membership — INSERT-only (an upsert UPDATE never flips a
+   *  personal row into the shared pool). */
+  shared?: boolean;
   config?: AppConfig;
 }) {
   const { row: memory, created } = await upsertLongTermMemoryByKey({
@@ -225,6 +232,7 @@ export async function upsertLongTermMemory(input: {
     triggerPhrases: input.triggerPhrases,
     dreamStatus: input.dreamStatus,
     dreamMeta: input.dreamMeta,
+    shared: input.shared,
   });
   const indexing = await indexLongTermMemoryContent({
     memoryId: memory.id,

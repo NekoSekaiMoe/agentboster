@@ -64,6 +64,58 @@ export const ko = {
   'chatHeader.waiting': '대기 중',
   'common.language': '언어',
   'common.openNavigation': '내비게이션 열기',
+  'common.cancel': '취소',
+  'common.confirm': '확인',
+  'workspace.privateConfirmTitle':
+    '이 워크스페이스를 비공개로 전환하시겠습니까?',
+  'workspace.privateConfirmDescription':
+    '"{name}"을(를) 비공개로 전환하면 모든 멤버의 접근 권한이 취소됩니다. 공유 메모리 풀이 삭제되고, 멤버가 공유한 세션도 다시 생성자만 볼 수 있게 됩니다.',
+  'workspace.detail.sharingTitle': '공유',
+  'workspace.detail.sharedMemoryTitle': '공유 메모리 풀',
+  'workspace.detail.sharedMemoryDescription':
+    '활성화하면 이 워크스페이스에서 추출된 메모리가 모든 멤버에게 표시됩니다. 비활성화하면 공유 풀이 삭제되며, 개인 메모리는 유지됩니다.',
+  'workspace.detail.sharedMemoryOn': '활성화됨',
+  'workspace.detail.sharedMemoryOff': '비활성화됨',
+  'workspace.detail.sharedMemorySuccess':
+    '공유 메모리 설정이 업데이트되었습니다',
+  'workspace.detail.sharedMemoryError':
+    '공유 메모리 설정 업데이트에 실패했습니다',
+  'workspace.detail.sharedMemoryDisableConfirmTitle':
+    '공유 메모리 풀을 비활성화하시겠습니까?',
+  'workspace.detail.sharedMemoryDisableConfirmDescription':
+    '비활성화하면 이 워크스페이스의 모든 공유 메모리가 삭제됩니다. 각 멤버의 개인 메모리는 영향을 받지 않습니다.',
+  'workspace.detail.sessionsTitle': '세션',
+  'workspace.detail.sessionsEmpty': '이 워크스페이스에 아직 세션이 없습니다.',
+  'workspace.detail.sessionUntitled': '제목 없음',
+  'workspace.detail.sessionSharedBadge': '공유됨',
+  'workspace.detail.sessionManageOnlyBadge': '관리 전용',
+  'workspace.detail.sessionOpen': '세션 열기',
+  'workspace.detail.sessionMakeShared': '워크스페이스 멤버와 공유',
+  'workspace.detail.sessionMakePrivate': '비공개로 전환 (생성자만)',
+  'workspace.detail.sessionVisibilitySuccess':
+    '세션 공개 설정이 업데이트되었습니다',
+  'workspace.detail.sessionVisibilityError':
+    '세션 공개 설정 업데이트에 실패했습니다',
+  'workspace.detail.sessionRenameTitle': '세션 이름 변경',
+  'workspace.detail.sessionRenamePlaceholder': '세션 제목',
+  'workspace.detail.sessionRenameSuccess': '세션 이름이 변경되었습니다',
+  'workspace.detail.sessionRenameError': '세션 이름 변경에 실패했습니다',
+  'workspace.detail.sessionDelete': '세션 삭제',
+  'workspace.detail.sessionDeleteConfirmTitle': '이 세션을 삭제하시겠습니까?',
+  'workspace.detail.sessionDeleteConfirmDescription':
+    '세션 "{title}"과(와) 모든 메시지가 영구적으로 삭제됩니다.',
+  'workspace.detail.sessionDeleted': '세션이 삭제되었습니다',
+  'workspace.detail.sessionDeleteError': '세션 삭제에 실패했습니다',
+  'workspace.detail.hardDeleteTitle': '워크스페이스 영구 삭제',
+  'workspace.detail.hardDeleteDescription':
+    '워크스페이스와 포함된 모든 세션, 메시지, 메모리를 삭제합니다. 이 작업은 되돌릴 수 없습니다.',
+  'workspace.detail.hardDeleteButton': '영구 삭제',
+  'workspace.detail.hardDeleteConfirmTitle':
+    '이 워크스페이스를 영구 삭제하시겠습니까?',
+  'workspace.detail.hardDeleteConfirmDescription':
+    '"{name}"과(와) 모든 세션, 메시지, 메모리를 삭제합니다. 확인을 위해 워크스페이스 이름을 입력하세요.',
+  'workspace.detail.hardDeleteSuccess': '워크스페이스가 삭제되었습니다',
+  'workspace.detail.hardDeleteError': '워크스페이스 삭제에 실패했습니다',
   'config.runtime.description':
     '누락된 환경 변수가 설정될 때까지 일부 서버 기능은 제한된 상태로 실행됩니다.',
   'config.runtime.missing': '누락: {vars}',
@@ -72,6 +124,9 @@ export const ko = {
   'config.sections.agentd.description':
     '원격 Agent Daemon 연결, 인증서, 샌드박스 설정을 관리합니다.',
   'config.sections.agentd.title': 'Agent Daemon',
+  'config.sections.workspaces.description':
+    '세션, 메모리, 컨테이너를 범위로 하는 장기 실행 환경인 워크스페이스를 관리합니다.',
+  'config.sections.workspaces.title': '워크스페이스',
   'config.sections.experiments.description':
     'Opt-in experimental features. Off by default; enable individually to try capabilities still under validation.',
   'config.sections.experiments.title': 'Experiments',
@@ -900,4 +955,66 @@ export const ko = {
   'workspace.createSuccess': '워크스페이스가 생성되었습니다',
   'workspace.createError': '워크스페이스 생성에 실패했습니다',
   'workspace.defaultWorkspaceName': '기본 워크스페이스',
+  'workspace.manage': '워크스페이스 관리',
+  'workspace.defaultBadge': '기본',
+  'workspace.archived': '보관됨',
+  'workspace.nodeBound': '노드: {node}',
+  'workspace.nodeUnbound': '바인딩된 노드 없음',
+  'workspace.rename': '이름 변경',
+  'workspace.renameTitle': '워크스페이스 이름 변경',
+  'workspace.renameSuccess': '워크스페이스 이름이 변경되었습니다',
+  'workspace.renameError': '워크스페이스 이름 변경에 실패했습니다',
+  'workspace.setDefault': '기본으로 설정',
+  'workspace.setDefaultSuccess': '기본 워크스페이스가 업데이트되었습니다',
+  'workspace.setDefaultError': '기본 워크스페이스 설정에 실패했습니다',
+  'workspace.archive': '보관',
+  'workspace.archiveConfirmTitle': '이 워크스페이스를 보관하시겠습니까?',
+  'workspace.archiveConfirmDescription':
+    '"{name}"이(가) 보관됩니다. 세션과 메모리는 유지되지만 더 이상 새 작업을 받지 않습니다. 이 작업은 되돌릴 수 없습니다.',
+  'workspace.archiveSuccess': '워크스페이스가 보관되었습니다',
+  'workspace.archiveError': '워크스페이스 보관에 실패했습니다',
+  'workspace.archiveDefaultBlocked':
+    '기본 워크스페이스는 보관할 수 없습니다. 먼저 다른 워크스페이스를 기본으로 설정하세요.',
+  'workspace.container.notCreated': '생성되지 않음',
+  'workspace.container.unreachable': '노드 오프라인',
+  'workspace.container.unknown': '알 수 없음',
+  'workspace.node.online': '온라인',
+  'workspace.node.offline': '오프라인',
+  'workspace.detail.title': '워크스페이스 상세',
+  'workspace.detail.back': '워크스페이스 목록으로',
+  'workspace.detail.basicInfo': '기본 정보',
+  'workspace.detail.name': '이름',
+  'workspace.detail.status': '상태',
+  'workspace.detail.statusActive': '활성',
+  'workspace.detail.statusArchived': '보관됨',
+  'workspace.detail.createdAt': '생성 시간',
+  'workspace.detail.updatedAt': '업데이트 시간',
+  'workspace.detail.node': '바인딩된 노드',
+  'workspace.detail.nodeGeneration': '노드 세대',
+  'workspace.detail.containerStatus': '컨테이너 상태',
+  'workspace.detail.lastHeartbeat': '마지막 하트비트',
+  'workspace.detail.failoverHistory': '장애 조치 기록',
+  'workspace.detail.noFailovers': '장애 조치 기록이 없습니다',
+  'workspace.detail.dangerZone': '위험 영역',
+  'workspace.detail.migrateTitle': '워크스페이스 컨테이너 마이그레이션',
+  'workspace.detail.migrateDescription':
+    '컨테이너 바인딩이 해제되고 노드 세대가 증가합니다. 이전 노드의 남은 컨테이너는 다음 잠금 확인 시 자체 삭제되고, 다음 작업에서 정상 노드에 컨테이너가 지연 재생성됩니다. 실행 중인 작업이 중단될 수 있습니다.',
+  'workspace.detail.migrateButton': '노드 마이그레이션 / 재바인딩',
+  'workspace.detail.migrateSuccess':
+    '워크스페이스 노드 바인딩이 재설정되었습니다',
+  'workspace.detail.migrateError':
+    '워크스페이스 노드 마이그레이션에 실패했습니다',
+  'workspace.detail.loadError': '워크스페이스를 불러오지 못했습니다',
+  'workspace.detail.notFound': '워크스페이스를 찾을 수 없습니다',
+  'workspace.publicBadge': '공개',
+  'workspace.privateBadge': '비공개',
+  'workspace.sharedBy': '{name} 님이 공유',
+  'workspace.setPublic': '공개로 설정',
+  'workspace.setPrivate': '비공개로 설정',
+  'workspace.publicConfirmTitle': '이 워크스페이스를 공개하시겠습니까?',
+  'workspace.publicConfirmDescription':
+    '모든 사용자가 "{name}"에 들어와 공유 컨테이너에서 작업을 실행하고 세션과 메시지를 관리할 수 있습니다.',
+  'workspace.visibilitySuccess': '워크스페이스 공개 설정이 업데이트되었습니다',
+  'workspace.visibilityError': '공개 설정 업데이트에 실패했습니다',
+  'workspace.detail.visibility': '공개 설정',
 } satisfies Record<keyof typeof enUS, string>;

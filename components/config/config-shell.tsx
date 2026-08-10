@@ -29,8 +29,13 @@ export function ConfigShell({
   const { isAdmin } = useConfigContextStrict();
   const { t } = useI18n();
   const sectionMeta = getConfigSectionMeta(section);
+  // CRUD-driven sections manage their own persistence — no config draft,
+  // no floating save button.
   const showSaveButton =
-    isAdmin && section !== 'users' && section !== 'knowledge';
+    isAdmin &&
+    section !== 'users' &&
+    section !== 'knowledge' &&
+    section !== 'workspaces';
   const runtimeIssues =
     runtimeHealth?.checks.filter((check) => check.status !== 'ready') ?? [];
 

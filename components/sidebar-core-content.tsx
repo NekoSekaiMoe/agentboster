@@ -7,6 +7,7 @@ import {
   FolderArchive,
   Globe,
   Loader2,
+  Lock,
   LogOut,
   MessageSquare,
   Monitor,
@@ -367,23 +368,42 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <Link
-        href={`/chat/${sessionItem.id}`}
-        onClick={onClose}
-        title={sessionItem.title ?? 'Untitled'}
-        className={`flex items-center gap-2 rounded-md px-3 py-2 transition-colors ${
-          pathname === `/chat/${sessionItem.id}`
-            ? 'bg-accent text-accent-foreground'
-            : 'hover:bg-muted'
-        }`}
-      >
-        <StatusDot status={sessionItem.status} />
-        <MessageSquare className="size-4 shrink-0" />
-        <span className="flex-1 truncate">
-          {sessionItem.title ?? 'Untitled'}
-        </span>
-        {sessionItem.pinned && <span className="text-xs">📌</span>}
-      </Link>
+      {sessionItem.manageOnly ? (
+        // Manage-only row (another member's private session in a
+        // workspace the actor manages): curate via the dropdown, but the
+        // conversation itself is creator-only — no chat link.
+        <div
+          title={sessionItem.title ?? 'Untitled'}
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-muted-foreground"
+        >
+          <Lock className="size-4 shrink-0" />
+          <span className="flex-1 truncate">
+            {sessionItem.title ?? 'Untitled'}
+          </span>
+          {sessionItem.pinned && <span className="text-xs">📌</span>}
+        </div>
+      ) : (
+        <Link
+          href={`/chat/${sessionItem.id}`}
+          onClick={onClose}
+          title={sessionItem.title ?? 'Untitled'}
+          className={`flex items-center gap-2 rounded-md px-3 py-2 transition-colors ${
+            pathname === `/chat/${sessionItem.id}`
+              ? 'bg-accent text-accent-foreground'
+              : 'hover:bg-muted'
+          }`}
+        >
+          <StatusDot status={sessionItem.status} />
+          <MessageSquare className="size-4 shrink-0" />
+          <span className="flex-1 truncate">
+            {sessionItem.title ?? 'Untitled'}
+          </span>
+          {sessionItem.visibility === 'shared' && (
+            <Globe className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          {sessionItem.pinned && <span className="text-xs">📌</span>}
+        </Link>
+      )}
     </div>
   );
 

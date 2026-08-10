@@ -423,26 +423,35 @@ async function ensureMessageSession(input: {
     const userId = sourceUserId(input.source);
     if (!userId) return null;
 
-    const { getOrCreateDefaultWorkspace, getWorkspace } = await import(
+    const { getOrCreateDefaultWorkspace } = await import(
       '@/lib/core/db/agentd'
     );
 
     const requestedId = input.workspaceId?.trim();
     if (requestedId) {
-      const requested = await getWorkspace(requestedId);
-      if (!requested || requested.ownerId !== userId) {
+      // Public workspaces: any member (not just the owner) may scope new
+      // sessions here. resolveWorkspaceAccess encodes owner / public /
+      // admin-of-non-protected-owner.
+      const { resolveWorkspaceAccess } = await import('@/lib/core/db/agentd');
+      const { getUserById } = await import('@/lib/core/db/users');
+      const actor = await getUserById(userId);
+      const wsAccess = await resolveWorkspaceAccess(requestedId, {
+        userId,
+        roles: actor?.roles ?? [],
+      });
+      if (!wsAccess?.canAccess) {
         throw new SessionWorkspaceError(
           'not_found',
           'Requested workspace not found',
         );
       }
-      if (requested.status !== 'active') {
+      if (wsAccess.ws.status !== 'active') {
         throw new SessionWorkspaceError(
           'not_active',
           'Requested workspace is not active',
         );
       }
-      return requested.id;
+      return wsAccess.ws.id;
     }
 
     const fallback = await getOrCreateDefaultWorkspace(userId);
@@ -476,6 +485,14 @@ async function ensureMessageSession(input: {
       }
 
       if (!canSourceAccessSession(input.source, existing)) {
+        // Public-workspace sharing: a session living in a workspace the
+        // actor can ACCESS is open to every member, even when they didn't
+        // create it.
+        const sharedAccess = await canAccessSessionWorkspace(
+          input.source,
+          existing,
+        );
+        if (sharedAccess) return existing;
         throw new Error('Forbidden');
       }
 
@@ -596,6 +613,40 @@ function canSourceAccessSession(
     userId: session.userId,
     channel: session.channel,
   }).accessible;
+}
+
+/**
+ * Public-workspace fallback for session access: when the per-user check
+ * (canSourceAccessSession) denies a session, a member of the session's
+ * workspace (public, or admin-manageable) may still enter it — a shared
+ * workspace shares its sessions and their messages. Returns false for
+ * anonymous sources and workspace-less sessions.
+ */
+async function canAccessSessionWorkspace(
+  source: ChatSource,
+  session: NonNullable<SessionRecord>,
+): Promise<boolean> {
+  const userId = sourceUserId(source);
+  const wsId = session.workspaceId ? String(session.workspaceId) : null;
+  if (!userId || !wsId) return false;
+  // Only SHARED sessions in a public workspace are open to other members.
+  // A member's private session stays creator-only — even the workspace
+  // owner/admin (manage-without-read) may not post into it, since a run
+  // would produce content they are not allowed to read.
+  if (session.visibility !== 'shared') return false;
+  try {
+    const { resolveWorkspaceAccess } = await import('@/lib/core/db/agentd');
+    const { getUserById } = await import('@/lib/core/db/users');
+    const actor = await getUserById(userId);
+    const wsAccess = await resolveWorkspaceAccess(wsId, {
+      userId,
+      roles: actor?.roles ?? [],
+    });
+    return wsAccess?.canAccess ?? false;
+  } catch {
+    // Fail closed: a lookup error must never widen access.
+    return false;
+  }
 }
 
 type SwitchResolveResult =

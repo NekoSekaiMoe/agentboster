@@ -1,0 +1,1 @@
+ALTER TABLE "workspaces" ADD COLUMN "visibility" text DEFAULT 'private' NOT NULL;

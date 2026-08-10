@@ -37,6 +37,14 @@ import {
 } from './desktop-updates.js';
 import { readAgentbosterDesktopAuth } from './agentboster-auth.js';
 import {
+  archiveRemoteWorkspace,
+  createRemoteWorkspace,
+  fetchRemoteWorkspaces,
+  patchRemoteWorkspace,
+  type RemoteWorkspace,
+  RemoteWorkspaceRequestError,
+} from './workspaces-remote.js';
+import {
   RpcBridge,
   type RpcSessionState,
   rpcBridge,
@@ -143,6 +151,9 @@ interface SessionRuntime {
 
 const WORKSPACES_STORAGE_KEY = 'pi-desktop.workspaces.v1';
 const WORKSPACES_ACTIVE_STORAGE_KEY = 'pi-desktop.workspaces.active.v1';
+const REMOTE_WORKSPACE_IDS_STORAGE_KEY = 'pi-desktop.workspaces.remote-ids.v1';
+const REMOTE_DEFAULT_WORKSPACE_STORAGE_KEY =
+  'pi-desktop.workspaces.remote-default.v1';
 const LEGACY_PROJECTS_STORAGE_KEY = 'pi-desktop.projects.v1';
 const WORKSPACE_DEFAULT_ID = 'workspace_default';
 const WORKSPACE_PROJECTS_KEY_PREFIX = 'pi-desktop.workspace-projects.v1';
@@ -2898,6 +2909,147 @@ function getActiveWorkspace(): WorkspaceState | null {
   return workspaces.find((w) => w.id === activeWorkspaceId) ?? null;
 }
 
+// --- Remote workspace sync -------------------------------------------------
+//
+// Workspaces are mirrored against the Web backend (`/api/workspaces`) when
+// the CLI auth config is present. The local list in WORKSPACES_STORAGE_KEY
+// stays the offline cache: when the backend is unreachable the app keeps
+// working with the cached list, and locally-created workspaces adopt their
+// server-assigned id on the next successful sync.
+
+let remoteDefaultWorkspaceId: string | null = null;
+
+function loadRemoteWorkspaceIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(REMOTE_WORKSPACE_IDS_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      parsed.filter(
+        (entry): entry is string =>
+          typeof entry === 'string' && entry.trim().length > 0,
+      ),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function persistRemoteWorkspaceIds(ids: Set<string>): void {
+  try {
+    localStorage.setItem(
+      REMOTE_WORKSPACE_IDS_STORAGE_KEY,
+      JSON.stringify([...ids]),
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function loadRemoteDefaultWorkspaceId(): string | null {
+  try {
+    const raw = localStorage.getItem(REMOTE_DEFAULT_WORKSPACE_STORAGE_KEY);
+    return raw && raw.trim().length > 0 ? raw.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistRemoteDefaultWorkspaceId(): void {
+  try {
+    if (remoteDefaultWorkspaceId) {
+      localStorage.setItem(
+        REMOTE_DEFAULT_WORKSPACE_STORAGE_KEY,
+        remoteDefaultWorkspaceId,
+      );
+    } else {
+      localStorage.removeItem(REMOTE_DEFAULT_WORKSPACE_STORAGE_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function mergeRemoteWorkspaces(remoteList: RemoteWorkspace[]): void {
+  const active = remoteList.filter((entry) => entry.status !== 'archived');
+  const previousRemoteIds = loadRemoteWorkspaceIds();
+  const nextRemoteIds = new Set(active.map((entry) => entry.id));
+  let changed = false;
+
+  for (const remote of active) {
+    const existing = workspaces.find((entry) => entry.id === remote.id);
+    if (existing) {
+      if (remote.name && existing.title !== remote.name) {
+        existing.title = remote.name;
+        changed = true;
+      }
+      continue;
+    }
+    const workspace = createWorkspace(remote.name, null);
+    // Adopt the server-assigned id BEFORE the workspace is ever activated,
+    // so sessionRuntimeKey/tab state never has to be remapped.
+    workspace.id = remote.id;
+    workspace.emoji = pickWorkspaceDefaultEmoji(`${remote.id}:${remote.name}`);
+    workspaces.push(workspace);
+    changed = true;
+  }
+
+  // Remove workspaces that were remote-backed but disappeared from the
+  // backend (archived elsewhere). Never remove the active workspace — a
+  // stale entry is safer than yanking the user's current view.
+  for (let index = workspaces.length - 1; index >= 0; index -= 1) {
+    const workspace = workspaces[index];
+    if (!previousRemoteIds.has(workspace.id)) continue;
+    if (nextRemoteIds.has(workspace.id)) continue;
+    if (workspace.id === activeWorkspaceId) continue;
+    removeRuntimesForWorkspace(workspace.id);
+    workspaces.splice(index, 1);
+    changed = true;
+  }
+
+  const nextDefaultId = active.find((entry) => entry.isDefault)?.id ?? null;
+  if (nextDefaultId !== remoteDefaultWorkspaceId) {
+    remoteDefaultWorkspaceId = nextDefaultId;
+    persistRemoteDefaultWorkspaceId();
+    changed = true;
+  }
+
+  persistRemoteWorkspaceIds(nextRemoteIds);
+  if (changed) {
+    persistWorkspaces();
+    syncWorkspaceTabsBar();
+    if (activeWorkspaceId) {
+      const workspace = getActiveWorkspace();
+      if (workspace) {
+        syncContentTabsBar(workspace);
+        syncSidebarSelectionFromWorkspace(workspace);
+      }
+    }
+  }
+}
+
+async function refreshRemoteWorkspaces(): Promise<void> {
+  const auth = await readAgentbosterDesktopAuth().catch(() => null);
+  if (!auth) return; // local-only mode: keep the cached list
+  let remoteList: RemoteWorkspace[];
+  try {
+    remoteList = await fetchRemoteWorkspaces(auth);
+  } catch (err) {
+    recordDebugTrace(
+      `workspaces-remote:fetch-failed ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return; // offline: fall back to the cached local list
+  }
+  recordDebugTrace(`workspaces-remote:fetched count=${remoteList.length}`);
+  mergeRemoteWorkspaces(remoteList);
+}
+
+function getWorkspaceAuthOrNotify(): ReturnType<
+  typeof readAgentbosterDesktopAuth
+> {
+  return readAgentbosterDesktopAuth().catch(() => null);
+}
+
 function syncWorkspaceTabsBar(): void {
   const workspaceItems: SidebarWorkspaceItem[] = workspaces.map(
     (workspace) => ({
@@ -2907,6 +3059,7 @@ function syncWorkspaceTabsBar(): void {
       emoji: workspace.emoji,
       pinned: false,
       closable: true,
+      isDefault: workspace.id === remoteDefaultWorkspaceId,
     }),
   );
   workspaceTabsBar?.setTabs(workspaceItems, activeWorkspaceId);
@@ -3793,6 +3946,142 @@ async function focusNotificationTarget(
   await applyWorkspacePane(workspace);
 }
 
+async function handleWorkspaceCreate(draft?: {
+  title?: string;
+  emoji?: string | null;
+}): Promise<void> {
+  const title = draft?.title?.trim();
+  const emoji = draft?.emoji ?? null;
+  const workspace = createWorkspace(
+    title && title.length > 0 ? title : undefined,
+    emoji,
+  );
+
+  // Best-effort remote create: when the backend is reachable the workspace
+  // adopts the server-assigned id before activation, so sessionRuntimeKey /
+  // tab state never needs remapping. Offline we keep the local id and the
+  // workspace syncs on the next successful refresh.
+  const auth = await getWorkspaceAuthOrNotify();
+  if (auth) {
+    try {
+      const remote = await createRemoteWorkspace(auth, workspace.title);
+      if (remote) {
+        workspace.id = remote.id;
+        workspace.title = remote.name || workspace.title;
+        workspace.emoji = pickWorkspaceDefaultEmoji(
+          `${remote.id}:${workspace.title}`,
+        );
+        const ids = loadRemoteWorkspaceIds();
+        ids.add(remote.id);
+        persistRemoteWorkspaceIds(ids);
+        recordDebugTrace(`workspaces-remote:created id=${remote.id}`);
+      }
+    } catch (err) {
+      recordDebugTrace(
+        `workspaces-remote:create-failed ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  workspaces.push(workspace);
+  activeWorkspaceId = workspace.id;
+  persistWorkspaces();
+  syncWorkspaceTabsBar();
+  void queueProjectTask(
+    async (version) => {
+      assertProjectTaskCurrent(version);
+      await activateWorkspace(workspace.id, version);
+    },
+    (err) => {
+      console.error('Failed to create workspace:', err);
+      chatView?.notify('Failed to create workspace', 'error');
+    },
+    { label: 'workspace-add' },
+  );
+}
+
+async function syncRemoteWorkspaceRename(
+  workspaceId: string,
+  title: string,
+): Promise<void> {
+  if (!loadRemoteWorkspaceIds().has(workspaceId)) return;
+  const auth = await getWorkspaceAuthOrNotify();
+  if (!auth) return;
+  try {
+    await patchRemoteWorkspace(auth, workspaceId, {
+      action: 'rename',
+      name: title,
+    });
+  } catch (err) {
+    recordDebugTrace(
+      `workspaces-remote:rename-failed ${err instanceof Error ? err.message : String(err)}`,
+    );
+    chatView?.notify('Failed to rename workspace on the server', 'error');
+    // Resync the authoritative title from the backend.
+    await refreshRemoteWorkspaces();
+  }
+}
+
+async function closeWorkspaceWithRemote(workspaceId: string): Promise<void> {
+  if (loadRemoteWorkspaceIds().has(workspaceId)) {
+    const auth = await getWorkspaceAuthOrNotify();
+    if (auth) {
+      try {
+        await archiveRemoteWorkspace(auth, workspaceId);
+        const ids = loadRemoteWorkspaceIds();
+        ids.delete(workspaceId);
+        persistRemoteWorkspaceIds(ids);
+      } catch (err) {
+        if (err instanceof RemoteWorkspaceRequestError) {
+          chatView?.notify(
+            err.status === 409
+              ? 'The default workspace cannot be archived'
+              : `Failed to archive workspace: ${err.message}`,
+            'error',
+          );
+          return;
+        }
+        // Network failure: fall through to the local close so offline use
+        // keeps working. The workspace may reappear on the next refresh.
+        recordDebugTrace(
+          `workspaces-remote:archive-unreachable ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+  closeWorkspace(workspaceId);
+}
+
+async function setDefaultRemoteWorkspace(workspaceId: string): Promise<void> {
+  if (!loadRemoteWorkspaceIds().has(workspaceId)) {
+    chatView?.notify(
+      'This workspace is not synced with the server yet',
+      'info',
+    );
+    return;
+  }
+  const auth = await getWorkspaceAuthOrNotify();
+  if (!auth) {
+    chatView?.notify(
+      'Not logged in. Run agentboster-cli login first.',
+      'error',
+    );
+    return;
+  }
+  try {
+    await patchRemoteWorkspace(auth, workspaceId, { action: 'set_default' });
+    remoteDefaultWorkspaceId = workspaceId;
+    persistRemoteDefaultWorkspaceId();
+    syncWorkspaceTabsBar();
+  } catch (err) {
+    recordDebugTrace(
+      `workspaces-remote:set-default-failed ${err instanceof Error ? err.message : String(err)}`,
+    );
+    chatView?.notify('Failed to set the default workspace', 'error');
+  }
+  await refreshRemoteWorkspaces();
+}
+
 function closeWorkspace(workspaceId: string): void {
   if (workspaces.length <= 1) return;
   const index = workspaces.findIndex(
@@ -3917,6 +4206,10 @@ async function initialize(): Promise<void> {
 
   initializeComponents();
   loadWorkspaces();
+  remoteDefaultWorkspaceId = loadRemoteDefaultWorkspaceId();
+  // Fire-and-forget: merge server-side workspaces into the local cache. On
+  // failure the cached local list keeps the app fully usable offline.
+  void refreshRemoteWorkspaces();
   await loadPreferredPiBinaryPathFromSettings();
   loadSidebarWidth();
   applySidebarWidth();
@@ -5543,27 +5836,7 @@ function renderApp(): void {
   });
 
   sidebar.setOnWorkspaceCreate((draft) => {
-    const title = draft?.title?.trim();
-    const emoji = draft?.emoji ?? null;
-    const workspace = createWorkspace(
-      title && title.length > 0 ? title : undefined,
-      emoji,
-    );
-    workspaces.push(workspace);
-    activeWorkspaceId = workspace.id;
-    persistWorkspaces();
-    syncWorkspaceTabsBar();
-    void queueProjectTask(
-      async (version) => {
-        assertProjectTaskCurrent(version);
-        await activateWorkspace(workspace.id, version);
-      },
-      (err) => {
-        console.error('Failed to create workspace:', err);
-        chatView?.notify('Failed to create workspace', 'error');
-      },
-      { label: 'workspace-add' },
-    );
+    void handleWorkspaceCreate(draft);
   });
 
   sidebar.setOnWorkspaceEmoji((workspaceId, emoji) => {
@@ -5581,10 +5854,15 @@ function renderApp(): void {
     workspace.title = title;
     persistWorkspaces();
     syncWorkspaceTabsBar();
+    void syncRemoteWorkspaceRename(workspaceId, title);
   });
 
   sidebar.setOnWorkspaceDelete((workspaceId) => {
-    closeWorkspace(workspaceId);
+    void closeWorkspaceWithRemote(workspaceId);
+  });
+
+  sidebar.setOnWorkspaceSetDefault((workspaceId) => {
+    void setDefaultRemoteWorkspace(workspaceId);
   });
 
   sidebar.setOnWorkspaceReorder((orderedIds) => {

@@ -140,3 +140,17 @@ export async function cloneBuiltinTemplates(
       target: [schema.builtinMemories.workspaceId, schema.builtinMemories.key],
     });
 }
+
+/**
+ * Delete every builtin-memory override owned by a workspace (global
+ * templates are untouched). Used by workspace HARD DELETE.
+ */
+export async function deleteBuiltinMemoriesByWorkspaceId(
+  workspaceId: string,
+): Promise<number> {
+  const rows = await db
+    .delete(schema.builtinMemories)
+    .where(eq(schema.builtinMemories.workspaceId, workspaceId))
+    .returning({ id: schema.builtinMemories.id });
+  return rows.length;
+}

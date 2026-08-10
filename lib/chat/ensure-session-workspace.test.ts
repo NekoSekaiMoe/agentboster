@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
-  getWorkspace: vi.fn(),
+  resolveWorkspaceAccess: vi.fn(),
   getOrCreateDefaultWorkspace: vi.fn(),
   startWorkflow: vi.fn(),
 }));
@@ -40,7 +40,7 @@ vi.mock('@/lib/core/db/chat', () => ({
 }));
 
 vi.mock('@/lib/core/db/agentd', () => ({
-  getWorkspace: mocks.getWorkspace,
+  resolveWorkspaceAccess: mocks.resolveWorkspaceAccess,
   getOrCreateDefaultWorkspace: mocks.getOrCreateDefaultWorkspace,
 }));
 
@@ -151,11 +151,17 @@ function workspaceRecord(overrides: Record<string, unknown> = {}) {
     preferredNodeId: null,
     nodeGeneration: 0,
     isDefault: false,
+    visibility: 'private',
     status: 'active',
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
   };
+}
+
+/** Access-granted result (owner or public member). */
+function accessGranted(ws: ReturnType<typeof workspaceRecord>) {
+  return { ws, canAccess: true, canManage: true };
 }
 
 async function submitFirstMessage(workspaceId?: string) {
@@ -199,18 +205,40 @@ beforeEach(() => {
 
 describe('ensureMessageSession workspace resolution', () => {
   it('creates the first-message session in the requested non-default workspace', async () => {
-    mocks.getWorkspace.mockResolvedValue(
-      workspaceRecord({ id: 'ws-nondefault' }),
+    mocks.resolveWorkspaceAccess.mockResolvedValue(
+      accessGranted(workspaceRecord({ id: 'ws-nondefault' })),
     );
 
     const result = await submitFirstMessage('ws-nondefault');
 
     expect(result.kind).toBe('message');
-    expect(mocks.getWorkspace).toHaveBeenCalledWith('ws-nondefault');
+    expect(mocks.resolveWorkspaceAccess).toHaveBeenCalledWith(
+      'ws-nondefault',
+      expect.objectContaining({ userId: USER_ID }),
+    );
     expect(mocks.getOrCreateDefaultWorkspace).not.toHaveBeenCalled();
     expect(mocks.createSession).toHaveBeenCalledTimes(1);
     expect(mocks.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: 'ws-nondefault' }),
+    );
+  });
+
+  it('creates the session in another user’s PUBLIC workspace (shared access)', async () => {
+    mocks.resolveWorkspaceAccess.mockResolvedValue({
+      ws: workspaceRecord({
+        id: 'ws-shared',
+        ownerId: 'user-2',
+        visibility: 'public',
+      }),
+      canAccess: true,
+      canManage: false,
+    });
+
+    const result = await submitFirstMessage('ws-shared');
+
+    expect(result.kind).toBe('message');
+    expect(mocks.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: 'ws-shared' }),
     );
   });
 
@@ -222,14 +250,14 @@ describe('ensureMessageSession workspace resolution', () => {
     const result = await submitFirstMessage();
 
     expect(result.kind).toBe('message');
-    expect(mocks.getWorkspace).not.toHaveBeenCalled();
+    expect(mocks.resolveWorkspaceAccess).not.toHaveBeenCalled();
     expect(mocks.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: 'ws-default' }),
     );
   });
 
   it('rejects and creates no session when the requested workspace is missing', async () => {
-    mocks.getWorkspace.mockResolvedValue(null);
+    mocks.resolveWorkspaceAccess.mockResolvedValue(null);
 
     await expect(submitFirstMessage('ws-gone')).rejects.toThrow(
       /workspace not found/i,
@@ -245,9 +273,11 @@ describe('ensureMessageSession workspace resolution', () => {
   });
 
   it('rejects and creates no session when the requested workspace belongs to another user', async () => {
-    mocks.getWorkspace.mockResolvedValue(
-      workspaceRecord({ id: 'ws-other', ownerId: 'user-2' }),
-    );
+    mocks.resolveWorkspaceAccess.mockResolvedValue({
+      ws: workspaceRecord({ id: 'ws-other', ownerId: 'user-2' }),
+      canAccess: false,
+      canManage: false,
+    });
 
     await expect(submitFirstMessage('ws-other')).rejects.toThrow(
       /workspace not found/i,
@@ -257,8 +287,8 @@ describe('ensureMessageSession workspace resolution', () => {
   });
 
   it('rejects and creates no session when the requested workspace is archived', async () => {
-    mocks.getWorkspace.mockResolvedValue(
-      workspaceRecord({ id: 'ws-archived', status: 'archived' }),
+    mocks.resolveWorkspaceAccess.mockResolvedValue(
+      accessGranted(workspaceRecord({ id: 'ws-archived', status: 'archived' })),
     );
 
     await expect(submitFirstMessage('ws-archived')).rejects.toThrow(

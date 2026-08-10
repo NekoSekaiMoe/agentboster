@@ -146,13 +146,16 @@ export const longTermMemories = pgTable(
       .notNull(),
     importance: integer('importance').default(5).notNull(),
     /**
-     * Whether this memory is shared across all members of the workspace.
-     * When true (default), recall sees it regardless of `userId`. When
-     * false, only the creator (`userId`) sees it. Single-user MVP: always
-     * true in practice; the flag exists so future multi-member
-     * workspaces get per-memory privacy without a schema change.
+     * Whether this memory is shared across all members of the workspace
+     * (the "shared pool" of a public workspace with shared memory
+     * enabled). When false (default), only the creator (`userId`) sees
+     * it — recall enforces `(shared OR user_id = requester)` via
+     * buildWorkspaceVisibilityCondition. Legacy single-user rows were
+     * backfilled to false by migration 0041 so converting a workspace
+     * public→private can delete the pool (`shared=true`) without
+     * touching personal memories.
      */
-    shared: boolean('shared').default(true).notNull(),
+    shared: boolean('shared').default(false).notNull(),
     /**
      * Dream lifecycle state. `active` is the default for back-compat
      * (legacy rows + normal extractor writes are always active and

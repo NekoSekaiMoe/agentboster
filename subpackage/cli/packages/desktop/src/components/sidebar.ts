@@ -18,6 +18,8 @@ export interface SidebarWorkspaceItem {
   color?: string | null;
   pinned?: boolean;
   closable?: boolean;
+  /** True when the Web backend marks this workspace as the default. */
+  isDefault?: boolean;
 }
 
 export interface SidebarSettingsNavItem {
@@ -356,6 +358,7 @@ export class Sidebar {
     | ((workspaceId: string, nextTitle: string) => void)
     | null = null;
   private onWorkspaceDelete: ((workspaceId: string) => void) | null = null;
+  private onWorkspaceSetDefault: ((workspaceId: string) => void) | null = null;
   private onProjectSelect:
     | ((project: { id: string; name: string; path: string } | null) => void)
     | null = null;
@@ -536,6 +539,10 @@ export class Sidebar {
 
   setOnWorkspaceDelete(cb: (workspaceId: string) => void): void {
     this.onWorkspaceDelete = cb;
+  }
+
+  setOnWorkspaceSetDefault(cb: (workspaceId: string) => void): void {
+    this.onWorkspaceSetDefault = cb;
   }
 
   setWorkspaces(
@@ -1546,7 +1553,9 @@ export class Sidebar {
     void this.deleteFileNode(target.projectId, node);
   }
 
-  private runWorkspaceContextAction(action: 'rename' | 'delete'): void {
+  private runWorkspaceContextAction(
+    action: 'rename' | 'delete' | 'setDefault',
+  ): void {
     const target = this.contextMenu?.target;
     if (!target || target.kind !== 'workspace') return;
     this.closeContextMenu();
@@ -1559,6 +1568,12 @@ export class Sidebar {
 
     if (action === 'rename') {
       this.startWorkspaceRename(workspace.id);
+      return;
+    }
+
+    if (action === 'setDefault') {
+      if (workspace.isDefault) return;
+      this.onWorkspaceSetDefault?.(workspace.id);
       return;
     }
 
@@ -1608,9 +1623,20 @@ export class Sidebar {
 			`;
     } else {
       const canDeleteWorkspace = this.workspaces.length > 1;
+      const targetWorkspace =
+        this.workspaces.find((entry) => entry.id === target.workspaceId) ??
+        null;
+      const isDefaultWorkspace = targetWorkspace?.isDefault === true;
       menuContent = html`
 				<div class="sidebar-context-menu" style=${`left:${menu.x}px;top:${menu.y}px`} @click=${(e: Event) => e.stopPropagation()}>
 					<button @click=${() => this.runWorkspaceContextAction('rename')}>Rename workspace</button>
+					<button
+						?disabled=${isDefaultWorkspace}
+						title=${isDefaultWorkspace ? 'This is the default workspace' : 'Set as default workspace'}
+						@click=${() => this.runWorkspaceContextAction('setDefault')}
+					>
+						${isDefaultWorkspace ? 'Default workspace' : 'Set as default workspace'}
+					</button>
 					<button
 						class="danger"
 						?disabled=${!canDeleteWorkspace}
@@ -3866,7 +3892,7 @@ export class Sidebar {
 							<button
 								class="sidebar-workspace-pill ${active ? 'active' : ''} ${dragOver ? 'drag-over' : ''} ${workspace.id === this.draggingWorkspaceId ? 'dragging' : ''}"
 								data-workspace-id=${workspace.id}
-								title=${workspace.title}
+								title=${workspace.isDefault ? `${workspace.title} (default)` : workspace.title}
 								@contextmenu=${(e: MouseEvent) => this.handleWorkspaceContextMenu(e, workspace.id)}
 								@pointerdown=${(e: PointerEvent) => this.beginWorkspacePointerDrag(e, workspace.id)}
 								@click=${() => {
