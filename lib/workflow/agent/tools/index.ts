@@ -75,6 +75,7 @@ export async function buildAgentTools(
   const writable = options.writable;
   const userId = options.userId;
   const source = options.source;
+  const workspaceLockAcquired = options.workspaceLockAcquired;
   const buildNestedTools = (nestedOptions: BuildAgentToolsOptions = {}) =>
     buildAgentTools(config, sessionId, {
       runId,
@@ -83,6 +84,7 @@ export async function buildAgentTools(
       writable,
       userId,
       source,
+      workspaceLockAcquired,
       ...nestedOptions,
     });
 
@@ -96,6 +98,7 @@ export async function buildAgentTools(
       writable,
       userId,
       source,
+      workspaceLockAcquired,
       buildNestedTools,
     });
 

@@ -83,6 +83,10 @@ async function dispatchBrowserTool(input: {
   toolName: string;
   toolInput: Record<string, unknown>;
   nodeId?: string;
+  /** Whether the per-workspace run lock was acquired this run. When false,
+   *  suppress workspace_id so agentd uses a short-lived ephemeral container
+   *  instead of binding the long-lived workspace container. */
+  workspaceLockAcquired?: boolean;
 }): Promise<{
   content: Array<
     | { type: 'text'; text: string }
@@ -112,6 +116,8 @@ async function dispatchBrowserTool(input: {
     input.toolName,
     input.toolInput,
     input.nodeId,
+    undefined,
+    input.workspaceLockAcquired,
   );
 
   if (!result?.success) {
@@ -162,7 +168,7 @@ export default defineBuildInTool({
   description: `Playwright-backed browser automation (navigate / click / type / screenshot / evaluate / select_option / hover / upload / multi-tab) running on an agentd node's persistent LXC sandbox. Profiles persist across sessions. Use these when the task needs real browser interaction (login flows, JS-rendered pages, file uploads, multi-tab workflows). Requires at least one online agentd node; not available in the serverless-only Web UI path.`,
   requiredConfig: [],
   optionalConfig: [],
-  factory: async (_config, { sessionId, source }) => {
+  factory: async (_config, { sessionId, source, workspaceLockAcquired }) => {
     // Gate: browser_* always run on agentd. Web-UI sessions have no
     // daemon peer and would only ever hit the "no online node" error
     // path — exclude them so the catalog stays honest. CLI / IM /
@@ -171,7 +177,10 @@ export default defineBuildInTool({
       return null;
     }
 
-    const ctx = { sessionId };
+    const ctx = {
+      sessionId,
+      workspaceLockAcquired,
+    };
 
     return {
       browser_navigate: tool({

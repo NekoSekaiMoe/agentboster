@@ -144,6 +144,14 @@ export async function execToolOnAgentd(
   toolInput: Record<string, unknown>,
   nodeId?: string,
   allowedNodes?: readonly string[],
+  /** When false, the per-workspace run lock was NOT acquired for this run
+   *  (busy / unavailable), so suppress `workspace_id` in the request body.
+   *  This honors the product contract "busy → fall back to ephemeral":
+   *  agentd then uses a short-lived container instead of binding the
+   *  long-lived workspace container and serializing on its ExecLockFor.
+   *  Defaults to true (preserve historical behavior for callers that
+   *  don't plumb lock state). */
+  workspaceLockAcquired = true,
 ): Promise<{
   success: boolean;
   data?: string;
@@ -355,7 +363,15 @@ export async function execToolOnAgentd(
     session_id: sessionId,
     tool_name: toolName,
     tool_input: toolInput,
-    ...(workspaceId ? { workspace_id: workspaceId } : {}),
+    // Only bind the long-lived workspace container when this run actually
+    // holds the per-workspace lock. When workspaceLockAcquired is false the
+    // lock was busy/unavailable, so suppress workspace_id and let agentd
+    // spin up a short-lived ephemeral container instead of serializing on
+    // the workspace's ExecLockFor (the documented "busy → ephemeral"
+    // fallback).
+    ...(workspaceId && workspaceLockAcquired
+      ? { workspace_id: workspaceId }
+      : {}),
   };
 
   logger.info('Executing tool on Agent Daemon', {

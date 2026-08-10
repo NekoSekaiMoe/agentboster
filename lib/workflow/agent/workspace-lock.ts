@@ -1,6 +1,8 @@
 'use step';
 
+import { parseWithFallback } from '@/lib/core/api/schema';
 import { createLogger } from '@/lib/utils/logger';
+import { z } from 'zod';
 
 const logger = createLogger('workspace-lock');
 
@@ -19,6 +21,15 @@ const logger = createLogger('workspace-lock');
  * On 409 busy, the caller (chatWorkflow) falls back to short-lived
  * containers for this run — the LLM gets a stateless environment this
  * turn. That's an explicit product choice: we never block waiting.
+ *
+ * NOTE: the "fall back to ephemeral" contract is now fully implemented.
+ * {@link acquireRunLockStep} returns an empty handle on busy, and the chat
+ * workflow propagates `workspaceLockAcquired` (derived from the handle)
+ * through buildAgentTools → the agentd tool definitions →
+ * `execToolOnAgentd`. When the lock wasn't acquired, `workspace_id` is
+ * suppressed in the ExecuteTool request so agentd uses a short-lived
+ * ephemeral container instead of binding the long-lived workspace
+ * container and serializing on its internal ExecLockFor.
  */
 
 interface AcquireResult {
@@ -36,6 +47,35 @@ interface AcquireResult {
   /** Present when busy — the current holder, for telemetry only. */
   holder?: unknown;
 }
+
+// Lenient schemas for the agentd lock responses. Fields are kept as plain
+// strings (not enums) so an unexpected value still parses; the state shape
+// mirrors what the daemon returns under `data` (200) or `holder` (409).
+const acquireStateSchema = z
+  .object({
+    data: z
+      .object({
+        workspace_id: z.string().optional(),
+        holder_type: z.string().optional(),
+        exec_session_id: z.string().optional(),
+        owner_task_id: z.string().optional(),
+        node_generation: z.number().optional(),
+        acquired_at: z.string().optional(),
+        expires_at: z.string().optional(),
+      })
+      .optional(),
+  })
+  .transform((d) => d.data);
+
+const acquireBusySchema = z
+  .object({
+    data: z
+      .object({
+        holder: z.unknown().optional(),
+      })
+      .optional(),
+  })
+  .transform((d) => d.data ?? { holder: undefined });
 
 /**
  * Try to acquire the workspace run lock from the agentd node that owns the
@@ -58,7 +98,16 @@ export async function acquireWorkspaceLock(input: {
     execSessionId,
     holderType = 'chat_run',
     ownerTaskId,
-    ttlSeconds = 30 * 60,
+    ttlSeconds = 2 * 60 * 60,
+    // TODO(tech-debt, follow-up): default TTL is 2h, raised from the
+    // original 30min so typical long agent runs don't have their workspace
+    // lock silently expire mid-run (agentd's TryAcquire lets another run
+    // steal the lock after expires_at, and there is no renew/heartbeat
+    // path here today — two concurrent runs could then interleave commands
+    // in the same container near the boundary). 2h covers the overwhelming
+    // majority of runs; the proper fix is a periodic re-acquire (renewal)
+    // loop driven from the host boundary while the run is active, so the
+    // TTL can stay short as a leak safety-net. Tracked as a follow-up.
     nodeGeneration,
   } = input;
 
@@ -90,12 +139,33 @@ export async function acquireWorkspaceLock(input: {
       10_000,
     );
     if (res.status === 200) {
-      const data = JSON.parse(res.text || '{}') as Record<string, unknown>;
-      return { acquired: true, state: data.data as AcquireResult['state'] };
+      // Validate the agentd response with a lenient schema rather than a
+      // bare `as` cast: a malformed body (missing `data`) used to yield
+      // `{ acquired: true, state: undefined }`, making the caller believe it
+      // held a lock it never received. Treat parse failure as NOT acquired.
+      const payload = parseWithFallback(
+        JSON.parse(res.text || '{}'),
+        acquireStateSchema,
+        undefined,
+        { endpoint: 'POST /api/v1/workspaces/:id/lock/acquire' },
+      );
+      if (!payload) {
+        logger.warn('acquire: malformed 200 body, treating as not acquired', {
+          nodeId,
+          workspaceId,
+        });
+        return { acquired: false };
+      }
+      return { acquired: true, state: payload };
     }
     if (res.status === 409) {
-      const data = JSON.parse(res.text || '{}') as Record<string, unknown>;
-      return { acquired: false, holder: data.holder };
+      const payload = parseWithFallback(
+        JSON.parse(res.text || '{}'),
+        acquireBusySchema,
+        { holder: undefined },
+        { endpoint: 'POST /api/v1/workspaces/:id/lock/acquire (busy)' },
+      );
+      return { acquired: false, holder: payload.holder };
     }
     logger.warn('acquire unexpected status', {
       nodeId,

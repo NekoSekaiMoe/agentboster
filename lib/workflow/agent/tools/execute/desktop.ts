@@ -55,6 +55,9 @@ async function dispatchDesktopTool(input: {
   toolName: string;
   toolInput: Record<string, unknown>;
   nodeId?: string;
+  /** Whether the per-workspace run lock was acquired this run. When false,
+   *  suppress workspace_id so agentd uses a short-lived ephemeral container. */
+  workspaceLockAcquired?: boolean;
 }): Promise<{
   content: Array<
     | { type: 'text'; text: string }
@@ -84,6 +87,8 @@ async function dispatchDesktopTool(input: {
     input.toolName,
     input.toolInput,
     input.nodeId,
+    undefined,
+    input.workspaceLockAcquired,
   );
 
   if (!result?.success) {
@@ -161,13 +166,16 @@ export default defineBuildInTool({
   description: `X11 desktop in the agentd LXC sandbox for debugging GUI applications (Electron / Tauri / Qt / GTK). The desktop_screenshot tool auto-provisions Xvfb + icewm + x11vnc + noVNC on first call (~30s cold start, cached afterwards) and captures a lossless PNG of the X11 framebuffer for vision-capable models. The user can view the live desktop in their browser by exposing the noVNC port via sandbox.public_port. Useful for: GUI test automation, debugging layout issues in desktop apps, taking visual verification screenshots.`,
   requiredConfig: [],
   optionalConfig: [],
-  factory: async (_config, { sessionId, source }) => {
+  factory: async (_config, { sessionId, source, workspaceLockAcquired }) => {
     // Same gate as browser tools: Web-UI sessions have no agentd peer.
     if (source?.type === 'web') {
       return null;
     }
 
-    const ctx = { sessionId };
+    const ctx = {
+      sessionId,
+      workspaceLockAcquired,
+    };
 
     return {
       desktop_screenshot: tool({

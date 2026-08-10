@@ -50,6 +50,10 @@ export interface PostRunCleanupInput {
   /** source.type at the time the chat run completed — used to re-evaluate
    *  the scheduled-session gate (scheduled runs skip memory + skills). */
   sourceType: ChatSource['type'];
+  /** Workspace scope for memory extraction. Resolved at the host boundary
+   *  (chatWorkflow) so the step body doesn't touch the DB directly.
+   *  Null/undefined = global layer. */
+  workspaceId?: string | null;
 }
 
 /**
@@ -64,7 +68,7 @@ export interface PostRunCleanupInput {
 export async function postRunCleanupWorkflow(input: PostRunCleanupInput) {
   'use workflow';
 
-  const { sessionId, userId, config, user, sourceType } = input;
+  const { sessionId, userId, config, user, sourceType, workspaceId } = input;
 
   // Session-kind gating (OpenClaw hygiene rule): only interactive
   // sessions (web / im / cli) produce durable memory OR staged skills.
@@ -77,6 +81,7 @@ export async function postRunCleanupWorkflow(input: PostRunCleanupInput) {
       userId,
       config,
       user,
+      workspaceId,
     });
     await distillSkillStep({
       sessionId,
@@ -97,32 +102,20 @@ async function extractMemoriesStep(input: {
   userId: string;
   config: AppConfig;
   user?: { modelPreferences?: { model?: string } | null } | null;
+  /** Workspace scope, resolved at the host boundary (chatWorkflow reads it
+   *  off the session row / lock handle and passes it in). Null/undefined =
+   *  global layer. Step bodies must not touch the DB directly. */
+  workspaceId?: string | null;
 }) {
   'use step';
 
   try {
-    // Read workspace_id off the session so extracted memories land in the
-    // right scope. Best-effort: a missing/NULL workspace stays global.
-    let workspaceId: string | null = null;
-    try {
-      const { db } = await import('@/lib/core/db');
-      const { sessions } = await import('@/lib/core/db/schema');
-      const { eq } = await import('drizzle-orm');
-      const [row] = await db
-        .select({ workspaceId: sessions.workspaceId })
-        .from(sessions)
-        .where(eq(sessions.id, input.sessionId))
-        .limit(1);
-      workspaceId = row?.workspaceId ? String(row.workspaceId) : null;
-    } catch {
-      // Best-effort; fall through with workspaceId=null (global).
-    }
     await extractMemoriesFromSession({
       sessionId: input.sessionId,
       userId: input.userId,
       config: input.config,
       user: input.user,
-      workspaceId,
+      workspaceId: input.workspaceId ?? null,
     });
   } catch (err) {
     // Best-effort: log and swallow. A failure here must not fail the

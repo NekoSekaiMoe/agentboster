@@ -67,6 +67,14 @@ export type BuildAgentToolsOptions = {
   // ask_question, sub-agent, schedule, task_summary, skills) stay
   // available so the model can investigate before proposing.
   planMode?: boolean;
+  // Whether the per-workspace run lock was acquired for this run.
+  // agentd-scoped execute tools (browser/desktop/sandbox) consult this to
+  // decide whether to bind the long-lived workspace container: when false
+  // (lock busy / unavailable), they suppress `workspace_id` so agentd uses
+  // a short-lived ephemeral container instead of serializing on the
+  // workspace's ExecLockFor. Mirrors the product contract "busy → fall
+  // back to ephemeral" that acquireRunLockStep can't enforce alone.
+  workspaceLockAcquired?: boolean;
 };
 
 export type BuildInToolFactoryContext = {
@@ -81,6 +89,8 @@ export type BuildInToolFactoryContext = {
   // Mirrors BuildAgentToolsOptions.source.
   source?: ChatSource;
   writable?: WritableStream<WorkflowUIMessageChunk>;
+  // Mirrors BuildAgentToolsOptions.workspaceLockAcquired.
+  workspaceLockAcquired?: boolean;
   buildNestedTools: (options?: BuildAgentToolsOptions) => Promise<ToolSet>;
 };
 

@@ -141,6 +141,7 @@ async function execOnAgentd(
   toolName: string,
   toolInput: Record<string, unknown>,
   nodeId?: string,
+  workspaceLockAcquired?: boolean,
 ): Promise<{
   success: boolean;
   data?: string;
@@ -202,7 +203,14 @@ async function execOnAgentd(
       }
     }
 
-    return await execToolOnAgentd(sessionId, toolName, toolInput, nodeId);
+    return await execToolOnAgentd(
+      sessionId,
+      toolName,
+      toolInput,
+      nodeId,
+      undefined,
+      workspaceLockAcquired,
+    );
   } catch (error) {
     console.warn(
       '[sandbox] Agent Daemon exec failed, falling back to Vercel Sandbox',
@@ -658,7 +666,10 @@ export default defineBuildInTool({
   description: `Run shell commands and read/write files inside a workspace-scoped sandbox. When Agent Daemon is online, tools are executed on Agent Daemon with full security review (L0/L1/L2) and sandbox management (docker/docker-strict/lxc). When Agent Daemon is offline, falls back to Vercel Sandbox with limited isolation.
 
 Workspace long-lived vs short-lived containers: a workspace owns ONE long-lived LXC container that persists across tasks within a run (packages installed, files written, and environment changes survive between tool calls in the same run). If the long-lived container is busy (another run in the same workspace holds it), tool execution falls back to a short-lived ephemeral container for this turn — this ephemeral container does NOT share files or installed packages with the long-lived one, so state from earlier in the conversation may be unavailable on a busy fallback. If the workspace's preferred node goes offline, the long-lived container is reset: a fresh container is created on a healthy node and the previous rootfs state is lost (you'll be notified).`,
-  factory: async (_config, { sessionId, runId, appConfig, source }) => {
+  factory: async (
+    _config,
+    { sessionId, runId, appConfig, source, workspaceLockAcquired },
+  ) => {
     // CLI sessions use local_* tools (local_exec/local_read_file/
     // local_write_file) instead of the sandbox. Registering both
     // confuses the LLM and causes "Tool exec not found" when the
@@ -703,6 +714,7 @@ Workspace long-lived vs short-lived containers: a workspace owns ONE long-lived 
               sudo: input.sudo,
             },
             input.nodeId,
+            workspaceLockAcquired,
           );
           if (agentdResult?.success) {
             const parsed = parseAgentdResult(agentdResult.data || '');
@@ -818,6 +830,7 @@ Workspace long-lived vs short-lived containers: a workspace owns ONE long-lived 
               cwd: input.cwd,
             },
             input.nodeId,
+            workspaceLockAcquired,
           );
           if (agentdResult?.success) {
             return {
@@ -882,6 +895,7 @@ Workspace long-lived vs short-lived containers: a workspace owns ONE long-lived 
               cwd: input.cwd,
             },
             input.nodeId,
+            workspaceLockAcquired,
           );
           if (agentdResult?.success) {
             return {
