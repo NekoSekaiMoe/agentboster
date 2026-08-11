@@ -68,6 +68,11 @@ import {
   isExtensionConfigIntent,
   normalizeExtensionCommandName,
 } from './extensions/extension-command-intent.js';
+import {
+  mergeQueueAfterFlush,
+  type PendingRemoteWorkspaceOp,
+  pendingRemoteWorkspaceOpsEqual,
+} from './pending-remote-workspace-ops.js';
 import { ensureDesktopSdkCompatExtensionInstalled } from './extensions/sdk-compat-extension.js';
 import { ensureSmartVoiceNotifyDesktopHostMode } from './extensions/smart-voice-notify-config.js';
 import './styles/app.css';
@@ -2957,30 +2962,6 @@ function persistRemoteWorkspaceIds(ids: Set<string>): void {
 // (success, or a rejection that will never succeed on retry), never on a
 // network failure.
 
-type PendingRemoteWorkspaceOp =
-  | { kind: 'create'; localId: string }
-  | { kind: 'archive'; workspaceId: string }
-  | { kind: 'rename'; workspaceId: string; title: string };
-
-/** Structural equality across queue loads (JSON round-trips break
- *  reference identity). Renames match on workspaceId alone — the title
- *  is the payload, not part of the identity. */
-function pendingRemoteWorkspaceOpsEqual(
-  a: PendingRemoteWorkspaceOp,
-  b: PendingRemoteWorkspaceOp,
-): boolean {
-  if (a.kind === 'create' && b.kind === 'create') {
-    return a.localId === b.localId;
-  }
-  if (a.kind === 'archive' && b.kind === 'archive') {
-    return a.workspaceId === b.workspaceId;
-  }
-  if (a.kind === 'rename' && b.kind === 'rename') {
-    return a.workspaceId === b.workspaceId;
-  }
-  return false;
-}
-
 function loadPendingRemoteWorkspaceOps(): PendingRemoteWorkspaceOp[] {
   try {
     const raw = localStorage.getItem(REMOTE_WORKSPACE_PENDING_OPS_STORAGE_KEY);
@@ -3357,16 +3338,16 @@ async function flushPendingRemoteWorkspaceOps(
   } finally {
     // Merge, don't overwrite: ops recorded DURING this flush (the awaits
     // above yield, so rename/close paths can enqueue new ops mid-pass)
-    // are not part of this pass and must survive. Re-read the persisted
-    // queue, drop only the entries this pass processed, and re-append
-    // the ones still awaiting retry.
-    const retried = new Set(remaining);
-    const processed = ops.filter((op) => !retried.has(op));
-    const current = loadPendingRemoteWorkspaceOps().filter(
-      (persisted) =>
-        !processed.some((op) => pendingRemoteWorkspaceOpsEqual(op, persisted)),
+    // are not part of this pass and must survive. The merge (a pure
+    // function, see pending-remote-workspace-ops.ts) drops only entries
+    // this pass completed with an UNCHANGED payload — a rename
+    // re-recorded with a newer title mid-flush supersedes the completed
+    // one and must survive, or the next merge reverts the newer local
+    // title — and re-appends retries without duplicating entries the
+    // persisted queue already holds.
+    persistPendingRemoteWorkspaceOps(
+      mergeQueueAfterFlush(ops, remaining, loadPendingRemoteWorkspaceOps()),
     );
-    persistPendingRemoteWorkspaceOps([...current, ...remaining]);
     pendingRemoteOpsFlushInFlight = false;
   }
 }
