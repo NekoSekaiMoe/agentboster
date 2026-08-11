@@ -414,7 +414,11 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
             {sessionItem.title ?? 'Untitled'}
           </span>
           {sessionItem.visibility === 'shared' && (
-            <Globe className="size-3.5 shrink-0 text-muted-foreground" />
+            <Globe
+              className="size-3.5 shrink-0 text-muted-foreground"
+              role="img"
+              aria-label={t('chat.session.sharedHint')}
+            />
           )}
           {sessionItem.pinned && <span className="text-xs">📌</span>}
         </Link>

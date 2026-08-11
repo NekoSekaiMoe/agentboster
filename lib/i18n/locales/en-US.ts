@@ -39,6 +39,8 @@ export const enUS = {
   'chat.newConversation': 'New conversation',
   'chat.session.manageOnlyHint':
     'Private session created by another member — you can manage it here, but cannot open the conversation.',
+  'chat.session.sharedHint':
+    'Shared session — visible to all members of the public workspace.',
   'chat.noConversations': 'No conversations yet',
   'chat.searchSessions': 'Search sessions…',
   'chat.noSearchResults': 'No matching sessions',
@@ -1026,7 +1028,7 @@ export const enUS = {
   'workspace.setPrivate': 'Make private',
   'workspace.publicConfirmTitle': 'Make this workspace public?',
   'workspace.publicConfirmDescription':
-    'Every user will be able to enter "{name}", run tasks in its shared container, and manage its sessions and their messages.',
+    'Every user will be able to enter "{name}", run tasks in its shared container, and access or manage the sessions (and their messages) that members have marked as shared.',
   'workspace.visibilitySuccess': 'Workspace visibility updated',
   'workspace.visibilityError': 'Failed to update workspace visibility',
   'workspace.detail.visibility': 'Visibility',

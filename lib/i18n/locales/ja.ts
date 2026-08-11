@@ -41,6 +41,8 @@ export const ja = {
   'chat.newConversation': '新しい会話',
   'chat.session.manageOnlyHint':
     '他のメンバーが作成したプライベートセッションです。ここで管理できますが、会話は開けません。',
+  'chat.session.sharedHint':
+    '共有セッション——公開ワークスペースの全メンバーに表示されます。',
   'chat.noConversations': '会話はまだありません',
   'chat.searchSessions': 'セッションを検索…',
   'chat.noSearchResults': '一致するセッションがありません',
@@ -1042,7 +1044,7 @@ export const ja = {
   'workspace.setPrivate': '非公開にする',
   'workspace.publicConfirmTitle': 'このワークスペースを公開しますか？',
   'workspace.publicConfirmDescription':
-    'すべてのユーザーが「{name}」に入り、共有コンテナでタスクを実行し、セッションとメッセージを管理できるようになります。',
+    'すべてのユーザーが「{name}」に入り、共有コンテナでタスクを実行し、メンバーが共有としてマークしたセッションとそのメッセージにアクセス・管理できるようになります。',
   'workspace.visibilitySuccess': 'ワークスペースの公開設定を更新しました',
   'workspace.visibilityError': '公開設定の更新に失敗しました',
   'workspace.detail.visibility': '公開設定',

@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 
 import { WorkspaceSessionsTable } from '@/components/config/sections/workspace-sessions-table';
+import { useConfigContext } from '@/components/config/config-provider';
 import {
   archiveWorkspaceRequest,
   hardDeleteWorkspaceRequest,
@@ -115,24 +116,31 @@ export function WorkspaceDetail({ id }: { id: string }) {
   const { t } = useI18n();
   const router = useRouter();
   const qc = useQueryClient();
+  const configContext = useConfigContext();
+  const currentUserId = configContext?.userId ?? null;
   const [migrateOpen, setMigrateOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
   const [hardDeleteConfirm, setHardDeleteConfirm] = useState('');
   const [sharedMemoryDisableOpen, setSharedMemoryDisableOpen] = useState(false);
 
+  // User-scoped key (matching the workspaces list queries): the detail
+  // payload is session-gated server-side, so a different logged-in user
+  // must never be served the previous user's cached entry.
+  const detailQueryKey = ['workspace', id, currentUserId] as const;
+
   const {
     data: ws,
     isLoading,
     isError,
   } = useQuery<WorkspaceDetailData>({
-    queryKey: ['workspace', id],
+    queryKey: detailQueryKey,
     queryFn: () => fetchWorkspaceDetail(id),
     staleTime: 15_000,
   });
 
   const invalidate = async () => {
-    await qc.invalidateQueries({ queryKey: ['workspace', id] });
+    await qc.invalidateQueries({ queryKey: detailQueryKey });
     await qc.invalidateQueries({ queryKey: ['workspaces'] });
   };
 

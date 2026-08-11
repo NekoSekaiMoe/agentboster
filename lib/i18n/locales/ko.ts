@@ -41,6 +41,8 @@ export const ko = {
   'chat.newConversation': '새 대화',
   'chat.session.manageOnlyHint':
     '다른 멤버가 만든 비공개 세션입니다. 여기에서 관리할 수 있지만 대화는 열 수 없습니다.',
+  'chat.session.sharedHint':
+    '공유 세션 — 공개 워크스페이스의 모든 멤버에게 표시됩니다.',
   'chat.noConversations': '아직 대화가 없습니다',
   'chat.searchSessions': '세션 검색…',
   'chat.noSearchResults': '일치하는 세션이 없습니다',
@@ -1020,7 +1022,7 @@ export const ko = {
   'workspace.setPrivate': '비공개로 설정',
   'workspace.publicConfirmTitle': '이 워크스페이스를 공개하시겠습니까?',
   'workspace.publicConfirmDescription':
-    '모든 사용자가 "{name}"에 들어와 공유 컨테이너에서 작업을 실행하고 세션과 메시지를 관리할 수 있습니다.',
+    '모든 사용자가 "{name}"에 들어와 공유 컨테이너에서 작업을 실행하고, 멤버가 공유로 표시한 세션과 메시지에 접근하거나 관리할 수 있습니다.',
   'workspace.visibilitySuccess': '워크스페이스 공개 설정이 업데이트되었습니다',
   'workspace.visibilityError': '공개 설정 업데이트에 실패했습니다',
   'workspace.detail.visibility': '공개 설정',

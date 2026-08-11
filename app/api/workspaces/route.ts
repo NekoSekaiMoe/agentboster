@@ -5,7 +5,7 @@ import {
   getOrCreateDefaultWorkspace,
   listVisibleWorkspaces,
 } from '@/lib/core/db/agentd';
-import { requireAuthAccess } from '@/lib/auth/access';
+import { AuthError, requireAuthAccess } from '@/lib/auth/access';
 import { cloneBuiltinTemplates } from '@/lib/core/db/memory/builtin';
 import {
   deriveContainerStatus,
@@ -62,6 +62,14 @@ export async function GET() {
     });
     return Response.json({ success: true, data });
   } catch (error) {
+    // Only AuthError carries an HTTP status (401/403). Any other throw
+    // is a 5xx and must not be mislabeled as an auth failure.
+    if (error instanceof AuthError) {
+      return Response.json(
+        { success: false, error: error.message },
+        { status: error.status },
+      );
+    }
     logger.error('workspace listing failed', {
       error: error instanceof Error ? error.message : String(error),
     });
@@ -127,6 +135,13 @@ export async function POST(request: Request) {
     });
     return Response.json({ success: true, data: ws }, { status: 201 });
   } catch (error) {
+    // Same auth-status mapping as GET above.
+    if (error instanceof AuthError) {
+      return Response.json(
+        { success: false, error: error.message },
+        { status: error.status },
+      );
+    }
     logger.error('workspace creation failed', {
       error: error instanceof Error ? error.message : String(error),
     });

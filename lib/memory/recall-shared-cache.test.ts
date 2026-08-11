@@ -77,7 +77,11 @@ vi.mock('@/lib/utils/logger', () => ({
 
 import { searchLongTermMemories } from '@/lib/memory/long-term';
 import type { AppConfig } from '@/types/config';
-import { invalidateRecallCache, recallRelevantMemories } from './recall';
+import {
+  invalidateRecallCache,
+  recallRelevantMemories,
+  resetSharedVersionFailureWindow,
+} from './recall';
 import {
   bumpSharedMemoryVersion,
   readSharedMemoryVersion,
@@ -114,6 +118,7 @@ describe('shared-memory version counter', () => {
     kvStore.clear();
     kvGetSpy.mockClear();
     kvIncrSpy.mockClear();
+    resetSharedVersionFailureWindow();
   });
 
   it('starts at 0 and increments atomically in KV', async () => {
@@ -152,6 +157,11 @@ describe('recallRelevantMemories — cross-user shared invalidation', () => {
     kvIncrSpy.mockClear();
     vi.mocked(searchLongTermMemories).mockReset();
     invalidateRecallCache();
+    // Clear the module-level breaker window too: a failed version read in
+    // one case would otherwise short-circuit readSharedMemoryVersionBounded
+    // for 5s, leaving later cases' kvGet mocks unconsumed (silently testing
+    // the breaker path instead of the KV-failure path they set up).
+    resetSharedVersionFailureWindow();
   });
 
   it('user B sees user A’s shared-memory write IMMEDIATELY (no TTL wait)', async () => {

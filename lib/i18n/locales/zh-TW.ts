@@ -39,6 +39,7 @@ export const zhTW = {
   'chat.newConversation': '新對話',
   'chat.session.manageOnlyHint':
     '其他成員建立的私密會話——您可以在此處管理它，但無法開啟對話內容。',
+  'chat.session.sharedHint': '共享會話——公開工作區的所有成員可見。',
   'chat.noConversations': '尚無對話',
   'chat.searchSessions': '搜尋會話…',
   'chat.noSearchResults': '沒有符合的會話',
@@ -918,7 +919,7 @@ export const zhTW = {
   'workspace.setPrivate': '設為私有',
   'workspace.publicConfirmTitle': '公開此工作區？',
   'workspace.publicConfirmDescription':
-    '所有使用者都可以進入「{name}」，在其共享容器中運行任務，並管理其中的會話與訊息。',
+    '所有使用者都可以進入「{name}」，在其共享容器中運行任務，並存取或管理成員標記為共享的會話及其訊息。',
   'workspace.privateConfirmTitle': '將此工作區設為私有？',
   'workspace.privateConfirmDescription':
     '將「{name}」設為私有會撤銷所有成員的存取權限。共享記憶池將被刪除，成員共享給工作區的會話也會重新變為僅建立者可見。',

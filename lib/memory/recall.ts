@@ -57,6 +57,16 @@ const SHARED_VERSION_FAILURE_CACHE_MS = 5_000;
 let sharedVersionReadFailingUntil = 0;
 
 /**
+ * Test-only: reset the failure window. The breaker state is module-level,
+ * so a failed read in one test would otherwise short-circuit the bounded
+ * read in every test running within the 5s window (silently skipping the
+ * KV call the test set up). Called from beforeEach in recall tests.
+ */
+export function resetSharedVersionFailureWindow(): void {
+  sharedVersionReadFailingUntil = 0;
+}
+
+/**
  * readSharedMemoryVersion with a hard upper bound. Never rejects; the
  * timer is cleared on settle (and unref'd while pending) so it can never
  * keep the host process alive. Exported for tests.

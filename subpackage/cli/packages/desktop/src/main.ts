@@ -2959,7 +2959,27 @@ function persistRemoteWorkspaceIds(ids: Set<string>): void {
 
 type PendingRemoteWorkspaceOp =
   | { kind: 'create'; localId: string }
-  | { kind: 'archive'; workspaceId: string };
+  | { kind: 'archive'; workspaceId: string }
+  | { kind: 'rename'; workspaceId: string; title: string };
+
+/** Structural equality across queue loads (JSON round-trips break
+ *  reference identity). Renames match on workspaceId alone — the title
+ *  is the payload, not part of the identity. */
+function pendingRemoteWorkspaceOpsEqual(
+  a: PendingRemoteWorkspaceOp,
+  b: PendingRemoteWorkspaceOp,
+): boolean {
+  if (a.kind === 'create' && b.kind === 'create') {
+    return a.localId === b.localId;
+  }
+  if (a.kind === 'archive' && b.kind === 'archive') {
+    return a.workspaceId === b.workspaceId;
+  }
+  if (a.kind === 'rename' && b.kind === 'rename') {
+    return a.workspaceId === b.workspaceId;
+  }
+  return false;
+}
 
 function loadPendingRemoteWorkspaceOps(): PendingRemoteWorkspaceOp[] {
   try {
@@ -2982,6 +3002,17 @@ function loadPendingRemoteWorkspaceOps(): PendingRemoteWorkspaceOp[] {
         record.workspaceId.trim().length > 0
       ) {
         ops.push({ kind: 'archive', workspaceId: record.workspaceId });
+      } else if (
+        record.kind === 'rename' &&
+        typeof record.workspaceId === 'string' &&
+        record.workspaceId.trim().length > 0 &&
+        typeof record.title === 'string'
+      ) {
+        ops.push({
+          kind: 'rename',
+          workspaceId: record.workspaceId,
+          title: record.title,
+        });
       }
     }
     return ops;
@@ -3009,14 +3040,19 @@ function persistPendingRemoteWorkspaceOps(
 
 function recordPendingRemoteWorkspaceOp(op: PendingRemoteWorkspaceOp): void {
   const ops = loadPendingRemoteWorkspaceOps();
-  const duplicate = ops.some((existing) =>
-    existing.kind === 'create' && op.kind === 'create'
-      ? existing.localId === op.localId
-      : existing.kind === 'archive' && op.kind === 'archive'
-        ? existing.workspaceId === op.workspaceId
-        : false,
+  const existingIndex = ops.findIndex((existing) =>
+    pendingRemoteWorkspaceOpsEqual(existing, op),
   );
-  if (duplicate) return;
+  if (existingIndex >= 0) {
+    // A newer rename supersedes the queued one (the user may have renamed
+    // again while offline — the stale title must not win on retry).
+    // create/archive duplicates are no-ops.
+    if (op.kind === 'rename') {
+      ops[existingIndex] = op;
+      persistPendingRemoteWorkspaceOps(ops);
+    }
+    return;
+  }
   ops.push(op);
   persistPendingRemoteWorkspaceOps(ops);
 }
@@ -3026,6 +3062,15 @@ function pendingArchivedWorkspaceIds(): Set<string> {
   return new Set(
     loadPendingRemoteWorkspaceOps()
       .filter((op) => op.kind === 'archive')
+      .map((op) => op.workspaceId),
+  );
+}
+
+/** Ids whose remote rename is queued but not yet confirmed. */
+function pendingRenamedWorkspaceIds(): Set<string> {
+  return new Set(
+    loadPendingRemoteWorkspaceOps()
+      .filter((op) => op.kind === 'rename')
       .map((op) => op.workspaceId),
   );
 }
@@ -3097,6 +3142,10 @@ function mergeRemoteWorkspaces(remoteList: RemoteWorkspace[]): void {
   // Workspaces whose remote archive is still queued (offline close) must
   // not be re-added until the archive actually succeeds.
   const pendingArchiveIds = pendingArchivedWorkspaceIds();
+  // Workspaces whose remote rename is still queued must keep the local
+  // title — merging the server's stale name would silently revert the
+  // user's edit before the retry lands.
+  const pendingRenameIds = pendingRenamedWorkspaceIds();
   const active = remoteList.filter(
     (entry) => entry.status !== 'archived' && !pendingArchiveIds.has(entry.id),
   );
@@ -3107,7 +3156,11 @@ function mergeRemoteWorkspaces(remoteList: RemoteWorkspace[]): void {
   for (const remote of active) {
     const existing = workspaces.find((entry) => entry.id === remote.id);
     if (existing) {
-      if (remote.name && existing.title !== remote.name) {
+      if (
+        remote.name &&
+        existing.title !== remote.name &&
+        !pendingRenameIds.has(existing.id)
+      ) {
         existing.title = remote.name;
         changed = true;
       }
@@ -3240,6 +3293,34 @@ async function flushPendingRemoteWorkspaceOps(
         }
         continue;
       }
+      if (op.kind === 'rename') {
+        try {
+          remoteWorkspacesVersion += 1;
+          await patchRemoteWorkspace(auth, op.workspaceId, {
+            action: 'rename',
+            name: op.title,
+          });
+          recordDebugTrace(
+            `workspaces-remote:pending-rename-applied id=${op.workspaceId}`,
+          );
+        } catch (err) {
+          if (err instanceof RemoteWorkspaceRequestError) {
+            // A definitive rejection (incl. 404 — the workspace is gone
+            // server-side) would fail identically on retry — drop the
+            // op; the next merge resyncs the authoritative title.
+            recordDebugTrace(
+              `workspaces-remote:pending-rename-rejected status=${err.status}`,
+            );
+            continue;
+          }
+          recordDebugTrace(
+            `workspaces-remote:pending-rename-unreachable ${err instanceof Error ? err.message : String(err)}`,
+          );
+          remaining.push(op);
+          stop = true;
+        }
+        continue;
+      }
       try {
         remoteWorkspacesVersion += 1;
         await archiveRemoteWorkspace(auth, op.workspaceId);
@@ -3274,7 +3355,18 @@ async function flushPendingRemoteWorkspaceOps(
       }
     }
   } finally {
-    persistPendingRemoteWorkspaceOps(remaining);
+    // Merge, don't overwrite: ops recorded DURING this flush (the awaits
+    // above yield, so rename/close paths can enqueue new ops mid-pass)
+    // are not part of this pass and must survive. Re-read the persisted
+    // queue, drop only the entries this pass processed, and re-append
+    // the ones still awaiting retry.
+    const retried = new Set(remaining);
+    const processed = ops.filter((op) => !retried.has(op));
+    const current = loadPendingRemoteWorkspaceOps().filter(
+      (persisted) =>
+        !processed.some((op) => pendingRemoteWorkspaceOpsEqual(op, persisted)),
+    );
+    persistPendingRemoteWorkspaceOps([...current, ...remaining]);
     pendingRemoteOpsFlushInFlight = false;
   }
 }
@@ -4303,19 +4395,39 @@ async function syncRemoteWorkspaceRename(
   // instead of reverting the title.
   remoteWorkspacesVersion += 1;
   const auth = await getWorkspaceAuthOrNull();
-  if (!auth) return;
+  if (!auth) {
+    // Logged out: queue the rename so the next successful refresh retries
+    // it — without this the local title would be silently reverted by the
+    // next merge. (merge skips title overwrites while a rename op is
+    // pending for the workspace.)
+    recordPendingRemoteWorkspaceOp({ kind: 'rename', workspaceId, title });
+    return;
+  }
   try {
     await patchRemoteWorkspace(auth, workspaceId, {
       action: 'rename',
       name: title,
     });
   } catch (err) {
+    if (err instanceof RemoteWorkspaceRequestError) {
+      // A definitive server answer: retrying would fail identically, so
+      // resync the authoritative title from the backend instead.
+      recordDebugTrace(
+        `workspaces-remote:rename-rejected status=${err.status}`,
+      );
+      chatView?.notify('Failed to rename workspace on the server', 'error');
+      // Resync the authoritative title from the backend.
+      await refreshRemoteWorkspaces();
+      return;
+    }
+    // Network failure: queue the rename for retry at the next refresh and
+    // keep the local title — the merge guard skips reverting it while the
+    // op is pending.
     recordDebugTrace(
-      `workspaces-remote:rename-failed ${err instanceof Error ? err.message : String(err)}`,
+      `workspaces-remote:rename-unreachable ${err instanceof Error ? err.message : String(err)}`,
     );
+    recordPendingRemoteWorkspaceOp({ kind: 'rename', workspaceId, title });
     chatView?.notify('Failed to rename workspace on the server', 'error');
-    // Resync the authoritative title from the backend.
-    await refreshRemoteWorkspaces();
   }
 }
 

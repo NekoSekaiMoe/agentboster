@@ -128,6 +128,26 @@ describe('resolveSessionGrant', () => {
     });
   });
 
+  it('PRIVATE workspace manager on a leftover shared session → manage-only (no read)', async () => {
+    // Write paths guarantee shared sessions only exist in public workspaces
+    // (setSessionVisibilityAction refuses otherwise; set_visibility resets
+    // them), but in a private workspace canAccess is still true for the
+    // owner/admins — so without the visibility === 'public' gate, a
+    // leftover shared row would upgrade the manager's metadata-only grant
+    // to content read, breaking the "managers curate, never read" rule.
+    mocks.resolveWorkspaceAccess.mockResolvedValue({
+      ws: { id: 'w1', visibility: 'private', status: 'active' },
+      canAccess: true,
+      canManage: true,
+    });
+    const target = session({ workspaceId: 'w1', visibility: 'shared' });
+    expect(await resolveSessionGrant(MEMBER, target)).toBe('manage');
+    await expect(assertCanReadSession(MEMBER, target)).rejects.toMatchObject({
+      name: 'AuthError',
+      status: 403,
+    });
+  });
+
   it('workspace manager on a PRIVATE session → manage-only (no read)', async () => {
     mocks.resolveWorkspaceAccess.mockResolvedValue({
       ws: { id: 'w1' },

@@ -38,6 +38,7 @@ export const zhCN = {
   'chat.newConversation': '新对话',
   'chat.session.manageOnlyHint':
     '其他成员创建的私密会话——您可以在此处管理它，但无法打开对话内容。',
+  'chat.session.sharedHint': '共享会话——公开工作区的所有成员可见。',
   'chat.noConversations': '暂无对话',
   'chat.searchSessions': '搜索会话…',
   'chat.noSearchResults': '没有匹配的会话',
@@ -915,7 +916,7 @@ export const zhCN = {
   'workspace.setPrivate': '设为私有',
   'workspace.publicConfirmTitle': '公开此工作区？',
   'workspace.publicConfirmDescription':
-    '所有用户都可以进入「{name}」，在其共享容器中运行任务，并管理其中的会话与消息。',
+    '所有用户都可以进入「{name}」，在其共享容器中运行任务，并访问或管理成员标记为共享的会话及其消息。',
   'workspace.privateConfirmTitle': '将此工作区设为私有？',
   'workspace.privateConfirmDescription':
     '将「{name}」设为私有会撤销所有成员的访问权限。共享记忆池将被删除，成员共享给工作区的会话也会重新变为仅创建者可见。',

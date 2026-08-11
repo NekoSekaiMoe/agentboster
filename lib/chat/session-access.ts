@@ -72,7 +72,7 @@ export async function resolveSessionGrant(
         roles: access.user.roles,
       });
       if (!wsAccess) return access.isAdmin ? 'manage' : null;
-      // Shared sessions in an accessible public workspace: full member
+      // Shared sessions in an accessible PUBLIC workspace: full member
       // access. Checked FIRST so a workspace manager keeps read access on
       // shared sessions (canManage ⇒ canAccess). The workspace must still
       // be ACTIVE — archiveWorkspace only flips status (visibility stays
@@ -80,12 +80,19 @@ export async function resolveSessionGrant(
       // archived workspace would keep granting content read on shared
       // sessions, contradicting the "archived workspaces stay out of the
       // shared surface" rule enforced by listVisibleWorkspaces and
-      // setWorkspaceVisibility. Falls through to canManage/null otherwise
-      // (fail-closed; managers keep their manage grant).
+      // setWorkspaceVisibility. The visibility === 'public' gate is
+      // defense in depth: write paths guarantee shared sessions only exist
+      // in public workspaces (setSessionVisibilityAction refuses otherwise
+      // and set_visibility resets them), but a leftover shared row in a
+      // private workspace must not upgrade a manager's metadata-only
+      // 'manage' grant to content read — managers curate, never read.
+      // Falls through to canManage/null otherwise (fail-closed; managers
+      // keep their manage grant).
       if (
         session.visibility === 'shared' &&
         wsAccess.canAccess &&
-        wsAccess.ws.status === 'active'
+        wsAccess.ws.status === 'active' &&
+        wsAccess.ws.visibility === 'public'
       ) {
         return 'shared';
       }
