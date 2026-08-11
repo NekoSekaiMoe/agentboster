@@ -154,6 +154,15 @@ export async function createLongTermMemory(input: {
   shared?: boolean;
   config?: AppConfig;
 }) {
+  // Runtime guard: a shared memory must belong to a workspace. A
+  // shared=true row with workspaceId NULL/undefined would be visible to
+  // every workspace's members (recall's scope match allows
+  // workspace_id IS NULL) and would never bump any workspace version, so
+  // other members' caches would not even be invalidated. Reject here
+  // instead of persisting a globally-visible row.
+  if (input.shared === true && !input.workspaceId?.trim()) {
+    throw new Error('shared memories require a workspaceId');
+  }
   const memory = await createLongTermMemoryRow(input.content, {
     memoryType: input.memoryType,
     importance: input.importance,
@@ -220,6 +229,12 @@ export async function upsertLongTermMemory(input: {
   shared?: boolean;
   config?: AppConfig;
 }) {
+  // Same runtime guard as createLongTermMemory: shared=true without a
+  // workspaceId would create a globally-visible row that never bumps any
+  // workspace version. Reject at the API boundary.
+  if (input.shared === true && !input.workspaceId?.trim()) {
+    throw new Error('shared memories require a workspaceId');
+  }
   const { row: memory, created } = await upsertLongTermMemoryByKey({
     userId: input.userId,
     key: input.key,

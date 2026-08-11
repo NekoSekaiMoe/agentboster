@@ -244,11 +244,32 @@ describe('setSessionVisibilityAction', () => {
     });
   });
 
+  it('returns invalid_input when the workspace is archived (not active)', async () => {
+    // archiveWorkspace leaves visibility at 'public', so the visibility
+    // check alone is not enough — sharing must also be rejected when the
+    // workspace is no longer active (matches the session search filter
+    // and setWorkspaceVisibility's active gate).
+    mockGetSession.mockResolvedValue(makeSessionRow({ workspaceId: 'ws-1' }));
+    mockAssertManage.mockResolvedValue('owner');
+    mockResolveWs.mockResolvedValue({
+      ws: { visibility: 'public', status: 'archived' },
+      canAccess: true,
+      canManage: true,
+      // biome-ignore lint/suspicious/noExplicitAny: partial workspace access double
+    } as any);
+    const result = await setSessionVisibilityAction({
+      id: 's-1',
+      visibility: 'shared',
+    });
+    expect(result).toEqual({ success: false, error: 'invalid_input' });
+    expect(mockUpdateForUser).not.toHaveBeenCalled();
+  });
+
   it('persists sharing inside a public workspace', async () => {
     mockGetSession.mockResolvedValue(makeSessionRow({ workspaceId: 'ws-1' }));
     mockAssertManage.mockResolvedValue('owner');
     mockResolveWs.mockResolvedValue({
-      ws: { visibility: 'public' },
+      ws: { visibility: 'public', status: 'active' },
       canAccess: true,
       canManage: true,
       // biome-ignore lint/suspicious/noExplicitAny: partial workspace access double

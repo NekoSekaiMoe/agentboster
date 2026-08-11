@@ -448,23 +448,36 @@ export async function DELETE(
       //  4. delete the workspace row itself.
       const pageSize = 200;
       let cleanupsFailed = 0;
-      // cleanupChatSession DELETES each session row, so paginating with an
-      // advancing offset would skip every session past the first page
-      // (deletions shift later rows down). Always read offset 0 and let
-      // the deletions drain the list. Sessions whose cleanup failed keep
-      // their row, so track processed ids and stop when a page yields
-      // nothing new — otherwise persistent failures would spin forever.
+      // cleanupChatSession DELETES each session row on success, so a naive
+      // fixed advancing offset would skip every session past the first
+      // page (deletions shift later rows forward). Instead, advance the
+      // offset ONLY by the rows on each page that remain undeleted — i.e.
+      // the failed cleanups, which keep their rows. Because listSessions
+      // orders by updatedAt DESC and nothing here touches updatedAt, the
+      // undeleted failures stay parked in the leading positions while
+      // deletions pull the still-unprocessed rows forward to exactly
+      // `offset`; the next page therefore starts where we left off. This
+      // also unblocks the pathological case where >= pageSize sessions
+      // fail persistently: without the offset advance they would fill
+      // every offset-0 page and sessions beyond the first page would
+      // never get a cleanup attempt (runtime/remote-state leak).
+      // processedSessionIds guards against re-processing (infinite loop)
+      // if the ordering assumption is ever violated.
       const processedSessionIds = new Set<string>();
+      let offset = 0;
       for (;;) {
         const page = await listSessions({
           workspaceId: id,
           limit: pageSize,
-          offset: 0,
+          offset,
         });
         if (page.length === 0) break;
         const fresh = page.filter(
           (session) => !processedSessionIds.has(session.id),
         );
+        // With the offset invariant above, an all-processed page can only
+        // happen if the ordering shifted underneath us — bail rather than
+        // spin forever.
         if (fresh.length === 0) break;
         for (const session of fresh) {
           processedSessionIds.add(session.id);
@@ -472,9 +485,14 @@ export async function DELETE(
         const cleanupResults = await Promise.allSettled(
           fresh.map((session) => cleanupChatSession(session)),
         );
-        cleanupsFailed += cleanupResults.filter(
+        const failedOnPage = cleanupResults.filter(
           (result) => result.status === 'rejected',
         ).length;
+        cleanupsFailed += failedOnPage;
+        // Only the undeleted rows still occupy positions ahead of the
+        // remaining sessions; successful deletions shift later rows
+        // forward and must NOT advance the offset.
+        offset += page.length - (fresh.length - failedOnPage);
       }
       const memoriesDeleted = await deleteLongTermMemoriesByWorkspaceId(id);
       const builtinDeleted = await deleteBuiltinMemoriesByWorkspaceId(id);

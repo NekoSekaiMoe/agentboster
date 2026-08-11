@@ -4,7 +4,7 @@ import type {
 } from '@/lib/chat/message-utils';
 import { db, schema } from '@/lib/core/db';
 import { createLogger } from '@/lib/utils/logger';
-import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
 
 const logger = createLogger('db.chat');
 
@@ -193,11 +193,16 @@ export async function listVisibleSessions(options: {
   channel?: string;
   archived?: boolean;
   limit?: number;
+  /** Rows to skip after ORDER BY (updatedAt DESC). Best-effort paging —
+   *  updatedAt is mutable, so a cursor would be more stable, but offset
+   *  is adequate for UI paging. */
+  offset?: number;
   /** Restrict the listing to a single workspace (applied in SQL, before
    *  ORDER BY/LIMIT, so workspace-scoped callers get a full page). */
   workspaceId?: string;
 }) {
   const safeLimit = Math.max(1, Math.min(options.limit ?? 50, 200));
+  const safeOffset = Math.max(0, options.offset ?? 0);
   const accessible = options.accessiblePublicWorkspaceIds;
   const manageable = options.manageableWorkspaceIds;
 
@@ -242,7 +247,8 @@ export async function listVisibleSessions(options: {
     .from(schema.sessions)
     .where(and(...conditions))
     .orderBy(desc(schema.sessions.updatedAt))
-    .limit(safeLimit);
+    .limit(safeLimit)
+    .offset(safeOffset);
 
   const manageableSet = new Set(manageable);
   return rows.map((row) => ({
@@ -259,13 +265,68 @@ export async function listVisibleSessions(options: {
 }
 
 /**
- * Hard-delete every session in a workspace (messages, session_memories and
- * other session-scoped rows cascade). Returns the deleted session ids so
- * the caller can best-effort stop runtimes / clean remote state.
+ * Hard-delete every session in a workspace. messages, session_memories,
+ * files, scheduled and agent_orchestration_plans rows cascade via FK;
+ * the session-scoped tables WITHOUT any FK (agent_tasks,
+ * agent_task_outputs, agent_tool_activity_logs, agent_barriers,
+ * agent_handoffs, agent_subagent_batches, agent_subagent_jobs,
+ * l2_decisions) are wiped explicitly first so they don't orphan.
+ *
+ * Why no db.transaction(): the Vercel driver is drizzle-orm/neon-http,
+ * which throws "No transactions support in neon-http driver" (same
+ * constraint as setDefaultWorkspace's clear-then-set pair), and
+ * node-postgres has no portable db.batch(). Sequential deletes are the
+ * portable shape; a mid-flight failure leaves orphans that the caller's
+ * retry cleans up, since the session-id list is re-derived each call.
+ *
+ * Returns the deleted session ids so the caller can best-effort stop
+ * runtimes / clean remote state.
  */
 export async function deleteSessionsByWorkspaceId(
   workspaceId: string,
 ): Promise<string[]> {
+  const sessionRows = await db
+    .select({ id: schema.sessions.id })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.workspaceId, workspaceId));
+  const sessionIds = sessionRows.map((row) => row.id);
+  if (sessionIds.length === 0) {
+    return [];
+  }
+
+  await db
+    .delete(schema.agentTasks)
+    .where(inArray(schema.agentTasks.sessionId, sessionIds));
+  await db
+    .delete(schema.agentTaskOutputs)
+    .where(inArray(schema.agentTaskOutputs.sessionId, sessionIds));
+  await db
+    .delete(schema.agentToolActivityLogs)
+    .where(inArray(schema.agentToolActivityLogs.sessionId, sessionIds));
+  await db
+    .delete(schema.agentBarriers)
+    .where(inArray(schema.agentBarriers.sessionId, sessionIds));
+  // Handoffs link TWO session columns — a row is session-scoped when
+  // either endpoint belongs to a deleted session.
+  await db
+    .delete(schema.agentHandoffs)
+    .where(
+      or(
+        inArray(schema.agentHandoffs.fromSessionId, sessionIds),
+        inArray(schema.agentHandoffs.toSessionId, sessionIds),
+      ),
+    );
+  await db
+    .delete(schema.agentSubagentBatches)
+    .where(inArray(schema.agentSubagentBatches.sessionId, sessionIds));
+  await db
+    .delete(schema.agentSubagentJobs)
+    .where(inArray(schema.agentSubagentJobs.sessionId, sessionIds));
+  // l2_decisions.session_id is text (not uuid), unlike the tables above.
+  await db
+    .delete(schema.l2Decisions)
+    .where(inArray(schema.l2Decisions.sessionId, sessionIds));
+
   const rows = await db
     .delete(schema.sessions)
     .where(eq(schema.sessions.workspaceId, workspaceId))
@@ -332,7 +393,7 @@ export async function updateSessionMetadataKey(
   sessionId: string,
   userId: string | null,
   key: string,
-  value: string | null,
+  value: string | boolean | null,
 ) {
   // Validate key: jsonb_set's path is a text array literal '{key}', and we
   // build it by interpolation, so the key MUST be a plain identifier to
@@ -351,13 +412,19 @@ export async function updateSessionMetadataKey(
 
   // jsonb_set(target, text[], new_value, create_if_missing=true).
   // - path: '{key}' as a raw literal (validated above).
-  // - new_value: to_jsonb(<str>::text) → JSON string; or 'null'::jsonb →
-  //   the JSONB null literal when value is null. Do NOT use
-  //   to_jsonb(NULL::text) — that yields SQL NULL, which jsonb_set would
-  //   propagate to the whole target column instead of just one key.
+  // - new_value: to_jsonb(<str>::text) → JSON string;
+  //   to_jsonb(<bool>::boolean) → JSON boolean (e.g. the pinned toggle);
+  //   or 'null'::jsonb → the JSONB null literal when value is null. Do
+  //   NOT use to_jsonb(NULL::text) — that yields SQL NULL, which
+  //   jsonb_set would propagate to the whole target column instead of
+  //   just one key.
   const pathLiteral = `{${key}}`;
   const newValue =
-    value === null ? sql`'null'::jsonb` : sql`to_jsonb(${value}::text)`;
+    value === null
+      ? sql`'null'::jsonb`
+      : typeof value === 'boolean'
+        ? sql`to_jsonb(${value}::boolean)`
+        : sql`to_jsonb(${value}::text)`;
 
   const [session] = await db
     .update(schema.sessions)

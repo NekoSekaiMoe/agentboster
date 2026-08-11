@@ -34,6 +34,7 @@ import {
   isAgentdEnabled,
   toggleSessionPinAction,
 } from '@/app/(chat)/actions';
+import { sessionMutationErrorMessage } from '@/lib/chat/session-mutation-error';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -212,7 +213,17 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
     async (sessionItem: SessionItem) => {
       setDeletingSessionId(sessionItem.id);
       try {
-        await deleteSessionAction(sessionItem.id);
+        // deleteSessionAction RETURNS structured failures instead of
+        // throwing — check the result before touching the cached row, or
+        // a forbidden/not_found/unknown failure would silently drop the
+        // row (and redirect) until the next refetch.
+        const result = await deleteSessionAction(sessionItem.id);
+        if (!result.success) {
+          toast.error(
+            sessionMutationErrorMessage(t, result.error, t('chat.deleteError')),
+          );
+          return;
+        }
         qc.setQueryData<SessionItem[]>(SESSION_LIST_KEY, (current) => {
           const list = current ?? [];
           return list.filter((item) => item.id !== sessionItem.id);
@@ -233,7 +244,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
         );
       }
     },
-    [pathname, router, onClose, qc],
+    [pathname, router, onClose, qc, t],
   );
 
   const handleTogglePin = useCallback(

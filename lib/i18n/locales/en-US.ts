@@ -115,6 +115,8 @@ export const enUS = {
     'Permanently delete this workspace?',
   'workspace.detail.hardDeleteConfirmDescription':
     'This deletes "{name}" with all of its sessions, messages and memories. Type the workspace name to confirm.',
+  'workspace.detail.hardDeleteConfirmInputLabel':
+    'Type the workspace name to confirm deletion',
   'workspace.detail.hardDeleteSuccess': 'Workspace deleted',
   'workspace.detail.hardDeleteError': 'Failed to delete workspace',
   'config.runtime.description':

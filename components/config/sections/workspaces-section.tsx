@@ -225,168 +225,166 @@ export function WorkspacesSection() {
     );
   }
 
-  const renderRow = (w: WorkspaceListItem, isArchived: boolean) => (
-    <Card key={w.id} className={isArchived ? 'opacity-60' : undefined}>
-      <CardContent className="flex items-center gap-3 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span
-              className={`inline-block size-2 shrink-0 rounded-full ${statusDotClass(w.containerStatus)}`}
-              title={
-                w.containerStatus === 'unreachable'
-                  ? t('workspace.node.offline')
-                  : w.containerStatus === 'unknown'
-                    ? t('workspace.container.unknown')
-                    : t('workspace.container.notCreated')
-              }
-            />
-            {w.isDefault ? (
-              <Star className="size-3.5 shrink-0 fill-amber-400 text-amber-400" />
-            ) : null}
-            <Link
-              href={`/config/workspaces/${encodeURIComponent(w.id)}`}
-              className="truncate font-medium hover:underline"
-            >
-              {w.name}
-            </Link>
-            {w.isDefault ? (
-              <Badge variant="secondary">{t('workspace.defaultBadge')}</Badge>
-            ) : null}
-            {w.visibility === 'public' ? (
-              <Badge variant="outline" className="gap-1">
-                <Globe className="size-3" />
-                {t('workspace.publicBadge')}
-              </Badge>
-            ) : null}
-            {isArchived ? (
-              <Badge variant="outline">{t('workspace.archived')}</Badge>
-            ) : null}
+  const renderRow = (w: WorkspaceListItem, isArchived: boolean) => {
+    const statusLabel =
+      w.containerStatus === 'unreachable'
+        ? t('workspace.node.offline')
+        : w.containerStatus === 'unknown'
+          ? t('workspace.container.unknown')
+          : t('workspace.container.notCreated');
+    // Shared by both non-archived branches (own workspace vs shared).
+    const detailLink = (
+      <Link href={`/config/workspaces/${encodeURIComponent(w.id)}`}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t('workspace.detail.title')}
+        >
+          <ChevronRight className="size-4" />
+        </Button>
+      </Link>
+    );
+    return (
+      <Card key={w.id} className={isArchived ? 'opacity-60' : undefined}>
+        <CardContent className="flex items-center gap-3 py-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span
+                role="img"
+                aria-label={statusLabel}
+                className={`inline-block size-2 shrink-0 rounded-full ${statusDotClass(w.containerStatus)}`}
+                title={statusLabel}
+              />
+              {w.isDefault ? (
+                <Star className="size-3.5 shrink-0 fill-amber-400 text-amber-400" />
+              ) : null}
+              <Link
+                href={`/config/workspaces/${encodeURIComponent(w.id)}`}
+                className="truncate font-medium hover:underline"
+              >
+                {w.name}
+              </Link>
+              {w.isDefault ? (
+                <Badge variant="secondary">{t('workspace.defaultBadge')}</Badge>
+              ) : null}
+              {w.visibility === 'public' ? (
+                <Badge variant="outline" className="gap-1">
+                  <Globe className="size-3" />
+                  {t('workspace.publicBadge')}
+                </Badge>
+              ) : null}
+              {isArchived ? (
+                <Badge variant="outline">{t('workspace.archived')}</Badge>
+              ) : null}
+            </div>
+            <div className="mt-0.5 text-muted-foreground text-xs">
+              {w.ownerName
+                ? t('workspace.sharedBy', { name: w.ownerName })
+                : w.preferredNodeId
+                  ? t('workspace.nodeBound', { node: w.preferredNodeId })
+                  : t('workspace.nodeUnbound')}
+              {w.updatedAt
+                ? ` · ${t('workspace.detail.updatedAt')}: ${new Date(w.updatedAt).toLocaleString()}`
+                : ''}
+            </div>
           </div>
-          <div className="mt-0.5 text-muted-foreground text-xs">
-            {w.ownerName
-              ? t('workspace.sharedBy', { name: w.ownerName })
-              : w.preferredNodeId
-                ? t('workspace.nodeBound', { node: w.preferredNodeId })
-                : t('workspace.nodeUnbound')}
-            {w.updatedAt
-              ? ` · ${t('workspace.detail.updatedAt')}: ${new Date(w.updatedAt).toLocaleString()}`
-              : ''}
-          </div>
-        </div>
-        {!isArchived && !w.ownerName ? (
-          <div className="flex shrink-0 items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={
-                    w.visibility === 'public'
-                      ? t('workspace.setPrivate')
-                      : t('workspace.setPublic')
-                  }
-                  disabled={visibilityMutation.isPending}
-                  onClick={() => {
-                    if (w.visibility === 'public') {
-                      // Going private deletes the shared memory pool and
-                      // resets member-shared sessions — needs a confirm.
-                      setPrivateTarget(w);
-                    } else {
-                      setPublicTarget(w);
-                    }
-                  }}
-                >
-                  {w.visibility === 'public' ? (
-                    <Lock className="size-4" />
-                  ) : (
-                    <Globe className="size-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {w.visibility === 'public'
-                  ? t('workspace.setPrivate')
-                  : t('workspace.setPublic')}
-              </TooltipContent>
-            </Tooltip>
-            {!w.isDefault ? (
+          {!isArchived && w.ownerId === currentUserId ? (
+            <div className="flex shrink-0 items-center gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label={t('workspace.setDefault')}
-                    disabled={setDefaultMutation.isPending}
-                    onClick={() => setDefaultMutation.mutate(w.id)}
+                    aria-label={
+                      w.visibility === 'public'
+                        ? t('workspace.setPrivate')
+                        : t('workspace.setPublic')
+                    }
+                    disabled={visibilityMutation.isPending}
+                    onClick={() => {
+                      if (w.visibility === 'public') {
+                        // Going private deletes the shared memory pool and
+                        // resets member-shared sessions — needs a confirm.
+                        setPrivateTarget(w);
+                      } else {
+                        setPublicTarget(w);
+                      }
+                    }}
                   >
-                    <Star className="size-4" />
+                    {w.visibility === 'public' ? (
+                      <Lock className="size-4" />
+                    ) : (
+                      <Globe className="size-4" />
+                    )}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{t('workspace.setDefault')}</TooltipContent>
+                <TooltipContent>
+                  {w.visibility === 'public'
+                    ? t('workspace.setPrivate')
+                    : t('workspace.setPublic')}
+                </TooltipContent>
               </Tooltip>
-            ) : null}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={t('workspace.rename')}
-                  onClick={() => {
-                    setRenameTarget(w);
-                    setRenameValue(w.name);
-                  }}
-                >
-                  <Pencil className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('workspace.rename')}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
+              {!w.isDefault ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t('workspace.setDefault')}
+                      disabled={setDefaultMutation.isPending}
+                      onClick={() => setDefaultMutation.mutate(w.id)}
+                    >
+                      <Star className="size-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('workspace.setDefault')}</TooltipContent>
+                </Tooltip>
+              ) : null}
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label={t('workspace.archive')}
-                    disabled={w.isDefault || archiveMutation.isPending}
-                    onClick={() => setArchiveTarget(w)}
+                    aria-label={t('workspace.rename')}
+                    onClick={() => {
+                      setRenameTarget(w);
+                      setRenameValue(w.name);
+                    }}
                   >
-                    <Archive className="size-4" />
+                    <Pencil className="size-4" />
                   </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {w.isDefault
-                  ? t('workspace.archiveDefaultBlocked')
-                  : t('workspace.archive')}
-              </TooltipContent>
-            </Tooltip>
-            <Link href={`/config/workspaces/${encodeURIComponent(w.id)}`}>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={t('workspace.detail.title')}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </Link>
-          </div>
-        ) : !isArchived ? (
-          <div className="flex shrink-0 items-center gap-1">
-            <Link href={`/config/workspaces/${encodeURIComponent(w.id)}`}>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={t('workspace.detail.title')}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </Link>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
+                </TooltipTrigger>
+                <TooltipContent>{t('workspace.rename')}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t('workspace.archive')}
+                      disabled={w.isDefault || archiveMutation.isPending}
+                      onClick={() => setArchiveTarget(w)}
+                    >
+                      <Archive className="size-4" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {w.isDefault
+                    ? t('workspace.archiveDefaultBlocked')
+                    : t('workspace.archive')}
+                </TooltipContent>
+              </Tooltip>
+              {detailLink}
+            </div>
+          ) : !isArchived ? (
+            <div className="flex shrink-0 items-center gap-1">{detailLink}</div>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="space-y-4">

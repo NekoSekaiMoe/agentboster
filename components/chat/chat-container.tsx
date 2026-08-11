@@ -37,6 +37,7 @@ import {
   cloneUIParts,
   extractTextFromParts,
 } from '@/lib/chat/transport-request';
+import { sessionMutationErrorMessage } from '@/lib/chat/session-mutation-error';
 import { switchFireForgetPostToStream } from '@/lib/chat/fire-forget';
 import { deriveSessionTitle } from '@/lib/chat/session-title';
 import { buildInlineFollowUpText } from '@/lib/chat/follow-up';
@@ -997,7 +998,16 @@ export function Chat({
     setIsDeletingAccessDeniedSession(true);
 
     try {
-      await deleteSessionAction(id);
+      // deleteSessionAction RETURNS structured failures instead of
+      // throwing — a forbidden/not_found/unknown result must NOT trigger
+      // the success toast or the redirect away from this session.
+      const result = await deleteSessionAction(id);
+      if (!result.success) {
+        toast.error(
+          sessionMutationErrorMessage(t, result.error, t('chat.deleteError')),
+        );
+        return;
+      }
       invalidateSessionListQuery();
       toast.success(t('chat.deleteSuccess'));
       router.push('/');

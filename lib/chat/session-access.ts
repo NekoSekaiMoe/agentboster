@@ -74,8 +74,19 @@ export async function resolveSessionGrant(
       if (!wsAccess) return access.isAdmin ? 'manage' : null;
       // Shared sessions in an accessible public workspace: full member
       // access. Checked FIRST so a workspace manager keeps read access on
-      // shared sessions (canManage ⇒ canAccess).
-      if (session.visibility === 'shared' && wsAccess.canAccess) {
+      // shared sessions (canManage ⇒ canAccess). The workspace must still
+      // be ACTIVE — archiveWorkspace only flips status (visibility stays
+      // 'public' and can no longer be reverted), so without this gate an
+      // archived workspace would keep granting content read on shared
+      // sessions, contradicting the "archived workspaces stay out of the
+      // shared surface" rule enforced by listVisibleWorkspaces and
+      // setWorkspaceVisibility. Falls through to canManage/null otherwise
+      // (fail-closed; managers keep their manage grant).
+      if (
+        session.visibility === 'shared' &&
+        wsAccess.canAccess &&
+        wsAccess.ws.status === 'active'
+      ) {
         return 'shared';
       }
       // Workspace owner/admin: curate members' private sessions without

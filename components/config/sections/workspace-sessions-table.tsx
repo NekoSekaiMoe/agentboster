@@ -19,6 +19,7 @@ import {
   setSessionVisibilityAction,
   updateSessionTitleAction,
 } from '@/app/(chat)/actions';
+import { useConfigContext } from '@/components/config/config-provider';
 import { useI18n } from '@/components/i18n-provider';
 import {
   AlertDialog,
@@ -77,33 +78,36 @@ class SessionMutationError extends Error {
   }
 }
 
+/**
+ * Map a SessionMutationResult error code to a localized toast message.
+ * Server actions return codes instead of throwing so we never surface
+ * raw error.message (Next.js redacts it in production anyway).
+ */
+function sessionErrorMessage(
+  t: ReturnType<typeof useI18n>['t'],
+  code: SessionMutationErrorCode,
+  fallback: string,
+): string {
+  switch (code) {
+    case 'forbidden':
+      return t('workspace.detail.sessionErrorForbidden');
+    case 'not_found':
+      return t('workspace.detail.sessionErrorNotFound');
+    case 'invalid_input':
+      return t('workspace.detail.sessionErrorInvalidInput');
+    default:
+      return fallback;
+  }
+}
+
 export function WorkspaceSessionsTable({
   workspaceId,
 }: {
   workspaceId: string;
 }) {
   const { t } = useI18n();
-
-  /**
-   * Map a SessionMutationResult error code to a localized toast message.
-   * Server actions return codes instead of throwing so we never surface
-   * raw error.message (Next.js redacts it in production anyway).
-   */
-  const sessionErrorMessage = (
-    code: 'invalid_input' | 'forbidden' | 'not_found' | 'unknown',
-    fallback: string,
-  ): string => {
-    switch (code) {
-      case 'forbidden':
-        return t('workspace.detail.sessionErrorForbidden');
-      case 'not_found':
-        return t('workspace.detail.sessionErrorNotFound');
-      case 'invalid_input':
-        return t('workspace.detail.sessionErrorInvalidInput');
-      default:
-        return fallback;
-    }
-  };
+  const configContext = useConfigContext();
+  const currentUserId = configContext?.userId ?? null;
 
   const qc = useQueryClient();
   const [renameTarget, setRenameTarget] = useState<SessionListItem | null>(
@@ -114,13 +118,13 @@ export function WorkspaceSessionsTable({
     null,
   );
 
-  const queryKey = ['workspace-sessions', workspaceId] as const;
+  // userId scopes the cache entry so an account switch can't show the
+  // previous user's sessions (mirrors use-session-list.ts).
+  const queryKey = ['workspace-sessions', currentUserId, workspaceId] as const;
   const { data: sessions = [], isLoading } = useQuery<SessionListItem[]>({
     queryKey,
-    queryFn: () =>
-      listRecentSessionsAction({ workspaceId, limit: 100 }) as Promise<
-        SessionListItem[]
-      >,
+    enabled: !!currentUserId,
+    queryFn: () => listRecentSessionsAction({ workspaceId, limit: 100 }),
     staleTime: 10_000,
   });
 
@@ -149,6 +153,7 @@ export function WorkspaceSessionsTable({
     onError: (error) => {
       toast.error(
         sessionErrorMessage(
+          t,
           error instanceof SessionMutationError ? error.code : 'unknown',
           t('workspace.detail.sessionVisibilityError'),
         ),
@@ -185,6 +190,7 @@ export function WorkspaceSessionsTable({
       setDeleteTarget(null);
       toast.error(
         sessionErrorMessage(
+          t,
           error instanceof SessionMutationError ? error.code : 'unknown',
           t('workspace.detail.sessionDeleteError'),
         ),

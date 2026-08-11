@@ -436,6 +436,40 @@ describe('workspace DAL (PGlite)', () => {
       ).toBeNull();
     });
 
+    it('listVisibleWorkspaces skips non-UUID owners instead of throwing (22P02)', async () => {
+      await seedUser(U1);
+      await seedUser(U2);
+      const own = await createWorkspace({ ownerId: U1, name: 'mine' });
+      const shared = await createWorkspace({ ownerId: U2, name: 'shared' });
+      await setWorkspaceVisibility(shared.id, 'public');
+      // owner_id is free-text: a 'system'-owned public ACTIVE workspace
+      // must not crash the users join (owner_id::uuid on a non-UUID
+      // string throws PG 22P02) — it is filtered out of the shared
+      // surface entirely.
+      const systemOwned = await createWorkspace({
+        ownerId: 'system',
+        name: 'sys',
+      });
+      await setWorkspaceVisibility(systemOwned.id, 'public');
+
+      const visible = await listVisibleWorkspaces(U1);
+      const ids = visible.map((w) => w.id);
+      expect(ids).toContain(own.id);
+      expect(ids).toContain(shared.id);
+      expect(ids).not.toContain(systemOwned.id);
+
+      // The same row must also resolve without throwing: the non-UUID
+      // owner is treated as ownerless (no users-row lookup), so the
+      // public workspace is accessible but unmanageable.
+      const access = await resolveWorkspaceAccess(systemOwned.id, {
+        userId: U1,
+        roles: ['user'],
+      });
+      expect(access).not.toBeNull();
+      expect(access?.canAccess).toBe(true);
+      expect(access?.canManage).toBe(false);
+    });
+
     it('setWorkspaceSharedMemory toggles and refuses archived rows', async () => {
       const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
       expect(ws.sharedMemoryEnabled).toBe(false);
@@ -447,7 +481,9 @@ describe('workspace DAL (PGlite)', () => {
       await archiveWorkspace(ws.id);
       expect(await setWorkspaceSharedMemory(ws.id, true)).toBeNull();
     });
+  });
 
+  describe('deleteWorkspaceRow', () => {
     it('deleteWorkspaceRow removes the row and frees the default slot', async () => {
       const ws = await getOrCreateDefaultWorkspace('u1');
       const deleted = await deleteWorkspaceRow(ws.id);

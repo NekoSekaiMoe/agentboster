@@ -1114,6 +1114,17 @@ export interface VisibleWorkspaceRecord extends WorkspaceRecord {
  */
 const SHARED_VISIBLE_WORKSPACES_LIMIT = 100;
 
+/** workspaces.owner_id is free-text (schema/agentd.ts) while users.id is
+ *  uuid. Rows with a non-UUID owner (e.g. 'system') must be filtered out
+ *  anywhere owner_id is cast to uuid or joined to users.id — otherwise PG
+ *  22P02 (invalid input syntax for type uuid) aborts the whole query.
+ *  TS-side mirror of OWNER_ID_UUID_FILTER for pre-query validation. */
+const UUID_SHAPE_REGEX =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/** SQL-side mirror of UUID_SHAPE_REGEX, for WHERE clauses. */
+const OWNER_ID_UUID_FILTER = sql`${workspaces.ownerId} ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'`;
+
 export async function listVisibleWorkspaces(
   userId: string,
 ): Promise<VisibleWorkspaceRecord[]> {
@@ -1132,6 +1143,9 @@ export async function listVisibleWorkspaces(
         ne(workspaces.ownerId, userId),
         eq(workspaces.visibility, 'public'),
         eq(workspaces.status, 'active'),
+        // Skip rows whose owner_id is not UUID-shaped (e.g. 'system') —
+        // the ::uuid join cast above would throw 22P02 on them.
+        OWNER_ID_UUID_FILTER,
       ),
     )
     .orderBy(desc(workspaces.updatedAt))
@@ -1193,8 +1207,13 @@ export async function resolveWorkspaceAccess(
 ): Promise<WorkspaceAccess | null> {
   const ws = await getWorkspace(id);
   if (!ws) return null;
-  const owner = await getUserById(ws.ownerId);
-  const workspaceOwnerRoles = owner?.roles ?? [];
+  // owner_id is free-text; a non-UUID owner (e.g. 'system') would throw
+  // 22P02 inside getUserById's eq(users.id, ...) uuid parse. Treat such
+  // rows as ownerless — the same shape as a dangling owner reference
+  // (owner lookup returned null).
+  const workspaceOwnerRoles = UUID_SHAPE_REGEX.test(ws.ownerId)
+    ? ((await getUserById(ws.ownerId))?.roles ?? [])
+    : [];
   return {
     ws,
     canAccess: canAccessWorkspace(ws, actor, workspaceOwnerRoles),
@@ -1371,12 +1390,18 @@ export async function setDefaultWorkspace(
   if (target.isDefault) return target;
 
   // Snapshot the owner's current default BEFORE the clear-then-set pair.
+  // Targeted lookup (hits the workspaces_owner_default_uniq partial
+  // index) rather than a full listWorkspacesByOwner scan + in-memory find.
   // If the SET (second UPDATE) fails with a NON-unique error, the CLEAR
   // has already committed — without this snapshot the owner would be left
   // with NO default at all, so the catch branch below best-effort restores
   // this row before rethrowing.
-  const previousDefault =
-    (await listWorkspacesByOwner(ownerId)).find((ws) => ws.isDefault) ?? null;
+  const [previousDefaultRow] = await db
+    .select()
+    .from(workspaces)
+    .where(and(eq(workspaces.ownerId, ownerId), eq(workspaces.isDefault, true)))
+    .limit(1);
+  const previousDefault = previousDefaultRow ?? null;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {

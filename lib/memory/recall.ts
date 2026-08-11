@@ -18,7 +18,10 @@ import {
 } from './cross-reranker';
 import { searchLongTermMemories } from './long-term';
 import type { HybridSearchRow } from './search';
-import { readSharedMemoryVersion } from './shared-version';
+import {
+  readSharedMemoryVersion,
+  type SharedMemoryVersionRead,
+} from './shared-version';
 
 const logger = createLogger('memory.recall');
 
@@ -29,6 +32,50 @@ const logger = createLogger('memory.recall');
 const CACHE_TTL_MS = 60_000;
 const CACHE_STALE_TTL_MS = 300_000;
 const CACHE_MAX_ENTRIES = 256;
+
+/**
+ * Upper bound for the per-workspace shared-memory version read (a KV
+ * round-trip). A hung KV backend must not stall every workspace-scoped
+ * recall before the cache key is even computed — on timeout the read is
+ * treated as a failure (`{ ok: false }`), which reuses the existing
+ * `workspaceCacheUsable = false` path: the workspace cache is skipped
+ * entirely (no read, no write) while the DB recall still proceeds.
+ */
+const SHARED_VERSION_READ_TIMEOUT_MS = 200;
+
+/**
+ * readSharedMemoryVersion with a hard upper bound. Never rejects; the
+ * timer is cleared on settle (and unref'd while pending) so it can never
+ * keep the host process alive.
+ */
+async function readSharedMemoryVersionBounded(
+  workspaceId: string,
+): Promise<SharedMemoryVersionRead> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      readSharedMemoryVersion(workspaceId),
+      new Promise<SharedMemoryVersionRead>((resolve) => {
+        timer = setTimeout(() => {
+          logger.warn('recall:shared_version_timeout', {
+            workspaceId,
+            timeoutMs: SHARED_VERSION_READ_TIMEOUT_MS,
+          });
+          resolve({ ok: false });
+        }, SHARED_VERSION_READ_TIMEOUT_MS);
+        // Node timers hold the event loop open; browsers return a number.
+        if (
+          typeof timer === 'object' &&
+          typeof (timer as { unref?: () => void }).unref === 'function'
+        ) {
+          (timer as { unref: () => void }).unref();
+        }
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 interface CacheEntry {
   memories: RecalledMemory[];
@@ -290,7 +337,7 @@ export async function recallRelevantMemories(input: {
   let workspaceVersion: number | null = null;
   let workspaceCacheUsable = true;
   if (workspaceId) {
-    const versionRead = await readSharedMemoryVersion(workspaceId);
+    const versionRead = await readSharedMemoryVersionBounded(workspaceId);
     if (versionRead.ok) {
       workspaceVersion = versionRead.version;
     } else {

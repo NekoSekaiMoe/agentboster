@@ -86,11 +86,11 @@ const detailResponseSchema = z.object({
     .optional(),
 });
 
-type WorkspaceDetail = NonNullable<
+type WorkspaceDetailData = NonNullable<
   z.infer<typeof detailResponseSchema>['data']
 >;
 
-async function fetchWorkspaceDetail(id: string): Promise<WorkspaceDetail> {
+async function fetchWorkspaceDetail(id: string): Promise<WorkspaceDetailData> {
   const res = await fetch(`/api/workspaces/${encodeURIComponent(id)}`, {
     cache: 'no-store',
   });
@@ -125,7 +125,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
     data: ws,
     isLoading,
     isError,
-  } = useQuery<WorkspaceDetail>({
+  } = useQuery<WorkspaceDetailData>({
     queryKey: ['workspace', id],
     queryFn: () => fetchWorkspaceDetail(id),
     staleTime: 15_000,
@@ -607,6 +607,7 @@ export function WorkspaceDetail({ id }: { id: string }) {
             value={hardDeleteConfirm}
             onChange={(event) => setHardDeleteConfirm(event.target.value)}
             placeholder={ws.name}
+            aria-label={t('workspace.detail.hardDeleteConfirmInputLabel')}
           />
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>

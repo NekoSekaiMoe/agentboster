@@ -263,15 +263,28 @@ export async function toggleSessionPinAction(input: { id: string }) {
   const currentPinned = Boolean(
     (existing.metadata as Record<string, unknown> | null)?.pinned,
   );
-  const nextMetadata = { ...(existing.metadata ?? {}), pinned: !currentPinned };
   const grant = await assertCanManageSharedSession(access, existing);
 
-  if (grant === 'owner') {
-    await updateSessionForUser(id, access.session.userId, {
-      metadata: nextMetadata,
-    });
-  } else {
-    await updateSession(id, { metadata: nextMetadata });
+  // Atomically patch metadata.pinned via jsonb_set instead of a
+  // read-modify-write of the whole metadata column. sessions.metadata is
+  // concurrently written by several paths (contextUsage, latestApproval,
+  // AGENTS.md persistence); a full-column `set({ metadata })` here would
+  // race and silently clobber one of those writes (TOCTOU). The getSession
+  // read above is still needed for authorization and to compute the
+  // toggled value — only the WRITE is atomic. Owner grants use the
+  // user-scoped variant (defense in depth), mirroring
+  // saveSessionPersonaAction.
+  const updated = await updateSessionMetadataKey(
+    id,
+    grant === 'owner' ? access.session.userId : null,
+    'pinned',
+    !currentPinned,
+  );
+
+  // updateSessionMetadataKey returns null on not-found / owner mismatch —
+  // surface that as a failure instead of pretending the pin was toggled.
+  if (!updated) {
+    throw new Error('Session not found or access denied');
   }
 
   return { ok: true as const, pinned: !currentPinned };
@@ -282,6 +295,15 @@ export async function toggleSessionPinAction(input: { id: string }) {
  * sessions table (components/config/sections/workspace-sessions-table.tsx).
  * Expected failures are RETURNED, not thrown, so the client can map the
  * error code to a localized toast without parsing exception messages.
+ *
+ * CONTRACT: this structured-failure result is deliberate and EVERY caller
+ * must inspect `result.success` before applying UI side effects (cache-row
+ * removal, navigation, success toasts). A `catch` around the action only
+ * sees unexpected throws — forbidden / not_found / unknown come back as
+ * normal returns. Treating this like a throw-on-failure API is a breaking
+ * contract change: callers written against the old assumption silently
+ * drop rows and redirect on failure (see sidebar-core-content.tsx,
+ * chat-container.tsx, chat-sidebar.tsx for the fixed call sites).
  */
 type SessionMutationResult =
   | { success: true }
@@ -337,8 +359,12 @@ export async function setSessionVisibilityAction(input: {
   }
 
   if (visibility === 'shared') {
-    // Sharing only makes sense inside a PUBLIC workspace — refuse to
-    // silently no-op elsewhere.
+    // Sharing only makes sense inside a PUBLIC, ACTIVE workspace — refuse
+    // to silently no-op elsewhere. The status check matches the session
+    // search filter above and setWorkspaceVisibility ('archived workspaces
+    // stay out of the shared surface'): archiveWorkspace leaves visibility
+    // at 'public', so without it an archived workspace's sessions could
+    // still be flipped to shared.
     if (!existing.workspaceId) {
       return { success: false, error: 'invalid_input' };
     }
@@ -347,7 +373,10 @@ export async function setSessionVisibilityAction(input: {
       userId: access.session.userId,
       roles: access.user.roles,
     });
-    if (wsAccess?.ws.visibility !== 'public') {
+    if (
+      wsAccess?.ws.visibility !== 'public' ||
+      wsAccess.ws.status !== 'active'
+    ) {
       return { success: false, error: 'invalid_input' };
     }
   }

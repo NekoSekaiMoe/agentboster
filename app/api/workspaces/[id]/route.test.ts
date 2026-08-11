@@ -5,10 +5,13 @@
  * old loop paginated listSessions with an advancing offset — with more
  * than one page of sessions, every session past the first page was
  * skipped by the cleanup (then deleted row-only, leaking sandboxes /
- * workflow runs / daemon sessions). The fix always reads offset 0 and
- * lets deletions drain the list, tracking processed ids so sessions
- * whose cleanup failed (and therefore keep their row) cannot spin the
- * loop forever.
+ * workflow runs / daemon sessions). The fix lets deletions drain the
+ * list while advancing the offset only by rows whose cleanup FAILED
+ * (they keep their rows), tracking processed ids so persistent failures
+ * cannot spin the loop forever. A second pinned bug: with >= one full
+ * page (200) of persistently-failing sessions, the old fixed offset-0
+ * loop saw only failing rows on every page, broke on `fresh.length ===
+ * 0`, and never attempted cleanup for any session beyond that page.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -153,6 +156,38 @@ describe('DELETE /api/workspaces/[id]?hard=true — cleanup pagination', () => {
     // The leftover rows are still hard-deleted afterwards.
     expect(mocks.deleteSessionsByWorkspaceId).toHaveBeenCalledWith('ws-1');
     expect(body.data.sessionsDeleted).toBe(5);
+  });
+
+  it('a full page of persistent failures does not block sessions behind it', async () => {
+    // 250 sessions; the FIRST 200 (a full page) fail cleanup on every
+    // attempt, the trailing 50 succeed. With a fixed offset-0 loop the
+    // failing page is returned forever, `fresh` goes empty, and the 50
+    // sessions behind it never get a cleanup attempt — their runtime
+    // state leaks even though their rows are hard-deleted afterwards.
+    seedSessions(250);
+    mocks.cleanupChatSession.mockImplementation(
+      async (session: { id: string }) => {
+        const index = Number(session.id.replace('session-', ''));
+        if (index <= 200) throw new Error('daemon unreachable');
+        state.rows = state.rows.filter((row) => row.id !== session.id);
+        return { deleted: true };
+      },
+    );
+
+    const { status, body } = await hardDelete();
+
+    expect(status).toBe(200);
+    // Every session — including the 50 behind the failing page — is
+    // ATTEMPTED exactly once, and the loop still terminates.
+    expect(mocks.cleanupChatSession).toHaveBeenCalledTimes(250);
+    const cleanedIds = new Set(
+      mocks.cleanupChatSession.mock.calls.map(([session]) => session.id),
+    );
+    expect(cleanedIds.size).toBe(250);
+    expect(body.data.cleanupsFailed).toBe(200);
+    // The 200 leftover failed rows are still hard-deleted afterwards.
+    expect(mocks.deleteSessionsByWorkspaceId).toHaveBeenCalledWith('ws-1');
+    expect(body.data.sessionsDeleted).toBe(200);
   });
 
   it('partial failures still reach later pages', async () => {

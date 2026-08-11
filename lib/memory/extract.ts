@@ -223,22 +223,27 @@ export async function extractMemoriesFromSession(input: {
     return { extracted: 0, created: 0, updated: 0 };
   }
 
+  const conversationText = buildConversationContext(rows);
+  if (!conversationText.trim()) {
+    return { extracted: 0, created: 0, updated: 0 };
+  }
+
   // Shared-memory pool: when the session's workspace is a PUBLIC workspace
   // with the shared-memory option enabled, workspace-scoped writes land in
   // the shared pool (visible to every member); otherwise they stay
   // personal (shared=false). Global-layer writes are never pool writes.
-  const sharedPool = input.workspaceId
-    ? await getWorkspace(input.workspaceId)
-        .then(
-          (ws) =>
-            ws?.visibility === 'public' && ws.sharedMemoryEnabled === true,
-        )
-        .catch(() => false)
-    : false;
-
-  const conversationText = buildConversationContext(rows);
-  if (!conversationText.trim()) {
-    return { extracted: 0, created: 0, updated: 0 };
+  // Looked up AFTER the empty-conversation early return so a session with
+  // nothing to write never pays for this workspace query. A lookup failure
+  // falls back to false (personal writes) — never blocks extraction.
+  let sharedPool = false;
+  if (input.workspaceId) {
+    try {
+      const ws = await getWorkspace(input.workspaceId);
+      sharedPool =
+        ws?.visibility === 'public' && ws.sharedMemoryEnabled === true;
+    } catch {
+      sharedPool = false;
+    }
   }
 
   const modelId =

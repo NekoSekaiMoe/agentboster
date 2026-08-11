@@ -3048,7 +3048,7 @@ function remapWorkspaceId(localId: string, remoteId: string): void {
     const runtime = sessionRuntimes.get(key);
     if (!runtime) continue;
     sessionRuntimes.delete(key);
-    const tabId = key.slice(localId.length + 2);
+    const tabId = runtime.tabId;
     const nextKey = sessionRuntimeKey(remoteId, tabId);
     runtime.key = nextKey;
     runtime.workspaceId = remoteId;
@@ -3341,7 +3341,9 @@ function syncWorkspaceTabsBar(): void {
       color: workspace.color,
       emoji: workspace.emoji,
       pinned: false,
-      closable: true,
+      // Mirror the guard in closeWorkspace()/closeWorkspaceWithRemote():
+      // the last remaining workspace must not offer a close affordance.
+      closable: workspaces.length > 1,
       isDefault: workspace.id === remoteDefaultWorkspaceId,
     }),
   );
@@ -4321,7 +4323,10 @@ async function closeWorkspaceWithRemote(workspaceId: string): Promise<void> {
   // Mirror closeWorkspace()'s guard BEFORE touching the remote: the local
   // close is refused when this is the last remaining workspace, so the
   // remote must stay untouched in that case too.
-  if (workspaces.length <= 1) return;
+  if (workspaces.length <= 1) {
+    chatView?.notify('At least one workspace is required', 'info');
+    return;
+  }
   if (loadRemoteWorkspaceIds().has(workspaceId)) {
     const auth = await getWorkspaceAuthOrNull();
     let archivedRemotely = false;
@@ -4394,7 +4399,10 @@ async function setDefaultRemoteWorkspace(workspaceId: string): Promise<void> {
 }
 
 function closeWorkspace(workspaceId: string): void {
-  if (workspaces.length <= 1) return;
+  if (workspaces.length <= 1) {
+    chatView?.notify('At least one workspace is required', 'info');
+    return;
+  }
   const index = workspaces.findIndex(
     (workspace) => workspace.id === workspaceId,
   );

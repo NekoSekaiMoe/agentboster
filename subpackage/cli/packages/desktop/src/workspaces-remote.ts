@@ -6,7 +6,10 @@
  * from `~/.config/agentboster-cli/config.json` (see `agentboster-auth.ts`).
  * All responses are parsed defensively — no bare `as T` casts on response
  * JSON — so contract drift on the Web side degrades to skipped entries
- * instead of runtime crashes.
+ * instead of runtime crashes. A 2xx response that does not carry the
+ * expected `{ success: true }` envelope is treated as a failure (not an
+ * empty result) so a malformed body can never masquerade as "no
+ * workspaces" and wipe the caller's cached list.
  */
 
 import type { AgentbosterDesktopAuth } from './agentboster-auth.js';
@@ -95,7 +98,11 @@ function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
 
 /**
  * Read the response body once and enforce the `{ success, data, error }`
- * envelope. Returns the raw body for further field extraction.
+ * envelope. Any 2xx response whose parsed body is not an object with
+ * `success === true` is rejected: silently accepting a null/empty/missing
+ * envelope would let callers fall back to an empty list and destroy local
+ * state (e.g. the persisted remote-workspace cache).
+ * Returns the raw body for further field extraction.
  */
 async function readEnvelope(
   response: Response,
@@ -112,10 +119,13 @@ async function readEnvelope(
     );
   }
   const record = asRecord(body);
-  if (record.success === false) {
+  if (record.success !== true) {
     throw new RemoteWorkspaceRequestError(
       response.status,
-      extractErrorMessage(record, `Failed to ${actionLabel}`),
+      extractErrorMessage(
+        record,
+        `Failed to ${actionLabel}: malformed response envelope`,
+      ),
     );
   }
   return body;
@@ -146,12 +156,16 @@ export async function fetchRemoteWorkspaces(
     },
   );
   const body = await readEnvelope(response, 'load workspaces');
-  const record = asRecord(body);
-  const items = Array.isArray(record.data)
-    ? record.data
-    : Array.isArray(body)
-      ? body
-      : [];
+  // The envelope guarantees `success === true`, but the list payload must
+  // still be an array — a missing/non-array `data` field is contract drift
+  // and must fail loudly rather than degrade to an empty list.
+  const items = asRecord(body).data;
+  if (!Array.isArray(items)) {
+    throw new RemoteWorkspaceRequestError(
+      response.status,
+      'Failed to load workspaces: malformed response payload',
+    );
+  }
   return items
     .map((entry) => normalizeRemoteWorkspace(entry))
     .filter((entry): entry is RemoteWorkspace => Boolean(entry));

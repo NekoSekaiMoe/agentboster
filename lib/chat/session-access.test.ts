@@ -75,7 +75,7 @@ describe('resolveSessionGrant', () => {
 
   it('shared session in an accessible workspace → shared grant (readable)', async () => {
     mocks.resolveWorkspaceAccess.mockResolvedValue({
-      ws: { id: 'w1' },
+      ws: { id: 'w1', visibility: 'public', status: 'active' },
       canAccess: true,
       canManage: false,
     });
@@ -85,12 +85,47 @@ describe('resolveSessionGrant', () => {
 
   it('workspace manager on a shared session keeps read access (shared wins)', async () => {
     mocks.resolveWorkspaceAccess.mockResolvedValue({
-      ws: { id: 'w1' },
+      ws: { id: 'w1', visibility: 'public', status: 'active' },
       canAccess: true,
       canManage: true,
     });
     const target = session({ workspaceId: 'w1', visibility: 'shared' });
     expect(await resolveSessionGrant(MEMBER, target)).toBe('shared');
+  });
+
+  it('ARCHIVED public workspace: shared session is denied the shared grant', async () => {
+    // archiveWorkspace only flips status (visibility stays 'public'), so
+    // canAccess is still true — the shared branch must additionally
+    // require status === 'active', or archived workspaces keep granting
+    // content read. A plain member falls through to null (fail-closed).
+    mocks.resolveWorkspaceAccess.mockResolvedValue({
+      ws: { id: 'w1', visibility: 'public', status: 'archived' },
+      canAccess: true,
+      canManage: false,
+    });
+    const target = session({ workspaceId: 'w1', visibility: 'shared' });
+    expect(await resolveSessionGrant(MEMBER, target)).toBeNull();
+    await expect(assertCanReadSession(MEMBER, target)).rejects.toMatchObject({
+      name: 'AuthError',
+      status: 403,
+    });
+  });
+
+  it('archived workspace: a manager still gets the manage grant (not shared)', async () => {
+    // The canManage branch is preserved regardless of workspace status —
+    // managers curate metadata even for archived workspaces, but must not
+    // regain content READ via the shared branch.
+    mocks.resolveWorkspaceAccess.mockResolvedValue({
+      ws: { id: 'w1', visibility: 'public', status: 'archived' },
+      canAccess: true,
+      canManage: true,
+    });
+    const target = session({ workspaceId: 'w1', visibility: 'shared' });
+    expect(await resolveSessionGrant(MEMBER, target)).toBe('manage');
+    await expect(assertCanReadSession(MEMBER, target)).rejects.toMatchObject({
+      name: 'AuthError',
+      status: 403,
+    });
   });
 
   it('workspace manager on a PRIVATE session → manage-only (no read)', async () => {

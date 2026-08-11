@@ -55,6 +55,11 @@ export const sessions = pgTable(
   },
   (table) => ({
     workspaceIdx: index('sessions_workspace_idx').on(table.workspaceId),
+    /** Covers listVisibleSessions' workspace-scoped hot path:
+     *  WHERE workspace_id = ? AND archived = ? ORDER BY updated_at DESC. */
+    workspaceArchivedUpdatedIdx: index(
+      'sessions_workspace_archived_updated_idx',
+    ).on(table.workspaceId, table.archived, table.updatedAt),
   }),
 );
 

@@ -96,8 +96,8 @@ export function upsertSessionListItemInCache(
         title: item.title,
         channel: item.channel,
         createdAt: item.createdAt,
-        status: item.status,
-        pinned: item.pinned ?? false,
+        status: item.status ?? existing?.status,
+        pinned: item.pinned ?? existing?.pinned ?? false,
         workspaceId: item.workspaceId ?? existing?.workspaceId,
         // Rebuilding the row must not strip access annotations the list
         // query already computed — fall back to the existing row's values

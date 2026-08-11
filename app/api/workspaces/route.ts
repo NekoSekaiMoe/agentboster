@@ -32,34 +32,44 @@ const logger = createLogger('api.workspaces');
  *          IDENTITY / AGENTS / USER start from the global defaults).
  */
 export async function GET() {
-  const cookieStore = await cookies();
-  const access = await requireAuthAccess(cookieStore);
-  const ownerId = access.session.userId;
+  try {
+    const cookieStore = await cookies();
+    const access = await requireAuthAccess(cookieStore);
+    const ownerId = access.session.userId;
 
-  // Ensure the user has at least one workspace. The migration script also
-  // does this for legacy users, but this covers brand-new users and any
-  // edge case where the migration hasn't run yet.
-  await getOrCreateDefaultWorkspace(ownerId);
+    // Ensure the user has at least one workspace. The migration script also
+    // does this for legacy users, but this covers brand-new users and any
+    // edge case where the migration hasn't run yet.
+    await getOrCreateDefaultWorkspace(ownerId);
 
-  const list = await listVisibleWorkspaces(ownerId);
-  const nodeStatuses = await getWorkspaceNodeStatuses(
-    list.map((ws) => ws.preferredNodeId).filter((id): id is string => !!id),
-  );
-  const data = list.map((ws) => {
-    const nodeStatus = ws.preferredNodeId
-      ? (nodeStatuses.get(ws.preferredNodeId) ?? 'offline')
-      : null;
-    return {
-      ...ws,
-      // Don't leak another user's id with their public workspace —
-      // undefined keys are dropped from the JSON response; ownerName
-      // remains for UI labeling.
-      ownerId: ws.ownerId === ownerId ? ws.ownerId : undefined,
-      nodeStatus,
-      containerStatus: deriveContainerStatus(ws.preferredNodeId, nodeStatus),
-    };
-  });
-  return Response.json({ success: true, data });
+    const list = await listVisibleWorkspaces(ownerId);
+    const nodeStatuses = await getWorkspaceNodeStatuses(
+      list.map((ws) => ws.preferredNodeId).filter((id): id is string => !!id),
+    );
+    const data = list.map((ws) => {
+      const nodeStatus = ws.preferredNodeId
+        ? (nodeStatuses.get(ws.preferredNodeId) ?? 'offline')
+        : null;
+      return {
+        ...ws,
+        // Don't leak another user's id with their public workspace —
+        // undefined keys are dropped from the JSON response; ownerName
+        // remains for UI labeling.
+        ownerId: ws.ownerId === ownerId ? ws.ownerId : undefined,
+        nodeStatus,
+        containerStatus: deriveContainerStatus(ws.preferredNodeId, nodeStatus),
+      };
+    });
+    return Response.json({ success: true, data });
+  } catch (error) {
+    logger.error('workspace listing failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return Response.json(
+      { success: false, error: 'Failed to list workspaces' },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: Request) {

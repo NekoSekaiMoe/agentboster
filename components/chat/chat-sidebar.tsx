@@ -25,6 +25,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { generateUUID } from '@/lib/utils';
+import { sessionMutationErrorMessage } from '@/lib/chat/session-mutation-error';
 import {
   SESSION_LIST_KEY,
   invalidateSessionListQuery,
@@ -162,7 +163,16 @@ export function ChatSidebar() {
 
     setDeletingSessionId(pendingDeleteSession.id);
     try {
-      await deleteSessionAction(pendingDeleteSession.id);
+      // deleteSessionAction RETURNS structured failures instead of
+      // throwing — a forbidden/not_found/unknown result must NOT trigger
+      // the success toast or navigate away from the current session.
+      const result = await deleteSessionAction(pendingDeleteSession.id);
+      if (!result.success) {
+        toast.error(
+          sessionMutationErrorMessage(t, result.error, t('chat.deleteError')),
+        );
+        return;
+      }
       invalidateSessionListQuery();
 
       if (currentSessionId === pendingDeleteSession.id) {

@@ -116,6 +116,50 @@ describe('upsertSessionListItemInCache', () => {
     expect(row.isOwn).toBe(true);
   });
 
+  it('preserves status and pinned of the existing row when the upsert omits them', () => {
+    // Regression: status/pinned used to fall back to undefined/false
+    // instead of the existing row, so an optimistic upsert (e.g. rename)
+    // silently unpinned a pinned session until the next refetch.
+    seedList([makeRow({ status: 'running', pinned: true })]);
+
+    upsertSessionListItemInCache(
+      {
+        id: 's-1',
+        title: 'Renamed',
+        channel: 'web',
+        createdAt: '2025-01-02T00:00:00.000Z',
+        workspaceId: WS_ID,
+      },
+      USER_ID,
+    );
+
+    const [row] = readList();
+    expect(row.title).toBe('Renamed');
+    expect(row.status).toBe('running');
+    expect(row.pinned).toBe(true);
+  });
+
+  it('lets explicit incoming status/pinned override the existing row', () => {
+    seedList([makeRow({ status: 'running', pinned: true })]);
+
+    upsertSessionListItemInCache(
+      {
+        id: 's-1',
+        title: 'Renamed',
+        channel: 'web',
+        createdAt: '2025-01-02T00:00:00.000Z',
+        workspaceId: WS_ID,
+        status: 'completed',
+        pinned: false,
+      },
+      USER_ID,
+    );
+
+    const [row] = readList();
+    expect(row.status).toBe('completed');
+    expect(row.pinned).toBe(false);
+  });
+
   it('inserts a new row at the front with pinned defaulting to false', () => {
     seedList([makeRow({ id: 's-older' })]);
 

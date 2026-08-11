@@ -119,6 +119,8 @@ export const ja = {
     'このワークスペースを完全に削除しますか？',
   'workspace.detail.hardDeleteConfirmDescription':
     '「{name}」とそのすべてのセッション・メッセージ・メモリを削除します。確認のためワークスペース名を入力してください。',
+  'workspace.detail.hardDeleteConfirmInputLabel':
+    '確認のためワークスペース名を入力してください',
   'workspace.detail.hardDeleteSuccess': 'ワークスペースを削除しました',
   'workspace.detail.hardDeleteError': 'ワークスペースの削除に失敗しました',
   'config.runtime.description':

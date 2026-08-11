@@ -119,6 +119,8 @@ export const ko = {
     '이 워크스페이스를 영구 삭제하시겠습니까?',
   'workspace.detail.hardDeleteConfirmDescription':
     '"{name}"과(와) 모든 세션, 메시지, 메모리를 삭제합니다. 확인을 위해 워크스페이스 이름을 입력하세요.',
+  'workspace.detail.hardDeleteConfirmInputLabel':
+    '확인을 위해 워크스페이스 이름을 입력하세요',
   'workspace.detail.hardDeleteSuccess': '워크스페이스가 삭제되었습니다',
   'workspace.detail.hardDeleteError': '워크스페이스 삭제에 실패했습니다',
   'config.runtime.description':

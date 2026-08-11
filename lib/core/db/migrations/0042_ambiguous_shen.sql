@@ -1,0 +1,1 @@
+CREATE INDEX "sessions_workspace_archived_updated_idx" ON "sessions" USING btree ("workspace_id","archived","updated_at");
