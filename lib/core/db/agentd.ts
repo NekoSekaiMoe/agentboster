@@ -1323,13 +1323,16 @@ export async function setWorkspaceVisibilityCascade(
     return null;
   }
 
-  const updatedAt = new Date();
+  // Single timestamp for every row this cascade touches — keeps the
+  // public and private directions consistent and avoids two near-identical
+  // `new Date()` calls drifting by microseconds.
+  const now = new Date();
 
   // Private → public: only the visibility column moves.
   if (visibility === 'public') {
     const [row] = await db
       .update(workspaces)
-      .set({ visibility: 'public', updatedAt })
+      .set({ visibility: 'public', updatedAt: now })
       .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')))
       .returning();
     return row ?? null;
@@ -1342,7 +1345,6 @@ export async function setWorkspaceVisibilityCascade(
   // semantically identical (going private is precisely when the pool
   // should be off) and it removes a read-after-write dependency that
   // the non-interactive batch couldn't satisfy anyway.
-  const now = new Date();
   const updateVisibility = db
     .update(workspaces)
     .set({ visibility: 'private', updatedAt: now })
