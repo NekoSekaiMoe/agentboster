@@ -1348,11 +1348,11 @@ export async function setWorkspaceVisibilityCascade(
   const updateVisibility = db
     .update(workspaces)
     .set({ visibility: 'private', updatedAt: now })
-    .where(eq(workspaces.id, id));
+    .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')));
   const resetSharedMemoryToggle = db
     .update(workspaces)
     .set({ sharedMemoryEnabled: false, updatedAt: now })
-    .where(eq(workspaces.id, id));
+    .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')));
   const resetSharedSessions = db
     .update(sessions)
     .set({ visibility: 'private', updatedAt: now })
@@ -1403,11 +1403,11 @@ export async function setWorkspaceVisibilityCascade(
       await tx
         .update(workspaces)
         .set({ visibility: 'private', updatedAt: now })
-        .where(eq(workspaces.id, id));
+        .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')));
       await tx
         .update(workspaces)
         .set({ sharedMemoryEnabled: false, updatedAt: now })
-        .where(eq(workspaces.id, id));
+        .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')));
       await tx
         .update(sessions)
         .set({ visibility: 'private', updatedAt: now })

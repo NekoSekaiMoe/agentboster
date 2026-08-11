@@ -635,6 +635,55 @@ describe('workspace DAL (PGlite)', () => {
       expect((await getSession(sessId))?.visibility).toBe('shared');
       expect(bumpSharedMemoryVersionSpy).not.toHaveBeenCalled();
     });
+
+    it('ignores a concurrent archive that lands between pre-flight and tx writes', async () => {
+      // Regression for the TOCTOU window opened by the non-interactive
+      // batch / pre-flight check: the pre-flight SELECT reads
+      // status='active' and returns the row, then a concurrent request
+      // archives the workspace before the UPDATE statements run. With the
+      // status='active' guard in each workspaces UPDATE's WHERE clause,
+      // the visibility / shared-memory-toggle writes become 0-row no-ops
+      // on the now-archived row — its core fields are not dirty-written.
+      // (The sessions / shared-pool cascade writes use their own WHERE on
+      // those tables, so they still run; this test pins only the
+      // workspaces-row guarantee that the guard provides.)
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      bumpSharedMemoryVersionSpy.mockClear();
+
+      // Wrap the real transaction primitive so the concurrent archive
+      // lands AFTER the cascade's pre-flight (which already returned the
+      // active row) but BEFORE the first UPDATE inside the tx callback.
+      // `harness.db` is the same drizzle client the DAL uses (injected via
+      // the mock getter), so archiving through it is visible to the tx.
+      const realTransaction = harness.db.transaction.bind(harness.db);
+      // `vi.spyOn` locks in drizzle's full generics for the transaction
+      // callback; cast the mock body through unknown so we don't have to
+      // repeat PgTransaction<...> parameter types verbatim.
+      const txSpy = vi
+        .spyOn(harness.db, 'transaction')
+        .mockImplementation((async (cb: (tx: unknown) => Promise<unknown>) => {
+          // Simulate the racing archive: flips status to 'archived'
+          // mid-flight, exactly as a concurrent request would.
+          await archiveWorkspace(ws.id);
+          return realTransaction(cb as never);
+        }) as never);
+
+      try {
+        const result = await setWorkspaceVisibilityCascade(ws.id, 'private');
+        // The post-cascade re-read finds the archived row. With the guard
+        // the two workspaces UPDATEs were 0-row no-ops, so the row's
+        // visibility, shared-memory toggle and status are unchanged from
+        // their pre-archive values. Without the guard the archived row
+        // would have been silently flipped to private + toggle off.
+        expect(result?.visibility).toBe('public');
+        expect(result?.sharedMemoryEnabled).toBe(true);
+        expect(result?.status).toBe('archived');
+      } finally {
+        txSpy.mockRestore();
+      }
+    });
   });
 
   describe('deleteWorkspaceRow', () => {
