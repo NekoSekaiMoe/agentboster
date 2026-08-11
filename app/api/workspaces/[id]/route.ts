@@ -14,13 +14,13 @@ import {
   resolveWorkspaceAccess,
   setDefaultWorkspace,
   setWorkspaceSharedMemory,
-  setWorkspaceVisibility,
+  setWorkspaceVisibilityCascade,
   type WorkspaceAccess,
 } from '@/lib/core/db/agentd';
 import { deleteSessionsByWorkspaceId, listSessions } from '@/lib/core/db/chat';
 import { deleteBuiltinMemoriesByWorkspaceId } from '@/lib/core/db/memory/builtin';
 import { deleteLongTermMemoriesByWorkspaceId } from '@/lib/core/db/memory/long-term';
-import { agentdNodes, notifications, sessions } from '@/lib/core/db/schema';
+import { agentdNodes, notifications } from '@/lib/core/db/schema';
 import { computeNodeStatus } from '@/lib/extra/agent/node-liveness';
 import { deriveContainerStatus } from '@/lib/extra/agent/workspace-status';
 import { createLogger } from '@/lib/utils/logger';
@@ -309,47 +309,25 @@ export async function PATCH(
       }
       case 'set_visibility': {
         const next = parsed.data.visibility;
-        const updated = await setWorkspaceVisibility(id, next);
-        if (!updated) {
+        // Single atomic cascade (DAL-level): flips visibility and, when
+        // going private, also drops the shared memory pool, forces the
+        // pool toggle off, and resets member-shared sessions back to
+        // private — all under one DB transaction/batch so a mid-sequence
+        // failure can no longer leave a half-migrated workspace (which
+        // used to silently re-expose shared sessions on re-public). The
+        // shared-memory KV version bump runs after the DB block commits.
+        // Returns null for archived rows → 409.
+        const result = await setWorkspaceVisibilityCascade(id, next);
+        if (!result) {
           return Response.json(
             { success: false, error: 'Workspace is archived' },
             { status: 409 },
           );
         }
-        let sharedMemoriesDeleted = 0;
-        if (next === 'private') {
-          // Going private revokes every member grant: drop the shared
-          // memory pool (personal memories survive), force the pool
-          // toggle off so a later re-public starts clean, and reset
-          // member-shared sessions back to private — re-publishing the
-          // workspace must not silently re-expose them.
-          sharedMemoriesDeleted = await deleteLongTermMemoriesByWorkspaceId(
-            id,
-            { sharedOnly: true },
-          );
-          await db
-            .update(sessions)
-            .set({ visibility: 'private', updatedAt: new Date() })
-            .where(
-              and(
-                eq(sessions.workspaceId, id),
-                eq(sessions.visibility, 'shared'),
-              ),
-            );
-        }
-        // Reflect the persisted shared-memory toggle in the response: the
-        // initial `updated` row predates the forced toggle-off and would
-        // otherwise report a stale sharedMemoryEnabled:true.
-        let result = updated;
-        if (next === 'private' && updated.sharedMemoryEnabled) {
-          const toggled = await setWorkspaceSharedMemory(id, false);
-          if (toggled) result = toggled;
-        }
         logger.info('workspace visibility changed', {
           workspaceId: id,
           ownerId,
           visibility: next,
-          sharedMemoriesDeleted,
         });
         return Response.json({ success: true, data: result });
       }

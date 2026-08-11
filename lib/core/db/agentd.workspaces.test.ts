@@ -50,6 +50,22 @@ const DDL = [
     "created_at" timestamptz DEFAULT now() NOT NULL,
     "updated_at" timestamptz DEFAULT now() NOT NULL
   )`,
+  // Minimal sessions table (mirrors schema/chat.ts sessions) — only the
+  // columns setWorkspaceVisibilityCascade's resetSharedSessions touches.
+  // workspace_id is a soft FK (no ON DELETE CASCADE) to match production.
+  `CREATE TABLE "sessions" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    "workspace_id" uuid,
+    "visibility" text DEFAULT 'private' NOT NULL,
+    "updated_at" timestamptz DEFAULT now() NOT NULL
+  )`,
+  // Minimal long_term_memories table (mirrors schema/memory.ts) — only
+  // the columns the cascade's shared-pool delete filters / returns on.
+  `CREATE TABLE "long_term_memories" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    "workspace_id" uuid,
+    "shared" boolean DEFAULT false NOT NULL
+  )`,
 ];
 
 const harness = setupPgLiteTestDb(DDL);
@@ -58,10 +74,34 @@ const harness = setupPgLiteTestDb(DDL);
 // must be exposed via a lazy getter — property access happens inside DAL
 // function bodies, i.e. after module evaluation (and after beforeAll has
 // applied the DDL).
+// Mock `@/lib/core/db` to inject the PGlite drizzle client as `db`, while
+// preserving the module's OTHER named exports the DAL reaches via this
+// module: `schema` (pure table-definition objects, no connection side
+// effects) and `resolveDriver` (used by atomicWriteMode to pick neon-batch
+// vs pg-transaction). We CANNOT spread importOriginal() here — importing
+// the real module initializes the production neon/pg singleton. `schema`
+// is re-exported from `./schema` and is safe to pass through directly; we
+// require() it inside the factory so the mock's hoist order is irrelevant.
+// Mock `@/lib/core/db` to inject the PGlite drizzle client as `db`, while
+// preserving `resolveDriver` (used by atomicWriteMode to pick neon-batch vs
+// pg-transaction). We can't spread importOriginal() here — importing the
+// real module initializes the production neon/pg singleton. resolveDriver
+// is a pure env-based function, so a stub is sufficient and the cascade
+// (which only needs `db` + this driver hint) runs against PGlite.
 vi.mock('@/lib/core/db', () => ({
   get db() {
     return harness.db;
   },
+  resolveDriver: () => 'postgres' as const,
+}));
+
+// The cascade's only non-DB side effect is the shared-memory KV version
+// bump. PGlite has no kv_store table, and verifying the bump's I/O is
+// not this file's goal (long-term.shared-version.test.ts covers that);
+// stub it with a spy so we can assert call count / ordering instead.
+const bumpSharedMemoryVersionSpy = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/memory/shared-version', () => ({
+  bumpSharedMemoryVersion: bumpSharedMemoryVersionSpy,
 }));
 
 import {
@@ -80,6 +120,7 @@ import {
   setDefaultWorkspace,
   setWorkspaceSharedMemory,
   setWorkspaceVisibility,
+  setWorkspaceVisibilityCascade,
 } from './agentd';
 
 async function seedUser(
@@ -118,7 +159,13 @@ function errorChainText(error: unknown): string {
 
 describe('workspace DAL (PGlite)', () => {
   beforeEach(async () => {
-    await resetDb(harness.db, ['workspaces', 'users']);
+    await resetDb(harness.db, [
+      'workspaces',
+      'users',
+      'sessions',
+      'long_term_memories',
+    ]);
+    bumpSharedMemoryVersionSpy.mockClear();
   });
 
   describe('renameWorkspace', () => {
@@ -480,6 +527,113 @@ describe('workspace DAL (PGlite)', () => {
 
       await archiveWorkspace(ws.id);
       expect(await setWorkspaceSharedMemory(ws.id, true)).toBeNull();
+    });
+  });
+
+  describe('setWorkspaceVisibilityCascade', () => {
+    /** Seed a shared-pool long-term memory row for a workspace. */
+    async function seedSharedMemory(workspaceId: string): Promise<string> {
+      const [row] = (
+        await harness.db.execute(
+          sql`INSERT INTO "long_term_memories" ("workspace_id", "shared") VALUES (${workspaceId}::uuid, true) RETURNING "id"`,
+        )
+      ).rows as { id: string }[];
+      return row.id;
+    }
+
+    /** Seed a shared-visibility session under a workspace. */
+    async function seedSharedSession(workspaceId: string): Promise<string> {
+      const [row] = (
+        await harness.db.execute(
+          sql`INSERT INTO "sessions" ("workspace_id", "visibility") VALUES (${workspaceId}::uuid, 'shared') RETURNING "id"`,
+        )
+      ).rows as { id: string }[];
+      return row.id;
+    }
+
+    /** Read a session row back by id. */
+    async function getSession(
+      id: string,
+    ): Promise<{ visibility: string } | undefined> {
+      const rows = (
+        await harness.db.execute(
+          sql`SELECT "visibility" FROM "sessions" WHERE "id" = ${id}::uuid`,
+        )
+      ).rows as { visibility: string }[];
+      return rows[0];
+    }
+
+    /** Count remaining shared-pool memories for a workspace. */
+    async function countSharedMemories(workspaceId: string): Promise<number> {
+      const rows = (
+        await harness.db.execute(
+          sql`SELECT count(*)::int AS n FROM "long_term_memories" WHERE "workspace_id" = ${workspaceId}::uuid AND "shared" = true`,
+        )
+      ).rows as { n: number }[];
+      return rows[0]?.n ?? 0;
+    }
+
+    it('private→public only moves the visibility column', async () => {
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      // Start from public with shared pool + shared sessions so we can
+      // prove the public direction does NOT touch them.
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      await seedSharedMemory(ws.id);
+      const sessId = await seedSharedSession(ws.id);
+
+      const result = await setWorkspaceVisibilityCascade(ws.id, 'public');
+      expect(result?.visibility).toBe('public');
+      // Re-publishing is a no-op on dependents.
+      expect(await countSharedMemories(ws.id)).toBe(1);
+      expect((await getSession(sessId))?.visibility).toBe('shared');
+      // No shared pool was dropped, so the KV bump is NOT issued for
+      // the public direction (no DB delete occurred).
+      expect(bumpSharedMemoryVersionSpy).not.toHaveBeenCalled();
+    });
+
+    it('public→private cascades all 4 steps atomically (pg branch)', async () => {
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      await seedSharedMemory(ws.id);
+      const sessId = await seedSharedSession(ws.id);
+      bumpSharedMemoryVersionSpy.mockClear();
+
+      const result = await setWorkspaceVisibilityCascade(ws.id, 'private');
+
+      // Step 1: visibility flipped.
+      expect(result?.visibility).toBe('private');
+      // Step 2: shared pool dropped.
+      expect(await countSharedMemories(ws.id)).toBe(0);
+      // Step 3: shared sessions reset to private.
+      expect((await getSession(sessId))?.visibility).toBe('private');
+      // Step 4: shared-memory toggle forced off, AND reflected in the
+      // returned row (no stale sharedMemoryEnabled:true).
+      expect(result?.sharedMemoryEnabled).toBe(false);
+      const fresh = await getWorkspace(ws.id);
+      expect(fresh?.sharedMemoryEnabled).toBe(false);
+      // KV bump ran exactly once, AFTER the DB block.
+      expect(bumpSharedMemoryVersionSpy).toHaveBeenCalledTimes(1);
+      expect(bumpSharedMemoryVersionSpy).toHaveBeenCalledWith(ws.id);
+    });
+
+    it('returns null for archived rows without touching dependents', async () => {
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      await seedSharedMemory(ws.id);
+      const sessId = await seedSharedSession(ws.id);
+      await archiveWorkspace(ws.id);
+      bumpSharedMemoryVersionSpy.mockClear();
+
+      const result = await setWorkspaceVisibilityCascade(ws.id, 'private');
+
+      expect(result).toBeNull();
+      // Archived row is immutable: dependents survive untouched.
+      expect(await countSharedMemories(ws.id)).toBe(1);
+      expect((await getSession(sessId))?.visibility).toBe('shared');
+      expect(bumpSharedMemoryVersionSpy).not.toHaveBeenCalled();
     });
   });
 

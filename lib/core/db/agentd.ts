@@ -13,11 +13,14 @@ import {
   agentTasks,
   agentToolActivityLogs,
   sessions,
+  longTermMemories,
   taskSummaries,
   users,
   workspaces,
   projectSandboxes,
 } from './schema';
+import { atomicWriteMode } from './atomic';
+import { bumpSharedMemoryVersion } from '@/lib/memory/shared-version';
 import type { Decision } from './schema';
 
 type AgentdTask = typeof agentTasks.$inferSelect & {
@@ -1255,6 +1258,188 @@ export async function setWorkspaceSharedMemory(
     .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')))
     .returning();
   return row ?? null;
+}
+
+/**
+ * Atomically flip a workspace's visibility AND cascade every dependent
+ * piece of state that must move with it. This is the DAL-level successor
+ * to the old route-layer sequence (setWorkspaceVisibility → delete shared
+ * memories → reset shared sessions → setWorkspaceSharedMemory(false)),
+ * which performed four independent writes with no atomicity guarantee —
+ * a mid-sequence failure left a half-migrated workspace (e.g. already
+ * private but with lingering shared sessions that would silently
+ * re-expose on the next re-public, the exact state `session-access.ts`'s
+ * visibility guard defends against as a last resort).
+ *
+ * Two directions:
+ *  - public  → private: a 4-step cascade (the meat of this function).
+ *  - private → public: only the visibility column moves (re-publishing
+ *    does NOT auto-recreate the shared pool or re-share sessions; the
+ *    owner opts back into those explicitly afterwards).
+ *
+ * Archived workspaces return null (the route maps that to 409). Because
+ * neon-http's `db.batch` is NON-INTERACTIVE (it cannot read statement 1's
+ * result before issuing statement 2), the archived check CANNOT live
+ * inside the batch — it is performed as a separate read BEFORE the atomic
+ * block. This costs one extra read but keeps neon/pg behavior identical
+ * and lets the cascade skip entirely on archived rows.
+ *
+ * Atomic primitive selection follows the dual-driver split documented in
+ * `lib/core/db/atomic.ts`: neon-http uses `db.batch([...])` (single HTTP
+ * transaction, all-or-nothing), node-postgres uses `db.transaction(tx => …)`
+ * (real interactive tx). The four batch elements are pre-built and have
+ * NO inter-query dependency (the shared-memory toggle is written
+ * unconditionally as `sharedMemoryEnabled=false` rather than conditional
+ * on the pre-toggle row — semantically equivalent since going private is
+ * exactly when the pool should be off), which is what the non-interactive
+ * neon batch API requires.
+ *
+ * The shared-memory KV VERSION BUMP (`bumpSharedMemoryVersion`) is a KV
+ * incr and therefore cannot participate in the DB transaction. It runs
+ * AFTER the atomic block commits — order is "DB then KV" so a KV failure
+ * never strands a half-applied DB state (KV is fail-open: a missed bump
+ * only costs readers one cache rebuild, DB recall proceeds unaffected).
+ *
+ * Returns the final persisted workspace row, or null when the workspace
+ * is archived (or missing). The route should use this return value as the
+ * response `data` directly so `sharedMemoryEnabled` never reports a stale
+ * `true` after going private.
+ */
+export async function setWorkspaceVisibilityCascade(
+  id: string,
+  visibility: 'private' | 'public',
+): Promise<WorkspaceRecord | null> {
+  // Pre-flight: refuse archived (or missing) rows BEFORE entering the
+  // atomic block. neon-http's batch is non-interactive, so the archived
+  // short-circuit cannot live inside it; doing the read up front keeps
+  // neon and pg behavior identical and avoids touching dependents on a
+  // row that should be immutable.
+  const [existing] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')))
+    .limit(1);
+  if (!existing) {
+    return null;
+  }
+
+  const updatedAt = new Date();
+
+  // Private → public: only the visibility column moves.
+  if (visibility === 'public') {
+    const [row] = await db
+      .update(workspaces)
+      .set({ visibility: 'public', updatedAt })
+      .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')))
+      .returning();
+    return row ?? null;
+  }
+
+  // Public → private: 4-step cascade. Build every query up front so the
+  // neon batch elements are independent (the batch API cannot read
+  // between statements). The shared-memory toggle is written
+  // unconditionally rather than conditional on the pre-toggle row —
+  // semantically identical (going private is precisely when the pool
+  // should be off) and it removes a read-after-write dependency that
+  // the non-interactive batch couldn't satisfy anyway.
+  const now = new Date();
+  const updateVisibility = db
+    .update(workspaces)
+    .set({ visibility: 'private', updatedAt: now })
+    .where(eq(workspaces.id, id));
+  const resetSharedMemoryToggle = db
+    .update(workspaces)
+    .set({ sharedMemoryEnabled: false, updatedAt: now })
+    .where(eq(workspaces.id, id));
+  const resetSharedSessions = db
+    .update(sessions)
+    .set({ visibility: 'private', updatedAt: now })
+    .where(
+      and(eq(sessions.workspaceId, id), eq(sessions.visibility, 'shared')),
+    );
+
+  let finalRow: WorkspaceRecord | null = null;
+  if (atomicWriteMode() === 'neon') {
+    // neon-http: db.batch is the atomic primitive (single HTTP
+    // transaction). The two workspaces UPDATEs are issued as separate
+    // batch elements rather than fused so each one's effect is
+    // independently observable; we re-read the final row after the
+    // batch (the batch API cannot read between statements, so we cannot
+    // use RETURNING from element 0 to gate element 1).
+    //
+    // The shared-pool delete mirrors `deleteLongTermMemoryRows(id,
+    // { sharedOnly: true })` exactly (workspace_id + shared=true) but is
+    // inlined as a standalone query object so it can be a batch element,
+    // and so the cascade never has to reach back through the `db` mock
+    // for its schema. The KV version bump is deferred to after commit.
+    await db.batch([
+      updateVisibility,
+      resetSharedMemoryToggle,
+      resetSharedSessions,
+      db
+        .delete(longTermMemories)
+        .where(
+          and(
+            eq(longTermMemories.workspaceId, id),
+            eq(longTermMemories.shared, true),
+          ),
+        )
+        .returning({ id: longTermMemories.id }),
+    ]);
+    // Re-read the committed row so the response `data` reflects the
+    // post-cascade state (sharedMemoryEnabled:false, visibility:private).
+    const [row] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, id))
+      .limit(1);
+    finalRow = row ?? null;
+  } else {
+    // node-postgres: db.transaction is the atomic primitive. All writes
+    // go through `tx`; a throw anywhere rolls the whole thing back.
+    finalRow = await db.transaction(async (tx) => {
+      await tx
+        .update(workspaces)
+        .set({ visibility: 'private', updatedAt: now })
+        .where(eq(workspaces.id, id));
+      await tx
+        .update(workspaces)
+        .set({ sharedMemoryEnabled: false, updatedAt: now })
+        .where(eq(workspaces.id, id));
+      await tx
+        .update(sessions)
+        .set({ visibility: 'private', updatedAt: now })
+        .where(
+          and(eq(sessions.workspaceId, id), eq(sessions.visibility, 'shared')),
+        );
+      // Delete shared-pool memories WITHOUT a KV bump — the bump is
+      // deferred to after the transaction commits (see below). The WHERE
+      // mirrors `deleteLongTermMemoryRows(id, { sharedOnly: true })`; we
+      // inline it (against the tx) rather than call that helper so the
+      // cascade stays within the transaction's `tx` handle.
+      await tx
+        .delete(longTermMemories)
+        .where(
+          and(
+            eq(longTermMemories.workspaceId, id),
+            eq(longTermMemories.shared, true),
+          ),
+        );
+      const [row] = await tx
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, id))
+        .limit(1);
+      return row ?? null;
+    });
+  }
+
+  // KV version bump AFTER the DB block commits. KV (Upstash HTTP / pg
+  // shim) cannot join the DB transaction. Fail-open: a missed bump only
+  // costs readers one shared-cache rebuild; DB recall is unaffected.
+  await bumpSharedMemoryVersion(id);
+
+  return finalRow;
 }
 
 /**

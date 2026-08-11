@@ -698,14 +698,22 @@ export async function deleteTentativeMemoryRow(
 }
 
 /**
- * Delete long-term memories by workspace scope. Two modes:
+ * Pure DB delete of long-term memories by workspace scope — NO KV version
+ * bump. Returns the number of deleted rows.
+ *
+ * This is the transaction-safe core of `deleteLongTermMemoriesByWorkspaceId`.
+ * It exists as a separate function so that callers which orchestrate their
+ * OWN atomic block (notably `setWorkspaceVisibilityCascade`) can issue the
+ * delete INSIDE their batch/transaction and defer the shared-memory
+ * version bump until AFTER the block commits. The public wrapper below
+ * composes this with the bump for the common non-atomic callers.
+ *
+ * Two modes:
  *  - `sharedOnly: true`  → drops just the SHARED POOL (shared=true rows).
- *    Used when a public workspace disables its shared-memory option or is
- *    converted back to private (personal rows survive).
  *  - default (all rows)  → used by workspace HARD DELETE.
- * Chunks/edges cascade via FK. Returns the number of deleted rows.
+ * Chunks/edges cascade via FK.
  */
-export async function deleteLongTermMemoriesByWorkspaceId(
+export async function deleteLongTermMemoryRows(
   workspaceId: string,
   options?: { sharedOnly?: boolean },
 ): Promise<number> {
@@ -720,14 +728,35 @@ export async function deleteLongTermMemoriesByWorkspaceId(
       ),
     )
     .returning({ id: schema.longTermMemories.id });
+  return rows.length;
+}
+
+/**
+ * Delete long-term memories by workspace scope and bump the shared-memory
+ * version. Two modes:
+ *  - `sharedOnly: true`  → drops just the SHARED POOL (shared=true rows).
+ *    Used when a public workspace disables its shared-memory option or is
+ *    converted back to private (personal rows survive).
+ *  - default (all rows)  → used by workspace HARD DELETE.
+ * Chunks/edges cascade via FK. Returns the number of deleted rows.
+ *
+ * Callers that run their own atomic block (and thus need the delete INSIDE
+ * it, with the bump deferred to after commit) should call
+ * `deleteLongTermMemoryRows` directly and `bumpSharedMemoryVersion` themselves.
+ */
+export async function deleteLongTermMemoriesByWorkspaceId(
+  workspaceId: string,
+  options?: { sharedOnly?: boolean },
+): Promise<number> {
+  const count = await deleteLongTermMemoryRows(workspaceId, options);
   // Both modes remove shared-pool rows (sharedOnly by definition; hard
   // delete removes everything in the workspace). Bump unconditionally —
   // the deleted set isn't re-queried for shared flags, and a spurious
   // bump only costs one cache rebuild per reader.
-  if (rows.length > 0) {
+  if (count > 0) {
     await bumpSharedMemoryVersion(workspaceId);
   }
-  return rows.length;
+  return count;
 }
 
 /**
