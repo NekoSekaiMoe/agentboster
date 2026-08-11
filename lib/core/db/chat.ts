@@ -294,44 +294,58 @@ export async function deleteSessionsByWorkspaceId(
     return [];
   }
 
-  await db
-    .delete(schema.agentTasks)
-    .where(inArray(schema.agentTasks.sessionId, sessionIds));
-  await db
-    .delete(schema.agentTaskOutputs)
-    .where(inArray(schema.agentTaskOutputs.sessionId, sessionIds));
-  await db
-    .delete(schema.agentToolActivityLogs)
-    .where(inArray(schema.agentToolActivityLogs.sessionId, sessionIds));
-  await db
-    .delete(schema.agentBarriers)
-    .where(inArray(schema.agentBarriers.sessionId, sessionIds));
-  // Handoffs link TWO session columns — a row is session-scoped when
-  // either endpoint belongs to a deleted session.
-  await db
-    .delete(schema.agentHandoffs)
-    .where(
-      or(
-        inArray(schema.agentHandoffs.fromSessionId, sessionIds),
-        inArray(schema.agentHandoffs.toSessionId, sessionIds),
-      ),
-    );
-  await db
-    .delete(schema.agentSubagentBatches)
-    .where(inArray(schema.agentSubagentBatches.sessionId, sessionIds));
-  await db
-    .delete(schema.agentSubagentJobs)
-    .where(inArray(schema.agentSubagentJobs.sessionId, sessionIds));
-  // l2_decisions.session_id is text (not uuid), unlike the tables above.
-  await db
-    .delete(schema.l2Decisions)
-    .where(inArray(schema.l2Decisions.sessionId, sessionIds));
+  // Bound every inArray below: a workspace can hold more sessions than
+  // Postgres' single-statement parameter limit (65535), so delete in
+  // fixed-size batches.
+  const BATCH_SIZE = 1000;
+  const deletedIds: string[] = [];
+  for (let i = 0; i < sessionIds.length; i += BATCH_SIZE) {
+    const batch = sessionIds.slice(i, i + BATCH_SIZE);
 
-  const rows = await db
-    .delete(schema.sessions)
-    .where(eq(schema.sessions.workspaceId, workspaceId))
-    .returning({ id: schema.sessions.id });
-  return rows.map((row) => row.id);
+    await db
+      .delete(schema.agentTasks)
+      .where(inArray(schema.agentTasks.sessionId, batch));
+    await db
+      .delete(schema.agentTaskOutputs)
+      .where(inArray(schema.agentTaskOutputs.sessionId, batch));
+    await db
+      .delete(schema.agentToolActivityLogs)
+      .where(inArray(schema.agentToolActivityLogs.sessionId, batch));
+    await db
+      .delete(schema.agentBarriers)
+      .where(inArray(schema.agentBarriers.sessionId, batch));
+    // Handoffs link TWO session columns — a row is session-scoped when
+    // either endpoint belongs to a deleted session.
+    await db
+      .delete(schema.agentHandoffs)
+      .where(
+        or(
+          inArray(schema.agentHandoffs.fromSessionId, batch),
+          inArray(schema.agentHandoffs.toSessionId, batch),
+        ),
+      );
+    await db
+      .delete(schema.agentSubagentBatches)
+      .where(inArray(schema.agentSubagentBatches.sessionId, batch));
+    await db
+      .delete(schema.agentSubagentJobs)
+      .where(inArray(schema.agentSubagentJobs.sessionId, batch));
+    // l2_decisions.session_id is text (not uuid), unlike the tables above.
+    await db
+      .delete(schema.l2Decisions)
+      .where(inArray(schema.l2Decisions.sessionId, batch));
+
+    // Delete only the ids selected above — NOT eq(workspaceId): sessions
+    // created after the initial select have no dependent-row cleanup in
+    // this run and must survive for the caller's retry instead of being
+    // deleted with orphans left behind.
+    const rows = await db
+      .delete(schema.sessions)
+      .where(inArray(schema.sessions.id, batch))
+      .returning({ id: schema.sessions.id });
+    deletedIds.push(...rows.map((row) => row.id));
+  }
+  return deletedIds;
 }
 
 export async function updateSession(

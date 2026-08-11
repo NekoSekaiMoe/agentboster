@@ -234,15 +234,14 @@ export function WorkspacesSection() {
           : t('workspace.container.notCreated');
     // Shared by both non-archived branches (own workspace vs shared).
     const detailLink = (
-      <Link href={`/config/workspaces/${encodeURIComponent(w.id)}`}>
-        <Button
-          variant="ghost"
-          size="icon"
+      <Button variant="ghost" size="icon" asChild>
+        <Link
+          href={`/config/workspaces/${encodeURIComponent(w.id)}`}
           aria-label={t('workspace.detail.title')}
         >
           <ChevronRight className="size-4" />
-        </Button>
-      </Link>
+        </Link>
+      </Button>
     );
     return (
       <Card key={w.id} className={isArchived ? 'opacity-60' : undefined}>

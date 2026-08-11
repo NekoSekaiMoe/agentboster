@@ -45,6 +45,10 @@ import {
   invalidateSessionListQuery,
   type SessionListItem,
 } from '@/hooks/use-session-list';
+import {
+  sessionMutationErrorMessage,
+  type SessionMutationErrorCode,
+} from '@/lib/chat/session-mutation-error';
 
 /**
  * Sessions-of-a-workspace management table (workspace detail page).
@@ -56,16 +60,11 @@ import {
  * Visibility toggling is creator-only (isOwn) by product decision.
  */
 
-type SessionMutationErrorCode =
-  | 'invalid_input'
-  | 'forbidden'
-  | 'not_found'
-  | 'unknown';
-
 /**
  * Carries the structured error code returned by setSessionVisibilityAction
  * / deleteSessionAction through the react-query error channel so onError
- * can map it to a localized message (raw Error.message is redacted by
+ * can map it to a localized message via the shared
+ * sessionMutationErrorMessage helper (raw Error.message is redacted by
  * Next.js in production and must never be shown).
  */
 class SessionMutationError extends Error {
@@ -75,28 +74,6 @@ class SessionMutationError extends Error {
     super(code);
     this.name = 'SessionMutationError';
     this.code = code;
-  }
-}
-
-/**
- * Map a SessionMutationResult error code to a localized toast message.
- * Server actions return codes instead of throwing so we never surface
- * raw error.message (Next.js redacts it in production anyway).
- */
-function sessionErrorMessage(
-  t: ReturnType<typeof useI18n>['t'],
-  code: SessionMutationErrorCode,
-  fallback: string,
-): string {
-  switch (code) {
-    case 'forbidden':
-      return t('workspace.detail.sessionErrorForbidden');
-    case 'not_found':
-      return t('workspace.detail.sessionErrorNotFound');
-    case 'invalid_input':
-      return t('workspace.detail.sessionErrorInvalidInput');
-    default:
-      return fallback;
   }
 }
 
@@ -152,7 +129,7 @@ export function WorkspaceSessionsTable({
     },
     onError: (error) => {
       toast.error(
-        sessionErrorMessage(
+        sessionMutationErrorMessage(
           t,
           error instanceof SessionMutationError ? error.code : 'unknown',
           t('workspace.detail.sessionVisibilityError'),
@@ -189,7 +166,7 @@ export function WorkspaceSessionsTable({
     onError: (error) => {
       setDeleteTarget(null);
       toast.error(
-        sessionErrorMessage(
+        sessionMutationErrorMessage(
           t,
           error instanceof SessionMutationError ? error.code : 'unknown',
           t('workspace.detail.sessionDeleteError'),
@@ -198,7 +175,10 @@ export function WorkspaceSessionsTable({
     },
   });
 
-  if (isLoading) {
+  // !currentUserId disables the query — in TanStack Query v5 a disabled
+  // query never fetches, so isLoading stays false; treat it as loading
+  // rather than flashing the empty state.
+  if (isLoading || !currentUserId) {
     return (
       <div className="flex h-24 items-center justify-center">
         <Loader2 className="size-5 animate-spin text-muted-foreground" />

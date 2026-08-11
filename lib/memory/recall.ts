@@ -44,16 +44,33 @@ const CACHE_MAX_ENTRIES = 256;
 const SHARED_VERSION_READ_TIMEOUT_MS = 200;
 
 /**
+ * Short-lived failure cache (circuit-breaking-lite). After a timeout or
+ * failed read, skip the KV read entirely for this window: during a KV
+ * outage every recall would otherwise pay the full 200ms penalty AND
+ * leave a dangling read behind (the KV clients expose no per-call
+ * cancellation — the Upstash signal never reaches our shim surface and
+ * the pg backend can't cancel queries). Fail-open by design: only the
+ * workspace cache is bypassed, the DB recall path is unaffected, and
+ * reads resume automatically once the window expires.
+ */
+const SHARED_VERSION_FAILURE_CACHE_MS = 5_000;
+let sharedVersionReadFailingUntil = 0;
+
+/**
  * readSharedMemoryVersion with a hard upper bound. Never rejects; the
  * timer is cleared on settle (and unref'd while pending) so it can never
- * keep the host process alive.
+ * keep the host process alive. Exported for tests.
  */
-async function readSharedMemoryVersionBounded(
+export async function readSharedMemoryVersionBounded(
   workspaceId: string,
 ): Promise<SharedMemoryVersionRead> {
+  if (Date.now() < sharedVersionReadFailingUntil) {
+    return { ok: false };
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let result: SharedMemoryVersionRead;
   try {
-    return await Promise.race([
+    result = await Promise.race([
       readSharedMemoryVersion(workspaceId),
       new Promise<SharedMemoryVersionRead>((resolve) => {
         timer = setTimeout(() => {
@@ -75,6 +92,11 @@ async function readSharedMemoryVersionBounded(
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+  if (!result.ok) {
+    sharedVersionReadFailingUntil =
+      Date.now() + SHARED_VERSION_FAILURE_CACHE_MS;
+  }
+  return result;
 }
 
 interface CacheEntry {
