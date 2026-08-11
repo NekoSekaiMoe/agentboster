@@ -21,7 +21,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { batchSpy, transactionSpy, bumpSpy, resolveDriver } = vi.hoisted(() => ({
   // neon primitive — receives the pre-built query objects, returns an
   // array of result-arrays (one per batch element). Default: succeed.
-  batchSpy: vi.fn(async (_queries: unknown[]) => [[], [], [], []]),
+  // Element type is loosened to `unknown[]` so tests can seed RETURNING
+  // rows (e.g. `[{ id: 'mem-1' }]`) without TS narrowing the inferred
+  // tuple to `never[][]`.
+  batchSpy: vi.fn(
+    async (_queries: unknown[]) => [[], [], [], []] as unknown[][],
+  ),
   // pg primitive — receives an interactive callback. Default: run it.
   transactionSpy: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
     cb({}),
@@ -168,6 +173,10 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
           from: () => ({ where: () => ({ limit }) }),
         };
       };
+      // The batch's 4th element is the shared-pool DELETE's RETURNING —
+      // a non-empty array means rows were deleted, which gates the KV
+      // version bump. Seed one deleted-id so the bump fires once.
+      batchSpy.mockResolvedValueOnce([[], [], [], [{ id: 'mem-1' }]]);
 
       const result = await setWorkspaceVisibilityCascade(WS_ID, 'private');
 
@@ -186,6 +195,36 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
       const result = await setWorkspaceVisibilityCascade(WS_ID, 'private');
       expect(result).toBeNull();
       expect(batchSpy).not.toHaveBeenCalled();
+      expect(bumpSpy).not.toHaveBeenCalled();
+    });
+
+    it('skips the KV bump when the shared-pool delete was a 0-row no-op (e.g. concurrent archive won the race)', async () => {
+      // Same shape as the happy path, but the DELETE's RETURNING is an
+      // empty array — the cascade detected no shared-pool rows to
+      // delete (concurrent archive landed mid-flight, or there was
+      // simply nothing in the pool). The KV version bump must NOT fire.
+      const committedRow = [
+        {
+          ...ACTIVE_WORKSPACE[0],
+          visibility: 'private' as const,
+          sharedMemoryEnabled: false,
+        },
+      ];
+      const selectReturns = [ACTIVE_WORKSPACE, committedRow];
+      let selectCall = 0;
+      const dbModule = await import('@/lib/core/db');
+      const db = (dbModule as unknown as { db: Record<string, unknown> }).db;
+      db.select = () => {
+        const limit = () => Promise.resolve(selectReturns[selectCall++] ?? []);
+        return {
+          from: () => ({ where: () => ({ limit }) }),
+        };
+      };
+      batchSpy.mockResolvedValueOnce([[], [], [], []]);
+
+      await setWorkspaceVisibilityCascade(WS_ID, 'private');
+
+      expect(batchSpy).toHaveBeenCalledTimes(1);
       expect(bumpSpy).not.toHaveBeenCalled();
     });
 
@@ -243,7 +282,13 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
       };
       const txStub = {
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
-        delete: () => ({ where: () => Promise.resolve() }),
+        // The pg branch now reads RETURNING off the shared-pool delete to
+        // gate the KV bump. Seed one deleted-id so the bump fires once.
+        delete: () => ({
+          where: () => ({
+            returning: () => Promise.resolve([{ id: 'mem-1' }]),
+          }),
+        }),
         select: () => ({
           from: () => ({
             where: () => ({ limit: () => Promise.resolve([committedRow]) }),
@@ -287,7 +332,12 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
       const txStub = {
         update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
         delete: () => ({
-          where: () => Promise.reject(new Error('delete failed mid-tx')),
+          // The cascade now chains .where().returning(); the failure must
+          // surface from returning() so the await rejects and the tx rolls
+          // back.
+          where: () => ({
+            returning: () => Promise.reject(new Error('delete failed mid-tx')),
+          }),
         }),
         select: () => ({
           from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),

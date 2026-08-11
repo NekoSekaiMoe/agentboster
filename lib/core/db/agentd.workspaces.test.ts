@@ -644,12 +644,18 @@ describe('workspace DAL (PGlite)', () => {
       // status='active' guard in each workspaces UPDATE's WHERE clause,
       // the visibility / shared-memory-toggle writes become 0-row no-ops
       // on the now-archived row — its core fields are not dirty-written.
-      // (The sessions / shared-pool cascade writes use their own WHERE on
-      // those tables, so they still run; this test pins only the
-      // workspaces-row guarantee that the guard provides.)
+      // The dependent cascade writes (shared sessions reset, shared-pool
+      // delete) are gated on the SAME active check via an inline
+      // `EXISTS (... workspaces.status='active')`, so they ALSO become
+      // 0-row no-ops on an archived workspace, and the KV version bump is
+      // suppressed because the delete returned zero rows. This test pins
+      // every guarantee the guard provides: the workspaces row, the
+      // dependent rows, and the bump call count.
       const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
       await setWorkspaceVisibility(ws.id, 'public');
       await setWorkspaceSharedMemory(ws.id, true);
+      const sessId = await seedSharedSession(ws.id);
+      await seedSharedMemory(ws.id);
       bumpSharedMemoryVersionSpy.mockClear();
 
       // Wrap the real transaction primitive so the concurrent archive
@@ -680,6 +686,18 @@ describe('workspace DAL (PGlite)', () => {
         expect(result?.visibility).toBe('public');
         expect(result?.sharedMemoryEnabled).toBe(true);
         expect(result?.status).toBe('archived');
+        // The dependent writes were also 0-row no-ops: the shared session
+        // stayed shared and the shared-memory pool row survived. Without
+        // the EXISTS guard these would have been reset to 'private' /
+        // deleted respectively, even though the workspace was already
+        // archived — the dependent writes' own WHERE clauses only filter
+        // on (workspace_id, shared/visibility), never on the workspace's
+        // status.
+        expect((await getSession(sessId))?.visibility).toBe('shared');
+        expect(await countSharedMemories(ws.id)).toBe(1);
+        // The shared-pool delete was a 0-row no-op, so the post-commit KV
+        // version bump must NOT fire.
+        expect(bumpSharedMemoryVersionSpy).not.toHaveBeenCalled();
       } finally {
         txSpy.mockRestore();
       }

@@ -1345,6 +1345,16 @@ export async function setWorkspaceVisibilityCascade(
   // semantically identical (going private is precisely when the pool
   // should be off) and it removes a read-after-write dependency that
   // the non-interactive batch couldn't satisfy anyway.
+  //
+  // The dependent writes (sessions reset, shared-pool delete) are
+  // gated on the workspace STILL being active at statement time via an
+  // inline `EXISTS` against `workspaces`. This closes the TOCTOU window
+  // the pre-flight check opens: if a concurrent archive flips the row
+  // to 'archived' between the pre-flight SELECT and these writes, the
+  // EXISTS predicate is false and the writes become 0-row no-ops on the
+  // now-immutable archived workspace's dependents. (The workspaces-row
+  // UPDATEs already carry their own `status='active'` WHERE guard.)
+  const activeGuard = sql`EXISTS (SELECT 1 FROM ${workspaces} w WHERE w.id = ${id} AND w.status = 'active')`;
   const updateVisibility = db
     .update(workspaces)
     .set({ visibility: 'private', updatedAt: now })
@@ -1357,8 +1367,18 @@ export async function setWorkspaceVisibilityCascade(
     .update(sessions)
     .set({ visibility: 'private', updatedAt: now })
     .where(
-      and(eq(sessions.workspaceId, id), eq(sessions.visibility, 'shared')),
+      and(
+        eq(sessions.workspaceId, id),
+        eq(sessions.visibility, 'shared'),
+        activeGuard,
+      ),
     );
+
+  // Did the shared-pool delete actually remove rows? Drives the KV
+  // version bump below — if the workspace was archived mid-flight (or
+  // there was simply no shared pool to delete), there is nothing for
+  // readers to rebuild, so we skip the bump.
+  let deletedSharedMemories = false;
 
   let finalRow: WorkspaceRecord | null = null;
   if (atomicWriteMode() === 'neon') {
@@ -1373,8 +1393,9 @@ export async function setWorkspaceVisibilityCascade(
     // { sharedOnly: true })` exactly (workspace_id + shared=true) but is
     // inlined as a standalone query object so it can be a batch element,
     // and so the cascade never has to reach back through the `db` mock
-    // for its schema. The KV version bump is deferred to after commit.
-    await db.batch([
+    // for its schema. The KV version bump is deferred to after commit,
+    // and gated on the delete actually returning deleted ids.
+    const results = await db.batch([
       updateVisibility,
       resetSharedMemoryToggle,
       resetSharedSessions,
@@ -1384,10 +1405,12 @@ export async function setWorkspaceVisibilityCascade(
           and(
             eq(longTermMemories.workspaceId, id),
             eq(longTermMemories.shared, true),
+            activeGuard,
           ),
         )
         .returning({ id: longTermMemories.id }),
     ]);
+    deletedSharedMemories = (results[3]?.length ?? 0) > 0;
     // Re-read the committed row so the response `data` reflects the
     // post-cascade state (sharedMemoryEnabled:false, visibility:private).
     const [row] = await db
@@ -1412,21 +1435,28 @@ export async function setWorkspaceVisibilityCascade(
         .update(sessions)
         .set({ visibility: 'private', updatedAt: now })
         .where(
-          and(eq(sessions.workspaceId, id), eq(sessions.visibility, 'shared')),
+          and(
+            eq(sessions.workspaceId, id),
+            eq(sessions.visibility, 'shared'),
+            activeGuard,
+          ),
         );
       // Delete shared-pool memories WITHOUT a KV bump — the bump is
       // deferred to after the transaction commits (see below). The WHERE
       // mirrors `deleteLongTermMemoryRows(id, { sharedOnly: true })`; we
       // inline it (against the tx) rather than call that helper so the
       // cascade stays within the transaction's `tx` handle.
-      await tx
+      const deleted = await tx
         .delete(longTermMemories)
         .where(
           and(
             eq(longTermMemories.workspaceId, id),
             eq(longTermMemories.shared, true),
+            activeGuard,
           ),
-        );
+        )
+        .returning({ id: longTermMemories.id });
+      deletedSharedMemories = deleted.length > 0;
       const [row] = await tx
         .select()
         .from(workspaces)
@@ -1436,10 +1466,16 @@ export async function setWorkspaceVisibilityCascade(
     });
   }
 
-  // KV version bump AFTER the DB block commits. KV (Upstash HTTP / pg
-  // shim) cannot join the DB transaction. Fail-open: a missed bump only
-  // costs readers one shared-cache rebuild; DB recall is unaffected.
-  await bumpSharedMemoryVersion(id);
+  // KV version bump AFTER the DB block commits, and ONLY if the cascade
+  // actually deleted shared-pool rows. KV (Upstash HTTP / pg shim)
+  // cannot join the DB transaction. Fail-open: a missed bump only costs
+  // readers one shared-cache rebuild; DB recall is unaffected. Skipping
+  // it when nothing was deleted (no-op private→private, or a concurrent
+  // archive that won the race and turned every write into a 0-row
+  // no-op) avoids a spurious cache invalidation.
+  if (deletedSharedMemories) {
+    await bumpSharedMemoryVersion(id);
+  }
 
   return finalRow;
 }
