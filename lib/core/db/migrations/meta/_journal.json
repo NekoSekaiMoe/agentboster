@@ -302,6 +302,13 @@
       "when": 1786425245764,
       "tag": "0042_ambiguous_shen",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1786557994761,
+      "tag": "0043_simple_doctor_strange",
+      "breakpoints": true
     }
   ]
 }

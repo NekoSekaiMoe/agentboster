@@ -25,7 +25,8 @@ const { batchSpy, transactionSpy, bumpSpy, resolveDriver } = vi.hoisted(() => ({
   // rows (e.g. `[{ id: 'mem-1' }]`) without TS narrowing the inferred
   // tuple to `never[][]`.
   batchSpy: vi.fn(
-    async (_queries: unknown[]) => [[], [], [], []] as unknown[][],
+    async (_queries: unknown[]) =>
+      [[], [], [], [], [], []] as unknown[][],
   ),
   // pg primitive — receives an interactive callback. Default: run it.
   transactionSpy: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
@@ -63,7 +64,7 @@ vi.mock('@/lib/core/db', () => {
       ...terminate('where'),
       returning: () => terminate('where.returning'),
     });
-    next.set = () => ({ where: () => terminate('set.where') });
+    next.set = () => ({ where: () => ({ ...terminate('set.where'), returning: () => terminate('set.where.returning') }) });
     next.values = () => ({ returning: () => terminate('values.returning') });
     next.from = () => ({
       where: () => ({ limit: () => terminate('from.where.limit') }),
@@ -138,7 +139,7 @@ async function installSelectRow(row: unknown[] | undefined) {
 describe('setWorkspaceVisibilityCascade — atomic branches', () => {
   beforeEach(() => {
     batchSpy.mockClear();
-    batchSpy.mockResolvedValue([[], [], [], []]);
+    batchSpy.mockResolvedValue([[], [], [], [], [], []]);
     transactionSpy.mockClear();
     transactionSpy.mockImplementation(
       async (cb: (tx: unknown) => Promise<unknown>) => cb({}),
@@ -152,10 +153,13 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
       resolveDriver.current = 'neon';
     });
 
-    it('go-private batches all 4 writes and bumps KV exactly once after commit', async () => {
-      // Two selects happen in the neon branch: the pre-flight (returns
-      // the active row) and the post-batch re-read (returns the
-      // committed private/toggled-off row). Feed them in order.
+    it('go-private batches all 6 writes and bumps KV exactly once after commit', async () => {
+      // Three selects happen in the neon branch on the go-private path:
+      //   1. pre-flight archived check (returns the active row)
+      //   2. quarantine-epoch read (returns the row with quarantineEpoch)
+      //   3. post-batch re-read (returns the committed private/toggled-off row)
+      // Feed them in order.
+      const epochRow = [{ ...ACTIVE_WORKSPACE[0], quarantineEpoch: 3 }];
       const committedRow = [
         {
           ...ACTIVE_WORKSPACE[0],
@@ -163,7 +167,7 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
           sharedMemoryEnabled: false,
         },
       ];
-      const selectReturns = [ACTIVE_WORKSPACE, committedRow];
+      const selectReturns = [ACTIVE_WORKSPACE, epochRow, committedRow];
       let selectCall = 0;
       const dbModule = await import('@/lib/core/db');
       const db = (dbModule as unknown as { db: Record<string, unknown> }).db;
@@ -173,16 +177,24 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
           from: () => ({ where: () => ({ limit }) }),
         };
       };
-      // The batch's 4th element is the shared-pool DELETE's RETURNING —
-      // a non-empty array means rows were deleted, which gates the KV
-      // version bump. Seed one deleted-id so the bump fires once.
-      batchSpy.mockResolvedValueOnce([[], [], [], [{ id: 'mem-1' }]]);
+      // The batch's 5th element (index 4) is the shared-pool QUARANTINE
+      // UPDATE's RETURNING — a non-empty array means rows were flipped
+      // to dream_status='quarantined', which gates the KV version bump.
+      // Seed one quarantined-id so the bump fires once.
+      batchSpy.mockResolvedValueOnce([
+        [],
+        [],
+        [],
+        [],
+        [{ id: 'mem-1' }],
+        [],
+      ]);
 
       const result = await setWorkspaceVisibilityCascade(WS_ID, 'private');
 
-      // Exactly one batch, with 4 pre-built query elements.
+      // Exactly one batch, with 6 pre-built query elements.
       expect(batchSpy).toHaveBeenCalledTimes(1);
-      expect((batchSpy.mock.calls[0] as unknown[])[0]).toHaveLength(4);
+      expect((batchSpy.mock.calls[0] as unknown[])[0]).toHaveLength(6);
       // KV bump happened exactly once, AFTER the batch resolved.
       expect(bumpSpy).toHaveBeenCalledTimes(1);
       expect(bumpSpy).toHaveBeenCalledWith(WS_ID);
@@ -198,11 +210,13 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
       expect(bumpSpy).not.toHaveBeenCalled();
     });
 
-    it('skips the KV bump when the shared-pool delete was a 0-row no-op (e.g. concurrent archive won the race)', async () => {
-      // Same shape as the happy path, but the DELETE's RETURNING is an
-      // empty array — the cascade detected no shared-pool rows to
-      // delete (concurrent archive landed mid-flight, or there was
-      // simply nothing in the pool). The KV version bump must NOT fire.
+    it('skips the KV bump when the shared-pool quarantine was a 0-row no-op (e.g. concurrent archive won the race)', async () => {
+      // Same shape as the happy path, but the QUARANTINE UPDATE's
+      // RETURNING is an empty array — the cascade detected no
+      // shared-pool rows to quarantine (concurrent archive landed
+      // mid-flight, or there was simply nothing in the pool). The KV
+      // version bump must NOT fire.
+      const epochRow = [{ ...ACTIVE_WORKSPACE[0], quarantineEpoch: 0 }];
       const committedRow = [
         {
           ...ACTIVE_WORKSPACE[0],
@@ -210,7 +224,7 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
           sharedMemoryEnabled: false,
         },
       ];
-      const selectReturns = [ACTIVE_WORKSPACE, committedRow];
+      const selectReturns = [ACTIVE_WORKSPACE, epochRow, committedRow];
       let selectCall = 0;
       const dbModule = await import('@/lib/core/db');
       const db = (dbModule as unknown as { db: Record<string, unknown> }).db;
@@ -220,7 +234,7 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
           from: () => ({ where: () => ({ limit }) }),
         };
       };
-      batchSpy.mockResolvedValueOnce([[], [], [], []]);
+      batchSpy.mockResolvedValueOnce([[], [], [], [], [], []]);
 
       await setWorkspaceVisibilityCascade(WS_ID, 'private');
 
@@ -280,13 +294,16 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
         visibility: 'private',
         sharedMemoryEnabled: false,
       };
+      // tx now issues UPDATEs (no DELETE) for the shared-pool quarantine,
+      // chained .where().returning(); the RETURNING gates the KV bump.
+      // Seed one quarantined-id so the bump fires once. The session_memories
+      // quarantine UPDATE is a fire-and-forget (no RETURNING).
       const txStub = {
-        update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
-        // The pg branch now reads RETURNING off the shared-pool delete to
-        // gate the KV bump. Seed one deleted-id so the bump fires once.
-        delete: () => ({
-          where: () => ({
-            returning: () => Promise.resolve([{ id: 'mem-1' }]),
+        update: () => ({
+          set: () => ({
+            where: () => ({
+              returning: () => Promise.resolve([{ id: 'mem-1' }]),
+            }),
           }),
         }),
         select: () => ({
@@ -327,16 +344,29 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
 
     it('rolls back when a statement INSIDE the tx body throws (mid-cascade)', async () => {
       await installSelectRow(ACTIVE_WORKSPACE);
-      // tx.update succeeds, but tx.delete throws — simulating a failure
-      // on step 4 of the cascade. The error propagates = rollback.
+      // tx.update succeeds for the first writes, but the shared-pool
+      // quarantine UPDATE (chained .where().returning()) throws —
+      // simulating a failure on the quarantine step. The error
+      // propagates = rollback.
+      let updateCall = 0;
       const txStub = {
-        update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
-        delete: () => ({
-          // The cascade now chains .where().returning(); the failure must
-          // surface from returning() so the await rejects and the tx rolls
-          // back.
-          where: () => ({
-            returning: () => Promise.reject(new Error('delete failed mid-tx')),
+        update: () => ({
+          set: () => ({
+            where: () => {
+              updateCall += 1;
+              // The cascade issues several tx.update calls; the
+              // quarantine one (with .returning()) is the one we want
+              // to fail. The first few are fire-and-forget (resolve),
+              // the returning() chain rejects.
+              return {
+                returning: () =>
+                  updateCall >= 1
+                    ? Promise.reject(
+                        new Error('quarantine update failed mid-tx'),
+                      )
+                    : Promise.resolve(),
+              };
+            },
           }),
         }),
         select: () => ({
@@ -349,7 +379,7 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
 
       await expect(
         setWorkspaceVisibilityCascade(WS_ID, 'private'),
-      ).rejects.toThrow('delete failed mid-tx');
+      ).rejects.toThrow('quarantine update failed mid-tx');
 
       expect(bumpSpy).not.toHaveBeenCalled();
     });
