@@ -1579,6 +1579,173 @@ export async function setWorkspaceVisibilityCascade(
   return finalRow;
 }
 
+/** Result of restoring a workspace's quarantined shared pool. */
+export interface QuarantineRestoreResult {
+  /** The committed workspace row (visibility now 'public'). Null if the
+   *  workspace was archived or missing mid-restore. */
+  workspace: WorkspaceRecord | null;
+  /** Number of shared-pool long_term_memories rows flipped back from
+   *  dream_status='quarantined' to their originalDreamStatus. Drives the
+   *  UI toast ("Restored N memories") and gates the KV version bump +
+   *  the Dream merge trigger. */
+  restoredMemoryCount: number;
+  /** Number of session_memories rows whose quarantined_at was cleared. */
+  restoredSessionMemoryCount: number;
+}
+
+/**
+ * Restore a workspace's soft-quarantined shared pool. The counterpart to
+ * the public→private cascade in {@link setWorkspaceVisibilityCascade}:
+ * when a workspace goes private→public, this flips every quarantined
+ * long_term_memory row back to its `originalDreamStatus` (recorded in
+ * quarantine_meta at isolation time), clears session_memories.
+ * quarantined_at, and bumps quarantine_epoch to mark the snapshot as
+ * consumed.
+ *
+ * ONLY restores rows whose quarantine_meta.restoredByRunId is null — i.e.
+ * rows isolated by a privatization that has NOT yet been consumed by a
+ * previous restore. This preserves the "keep all history" decision: a row
+ * consumed by an earlier re-public stays in the table for audit but is
+ * never re-restored, so repeated private/public cycles never duplicate a
+ * restored row into the active pool.
+ *
+ * Like the cascade, this is DB-only. The Dream merge that deduplicates /
+ * consolidates the restored rows against the current pool is a separate,
+ * slower step and is NOT folded in here — the route triggers it after
+ * this returns (see docs/design/soft-quarantine-memory-on-privatization.md
+ * §2.4). The KV shared-memory version bump runs AFTER the DB block
+ * commits, only when rows were actually restored.
+ *
+ * Returns counts the caller surfaces to the UI and uses to gate the Dream
+ * trigger. Archived / missing workspace → workspace:null with zero counts
+ * (route maps to 409).
+ */
+export async function restoreQuarantinedMemories(
+  id: string,
+  runId?: string,
+): Promise<QuarantineRestoreResult> {
+  // Pre-flight: refuse archived (or missing) rows BEFORE entering the
+  // atomic block, mirroring the cascade's contract. An archived workspace
+  // is immutable — its quarantined rows stay quarantined forever.
+  const [existing] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')))
+    .limit(1);
+  if (!existing) {
+    return {
+      workspace: null,
+      restoredMemoryCount: 0,
+      restoredSessionMemoryCount: 0,
+    };
+  }
+
+  const now = new Date();
+  const restoredByRunIdSql = runId ?? null;
+  // Shared-pool restore: flip quarantined rows back to their
+  // originalDreamStatus (recorded at isolation time). The jsonb update
+  // merges restoredByRunId + restoredAt into the existing quarantine_meta
+  // via `||` so the isolation-side fields (workspaceId, isolatedAt,
+  // isolatedEpoch, originalDreamStatus) survive for audit. The
+  // dream_status is set by reading the same originalDreamStatus out of
+  // the jsonb — there is no separate column to read from.
+  //
+  // The WHERE filters to unrestored quarantined rows of THIS workspace
+  // only (restoredByRunId IS NULL ⇒ never consumed). Rows consumed by an
+  // earlier re-public stay around but are skipped.
+  const restoreSharedMemoriesWhere = and(
+    eq(longTermMemories.workspaceId, id),
+    eq(longTermMemories.dreamStatus, 'quarantined'),
+    sql`(quarantine_meta->>'workspaceId') = ${id}`,
+    sql`(quarantine_meta ? 'restoredByRunId') = false`,
+  );
+  const restoreSharedMemoriesSet = {
+    dreamStatus: sql`(quarantine_meta->>'originalDreamStatus')::text`,
+    quarantineMeta: sql`quarantine_meta || jsonb_build_object(
+      'restoredByRunId', ${restoredByRunIdSql}::text,
+      'restoredAt', ${now.toISOString()}::text
+    )`,
+    updatedAt: now,
+  };
+  // Session-memory restore: clear quarantined_at for any session_memories
+  // of this workspace that were stamped during privatization. We do NOT
+  // filter on restoredByRunId here — session_memories carry no such
+  // marker; instead we clear any row whose quarantined_at is set, which
+  // is only ever written by the privatization cascade. If a workspace
+  // cycles private→public→private→public, the second privatization
+  // re-stamps quarantined_at and the second restore clears it again —
+  // there is no duplication risk because session_memories are keyed by
+  // (session_id, summary_version), not multiplied by the cycle count.
+  const restoreSessionMemoriesWhere = sql`session_id IN (SELECT id FROM ${sessions} WHERE workspace_id = ${id}) AND quarantined_at IS NOT NULL`;
+
+  let restoredMemoryCount = 0;
+  let restoredSessionMemoryCount = 0;
+  let workspace: WorkspaceRecord | null = null;
+
+  if (atomicWriteMode() === 'neon') {
+    // neon-http: db.batch is the atomic primitive (single HTTP
+    // transaction). RETURNING drives the counts + KV bump gate.
+    const results = await db.batch([
+      db
+        .update(longTermMemories)
+        .set(restoreSharedMemoriesSet)
+        .where(restoreSharedMemoriesWhere)
+        .returning({ id: longTermMemories.id }),
+      db
+        .update(sessionMemories)
+        .set({ quarantinedAt: null })
+        .where(restoreSessionMemoriesWhere)
+        .returning({ id: sessionMemories.id }),
+    ]);
+    restoredMemoryCount = results[0]?.length ?? 0;
+    restoredSessionMemoryCount = results[1]?.length ?? 0;
+    const [row] = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.id, id))
+      .limit(1);
+    workspace = row ?? null;
+  } else {
+    // node-postgres: db.transaction is the atomic primitive.
+    workspace = await db.transaction(async (tx) => {
+      const memRows = await tx
+        .update(longTermMemories)
+        .set(restoreSharedMemoriesSet)
+        .where(restoreSharedMemoriesWhere)
+        .returning({ id: longTermMemories.id });
+      restoredMemoryCount = memRows.length;
+      const sessRows = await tx
+        .update(sessionMemories)
+        .set({ quarantinedAt: null })
+        .where(restoreSessionMemoriesWhere)
+        .returning({ id: sessionMemories.id });
+      restoredSessionMemoryCount = sessRows.length;
+      const [row] = await tx
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, id))
+        .limit(1);
+      return row ?? null;
+    });
+  }
+
+  // KV version bump AFTER the DB block commits, and ONLY if rows were
+  // actually restored — same fail-open discipline as the cascade. A
+  // missed bump costs readers one shared-cache rebuild; recall is
+  // unaffected. Skipping the bump when nothing was restored (no-op
+  // public→public, or a concurrent archive that won the race) avoids a
+  // spurious cache invalidation.
+  if (restoredMemoryCount > 0) {
+    await bumpSharedMemoryVersion(id);
+  }
+
+  return {
+    workspace,
+    restoredMemoryCount,
+    restoredSessionMemoryCount,
+  };
+}
+
 /**
  * Delete the workspace ROW itself. The caller (route layer) must first
  * clean up dependents — sessions (which cascade messages/session_memories),

@@ -12,6 +12,7 @@ import {
   migrateWorkspaceNode,
   renameWorkspace,
   resolveWorkspaceAccess,
+  restoreQuarantinedMemories,
   setDefaultWorkspace,
   setWorkspaceSharedMemory,
   setWorkspaceVisibilityCascade,
@@ -40,10 +41,15 @@ const logger = createLogger('api.workspaces.id');
  *            { action: 'set_default' }          — actor must BE the owner
  *            { action: 'migrate_node', newNodeId? }
  *            { action: 'set_visibility', visibility }
- *              · public → private also deletes the shared memory pool and
- *                resets member-shared sessions back to private
+ *              · public → private soft-quarantines the shared memory pool
+ *                (rows flipped to dream_status='quarantined', not deleted)
+ *                and resets member-shared sessions back to private
+ *              · private → public restores the soft-quarantined pool
+ *                (rows flipped back to originalDreamStatus) so they rejoin
+ *                recall; a Dream merge is triggered afterwards
  *            { action: 'set_shared_memory', enabled }  — public only;
- *              disabling deletes the shared memory pool
+ *              disabling HARD-deletes the shared memory pool (distinct
+ *              from privatization, which soft-quarantines)
  * DELETE — archive (soft delete, manage-gated). Refused while the
  *          workspace is the owner's default — the owner must designate
  *          another default first, otherwise the next lazy default-create
@@ -310,13 +316,22 @@ export async function PATCH(
       case 'set_visibility': {
         const next = parsed.data.visibility;
         // Single atomic cascade (DAL-level): flips visibility and, when
-        // going private, also drops the shared memory pool, forces the
-        // pool toggle off, and resets member-shared sessions back to
-        // private — all under one DB transaction/batch so a mid-sequence
-        // failure can no longer leave a half-migrated workspace (which
-        // used to silently re-expose shared sessions on re-public). The
-        // shared-memory KV version bump runs after the DB block commits.
-        // Returns null for archived rows → 409.
+        // going private, also soft-quarantines the shared memory pool
+        // (rows flipped to dream_status='quarantined', NOT deleted),
+        // forces the pool toggle off, and resets member-shared sessions
+        // back to private — all under one DB transaction/batch so a
+        // mid-sequence failure can no longer leave a half-migrated
+        // workspace. The shared-memory KV version bump runs after the DB
+        // block commits. Returns null for archived rows → 409.
+        //
+        // When going PUBLIC, the cascade only flips visibility. Restoring
+        // the soft-quarantined shared pool is a separate explicit step
+        // (restoreQuarantinedMemories) because it also kicks off a Dream
+        // merge that can take tens of seconds — we do not want to block
+        // the visibility flip on it. The merge itself is triggered after
+        // this returns (see TODO in lib/memory/dream once the scoped
+        // orchestrator lands). For now the restore is DB-only and the
+        // counts are surfaced to the UI.
         const result = await setWorkspaceVisibilityCascade(id, next);
         if (!result) {
           return Response.json(
@@ -324,12 +339,37 @@ export async function PATCH(
             { status: 409 },
           );
         }
+        // Going public: restore any quarantined shared-pool memories so
+        // they rejoin recall. Going private has nothing to restore.
+        let restoredMemoryCount = 0;
+        let restoredSessionMemoryCount = 0;
+        if (next === 'public') {
+          const restore = await restoreQuarantinedMemories(id);
+          if (!restore.workspace) {
+            // Archived between the cascade and the restore. The visibility
+            // flip already committed (the cascade succeeded); the restore
+            // is a no-op. Report 409 so the caller refreshes.
+            return Response.json(
+              { success: false, error: 'Workspace is archived' },
+              { status: 409 },
+            );
+          }
+          restoredMemoryCount = restore.restoredMemoryCount;
+          restoredSessionMemoryCount = restore.restoredSessionMemoryCount;
+        }
         logger.info('workspace visibility changed', {
           workspaceId: id,
           ownerId,
           visibility: next,
+          restoredMemoryCount,
+          restoredSessionMemoryCount,
         });
-        return Response.json({ success: true, data: result });
+        return Response.json({
+          success: true,
+          data: result,
+          restoredMemoryCount,
+          restoredSessionMemoryCount,
+        });
       }
       case 'set_shared_memory': {
         // The pool only exists inside PUBLIC workspaces — enabling it on

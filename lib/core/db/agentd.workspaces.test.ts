@@ -139,6 +139,7 @@ import {
   setWorkspaceSharedMemory,
   setWorkspaceVisibility,
   setWorkspaceVisibilityCascade,
+  restoreQuarantinedMemories,
 } from './agentd';
 
 async function seedUser(
@@ -181,10 +182,75 @@ describe('workspace DAL (PGlite)', () => {
       'workspaces',
       'users',
       'sessions',
+      'session_memories',
       'long_term_memories',
     ]);
     bumpSharedMemoryVersionSpy.mockClear();
   });
+
+  // Shared seed/count helpers used by both setWorkspaceVisibilityCascade
+  // and restoreQuarantinedMemories describe blocks. Hoisted to the parent
+  // scope so both can reach them.
+
+  /** Seed a shared-pool long-term memory row for a workspace. */
+  async function seedSharedMemory(workspaceId: string): Promise<string> {
+    const [row] = (
+      await harness.db.execute(
+        sql`INSERT INTO "long_term_memories" ("workspace_id", "shared") VALUES (${workspaceId}::uuid, true) RETURNING "id"`,
+      )
+    ).rows as { id: string }[];
+    return row.id;
+  }
+
+  /** Seed a shared-visibility session under a workspace. */
+  async function seedSharedSession(workspaceId: string): Promise<string> {
+    const [row] = (
+      await harness.db.execute(
+        sql`INSERT INTO "sessions" ("workspace_id", "visibility") VALUES (${workspaceId}::uuid, 'shared') RETURNING "id"`,
+      )
+    ).rows as { id: string }[];
+    return row.id;
+  }
+
+  /** Read a session row back by id. */
+  async function getSession(
+    id: string,
+  ): Promise<{ visibility: string } | undefined> {
+    const rows = (
+      await harness.db.execute(
+        sql`SELECT "visibility" FROM "sessions" WHERE "id" = ${id}::uuid`,
+      )
+    ).rows as { visibility: string }[];
+    return rows[0];
+  }
+
+  /** Count remaining ACTIVE shared-pool memories for a workspace.
+   *  After the soft-quarantine change, privatization flips rows to
+   *  dream_status='quarantined' instead of deleting them — so this
+   *  helper counts only the rows that are STILL visible to recall
+   *  (shared AND active). The raw row count does not change. */
+  async function countSharedMemories(workspaceId: string): Promise<number> {
+    const rows = (
+      await harness.db.execute(
+        sql`SELECT count(*)::int AS n FROM "long_term_memories" WHERE "workspace_id" = ${workspaceId}::uuid AND "shared" = true AND "dream_status" = 'active'`,
+      )
+    ).rows as { n: number }[];
+    return rows[0]?.n ?? 0;
+  }
+
+  /** Count ALL shared-pool memory rows regardless of dream_status (so a
+   *  test can assert that privatization KEPT the rows around in the
+   *  'quarantined' state rather than deleting them). */
+  async function countAllSharedMemoryRows(
+    workspaceId: string,
+  ): Promise<number> {
+    const rows = (
+      await harness.db.execute(
+        sql`SELECT count(*)::int AS n FROM "long_term_memories" WHERE "workspace_id" = ${workspaceId}::uuid AND "shared" = true`,
+      )
+    ).rows as { n: number }[];
+    return rows[0]?.n ?? 0;
+  }
 
   describe('renameWorkspace', () => {
     it('renames and trims the name', async () => {
@@ -549,66 +615,6 @@ describe('workspace DAL (PGlite)', () => {
   });
 
   describe('setWorkspaceVisibilityCascade', () => {
-    /** Seed a shared-pool long-term memory row for a workspace. */
-    async function seedSharedMemory(workspaceId: string): Promise<string> {
-      const [row] = (
-        await harness.db.execute(
-          sql`INSERT INTO "long_term_memories" ("workspace_id", "shared") VALUES (${workspaceId}::uuid, true) RETURNING "id"`,
-        )
-      ).rows as { id: string }[];
-      return row.id;
-    }
-
-    /** Seed a shared-visibility session under a workspace. */
-    async function seedSharedSession(workspaceId: string): Promise<string> {
-      const [row] = (
-        await harness.db.execute(
-          sql`INSERT INTO "sessions" ("workspace_id", "visibility") VALUES (${workspaceId}::uuid, 'shared') RETURNING "id"`,
-        )
-      ).rows as { id: string }[];
-      return row.id;
-    }
-
-    /** Read a session row back by id. */
-    async function getSession(
-      id: string,
-    ): Promise<{ visibility: string } | undefined> {
-      const rows = (
-        await harness.db.execute(
-          sql`SELECT "visibility" FROM "sessions" WHERE "id" = ${id}::uuid`,
-        )
-      ).rows as { visibility: string }[];
-      return rows[0];
-    }
-
-    /** Count remaining ACTIVE shared-pool memories for a workspace.
-     *  After the soft-quarantine change, privatization flips rows to
-     *  dream_status='quarantined' instead of deleting them — so this
-     *  helper counts only the rows that are STILL visible to recall
-     *  (shared AND active). The raw row count does not change. */
-    async function countSharedMemories(workspaceId: string): Promise<number> {
-      const rows = (
-        await harness.db.execute(
-          sql`SELECT count(*)::int AS n FROM "long_term_memories" WHERE "workspace_id" = ${workspaceId}::uuid AND "shared" = true AND "dream_status" = 'active'`,
-        )
-      ).rows as { n: number }[];
-      return rows[0]?.n ?? 0;
-    }
-
-    /** Count ALL shared-pool memory rows regardless of dream_status (so a
-     *  test can assert that privatization KEPT the rows around in the
-     *  'quarantined' state rather than deleting them). */
-    async function countAllSharedMemoryRows(
-      workspaceId: string,
-    ): Promise<number> {
-      const rows = (
-        await harness.db.execute(
-          sql`SELECT count(*)::int AS n FROM "long_term_memories" WHERE "workspace_id" = ${workspaceId}::uuid AND "shared" = true`,
-        )
-      ).rows as { n: number }[];
-      return rows[0]?.n ?? 0;
-    }
-
     it('private→public only moves the visibility column', async () => {
       const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
       // Start from public with shared pool + shared sessions so we can
@@ -751,6 +757,102 @@ describe('workspace DAL (PGlite)', () => {
       } finally {
         txSpy.mockRestore();
       }
+    });
+  });
+
+  describe('restoreQuarantinedMemories', () => {
+    it('restores quarantined shared-pool rows to originalDreamStatus and clears session_memories (private→public→private→public cycle)', async () => {
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      const memId = await seedSharedMemory(ws.id);
+      const sessId = await seedSharedSession(ws.id);
+
+      // Privatize: soft-quarantine the shared pool.
+      await setWorkspaceVisibilityCascade(ws.id, 'private');
+      expect(await countSharedMemories(ws.id)).toBe(0);
+      expect(await countAllSharedMemoryRows(ws.id)).toBe(1);
+
+      // Re-public: restore flips the quarantined row back to active.
+      bumpSharedMemoryVersionSpy.mockClear();
+      const restore1 = await restoreQuarantinedMemories(ws.id, 'run-1');
+      expect(restore1.workspace?.visibility).toBe('private'); // restore doesn't flip visibility
+      expect(restore1.restoredMemoryCount).toBe(1);
+      expect(restore1.restoredSessionMemoryCount).toBeGreaterThanOrEqual(0);
+      expect(await countSharedMemories(ws.id)).toBe(1);
+      // The restored row's quarantine_meta carries restoredByRunId (audit).
+      const r1 = (
+        await harness.db.execute(
+          sql`SELECT "dream_status", "quarantine_meta" FROM "long_term_memories" WHERE "id" = ${memId}::uuid`,
+        )
+      ).rows as { dream_status: string; quarantine_meta: unknown }[];
+      expect(r1[0]?.dream_status).toBe('active');
+      expect(r1[0]?.quarantine_meta).toMatchObject({
+        restoredByRunId: 'run-1',
+        originalDreamStatus: 'active',
+      });
+      expect(bumpSharedMemoryVersionSpy).toHaveBeenCalledTimes(1);
+
+      // Cycle again: privatize re-quarantines the (now-restored) active
+      // row. Because the privatization cascade only touches rows where
+      // dream_status='active', and the restored row IS active again, it
+      // gets re-quarantined. The WHERE on restoredByRunId in the restore
+      // is about the CURRENT quarantine_meta, not historical — a fresh
+      // privatization overwrites quarantine_meta with a new object lacking
+      // restoredByRunId, so the row is eligible for restore again.
+      await setWorkspaceVisibilityCascade(ws.id, 'private');
+      expect(await countSharedMemories(ws.id)).toBe(0);
+      const restore2 = await restoreQuarantinedMemories(ws.id, 'run-2');
+      expect(restore2.restoredMemoryCount).toBe(1);
+      expect(await countSharedMemories(ws.id)).toBe(1);
+      const r2 = (
+        await harness.db.execute(
+          sql`SELECT "quarantine_meta" FROM "long_term_memories" WHERE "id" = ${memId}::uuid`,
+        )
+      ).rows as { quarantine_meta: unknown }[];
+      expect(r2[0]?.quarantine_meta).toMatchObject({
+        restoredByRunId: 'run-2',
+      });
+      // Session visibility was reset to private by the second privatize;
+      // restore doesn't touch session visibility (only the cascade does).
+      expect((await getSession(sessId))?.visibility).toBe('private');
+    });
+
+    it('returns zero counts for archived/missing workspace without touching rows', async () => {
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      await seedSharedMemory(ws.id);
+      await setWorkspaceVisibilityCascade(ws.id, 'private');
+      await archiveWorkspace(ws.id);
+      bumpSharedMemoryVersionSpy.mockClear();
+
+      const restore = await restoreQuarantinedMemories(ws.id);
+      expect(restore.workspace).toBeNull();
+      expect(restore.restoredMemoryCount).toBe(0);
+      expect(bumpSharedMemoryVersionSpy).not.toHaveBeenCalled();
+      // Rows survive, still quarantined.
+      expect(await countAllSharedMemoryRows(ws.id)).toBe(1);
+      expect(await countSharedMemories(ws.id)).toBe(0);
+    });
+
+    it('does not re-restore rows already consumed by a previous restore in the same isolation epoch', async () => {
+      // Scenario: privatize isolates a row. Restore-1 consumes it
+      // (restoredByRunId set). WITHOUT going private again, a second
+      // restore call must skip it — restoredByRunId IS NOT NULL. This is
+      // the "keep all history, never duplicate" guard for repeated
+      // public→public no-ops.
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      await seedSharedMemory(ws.id);
+      await setWorkspaceVisibilityCascade(ws.id, 'private');
+
+      const r1 = await restoreQuarantinedMemories(ws.id, 'run-1');
+      expect(r1.restoredMemoryCount).toBe(1);
+      const r2 = await restoreQuarantinedMemories(ws.id, 'run-2');
+      expect(r2.restoredMemoryCount).toBe(0); // already consumed
+      expect(await countSharedMemories(ws.id)).toBe(1);
     });
   });
 
