@@ -25,8 +25,7 @@ const { batchSpy, transactionSpy, bumpSpy, resolveDriver } = vi.hoisted(() => ({
   // rows (e.g. `[{ id: 'mem-1' }]`) without TS narrowing the inferred
   // tuple to `never[][]`.
   batchSpy: vi.fn(
-    async (_queries: unknown[]) =>
-      [[], [], [], [], [], []] as unknown[][],
+    async (_queries: unknown[]) => [[], [], [], [], [], []] as unknown[][],
   ),
   // pg primitive — receives an interactive callback. Default: run it.
   transactionSpy: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) =>
@@ -64,7 +63,12 @@ vi.mock('@/lib/core/db', () => {
       ...terminate('where'),
       returning: () => terminate('where.returning'),
     });
-    next.set = () => ({ where: () => ({ ...terminate('set.where'), returning: () => terminate('set.where.returning') }) });
+    next.set = () => ({
+      where: () => ({
+        ...terminate('set.where'),
+        returning: () => terminate('set.where.returning'),
+      }),
+    });
     next.values = () => ({ returning: () => terminate('values.returning') });
     next.from = () => ({
       where: () => ({ limit: () => terminate('from.where.limit') }),
@@ -181,14 +185,7 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
       // UPDATE's RETURNING — a non-empty array means rows were flipped
       // to dream_status='quarantined', which gates the KV version bump.
       // Seed one quarantined-id so the bump fires once.
-      batchSpy.mockResolvedValueOnce([
-        [],
-        [],
-        [],
-        [],
-        [{ id: 'mem-1' }],
-        [],
-      ]);
+      batchSpy.mockResolvedValueOnce([[], [], [], [], [{ id: 'mem-1' }], []]);
 
       const result = await setWorkspaceVisibilityCascade(WS_ID, 'private');
 

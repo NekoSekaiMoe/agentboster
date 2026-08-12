@@ -922,6 +922,8 @@ export const zhCN = {
     '将「{name}」设为私有会撤销所有成员的访问权限。共享记忆池将被删除，成员共享给工作区的会话也会重新变为仅创建者可见。',
   'workspace.visibilitySuccess': '工作区可见性已更新',
   'workspace.visibilityError': '更新工作区可见性失败',
+  'workspace.visibilityRestoredWithMerge':
+    '已恢复 {count} 条隔离记忆 — Dream 合并正在后台运行',
   'workspace.detail.visibility': '可见性',
   'workspace.detail.sharingTitle': '共享',
   'workspace.detail.sharedMemoryTitle': '共享记忆池',

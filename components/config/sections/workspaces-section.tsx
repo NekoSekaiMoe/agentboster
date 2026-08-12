@@ -49,6 +49,7 @@ import {
 import {
   archiveWorkspaceRequest,
   patchWorkspace,
+  setWorkspaceVisibility,
   readItemError,
 } from '@/lib/core/api/workspaces';
 import { parseWithFallback } from '@/lib/core/api/schema';
@@ -200,12 +201,24 @@ export function WorkspacesSection() {
     }: {
       id: string;
       visibility: 'private' | 'public';
-    }) => patchWorkspace(id, { action: 'set_visibility', visibility }),
-    onSuccess: async () => {
+    }) => setWorkspaceVisibility(id, visibility),
+    onSuccess: async (result) => {
       await invalidate();
       setPublicTarget(null);
       setPrivateTarget(null);
-      toast.success(t('workspace.visibilitySuccess'));
+      // When going public restored soft-quarantined memories, surface a
+      // richer toast that tells the user consolidation is running in the
+      // background (Dream merge is fire-and-forget server-side). The
+      // generic success toast stays for public→private and no-op restores.
+      if (result.restoredMemoryCount > 0) {
+        toast.success(
+          t('workspace.visibilityRestoredWithMerge', {
+            count: result.restoredMemoryCount,
+          }),
+        );
+      } else {
+        toast.success(t('workspace.visibilitySuccess'));
+      }
     },
     onError: () => {
       setPublicTarget(null);

@@ -595,9 +595,7 @@ export async function listAllLongTermMemoryRows(options?: {
     // quarantined — quarantined is an isolation state, not a Dream
     // lifecycle tier. Explicit exclusion keeps Dream from consolidating
     // memories that belong to a privatized workspace's frozen snapshot.
-    conditions.push(
-      ne(schema.longTermMemories.dreamStatus, 'quarantined'),
-    );
+    conditions.push(ne(schema.longTermMemories.dreamStatus, 'quarantined'));
   }
 
   return db

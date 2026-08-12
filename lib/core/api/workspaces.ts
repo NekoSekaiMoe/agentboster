@@ -63,6 +63,55 @@ export async function patchWorkspace(
   if (!res.ok) throw await readItemError(res, 'Failed to update workspace');
 }
 
+/** Response shape for the set_visibility action, which carries extra
+ *  fields beyond the standard workspace row: the number of soft-quarantined
+ *  shared-pool memories restored on a private→public flip, and the number
+ *  of session_memories un-quarantined. Both are 0 for public→private and
+ *  for private→public when no quarantine snapshot existed. Lenient schema
+ *  (numbers optional, defaulting to 0) so an older backend that omits
+ *  them still parses — the UI simply shows the generic success toast. */
+const visibilityResponseSchema = itemResponseSchema.extend({
+  restoredMemoryCount: z.number().optional().default(0),
+  restoredSessionMemoryCount: z.number().optional().default(0),
+});
+
+export interface VisibilityChangeResult {
+  restoredMemoryCount: number;
+  restoredSessionMemoryCount: number;
+}
+
+/** Set a workspace's visibility and return the restore counts (0 when no
+ *  soft-quarantined memories were restored, e.g. public→private or a
+ *  private→public with no prior privatization). Use this instead of
+ *  {@link patchWorkspace} when the caller wants to surface the restore
+ *  count in a toast. */
+export async function setWorkspaceVisibility(
+  id: string,
+  visibility: 'private' | 'public',
+): Promise<VisibilityChangeResult> {
+  const res = await fetch(`/api/workspaces/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'set_visibility', visibility }),
+  });
+  if (!res.ok) throw await readItemError(res, 'Failed to update workspace');
+  const payload = parseWithFallback(
+    await res.json().catch(() => ({})),
+    visibilityResponseSchema,
+    {
+      success: false,
+      data: null,
+      restoredMemoryCount: 0,
+      restoredSessionMemoryCount: 0,
+    } as z.infer<typeof visibilityResponseSchema>,
+    { endpoint: 'workspaces set_visibility' },
+  );
+  return {
+    restoredMemoryCount: payload.restoredMemoryCount ?? 0,
+    restoredSessionMemoryCount: payload.restoredSessionMemoryCount ?? 0,
+  };
+}
+
 export async function archiveWorkspaceRequest(id: string): Promise<void> {
   const res = await fetch(`/api/workspaces/${encodeURIComponent(id)}`, {
     method: 'DELETE',
