@@ -309,6 +309,19 @@ export const workspaces = pgTable(
     sharedMemoryEnabled: boolean('shared_memory_enabled')
       .default(false)
       .notNull(),
+    /**
+     * Monotonic counter incremented each time a workspace is privatized
+     * (public→private). The privatization soft-quarantines the shared pool
+     * (rows flipped to dream_status='quarantined' with quarantine_meta
+     * recording this epoch). On re-public, restoreQuarantinedMemories
+     * resurrects rows whose restoredByRunId is null and bumps this counter
+     * to mark that snapshot as consumed. Used to disambiguate which
+     * quarantined rows belong to the current private spell vs. historical
+     * ones. See docs/design/soft-quarantine-memory-on-privatization.md §3.
+     */
+    quarantineEpoch: integer('quarantine_epoch')
+      .default(0)
+      .notNull(),
     status: text('status', {
       enum: ['active', 'archived'],
     })

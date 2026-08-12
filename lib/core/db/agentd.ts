@@ -14,6 +14,7 @@ import {
   agentToolActivityLogs,
   sessions,
   longTermMemories,
+  sessionMemories,
   taskSummaries,
   users,
   workspaces,
@@ -1272,10 +1273,18 @@ export async function setWorkspaceSharedMemory(
  * visibility guard defends against as a last resort).
  *
  * Two directions:
- *  - public  → private: a 4-step cascade (the meat of this function).
- *  - private → public: only the visibility column moves (re-publishing
- *    does NOT auto-recreate the shared pool or re-share sessions; the
- *    owner opts back into those explicitly afterwards).
+ *  - public  → private: soft-quarantine cascade. Shared-pool memory rows
+ *    are flipped to dream_status='quarantined' (NOT deleted) so they can be
+ *    restored on re-public via restoreQuarantinedMemories; the workspace's
+ *    quarantine_epoch bumps to mark this isolation; shared sessions are
+ *    reset to private AND their session_memories rows are stamped with
+ *    quarantined_at. See docs/design/soft-quarantine-memory-on-privatization.md.
+ *  - private → public: only the visibility column moves. Restoration of
+ *    quarantined memories is a separate, explicit call
+ *    (restoreQuarantinedMemories) triggered from the public route — it is
+ *    NOT auto-folded into this cascade because it also fires a Dream merge
+ *    that can take tens of seconds, and we do not want to block the
+ *    visibility flip on it.
  *
  * Archived workspaces return null (the route maps that to 409). Because
  * neon-http's `db.batch` is NON-INTERACTIVE (it cannot read statement 1's
@@ -1303,7 +1312,10 @@ export async function setWorkspaceSharedMemory(
  * Returns the final persisted workspace row, or null when the workspace
  * is archived (or missing). The route should use this return value as the
  * response `data` directly so `sharedMemoryEnabled` never reports a stale
- * `true` after going private.
+ * `true` after going private. The number of shared-pool rows quarantined
+ * (0 if the workspace was archived mid-flight or had no shared pool) is
+ * surfaced separately to drive the KV version bump and the count returned
+ * to the UI.
  */
 export async function setWorkspaceVisibilityCascade(
   id: string,
@@ -1338,22 +1350,23 @@ export async function setWorkspaceVisibilityCascade(
     return row ?? null;
   }
 
-  // Public → private: 4-step cascade. Build every query up front so the
-  // neon batch elements are independent (the batch API cannot read
-  // between statements). The shared-memory toggle is written
-  // unconditionally rather than conditional on the pre-toggle row —
-  // semantically identical (going private is precisely when the pool
-  // should be off) and it removes a read-after-write dependency that
-  // the non-interactive batch couldn't satisfy anyway.
+  // Public → private: soft-quarantine cascade. Build every query up front
+  // so the neon batch elements are independent (the batch API cannot read
+  // between statements). The shared-memory toggle is written unconditionally
+  // rather than conditional on the pre-toggle row — semantically identical
+  // (going private is precisely when the pool should be off) and it removes
+  // a read-after-write dependency that the non-interactive batch couldn't
+  // satisfy anyway.
   //
-  // The dependent writes (sessions reset, shared-pool delete) are
-  // gated on the workspace STILL being active at statement time via an
-  // inline `EXISTS` against `workspaces`. This closes the TOCTOU window
-  // the pre-flight check opens: if a concurrent archive flips the row
-  // to 'archived' between the pre-flight SELECT and these writes, the
-  // EXISTS predicate is false and the writes become 0-row no-ops on the
-  // now-immutable archived workspace's dependents. (The workspaces-row
-  // UPDATEs already carry their own `status='active'` WHERE guard.)
+  // The dependent writes (sessions reset, shared-pool quarantine, session
+  // memory quarantine) are gated on the workspace STILL being active at
+  // statement time via an inline `EXISTS` against `workspaces`. This
+  // closes the TOCTOU window the pre-flight check opens: if a concurrent
+  // archive flips the row to 'archived' between the pre-flight SELECT and
+  // these writes, the EXISTS predicate is false and the writes become 0-row
+  // no-ops on the now-immutable archived workspace's dependents. (The
+  // workspaces-row UPDATEs already carry their own `status='active'` WHERE
+  // guard.)
   const activeGuard = sql`EXISTS (SELECT 1 FROM ${workspaces} w WHERE w.id = ${id} AND w.status = 'active')`;
   const updateVisibility = db
     .update(workspaces)
@@ -1362,6 +1375,17 @@ export async function setWorkspaceVisibilityCascade(
   const resetSharedMemoryToggle = db
     .update(workspaces)
     .set({ sharedMemoryEnabled: false, updatedAt: now })
+    .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')));
+  // Bump the quarantine epoch so this isolation snapshot is distinguishable
+  // from historical ones (restored rows get quarantine_meta.restoredByRunId
+  // and stay around for audit, but the epoch lets us reason about "the
+  // current private spell").
+  const bumpQuarantineEpoch = db
+    .update(workspaces)
+    .set({
+      quarantineEpoch: sql`${workspaces.quarantineEpoch} + 1`,
+      updatedAt: now,
+    })
     .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')));
   const resetSharedSessions = db
     .update(sessions)
@@ -1374,11 +1398,77 @@ export async function setWorkspaceVisibilityCascade(
       ),
     );
 
-  // Did the shared-pool delete actually remove rows? Drives the KV
+  // The pre-epoch value is captured BEFORE the bump so quarantine_meta can
+  // record "isolated by epoch N". Fetched as a separate read: the neon
+  // batch is non-interactive, so we cannot read RETURNING from the epoch
+  // bump inside the batch and feed it into the quarantine UPDATE.
+  const [pre] = await db
+    .select({ epoch: workspaces.quarantineEpoch })
+    .from(workspaces)
+    .where(eq(workspaces.id, id))
+    .limit(1);
+  const isolatedEpoch = pre?.epoch ?? 0;
+
+  // Shared-pool quarantine: flip active shared rows to 'quarantined' and
+  // stamp quarantine_meta with the original dream_status so restoration
+  // can return them to the correct state (an 'active' row isolated then
+  // restored should not silently become a 'tentative' one). Non-active
+  // rows (tentative/superseded/contradicted) are left untouched — they
+  // are already invisible to recall, so quarantining them adds no
+  // isolation and would only complicate the restore path. Only rows
+  // belong to THIS workspace are touched.
+  //
+  // The SET carries the isolation metadata as a single jsonb build; we
+  // read dream_status off the row via SQL (not Drizzle's per-row JS)
+  // because this is a bulk UPDATE, not a per-row JS loop. Every
+  // interpolated value is explicitly CAST (`::text` / `::int`) because
+  // `jsonb_build_object` resolves its parameter types from the argument
+  // list, and Postgres refuses to infer a type for a bare `$N` placeholder
+  // — without the casts it fails with `could not determine data type of
+  // parameter $N` (42P18) at parse time.
+  const quarantineMetaSql = sql`jsonb_build_object(
+    'workspaceId', ${id}::text,
+    'isolatedAt', ${now.toISOString()}::text,
+    'isolatedEpoch', ${isolatedEpoch}::int,
+    'originalDreamStatus', dream_status
+  )`;
+  const quarantineSharedMemories = db
+    .update(longTermMemories)
+    .set({
+      dreamStatus: 'quarantined',
+      quarantineMeta: quarantineMetaSql,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(longTermMemories.workspaceId, id),
+        eq(longTermMemories.shared, true),
+        eq(longTermMemories.dreamStatus, 'active'),
+        activeGuard,
+      ),
+    );
+  // Session-level summaries: stamp quarantined_at for any session_memories
+  // belonging to a shared session of this workspace (one summary is kept
+  // per session as is_current=true). We don't filter on is_current here —
+  // historical (non-current) summaries for those sessions are quarantined
+  // too, so a later `summary_version` bump on the now-private session does
+  // not leave an unquarantined pre-privatization summary visible in the
+  // shared view. Cleared by restoreQuarantinedMemories on re-public.
+  const quarantineSessionMemories = db
+    .update(sessionMemories)
+    .set({ quarantinedAt: now })
+    .where(
+      and(
+        sql`session_id IN (SELECT id FROM ${sessions} WHERE workspace_id = ${id} AND visibility = 'shared')`,
+        activeGuard,
+      ),
+    );
+
+  // Did the shared-pool quarantine actually touch rows? Drives the KV
   // version bump below — if the workspace was archived mid-flight (or
-  // there was simply no shared pool to delete), there is nothing for
+  // there was simply no shared pool to quarantine), there is nothing for
   // readers to rebuild, so we skip the bump.
-  let deletedSharedMemories = false;
+  let quarantinedSharedMemories = false;
 
   let finalRow: WorkspaceRecord | null = null;
   if (atomicWriteMode() === 'neon') {
@@ -1388,29 +1478,20 @@ export async function setWorkspaceVisibilityCascade(
     // independently observable; we re-read the final row after the
     // batch (the batch API cannot read between statements, so we cannot
     // use RETURNING from element 0 to gate element 1).
-    //
-    // The shared-pool delete mirrors `deleteLongTermMemoryRows(id,
-    // { sharedOnly: true })` exactly (workspace_id + shared=true) but is
-    // inlined as a standalone query object so it can be a batch element,
+    // The shared-pool quarantine mirrors `quarantineSharedMemoriesByWorkspace`
+    // but inlined as a standalone query object so it can be a batch element,
     // and so the cascade never has to reach back through the `db` mock
     // for its schema. The KV version bump is deferred to after commit,
-    // and gated on the delete actually returning deleted ids.
+    // and gated on the quarantine actually returning updated ids.
     const results = await db.batch([
       updateVisibility,
       resetSharedMemoryToggle,
+      bumpQuarantineEpoch,
       resetSharedSessions,
-      db
-        .delete(longTermMemories)
-        .where(
-          and(
-            eq(longTermMemories.workspaceId, id),
-            eq(longTermMemories.shared, true),
-            activeGuard,
-          ),
-        )
-        .returning({ id: longTermMemories.id }),
+      quarantineSharedMemories.returning({ id: longTermMemories.id }),
+      quarantineSessionMemories,
     ]);
-    deletedSharedMemories = (results[3]?.length ?? 0) > 0;
+    quarantinedSharedMemories = (results[4]?.length ?? 0) > 0;
     // Re-read the committed row so the response `data` reflects the
     // post-cascade state (sharedMemoryEnabled:false, visibility:private).
     const [row] = await db
@@ -1441,22 +1522,40 @@ export async function setWorkspaceVisibilityCascade(
             activeGuard,
           ),
         );
-      // Delete shared-pool memories WITHOUT a KV bump — the bump is
-      // deferred to after the transaction commits (see below). The WHERE
-      // mirrors `deleteLongTermMemoryRows(id, { sharedOnly: true })`; we
-      // inline it (against the tx) rather than call that helper so the
-      // cascade stays within the transaction's `tx` handle.
-      const deleted = await tx
-        .delete(longTermMemories)
+      // Quarantine shared-pool memories WITHOUT a KV bump — the bump is
+      // deferred to after the transaction commits (see below). Only active
+      // shared rows are flipped; the WHERE mirrors the cascade's pre-built
+      // `quarantineSharedMemories` query. Inlined against `tx` rather than
+      // calling a helper so the cascade stays within the transaction's
+      // `tx` handle. Reuses `quarantineMetaSql` (defined in the outer
+      // scope) so the jsonb_build_object casts stay in one place.
+      const quarantined = await tx
+        .update(longTermMemories)
+        .set({
+          dreamStatus: 'quarantined',
+          quarantineMeta: quarantineMetaSql,
+          updatedAt: now,
+        })
         .where(
           and(
             eq(longTermMemories.workspaceId, id),
             eq(longTermMemories.shared, true),
+            eq(longTermMemories.dreamStatus, 'active'),
             activeGuard,
           ),
         )
         .returning({ id: longTermMemories.id });
-      deletedSharedMemories = deleted.length > 0;
+      quarantinedSharedMemories = quarantined.length > 0;
+      // Stamp session_memories for the shared sessions of this workspace.
+      await tx
+        .update(sessionMemories)
+        .set({ quarantinedAt: now })
+        .where(
+          and(
+            sql`session_id IN (SELECT id FROM ${sessions} WHERE workspace_id = ${id} AND visibility = 'shared')`,
+            activeGuard,
+          ),
+        );
       const [row] = await tx
         .select()
         .from(workspaces)
@@ -1467,13 +1566,13 @@ export async function setWorkspaceVisibilityCascade(
   }
 
   // KV version bump AFTER the DB block commits, and ONLY if the cascade
-  // actually deleted shared-pool rows. KV (Upstash HTTP / pg shim)
+  // actually quarantined shared-pool rows. KV (Upstash HTTP / pg shim)
   // cannot join the DB transaction. Fail-open: a missed bump only costs
   // readers one shared-cache rebuild; DB recall is unaffected. Skipping
-  // it when nothing was deleted (no-op private→private, or a concurrent
-  // archive that won the race and turned every write into a 0-row
-  // no-op) avoids a spurious cache invalidation.
-  if (deletedSharedMemories) {
+  // it when nothing was quarantined (no-op private→private, or a concurrent
+  // archive that won the race and turned every write into a 0-row no-op)
+  // avoids a spurious cache invalidation.
+  if (quarantinedSharedMemories) {
     await bumpSharedMemoryVersion(id);
   }
 

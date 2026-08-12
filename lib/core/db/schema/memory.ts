@@ -98,6 +98,16 @@ export const sessionMemories = pgTable(
     content: text('content').notNull(),
     summaryVersion: integer('summary_version').notNull(),
     isCurrent: boolean('is_current').default(true).notNull(),
+    /**
+     * Soft-quarantine timestamp for session-level privatization. When a
+     * workspace goes public→private, the shared sessions of that workspace
+     * have their visibility reset to 'private' AND their session_memories
+     * rows are stamped here (rather than deleted). When the workspace (and
+     * thus the session) goes shared again, this is cleared so the summary
+     * rejoins the shared view. Null = not quarantined (the normal state).
+     * See docs/design/soft-quarantine-memory-on-privatization.md §2.2.
+     */
+    quarantinedAt: timestamp('quarantined_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -169,10 +179,47 @@ export const longTermMemories = pgTable(
      * jsonb scan. Mirrors AutoGPT's Graphiti edge `status` property.
      */
     dreamStatus: text('dream_status', {
-      enum: ['active', 'tentative', 'superseded', 'contradicted'],
+      // 'quarantined' is the soft-isolation state for workspace privatization:
+      // when a workspace goes public→private, its shared-pool rows are flipped
+      // to 'quarantined' (NOT deleted) so they can be restored when the
+      // workspace goes public again. Recall filters exclude quarantined rows
+      // via the same `dream_status = 'active'` partial index as the other
+      // non-active states. See docs/design/soft-quarantine-memory-on-privatization.md.
+      enum: [
+        'active',
+        'tentative',
+        'superseded',
+        'contradicted',
+        'quarantined',
+      ],
     })
       .default('active')
       .notNull(),
+    /**
+     * Soft-quarantine metadata. Only meaningful when
+     * `dreamStatus = 'quarantined'`. Records which workspace's
+     * privatization isolated this row, the original dream status to
+     * restore to, and (after restoration) which run consumed it. Rows
+     * with `restoredByRunId` set are retained for audit/history but no
+     * longer participate in recall or default Dream runs. Nullable and
+     * otherwise empty.
+     */
+    quarantineMeta: jsonb('quarantine_meta').$type<{
+      workspaceId: string;
+      isolatedAt: string;
+      /** The workspace's quarantine_epoch at isolation time. Lets restore
+       *  distinguish "the current private spell" (epoch matches) from
+       *  historical snapshots (older epoch, restoredByRunId set). */
+      isolatedEpoch?: number;
+      isolatedByRunId?: string;
+      originalDreamStatus:
+        | 'active'
+        | 'tentative'
+        | 'superseded'
+        | 'contradicted';
+      restoredByRunId?: string;
+      restoredAt?: string;
+    } | null>(),
     /**
      * Optional Dream metadata: confidence, source_kind, provenance,
      * ratification state. Stored as jsonb because these are write-once-

@@ -32,6 +32,7 @@ const DDL = [
     "is_default" boolean DEFAULT false NOT NULL,
     "visibility" text DEFAULT 'private' NOT NULL,
     "shared_memory_enabled" boolean DEFAULT false NOT NULL,
+    "quarantine_epoch" integer DEFAULT 0 NOT NULL,
     "status" text DEFAULT 'active' NOT NULL,
     "created_at" timestamptz DEFAULT now() NOT NULL,
     "updated_at" timestamptz DEFAULT now() NOT NULL
@@ -59,12 +60,29 @@ const DDL = [
     "visibility" text DEFAULT 'private' NOT NULL,
     "updated_at" timestamptz DEFAULT now() NOT NULL
   )`,
+  // Minimal session_memories table (mirrors schema/memory.ts) — only the
+  // columns the cascade's quarantineSessionMemories step touches. The
+  // subquery joins sessions on workspace_id + visibility='shared'.
+  `CREATE TABLE "session_memories" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    "session_id" uuid NOT NULL,
+    "workspace_id" uuid,
+    "content" text NOT NULL,
+    "summary_version" integer NOT NULL,
+    "is_current" boolean DEFAULT true NOT NULL,
+    "quarantined_at" timestamptz,
+    "created_at" timestamptz DEFAULT now() NOT NULL
+  )`,
   // Minimal long_term_memories table (mirrors schema/memory.ts) — only
-  // the columns the cascade's shared-pool delete filters / returns on.
+  // the columns the cascade's shared-pool quarantine filters / returns on.
+  // dream_status + quarantine_meta support the soft-quarantine flip.
   `CREATE TABLE "long_term_memories" (
     "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
     "workspace_id" uuid,
-    "shared" boolean DEFAULT false NOT NULL
+    "shared" boolean DEFAULT false NOT NULL,
+    "dream_status" text DEFAULT 'active' NOT NULL,
+    "quarantine_meta" jsonb,
+    "updated_at" timestamptz DEFAULT now() NOT NULL
   )`,
 ];
 
@@ -563,8 +581,26 @@ describe('workspace DAL (PGlite)', () => {
       return rows[0];
     }
 
-    /** Count remaining shared-pool memories for a workspace. */
+    /** Count remaining ACTIVE shared-pool memories for a workspace.
+     *  After the soft-quarantine change, privatization flips rows to
+     *  dream_status='quarantined' instead of deleting them — so this
+     *  helper counts only the rows that are STILL visible to recall
+     *  (shared AND active). The raw row count does not change. */
     async function countSharedMemories(workspaceId: string): Promise<number> {
+      const rows = (
+        await harness.db.execute(
+          sql`SELECT count(*)::int AS n FROM "long_term_memories" WHERE "workspace_id" = ${workspaceId}::uuid AND "shared" = true AND "dream_status" = 'active'`,
+        )
+      ).rows as { n: number }[];
+      return rows[0]?.n ?? 0;
+    }
+
+    /** Count ALL shared-pool memory rows regardless of dream_status (so a
+     *  test can assert that privatization KEPT the rows around in the
+     *  'quarantined' state rather than deleting them). */
+    async function countAllSharedMemoryRows(
+      workspaceId: string,
+    ): Promise<number> {
       const rows = (
         await harness.db.execute(
           sql`SELECT count(*)::int AS n FROM "long_term_memories" WHERE "workspace_id" = ${workspaceId}::uuid AND "shared" = true`,
@@ -592,11 +628,11 @@ describe('workspace DAL (PGlite)', () => {
       expect(bumpSharedMemoryVersionSpy).not.toHaveBeenCalled();
     });
 
-    it('public→private cascades all 4 steps atomically (pg branch)', async () => {
+    it('public→private soft-quarantines shared pool (rows kept, flipped to quarantined) — pg branch', async () => {
       const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
       await setWorkspaceVisibility(ws.id, 'public');
       await setWorkspaceSharedMemory(ws.id, true);
-      await seedSharedMemory(ws.id);
+      const memId = await seedSharedMemory(ws.id);
       const sessId = await seedSharedSession(ws.id);
       bumpSharedMemoryVersionSpy.mockClear();
 
@@ -604,8 +640,21 @@ describe('workspace DAL (PGlite)', () => {
 
       // Step 1: visibility flipped.
       expect(result?.visibility).toBe('private');
-      // Step 2: shared pool dropped.
+      // Step 2: shared pool soft-quarantined — ACTIVE shared count drops
+      // to 0 (recall no longer sees them) but the rows physically survive
+      // in dream_status='quarantined' for later restoration.
       expect(await countSharedMemories(ws.id)).toBe(0);
+      expect(await countAllSharedMemoryRows(ws.id)).toBe(1);
+      const qRow = (
+        await harness.db.execute(
+          sql`SELECT "dream_status", "quarantine_meta" FROM "long_term_memories" WHERE "id" = ${memId}::uuid`,
+        )
+      ).rows as { dream_status: string; quarantine_meta: unknown }[];
+      expect(qRow[0]?.dream_status).toBe('quarantined');
+      expect(qRow[0]?.quarantine_meta).toMatchObject({
+        workspaceId: ws.id,
+        originalDreamStatus: 'active',
+      });
       // Step 3: shared sessions reset to private.
       expect((await getSession(sessId))?.visibility).toBe('private');
       // Step 4: shared-memory toggle forced off, AND reflected in the
@@ -687,16 +736,17 @@ describe('workspace DAL (PGlite)', () => {
         expect(result?.sharedMemoryEnabled).toBe(true);
         expect(result?.status).toBe('archived');
         // The dependent writes were also 0-row no-ops: the shared session
-        // stayed shared and the shared-memory pool row survived. Without
-        // the EXISTS guard these would have been reset to 'private' /
-        // deleted respectively, even though the workspace was already
-        // archived — the dependent writes' own WHERE clauses only filter
-        // on (workspace_id, shared/visibility), never on the workspace's
+        // stayed shared and the shared-memory pool row survived (still
+        // active, NOT quarantined). Without the EXISTS guard these would
+        // have been reset to 'private' / quarantined respectively, even
+        // though the workspace was already archived — the dependent
+        // writes' own WHERE clauses only filter on
+        // (workspace_id, shared/visibility), never on the workspace's
         // status.
         expect((await getSession(sessId))?.visibility).toBe('shared');
         expect(await countSharedMemories(ws.id)).toBe(1);
-        // The shared-pool delete was a 0-row no-op, so the post-commit KV
-        // version bump must NOT fire.
+        // The shared-pool quarantine was a 0-row no-op, so the post-commit
+        // KV version bump must NOT fire.
         expect(bumpSharedMemoryVersionSpy).not.toHaveBeenCalled();
       } finally {
         txSpy.mockRestore();
