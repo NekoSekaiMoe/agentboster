@@ -319,9 +319,7 @@ export const workspaces = pgTable(
      * quarantined rows belong to the current private spell vs. historical
      * ones. See docs/design/soft-quarantine-memory-on-privatization.md §3.
      */
-    quarantineEpoch: integer('quarantine_epoch')
-      .default(0)
-      .notNull(),
+    quarantineEpoch: integer('quarantine_epoch').default(0).notNull(),
     status: text('status', {
       enum: ['active', 'archived'],
     })

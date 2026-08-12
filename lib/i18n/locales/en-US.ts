@@ -1031,5 +1031,7 @@ export const enUS = {
     'Every user will be able to enter "{name}", run tasks in its shared container, and access or manage the sessions (and their messages) that members have marked as shared.',
   'workspace.visibilitySuccess': 'Workspace visibility updated',
   'workspace.visibilityError': 'Failed to update workspace visibility',
+  'workspace.visibilityRestoredWithMerge':
+    'Restored {count} quarantined memories — Dream merge running in the background',
   'workspace.detail.visibility': 'Visibility',
 } as const;

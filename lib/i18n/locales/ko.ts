@@ -1025,5 +1025,7 @@ export const ko = {
     '모든 사용자가 "{name}"에 들어와 공유 컨테이너에서 작업을 실행하고, 멤버가 공유로 표시한 세션과 메시지에 접근하거나 관리할 수 있습니다.',
   'workspace.visibilitySuccess': '워크스페이스 공개 설정이 업데이트되었습니다',
   'workspace.visibilityError': '공개 설정 업데이트에 실패했습니다',
+  'workspace.visibilityRestoredWithMerge':
+    '격리되었던 기억 {count}개를 복원했습니다 — Dream 통합을 백그라운드에서 실행 중',
   'workspace.detail.visibility': '공개 설정',
 } satisfies Record<keyof typeof enUS, string>;

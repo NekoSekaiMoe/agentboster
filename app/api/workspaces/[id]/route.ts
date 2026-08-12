@@ -378,11 +378,14 @@ export async function PATCH(
         // next scheduled run, so we swallow it into the log.
         if (next === 'public' && restoredMemoryCount > 0) {
           runDreamForUser({ userId: ownerId }).catch((error) => {
-            logger.warn('post-restore dream merge failed (deferred to next scheduled run)', {
-              workspaceId: id,
-              ownerId,
-              error: error instanceof Error ? error.message : String(error),
-            });
+            logger.warn(
+              'post-restore dream merge failed (deferred to next scheduled run)',
+              {
+                workspaceId: id,
+                ownerId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
           });
         }
         return Response.json({

@@ -925,6 +925,8 @@ export const zhTW = {
     '將「{name}」設為私有會撤銷所有成員的存取權限。共享記憶池將被刪除，成員共享給工作區的會話也會重新變為僅建立者可見。',
   'workspace.visibilitySuccess': '工作區可見性已更新',
   'workspace.visibilityError': '更新工作區可見性失敗',
+  'workspace.visibilityRestoredWithMerge':
+    '已恢復 {count} 條隔離記憶 — Dream 合併正在背景執行',
   'workspace.detail.visibility': '可見性',
   'workspace.detail.sharingTitle': '共享',
   'workspace.detail.sharedMemoryTitle': '共享記憶池',

@@ -1047,5 +1047,7 @@ export const ja = {
     'すべてのユーザーが「{name}」に入り、共有コンテナでタスクを実行し、メンバーが共有としてマークしたセッションとそのメッセージにアクセス・管理できるようになります。',
   'workspace.visibilitySuccess': 'ワークスペースの公開設定を更新しました',
   'workspace.visibilityError': '公開設定の更新に失敗しました',
+  'workspace.visibilityRestoredWithMerge':
+    '隔離されていた記憶 {count} 件を復元しました — Dream の統合をバックグラウンドで実行中',
   'workspace.detail.visibility': '公開設定',
 } satisfies Record<keyof typeof enUS, string>;
