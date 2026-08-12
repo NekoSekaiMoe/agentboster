@@ -566,6 +566,17 @@ export async function listAllLongTermMemoryRows(options?: {
    * When true, include tentative/superseded/contradicted rows. Default
    * false. Dream phase1/2 pass false (they consolidate active rows
    * only); admin / audit callers pass true to see the full lifecycle.
+   *
+   * NOTE: `includeInactive: true` does NOT include `quarantined` rows.
+   * Quarantined rows are soft-isolated by workspace privatization (see
+   * docs/design/soft-quarantine-memory-on-privatization.md) and are
+   * excluded from BOTH recall and Dream by design — they are restored
+   * to `originalDreamStatus` (typically 'active') by
+   * `restoreQuarantinedMemories`, at which point they re-enter the
+   * normal active set and are visible here without any flag. There is no
+   * `includeQuarantined` option; if you need to audit quarantined rows,
+   * query the table directly (the quarantine is a transient state, not
+   * a lifecycle tier Dream should consolidate).
    */
   includeInactive?: boolean;
 }) {
@@ -579,6 +590,14 @@ export async function listAllLongTermMemoryRows(options?: {
   }
   if (!options?.includeInactive) {
     conditions.push(eq(schema.longTermMemories.dreamStatus, 'active'));
+  } else {
+    // includeInactive sees tentative/superseded/contradicted but NOT
+    // quarantined — quarantined is an isolation state, not a Dream
+    // lifecycle tier. Explicit exclusion keeps Dream from consolidating
+    // memories that belong to a privatized workspace's frozen snapshot.
+    conditions.push(
+      ne(schema.longTermMemories.dreamStatus, 'quarantined'),
+    );
   }
 
   return db
