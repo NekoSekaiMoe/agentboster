@@ -24,6 +24,7 @@ import { deleteLongTermMemoriesByWorkspaceId } from '@/lib/core/db/memory/long-t
 import { agentdNodes, notifications } from '@/lib/core/db/schema';
 import { computeNodeStatus } from '@/lib/extra/agent/node-liveness';
 import { deriveContainerStatus } from '@/lib/extra/agent/workspace-status';
+import { runDreamForUser } from '@/lib/memory/dream';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.workspaces.id');
@@ -364,6 +365,26 @@ export async function PATCH(
           restoredMemoryCount,
           restoredSessionMemoryCount,
         });
+        // When memories were restored on re-public, kick off a Dream merge
+        // so the restored rows are deduplicated / consolidated against the
+        // current pool. The restored rows are already dream_status='active'
+        // (restore flips them back), so a normal Dream run sees them — we
+        // just trigger it now rather than waiting for the next scheduled
+        // run, so the UI's "merging…" toast matches reality. Fire-and-
+        // forget (NOT awaited): the response returns immediately with the
+        // restore counts; Dream runs in the background and writes its own
+        // audit row (dream_runs) visible on the dream progress page. A
+        // failure here is best-effort: it only delays consolidation to the
+        // next scheduled run, so we swallow it into the log.
+        if (next === 'public' && restoredMemoryCount > 0) {
+          runDreamForUser({ userId: ownerId }).catch((error) => {
+            logger.warn('post-restore dream merge failed (deferred to next scheduled run)', {
+              workspaceId: id,
+              ownerId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }
         return Response.json({
           success: true,
           data: result,
