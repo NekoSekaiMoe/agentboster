@@ -419,7 +419,16 @@ export async function updateTaskStatus(
      *  recovery another node performed. Returns null when the caller does
      *  not own the row — the route maps that to 409. When omitted
      *  (legacy caller), the update is unconditional, preserving prior
-     *  behavior. */
+     *  behavior.
+     *
+     *  FORWARD-COMPAT NOTE: the agentd Go client's UpdateTaskStatus does
+     *  NOT currently send node_id, so this guard is a no-op on the
+     *  daemon→Web path today (it activates once a caller passes
+     *  ownerNodeId). The PRIMARY protection — reapOrphanedTasks flipping
+     *  failed tasks of dead nodes — works independently of this guard;
+     *  this guard only adds the narrower defense against a partitioned-
+     *  then-recovered stale daemon clobbering a reclaimed task. Tracked
+     *  separately. */
     ownerNodeId?: string;
   },
 ) {
