@@ -1,6 +1,6 @@
 import { db, schema } from '@/lib/core/db';
 import { atomicWriteMode } from '@/lib/core/db/atomic';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
 export async function getCurrentSessionSummaryRow(sessionId: string) {
   const [row] = await db
@@ -10,6 +10,13 @@ export async function getCurrentSessionSummaryRow(sessionId: string) {
       and(
         eq(schema.sessionMemories.sessionId, sessionId),
         eq(schema.sessionMemories.isCurrent, true),
+        // Exclude soft-quarantined rows: when a workspace goes public→private,
+        // session_memories are stamped quarantined_at=now() (see
+        // setWorkspaceVisibilityCascade) so they're hidden from recall
+        // until the workspace goes public again and the field is cleared.
+        // Without this filter the quarantine is a no-op. See
+        // docs/design/soft-quarantine-memory-on-privatization.md §2.2.
+        isNull(schema.sessionMemories.quarantinedAt),
       ),
     )
     .limit(1);
@@ -21,7 +28,12 @@ export async function listSessionSummaryRows(sessionId: string) {
   return db
     .select()
     .from(schema.sessionMemories)
-    .where(eq(schema.sessionMemories.sessionId, sessionId))
+    .where(
+      and(
+        eq(schema.sessionMemories.sessionId, sessionId),
+        isNull(schema.sessionMemories.quarantinedAt),
+      ),
+    )
     .orderBy(desc(schema.sessionMemories.summaryVersion));
 }
 
