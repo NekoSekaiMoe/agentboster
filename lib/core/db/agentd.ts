@@ -1735,8 +1735,12 @@ function buildQuarantineRestoreParts(
   guard?: SQL,
 ) {
   const restoredByRunIdSql = runId ?? null;
+  // COALESCE: rows quarantined before originalDreamStatus was recorded
+  // (or with the key missing) fall back to 'active' instead of writing a
+  // NULL into the NOT NULL dream_status column.
+  const restoredDreamStatusSql = sql`COALESCE(quarantine_meta->>'originalDreamStatus', 'active')`;
   const restoreSharedMemoriesSet = {
-    dreamStatus: sql`(quarantine_meta->>'originalDreamStatus')::text`,
+    dreamStatus: restoredDreamStatusSql,
     quarantineMeta: sql`quarantine_meta || jsonb_build_object(
       'restoredByRunId', ${restoredByRunIdSql}::text,
       'restoredAt', ${now.toISOString()}::text
@@ -1748,6 +1752,10 @@ function buildQuarantineRestoreParts(
     eq(longTermMemories.dreamStatus, 'quarantined'),
     sql`(quarantine_meta->>'workspaceId') = ${id}`,
     sql`(quarantine_meta ? 'restoredByRunId') = false`,
+    // Only restore rows whose (coalesced) original status is a known
+    // non-quarantined lifecycle state; garbage values are left
+    // quarantined rather than written into dream_status.
+    sql`${restoredDreamStatusSql} IN ('active', 'tentative', 'superseded', 'contradicted')`,
     guard,
   );
   const restoreSessionMemoriesWhere = and(

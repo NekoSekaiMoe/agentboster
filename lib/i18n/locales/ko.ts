@@ -1030,4 +1030,16 @@ export const ko = {
   'workspace.visibilityRestoredWithMerge':
     '격리되었던 기억 {count}개를 복원했습니다 — Dream 통합을 백그라운드에서 실행 중',
   'workspace.detail.visibility': '공개 설정',
+  'skill.approval.importSkillRepo':
+    '모델이 Git 리포지토리에서 스킬을 가져오려고 합니다: {gitURL}. 허용하시겠습니까?',
+  'skill.approval.importSkillFromClawHub':
+    '모델이 ClawHub에서 스킬 {slug}(버전 {version})를 가져오려고 합니다. 허용하시겠습니까?',
+  'skill.approval.upsertSkill':
+    '모델이 스킬 {name}을(를) 생성/업데이트하려고 합니다(파일 {fileCount}개: {fileList}). 허용하시겠습니까?',
+  'skill.approval.updateSkillFile':
+    '모델이 스킬 파일 {name}/{filePath}을(를) 수정하려고 합니다(새 내용 {contentLength}자). 허용하시겠습니까?',
+  'skill.approval.deleteSkill':
+    '모델이 스킬 {name}(모든 파일과 메타데이터 포함)을(를) 삭제하려고 합니다. 허용하시겠습니까?',
+  'skill.approval.timeout':
+    '승인 요청이 {hours}시간 동안 응답이 없어 거부로 처리되었습니다.',
 } satisfies Record<keyof typeof enUS, string>;

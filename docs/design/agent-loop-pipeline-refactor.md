@@ -38,23 +38,29 @@ NOT a runtime middleware abstraction (the workflow DevKit's step model doesn't e
 │    "before streamText".
 │
 ┌─ 2. PREPARE STEP (per-step, before each model call) ────────────────
-│  Actual order (prepareStep, index.ts:568-679):
-│  a. microcompact(messages) → fold old tool results into placeholders
-│     (no LLM call). Runs first so the token estimate reflects the
-│     folded state.
-│  b. estimatePromptTokens(folded) → re-estimate prompt tokens.
-│  c. evaluateCompactionNeed(tokens, threshold) → compression DECISION
-│     (pure) on the raw, pre-normalization messages.
-│  d. compactAndPersistSummaryStep(...) → LLM summarize + persist
-│     (side effect: DB), replace messages. Only when (c) fires.
-│  e. append queued instruction messages.
-│  f. applyMessageCompat(messages, providerCompat) → strip orphans,
+│  Actual order (prepareStep, index.ts:586+):
+│  a. writeMessageMetadata(stepNumber, createdAt) → UI-stream
+│     step-start marker (side effect). Runs first so the UI timeline
+│     matches the step boundary even if a later stage throws.
+│  b. mapInstructionMessages(queued instructions) → map + stage queued
+│     instruction messages. forceCompact is derived from the MAPPED
+│     result here and feeds the compaction decision in (e).
+│  c. microcompact(messages) → fold old tool results into placeholders
+│     (no LLM call). Runs before the token estimate so the estimate
+│     reflects the folded state.
+│  d. estimatePromptTokens(folded) → re-estimate prompt tokens.
+│  e. evaluateCompactionNeed(tokens, threshold, forceCompact) →
+│     compression DECISION (pure), forced when (b) requested it.
+│  f. compactAndPersistSummaryStep(...) → LLM summarize + persist
+│     (side effect: DB), replace messages. Only when (e) fires.
+│  g. append queued instruction prompt messages.
+│  h. applyMessageCompat(messages, providerCompat) → strip orphans,
 │     merge, enforce alternation. LAST, right before the model call.
 │
-│  NOTE: (f) running last is a deliberate correction of the original
+│  NOTE: (h) running last is a deliberate correction of the original
 │  "normalize BEFORE autocompact" idea. Compat normalization is
 │  provider wire-shape repair — it does not change token semantics, so
-│  the compression decision (c) is based on the raw messages; and
+│  the compression decision (e) is based on the raw messages; and
 │  compaction itself emits well-formed messages, so normalizing last
 │  cannot re-introduce orphans into the trimmed window — it repairs
 │  exactly the prompt that goes on the wire.
@@ -99,7 +105,8 @@ NOT a runtime middleware abstraction (the workflow DevKit's step model doesn't e
 ## Migration path (when this is executed)
 
 1. Extract each concern into `lib/workflow/agent/stages/` (one file each), preserving current behavior exactly. Land behind no flag — `chatWorkflow` calls them inline. Stages split into two kinds; do NOT pretend every stage is a pure function:
-   - **Pure decision stages**: `buildToolsForRun`, `evaluateCompactionNeed` (token estimate + threshold decision), `detectProviderMismatch`, `observeToolLoop` — no I/O, signature in / decision out.
+   - **Pure decision stages**: `buildToolsForRun`, `evaluateCompactionNeed` (token estimate + threshold decision), `detectProviderMismatch` — no I/O, no accumulated state, signature in / decision out.
+   - **Stateful decision adapters**: `observeToolLoop` — `ToolLoopGuard.observe()` mutates per-run tracker state (malformed/failure counters, cycle fingerprints) as it decides, so the verdict is NOT a pure function of its inputs. When extracting, split the guard-state mutation from the pure loop verdict (snapshot in / decision out) so the judgment stays independently testable, and keep the guard instance as the cross-step history carrier — current cross-step behavior must be preserved exactly.
    - **Side-effect adapters**: `persistStepDelta` (DB write), `finalizeRunStep` (DB status + KV bump), `spawnPostRunCleanup` (workflow-run spawn, via a `'use step'` wrapper — see constraint #5), `writeStreamClose` / `writeMessageMetadata` (UI-stream writes), `compactAndPersistSummaryStep` (LLM call + DB summary persistence). These are thin wrappers around host resources.
    - Boundary note for `prepareStep`: it mixes both — the message-metadata write and summary persistence are the side-effect parts; microcompact / token estimation / the compaction decision are the pure parts. When extracting, keep the pure decisions separately testable from the persistence adapters.
 2. Add the ordering docstrings to `chatWorkflow` (the single document of "X must precede Y because Z").

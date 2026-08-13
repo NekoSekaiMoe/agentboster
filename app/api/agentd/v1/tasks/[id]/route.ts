@@ -5,6 +5,7 @@ import {
   getTask,
   updateTaskStatus,
 } from '@/lib/core/db/agentd';
+import { agentTasks } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.tasks');
@@ -14,15 +15,11 @@ const logger = createLogger('api.agentd.tasks');
 // this guard an arbitrary string would be written — it would never match
 // the terminal statuses (lease never cleared), never match
 // reapOrphanedTasks' in-flight scan, and never be claimable: a
-// permanently stuck row.
-const VALID_TASK_STATUSES = new Set([
-  'pending',
-  'reviewing',
-  'running',
-  'completed',
-  'failed',
-  'cancelled',
-]);
+// permanently stuck row. Derived from the schema enum so the route can
+// never drift from the column definition.
+const VALID_TASK_STATUSES: ReadonlySet<string> = new Set(
+  agentTasks.status.enumValues,
+);
 
 export async function GET(
   _request: Request,

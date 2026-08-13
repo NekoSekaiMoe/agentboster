@@ -37,6 +37,14 @@ export async function POST(request: Request) {
         .where(eq(agentdNodes.nodeID, body.node_id))
         .limit(1);
       ownerNodeId = node ? body.node_id : undefined;
+      if (!node) {
+        // Surface the degraded path: the daemon asked for ownership but
+        // its node_id is not registered, so the task is created
+        // ownerless and must wait for a claim.
+        logger.warn('unregistered node_id; creating task ownerless', {
+          nodeId: body.node_id,
+        });
+      }
     }
     const task = await createTask({
       agentId: body.agent_id ?? 'default',

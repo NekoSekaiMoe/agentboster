@@ -368,7 +368,11 @@ async function readRepoManifestFile(
       `Refusing to read manifest that resolves outside the repository: ${manifestPath}`,
     );
   }
-  return readFile(manifestPath, 'utf8');
+  // Read from the VALIDATED resolved path, not the original manifestPath
+  // — reading manifestPath here would reopen a validation-to-read race
+  // (the checkout could swap it for an escaping symlink between realpath
+  // and readFile).
+  return readFile(resolvedManifest, 'utf8');
 }
 
 // ─── Blob list / delete ───
@@ -1108,7 +1112,7 @@ export async function persistManualSkillToBlob(
   enforceScan(
     files.map((f) => ({
       path: f.path,
-      content: new TextEncoder().encode(f.content),
+      content: encoder.encode(f.content),
     })),
   );
 

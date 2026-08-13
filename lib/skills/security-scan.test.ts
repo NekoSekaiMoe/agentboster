@@ -235,6 +235,51 @@ describe('security-scan: python rules', () => {
       expect.objectContaining({ ruleId: 'shell-destructive' }),
     );
   });
+
+  it('applies the hint when the runtime value needs trim/lowercase normalization', () => {
+    // Frontmatter values are user-authored YAML — 'Bash ' (mixed case +
+    // trailing space) must still classify the entrypoint as shell.
+    const findings = scanSkillFileContent('run', enc('rm -rf /*\n'), {
+      runtime: 'Bash ',
+      entrypoint: 'run',
+    });
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        ruleId: 'shell-destructive',
+        severity: 'CRITICAL',
+      }),
+    );
+  });
+
+  it('applies the hint when the entrypoint carries a ./ prefix', () => {
+    // Frontmatter authors commonly write './run'; it must still match
+    // the file stored as 'run'.
+    const findings = scanSkillFileContent('run', enc('rm -rf /*\n'), {
+      runtime: 'bash',
+      entrypoint: './run',
+    });
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        ruleId: 'shell-destructive',
+        severity: 'CRITICAL',
+      }),
+    );
+  });
+
+  it('applies the hint when the entrypoint uses backslash separators', () => {
+    // Windows-authored frontmatter ('scripts\\run') must match the
+    // POSIX-relative path 'scripts/run'.
+    const findings = scanSkillFileContent('scripts/run', enc('rm -rf /*\n'), {
+      runtime: 'bash',
+      entrypoint: 'scripts\\run',
+    });
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        ruleId: 'shell-destructive',
+        severity: 'CRITICAL',
+      }),
+    );
+  });
 });
 
 describe('security-scan: exfil heuristic', () => {

@@ -25,4 +25,15 @@ export const zhHK = {
   'workspace.detail.statusActive': '使用中',
   'workspace.detail.failoverHistory': '故障轉移紀錄',
   'workspace.detail.noFailovers': '暫無故障轉移紀錄',
+  'skill.approval.importSkillRepo':
+    '模型請求從 Git 倉庫匯入技能：{gitURL}，是否允許？',
+  'skill.approval.importSkillFromClawHub':
+    '模型請求從 ClawHub 匯入技能 {slug}（版本 {version}），是否允許？',
+  'skill.approval.upsertSkill':
+    '模型請求建立/更新技能檔案 {name}（含 {fileCount} 個檔案：{fileList}），是否允許？',
+  'skill.approval.updateSkillFile':
+    '模型請求修改技能檔案 {name}/{filePath}（新內容 {contentLength} 字符），是否允許？',
+  'skill.approval.deleteSkill':
+    '模型請求刪除技能 {name}（含其全部檔案與元數據），是否允許？',
+  'skill.approval.timeout': '審批請求超過 {hours} 小時未回應，已按拒絕處理。',
 } satisfies Record<keyof typeof enUS, string>;
