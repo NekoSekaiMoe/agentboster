@@ -111,9 +111,7 @@ export const agentTasks = pgTable(
     // full index. Mirrors deer-flow's ix_runs_lease.
     leaseExpiresAtIdx: index('agent_tasks_lease_expires_at_idx')
       .on(table.leaseExpiresAt)
-      .where(
-        sql`status IN ('pending', 'reviewing', 'running')`,
-      ),
+      .where(sql`status IN ('pending', 'reviewing', 'running')`),
   }),
 );
 

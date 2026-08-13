@@ -294,7 +294,7 @@ export function SidebarCoreContent({ onClose }: SidebarCoreContentProps) {
         toast.error(t('toast.session.abortFailed'));
       }
     },
-    [qc],
+    [qc, t],
   );
 
   const handleLogout = useCallback(async () => {
