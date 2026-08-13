@@ -61,7 +61,8 @@ workspace back to private — deletes the shared pool"。
 
 关键:**recall 已经会过滤非 active 行,所以加 `quarantined` 后,recall 天然不可
 见——无需改 recall 查询。** Dream 默认也只看 active,所以隔离行不会被 Dream
-误合并;再公开时显式带 `includeQuarantined` 把它们捞出来。
+误合并;再公开时由 `restoreQuarantinedMemories` 在事务内显式读取并复活(无公共
+`includeQuarantined` 选项,见 §2.5)。
 
 ### 2.2 Schema 变更
 
@@ -79,7 +80,12 @@ dreamStatus: text('dream_status', {
 quarantineMeta: jsonb('quarantine_meta').$type<{
   workspaceId: string;
   isolatedAt: string;        // ISO 时间戳
+  /** 私有化 bump 前的 quarantine_epoch 值:标记“被第 N 次私有化隔离”,
+   *  用于区分当前私有期快照与历史快照 */
+  isolatedEpoch?: number;
   isolatedByRunId?: string;  // 触发私有化的 run(审计)
+  /** 隔离 UPDATE 只匹配 active 行,实际写入只会是 'active';
+   *  类型保留四态联合仅为前向兼容(见 §3 第 1 条) */
   originalDreamStatus: 'active' | 'tentative' | 'superseded' | 'contradicted';
   /** 复活后置位,标记已被某次再公开消费,避免重复复活 */
   restoredByRunId?: string;
@@ -87,9 +93,10 @@ quarantineMeta: jsonb('quarantine_meta').$type<{
 } | null>(),
 ```
 
-为什么记 `originalDreamStatus`:私有化瞬间,共享池里可能混着 `active` 主行和
-`superseded` 归档行。复活时应按原状态恢复,而不是一律变 active(否则会把已归档
-的旧事实重新激活,污染记忆)。
+为什么记 `originalDreamStatus`:虽然隔离 UPDATE 只打 active 行(见 §2.3),仍按
+“从原行读取原状态”写入而非硬编码 `'active'`——bulk UPDATE 里直接取
+`dream_status` 列值,语义上是“恢复到来时的状态”,即使未来隔离范围扩大也无需
+改恢复路径。
 
 **`session_memories`**(新增字段,同思路):
 
@@ -105,8 +112,10 @@ dream_status 字段,且会话隔离语义独立。)
 **`workspaces`**(新增审计字段):
 
 ```ts
-/** 最近一次私有化隔离的版本号。每次 public→private +1。再公开时用它判断
- *  是否有待复活快照。 */
+/** 最近一次私有化隔离的版本号。**只在 public→private 创建快照时 +1,复活
+ *  路径绝不递增**(“已消费”由每行的 quarantineMeta.restoredByRunId 记录,
+ *  不靠 epoch)。配合 quarantineMeta.isolatedEpoch 判断隔离行属于当前私有期
+ *  还是历史快照。 */
 quarantineEpoch: integer('quarantine_epoch').default(0).notNull(),
 ```
 
@@ -125,7 +134,8 @@ await tx
     quarantineMeta: {
       workspaceId: id,
       isolatedAt: now.toISOString(),
-      originalDreamStatus: <从原行读>,
+      isolatedEpoch: <私有化 bump 前的 epoch 值>,  // 标记“被第 N 次私有化隔离”
+      originalDreamStatus: <从原行读>,  // 实际只会是 'active'(WHERE 只匹配 active 行)
     },
     updatedAt: now,
   })
@@ -133,7 +143,9 @@ await tx
     and(
       eq(longTermMemories.workspaceId, id),
       eq(longTermMemories.shared, true),
-      eq(longTermMemories.dreamStatus, 'active'),  // 只隔离 active 行
+      eq(longTermMemories.dreamStatus, 'active'),  // 只隔离 active 行(有意取舍:
+      // 非 active 行本就不被 recall 使用,隔离不增加任何可见性隔离,只会让恢复
+      // 路径复杂化——见 §3 第 1 条)
       activeGuard,
     ),
   );
@@ -150,11 +162,11 @@ session,把其 `session_memories.quarantined_at = now`(保留行,不删)。
 新增 `restoreQuarantinedMemories(workspaceId, runId)`:
 
 ```ts
-// 1. 复活:把该 workspace 当前 epoch 的 quarantined 行翻回 active
+// 1. 复活:把该 workspace **未被消费过的** quarantined 行翻回原状态
 await tx
   .update(longTermMemories)
   .set({
-    dreamStatus: quarantineMeta.originalDreamStatus,  // 按原状态恢复
+    dreamStatus: quarantineMeta.originalDreamStatus,  // 按原状态恢复(实际即 'active')
     quarantineMeta: { ...meta, restoredByRunId: runId, restoredAt: now },
     updatedAt: now,
   })
@@ -162,8 +174,11 @@ await tx
     and(
       eq(longTermMemories.workspaceId, workspaceId),
       eq(longTermMemories.dreamStatus, 'quarantined'),
-      // 只复活"本次私有化"隔离的行,不碰更早的历史
       sql`quarantine_meta->>'workspaceId' = ${workspaceId}`,
+      // 关键:只复活未被消费过的行,防止跨批次重复复活。restoredByRunId 置位
+      // 与状态翻回在同一个 UPDATE 里完成,所以已消费行必然已是 active、不会再
+      // 命中本 WHERE;此过滤防御的是并发/重试下的二次复活。
+      sql`(quarantine_meta ? 'restoredByRunId') = false`,
     ),
   );
 
@@ -173,7 +188,15 @@ await tx
   .set({ quarantinedAt: null })
   .where(... session 属于该 workspace 且 quarantinedAt != null);
 
-// 3. 把 workspaces.quarantine_epoch + 1(标记本轮快照已消费)
+// 3. 注意:quarantine_epoch **不在复活路径递增**——epoch 只在 public→private
+//    创建快照时 +1;“本轮快照已消费”由每行的 restoredByRunId 记录。
+
+// 4. DB 块提交后,仅当确有行被复活时 bump 共享缓存版本:
+if (restoredMemoryCount > 0) {
+  await bumpSharedMemoryVersion(id);
+}
+//    与私有化路径同一 fail-open 纪律:漏 bump 只让读者重建一次共享缓存,recall
+//    不受影响;空复活(无行恢复)不 bump,避免无谓的缓存失效。
 ```
 
 复活后,**触发一次定向 Dream 合并**。复用现有 `runDreamForUser`
@@ -181,7 +204,10 @@ await tx
 
 ```ts
 // 现状:runDreamForUser 只看 active 行
-// 扩展:加 includeQuarantinedSince 选项,让 phase1/phase2 把刚复活的行纳入合并
+// 扩展:加 includeQuarantinedSince 选项,让 phase1/phase2 把刚复活的行纳入合并。
+// 语义定义:按 quarantine_meta.isolatedAt >= since 过滤,**不限当前
+// dreamStatus**——复活先行,目标行此时已是 active;若按
+// dream_status='quarantined' 过滤将永远匹配不到任何行。
 await runDreamForUser({
   userId: ownerOf(workspaceId),
   config,
@@ -199,27 +225,41 @@ await runDreamForUser({
 `dream_status`。真正的 dream_status 过滤在 recall 的上游
 (`listAllLongTermMemoryRows` 默认 `includeInactive=false`):
 - 加了 `quarantined` 后,recall 默认看不到隔离行 ✅
-- 再公开复活后 `dreamStatus` 翻回 `active`/`tentative`,recall 重新可见 ✅
+- 再公开复活后 `dreamStatus` 翻回 `active`,recall 重新可见 ✅
 
-唯一要补的:**`listAllLongTermMemoryRows` 的 `includeInactive` 文档要写清
-`quarantined` 不被 `includeInactive=true` 隐式包含**——隔离行是"显式排除",
-想看必须带 `includeQuarantined: true`(Dream 合并复活路径专用)。
+读取侧不变量(**默认排除、恢复流程显式读取**):
+- `listAllLongTermMemoryRows(includeInactive=true)` 显式排除 `quarantined`
+  (`ne(dreamStatus,'quarantined')`)——`includeInactive` 只覆盖
+  tentative/superseded/contradicted;
+- `getLongTermMemoryRow(id)` 与 `listLongTermMemoryRows({includeInactive:true})`
+  同样默认排除 `quarantined`——隔离行对**所有**公共读取路径不可见;
+- **不存在公开的 `includeQuarantined` 选项**。恢复流程
+  (`restoreQuarantinedMemories`)在 DAL 事务内用原始 SQL 直接读写隔离行,不经上
+  述 helper,所以“默认排除”不会阻断复活;需要审计隔离行时直接查表。
 
 ---
 
 ## 3. 边界与不变量
 
-1. **只隔离 active 行**:`tentative`/`superseded`/`contradicted` 行私有化时不
-   动(它们本就不可见,隔离无意义);但若某 `superseded` 行的"原 active 主行"
-   被隔离,复活时两者都回 `active` 会冲突。→ 解法:私有化时把同
-   `(userId,projectId,key)` 的 superseded 链一起隔离,复活时一起恢复。
+1. **只隔离 active 行(有意取舍)**:`tentative`/`superseded`/`contradicted` 行私
+   有化时不动——它们本就不被 recall 使用,隔离不增加任何可见性隔离,只会让恢复
+   路径复杂化。**不做“superseded 链一起隔离/一起恢复”**:链成员(非 active 行)
+   拿不到 quarantineMeta,复活查询也只匹配 quarantined 行,链式恢复无从落地。由
+   此 `quarantineMeta.originalDreamStatus` 实际只会是 `'active'`(类型保留四态联
+   合仅为前向兼容)。复活后若与现存同 key 的 superseded 链并存,由随后的定向
+   Dream 合并(phase1)按既有语义重新裁决 supersede 关系——这正是复活后必须触发
+   Dream 的原因之一。
 
-2. **多次私有化/公开(保留全部历史)**:`quarantineEpoch` 单调递增。每次
-   私有化只隔离当时 active 的共享行;每次再公开只复活**未被消费过的**隔离行
-   (`quarantineMeta.restoredByRunId IS NULL`)。被消费过的历史隔离行**保留在表
-   里不删**,只是 recall 和默认 Dream 都不再看见它们(用
-   `restoredByRunId IS NOT NULL` 区分)。这样支持审计与手动恢复;代价是表会增
-   长,需要定期 GC(见 §3.1)。
+2. **多次私有化/公开(保留全部历史)**:`quarantineEpoch` 单调递增,且**只在
+   public→private 创建快照时 +1**,复活路径不递增。每次私有化只隔离当时
+   active 的共享行;每次再公开只复活**未被消费过的**隔离行
+   (`quarantineMeta.restoredByRunId IS NULL`)。复活把行翻回
+   `originalDreamStatus`(实际即 `active`)并在同一 UPDATE 里置位
+   `restoredByRunId`,所以**复活后的行是普通 active 记忆,recall 与默认 Dream
+   重新可见**——这正是期望行为(记忆回到了团队池)。“已消费记录继续不可见”的
+   说法**仅适用于仍为 quarantined 的历史行**(从未被任何一次再公开复活的残留快
+   照);`restoredByRunId`/`restoredAt` 承担的是审计轨迹,不是隐藏开关。残留隔
+   离行的增长由 GC 控制(见 §3.1)。
 
 3. **工作空间硬删除**:仍然真删除(含全部隔离行,无论是否被消费过)——隔离不
    是数据长生不老,只是"私有化不删"。
@@ -239,12 +279,13 @@ await runDreamForUser({
 
 ### 3.1 历史 epoch 的 GC(可选,后置)
 
-由于决定保留全部历史,表会随私有化/公开次数线性增长。建议的 GC 策略(**本设计
-不含实现,留给后续单独立项**):
-- 只清理 `restoredByRunId IS NOT NULL` 且 `updatedAt` 早于阈值(如 90 天)的
-  已消费历史隔离行;
-- **绝不**清理 `restoredByRunId IS NULL` 的未消费隔离行(那是当前私有化正在
-  保护的快照);
+由于决定保留全部历史,残留的 quarantined 行会随私有化/公开次数缓慢增长。建议
+的 GC 策略(**本设计不含实现,留给后续单独立项**):
+- 只清理**仍为 `quarantined`** 且 `quarantine_meta.isolatedAt` 早于阈值(如
+  90 天)的历史行,且仅当其所属工作空间当前不是 `private`——私有中的工作空间
+  的隔离行是正在保护的快照,绝不清理;
+- **绝不**删除 `quarantine_meta.restoredByRunId` 非空的 **active** 记忆——这些
+  行已复活为正常活跃数据(recall/Dream 可见),删掉它们等于丢团队知识;
 - GC 走独立后台任务,不阻塞私有化/复活热路径。
 
 ---

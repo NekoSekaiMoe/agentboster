@@ -366,7 +366,9 @@ async function materializeAndRunOnVercelSandbox(input: {
  *      require approval in every autonomy mode because the whole
  *      point is that the model must never edit its own skill files
  *      (and thereby future prompt/instruction surfaces) without an
- *      admin's consent — even in autonomous mode.
+ *      admin's consent — even in autonomous mode. This gate now covers
+ *      every skill-mutation tool: upsertSkill, updateSkillFile,
+ *      importSkillRepo and importSkillFromClawHub.
  *   2. The reminder text is skill-specific Chinese describing exactly
  *      what is being mutated (`name`/`path`), instead of sanbox.ts's
  *      generic "A tool action is waiting for your approval". The
@@ -400,6 +402,14 @@ async function waitForSkillApproval(input: {
     '@/lib/workflow/agent/sender/writers'
   );
 
+  // Register the approval hook FIRST. Writing the approval request /
+  // reminder before registration opened a race: a fast /approve could
+  // arrive while no hook existed yet and fail with "Hook not found"
+  // (resumeToolApproval in app/(chat)/actions.ts). Registration is
+  // synchronous and non-blocking — the actual wait happens in the
+  // for-await below, after the request + reminder have gone out.
+  using hook = approvalHookBuilder.create({ token: input.toolCallId });
+
   // Emit the tool-input card + approval-request chunk so the Web UI
   // renders the pending approval inline (same writers sanbox.ts uses).
   await writeToolApprovalRequest({
@@ -422,8 +432,6 @@ async function waitForSkillApproval(input: {
     source: input.source ?? { type: 'web' },
     text: reminder,
   });
-
-  using hook = approvalHookBuilder.create({ token: input.toolCallId });
 
   let approval: { approved: boolean; comment?: string } = {
     approved: false,
@@ -650,8 +658,28 @@ export default defineBuildInTool({
           /** Git URL of the repository */
           gitURL: z.string().min(1),
         }),
-        execute: async ({ gitURL }) => {
+        execute: async ({ gitURL }, { toolCallId }) => {
           'use step';
+
+          // L2 approval gate (FIRST gate), matching upsertSkill /
+          // updateSkillFile. The Phase-1 scan still runs inside
+          // syncSkillFilesToBlob, but a regex scan cannot judge a
+          // benign-looking malicious repo — a human must approve the
+          // source URL before anything is downloaded or written.
+          const approval = await waitForSkillApproval({
+            source,
+            toolCallId,
+            toolName: 'importSkillRepo',
+            toolInput: { gitURL },
+            promptText: `模型请求从 Git 仓库导入技能：${gitURL}，是否允许？`,
+          });
+          if (!approval.approved) {
+            return {
+              error:
+                approval.comment ||
+                `Skill import denied by admin: importSkillRepo(${gitURL})`,
+            };
+          }
 
           const imported = await downloadAndSyncSkillsFromGit(gitURL);
           const result = await syncRepoSkillDetails(gitURL, imported);
@@ -666,8 +694,26 @@ export default defineBuildInTool({
           slug: z.string().min(1),
           version: z.string().optional(),
         }),
-        execute: async ({ slug, version }) => {
+        execute: async ({ slug, version }, { toolCallId }) => {
           'use step';
+
+          // L2 approval gate (FIRST gate), matching upsertSkill /
+          // updateSkillFile. Registry content is still untrusted author
+          // input; the human approves slug + version before download.
+          const approval = await waitForSkillApproval({
+            source,
+            toolCallId,
+            toolName: 'importSkillFromClawHub',
+            toolInput: { slug, version },
+            promptText: `模型请求从 ClawHub 导入技能 ${slug}（版本 ${version ?? 'latest'}），是否允许？`,
+          });
+          if (!approval.approved) {
+            return {
+              error:
+                approval.comment ||
+                `Skill import denied by admin: importSkillFromClawHub(${slug}@${version ?? 'latest'})`,
+            };
+          }
 
           const detail = await downloadAndSyncSkillFromClawHub({
             slug,

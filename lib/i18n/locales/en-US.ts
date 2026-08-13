@@ -680,6 +680,8 @@ export const enUS = {
   'slash.command.provider.hint': '/provider <add|set|remove>',
   'slash.command.config.description': 'Show or set config values (whitelist)',
   'slash.command.config.hint': '/config <path> [value]',
+  'slash.command.goal.description': 'Set, show, or clear the session goal',
+  'slash.command.goal.hint': '/goal [set <text>|clear]',
   'slash.command.memory.description': 'Search, list, or add memories',
   'slash.command.memory.hint': '/memory <query|builtin|search|add>',
   'slash.command.pair.description': 'Pair your IM account with a code',

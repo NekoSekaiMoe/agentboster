@@ -687,7 +687,7 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	// copy/update while staying deadlock-free.
 	agentCtx.WithStateLock(func() {
 		if err := m.sessionStore.Put(sessionID, agentContextToData(&execCtx)); err != nil {
-			slog.Warn("failed to persist session identity", "session_id", sessionID, "error", err)
+			execCtx.Log().Warn("failed to persist session identity", "session_id", sessionID, "error", err)
 		}
 	})
 
@@ -737,7 +737,7 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	if req.WorkspaceID != "" {
 		ws, err := m.sbManager.CreateSandbox(buildWorkspaceSandboxSpec(req.WorkspaceID, ctx, execCtx.AgentConfig))
 		if err != nil {
-			slog.Warn("workspace sandbox lazy-create failed; falling back to ephemeral", "workspace_id", req.WorkspaceID, "error", err)
+			execCtx.Log().Warn("workspace sandbox lazy-create failed; falling back to ephemeral", "workspace_id", req.WorkspaceID, "error", err)
 		} else {
 			execCtx.SandboxID = ws.ID
 			execCtx.SandboxType = ws.Type

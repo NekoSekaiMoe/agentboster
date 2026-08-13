@@ -673,6 +673,8 @@ export const ja = {
   'slash.command.provider.description':
     'model provider の一覧・追加・更新・削除',
   'slash.command.config.description': 'config 値の表示・設定（ホワイトリスト）',
+  'slash.command.goal.description': 'セッション目標の設定・表示・クリア',
+  'slash.command.goal.hint': '/goal [set <text>|clear]',
   'slash.command.memory.description': '記憶の検索・一覧・追加',
   'slash.command.pair.description': 'code で IM アカウントをペアリング',
   'slash.command.unpair.description':

@@ -144,22 +144,13 @@ func (m *Manager) LaunchSubagent(parent *AgentContext, req SubagentRequest) stri
 	// directly — the parent AgentContext is a shared pointer whose
 	// fields (RecentToolCalls, TaskState, SessionSummary) mutate as the
 	// parent loop continues. We only need a few immutable identifiers.
-	parentSnap := subagentParentSnapshot{
-		agentID:        parent.AgentID,
-		sessionID:      parent.SessionID,
-		userID:         parent.UserID,
-		roles:          append([]string(nil), parent.Roles...),
-		source:         parent.Source,
-		parentSandbox:  req.ParentSandbox,
-		systemPrompt:   req.SystemPrompt,
-		task:           req.Task,
-		expectedOutput: req.ExpectedOutput,
-		sandboxType:    req.SandboxType,
-		statePath:      statePath,
-		subagentID:     req.ID,
-	}
+	parentSnap := newSubagentParentSnapshot(parent, req, statePath)
 
-	slog.Info("subagent launched",
+	// Request-scoped logger: carries run_id when the parent run id
+	// propagated from the Web tier, so the sub-agent's lifecycle logs
+	// join the same cross-tier audit chain. Default logger (no run_id)
+	// for legacy callers.
+	parent.Log().Info("subagent launched",
 		"subagent_id", req.ID,
 		"task", req.Task,
 		"sandbox_type", req.SandboxType,
@@ -175,11 +166,17 @@ func (m *Manager) LaunchSubagent(parent *AgentContext, req SubagentRequest) stri
 // fields the sub-agent goroutine needs. Avoids races with the parent
 // loop mutating the shared *AgentContext.
 type subagentParentSnapshot struct {
-	agentID        string
-	sessionID      string
-	userID         string
-	roles          []string
-	source         clawless.BotSource
+	agentID   string
+	sessionID string
+	userID    string
+	roles     []string
+	source    clawless.BotSource
+	// runID is the Web-tier workflow run id inherited from the parent
+	// (ToolExecRequest.RunID → AgentContext.RunID). It is copied onto
+	// the sub-agent's AgentContext so the loop's audit clawless.Task
+	// (loop.go) and every task-duration log line keep the cross-tier
+	// correlation. Empty for non-traced parents.
+	runID          string
 	parentSandbox  string
 	systemPrompt   string
 	task           string
@@ -189,12 +186,43 @@ type subagentParentSnapshot struct {
 	subagentID     string
 }
 
+// newSubagentParentSnapshot builds the immutable snapshot from the
+// parent context and request. Extracted for unit testing.
+func newSubagentParentSnapshot(parent *AgentContext, req SubagentRequest, statePath string) subagentParentSnapshot {
+	return subagentParentSnapshot{
+		agentID:        parent.AgentID,
+		sessionID:      parent.SessionID,
+		userID:         parent.UserID,
+		roles:          append([]string(nil), parent.Roles...),
+		source:         parent.Source,
+		runID:          parent.RunID,
+		parentSandbox:  req.ParentSandbox,
+		systemPrompt:   req.SystemPrompt,
+		task:           req.Task,
+		expectedOutput: req.ExpectedOutput,
+		sandboxType:    req.SandboxType,
+		statePath:      statePath,
+		subagentID:     req.ID,
+	}
+}
+
+// log returns the sub-agent goroutine's logger: run_id-tagged when the
+// parent's run id propagated, slog.Default() otherwise (legacy callers
+// see no log-shape change).
+func (s subagentParentSnapshot) log() *slog.Logger {
+	if s.runID == "" {
+		return slog.Default()
+	}
+	return slog.With("run_id", s.runID)
+}
+
 // runSubagentLoop is the goroutine body. It acquires a concurrency slot,
 // builds an isolated AgentContext + sandbox + tool registry, runs the
 // loop, summarizes the result, stores it, and updates the state file.
 // Panics are recovered and surfaced as a failed result so the parent
 // agent sees an error instead of an eternal "running".
 func (m *Manager) runSubagentLoop(snap subagentParentSnapshot) {
+	logger := snap.log()
 	// Recovery: always release the slot and record a result so the
 	// parent never observes a zombie "running" state forever.
 	resultStored := false
@@ -222,7 +250,7 @@ func (m *Manager) runSubagentLoop(snap subagentParentSnapshot) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			slog.Error("subagent panicked",
+			logger.Error("subagent panicked",
 				"subagent_id", snap.subagentID,
 				"panic", r,
 			)
@@ -264,19 +292,24 @@ func (m *Manager) runSubagentLoop(snap subagentParentSnapshot) {
 	}
 	defer func() {
 		if err := m.sbManager.DestroySandbox(sb.ID); err != nil {
-			slog.Warn("failed to destroy subagent sandbox",
+			logger.Warn("failed to destroy subagent sandbox",
 				"subagent_id", snap.subagentID, "sandbox_id", sb.ID, "error", err)
 		}
 	}()
 
 	now := time.Now()
 	subCtx := &AgentContext{
-		SessionID:      snap.sessionID + "::sub::" + snap.subagentID,
-		TaskID:         snap.subagentID,
-		AgentID:        snap.agentID,
-		UserID:         snap.userID,
-		Roles:          snap.roles,
-		Source:         snap.source,
+		SessionID: snap.sessionID + "::sub::" + snap.subagentID,
+		TaskID:    snap.subagentID,
+		AgentID:   snap.agentID,
+		UserID:    snap.userID,
+		Roles:     snap.roles,
+		Source:    snap.source,
+		// Inherit the parent's run id: loop.go builds the per-tool audit
+		// clawless.Task from agentCtx.RunID, and AgentContext.Log() tags
+		// every loop log line, so the sub-agent's callbacks and logs join
+		// the parent's cross-tier audit chain.
+		RunID:          snap.runID,
 		SandboxID:      sb.ID,
 		SandboxType:    sb.Type,
 		SandboxPath:    sb.Path,
@@ -324,7 +357,7 @@ func (m *Manager) runSubagentLoop(snap subagentParentSnapshot) {
 	runCtx, runCancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer runCancel()
 
-	slog.Info("subagent loop starting",
+	logger.Info("subagent loop starting",
 		"subagent_id", snap.subagentID,
 		"task", snap.task,
 		"sandbox_id", sb.ID,
@@ -343,12 +376,12 @@ func (m *Manager) runSubagentLoop(snap subagentParentSnapshot) {
 		snap.subagentID, snap.task, rawResult,
 	)
 	if summarizeErr != nil {
-		slog.Warn("subagent summarize failed; using truncated raw",
+		logger.Warn("subagent summarize failed; using truncated raw",
 			"subagent_id", snap.subagentID, "error", summarizeErr)
 		summary = truncate(rawResult, 1000)
 	}
 
-	slog.Info("subagent completed",
+	logger.Info("subagent completed",
 		"subagent_id", snap.subagentID,
 		"raw_len", len(rawResult),
 		"summary_len", len(summary),

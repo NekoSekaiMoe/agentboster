@@ -474,10 +474,17 @@ export interface GoalCounterDelta {
   hiddenDelta?: number;
   /** Delta to apply to consecutive_non_progress. The caller decides
    *  whether the latest evaluation counts as "non-progress": pass +1
-   *  when the reason is identical to the previous one, else 0 (and
-   *  reset to 0 when the reason changes — see clearSessionGoal + a
-   *  bare hiddenDelta-only call below). */
+   *  when the reason is identical to the previous one, else 0 (leave
+   *  unchanged). To RESET the streak when the eval reason changes, use
+   *  resetNonProgress — a 0 delta is a truthy-skip and cannot zero the
+   *  column. */
   nonProgressDelta?: number;
+  /** When true, write consecutive_non_progress = 0 (absolute value,
+   *  not a delta). Takes precedence over nonProgressDelta. Use this for
+   *  the "eval reason changed → streak resets" path documented in the
+   *  schema (consecutive_non_progress is reset on setSessionGoal AND
+   *  whenever the eval reason changes). */
+  resetNonProgress?: boolean;
   /** New value for last_eval_reason. When provided, overwrites the
    *  column; when omitted, the column is left as-is. */
   lastEvalReason?: string | null;
@@ -544,7 +551,9 @@ export async function clearSessionGoal(
  *
  * Deltas default to 0 (no change); lastEvalReason defaults to
  * undefined (leave the column as-is). Pass lastEvalReason explicitly
- * (including `null`) to update it.
+ * (including `null`) to update it. Pass `resetNonProgress: true` to
+ * write consecutive_non_progress = 0 outright (a 0 nonProgressDelta
+ * is a no-op, not a reset).
  */
 export async function incrementGoalCounters(
   sessionId: string,
@@ -562,7 +571,12 @@ export async function incrementGoalCounters(
     patch.hiddenContinuationCount =
       sql`${schema.sessions.hiddenContinuationCount} + ${delta.hiddenDelta}` as unknown as number;
   }
-  if (delta.nonProgressDelta) {
+  if (delta.resetNonProgress) {
+    // Absolute write, not col + n: the eval reason changed, so the
+    // identical-non-progress streak restarts from zero. Checked before
+    // nonProgressDelta so an explicit reset always wins.
+    patch.consecutiveNonProgress = 0;
+  } else if (delta.nonProgressDelta) {
     patch.consecutiveNonProgress =
       sql`${schema.sessions.consecutiveNonProgress} + ${delta.nonProgressDelta}` as unknown as number;
   }

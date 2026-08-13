@@ -140,6 +140,7 @@ import {
   setWorkspaceVisibility,
   setWorkspaceVisibilityCascade,
   restoreQuarantinedMemories,
+  publicizeWorkspaceCascade,
 } from './agentd';
 
 async function seedUser(
@@ -210,6 +211,30 @@ describe('workspace DAL (PGlite)', () => {
       )
     ).rows as { id: string }[];
     return row.id;
+  }
+
+  /** Seed a session_memories summary row for a session — the row the
+   *  privatization cascade stamps with quarantined_at (while the session
+   *  is still shared) and the restore clears. */
+  async function seedSessionMemory(sessionId: string): Promise<string> {
+    const [row] = (
+      await harness.db.execute(
+        sql`INSERT INTO "session_memories" ("session_id", "content", "summary_version") VALUES (${sessionId}::uuid, 'summary', 1) RETURNING "id"`,
+      )
+    ).rows as { id: string }[];
+    return row.id;
+  }
+
+  /** Read a session_memories row's quarantine stamp back by id. */
+  async function getSessionMemory(
+    id: string,
+  ): Promise<{ quarantined_at: Date | null } | undefined> {
+    const rows = (
+      await harness.db.execute(
+        sql`SELECT "quarantined_at" FROM "session_memories" WHERE "id" = ${id}::uuid`,
+      )
+    ).rows as { quarantined_at: Date | null }[];
+    return rows[0];
   }
 
   /** Read a session row back by id. */
@@ -767,18 +792,27 @@ describe('workspace DAL (PGlite)', () => {
       await setWorkspaceSharedMemory(ws.id, true);
       const memId = await seedSharedMemory(ws.id);
       const sessId = await seedSharedSession(ws.id);
+      const sessMemId = await seedSessionMemory(sessId);
 
       // Privatize: soft-quarantine the shared pool.
       await setWorkspaceVisibilityCascade(ws.id, 'private');
       expect(await countSharedMemories(ws.id)).toBe(0);
       expect(await countAllSharedMemoryRows(ws.id)).toBe(1);
+      // The session's summary row was stamped while the session was still
+      // shared (the cascade stamps session_memories BEFORE resetting
+      // sessions.visibility — the subquery filters on visibility='shared').
+      expect(
+        (await getSessionMemory(sessMemId))?.quarantined_at,
+      ).not.toBeNull();
 
       // Re-public: restore flips the quarantined row back to active.
       bumpSharedMemoryVersionSpy.mockClear();
       const restore1 = await restoreQuarantinedMemories(ws.id, 'run-1');
       expect(restore1.workspace?.visibility).toBe('private'); // restore doesn't flip visibility
       expect(restore1.restoredMemoryCount).toBe(1);
-      expect(restore1.restoredSessionMemoryCount).toBeGreaterThanOrEqual(0);
+      // Exactly the one seeded session_memories row was un-stamped.
+      expect(restore1.restoredSessionMemoryCount).toBe(1);
+      expect((await getSessionMemory(sessMemId))?.quarantined_at).toBeNull();
       expect(await countSharedMemories(ws.id)).toBe(1);
       // The restored row's quarantine_meta carries restoredByRunId (audit).
       const r1 = (
@@ -853,6 +887,62 @@ describe('workspace DAL (PGlite)', () => {
       const r2 = await restoreQuarantinedMemories(ws.id, 'run-2');
       expect(r2.restoredMemoryCount).toBe(0); // already consumed
       expect(await countSharedMemories(ws.id)).toBe(1);
+    });
+  });
+
+  describe('publicizeWorkspaceCascade', () => {
+    it('flips visibility to public AND restores quarantined rows atomically', async () => {
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      const memId = await seedSharedMemory(ws.id);
+      const sessId = await seedSharedSession(ws.id);
+      const sessMemId = await seedSessionMemory(sessId);
+      await setWorkspaceVisibilityCascade(ws.id, 'private');
+      expect(await countSharedMemories(ws.id)).toBe(0);
+      expect(
+        (await getSessionMemory(sessMemId))?.quarantined_at,
+      ).not.toBeNull();
+      bumpSharedMemoryVersionSpy.mockClear();
+
+      const result = await publicizeWorkspaceCascade(ws.id, 'run-pub');
+
+      // One atomic block: visibility is public AND the pool is restored.
+      expect(result.workspace?.visibility).toBe('public');
+      expect(result.restoredMemoryCount).toBe(1);
+      expect(result.restoredSessionMemoryCount).toBe(1);
+      expect(await countSharedMemories(ws.id)).toBe(1);
+      expect((await getSessionMemory(sessMemId))?.quarantined_at).toBeNull();
+      const row = (
+        await harness.db.execute(
+          sql`SELECT "dream_status", "quarantine_meta" FROM "long_term_memories" WHERE "id" = ${memId}::uuid`,
+        )
+      ).rows as { dream_status: string; quarantine_meta: unknown }[];
+      expect(row[0]?.dream_status).toBe('active');
+      expect(row[0]?.quarantine_meta).toMatchObject({
+        restoredByRunId: 'run-pub',
+      });
+      expect(bumpSharedMemoryVersionSpy).toHaveBeenCalledTimes(1);
+      expect(bumpSharedMemoryVersionSpy).toHaveBeenCalledWith(ws.id);
+    });
+
+    it('returns null workspace and zero counts for an archived workspace', async () => {
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      await seedSharedMemory(ws.id);
+      await setWorkspaceVisibilityCascade(ws.id, 'private');
+      await archiveWorkspace(ws.id);
+      bumpSharedMemoryVersionSpy.mockClear();
+
+      const result = await publicizeWorkspaceCascade(ws.id);
+      expect(result.workspace).toBeNull();
+      expect(result.restoredMemoryCount).toBe(0);
+      expect(result.restoredSessionMemoryCount).toBe(0);
+      expect(bumpSharedMemoryVersionSpy).not.toHaveBeenCalled();
+      expect((await getWorkspace(ws.id))?.visibility).toBe('private');
+      expect(await countSharedMemories(ws.id)).toBe(0);
+      expect(await countAllSharedMemoryRows(ws.id)).toBe(1);
     });
   });
 

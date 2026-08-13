@@ -30,7 +30,7 @@ NOT a runtime middleware abstraction (the workflow DevKit's step model doesn't e
 
 ### Stage layout (proposed)
 
-```
+```text
 ┌─ 1. BUILD TOOLS ────────────────────────────────────────────────────
 │  buildToolsForRun({ source, planMode, workspaceLockAcquired })
 │  → drops state-mutating tools (plan mode), gates local_* (CLI), gates
@@ -38,12 +38,26 @@ NOT a runtime middleware abstraction (the workflow DevKit's step model doesn't e
 │    "before streamText".
 │
 ┌─ 2. PREPARE STEP (per-step, before each model call) ────────────────
-│  a. normalizeProviderCompatMessages(messages, providerCompat)
-│     → strip orphans, merge, enforce alternation. MUST run before
-│       autocompact so the threshold sees clean messages.
-│  b. maybeAutocompact(history, threshold)
-│     → fold old tool results. MUST run after (a) and before the model
-│       call.
+│  Actual order (prepareStep, index.ts:568-679):
+│  a. microcompact(messages) → fold old tool results into placeholders
+│     (no LLM call). Runs first so the token estimate reflects the
+│     folded state.
+│  b. estimatePromptTokens(folded) → re-estimate prompt tokens.
+│  c. evaluateCompactionNeed(tokens, threshold) → compression DECISION
+│     (pure) on the raw, pre-normalization messages.
+│  d. compactAndPersistSummaryStep(...) → LLM summarize + persist
+│     (side effect: DB), replace messages. Only when (c) fires.
+│  e. append queued instruction messages.
+│  f. applyMessageCompat(messages, providerCompat) → strip orphans,
+│     merge, enforce alternation. LAST, right before the model call.
+│
+│  NOTE: (f) running last is a deliberate correction of the original
+│  "normalize BEFORE autocompact" idea. Compat normalization is
+│  provider wire-shape repair — it does not change token semantics, so
+│  the compression decision (c) is based on the raw messages; and
+│  compaction itself emits well-formed messages, so normalizing last
+│  cannot re-introduce orphans into the trimmed window — it repairs
+│  exactly the prompt that goes on the wire.
 │
 ┌─ 3. STEP FINISH (per-step, after each model call) ──────────────────
 │  a. detectProviderMismatch(step, providerName)
@@ -61,21 +75,33 @@ NOT a runtime middleware abstraction (the workflow DevKit's step model doesn't e
 │  b. spawnPostRunCleanup({ sessionId, userId, ... })  // fire-and-forget
 │  c. writeStreamClose()
 │  Order: (a) before (b) so cleanup sees the committed final status;
-│         (b) fire-and-forget before (c) so the stream-close doesn't
-│         race the cleanup spawn.
+│         (b) enqueued BEFORE (c) so the cleanup spawn isn't orphaned
+│         if the response closes first. The caller awaits only the
+│         enqueue (runId resolution), never cleanup completion.
+│  IMPORTANT: the spawn's start() MUST run inside a 'use step'
+│  function — workflow/api's start is a throwing stub when resolved
+│  inside a workflow body (the package's "workflow" export condition
+│  maps to api-workflow.js, which throws "Move this call to a step
+│  function"); the real host-side implementation only resolves in step
+│  functions. Pattern: wrap `await start(postRunCleanupWorkflow, …)`
+│  in a 'use step' helper, like schedule.ts does for
+│  scheduledTaskWorkflow.
 ```
 
 ### Documented ordering constraints (the docstrings that matter)
 
-1. **normalizeProviderCompat BEFORE maybeAutocompact** — autocompact's threshold sees the post-normalization message count; normalizing after compacting would re-introduce orphans into an already-trimmed window.
+1. **microcompact/compaction BEFORE applyMessageCompat** — compat normalization is provider wire-shape repair and does not change token semantics, so the token estimate and compression decision run on the raw messages; compaction emits well-formed messages, so compat runs LAST on the final prompt and cannot re-introduce orphans into an already-trimmed window. This supersedes the original "normalize before autocompact" assumption — see the stage 2 NOTE above.
 2. **detectProviderMismatch BEFORE observeToolLoop** — a mismatched step (stop + toolCalls) would otherwise look like a normal step to the loop guard; checking mismatch first avoids a false loop trip.
 3. **persistStepDelta AFTER mismatch + loop checks** — don't persist a step that's about to be rejected.
 4. **finalizeRunStep BEFORE spawnPostRunCleanup** — the cleanup workflow reads the committed final status from the DB; finalizing out-of-order means cleanup gates on stale state.
-5. **spawnPostRunCleanup (fire-and-forget) BEFORE writeStreamClose** — the spawn is non-blocking, but issuing it before closing the stream guarantees the cleanup isn't orphaned if the response closes first.
+5. **spawnPostRunCleanup (enqueue) BEFORE writeStreamClose** — issuing the spawn before closing the stream guarantees the cleanup isn't orphaned if the response closes first. The spawn's `start()` call MUST live inside a `'use step'` function: `workflow/api`'s `start` is a throwing stub inside a workflow body (its "workflow" export condition resolves to `api-workflow.js`), so a bare `await start(...)` in `chatWorkflow` fails silently under the surrounding try/catch (only a `post-run-cleanup:spawn_failed` log — the cleanup never runs). The caller awaits only the enqueue (runId resolution), never the cleanup's completion; step execution is driven by the Queue Service.
 
 ## Migration path (when this is executed)
 
-1. Extract each concern into `lib/workflow/agent/stages/` (one file each), preserving current behavior exactly. Each is a pure function with the signature above. Land behind no flag — `chatWorkflow` calls them inline.
+1. Extract each concern into `lib/workflow/agent/stages/` (one file each), preserving current behavior exactly. Land behind no flag — `chatWorkflow` calls them inline. Stages split into two kinds; do NOT pretend every stage is a pure function:
+   - **Pure decision stages**: `buildToolsForRun`, `evaluateCompactionNeed` (token estimate + threshold decision), `detectProviderMismatch`, `observeToolLoop` — no I/O, signature in / decision out.
+   - **Side-effect adapters**: `persistStepDelta` (DB write), `finalizeRunStep` (DB status + KV bump), `spawnPostRunCleanup` (workflow-run spawn, via a `'use step'` wrapper — see constraint #5), `writeStreamClose` / `writeMessageMetadata` (UI-stream writes), `compactAndPersistSummaryStep` (LLM call + DB summary persistence). These are thin wrappers around host resources.
+   - Boundary note for `prepareStep`: it mixes both — the message-metadata write and summary persistence are the side-effect parts; microcompact / token estimation / the compaction decision are the pure parts. When extracting, keep the pure decisions separately testable from the persistence adapters.
 2. Add the ordering docstrings to `chatWorkflow` (the single document of "X must precede Y because Z").
 3. Add tests per stage (most are untestable today because they're inline). The predicates in #18 (stop-reason) and #20 (checkpoint-lineage) are already extracted; this refactor extends that pattern to the rest.
 4. Migrate the two throw sites (maxSteps, toolLoopGuard) to strip-not-raise (#18) once the persistence stage can carry `stopReason`.

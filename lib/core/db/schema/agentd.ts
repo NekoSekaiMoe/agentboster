@@ -83,9 +83,13 @@ export const agentTasks = pgTable(
     /**
      * UTC deadline by which the owner node must renew (via heartbeat) or
      * the task becomes eligible for orphan reclaim. NULL = legacy row or
-     * pre-claim pending task; reapOrphanedTasks() treats NULL-lease
-     * in-flight rows whose owner is offline as reclaimable. Renewed every
-     * heartbeat by renewTaskLeases(nodeId) to now + TASK_LEASE_SECONDS.
+     * pre-claim pending task. NOTE: reapOrphanedTasks()'s reclaim
+     * predicate is `lease_expires_at <= cutoff`, which under SQL
+     * three-valued logic is never true for NULL — NULL-lease rows are
+     * NOT reclaimed by the reaper. Pre-claim pending tasks instead wait
+     * for a node to claim them via updateTaskStatus (which matches
+     * `owner_node_id IS NULL`). Renewed every heartbeat by
+     * renewTaskLeases(nodeId) to now + TASK_LEASE_SECONDS.
      */
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -344,10 +348,12 @@ export const workspaces = pgTable(
      * (public→private). The privatization soft-quarantines the shared pool
      * (rows flipped to dream_status='quarantined' with quarantine_meta
      * recording this epoch). On re-public, restoreQuarantinedMemories
-     * resurrects rows whose restoredByRunId is null and bumps this counter
-     * to mark that snapshot as consumed. Used to disambiguate which
-     * quarantined rows belong to the current private spell vs. historical
-     * ones. See docs/design/soft-quarantine-memory-on-privatization.md §3.
+     * resurrects rows whose restoredByRunId is null; "consumed" is
+     * recorded per-row via quarantine_meta.restoredByRunId — this counter
+     * is NOT bumped on restore, it only ever increments on privatization.
+     * Used to disambiguate which quarantined rows belong to the current
+     * private spell vs. historical ones. See
+     * docs/design/soft-quarantine-memory-on-privatization.md §3.
      */
     quarantineEpoch: integer('quarantine_epoch').default(0).notNull(),
     status: text('status', {

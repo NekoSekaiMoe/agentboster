@@ -52,12 +52,16 @@ vi.mock('@/lib/memory/shared-version', () => ({
 vi.mock('@/lib/core/db', () => {
   // Every chainable builder returns an object that also satisfies the
   // `.returning()` / `.where()` terminators the cascade pre-builds. The
-  // returned "query object" is an opaque marker — `db.batch` receives
-  // them and the spy decides success/failure.
-  const chain = (tag: string) => {
+  // returned "query object" carries `__tag` (chain shape) and `__table`
+  // (the table argument passed to db.update) so tests can assert WHICH
+  // table each batch element targets — required to pin the ordering
+  // invariant (session_memories stamp before sessions reset), which a
+  // table-agnostic stub structurally cannot detect.
+  const chain = (tag: string, table?: unknown) => {
     const next: Record<string, unknown> = {};
     const terminate = (terminalTag: string) => ({
       __tag: `${tag}:${terminalTag}`,
+      __table: table,
     });
     next.where = () => ({
       ...terminate('where'),
@@ -78,7 +82,7 @@ vi.mock('@/lib/core/db', () => {
 
   return {
     db: {
-      update: () => chain('update'),
+      update: (table?: unknown) => chain('update', table),
       delete: () => chain('delete'),
       insert: () => chain('insert'),
       select: () => chain('select'),
@@ -104,6 +108,59 @@ vi.mock('@/lib/core/db/atomic', () => ({
 }));
 
 import { setWorkspaceVisibilityCascade } from './agentd';
+import {
+  longTermMemories,
+  sessionMemories,
+  sessions,
+  workspaces,
+} from './schema';
+
+type BatchElement = { __tag: string; __table?: unknown };
+
+/** Build a tx stub whose `update` records the target table of each
+ *  UPDATE in execution order (so tests can assert the session_memories
+ *  stamp lands before the sessions reset) and whose `.returning()`
+ *  resolves `returningRows` ONLY for the long_term_memories shared-pool
+ *  quarantine (the one place the cascade reads RETURNING; everything
+ *  else is fire-and-forget). */
+function makeOrderTrackingTxStub(opts: {
+  updateOrder: string[];
+  quarantinedIds: { id: string }[];
+  committedRow: unknown;
+}) {
+  const tagFor = (table: unknown) =>
+    table === sessionMemories
+      ? 'session_memories.stamp'
+      : table === sessions
+        ? 'sessions.reset'
+        : table === longTermMemories
+          ? 'long_term.quarantine'
+          : table === workspaces
+            ? 'workspaces'
+            : 'unknown';
+  return {
+    update: (table: unknown) => ({
+      set: () => ({
+        where: () => {
+          opts.updateOrder.push(tagFor(table));
+          return {
+            returning: () =>
+              Promise.resolve(
+                table === longTermMemories ? opts.quarantinedIds : [],
+              ),
+          };
+        },
+      }),
+    }),
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: () => Promise.resolve([opts.committedRow]),
+        }),
+      }),
+    }),
+  };
+}
 
 const WS_ID = 'ws-1';
 const ACTIVE_WORKSPACE = [
@@ -181,17 +238,31 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
           from: () => ({ where: () => ({ limit }) }),
         };
       };
-      // The batch's 5th element (index 4) is the shared-pool QUARANTINE
+      // The batch's last element (index 5) is the shared-pool QUARANTINE
       // UPDATE's RETURNING — a non-empty array means rows were flipped
       // to dream_status='quarantined', which gates the KV version bump.
       // Seed one quarantined-id so the bump fires once.
-      batchSpy.mockResolvedValueOnce([[], [], [], [], [{ id: 'mem-1' }], []]);
+      batchSpy.mockResolvedValueOnce([[], [], [], [], [], [{ id: 'mem-1' }]]);
 
       const result = await setWorkspaceVisibilityCascade(WS_ID, 'private');
 
       // Exactly one batch, with 6 pre-built query elements.
       expect(batchSpy).toHaveBeenCalledTimes(1);
-      expect((batchSpy.mock.calls[0] as unknown[])[0]).toHaveLength(6);
+      const elements = (
+        batchSpy.mock.calls[0] as unknown[]
+      )[0] as BatchElement[];
+      expect(elements).toHaveLength(6);
+      // ORDERING INVARIANT (regression): the session_memories quarantine
+      // stamp (index 3) MUST precede the sessions visibility reset
+      // (index 4) — its WHERE subquery matches sessions by
+      // visibility='shared', which the reset flips to 'private'. With the
+      // old order the subquery saw the reset's writes (READ COMMITTED,
+      // same transaction) and matched 0 rows, so quarantined_at was never
+      // written.
+      expect(elements[3]?.__table).toBe(sessionMemories);
+      expect(elements[4]?.__table).toBe(sessions);
+      // The shared-pool quarantine (with RETURNING) is the last element.
+      expect(elements[5]?.__table).toBe(longTermMemories);
       // KV bump happened exactly once, AFTER the batch resolved.
       expect(bumpSpy).toHaveBeenCalledTimes(1);
       expect(bumpSpy).toHaveBeenCalledWith(WS_ID);
@@ -291,24 +362,15 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
         visibility: 'private',
         sharedMemoryEnabled: false,
       };
-      // tx now issues UPDATEs (no DELETE) for the shared-pool quarantine,
-      // chained .where().returning(); the RETURNING gates the KV bump.
-      // Seed one quarantined-id so the bump fires once. The session_memories
-      // quarantine UPDATE is a fire-and-forget (no RETURNING).
-      const txStub = {
-        update: () => ({
-          set: () => ({
-            where: () => ({
-              returning: () => Promise.resolve([{ id: 'mem-1' }]),
-            }),
-          }),
-        }),
-        select: () => ({
-          from: () => ({
-            where: () => ({ limit: () => Promise.resolve([committedRow]) }),
-          }),
-        }),
-      };
+      // The tx stub distinguishes each UPDATE by its target table and
+      // records execution order. Seed one quarantined-id from the
+      // shared-pool quarantine's RETURNING so the KV bump fires once.
+      const updateOrder: string[] = [];
+      const txStub = makeOrderTrackingTxStub({
+        updateOrder,
+        quarantinedIds: [{ id: 'mem-1' }],
+        committedRow,
+      });
       transactionSpy.mockImplementation(
         async (cb: (tx: unknown) => Promise<unknown>) => cb(txStub),
       );
@@ -317,12 +379,55 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
 
       expect(transactionSpy).toHaveBeenCalledTimes(1);
       expect(batchSpy).not.toHaveBeenCalled();
+      // ORDERING INVARIANT (regression): the session_memories stamp MUST
+      // execute before the sessions visibility reset inside the tx — its
+      // WHERE subquery matches visibility='shared', which the reset
+      // flips. The old order stamped AFTER the reset and the subquery
+      // (seeing the tx's own writes) matched 0 rows.
+      expect(
+        updateOrder.indexOf('session_memories.stamp'),
+      ).toBeGreaterThanOrEqual(0);
+      expect(updateOrder.indexOf('session_memories.stamp')).toBeLessThan(
+        updateOrder.indexOf('sessions.reset'),
+      );
+      // Sanity: both workspaces UPDATEs and the shared-pool quarantine ran.
+      expect(updateOrder.filter((t) => t === 'workspaces')).toHaveLength(2);
+      expect(updateOrder).toContain('long_term.quarantine');
       expect(bumpSpy).toHaveBeenCalledTimes(1);
       expect(bumpSpy).toHaveBeenCalledWith(WS_ID);
       expect(result).toMatchObject({
         visibility: 'private',
         sharedMemoryEnabled: false,
       });
+    });
+
+    it('0-row shared-pool quarantine: session stamp still precedes the sessions reset and the KV bump is skipped', async () => {
+      await installSelectRow(ACTIVE_WORKSPACE);
+      const committedRow = {
+        ...ACTIVE_WORKSPACE[0],
+        visibility: 'private',
+        sharedMemoryEnabled: false,
+      };
+      // The shared-pool quarantine's RETURNING is empty — nothing in the
+      // pool (or a concurrent archive won the race). The session_memories
+      // stamp and sessions reset still run, in the required order, and
+      // the KV bump must NOT fire.
+      const updateOrder: string[] = [];
+      const txStub = makeOrderTrackingTxStub({
+        updateOrder,
+        quarantinedIds: [],
+        committedRow,
+      });
+      transactionSpy.mockImplementation(
+        async (cb: (tx: unknown) => Promise<unknown>) => cb(txStub),
+      );
+
+      await setWorkspaceVisibilityCascade(WS_ID, 'private');
+
+      expect(updateOrder.indexOf('session_memories.stamp')).toBeLessThan(
+        updateOrder.indexOf('sessions.reset'),
+      );
+      expect(bumpSpy).not.toHaveBeenCalled();
     });
 
     it('rolls back (propagates the error) and skips the KV bump when the transaction body throws', async () => {

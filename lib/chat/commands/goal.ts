@@ -3,7 +3,11 @@ import {
   getSessionGoalState,
   setSessionGoal,
 } from '@/lib/core/db/chat';
-import { MAX_GOAL_OBJECTIVE_CHARS } from '@/lib/workflow/agent/session-goal';
+import {
+  MAX_GOAL_OBJECTIVE_CHARS,
+  MAX_HIDDEN_CONTINUATIONS,
+  MAX_IDENTICAL_NON_PROGRESS,
+} from '@/lib/workflow/agent/session-goal';
 
 /**
  * `/goal` — manage the session-scoped self-driving objective.
@@ -39,8 +43,8 @@ export async function executeGoalCommand(args: {
     }
     return [
       `**Goal:** ${state.goalText}`,
-      `Hidden continuations: ${state.hiddenCount} / 8`,
-      `Consecutive identical non-progress: ${state.consecutiveNonProgress} / 2`,
+      `Hidden continuations: ${state.hiddenCount} / ${MAX_HIDDEN_CONTINUATIONS}`,
+      `Consecutive identical non-progress: ${state.consecutiveNonProgress} / ${MAX_IDENTICAL_NON_PROGRESS}`,
       state.lastEvalReason ? `Last evaluation: ${state.lastEvalReason}` : '',
     ]
       .filter((line) => line.length > 0)

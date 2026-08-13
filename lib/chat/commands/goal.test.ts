@@ -17,6 +17,8 @@ vi.mock('@/lib/core/db/chat', () => ({
 
 vi.mock('@/lib/workflow/agent/session-goal', () => ({
   MAX_GOAL_OBJECTIVE_CHARS: 4000,
+  MAX_HIDDEN_CONTINUATIONS: 8,
+  MAX_IDENTICAL_NON_PROGRESS: 2,
 }));
 
 import {

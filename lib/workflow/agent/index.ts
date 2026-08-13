@@ -122,6 +122,27 @@ function mapInstructionMessages(
         forceCompact = true;
         checkpointLabel = instruction.label ?? null;
       }
+      if (instruction.command === 'goal-continue') {
+        // A hidden auto-continuation from the session-goal evaluator
+        // (post-run-cleanup.ts → resumeWithMessage). Without a message
+        // the resumed run would re-read stale context with no new
+        // instruction, so inject a continuation prompt that tells the
+        // agent to advance the goal. Persisted as an instruction-marked
+        // system message (same treatment as a /system instruction) so
+        // the transcript shows why the run resumed.
+        const text =
+          'The session goal is not met yet. Continue working toward it autonomously: pick the next concrete step that makes verifiable progress toward the goal, and only ask the user for input if you are genuinely blocked.';
+        promptMessages.push({ role: 'system', content: text });
+        persistedMessages.push(
+          serializeSystemMessage({
+            sessionId,
+            text,
+            metadata: {
+              type: 'instruction',
+            },
+          }),
+        );
+      }
       continue;
     }
 

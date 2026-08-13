@@ -23,7 +23,7 @@ The daemon side confirms this: `subpackage/agentd/internal/sandbox/skills.go:Dis
 ## When this would need to change
 
 The current design is correct as long as:
-- The blob store is the single source of truth for skill files (it is — `syncSkillFilesToBlob` / `persistManualSkillToBlob` are the only write paths, and both now run the Phase-1 security scan from #12).
+- The blob store is the single source of truth for skill files (it is). The write paths are `syncSkillFilesToBlob`, `persistManualSkillToBlob`, and `updateSkillFileInBlob`. The first two run the Phase-1 security scan from #12 internally before any `put`; `updateSkillFileInBlob` puts directly, but its only caller — `updateSkillFile()` in `lib/core/kv/skills.ts` — runs the same Phase-1 scan (`enforceScan`) on the new content before invoking it, so every write path is scanned upstream of the blob `put`.
 - Skills are invoked individually by name (they are — `runSkill` is per-name).
 - Multi-tenant isolation is at the blob-read layer (it is — a skill is only readable by a tenant whose KV index lists it as active).
 

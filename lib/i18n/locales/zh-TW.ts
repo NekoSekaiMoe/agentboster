@@ -573,6 +573,8 @@ export const zhTW = {
   'slash.command.model.description': '顯示或切換目前 model',
   'slash.command.provider.description': '列出、新增、更新或移除 model provider',
   'slash.command.config.description': '顯示或設定 config 值（白名單）',
+  'slash.command.goal.description': '設定、檢視或清除會話目標',
+  'slash.command.goal.hint': '/goal [set <text>|clear]',
   'slash.command.memory.description': '搜尋、列出或新增記憶',
   'slash.command.pair.description': '使用 code 配對 IM 帳號',
   'slash.command.unpair.description': '將 IM 帳號與 ClawLess 使用者解除綁定',

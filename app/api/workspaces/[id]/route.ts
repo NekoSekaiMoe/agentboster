@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { cookies } from 'next/headers';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { requireAuthAccess } from '@/lib/auth/access';
 import { cleanupChatSession } from '@/lib/chat/session-cleanup';
@@ -10,13 +11,14 @@ import {
   archiveWorkspace,
   deleteWorkspaceRow,
   migrateWorkspaceNode,
+  publicizeWorkspaceCascade,
   renameWorkspace,
   resolveWorkspaceAccess,
-  restoreQuarantinedMemories,
   setDefaultWorkspace,
   setWorkspaceSharedMemory,
   setWorkspaceVisibilityCascade,
   type WorkspaceAccess,
+  type WorkspaceRecord,
 } from '@/lib/core/db/agentd';
 import { deleteSessionsByWorkspaceId, listSessions } from '@/lib/core/db/chat';
 import { deleteBuiltinMemoriesByWorkspaceId } from '@/lib/core/db/memory/builtin';
@@ -316,45 +318,48 @@ export async function PATCH(
       }
       case 'set_visibility': {
         const next = parsed.data.visibility;
-        // Single atomic cascade (DAL-level): flips visibility and, when
-        // going private, also soft-quarantines the shared memory pool
-        // (rows flipped to dream_status='quarantined', NOT deleted),
-        // forces the pool toggle off, and resets member-shared sessions
-        // back to private — all under one DB transaction/batch so a
-        // mid-sequence failure can no longer leave a half-migrated
-        // workspace. The shared-memory KV version bump runs after the DB
-        // block commits. Returns null for archived rows → 409.
-        //
-        // When going PUBLIC, the cascade only flips visibility. Restoring
-        // the soft-quarantined shared pool is a separate explicit step
-        // (restoreQuarantinedMemories) because it also kicks off a Dream
-        // merge that can take tens of seconds — we do not want to block
-        // the visibility flip on it. The merge itself is triggered after
-        // this returns (see TODO in lib/memory/dream once the scoped
-        // orchestrator lands). For now the restore is DB-only and the
-        // counts are surfaced to the UI.
-        const result = await setWorkspaceVisibilityCascade(id, next);
-        if (!result) {
-          return Response.json(
-            { success: false, error: 'Workspace is archived' },
-            { status: 409 },
-          );
-        }
-        // Going public: restore any quarantined shared-pool memories so
-        // they rejoin recall. Going private has nothing to restore.
+        // Both directions are single atomic DAL blocks:
+        //  · private: setWorkspaceVisibilityCascade flips visibility AND
+        //    soft-quarantines the shared memory pool (rows flipped to
+        //    dream_status='quarantined', NOT deleted), forces the pool
+        //    toggle off, stamps session_memories.quarantined_at, and
+        //    resets member-shared sessions back to private — all under
+        //    one DB transaction/batch so a mid-sequence failure can no
+        //    longer leave a half-migrated workspace.
+        //  · public: publicizeWorkspaceCascade flips visibility AND
+        //    restores the soft-quarantined pool in the SAME
+        //    transaction/batch, with the restore writes guarded by a
+        //    statement-time "workspace still public+active" predicate.
+        //    This closes the race the old two-call sequence (flip, then
+        //    restoreQuarantinedMemories in a second transaction) had: a
+        //    concurrent re-privatization landing between the two commits
+        //    would have had quarantined rows resurrected into a private
+        //    workspace.
+        // The shared-memory KV version bump runs after the DB block
+        // commits in both. Null workspace → archived → 409.
+        let result: WorkspaceRecord;
         let restoredMemoryCount = 0;
         let restoredSessionMemoryCount = 0;
-        if (next === 'public') {
-          const restore = await restoreQuarantinedMemories(id);
-          if (!restore.workspace) {
-            // Archived between the cascade and the restore. The visibility
-            // flip already committed (the cascade succeeded); the restore
-            // is a no-op. Report 409 so the caller refreshes.
+        if (next === 'private') {
+          const row = await setWorkspaceVisibilityCascade(id, next);
+          if (!row) {
             return Response.json(
               { success: false, error: 'Workspace is archived' },
               { status: 409 },
             );
           }
+          result = row;
+        } else {
+          const restore = await publicizeWorkspaceCascade(id);
+          if (!restore.workspace) {
+            // Archived before or mid-flight: the atomic block was a
+            // no-op (or rolled back). Report 409 so the caller refreshes.
+            return Response.json(
+              { success: false, error: 'Workspace is archived' },
+              { status: 409 },
+            );
+          }
+          result = restore.workspace;
           restoredMemoryCount = restore.restoredMemoryCount;
           restoredSessionMemoryCount = restore.restoredSessionMemoryCount;
         }
@@ -370,23 +375,26 @@ export async function PATCH(
         // current pool. The restored rows are already dream_status='active'
         // (restore flips them back), so a normal Dream run sees them — we
         // just trigger it now rather than waiting for the next scheduled
-        // run, so the UI's "merging…" toast matches reality. Fire-and-
-        // forget (NOT awaited): the response returns immediately with the
-        // restore counts; Dream runs in the background and writes its own
-        // audit row (dream_runs) visible on the dream progress page. A
-        // failure here is best-effort: it only delays consolidation to the
-        // next scheduled run, so we swallow it into the log.
+        // run, so the UI's "merging…" toast matches reality. Scheduled via
+        // next/server's after(): the response returns immediately with the
+        // restore counts, and the runtime keeps the work alive after the
+        // response closes (unlike a bare fire-and-forget promise, which a
+        // serverless runtime may freeze). A failure here is best-effort:
+        // it only delays consolidation to the next scheduled run, so we
+        // swallow it into the log.
         if (next === 'public' && restoredMemoryCount > 0) {
-          runDreamForUser({ userId: ownerId }).catch((error) => {
-            logger.warn(
-              'post-restore dream merge failed (deferred to next scheduled run)',
-              {
-                workspaceId: id,
-                ownerId,
-                error: error instanceof Error ? error.message : String(error),
-              },
-            );
-          });
+          after(() =>
+            runDreamForUser({ userId: ownerId }).catch((error) => {
+              logger.warn(
+                'post-restore dream merge failed (deferred to next scheduled run)',
+                {
+                  workspaceId: id,
+                  ownerId,
+                  error: error instanceof Error ? error.message : String(error),
+                },
+              );
+            }),
+          );
         }
         return Response.json({
           success: true,

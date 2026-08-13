@@ -475,7 +475,16 @@ export async function getLongTermMemoryRow(
   id: string,
   options?: { userId?: string },
 ) {
-  const conditions = [eq(schema.longTermMemories.id, id)];
+  const conditions = [
+    eq(schema.longTermMemories.id, id),
+    // Quarantined rows are soft-isolated by workspace privatization and
+    // must be invisible to every read path until
+    // restoreQuarantinedMemories flips them back to their
+    // originalDreamStatus. The restore path reads/writes them via raw SQL
+    // inside the DAL transaction (lib/core/db/agentd.ts), never through
+    // this helper, so excluding them here cannot break restoration.
+    ne(schema.longTermMemories.dreamStatus, 'quarantined'),
+  ];
   if (options?.userId) {
     conditions.push(eq(schema.longTermMemories.userId, options.userId));
   }
@@ -503,6 +512,11 @@ export async function listLongTermMemoryRows(options?: {
    * When true, include tentative/superseded/contradicted rows. Default
    * false so recall + UI only see active memories. Dream is the main
    * caller that passes true (it needs the full set to consolidate).
+   *
+   * NOTE: like listAllLongTermMemoryRows, `includeInactive: true` does
+   * NOT include `quarantined` rows — quarantined is an isolation state
+   * (workspace privatization), not a Dream lifecycle tier. Those rows
+   * re-enter the active set via restoreQuarantinedMemories.
    */
   includeInactive?: boolean;
 }) {
@@ -548,6 +562,12 @@ export async function listLongTermMemoryRows(options?: {
   }
   if (!options?.includeInactive) {
     conditions.push(eq(schema.longTermMemories.dreamStatus, 'active'));
+  } else {
+    // includeInactive sees tentative/superseded/contradicted but NOT
+    // quarantined — mirrors listAllLongTermMemoryRows. Quarantined rows
+    // belong to a privatized workspace's frozen snapshot and must stay
+    // invisible to recall/UI/Dream until restored.
+    conditions.push(ne(schema.longTermMemories.dreamStatus, 'quarantined'));
   }
 
   return db
