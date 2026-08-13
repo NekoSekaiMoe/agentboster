@@ -6,6 +6,7 @@ import {
 } from '@/lib/core/blob/skills';
 import { del, get, set } from '@/lib/core/kv';
 import { createLogger } from '@/lib/utils/logger';
+import { enforceScan } from '@/lib/skills/security-scan';
 import type {
   ActiveImportJobSummary,
   SkillDetail,
@@ -400,6 +401,16 @@ export async function updateSkillFile(
   if (!trimmedName || !trimmedPath) {
     throw new Error('Skill name and file path are required');
   }
+
+  // Phase-1 security scan on the patched file content BEFORE the blob
+  // write. updateSkillFile is the highest-risk ingress path today: it is
+  // model-writable (the updateSkillFile agent tool), single-file, and
+  // previously had ZERO validation — a trivial bypass of the gates on
+  // syncSkillFilesToBlob / persistManualSkillToBlob. Scanning the single
+  // new content catches a payload injected into an already-approved skill.
+  enforceScan([
+    { path: trimmedPath, content: new TextEncoder().encode(content) },
+  ]);
 
   await updateSkillFileInBlob(trimmedName, trimmedPath, content);
 

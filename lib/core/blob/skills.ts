@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { del, getBlob, list, put } from './';
 
 import { createLogger } from '@/lib/utils/logger';
+import { enforceScan } from '@/lib/skills/security-scan';
 import type {
   ClawHubManifest,
   SkillDetail,
@@ -584,14 +585,27 @@ export async function syncSkillFilesToBlob(
   );
 
   let totalBytes = 0;
+  const scannedFiles: { path: string; content: Uint8Array }[] = [];
   for (const relativePath of filePaths) {
     const absolutePath = path.join(localDir, relativePath);
     const content = await readFile(absolutePath);
-    await put(toSkillBlobPath(skillName, relativePath), new Blob([content]), {
-      addRandomSuffix: false,
-      allowOverwrite: true,
-    });
+    scannedFiles.push({ path: relativePath, content: new Uint8Array(content) });
     totalBytes += content.byteLength;
+  }
+  // Phase-1 security scan: block CRITICAL findings (private keys, shell
+  // exec, reverse shells, executable binaries, path traversal, exfil
+  // chains) BEFORE any file reaches blob. Runs on the in-memory bytes
+  // we just read, so no extra I/O. See lib/skills/security-scan.ts.
+  enforceScan(scannedFiles);
+  for (const { path: relativePath, content } of scannedFiles) {
+    await put(
+      toSkillBlobPath(skillName, relativePath),
+      new Blob([content.slice().buffer]),
+      {
+        addRandomSuffix: false,
+        allowOverwrite: true,
+      },
+    );
     logger.info('syncSkillFilesToBlob:upload', {
       skillName,
       path: relativePath,
@@ -1020,6 +1034,18 @@ export async function persistManualSkillToBlob(
   }
 
   await removeSkillFilesFromBlob(skillName);
+
+  // Phase-1 security scan on the inline file contents BEFORE any upload.
+  // Manual skills come from the admin UI / agent upsertSkill tool; both
+  // are untrusted-author paths (the model itself can call upsertSkill),
+  // so the gate is mandatory here too. Text content → bytes for the
+  // scanner's magic + regex passes.
+  enforceScan(
+    files.map((f) => ({
+      path: f.path,
+      content: new TextEncoder().encode(f.content),
+    })),
+  );
 
   const filePaths: string[] = [];
   let uploadedBytes = 0;
