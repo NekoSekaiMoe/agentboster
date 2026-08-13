@@ -224,6 +224,7 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 			Roles:     l.agentCtx.Roles,
 			Source:    l.agentCtx.Source,
 			SandboxID: auditSandboxID,
+			RunID:     l.agentCtx.RunID,
 			Command:   fmt.Sprintf("tool=%s args=%s", call.Name, string(call.Arguments)),
 		}
 		auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)

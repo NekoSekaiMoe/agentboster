@@ -32,6 +32,13 @@ type Task struct {
 	Result       string            `json:"result"`
 	CreatedAt    time.Time         `json:"created_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
+	// RunID propagates the Web-tier workflow run id for cross-tier
+	// tracing. When a task originates from a tool execution request
+	// (ToolExecRequest.RunID), it is copied here so any callback the
+	// daemon POSTs back to the Web (e.g. CreateTask) carries the run
+	// id and the Web can correlate the callback to its run. Empty for
+	// tasks that did not originate from a traced tool exec.
+	RunID string `json:"run_id,omitempty"`
 }
 
 // Session represents a chat session.

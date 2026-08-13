@@ -40,6 +40,13 @@ export interface ToolExecRequest {
   user_id?: string;
   roles?: string[];
   workspace_id?: string;
+  /**
+   * Web-tier workflow run id for cross-tier tracing. Propagated by
+   * the daemon onto any Task it creates (and thus any callback back to
+   * the Web) so the Web can correlate a callback to its run. Omitted
+   * for non-traced paths. (Tier 2 cross-tier tracing.)
+   */
+  run_id?: string;
 }
 
 // Source: subpackage/agentd/internal/agent/manager.go:417-422

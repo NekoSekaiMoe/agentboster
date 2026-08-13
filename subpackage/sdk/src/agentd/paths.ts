@@ -53,6 +53,13 @@ export interface Task {
   created_at: string;
   /** ISO8601 timestamp. */
   updated_at: string;
+  /**
+   * Web-tier workflow run id for cross-tier tracing. Propagated from
+   * ToolExecRequest.run_id when a task originates from a tool exec.
+   * Empty for tasks that did not originate from a traced tool exec.
+   * (Tier 2 cross-tier tracing.)
+   */
+  run_id?: string;
 }
 
 // Source: subpackage/agentd/internal/clawless/types.go:96-107
