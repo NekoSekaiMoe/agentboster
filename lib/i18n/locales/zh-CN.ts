@@ -571,6 +571,8 @@ export const zhCN = {
   'slash.command.model.description': '显示或切换当前 model',
   'slash.command.provider.description': '列出、添加、更新或移除 model provider',
   'slash.command.config.description': '显示或设置 config 值（白名单）',
+  'slash.command.goal.description': '设置、查看或清除会话目标',
+  'slash.command.goal.hint': '/goal [set <text>|clear]',
   'slash.command.memory.description': '搜索、列出或添加记忆',
   'slash.command.pair.description': '使用 code 将 IM 账号配对',
   'slash.command.unpair.description': '将 IM 账号与 ClawLess 用户解绑',

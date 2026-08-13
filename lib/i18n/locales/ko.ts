@@ -662,6 +662,8 @@ export const ko = {
   'slash.command.model.description': '현재 model 표시 또는 전환',
   'slash.command.provider.description': 'model provider 조회·추가·수정·제거',
   'slash.command.config.description': 'config 값 표시 또는 설정(화이트리스트)',
+  'slash.command.goal.description': '세션 목표 설정·표시·해제',
+  'slash.command.goal.hint': '/goal [set <text>|clear]',
   'slash.command.memory.description': '기억 검색·목록·추가',
   'slash.command.pair.description': 'code로 IM 계정 페어링',
   'slash.command.unpair.description': 'IM 계정을 ClawLess 사용자에서 연결 해제',

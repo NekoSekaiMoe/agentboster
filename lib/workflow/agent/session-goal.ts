@@ -25,9 +25,10 @@
  * PHASE-1 SCOPE: this module ships the data model + evaluator + the typed
  * blocker. The auto-continuation INTEGRATION (the fire path from
  * post-run-cleanup.ts → evaluateSessionGoal → resumeWithMessage) is wired
- * but gated behind SESSION_GOAL_AUTO_CONTINUE (default false) so the loop
- * is opt-in. The /goal command (set/clear/show) sets the field on the
- * session; the loop only acts when the flag is on.
+ * but gated behind the autonomy.goal_auto_continue AppConfig flag
+ * (default false) so the loop is opt-in. The /goal command
+ * (set/clear/show) sets the field on the session; the loop only acts
+ * when the flag is on.
  */
 import { getConfig } from '@/lib/core/kv/config';
 import { generateObject, NoObjectGeneratedError } from 'ai';
@@ -138,7 +139,11 @@ export async function evaluateSessionGoal(
 ): Promise<GoalEvaluation> {
   if (input.goal.length > MAX_GOAL_OBJECTIVE_CHARS) {
     return {
-      blocker: GoalBlocker.none,
+      // NOT GoalBlocker.none (that means "goal achieved"). An over-long
+      // goal is a user-fixable input problem, so needs_user_input is the
+      // truthful stop reason; blockerPermitsContinuation stops the loop
+      // either way.
+      blocker: GoalBlocker.needs_user_input,
       reasoning:
         'Goal objective exceeds the character limit; refusing to evaluate.',
     };

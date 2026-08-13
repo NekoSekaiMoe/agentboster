@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { del, getBlob, list, put } from './';
 
 import { createLogger } from '@/lib/utils/logger';
-import { enforceScan } from '@/lib/skills/security-scan';
+import { enforceScan, type SkillScanHint } from '@/lib/skills/security-scan';
 import type {
   ClawHubManifest,
   SkillDetail,
@@ -319,6 +319,58 @@ function clawhubManifestToFrontmatter(
   };
 }
 
+/**
+ * Build a security-scan hint from parsed frontmatter so the scanner
+ * classifies the declared entrypoint by its declared runtime (bash /
+ * python) even when the file has no extension or shebang. Mirrors what
+ * runSkill will actually execute. Returns undefined when the frontmatter
+ * declares neither, so callers can spread it unconditionally.
+ */
+function scanHintFromFrontmatter(
+  frontmatter: SkillFrontmatter,
+): SkillScanHint | undefined {
+  const runtime =
+    typeof frontmatter.runtime === 'string' ? frontmatter.runtime : null;
+  const entrypoint =
+    typeof frontmatter.entrypoint === 'string' ? frontmatter.entrypoint : null;
+  if (!runtime && !entrypoint) return undefined;
+  return { runtime, entrypoint };
+}
+
+/**
+ * Read a repo manifest file (SKILL.md / clawhub.json) only when it is a
+ * regular file that truly lives inside the checkout. A cloned repo can
+ * ship its manifest as a symlink pointing at an arbitrary host path;
+ * stat() would follow it and readFile() would happily parse host-file
+ * content into skill metadata (an info-leak channel into KV). lstat
+ * rejects the symlink itself and realpath confirms the resolved target
+ * stays within repoDir; either failure throws BEFORE any readFile.
+ */
+async function readRepoManifestFile(
+  repoDir: string,
+  manifestPath: string,
+): Promise<string> {
+  const { lstat, readFile, realpath } = await nodeFsPromises();
+  const path = await nodePath();
+  const lst = await lstat(manifestPath);
+  if (lst.isSymbolicLink() || !lst.isFile()) {
+    throw new Error(
+      `Refusing to read non-regular manifest file: ${manifestPath}`,
+    );
+  }
+  const [resolvedManifest, resolvedRepo] = await Promise.all([
+    realpath(manifestPath),
+    realpath(repoDir),
+  ]);
+  const relative = path.relative(resolvedRepo, resolvedManifest);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(
+      `Refusing to read manifest that resolves outside the repository: ${manifestPath}`,
+    );
+  }
+  return readFile(manifestPath, 'utf8');
+}
+
 // ─── Blob list / delete ───
 
 async function listBlobPathnamesByPrefix(prefix: string): Promise<string[]> {
@@ -403,7 +455,7 @@ export async function scanSkillsFromRepo(
   repoDir: string,
   gitURL: string,
 ): Promise<ScannedSkill[]> {
-  const { stat, readdir, readFile } = await nodeFsPromises();
+  const { stat, readdir } = await nodeFsPromises();
   const path = await nodePath();
   const clawhubSkill = await scanClawHubSkillFromRepo(repoDir, gitURL);
   if (clawhubSkill) {
@@ -440,7 +492,9 @@ export async function scanSkillsFromRepo(
 
     if (!manifestStat?.isFile()) continue;
 
-    const manifestContent = await readFile(manifestPath, 'utf8');
+    // Guarded read: reject symlinked SKILL.md before parsing it (see
+    // readRepoManifestFile).
+    const manifestContent = await readRepoManifestFile(repoDir, manifestPath);
     const { frontmatter, description } =
       await parseSkillManifest(manifestContent);
     const filePaths = await listSkillFilesRecursive(skillDir);
@@ -489,7 +543,7 @@ async function scanRootSkillFromRepo(
   repoDir: string,
   gitURL: string,
 ): Promise<ScannedSkill | null> {
-  const { stat, readFile } = await nodeFsPromises();
+  const { stat } = await nodeFsPromises();
   const path = await nodePath();
   const manifestPath = path.join(repoDir, SKILL_MANIFEST);
   const manifestStat = await stat(manifestPath).catch(() => null);
@@ -497,7 +551,7 @@ async function scanRootSkillFromRepo(
     return null;
   }
 
-  const manifestContent = await readFile(manifestPath, 'utf8');
+  const manifestContent = await readRepoManifestFile(repoDir, manifestPath);
   const { frontmatter, description } =
     await parseSkillManifest(manifestContent);
   const frontmatterName =
@@ -526,7 +580,7 @@ async function scanClawHubSkillFromRepo(
   repoDir: string,
   gitURL: string,
 ): Promise<ScannedSkill | null> {
-  const { stat, readFile } = await nodeFsPromises();
+  const { stat } = await nodeFsPromises();
   const path = await nodePath();
   const manifestPath = path.join(repoDir, CLAWHUB_MANIFEST);
   const manifestStat = await stat(manifestPath).catch(() => null);
@@ -534,7 +588,9 @@ async function scanClawHubSkillFromRepo(
     return null;
   }
 
-  const rawManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const rawManifest = JSON.parse(
+    await readRepoManifestFile(repoDir, manifestPath),
+  );
   const manifest = clawhubManifestSchema.parse(rawManifest);
   const entrypoint = normalizeSkillPath(manifest.entrypoint);
   const entrypointPath = path.join(repoDir, entrypoint);
@@ -569,6 +625,7 @@ export async function syncSkillFilesToBlob(
   skillName: string,
   localDir: string,
   filePaths: string[],
+  scanHint?: SkillScanHint,
 ): Promise<void> {
   const { readFile } = await nodeFsPromises();
   const path = await nodePath();
@@ -596,7 +653,9 @@ export async function syncSkillFilesToBlob(
   // exec, reverse shells, executable binaries, path traversal, exfil
   // chains) BEFORE any file reaches blob. Runs on the in-memory bytes
   // we just read, so no extra I/O. See lib/skills/security-scan.ts.
-  enforceScan(scannedFiles);
+  // `scanHint` carries the frontmatter-declared runtime/entrypoint so an
+  // extensionless declared entrypoint is still classified as bash/python.
+  enforceScan(scannedFiles, scanHint);
   for (const { path: relativePath, content } of scannedFiles) {
     await put(
       toSkillBlobPath(skillName, relativePath),
@@ -647,6 +706,7 @@ export async function downloadAndSyncSkillsFromGit(
         skill.detail.name,
         skill.localDir,
         skill.filePaths,
+        scanHintFromFrontmatter(skill.detail.frontmatter),
       );
     }
     return scannedSkills.map((item) => item.detail);
@@ -865,7 +925,12 @@ export async function downloadAndSyncSkillFromClawHub(input: {
       status: 'active',
     };
 
-    await syncSkillFilesToBlob(detail.name, tempDir, filePaths);
+    await syncSkillFilesToBlob(
+      detail.name,
+      tempDir,
+      filePaths,
+      scanHintFromFrontmatter(detail.frontmatter),
+    );
     return detail;
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -1033,19 +1098,21 @@ export async function persistManualSkillToBlob(
     }
   }
 
-  await removeSkillFilesFromBlob(skillName);
-
-  // Phase-1 security scan on the inline file contents BEFORE any upload.
-  // Manual skills come from the admin UI / agent upsertSkill tool; both
-  // are untrusted-author paths (the model itself can call upsertSkill),
-  // so the gate is mandatory here too. Text content → bytes for the
-  // scanner's magic + regex passes.
+  // Phase-1 security scan on the inline file contents BEFORE any upload
+  // — and BEFORE removing the previous version's files. The old order
+  // (remove, then scan) meant a rejected scan left the skill with KV
+  // metadata but zero blob files. Manual skills come from the admin UI /
+  // agent upsertSkill tool; both are untrusted-author paths (the model
+  // itself can call upsertSkill), so the gate is mandatory here too.
+  // Text content → bytes for the scanner's magic + regex passes.
   enforceScan(
     files.map((f) => ({
       path: f.path,
       content: new TextEncoder().encode(f.content),
     })),
   );
+
+  await removeSkillFilesFromBlob(skillName);
 
   const filePaths: string[] = [];
   let uploadedBytes = 0;

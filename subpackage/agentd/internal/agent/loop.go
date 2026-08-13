@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -101,12 +100,13 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 
 	for l.stepCount < l.maxSteps {
 		l.stepCount++
-		slog.Info("Agent Loop: step", "step", l.stepCount, "session", l.agentCtx.SessionID)
+		slog_ := l.agentCtx.Log()
+		slog_.Info("Agent Loop: step", "step", l.stepCount, "session", l.agentCtx.SessionID)
 
 		// Compact context if message count exceeds threshold
 		if len(l.messages) >= compactionThreshold {
 			if err := l.compactContext(ctx); err != nil {
-				slog.Warn("compaction failed, continuing", "error", err)
+				slog_.Warn("compaction failed, continuing", "error", err)
 			}
 		}
 
@@ -124,11 +124,11 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 			auditResult, auditLogs := l.gatekeeper.AuditOutput(ctx, llmResp.Content, l.agentCtx.SessionSummary)
 			if len(auditLogs) > 0 {
 				if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
-					slog.Warn("failed to write output audit logs", "error", err)
+					l.agentCtx.Log().Warn("failed to write output audit logs", "error", err)
 				}
 			}
 			if auditResult.Decision == "blocked" {
-				slog.Warn("LLM output blocked by security audit", "reason", auditResult.Reason)
+				l.agentCtx.Log().Warn("LLM output blocked by security audit", "reason", auditResult.Reason)
 				// Inject a safe replacement message
 				l.messages = append(l.messages, Message{
 					Role:    "assistant",
@@ -164,7 +164,7 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 		// gatekeeper individually) and appends one tool message per call.
 		// With NO tool calls at all, this is the final-answer turn.
 		if len(llmResp.ToolCalls) == 0 && llmResp.ToolCall == nil {
-			slog.Info("Agent Loop: final answer", "step", l.stepCount)
+			l.agentCtx.Log().Info("Agent Loop: final answer", "step", l.stepCount)
 			return llmResp.Content, nil
 		}
 
@@ -230,7 +230,7 @@ func (l *AgentLoop) executeOneToolCall(ctx context.Context, call *ToolCall) {
 		auditResult, auditLogs := l.gatekeeper.Audit(ctx, auditTask, l.agentCtx.SessionSummary)
 		if len(auditLogs) > 0 {
 			if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
-				slog.Warn("failed to write tool audit logs", "error", err)
+				l.agentCtx.Log().Warn("failed to write tool audit logs", "error", err)
 			}
 		}
 		if auditResult.Decision != security.DecisionAllowed {
@@ -412,7 +412,7 @@ func (l *AgentLoop) GetMessages() []Message {
 // compactContext summarizes older messages and preserves task state.
 // Keeps system prompt + last 10 messages + compaction summary.
 func (l *AgentLoop) compactContext(ctx context.Context) error {
-	slog.Info("compacting context", "messages", len(l.messages), "session", l.agentCtx.SessionID)
+	l.agentCtx.Log().Info("compacting context", "messages", len(l.messages), "session", l.agentCtx.SessionID)
 
 	// 1. Save current task state before compaction
 	l.saveTaskState()
@@ -486,7 +486,7 @@ func (l *AgentLoop) compactContext(ctx context.Context) error {
 		l.agentCtx.SessionSummary = summary
 	})
 
-	slog.Info("compaction complete", "before", len(l.messages)+keepCount+1, "after", len(l.messages))
+	l.agentCtx.Log().Info("compaction complete", "before", len(l.messages)+keepCount+1, "after", len(l.messages))
 	return nil
 }
 

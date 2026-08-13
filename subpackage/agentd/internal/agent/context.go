@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -109,6 +110,21 @@ type AgentContext struct {
 	// WithStateLock degrades to a no-op. Always access via WithStateLock;
 	// never dereference directly.
 	stateLock *sync.Mutex
+}
+
+// Log returns the request-scoped logger for this execution context.
+// When RunID is set (the Web-tier workflow run id propagated from
+// ToolExecRequest.RunID) the logger carries a run_id attribute, so
+// every slog line emitted while the task executes — manager warnings,
+// loop step lines, sub-agent lifecycle logs — can be grepped across
+// both tiers by one id. When RunID is empty (legacy callers that don't
+// pass a run id) it returns slog.Default(), preserving the pre-tracing
+// log shape exactly.
+func (c *AgentContext) Log() *slog.Logger {
+	if c == nil || c.RunID == "" {
+		return slog.Default()
+	}
+	return slog.With("run_id", c.RunID)
 }
 
 // WithStateLock runs fn under the per-session state lock (nil-safe:

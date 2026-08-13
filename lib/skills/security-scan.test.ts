@@ -54,6 +54,25 @@ describe('security-scan: secret detection', () => {
       expect.objectContaining({ ruleId: 'secret-cloud-token' }),
     );
   });
+
+  it('flags a real sk- token even when a placeholder appears first', () => {
+    // Regression: the scanner used to take only the FIRST match per rule
+    // (text.match), so a placeholder like sk-xxxxxxxxxxxxxxxxxxxx earlier
+    // in the file shadowed a real sk- token later on.
+    const findings = scanSkillFileContent(
+      'README.md',
+      enc(
+        'Example: OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxx\n' +
+          'Real leak: sk-a1b2c3d4e5f6g7h8i9j0\n',
+      ),
+    );
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        ruleId: 'secret-cloud-token',
+        severity: 'CRITICAL',
+      }),
+    );
+  });
 });
 
 describe('security-scan: shell rules', () => {
@@ -121,6 +140,27 @@ describe('security-scan: shell rules', () => {
       }),
     );
   });
+
+  it('blocks a bash-destructive extensionless entrypoint via the declared-runtime hint', () => {
+    // Regression: runSkill executes the frontmatter entrypoint with the
+    // declared runtime regardless of extension/shebang, but the scanner
+    // only applied SHELL_DESTRUCTIVE to *.sh / shebang files — so an
+    // extensionless entrypoint declared as `runtime: bash` bypassed every
+    // shell rule. The hint must close that gap.
+    expect(() =>
+      enforceScan([{ path: 'run', content: enc('rm -rf /*\n') }], {
+        runtime: 'bash',
+        entrypoint: 'run',
+      }),
+    ).toThrow(SkillSecurityScanError);
+  });
+
+  it('does NOT apply shell rules to the same file without the hint', () => {
+    const findings = scanSkillFileContent('run', enc('rm -rf /*\n'));
+    expect(findings).not.toContainEqual(
+      expect.objectContaining({ ruleId: 'shell-destructive' }),
+    );
+  });
 });
 
 describe('security-scan: python rules', () => {
@@ -170,6 +210,29 @@ describe('security-scan: python rules', () => {
     );
     expect(findings).not.toContainEqual(
       expect.objectContaining({ ruleId: 'python-shell-exec' }),
+    );
+  });
+
+  it('blocks an extensionless python entrypoint with eval via the declared-runtime hint', () => {
+    const findings = scanSkillFileContent('main', enc('exec(input(">>> "))'), {
+      runtime: 'python',
+      entrypoint: 'main',
+    });
+    expect(findings).toContainEqual(
+      expect.objectContaining({
+        ruleId: 'python-dynamic-exec',
+        severity: 'CRITICAL',
+      }),
+    );
+  });
+
+  it('does NOT apply the hint to non-entrypoint files', () => {
+    const findings = scanSkillFileContent('notes', enc('rm -rf /*\n'), {
+      runtime: 'bash',
+      entrypoint: 'run',
+    });
+    expect(findings).not.toContainEqual(
+      expect.objectContaining({ ruleId: 'shell-destructive' }),
     );
   });
 });

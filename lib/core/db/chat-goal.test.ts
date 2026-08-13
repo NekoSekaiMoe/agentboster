@@ -59,7 +59,7 @@ vi.mock('drizzle-orm', () => {
   // `sql` template tag — returns the interpolated number for the
   // increment expressions (col + n). The db mock applies these by
   // detecting the { kind: 'inc', col, delta } shape below.
-  const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
+  const sql = (_strings: TemplateStringsArray, ...values: unknown[]) => {
     // The DAL writes: sql`${schema.sessions.hiddenContinuationCount} + ${delta}`
     // → strings = ['<col-ref>', ' + ', ''] and values = [colRef, delta].
     // colRef is the schema mock below (a string key like
@@ -280,6 +280,40 @@ describe('Session Goal DAL', () => {
       await incrementGoalCounters(SESSION_ID, { lastEvalReason: null });
       const state = await getSessionGoalState(SESSION_ID);
       expect(state.lastEvalReason).toBeNull();
+    });
+
+    it('resetNonProgress writes an absolute 0 when the eval reason changes', async () => {
+      // Build up a streak of identical non-progress evaluations.
+      await incrementGoalCounters(SESSION_ID, {
+        nonProgressDelta: 1,
+        lastEvalReason: 'stuck on step 3',
+      });
+      await incrementGoalCounters(SESSION_ID, {
+        nonProgressDelta: 1,
+        lastEvalReason: 'stuck on step 3',
+      });
+      let state = await getSessionGoalState(SESSION_ID);
+      expect(state.consecutiveNonProgress).toBe(2);
+
+      // The eval reason changed → the streak resets to 0 (a 0 delta
+      // would be a truthy-skip and leave the streak at 2).
+      await incrementGoalCounters(SESSION_ID, {
+        resetNonProgress: true,
+        lastEvalReason: 'made progress on step 4',
+      });
+      state = await getSessionGoalState(SESSION_ID);
+      expect(state.consecutiveNonProgress).toBe(0);
+      expect(state.lastEvalReason).toBe('made progress on step 4');
+    });
+
+    it('resetNonProgress takes precedence over nonProgressDelta', async () => {
+      await incrementGoalCounters(SESSION_ID, { nonProgressDelta: 1 });
+      await incrementGoalCounters(SESSION_ID, {
+        resetNonProgress: true,
+        nonProgressDelta: 1,
+      });
+      const state = await getSessionGoalState(SESSION_ID);
+      expect(state.consecutiveNonProgress).toBe(0);
     });
   });
 

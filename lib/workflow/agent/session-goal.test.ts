@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest';
 import {
   GoalBlocker,
   blockerPermitsContinuation,
+  evaluateSessionGoal,
+  MAX_GOAL_OBJECTIVE_CHARS,
   MAX_HIDDEN_CONTINUATIONS,
   MAX_IDENTICAL_NON_PROGRESS,
   shouldContinueWithHiddenRun,
@@ -20,6 +22,19 @@ const green = {
   hiddenContinuationCount: 0,
   consecutiveIdenticalNonProgress: 0,
 };
+
+describe('session-goal: evaluateSessionGoal input guards', () => {
+  it('returns needs_user_input (NOT none) for an over-long goal', async () => {
+    // none = "goal achieved"; an over-long goal is a user-fixable input
+    // problem and must not be recorded as goal-achieved.
+    const evaluation = await evaluateSessionGoal({
+      goal: 'x'.repeat(MAX_GOAL_OBJECTIVE_CHARS + 1),
+      transcript: [],
+    });
+    expect(evaluation.blocker).toBe(GoalBlocker.needs_user_input);
+    expect(blockerPermitsContinuation(evaluation.blocker)).toBe(false);
+  });
+});
 
 describe('session-goal: GoalBlocker continuation semantics', () => {
   it('only goal_not_met_yet permits continuation', () => {

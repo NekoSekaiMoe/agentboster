@@ -77,6 +77,14 @@ export const autonomyConfigSchema = z.object({
    */
   team_leader: z.boolean().default(false).optional(),
   /**
+   * Session-goal auto-continuation master switch (see
+   * `lib/workflow/agent/session-goal.ts`). When true AND a session has a
+   * goal set (`/goal set`), the post-run evaluator may resume the run
+   * with a hidden continuation until the goal is met or a breaker trips.
+   * Default false — the self-driving loop is opt-in.
+   */
+  goal_auto_continue: z.boolean().default(false).optional(),
+  /**
    * Tool-loop circuit-breaker overrides. When omitted the defaults from
    * `tool-loop-guard.ts` apply (3/3/8/3). Set a field to 0 to disable that
    * specific breaker.

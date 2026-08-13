@@ -254,10 +254,17 @@ function detectExecutableMagic(bytes: Uint8Array): string | null {
  * raw bytes and (b) decode to text for the regex rules. Files with NUL
  * bytes in the first 4KB are treated as binary and only the magic check
  * runs (deer-flow's _decode_text_for_analysis behavior).
+ *
+ * `hint` optionally carries the skill's frontmatter-declared
+ * runtime/entrypoint. When this file IS the declared entrypoint and the
+ * declared runtime is `bash`/`python`, the shell/python rule sets apply
+ * even without a matching extension or shebang — runSkill will execute
+ * it that way, so the scan must classify it that way too.
  */
 export function scanSkillFileContent(
   relativePath: string,
   content: Uint8Array,
+  hint?: SkillScanHint,
 ): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
 
@@ -287,12 +294,32 @@ export function scanSkillFileContent(
   const text = new TextDecoder('utf-8', { fatal: false }).decode(content);
 
   const lower = relativePath.toLowerCase();
+  // Declared-runtime hint: runSkill executes the frontmatter-declared
+  // entrypoint with `bash` / `python3` regardless of the file's
+  // extension or shebang (see runSkill in
+  // lib/workflow/agent/tools/skills/local.ts). A hinted entrypoint must
+  // therefore be classified by its declared runtime even when the
+  // filename/shebang heuristics below would miss it — otherwise a
+  // `runtime: bash` skill with an extensionless entrypoint bypasses all
+  // SHELL_DESTRUCTIVE / PY_DYNAMIC_EXEC rules.
+  const declaredRuntime =
+    typeof hint?.runtime === 'string'
+      ? hint.runtime.trim().toLowerCase()
+      : null;
+  const normalizeRel = (p: string) =>
+    p.replace(/\\/g, '/').replace(/^\.\/+/, '');
+  const isHintedEntrypoint =
+    typeof hint?.entrypoint === 'string' &&
+    hint.entrypoint.trim().length > 0 &&
+    normalizeRel(hint.entrypoint.trim()) === normalizeRel(relativePath);
   const isShell =
     lower.endsWith('.sh') ||
-    /(^|\n)\s*#!\s*(?:\/[^\n]*\b(?:bash|sh|zsh)\b)/.test(text);
+    /(^|\n)\s*#!\s*(?:\/[^\n]*\b(?:bash|sh|zsh)\b)/.test(text) ||
+    (isHintedEntrypoint && declaredRuntime === 'bash');
   const isPython =
     lower.endsWith('.py') ||
-    /(^|\n)\s*#!\s*(?:\/[^\n]*\bpython[0-9]?\b)/.test(text);
+    /(^|\n)\s*#!\s*(?:\/[^\n]*\bpython[0-9]?\b)/.test(text) ||
+    (isHintedEntrypoint && declaredRuntime === 'python');
 
   // ── Secrets (all text files) ───────────────────────────────────────
   if (PRIVATE_KEY_RE.test(text)) {
@@ -302,14 +329,25 @@ export function scanSkillFileContent(
       evidence: '-----BEGIN … PRIVATE KEY-----',
     });
   }
+  // Iterate ALL matches per rule: a placeholder (e.g. sk-xxxx…) that
+  // appears before a real token must not shadow it — the old
+  // `text.match(re)` form only ever saw the first match. Record the
+  // first non-placeholder finding per file, then stop.
+  let cloudTokenFlagged = false;
   for (const re of CLOUD_TOKEN_RES) {
-    const match = text.match(re);
-    if (match && !looksLikePlaceholder(match[0])) {
+    if (cloudTokenFlagged) break;
+    const globalRe = new RegExp(
+      re.source,
+      re.flags.includes('g') ? re.flags : `${re.flags}g`,
+    );
+    for (const match of text.matchAll(globalRe)) {
+      if (looksLikePlaceholder(match[0])) continue;
       findings.push({
         ...RULES.SECRET_CLOUD_TOKEN,
         path: relativePath,
         evidence: redactSecret(match[0]),
       });
+      cloudTokenFlagged = true;
       break; // one per file is enough to flag
     }
   }
@@ -430,6 +468,20 @@ export interface SkillFileInput {
 }
 
 /**
+ * Optional skill-level scan context: the frontmatter-declared runtime and
+ * entrypoint, exactly as `runSkill` will honor them. Callers that have
+ * already parsed the manifest should pass this through so the declared
+ * entrypoint is classified by its declared runtime (bash/python) even
+ * when it has no extension or shebang.
+ */
+export interface SkillScanHint {
+  /** Frontmatter `runtime` value (e.g. 'bash', 'python'). */
+  runtime?: string | null;
+  /** Frontmatter `entrypoint` path (skill-relative). */
+  entrypoint?: string | null;
+}
+
+/**
  * Scan a complete skill (all files + path list). Returns ALL findings
  * (CRITICAL + advisory). Does not raise — caller decides what to do with
  * the list (the blob chokepoints call {@link enforceScan} which raises on
@@ -437,11 +489,12 @@ export interface SkillFileInput {
  */
 export function scanSkill(
   files: ReadonlyArray<SkillFileInput>,
+  hint?: SkillScanHint,
 ): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
   findings.push(...scanSkillPaths(files.map((f) => f.path)));
   for (const file of files) {
-    findings.push(...scanSkillFileContent(file.path, file.content));
+    findings.push(...scanSkillFileContent(file.path, file.content, hint));
   }
   return findings;
 }
@@ -455,8 +508,9 @@ export function scanSkill(
  */
 export function enforceScan(
   files: ReadonlyArray<SkillFileInput>,
+  hint?: SkillScanHint,
 ): SecurityFinding[] {
-  const findings = scanSkill(files);
+  const findings = scanSkill(files, hint);
   if (findings.some((f) => f.severity === 'CRITICAL')) {
     throw new SkillSecurityScanError(findings);
   }

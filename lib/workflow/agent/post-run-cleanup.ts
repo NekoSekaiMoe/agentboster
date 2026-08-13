@@ -106,6 +106,7 @@ export async function postRunCleanupWorkflow(input: PostRunCleanupInput) {
     sessionId,
     sourceType,
     runId: runId ?? null,
+    config,
   });
 
   // Resource cleanup always runs (regardless of session kind).
@@ -172,6 +173,9 @@ async function evaluateGoalStep(input: {
   sessionId: string;
   sourceType: ChatSource['type'];
   runId: string | null;
+  /** Host-passed AppConfig — the auto-continuation master switch lives
+   *  at autonomy.goal_auto_continue (default false = opt-in loop). */
+  config: AppConfig;
 }) {
   'use step';
 
@@ -222,8 +226,8 @@ async function evaluateGoalStep(input: {
     // The no-progress breaker fires after MAX_IDENTICAL_NON_PROGRESS (2)
     // consecutive evaluations with the SAME reasoning. Detect "same as
     // last time" by comparing the recorded lastEvalReason to this one;
-    // a change resets the streak (nonProgressDelta stays 0 this turn,
-    // and the next call's lastEvalReason will match again).
+    // a change RESETS the streak to 0 (resetNonProgress — an absolute
+    // write, since a 0 delta is a truthy-skip in incrementGoalCounters).
     const identicalToLast =
       state.lastEvalReason !== null &&
       state.lastEvalReason === evaluation.reasoning;
@@ -239,7 +243,10 @@ async function evaluateGoalStep(input: {
       // the thread cannot have changed under us.
       latestTurnCheckpointed: true,
       threadChangedDuringEvaluation: false,
-      autoContinueEnabled: true,
+      // Master switch from AppConfig (autonomy.goal_auto_continue).
+      // Default false: the self-driving loop is opt-in, matching the
+      // contract documented in session-goal.ts.
+      autoContinueEnabled: input.config.autonomy?.goal_auto_continue === true,
     });
 
     if (decision.continue && input.runId) {
@@ -276,10 +283,12 @@ async function evaluateGoalStep(input: {
 
       // Resume succeeded: count this as one hidden continuation. Only
       // bump the non-progress streak when the reasoning is identical to
-      // the previous evaluation (a fresh reason resets the streak).
+      // the previous evaluation; a fresh reason RESETS the streak to 0.
       await incrementGoalCounters(input.sessionId, {
         hiddenDelta: 1,
-        nonProgressDelta: identicalToLast ? 1 : 0,
+        ...(identicalToLast
+          ? { nonProgressDelta: 1 }
+          : { resetNonProgress: true }),
         lastEvalReason: evaluation.reasoning,
       });
       logger.info('session-goal:continued', {
@@ -293,10 +302,13 @@ async function evaluateGoalStep(input: {
 
     // Continuation denied (or no runId to resume): record the latest
     // evaluation reason + advance the non-progress streak so a future
-    // interactive turn can see how close the breaker was. Do NOT bump
-    // hiddenContinuationCount — no continuation was issued.
+    // interactive turn can see how close the breaker was. A changed
+    // reason RESETS the streak. Do NOT bump hiddenContinuationCount —
+    // no continuation was issued.
     await incrementGoalCounters(input.sessionId, {
-      nonProgressDelta: identicalToLast ? 1 : 0,
+      ...(identicalToLast
+        ? { nonProgressDelta: 1 }
+        : { resetNonProgress: true }),
       lastEvalReason: evaluation.reasoning,
     });
     logger.info('session-goal:stopped', {
@@ -321,9 +333,11 @@ async function evaluateGoalStep(input: {
  * Build the `{ role, content }` transcript the goal evaluator consumes,
  * from the session's visible messages. Takes the LAST `maxMessages` rows
  * (most recent state matters most), keeps only user / assistant turns,
- * and trims the total character budget. Tool / summary / system rows are
- * dropped — the classifier reasons over the user/assistant dialogue, not
- * raw tool I/O.
+ * and trims the total character budget FROM THE NEWEST ENTRY BACKWARDS —
+ * when the budget trips, the oldest entries are dropped and the most
+ * recent assistant turn (what the classifier most needs to see) always
+ * survives. Tool / summary / system rows are dropped — the classifier
+ * reasons over the user/assistant dialogue, not raw tool I/O.
  */
 function buildGoalTranscript(
   rows: ReadonlyArray<{
@@ -333,7 +347,11 @@ function buildGoalTranscript(
   maxMessages: number,
   maxChars: number,
 ): { role: 'user' | 'assistant'; content: string }[] {
-  const recent = rows.slice(-maxMessages);
+  // Newest-first accumulation: reverse so the budget is spent on the
+  // most recent turns and an overflow truncates the OLDEST entry, not
+  // the tail. The result is reversed back to chronological order at
+  // the end.
+  const recent = rows.slice(-maxMessages).reverse();
   const transcript: { role: 'user' | 'assistant'; content: string }[] = [];
   let totalChars = 0;
 
@@ -346,20 +364,22 @@ function buildGoalTranscript(
 
     totalChars += content.length;
     if (totalChars > maxChars) {
-      // Truncate the entry that crosses the budget rather than dropping
-      // the tail — the most recent assistant turn is what the classifier
-      // most needs to see, so keep at least a prefix of everything.
+      // Truncate the entry that crosses the budget (the oldest one that
+      // still partially fits) rather than dropping the newest turns.
       const remaining = Math.max(0, maxChars - (totalChars - content.length));
-      transcript.push({
-        role: row.role,
-        content: content.slice(0, remaining),
-      });
+      if (remaining > 0) {
+        transcript.push({
+          role: row.role,
+          content: content.slice(0, remaining),
+        });
+      }
       break;
     }
     transcript.push({ role: row.role, content });
   }
 
-  return transcript;
+  // Restore chronological order (oldest → newest) for the evaluator.
+  return transcript.reverse();
 }
 
 async function cleanupResourcesStep(input: {

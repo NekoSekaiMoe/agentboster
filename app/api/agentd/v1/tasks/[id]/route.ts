@@ -9,6 +9,21 @@ import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.tasks');
 
+// Whitelist for body.status. agent_tasks.status is a text column with NO
+// DB-level CHECK constraint (the drizzle enum is TS-only), so without
+// this guard an arbitrary string would be written — it would never match
+// the terminal statuses (lease never cleared), never match
+// reapOrphanedTasks' in-flight scan, and never be claimable: a
+// permanently stuck row.
+const VALID_TASK_STATUSES = new Set([
+  'pending',
+  'reviewing',
+  'running',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -30,6 +45,15 @@ export async function PUT(
 ) {
   const { id } = await params;
   const body = await request.json();
+  if (typeof body.status !== 'string' || !VALID_TASK_STATUSES.has(body.status)) {
+    return Response.json(
+      {
+        success: false,
+        error: `Invalid status; must be one of: ${[...VALID_TASK_STATUSES].join(', ')}`,
+      },
+      { status: 400 },
+    );
+  }
   // When the daemon carries node_id, pass it as the owner guard: a status
   // mutation from a node that does NOT own the row is rejected (returns
   // null) so a stale daemon returning after its lease expired cannot

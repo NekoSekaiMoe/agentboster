@@ -1,5 +1,7 @@
 export const dynamic = 'force-dynamic';
 
+import { eq } from 'drizzle-orm';
+import { db } from '@/lib/core/db';
 import {
   createTask,
   formatTaskForAgentd,
@@ -8,6 +10,7 @@ import {
   listTasks,
   resolveAgentdResourceAccess,
 } from '@/lib/core/db/agentd';
+import { agentdNodes } from '@/lib/core/db/schema';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('api.agentd.tasks');
@@ -15,6 +18,26 @@ const logger = createLogger('api.agentd.tasks');
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    // Only honor node_id when it names a REGISTERED node. An unregistered
+    // id would strap the task to an owner that can never heartbeat, and
+    // reapOrphanedTasks' NOT EXISTS check would later reap it as
+    // 'owner_node_offline_lease_expired' — a self-inflicted failure.
+    // Unregistered / non-string node_id → undefined: the task is created
+    // ownerless (待认领) and stays NULL-lease until a node claims it via
+    // updateTaskStatus at the pending → running flip. When honored, the
+    // lease is granted at create time so the first heartbeat renews it.
+    // The daemon is the only caller that knows its node_id; identity is
+    // trusted from the mTLS + AGENTD_API_KEY boundary, never a user_id
+    // body field.
+    let ownerNodeId: string | undefined;
+    if (typeof body.node_id === 'string') {
+      const [node] = await db
+        .select({ nodeID: agentdNodes.nodeID })
+        .from(agentdNodes)
+        .where(eq(agentdNodes.nodeID, body.node_id))
+        .limit(1);
+      ownerNodeId = node ? body.node_id : undefined;
+    }
     const task = await createTask({
       agentId: body.agent_id ?? 'default',
       sessionId: body.session_id,
@@ -23,11 +46,7 @@ export async function POST(request: Request) {
       sandboxId: body.sandbox_id,
       env: body.env,
       timeout: body.timeout,
-      // When the daemon createTask caller carries node_id, grant the lease
-      // at create time so the first heartbeat renews it. The daemon is
-      // the only caller that knows its node_id; identity is trusted from
-      // the mTLS + AGENTD_API_KEY boundary, never a user_id body field.
-      ownerNodeId: typeof body.node_id === 'string' ? body.node_id : undefined,
+      ownerNodeId,
     });
     logger.info('task created', { taskId: task.id, agentId: task.agentId });
     return Response.json({ success: true, data: formatTaskForAgentd(task) });
