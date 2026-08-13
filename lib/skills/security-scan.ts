@@ -447,7 +447,15 @@ export function scanSkillPaths(
 ): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
   for (const p of relativePaths) {
-    if (p.includes('..') || p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)) {
+    // Normalize to forward slashes, then flag only when a path segment is
+    // exactly ".." — a bare substring match on ".." would false-positive on
+    // legitimate filenames like "my..file.txt" or "v1..v2.diff".
+    const segments = p.replace(/\\/g, '/').split('/');
+    if (
+      segments.includes('..') ||
+      p.startsWith('/') ||
+      /^[A-Za-z]:[\\/]/.test(p)
+    ) {
       findings.push({
         ...RULES.PACKAGE_PATH_TRAVERSAL,
         path: p,

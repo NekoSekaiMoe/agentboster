@@ -210,10 +210,17 @@ export function WorkspacesSection() {
       // richer toast that tells the user consolidation is running in the
       // background (Dream merge is fire-and-forget server-side). The
       // generic success toast stays for public→private and no-op restores.
-      if (result.restoredMemoryCount > 0) {
+      // Either pool (long-term shared OR session summaries) being restored
+      // counts — restoring only session memories should not fall through
+      // to the generic message.
+      if (
+        result.restoredMemoryCount > 0 ||
+        result.restoredSessionMemoryCount > 0
+      ) {
         toast.success(
           t('workspace.visibilityRestoredWithMerge', {
-            count: result.restoredMemoryCount,
+            count:
+              result.restoredMemoryCount + result.restoredSessionMemoryCount,
           }),
         );
       } else {

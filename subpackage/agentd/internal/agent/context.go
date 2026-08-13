@@ -15,12 +15,12 @@ import (
 
 // AgentContext holds the runtime context for an agent session.
 type AgentContext struct {
-	SessionID      string
-	TaskID         string
-	AgentID        string
-	UserID         string
-	Roles          []string
-	Source         clawless.BotSource
+	SessionID string
+	TaskID    string
+	AgentID   string
+	UserID    string
+	Roles     []string
+	Source    clawless.BotSource
 	// RunID is the Web-tier workflow run id propagated from
 	// ToolExecRequest.RunID for cross-tier tracing. Copied onto any
 	// clawless.Task built during tool execution so callbacks to the
@@ -117,14 +117,26 @@ type AgentContext struct {
 // ToolExecRequest.RunID) the logger carries a run_id attribute, so
 // every slog line emitted while the task executes — manager warnings,
 // loop step lines, sub-agent lifecycle logs — can be grepped across
+// runLogger is the shared rule for deriving a run-scoped logger used by
+// both AgentContext.Log and subagentParentSnapshot.log: slog.Default()
+// when the run id is empty (legacy callers see no log-shape change),
+// otherwise a logger carrying run_id. Factored out so the two callers
+// cannot diverge.
+func runLogger(runID string) *slog.Logger {
+	if runID == "" {
+		return slog.Default()
+	}
+	return slog.With("run_id", runID)
+}
+
 // both tiers by one id. When RunID is empty (legacy callers that don't
 // pass a run id) it returns slog.Default(), preserving the pre-tracing
 // log shape exactly.
 func (c *AgentContext) Log() *slog.Logger {
-	if c == nil || c.RunID == "" {
+	if c == nil {
 		return slog.Default()
 	}
-	return slog.With("run_id", c.RunID)
+	return runLogger(c.RunID)
 }
 
 // WithStateLock runs fn under the per-session state lock (nil-safe:

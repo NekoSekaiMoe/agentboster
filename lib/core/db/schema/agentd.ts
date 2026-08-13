@@ -109,12 +109,16 @@ export const agentTasks = pgTable(
     rerunOfTaskIdIdx: index('agent_tasks_rerun_of_task_id_idx').on(
       table.rerunOfTaskId,
     ),
-    // Powers reapOrphanedTasks()'s scan for in-flight rows whose lease
-    // has expired. Partial index (only pending/reviewing/running rows)
-    // because terminal-status rows are never reclaimed and would bloat a
-    // full index. Mirrors deer-flow's ix_runs_lease.
+    // Powers renewTaskLeases(nodeId) (hot path: every heartbeat filters by
+    // owner_node_id) and reapOrphanedTasks() (cold path: scans expired
+    // in-flight rows across all owners). Leading with owner_node_id lets the
+    // hot renew path index-skip straight to this node's rows; reap still
+    // works because the partial predicate + a lease_expires_at range scan
+    // under it remains cheaper than a seqscan on a populated agent_tasks.
+    // Partial (only pending/reviewing/running) because terminal rows are
+    // never reclaimed and would bloat a full index.
     leaseExpiresAtIdx: index('agent_tasks_lease_expires_at_idx')
-      .on(table.leaseExpiresAt)
+      .on(table.ownerNodeId, table.leaseExpiresAt)
       .where(sql`status IN ('pending', 'reviewing', 'running')`),
   }),
 );

@@ -120,6 +120,11 @@ export async function reapOrphanedTasks(
     .set({
       status: 'failed',
       failureReason: 'owner_node_offline_lease_expired',
+      // Clear the expired lease so the row matches the terminal-state
+      // shape used by updateTaskStatus (completed/failed/cancelled all
+      // null out lease_expires_at). Without this the failed row keeps a
+      // stale expiry timestamp that can confuse liveness probes / UI.
+      leaseExpiresAt: null,
       updatedAt: now,
     })
     .where(

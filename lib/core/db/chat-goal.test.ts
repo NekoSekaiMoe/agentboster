@@ -60,10 +60,12 @@ vi.mock('drizzle-orm', () => {
   // increment expressions (col + n). The db mock applies these by
   // detecting the { kind: 'inc', col, delta } shape below.
   const sql = (_strings: TemplateStringsArray, ...values: unknown[]) => {
-    // The DAL writes: sql`${schema.sessions.hiddenContinuationCount} + ${delta}`
-    // → strings = ['<col-ref>', ' + ', ''] and values = [colRef, delta].
+    // The DAL writes: sql`COALESCE(${schema.sessions.hiddenContinuationCount}, 0) + ${delta}`
+    // → strings = ['COALESCE(', ', 0) + ', ''] and values = [colRef, delta].
     // colRef is the schema mock below (a string key like
-    // 'hiddenContinuationCount'). We synthesize an increment descriptor.
+    // 'hiddenContinuationCount'); the COALESCE(...) wrapper is cosmetic
+    // (NULL defense) and does not change which positional value is the
+    // column vs. the delta. We synthesize an increment descriptor.
     const colRef = values[0] as string;
     const delta = values[1] as number;
     return { kind: 'inc' as const, col: colRef, delta };

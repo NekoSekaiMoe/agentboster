@@ -198,11 +198,17 @@ describe('task-lease (PGlite)', () => {
 
     it('does NOT reclaim a pending task with no owner (L2 review wait)', async () => {
       // No owner_node_id — this is the "queued pending L2 review" state.
-      // Even with an ancient lease it must survive (no node to have died).
+      // We set a NON-NULL, already-expired lease so the lease-expired
+      // predicate WOULD match this row; only the `ownerNodeId IS NOT NULL`
+      // half of the gate keeps it alive. This actually exercises the
+      // owner-null protection (the previous seed with `leaseOffsetMs: null`
+      // left lease_expires_at NULL, so the row was excluded by the lease
+      // predicate regardless of the owner check — the protection was
+      // never the thing under test).
       const taskId = await seedTask({
         status: 'pending',
         ownerNodeId: null,
-        leaseOffsetMs: null,
+        leaseOffsetMs: -120_000, // lease expired 2 min ago, like an orphan
       });
 
       const { reclaimed } = await reapOrphanedTasks();

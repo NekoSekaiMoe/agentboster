@@ -608,6 +608,23 @@ export const ja = {
     'AgentBoster へようこそ！\n\nこの IM アカウントはまだペアリングされていません。\nWeb UI の 6 桁のペアリングコードを入力してアカウントをバインドするか、/pair <code> を送信してください。',
   'cmd.version.text':
     'AgentBoster v{version}\nランタイム：Node.js {nodeVersion}\nプラットフォーム：{platform}',
+  'cmd.goal.noGoal':
+    '目標が未設定です。`/goal set <text>` で定義してください。',
+  'cmd.goal.statusGoal': '**目標:** {goal}',
+  'cmd.goal.statusHidden': '非表示の継続: {count} / {max}',
+  'cmd.goal.statusNonProgress': '同一の非進行が連続した回数: {count} / {max}',
+  'cmd.goal.statusEval': '最後の評価: {reason}',
+  'cmd.goal.usageSet': '使い方: /goal set <text>',
+  'cmd.goal.setRunActive':
+    '実行中は目標を設定できません。終了を待つか `/stop` で先に停止してください。',
+  'cmd.goal.tooLong': '目標が長すぎます（{length} > {max} 文字）。',
+  'cmd.goal.setOk':
+    '目標を設定しました。目標達成またはサーキットブレーカーが作動するまで、エージェントは自律的に目標へ向かいます。\n\n{text}',
+  'cmd.goal.clearRunActive':
+    '実行中は目標を解除できません。終了を待つか `/stop` で先に停止してください。',
+  'cmd.goal.clearOk':
+    '目標を解除しました。エージェントは自律駆動を停止します。',
+  'cmd.goal.usage': '使い方: /goal set <text> | /goal clear | /goal',
   'cmd.id.title': '現在のID情報：',
   'cmd.id.sessionId': 'Session ID: {value}',
   'cmd.id.noSession': 'Session ID: (なし)',

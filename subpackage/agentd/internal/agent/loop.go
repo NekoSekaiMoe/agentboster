@@ -98,15 +98,19 @@ func NewAgentLoop(
 func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error) {
 	l.messages = append(l.messages, Message{Role: "user", Content: userMessage})
 
+	// Hoisted out of the loop: Log() is cheap (slog.With) but was being
+	// re-invoked every iteration, and two branch sites below still called
+	// l.agentCtx.Log() ad-hoc. One logger for the whole run.
+	log := l.agentCtx.Log()
+
 	for l.stepCount < l.maxSteps {
 		l.stepCount++
-		slog_ := l.agentCtx.Log()
-		slog_.Info("Agent Loop: step", "step", l.stepCount, "session", l.agentCtx.SessionID)
+		log.Info("Agent Loop: step", "step", l.stepCount, "session", l.agentCtx.SessionID)
 
 		// Compact context if message count exceeds threshold
 		if len(l.messages) >= compactionThreshold {
 			if err := l.compactContext(ctx); err != nil {
-				slog_.Warn("compaction failed, continuing", "error", err)
+				log.Warn("compaction failed, continuing", "error", err)
 			}
 		}
 
@@ -124,11 +128,11 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 			auditResult, auditLogs := l.gatekeeper.AuditOutput(ctx, llmResp.Content, l.agentCtx.SessionSummary)
 			if len(auditLogs) > 0 {
 				if err := l.clawless.WriteReviewLogs(ctx, auditLogs); err != nil {
-					l.agentCtx.Log().Warn("failed to write output audit logs", "error", err)
+					log.Warn("failed to write output audit logs", "error", err)
 				}
 			}
 			if auditResult.Decision == "blocked" {
-				l.agentCtx.Log().Warn("LLM output blocked by security audit", "reason", auditResult.Reason)
+				log.Warn("LLM output blocked by security audit", "reason", auditResult.Reason)
 				// Inject a safe replacement message
 				l.messages = append(l.messages, Message{
 					Role:    "assistant",
@@ -164,7 +168,7 @@ func (l *AgentLoop) Run(ctx context.Context, userMessage string) (string, error)
 		// gatekeeper individually) and appends one tool message per call.
 		// With NO tool calls at all, this is the final-answer turn.
 		if len(llmResp.ToolCalls) == 0 && llmResp.ToolCall == nil {
-			l.agentCtx.Log().Info("Agent Loop: final answer", "step", l.stepCount)
+			log.Info("Agent Loop: final answer", "step", l.stepCount)
 			return llmResp.Content, nil
 		}
 

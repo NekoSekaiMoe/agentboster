@@ -335,3 +335,50 @@ await runDreamForUser({
 ## 7. 已无待确认项
 
 三个开工前待定点均已拍板(见 §6 后三行)。可以进入实现阶段。
+
+---
+
+## 8. 后置提案:不可变隔离事件表(代码评审 C1)
+
+> **状态:设计提案,未采纳。** 记录于此以便未来评估,当前实现不依赖它。
+
+### 背景
+
+当前隔离历史与快照状态共享同一列 `quarantine_meta` (jsonb)。每次隔离
+覆写该字段,复活路径用 `|| jsonb_build_object('restoredByRunId', ...)`
+追加复活记录。这意味着每次私有化覆盖前一次的 `isolatedEpoch` /
+`isolatedAt`,只有最新一轮隔离的元数据可查;审计轨迹靠
+`restoredByRunId`/`restoredAt` 勉强保留,但隔离侧的快照细节(谁隔离的、
+当时的 epoch)在下一轮私有化时就丢了。
+
+### 提案
+
+拆出独立的追加式不可变历史表,每次隔离 / 复活写一条事件:
+
+```
+quarantine_events (
+  id            uuid pk,
+  workspace_id  uuid not null references workspaces(id),
+  memory_id     uuid references long_term_memories(id),
+  event         text not null,         -- 'isolated' | 'restored'
+  isolated_epoch int not null,         -- privatization epoch of this event
+  restored_by_run_id text,
+  restored_at   timestamptz,
+  actor         text,                  -- user / system / run_id
+  occurred_at   timestamptz not null default now()
+)
+```
+
+当前状态字段(`dream_status`、`quarantine_meta` 的 active/restored 标志)
+仍维护在 `long_term_memories` 上,事件表只承担审计——`quarantineEpoch`
+的历史不再被覆盖。
+
+### 代价 / 不采纳的理由
+
+- 新表 + 每次隔离 / 复活的额外写;事件表需要与主表一致的 GC 策略。
+- 当前 §3.2 的不变量(`restoredByRunId`/`restoredAt` 作审计轨迹)对现有
+  用例已足够;事件表主要满足的是更强的合规 / 取证需求。
+- 复活与再次私有化流程需同步改成写事件,代码面改动不小。
+
+采纳时机:出现明确的审计 / 取证需求,或 `quarantine_meta` 反复覆写开始
+掩盖真实 bug 时。

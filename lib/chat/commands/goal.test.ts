@@ -47,6 +47,7 @@ describe('executeGoalCommand', () => {
         sessionId: SESSION_ID,
         args: '',
         activeRunId: null,
+        locale: 'en-US',
       });
       expect(text).toContain('No goal set');
     });
@@ -62,6 +63,7 @@ describe('executeGoalCommand', () => {
         sessionId: SESSION_ID,
         args: '',
         activeRunId: null,
+        locale: 'en-US',
       });
       expect(text).toContain('ship the feature');
       expect(text).toContain('3 / 8'); // hidden continuations
@@ -79,6 +81,7 @@ describe('executeGoalCommand', () => {
         sessionId: SESSION_ID,
         args: 'set   build a todo app   ',
         activeRunId: null,
+        locale: 'en-US',
       });
       expect(setSessionGoal).toHaveBeenCalledWith(
         SESSION_ID,
@@ -93,6 +96,7 @@ describe('executeGoalCommand', () => {
         sessionId: SESSION_ID,
         args: 'set something',
         activeRunId: 'run-123',
+        locale: 'en-US',
       });
       expect(setSessionGoal).not.toHaveBeenCalled();
       expect(text).toContain('run is active');
@@ -103,6 +107,7 @@ describe('executeGoalCommand', () => {
         sessionId: SESSION_ID,
         args: 'set   ',
         activeRunId: null,
+        locale: 'en-US',
       });
       expect(setSessionGoal).not.toHaveBeenCalled();
       expect(text).toContain('Usage');
@@ -118,6 +123,7 @@ describe('executeGoalCommand', () => {
         sessionId: SESSION_ID,
         args: 'clear',
         activeRunId: null,
+        locale: 'en-US',
       });
       expect(clearSessionGoal).toHaveBeenCalledWith(SESSION_ID);
       expect(text).toContain('cleared');
@@ -128,6 +134,7 @@ describe('executeGoalCommand', () => {
         sessionId: SESSION_ID,
         args: 'clear',
         activeRunId: 'run-123',
+        locale: 'en-US',
       });
       expect(clearSessionGoal).not.toHaveBeenCalled();
       expect(text).toContain('run is active');
@@ -139,6 +146,7 @@ describe('executeGoalCommand', () => {
       sessionId: SESSION_ID,
       args: 'frobnicate',
       activeRunId: null,
+      locale: 'en-US',
     });
     expect(text).toContain('Usage');
   });
