@@ -212,7 +212,7 @@ export function WorkspaceSwitcher() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 gap-1 px-2 text-xs font-medium text-muted-foreground"
+              className="h-7 gap-1 px-2 font-medium text-muted-foreground text-xs"
               aria-label={t('workspace.switch')}
             >
               <Layers className="size-3.5" />

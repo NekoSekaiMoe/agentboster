@@ -452,11 +452,7 @@ export async function updateTaskStatus(
   }
   // Terminal statuses clear the lease so the partial index stops carrying
   //  the row and reapOrphanedTasks never touches it.
-  if (
-    status === 'completed' ||
-    status === 'failed' ||
-    status === 'cancelled'
-  ) {
+  if (status === 'completed' || status === 'failed' || status === 'cancelled') {
     updates.lease_expires_at = null;
   }
 
