@@ -20,6 +20,11 @@ type AgentContext struct {
 	UserID         string
 	Roles          []string
 	Source         clawless.BotSource
+	// RunID is the Web-tier workflow run id propagated from
+	// ToolExecRequest.RunID for cross-tier tracing. Copied onto any
+	// clawless.Task built during tool execution so callbacks to the
+	// Web carry the originating run id. Empty for non-traced paths.
+	RunID          string
 	SandboxID      string
 	SandboxType    string
 	SandboxPath    string

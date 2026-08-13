@@ -114,6 +114,7 @@ func (m *Manager) LaunchSubagent(parent *AgentContext, req SubagentRequest) stri
 		SandboxType:  req.SandboxType,
 		SystemPrompt: req.SystemPrompt,
 		Status:       clawless.TaskRunning,
+		RunID:        parent.RunID,
 	}
 
 	subagentRegistry.mu.Lock()

@@ -657,6 +657,7 @@ func (m *Manager) ExecuteTool(ctx context.Context, req ToolExecRequest) (*ToolEx
 	// written after this point; sessionStore persistence, execCtx, and
 	// tool registration all use the copy.
 	execCtx.TaskID = req.TaskID
+	execCtx.RunID = req.RunID
 	if len(toolInput) == 0 {
 		toolInput = map[string]any{}
 	}
