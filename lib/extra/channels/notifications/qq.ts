@@ -1,4 +1,5 @@
 import { defaultLocale, type Locale } from '@/lib/i18n';
+import { postChannelMessage } from '@/lib/bot/qq-client';
 import { t } from '@/lib/i18n/server';
 import { signL2Link } from '@/lib/security/l2-link';
 import { createLogger } from '@/lib/utils/logger';
@@ -23,18 +24,17 @@ interface QQConfig {
 /**
  * QQ Official Bot notification channel.
  *
- * Auth flow: exchange appId + appSecret for a QQ access_token at
- * `https://bots.qq.com/app/getAppAccessToken`, then post to the
- * channel-message or message-create endpoint.
+ * Auth + REST is shared with the chat-sdk Adapter shim (lib/bot/qq-adapter.ts)
+ * via lib/bot/qq-client.ts — both paths exchange appId+appSecret for the
+ * same QQ access_token and post to /channels/{id}/messages. Group-message
+ * addressing (/v2/groups/{group_openid}/messages) is not wired in yet.
  *
  * targetChatId is the channel id (for guild channels) — QQ bot API
- * addresses messages per channel. The send path uses the v2 Open API.
+ * addresses messages per channel.
  */
 export class QQNotificationChannel implements NotificationChannel {
   readonly type: AdapterName = 'qq';
   private config: QQConfig;
-  private cachedToken: string | null = null;
-  private tokenExpiresAt = 0;
 
   constructor(config: QQConfig) {
     this.config = config;
@@ -44,67 +44,17 @@ export class QQNotificationChannel implements NotificationChannel {
     return !!this.config.appId && !!this.config.appSecret;
   }
 
-  private async getAccessToken(): Promise<string | null> {
-    if (this.cachedToken && Date.now() < this.tokenExpiresAt) {
-      return this.cachedToken;
-    }
-
-    const resp = await fetch('https://bots.qq.com/app/getAppAccessToken', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        appId: this.config.appId,
-        clientSecret: this.config.appSecret,
-      }),
-    });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`qq oauth error: ${resp.status} ${text}`);
-    }
-
-    const data = (await resp.json()) as {
-      access_token: string;
-      expires_in: number;
-    };
-    this.cachedToken = data.access_token;
-    this.tokenExpiresAt = Date.now() + (data.expires_in - 60) * 1000;
-    return this.cachedToken;
-  }
-
   async send(
     targetChatId: string,
     payload: NotificationPayload,
   ): Promise<NotificationSendResult> {
     try {
-      const token = await this.getAccessToken();
-      if (!token) {
-        throw new Error('could not obtain qq access token');
-      }
-
       const content =
         payload.type === 'decision'
           ? await this.renderDecision(payload)
           : this.renderText(payload);
 
-      const resp = await fetch(
-        `https://api.sgroup.qq.com/channels/${targetChatId}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `QQBot ${token}`,
-          },
-          body: JSON.stringify({ content }),
-        },
-      );
-
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`qq api error: ${resp.status} ${text}`);
-      }
-
-      const data = (await resp.json()) as { id?: string };
+      const data = await postChannelMessage(this.config, targetChatId, content);
       return {
         success: true,
         channel: this.type,
