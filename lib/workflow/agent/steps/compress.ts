@@ -13,7 +13,7 @@ import {
   createSummaryModelMessage,
 } from '../context';
 import type { CompressResult } from '../types';
-import { estimatePromptTokens } from '../utils/estimateTokens';
+import { estimatePromptTokens } from '../compaction-core';
 
 function formatConversation(messages: ModelMessage[]): string {
   return messages

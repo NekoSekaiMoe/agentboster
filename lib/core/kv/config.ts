@@ -44,26 +44,3 @@ export async function patchConfig(input: unknown): Promise<AppConfig> {
   logger.info('patchConfig:success', { patchKeys: Object.keys(patch) });
   return merged;
 }
-
-export async function setConfigSection<K extends keyof AppConfig>(
-  key: K,
-  value: AppConfig[K],
-): Promise<AppConfig> {
-  logger.info('setConfigSection:start', { key });
-
-  const current = await getConfig();
-  const next = appConfigSchema.parse({
-    ...current,
-    [key]: value,
-  });
-
-  await set(CONFIG_KEY, JSON.stringify(next));
-  logger.info('setConfigSection:success', { key });
-  return next;
-}
-
-export function assertConfigPatch(
-  value: unknown,
-): z.infer<typeof configPatchSchema> {
-  return configPatchSchema.parse(value);
-}

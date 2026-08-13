@@ -76,7 +76,7 @@ function normalizeNames(names: string[]): string[] {
 
 // ─── Raw KV reads / writes ───
 
-export async function readSkillIndexRaw(): Promise<SkillIndex> {
+async function readSkillIndexRaw(): Promise<SkillIndex> {
   const raw = await get(SKILLS_INDEX_KEY);
   if (!raw) {
     return { skills: [], updateTime: 0, activeImportJobs: [] };
@@ -91,9 +91,7 @@ export async function readSkillIndexRaw(): Promise<SkillIndex> {
   }
 }
 
-export async function writeSkillIndexRaw(
-  index: SkillIndex,
-): Promise<SkillIndex> {
+async function writeSkillIndexRaw(index: SkillIndex): Promise<SkillIndex> {
   const parsed = skillIndexSchema.parse(index);
   await set(SKILLS_INDEX_KEY, JSON.stringify(parsed));
   return parsed;
@@ -171,10 +169,6 @@ function buildIndexFromDetails(
 }
 
 // ─── Public reads ───
-
-export async function getSkillIndex(): Promise<SkillIndex> {
-  return await readSkillIndexRaw();
-}
 
 export async function listSkillMetas(filter?: {
   status?: SkillStatus;
@@ -278,12 +272,6 @@ export async function removeSkillDetail(name: string): Promise<boolean> {
 }
 
 // ─── Repo skill mapping ───
-
-export async function getRepoSkillNames(gitURL: string): Promise<string[]> {
-  const normalizedGitURL = gitURL.trim();
-  if (!normalizedGitURL) return [];
-  return await readRepoSkillNamesRaw(normalizedGitURL);
-}
 
 export async function syncRepoSkillDetails(
   gitURL: string,
@@ -467,7 +455,7 @@ export async function updateSkillFile(
  * to the model we don't silently demote it; the user should delete and
  * recreate if they really want that.
  */
-export async function setSkillStatus(
+async function setSkillStatus(
   name: string,
   next: SkillStatus,
 ): Promise<SkillDetail | null> {

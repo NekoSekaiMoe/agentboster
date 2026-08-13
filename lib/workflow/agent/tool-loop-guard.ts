@@ -42,10 +42,10 @@ import { createLogger } from '@/lib/utils/logger';
 const logger = createLogger('workflow.agent.tool-loop-guard');
 
 /** Default limits, copied from aionrs `tool_call.rs` lines 3-6. */
-export const DEFAULT_MAX_TOOL_CALL_MALFORMED_TURNS = 3;
-export const DEFAULT_MAX_TOOL_CALL_FAILURE_TURNS = 3;
-export const DEFAULT_MAX_ALL_ERROR_TOOL_ROUNDS = 8;
-export const DEFAULT_MAX_TOOL_CALL_CYCLE_REPETITIONS = 3;
+const DEFAULT_MAX_TOOL_CALL_MALFORMED_TURNS = 3;
+const DEFAULT_MAX_TOOL_CALL_FAILURE_TURNS = 3;
+const DEFAULT_MAX_ALL_ERROR_TOOL_ROUNDS = 8;
+const DEFAULT_MAX_TOOL_CALL_CYCLE_REPETITIONS = 3;
 /** Longest cycle period we bother detecting (aionrs: 4). */
 const MAX_TOOL_CALL_CYCLE_PERIOD = 4;
 

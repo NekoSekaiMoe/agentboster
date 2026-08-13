@@ -191,7 +191,7 @@ function isSameSession(left?: string | null, right?: string | null) {
   return Boolean(left) && Boolean(right) && left === right;
 }
 
-export async function requireTaskAccess(input: {
+async function requireTaskAccess(input: {
   taskId: string;
   sessionId?: string | null;
 }): Promise<TaskAccessRecord> {
@@ -880,15 +880,6 @@ export async function writeMemories(
       })),
     )
     .returning();
-}
-
-export async function deleteMemory(id: string, scope?: AgentdResourceScope) {
-  const identity = await resolveResourceScope(scope);
-  await db
-    .delete(agentMemories)
-    .where(
-      and(eq(agentMemories.id, id), eq(agentMemories.userId, identity.userId)),
-    );
 }
 
 // === Task Outputs (Streaming) ===

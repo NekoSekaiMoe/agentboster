@@ -50,7 +50,7 @@ interface DingtalkRawMessage {
 const SINGLE_PREFIX = 'single:';
 const GROUP_PREFIX = 'group:';
 
-export class DingtalkBotAdapter {
+class DingtalkBotAdapter {
   readonly name = 'dingtalk';
   readonly persistThreadHistory = false;
 

@@ -168,7 +168,7 @@ export function extractTextFromParts(
     .trim();
 }
 
-export function buildUserParts(
+function buildUserParts(
   text: string,
   parts?: WorkflowUIMessage['parts'],
 ): WorkflowUIMessage['parts'] {
@@ -179,42 +179,8 @@ export function buildUserParts(
   return text.length > 0 ? [{ type: 'text', text }] : [];
 }
 
-export function createTextPart(
-  text: string,
-): Extract<MessagePart, { type: 'text' }> {
+function createTextPart(text: string): Extract<MessagePart, { type: 'text' }> {
   return { type: 'text', text };
-}
-
-function asChatMessageMetadata(value: unknown): ChatMessageMetadata {
-  if (!value || typeof value !== 'object') {
-    return {};
-  }
-
-  const metadata = value as Record<string, unknown>;
-
-  return {
-    stepNumber:
-      typeof metadata.stepNumber === 'number' &&
-      Number.isFinite(metadata.stepNumber)
-        ? metadata.stepNumber
-        : undefined,
-    finishReason:
-      typeof metadata.finishReason === 'string'
-        ? metadata.finishReason
-        : undefined,
-    createdAt:
-      typeof metadata.createdAt === 'string' ? metadata.createdAt : undefined,
-    toolName:
-      typeof metadata.toolName === 'string' ? metadata.toolName : undefined,
-    agentName:
-      typeof metadata.agentName === 'string' ? metadata.agentName : undefined,
-    versions: Array.isArray(metadata.versions) ? metadata.versions : undefined,
-    currentVersionIndex:
-      typeof metadata.currentVersionIndex === 'number' &&
-      Number.isFinite(metadata.currentVersionIndex)
-        ? metadata.currentVersionIndex
-        : undefined,
-  };
 }
 
 export function serializeUserMessage(input: {
@@ -535,58 +501,6 @@ export function reconstructUIMessageParts(
   }
 
   return [];
-}
-
-export function toUIMessage(
-  row: PersistedMessageRecord,
-): WorkflowUIMessage | null {
-  if (!row.visibleInChat) {
-    return null;
-  }
-
-  if (row.role !== 'user' && row.role !== 'assistant' && row.role !== 'tool') {
-    return null;
-  }
-
-  const parts = reconstructUIMessageParts(row);
-  const metadata = asChatMessageMetadata(row.payload.metadata);
-
-  // Debug: log metadata for user messages
-  if (row.role === 'user' && metadata.versions) {
-    logger.info('toUIMessage:versions', {
-      messageId: row.uiMessageId ?? row.id,
-      versionsLength: metadata.versions.length,
-      currentVersionIndex: metadata.currentVersionIndex,
-    });
-  }
-
-  const sharedStepMetadata =
-    row.stepNumber !== null && row.stepNumber !== undefined
-      ? {
-          stepNumber: row.stepNumber,
-          ...(row.payload.finishReason
-            ? { finishReason: row.payload.finishReason }
-            : {}),
-          createdAt: row.createdAt.toISOString(),
-        }
-      : {};
-  const nextMetadata =
-    row.role === 'assistant' || row.role === 'tool'
-      ? {
-          ...metadata,
-          ...sharedStepMetadata,
-          ...(row.role === 'tool' && typeof row.payload.toolName === 'string'
-            ? { toolName: row.payload.toolName }
-            : {}),
-        }
-      : metadata;
-
-  return {
-    id: row.uiMessageId ?? row.id,
-    role: row.role === 'user' ? 'user' : 'assistant',
-    parts,
-    metadata: Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
-  };
 }
 
 export function toModelMessage(

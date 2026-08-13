@@ -1,9 +1,0 @@
-export { TelegramNotificationChannel } from './telegram';
-export { DiscordNotificationChannel } from './discord';
-export { SlackNotificationChannel } from './slack';
-export { FeishuNotificationChannel } from './feishu';
-export { GChatNotificationChannel } from './gchat';
-export { TeamsNotificationChannel } from './teams';
-export { QQNotificationChannel } from './qq';
-export { WecomNotificationChannel } from './wecom';
-export { DingtalkNotificationChannel } from './dingtalk';

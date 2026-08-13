@@ -32,11 +32,12 @@
  */
 
 import { createLogger } from '@/lib/utils/logger';
+import type { BarrierMode } from '@/lib/core/db/agent-barriers';
 import type { AgentBarrier, AgentBarrierRelease } from '@/lib/core/db/schema';
 
 const logger = createLogger('workflow.agent.barrier');
 
-export type BarrierMode = 'all' | 'quorum' | 'first_ok' | 'first_fail';
+export type { BarrierMode };
 
 export interface BarrierSnapshot {
   barrierId: string;

@@ -1,6 +1,6 @@
 import type { AppConfig } from '@/types/config';
 
-export const DEFAULT_L1_SCORER_MODEL = 'openai/gpt-4o-mini';
+const DEFAULT_L1_SCORER_MODEL = 'openai/gpt-4o-mini';
 
 export function resolveL1ScorerModelId(
   config: AppConfig,

@@ -8,6 +8,7 @@ import {
   updateScheduledTask,
 } from '@/lib/core/db/scheduled';
 import {
+  type DisplayStatus,
   serializeScheduledTask,
   type PersistedScheduledTask,
   type ScheduleTaskRecord,
@@ -48,9 +49,7 @@ const updateTaskSchema = z.discriminatedUnion('type', [
   dailyTaskSchema,
 ]);
 
-export type { PersistedScheduledTask, ScheduleTaskRecord };
-
-export type DisplayStatus = 'scheduled' | 'archived';
+export type { DisplayStatus, PersistedScheduledTask, ScheduleTaskRecord };
 
 export type UpdateScheduleTaskInput = z.infer<typeof updateTaskSchema>;
 

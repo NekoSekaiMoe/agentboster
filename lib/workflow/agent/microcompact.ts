@@ -40,7 +40,7 @@ export const CLEARED_TOOL_RESULT = '[Tool result cleared by microcompact]';
  * Tools NOT on this list (e.g. memory writes, handoffs, short control
  * probes) are left untouched. Mirrors aionrs' compactable_tools default.
  */
-export const DEFAULT_COMPACTABLE_TOOLS = [
+const DEFAULT_COMPACTABLE_TOOLS = [
   'read_file',
   'read', // alias
   'list_files',
@@ -92,7 +92,7 @@ export interface MicrocompactResult {
 }
 
 /** Sentinel result returned when the pass did not run. */
-export const NOOP_RESULT: MicrocompactResult = {
+const NOOP_RESULT: MicrocompactResult = {
   clearedCount: 0,
   estimatedTokensFreed: 0,
   ran: false,

@@ -411,30 +411,6 @@ export async function requestCompact(runId: string): Promise<boolean> {
   return true;
 }
 
-/**
- * Request an explicit named checkpoint. Equivalent to requestCompact but
- * stamps `label` onto the resulting session_memories row metadata so the
- * UI can surface it as a user-named restore point rather than an
- * anonymous auto-compaction. Returns false when the run can't be resumed
- * (already closed, etc.) — same contract as requestCompact.
- */
-export async function requestCheckpoint(
-  runId: string,
-  label?: string,
-): Promise<boolean> {
-  if (!(await canResumeRun(runId))) {
-    return false;
-  }
-
-  await resumeWithMessage(runId, {
-    type: 'control',
-    command: 'checkpoint',
-    ...(label ? { label } : {}),
-  });
-
-  return true;
-}
-
 export async function resumeToolApproval(
   toolCallId: string,
   payload: ToolApprovalPayload,

@@ -53,7 +53,7 @@ export const DecisionType = {
 
 export type DecisionType = (typeof DecisionType)[keyof typeof DecisionType];
 
-export const DecisionSchema = z.object({
+const DecisionSchema = z.object({
   decisionId: z.string(),
   type: z.nativeEnum(DecisionType),
   taskId: z.string(),
@@ -110,8 +110,8 @@ export const DecisionSchema = z.object({
 
 export type Decision = z.infer<typeof DecisionSchema>;
 
-export const DEFAULT_TIMEOUT = 3 * 60 * 1000; // 3 minutes
-export const MAX_CONCURRENT_PER_TASK = 3;
+const DEFAULT_TIMEOUT = 3 * 60 * 1000; // 3 minutes
+const MAX_CONCURRENT_PER_TASK = 3;
 
 const ACTIVE: readonly DecisionStatus[] = [
   DecisionStatus.PENDING,

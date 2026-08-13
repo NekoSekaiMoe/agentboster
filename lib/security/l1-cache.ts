@@ -29,7 +29,7 @@ const KEY_PREFIX = 'l1:score:';
 /** Default TTL in seconds when the config does not override it. */
 export const DEFAULT_L1_CACHE_TTL_SECONDS = 5 * 60;
 /** Disable caching entirely when set to 0. */
-export const L1_CACHE_DISABLED = 0;
+const L1_CACHE_DISABLED = 0;
 /** Cap absurdly large TTLs to avoid pinning stale low-risk verdicts forever. */
 const MAX_L1_CACHE_TTL_SECONDS = 60 * 60; // 1h
 

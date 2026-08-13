@@ -1,4 +1,4 @@
-import { and, desc, eq, getTableColumns, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db } from './index';
 import { scheduledTaskRuns } from './schema';
 
@@ -300,52 +300,6 @@ export async function markRunFailed(
     )
     .returning({ id: scheduledTaskRuns.id });
   return updated.length > 0;
-}
-
-/**
- * Recent runs for a task, newest first. Used by the task-detail UI.
- */
-export async function listRecentRunsForTask(
-  taskId: string,
-  limit = 20,
-): Promise<ScheduledTaskRunRecord[]> {
-  const rows = await db
-    .select(getTableColumns(scheduledTaskRuns))
-    .from(scheduledTaskRuns)
-    .where(eq(scheduledTaskRuns.taskId, taskId))
-    .orderBy(desc(scheduledTaskRuns.plannedAt))
-    .limit(limit);
-  return rows as ScheduledTaskRunRecord[];
-}
-
-/**
- * Count non-terminal runs for a task — used by the admission gate to
- * detect "a dispatch is already in flight for this task" (coalesce).
- */
-export async function countActiveRunsForTask(taskId: string): Promise<number> {
-  const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(scheduledTaskRuns)
-    .where(
-      and(
-        eq(scheduledTaskRuns.taskId, taskId),
-        sql`${scheduledTaskRuns.status} IN ('pending', 'running')`,
-      ),
-    );
-  return row?.n ?? 0;
-}
-
-/** Run history for a user (via join on scheduled_tasks.sessionId → userId). */
-export async function listRecentRunsWherePlannedAtNotNull(
-  limit = 100,
-): Promise<ScheduledTaskRunRecord[]> {
-  const rows = await db
-    .select(getTableColumns(scheduledTaskRuns))
-    .from(scheduledTaskRuns)
-    .where(isNotNull(scheduledTaskRuns.plannedAt))
-    .orderBy(desc(scheduledTaskRuns.plannedAt))
-    .limit(limit);
-  return rows as ScheduledTaskRunRecord[];
 }
 
 /**

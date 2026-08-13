@@ -50,13 +50,6 @@ export function getAppBaseUrl(): string {
   return getPublicAppUrl();
 }
 
-export function getWebhookCallbackPath(
-  adapter: AdapterName,
-  authSecret = assertBotAuthSecret(),
-): string {
-  return `/api/bot/${authSecret}/${adapter}/callback`;
-}
-
 export function getWebhookCallbackUrl(adapter: AdapterName): string | null {
   const secret = getBotAuthSecret();
   if (!secret) {
@@ -64,21 +57,7 @@ export function getWebhookCallbackUrl(adapter: AdapterName): string | null {
   }
 
   // Feishu and QQ use the same unified callback path
-  return `${getAppBaseUrl()}${getWebhookCallbackPath(adapter, secret)}`;
-}
-
-export function getWebhookCallbackUrls(
-  adapters: AdapterName[],
-): Record<AdapterName, string | null> {
-  const secret = getBotAuthSecret();
-  const baseUrl = getAppBaseUrl();
-  const result = {} as Record<AdapterName, string | null>;
-  for (const adapter of adapters) {
-    result[adapter] = secret
-      ? `${baseUrl}/api/bot/${secret}/${adapter}/callback`
-      : null;
-  }
-  return result;
+  return `${getAppBaseUrl()}/api/bot/${secret}/${adapter}/callback`;
 }
 
 export type WebhookRegistrationResult = {

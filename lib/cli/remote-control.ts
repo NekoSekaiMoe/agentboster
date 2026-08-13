@@ -1,4 +1,4 @@
-import { get, set, del, expire } from '@/lib/core/kv';
+import { get, set, del } from '@/lib/core/kv';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('cli-remote-control');
@@ -187,10 +187,6 @@ export async function markCliOffline(sessionId: string): Promise<void> {
   logger.info('CLI marked offline', { sessionId });
 }
 
-export async function renewCliHeartbeat(sessionId: string): Promise<void> {
-  await expire(`cli-remote:${sessionId}`, KV_TTL_SECONDS);
-}
-
 export async function isCliOnlineForSession(
   sessionId: string,
 ): Promise<boolean> {
@@ -293,37 +289,3 @@ export async function handleCliSessionSwitch(
 // ---------------------------------------------------------------------------
 
 const LOCK_TTL_SECONDS = 600;
-
-export async function acquireSessionLock(
-  sessionId: string,
-  runId: string,
-): Promise<boolean> {
-  const result = await set(
-    `cli-lock:${sessionId}`,
-    JSON.stringify({ runId, lockedAt: Date.now() }),
-    { nx: true, ex: LOCK_TTL_SECONDS },
-  );
-  if (result !== 'OK') {
-    return false;
-  }
-  await pushToCliSession(sessionId, 'lock-acquired', {
-    runId,
-    source: 'im',
-  });
-  return true;
-}
-
-export async function releaseSessionLock(
-  sessionId: string,
-  runId: string,
-): Promise<void> {
-  const raw = await get(`cli-lock:${sessionId}`);
-  if (raw) {
-    const lock = JSON.parse(raw as string);
-    if (lock.runId !== runId) {
-      return;
-    }
-  }
-  await del(`cli-lock:${sessionId}`);
-  await pushToCliSession(sessionId, 'lock-released', { runId });
-}

@@ -55,7 +55,7 @@ interface FeishuRawMessage {
  * (lib/bot/adaptor.ts). Telegram's @chat-adapter package does the same
  * (TelegramAdapter is a plain object, not an `implements Adapter`).
  */
-export class FeishuBotAdapter {
+class FeishuBotAdapter {
   readonly name = 'feishu';
   readonly persistThreadHistory = false;
 

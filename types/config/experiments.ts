@@ -17,7 +17,7 @@ import { z } from 'zod';
  * lets forms index into it (`ExperimentsConfig['skillDistillation']`)
  * without fighting `| undefined` on every access.
  */
-export const experimentsConfigShapeSchema = z.object({
+export const experimentsConfigSchema = z.object({
   /**
    * Skill distillation loop.
    *
@@ -73,10 +73,6 @@ export const experimentsConfigShapeSchema = z.object({
     .optional(),
 });
 
-export type ExperimentsConfigShape = z.infer<
-  typeof experimentsConfigShapeSchema
->;
-
-export const experimentsConfigSchema = experimentsConfigShapeSchema;
+export type ExperimentsConfigShape = z.infer<typeof experimentsConfigSchema>;
 
 export type ExperimentsConfig = ExperimentsConfigShape;

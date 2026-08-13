@@ -55,8 +55,10 @@ import {
   MAIN_AGENT_NAME,
   resolveMainAgentModelParams,
 } from './utils/agent-config';
-import { estimatePromptTokens } from './utils/estimateTokens';
-import { evaluateCompactionNeed } from './utils/shouldCompress';
+import {
+  estimatePromptTokens,
+  evaluateCompactionNeed,
+} from './compaction-core';
 
 const logger = createLogger('workflow.agent');
 

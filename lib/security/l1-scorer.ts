@@ -11,7 +11,7 @@ import { z } from 'zod';
 /**
  * Safety scoring prompt for command evaluation in isolated sandbox
  */
-export const SAFETY_SCORER_PROMPT = `你是一个命令安全评估器。你的任务是评估在隔离 Linux 沙箱中执行以下命令的风险。
+const SAFETY_SCORER_PROMPT = `你是一个命令安全评估器。你的任务是评估在隔离 Linux 沙箱中执行以下命令的风险。
 
 **沙箱上下文**：命令在隔离沙箱内执行，无法访问宿主机。rm -rf / 仅销毁沙箱文件系统，不影响宿主机。沙箱内对 /workspace 的常规开发操作（git, go build, npm test）是安全的。请根据沙箱环境调整评分——沙箱内操作的风险远低于裸机执行。
 
@@ -53,7 +53,7 @@ export const SAFETY_SCORER_PROMPT = `你是一个命令安全评估器。你的�
 /**
  * Output safety scoring prompt for evaluating LLM output content
  */
-export const SAFETY_OUTPUT_SCORER_PROMPT = `你是一个输出安全评估器。你的任务是评估 AI 助手的输出内容是否包含敏感信息泄露或安全风险。
+const SAFETY_OUTPUT_SCORER_PROMPT = `你是一个输出安全评估器。你的任务是评估 AI 助手的输出内容是否包含敏感信息泄露或安全风险。
 
 评估以下 AI 输出内容：
 {{output}}
@@ -92,7 +92,7 @@ export const SAFETY_OUTPUT_SCORER_PROMPT = `你是一个输出安全评估器。
 /**
  * L1 scoring result schema
  */
-export const l1ScoreSchema = z.object({
+const l1ScoreSchema = z.object({
   score: z
     .number()
     .min(0)
@@ -195,7 +195,7 @@ export type MemoryRelevanceResult = {
   reasons: Record<string, string>;
 };
 
-export const memoryRelevanceResultSchema = z.object({
+const memoryRelevanceResultSchema = z.object({
   relevant: z.array(
     z.object({
       id: z.string().describe('The candidate id, copied verbatim.'),
@@ -220,7 +220,7 @@ export const memoryRelevanceResultSchema = z.object({
  *
  * The bar is intentionally high to keep the injected context lean.
  */
-export const MEMORY_RELEVANCE_SCORER_PROMPT = `You are a strict memory relevance judge for a conversational assistant.
+const MEMORY_RELEVANCE_SCORER_PROMPT = `You are a strict memory relevance judge for a conversational assistant.
 
 You will receive:
 - USER_MESSAGE: the user's latest message.

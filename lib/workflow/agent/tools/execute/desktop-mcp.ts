@@ -187,5 +187,3 @@ export const desktopMcpRemoteTool = defineBuildInTool({
     })();
   },
 });
-
-export default desktopMcpRemoteTool;

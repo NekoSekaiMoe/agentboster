@@ -45,7 +45,7 @@ interface WecomRawMessage {
   msgid?: string;
 }
 
-export class WecomBotAdapter {
+class WecomBotAdapter {
   readonly name = 'wecom';
   readonly persistThreadHistory = false;
 

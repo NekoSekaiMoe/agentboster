@@ -46,7 +46,7 @@ interface QQRawMessage {
  * doesn't use (it has its own webhook), so we implement just the
  * outbound methods and cast at the factory call site.
  */
-export class QQBotAdapter {
+class QQBotAdapter {
   readonly name = 'qq';
   readonly persistThreadHistory = false;
 

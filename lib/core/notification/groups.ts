@@ -77,13 +77,3 @@ export function defaultSeverityForType(
   if (notificationType === 'workspace_failover') return 'attention';
   return 'info';
 }
-
-/** Load mutedGroups for a user (empty when no prefs row exists). */
-export async function loadMutedGroups(userId: string): Promise<string[]> {
-  const [row] = await db
-    .select({ mutedGroups: notificationPreferences.mutedGroups })
-    .from(notificationPreferences)
-    .where(eq(notificationPreferences.userId, userId))
-    .limit(1);
-  return row?.mutedGroups ?? [];
-}

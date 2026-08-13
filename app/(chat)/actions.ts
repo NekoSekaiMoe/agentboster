@@ -302,8 +302,8 @@ export async function toggleSessionPinAction(input: { id: string }) {
  * sees unexpected throws — forbidden / not_found / unknown come back as
  * normal returns. Treating this like a throw-on-failure API is a breaking
  * contract change: callers written against the old assumption silently
- * drop rows and redirect on failure (see sidebar-core-content.tsx,
- * chat-container.tsx, chat-sidebar.tsx for the fixed call sites).
+ * drop rows and redirect on failure (see chat-container.tsx,
+ * chat-sidebar.tsx for the fixed call sites).
  */
 type SessionMutationResult =
   | { success: true }

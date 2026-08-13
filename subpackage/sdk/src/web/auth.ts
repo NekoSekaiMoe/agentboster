@@ -1,7 +1,10 @@
 // Web HTTP API — auth surface.
 //
-// Source of truth: /lib/auth/session.ts, /lib/auth/pair-code.ts,
-// /lib/extra/auth/types.ts
+// Source of truth: /lib/auth/session.ts, /lib/auth/pair-code.ts
+//
+// The User/ApiKey/TokenPayload/L2AuthorizationWindow/IAuthProvider
+// interfaces below originally mirrored /lib/extra/auth/types.ts; that
+// module was deleted as dead code, so these SDK types now stand alone.
 //
 // These types mirror the wire shape used by the Web tier's auth
 // patterns (cookie session, pair-code exchange, API key, JWT). They
@@ -40,9 +43,7 @@ export interface PairCodeListing {
   expiresInSeconds: number;
 }
 
-// Source: /lib/extra/auth/types.ts
-//
-// Wire-safe subset of the source `User` interface. The source extends
+// Wire-safe subset of the (now-deleted) source `User` interface. The source extends
 // a `StoredUser` row that pulls in drizzle-orm inferred column types
 // and includes `passwordHash`; the SDK surface omits `passwordHash`
 // because it is a server-side credential that must never appear in
@@ -58,7 +59,6 @@ export interface User {
   createdAt: number;
 }
 
-// Source: /lib/extra/auth/types.ts
 export interface ApiKey {
   key: string;
   name: string;
@@ -66,7 +66,6 @@ export interface ApiKey {
   expiresAt?: number;
 }
 
-// Source: /lib/extra/auth/types.ts
 export interface TokenPayload {
   sub: string;
   username: string;
@@ -74,7 +73,6 @@ export interface TokenPayload {
   exp: number;
 }
 
-// Source: /lib/extra/auth/types.ts
 export type L2AuthorizationWindow =
   | 'once'
   | '10min'
@@ -82,8 +80,6 @@ export type L2AuthorizationWindow =
   | '1day'
   | 'session';
 
-// Source: /lib/extra/auth/types.ts
-//
 // AuthProvider contract implemented by the Web tier's pluggable auth
 // backends. Mirrored here so SDK consumers can declare
 // interop/compatibility with the same interface. Method signatures

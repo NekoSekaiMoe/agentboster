@@ -13,9 +13,9 @@
  * Transparent to useChat: the Chat state machine just consumes the SSE
  * stream returned, regardless of whether it came from the POST or GET.
  *
- * Kept framework-agnostic (no React) so both transport constructions
- * (lib/chat/use-chat-transport.ts and components/chat/chat-container.tsx)
- * can share the same switch logic without duplication.
+ * Kept framework-agnostic (no React) so the transport construction
+ * in components/chat/chat-container.tsx can use it without pulling
+ * React into this module.
  */
 
 import { ofetch } from 'ofetch';

@@ -1,21 +1,14 @@
 import { eq } from 'drizzle-orm';
-import { hashPassword, verifyPassword } from '@/lib/extra/auth/password';
+import { hashPassword } from '@/lib/auth/password';
 import { db } from '@/lib/core/db';
 import { users } from '@/lib/core/db/schema';
 import type { UserModelPreferences } from '@/types/config/user-preferences';
 
-export const ALL_ROLES = [
-  'owner',
-  'root',
-  'admin',
-  'user',
-  'readonly',
-] as const;
+const ALL_ROLES = ['owner', 'root', 'admin', 'user', 'readonly'] as const;
 
-export const PROTECTED_ROLES = ['owner', 'root'] as const;
+const PROTECTED_ROLES = ['owner', 'root'] as const;
 
 export type UserRole = (typeof ALL_ROLES)[number];
-export type MinUserType = 'root' | 'admin' | 'user' | 'unknown';
 
 const ALL_ROLE_SET = new Set<string>(ALL_ROLES);
 const PROTECTED_ROLE_SET = new Set<string>(PROTECTED_ROLES);
@@ -95,24 +88,6 @@ export function isSeedAdminUser(user: Pick<StoredUser, 'username'>): boolean {
   return isSeedAdminUsername(user.username);
 }
 
-export function resolveMinUserType(
-  roles: readonly string[] | null | undefined,
-): MinUserType {
-  if (!roles || roles.length === 0) {
-    return 'unknown';
-  }
-  if (roles.some((role) => role === 'owner' || role === 'root')) {
-    return 'root';
-  }
-  if (roles.includes('admin')) {
-    return 'admin';
-  }
-  if (roles.includes('user')) {
-    return 'user';
-  }
-  return 'unknown';
-}
-
 export async function createUser(
   username: string,
   password: string,
@@ -142,32 +117,6 @@ export async function createUser(
     });
 
   return result[0];
-}
-
-export async function authenticateUser(
-  username: string,
-  password: string,
-): Promise<StoredUser | null> {
-  const rows = await db
-    .select()
-    .from(users)
-    .where(eq(users.username, username))
-    .limit(1);
-
-  if (rows.length === 0) return null;
-
-  const row = rows[0];
-  const isValid = await verifyPassword(password, row.passwordHash);
-  if (!isValid) return null;
-
-  return {
-    id: row.id,
-    username: row.username,
-    roles: row.roles as string[],
-    modelPreferences: (row.modelPreferences ??
-      null) as UserModelPreferences | null,
-    createdAt: row.createdAt,
-  };
 }
 
 export async function getUserById(userId: string): Promise<StoredUser | null> {

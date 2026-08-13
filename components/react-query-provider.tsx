@@ -14,8 +14,8 @@ const logger = createLogger('react-query');
  * Module-level singleton QueryClient.
  *
  * Created once per browser session (and once per SSR pass on the server)
- * so non-component code paths — session-events dispatchers in
- * lib/chat/use-chat-transport.ts, session bootstrap, etc. — can reach the
+ * so non-component code paths — session-events dispatchers, session
+ * bootstrap, etc. — can reach the
  * cache via {@link getQueryClient} to invalidate queries. The provider
  * below mounts this same instance under the React tree.
  *
