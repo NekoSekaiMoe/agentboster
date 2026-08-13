@@ -23,6 +23,11 @@ export async function POST(request: Request) {
       sandboxId: body.sandbox_id,
       env: body.env,
       timeout: body.timeout,
+      // When the daemon createTask caller carries node_id, grant the lease
+      // at create time so the first heartbeat renews it. The daemon is
+      // the only caller that knows its node_id; identity is trusted from
+      // the mTLS + AGENTD_API_KEY boundary, never a user_id body field.
+      ownerNodeId: typeof body.node_id === 'string' ? body.node_id : undefined,
     });
     logger.info('task created', { taskId: task.id, agentId: task.agentId });
     return Response.json({ success: true, data: formatTaskForAgentd(task) });

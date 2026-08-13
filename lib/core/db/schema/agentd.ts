@@ -65,6 +65,29 @@ export const agentTasks = pgTable(
      * always starts a fresh session for rollback safety.
      */
     rerunOfTaskId: uuid('rerun_of_task_id'),
+    /**
+     * Node that currently owns execution of this task. NULL for tasks
+     * that are pending review/assignment, OR for legacy rows created
+     * before run-level leases were introduced. Set at claim time
+     * (pending → reviewing/running) by a node, and renewed on every
+     * heartbeat via renewTaskLeases(). Cleared on terminal status.
+     *
+     * The owner guard in updateTaskStatus uses this column: a status
+     * mutation from a non-owner node is rejected, so a stale daemon
+     * returning after a lease expiry cannot clobber the recovery another
+     * node performed. Identity is trusted from the mTLS peer (the
+     * /api/agentd/v1/* boundary is AGENTD_API_KEY + mTLS gated), never
+     * from a body field — same rule as user_id on this boundary.
+     */
+    ownerNodeId: text('owner_node_id'),
+    /**
+     * UTC deadline by which the owner node must renew (via heartbeat) or
+     * the task becomes eligible for orphan reclaim. NULL = legacy row or
+     * pre-claim pending task; reapOrphanedTasks() treats NULL-lease
+     * in-flight rows whose owner is offline as reclaimable. Renewed every
+     * heartbeat by renewTaskLeases(nodeId) to now + TASK_LEASE_SECONDS.
+     */
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -82,6 +105,15 @@ export const agentTasks = pgTable(
     rerunOfTaskIdIdx: index('agent_tasks_rerun_of_task_id_idx').on(
       table.rerunOfTaskId,
     ),
+    // Powers reapOrphanedTasks()'s scan for in-flight rows whose lease
+    // has expired. Partial index (only pending/reviewing/running rows)
+    // because terminal-status rows are never reclaimed and would bloat a
+    // full index. Mirrors deer-flow's ix_runs_lease.
+    leaseExpiresAtIdx: index('agent_tasks_lease_expires_at_idx')
+      .on(table.leaseExpiresAt)
+      .where(
+        sql`status IN ('pending', 'reviewing', 'running')`,
+      ),
   }),
 );
 
