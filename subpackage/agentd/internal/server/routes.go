@@ -404,6 +404,16 @@ func (s *Server) handleToolExec(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
 		return
 	}
+	// Anchor log pairing this agentd task to the Web workflow run. agentd's
+	// own logs key on session_id; adding run_id here lets an operator grep
+	// both tiers by one id for a long-chain agent run. Empty run_id (older
+	// Web caller) just omits the field.
+	if req.RunID != "" {
+		slog.Info("tool exec run correlation",
+			"run_id", req.RunID,
+			"session_id", req.SessionID,
+			"tool_name", req.ToolName)
+	}
 	result, err := s.agentMgr.ExecuteTool(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
