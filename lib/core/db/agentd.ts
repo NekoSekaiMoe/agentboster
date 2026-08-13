@@ -1,6 +1,7 @@
 import { and, desc, eq, like, ne, or, sql, type SQL } from 'drizzle-orm';
 import { sanitizeToolActivityPayload } from '@/lib/core/blob/sanitize';
 import { findNodeByAddress } from '@/lib/extra/agent/node-liveness';
+import { TASK_LEASE_SECONDS } from '@/lib/core/agent/task-lease-constants';
 import { getUserById, hasAdminRole, hasOwnerRole } from '@/lib/core/db/users';
 import { db } from './index';
 import {
@@ -344,6 +345,12 @@ export async function createTask(data: {
   sandboxId?: string;
   env?: Record<string, string>;
   timeout?: number;
+  /** Node that will own execution of this task. When provided (the daemon
+   *  createTask path carries node_id), the task is created with a live
+   *  lease so the first heartbeat renews it. When omitted (a task queued
+   *  pending review/assignment), owner/lease stay NULL until a node
+   *  claims it via updateTaskStatus at the pending → running flip. */
+  ownerNodeId?: string;
 }) {
   if (!data.sessionId) {
     throw taskAccessError(400, 'session_id is required');
@@ -353,6 +360,12 @@ export async function createTask(data: {
   if (!identity.userId) {
     throw taskAccessError(404, 'Session not found');
   }
+
+  // Grant a lease at create time only when the caller is a known node.
+  // A pending-review task (no owner yet) stays NULL-lease until claimed.
+  const leaseExpiresAt = data.ownerNodeId
+    ? new Date(Date.now() + TASK_LEASE_SECONDS * 1000)
+    : null;
 
   const [task] = await db
     .insert(agentTasks)
@@ -367,6 +380,8 @@ export async function createTask(data: {
       env: data.env ?? null,
       timeout: data.timeout ?? 300,
       status: 'pending',
+      ownerNodeId: data.ownerNodeId ?? null,
+      leaseExpiresAt,
     })
     .returning();
   return {
@@ -397,14 +412,54 @@ export async function updateTaskStatus(
   id: string,
   status: string,
   result?: string,
+  options?: {
+    /** Node asserting the update. When provided, the UPDATE is guarded by
+     *  `owner_node_id = callerNodeId` so a stale daemon returning after
+     *  its lease expired (and the task was reclaimed) cannot clobber the
+     *  recovery another node performed. Returns null when the caller does
+     *  not own the row — the route maps that to 409. When omitted
+     *  (legacy caller), the update is unconditional, preserving prior
+     *  behavior. */
+    ownerNodeId?: string;
+  },
 ) {
+  const updates: Record<string, unknown> = {
+    status: status as (typeof agentTasks.status.enumValues)[number],
+    result: result ?? null,
+  };
+  // Claim at the running flip: a pending/reviewing task transitioning
+  //  to running is assigned to the caller node and granted a fresh lease.
+  //  This is the path for tasks created without an owner (pending review)
+  //  that a node picks up. Also refresh the lease on any in-flight →
+  //  in-flight transition the owner makes, so status writes double as
+  //  lease renewals (defense in depth on top of the heartbeat renewer).
+  if (options?.ownerNodeId) {
+    updates.owner_node_id = options.ownerNodeId;
+    if (status === 'running' || status === 'reviewing') {
+      updates.lease_expires_at = new Date(
+        Date.now() + TASK_LEASE_SECONDS * 1000,
+      );
+    }
+  }
+  // Terminal statuses clear the lease so the partial index stops carrying
+  //  the row and reapOrphanedTasks never touches it.
+  if (
+    status === 'completed' ||
+    status === 'failed' ||
+    status === 'cancelled'
+  ) {
+    updates.lease_expires_at = null;
+  }
+
+  const conditions = [eq(agentTasks.id, id)];
+  if (options?.ownerNodeId) {
+    conditions.push(eq(agentTasks.ownerNodeId, options.ownerNodeId));
+  }
+
   const [task] = await db
     .update(agentTasks)
-    .set({
-      status: status as (typeof agentTasks.status.enumValues)[number],
-      result: result ?? null,
-    })
-    .where(eq(agentTasks.id, id))
+    .set(updates)
+    .where(and(...conditions))
     .returning();
   if (!task) return task;
   const identity = await deriveTaskIdentity(task.id);

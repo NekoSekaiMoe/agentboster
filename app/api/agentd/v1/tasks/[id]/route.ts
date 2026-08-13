@@ -30,7 +30,31 @@ export async function PUT(
 ) {
   const { id } = await params;
   const body = await request.json();
-  const task = await updateTaskStatus(id, body.status, body.result);
+  // When the daemon carries node_id, pass it as the owner guard: a status
+  // mutation from a node that does NOT own the row is rejected (returns
+  // null) so a stale daemon returning after its lease expired cannot
+  // clobber the recovery another node performed. Identity is trusted from
+  // the mTLS + AGENTD_API_KEY boundary.
+  const ownerNodeId =
+    typeof body.node_id === 'string' ? body.node_id : undefined;
+  const task = await updateTaskStatus(id, body.status, body.result, {
+    ownerNodeId,
+  });
+  if (!task && ownerNodeId) {
+    // Either the task doesn't exist OR the caller doesn't own it. Both map
+    // to 409 — distinguish with a getTask if a precise 404 is needed, but
+    // for the daemon client a 409 is actionable ("you lost ownership,
+    // refetch") regardless.
+    logger.warn('task update rejected (not owner or missing)', {
+      taskId: id,
+      status: body.status,
+      ownerNodeId,
+    });
+    return Response.json(
+      { success: false, error: 'Task not owned by this node' },
+      { status: 409 },
+    );
+  }
   logger.info('task updated', { taskId: id, status: body.status });
   return Response.json({
     success: true,

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { reapStaleNodes } from '@/lib/extra/agent/node-liveness';
 import { maybeFailoverWorkspaces } from '@/lib/extra/agent/workspace-failover';
+import { renewTaskLeases, reapOrphanedTasks } from '@/lib/core/agent/task-lease';
 import { db } from '@/lib/core/db';
 import { agentdNodes } from '@/lib/core/db/schema';
 import { maybeSweepExpiredKv } from '@/lib/core/kv/sweep-tick';
@@ -170,6 +171,40 @@ export async function POST(req: NextRequest) {
           failoverError instanceof Error
             ? failoverError.message
             : String(failoverError),
+      });
+    }
+
+    // Piggyback TASK LEASE renewal: this node proves it's alive, so renew
+    // every in-flight task it owns to now + TASK_LEASE_SECONDS. This is the
+    // single heartbeat-driven renewal that keeps a healthy node's tasks
+    // from being reclaimed. Best-effort: never fail the heartbeat.
+    try {
+      const renewed = await renewTaskLeases(node_id);
+      if (renewed > 0) {
+        logger.info('renewed task leases', { nodeId: node_id, renewed });
+      }
+    } catch (renewError) {
+      logger.warn('task lease renewal failed (non-fatal)', {
+        error:
+          renewError instanceof Error ? renewError.message : String(renewError),
+      });
+    }
+
+    // Piggyback ORPHAN TASK reclaim: flip in-flight tasks whose lease has
+    // expired AND whose owner node is offline (heartbeat-stale). Runs on
+    // every heartbeat so a crashed node's tasks are reclaimed within
+    // ~2.5 min without an external scheduler. Best-effort: never fail the
+    // heartbeat. Any node's heartbeat can drive the sweep (the conditional
+    // UPDATE is idempotent over the expired+offline row set).
+    try {
+      const { reclaimed } = await reapOrphanedTasks();
+      if (reclaimed > 0) {
+        logger.info('reclaimed orphaned tasks', { reclaimed });
+      }
+    } catch (reapError) {
+      logger.warn('orphan task reap failed (non-fatal)', {
+        error:
+          reapError instanceof Error ? reapError.message : String(reapError),
       });
     }
 
