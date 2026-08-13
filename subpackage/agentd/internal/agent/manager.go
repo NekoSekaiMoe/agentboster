@@ -519,6 +519,12 @@ type ToolExecRequest struct {
 	UserID      string         `json:"user_id,omitempty"`
 	Roles       []string       `json:"roles,omitempty"`
 	WorkspaceID string         `json:"workspace_id,omitempty"` // M0b: scope long-lived container + exec lock
+	// RunID propagates the Web-tier workflow run id for cross-tier log
+	// correlation. slog emits it on every log line for this task so a
+	// long-chain agent run (many steps × many tools) can be grepped across
+	// both tiers by one id. Empty when the Web caller is older / didn't
+	// pass one (forward-compat).
+	RunID string `json:"run_id,omitempty"`
 }
 
 // ToolExecResponse is the result of a synchronous tool execution.

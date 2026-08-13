@@ -17,6 +17,12 @@ interface AgentdToolExecRequest {
   /** Workspace id scoping the long-lived container + exec lock. Read from
    *  the session row so the workflow body doesn't need to pass it through. */
   workspace_id?: string;
+  /** Workflow run id that owns this tool dispatch. Propagated end-to-end
+   *  (Web logger ALS → agentd slog → agentd callback bodies) so a single
+   *  long-chain agent run (up to 30 steps × N tool calls) can be traced
+   *  across both tiers by grepping one id. Omitting preserves legacy
+   *  behavior (no correlation). */
+  run_id?: string;
 }
 
 interface AgentdToolExecResponse {
@@ -392,6 +398,19 @@ export async function execToolOnAgentd(
       `agentd dispatch: workspace lock held but workspaceId could not be resolved for session ${sessionId}${workspaceLookupFailed ? ' (session lookup failed)' : ''}; refusing unbound execution`,
     );
   }
+  // Resolve the workflow run id from the active workflow context so we
+  // can forward it to agentd as run_id (cross-tier log correlation).
+  // getWorkflowMetadata() is available inside 'use step' bodies; it returns
+  // { workflowRunId: null } outside a workflow, which we just omit.
+  let runId: string | undefined;
+  try {
+    const { getWorkflowMetadata } = await import('workflow');
+    const meta = getWorkflowMetadata();
+    if (meta.workflowRunId) runId = meta.workflowRunId;
+  } catch {
+    // 'workflow' package unavailable (non-workflow caller) — run_id stays
+    // undefined, preserving legacy behavior.
+  }
   const req: AgentdToolExecRequest = {
     session_id: sessionId,
     tool_name: toolName,
@@ -405,6 +424,7 @@ export async function execToolOnAgentd(
     ...(workspaceId && workspaceLockAcquired
       ? { workspace_id: workspaceId }
       : {}),
+    ...(runId ? { run_id: runId } : {}),
   };
 
   logger.info('Executing tool on Agent Daemon', {
