@@ -554,12 +554,20 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.mcp_artifact }}
-          path: sidecar-stage/mcp-in
+          # actions/* `path` inputs resolve relative to GITHUB_WORKSPACE
+          # (repo root), NOT relative to this job's
+          # defaults.run.working-directory (…/packages/desktop). The
+          # `mv` step below runs with cwd=…/packages/desktop and globs
+          # `sidecar-stage/mcp-in/*` against that cwd, so we must
+          # download INTO the desktop dir via an absolute path —
+          # otherwise the file lands at <root>/sidecar-stage/mcp-in/
+          # and the glob matches nothing ("No such file or directory").
+          path: ${{ github.workspace }}/subpackage/cli/packages/desktop/sidecar-stage/mcp-in
       - name: Download CLI tarball
         uses: actions/download-artifact@v8
         with:
           name: agentboster-cli-${{ steps.ver.outputs.version }}.tar.gz
-          path: sidecar-stage/cli-in
+          path: ${{ github.workspace }}/subpackage/cli/packages/desktop/sidecar-stage/cli-in
       - name: Normalize + extract sidecars
         shell: bash
         env:
