@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// The beforeEach hook does vi.resetModules() + dynamic imports of the heavy
+// './recall' module graph; under full-suite parallel load the transform can
+// exceed the default 10s hook timeout even though nothing is actually hung.
+vi.setConfig({ hookTimeout: 30_000 });
+
 vi.mock('@/lib/memory/shared-version', () => ({
   readSharedMemoryVersion: vi.fn(),
   bumpSharedMemoryVersion: vi.fn(),
