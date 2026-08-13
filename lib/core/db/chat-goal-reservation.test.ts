@@ -16,7 +16,7 @@
  * Run via: yarn test lib/core/db/chat-goal-reservation.test.ts
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { resetDb, setupPgLiteTestDb } from '@/lib/extra/test/pglite-harness';
 
 // Minimal sessions table mirroring schema/chat.ts. Production's
@@ -199,15 +199,57 @@ describe('reserveGoalContinuation (optimistic lock — I)', () => {
     await harness.db.execute(
       'ALTER TABLE "sessions" ALTER COLUMN "hidden_continuation_count" DROP NOT NULL',
     );
-    await harness.db.execute(
-      'UPDATE "sessions" SET "hidden_continuation_count" = NULL WHERE "id" = \'' +
-        id +
-        "'",
-    );
-    // incrementGoalCounters is the non-gated sibling; verify it too. A
-    // missing COALESCE would write NULL here (NULL + 1 = NULL in SQL).
-    await incrementGoalCounters(id, { hiddenDelta: 1 });
-    const after = await readSession(id);
-    expect(after.hiddenContinuationCount).toBe(1);
+    try {
+      // Parameterized via the Drizzle query builder instead of string-
+      // concatenating `id` into the SQL — the id is server-generated and
+      // not user-controlled, but string-concatenation still has no place
+      // in a test that exists to assert safe SQL patterns. The column's
+      // $inferInsert type disallows `null` (it's NOT NULL in schema), so
+      // we reach for a raw `sql` expression to write NULL for this
+      // legacy-row simulation.
+      await harness.db
+        .update(schema.sessions)
+        .set({
+          hiddenContinuationCount: sql`NULL`,
+        })
+        .where(eq(schema.sessions.id, id));
+      // incrementGoalCounters is the non-gated sibling; verify it too. A
+      // missing COALESCE would write NULL here (NULL + 1 = NULL in SQL).
+      await incrementGoalCounters(id, { hiddenDelta: 1 });
+      const after = await readSession(id);
+      expect(after.hiddenContinuationCount).toBe(1);
+    } finally {
+      // Restore the NOT NULL constraint so this schema mutation does not
+      // leak into sibling tests (this `describe` block has a per-test
+      // `beforeEach` reset, but resetDb truncates rows, not DDL).
+      await harness.db.execute(
+        'ALTER TABLE "sessions" ALTER COLUMN "hidden_continuation_count" SET NOT NULL',
+      );
+    }
+  });
+
+  it('clamps a negative delta at zero (compensating-rollback race)', async () => {
+    // Regression for the post-run-cleanup compensating rollback:
+    // reserveGoalContinuation bumps hiddenContinuationCount 0→1; then a
+    // concurrent /goal clear (or setSessionGoal) zeroes the counter; then
+    // resumeWithMessage throws and cleanup calls incrementGoalCounters
+    // with hiddenDelta: -1 to compensate. Without a floor, the rollback
+    // would underflow the reset counter to -1. GREATEST(..., 0) keeps it
+    // pinned at zero. Covers both the gated (reserve) and non-gated
+    // (increment) writers since they share buildGoalCounterPatch.
+    const id = await seedSession({
+      goalText: 'ship it',
+      hiddenContinuationCount: 0,
+    });
+    await incrementGoalCounters(id, { hiddenDelta: -1 });
+    expect((await readSession(id)).hiddenContinuationCount).toBe(0);
+
+    // Same guard on the consecutive_non_progress counter.
+    const id2 = await seedSession({
+      goalText: 'ship it',
+      consecutiveNonProgress: 0,
+    });
+    await incrementGoalCounters(id2, { nonProgressDelta: -1 });
+    expect((await readSession(id2)).consecutiveNonProgress).toBe(0);
   });
 });

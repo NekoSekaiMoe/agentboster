@@ -355,7 +355,7 @@ await runDreamForUser({
 
 拆出独立的追加式不可变历史表,每次隔离 / 复活写一条事件:
 
-```
+```sql
 quarantine_events (
   id            uuid pk,
   workspace_id  uuid not null references workspaces(id),

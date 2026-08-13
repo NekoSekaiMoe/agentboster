@@ -557,22 +557,30 @@ export async function clearSessionGoal(
 }
 
 /**
- * Atomically bump the goal counters and (optionally) overwrite
- * last_eval_reason. Uses SQL-side `= col + n` so two concurrent
- * evaluations can't lose an increment via read-modify-write. The
- * columns are NOT NULL with default 0, so the COALESCE guard is purely
- * defensive against a pre-migration row.
+ * Build the SET-clause patch shared by `incrementGoalCounters` and
+ * `reserveGoalContinuation`. Both write the same counter columns the
+ * same way; only their WHERE clause differs (unconditional vs.
+ * optimistic-lock on `goal_text IS NOT NULL`), so the patch
+ * construction must stay identical to keep their counter semantics in
+ * lock-step.
  *
- * Deltas default to 0 (no change); lastEvalReason defaults to
- * undefined (leave the column as-is). Pass lastEvalReason explicitly
- * (including `null`) to update it. Pass `resetNonProgress: true` to
- * write consecutive_non_progress = 0 outright (a 0 nonProgressDelta
- * is a no-op, not a reset).
+ * Uses SQL-side `= col + n` so two concurrent evaluations can't lose an
+ * increment via read-modify-write. The columns are NOT NULL with
+ * default 0, so the COALESCE guard is purely defensive against a
+ * pre-migration row.
+ *
+ * Deltas default to 0 (no change); lastEvalReason defaults to undefined
+ * (leave the column as-is). Negative deltas are clamped at 0 via
+ * GREATEST — this protects the compensating-rollback path in
+ * post-run-cleanup (a failed `resumeWithMessage` reverses the +1
+ * reservation with a -1). If a `/goal clear` (or new goal, which zeros
+ * the counters) lands between the reservation and the rollback, the
+ * plain `col + (-1)` would underflow the reset counter to -1; GREATEST
+ * keeps the floor at 0 so a counter never goes negative.
  */
-export async function incrementGoalCounters(
-  sessionId: string,
+function buildGoalCounterPatch(
   delta: GoalCounterDelta,
-): Promise<typeof schema.sessions.$inferSelect | null> {
+): Partial<typeof schema.sessions.$inferInsert> {
   const patch: Partial<typeof schema.sessions.$inferInsert> = {
     updatedAt: new Date(),
   };
@@ -585,8 +593,11 @@ export async function incrementGoalCounters(
     // COALESCE guards against a pre-migration row whose counter column is
     // NULL; the columns are NOT NULL DEFAULT 0 today, so this is purely
     // defensive and never changes the happy-path value.
+    // GREATEST(..., 0) clamps negative deltas at zero so the
+    // compensating rollback can't underflow a reset counter below 0
+    // (see the function docblock for the full race).
     patch.hiddenContinuationCount =
-      sql`COALESCE(${schema.sessions.hiddenContinuationCount}, 0) + ${delta.hiddenDelta}` as unknown as number;
+      sql`GREATEST(COALESCE(${schema.sessions.hiddenContinuationCount}, 0) + ${delta.hiddenDelta}, 0)` as unknown as number;
   }
   if (delta.resetNonProgress) {
     // Absolute write, not col + n: the eval reason changed, so the
@@ -595,15 +606,27 @@ export async function incrementGoalCounters(
     patch.consecutiveNonProgress = 0;
   } else if (delta.nonProgressDelta) {
     patch.consecutiveNonProgress =
-      sql`COALESCE(${schema.sessions.consecutiveNonProgress}, 0) + ${delta.nonProgressDelta}` as unknown as number;
+      sql`GREATEST(COALESCE(${schema.sessions.consecutiveNonProgress}, 0) + ${delta.nonProgressDelta}, 0)` as unknown as number;
   }
   if (delta.lastEvalReason !== undefined) {
     patch.lastEvalReason = delta.lastEvalReason;
   }
 
+  return patch;
+}
+
+/**
+ * Atomically bump the goal counters and (optionally) overwrite
+ * last_eval_reason. See `buildGoalCounterPatch` for the SQL-level
+ * semantics (atomic `col + n`, COALESCE guard, GREATEST clamp).
+ */
+export async function incrementGoalCounters(
+  sessionId: string,
+  delta: GoalCounterDelta,
+): Promise<typeof schema.sessions.$inferSelect | null> {
   const [session] = await db
     .update(schema.sessions)
-    .set(patch)
+    .set(buildGoalCounterPatch(delta))
     .where(eq(schema.sessions.id, sessionId))
     .returning();
 
@@ -624,8 +647,9 @@ export async function incrementGoalCounters(
  * NULL (or the row is gone), the UPDATE matches 0 rows and we return
  * null, and the caller MUST skip the resume.
  *
- * The counter write reuses incrementGoalCounters' COALESCE-guarded
- * expressions. Returns the post-reservation session row (or null if the
+ * The counter write reuses the shared `buildGoalCounterPatch` so its
+ * counter semantics are identical to `incrementGoalCounters`.
+ * Returns the post-reservation session row (or null if the
  * optimistic-lock condition failed).
  *
  * NOTE: this guards against `/goal clear` (and goal replacement, which
@@ -637,26 +661,9 @@ export async function reserveGoalContinuation(
   sessionId: string,
   delta: GoalCounterDelta,
 ): Promise<typeof schema.sessions.$inferSelect | null> {
-  const patch: Partial<typeof schema.sessions.$inferInsert> = {
-    updatedAt: new Date(),
-  };
-  if (delta.hiddenDelta) {
-    patch.hiddenContinuationCount =
-      sql`COALESCE(${schema.sessions.hiddenContinuationCount}, 0) + ${delta.hiddenDelta}` as unknown as number;
-  }
-  if (delta.resetNonProgress) {
-    patch.consecutiveNonProgress = 0;
-  } else if (delta.nonProgressDelta) {
-    patch.consecutiveNonProgress =
-      sql`COALESCE(${schema.sessions.consecutiveNonProgress}, 0) + ${delta.nonProgressDelta}` as unknown as number;
-  }
-  if (delta.lastEvalReason !== undefined) {
-    patch.lastEvalReason = delta.lastEvalReason;
-  }
-
   const [session] = await db
     .update(schema.sessions)
-    .set(patch)
+    .set(buildGoalCounterPatch(delta))
     .where(
       and(
         eq(schema.sessions.id, sessionId),

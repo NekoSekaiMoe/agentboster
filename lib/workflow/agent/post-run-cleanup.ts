@@ -194,8 +194,8 @@ async function evaluateGoalStep(input: {
       getSessionGoalState,
       incrementGoalCounters,
       reserveGoalContinuation,
+      getVisibleSessionMessages,
     } = await import('@/lib/core/db/chat');
-    const { getVisibleSessionMessages } = await import('@/lib/core/db/chat');
     const {
       evaluateSessionGoal,
       shouldContinueWithHiddenRun,
