@@ -68,6 +68,7 @@ vi.mock('@/lib/memory/shared-version', () => ({
   bumpSharedMemoryVersion: vi.fn(),
 }));
 
+import { TASK_LEASE_SECONDS } from '@/lib/core/agent/task-lease-constants';
 import { updateTaskStatus } from './agentd';
 
 /** Seed a task row. owner/lease default to NULL (the pre-claim,
@@ -200,17 +201,31 @@ describe('updateTaskStatus (PGlite)', () => {
       ownerNodeId: 'node-a',
       withLease: true,
     });
-    const before = leaseMs((await getRawTask(id))?.lease_expires_at);
 
+    // Assert the renewal reaches the expected deadline — now() +
+    // TASK_LEASE_SECONDS — not merely "greater than the old value".
+    // Bracket the call so the exact deadline is pinned between the
+    // pre-call and post-call clocks (fake timers are avoided: PGlite's
+    // query loop depends on real timers).
+    const startMs = Date.now();
     const task = await updateTaskStatus(id, 'reviewing', undefined, {
       ownerNodeId: 'node-a',
     });
+    const endMs = Date.now();
 
-    expect(task).not.toBeNull();
+    // A guarded UPDATE matching no row returns undefined — assert
+    // defined (not merely not-null) so that regression is detected.
+    expect(task).toBeDefined();
     const after = await getRawTask(id);
     expect(after?.status).toBe('reviewing');
     expect(after?.owner_node_id).toBe('node-a');
-    expect(leaseMs(after?.lease_expires_at)).toBeGreaterThanOrEqual(before);
+    const renewedLeaseMs = leaseMs(after?.lease_expires_at);
+    expect(renewedLeaseMs).toBeGreaterThanOrEqual(
+      startMs + TASK_LEASE_SECONDS * 1000,
+    );
+    expect(renewedLeaseMs).toBeLessThanOrEqual(
+      endMs + TASK_LEASE_SECONDS * 1000,
+    );
   });
 
   it('legacy caller (no ownerNodeId) updates unconditionally', async () => {

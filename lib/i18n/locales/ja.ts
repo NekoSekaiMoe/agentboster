@@ -1052,4 +1052,16 @@ export const ja = {
   'workspace.visibilityRestoredWithMerge':
     '隔離されていた記憶 {count} 件を復元しました — Dream の統合をバックグラウンドで実行中',
   'workspace.detail.visibility': '公開設定',
+  'skill.approval.importSkillRepo':
+    'モデルが Git リポジトリからスキルをインポートしようとしています：{gitURL}。許可しますか？',
+  'skill.approval.importSkillFromClawHub':
+    'モデルが ClawHub からスキル {slug}（バージョン {version}）をインポートしようとしています。許可しますか？',
+  'skill.approval.upsertSkill':
+    'モデルがスキル {name} を作成/更新しようとしています（{fileCount} 個のファイル：{fileList}）。許可しますか？',
+  'skill.approval.updateSkillFile':
+    'モデルがスキルファイル {name}/{filePath} を変更しようとしています（新しい内容：{contentLength} 文字）。許可しますか？',
+  'skill.approval.deleteSkill':
+    'モデルがスキル {name}（すべてのファイルとメタデータを含む）を削除しようとしています。許可しますか？',
+  'skill.approval.timeout':
+    '承認リクエストは {hours} 時間応答がなかったため、拒否として処理されました。',
 } satisfies Record<keyof typeof enUS, string>;

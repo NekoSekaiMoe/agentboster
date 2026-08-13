@@ -1,6 +1,6 @@
 # Usage 记账接线 TODO（原 todo.md Batch 7 / P0-D1）
 
-> 来源：todo.md P0-D1 决策（✅ 已决策：接通），并经逐条代码验证修正（验证报告 `/tmp/verify/r5-routes-p0.md`）。
+> 来源：todo.md P0-D1 决策（✅ 已决策：接通），并经逐条代码验证修正（关键证据见下方「现状盘点」，均附仓库内文件:行号）。
 > 每步完成后跑 `yarn check:lint && yarn test`；动 `lib/workflow/**` 必须再跑 `yarn build`。
 
 ## 现状盘点（已验证，注意与旧 todo 的出入）
@@ -26,7 +26,7 @@
 ## 接线步骤
 
 - [ ] **1. 写入侧接线**：在 `lib/workflow/agent/steps/persist.ts`（或 dispatch.ts 的 afterResponse 队列）把 `step.usage` + taskId/userId/provider/model 穿进 `recordTaskUsage`（幂等 upsert，重复调用安全）；provider/model 从 step 上下文取。注意 workflow 树纪律：禁止顶层 `node:*` import
-- [ ] **2. pricing 费率表（需新建）**：`lib/ai/pricing.ts` 不存在费率数据，需新建静态费率表 + `estimateCostUsdTicks(provider, model, tokens)`，对接 `usage.ts` 的 `costUsdTicks` 设计（无 authoritative cost 时估算）
+- [ ] **2. pricing 费率表对接**：`lib/ai/pricing.ts` 已有静态费率表与 `computeUsageCost(modelId, usage)`（未知模型返回 `null` 而非 0，`costUsdTicks` 列可空）。接线 `recordTaskUsage` 时复用该语义：无 authoritative cost 时写入估算值，未知 provider/model 保持 `null`
 - [ ] **3. 读接口**：新建 `app/api/config/monitoring/usage/route.ts`（复用 monitoring 区现有模式），per-model / per-user / per-day 聚合
 - [ ] **4. UI**：monitoring 配置区加花费卡片。⚠️ 不能"复用 users-management 样式"的假设——该组件从未渲染 token，需新做展示；`app/api/auth/users/route.ts` 已返回 per-user `totalTokens`，可作为数据源
 - [ ] **5.（可延后）`node_usage_daily` 第二阶段**：agentd 心跳附带 LLM usage 上报（Go 侧 + heartbeat 路由扩展）

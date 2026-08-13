@@ -971,4 +971,15 @@ export const zhCN = {
   'workspace.detail.hardDeleteConfirmInputLabel': '输入工作区名称以确认删除',
   'workspace.detail.hardDeleteSuccess': '工作区已删除',
   'workspace.detail.hardDeleteError': '工作区删除失败',
+  'skill.approval.importSkillRepo':
+    '模型请求从 Git 仓库导入技能：{gitURL}，是否允许？',
+  'skill.approval.importSkillFromClawHub':
+    '模型请求从 ClawHub 导入技能 {slug}（版本 {version}），是否允许？',
+  'skill.approval.upsertSkill':
+    '模型请求创建/更新技能文件 {name}（含 {fileCount} 个文件：{fileList}），是否允许？',
+  'skill.approval.updateSkillFile':
+    '模型请求修改技能文件 {name}/{filePath}（新内容 {contentLength} 字符），是否允许？',
+  'skill.approval.deleteSkill':
+    '模型请求删除技能 {name}（含其全部文件与元数据），是否允许？',
+  'skill.approval.timeout': '审批请求超过 {hours} 小时未响应，已按拒绝处理。',
 } satisfies Record<keyof typeof enUS, string>;

@@ -350,7 +350,11 @@ export async function PATCH(
           }
           result = row;
         } else {
-          const restore = await publicizeWorkspaceCascade(id);
+          // Stable request-level id stamped into quarantine_meta.
+          // restoredByRunId so the restore audit trail records THIS
+          // re-publication instead of a JSON null.
+          const restoreRunId = crypto.randomUUID();
+          const restore = await publicizeWorkspaceCascade(id, restoreRunId);
           if (!restore.workspace) {
             // Archived before or mid-flight: the atomic block was a
             // no-op (or rolled back). Report 409 so the caller refreshes.
@@ -372,7 +376,13 @@ export async function PATCH(
         });
         // When memories were restored on re-public, kick off a Dream merge
         // so the restored rows are deduplicated / consolidated against the
-        // current pool. The restored rows are already dream_status='active'
+        // current pool. NOTE: runDreamForUser is USER-level today (a
+        // full-pool merge for the owner, not targeted at this workspace's
+        // restored rows) — the workspace-scoped variant
+        // (scopeWorkspaceId / includeQuarantinedSince) is a documented but
+        // not-yet-implemented extension, see
+        // docs/design/soft-quarantine-memory-on-privatization.md §2.4.
+        // The restored rows are already dream_status='active'
         // (restore flips them back), so a normal Dream run sees them — we
         // just trigger it now rather than waiting for the next scheduled
         // run, so the UI's "merging…" toast matches reality. Scheduled via

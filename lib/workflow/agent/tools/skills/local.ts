@@ -22,6 +22,7 @@ import {
   getSkillRuntime,
   SKILL_RUNTIMES,
 } from '@/types/skills';
+import type { TranslationKey, TranslationValues } from '@/lib/i18n';
 import type { ChatSource } from '@/types/workflow';
 import { defineBuildInTool } from '../define';
 
@@ -38,6 +39,17 @@ const RUN_SKILL_MAX_FILES = 500;
  * `exec` tool's default and the Vercel Sandbox wait timeout.
  */
 const RUN_SKILL_EXEC_TIMEOUT_SECONDS = 120;
+
+/**
+ * Bounds how long a skill-mutation approval wait can suspend a run.
+ * Human-in-the-loop waits are unbounded by nature; without a ceiling a
+ * never-answered /approve leaves the durable run (and its hook)
+ * pending forever. On expiry the wait resolves as approved=false — the
+ * same downstream deny path as an explicit /reject. 24h matches the
+ * human-response expectation for admin approvals.
+ */
+const SKILL_APPROVAL_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const SKILL_APPROVAL_TIMEOUT_HOURS = 24;
 
 /** POSIX single-quote escape for shell argument lists. */
 function shellQuote(value: string): string {
@@ -368,12 +380,20 @@ async function materializeAndRunOnVercelSandbox(input: {
  *      (and thereby future prompt/instruction surfaces) without an
  *      admin's consent — even in autonomous mode. This gate now covers
  *      every skill-mutation tool: upsertSkill, updateSkillFile,
- *      importSkillRepo and importSkillFromClawHub.
- *   2. The reminder text is skill-specific Chinese describing exactly
- *      what is being mutated (`name`/`path`), instead of sanbox.ts's
- *      generic "A tool action is waiting for your approval". The
- *      approver needs to see the target skill + path inline in IM
- *      channels where the tool-input card may not be rendered.
+ *      deleteSkill, importSkillRepo and importSkillFromClawHub.
+ *   2. The reminder text is a skill-specific, i18n-localized message
+ *      describing exactly what is being mutated (`name`/`path`),
+ *      instead of sanbox.ts's generic "A tool action is waiting for
+ *      your approval". The approver needs to see the target skill +
+ *      path inline in IM channels where the tool-input card may not
+ *      be rendered. Locale resolves from the session user's recorded
+ *      preference (resolveUserLocale), falling back to the project
+ *      default locale.
+ *
+ * The wait is bounded by SKILL_APPROVAL_TIMEOUT_MS: a durable run must
+ * not stay suspended on the hook forever when no /approve ever
+ * arrives. Timeout resolves as approved=false (same deny path as an
+ * explicit /reject) and notifies the originating channel.
  *
  * All host-only modules are dynamic-imported inside the body (rather
  * than the top-level imports sanbox.ts uses) to keep this file's
@@ -388,9 +408,13 @@ async function waitForSkillApproval(input: {
   toolCallId: string;
   toolName: string;
   toolInput: unknown;
-  /** Human-readable description of the mutation, shown in the chat
-   *  channel alongside the /approve /reject commands. */
-  promptText: string;
+  /** Session user, used to resolve the reminder locale. */
+  userId: string | undefined;
+  /** i18n key of the human-readable mutation description, shown in the
+   *  chat channel alongside the /approve /reject commands. */
+  promptKey: TranslationKey;
+  /** Interpolation values for promptKey (gitURL / name / filePath…). */
+  promptValues?: TranslationValues;
 }): Promise<{ approved: boolean; comment?: string }> {
   'use step';
 
@@ -401,6 +425,14 @@ async function waitForSkillApproval(input: {
   const { writeToolApprovalRequest, writeToolOutputDenied } = await import(
     '@/lib/workflow/agent/sender/writers'
   );
+  const { t } = await import('@/lib/i18n/server');
+  const { defaultLocale } = await import('@/lib/i18n');
+  const { resolveUserLocale } = await import('@/lib/chat/user-locale');
+
+  const locale =
+    (input.userId ? await resolveUserLocale(input.userId) : null) ??
+    defaultLocale;
+  const promptText = t(locale, input.promptKey, input.promptValues);
 
   // Register the approval hook FIRST. Writing the approval request /
   // reminder before registration opened a race: a fast /approve could
@@ -423,7 +455,7 @@ async function waitForSkillApproval(input: {
   // sanbox.ts; scheduled sources are routed through their own reply
   // path by sendRoutedSourceReply.
   const reminder = [
-    input.promptText,
+    promptText,
     '',
     `Approve: /approve ${input.toolCallId}`,
     `Reject: /reject ${input.toolCallId}`,
@@ -433,16 +465,52 @@ async function waitForSkillApproval(input: {
     text: reminder,
   });
 
+  // Race the hook against the timeout. Whichever settles first wins:
+  // an approval payload keeps the existing result; the timeout stops
+  // the wait and falls through as approved=false so the durable run is
+  // not retained forever on an unanswered hook. Steps run host-side, so
+  // a plain timer is available here (the workflow-level sleep() primitive
+  // is not callable inside a 'use step' boundary).
   let approval: { approved: boolean; comment?: string } = {
     approved: false,
   };
-  for await (const payload of hook) {
-    approval = payload;
-    break;
+  let timedOut = false;
+  const firstPayload: Promise<{
+    approved: boolean;
+    comment?: string;
+  } | null> = (async () => {
+    for await (const payload of hook) {
+      return payload as { approved: boolean; comment?: string };
+    }
+    return null;
+  })();
+  // Attach a no-op rejection handler so an abandoned loser of the race
+  // never surfaces as an unhandled rejection.
+  void firstPayload.catch(() => undefined);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<'timeout'>((resolve) => {
+    timeoutId = setTimeout(() => resolve('timeout'), SKILL_APPROVAL_TIMEOUT_MS);
+  });
+  const winner = await Promise.race([firstPayload, timeoutPromise]);
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+  }
+  if (winner === 'timeout') {
+    timedOut = true;
+  } else if (winner) {
+    approval = winner;
   }
 
   if (!approval.approved) {
     await writeToolOutputDenied({ toolCallId: input.toolCallId });
+    if (timedOut) {
+      await sendSourceReplyStep({
+        source: input.source ?? { type: 'web' },
+        text: t(locale, 'skill.approval.timeout', {
+          hours: SKILL_APPROVAL_TIMEOUT_HOURS,
+        }),
+      });
+    }
   }
 
   return approval;
@@ -522,6 +590,7 @@ export default defineBuildInTool({
     const sessionId = ctx?.sessionId ?? '';
     const runId = ctx?.runId ?? '';
     const source = ctx?.source;
+    const userId = ctx?.userId;
     // P3.1: surface the current agent's allowed_nodes (if any) so
     // runSkill can pass it down to execToolOnAgentd. Without this,
     // a model-supplied nodeId could route to any registered daemon
@@ -669,9 +738,11 @@ export default defineBuildInTool({
           const approval = await waitForSkillApproval({
             source,
             toolCallId,
+            userId,
             toolName: 'importSkillRepo',
             toolInput: { gitURL },
-            promptText: `模型请求从 Git 仓库导入技能：${gitURL}，是否允许？`,
+            promptKey: 'skill.approval.importSkillRepo',
+            promptValues: { gitURL },
           });
           if (!approval.approved) {
             return {
@@ -703,9 +774,11 @@ export default defineBuildInTool({
           const approval = await waitForSkillApproval({
             source,
             toolCallId,
+            userId,
             toolName: 'importSkillFromClawHub',
             toolInput: { slug, version },
-            promptText: `模型请求从 ClawHub 导入技能 ${slug}（版本 ${version ?? 'latest'}），是否允许？`,
+            promptKey: 'skill.approval.importSkillFromClawHub',
+            promptValues: { slug, version: version ?? 'latest' },
           });
           if (!approval.approved) {
             return {
@@ -750,9 +823,11 @@ export default defineBuildInTool({
           const approval = await waitForSkillApproval({
             source,
             toolCallId,
+            userId,
             toolName: 'upsertSkill',
             toolInput: input,
-            promptText: `模型请求创建/更新技能文件 ${name}（含 ${fileCount} 个文件：${fileList}），是否允许？`,
+            promptKey: 'skill.approval.upsertSkill',
+            promptValues: { name, fileCount, fileList },
           });
           if (!approval.approved) {
             return {
@@ -792,9 +867,11 @@ export default defineBuildInTool({
           const approval = await waitForSkillApproval({
             source,
             toolCallId,
+            userId,
             toolName: 'updateSkillFile',
             toolInput: input,
-            promptText: `模型请求修改技能文件 ${name}/${filePath}（新内容 ${content.length} 字符），是否允许？`,
+            promptKey: 'skill.approval.updateSkillFile',
+            promptValues: { name, filePath, contentLength: content.length },
           });
           if (!approval.approved) {
             return {
@@ -815,8 +892,31 @@ export default defineBuildInTool({
         inputSchema: z.object({
           name: z.string().min(1, 'Skill name is required'),
         }),
-        execute: async ({ name }) => {
+        execute: async ({ name }, { toolCallId }) => {
           'use step';
+
+          // L2 approval gate (FIRST gate), matching the other
+          // skill-mutation tools. Deletion is the most destructive
+          // mutation — it removes the skill's blob files AND its KV
+          // metadata — so it takes the same unconditional human
+          // approve/reject gate before anything is removed.
+          const approval = await waitForSkillApproval({
+            source,
+            toolCallId,
+            userId,
+            toolName: 'deleteSkill',
+            toolInput: { name },
+            promptKey: 'skill.approval.deleteSkill',
+            promptValues: { name },
+          });
+          if (!approval.approved) {
+            return {
+              error:
+                approval.comment ||
+                `Skill delete denied by admin: deleteSkill(${name})`,
+            };
+          }
+
           const removed = await removeSkillDetail(name);
           return { action: 'delete', name, removed };
         },
