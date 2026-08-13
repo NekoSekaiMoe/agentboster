@@ -97,6 +97,15 @@ export type BuildSystemPromptOptions = {
     hasDisplay: boolean;
   };
   source?: ChatSource;
+  /**
+   * Session-scoped self-driving objective (sessions.goal_text). When
+   * non-empty, injected as a "# Session Goal" section so the model
+   * treats every turn as progress toward it and states completion
+   * explicitly when done. Callers that already hold the session row
+   * may pass this directly; otherwise the step reads it from the DB
+   * via sessionId. Null / undefined suppresses the section.
+   */
+  goalText?: string | null;
 };
 
 function createSection(title: string, lines: string[]) {
@@ -204,6 +213,23 @@ export async function buildSystemPrompt(
   const soulSection = await getBuiltinMemorySection('SOUL');
   const soulTemplate = parseFollowUpTemplate(soulSection.content);
 
+  // Resolve the session-scoped goal text. Callers that already hold
+  // the session row pass it via options.goalText; otherwise read it
+  // straight from the sessions table. Dynamic import — this file is a
+  // workflow step and must not carry top-level DB imports.
+  let goalText = options.goalText;
+  if (goalText === undefined && options.sessionId) {
+    try {
+      const { getSessionGoalState } = await import('@/lib/core/db/chat');
+      const goalState = await getSessionGoalState(options.sessionId);
+      goalText = goalState.goalText;
+    } catch {
+      // DB unavailable (e.g. mid-shutdown) — skip the section rather than
+      // failing the whole prompt build.
+      goalText = null;
+    }
+  }
+
   const builtinMemorySections = builtinSectionsList.map((section) =>
     createSection(section.key.toUpperCase(), [
       section.content.trim().length > 0
@@ -220,6 +246,23 @@ export async function buildSystemPrompt(
       resolvedPrompt,
     ]),
   ];
+
+  // Session Goal: a self-driving objective. Injected immediately after
+  // Agent Identity so the model frames every turn as progress toward
+  // it. Suppressed entirely when no goal is set (goalText null/empty),
+  // and for delegated sub-agents (their job is a narrow delegated task,
+  // not the parent session's objective). Kept out of plan mode too — a
+  // planning run investigates, it doesn't pursue the goal yet.
+  const goalTextTrimmed = goalText?.trim();
+  if (goalTextTrimmed && !options.delegation && !options.planMode) {
+    sections.push(
+      createSection('Session Goal', [
+        goalTextTrimmed,
+        '',
+        'You are working toward the goal above. Every step should make concrete progress on it. When the goal is fully achieved, state that explicitly and stop — do not invent follow-up work.',
+      ]),
+    );
+  }
 
   // Always-on developer profile (global preferences / personal context).
   // Skipped entirely when there is no userId or no qualifying memories —

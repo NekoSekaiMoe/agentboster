@@ -452,6 +452,169 @@ export async function updateSessionMetadataKey(
   return session ?? null;
 }
 
+// ── Session Goal DAL ──────────────────────────────────────────────
+// Persisted counters for the self-driving loop (see
+// lib/workflow/agent/session-goal.ts). A new goal = fresh counters; the
+// no-progress breaker relies on the reset semantics below.
+
+/** Shape returned by getSessionGoalState — exactly the fields the
+ *  continuation gate reads. */
+export interface SessionGoalState {
+  goalText: string | null;
+  hiddenCount: number;
+  consecutiveNonProgress: number;
+  lastEvalReason: string | null;
+}
+
+/** State passed into incrementGoalCounters. Any field may be omitted /
+ *  left at its default; the matching column is left untouched. */
+export interface GoalCounterDelta {
+  /** Delta to apply to hidden_continuation_count (e.g. +1 on a
+   *  continuation). 0 = leave unchanged. */
+  hiddenDelta?: number;
+  /** Delta to apply to consecutive_non_progress. The caller decides
+   *  whether the latest evaluation counts as "non-progress": pass +1
+   *  when the reason is identical to the previous one, else 0 (and
+   *  reset to 0 when the reason changes — see clearSessionGoal + a
+   *  bare hiddenDelta-only call below). */
+  nonProgressDelta?: number;
+  /** New value for last_eval_reason. When provided, overwrites the
+   *  column; when omitted, the column is left as-is. */
+  lastEvalReason?: string | null;
+}
+
+/**
+ * Set (or replace) the session goal. Writes goal_text + goal_set_at and
+ * RESETS hidden_continuation_count / consecutive_non_progress /
+ * last_eval_reason — a new objective starts every counter from zero so
+ * the MAX_HIDDEN_CONTINUATIONS (8) and MAX_IDENTICAL_NON_PROGRESS (2)
+ * breakers measure effort against THIS goal, not history.
+ */
+export async function setSessionGoal(
+  sessionId: string,
+  goalText: string,
+): Promise<typeof schema.sessions.$inferSelect | null> {
+  const [session] = await db
+    .update(schema.sessions)
+    .set({
+      goalText,
+      goalSetAt: new Date(),
+      // New goal = fresh counters. The breaker scopes are per-goal.
+      hiddenContinuationCount: 0,
+      consecutiveNonProgress: 0,
+      lastEvalReason: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.sessions.id, sessionId))
+    .returning();
+
+  return session ?? null;
+}
+
+/**
+ * Clear the session goal. Nulls goal_text / goal_set_at /
+ * last_eval_reason and zeroes the counters. Idempotent: clearing a
+ * session that has no goal is a no-op write.
+ */
+export async function clearSessionGoal(
+  sessionId: string,
+): Promise<typeof schema.sessions.$inferSelect | null> {
+  const [session] = await db
+    .update(schema.sessions)
+    .set({
+      goalText: null,
+      goalSetAt: null,
+      hiddenContinuationCount: 0,
+      consecutiveNonProgress: 0,
+      lastEvalReason: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.sessions.id, sessionId))
+    .returning();
+
+  return session ?? null;
+}
+
+/**
+ * Atomically bump the goal counters and (optionally) overwrite
+ * last_eval_reason. Uses SQL-side `= col + n` so two concurrent
+ * evaluations can't lose an increment via read-modify-write. The
+ * columns are NOT NULL with default 0, so the COALESCE guard is purely
+ * defensive against a pre-migration row.
+ *
+ * Deltas default to 0 (no change); lastEvalReason defaults to
+ * undefined (leave the column as-is). Pass lastEvalReason explicitly
+ * (including `null`) to update it.
+ */
+export async function incrementGoalCounters(
+  sessionId: string,
+  delta: GoalCounterDelta,
+): Promise<typeof schema.sessions.$inferSelect | null> {
+  const patch: Partial<typeof schema.sessions.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+
+  if (delta.hiddenDelta) {
+    // Drizzle accepts a SQL expression for an update SET value (it
+    // serializes to "col = col + n" at the driver layer), but the TS
+    // $inferInsert type narrows to a literal number, so the SQL wrapper
+    // needs a cast. This is the documented Drizzle escape hatch.
+    patch.hiddenContinuationCount =
+      sql`${schema.sessions.hiddenContinuationCount} + ${delta.hiddenDelta}` as unknown as number;
+  }
+  if (delta.nonProgressDelta) {
+    patch.consecutiveNonProgress =
+      sql`${schema.sessions.consecutiveNonProgress} + ${delta.nonProgressDelta}` as unknown as number;
+  }
+  if (delta.lastEvalReason !== undefined) {
+    patch.lastEvalReason = delta.lastEvalReason;
+  }
+
+  const [session] = await db
+    .update(schema.sessions)
+    .set(patch)
+    .where(eq(schema.sessions.id, sessionId))
+    .returning();
+
+  return session ?? null;
+}
+
+/**
+ * Read exactly the fields the continuation gate consumes. Returns a
+ * normalized shape (goalText null = no goal set → caller skips the
+ * whole loop). Returns all-null/zero when the session doesn't exist.
+ */
+export async function getSessionGoalState(
+  sessionId: string,
+): Promise<SessionGoalState> {
+  const [row] = await db
+    .select({
+      goalText: schema.sessions.goalText,
+      hiddenContinuationCount: schema.sessions.hiddenContinuationCount,
+      consecutiveNonProgress: schema.sessions.consecutiveNonProgress,
+      lastEvalReason: schema.sessions.lastEvalReason,
+    })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, sessionId))
+    .limit(1);
+
+  if (!row) {
+    return {
+      goalText: null,
+      hiddenCount: 0,
+      consecutiveNonProgress: 0,
+      lastEvalReason: null,
+    };
+  }
+
+  return {
+    goalText: row.goalText,
+    hiddenCount: row.hiddenContinuationCount ?? 0,
+    consecutiveNonProgress: row.consecutiveNonProgress ?? 0,
+    lastEvalReason: row.lastEvalReason,
+  };
+}
+
 export async function deleteSession(sessionId: string) {
   const [session] = await db
     .delete(schema.sessions)
