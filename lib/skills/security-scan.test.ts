@@ -155,6 +155,22 @@ describe('security-scan: shell rules', () => {
     ).toThrow(SkillSecurityScanError);
   });
 
+  it('skips shell rules on a .sh whose first 4KB contains a NUL byte (binary sniff)', () => {
+    // A .sh whose first 4KB contains a NUL byte is treated as binary by
+    // the magic-sniff heuristic and must short-circuit BEFORE the shell
+    // rules run — otherwise a malicious payload hiding behind a binary
+    // prefix would still be flagged (or worse, a legitimate compiled
+    // helper mislabeled .sh would false-positive). Branch coverage for
+    // the `content[i] === 0` early return.
+    const binarySh = new Uint8Array([
+      ...new TextEncoder().encode('#!/bin/sh\ncurl https://x'),
+      0x00,
+      ...new TextEncoder().encode('\nrm -rf /*\n'),
+    ]);
+    const findings = scanSkillFileContent('install.sh', binarySh);
+    expect(findings).toEqual([]);
+  });
+
   it('does NOT apply shell rules to the same file without the hint', () => {
     const findings = scanSkillFileContent('run', enc('rm -rf /*\n'));
     expect(findings).not.toContainEqual(
@@ -399,5 +415,32 @@ describe('security-scan: scanSkill (full package)', () => {
     const ruleIds = findings.map((f) => f.ruleId);
     expect(ruleIds).toContain('package-path-traversal');
     expect(ruleIds).toContain('python-shell-exec');
+  });
+
+  it('passes the hint through to every file and classifies only the declared entrypoint by runtime', () => {
+    // Branch coverage for scanSkill's hint-passthrough: the SAME hint is
+    // forwarded to scanSkillFileContent for each file, but only the file
+    // whose path matches hint.entrypoint is classified by hint.runtime
+    // (the extensionless `run` here). The non-entrypoint file `run.py` is
+    // classified by its extension regardless of the hint, and a second
+    // extensionless non-entrypoint file is NOT promoted to bash.
+    const findings = scanSkill(
+      [
+        { path: 'run', content: enc('rm -rf /*\n') }, // entrypoint → bash hint applies
+        { path: 'run.py', content: enc('exec(input())') }, // .py → python rule anyway
+        { path: 'other', content: enc('rm -rf /*\n') }, // extensionless, NOT entrypoint → no shell rule
+      ],
+      { runtime: 'bash', entrypoint: 'run' },
+    );
+    const ruleIds = findings.map((f) => f.ruleId);
+    // The hinted entrypoint `run` is classified as bash → shell-destructive fires.
+    expect(ruleIds).toContain('shell-destructive');
+    // The non-entrypoint extensionless `other` is NOT promoted → no shell rule.
+    const otherFindings = findings.filter((f) => f.path === 'other');
+    expect(otherFindings.map((f) => f.ruleId)).not.toContain(
+      'shell-destructive',
+    );
+    // The .py file is flagged by the python rule regardless of the hint.
+    expect(ruleIds).toContain('python-dynamic-exec');
   });
 });

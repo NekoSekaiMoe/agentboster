@@ -46,6 +46,23 @@ export async function readItemError(
   return new Error(payload.error ?? fallback);
 }
 
+/** Internal PATCH helper shared by {@link patchWorkspace} and
+ *  {@link setWorkspaceVisibility}. Centralizes URL encoding, headers,
+ *  JSON body, and the readItemError error path so the two callers cannot
+ *  drift apart. */
+async function patchWorkspaceRequest(
+  id: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const res = await fetch(`/api/workspaces/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await readItemError(res, 'Failed to update workspace');
+  return res;
+}
+
 export async function patchWorkspace(
   id: string,
   body:
@@ -55,12 +72,7 @@ export async function patchWorkspace(
     | { action: 'set_visibility'; visibility: 'private' | 'public' }
     | { action: 'set_shared_memory'; enabled: boolean },
 ): Promise<void> {
-  const res = await fetch(`/api/workspaces/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw await readItemError(res, 'Failed to update workspace');
+  await patchWorkspaceRequest(id, body);
 }
 
 /** Response shape for the set_visibility action, which carries extra
@@ -89,12 +101,10 @@ export async function setWorkspaceVisibility(
   id: string,
   visibility: 'private' | 'public',
 ): Promise<VisibilityChangeResult> {
-  const res = await fetch(`/api/workspaces/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'set_visibility', visibility }),
+  const res = await patchWorkspaceRequest(id, {
+    action: 'set_visibility',
+    visibility,
   });
-  if (!res.ok) throw await readItemError(res, 'Failed to update workspace');
   const payload = parseWithFallback(
     await res.json().catch(() => ({})),
     visibilityResponseSchema,

@@ -603,6 +603,22 @@ export const ko = {
     'AgentBoster에 오신 것을 환영합니다!\\n\\n이 IM 계정은 아직 페어링되지 않았습니다.\\nWeb UI의 6자리 페어링 코드를 입력하여 계정을 바인딩하거나, /pair <code>를 보내주세요.',
   'cmd.version.text':
     'AgentBoster v{version}\\n런타임: Node.js {nodeVersion}\\n플랫폼: {platform}',
+  'cmd.goal.noGoal': '설정된 목표가 없습니다. `/goal set <text>`로 정의하세요.',
+  'cmd.goal.statusGoal': '**목표:** {goal}',
+  'cmd.goal.statusHidden': '숨겨진 연속 실행: {count} / {max}',
+  'cmd.goal.statusNonProgress': '연속된 동일한 비진행 횟수: {count} / {max}',
+  'cmd.goal.statusEval': '최근 평가: {reason}',
+  'cmd.goal.usageSet': '사용법: /goal set <text>',
+  'cmd.goal.setRunActive':
+    '실행 중에는 목표를 설정할 수 없습니다. 완료되기를 기다리거나 먼저 `/stop`하세요.',
+  'cmd.goal.tooLong': '목표가 너무 깁니다({length} > {max}자).',
+  'cmd.goal.setOk':
+    '목표를 설정했습니다. 충족되거나 회로 차단기가 작동할 때까지 에이전트가 스스로 목표를 향해 작동합니다.\n\n{text}',
+  'cmd.goal.clearRunActive':
+    '실행 중에는 목표를 해제할 수 없습니다. 완료되기를 기다리거나 먼저 `/stop`하세요.',
+  'cmd.goal.clearOk':
+    '목표를 해제했습니다. 에이전트가 더 이상 자가 주도하지 않습니다.',
+  'cmd.goal.usage': '사용법: /goal set <text> | /goal clear | /goal',
   'cmd.id.title': '현재 ID 정보:',
   'cmd.id.sessionId': '세션 ID: {value}',
   'cmd.id.noSession': 'Session ID: (없음)',

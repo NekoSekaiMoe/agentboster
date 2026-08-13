@@ -601,6 +601,22 @@ export const enUS = {
     'Welcome to AgentBoster!\n\nYour IM account is not paired yet.\nPlease enter the 6-digit pairing code from the Web UI to bind your account, or send /pair <code>.',
   'cmd.version.text':
     'AgentBoster v{version}\nRuntime: Node.js {nodeVersion}\nPlatform: {platform}',
+  'cmd.goal.noGoal': 'No goal set. Use `/goal set <text>` to define one.',
+  'cmd.goal.statusGoal': '**Goal:** {goal}',
+  'cmd.goal.statusHidden': 'Hidden continuations: {count} / {max}',
+  'cmd.goal.statusNonProgress':
+    'Consecutive identical non-progress: {count} / {max}',
+  'cmd.goal.statusEval': 'Last evaluation: {reason}',
+  'cmd.goal.usageSet': 'Usage: /goal set <text>',
+  'cmd.goal.setRunActive':
+    'Cannot set a goal while a run is active. Wait for it to finish or /stop it first.',
+  'cmd.goal.tooLong': 'Goal is too long ({length} > {max} chars).',
+  'cmd.goal.setOk':
+    "Goal set. The agent will self-drive toward it until it's met or the breaker trips.\n\n{text}",
+  'cmd.goal.clearRunActive':
+    'Cannot clear the goal while a run is active. Wait for it to finish or /stop it first.',
+  'cmd.goal.clearOk': 'Goal cleared. The agent will no longer self-drive.',
+  'cmd.goal.usage': 'Usage: /goal set <text> | /goal clear | /goal',
   'cmd.id.title': 'Current ID Information:',
   'cmd.id.sessionId': 'Session ID: {value}',
   'cmd.id.noSession': 'Session ID: (none)',

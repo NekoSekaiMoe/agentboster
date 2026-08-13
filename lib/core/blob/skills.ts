@@ -661,14 +661,15 @@ export async function syncSkillFilesToBlob(
   // extensionless declared entrypoint is still classified as bash/python.
   enforceScan(scannedFiles, scanHint);
   for (const { path: relativePath, content } of scannedFiles) {
-    await put(
-      toSkillBlobPath(skillName, relativePath),
-      new Blob([content.slice().buffer]),
-      {
-        addRandomSuffix: false,
-        allowOverwrite: true,
-      },
-    );
+    // `content` is a Uint8Array produced above. `put`'s PutBody accepts
+    // Buffer (and string/Blob/ArrayBuffer) but not Uint8Array directly;
+    // Buffer.from(Uint8Array) is a zero-copy view over the same memory,
+    // so this avoids the old content.slice().buffer copy while satisfying
+    // the type. (Buffer is a Uint8Array subclass.)
+    await put(toSkillBlobPath(skillName, relativePath), Buffer.from(content), {
+      addRandomSuffix: false,
+      allowOverwrite: true,
+    });
     logger.info('syncSkillFilesToBlob:upload', {
       skillName,
       path: relativePath,
@@ -1091,10 +1092,22 @@ export async function persistManualSkillToBlob(
     fileCount: files.length,
   });
 
+  // Encode each file's content ONCE and reuse the bytes for total-size
+  // validation and the security scan. The previous loop re-ran
+  // encoder.encode(file.content) three times (size check, enforceScan,
+  // upload) for the same string. The upload path passes the original
+  // string to `put` (PutBody accepts string directly — no re-encoding
+  // needed there).
   const encoder = new TextEncoder();
+  const encodedFiles = files.map((f) => ({
+    path: f.path,
+    content: f.content,
+    bytes: encoder.encode(f.content),
+  }));
+
   let totalBytes = 0;
-  for (const file of files) {
-    totalBytes += encoder.encode(file.content).byteLength;
+  for (const file of encodedFiles) {
+    totalBytes += file.bytes.byteLength;
     if (totalBytes > MANUAL_SKILL_MAX_TOTAL_BYTES) {
       throw new Error(
         `Total file size exceeds the ${Math.round(MANUAL_SKILL_MAX_TOTAL_BYTES / 1024)} KB limit for manually added skills`,
@@ -1110,9 +1123,9 @@ export async function persistManualSkillToBlob(
   // itself can call upsertSkill), so the gate is mandatory here too.
   // Text content → bytes for the scanner's magic + regex passes.
   enforceScan(
-    files.map((f) => ({
+    encodedFiles.map((f) => ({
       path: f.path,
-      content: encoder.encode(f.content),
+      content: f.bytes,
     })),
   );
 
@@ -1120,18 +1133,17 @@ export async function persistManualSkillToBlob(
 
   const filePaths: string[] = [];
   let uploadedBytes = 0;
-  for (const file of files) {
+  for (const file of encodedFiles) {
     const normalized = normalizeSkillPath(`${skillName}/${file.path}`);
-    const fileBytes = encoder.encode(file.content).byteLength;
     await put(`${SKILLS_BLOB_ROOT}/${normalized}`, file.content, {
       addRandomSuffix: false,
       allowOverwrite: true,
     });
-    uploadedBytes += fileBytes;
+    uploadedBytes += file.bytes.byteLength;
     logger.info('persistManualSkillToBlob:upload', {
       skillName,
       path: file.path,
-      bytes: fileBytes,
+      bytes: file.bytes.byteLength,
     });
     filePaths.push(file.path);
   }

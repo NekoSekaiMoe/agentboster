@@ -501,6 +501,20 @@ export async function setSessionGoal(
   sessionId: string,
   goalText: string,
 ): Promise<typeof schema.sessions.$inferSelect | null> {
+  // DAL-edge length guard. The schema (lib/core/db/schema/chat.ts)
+  // documents this as enforced here, so callers cannot bypass it by
+  // writing straight to the table; lib/chat/commands/goal.ts still does
+  // its own UX-level check for a nicer error message. The canonical
+  // constant lives in lib/workflow/agent/session-goal.ts
+  // (MAX_GOAL_OBJECTIVE_CHARS) — we inline the same value rather than
+  // import it to keep the DAL free of the workflow-bundle dependency
+  // graph (chat.ts is statically imported from lib/workflow/**).
+  const MAX_GOAL_OBJECTIVE_CHARS = 4000;
+  if (goalText.length > MAX_GOAL_OBJECTIVE_CHARS) {
+    throw new Error(
+      `goal text too long (${goalText.length} > ${MAX_GOAL_OBJECTIVE_CHARS} chars)`,
+    );
+  }
   const [session] = await db
     .update(schema.sessions)
     .set({
@@ -568,8 +582,11 @@ export async function incrementGoalCounters(
     // serializes to "col = col + n" at the driver layer), but the TS
     // $inferInsert type narrows to a literal number, so the SQL wrapper
     // needs a cast. This is the documented Drizzle escape hatch.
+    // COALESCE guards against a pre-migration row whose counter column is
+    // NULL; the columns are NOT NULL DEFAULT 0 today, so this is purely
+    // defensive and never changes the happy-path value.
     patch.hiddenContinuationCount =
-      sql`${schema.sessions.hiddenContinuationCount} + ${delta.hiddenDelta}` as unknown as number;
+      sql`COALESCE(${schema.sessions.hiddenContinuationCount}, 0) + ${delta.hiddenDelta}` as unknown as number;
   }
   if (delta.resetNonProgress) {
     // Absolute write, not col + n: the eval reason changed, so the
@@ -578,7 +595,7 @@ export async function incrementGoalCounters(
     patch.consecutiveNonProgress = 0;
   } else if (delta.nonProgressDelta) {
     patch.consecutiveNonProgress =
-      sql`${schema.sessions.consecutiveNonProgress} + ${delta.nonProgressDelta}` as unknown as number;
+      sql`COALESCE(${schema.sessions.consecutiveNonProgress}, 0) + ${delta.nonProgressDelta}` as unknown as number;
   }
   if (delta.lastEvalReason !== undefined) {
     patch.lastEvalReason = delta.lastEvalReason;
@@ -588,6 +605,67 @@ export async function incrementGoalCounters(
     .update(schema.sessions)
     .set(patch)
     .where(eq(schema.sessions.id, sessionId))
+    .returning();
+
+  return session ?? null;
+}
+
+/**
+ * Atomically reserve a goal continuation slot AND apply the counter
+ * delta, but ONLY if the goal is still set (goal_text IS NOT NULL).
+ *
+ * This is the optimistic-lock gate for post-run-cleanup's hidden
+ * continuation: between the evaluator reading the goal and deciding to
+ * resume, the user may `/goal clear` (or set a different goal). A plain
+ * `incrementGoalCounters` + `resumeWithMessage` sequence has a window
+ * where the resume lands for a goal that was just cleared. This function
+ * folds the "goal still active?" check into the same UPDATE as the
+ * counter write so they commit atomically — if the row's goal_text is
+ * NULL (or the row is gone), the UPDATE matches 0 rows and we return
+ * null, and the caller MUST skip the resume.
+ *
+ * The counter write reuses incrementGoalCounters' COALESCE-guarded
+ * expressions. Returns the post-reservation session row (or null if the
+ * optimistic-lock condition failed).
+ *
+ * NOTE: this guards against `/goal clear` (and goal replacement, which
+ * also rewrites goal_text). It does NOT guard against a brand-new user
+ * message landing during evaluation — that requires a latest-message-id
+ * check across the messages table and is tracked separately.
+ */
+export async function reserveGoalContinuation(
+  sessionId: string,
+  delta: GoalCounterDelta,
+): Promise<typeof schema.sessions.$inferSelect | null> {
+  const patch: Partial<typeof schema.sessions.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+  if (delta.hiddenDelta) {
+    patch.hiddenContinuationCount =
+      sql`COALESCE(${schema.sessions.hiddenContinuationCount}, 0) + ${delta.hiddenDelta}` as unknown as number;
+  }
+  if (delta.resetNonProgress) {
+    patch.consecutiveNonProgress = 0;
+  } else if (delta.nonProgressDelta) {
+    patch.consecutiveNonProgress =
+      sql`COALESCE(${schema.sessions.consecutiveNonProgress}, 0) + ${delta.nonProgressDelta}` as unknown as number;
+  }
+  if (delta.lastEvalReason !== undefined) {
+    patch.lastEvalReason = delta.lastEvalReason;
+  }
+
+  const [session] = await db
+    .update(schema.sessions)
+    .set(patch)
+    .where(
+      and(
+        eq(schema.sessions.id, sessionId),
+        // Optimistic-lock predicate: the goal must still be set. A
+        // concurrent /goal clear nulls goal_text and this UPDATE matches
+        // 0 rows → caller abandons the resume.
+        sql`${schema.sessions.goalText} IS NOT NULL`,
+      ),
+    )
     .returning();
 
   return session ?? null;

@@ -1499,6 +1499,7 @@ async function executeCommand(input: {
       const text = await executeGoalCommand({
         sessionId: session.id,
         args: input.args,
+        locale,
         // Reject set/clear while a run is live so the continuation
         // counters never mutate under a running evaluation.
         activeRunId: runtime?.workflow.runId ?? null,

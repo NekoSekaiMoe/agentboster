@@ -208,12 +208,10 @@ func newSubagentParentSnapshot(parent *AgentContext, req SubagentRequest, stateP
 
 // log returns the sub-agent goroutine's logger: run_id-tagged when the
 // parent's run id propagated, slog.Default() otherwise (legacy callers
-// see no log-shape change).
+// see no log-shape change). Delegates to the shared runLogger helper so
+// the rule stays in one place alongside AgentContext.Log.
 func (s subagentParentSnapshot) log() *slog.Logger {
-	if s.runID == "" {
-		return slog.Default()
-	}
-	return slog.With("run_id", s.runID)
+	return runLogger(s.runID)
 }
 
 // runSubagentLoop is the goroutine body. It acquires a concurrency slot,

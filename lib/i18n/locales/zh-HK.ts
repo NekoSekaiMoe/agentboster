@@ -36,4 +36,19 @@ export const zhHK = {
   'skill.approval.deleteSkill':
     '模型請求刪除技能 {name}（含其全部檔案與元數據），是否允許？',
   'skill.approval.timeout': '審批請求超過 {hours} 小時未回應，已按拒絕處理。',
+  'cmd.goal.noGoal': '尚未設定目標。請使用 `/goal set <text>` 來定義一個。',
+  'cmd.goal.statusGoal': '**目標：** {goal}',
+  'cmd.goal.statusHidden': '隱藏的續跑次數：{count} / {max}',
+  'cmd.goal.statusNonProgress': '連續相同的無進展次數：{count} / {max}',
+  'cmd.goal.statusEval': '最近一次評估：{reason}',
+  'cmd.goal.usageSet': '用法：/goal set <text>',
+  'cmd.goal.setRunActive':
+    '執行進行中無法設定目標。請等待其完成或先執行 `/stop`。',
+  'cmd.goal.tooLong': '目標過長（{length} > {max} 字元）。',
+  'cmd.goal.setOk':
+    '目標已設定。代理將自主朝著該目標推進，直至達成或斷路器觸發。\n\n{text}',
+  'cmd.goal.clearRunActive':
+    '執行進行中無法清除目標。請等待其完成或先執行 `/stop`。',
+  'cmd.goal.clearOk': '目標已清除。代理將不再自主推進。',
+  'cmd.goal.usage': '用法：/goal set <text> | /goal clear | /goal',
 } satisfies Record<keyof typeof enUS, string>;

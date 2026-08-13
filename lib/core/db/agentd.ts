@@ -1609,6 +1609,19 @@ export async function setWorkspaceVisibilityCascade(
         .update(workspaces)
         .set({ sharedMemoryEnabled: false, updatedAt: now })
         .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')));
+      // Bump quarantine_epoch — mirrors `bumpQuarantineEpoch` in the neon
+      // batch branch above. The tx branch previously omitted this, so the
+      // epoch stayed pinned at its initial value across repeated
+      // private/public cycles even though quarantine_meta.isolatedEpoch
+      // (built from the pre-read value) claimed each isolation had a
+      // distinct epoch. Keeping the two branches in lockstep.
+      await tx
+        .update(workspaces)
+        .set({
+          quarantineEpoch: sql`${workspaces.quarantineEpoch} + 1`,
+          updatedAt: now,
+        })
+        .where(and(eq(workspaces.id, id), eq(workspaces.status, 'active')));
       // Stamp session_memories for the shared sessions of this workspace.
       // MUST run BEFORE the sessions reset below: the WHERE subquery
       // matches sessions by visibility='shared', and inside this

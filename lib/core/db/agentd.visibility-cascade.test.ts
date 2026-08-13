@@ -390,8 +390,10 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
       expect(updateOrder.indexOf('session_memories.stamp')).toBeLessThan(
         updateOrder.indexOf('sessions.reset'),
       );
-      // Sanity: both workspaces UPDATEs and the shared-pool quarantine ran.
-      expect(updateOrder.filter((t) => t === 'workspaces')).toHaveLength(2);
+      // Sanity: the three workspaces UPDATEs (visibility, sharedMemoryEnabled,
+      // quarantine_epoch bump) and the shared-pool quarantine ran. The epoch
+      // bump mirrors the neon branch's bumpQuarantineEpoch batch element.
+      expect(updateOrder.filter((t) => t === 'workspaces')).toHaveLength(3);
       expect(updateOrder).toContain('long_term.quarantine');
       expect(bumpSpy).toHaveBeenCalledTimes(1);
       expect(bumpSpy).toHaveBeenCalledWith(WS_ID);
@@ -446,29 +448,20 @@ describe('setWorkspaceVisibilityCascade — atomic branches', () => {
 
     it('rolls back when a statement INSIDE the tx body throws (mid-cascade)', async () => {
       await installSelectRow(ACTIVE_WORKSPACE);
-      // tx.update succeeds for the first writes, but the shared-pool
-      // quarantine UPDATE (chained .where().returning()) throws —
-      // simulating a failure on the quarantine step. The error
-      // propagates = rollback.
-      let updateCall = 0;
+      // tx.update succeeds for the first fire-and-forget writes; the
+      // shared-pool quarantine UPDATE (the only one that chains
+      // .returning()) rejects, simulating a failure on the quarantine
+      // step. The error propagates = rollback.
       const txStub = {
         update: () => ({
           set: () => ({
-            where: () => {
-              updateCall += 1;
-              // The cascade issues several tx.update calls; the
-              // quarantine one (with .returning()) is the one we want
-              // to fail. The first few are fire-and-forget (resolve),
-              // the returning() chain rejects.
-              return {
-                returning: () =>
-                  updateCall >= 1
-                    ? Promise.reject(
-                        new Error('quarantine update failed mid-tx'),
-                      )
-                    : Promise.resolve(),
-              };
-            },
+            where: () => ({
+              // `where` returns a non-thenable object. The fire-and-forget
+              // UPDATEs `await` this and get the object back (no throw); the
+              // quarantine UPDATE chains .returning() off it, which rejects.
+              returning: () =>
+                Promise.reject(new Error('quarantine update failed mid-tx')),
+            }),
           }),
         }),
         select: () => ({

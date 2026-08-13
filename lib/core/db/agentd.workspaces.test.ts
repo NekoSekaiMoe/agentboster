@@ -888,6 +888,28 @@ describe('workspace DAL (PGlite)', () => {
       expect(r2.restoredMemoryCount).toBe(0); // already consumed
       expect(await countSharedMemories(ws.id)).toBe(1);
     });
+
+    it('supports omitting runId: first restore consumes, second in the same epoch is still a no-op', async () => {
+      // Coverage for the optional-runId path: the consumed-by guard is
+      // keyed on quarantine_meta.restoredByRunId being present (truthy),
+      // NOT on any specific value. A first restore with runId OMITTED
+      // must still stamp a non-null restoredByRunId (NULL coalesced by
+      // the build_object) so a subsequent restore in the same isolation
+      // epoch skips it. Verifies the guard holds without a caller run id.
+      const ws = await createWorkspace({ ownerId: 'u1', name: 'w' });
+      await setWorkspaceVisibility(ws.id, 'public');
+      await setWorkspaceSharedMemory(ws.id, true);
+      await seedSharedMemory(ws.id);
+      await setWorkspaceVisibilityCascade(ws.id, 'private');
+
+      // First restore with NO runId — still consumes the row.
+      const r1 = await restoreQuarantinedMemories(ws.id);
+      expect(r1.restoredMemoryCount).toBe(1);
+      // Second restore (also no runId) in the same epoch must not re-restore.
+      const r2 = await restoreQuarantinedMemories(ws.id);
+      expect(r2.restoredMemoryCount).toBe(0);
+      expect(await countSharedMemories(ws.id)).toBe(1);
+    });
   });
 
   describe('publicizeWorkspaceCascade', () => {

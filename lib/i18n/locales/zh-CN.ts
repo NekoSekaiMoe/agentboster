@@ -514,6 +514,21 @@ export const zhCN = {
     '欢迎使用 AgentBoster！\n\n你的 IM 账号尚未配对。\n请输入 Web UI 上的 6 位配对码绑定账号，或发送 /pair <code>。',
   'cmd.version.text':
     'AgentBoster v{version}\n运行环境：Node.js {nodeVersion}\n平台：{platform}',
+  'cmd.goal.noGoal': '尚未设定目标。请使用 `/goal set <text>` 来定义一个。',
+  'cmd.goal.statusGoal': '**目标：** {goal}',
+  'cmd.goal.statusHidden': '隐藏的续跑次数：{count} / {max}',
+  'cmd.goal.statusNonProgress': '连续相同的无进展次数：{count} / {max}',
+  'cmd.goal.statusEval': '最近一次评估：{reason}',
+  'cmd.goal.usageSet': '用法：/goal set <text>',
+  'cmd.goal.setRunActive':
+    '运行进行中无法设定目标。请等待其完成或先执行 `/stop`。',
+  'cmd.goal.tooLong': '目标过长（{length} > {max} 字符）。',
+  'cmd.goal.setOk':
+    '目标已设定。代理将自主朝着该目标推进，直到达成或断路器触发。\n\n{text}',
+  'cmd.goal.clearRunActive':
+    '运行进行中无法清除目标。请等待其完成或先执行 `/stop`。',
+  'cmd.goal.clearOk': '目标已清除。代理将不再自主推进。',
+  'cmd.goal.usage': '用法：/goal set <text> | /goal clear | /goal',
   'cmd.id.title': '当前 ID 信息：',
   'cmd.id.sessionId': 'Session ID: {value}',
   'cmd.id.noSession': 'Session ID: (无)',

@@ -190,9 +190,11 @@ async function evaluateGoalStep(input: {
     // part of the workflow bundle and must not carry top-level node:* /
     // third-party deps (see AGENTS.md "Top-level node:* imports break
     // the workflow bundle").
-    const { getSessionGoalState, incrementGoalCounters } = await import(
-      '@/lib/core/db/chat'
-    );
+    const {
+      getSessionGoalState,
+      incrementGoalCounters,
+      reserveGoalContinuation,
+    } = await import('@/lib/core/db/chat');
     const { getVisibleSessionMessages } = await import('@/lib/core/db/chat');
     const {
       evaluateSessionGoal,
@@ -250,10 +252,36 @@ async function evaluateGoalStep(input: {
     });
 
     if (decision.continue && input.runId) {
+      // Reserve the continuation slot atomically: bump the counters AND
+      // verify the goal is still set in a single UPDATE. If the user
+      // `/goal clear`-ed (or replaced the goal) while the evaluator was
+      // running, the optimistic-lock predicate (goal_text IS NOT NULL)
+      // fails, reserveGoalContinuation returns null, and we abandon the
+      // resume — the old code had a window where it resumed a just-cleared
+      // goal. The counter reservation commits here; if the resume below
+      // then fails, we compensate by reversing the deltas.
+      const reservation = await reserveGoalContinuation(input.sessionId, {
+        hiddenDelta: 1,
+        ...(identicalToLast
+          ? { nonProgressDelta: 1 }
+          : { resetNonProgress: true }),
+        lastEvalReason: evaluation.reasoning,
+      });
+      if (!reservation) {
+        // Goal was cleared/replaced mid-evaluation. Don't resume, don't
+        // touch counters (the clearing write owns them now).
+        logger.info('session-goal:reservation_aborted_goal_changed', {
+          sessionId: input.sessionId,
+          runId: input.runId,
+        });
+        return;
+      }
+
       // Issue the hidden continuation. The parent chat run must still be
       // resumable for this to land; if it has already been GC'd or
-      // closed, resumeWithMessage throws and we fall through to the
-      // counter update + warn below.
+      // closed, resumeWithMessage throws and we reverse the counter
+      // reservation below so we don't burn a slot on a resume that
+      // didn't land.
       try {
         const { resumeWithMessage } = await import(
           '@/lib/workflow/agent/dispatch'
@@ -272,25 +300,21 @@ async function evaluateGoalStep(input: {
               ? resumeError.message
               : String(resumeError),
         });
-        // Don't burn a hidden-continuation slot on a resume that didn't
-        // land — still record the eval reason so the UI shows the last
-        // classification.
+        // Compensating rollback: undo the counter reservation so a failed
+        // resume doesn't consume a hidden-continuation slot. We still keep
+        // the lastEvalReason write (it's a useful UI signal and doesn't
+        // affect the breaker math). Reverse the same deltas we reserved;
+        // for resetNonProgress we can't un-reset, but a failed resume is
+        // terminal for this cycle anyway and the next successful resume
+        // will re-derive the streak.
         await incrementGoalCounters(input.sessionId, {
+          hiddenDelta: -1,
+          ...(identicalToLast ? { nonProgressDelta: -1 } : {}),
           lastEvalReason: evaluation.reasoning,
         });
         return;
       }
 
-      // Resume succeeded: count this as one hidden continuation. Only
-      // bump the non-progress streak when the reasoning is identical to
-      // the previous evaluation; a fresh reason RESETS the streak to 0.
-      await incrementGoalCounters(input.sessionId, {
-        hiddenDelta: 1,
-        ...(identicalToLast
-          ? { nonProgressDelta: 1 }
-          : { resetNonProgress: true }),
-        lastEvalReason: evaluation.reasoning,
-      });
       logger.info('session-goal:continued', {
         sessionId: input.sessionId,
         runId: input.runId,
