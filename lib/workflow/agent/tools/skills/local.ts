@@ -345,6 +345,102 @@ async function materializeAndRunOnVercelSandbox(input: {
 }
 
 /**
+ * L2 human-approval gate for skill write operations.
+ *
+ * Skill files are privileged admin state: they persist across
+ * conversations and are loaded as instructions/runtimes by future
+ * runs, so a prompt-injection-induced "looks-legitimate" write is
+ * far more dangerous than a transient sandbox exec. enforceScan
+ * (the second gate) only blocks known-malicious regexes and cannot
+ * catch an injected benign-looking payload. This helper is the FIRST
+ * gate: every `updateSkillFile` / `upsertSkill` call must wait for
+ * an explicit human approve/reject before the DAL write.
+ *
+ * Mirrors `waitForSandboxApproval` in
+ * `lib/workflow/agent/tools/execute/sanbox.ts` but differs in two
+ * deliberate ways, called out so a future reader doesn't "normalize"
+ * them back together:
+ *
+ *   1. Unconditional. sanbox.ts gates on
+ *      `appConfig.autonomy?.level === 'supervised'`; skill writes
+ *      require approval in every autonomy mode because the whole
+ *      point is that the model must never edit its own skill files
+ *      (and thereby future prompt/instruction surfaces) without an
+ *      admin's consent — even in autonomous mode.
+ *   2. The reminder text is skill-specific Chinese describing exactly
+ *      what is being mutated (`name`/`path`), instead of sanbox.ts's
+ *      generic "A tool action is waiting for your approval". The
+ *      approver needs to see the target skill + path inline in IM
+ *      channels where the tool-input card may not be rendered.
+ *
+ * All host-only modules are dynamic-imported inside the body (rather
+ * than the top-level imports sanbox.ts uses) to keep this file's
+ * static import graph unchanged — this module sits inside
+ * `lib/workflow/**` and the workflow DevKit bundler statically walks
+ * every top-level import; the hook/writers/bot-steps modules are
+ * themselves safe, but dynamic import here matches the rule in
+ * AGENTS.md and keeps the blast radius of this change to one file.
+ */
+async function waitForSkillApproval(input: {
+  source: ChatSource | undefined;
+  toolCallId: string;
+  toolName: string;
+  toolInput: unknown;
+  /** Human-readable description of the mutation, shown in the chat
+   *  channel alongside the /approve /reject commands. */
+  promptText: string;
+}): Promise<{ approved: boolean; comment?: string }> {
+  'use step';
+
+  const { approvalHookBuilder } = await import('@/lib/workflow/agent/hooks');
+  const { sendSourceReplyStep } = await import(
+    '@/lib/workflow/agent/sender/bot-steps'
+  );
+  const { writeToolApprovalRequest, writeToolOutputDenied } = await import(
+    '@/lib/workflow/agent/sender/writers'
+  );
+
+  // Emit the tool-input card + approval-request chunk so the Web UI
+  // renders the pending approval inline (same writers sanbox.ts uses).
+  await writeToolApprovalRequest({
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+    toolInput: input.toolInput,
+  });
+
+  // Push a descriptive reminder to whatever channel the conversation
+  // originated from. Falling back to `{ type: 'web' }` matches
+  // sanbox.ts; scheduled sources are routed through their own reply
+  // path by sendRoutedSourceReply.
+  const reminder = [
+    input.promptText,
+    '',
+    `Approve: /approve ${input.toolCallId}`,
+    `Reject: /reject ${input.toolCallId}`,
+  ].join('\n');
+  await sendSourceReplyStep({
+    source: input.source ?? { type: 'web' },
+    text: reminder,
+  });
+
+  using hook = approvalHookBuilder.create({ token: input.toolCallId });
+
+  let approval: { approved: boolean; comment?: string } = {
+    approved: false,
+  };
+  for await (const payload of hook) {
+    approval = payload;
+    break;
+  }
+
+  if (!approval.approved) {
+    await writeToolOutputDenied({ toolCallId: input.toolCallId });
+  }
+
+  return approval;
+}
+
+/**
  * Non-step helper for the CLI host backend. Deliberately NOT marked
  * `'use step'` because waitForLocalToolResult relies on defineHook()
  * which can only run outside a step boundary (see comment on
@@ -591,8 +687,34 @@ export default defineBuildInTool({
             .array(z.object({ path: z.string(), content: z.string() }))
             .optional(),
         }),
-        execute: async ({ name, description, files }) => {
+        execute: async (input, { toolCallId }) => {
           'use step';
+
+          const { name, description, files } = input;
+
+          // L2 approval gate (FIRST gate). The approval prompt lists
+          // the skill name + file paths so the human can sanity-check
+          // the target before the DAL write runs. Deny returns a
+          // structured error (no throw), matching sanbox.ts.
+          const fileCount = files?.length ?? 0;
+          const fileList =
+            files && files.length > 0
+              ? files.map((f) => f.path).join(', ')
+              : '(no files)';
+          const approval = await waitForSkillApproval({
+            source,
+            toolCallId,
+            toolName: 'upsertSkill',
+            toolInput: input,
+            promptText: `模型请求创建/更新技能文件 ${name}（含 ${fileCount} 个文件：${fileList}），是否允许？`,
+          });
+          if (!approval.approved) {
+            return {
+              error:
+                approval.comment ||
+                `Skill write denied by admin: upsertSkill(${name})`,
+            };
+          }
 
           const detail = await persistManualSkill({
             name,
@@ -611,8 +733,30 @@ export default defineBuildInTool({
           path: z.string().min(1),
           content: z.string(),
         }),
-        execute: async ({ name, path: filePath, content }) => {
+        execute: async (input, { toolCallId }) => {
           'use step';
+
+          const { name, path: filePath, content } = input;
+
+          // L2 approval gate (FIRST gate). The approval prompt names
+          // the skill + file path and previews how large the change
+          // is, so the human can spot a prompt-injected payload that
+          // rewrites e.g. SKILL.md / frontmatter. Deny returns a
+          // structured error (no throw), matching sanbox.ts.
+          const approval = await waitForSkillApproval({
+            source,
+            toolCallId,
+            toolName: 'updateSkillFile',
+            toolInput: input,
+            promptText: `模型请求修改技能文件 ${name}/${filePath}（新内容 ${content.length} 字符），是否允许？`,
+          });
+          if (!approval.approved) {
+            return {
+              error:
+                approval.comment ||
+                `Skill write denied by admin: updateSkillFile(${name}/${filePath})`,
+            };
+          }
 
           const updated = await updateSkillFile(name, filePath, content);
           return { detail: updated, path: filePath };
