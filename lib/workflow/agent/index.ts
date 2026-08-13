@@ -73,7 +73,7 @@ type QueuedInstruction =
     }
   | {
       type: 'control';
-      command: 'compact' | 'cancel' | 'checkpoint';
+      command: 'compact' | 'cancel' | 'checkpoint' | 'goal-continue';
       reason?: string;
       /**
        * Label for a checkpoint command. Optional — when omitted the
@@ -872,6 +872,10 @@ export async function chatWorkflow(
             // wasn't acquired — so memory extraction for a workspace-scoped
             // session never falls back to the global layer.
             workspaceId: workspaceLockHandle.resolvedWorkspaceId,
+            // Forward the chat run id so evaluateGoalStep can resume it
+            // when the goal evaluator decides to issue a hidden
+            // continuation.
+            runId,
           },
         ]);
         logger.info('post-run-cleanup:spawned', {

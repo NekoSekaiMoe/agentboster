@@ -13,6 +13,7 @@ import {
   Settings,
   Sparkles,
   Square,
+  Target,
   ThumbsDown,
   ThumbsUp,
   Trash2,
@@ -68,6 +69,7 @@ const COMMAND_ICONS: Record<Command, typeof Wand2> = {
   remote: Search,
   attach: Play,
   detach: X,
+  goal: Target,
 };
 
 /**

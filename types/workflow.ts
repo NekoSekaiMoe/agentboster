@@ -299,6 +299,7 @@ export const COMMANDS = [
   'attach',
   'detach',
   'remote',
+  'goal',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -551,7 +552,7 @@ export const chatHookPayloadSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('control'),
-    command: z.enum(['compact', 'cancel', 'checkpoint']),
+    command: z.enum(['compact', 'cancel', 'checkpoint', 'goal-continue']),
     reason: z.string().optional(),
     /** Optional label for a checkpoint command; ignored otherwise. */
     label: z.string().optional(),

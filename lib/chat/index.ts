@@ -54,6 +54,7 @@ import {
 import { normalizeUserMessageParts } from './attachment-processing';
 import { executeCancelCommand } from './commands/cancel';
 import { executeConfigCommand } from './commands/config';
+import { executeGoalCommand } from './commands/goal';
 import { executeIdCommand } from './commands/id';
 import { executeLangCommand } from './commands/lang';
 import { executeMemoryCommand } from './commands/memory';
@@ -1485,6 +1486,27 @@ async function executeCommand(input: {
         sessionId: currentSessionId,
         text,
         runId: session?.workflowRunId ?? null,
+      };
+    }
+    case 'goal': {
+      if (!session) {
+        return {
+          sessionId: 'none',
+          text: t(locale, 'cmd.status.noSession'),
+          runId: null,
+        };
+      }
+      const text = await executeGoalCommand({
+        sessionId: session.id,
+        args: input.args,
+        // Reject set/clear while a run is live so the continuation
+        // counters never mutate under a running evaluation.
+        activeRunId: runtime?.workflow.runId ?? null,
+      });
+      return {
+        sessionId: session.id,
+        text,
+        runId: session.workflowRunId ?? null,
       };
     }
     case 'pair': {
