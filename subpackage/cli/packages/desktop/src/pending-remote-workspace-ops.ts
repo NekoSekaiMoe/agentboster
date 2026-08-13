@@ -92,8 +92,7 @@ export function mergeQueueAfterFlush(
   // superseded by a newer payload for the same identity) must not be
   // duplicated — the persisted copy is at least as fresh as `remaining`.
   const retry = remaining.filter(
-    (op) =>
-      !current.some((entry) => pendingRemoteWorkspaceOpsEqual(entry, op)),
+    (op) => !current.some((entry) => pendingRemoteWorkspaceOpsEqual(entry, op)),
   );
   return [...current, ...retry];
 }
