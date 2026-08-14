@@ -92,11 +92,17 @@ async function getAccessToken(cfg: QQClientConfig): Promise<string> {
     { endpoint: 'POST https://bots.qq.com/app/getAppAccessToken' },
   );
 
-  if (!data.access_token || typeof data.expires_in !== 'number' || data.expires_in <= 0) {
+  if (
+    !data.access_token ||
+    typeof data.expires_in !== 'number' ||
+    data.expires_in <= 0
+  ) {
     logger.error('qq oauth returned invalid token response', {
       appId: cfg.appId,
     });
-    throw new Error('qq oauth error: invalid access_token or expires_in in response');
+    throw new Error(
+      'qq oauth error: invalid access_token or expires_in in response',
+    );
   }
 
   tokenCache.set(cfg.appId, {

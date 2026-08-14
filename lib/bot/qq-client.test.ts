@@ -78,9 +78,9 @@ describe('qq-client', () => {
         }),
       } as Response);
 
-      await expect(
-        postChannelMessage(cfg, 'chan_1', 'hello'),
-      ).rejects.toThrow('qq oauth error: invalid access_token or expires_in in response');
+      await expect(postChannelMessage(cfg, 'chan_1', 'hello')).rejects.toThrow(
+        'qq oauth error: invalid access_token or expires_in in response',
+      );
     });
 
     it('throws error when expires_in is missing or invalid in 200 response', async () => {
@@ -91,9 +91,9 @@ describe('qq-client', () => {
         }),
       } as Response);
 
-      await expect(
-        postChannelMessage(cfg, 'chan_1', 'hello'),
-      ).rejects.toThrow('qq oauth error: invalid access_token or expires_in in response');
+      await expect(postChannelMessage(cfg, 'chan_1', 'hello')).rejects.toThrow(
+        'qq oauth error: invalid access_token or expires_in in response',
+      );
     });
 
     it('throws error on non-ok HTTP status during token exchange', async () => {
@@ -103,9 +103,9 @@ describe('qq-client', () => {
         text: async () => 'Unauthorized',
       } as Response);
 
-      await expect(
-        postChannelMessage(cfg, 'chan_1', 'hello'),
-      ).rejects.toThrow('qq oauth error: 401 Unauthorized');
+      await expect(postChannelMessage(cfg, 'chan_1', 'hello')).rejects.toThrow(
+        'qq oauth error: 401 Unauthorized',
+      );
     });
   });
 
@@ -141,7 +141,7 @@ describe('qq-client', () => {
       );
     });
 
-    it('falls back safely if message response json is malformed or empty', async () => {
+    it('falls back safely if message response returns empty object', async () => {
       vi.mocked(fetch)
         .mockResolvedValueOnce({
           ok: true,
@@ -154,6 +154,26 @@ describe('qq-client', () => {
           ok: true,
           json: async () => ({}),
         } as Response);
+
+      const result = await postChannelMessage(cfg, 'chan_42', 'test content');
+      expect(result).toEqual({});
+    });
+
+    it('falls back safely if message response json parsing fails', async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            access_token: 'valid_token',
+            expires_in: 7200,
+          }),
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => {
+            throw new Error('invalid json');
+          },
+        } as unknown as Response);
 
       const result = await postChannelMessage(cfg, 'chan_42', 'test content');
       expect(result).toEqual({});

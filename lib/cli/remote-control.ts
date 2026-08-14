@@ -283,9 +283,3 @@ export async function handleCliSessionSwitch(
 
   return binding;
 }
-
-// ---------------------------------------------------------------------------
-// Session lock (per-workflow-run)
-// ---------------------------------------------------------------------------
-
-const LOCK_TTL_SECONDS = 600;
