@@ -100,7 +100,8 @@ async function seedSession(
       lastEvalReason: overrides.lastEvalReason ?? null,
     })
     .returning({ id: schema.sessions.id });
-  return row!.id;
+  if (!row) throw new Error('Failed to seed session');
+  return row.id;
 }
 
 async function readSession(id: string) {
@@ -114,7 +115,8 @@ async function readSession(id: string) {
     .from(schema.sessions)
     .where(eq(schema.sessions.id, id))
     .limit(1);
-  return row!;
+  if (!row) throw new Error(`Session ${id} not found`);
+  return row;
 }
 
 describe('setSessionGoal (DAL length guard — C7)', () => {

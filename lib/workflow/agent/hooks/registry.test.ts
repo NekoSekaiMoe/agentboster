@@ -11,7 +11,11 @@
 
 import { describe, expect, it } from 'vitest';
 import { HookRegistry } from './registry';
-import type { HookContext } from './types';
+import type {
+  AfterToolCallPayload,
+  BeforeToolCallPayload,
+  HookContext,
+} from './types';
 
 function ctx(): HookContext {
   return {
@@ -112,7 +116,7 @@ describe('HookRegistry — executeBefore chaining', () => {
       id: 'add1',
       node: 'beforeToolCall',
       priority: 10,
-      handler: async (payload: any) => {
+      handler: async (payload: BeforeToolCallPayload) => {
         return { ...payload, input: { n: (payload.input.n as number) + 1 } };
       },
     } as never);
@@ -120,7 +124,7 @@ describe('HookRegistry — executeBefore chaining', () => {
       id: 'double',
       node: 'beforeToolCall',
       priority: 5,
-      handler: async (payload: any) => {
+      handler: async (payload: BeforeToolCallPayload) => {
         return { ...payload, input: { n: (payload.input.n as number) * 2 } };
       },
     } as never);
@@ -146,7 +150,7 @@ describe('HookRegistry — executeBefore chaining', () => {
       id: 'mutate',
       node: 'beforeToolCall',
       priority: 5,
-      handler: async (payload: any) => {
+      handler: async (payload: BeforeToolCallPayload) => {
         return { ...payload, input: { n: 99 } };
       },
     } as never);
@@ -207,14 +211,28 @@ describe('HookRegistry — error behavior', () => {
       },
     } as never);
     // Does not throw.
-    await registry.executeAfter('afterToolCall', makePayload(), ctx());
+    await registry.executeAfter('afterToolCall', makeAfterPayload(), ctx());
     expect(otherRan).toBe(true);
   });
 });
 
-// Helper: a minimal BeforeToolCallPayload-shaped object. The registry
-// is generically typed; using a plain record keeps the test independent
+// Helper: minimal BeforeToolCallPayload and AfterToolCallPayload shaped objects.
+// The registry is generically typed; using plain records keeps the tests independent
 // of the exact payload schema.
-function makePayload(input: Record<string, unknown> = {}): any {
+function makePayload(
+  input: Record<string, unknown> = {},
+): BeforeToolCallPayload {
   return { toolName: 't', toolId: 't1', input };
+}
+
+function makeAfterPayload(
+  input: Record<string, unknown> = {},
+): AfterToolCallPayload {
+  return {
+    toolName: 't',
+    toolId: 't1',
+    input,
+    result: 'ok',
+    elapsedMs: 1,
+  };
 }

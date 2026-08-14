@@ -68,6 +68,7 @@ describe('assessLocalToolRisk — local_exec destructive commands (block)', () =
     'systemctl reboot',
     'halt',
     // IFS-obfuscated rm (the second regex)
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional shell IFS test case
     'rm ${IFS}-rf /',
     'rm $IFS-rf x',
   ];

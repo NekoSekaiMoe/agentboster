@@ -1,7 +1,3 @@
-import { eq } from 'drizzle-orm';
-import { db } from '@/lib/core/db';
-import { notificationPreferences } from '@/lib/core/db/schema';
-
 /**
  * Notification event-type → preference group mapping.
  *

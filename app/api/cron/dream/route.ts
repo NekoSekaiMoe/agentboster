@@ -10,9 +10,6 @@
  *    scheduler cannot survive between invocations. An external HTTP cron
  *    works identically on Vercel AND self-hosted (same dual-deployment
  *    principle as the rest of the project).
- *  - The cron library already in deps (`cron` v4) is used by the caller
- *    / test harness for computing next-run times, not for in-process
- *    scheduling — so no new runtime dependency.
  *
  * Suggested schedule (Vercel Cron syntax in vercel.json):
  *   { "path": "/api/cron/dream", "schedule": "0 3 * * *" }

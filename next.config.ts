@@ -22,12 +22,10 @@ const nextConfig: NextConfig = {
       '@radix-ui/react-select',
       '@radix-ui/react-separator',
       '@radix-ui/react-slot',
-      '@radix-ui/react-tabs',
       '@radix-ui/react-tooltip',
       // Add more heavy packages
       'react-markdown',
       'framer-motion',
-      'date-fns',
       '@tanstack/react-query',
     ],
   },

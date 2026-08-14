@@ -56,7 +56,10 @@ async function backfillVaultEntriesToUserScoped(): Promise<BackfillCount> {
     WHERE COALESCE(created_by_user_id, updated_by_user_id) IS NOT NULL
   `);
 
-  return { migrated: 0, skipped_no_trusted_owner: result[0]?.skipped_no_trusted_owner ?? 0 };
+  return {
+    migrated: 0,
+    skipped_no_trusted_owner: result[0]?.skipped_no_trusted_owner ?? 0,
+  };
 }
 
 async function main() {
