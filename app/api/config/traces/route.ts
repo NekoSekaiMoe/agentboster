@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 
-import { requireAuthAccess } from '@/lib/auth/access';
+import { AuthError, requireAuthAccess } from '@/lib/auth/access';
 import { listTraces } from '@/lib/core/trace/query';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -28,6 +28,12 @@ export async function GET(request: Request) {
 
     return Response.json({ success: true, data: traces });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return Response.json(
+        { success: false, error: error.message },
+        { status: error.status },
+      );
+    }
     logger.error('trace list failed', {
       error: error instanceof Error ? error.message : String(error),
     });

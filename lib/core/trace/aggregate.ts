@@ -219,6 +219,25 @@ function hintStatus(
   return null;
 }
 
+function eventStatus(events: TraceEvent[]): TraceStatus {
+  const modelEvents = events.filter((event) => event.kind === 'model');
+  if (modelEvents.some((event) => event.status === 'failed')) return 'failed';
+  if (modelEvents.some((event) => event.status === 'completed')) {
+    return 'completed';
+  }
+  if (modelEvents.length > 0) return 'unknown';
+
+  const fallbackEvents = events.filter(
+    (event) =>
+      event.kind !== 'model' &&
+      (event.status === 'completed' || event.status === 'failed'),
+  );
+  if (fallbackEvents.length === 0) return 'unknown';
+  return fallbackEvents.every((event) => event.status === 'failed')
+    ? 'failed'
+    : 'completed';
+}
+
 function buildModelEvents(
   traceId: string,
   rows: TraceModelRow[],
@@ -369,15 +388,7 @@ export function buildTraceSummary(
   ]);
   const latestCompletedAt = maxIso(events.map((event) => event.completedAt));
   const statusFromHint = hintStatus(rows.traceId, hint);
-  const hasFailedModel = events.some(
-    (event) => event.kind === 'model' && event.status === 'failed',
-  );
-  const hasCompletedModel = events.some(
-    (event) => event.kind === 'model' && event.status === 'completed',
-  );
-  const status =
-    statusFromHint ??
-    (hasFailedModel ? 'failed' : hasCompletedModel ? 'completed' : 'unknown');
+  const status = statusFromHint ?? eventStatus(events);
   const completedAt =
     status === 'running' ? null : (asIso(hint?.stoppedAt) ?? latestCompletedAt);
   const failedEvents = events.filter((event) => event.status === 'failed');

@@ -6,6 +6,7 @@ import {
   ilike,
   inArray,
   isNotNull,
+  isNull,
   max,
   or,
   sql,
@@ -111,9 +112,7 @@ async function listCandidateTraceIds(
   const candidateLimit = compactLimit(options.limit) * 4;
   const search = options.search?.trim();
   const traceIdExpression = sql<string>`${messages.payload}->'metadata'->>'runId'`;
-  const modelConditions: SQL[] = [
-    sql`${messages.payload}->'metadata'->>'runId' IS NOT NULL`,
-  ];
+  const modelConditions: SQL[] = [sql`${traceIdExpression} IS NOT NULL`];
   const modelScope = scopeCondition(sessions.userId, scope);
   if (modelScope) modelConditions.push(modelScope);
 
@@ -279,7 +278,16 @@ async function loadToolRows(
       sessionMetadata: sessions.metadata,
     })
     .from(agentToolActivityLogs)
-    .leftJoin(sessions, eq(agentToolActivityLogs.sessionId, sessions.id))
+    .leftJoin(
+      sessions,
+      and(
+        eq(agentToolActivityLogs.sessionId, sessions.id),
+        or(
+          eq(agentToolActivityLogs.userId, sessions.userId),
+          and(isNull(agentToolActivityLogs.userId), isNull(sessions.userId)),
+        ),
+      ),
+    )
     .where(and(...conditions))
     .orderBy(asc(agentToolActivityLogs.startedAt));
 

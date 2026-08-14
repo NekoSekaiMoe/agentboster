@@ -69,6 +69,7 @@ import { getTrace, listTraces } from './query';
 
 const sessionId = '00000000-0000-0000-0000-000000000001';
 const taskId = '00000000-0000-0000-0000-000000000002';
+const otherSessionId = '00000000-0000-0000-0000-000000000003';
 const traceId = 'run-query-1';
 
 describe('trace query integration', () => {
@@ -166,5 +167,44 @@ describe('trace query integration', () => {
 
   it("does not expose another user's trace", async () => {
     await expect(getTrace(traceId, { userId: 'user-2' })).resolves.toBeNull();
+  });
+
+  it("does not join another user's session metadata onto a scoped tool log", async () => {
+    const mismatchedTraceId = 'run-mismatched-session';
+    await harness.db.execute(sql`
+      INSERT INTO "sessions" (
+        "id", "title", "user_id", "status", "workflow_run_id", "metadata"
+      ) VALUES (
+        ${otherSessionId}::uuid,
+        'Other user private session',
+        'user-2',
+        'completed',
+        ${mismatchedTraceId},
+        ${JSON.stringify({
+          workflow: {
+            phase: 'completed',
+            lastRunId: mismatchedTraceId,
+          },
+        })}::jsonb
+      )
+    `);
+    await harness.db.execute(sql`
+      INSERT INTO "agent_tool_activity_logs" (
+        "trace_id", "session_id", "user_id", "agent_id", "tool_name",
+        "action", "success", "started_at", "completed_at"
+      ) VALUES (
+        ${mismatchedTraceId}, ${otherSessionId}::uuid, 'user-1', 'main',
+        'read', 'read', true, '2026-08-14T01:00:00.000Z',
+        '2026-08-14T01:00:01.000Z'
+      )
+    `);
+
+    const detail = await getTrace(mismatchedTraceId, { userId: 'user-1' });
+
+    expect(detail?.summary).toMatchObject({
+      sessionTitle: null,
+      status: 'completed',
+      userId: 'user-1',
+    });
   });
 });

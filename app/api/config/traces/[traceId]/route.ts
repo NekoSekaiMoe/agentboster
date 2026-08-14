@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { getRun } from 'workflow/api';
 
-import { requireAuthAccess } from '@/lib/auth/access';
+import { AuthError, requireAuthAccess } from '@/lib/auth/access';
 import { getTrace } from '@/lib/core/trace/query';
 import { createLogger } from '@/lib/utils/logger';
 
@@ -55,6 +55,12 @@ export async function GET(
 
     return Response.json({ success: true, data: detail });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return Response.json(
+        { success: false, error: error.message },
+        { status: error.status },
+      );
+    }
     logger.error('trace detail failed', {
       error: error instanceof Error ? error.message : String(error),
     });

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
+import { useI18n } from '@/components/i18n-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +34,9 @@ import type {
   TraceStatus,
   TraceSummary,
 } from '@/lib/core/trace/aggregate';
+import type { TranslationKey } from '@/lib/i18n';
+
+type Translate = ReturnType<typeof useI18n>['t'];
 
 const statusClass: Record<TraceStatus, string> = {
   running:
@@ -58,6 +62,21 @@ const eventStatusClass: Record<string, string> = {
   unknown: 'border-muted bg-muted text-muted-foreground',
 };
 
+const statusLabelKeys: Partial<Record<string, TranslationKey>> = {
+  running: 'config.trace.status.running',
+  completed: 'config.trace.status.completed',
+  failed: 'config.trace.status.failed',
+  stopped: 'config.trace.status.stopped',
+  unknown: 'config.trace.status.unknown',
+  pending: 'config.trace.status.pending',
+};
+
+const eventKindLabelKeys: Record<TraceEvent['kind'], TranslationKey> = {
+  model: 'config.trace.kind.model',
+  tool: 'config.trace.kind.tool',
+  review: 'config.trace.kind.review',
+};
+
 function formatDuration(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return '-';
   if (value < 1000) return `${Math.round(value)} ms`;
@@ -79,23 +98,52 @@ function shortId(value: string | null): string {
     : value;
 }
 
-function safeJson(value: unknown): string {
+function safeJson(value: unknown, truncatedLabel: string): string {
   try {
     const output = JSON.stringify(value, null, 2) ?? String(value);
     return output.length > 12_000
-      ? `${output.slice(0, 12_000)}\n... output truncated`
+      ? `${output.slice(0, 12_000)}\n... ${truncatedLabel}`
       : output;
   } catch {
     return String(value);
   }
 }
 
-function StatusBadge({ status }: { status: string }) {
+function statusLabel(t: Translate, status: string): string {
+  const key = statusLabelKeys[status];
+  return key ? t(key) : status;
+}
+
+function eventTitle(t: Translate, event: TraceEvent): string {
+  if (event.kind === 'model') {
+    return event.step === null
+      ? t('config.trace.modelStep')
+      : t('config.trace.modelStepNumber', { step: event.step + 1 });
+  }
+  if (event.kind === 'review') {
+    const level =
+      typeof event.details.level === 'string' ? event.details.level : '';
+    return t('config.trace.securityReview', { level });
+  }
+  return event.title;
+}
+
+function eventSubtitle(t: Translate, event: TraceEvent): string {
+  if (event.kind === 'model') {
+    const finishReason = event.details.finishReason;
+    return typeof finishReason === 'string' && finishReason.length > 0
+      ? t('config.trace.finishReason', { reason: finishReason })
+      : t('config.trace.inProgress');
+  }
+  return event.subtitle || t(eventKindLabelKeys[event.kind]);
+}
+
+function StatusBadge({ status, t }: { status: string; t: Translate }) {
   return (
     <Badge
       className={statusClass[status as TraceStatus] ?? statusClass.unknown}
     >
-      {status}
+      {statusLabel(t, status)}
     </Badge>
   );
 }
@@ -153,10 +201,12 @@ function TraceListRow({
   trace,
   selected,
   onSelect,
+  t,
 }: {
   trace: TraceSummary;
   selected: boolean;
   onSelect: () => void;
+  t: Translate;
 }) {
   return (
     <button
@@ -169,7 +219,7 @@ function TraceListRow({
           <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="truncate">{shortId(trace.traceId)}</span>
         </span>
-        <StatusBadge status={trace.status} />
+        <StatusBadge status={trace.status} t={t} />
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 text-muted-foreground text-xs">
         <span className="truncate">
@@ -178,15 +228,19 @@ function TraceListRow({
         <span className="shrink-0">{formatDuration(trace.durationMs)}</span>
       </div>
       <div className="mt-1 flex gap-3 text-[11px] text-muted-foreground">
-        <span>{trace.modelStepCount} model</span>
-        <span>{trace.toolCount} tools</span>
-        <span>{trace.failureCount} failures</span>
+        <span>
+          {t('config.trace.modelCount', { count: trace.modelStepCount })}
+        </span>
+        <span>{t('config.trace.toolCount', { count: trace.toolCount })}</span>
+        <span>
+          {t('config.trace.failureCount', { count: trace.failureCount })}
+        </span>
       </div>
     </button>
   );
 }
 
-function TraceEventRow({ event }: { event: TraceEvent }) {
+function TraceEventRow({ event, t }: { event: TraceEvent; t: Translate }) {
   return (
     <details className="group relative border-b px-4 py-3 last:border-b-0">
       <summary className="grid cursor-pointer list-none grid-cols-[22px_minmax(0,1fr)_auto] items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
@@ -196,17 +250,19 @@ function TraceEventRow({ event }: { event: TraceEvent }) {
         </span>
         <span className="min-w-0">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-medium text-sm">{event.title}</span>
+            <span className="truncate font-medium text-sm">
+              {eventTitle(t, event)}
+            </span>
             <Badge
               className={
                 eventStatusClass[event.status] ?? eventStatusClass.unknown
               }
             >
-              {event.status}
+              {statusLabel(t, event.status)}
             </Badge>
           </span>
           <span className="mt-1 block truncate text-muted-foreground text-xs">
-            {event.subtitle || event.kind}
+            {eventSubtitle(t, event)}
           </span>
         </span>
         <span className="flex items-center gap-2 whitespace-nowrap text-muted-foreground text-xs">
@@ -216,12 +272,18 @@ function TraceEventRow({ event }: { event: TraceEvent }) {
       </summary>
       <div className="mt-3 ml-[34px] grid gap-3 text-xs">
         <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
-          <span>Started {formatTime(event.startedAt)}</span>
-          <span>Completed {formatTime(event.completedAt)}</span>
+          <span>
+            {t('config.trace.startedAt', { time: formatTime(event.startedAt) })}
+          </span>
+          <span>
+            {t('config.trace.completedAt', {
+              time: formatTime(event.completedAt),
+            })}
+          </span>
         </div>
         {Object.keys(event.details).length > 0 && (
           <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/60 p-3 font-mono text-[11px] leading-relaxed">
-            {safeJson(event.details)}
+            {safeJson(event.details, t('config.trace.outputTruncated'))}
           </pre>
         )}
       </div>
@@ -233,16 +295,18 @@ function TraceDetailPanel({
   detail,
   isLoading,
   error,
+  t,
 }: {
   detail: TraceDetail | null | undefined;
   isLoading: boolean;
   error: Error | null;
+  t: Translate;
 }) {
   if (isLoading) {
     return (
       <div className="flex min-h-[520px] items-center justify-center text-muted-foreground text-sm">
         <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-        Loading trace
+        {t('config.trace.loadingDetail')}
       </div>
     );
   }
@@ -250,14 +314,14 @@ function TraceDetailPanel({
     return (
       <div className="flex min-h-[520px] flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground text-sm">
         <CircleX className="h-5 w-5 text-destructive" />
-        Failed to load trace
+        {t('config.trace.loadDetailFailed')}
       </div>
     );
   }
   if (!detail) {
     return (
       <div className="flex min-h-[520px] items-center justify-center p-6 text-muted-foreground text-sm">
-        Select a trace to inspect its timeline
+        {t('config.trace.selectPrompt')}
       </div>
     );
   }
@@ -279,9 +343,9 @@ function TraceDetailPanel({
             </p>
           </div>
           <div className="flex items-center gap-1">
-            <StatusBadge status={summary.status} />
+            <StatusBadge status={summary.status} t={t} />
             <IconButton
-              label="Copy trace ID"
+              label={t('config.trace.copyId')}
               onClick={() => copyText(summary.traceId)}
             >
               <Copy />
@@ -289,11 +353,26 @@ function TraceDetailPanel({
           </div>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-y-3 sm:grid-cols-5">
-          <Metric label="Started" value={formatTime(summary.startedAt)} />
-          <Metric label="Duration" value={formatDuration(summary.durationMs)} />
-          <Metric label="Model" value={summary.modelStepCount} />
-          <Metric label="Tools" value={summary.toolCount} />
-          <Metric label="Reviews" value={summary.reviewCount} />
+          <Metric
+            label={t('config.trace.metric.started')}
+            value={formatTime(summary.startedAt)}
+          />
+          <Metric
+            label={t('config.trace.metric.duration')}
+            value={formatDuration(summary.durationMs)}
+          />
+          <Metric
+            label={t('config.trace.metric.model')}
+            value={summary.modelStepCount}
+          />
+          <Metric
+            label={t('config.trace.metric.tools')}
+            value={summary.toolCount}
+          />
+          <Metric
+            label={t('config.trace.metric.reviews')}
+            value={summary.reviewCount}
+          />
         </dl>
         {summary.lastError && (
           <div className="mt-4 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-800 text-xs dark:border-red-900 dark:bg-red-950 dark:text-red-200">
@@ -303,16 +382,16 @@ function TraceDetailPanel({
         )}
       </div>
       <div className="border-b bg-muted/20 px-4 py-2 text-muted-foreground text-xs">
-        {events.length} events, ordered by start time
+        {t('config.trace.eventsOrdered', { count: events.length })}
       </div>
       {events.length === 0 ? (
         <div className="flex min-h-[360px] items-center justify-center p-6 text-muted-foreground text-sm">
-          No persisted events for this trace
+          {t('config.trace.noEvents')}
         </div>
       ) : (
         <div>
           {events.map((event) => (
-            <TraceEventRow event={event} key={event.id} />
+            <TraceEventRow event={event} key={event.id} t={t} />
           ))}
         </div>
       )}
@@ -321,6 +400,7 @@ function TraceDetailPanel({
 }
 
 export function TraceExplorer() {
+  const { t } = useI18n();
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
@@ -354,10 +434,10 @@ export function TraceExplorer() {
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <div className="flex items-center gap-2">
             <GitBranch className="h-4 w-4 text-muted-foreground" />
-            <h3 className="font-medium text-sm">Trace Explorer</h3>
+            <h3 className="font-medium text-sm">{t('config.trace.title')}</h3>
           </div>
           <IconButton
-            label="Refresh traces"
+            label={t('config.trace.refresh')}
             onClick={() => void tracesQuery.refetch()}
           >
             <RefreshCw
@@ -368,16 +448,16 @@ export function TraceExplorer() {
         <div className="border-b px-4 py-3">
           <div className="flex max-w-xl gap-2">
             <Input
-              aria-label="Search traces"
+              aria-label={t('config.trace.searchLabel')}
               onChange={(event) => setSearchDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') applySearch();
               }}
-              placeholder="Search trace ID or session"
+              placeholder={t('config.trace.searchPlaceholder')}
               value={searchDraft}
             />
             <Button
-              aria-label="Search traces"
+              aria-label={t('config.trace.searchLabel')}
               onClick={applySearch}
               size="icon"
               variant="outline"
@@ -391,17 +471,17 @@ export function TraceExplorer() {
             {tracesQuery.isLoading ? (
               <div className="flex min-h-[280px] items-center justify-center text-muted-foreground text-sm">
                 <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                Loading traces
+                {t('config.trace.loadingList')}
               </div>
             ) : tracesQuery.isError ? (
               <div className="flex min-h-[280px] flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground text-sm">
                 <CircleX className="h-5 w-5 text-destructive" />
-                Failed to load traces
+                {t('config.trace.loadListFailed')}
               </div>
             ) : traces.length === 0 ? (
               <div className="flex min-h-[280px] flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground text-sm">
                 <Clock3 className="h-5 w-5" />
-                No traces found
+                {t('config.trace.noTraces')}
               </div>
             ) : (
               traces.map((trace) => (
@@ -410,6 +490,7 @@ export function TraceExplorer() {
                   onSelect={() => setSelectedTraceId(trace.traceId)}
                   selected={trace.traceId === activeTraceId}
                   trace={trace}
+                  t={t}
                 />
               ))
             )}
@@ -420,6 +501,7 @@ export function TraceExplorer() {
               detailQuery.error instanceof Error ? detailQuery.error : null
             }
             isLoading={detailQuery.isLoading}
+            t={t}
           />
         </div>
       </section>

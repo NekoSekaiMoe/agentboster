@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -111,12 +112,17 @@ export const messages = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => ({
-    sessionUiMessageIdIdx: uniqueIndex('messages_session_ui_message_id_idx').on(
-      table.sessionId,
-      table.uiMessageId,
-    ),
-  }),
+  (table) => {
+    const traceRunId = sql`(${table.payload}->'metadata'->>'runId')`;
+    return {
+      sessionUiMessageIdIdx: uniqueIndex(
+        'messages_session_ui_message_id_idx',
+      ).on(table.sessionId, table.uiMessageId),
+      traceRunCreatedIdx: index('messages_trace_run_created_idx')
+        .on(traceRunId, table.createdAt)
+        .where(sql`${traceRunId} IS NOT NULL`),
+    };
+  },
 );
 
 export type ChatSession = typeof sessions.$inferSelect;

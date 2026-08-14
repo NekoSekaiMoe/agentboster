@@ -64,7 +64,7 @@ function toolRow(overrides: Partial<TraceToolRow> = {}): TraceToolRow {
   };
 }
 
-function reviewRow(): TraceReviewRow {
+function reviewRow(overrides: Partial<TraceReviewRow> = {}): TraceReviewRow {
   return {
     id: 'review-1',
     traceId,
@@ -79,6 +79,7 @@ function reviewRow(): TraceReviewRow {
     command: 'yarn test',
     reason: 'no rule matched',
     createdAt: '2026-08-14T00:00:00.250Z',
+    ...overrides,
   };
 }
 
@@ -152,5 +153,67 @@ describe('trace aggregation', () => {
     expect(summary.status).toBe('running');
     expect(summary.completedAt).toBeNull();
     expect(summary.durationMs).toBeGreaterThan(0);
+  });
+
+  it.each([
+    {
+      label: 'a successful tool event',
+      rows: { tools: [toolRow({ success: true, error: null })] },
+      expected: 'completed',
+    },
+    {
+      label: 'a failed tool event',
+      rows: { tools: [toolRow()] },
+      expected: 'failed',
+    },
+    {
+      label: 'an allowed review event',
+      rows: { reviews: [reviewRow()] },
+      expected: 'completed',
+    },
+    {
+      label: 'a blocked review event',
+      rows: { reviews: [reviewRow({ decision: 'blocked' })] },
+      expected: 'failed',
+    },
+    {
+      label: 'only a pending review event',
+      rows: { reviews: [reviewRow({ decision: 'pending_l2' })] },
+      expected: 'unknown',
+    },
+  ])(
+    'derives $expected from $label without model events',
+    ({ rows, expected }) => {
+      expect(buildTraceSummary({ traceId, ...rows }).status).toBe(expected);
+    },
+  );
+
+  it('keeps an explicit status hint ahead of fallback event outcomes', () => {
+    const summary = buildTraceSummary({
+      traceId,
+      tools: [toolRow()],
+      hint: { currentRunId: traceId, phase: 'running' },
+    });
+
+    expect(summary.status).toBe('running');
+  });
+
+  it('does not let a completed tool hide a model without a terminal status', () => {
+    const summary = buildTraceSummary({
+      traceId,
+      models: [
+        modelRow(
+          'model-running-without-hint',
+          0,
+          '2026-08-14T00:00:00.000Z',
+          '2026-08-14T00:00:00.200Z',
+          '',
+          10,
+        ),
+      ],
+      tools: [toolRow({ success: true, error: null })],
+    });
+
+    expect(summary.status).toBe('unknown');
   });
 });
