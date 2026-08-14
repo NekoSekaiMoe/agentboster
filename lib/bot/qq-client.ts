@@ -20,6 +20,9 @@
  * see the TODO on `postChannelMessage` below.
  */
 
+import { z } from 'zod';
+
+import { parseWithFallback } from '@/lib/core/api/schema';
 import { createLogger } from '@/lib/utils/logger';
 
 const logger = createLogger('bot.qq-client');
@@ -32,12 +35,21 @@ export interface QQClientConfig {
   appSecret: string;
 }
 
-interface AccessTokenResponse {
-  access_token: string;
-  expires_in: number;
+const accessTokenResponseSchema = z.object({
+  access_token: z.string().min(1).optional(),
+  expires_in: z.coerce.number().positive().optional(),
+});
+
+export interface AccessTokenResponse {
+  access_token?: string;
+  expires_in?: number;
 }
 
-interface QQMessageResponse {
+const qqMessageResponseSchema = z.object({
+  id: z.string().optional(),
+});
+
+export interface QQMessageResponse {
   id?: string;
 }
 
@@ -48,6 +60,11 @@ interface QQMessageResponse {
  * times with different config objects but identical credentials).
  */
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+/** For testing only: clear the in-memory token cache. */
+export function _clearTokenCacheForTest(): void {
+  tokenCache.clear();
+}
 
 async function getAccessToken(cfg: QQClientConfig): Promise<string> {
   const cached = tokenCache.get(cfg.appId);
@@ -67,7 +84,21 @@ async function getAccessToken(cfg: QQClientConfig): Promise<string> {
     const text = await resp.text();
     throw new Error(`qq oauth error: ${resp.status} ${text}`);
   }
-  const data = (await resp.json()) as AccessTokenResponse;
+  const raw = await resp.json().catch(() => ({}));
+  const data = parseWithFallback<AccessTokenResponse>(
+    raw,
+    accessTokenResponseSchema,
+    {},
+    { endpoint: 'POST https://bots.qq.com/app/getAppAccessToken' },
+  );
+
+  if (!data.access_token || typeof data.expires_in !== 'number' || data.expires_in <= 0) {
+    logger.error('qq oauth returned invalid token response', {
+      appId: cfg.appId,
+    });
+    throw new Error('qq oauth error: invalid access_token or expires_in in response');
+  }
+
   tokenCache.set(cfg.appId, {
     token: data.access_token,
     expiresAt: Date.now() + (data.expires_in - 60) * 1000,
@@ -107,7 +138,13 @@ export async function postChannelMessage(
     });
     throw new Error(`qq postMessage: ${resp.status} ${text}`);
   }
-  return (await resp.json()) as QQMessageResponse;
+  const raw = await resp.json().catch(() => ({}));
+  return parseWithFallback<QQMessageResponse>(
+    raw,
+    qqMessageResponseSchema,
+    {},
+    { endpoint: `POST ${QQ_API}/channels/${threadId}/messages` },
+  );
 }
 
 /**
@@ -132,7 +169,13 @@ export async function patchChannelMessage(
     const text = await resp.text();
     throw new Error(`qq editMessage: ${resp.status} ${text}`);
   }
-  const data = (await resp.json()) as QQMessageResponse;
+  const raw = await resp.json().catch(() => ({}));
+  const data = parseWithFallback<QQMessageResponse>(
+    raw,
+    qqMessageResponseSchema,
+    {},
+    { endpoint: `PATCH ${QQ_API}/channels/${threadId}/messages/${messageId}` },
+  );
   // QQ's PATCH response body omits the id on some sub-resources; the
   // caller already knows the messageId it patched, so fall back to it.
   return { id: messageId ?? data.id };
